@@ -58,7 +58,7 @@
 
 use serde_json::Value;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// **The error code every alignment-declaration refusal carries (audit finding 12).**
 ///

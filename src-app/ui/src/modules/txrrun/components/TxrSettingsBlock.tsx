@@ -31,8 +31,8 @@
  */
 import { useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Button, Segmented, Select, Switch } from '@ziee/kit'
-import type { SegmentedOption } from '@ziee/kit'
+import { Button, Segmented, Select, Switch } from '@txresbench/kit'
+import type { SegmentedOption } from '@txresbench/kit'
 import {
   COVARIATES_DISABLED_REASON,
   SETTING_HELP,

@@ -15,7 +15,7 @@
 // per row (`JobListItem.can_stop` / `JobDetail.can_stop`) and the surfaces render it; see
 // `modules/jobs/stopAuthority`. Do not reintroduce a role-derived stop gate here.
 
-import { PRIMARY_CONTAINER, type ContainerId } from '@ziee/dock'
+import { PRIMARY_CONTAINER, type ContainerId } from '@txresbench/dock'
 
 /**
  * A launcher row OPENS THE ANALYSIS' FORM — it does not enqueue anything (`analysis.launch`,

@@ -26,7 +26,7 @@ export interface ComponentRegistration {
 
 // Slot types - extensible slot system with declaration merging
 // Modules can declare slots using declaration merging:
-// declare module '@ziee/framework/module-system/types' {
+// declare module '@txresbench/framework/module-system/types' {
 //   interface Slots {
 //     userGroup: GroupWidget[]
 //   }

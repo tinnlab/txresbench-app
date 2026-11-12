@@ -4,7 +4,7 @@
 # ── WHAT QUESTION THIS ANSWERS ─────────────────────────────────────────────────────
 # "Which library versions did THIS run actually use?"
 #
-# For the python lane that is answered inline: `_lib/cyto_deps.py` is staged into the
+# For the python lane that is answered inline: `_lib/txr_deps.py` is staged into the
 # sandbox and writes the resolved versions into the run's `run-environment` record, which
 # the server lifts into `provenance_run_repro.lockfile_json`. Helper staging is
 # Python-gated (`sandbox/processors/mod.rs`), so an R run cannot answer it that way yet —
@@ -50,7 +50,7 @@ set -eu
 # /usr/local/lib/R. Adding a recipe adds a line here; there is nothing to derive it from
 # on the OUTSIDE of an image, which is exactly why it is written down rather than
 # guessed.
-LOCK_PATHS='/opt/venv/.cyto-env-lock.txt /usr/local/lib/R/.cyto-env-lock.txt'
+LOCK_PATHS='/opt/venv/.txresbench-env-lock.txt /usr/local/lib/R/.txresbench-env-lock.txt'
 
 SUBJECT=${1:-}
 MODE=${2:-}

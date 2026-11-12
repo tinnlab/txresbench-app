@@ -10,7 +10,7 @@ import { createRestrictedUser, loginAs, loginAsOwner, logout } from './helpers'
 
 const RESTRICTED = {
   username: 'e2e-ws-restricted',
-  email: 'ws-restricted@cyto.test',
+  email: 'ws-restricted@txresbench.test',
   password: 'restrictedP0!x',
 }
 
@@ -54,7 +54,7 @@ test('a user without workstore permission sees no Workstore settings and is deni
 // `tests/e2e/provenance/_helpers.ts`) for a non-empty custom permission set.
 const READ_ONLY = {
   username: 'e2e-ws-readonly',
-  email: 'ws-readonly@cyto.test',
+  email: 'ws-readonly@txresbench.test',
   password: 'readonlyP0!x',
 }
 

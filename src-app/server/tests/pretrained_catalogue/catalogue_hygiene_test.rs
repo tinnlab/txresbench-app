@@ -427,7 +427,7 @@ fn model_hosts_are_listed_on_the_network_allowlist() {
     for url in &url_literals {
         // A code literal like `strip_prefix("https://")` is not a URL; only
         // a parseable http(s) host is a network literal (INV-5's surface).
-        let Some(host) = cytoanalyst::modules::pretrained_catalogue::catalogue::host_of(url)
+        let Some(host) = txresbench::modules::pretrained_catalogue::catalogue::host_of(url)
         else {
             continue;
         };
@@ -459,10 +459,10 @@ fn generated_file_urls_are_inside_the_host_policy() {
         let text = std::fs::read_to_string(file).expect("read generated file");
         for url in regex_urls(&text) {
             found += 1;
-            let host = cytoanalyst::modules::pretrained_catalogue::catalogue::host_of(url)
+            let host = txresbench::modules::pretrained_catalogue::catalogue::host_of(url)
                 .unwrap_or_else(|| panic!("{file:?}: {url} has no host"));
             let policy = POLICY_HOSTS.contains(&host)
-                || cytoanalyst::modules::pretrained_catalogue::catalogue::host_allowed(url);
+                || txresbench::modules::pretrained_catalogue::catalogue::host_allowed(url);
             assert!(
                 policy,
                 "{file:?}: {url} host {host} outside the policy (PROV-landing-site-2)"

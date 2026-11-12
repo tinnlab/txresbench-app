@@ -1,4 +1,4 @@
-# `@ziee/viz` extensibility study — an ECharts-style minimal-core + registered-extension architecture for a deck.gl renderer
+# `@txresbench/viz` extensibility study — an ECharts-style minimal-core + registered-extension architecture for a deck.gl renderer
 
 **Status:** research + design recommendation. No code changes. Written against the current
 `viz-core/` tree and a shallow clone of Apache ECharts (`apache/echarts`, `src/`).
@@ -292,11 +292,11 @@ Two more couplings worth naming, because the refactor must preserve them:
 
 ---
 
-## Part 3 — The core / extension boundary for `@ziee/viz`
+## Part 3 — The core / extension boundary for `@txresbench/viz`
 
 ### 3.1 What the MINIMAL CORE owns
 
-The bare `@ziee/viz/core` renders **nothing** on its own (ECharts §1.6). It owns:
+The bare `@txresbench/viz/core` renders **nothing** on its own (ECharts §1.6). It owns:
 
 1. **The option parser + update pipeline.** Parse a declarative `VizOption` into models; run the
    staged pipeline (below); reconcile Views. State (dataZoom windows, selection) lives in models
@@ -430,9 +430,9 @@ export function install(r: InstallRegisters) {
 And a **minimal app** does:
 
 ```ts
-import { use } from '@ziee/viz/core'
-import { GridWorkspace, DataZoom, Selection } from '@ziee/viz/components'
-import { ScatterChart, ViolinChart, HeatmapChart } from '@ziee/viz/charts'
+import { use } from '@txresbench/viz/core'
+import { GridWorkspace, DataZoom, Selection } from '@txresbench/viz/components'
+import { ScatterChart, ViolinChart, HeatmapChart } from '@txresbench/viz/charts'
 use([ GridWorkspace, DataZoom, Selection, ScatterChart, ViolinChart, HeatmapChart ])
 ```
 
@@ -626,8 +626,8 @@ green; the `option` API arrives last, on top of a registry that already works.
    backing state the actions mutate. Ship `dispatch(action)` for selection/dataZoom/grid. *Risk:
    medium* — but purely additive; the imperative API keeps working underneath.
 
-7. **Package split.** `@ziee/viz/core` (pipeline + registry + hosts + Coordination/DataZoom/Selection
-   components), `@ziee/viz/charts/*` (one self-registering module each), `@ziee/viz/react` (the
+7. **Package split.** `@txresbench/viz/core` (pipeline + registry + hosts + Coordination/DataZoom/Selection
+   components), `@txresbench/viz/charts/*` (one self-registering module each), `@txresbench/viz/react` (the
    `<Viz option>` binding). Tree-shakeable: an app `use`s only the charts it needs.
 
 **Sequencing rule:** steps 1–2 are pure re-seaming (do first, high value/low risk); 3–5 decouple

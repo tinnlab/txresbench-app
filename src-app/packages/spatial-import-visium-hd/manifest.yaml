@@ -142,7 +142,7 @@
 #
 id: spatial-import-visium-hd
 name: Import Visium HD (Space Ranger binned_outputs)
-publisher: cyto
+publisher: txr
 # Bump on ANY file change in this package — the seed reconciliation keys on it, and
 # `scripts/check-processor-seed-versions.sh` enforces it base-relative over the whole package
 # DIRECTORY. A package born on its introducing branch is EXEMPT from that gate (it has no
@@ -925,7 +925,7 @@ publisher: cyto
 #          absurd/negative dims raise ValueError/OverflowError — the malformed-file
 #          class (the sibling fix round's a788ec896 rationale, ported).
 #          WHAT DOES NOT MOVE. The read is already BEFORE the first writer
-#          (`cyto_csc.write_csc_zarr`), so no bundle that imports today changes rc or
+#          (`txr_csc.write_csc_zarr`), so no bundle that imports today changes rc or
 #          bytes: the committed fixture still imports at rc 0 (the new TEST-111
 #          positive control runs the UNMUTATED fixture through the same entrypoint).
 #          This is the diagnostics half INV-1 cares about — INV-2 held by ordering,
@@ -999,7 +999,7 @@ publisher: cyto
 #          `VisiumImportError` subclasses `RuntimeError`, so a widened tuple written
 #          first would re-wrap this package's own named refusals).
 #          WHAT DOES NOT MOVE. Every touched read sits BEFORE the first writer
-#          (`cyto_csc.write_csc_zarr`), so no bundle that imports today changes rc or
+#          (`txr_csc.write_csc_zarr`), so no bundle that imports today changes rc or
 #          bytes: the committed fixture still imports at rc 0 (TEST-111, the
 #          unchanged positive control). INV-2 holds by ordering; the new tests still
 #          assert ZERO paths on disk, because that assertion is what keeps the

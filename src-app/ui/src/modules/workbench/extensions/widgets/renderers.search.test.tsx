@@ -27,7 +27,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { z } from 'zod'
-import { SELECT_SEARCH_THRESHOLD } from '@ziee/kit'
+import { SELECT_SEARCH_THRESHOLD } from '@txresbench/kit'
 import { defineAction } from '@/core/actions/defineAction'
 import type { WidgetSpec } from '@/modules/workbench/core/manifest/viewSpec'
 import type { Scope } from '@/modules/workbench/core/runtime/expr'

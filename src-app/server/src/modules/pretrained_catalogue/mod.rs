@@ -53,7 +53,7 @@
 //! — INV-5). Both are plain GETs: no query strings, no cookies, no
 //! identifiers (INV-4). The refresh is a detached task with short timeouts —
 //! offline is a valid state and never blocks or fails boot (INV-8). The
-//! `CYTO_TXR_CATALOGUE_URL` env seam (documented in `catalogue.rs`) lets a
+//! `TXR_CATALOGUE_URL` env seam (documented in `catalogue.rs`) lets a
 //! blocked-network boot or the integration harness point the fetch at a
 //! closed loopback port instead.
 //!
@@ -85,7 +85,7 @@ use std::sync::{Arc, OnceLock};
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 /// The process runtime (live/disk/embedded source), installed by the module's
 /// `init`. The in-process seams (`catalogue::catalogue`, `catalogue::model`,
@@ -303,8 +303,8 @@ mod tests {
             .max_connections(1)
             .connect_lazy("sqlite::memory:")
             .expect("lazy pool parses");
-        let cfg: ziee_core::ServerConfig = serde_norway::from_str(
-            "database:\n  path: \"\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-for-the-pretrained-catalogue-module-32\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
+        let cfg: txresbench_core::ServerConfig = serde_norway::from_str(
+            "database:\n  path: \"\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-for-the-pretrained-catalogue-module-32\"\n  issuer: \"txresbench\"\n  audience: \"txresbench-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
         )
         .expect("test config parses");
         let ctx = ModuleContext::new(

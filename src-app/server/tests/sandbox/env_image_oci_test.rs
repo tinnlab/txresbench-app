@@ -19,17 +19,17 @@
 use std::path::Path;
 use std::process::Command;
 
-use cytoanalyst::modules::rootfs;
-use cytoanalyst::modules::rootfs::version::ROOTFS_SCHEMA_VERSION;
-use cytoanalyst::modules::sandbox::env_image::{
+use txresbench::modules::rootfs;
+use txresbench::modules::rootfs::version::ROOTFS_SCHEMA_VERSION;
+use txresbench::modules::sandbox::env_image::{
     EnvImageProvider, EnvImageSeams, OciEnvImageProvider,
 };
 
 // Every gate below routes through the SHARED skip recorder, never a bare `eprintln!` +
 // `return`. A bare print reports a PASS to libtest, writes no ledger line, and — the part
-// that matters — ignores `CYTO_TEST_NO_SKIP=1`, so a tier that has quietly stopped running
+// that matters — ignores `TXR_TEST_NO_SKIP=1`, so a tier that has quietly stopped running
 // is indistinguishable from one that ran. `record_skip` writes
-// `target/test-skip-ledger.tsv` and PANICS under `CYTO_TEST_NO_SKIP=1`.
+// `target/test-skip-ledger.tsv` and PANICS under `TXR_TEST_NO_SKIP=1`.
 use crate::dataset::hardening_common::record_skip;
 
 fn have(tool: &str) -> bool {
@@ -114,8 +114,8 @@ fn oci_provider_lazy_fetch_verify_mount() {
     // 2. Local registry + publish the artifact at the exact moving tag the provider resolves.
     sh("docker rm -f env-oci-reg >/dev/null 2>&1; docker run -d --name env-oci-reg -p 5001:5000 registry:2 >/dev/null && sleep 2");
     sh(&format!(
-        "cd {w} && oras push --plain-http --artifact-type application/vnd.cyto.env-rootfs.squashfs.v1 \
-         {pull_ref} rootfs.squashfs:application/vnd.cyto.env-rootfs.squashfs.v1 >/dev/null",
+        "cd {w} && oras push --plain-http --artifact-type application/vnd.txresbench.env-rootfs.squashfs.v1 \
+         {pull_ref} rootfs.squashfs:application/vnd.txresbench.env-rootfs.squashfs.v1 >/dev/null",
         w = work.display()
     ));
     let digest = sh_out(&format!("oras resolve --plain-http {pull_ref}"));
@@ -137,7 +137,7 @@ fn oci_provider_lazy_fetch_verify_mount() {
         identity_regexp: None,
         // Drive the REAL resolve → cosign-verify → pull → mount path even when the
         // process was started with the air-gap seam set. That seam
-        // (`CYTO_ENV_ROOTFS_SQUASHFS`) is the DOCUMENTED way to run the rootfs-gated
+        // (`TXR_ENV_ROOTFS_SQUASHFS`) is the DOCUMENTED way to run the rootfs-gated
         // tests, `provide()` consults it FIRST, and one test binary is one process — so
         // without this the documented procedure turned this test into a no-op that
         // returned the operator's squashfs, failed at the cache assertion below, and
@@ -161,7 +161,7 @@ fn oci_provider_lazy_fetch_verify_mount() {
     );
     let hex = digest.trim_start_matches("sha256:");
     assert!(
-        cytoanalyst::modules::rootfs::cache::has_digest(hex),
+        txresbench::modules::rootfs::cache::has_digest(hex),
         "the pulled squashfs is staged in the content-digest cache"
     );
 
@@ -178,8 +178,8 @@ fn oci_provider_lazy_fetch_verify_mount() {
     //    (cosign verify fails → no mount) instead of Ok.
     sh(&format!(
         "cd {w} && head -c 65536 /dev/urandom > unsigned.squashfs && \
-         oras push --plain-http --artifact-type application/vnd.cyto.env-rootfs.squashfs.v1 \
-         {pull_ref} unsigned.squashfs:application/vnd.cyto.env-rootfs.squashfs.v1 >/dev/null",
+         oras push --plain-http --artifact-type application/vnd.txresbench.env-rootfs.squashfs.v1 \
+         {pull_ref} unsigned.squashfs:application/vnd.txresbench.env-rootfs.squashfs.v1 >/dev/null",
         w = work.display()
     ));
     let bad_digest = sh_out(&format!("oras resolve --plain-http {pull_ref}"));
@@ -197,7 +197,7 @@ fn oci_provider_lazy_fetch_verify_mount() {
     );
     let bad_hex = bad_digest.trim_start_matches("sha256:");
     assert!(
-        !cytoanalyst::modules::rootfs::cache::has_digest(bad_hex),
+        !txresbench::modules::rootfs::cache::has_digest(bad_hex),
         "the rejected unsigned image was NOT staged into the cache"
     );
 }
@@ -211,13 +211,13 @@ fn oci_provider_lazy_fetch_verify_mount() {
 /// data through the product path. It PROVES the OCI-pulled environment is complete
 /// + importable + executable; the full-PID-ns product-path run is the
 /// `CAP_SYS_ADMIN`-gated leg (DEC-P) that self-skips on a capability-limited host.
-/// Env-gated on `CYTO_REAL_ROOTFS_SQUASHFS`; an UNSET run no-ops and is NOT evidence.
+/// Env-gated on `TXR_REAL_ROOTFS_SQUASHFS`; an UNSET run no-ops and is NOT evidence.
 #[test]
 fn oci_provider_runs_real_scientific_stack() {
-    let Some(sqfs) = std::env::var_os("CYTO_REAL_ROOTFS_SQUASHFS") else {
+    let Some(sqfs) = std::env::var_os("TXR_REAL_ROOTFS_SQUASHFS") else {
         record_skip(
             "oci_provider_runs_real_scientific_stack",
-            "set CYTO_REAL_ROOTFS_SQUASHFS=<path> to a built single-cell rootfs squashfs",
+            "set TXR_REAL_ROOTFS_SQUASHFS=<path> to a built single-cell rootfs squashfs",
         );
         return;
     };
@@ -231,7 +231,7 @@ fn oci_provider_runs_real_scientific_stack() {
     {
         record_skip(
             "oci_provider_runs_real_scientific_stack",
-            "needs the real rootfs (CYTO_REAL_ROOTFS_SQUASHFS must point at an existing \
+            "needs the real rootfs (TXR_REAL_ROOTFS_SQUASHFS must point at an existing \
              file) + docker+oras+cosign+squashfuse+bwrap on PATH",
         );
         return;
@@ -246,8 +246,8 @@ fn oci_provider_runs_real_scientific_stack() {
 
     sh("docker rm -f env-oci-reg >/dev/null 2>&1; docker run -d --name env-oci-reg -p 5002:5000 registry:2 >/dev/null && sleep 2");
     sh(&format!(
-        "cd {w} && oras push --plain-http --artifact-type application/vnd.cyto.env-rootfs.squashfs.v1 \
-         {repo}:{tag} rootfs.squashfs:application/vnd.cyto.env-rootfs.squashfs.v1 >/dev/null",
+        "cd {w} && oras push --plain-http --artifact-type application/vnd.txresbench.env-rootfs.squashfs.v1 \
+         {repo}:{tag} rootfs.squashfs:application/vnd.txresbench.env-rootfs.squashfs.v1 >/dev/null",
         w = work.display()
     ));
     let digest = sh_out(&format!("oras resolve --plain-http {repo}:{tag}"));
@@ -294,17 +294,17 @@ fn oci_provider_runs_real_scientific_stack() {
 /// TEST-15 (ITEM-3) — RELEASE-mode verification against the REAL signed GHCR image
 /// (the pre-merge delivery proof; NOT the debug-key seam). Build + run with
 /// `cargo test --release` so the `cfg!(debug_assertions)` cosign-key / local-registry
-/// seams are COMPILED OUT — the provider targets the real `ghcr.io/ziee-ai/cyto-env`
+/// seams are COMPILED OUT — the provider targets the real `ghcr.io/tinnlab/txresbench-env`
 /// and keyless-verifies the CI OIDC identity (ref-flexible regexp). Gated on
-/// `CYTO_REAL_GHCR_VERIFY=1`; requires host oras+cosign+squashfuse+bwrap and GHCR read
+/// `TXR_REAL_GHCR_VERIFY=1`; requires host oras+cosign+squashfuse+bwrap and GHCR read
 /// creds (`oras login ghcr.io` — the package is private). Drives the real provider:
 /// resolve moving tag → keyless cosign-verify → pull → mount → import the stack.
 #[test]
 fn oci_provider_verifies_real_signed_ghcr_image() {
-    if std::env::var("CYTO_REAL_GHCR_VERIFY").ok().as_deref() != Some("1") {
+    if std::env::var("TXR_REAL_GHCR_VERIFY").ok().as_deref() != Some("1") {
         record_skip(
             "oci_provider_verifies_real_signed_ghcr_image",
-            "set CYTO_REAL_GHCR_VERIFY=1 (+ `cargo test --release` + `oras login ghcr.io`) \
+            "set TXR_REAL_GHCR_VERIFY=1 (+ `cargo test --release` + `oras login ghcr.io`) \
              to verify the REAL signed GHCR image",
         );
         return;
@@ -319,12 +319,12 @@ fn oci_provider_verifies_real_signed_ghcr_image() {
     // This arm's whole subject is KEYLESS VERIFICATION of the real GHCR image, and it
     // runs `--release`, where `bypass_air_gap_env` is compiled out on purpose (a release
     // binary must always honor an operator's air-gap configuration). So an ambient
-    // `CYTO_ENV_ROOTFS_SQUASHFS` would hand `provide()` the operator's own file, WITH a
+    // `TXR_ENV_ROOTFS_SQUASHFS` would hand `provide()` the operator's own file, WITH a
     // recorded digest and a mountable `usr/` — i.e. this test would report PASS having
     // resolved nothing, pulled nothing and verified nothing. A false green on a signature
     // check is worse than a red, so the precondition is stated and gated rather than
     // assumed. The debug arms above do not need this: they declare the bypass.
-    for seam in ["CYTO_ENV_ROOTFS_SQUASHFS", "CYTO_ENV_ROOTFS_DIR"] {
+    for seam in ["TXR_ENV_ROOTFS_SQUASHFS", "TXR_ENV_ROOTFS_DIR"] {
         if std::env::var_os(seam).is_some_and(|v| !v.is_empty()) {
             record_skip(
                 "oci_provider_verifies_real_signed_ghcr_image",
@@ -353,7 +353,7 @@ fn oci_provider_verifies_real_signed_ghcr_image() {
         registry: None,
         cosign_key: None,
         identity_regexp: Some(
-            r"^https://github\.com/ziee-ai/cytoanalyst/\.github/workflows/env-images\.yml@refs/tags/env-v.*$"
+            r"^https://github\.com/tinnlab/txresbench/\.github/workflows/env-images\.yml@refs/tags/env-v.*$"
                 .to_string(),
         ),
         // Declared for the same reason as its siblings, and a NO-OP here by design: this
@@ -370,7 +370,7 @@ fn oci_provider_verifies_real_signed_ghcr_image() {
         mount.rootfs_dir.display()
     );
     assert!(
-        cytoanalyst::modules::sandbox::env_image::last_resolved_digest().is_some(),
+        txresbench::modules::sandbox::env_image::last_resolved_digest().is_some(),
         "the resolved GHCR content digest is recorded for provenance"
     );
 
@@ -468,21 +468,21 @@ fn unmount_recursive(dir: &Path) {
 // A test that used `export` could not have been written at all.
 
 /// The child-mode marker: when set, the test below is a PROBE rather than the driver.
-const PROBE_ENV: &str = "CYTO_E5_PROBE_ENV";
+const PROBE_ENV: &str = "TXR_E5_PROBE_ENV";
 
-/// `<repo>/.cyto-cache/env-rootfs/<id>-schema<N>-<arch>.squashfs` — the layout
+/// `<repo>/.txr-cache/env-rootfs/<id>-schema<N>-<arch>.squashfs` — the layout
 /// `fetch-env-rootfs.sh` owns and `build-env-rootfs-local.sh` writes into, so a locally
 /// built artifact and a fetched one are interchangeable here.
 fn staged_artifact(env_id: &str) -> std::path::PathBuf {
     let arch = cache_arch().unwrap_or_else(|| {
         panic!(
             "this host's architecture is not one the env-rootfs scripts support, so no \
-             artifact filename can exist for it. Set CYTO_ENV_ARCH to name one \
+             artifact filename can exist for it. Set TXR_ENV_ARCH to name one \
              explicitly. Refusing to guess a filename and then report a skip about it."
         )
     });
     repo_root()
-        .join(".cyto-cache/env-rootfs")
+        .join(".txr-cache/env-rootfs")
         .join(format!("{env_id}-schema{ROOTFS_SCHEMA_VERSION}-{arch}.squashfs"))
 }
 
@@ -496,13 +496,13 @@ fn staged_artifact(env_id: &str) -> std::path::PathBuf {
 /// filename ask the host; `consts::ARCH` is this binary's COMPILE TARGET, and the two
 /// diverge under cross-compilation or emulation — where the script would write the host's
 /// name and this would look for the target's, reintroducing the permanent skip by a
-/// subtler route. `CYTO_ENV_ARCH` overrides both, exactly as it does in the scripts.
+/// subtler route. `TXR_ENV_ARCH` overrides both, exactly as it does in the scripts.
 ///
 /// An architecture the scripts refuse (they map anything but x86_64/aarch64 to an empty
 /// value and die) yields `None` here rather than a made-up name, so the caller reports a
 /// clear precondition failure instead of hunting for a filename that cannot exist.
 fn cache_arch() -> Option<String> {
-    if let Ok(a) = std::env::var("CYTO_ENV_ARCH") {
+    if let Ok(a) = std::env::var("TXR_ENV_ARCH") {
         if !a.trim().is_empty() {
             return Some(a.trim().to_string());
         }
@@ -526,7 +526,7 @@ fn repo_root() -> std::path::PathBuf {
 /// The env ids this tree SHIPS RECIPES FOR — derived, never typed. Same discovery the
 /// publisher and the parked workflow use.
 fn shipped_env_ids() -> Vec<String> {
-    cytoanalyst::modules::rootfs::version::discover_env_recipes(
+    txresbench::modules::rootfs::version::discover_env_recipes(
         &repo_root().join("src-app/env-rootfs"),
     )
 }
@@ -560,7 +560,7 @@ enum Probe {
 
 /// Re-exec THIS test binary in probe mode with `seams` on its environment.
 ///
-/// `data_dir` is passed as `CYTO_APP_DATA_DIR` — the documented SUBPROCESS counterpart of
+/// `data_dir` is passed as `TXR_APP_DATA_DIR` — the documented SUBPROCESS counterpart of
 /// `scoped_data_root` — and is shared across every probe so the digest cache is populated
 /// once. Staging hard-links rather than copying, so a second probe over the same artifact
 /// costs a hash, not a gigabyte.
@@ -574,18 +574,18 @@ fn run_probe(env_id: &str, data_dir: &Path, seams: &[(String, String)]) -> Probe
         "--test-threads=1",
     ])
     .env(PROBE_ENV, env_id)
-    .env("CYTO_APP_DATA_DIR", data_dir)
+    .env("TXR_APP_DATA_DIR", data_dir)
     // The child must start from a CLEAN seam environment: whatever this box exported to
     // run the rootfs-gated tiers would otherwise leak in and decide the outcome, which is
     // precisely the no-op trap this test exists to close.
-    .env_remove("CYTO_ENV_ROOTFS_SQUASHFS")
-    .env_remove("CYTO_ENV_ROOTFS_SQUASHFS_ENV")
-    .env_remove("CYTO_ENV_ROOTFS_DIR")
-    .env_remove("CYTO_ENV_ROOTFS_DIR_ENV")
-    .env_remove("CYTO_SANDBOX_ENV_ID");
+    .env_remove("TXR_ENV_ROOTFS_SQUASHFS")
+    .env_remove("TXR_ENV_ROOTFS_SQUASHFS_ENV")
+    .env_remove("TXR_ENV_ROOTFS_DIR")
+    .env_remove("TXR_ENV_ROOTFS_DIR_ENV")
+    .env_remove("TXR_SANDBOX_ENV_ID");
     for id in shipped_env_ids() {
-        cmd.env_remove(format!("CYTO_ENV_ROOTFS_SQUASHFS__{id}"));
-        cmd.env_remove(format!("CYTO_ENV_ROOTFS_DIR__{id}"));
+        cmd.env_remove(format!("TXR_ENV_ROOTFS_SQUASHFS__{id}"));
+        cmd.env_remove(format!("TXR_ENV_ROOTFS_DIR__{id}"));
     }
     for (k, v) in seams {
         cmd.env(k, v);
@@ -757,7 +757,7 @@ fn each_locally_built_env_resolves_to_its_own_artifact() {
 
     let sq = |id: &str| -> (String, String) {
         (
-            format!("CYTO_ENV_ROOTFS_SQUASHFS__{id}"),
+            format!("TXR_ENV_ROOTFS_SQUASHFS__{id}"),
             staged_artifact(id).to_string_lossy().to_string(),
         )
     };
@@ -795,7 +795,7 @@ fn each_locally_built_env_resolves_to_its_own_artifact() {
         );
         assert_eq!(
             code,
-            cytoanalyst::modules::sandbox::env_image::ENV_STAGED_MISMATCH_CODE,
+            txresbench::modules::sandbox::env_image::ENV_STAGED_MISMATCH_CODE,
             "the refusal must carry the typed staged-env-mismatch code, not a generic one: {msg}"
         );
         let q_req = format!("{:?}", ids[requested]);
@@ -828,10 +828,10 @@ fn each_locally_built_env_resolves_to_its_own_artifact() {
     // whether a variable was consulted.
     let bare = vec![
         (
-            "CYTO_ENV_ROOTFS_SQUASHFS".to_string(),
+            "TXR_ENV_ROOTFS_SQUASHFS".to_string(),
             staged_artifact(&ids[0]).to_string_lossy().to_string(),
         ),
-        ("CYTO_ENV_ROOTFS_SQUASHFS_ENV".to_string(), ids[0].clone()),
+        ("TXR_ENV_ROOTFS_SQUASHFS_ENV".to_string(), ids[0].clone()),
     ];
     let served = expect_ok(
         run_probe(&ids[0], &data, &bare),
@@ -842,7 +842,7 @@ fn each_locally_built_env_resolves_to_its_own_artifact() {
         run_probe(&ids[1], &data, &bare),
         "a DIFFERENT env must not be served the bare seam's artifact",
     );
-    assert_eq!(code, cytoanalyst::modules::sandbox::env_image::ENV_STAGED_MISMATCH_CODE);
+    assert_eq!(code, txresbench::modules::sandbox::env_image::ENV_STAGED_MISMATCH_CODE);
     assert!(
         msg.contains(&format!("{:?}", ids[1])),
         "the refusal must name the requested env: {msg}"

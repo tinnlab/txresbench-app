@@ -18,7 +18,7 @@
 use serde_json::{json, Value};
 
 use crate::common::TestServer;
-use cytoanalyst::modules::method_catalogue::estimate::host_cpus;
+use txresbench::modules::method_catalogue::estimate::host_cpus;
 
 /// The fixed-owner mint (the desktop's local session) → bearer token.
 async fn owner_token(server: &TestServer) -> String {
@@ -998,9 +998,9 @@ async fn method_catalogue_estimate_rejects_with_named_codes() {
 
 #[tokio::test]
 async fn method_catalogue_http_equals_the_in_process_seam() {
-    use cytoanalyst::modules::method_catalogue::eligibility::eligibility;
-    use cytoanalyst::modules::method_catalogue::estimate::estimate;
-    use cytoanalyst::modules::method_catalogue::types::{
+    use txresbench::modules::method_catalogue::eligibility::eligibility;
+    use txresbench::modules::method_catalogue::estimate::estimate;
+    use txresbench::modules::method_catalogue::types::{
         EligibilityRequest, EstimateRequest, InventoryEligibilityRequest, StandardId,
         UnitFamily,
     };
@@ -1009,12 +1009,12 @@ async fn method_catalogue_http_equals_the_in_process_seam() {
     let token = owner_token(&server).await;
 
     let per_patient = vec![
-        cytoanalyst::modules::method_catalogue::types::PatientDrawCounts {
+        txresbench::modules::method_catalogue::types::PatientDrawCounts {
             patient_key: "p0".to_string(),
             baseline_draws: 1,
             ontreatment_draws: 1,
         },
-        cytoanalyst::modules::method_catalogue::types::PatientDrawCounts {
+        txresbench::modules::method_catalogue::types::PatientDrawCounts {
             patient_key: "p1".to_string(),
             baseline_draws: 1,
             ontreatment_draws: 2,
@@ -1024,7 +1024,7 @@ async fn method_catalogue_http_equals_the_in_process_seam() {
         patients: 2,
         decision_day: 56.0,
         baseline_max_day: 0.0,
-        markers: vec![cytoanalyst::modules::method_catalogue::types::InventoryMarker {
+        markers: vec![txresbench::modules::method_catalogue::types::InventoryMarker {
             key: "CRP".to_string(),
             display_name: "CRP".to_string(),
             unit_family: UnitFamily::ConcentrationMass,

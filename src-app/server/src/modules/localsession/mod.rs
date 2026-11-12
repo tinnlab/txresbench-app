@@ -5,7 +5,7 @@
 //! plain HTTP server (web-service mode, browsers) needs the same mint as a
 //! route: `POST /api/session/local` provisions the single owner on first run
 //! (idempotent) and returns a permanent session for them, using the SAME
-//! `ziee_auth::auth::refresh_tokens::mint_session_tokens` path every server
+//! `txresbench_auth::auth::refresh_tokens::mint_session_tokens` path every server
 //! login uses — so local sessions are revocable and pruned like any other.
 //!
 //! Owner identity is the framework's desktop default: `admin` /
@@ -24,13 +24,13 @@ use linkme::distributed_slice;
 use serde::Serialize;
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use ziee_auth::auth::password::hash_password;
-use ziee_auth::auth::refresh_tokens::mint_session_tokens;
-use ziee_auth::auth::JwtService;
-use ziee_auth::user::{GroupRepository, UserRepository};
-use ziee_auth::User;
-use ziee_core::{ApiResult, AppError};
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_auth::auth::password::hash_password;
+use txresbench_auth::auth::refresh_tokens::mint_session_tokens;
+use txresbench_auth::auth::JwtService;
+use txresbench_auth::user::{GroupRepository, UserRepository};
+use txresbench_auth::User;
+use txresbench_core::{ApiResult, AppError};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 /// The single local owner's identity (mirrors the desktop harness's
 /// `SingleUserStrategy::desktop_default`).
@@ -77,7 +77,7 @@ pub async fn ensure_owner(pool: &SqlitePool) -> Result<(), AppError> {
         .execute(pool)
         .await?;
 
-    // Owner-`*`: membership in the Administrators group (seeded by ziee-auth's
+    // Owner-`*`: membership in the Administrators group (seeded by txresbench-auth's
     // migration with the `"*"` wildcard permission).
     if let Some(admins) = group_repo.get_by_name("Administrators").await? {
         user_repo

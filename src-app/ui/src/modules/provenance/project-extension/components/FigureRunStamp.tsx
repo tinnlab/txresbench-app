@@ -1,4 +1,4 @@
-import { Descriptions, type DescriptionsItem } from '@ziee/kit'
+import { Descriptions, type DescriptionsItem } from '@txresbench/kit'
 import type { RunNodeDto } from '@/api-client/types'
 
 function short(hash?: string): string {

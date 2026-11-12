@@ -1,5 +1,5 @@
 // popout (ITEM-15/16/17) — the gesture-gated pop-out of a pane to an OS window, built on
-// `@ziee/dock`'s popup-window registry + `movePane`. `window.open` needs a user GESTURE, so the
+// `@txresbench/dock`'s popup-window registry + `movePane`. `window.open` needs a user GESTURE, so the
 // pop-out CLICK (or a tear-off pointerup, or a cross-window drop-to-empty) opens the window
 // synchronously, registers it, and moves the pane into its container; `<ContainerWindows>` then
 // portals the pane's workspace into it. A blocked `window.open` (popup blocker) returns
@@ -10,7 +10,7 @@ import {
   nextPopupContainerId,
   type ContainerId,
   type DropTarget,
-} from '@ziee/dock'
+} from '@txresbench/dock'
 import type { WorkbenchDockStore } from './WorkbenchDock.store'
 
 /** Popup window geometry. */

@@ -1,4 +1,4 @@
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 import { TxrLayoutDef } from '@/modules/txrshell/module'
 import { lazyWithPreload } from '@/utils/lazyWithPreload'
 

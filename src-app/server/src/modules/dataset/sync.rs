@@ -42,7 +42,7 @@
 
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::repository::DatasetRepository;
 use crate::modules::sync::{fan_out_owner_scoped, Actor, SyncAction, SyncEntity};

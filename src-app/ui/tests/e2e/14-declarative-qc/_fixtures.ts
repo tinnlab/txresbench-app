@@ -247,7 +247,7 @@ export function entityColumnArtifact(
     members: zarrArrayMembers(COLUMN_MEMBER_PATH, values, {
       encoding: 'f32',
       dtype: 'float32',
-      attributes: { cyto: { kind: 'numeric', name } },
+      attributes: { txr: { kind: 'numeric', name } },
     }),
     structure: {
       encoding: 'zarr_v3',
@@ -289,10 +289,10 @@ export function categoricalColumnArtifact(
     members: zarrArrayMembers(COLUMN_MEMBER_PATH, [...codes], {
       encoding: 'u32',
       dtype: 'uint32',
-      // `attributes.cyto.levels` is what `readDeclaredLevels` reads — one `zarr.json`, no chunks.
+      // `attributes.txr.levels` is what `readDeclaredLevels` reads — one `zarr.json`, no chunks.
       // That is the metadata-only route the picker takes, and seeding it here is what makes this
       // fixture exercise the real path rather than a shape that merely looks like it.
-      attributes: { cyto: { kind: 'categorical', name, levels: [...levels] } },
+      attributes: { txr: { kind: 'categorical', name, levels: [...levels] } },
     }),
     structure: {
       encoding: 'zarr_v3',
@@ -327,7 +327,7 @@ const COLUMN_MEMBER_PATH = 'values'
  * ONE arbitrarily-named Zarr array member.
  *
  * EXPORTED (dimension-membership ITEM-21) for the one fixture shape the column/array builders
- * above cannot express: a membership INDEX BODY. `cyto_zarr.Table.close()` writes that member
+ * above cannot express: a membership INDEX BODY. `txr_zarr.Table.close()` writes that member
  * through `write_array` rather than through `numeric()`, deliberately — "its length is the
  * member COUNT, its values are positions into a DIFFERENT sequence (the axis), and offering it
  * in the column picker would offer the row numbers as a thing to colour by" — so it is neither
@@ -366,7 +366,7 @@ export function zarrArrayMembers(
   return members
 }
 
-/** A Zarr artifact holding ONE 2-D `embedding` member — the shape `cyto_columns.write_embedding`
+/** A Zarr artifact holding ONE 2-D `embedding` member — the shape `txr_columns.write_embedding`
  *  produces. Returns the seed members + the `structure` the artifact row declares. */
 export function zarrEmbeddingArtifact(nRows = PLOTTABLE_CELLS, chunkRows = ZARR_FIXTURE_CHUNK) {
   const values = ringEmbedding(nRows)
@@ -390,7 +390,7 @@ export function zarrEmbeddingArtifact(nRows = PLOTTABLE_CELLS, chunkRows = ZARR_
 }
 
 /** A Zarr artifact holding ONE categorical column — the shape
- *  `cyto_columns.write_metadata_column` produces for a pandas Categorical. The level set is
+ *  `txr_columns.write_metadata_column` produces for a pandas Categorical. The level set is
  *  DECLARED (D10), including one level that never occurs in the data. */
 export function zarrClusteringArtifact(nRows = PLOTTABLE_CELLS) {
   const levels = ['0', '1', '2', 'NEVER-OBSERVED']
@@ -401,7 +401,7 @@ export function zarrClusteringArtifact(nRows = PLOTTABLE_CELLS) {
     members: zarrArrayMembers(PLOTTABLE_CLUSTERING_COLUMN, codes, {
       encoding: 'u32',
       dtype: 'uint32',
-      attributes: { cyto: { kind: 'categorical', name: PLOTTABLE_CLUSTERING_COLUMN, levels } },
+      attributes: { txr: { kind: 'categorical', name: PLOTTABLE_CLUSTERING_COLUMN, levels } },
     }),
     structure: {
       encoding: 'zarr_v3',
@@ -426,7 +426,7 @@ export function zarrClusteringArtifact(nRows = PLOTTABLE_CELLS) {
 /**
  * A CSC matrix artifact in the ONE vocabulary a producer emits: a `zarr_v3` store whose
  * `kind` is `sparse_csc` and whose three members are Zarr arrays
- * (`cyto_csc.write_csc_zarr`). Returns the seed members + the `structure` the row declares.
+ * (`txr_csc.write_csc_zarr`). Returns the seed members + the `structure` the row declares.
  *
  * The arrays are raw + unsharded like the other seeded Zarr fixtures above (the seed engine
  * frames a member as JSON or as a little-endian typed array, and shuffle+gzip is neither).
@@ -460,7 +460,7 @@ export function cscArtifact(nRows = PLOTTABLE_CELLS, nCols = PLOTTABLE_GENES) {
 
 /**
  * ONE inline-utf8 string column, in the ONE layout the reader decodes — `split`: a `uint32`
- * `offsets` member and a `uint8` `values` member under a group (`cyto_zarr.Table.string`).
+ * `offsets` member and a `uint8` `values` member under a group (`txr_zarr.Table.string`).
  *
  * The `uint8` payload is written through the seed engine's `u32` framing, packed FOUR BYTES
  * PER WORD little-endian. That is not a trick: the engine frames a numeric member as a raw

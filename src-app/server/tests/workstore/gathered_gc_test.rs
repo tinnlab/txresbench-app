@@ -27,9 +27,9 @@
 use serde_json::json;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::object_store::ObjectStore;
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::object_store::ObjectStore;
 
 use crate::common::TestServer;
 
@@ -372,7 +372,7 @@ async fn a_blob_nothing_reaches_is_not_kept() {
 /// vacuously — the assertion runs over a non-empty ingest whose count is checked first.
 #[tokio::test]
 async fn ingest_never_produces_a_blob_less_row_so_the_gate_cannot_see_one() {
-    use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
+    use txresbench::modules::workstore::ingest::ingest_run_outputs;
 
     let server = TestServer::spawn().await;
     let token = setup_admin(&server).await;

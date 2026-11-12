@@ -1,4 +1,4 @@
-// TEST-3 (ITEM-22) — the `@cyto/workbench-api` alias CANNOT silently keep working
+// TEST-3 (ITEM-22) — the `@txresbench/workbench-api` alias CANNOT silently keep working
 // after the package is gone.
 //
 // ITEM-1 collapsed `src-app/libs/workbench-api` into `core/`. A move like that
@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const UI = path.resolve(HERE, '../../../..') // <repo>/src-app/ui
 const REPO = path.resolve(UI, '../..')
-const SPECIFIER = '@cyto/workbench-api'
+const SPECIFIER = '@txresbench/workbench-api'
 
 /** JSON with comments (tsconfig) — strip `//` line comments before parsing. */
 function readJsonc(p: string): Record<string, unknown> {
@@ -25,7 +25,7 @@ function readJsonc(p: string): Record<string, unknown> {
   return JSON.parse(raw) as Record<string, unknown>
 }
 
-test('TEST-3: ui/tsconfig.json declares no `@cyto/workbench-api` path alias', () => {
+test('TEST-3: ui/tsconfig.json declares no `@txresbench/workbench-api` path alias', () => {
   const tsconfig = readJsonc(path.join(UI, 'tsconfig.json'))
   const paths = ((tsconfig.compilerOptions as Record<string, unknown>)?.paths ?? {}) as Record<
     string,
@@ -98,11 +98,11 @@ test('TEST-3: package-lock.json carries no dependency EDGE on the deleted packag
   const lock = JSON.parse(readFileSync(path.join(REPO, 'package-lock.json'), 'utf8'))
   const packages = (lock.packages ?? {}) as Record<string, Record<string, unknown>>
   // Two kinds of edge, both of which would make `npm ci` try to link it:
-  //   1. a `node_modules/@cyto/workbench-api` link entry
+  //   1. a `node_modules/@txresbench/workbench-api` link entry
   //   2. any package declaring it as a dependency
   assert.ok(
     !(`node_modules/${SPECIFIER}` in packages),
-    'the lockfile still links node_modules/@cyto/workbench-api',
+    'the lockfile still links node_modules/@txresbench/workbench-api',
   )
   for (const [name, entry] of Object.entries(packages)) {
     for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {

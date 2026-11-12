@@ -19,8 +19,8 @@
  * see DRIFT-1 ITEM-9; same class as the outcome-tabs note in ITEM-6).
  */
 import type { ReactNode } from 'react'
-import { Tabs } from '@ziee/kit'
-import type { TabItem } from '@ziee/kit'
+import { Tabs } from '@txresbench/kit'
+import type { TabItem } from '@txresbench/kit'
 import type { TxrHeatmapColumn } from '../types'
 
 const MONO_FONT = "'Source Code Pro', ui-monospace, monospace"

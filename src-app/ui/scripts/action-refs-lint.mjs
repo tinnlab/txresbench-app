@@ -132,7 +132,7 @@ const externalBareImportsPlugin = {
     pluginBuild.onResolve({ filter: /.*/ }, args => {
       if (args.kind === 'entry-point') return null
       const p = args.path
-      if (p.startsWith('.') || p.startsWith('/') || p.startsWith('@/') || p.startsWith('@ziee/')) {
+      if (p.startsWith('.') || p.startsWith('/') || p.startsWith('@/') || p.startsWith('@txresbench/')) {
         return null
       }
       return { path: p, external: true }
@@ -153,7 +153,7 @@ async function collectRegisteredActionIds() {
   const entryLines = actionFiles.map(file => `import ${JSON.stringify(file)};`)
   entryLines.push(`import { getActionRegistry } from ${JSON.stringify(DEFINE_ACTION_PATH)};`)
   entryLines.push(
-    'globalThis.__ZIEE_COLLECTED_ACTION_IDS__ = Array.from(getActionRegistry().keys());',
+    'globalThis.__TXR_COLLECTED_ACTION_IDS__ = Array.from(getActionRegistry().keys());',
   )
   const entryContents = entryLines.join('\n')
 
@@ -172,7 +172,7 @@ async function collectRegisteredActionIds() {
     tsconfig: TSCONFIG_PATH,
     // `import.meta.env` is injected by VITE and is UNDEFINED under the plain
     // Node runtime this bundle executes in, so any app/SDK module that reads it
-    // at module scope (e.g. `@ziee/framework/store-kit`'s
+    // at module scope (e.g. `@txresbench/framework/store-kit`'s
     // `import.meta.env.VITE_STORE_PREFETCH`) throws the instant it is evaluated.
     // Reachable here since the action modules were repointed off the global
     // `Stores` shim onto each store's direct `registerLazyStore` handle. See the
@@ -191,8 +191,8 @@ async function collectRegisteredActionIds() {
     unlinkSync(tmpFile)
   }
 
-  const collected = globalThis.__ZIEE_COLLECTED_ACTION_IDS__
-  delete globalThis.__ZIEE_COLLECTED_ACTION_IDS__
+  const collected = globalThis.__TXR_COLLECTED_ACTION_IDS__
+  delete globalThis.__TXR_COLLECTED_ACTION_IDS__
   if (!Array.isArray(collected)) {
     throw new Error('[action-refs-lint] bundle did not populate the collected-ids global')
   }

@@ -14,7 +14,7 @@
 #   4. a static+proxy server (serve-rig.mjs) in front of them.
 #
 #   bash setup-rig.sh [--rev origin/main] [--dir /path/to/rig] [--port 1520]
-#                     [--backend-port 29500] [--db-port 54396] [--db ziee_rig]
+#                     [--backend-port 29500] [--db-port 54396] [--db txresbench_rig]
 #
 # Re-running is safe: it refreshes the worktree to --rev and rebuilds.
 set -euo pipefail
@@ -23,8 +23,8 @@ REPO=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/
 # agent-kit is a submodule; the app repo is its parent.
 APP_REPO=$(cd "$REPO/.." && git rev-parse --show-toplevel 2>/dev/null || echo "$REPO")
 
-REV=origin/main; DIR=""; PORT=1520; BE_PORT=29500; DB_PORT=54396; DB=ziee_rig
-PG_CONTAINER=${PG_CONTAINER:-ziee-showcase-pg}
+REV=origin/main; DIR=""; PORT=1520; BE_PORT=29500; DB_PORT=54396; DB=txresbench_rig
+PG_CONTAINER=${PG_CONTAINER:-txresbench-showcase-pg}
 while [ $# -gt 0 ]; do
   case "$1" in
     --rev) REV=$2; shift 2;;
@@ -100,13 +100,13 @@ say "4/5 build (frontend, then server — several minutes cold)"
 ( cd "$DIR" && npm install --silent )
 ( cd "$DIR/src-app/ui" && VITE_STORE_PREFETCH=off VITE_CLOSURE_PREFETCH=off npx vite build --mode production >/dev/null )
 echo "   frontend ok"
-( cd "$DIR/src-app/server" && cargo build -p ziee 2>&1 | grep -E '^error|Finished' | tail -1 )
+( cd "$DIR/src-app/server" && cargo build -p txresbench 2>&1 | grep -E '^error|Finished' | tail -1 )
 echo "$COMMIT" > "$DIR/.rig-build-stamp"    # explore-loop refuses to audit a stale build
 echo "   stamped $COMMIT"
 
 say "5/5 start"
 for pid in $(fuser -n tcp "$BE_PORT" "$PORT" 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+$' || true); do kill -9 "$pid" 2>/dev/null || true; done
-( cd "$DIR/src-app/server" && CONFIG_FILE="$CONFIG" setsid nohup ../target/debug/ziee > "$DIR.server.log" 2>&1 < /dev/null & )
+( cd "$DIR/src-app/server" && CONFIG_FILE="$CONFIG" setsid nohup ../target/debug/txresbench > "$DIR.server.log" 2>&1 < /dev/null & )
 setsid nohup node "$(dirname "${BASH_SOURCE[0]}")/serve-rig.mjs" \
   --dist "$DIR/src-app/dist/ui" --backend-port "$BE_PORT" --port "$PORT" > "$DIR.serve.log" 2>&1 < /dev/null &
 for _ in $(seq 1 40); do

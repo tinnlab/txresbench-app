@@ -19,7 +19,7 @@ import { join } from 'node:path'
 
 const args = process.argv.slice(2)
 const stateIdx = args.indexOf('--state')
-const STATE = stateIdx >= 0 ? args[stateIdx + 1] : '/data/pbya/ziee/tmp/live-ui-explore'
+const STATE = stateIdx >= 0 ? args[stateIdx + 1] : '/data/pbya/txresbench/tmp/live-ui-explore'
 const LEDGER = join(STATE, 'FINDINGS_LEDGER.md')
 const SEEN = join(STATE, 'seen.json')
 

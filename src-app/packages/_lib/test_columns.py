@@ -22,8 +22,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import cyto_columns as cc
-import cyto_zarr
+import txr_columns as cc
+import txr_zarr
 from test_zarr_writer import read_array, read_meta, read_string
 
 
@@ -39,10 +39,10 @@ def test_a_declared_categorical_keeps_its_declared_levels(tmp_path):
     assert meta["n_levels"] == 4 and "levels" not in meta
     assert read_meta(tmp_path / "col.zarr", "values")["data_type"] == "uint8"
     np.testing.assert_array_equal(read_array(tmp_path / "col.zarr", "values"), [0, 2, 0])
-    assert structure["columns"][0]["levels_digest"] == cyto_zarr.key_sequence_digest(
+    assert structure["columns"][0]["levels_digest"] == txr_zarr.key_sequence_digest(
         ["a", "b", "c", "d"]
     ), "an unobserved level survives"
-    assert read_meta(tmp_path / "col.zarr", "values")["attributes"]["cyto"]["levels"] == [
+    assert read_meta(tmp_path / "col.zarr", "values")["attributes"]["txr"]["levels"] == [
         "a", "b", "c", "d"
     ], "and the stored stamp — the copy every reader resolves through — agrees"
 
@@ -55,7 +55,7 @@ def test_a_missing_categorical_gets_a_declared_non_colliding_level(tmp_path):
     assert meta["n_levels"] == 4
     # The list itself is on `structure` + the stamp (see the note above), so the
     # stepped-aside level is asserted there.
-    assert structure["columns"][0]["levels_digest"] == cyto_zarr.key_sequence_digest(
+    assert structure["columns"][0]["levels_digest"] == txr_zarr.key_sequence_digest(
         ["a", "b", "NA", "NA_"]
     )
     np.testing.assert_array_equal(read_array(tmp_path / "c.zarr", "values"), [0, 3, 1])
@@ -153,10 +153,10 @@ def test_a_declared_axis_name_and_kind_reach_the_bytes_verbatim(tmp_path):
 def test_an_undeclared_axis_name_or_kind_is_an_error_not_a_default(tmp_path):
     """INV-2 on the framework library: absence is an error, never an assumed `"cells"`.
 
-    The control for the whole fix. `cyto_columns` is staged into EVERY processor, so a
+    The control for the whole fix. `txr_columns` is staged into EVERY processor, so a
     default here is this library authoring a domain fact for every producer that will ever
     exist (INV-5). Omission is a `TypeError` (keyword-required, enforced by the language);
-    a present-but-meaningless value is a `ValueError`, because `cyto_zarr.Table` does
+    a present-but-meaningless value is a `ValueError`, because `txr_zarr.Table` does
     `str(axis)` and `None` would otherwise become an axis literally named `"None"`.
     """
     s = pd.Series([1.0, 2.0])
@@ -219,7 +219,7 @@ def test_a_column_declares_the_row_space_its_values_line_up_with(tmp_path):
     # The SAME document is stamped into the store, not only returned — a consumer handed
     # the URL learns the alignment from the first request it was going to make anyway.
     stamped = json.loads((tmp_path / "col.zarr" / "zarr.json").read_text())
-    assert stamped["attributes"]["cyto"]["aligned_to"] == digest
+    assert stamped["attributes"]["txr"]["aligned_to"] == digest
 
 
 def test_an_undeclared_alignment_is_ABSENT_never_guessed(tmp_path):
@@ -258,13 +258,13 @@ def test_an_artifact_that_carries_the_keys_cannot_claim_a_different_axis(tmp_pat
     statements — decidable without opening a byte, so it is refused at the writer instead of
     being left for the gate.
     """
-    other = cyto_zarr.key_sequence_digest(["z1", "z2"])
+    other = txr_zarr.key_sequence_digest(["z1", "z2"])
     with pytest.raises(ValueError, match="cannot disagree"):
         cc.write_metadata_column(tmp_path, "keys.zarr", "cell_id",
                                  pd.Series(["c1", "c2"]), axis="rows",
                                  holds_axis_keys=True, aligned_to=other)
     # …and agreeing is fine: it is redundant, not wrong.
-    same = cyto_zarr.key_sequence_digest(["c1", "c2"])
+    same = txr_zarr.key_sequence_digest(["c1", "c2"])
     keys, _ = cc.write_metadata_column(tmp_path, "keys2.zarr", "cell_id",
                                        pd.Series(["c1", "c2"]), axis="rows",
                                        holds_axis_keys=True, aligned_to=same)
@@ -426,7 +426,7 @@ def test_the_inline_member_set_round_trips_and_is_absent_above_the_budget(tmp_pa
     # EXACTLY the positions, decoded — not "a set of the right size". The multi-byte
     # varints (130, 16_500) are in the fixture on purpose: a one-byte-per-gap
     # implementation returns a plausible ascending list and fails only here.
-    assert cyto_zarr.decode_member_set(entry["bitmap"]) == positions
+    assert txr_zarr.decode_member_set(entry["bitmap"]) == positions
 
     # Above the budget. Contiguous positions cost one byte each, so the blob crosses
     # 64 KiB of base64 at ~49,152 members; 50,000 is over it with margin.
@@ -451,10 +451,10 @@ def test_the_inline_member_set_round_trips_and_is_absent_above_the_budget(tmp_pa
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  cyto_zarr_read — the UNSHARDED array a materialised gathered column is
+#  txr_zarr_read — the UNSHARDED array a materialised gathered column is
 # ══════════════════════════════════════════════════════════════════════════════
 #
-# `cyto_zarr` never writes this shape; the SERVER does. A gathered (virtual) column has no
+# `txr_zarr` never writes this shape; the SERVER does. A gathered (virtual) column has no
 # blob, so the coordinator materialises it into an ordinary zarr store before staging it as a
 # sandbox input, declaring `codecs: [bytes]` rather than re-encoding each chunk into the
 # writer's shuffle+gzip+shard container.
@@ -470,7 +470,7 @@ def _write_plain_store(root, values, levels=None, chunk=4):
 
     member = root / "values"
     (member / "c").mkdir(parents=True)
-    cyto = {"kind": "categorical", "name": "values", "levels": levels} if levels else {}
+    txr = {"kind": "categorical", "name": "values", "levels": levels} if levels else {}
     (member / "zarr.json").write_text(
         json.dumps(
             {
@@ -482,7 +482,7 @@ def _write_plain_store(root, values, levels=None, chunk=4):
                 "chunk_key_encoding": {"name": "default", "configuration": {"separator": "/"}},
                 "codecs": [{"name": "bytes", "configuration": {"endian": "little"}}],
                 "fill_value": 0,
-                "attributes": {"cyto": cyto},
+                "attributes": {"txr": txr},
             }
         )
     )
@@ -496,7 +496,7 @@ def _write_plain_store(root, values, levels=None, chunk=4):
 
 
 def test_a_plain_codec_member_decodes_across_chunks_including_a_padded_tail(tmp_path):
-    import cyto_zarr_read as r
+    import txr_zarr_read as r
 
     root = _write_plain_store(tmp_path / "g", [1, 0, 2, 3, 1])
     out = r.read_array(root, "values")
@@ -507,12 +507,12 @@ def test_a_plain_codec_member_decodes_across_chunks_including_a_padded_tail(tmp_
 
 
 def test_a_plain_categorical_resolves_to_labels_not_codes(tmp_path):
-    """`read_column` dispatches on `attributes.cyto.kind`, which the member must declare.
+    """`read_column` dispatches on `attributes.txr.kind`, which the member must declare.
 
     Without it a processor gets integers at the right address — a wrong answer with a clean
     console, which is worse than the KeyError it replaced.
     """
-    import cyto_zarr_read as r
+    import txr_zarr_read as r
 
     root = _write_plain_store(tmp_path / "g", [1, 0, 2, 3, 1], levels=["g1", "g2", "g3", "g4"])
     assert r.read_column(root) == ["g2", "g1", "g3", "g4", "g2"]

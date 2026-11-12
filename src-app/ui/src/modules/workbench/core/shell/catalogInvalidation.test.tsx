@@ -64,7 +64,7 @@ const api = { capabilities: broker } as unknown as WorkbenchAPI
 
 const { WorkbenchProvider, useWorkbench } = await import('./WorkbenchContext')
 const { useArtifactCatalog } = await import('../render/useArtifactCatalog')
-const { EventBus } = await import('@ziee/framework/stores')
+const { EventBus } = await import('@txresbench/framework/stores')
 
 function row(id: string): ArtifactRow {
   return { id, project_id: 'p1', datatype: 'matrix', structure: {}, created_at: '2026-08-01T00:00:00Z' }

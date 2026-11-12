@@ -490,7 +490,7 @@ describe('resolveRowSpaceColumns — the offering predicate reads the axis, not 
 // point — so the assertion is that the SAME catalog produces the SAME figures no matter what
 // a caller has landed, and that no port was touched to find out.
 
-/** members 0…9 — the coordinate's rows. Golden, from `cyto_zarr.encode_member_set`. */
+/** members 0…9 — the coordinate's rows. Golden, from `txr_zarr.encode_member_set`. */
 const MEMBERS_0_TO_9 = 'AQEBAQEBAQEBAQ=='
 /** members 4…23 — 20 of them, six of which are the coordinate's. */
 const MEMBERS_4_TO_23 = 'BQEBAQEBAQEBAQEBAQEBAQEBAQE='

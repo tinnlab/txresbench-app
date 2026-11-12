@@ -55,8 +55,8 @@ import { RUN_HELPER_HEADROOM_MS, runQcToCompletion } from '../14-declarative-qc/
 // is a load-error state no spec here stages.
 
 /** HOST-CAPABILITY gate for the specs that need a run to genuinely COMPLETE (a
- *  sandbox-executable backend: bwrap + `CYTO_ENV_ROOTFS_DIR`). Run them with
- *  `CYTO_E2E_REAL_COMPUTE=1` on a rootfs-wired host.
+ *  sandbox-executable backend: bwrap + `TXR_ENV_ROOTFS_DIR`). Run them with
+ *  `TXR_E2E_REAL_COMPUTE=1` on a rootfs-wired host.
  *
  *  USE IT AS `test.skip(!REAL_COMPUTE, REAL_COMPUTE_SKIP)` — as the first statement inside
  *  the spec's `test.describe` body (or at file level for a spec with no describe). NEVER as
@@ -69,19 +69,19 @@ import { RUN_HELPER_HEADROOM_MS, runQcToCompletion } from '../14-declarative-qc/
  *  a conditional skip is REPORTED as skipped, with its reason, and is never counted as
  *  passed, whereas removing a test from COLLECTION makes its absence invisible. Measured
  *  here: `npx playwright test --list` gave **220 tests / 154 files** by default vs **237 /
- *  169** with `CYTO_E2E_REAL_COMPUTE=1 CYTO_E2E_MULTIMODAL=1`, and the only invocation that
+ *  169** with `TXR_E2E_REAL_COMPUTE=1 TXR_E2E_MULTIMODAL=1`, and the only invocation that
  *  sets either (`just verify-acceptance`) also passes `--grep @acceptance`, which none of
  *  these specs carry — so 16 of those 17 tests were unreachable by ANY invocation, silently.
  *
  *  A describe-level skip is collected unconditionally (both `--list` totals now match), is
  *  reported as `-` + a `{type:'skip', description}` annotation, and — unlike a skip in the
  *  test BODY — short-circuits before `beforeEach`, so a capability-less host pays nothing. */
-export const REAL_COMPUTE = !!process.env.CYTO_E2E_REAL_COMPUTE
+export const REAL_COMPUTE = !!process.env.TXR_E2E_REAL_COMPUTE
 
 /** Reason paired with {@link REAL_COMPUTE}. It names the env var that enables the spec, so a
  *  skipped run tells the reader exactly what to set rather than just vanishing. */
 export const REAL_COMPUTE_SKIP =
-  'needs a sandbox-executable host (bwrap + CYTO_ENV_ROOTFS_DIR) — set CYTO_E2E_REAL_COMPUTE=1 to run'
+  'needs a sandbox-executable host (bwrap + TXR_ENV_ROOTFS_DIR) — set TXR_E2E_REAL_COMPUTE=1 to run'
 
 /** One analysis, as the live registry describes it. */
 export interface AnalysisSubject {

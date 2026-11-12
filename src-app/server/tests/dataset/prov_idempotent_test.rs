@@ -69,7 +69,7 @@ async fn re_ingesting_same_manifest_does_not_duplicate() {
     );
 
     // The output signature is stable: same (output_id, content_hash) both times.
-    let sig = |rows: &[cytoanalyst::modules::workstore::catalog::models::Artifact]| {
+    let sig = |rows: &[txresbench::modules::workstore::catalog::models::Artifact]| {
         let mut v: Vec<(String, String)> = rows
             .iter()
             .map(|a| (a.output_id.clone(), a.content_hash.clone()))

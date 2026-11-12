@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { RenderComponentLike, type ComponentLike } from '@ziee/framework'
+import { RenderComponentLike, type ComponentLike } from '@txresbench/framework'
 import { Loading } from './Loading'
 
 interface LazyComponentRendererProps {
@@ -35,14 +35,14 @@ interface LazyComponentRendererProps {
  * Universal component renderer with automatic lazy loading support.
  *
  * The classification (which of the four kinds is this?) and the `<Suspense>`
- * ownership live in `@ziee/framework`'s `RenderComponentLike`, shared with
- * `@ziee/framework/router`'s `LazyRouteRenderer`. They used to be two
+ * ownership live in `@txresbench/framework`'s `RenderComponentLike`, shared with
+ * `@txresbench/framework/router`'s `LazyRouteRenderer`. They used to be two
  * independent copies of a heuristic that asked whether the function was
  * ANONYMOUS — so the documented `{ component: () => import('./X') }` shape
  * (whose arrow is named `component`, because JS infers a name from the property
  * it initializes) was classified as a plain component, invoked, and returned a
  * Promise React could never settle. The slot rendered nothing, forever, with no
- * error. See `@ziee/framework/lazy-component` for the shape/marker rules that
+ * error. See `@txresbench/framework/lazy-component` for the shape/marker rules that
  * replaced it.
  *
  * @example

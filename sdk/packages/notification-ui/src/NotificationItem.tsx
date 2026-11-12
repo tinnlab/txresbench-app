@@ -5,13 +5,13 @@ import {
   type AppNotification,
   getNotificationRenderer,
   type NotificationRendererCtx,
-} from '@ziee/framework/notification'
-import { Button, Flex, Text } from '@ziee/kit'
+} from '@txresbench/framework/notification'
+import { Button, Flex, Text } from '@txresbench/kit'
 
 import type { NotificationRow } from './types'
 
 /**
- * Dispatch a row's main content through the `@ziee/framework/notification`
+ * Dispatch a row's main content through the `@txresbench/framework/notification`
  * renderer registry (`getNotificationRenderer(kind).render`), falling back to a
  * generic title / body / timestamp block for any UNREGISTERED kind. This is the
  * per-kind dispatch that lets an app's registered kinds (a study-share invite, a
@@ -65,7 +65,7 @@ interface NotificationItemProps {
  *
  * CONTAINMENT: the content COLUMN — not the fallback `Text`s — carries
  * `min-w-0 wrap-anywhere`, and that placement is load-bearing. What fills the
- * column is whatever an app's REGISTERED kind renderer returns (ziee's
+ * column is whatever an app's REGISTERED kind renderer returns (txresbench's
  * `modules/notification/kinds.tsx` registers every scheduler kind, so the
  * fallback block below is NOT what the common rows use). A wrap rule on the
  * fallback would therefore leave every registered kind overflowing.

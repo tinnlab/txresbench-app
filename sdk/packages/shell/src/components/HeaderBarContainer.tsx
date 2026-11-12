@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { appLayoutChrome } from '../app-store-seams'
-import { cn } from '@ziee/kit/lib/utils'
+import { cn } from '@txresbench/kit/lib/utils'
 import { useHeaderLeftInset } from '../hooks/useHeaderLeftInset'
 
 /**

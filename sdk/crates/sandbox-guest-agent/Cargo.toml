@@ -6,7 +6,7 @@ description = "In-VM init/agent for the code-sandbox microVM backend: mounts the
 publish = false
 
 [[bin]]
-name = "ziee-sandbox-agent"
+name = "txresbench-sandbox-agent"
 path = "src/main.rs"
 
 [lints]

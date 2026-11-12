@@ -21,7 +21,7 @@
 -- idiom). Idempotent exactly as the Postgres file.
 --
 -- Ordering: prefix 202609040001 sorts above the app's current global max
--- (202609020020, sandbox) and far above the ziee-auth schema+seed, so
+-- (202609020020, sandbox) and far above the txresbench-auth schema+seed, so
 -- `groups` and the `Users` row exist when this applies.
 
 UPDATE groups

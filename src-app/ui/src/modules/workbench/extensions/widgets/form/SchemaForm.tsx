@@ -94,7 +94,7 @@ export interface SchemaFormProps {
 
 /**
  * The declarative params HOST renderer (P6 / ITEM-8). Renders an analysis's P5
- * `ParamsSchema` into `@ziee/kit` controls — the no-code path — as a PURE controlled
+ * `ParamsSchema` into `@txresbench/kit` controls — the no-code path — as a PURE controlled
  * form: each field binds to `value[field.id]` and edits flow out through
  * `onChange({ ...value, [id]: next })`. ONE shape: the ordered field list. Field
  * visibility (ITEM-36) and dependent options (ITEM-37) are threaded through the live

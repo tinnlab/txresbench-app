@@ -123,7 +123,7 @@ export const RUNNER_PROGRAMS =
  * The last two are precisely "the tool failed to run"; the first is precisely
  * "it ran and returned non-zero". One producer, one prefix each.
  *
- * This is a wording match, and unlike the rest of the rules it is on ZIEE's own
+ * This is a wording match, and unlike the rest of the rules it is on TXRESBENCH's own
  * string rather than a spec's. Calibration showed why it earns its place: without
  * it the detector fired on `biomcp: "Unknown entity: workflow"` and on `ask_user:
  * "'schema' has no properties"` — both tools that ran and correctly rejected what
@@ -139,7 +139,7 @@ const isBlank = (v) => v == null || (typeof v === 'string' && v.trim() === '')
 
 /**
  * The JSON-RPC error code carried in a dispatch-failure message, or null.
- * ziee's dispatcher embeds the upstream error verbatim
+ * txresbench's dispatcher embeds the upstream error verbatim
  * (`Tool execution failed: MCP error: {"code":-32602,"message":"…"}`), so the
  * code is machine-readable even though the envelope is prose. Reading a NUMBER
  * out of it is not a wording match: the number is the spec's, and it survives

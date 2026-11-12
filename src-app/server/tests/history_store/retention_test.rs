@@ -14,8 +14,8 @@ use uuid::Uuid;
 
 use super::{owner_token, pool, seed_run, SeedMethod, SeedRun};
 use crate::common::TestServer;
-use cytoanalyst::modules::execution_engine::repository::TxrRepository;
-use cytoanalyst::modules::execution_engine::types::{
+use txresbench::modules::execution_engine::repository::TxrRepository;
+use txresbench::modules::execution_engine::types::{
     TxrMethodState, TxrRunMode, TxrRunStatus,
 };
 

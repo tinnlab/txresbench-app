@@ -1,6 +1,6 @@
 //! ITEM-18 / Wave-4 — `POST /datasets/{id}/process`: running a processor on a
 //! dataset creates an owner/dataset-scoped `analysis` job (NO project), resolves the
-//! dataset's ziee-file file(s) into `dataset_file_ref` sandbox inputs, and — when
+//! dataset's txresbench-file file(s) into `dataset_file_ref` sandbox inputs, and — when
 //! that run finalizes — its outputs ingest into the working store with
 //! `artifacts.dataset_id` set (ITEM-23). The sandbox EXECUTION is stubbed the way
 //! the workstore ingest tests do (a hand-written `/outputs/manifest.json` fed to
@@ -12,8 +12,8 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
-use cytoanalyst::modules::workstore::object_store::LocalFsStore;
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::workstore::object_store::LocalFsStore;
 
 use super::setup_admin;
 use crate::common::TestServer;

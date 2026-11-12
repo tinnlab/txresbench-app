@@ -30,7 +30,7 @@ type ButtonCommon = Omit<BaseButtonProps, 'size'> & {
   /**
    * WHY this control is unavailable. Presence means unavailable — the string IS the reason,
    * rather than a boolean plus a separate message that can disagree with it. (The
-   * `removeBlockedReason` idiom, cytoanalyst commit 93167985.)
+   * `removeBlockedReason` idiom, txresbench commit 93167985.)
    *
    * USE THIS INSTEAD OF `disabled` WHENEVER THERE IS A REASON TO GIVE. A natively `disabled`
    * button is `pointer-events:none` AND out of the tab order, so it can open no tooltip and
@@ -164,7 +164,7 @@ function warnInertTooltip(testid: string | undefined, label: unknown): void {
   if (inertTooltipsWarned.has(key)) return
   inertTooltipsWarned.add(key)
   console.error(
-    `[@ziee/kit] <Button data-testid="${testid ?? '(none)'}"> is natively \`disabled\` AND carries a ` +
+    `[@txresbench/kit] <Button data-testid="${testid ?? '(none)'}"> is natively \`disabled\` AND carries a ` +
       `tooltip (${JSON.stringify(String(label))}). That tooltip can never open: a disabled button is ` +
       `pointer-events:none and its mouse events never reach the document root, where React listens. ` +
       `If the control must explain WHY it is unavailable, pass \`unavailableReason="…"\` instead of ` +

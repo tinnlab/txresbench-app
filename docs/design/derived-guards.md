@@ -328,9 +328,9 @@ into a guard drifts exactly the way a term list does.
   doing, in a declared block:
 
   ```sh
-  # cyto:guard-vocabulary
+  # txr:guard-vocabulary
   KINDS=<the terms this guard hunts>
-  # cyto:end-guard-vocabulary
+  # txr:end-guard-vocabulary
   ```
 
   Only those lines are blanked, and only in a pinned file; every other line of a pinned guard
@@ -386,7 +386,7 @@ into a guard drifts exactly the way a term list does.
   leak (`check-derived-vocabulary.test.mjs`'s TEST-10 asserts exactly that, by running both).
   Three directions remain open:
   1. **the declared block** — a guard that legitimately hunted a `spatial/*` id would declare a
-     `cyto:guard-vocabulary` block, pass the shell guard, and fail the pytest, which grants no
+     `txr:guard-vocabulary` block, pass the shell guard, and fail the pytest, which grants no
      exemption at all. No guard does this today;
   2. **the test-module exclusions** — the shell guard excludes Python test modules by
      `pytest.ini`'s `python_files` and JS test modules by the justfile's own `node --test`
@@ -424,7 +424,7 @@ Two things are closed, and the manner matters more than the fact:
   smaller tree quietly. `MIN_BUILD_FILES` is a second, independent detector of the same
   regression *and* of the "add an exception for the leaking directory" dodge, because both land
   below it.
-* **residual 1 is closed.** The pytest honours the same `cyto:guard-vocabulary` block, on the
+* **residual 1 is closed.** The pytest honours the same `txr:guard-vocabulary` block, on the
   same two committed keys (the markers, and the file being pinned in the manifest the
   declaration names), read from the same file. It changes nothing in the tree today — neither
   shipped block spells an id `spatial-types` contributes — which is the point: a latent false
@@ -462,7 +462,7 @@ second opinion at all.
 
   | excepted file | why it must spell |
   |---|---|
-  | `lint-no-domain-in-builtin.mjs` | the SIBLING GUARD over this same invariant. It must SPELL what it hunts (#304's case) and it *cannot* use a `cyto:guard-vocabulary` block, because `check-guard-integrity.sh` deliberately does not pin it — and a marker in an unpinned file is a hard failure by design. |
+  | `lint-no-domain-in-builtin.mjs` | the SIBLING GUARD over this same invariant. It must SPELL what it hunts (#304's case) and it *cannot* use a `txr:guard-vocabulary` block, because `check-guard-integrity.sh` deliberately does not pin it — and a marker in an unpinned file is a hard failure by design. |
   | `domain-baseline.json` | that guard's committed per-(file,token) ratchet BASELINE: a record of the hits it tolerates, which cannot exist without spelling them. |
   | `lint-no-domain-in-builtin.test.mjs` | its control suite — it PLANTS the vocabulary it asserts the guard reports. |
   | `capture-surface-baseline.test.mjs` | the surface-baseline control suite, same shape. |
@@ -494,7 +494,7 @@ it is recorded here rather than quietly fixed.
 
 1. **A value from the declaration is interpolated into FOUR matcher languages** — an awk ERE, a
    BRE `grep`, a Python `re` and a git PATHSPEC — and the first cut escaped for one of them.
-   `vocab_block_open cyto:guard-vocabulary(` made awk's *lazily compiled* dynamic regex fail on
+   `vocab_block_open txr:guard-vocabulary(` made awk's *lazily compiled* dynamic regex fail on
    the first BUILD file, so awk died on **every** build file with its stderr swallowed, the
    guard read "no hits", and it printed PASS over a planted leak *while still reporting the same
    file count* — because that count is a line count of the file LIST and never had anything to

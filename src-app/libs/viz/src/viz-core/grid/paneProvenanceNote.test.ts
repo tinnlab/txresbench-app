@@ -2,7 +2,7 @@
 // surfaces it has to reach.
 //
 // ── WHY THE FIELD EXISTS ─────────────────────────────────────────────────────────────────────────
-// A host may know something about a picture that the picture cannot show: in ziee's case, that the
+// A host may know something about a picture that the picture cannot show: in txresbench's case, that the
 // artifact supplying its colouring never declared which row space it is aligned to, so the points
 // and the colours may or may not be about the same cells. That fact is only worth carrying if it is
 // carried where the picture is READ. A marker shown once, in the picker, at the moment of choosing,

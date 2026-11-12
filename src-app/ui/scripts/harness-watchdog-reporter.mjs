@@ -33,7 +33,7 @@
  * tears down workers and the webServers it started, and exits non-zero. A
  * `process.exit()` here would orphan both.
  */
-import { resolveWorktreeRoot } from '@ziee/gallery/scripts/lib/run-key.mjs'
+import { resolveWorktreeRoot } from '@txresbench/gallery/scripts/lib/run-key.mjs'
 
 import { DEAD_ORIGIN_SIGNATURE, classifyOrigin, originBanner, originIsOurs } from './harness-origin.mjs'
 import { readOrigins } from './harness-preflight.mjs'
@@ -149,7 +149,7 @@ export default class HarnessWatchdogReporter {
     //
     // It reads the RUNNING CONFIG'S OWN `grepInvert` rather than an env var, because
     // this reporter is shared by all four configs and only one of them narrows. Keying
-    // on `CYTO_E2E_REAL_COMPUTE` would have made the viz/gallery/visual runs — which
+    // on `TXR_E2E_REAL_COMPUTE` would have made the viz/gallery/visual runs — which
     // exclude nothing — print an exclusion notice, and a disclaimer that appears on runs
     // it does not describe is one readers learn to skip. Whatever a config declares is
     // what gets announced; a config that declares no narrowing says nothing.

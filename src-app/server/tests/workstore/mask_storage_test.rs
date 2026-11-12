@@ -18,9 +18,9 @@
 use serde_json::json;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::mask::{mask_meta, mask_source_dataset_ids, MASK_ROLE};
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::mask::{mask_meta, mask_source_dataset_ids, MASK_ROLE};
 
 use super::{pool_for, setup_admin};
 use crate::common::TestServer;

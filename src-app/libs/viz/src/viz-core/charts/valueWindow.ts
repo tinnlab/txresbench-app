@@ -1,5 +1,5 @@
 // valueWindow.ts — the VALUE-AXIS (violin y) view of the dataZoom window model (the legacy
-// CytoAnalyst `dataZoom: {type:'inside', yAxisIndex:[0]}`). A violin is navigated NOT by a
+// TxResBench `dataZoom: {type:'inside', yAxisIndex:[0]}`). A violin is navigated NOT by a
 // free 2-D camera but by a contiguous VALUE window `[lo, hi]`: the category (group / x) axis
 // is FIXED, and zooming the value window RE-FILTERS + RE-DENSIFIES each group's KDE to the
 // visible band. The window MATH (clamp/zoom/pan) now lives in the generic `./axisWindow`; this

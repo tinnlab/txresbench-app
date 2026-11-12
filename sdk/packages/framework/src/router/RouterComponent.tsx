@@ -7,9 +7,9 @@ import { LayoutRouteElement, layoutRouteKey } from './layout-route'
 import { getRouterConfig } from './config'
 import type { LayoutDefinition, RouteConfig } from './types'
 
-// @ziee/framework/router — the router component.
+// @txresbench/framework/router — the router component.
 //
-// A domain-agnostic port of ziee's `RouterComponent`. Responsibilities:
+// A domain-agnostic port of txresbench's `RouterComponent`. Responsibilities:
 //  - group routes by auth requirement (protected vs public),
 //  - group routes by layout (one layout instance per layout object),
 //  - wrap protected routes in the registered `routeGuards` (fail-closed),

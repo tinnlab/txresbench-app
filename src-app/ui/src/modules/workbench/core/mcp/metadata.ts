@@ -4,7 +4,7 @@
 // server + JWT/approval wiring). P5's job here is to (a) DECLARE the LLM-facing
 // metadata (already on `Contribution`, §0.4.2) and (b) expose a stable,
 // backend-readable PROJECTION P9's generator ingests — the `ContributionCatalog`
-// (analogous to `ziee-control-mcp`'s `Operation` catalog, but sourced from the
+// (analogous to `txresbench-control-mcp`'s `Operation` catalog, but sourced from the
 // contribution registry instead of OpenAPI). P9's future `init_from_registry`
 // consumes THIS shape (it does not exist yet — verified — so P5 defines it forward).
 

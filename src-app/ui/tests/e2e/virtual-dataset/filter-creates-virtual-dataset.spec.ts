@@ -11,8 +11,8 @@ import { REAL_COMPUTE, REAL_COMPUTE_SKIP } from '../14-workbench/_analysis'
 // unchanged and the mask HIDDEN (never listed). This is the twin of integrate→dataset: same
 // "a run produced a new dataset" affordance, source count 1, a mask instead of an alignment.
 //
-// HOST-CAPABILITY-gated on CYTO_E2E_REAL_COMPUTE (a sandbox-executable backend: bwrap +
-// CYTO_ENV_ROOTFS_DIR) — a real filter run is a real compute. The gate is a describe-level
+// HOST-CAPABILITY-gated on TXR_E2E_REAL_COMPUTE (a sandbox-executable backend: bwrap +
+// TXR_ENV_ROOTFS_DIR) — a real filter run is a real compute. The gate is a describe-level
 // `test.skip`, so a capability-less run reports it as skipped rather than dropping it.
 
 /** The owner's datasets that belong to `projectId` (`GET /api/projects/{id}/datasets`). */

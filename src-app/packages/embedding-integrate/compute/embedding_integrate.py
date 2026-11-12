@@ -14,7 +14,7 @@ rule here, it belongs in the engine, where the reader has no second copy to dive
 ## The run contract
 
 Mirrors `annotation_integrate.py`: read `/inputs/<slot>` + `inputs.json` + `params.json`;
-write `/outputs/<file>` + `/outputs/manifest.json`. `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR`
+write `/outputs/<file>` + `/outputs/manifest.json`. `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR`
 override the roots for the off-sandbox harness.
 
 ## Inputs — a dataset × column GRID, carried by the SLOT NAMES
@@ -92,10 +92,10 @@ from pathlib import Path
 import numpy as np
 
 import alignment as engine
-import cyto_deps
-import cyto_columns
-import cyto_zarr
-import cyto_zarr_read
+import txr_deps
+import txr_columns
+import txr_zarr
+import txr_zarr_read
 
 #: The alignment table's own axis. DOMAIN-FREE on purpose, and it must equal the axis the
 #: `dataset-alignment` datatype declares: this producer aligns whichever entity axis the
@@ -134,7 +134,7 @@ LEVEL_SLOT_PREFIX = "level:"
 ROWS_SLOT = "rows"
 
 #: The constant member a single-column `metadata-column` store writes its values under
-#: (`cyto_columns.write_metadata_column` → `t.string("values", …)` / `key="values"`).
+#: (`txr_columns.write_metadata_column` → `t.string("values", …)` / `key="values"`).
 #: Measured on the live catalog: every emitted `structure.columns[0].name` is this.
 COLUMN_MEMBER = "values"
 
@@ -142,8 +142,8 @@ COLUMN_MEMBER = "values"
 # ─────────────────────────────── I/O idioms (mirrors annotation_integrate) ─────
 
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -310,12 +310,12 @@ def read_single_column(root, slot):
 
     The member is the constant `COLUMN_MEMBER` — measured, not assumed: every emitted
     `structure.columns[0].name` on the live catalog is `values`, and
-    `cyto_columns.write_metadata_column` writes exactly that one member.
+    `txr_columns.write_metadata_column` writes exactly that one member.
 
-    Read through `cyto_zarr_read`, the producer-side reader, so this decodes what the writer
+    Read through `txr_zarr_read`, the producer-side reader, so this decodes what the writer
     wrote rather than re-deriving the container by hand.
     """
-    structure = cyto_zarr_read.structure(root)
+    structure = txr_zarr_read.structure(root)
     members = {m.get("name") or m.get("path") for m in (structure.get("columns") or [])}
     if COLUMN_MEMBER not in members:
         raise engine.AlignmentError(
@@ -324,7 +324,7 @@ def read_single_column(root, slot):
             "under that constant member, so this is not one. Bind the column artifact, not "
             "the store it came from"
         )
-    values = cyto_zarr_read.read_column(root, COLUMN_MEMBER)
+    values = txr_zarr_read.read_column(root, COLUMN_MEMBER)
     values = values.tolist() if hasattr(values, "tolist") else list(values)
 
     # THE STORED CODE SPACE, taken from the member's own stamp — NOT inferred from the
@@ -342,14 +342,14 @@ def read_single_column(root, slot):
     # which the engine refuses when the column actually carries values. Collapsing the two
     # made a member with no stamp read as declaring emptiness, mapping every one of that
     # source's rows to NA while the coverage record reported nothing dropped.
-    stamped = cyto_zarr_read.read_meta(root, COLUMN_MEMBER)
-    cyto = (stamped.get("attributes", {}) or {}).get("cyto", {}) or {}
-    declared = cyto.get("levels")
+    stamped = txr_zarr_read.read_meta(root, COLUMN_MEMBER)
+    txr = (stamped.get("attributes", {}) or {}).get("txr", {}) or {}
+    declared = txr.get("levels")
     return (
         values,
         None if declared is None else list(declared),
         declared_axis_digest(structure),
-        cyto.get("kind"),
+        txr.get("kind"),
     )
 
 
@@ -455,7 +455,7 @@ def load_grid(inputs_dir, params, *, with_rows, with_levels):
             slot_name = f"{ROWS_SLOT}[{index}]"
             root = require_mount(rows[index], slot_name)
             row_keys, _levels, _digest, _kind = read_single_column(root, slot_name)
-            check_declared_key_digest(cyto_zarr_read.structure(root), row_keys, slot_name)
+            check_declared_key_digest(txr_zarr_read.structure(root), row_keys, slot_name)
 
         row_columns, declared_levels = {}, {}
         for column, entry in sorted(levels.get(index, {}).items()):
@@ -559,7 +559,7 @@ def check_declared_key_digest(structure, row_keys, slot_name):
     declared = structure.get("key_sequence_digest")
     if not declared:
         return
-    actual = cyto_zarr.key_sequence_digest([str(k) for k in row_keys])
+    actual = txr_zarr.key_sequence_digest([str(k) for k in row_keys])
     if str(declared) != actual:
         raise engine.AlignmentError(
             f"the artifact bound at slot {slot_name!r} declares key_sequence_digest "
@@ -657,7 +657,7 @@ def write_alignment(out_dir, sources, vectors, metadata):
     The entity keys are the table's OWN key member, so the artifact declares its identity the
     way every other key artifact does (`key` + `key_sequence_digest`, both recomputed from
     the stored bytes by the framework gate). The three vectors ride `aux`, whose extents are
-    what bound them — see `cyto_zarr.Table.aux`.
+    what bound them — see `txr_zarr.Table.aux`.
     """
     root = out_dir / "alignment.zarr"
     n_entities = len(vectors["entities"])
@@ -689,12 +689,12 @@ def write_alignment(out_dir, sources, vectors, metadata):
     # union/authority rule, which is the second copy this engine exists to avoid.
     #
     # It is a USER-VISIBLE defect, not a producer-internal gap. The browser reads a
-    # categorical's labels from `attributes.cyto.levels`; with no vocabulary to serve, a
+    # categorical's labels from `attributes.txr.levels`; with no vocabulary to serve, a
     # fused cell-type column renders `0, 1, 2` instead of `B, T, NK`.
     #
     # It rides the GROUP ATTRIBUTES rather than `structure`, and that placement is the
     # point: `Table.close()` stamps `attributes` into the store's own `zarr.json` beside
-    # `cyto`, while `structure` also rides the manifest entry into the artifact row — which
+    # `txr`, while `structure` also rides the manifest entry into the artifact row — which
     # is capped by `MAX_MANIFEST_BYTES`. A full vocabulary on the row is the 450 KB member
     # entry that cap already forced into a digest once. So the labels live where a
     # categorical member's own levels live: in the store, with the bytes, uncapped and
@@ -716,9 +716,9 @@ def write_alignment(out_dir, sources, vectors, metadata):
         column: lookup.get("missing_level")
         for column, lookup in sorted(vectors["level_lookups"].items())
     }
-    with cyto_zarr.Table(
+    with txr_zarr.Table(
         root, axis=ALIGNMENT_AXIS, n=n_entities, key="unified_key",
-        attributes={"cyto_alignment": {"unified_levels": unified_levels,
+        attributes={"txr_alignment": {"unified_levels": unified_levels,
                                        "missing_levels": missing_levels}},
     ) as table:
         table.string("unified_key", [str(e) for e in vectors["entities"]])
@@ -828,7 +828,7 @@ def _order_evidence(levels):
         return levels
     return {
         "n_levels": len(levels),
-        "order_digest": cyto_zarr.key_sequence_digest(levels),
+        "order_digest": txr_zarr.key_sequence_digest(levels),
         "truncated": True,
     }
 
@@ -974,7 +974,7 @@ def main():
         ),
         output_entry(
             "alignment-summary", "data/opaque", "opaque", summary_rel, "intermediate",
-            structure=cyto_columns.opaque("application/json"),
+            structure=txr_columns.opaque("application/json"),
             meta=None, hidden=True,
         ),
     ]
@@ -982,9 +982,9 @@ def main():
     # this entry declares) before the manifest is written, and refuse the run if the
     # environment does not satisfy the declaration. On the one path every successful run
     # takes, so recording is structural rather than remembered.
-    # The datatype is THIS package's, passed in: `cyto_deps` is app-core and may not
+    # The datatype is THIS package's, passed in: `txr_deps` is app-core and may not
     # name a contributed domain's vocabulary, so the caller supplies the pair.
-    cyto_deps.augment(out_dir, entries, DT_RUN_ENVIRONMENT)
+    txr_deps.augment(out_dir, entries, DT_RUN_ENVIRONMENT)
     (out_dir / "manifest.json").write_text(json.dumps({"outputs": entries}, indent=2))
     return 0
 

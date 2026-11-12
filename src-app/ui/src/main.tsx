@@ -2,8 +2,8 @@ import './polyfills' // crypto.randomUUID fallback for plain-HTTP LAN contexts â
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from '@/App'
-import { AppErrorBoundary } from '@ziee/shell'
-import { installChunkLoadRecovery } from '@ziee/framework/chunk-recovery'
+import { AppErrorBoundary } from '@txresbench/shell'
+import { installChunkLoadRecovery } from '@txresbench/framework/chunk-recovery'
 import '@/index.css'
 
 // Code-split chunk failure recovery. A deploy while this tab is open invalidates
@@ -13,7 +13,7 @@ import '@/index.css'
 // error say "the app may have been updated, reload".
 //
 // It deliberately does NOT `preventDefault()` the event and does NOT reload the
-// page; see the header of `@ziee/framework/chunk-recovery` for why each of those
+// page; see the header of `@txresbench/framework/chunk-recovery` for why each of those
 // would be actively harmful (preventDefault makes the failed import RESOLVE with
 // `undefined`; auto-reload destroys unsent in-progress work).
 installChunkLoadRecovery()

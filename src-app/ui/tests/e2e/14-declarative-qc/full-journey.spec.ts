@@ -62,7 +62,7 @@ import { DT } from './_fixtures'
 //     attached to a project through the UI and is then listed by that project. Every one of
 //     those is a real product behaviour that a sandbox-less host can genuinely falsify.
 //
-//   TEST 2 — GATED on `CYTO_E2E_REAL_COMPUTE`, tagged `@acceptance`. Everything downstream
+//   TEST 2 — GATED on `TXR_E2E_REAL_COMPUTE`, tagged `@acceptance`. Everything downstream
 //     of a conversion that must actually SUCCEED: the import reaching `Ready` with a
 //     populated lineage graph, the produced artifact arriving in the picker with no reload,
 //     the click that chooses it, the run it launches, and the run's OUTPUT.
@@ -105,7 +105,7 @@ const NAME_SOURCE_SUMMARY = 'widget-geneNamesPicker-summary'
 
 /** The input picker's three arms — one per candidate cardinality (`ArtifactRefWidget`).
  *
- *  This journey is the reason `@ziee/kit`'s `MultiSelect` has `stopFromTagClose`. Its trigger
+ *  This journey is the reason `@txresbench/kit`'s `MultiSelect` has `stopFromTagClose`. Its trigger
  *  fills with TAGS once something is chosen, and the tags used to swallow every gesture aimed at
  *  them (a blanket guard meant for the `×` alone) — so `picker.click()` here landed on the tag
  *  the auto-chosen first input had left behind, focused the control, and did not open it. Nothing

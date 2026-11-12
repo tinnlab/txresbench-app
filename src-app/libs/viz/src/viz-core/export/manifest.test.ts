@@ -7,7 +7,7 @@ const base: FigureManifestInput = {
   colorBy: { mode: 'categorical', key: 'group', colormap: 'viridis' },
   valueRange: [0, 10], hiddenGroups: ['C'],
   linkValueFilters: [{ column: 'qc', range: [0, 5] }],
-  seed: 12345, toolVersion: 'ziee-1.0.0', vizVersion: 'viz-0.9',
+  seed: 12345, toolVersion: 'txresbench-1.0.0', vizVersion: 'viz-0.9',
 }
 
 describe('hashRows (ITEM-6)', () => {
@@ -36,7 +36,7 @@ describe('buildFigureManifest (ITEM-6 / ITEM-7)', () => {
     expect(m.filters.link).toEqual([{ column: 'qc', range: [0, 5] }])
   })
   it('records the RNG seed + versions (reproducibility)', () => {
-    expect(m.reproducibility).toEqual({ seed: 12345, toolVersion: 'ziee-1.0.0', vizVersion: 'viz-0.9' })
+    expect(m.reproducibility).toEqual({ seed: 12345, toolVersion: 'txresbench-1.0.0', vizVersion: 'viz-0.9' })
   })
   it('injectable clock makes it deterministic', () => {
     expect(m.createdAt).toBe('2026-07-24T00:00:00.000Z')
@@ -46,7 +46,7 @@ describe('buildFigureManifest (ITEM-6 / ITEM-7)', () => {
     expect(m2.data.contentHash).toBeNull()
   })
   it('serializes to pretty JSON', () => {
-    expect(JSON.parse(manifestToJSON(m)).schema).toBe('ziee-viz-figure/1')
+    expect(JSON.parse(manifestToJSON(m)).schema).toBe('txresbench-viz-figure/1')
   })
 })
 
@@ -64,7 +64,7 @@ describe('buildFigureManifest — selection provenance (ITEM-17 / CONV-7)', () =
   it('omits `selection` entirely when the figure had none — schema unchanged', () => {
     const m = buildFigureManifest(base)
     expect('selection' in m).toBe(false)
-    expect(m.schema).toBe('ziee-viz-figure/1')
+    expect(m.schema).toBe('txresbench-viz-figure/1')
   })
 
   it('omits `selection` when the op list is empty rather than emitting an empty recipe', () => {

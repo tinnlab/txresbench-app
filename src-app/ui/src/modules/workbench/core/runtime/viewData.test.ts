@@ -54,7 +54,7 @@ import type { Scope } from './expr'
 // DRIFT-3.5 — the job-result DATA RESOLVER seam: a `view_spec`'s `data.rowmeta = { source:
 // job.result, args: { path: /rowmeta } }` declaration resolves (via an injected reader, no
 // backend) into the columnar `/rowmeta` slice, which the scatter data source /
-// `buildScatterOption` decode into the `@ziee/viz` `VizOption` + source the center scatter
+// `buildScatterOption` decode into the `@txresbench/viz` `VizOption` + source the center scatter
 // paints from.
 
 /** A resolved slice in the shape the reader ACTUALLY mints — a bare columnar
@@ -92,7 +92,7 @@ describe('sliceDatatype (FE3, INV-6 — declared datatype, not hardcoded demo/re
 // `columnarFromTable` transposes the row-major table back to the columnar
 // `{ col: values[] }` slice the widgets read.
 //
-// Proven against the fixture tree the PYTHON writer produced (`cyto_zarr.Table` →
+// Proven against the fixture tree the PYTHON writer produced (`txr_zarr.Table` →
 // `src/core/workstore/__fixtures__/zarr/table`), decoded through the REAL shipped reader
 // with the fixture files served as a `memoryStore` — the exact `{ path → bytes }` shape
 // `/data/{*member}` serves. So this is a cross-language byte-parity check of the whole
@@ -116,11 +116,11 @@ describe('columnarFromTable (ITEM-25 rowmeta wire — a REAL Zarr decode of the 
   it('transposes a decoded Zarr table back to the columnar slice the widgets read', async () => {
     const tree = loadTree(join(FIXTURES, 'table'))
     const groupMeta = JSON.parse(new TextDecoder().decode(tree.get('zarr.json')!)) as {
-      attributes: { cyto: unknown }
+      attributes: { txr: unknown }
     }
     // The producer stamps the SAME `structure` document into the group's `zarr.json` and
     // into the artifact row, so reading it here reads what production reads.
-    const structure = parseStructure('fixture', groupMeta.attributes.cyto)
+    const structure = parseStructure('fixture', groupMeta.attributes.txr)
     const table = await decodeTable('fixture', structure, { store: memoryStore(tree) })
     const slice = columnarFromTable(table)
 
@@ -1509,9 +1509,9 @@ describe('a decoded slice satisfies the KERNEL CONTRACT, whatever its representa
   it('every column is consumable, correctly sized, and carries the producer\'s values', async () => {
     const tree = loadTree(join(FIXTURES, 'table'))
     const groupMeta = JSON.parse(new TextDecoder().decode(tree.get('zarr.json')!)) as {
-      attributes: { cyto: unknown }
+      attributes: { txr: unknown }
     }
-    const structure = parseStructure('fixture', groupMeta.attributes.cyto)
+    const structure = parseStructure('fixture', groupMeta.attributes.txr)
     const table = await decodeTable('fixture', structure, { store: memoryStore(tree) })
     const slice = columnarFromTable(table)
 
@@ -1541,9 +1541,9 @@ describe('a decoded slice satisfies the KERNEL CONTRACT, whatever its representa
     // and the categorical must offer its levels.
     const tree = loadTree(join(FIXTURES, 'table'))
     const groupMeta = JSON.parse(new TextDecoder().decode(tree.get('zarr.json')!)) as {
-      attributes: { cyto: unknown }
+      attributes: { txr: unknown }
     }
-    const structure = parseStructure('fixture', groupMeta.attributes.cyto)
+    const structure = parseStructure('fixture', groupMeta.attributes.txr)
     const table = await decodeTable('fixture', structure, { store: memoryStore(tree) })
     const slice = columnarFromTable(table)
 
@@ -1579,9 +1579,9 @@ describe('a decoded slice satisfies the KERNEL CONTRACT, whatever its representa
   it('the reader that PRODUCES the typed form satisfies the identical contract', async () => {
     const tree = loadTree(join(FIXTURES, 'table'))
     const groupMeta = JSON.parse(new TextDecoder().decode(tree.get('zarr.json')!)) as {
-      attributes: { cyto: unknown }
+      attributes: { txr: unknown }
     }
-    const structure = parseStructure('fixture', groupMeta.attributes.cyto)
+    const structure = parseStructure('fixture', groupMeta.attributes.txr)
     const slice = await readColumnarTable('fixture', structure, { store: memoryStore(tree) })
 
     // The representation really is the new one — otherwise every assertion below would be
@@ -1609,9 +1609,9 @@ describe('a decoded slice satisfies the KERNEL CONTRACT, whatever its representa
   it('a REALLY-decoded typed slice moves the canvas revision (the freeze guard, end to end)', async () => {
     const tree = loadTree(join(FIXTURES, 'table'))
     const groupMeta = JSON.parse(new TextDecoder().decode(tree.get('zarr.json')!)) as {
-      attributes: { cyto: unknown }
+      attributes: { txr: unknown }
     }
-    const structure = parseStructure('fixture', groupMeta.attributes.cyto)
+    const structure = parseStructure('fixture', groupMeta.attributes.txr)
     const slice = await readColumnarTable('fixture', structure, { store: memoryStore(tree) })
 
     const spec = {

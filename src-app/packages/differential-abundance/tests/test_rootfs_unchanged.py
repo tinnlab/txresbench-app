@@ -34,7 +34,7 @@ _LIB = Path(__file__).resolve().parents[2] / "_lib"
 if str(_LIB) not in sys.path:
     sys.path.insert(0, str(_LIB))
 
-import cyto_deps  # noqa: E402  — `_lib`, reached by the path insert above; a unique flat name
+import txr_deps  # noqa: E402  — `_lib`, reached by the path insert above; a unique flat name
 from zero_core_guard import diff_point, require_introducing_branch  # noqa: E402
 
 _PKG = Path(__file__).resolve().parents[1]
@@ -408,8 +408,8 @@ def test_every_third_party_module_the_compute_imports_is_DECLARED_and_PINNED():
     stdlib = {"os", "sys", "json", "math", "random", "pathlib", "importlib", "inspect", "re",
               "datetime", "argparse", "subprocess", "warnings", "collections", "itertools",
               "functools", "typing", "dataclasses"}
-    local = {"_shared", "_regime", "_kernel", "_nhoods", "cyto_columns", "cyto_zarr",
-             "cyto_zarr_read", "cyto_csc", "cyto_deps"}
+    local = {"_shared", "_regime", "_kernel", "_nhoods", "txr_columns", "txr_zarr",
+             "txr_zarr_read", "txr_csc", "txr_deps"}
 
     manifest = yaml.safe_load((_PKG / "manifest.yaml").read_text())
     analyses = {a["id"]: a for a in manifest["contributes"]["analyses"]}
@@ -434,7 +434,7 @@ def test_every_third_party_module_the_compute_imports_is_DECLARED_and_PINNED():
         # (`processor_manifest.rs::lint_declared_dependencies`) only requires declared ⊆ pinned
         # and in range; it has no way to know whether the code uses what it declared. A
         # declaration that is never imported is a false statement about the run in the same
-        # provenance record as the true ones, and — now that `cyto_deps` derives its runtime
+        # provenance record as the true ones, and — now that `txr_deps` derives its runtime
         # subject set from this declaration — it also makes the run REFUSE on the absence of a
         # library it never wanted.
         imported_dists = {DISTRIBUTION.get(m, m) for m in seen - stdlib - local}
@@ -537,7 +537,7 @@ def _raise(message, code=2):
 
 _IMPORT_PROBE = '''
 import atexit, os, sys
-_out = os.environ.get("CYTO_TEST_IMPORT_PROBE")
+_out = os.environ.get("TXR_TEST_IMPORT_PROBE")
 if _out:
     def _dump():
         try:
@@ -574,7 +574,7 @@ def _modules_the_entry_actually_loaded(run, params):
     run.run_ok(params, env_extra={
         "PYTHONPATH": os.pathsep.join(
             [str(probe_dir), str(_HELPERS_DIR), str(_LIB_DIR), *inherited]),
-        "CYTO_TEST_IMPORT_PROBE": str(sink),
+        "TXR_TEST_IMPORT_PROBE": str(sink),
     })
     assert sink.is_file(), "the import probe never wrote — the sitecustomize hook did not run"
     return {m for m in sink.read_text().split("\n") if m}
@@ -591,7 +591,7 @@ _EXPECTED_ENV_IMPORTS = {
         # `nb_glm` (the arm that exists on every host), so pydeseq2 legitimately does not appear.
         # Its import path is exercised by the pydeseq2 arm of the suite.
         "engine_gated": {"pydeseq2"},
-        # `anndata` via pydeseq2; `packaging` via `cyto_deps`, which uses it to resolve the
+        # `anndata` via pydeseq2; `packaging` via `txr_deps`, which uses it to resolve the
         # declared version ranges and is pinned in the recipe for exactly that reason.
         # `pyarrow` arrives with `pandas`, which this entry DECLARES (#305). `pandas/compat/
         # pyarrow.py` runs `import pyarrow as pa` at `import pandas` time, guarded by
@@ -615,7 +615,7 @@ _EXPECTED_ENV_IMPORTS = {
         #
         # It stays UNDECLARED, and that is a deliberate refusal rather than an omission: the entry
         # calls no pyarrow API, and `run.dependencies[]` is a RUNTIME REFUSAL contract
-        # (`_lib/cyto_deps.py`) — declaring it would make an unused library a hard requirement and
+        # (`_lib/txr_deps.py`) — declaring it would make an unused library a hard requirement and
         # newly refuse runs on any image lacking it (#263 says that image exists). The transitive
         # arm one screen below is what keeps that honest, and TEST-6 re-derives the pull-in.
         #
@@ -719,7 +719,7 @@ _DECLARED_LIBRARIES_LOCK = {
 _ORIGIN_PROBE = '''
 import os, sys, traceback
 import importlib.abc
-_out = os.environ.get("CYTO_TEST_PYARROW_ORIGIN")
+_out = os.environ.get("TXR_TEST_PYARROW_ORIGIN")
 if _out:
     class _Trace(importlib.abc.MetaPathFinder):
         def find_spec(self, fullname, path=None, target=None):
@@ -759,14 +759,14 @@ if _out:
 #: detection either way would behave differently here than in a pyarrow-less image. Nothing under
 #: `compute/` calls either DIRECTLY, and code that did would be reaching for the library
 #: deliberately — which is the thing under test. `compute/_shared.py` does reach
-#: `importlib.metadata.version` transitively, through `cyto_deps.resolve_and_check`, but only ever
+#: `importlib.metadata.version` transitively, through `txr_deps.resolve_and_check`, but only ever
 #: with DECLARED library names, and `pyarrow` is not one — so the divergence is never activated.
 #: The difference is real and is written down rather than glossed; the list is "the ones found",
 #: not a proof there is no third.
 _BLOCK_PROBE = '''
 import os, sys
 import importlib.abc
-_marker = os.environ.get("CYTO_TEST_BLOCK_PYARROW")
+_marker = os.environ.get("TXR_TEST_BLOCK_PYARROW")
 if _marker:
     class _Block(importlib.abc.MetaPathFinder):
         def find_spec(self, fullname, path=None, target=None):
@@ -823,9 +823,9 @@ def _run_with_probe(run, params, probe_src, env_extra, *, name):
     return run.run(params, env_extra=env)
 
 
-#: `cyto_deps.OUTPUT_ID` — the reserved id of the per-run environment record that `augment()`
+#: `txr_deps.OUTPUT_ID` — the reserved id of the per-run environment record that `augment()`
 #: appends to EVERY run's manifest. Imported rather than retyped so it cannot drift.
-_RUN_ENVIRONMENT_OUTPUT_ID = cyto_deps.OUTPUT_ID
+_RUN_ENVIRONMENT_OUTPUT_ID = txr_deps.OUTPUT_ID
 
 
 def _declared_libraries():
@@ -846,7 +846,7 @@ def test_pyarrow_is_NOT_a_declaration_this_package_owes(
     and is therefore NOT a declaration this package owes". The ratchet asserts the second half on
     a REAL run; this asserts the FIRST half, and the substantive form of it is not "no file
     mentions the word" but **the entry does not DEPEND on the library** — which is what a
-    declaration would assert and what `_lib/cyto_deps.py` would then enforce as a refusal.
+    declaration would assert and what `_lib/txr_deps.py` would then enforce as a refusal.
 
     ## THIS TEST IS BEHAVIOURAL BECAUSE THREE STATIC DRAFTS OF IT FAILED, and that is the record
 
@@ -898,7 +898,7 @@ def test_pyarrow_is_NOT_a_declaration_this_package_owes(
 
     It also promotes the load-bearing fact from prose to assertion. "Both entries complete with
     pyarrow absent" is the whole reason #305 refused to declare it (declaring makes it a runtime
-    REFUSAL via `_lib/cyto_deps.py`), and until now that fact was only recorded in a comment.
+    REFUSAL via `_lib/txr_deps.py`), and until now that fact was only recorded in a comment.
 
     ## The static leg stays, as a TRIPWIRE, which is what this module already calls it
 
@@ -958,7 +958,7 @@ def test_pyarrow_is_NOT_a_declaration_this_package_owes(
         run = prepared or _bind_entry(analysis_id, clusters_run, neighbourhoods_run)[0]
         marker = run.outputs_dir.parent / "block_probe_installed.txt"
         proc = _run_with_probe(run, params, _BLOCK_PROBE,
-                               {"CYTO_TEST_BLOCK_PYARROW": str(marker)}, name="block_site")
+                               {"TXR_TEST_BLOCK_PYARROW": str(marker)}, name="block_site")
         # POSITIVE CONTROL FIRST. `site.execsitecustomize` swallows every exception from a
         # `sitecustomize`, so without this "the run succeeded" is also what a run that never had
         # pyarrow blocked reports — the assertion below would be trivially true.
@@ -986,7 +986,7 @@ def test_pyarrow_is_NOT_a_declaration_this_package_owes(
                 "pyarrow finding — the entry is broken for an unrelated reason and that reason is "
                 f"what to fix.\n--- unblocked stderr ---\n{(unblocked.stderr or '')[-3000:]}")
         # …and it must have DONE THE WORK, not merely exited 0. `outputs` being non-empty is NOT
-        # that check and a draft of this line got it wrong: `cyto_deps.augment` ALWAYS appends the
+        # that check and a draft of this line got it wrong: `txr_deps.augment` ALWAYS appends the
         # `run-environment` record, so the list is non-empty for any run that reaches the writer at
         # all. The real subject is an output that is not that record.
         outputs = run.manifest().get("outputs") or []
@@ -1008,7 +1008,7 @@ def test_pyarrow_is_NOT_a_declaration_this_package_owes(
         "that pyarrow arrives WITH pandas, so this test can no longer mean anything")
     assert "pyarrow" not in libs, (
         f"{analysis_id} DECLARES `pyarrow`, but the entry runs fine without it. "
-        "`run.dependencies[]` is a runtime refusal contract (`_lib/cyto_deps.py`): a library "
+        "`run.dependencies[]` is a runtime refusal contract (`_lib/txr_deps.py`): a library "
         "declared here must resolve, in range, in the image the job actually got, or the run is "
         "refused by name. Declaring one the entry does not need buys nothing and refuses runs on "
         "every image that lacks it (#305, #263).")
@@ -1078,7 +1078,7 @@ def test_the_pyarrow_pull_in_is_MEASURED_and_not_assumed(
     run, params = _bind_entry(analysis_id, clusters_run, neighbourhoods_run)
     sink = run.outputs_dir.parent / "pyarrow_origin.txt"
     proc = _run_with_probe(run, params, _ORIGIN_PROBE,
-                           {"CYTO_TEST_PYARROW_ORIGIN": str(sink)}, name="origin_site")
+                           {"TXR_TEST_PYARROW_ORIGIN": str(sink)}, name="origin_site")
     assert proc.returncode == 0, (
         f"the traced `{analysis_id}` run failed: {(proc.stderr or '')[-3000:]}")
     assert sink.is_file(), (
@@ -1119,15 +1119,15 @@ def test_the_pyarrow_pull_in_is_MEASURED_and_not_assumed(
         # pulling pyarrow in.
         proc = subprocess.run(
             [sys.executable, "-c",
-             f"{statement}\nimport sys\nprint('CYTO_PROBE=%s' % ('pyarrow' in sys.modules))"],
+             f"{statement}\nimport sys\nprint('TXR_PROBE=%s' % ('pyarrow' in sys.modules))"],
             capture_output=True, text=True)
         assert proc.returncode == 0, (
             f"the probe interpreter failed on {statement!r}: {proc.stderr[-2000:]}")
-        hits = [line for line in proc.stdout.splitlines() if line.startswith("CYTO_PROBE=")]
+        hits = [line for line in proc.stdout.splitlines() if line.startswith("TXR_PROBE=")]
         assert len(hits) == 1, (
             f"expected exactly one probe line for {statement!r}, got {hits} out of "
             f"{proc.stdout[-2000:]!r}")
-        return hits[0] == "CYTO_PROBE=True"
+        return hits[0] == "TXR_PROBE=True"
 
     assert _loaded("import pandas"), (
         "`import pandas` no longer leaves `pyarrow` in `sys.modules`, so the reason recorded in "

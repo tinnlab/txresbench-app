@@ -20,12 +20,12 @@ for `spatial/image`, the display-derivative provenance (#176).
 ## Why this lives HERE and not in `_lib`
 
 `_lib` is FRAMEWORK code: it is staged into every processor's `/code`, so anything it
-names it names on behalf of every producer that will ever exist. `cyto_columns.py`'s own
+names it names on behalf of every producer that will ever exist. `txr_columns.py`'s own
 header records what that costs when it is broken — it once defaulted the producer's axis
 to a single-cell axis name, i.e. a framework library authoring a domain declaration — and
 `scripts/check-derived-vocabulary.sh` now scans it for exactly that. Everything below is
 domain vocabulary. It belongs in the domain package, wrapping the framework writer rather
-than editing it: `write_spatial_coordinates` calls `cyto_columns.write_embedding`
+than editing it: `write_spatial_coordinates` calls `txr_columns.write_embedding`
 unchanged and adds only DECLARATIONS.
 
 The importer (#154) VENDORS this module verbatim, the way `embedding` vendors
@@ -1208,16 +1208,16 @@ SCALE_SOURCE_UNAVAILABLE = "unavailable"
 #:   * a `spatial/image` is `opaque` with NO store, so it carries its placement in its
 #:     OME-XML `Image/Description` ([`encode_placement`], prefixed by this token);
 #:   * a `spatial/coordinates` is a Zarr store, so it carries its declarations in that
-#:     store's own group `attributes.cyto` ([`mirror_declarations_into_store`], under
+#:     store's own group `attributes.txr` ([`mirror_declarations_into_store`], under
 #:     [`STRUCTURE_DECLARATION_KEY`], with this token as the block's `declares`).
 #:
-#: ONE token for both so a grep finds every channel, and so a future `cyto-spatial/2`
+#: ONE token for both so a grep finds every channel, and so a future `txr-spatial/2`
 #: cannot be introduced on one channel and forgotten on the other.
-SPATIAL_DECLARATION_TOKEN = "cyto-spatial/1"
+SPATIAL_DECLARATION_TOKEN = "txr-spatial/1"
 
-#: The marker that opens a `cyto` placement payload inside an OME-TIFF's own
+#: The marker that opens a `txr` placement payload inside an OME-TIFF's own
 #: `Image/Description`. DERIVED from the shared token above rather than restated: the
-#: literal it produces is unchanged (`"cyto-spatial/1 "`), so every artifact already
+#: literal it produces is unchanged (`"txr-spatial/1 "`), so every artifact already
 #: written still decodes, and the two channels can no longer be versioned apart.
 OME_PLACEMENT_PREFIX = SPATIAL_DECLARATION_TOKEN + " "
 
@@ -1228,7 +1228,7 @@ OME_PLACEMENT_PREFIX = SPATIAL_DECLARATION_TOKEN + " "
 #: create. On the zarr channel a block whose `declares` is not ours is found, recognised as
 #: OURS-BUT-WRONG-VERSION, and refused with a message naming the version. On the OME
 #: channel a prefix test against the exact current token cannot do that: after a bump to
-#: `cyto-spatial/2`, every image already written carries `"cyto-spatial/1 "`, the prefix
+#: `txr-spatial/2`, every image already written carries `"txr-spatial/1 "`, the prefix
 #: stops matching, `decode_placement` returns `None`, and `require_placement` reports
 #: "this image carries no coordinate-space declaration" — of an image that carries one.
 #: The operator is sent to look for a missing declaration and told nothing about a version.
@@ -1236,7 +1236,7 @@ OME_PLACEMENT_PREFIX = SPATIAL_DECLARATION_TOKEN + " "
 #: So the channel that exists to make a bump SAFE would have been the one that could not
 #: diagnose it. Matching on the family and reporting the version is what makes the shared
 #: token an actual lockstep rather than a shared way to fail differently.
-OME_PLACEMENT_FAMILY = "cyto-spatial/"
+OME_PLACEMENT_FAMILY = "txr-spatial/"
 
 #: The single `structure` key the spatial declarations ride under on the ZARR channel
 #: (#211). ONE nested key, not a flat merge, for three reasons:
@@ -1244,7 +1244,7 @@ OME_PLACEMENT_FAMILY = "cyto-spatial/"
 #:   * `structure` is a FRAMEWORK-owned namespace (`encoding`, `kind`, `axis`, `n`,
 #:     `columns`, `arrays`, `aligned_to`, `memberships`). Flat-merging a producer's
 #:     generic `unit`/`section`/`extent` into it takes a future collision this mirror does
-#:     not need to take — the same risk `cyto_csc._WRITER_OWNED_STRUCTURE_KEYS` refuses by
+#:     not need to take — the same risk `txr_csc._WRITER_OWNED_STRUCTURE_KEYS` refuses by
 #:     name for `structure_extra`.
 #:   * absence becomes ONE unambiguous question. Flat, a reader would have to ask "is
 #:     `unit` present?", which a future framework key could answer by accident.
@@ -1252,7 +1252,7 @@ OME_PLACEMENT_FAMILY = "cyto-spatial/"
 #:     [`require_micron_scale`] and [`require_full_positioning`] read it UNCHANGED. The
 #:     block a sandboxed consumer holds is the same shape the catalog row holds; no second
 #:     vocabulary is introduced.
-STRUCTURE_DECLARATION_KEY = "cyto_spatial"
+STRUCTURE_DECLARATION_KEY = "txr_spatial"
 
 #: The placement keys mirrored into the image bytes. Deliberately NOT the whole `meta`:
 #: this is the subset a consumer needs to PLACE the pixels, and every extra key is one
@@ -1317,7 +1317,7 @@ class _UnknownPlacementVersion:
     """A placement payload that is OURS but of a version this code does not understand.
 
     A sentinel type rather than `None`, so the two answers stay distinguishable: `None`
-    means "this image carries no cyto placement at all" and this means "it carries one I
+    means "this image carries no txr placement at all" and this means "it carries one I
     must refuse". Falsy, so an existing `if placement is None` / truthiness check keeps
     failing CLOSED for a caller that has not been taught about it.
     """
@@ -1338,7 +1338,7 @@ def decode_placement(ome_xml):
     """The placement a `spatial/image`'s OME-XML carries, or `None`.
 
     `ome_xml` is the string `tifffile.TiffFile.ome_metadata` returns. Returns `None` — not
-    a fabricated default — when the image carries no `cyto` payload, because an image
+    a fabricated default — when the image carries no `txr` payload, because an image
     written by some other tool legitimately has none and inventing an identity affine for
     it would be the exact silent misregistration §7.3 opens by describing.
     """
@@ -1365,14 +1365,14 @@ def decode_placement(ome_xml):
             # than as `None` so `require_placement` can say WHICH version it found — the
             # distinction between "no declaration" and "a declaration I must refuse".
             return _UnknownPlacementVersion(token)
-        # A node that CLAIMS to be a cyto placement and is not readable is a DAMAGED
+        # A node that CLAIMS to be a txr placement and is not readable is a DAMAGED
         # declaration, and this returns `None` for it rather than looking further.
         #
         # Skipping it and returning a later node's payload would be fail-OPEN in a
         # fail-closed module: `decode_placement` has no notion of which `<Image>` a
         # `Description` belongs to, so "keep looking" means "hand the caller some other
         # image's affine", which is the silent misregistration this module exists to
-        # prevent. Non-cyto `Description` nodes are still skipped by the prefix test above
+        # prevent. Non-txr `Description` nodes are still skipped by the prefix test above
         # — those are not damaged declarations, they are somebody else's metadata.
         try:
             payload = json.loads(body)
@@ -1410,7 +1410,7 @@ def require_placement(ome_xml, *, consumer):
     return placement
 
 
-# ── the ZARR channel: the store's own `attributes.cyto` (#211) ──────────────────────
+# ── the ZARR channel: the store's own `attributes.txr` (#211) ──────────────────────
 #
 # The exact counterpart of `encode_placement`/`decode_placement`/`require_placement`
 # above, for the kind that HAS a store. Same four-part shape, same refusal posture, same
@@ -1422,7 +1422,7 @@ def _read_stamped_structure(store_dir):
     """The `structure` a store stamped into its group `zarr.json`, or `None`.
 
     Every failure — no store, no `zarr.json`, unreadable, not JSON, not an object, no
-    `attributes.cyto` — collapses to `None` here, and the DECISION about what that means
+    `attributes.txr` — collapses to `None` here, and the DECISION about what that means
     is made one level up. Mirrors `embedding/compute/_shared.py::artifact_structure`,
     which a sandboxed reader in this tree already uses for exactly this read.
     """
@@ -1456,8 +1456,8 @@ def _read_stamped_structure(store_dir):
     attrs = doc.get("attributes")
     if not isinstance(attrs, dict):
         return None
-    cyto = attrs.get("cyto")
-    return cyto if isinstance(cyto, dict) else None
+    txr = attrs.get("txr")
+    return txr if isinstance(txr, dict) else None
 
 
 #: The sub-blocks a mirrored declaration may carry, each with the constructor that OWNS
@@ -1641,17 +1641,17 @@ def mirror_declarations_into_store(store_dir, *, structure, declarations):
 
     What DOES cross is the bytes. `stage_prefix_members` copies every member of a
     multi-file artifact byte-verbatim out of the content-addressed pool, and for a Zarr
-    artifact that includes `<store>/zarr.json`, whose `attributes.cyto` is the producer's
+    artifact that includes `<store>/zarr.json`, whose `attributes.txr` is the producer's
     `structure`. That is the whole mechanism.
 
     ## The two copies cannot disagree, by construction
 
     `_conform_group_attributes` (`_lib/conformance.py:1839-1871`) re-reads
-    `attributes.cyto` off the store and CONDEMNS the artifact unless it equals the
+    `attributes.txr` off the store and CONDEMNS the artifact unless it equals the
     manifest row's `structure` — "a consumer reading the store URL and a consumer reading
     the artifact row would decode differently". So this function does not write a second
     declaration; it merges into the ONE `structure` dict and then re-stamps that same dict
-    onto disk, exactly as `embedding/compute/_shared.py::stamp_cyto_attributes` does.
+    onto disk, exactly as `embedding/compute/_shared.py::stamp_txr_attributes` does.
     Re-implemented here rather than imported because that helper lives in another
     package's `compute/` and `/code` is assembled per package.
 
@@ -1705,7 +1705,7 @@ def mirror_declarations_into_store(store_dir, *, structure, declarations):
     # the writer returned would then silently desynchronise the row's `structure` from the
     # on-disk stamp — the exact drift `_conform_group_attributes` condemns, arriving
     # through a mutation nobody would think of as touching `structure` at all. Before this
-    # copy, `structure["cyto_spatial"]["section"] is meta["section"]` was True.
+    # copy, `structure["txr_spatial"]["section"] is meta["section"]` was True.
     block = {"declares": SPATIAL_DECLARATION_TOKEN}
     block.update(copy.deepcopy(validated))
 
@@ -1735,7 +1735,7 @@ def mirror_declarations_into_store(store_dir, *, structure, declarations):
     # module's type would miss.
     candidate = dict(structure)
     candidate[STRUCTURE_DECLARATION_KEY] = block
-    attrs["cyto"] = candidate
+    attrs["txr"] = candidate
     # THE ROUND TRIP, asserted rather than assumed. What is written must equal what is
     # read back, and "serializable" is weaker than that: a tuple in `segmentation.params`
     # serializes fine and comes back a LIST, so `measured_entity_label` — which renders
@@ -1924,12 +1924,12 @@ def write_spatial_coordinates(outputs_dir, rel_dir, arr, *, axis, space, entity,
     in a log, and a producer with every reason to believe it worked.
 
     Returns `(structure, meta)`, the two producer declarations the manifest entry carries
-    into the artifact row: `structure` from `cyto_columns.write_embedding` unchanged,
+    into the artifact row: `structure` from `txr_columns.write_embedding` unchanged,
     `meta` from [`coordinates_meta`] plus the writer's own fields.
     """
     import numpy as np
 
-    import cyto_columns
+    import txr_columns
 
     mat = np.asarray(arr)
     if getattr(mat, "ndim", 0) != 2:
@@ -1953,14 +1953,14 @@ def write_spatial_coordinates(outputs_dir, rel_dir, arr, *, axis, space, entity,
     meta_declarations = coordinates_meta(
         space=space, entity=entity, placement=placement, series=series, z=z
     )
-    structure, meta = cyto_columns.write_embedding(
+    structure, meta = txr_columns.write_embedding(
         outputs_dir, rel_dir, mat, axis=axis, name=name, kind="spatial-coordinates",
         aligned_to=aligned_to, membership=membership,
     )
     meta.update(meta_declarations)
     # ONE block, TWO destinations, ONE call site (#211). `meta` is the catalog row, which
     # no sandboxed consumer can read; the mirror puts the same dict into the store's own
-    # `attributes.cyto`, which is staged into the sandbox byte-verbatim. Written here, in
+    # `attributes.txr`, which is staged into the sandbox byte-verbatim. Written here, in
     # the ENFORCED writer, rather than left to each producer: a mirror a producer can
     # forget is the same silent-invisibility shape the always-2-D rule above is enforced
     # to avoid. It is also why the two copies cannot be derived differently — there is no

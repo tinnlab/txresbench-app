@@ -21,7 +21,7 @@ index (ITEM-17). p/padj members are OMITTED (INV-3/INV-4); the recorded method i
 """
 import _shared as S  # FIRST — pins the determinism env before numpy/scanpy load
 
-import cyto_deps
+import txr_deps
 import json
 
 import numpy as np
@@ -276,9 +276,9 @@ def main():
         "library_versions": _library_versions(),
     }
     (outputs_dir / "de-report.json").write_text(json.dumps(report, indent=2))
-    import cyto_columns
+    import txr_columns
     entries.append(S.output_entry("de-report", S.DT_REPORT_QC, "de-report.json", "artifact",
-                                  structure=cyto_columns.opaque("application/json"),
+                                  structure=txr_columns.opaque("application/json"),
                                   meta={"kind": "de-report", "analysis": "de.markers",
                                         "n_comparisons": len(comparisons)}))
     S.write_manifest(outputs_dir, entries)
@@ -301,10 +301,10 @@ def _library_versions():
       supported against, so recording it changes an outcome instead of only decorating
       the report.
 
-    Memoized in `cyto_deps`, so this and the manifest-write hook resolve once and cannot
+    Memoized in `txr_deps`, so this and the manifest-write hook resolve once and cannot
     disagree about what ran.
     """
-    return cyto_deps.resolve_and_check()["libraries"]
+    return txr_deps.resolve_and_check()["libraries"]
 
 
 if __name__ == "__main__":

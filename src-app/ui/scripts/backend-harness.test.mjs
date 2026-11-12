@@ -32,7 +32,7 @@ import {
   readFacts,
   setField,
 } from './e2e-config-derive.mjs'
-import { PORT_FLOORS, resolveWorktreeRoot } from '@ziee/gallery/scripts/lib/run-key.mjs'
+import { PORT_FLOORS, resolveWorktreeRoot } from '@txresbench/gallery/scripts/lib/run-key.mjs'
 
 import { reuseRequested } from './harness-origin.mjs'
 import {
@@ -213,7 +213,7 @@ logging:
 `
 
 test('derivation rewrites server.port + database.path and NOTHING else', () => {
-  const dbPath = '/tmp/cyto-e2e-9251.sqlite'
+  const dbPath = '/tmp/txr-e2e-9251.sqlite'
   const out = deriveConfig(BASE_YAML, { port: 9251, dbPath })
   const f = readFacts(out)
   assert.equal(f.serverPort, '9251')
@@ -425,7 +425,7 @@ test('the config WIRES the resolver verdict, the pre-flight and the watchdog', a
 
   // 5. the database + app-data dir carry the RUN discriminator, so two runs in one
   //    worktree cannot DROP each other's database.
-  assert.match(c.dataDir, new RegExp(`cytoanalyst_e2e_${backendPort}$`))
+  assert.match(c.dataDir, new RegExp(`txresbench_e2e_${backendPort}$`))
 
   // A disagreeing pre-set E2E_BACKEND is a hard failure, not a silent split.
   assert.throws(

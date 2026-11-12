@@ -913,7 +913,7 @@ def test_TEST_15_legitimate_UTF8_vendor_text_reads_the_SAME_under_an_ASCII_LOCAL
         report = _report(outputs)
         stamped = json.loads(
             (outputs / "spatial" / "coordinates.zarr" / "zarr.json").read_text(encoding="utf-8")
-        )["attributes"]["cyto"]["cyto_spatial"]
+        )["attributes"]["txr"]["txr_spatial"]
         seen[name] = {
             "vendor_note": report["scalefactors"].get("vendor_note"),
             "microns_per_pixel": report.get("microns_per_pixel"),

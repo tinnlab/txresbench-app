@@ -32,8 +32,8 @@
 
 use serde_json::json;
 
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::object_store::ObjectStore;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::object_store::ObjectStore;
 
 use super::{create_project, new_artifact, pool_for, server_store, setup_admin};
 use crate::common::TestServer;
@@ -408,7 +408,7 @@ async fn test48_range_query_param_semantics() {
     // ── the bare `Range:` header, alone, still answers RFC 9110 semantics ──────────
     // Kept deliberately: this surface advertises `Accept-Ranges: bytes`, so a generic
     // HTTP client (curl -r, a resumed download, a third-party range-aware reader) must
-    // get the standard answer. It is not the cacheable path and no ziee client emits
+    // get the standard answer. It is not the cacheable path and no txresbench client emits
     // it, so it cannot reintroduce the 206-caching problem `?range=` solves. This
     // assertion is what makes the 400 above a rule about AMBIGUITY rather than a
     // back-door removal of the header.
@@ -978,7 +978,7 @@ fn shard_bytes() -> Vec<u8> {
 
 #[tokio::test]
 async fn test15_member_ranges_are_exact_at_chunk_boundaries() {
-    use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
+    use txresbench::modules::workstore::ingest::ingest_run_outputs;
     use uuid::Uuid;
 
     let server = TestServer::spawn().await;

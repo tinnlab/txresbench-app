@@ -27,14 +27,14 @@
 // `overlays` template sweep at the same time would fold an unknown number of PRE-EXISTING,
 // never-triaged findings into every future feature's gate (DEC-8). Broadening it is a
 // deliberate follow-up, not something to slip in with a hardening branch.
-// NOTE the explicit `.ts`: `@ziee/gallery`'s `"./playwright/*"` export maps the subpath
+// NOTE the explicit `.ts`: `@txresbench/gallery`'s `"./playwright/*"` export maps the subpath
 // VERBATIM, so an extensionless specifier resolves to a non-existent file and Playwright dies
 // with ERR_MODULE_NOT_FOUND before running a single spec.
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { resolvedOnce } from './scripts/resolved-once.mjs'
 
-import { defineVisualConfig } from '@ziee/gallery/playwright/visual.config.ts'
+import { defineVisualConfig } from '@txresbench/gallery/playwright/visual.config.ts'
 
 // AND THE SAME REUSE DEFECT REACHES THIS CONFIG THROUGH THE SDK. `defineVisualConfig`
 // hardcodes `reuseExistingServer: !process.env.CI` and does no sentinel check, so off
@@ -43,7 +43,7 @@ import { defineVisualConfig } from '@ziee/gallery/playwright/visual.config.ts'
 // the shape that cost three viz runs (`viz-full-2.log`: 132 failures in 10.6 min,
 // every one `ERR_CONNECTION_REFUSED`, against a server that had been killed under it).
 //
-// `@ziee/gallery` is a pinned SUBMODULE this repo does not own, so the fix is applied
+// `@txresbench/gallery` is a pinned SUBMODULE this repo does not own, so the fix is applied
 // on THIS side of the boundary: the config it returns is spread and the two fields
 // that matter are overridden. Reported upstream rather than edited in place.
 //

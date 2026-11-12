@@ -2,7 +2,7 @@
 
 ## Substantively new in r2 (not in r1)
 - **Selection API + cell-set predicate DSL + in-process evaluator OWNED in P5 (ITEM-6).** r2 builds the bounded
-  typed DSL + evaluator→bitmask inside `@cyto/workbench-api`. r1 explicitly assigns the selection/cell-set DSL to
+  typed DSL + evaluator→bitmask inside `@txresbench/workbench-api`. r1 explicitly assigns the selection/cell-set DSL to
   **P8** (ITEM-5 is a re-export *seam*; ITEM-10 `cell-set-selector` "depends on P8"). Direct ownership conflict.
 - **Open datatype registry + subtype lattice OWNED in P5 (ITEM-4).** r2 builds `Datatype{extends,…}` +
   `isSubtypeOf` + the availability/type-match engine in the package. r1 assigns `DataKind`/`ResultKind` + the
@@ -15,8 +15,8 @@
   `switch(cell.kind)`+`CellKind`+`CELL_KIND_OPTIONS`+`KIND` drift-triple into an open `registerViewKind` registry
   the center-canvas dispatches through. r1 keeps plotTypes as "P5 = interface, P7 = impl" with no battery move
   and no live3 refactor.
-- **Namespace decision `@cyto/workbench-api`** (app-specific, promotion path to `@ziee/*` later). r1 decides the
-  opposite: `@ziee/workbench-api`. A conflicting up-front decision.
+- **Namespace decision `@txresbench/workbench-api`** (app-specific, promotion path to `@txresbench/*` later). r1 decides the
+  opposite: `@txresbench/workbench-api`. A conflicting up-front decision.
 - **`data` API as a dumb Range/byte server + client-side decode (zarrita/DuckDB-WASM) contract (ITEM-5).** r2
   pins the host-is-a-range-server / decode-in-extension split. r1's `data.*` is a typed accessor surface without
   the range-server-vs-client-decode boundary.
@@ -46,7 +46,7 @@ HMR-idempotent registry substrate holding the same eight contribution points
 `AnalysisContribution` to a `params: JsonSchema` + `defaults` + typed `accepts`/`produces` + `run: RunSpec` +
 `methodsText` + `ai`/`safety` shape, publish an `extension.yaml` manifest as a JSON-schema with a load-time
 validator that indexes contributions WITHOUT executing code, render params via an RJSF-style JSON-schema→
-`@ziee/kit` form reusing `shared.tsx`, with Tier-2 auto-populated type-filtered artifact-ref pickers, Tier-3
+`@txresbench/kit` form reusing `shared.tsx`, with Tier-2 auto-populated type-filtered artifact-ref pickers, Tier-3
 host widgets, and a Tier-4 code-form escape, discover built-ins via build-time `import.meta.glob` (+ staged
 compute assets), and add a backend `server/src/modules/extensions/` host module running declarative
 settings/result-kind/collections/jobs provisioners with ZERO per-extension Rust — via a generic JSONB runtime

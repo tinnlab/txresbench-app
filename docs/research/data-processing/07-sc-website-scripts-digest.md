@@ -1,6 +1,6 @@
 # 07 — Legacy `sc-website-scripts` Pipeline Digest
 
-> **Source:** `/data/pbya/ziee/tmp/cytoanalyst-ref/sc-website-scripts` (the
+> **Source:** `/data/pbya/txresbench/tmp/txresbench-ref/sc-website-scripts` (the
 > "iSCanGuide" project). Scripts run under the `QueueUtils` job-queue framework
 > (`github.com/tinnlab/sc-task-queue`) inside the `sc-common` conda environment.
 > This digest covers ONLY the **data-processing** scripts in scope:
@@ -73,7 +73,7 @@ QueueUtils::wrapCode({
   store (see §5).
 - `@env: sc-common` header pragma selects the conda env for the job.
 
-This is directly analogous to the ziee **jobs scheduler** — each processing step is
+This is directly analogous to the txresbench **jobs scheduler** — each processing step is
 a discrete, parameterized, logged job over a shared data store.
 
 ---

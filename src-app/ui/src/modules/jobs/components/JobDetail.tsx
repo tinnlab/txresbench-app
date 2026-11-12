@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Button, Spin, message } from '@ziee/kit'
+import { Button, Spin, message } from '@txresbench/kit'
 import { IoIosArrowBack } from 'react-icons/io'
 import { Jobs } from '@/modules/jobs/Jobs.store'
 import { JobStatusBadge } from './JobStatusBadge'

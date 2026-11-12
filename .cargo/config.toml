@@ -1,13 +1,13 @@
-# CytoAnalyst Cargo build configuration.
+# TxResBench Cargo build configuration.
 #
 # Cargo config lookup walks up from the INVOCATION dir, so this applies whether
 # you run from the repo root or from src-app/server.
 [env]
 # The committed SQLite build-DB sentinel (sqlite-store DEC-14). It is only a
-# MARKER — see `ziee_build_support::worktree_db`: the relative path is never
+# MARKER — see `txresbench_build_support::worktree_db`: the relative path is never
 # opened as-is; a `sqlite:` URL equal to this sentinel makes every build script
 # auto-isolate into a per-worktree file under `<worktree>/target/sqlx-build/`
-# (the `cytoanalyst_build_<key>.sqlite` wipe + re-migrate per build).
+# (the `txresbench_build_<key>.sqlite` wipe + re-migrate per build).
 #
 # The app's migration chain is SQLITE-ONLY since ITEM-26 (the postgres chains
 # are deleted; the SDK fork keeps its postgres leg at `migrations-pg/` for its
@@ -20,4 +20,4 @@
 # `build.rs`'s `cargo:rustc-env=DATABASE_URL`, so the macros verify against
 # the SQLite chain — the port's per-build check (INV-4: no SQLX_OFFLINE, no
 # macro→dynamic downgrade).
-DATABASE_URL = "sqlite://target/sqlx-build/cytoanalyst_build.sqlite"
+DATABASE_URL = "sqlite://target/sqlx-build/txresbench_build.sqlite"

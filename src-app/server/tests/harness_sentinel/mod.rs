@@ -44,7 +44,7 @@ async fn booted_server_identifies_its_worktree_at_the_root_sentinel() {
     let body: Value = resp.json().await.expect("sentinel json");
     assert_eq!(
         body["worktreeRoot"].as_str(),
-        Some(cytoanalyst::harness_sentinel::WORKTREE_ROOT),
+        Some(txresbench::harness_sentinel::WORKTREE_ROOT),
         "the served root must be the tree this binary was compiled from"
     );
     assert!(body["pid"].as_u64().is_some(), "pid is part of the banner");

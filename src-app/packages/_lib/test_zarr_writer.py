@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ruff: noqa
-"""TEST-7/8/9 — the `cyto_zarr` Zarr v3 sharded writer (ITEM-1..4).
+"""TEST-7/8/9 — the `txr_zarr` Zarr v3 sharded writer (ITEM-1..4).
 
 The reader used here is written **independently of the writer**: it parses the shard
 container by hand, checks the index with a bit-by-bit crc32c (the writer's is
@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import cyto_zarr as cz
+import txr_zarr as cz
 
 EMPTY = (1 << 64) - 1
 
@@ -112,7 +112,7 @@ def read_string(root, name):
     and a `values` member under one group."""
     group = json.loads((Path(root) / name / "zarr.json").read_text())
     assert group["node_type"] == "group"
-    assert group["attributes"]["cyto"]["layout"] == "split"
+    assert group["attributes"]["txr"]["layout"] == "split"
     offsets = read_array(root, f"{name}/offsets")
     payload = read_array(root, f"{name}/values").tobytes()
     return [payload[int(offsets[i]) : int(offsets[i + 1])].decode("utf-8")
@@ -277,7 +277,7 @@ def test_a_table_is_one_directory_with_n_members_sharing_an_axis(tmp_path):
 
     group = json.loads((root / "zarr.json").read_text())
     assert group["node_type"] == "group"
-    assert group["attributes"]["cyto"] == structure
+    assert group["attributes"]["txr"] == structure
     assert structure["axis"] == "cells" and structure["n"] == 4
     assert [c["name"] for c in structure["columns"]] == ["total", "cluster", "barcode"]
     assert [c["kind"] for c in structure["columns"]] == ["numeric", "categorical", "string"]
@@ -348,7 +348,7 @@ def test_the_category_set_lands_in_zarr_json_attributes(tmp_path):
     with cz.Table(root, axis="cells", n=3) as t:
         entry = t.categorical("arm", values=["ctrl", "treated", "ctrl"],
                               levels=cats, ordered=True)
-    attrs = read_meta(root, "arm")["attributes"]["cyto"]
+    attrs = read_meta(root, "arm")["attributes"]["txr"]
     assert attrs["kind"] == "categorical"
     # `levels` is the key the browser reader looks for — a cross-language contract.
     assert attrs["levels"] == cats
@@ -368,7 +368,7 @@ def test_a_declared_but_unused_category_survives_the_round_trip(tmp_path):
     with cz.Table(root, axis="cells", n=4) as t:
         t.categorical("arm", values=observed, levels=cats)
 
-    attrs = read_meta(root, "arm")["attributes"]["cyto"]
+    attrs = read_meta(root, "arm")["attributes"]["txr"]
     assert attrs["levels"] == cats, "the DECLARED set round-trips, not the observed one"
     assert "washout" in attrs["levels"] and "excluded" in attrs["levels"]
     codes = read_array(root, "arm")
@@ -649,7 +649,7 @@ def test_incremental_carries_attributes_and_dimension_names_identically(tmp_path
     caller declares must land byte-for-byte where the batch writer put them —
     `shape` is the ONLY thing the streaming writer learns late."""
     arr = np.arange(9, dtype="int32")
-    attrs = {"cyto": {"kind": "numeric", "name": "m", "levels": ["a", "b"]}}
+    attrs = {"txr": {"kind": "numeric", "name": "m", "levels": ["a", "b"]}}
     batch = tmp_path / "batch"
     incr = tmp_path / "incr"
     cz.write_array(batch, "m", arr, inner_chunk=4, chunks_per_shard=2,
@@ -858,7 +858,7 @@ def test_the_membership_index_body_is_an_ascending_uint32_member(tmp_path):
                               "derived_from": keys, "members": positions}) as t:
         t.numeric("values", np.arange(len(positions), dtype="float32"), dtype="float32")
     structure = json.loads((tmp_path / "t.zarr" / "zarr.json").read_text())
-    structure = structure["attributes"]["cyto"]
+    structure = structure["attributes"]["txr"]
 
     entry = structure["memberships"][0]
     assert entry["n_members"] == len(positions)

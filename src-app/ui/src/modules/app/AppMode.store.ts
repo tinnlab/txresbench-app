@@ -1,4 +1,4 @@
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /**
  * Portable "what kind of build is this" flag for core UI code that branches on

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useEffect } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import { Session } from '@/modules/session/Session.store'
 
 /**

@@ -3,7 +3,7 @@ import { defineStore } from '../store-kit'
 import { registerLazyStore, type StoreProxy } from '../stores'
 import type { RouteConfig } from './types'
 
-// @ziee/framework/router — the `Routes` store. Modules' `routes` are collected
+// @txresbench/framework/router — the `Routes` store. Modules' `routes` are collected
 // here by the router module's `onModuleRegister` hook; `RouterComponent` reads
 // the routes back through `routesSeam` and renders them.
 //

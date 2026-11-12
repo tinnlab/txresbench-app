@@ -138,7 +138,7 @@ test.describe('run pane — the run STARTS: live console + editor-only Stop (ITE
 // phase whose `pct != null` (`RunProgressConsole.tsx`). So the BAR is the discriminator,
 // and it is durable — a later phase marks this one done but never clears its pct.
 test.describe('run pane — LIVE SSE progress reaches the surface (ITEM-22)', () => {
-  // HOST-CAPABILITY-gated on CYTO_E2E_REAL_COMPUTE (bwrap + a staged analysis rootfs):
+  // HOST-CAPABILITY-gated on TXR_E2E_REAL_COMPUTE (bwrap + a staged analysis rootfs):
   // a real job must run for real `progress` frames to exist at all. Reported as skipped
   // with its reason on a host without it.
   test.skip(!REAL_COMPUTE, REAL_COMPUTE_SKIP)
@@ -176,7 +176,7 @@ test.describe('run pane — LIVE SSE progress reaches the surface (ITEM-22)', ()
       throw new Error(
         `analysis run FAILED before any progress frame: "${await runError.innerText()}" — the ` +
           'compute sandbox is unavailable on this host (no PID namespace / CAP_SYS_ADMIN / no ' +
-          'rootfs). Run this spec on a sandbox-executable host with CYTO_E2E_REAL_COMPUTE=1.',
+          'rootfs). Run this spec on a sandbox-executable host with TXR_E2E_REAL_COMPUTE=1.',
       )
     }
 

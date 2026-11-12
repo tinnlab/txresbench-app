@@ -171,7 +171,7 @@ inputs_from:
   - when: "$state.sample"   ; slot: "sample"   ; artifact: "$data.obsSources[$state.sample]"
 ```
 
-**(b) The regime classifier** (`compute/_regime.py`). Reads the bound column's `attributes.cyto`
+**(b) The regime classifier** (`compute/_regime.py`). Reads the bound column's `attributes.txr`
 and returns `R1` (inferential, p written) / `R2` (descriptive, p **absent**) / `R3` (unreplicated,
 p **absent**). `R1` is granted only on **positive** external-provenance evidence *and* ≥2 samples
 per side; no-evidence defaults conservatively to `R2` (`DEC-4`).
@@ -210,7 +210,7 @@ R2") would kill the feature:
 **The residual, honest risk:** if the population labels *were* derived with knowledge of the
 condition — clustering after condition-aware integration, or an annotation transferred from a
 condition-matched reference — then the selection **is** circular. We cannot detect that reliably
-from `attributes.cyto` today. It is recorded as a **stated limitation in `methods.md`**, not as a
+from `attributes.txr` today. It is recorded as a **stated limitation in `methods.md`**, not as a
 fake guard. Inventing a detector we cannot make sound would be worse than disclosing the gap.
 
 ### 3.2 How the reuse is physically realised — and the decision it forces

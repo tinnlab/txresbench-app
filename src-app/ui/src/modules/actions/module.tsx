@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 import { Session } from '@/modules/session/Session.store'
 import { usePermission } from '@/core/permissions'
 import { Permissions } from '@/api-client/permissions'
@@ -33,7 +33,7 @@ installActionsSeam()
 // `modules/actions` — the AI-controllable-actions FOUNDATION module
 // (PLAN.md ITEM-13/14/16; ARCHITECTURE.md Layers 1/3/5/7, GLOBAL-actions
 // slice only). Registers no routes/pages of its own (that's `modules/mcp/`,
-// owned by another agent this slice — the "Connect to ziee" settings
+// owned by another agent this slice — the "Connect to txresbench" settings
 // surface). This module only:
 //   1. mounts `RouterBridge` (DEC-9 — captures `useNavigate` for
 //      `ctx.navigate` / `app.navigate` from outside React) via the SDK
@@ -76,7 +76,7 @@ export default createModule({
     name: 'actions',
     version: '1.0.0',
     description:
-      "AI-controllable actions: the global action registry + agent engine that let a paired ziee assistant drive TxResBench on the user's behalf.",
+      "AI-controllable actions: the global action registry + agent engine that let a paired txresbench assistant drive TxResBench on the user's behalf.",
   },
   dependencies: ['router'],
   components: [

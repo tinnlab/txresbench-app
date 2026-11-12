@@ -46,7 +46,7 @@ function createContributions(): Contributions {
  * `globalSingleton` helper, same guard every package singleton uses) so an HMR
  * reload / duplicate module instance shares ONE registry.
  */
-export const workbenchRegistry: Contributions = globalSingleton('__cyto_workbench_registry__', createContributions)
+export const workbenchRegistry: Contributions = globalSingleton('__txr_workbench_registry__', createContributions)
 
 /** The registry keys, for iteration (MCP projection, discovery). */
 export const CONTRIBUTION_KINDS = ['analyses', 'views', 'statusBarItems', 'sections'] as const

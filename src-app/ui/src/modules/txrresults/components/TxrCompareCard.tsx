@@ -20,7 +20,7 @@
  * `divergentOnly` is the store's and `aria-pressed` carries it.
  */
 import type { CSSProperties, ReactNode } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import type { TxrCompareReport } from '../types'
 import {
   DIFFER_LEAD,

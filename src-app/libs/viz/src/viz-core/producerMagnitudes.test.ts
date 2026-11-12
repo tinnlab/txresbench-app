@@ -6,7 +6,7 @@
  * `scripts/check-viz-producer-magnitudes.mjs` is the gate. A gate nobody invokes is not a
  * gate (this repo has filed that a dozen times), so it needs a caller that already runs.
  * There are two, deliberately:
- *   1. `@ziee/viz`'s own `test` SCRIPT chains it ahead of vitest. That is the load-bearing
+ *   1. `@txresbench/viz`'s own `test` SCRIPT chains it ahead of vitest. That is the load-bearing
  *      one: `check-package-suites.mjs` rule P5 runs every in-scope workspace package's
  *      `test` script to completion, so the guard rides `just check-packages` with no
  *      justfile edit (the justfile is #287's). Being in the package MANIFEST also means
@@ -148,7 +148,7 @@ function synthRepo(): string {
   mkdirSync(path.join(vizDir, 'src', 'viz-core'), { recursive: true })
   writeFileSync(
     path.join(vizDir, 'package.json'),
-    JSON.stringify({ name: '@ziee/viz', version: '0.0.0', private: true }, null, 2),
+    JSON.stringify({ name: '@txresbench/viz', version: '0.0.0', private: true }, null, 2),
   )
   cpSync(path.join(REPO, SPATIAL_REL), path.join(dir, SPATIAL_REL), { recursive: true })
   cpSync(path.join(REPO, 'src-app', 'packages'), path.join(dir, 'src-app', 'packages'), {
@@ -1077,10 +1077,10 @@ describe('#277 — the viz-quoted producer magnitudes are bound to the producer'
         r => {
           const pj = 'src-app/libs/viz/package.json'
           const j = JSON.parse(read(r, pj))
-          j.name = '@ziee/not-viz'
+          j.name = '@txresbench/not-viz'
           write(r, pj, JSON.stringify(j))
         },
-        /no workspace named `@ziee\/viz`/,
+        /no workspace named `@txresbench\/viz`/,
       ],
       [
         'the producer package is gone',

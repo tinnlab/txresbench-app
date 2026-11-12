@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 import { Permissions } from '@/api-client/permissions'
 import { Session } from '@/modules/session/Session.store'
 import { AppLayoutDef } from '@/modules/layouts/app-layout'

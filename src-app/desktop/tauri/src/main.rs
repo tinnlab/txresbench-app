@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    cytoanalyst_desktop_lib::run()
+    txresbench_desktop_lib::run()
 }

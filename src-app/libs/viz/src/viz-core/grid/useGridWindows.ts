@@ -60,7 +60,7 @@
 // only things that can observe it.
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, type RefObject } from 'react'
 import { useStore } from 'zustand'
-import { PRIMARY_CONTAINER, startGripPlacement, isPlacementActive, abortGripPlacement, subscribePopupWindows, getPopupWindowsSnapshot, unregisterPopupWindow, registerPopupWindow, type ContainerId, type DragRect, type DropTarget } from '@ziee/dock'
+import { PRIMARY_CONTAINER, startGripPlacement, isPlacementActive, abortGripPlacement, subscribePopupWindows, getPopupWindowsSnapshot, unregisterPopupWindow, registerPopupWindow, type ContainerId, type DragRect, type DropTarget } from '@txresbench/dock'
 import { buildPopupFeatures, centeredGeometry } from '../popout/windowPortalCore'
 import type { VizStores } from '../../adapter/vizStores'
 import type { GridCell, GridDockApi } from './gridModel'

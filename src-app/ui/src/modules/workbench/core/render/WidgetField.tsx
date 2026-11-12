@@ -1,6 +1,6 @@
 // WidgetField (shared) — the ONE label+control+help+error scaffold every declarative CONTROL
 // renderer (select / text / multiselect / range_slider / dataset-picker / …) composes, built on
-// the kit `Field` primitives (`@ziee/kit/shadcn/field`) instead of a hand-rolled
+// the kit `Field` primitives (`@txresbench/kit/shadcn/field`) instead of a hand-rolled
 // `<label className="flex flex-col gap-1">`. Composing the kit means the label association,
 // vertical rhythm, invalid state, disabled dimming, and a11y all come from the design system —
 // so a fix here (spacing, width cap, tokens) improves EVERY declarative surface at once.
@@ -12,7 +12,7 @@
 // (bottom-dock) pane; the parent `RegionBody` caps the whole form column on top.
 
 import * as React from 'react'
-import { Field, FieldDescription, FieldError, FieldLabel } from '@ziee/kit/shadcn/field'
+import { Field, FieldDescription, FieldError, FieldLabel } from '@txresbench/kit/shadcn/field'
 import { cn } from '@/lib/utils'
 
 export interface WidgetFieldProps {

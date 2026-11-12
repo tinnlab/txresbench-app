@@ -13,11 +13,11 @@
 
 use std::collections::HashSet;
 
-use cytoanalyst::modules::account::scope::{
+use txresbench::modules::account::scope::{
     account_of_dataset, account_of_project, ensure_personal_account_for,
 };
-use cytoanalyst::modules::dataset::repository::DatasetRepository;
-use cytoanalyst::modules::project::ProjectRepository;
+use txresbench::modules::dataset::repository::DatasetRepository;
+use txresbench::modules::project::ProjectRepository;
 
 use super::{create_user, pool_for, setup_admin};
 use crate::common::TestServer;
@@ -87,7 +87,7 @@ async fn reads_are_owner_determined_and_account_of_equals_personal() {
     );
     assert!(matches!(
         projects.effective_permission(a1.id, alice).await.unwrap(),
-        Some(cytoanalyst::modules::project::EffectivePermission::Owner)
+        Some(txresbench::modules::project::EffectivePermission::Owner)
     ));
 
     // (c) cross-user reads still 404 (invisible): effective_permission None, and a

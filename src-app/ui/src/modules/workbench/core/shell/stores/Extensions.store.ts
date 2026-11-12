@@ -19,7 +19,7 @@ import { ApiClient } from '@/api-client'
 import { type ExtensionManifest } from '@/api-client/types'
 import { Permissions } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 import { useEffect } from 'react'
 
 const ExtensionsDef = defineStore('Extensions', {

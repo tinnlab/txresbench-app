@@ -42,7 +42,7 @@ async function registerPlainUser(
   password: string,
 ): Promise<void> {
   const res = await request.post('/api/auth/register', {
-    data: { username, email: `${username}@cyto.test`, password, display_name: username },
+    data: { username, email: `${username}@txresbench.test`, password, display_name: username },
   })
   expect(res.ok(), `register ${username} -> ${res.status()} ${await res.text()}`).toBeTruthy()
 }

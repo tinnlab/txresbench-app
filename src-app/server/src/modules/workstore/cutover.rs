@@ -30,7 +30,7 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::migration_engine::{self as engine, CopyReport, MigrationError};
 use super::object_store::{DualReadStore, LocalFsStore, ObjectStore};
@@ -39,7 +39,7 @@ use super::object_store::{DualReadStore, LocalFsStore, ObjectStore};
 /// dual-read fallback for ANY store pair (#64 DEC-5) — cloud→cloud included, not just local→cloud.
 ///
 /// It is serialized to JSON and stored ENCRYPTED AT REST (pgcrypto, via
-/// `ziee_framework::secret::encrypt_secret`) in `object_store_migration.src_config_ciphertext`;
+/// `txresbench_framework::secret::encrypt_secret`) in `object_store_migration.src_config_ciphertext`;
 /// boot decrypts it to reconstruct the OLD store. **NO `Debug` derive** — once decrypted it holds
 /// plaintext cloud credentials, so a `{:?}` must never print them (coding-guidelines §3); the
 /// masked status view carries only the non-secret backend/provider/bucket labels.

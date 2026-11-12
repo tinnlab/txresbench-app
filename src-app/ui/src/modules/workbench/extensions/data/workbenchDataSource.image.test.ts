@@ -8,7 +8,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@ziee/kit', () => ({
+vi.mock('@txresbench/kit', () => ({
   message: { info: () => {}, success: () => {}, error: () => {} },
 }))
 
@@ -54,7 +54,7 @@ const RASTER_ROW_FOR_RETRY: DataPlaneArtifact = {
 }
 
 async function realPyramid() {
-  const { loadOmeTiffPyramid } = await import('@ziee/viz/core')
+  const { loadOmeTiffPyramid } = await import('@txresbench/viz/core')
   return loadOmeTiffPyramid({
     byteLength: RASTER_BYTES.byteLength,
     async read(start: number, end: number) {
@@ -489,7 +489,7 @@ describe('TEST-12 the coordinate_space and the placement come off the rows that 
     // array-index units at the served level: 1/2**2, never the declared 1/(5*4) = 0.05
     expect(catalog.image?.affine[0]).toBeCloseTo(0.25, 12)
 
-    const { resolvePaneFrame } = await import('@ziee/viz/core')
+    const { resolvePaneFrame } = await import('@txresbench/viz/core')
     const frame = resolvePaneFrame(
       { image: catalog.image!, layouts: [{ id: 'l', space: catalog.image!.space }] },
       'l',

@@ -17,8 +17,8 @@ import { openVisualize } from './_visualize'
 // that no 2-D positions member is EVER decoded — the wire is request-identical to a real dataset, so
 // the scatter never sees an `n×k` member to mask.
 //
-// HOST-CAPABILITY-gated on CYTO_E2E_REAL_COMPUTE (bwrap + CYTO_ENV_ROOTFS_*): the filter VD is
-// produced by a real filter run. The read-decode seam (`window.__cyto_read.decodes`) is exposed
+// HOST-CAPABILITY-gated on TXR_E2E_REAL_COMPUTE (bwrap + TXR_ENV_ROOTFS_*): the filter VD is
+// produced by a real filter run. The read-decode seam (`window.__txr_read.decodes`) is exposed
 // under VITE_ENABLE_TEST_SEAMS=1, which the visualize harness sets — a headless canvas has no GPU to
 // screenshot.
 
@@ -52,7 +52,7 @@ test.describe('a masked scatter reads two numeric position columns, never a 2-D 
     // path), interleaved by the adapter — never a single `n×2` `positions`/`arrays[]` member the
     // client would have to mask in 2-D.
     const decodeKinds = await page.evaluate(() => {
-      const r = (window as unknown as { __cyto_read?: Decodes }).__cyto_read
+      const r = (window as unknown as { __txr_read?: Decodes }).__txr_read
       return r ? Object.keys(r.decodes.counts()) : []
     })
     expect(

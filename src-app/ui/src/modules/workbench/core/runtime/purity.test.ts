@@ -21,7 +21,7 @@ const CORE = path.resolve(HERE, '..')
 
 /** Matches a real module specifier for React — `react`, `react-dom`, `react-dom/client`,
  *  `react/jsx-runtime` — in an `import … from`, a bare `import`, or a dynamic `import()`.
- *  Deliberately NOT a bare `/react/` substring: that would also match `@ziee/kit`'s
+ *  Deliberately NOT a bare `/react/` substring: that would also match `@txresbench/kit`'s
  *  re-exports and `react-hook-form`, and a guard that over-matches gets relaxed, then
  *  gets relaxed again, and stops guarding. */
 const REACT_IMPORT = /(?:from|import)\s*\(?\s*['"](react|react-dom)(\/[^'"]*)?['"]/
@@ -96,7 +96,7 @@ test('TEST-5: the React detector actually matches the forms it must catch', () =
   // …and the shapes it must NOT claim, or it will be relaxed into uselessness.
   for (const s of [
     `import { useForm } from 'react-hook-form'`,
-    `import { Button } from '@ziee/kit'`,
+    `import { Button } from '@txresbench/kit'`,
     `// this module is deliberately react-free`,
     `const reactive = true`,
   ])

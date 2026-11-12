@@ -30,7 +30,7 @@
 // the parse, is deliberate: the parse is what broke, but "the view reaches the registry" is
 // what the e2e asserts and therefore what must not be able to break quietly again.
 //
-// vitest, not `node:test`: the parser transitively imports `@ziee/viz`, whose sources are
+// vitest, not `node:test`: the parser transitively imports `@txresbench/viz`, whose sources are
 // `.tsx`, which the plain-node strip-types runner cannot load (same reason as
 // `runtimeDropin.test.ts`).
 import { describe, test, expect } from 'vitest'

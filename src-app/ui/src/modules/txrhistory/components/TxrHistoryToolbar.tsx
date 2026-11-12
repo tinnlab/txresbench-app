@@ -22,7 +22,7 @@
  * component (the plan's "mount toolbar/list/footer").
  */
 import type { CSSProperties } from 'react'
-import { Input, Select } from '@ziee/kit'
+import { Input, Select } from '@txresbench/kit'
 import { HISTORY_SUBTITLE } from '../lib/format'
 import { FILTER_OPTIONS, type TxrHistoryFilter } from '../types'
 

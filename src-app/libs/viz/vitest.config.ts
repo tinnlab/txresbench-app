@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config'
 
-// Unit/L0-L1 test runner (node env) for the @ziee/viz engine kernels + logic.
+// Unit/L0-L1 test runner (node env) for the @txresbench/viz engine kernels + logic.
 // Mirrors the app's former visualization vitest pass. Browser/L3 (WebGL) +
 // e2e/L4-L6 run under Playwright against the showcase separately.
 export default defineConfig({

@@ -17,7 +17,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
-import type { AppNotification, NotificationRendererCtx } from '@ziee/framework/notification'
+import type { AppNotification, NotificationRendererCtx } from '@txresbench/framework/notification'
 import type { ProjectDto } from '@/api-client/types'
 
 vi.mock('@/core/permissions', () => ({ hasPermissionNow: () => true }))
@@ -75,7 +75,7 @@ vi.mock('@/api-client', () => ({
   },
 }))
 
-const { getNotificationRenderer } = await import('@ziee/framework/notification')
+const { getNotificationRenderer } = await import('@txresbench/framework/notification')
 const { registerProjectNotificationKinds } = await import('./notifications')
 const { useRecentProjectsStore } = await import('./stores/RecentProjects.store')
 
@@ -168,7 +168,7 @@ describe('accepting an invite from the bell reaches the sidebar rail', () => {
   // `project` alone, and a `project_transfer` consumer (the grid, the admin table) would
   // be left behind by an echo that stopped at the first frame.
   it('accepting a TRANSFER echoes BOTH suppressed frames, not just the first', async () => {
-    const { useEventBusStore } = await import('@ziee/framework/events')
+    const { useEventBusStore } = await import('@txresbench/framework/events')
     const seen: { type: string; action: string; id: string }[] = []
     const bus = useEventBusStore.getState()
     const offs = (['sync:project', 'sync:project_transfer'] as const).map(type =>
@@ -196,7 +196,7 @@ describe('accepting an invite from the bell reaches the sidebar rail', () => {
   // device that just gained a project would learn nothing about it — exactly the
   // transfer bug, re-created on the share path by a server change.
   it('accepting a SHARE echoes BOTH suppressed frames, not just the share row', async () => {
-    const { useEventBusStore } = await import('@ziee/framework/events')
+    const { useEventBusStore } = await import('@txresbench/framework/events')
     const seen: { type: string; action: string; id: string }[] = []
     const bus = useEventBusStore.getState()
     const offs = (['sync:project', 'sync:project_share'] as const).map(type =>

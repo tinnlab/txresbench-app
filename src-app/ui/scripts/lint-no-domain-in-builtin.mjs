@@ -853,8 +853,8 @@ function surroundingIdentifier(text, start, end) {
  * that is deliberate for the `once_cell` / `refcell` class — the entry IS the whole
  * name. But it makes the suppression useless the moment the different-word lands
  * inside a COMPOUND name, which is the normal case in `SCREAMING_SNAKE`:
- * `CYTO_ENV_IMAGE_IDENTITY_REGEXP` (`sandbox/env_image.rs`) yields the whole-identifier
- * string `cyto_env_image_identity_regexp`, which is not in the set, so the `identity`
+ * `TXR_ENV_IMAGE_IDENTITY_REGEXP` (`sandbox/env_image.rs`) yields the whole-identifier
+ * string `txr_env_image_identity_regexp`, which is not in the set, so the `identity`
  * entry never fires and the round-3 `ident` token reports 3 hits on an operator-facing
  * env-var name with no domain content whatsoever. Same for `DEFAULT_IDENTITY_RE` and
  * `identity_re` in the same file. That is fresh fallout from adding `ident`, and a noisy
@@ -2044,7 +2044,7 @@ function langOf(file) {
  *       is a different and much larger decision. THE RESIDUAL FINDING (R3-F2) is
  *       not the file's CONTENT but its PATH: the directory is named `single-cell`
  *       and `sandbox/env_image.rs:50` still documents the OCI ref
- *       `ghcr.io/ziee-ai/cyto-env/single-cell`, so the app still knows one domain's
+ *       `ghcr.io/tinnlab/txresbench-env/single-cell`, so the app still knows one domain's
  *       env by name. That belongs to a sibling round.
  *   `libs/viz` — the pre-existing owner carve-out (see `SCANNED_PACKAGES`).
  */
@@ -2450,10 +2450,10 @@ const CENSUS_SKIP_DIRS = new Set(['node_modules', 'target', 'dist', 'build', 'co
 const UNSCANNED_TREES = {
   // ── repo root ──
   'agent-kit':
-    'a git SUBMODULE (ziee-ai/agent-kit) — shared framework docs + skills, owned by another repo. ' +
+    'a git SUBMODULE (tinnlab/agent-kit) — shared framework docs + skills, owned by another repo. ' +
     'A guard in THIS repo cannot ratchet a tree this repo does not author; a leak there is a ' +
     'finding for its own repo. Not measured.',
-  sdk: 'a git SUBMODULE (ziee-ai/sdk). Same argument as agent-kit: not authored here, so not ratcheted here.',
+  sdk: 'a git SUBMODULE (tinnlab/sdk). Same argument as agent-kit: not authored here, so not ratcheted here.',
   dev: "the txresbench-app EPIC's own freeze/reconcile report (dev/docs/app-build-epic-report.md, 1 file). " +
     'PROSE-ONLY project-report prose, the same class as `docs` (notes ABOUT the app, nothing that ' +
     'compiles, ships or is read at runtime). Measured 0 findings in any dialect this guard has — ' +
@@ -2556,7 +2556,7 @@ const UNSCANNED_TREES = {
   //   (2) they are the fail-CLOSED half of a belt-and-braces pair. The git rule needs `git`;
   //       in a tarball export or a no-`.git` build container it skips nothing, and these four
   //       trees (which exist precisely on machines that have built or tested) would go red for
-  //       the same reason `cytoanalyst-data` did.
+  //       the same reason `txresbench-data` did.
   // The cost of keeping them is one narrow fail-OPEN: if a file were ever COMMITTED into one of
   // these four, the git rule would correctly stop skipping it but the by-name declaration would
   // keep excluding it. `server/config` below shows the shape that matters — it is tracked (4
@@ -2587,7 +2587,7 @@ const UNSCANNED_TREES = {
 // ── THE RUNTIME-ARTEFACT RULE (WS-R6) ───────────────────────────────────────
 //
 // The census as first shipped made "not scanned" a decision for every tree ON DISK,
-// which is not the same set as every tree the repo AUTHORS. `cytoanalyst-data/` — the
+// which is not the same set as every tree the repo AUTHORS. `txresbench-data/` — the
 // app's runtime data directory (embedded-Postgres cluster, `dev/`, `e2e/`, artifacts;
 // 922 MB on a used machine) — is created the moment anyone runs the server. It is
 // gitignored, carries ZERO tracked files, and appeared in no declaration, so the guard
@@ -3646,7 +3646,7 @@ const BASELINE_ENTRY_CEILINGS = {
    *  INSPECTOR-PANE-DELETION RAISED 785 -> **786** (+1): ONE new (file, token) pair,
    *  `ui/src/modules/workbench/core/shell/dock/retiredSelectionPane.test.tsx` / `cells`. The
    *  suite drives the persisted-layout migration that retires the `selection` ("Inspector")
-   *  pane, and a test of a migration over `@ziee/dock`'s pane map cannot avoid naming the field
+   *  pane, and a test of a migration over `@txresbench/dock`'s pane map cannot avoid naming the field
    *  that map is stored under. It is the SAME false positive the sibling dock entries already
    *  record (a dock pane map, not the domain noun), and it was driven from 27 occurrences down
    *  to 2 at source first — every read funnels through one `panesOf` accessor and the fixtures
@@ -3758,7 +3758,7 @@ const BASELINE_ENTRY_CEILINGS = {
    *  (`awaitCellFilterSurface`, `TINY_COUNTS_CELLS`, the `nCells` seed field), the fixture
    *  column the criterion is built on (`nCount`, the ramp `_fixtures.ts` seeds and the only one
    *  whose range makes the threshold a strict subset rather than a degenerate keep-all), and the
-   *  `viz-cell-view-<pane>` testid @ziee/viz stamps on every grid pane. The last is the same
+   *  `viz-cell-view-<pane>` testid @txresbench/viz stamps on every grid pane. The last is the same
    *  "a cell here is a PANE of the workspace grid, not biology" reading the RENDER-PERF raise
    *  above already recorded for `ui/tests/viz-e2e/`. +3 is the exact count, so this stays an
    *  equality, not slack.

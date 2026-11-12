@@ -1,12 +1,12 @@
 // TEST-525 (ITEM-59) — the per-project viz state (activeProjection/plotType/plotLayout)
 // moved OFF the shell `ProjectLayout`/`WorkbenchLayout.store` into the extension-owned viz
 // store. A user upgrading from the pre-ITEM-59 build has these fields inside the legacy
-// `cyto.wb.layout` blob; the one-time `migrateLegacyVizState` lifts them out WITHOUT
+// `txr.wb.layout` blob; the one-time `migrateLegacyVizState` lifts them out WITHOUT
 // dropping `plotType`. Pure → the node runner (no localStorage needed).
 //
 // WS-D (finding C5) — `activeProjection` was previously persisted under a domain-flavoured
 // field name (`LEGACY_PROJECTION_KEY`). `migrateVizStateKeys` upgrades an ALREADY-persisted
-// `cyto.wb.viz` blob to the new key, so the rename does not silently drop a saved selection.
+// `txr.wb.viz` blob to the new key, so the rename does not silently drop a saved selection.
 
 import { describe, expect, it } from 'vitest'
 import {
@@ -19,7 +19,7 @@ import {
 } from '@/modules/workbench/extensions/canvas/vizState.store'
 
 describe('legacy viz-state migration (TEST-525 / ITEM-59)', () => {
-  it('lifts activeProjection/plotType/plotLayout out of the legacy cyto.wb.layout blob', () => {
+  it('lifts activeProjection/plotType/plotLayout out of the legacy txr.wb.layout blob', () => {
     const legacy = {
       state: {
         byProject: {
@@ -177,7 +177,7 @@ describe('persisted viz-state key rename (WS-D / C5)', () => {
 
   it('END-TO-END: a PRE-ITEM-59 blob on the OLD key still lifts into the new key', () => {
     // The other persisted surface: a user who never booted an ITEM-59 build has the
-    // field inside `cyto.wb.layout`. The lift + the rename compose in one pass.
+    // field inside `txr.wb.layout`. The lift + the rename compose in one pass.
     const mem = new Map<string, string>([
       [
         LEGACY_LAYOUT_KEY,

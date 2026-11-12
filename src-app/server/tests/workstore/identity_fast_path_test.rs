@@ -9,8 +9,8 @@
 //! machinery (`MaskPlan::apply`) rather than the no-mask shortcut. Proving the no-mask fast path
 //! is byte-identical to the all-keep general path is the equivalence INV-11 asserts.
 
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::gather_exec::resolve;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::gather_exec::resolve;
 
 use super::vdm_fixtures::{
     decode_f32, put_gathered, put_mask, put_source, resolved_bytes, structure_of,

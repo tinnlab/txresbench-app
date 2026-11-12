@@ -24,8 +24,8 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::account::{AccountRepository, AccountRole, ActorCeiling};
-use cytoanalyst::modules::project::ProjectRepository;
+use txresbench::modules::account::{AccountRepository, AccountRole, ActorCeiling};
+use txresbench::modules::project::ProjectRepository;
 
 use crate::account::{
     add_member, create_user, login, make_org_account, move_project_to_account, pool_for,
@@ -358,10 +358,10 @@ async fn patch_role_promotes_a_member_for_owner_and_for_admin() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "hp_own", "hp_own@cyto.test").await;
-    let actor_admin = create_user(&server, &admin_token, "hp_adm", "hp_adm@cyto.test").await;
-    let m1 = create_user(&server, &admin_token, "hp_m1", "hp_m1@cyto.test").await;
-    let m2 = create_user(&server, &admin_token, "hp_m2", "hp_m2@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "hp_own", "hp_own@txresbench.test").await;
+    let actor_admin = create_user(&server, &admin_token, "hp_adm", "hp_adm@txresbench.test").await;
+    let m1 = create_user(&server, &admin_token, "hp_m1", "hp_m1@txresbench.test").await;
+    let m2 = create_user(&server, &admin_token, "hp_m2", "hp_m2@txresbench.test").await;
 
     let org = make_org_account(&pool, "HP Org", owner).await;
     add_member(&pool, org, actor_admin, "admin").await;
@@ -418,9 +418,9 @@ async fn inv5_admin_cannot_reach_above_their_own_role_on_any_route() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "es_own", "es_own@cyto.test").await;
-    let actor = create_user(&server, &admin_token, "es_adm", "es_adm@cyto.test").await;
-    let plain = create_user(&server, &admin_token, "es_mem", "es_mem@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "es_own", "es_own@txresbench.test").await;
+    let actor = create_user(&server, &admin_token, "es_adm", "es_adm@txresbench.test").await;
+    let plain = create_user(&server, &admin_token, "es_mem", "es_mem@txresbench.test").await;
 
     let org = make_org_account(&pool, "Escalation Org", owner).await;
     add_member(&pool, org, actor, "admin").await;
@@ -504,8 +504,8 @@ async fn inv7_last_owner_is_protected_on_leave_demote_and_remove() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "lo_own", "lo_own@cyto.test").await;
-    let plain = create_user(&server, &admin_token, "lo_mem", "lo_mem@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "lo_own", "lo_own@txresbench.test").await;
+    let plain = create_user(&server, &admin_token, "lo_mem", "lo_mem@txresbench.test").await;
 
     let org = make_org_account(&pool, "Last Owner Org", owner).await;
     add_member(&pool, org, plain, "member").await;
@@ -552,7 +552,7 @@ async fn inv7_last_owner_is_protected_on_leave_demote_and_remove() {
     //    `ROLE_ABOVE_ACTOR` for reaching above their own rank. Both refusals are correct
     //    and they are different guards; pinning both is what stops a later reordering
     //    silently swapping them.
-    let helper_admin = create_user(&server, &admin_token, "lo_adm", "lo_adm@cyto.test").await;
+    let helper_admin = create_user(&server, &admin_token, "lo_adm", "lo_adm@txresbench.test").await;
     add_member(&pool, org, helper_admin, "admin").await;
     let admin_actor_token = login(&server, "lo_adm").await;
     let (status, body) = delete_member(&server, &admin_actor_token, &acct, owner, None).await;
@@ -570,7 +570,7 @@ async fn inv7_last_owner_is_protected_on_leave_demote_and_remove() {
     );
 
     // ── POSITIVE CONTROL: a SECOND owner exists ⇒ the same call now succeeds ──
-    let second = create_user(&server, &admin_token, "lo_own2", "lo_own2@cyto.test").await;
+    let second = create_user(&server, &admin_token, "lo_own2", "lo_own2@txresbench.test").await;
     add_member(&pool, org, second, "owner").await;
     assert_eq!(owner_count(&pool, org).await, 2);
 
@@ -637,8 +637,8 @@ async fn inv7_two_concurrent_owner_removals_leave_exactly_one_owner() {
     let pool = pool_for(&server).await;
 
     // ── ARM 1: the repository, where LAST_OWNER is the answer ──
-    let a = create_user(&server, &admin_token, "rc_a", "rc_a@cyto.test").await;
-    let b = create_user(&server, &admin_token, "rc_b", "rc_b@cyto.test").await;
+    let a = create_user(&server, &admin_token, "rc_a", "rc_a@txresbench.test").await;
+    let b = create_user(&server, &admin_token, "rc_b", "rc_b@txresbench.test").await;
     let repo_org = make_org_account(&pool, "Race Repo Org", a).await;
     add_member(&pool, repo_org, b, "owner").await;
     assert_eq!(owner_count(&pool, repo_org).await, 2, "precondition: TWO owners");
@@ -689,8 +689,8 @@ async fn inv7_two_concurrent_owner_removals_leave_exactly_one_owner() {
     );
 
     // ── ARM 2: the HTTP routes, where the loser has themselves been removed ──
-    let c = create_user(&server, &admin_token, "rc_c", "rc_c@cyto.test").await;
-    let d = create_user(&server, &admin_token, "rc_d", "rc_d@cyto.test").await;
+    let c = create_user(&server, &admin_token, "rc_c", "rc_c@txresbench.test").await;
+    let d = create_user(&server, &admin_token, "rc_d", "rc_d@txresbench.test").await;
     let http_org = make_org_account(&pool, "Race Http Org", c).await;
     add_member(&pool, http_org, d, "owner").await;
     assert_eq!(owner_count(&pool, http_org).await, 2);
@@ -764,9 +764,9 @@ async fn invr2_leave_goes_through_remove_member_and_fires_the_offboarding_hook()
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "rt_own", "rt_own@cyto.test").await;
-    let leaver = create_user(&server, &admin_token, "rt_lv", "rt_lv@cyto.test").await;
-    let outsider = create_user(&server, &admin_token, "rt_out", "rt_out@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "rt_own", "rt_own@txresbench.test").await;
+    let leaver = create_user(&server, &admin_token, "rt_lv", "rt_lv@txresbench.test").await;
+    let outsider = create_user(&server, &admin_token, "rt_out", "rt_out@txresbench.test").await;
 
     let org = make_org_account(&pool, "Route Org", owner).await;
     add_member(&pool, org, leaver, "member").await;
@@ -842,8 +842,8 @@ async fn invr4_ownership_transfers_via_two_patches_and_is_documented() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "tr_own", "tr_own@cyto.test").await;
-    let heir = create_user(&server, &admin_token, "tr_hei", "tr_hei@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "tr_own", "tr_own@txresbench.test").await;
+    let heir = create_user(&server, &admin_token, "tr_hei", "tr_hei@txresbench.test").await;
     let org = make_org_account(&pool, "Transfer Org", owner).await;
     add_member(&pool, org, heir, "member").await;
     let acct = org.to_string();
@@ -970,9 +970,9 @@ async fn inv1_inv2_cross_tenant_mutations_are_404_on_populated_state() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let p = create_user(&server, &admin_token, "xt_p", "xt_p@cyto.test").await;
-    let q = create_user(&server, &admin_token, "xt_q", "xt_q@cyto.test").await;
-    let r = create_user(&server, &admin_token, "xt_r", "xt_r@cyto.test").await;
+    let p = create_user(&server, &admin_token, "xt_p", "xt_p@txresbench.test").await;
+    let q = create_user(&server, &admin_token, "xt_q", "xt_q@txresbench.test").await;
+    let r = create_user(&server, &admin_token, "xt_r", "xt_r@txresbench.test").await;
 
     // A — P owns it, with a second member so the 200 arm mutates something real.
     let a = make_org_account(&pool, "XT A", p).await;
@@ -1073,9 +1073,9 @@ async fn inv232_leave_works_with_the_kill_switch_off_while_management_does_not()
     // Turn self-service management OFF, deployment-wide, the way an operator would.
     revoke_manage_capability_deployment_wide(&pool).await;
 
-    let owner = create_user(&server, &admin_token, "ks_own", "ks_own@cyto.test").await;
-    let stuck = create_user(&server, &admin_token, "ks_stk", "ks_stk@cyto.test").await;
-    let other = create_user(&server, &admin_token, "ks_oth", "ks_oth@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "ks_own", "ks_own@txresbench.test").await;
+    let stuck = create_user(&server, &admin_token, "ks_stk", "ks_stk@txresbench.test").await;
+    let other = create_user(&server, &admin_token, "ks_oth", "ks_oth@txresbench.test").await;
 
     let org = make_org_account(&pool, "Kill Switch Org", owner).await;
     add_member(&pool, org, stuck, "admin").await;
@@ -1204,9 +1204,9 @@ async fn inv4_bare_member_is_refused_at_the_admin_floor_but_can_read_and_leave()
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "fl_own", "fl_own@cyto.test").await;
-    let plain = create_user(&server, &admin_token, "fl_mem", "fl_mem@cyto.test").await;
-    let victim = create_user(&server, &admin_token, "fl_vic", "fl_vic@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "fl_own", "fl_own@txresbench.test").await;
+    let plain = create_user(&server, &admin_token, "fl_mem", "fl_mem@txresbench.test").await;
+    let victim = create_user(&server, &admin_token, "fl_vic", "fl_vic@txresbench.test").await;
 
     let org = make_org_account(&pool, "Floor Org", owner).await;
     add_member(&pool, org, plain, "member").await;
@@ -1277,8 +1277,8 @@ async fn inv12_personal_accounts_refuse_all_three_mutations_by_name() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let u = create_user(&server, &admin_token, "pa_u", "pa_u@cyto.test").await;
-    let helper = create_user(&server, &admin_token, "pa_h", "pa_h@cyto.test").await;
+    let u = create_user(&server, &admin_token, "pa_u", "pa_u@txresbench.test").await;
+    let helper = create_user(&server, &admin_token, "pa_h", "pa_h@txresbench.test").await;
     let personal = personal_account_id(&pool, u).await;
     let token = login(&server, "pa_u").await;
     let ps = personal.to_string();
@@ -1381,9 +1381,9 @@ async fn removal_frames_reach_the_departed_member_and_the_remaining_ones() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "sy_own", "sy_own@cyto.test").await;
-    let leaver = create_user(&server, &admin_token, "sy_lv", "sy_lv@cyto.test").await;
-    let stays = create_user(&server, &admin_token, "sy_st", "sy_st@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "sy_own", "sy_own@txresbench.test").await;
+    let leaver = create_user(&server, &admin_token, "sy_lv", "sy_lv@txresbench.test").await;
+    let stays = create_user(&server, &admin_token, "sy_st", "sy_st@txresbench.test").await;
 
     let org = make_org_account(&pool, "Sync Org", owner).await;
     add_member(&pool, org, leaver, "member").await;
@@ -1398,7 +1398,7 @@ async fn removal_frames_reach_the_departed_member_and_the_remaining_ones() {
     // observable. Without this arm, deleting BOTH `fan_cancelled_transfers` call sites
     // leaves the whole suite green: the transfers are still cancelled in the DB (TEST-7
     // asserts that), so the only thing lost is that the two PARTIES are never told.
-    let counterparty = create_user(&server, &admin_token, "sy_cp", "sy_cp@cyto.test").await;
+    let counterparty = create_user(&server, &admin_token, "sy_cp", "sy_cp@txresbench.test").await;
     let projects = ProjectRepository::new(pool.clone());
     let proj = projects.create(leaver, "sync-proj", "").await.unwrap().id;
     move_project_to_account(&pool, proj, org).await;
@@ -1463,7 +1463,7 @@ async fn removal_frames_reach_the_departed_member_and_the_remaining_ones() {
     // separately. The arm above only covers the DELETE one, so deleting the call in
     // `leave_account` still left the whole suite green — confirmed by a mutation run
     // before this arm existed (M12, MISSED).
-    let leaver2 = create_user(&server, &admin_token, "sy_lv2", "sy_lv2@cyto.test").await;
+    let leaver2 = create_user(&server, &admin_token, "sy_lv2", "sy_lv2@txresbench.test").await;
     add_member(&pool, org, leaver2, "member").await;
     let proj2 = projects.create(leaver2, "sync-proj-2", "").await.unwrap().id;
     move_project_to_account(&pool, proj2, org).await;
@@ -1507,10 +1507,10 @@ async fn the_ceiling_is_re_read_live_inside_the_transaction() {
     let pool = pool_for(&server).await;
     let repo = AccountRepository::new(pool.clone());
 
-    let owner = create_user(&server, &admin_token, "lv_own", "lv_own@cyto.test").await;
-    let bob = create_user(&server, &admin_token, "lv_bob", "lv_bob@cyto.test").await;
-    let target = create_user(&server, &admin_token, "lv_tgt", "lv_tgt@cyto.test").await;
-    let carol = create_user(&server, &admin_token, "lv_car", "lv_car@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "lv_own", "lv_own@txresbench.test").await;
+    let bob = create_user(&server, &admin_token, "lv_bob", "lv_bob@txresbench.test").await;
+    let target = create_user(&server, &admin_token, "lv_tgt", "lv_tgt@txresbench.test").await;
+    let carol = create_user(&server, &admin_token, "lv_car", "lv_car@txresbench.test").await;
 
     let org = make_org_account(&pool, "Live Org", owner).await;
     add_member(&pool, org, bob, "member").await; // bob's LIVE role
@@ -1605,7 +1605,7 @@ async fn the_ceiling_is_re_read_live_inside_the_transaction() {
     // `min(observed, live)` from `live`: written as `live` alone, this call succeeds.
     // (The stale-HIGH arm at the top of this test is what distinguishes it from
     // `observed` alone. Together they pin the composition in both directions.)
-    let target2 = create_user(&server, &admin_token, "lv_tg2", "lv_tg2@cyto.test").await;
+    let target2 = create_user(&server, &admin_token, "lv_tg2", "lv_tg2@txresbench.test").await;
     add_member(&pool, org, target2, "member").await;
     let err = repo
         .set_role(
@@ -1650,9 +1650,9 @@ async fn platform_staff_are_not_subject_to_the_role_ceiling() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let o1 = create_user(&server, &admin_token, "st_o1", "st_o1@cyto.test").await;
-    let o2 = create_user(&server, &admin_token, "st_o2", "st_o2@cyto.test").await;
-    let o3 = create_user(&server, &admin_token, "st_o3", "st_o3@cyto.test").await;
+    let o1 = create_user(&server, &admin_token, "st_o1", "st_o1@txresbench.test").await;
+    let o2 = create_user(&server, &admin_token, "st_o2", "st_o2@txresbench.test").await;
+    let o3 = create_user(&server, &admin_token, "st_o3", "st_o3@txresbench.test").await;
 
     let org = make_org_account(&pool, "Staff Org", o1).await;
     add_member(&pool, org, o2, "owner").await;
@@ -1697,9 +1697,9 @@ async fn delete_member_removes_exactly_that_membership() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "dm_own", "dm_own@cyto.test").await;
-    let gone = create_user(&server, &admin_token, "dm_go", "dm_go@cyto.test").await;
-    let stays = create_user(&server, &admin_token, "dm_st", "dm_st@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "dm_own", "dm_own@txresbench.test").await;
+    let gone = create_user(&server, &admin_token, "dm_go", "dm_go@txresbench.test").await;
+    let stays = create_user(&server, &admin_token, "dm_st", "dm_st@txresbench.test").await;
 
     let org = make_org_account(&pool, "Delete Org", owner).await;
     add_member(&pool, org, gone, "member").await;
@@ -1744,9 +1744,9 @@ async fn the_ceiling_is_read_after_the_owner_lock_not_before() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "or_own", "or_own@cyto.test").await;
-    let bob = create_user(&server, &admin_token, "or_bob", "or_bob@cyto.test").await;
-    let target = create_user(&server, &admin_token, "or_tgt", "or_tgt@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "or_own", "or_own@txresbench.test").await;
+    let bob = create_user(&server, &admin_token, "or_bob", "or_bob@txresbench.test").await;
+    let target = create_user(&server, &admin_token, "or_tgt", "or_tgt@txresbench.test").await;
     let org = make_org_account(&pool, "Order Org", owner).await;
     add_member(&pool, org, bob, "admin").await;
     add_member(&pool, org, target, "member").await;
@@ -1847,7 +1847,7 @@ async fn the_ceiling_is_read_after_the_owner_lock_not_before() {
     // uncaught by any test, which a blind audit pointed out. Same barrier, same
     // mid-flight demotion; the target is a THIRD party (an admin), so the current-role
     // half is the one that must refuse once the ceiling drops to `member`.
-    let victim = create_user(&server, &admin_token, "or_vic", "or_vic@cyto.test").await;
+    let victim = create_user(&server, &admin_token, "or_vic", "or_vic@txresbench.test").await;
     add_member(&pool, org, victim, "admin").await;
     let mut holder3 = hold_owner_lock(&bpool, org).await;
     let repo3 = AccountRepository::new(bpool.clone());
@@ -1954,8 +1954,8 @@ async fn a_concurrently_promoted_member_can_still_leave() {
     let pool = pool_for(&server).await;
     let repo = AccountRepository::new(pool.clone());
 
-    let owner = create_user(&server, &admin_token, "pr_own", "pr_own@cyto.test").await;
-    let mover = create_user(&server, &admin_token, "pr_mov", "pr_mov@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "pr_own", "pr_own@txresbench.test").await;
+    let mover = create_user(&server, &admin_token, "pr_mov", "pr_mov@txresbench.test").await;
     let org = make_org_account(&pool, "Promote Org", owner).await;
     add_member(&pool, org, mover, "admin").await; // the LIVE role, post-promotion
 
@@ -1973,7 +1973,7 @@ async fn a_concurrently_promoted_member_can_still_leave() {
     assert_eq!(role_of(&pool, org, mover).await, None, "they really left");
 
     // Same shape for a self-DEMOTION, the other self-targeting mutation.
-    let mover2 = create_user(&server, &admin_token, "pr_mv2", "pr_mv2@cyto.test").await;
+    let mover2 = create_user(&server, &admin_token, "pr_mv2", "pr_mv2@txresbench.test").await;
     add_member(&pool, org, mover2, "admin").await;
     repo.set_role(
         org,
@@ -1990,7 +1990,7 @@ async fn a_concurrently_promoted_member_can_still_leave() {
 
     // ── CONTROL: the exemption is for the CURRENT-role half only. The REQUESTED half
     //    still binds a self-target, so an admin still cannot promote THEMSELVES to owner.
-    let climber = create_user(&server, &admin_token, "pr_clb", "pr_clb@cyto.test").await;
+    let climber = create_user(&server, &admin_token, "pr_clb", "pr_clb@txresbench.test").await;
     add_member(&pool, org, climber, "admin").await;
     let err = repo
         .set_role(
@@ -2051,10 +2051,10 @@ async fn origin_suppresses_only_the_frames_the_acting_client_can_echo() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "og_own", "og_own@cyto.test").await;
-    let quiet = create_user(&server, &admin_token, "og_qt", "og_qt@cyto.test").await;
-    let mover = create_user(&server, &admin_token, "og_mv", "og_mv@cyto.test").await;
-    let counterparty = create_user(&server, &admin_token, "og_cp", "og_cp@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "og_own", "og_own@txresbench.test").await;
+    let quiet = create_user(&server, &admin_token, "og_qt", "og_qt@txresbench.test").await;
+    let mover = create_user(&server, &admin_token, "og_mv", "og_mv@txresbench.test").await;
+    let counterparty = create_user(&server, &admin_token, "og_cp", "og_cp@txresbench.test").await;
 
     let org = make_org_account(&pool, "Origin Org", owner).await;
     add_member(&pool, org, quiet, "member").await;

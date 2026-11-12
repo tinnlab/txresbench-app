@@ -146,7 +146,7 @@ vi.mock('@/api-client', () => ({
   },
 }))
 
-const { useEventBusStore } = await import('@ziee/framework/events')
+const { useEventBusStore } = await import('@txresbench/framework/events')
 const { useDatasetsStore } = await import('./Datasets.store')
 const { useDatasetDetailStore } = await import('./DatasetDetail.store')
 

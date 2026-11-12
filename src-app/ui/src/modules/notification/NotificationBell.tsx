@@ -3,8 +3,8 @@ import {
   getNotificationRenderer,
   type AppNotification,
   type NotificationRendererCtx,
-} from '@ziee/framework/notification'
-import { Badge, Button, Empty, Popover, Separator } from '@ziee/kit'
+} from '@txresbench/framework/notification'
+import { Badge, Button, Empty, Popover, Separator } from '@txresbench/kit'
 import { Bell, Check, X } from 'lucide-react'
 import { useState } from 'react'
 

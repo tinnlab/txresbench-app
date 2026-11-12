@@ -34,11 +34,11 @@
 
 use super::*;
 
-use cytoanalyst::modules::jobs::models::Job;
-use cytoanalyst::modules::jobs::seams::PeakMetrics;
-use cytoanalyst::modules::jobs::seams::RunRecorder;
-use cytoanalyst::modules::provenance::recorder::ProvenanceRunRecorder;
-use cytoanalyst::modules::provenance::repository::ProvenanceRepository;
+use txresbench::modules::jobs::models::Job;
+use txresbench::modules::jobs::seams::PeakMetrics;
+use txresbench::modules::jobs::seams::RunRecorder;
+use txresbench::modules::provenance::recorder::ProvenanceRunRecorder;
+use txresbench::modules::provenance::repository::ProvenanceRepository;
 
 /// The slot a fused pick binds. ONE slot, several bindings — the shape
 /// `hostCtx::resolveInputs` produces from an array-valued declared input and

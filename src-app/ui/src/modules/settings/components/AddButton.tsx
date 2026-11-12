@@ -1,5 +1,5 @@
 import { Plus } from 'lucide-react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 
 interface AddButtonProps {
   onClick?: () => void

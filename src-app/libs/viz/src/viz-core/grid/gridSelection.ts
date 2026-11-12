@@ -6,7 +6,7 @@
 // (data/selection.ts) narrow the point test by bounding box — hit-tested ONCE on
 // completion, never a per-mouse-move O(N) loop.
 //
-// deck.gl-only (no React, no DOM, no @ziee/*), so the math is unit-testable in node:
+// deck.gl-only (no React, no DOM, no @txresbench/*), so the math is unit-testable in node:
 // `OrthographicView.makeViewport` is pure matrix math (no GL context needed), exactly
 // like `multiView.ts`. An offset-less view of the cell's pixel size is fed
 // container-local coords MINUS the cell's rect origin (mirrors SelectableScatter's

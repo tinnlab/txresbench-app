@@ -25,9 +25,9 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::catalog::ArtifactFilter;
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::catalog::ArtifactFilter;
 
 use super::{create_project, pool_for, setup_admin};
 use crate::common::TestServer;
@@ -35,7 +35,7 @@ use crate::common::TestServer;
 const AXIS_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const AXIS_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-/// members 0…9 and 100…109 — golden blobs from `cyto_zarr.encode_member_set`, so the
+/// members 0…9 and 100…109 — golden blobs from `txr_zarr.encode_member_set`, so the
 /// disjointness this corpus depends on is the producer's own encoding and not a local one.
 const MEMBERS_0_TO_9: &str = "AQEBAQEBAQEBAQ==";
 const MEMBERS_100_TO_109: &str = "ZQEBAQEBAQEBAQ==";

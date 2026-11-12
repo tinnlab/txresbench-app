@@ -15,7 +15,7 @@
 
 use serde_json::Value;
 
-use cytoanalyst::modules::account::{
+use txresbench::modules::account::{
     AccountRepository, AccountRole, PERSONAL_ACCOUNT_NOT_MANAGEABLE,
 };
 
@@ -202,7 +202,7 @@ async fn remove_member_from_a_personal_account_is_refused_by_name() {
         .remove_member(
             personal,
             victim,
-            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+            txresbench::modules::account::ActorCeiling::PlatformStaff {
                 staff_user_id: uuid::Uuid::nil(),
             },
         )
@@ -312,7 +312,7 @@ async fn admin_account_reads_still_work_for_both_account_kinds() {
         .expect("the personal account exists");
     assert_eq!(
         personal_row.kind,
-        cytoanalyst::modules::account::AccountKind::Personal,
+        txresbench::modules::account::AccountKind::Personal,
         "platform staff must still READ a personal account"
     );
     let org_row = repo
@@ -322,7 +322,7 @@ async fn admin_account_reads_still_work_for_both_account_kinds() {
         .expect("the org account exists");
     assert_eq!(
         org_row.kind,
-        cytoanalyst::modules::account::AccountKind::Organization,
+        txresbench::modules::account::AccountKind::Organization,
         "platform staff must still READ an organization account"
     );
 

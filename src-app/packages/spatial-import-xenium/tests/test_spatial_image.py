@@ -158,7 +158,7 @@ def test_every_cell_centroid_inverts_into_the_emitted_pixel_grid(case, prime, pr
     A forward/inverse mix-up, a dropped downsample factor, or a transposed extent each put
     cells outside the grid; none of them changes a type or a shape.
     """
-    import cyto_zarr_read as CZR
+    import txr_zarr_read as CZR
 
     ctx = {"prime": prime, "protein": protein}[case]
     meta = _image(ctx)["meta"]
@@ -220,7 +220,7 @@ def test_the_YX_pyramidal_jpeg2000_source_is_downsampled_to_the_cap(prime):
 def test_the_emitted_bytes_on_disk_carry_the_grid_and_the_scale(prime):
     """TEST-14 — read the FILE back, not the declaration that describes it.
 
-    OME `PhysicalSizeX/Y` is what a generic reader — one that knows nothing about the `cyto`
+    OME `PhysicalSizeX/Y` is what a generic reader — one that knows nothing about the `txr`
     payload — measures with, so a pre-downsample value there misscales every tool outside
     this system by exactly the factor. `_reconcile_scale` checks the declaration against
     itself; this checks the bytes.

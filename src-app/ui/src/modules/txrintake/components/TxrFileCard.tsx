@@ -35,7 +35,7 @@
  */
 
 import type { CSSProperties } from 'react'
-import { Alert, Button, Spinner } from '@ziee/kit'
+import { Alert, Button, Spinner } from '@txresbench/kit'
 import { useStore } from 'zustand'
 import type { FileTableKind } from '@/api-client/types'
 import {

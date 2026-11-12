@@ -19,7 +19,7 @@
 
 import { useMemo } from 'react'
 import { datatypeRegistry } from '@/core/datatypes'
-import { message } from '@ziee/kit'
+import { message } from '@txresbench/kit'
 import {
   annotationTarget,
   createWorkbenchApi,
@@ -79,7 +79,7 @@ function createEventBus(): EventBusLike {
 function createKeyValueBackend(): KeyValueBackend {
   const ls = (): Storage | null => {
     try {
-      const probe = '__cyto_wb_kv_probe__'
+      const probe = '__txr_wb_kv_probe__'
       window.localStorage.setItem(probe, probe)
       window.localStorage.removeItem(probe)
       return window.localStorage
@@ -445,7 +445,7 @@ export function createWorkbenchHost(projectId: string): WorkbenchHost {
 }
 
 /** The workbench extension id the shell's own API instance is scoped to. */
-export const SHELL_EXTENSION_ID = 'cyto.workbench.shell'
+export const SHELL_EXTENSION_ID = 'txr.workbench.shell'
 
 /**
  * A memoized `WorkbenchAPI` for the current project — the shell's single handle to

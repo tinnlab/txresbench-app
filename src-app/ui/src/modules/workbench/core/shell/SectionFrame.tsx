@@ -59,7 +59,7 @@
 
 import * as React from 'react'
 
-import { Accordion, Badge } from '@ziee/kit'
+import { Accordion, Badge } from '@txresbench/kit'
 import { GripVertical } from 'lucide-react'
 
 import { cn } from '@/lib/utils'

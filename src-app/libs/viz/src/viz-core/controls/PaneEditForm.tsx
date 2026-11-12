@@ -1,12 +1,12 @@
 // PaneEditForm.tsx — the per-pane EDIT FORM (shell redesign). Opened by a pane toolbar's ✎ Edit button;
 // edits are made HERE (never inline on the plot), so the plot stays "what you see is what you export".
-// Built on @ziee/kit + the workbench SchemaForm layout (flex-col gap-4, kit Input/Select/Slider/Switch).
+// Built on @txresbench/kit + the workbench SchemaForm layout (flex-col gap-4, kit Input/Select/Slider/Switch).
 // Sections adapt to the cell: Title (plot + x/y axis) · Legend (per-category recolor / rename / show-hide,
 // categorical) · Color (colormap, continuous) · Marks (point size / opacity, dense) · Range (value filter,
 // continuous). Presentational — every edit is a callback the grid wires to its stores.
 
 import { useEffect, useState } from 'react'
-import { Button, Input, Select, Slider, Switch } from '@ziee/kit'
+import { Button, Input, Select, Slider, Switch } from '@txresbench/kit'
 import { X, Eye, EyeOff } from 'lucide-react'
 import { CONTINUOUS_COLORMAPS, QUALITATIVE_PALETTE_NAMES, QUALITATIVE_PALETTES, QUALITATIVE_PALETTE_KEY_DEFAULT, type ContinuousColormap } from '../data/color'
 import { BANNED_SEQUENTIAL } from '../data/pubreadyColor'

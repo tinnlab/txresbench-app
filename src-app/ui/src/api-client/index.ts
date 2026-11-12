@@ -10,11 +10,11 @@ import {
   createApiClient,
   getAuthToken,
   setBaseUrlResolver,
-} from '@ziee/framework/api-client'
+} from '@txresbench/framework/api-client'
 import type {
   FileUploadProgressCallback,
   SSECallback,
-} from '@ziee/framework/api-client'
+} from '@txresbench/framework/api-client'
 import { getBaseUrl } from '@/api-client/getBaseURL'
 // TYPE-ONLY, and deliberately so: the workstore reader imports `ApiClient` for its
 // transport, so a runtime import back would close a cycle. `import type` is fully
@@ -31,7 +31,7 @@ import type {
 // Per-app binding of the framework ApiClient runtime.
 //
 // The transport (`createApiClient`, `callAsync`, auth/refresh/retry/SSE) moved
-// into `@ziee/framework/api-client`; the generated per-endpoint types
+// into `@txresbench/framework/api-client`; the generated per-endpoint types
 // (`ApiEndpoints`, `ApiEndpointParameters`, `ApiEndpointResponses`) stay
 // per-app OUTPUT in this app's `api-client/types.ts`. This file is the thin
 // binding layer that supplies those concrete types to the generic factory —

@@ -28,7 +28,7 @@ study to localStorage, server persistence deferred, `resetLayout`). Both build a
 (dataset/embedding · plot-type · single/split layout · color-by · Run · Export · Reset), a pure semantic
 slot-placement engine that routes a `ViewContribution` by type/`area` (field→left, result→bottom, inspector→
 right, view→center), rejects invalid placements, composes multiple contributions as ordered tabs, and gates by
-`when`/`requires` against catalog data-kinds. Both provide the two HOST renderers — a 4-tier JSON-schema→`@ziee/kit`
+`when`/`requires` against catalog data-kinds. Both provide the two HOST renderers — a 4-tier JSON-schema→`@txresbench/kit`
 `SchemaForm` (Tier-1 scalar controls, Tier-2 auto-populated type-filtered artifact-ref pickers, Tier-3 named host
 widgets incl. a P8-stubbed `cell-set-selector`, Tier-4 code-form) and a `ResultPanelHost` dispatching `ResultKind`
 through the P5 `resultRenderers` registry to standard panels (DE table / stat card / provenance view) so DE

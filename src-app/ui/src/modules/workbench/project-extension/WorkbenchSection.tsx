@@ -9,7 +9,7 @@
 
 import { useState } from 'react'
 import { ProjectDetail } from '@/modules/project/stores/ProjectDetail.store'
-import { Spinner } from '@ziee/kit'
+import { Spinner } from '@txresbench/kit'
 import { useProjectScope } from '@/modules/project/context/ProjectScope'
 import { useActiveContext } from '@/core/actions/activeContext'
 import { useAction } from '@/core/actions/useAction'

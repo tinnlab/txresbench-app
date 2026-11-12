@@ -17,7 +17,7 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// A cataloged typed artifact.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

@@ -49,7 +49,7 @@ test('catalog→picker→select drives color-by-gene + categorical + the raw CSC
 
   // The shipped arrow readers + the DataSource seam register at app boot (DEV-only).
   await page.waitForFunction(
-    () => !!(window as unknown as { __cyto_ds?: unknown }).__cyto_ds,
+    () => !!(window as unknown as { __txr_ds?: unknown }).__txr_ds,
     undefined,
     { timeout: 20_000 },
   )
@@ -59,7 +59,7 @@ test('catalog→picker→select drives color-by-gene + categorical + the raw CSC
   // value/categorical keys; `valueColumn(key)` / `categorical(key)` resolve them.
   const flow = await page.evaluate(async (projectId) => {
     const mk = (window as unknown as {
-      __cyto_ds?: (id: string) => {
+      __txr_ds?: (id: string) => {
         catalog: () => Promise<{
           valueColumns: string[]
           categoricalColumns: { id: string; label: string; kind: string }[]
@@ -67,8 +67,8 @@ test('catalog→picker→select drives color-by-gene + categorical + the raw CSC
         valueColumn: (key: string) => Promise<{ row: Uint32Array; value: Float32Array }>
         categorical: (key: string) => Promise<{ codes: Uint16Array; categories: string[]; length: number }>
       }
-    }).__cyto_ds
-    if (!mk) return { error: 'no __cyto_ds seam' }
+    }).__txr_ds
+    if (!mk) return { error: 'no __txr_ds seam' }
     const ds = mk(projectId)
     const cat = await ds.catalog()
     const geneKey = cat.valueColumns[0]
@@ -157,7 +157,7 @@ test('catalog→picker→select drives color-by-gene + categorical + the raw CSC
   //     consumed by `core/render/declarativeMount.ts` — exercised live by
   //     `14-declarative-qc/row-filter-live.spec.ts` (TEST-E2) — add a criterion → the
   //     keep-mask re-derives → the canvas re-renders, with the commit half gated on
-  //     `CYTO_E2E_REAL_COMPUTE`. NOTE: no `maskId`/`rowMask` identifier survives anywhere
+  //     `TXR_E2E_REAL_COMPUTE`. NOTE: no `maskId`/`rowMask` identifier survives anywhere
   //     in `src/`, and no request carries a `mask` parameter; the word `mask` itself does
   //     still occur there, as the kit's `mask={{…}}` overlay prop and as the client-side
   //     "keep-mask" vocabulary above — neither is a row-subset artifact.
@@ -182,14 +182,14 @@ test('catalog→picker→select drives color-by-gene + categorical + the raw CSC
   const colLast = await page.evaluate(
     async ([exprId, col, structure]) => {
       const api = (window as unknown as {
-        __cyto_read: {
+        __txr_read: {
           sparse: (
             id: string,
             col: number,
             structure: unknown,
           ) => Promise<{ row: Uint32Array; value: Float32Array }>
         }
-      }).__cyto_read
+      }).__txr_read
       const s = await api.sparse(exprId as string, col as number, structure)
       return { row: Array.from(s.row), value: Array.from(s.value) }
     },

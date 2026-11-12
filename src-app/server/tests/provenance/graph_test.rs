@@ -159,7 +159,7 @@ async fn rerun_spec_never_ships_host_paths_to_a_project_viewer() {
     // A run whose spec carries BOTH host-path carriers, written straight into the
     // sidecar so the test pins the DTO projection (not the recorder's input shape).
     let run_id = record_filter_run(&pool, project_id, root_id).await;
-    let host_input = "/var/lib/cytoanalyst/workspaces/deadbeef/inputs/expression.h5ad";
+    let host_input = "/var/lib/txresbench/workspaces/deadbeef/inputs/expression.h5ad";
     let host_mount = "/srv/refs/GRCh38";
     sqlx::query(
         "UPDATE provenance_run_repro SET rerun_spec_json = json_set(
@@ -220,7 +220,7 @@ async fn rerun_spec_never_ships_host_paths_to_a_project_viewer() {
         .await
         .expect("runs json");
     assert!(
-        !listed.to_string().contains("/var/lib/cytoanalyst"),
+        !listed.to_string().contains("/var/lib/txresbench"),
         "the paginated trust view leaks a host path: {listed}"
     );
 }

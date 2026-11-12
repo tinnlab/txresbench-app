@@ -9,7 +9,7 @@
 // the REQUESTS the read issued, through a store that records them.
 //
 // Fixtures are the Python writer's own bytes (`__fixtures__/zarr/table`, produced by
-// `src-app/packages/_lib/cyto_zarr.py`) and the oracle is `expected.json`, computed by
+// `src-app/packages/_lib/txr_zarr.py`) and the oracle is `expected.json`, computed by
 // the GENERATOR from its numpy inputs — never by this reader. A fixture the thing under
 // test also defines proves only self-consistency.
 
@@ -52,9 +52,9 @@ const TABLE_STRUCTURE = parseStructure(
   'table',
   (
     JSON.parse(new TextDecoder().decode(TABLE_TREE.get('zarr.json')!)) as {
-      attributes: { cyto: unknown }
+      attributes: { txr: unknown }
     }
-  ).attributes.cyto,
+  ).attributes.txr,
 )
 
 /** The GENERATOR's oracle, computed from its numpy inputs. */

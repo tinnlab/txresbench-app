@@ -14,7 +14,7 @@
 // PRESENTATIONAL pieces (`JobStatusBadge`, `TimeSeriesChart`) are likewise reused from
 // `modules/jobs`.
 
-import { defineLocalStore } from '@ziee/framework/store-kit'
+import { defineLocalStore } from '@txresbench/framework/store-kit'
 import type { JobDetail, JobListItem } from '@/api-client/types'
 import { createJobsLifecycle } from '@/modules/jobs/jobsLifecycle'
 import { buildJobsListQuery, DEFAULT_JOBS_PER_PAGE } from './jobsScope'

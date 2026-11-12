@@ -5,7 +5,7 @@
   "surfaceRoots": [
     "src/modules"
   ],
-  "kitImport": "@ziee/kit",
+  "kitImport": "@txresbench/kit",
   "lintCmds": [],
   "runtimeBaselineModule": "src/dev/gallery/runtime-baseline.js",
   "visualConfig": "playwright.visual.config.ts",

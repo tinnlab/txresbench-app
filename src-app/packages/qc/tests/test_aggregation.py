@@ -26,7 +26,7 @@ The fixture is deliberately TINY and hand-checkable — five genes, three cells,
 numbers — because the point of these cases is that a reader can verify the expected values
 by eye rather than by re-running the implementation under a different name. It is
 synthesized here rather than read off a live project on purpose: three stamp defects in
-`_lib/cyto_columns.py` (integer-categorical levels stringified into the level set; `bool`
+`_lib/txr_columns.py` (integer-categorical levels stringified into the level set; `bool`
 stamped `kind: numeric`; pandas nullable `boolean` double-stamped) mean a real project's
 artifacts cannot be trusted as an oracle for anything.
 """
@@ -187,9 +187,9 @@ def _deleted_builtin_n_genes_by_counts(n_cells, indices, data):
 
 
 def _csc_trio(store):
-    import cyto_csc
+    import txr_csc
 
-    indptr, indices, data = cyto_csc.read_csc(store)
+    indptr, indices, data = txr_csc.read_csc(store)
     return np.asarray(indptr), np.asarray(indices), np.asarray(data)
 
 

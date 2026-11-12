@@ -45,15 +45,15 @@
 //! The manager honours the same env-scoped seams the shipped provider does, so
 //! local dev and the real-compute test tier stage a base or layer without OCI:
 //!
-//! 1. `CYTO_ENV_ROOTFS_SQUASHFS__<env-id>=<path>` — **preferred** (content
+//! 1. `TXR_ENV_ROOTFS_SQUASHFS__<env-id>=<path>` — **preferred** (content
 //!    identity: the bytes are verified against the pinned digest, staged into
 //!    the digest cache, mounted by digest, and the digest is recorded);
-//! 2. `CYTO_ENV_ROOTFS_DIR__<env-id>=<pre-mounted dir>` — legacy: a mount dir
+//! 2. `TXR_ENV_ROOTFS_DIR__<env-id>=<pre-mounted dir>` — legacy: a mount dir
 //!    carries no content identity, so a digest is recorded only when it is the
 //!    digest cache's own mount point; otherwise the run is unpinned and the
 //!    layer digest is `None` (the shipped "provenance-only" posture);
 //! 3. the un-suffixed forms serve the single env named by
-//!    `CYTO_ENV_ROOTFS_{SQUASHFS,DIR}_ENV` — the txr node has NO default env-id
+//!    `TXR_ENV_ROOTFS_{SQUASHFS,DIR}_ENV` — the txr node has NO default env-id
 //!    (DEC-13: the base is always caller-named), so a bare artifact without
 //!    the `_ENV` association is refused rather than substituted;
 //! 4. a staged artifact for a DIFFERENT env refuses by name, never substitutes.
@@ -81,7 +81,7 @@ use std::time::{Duration, Instant};
 use axum::http::StatusCode;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::env_id::is_valid_env_id;
 use super::env_image::{
@@ -160,8 +160,8 @@ pub const CANCEL_JOIN_TIMEOUT: Duration = Duration::from_secs(30);
 const ENV_SEAM_SUFFIX: &str = "__";
 
 /// The seam variable names, same spellings as the shipped provider (DEC-15).
-const SQUASHFS_SEAM: &str = "CYTO_ENV_ROOTFS_SQUASHFS";
-const ROOTFS_DIR_SEAM: &str = "CYTO_ENV_ROOTFS_DIR";
+const SQUASHFS_SEAM: &str = "TXR_ENV_ROOTFS_SQUASHFS";
+const ROOTFS_DIR_SEAM: &str = "TXR_ENV_ROOTFS_DIR";
 
 /// Cap on retained subprocess output per stream (the rest is drained to a
 /// sink so a chatty `oras` can never block on a full pipe, nor balloon our
@@ -306,7 +306,7 @@ static MANAGER: once_cell::sync::OnceCell<MethodEnvManager> = once_cell::sync::O
 
 /// [`MANAGER`] — the `config::get_state()`-style accessor PROV-SS-4 names.
 /// In a DEBUG build the process environment may name a dev registry host
-/// (`CYTO_TXR_METHOD_ENV_REGISTRY`, see [`dev_env_seams`]); a release build
+/// (`TXR_METHOD_ENV_REGISTRY`, see [`dev_env_seams`]); a release build
 /// always constructs the production seams, so the qa-hardening dev registry
 /// can never reach a shipped binary.
 pub fn manager() -> &'static MethodEnvManager {
@@ -314,7 +314,7 @@ pub fn manager() -> &'static MethodEnvManager {
 }
 
 /// The dev-only registry seam wiring (ITEM-2, node qa-hardening): read the
-/// loopback registry HOST from `CYTO_TXR_METHOD_ENV_REGISTRY` and route it
+/// loopback registry HOST from `TXR_METHOD_ENV_REGISTRY` and route it
 /// through the EXISTING [`MethodEnvSeams::registry`] seam — the same
 /// re-point-the-host, keep-the-namespace rule the loopback integration
 /// fixtures use (`with_seams`). Debug builds only: the `#[cfg]` halves make a
@@ -330,7 +330,7 @@ pub fn dev_env_seams() -> MethodEnvSeams {
 fn dev_seams_from(read: &impl Fn(&str) -> Option<String>) -> MethodEnvSeams {
     #[cfg(debug_assertions)]
     {
-        let registry = read("CYTO_TXR_METHOD_ENV_REGISTRY")
+        let registry = read("TXR_METHOD_ENV_REGISTRY")
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty());
         MethodEnvSeams {
@@ -347,7 +347,7 @@ fn dev_seams_from(read: &impl Fn(&str) -> Option<String>) -> MethodEnvSeams {
 
 /// The EFFECTIVE base registry prefix of this process: the compiled
 /// `ghcr.io/tinnlab/txresbench-env` in release, or the dev-seam host (same
-/// namespace/repo) in a debug build with `CYTO_TXR_METHOD_ENV_REGISTRY` set —
+/// namespace/repo) in a debug build with `TXR_METHOD_ENV_REGISTRY` set —
 /// the value the status surface reports, so a dev run never claims to fetch
 /// from ghcr.io.
 pub fn effective_base_prefix() -> String {
@@ -892,7 +892,7 @@ impl MethodEnvManager {
                 ENV_TOOL_MISSING_CODE,
                 "oras is not installed (looked in <app_data>/bin and PATH); the method \
                  environment cannot be downloaded — install oras or stage the environment \
-                 with CYTO_ENV_ROOTFS_SQUASHFS__<env-id>",
+                 with TXR_ENV_ROOTFS_SQUASHFS__<env-id>",
             )
         })?;
         let cancel = self
@@ -1358,15 +1358,15 @@ fn is_executable(path: &Path) -> bool {
 
 // ────────────────────────────── air-gap seams ─────────────────────────────────
 
-/// `CYTO_ENV_ROOTFS_SQUASHFS__<env-id>` (exact env) or the bare
-/// `CYTO_ENV_ROOTFS_SQUASHFS` serving the env named by
-/// `CYTO_ENV_ROOTFS_SQUASHFS_ENV` (DEC-15 steps 1+3). The txr node has no
+/// `TXR_ENV_ROOTFS_SQUASHFS__<env-id>` (exact env) or the bare
+/// `TXR_ENV_ROOTFS_SQUASHFS` serving the env named by
+/// `TXR_ENV_ROOTFS_SQUASHFS_ENV` (DEC-15 steps 1+3). The txr node has no
 /// default env-id, so a bare artifact needs the explicit `_ENV` association.
 fn seam_squashfs_for(env_id: &str) -> Option<PathBuf> {
     seam_path(SQUASHFS_SEAM, env_id, |k| std::env::var(k).ok())
 }
 
-/// `CYTO_ENV_ROOTFS_DIR__<env-id>` (exact env) or the bare dir seam with the
+/// `TXR_ENV_ROOTFS_DIR__<env-id>` (exact env) or the bare dir seam with the
 /// `_ENV` association.
 fn seam_rootfs_dir_for(env_id: &str) -> Option<PathBuf> {
     seam_path(ROOTFS_DIR_SEAM, env_id, |k| std::env::var(k).ok())
@@ -1503,7 +1503,7 @@ fn env_mismatch(key: &str, requested: &str, served: &str, suffixed: bool) -> App
     )
 }
 
-/// The digest a pre-mounted `CYTO_ENV_ROOTFS_DIR` corresponds to, when — and
+/// The digest a pre-mounted `TXR_ENV_ROOTFS_DIR` corresponds to, when — and
 /// only when — the dir is the content-digest cache's own mount point for a
 /// digest actually present in the cache (mirrors `env_image.rs`).
 fn digest_from_cache_dir(dir: &Path) -> Option<String> {
@@ -1985,7 +1985,7 @@ mod tests {
     fn dev_registry_seam_maps_env_to_registry_host_only() {
         let read = |v: &str| {
             let mut m = std::collections::HashMap::new();
-            m.insert("CYTO_TXR_METHOD_ENV_REGISTRY".to_string(), "127.0.0.1:5055".to_string());
+            m.insert("TXR_METHOD_ENV_REGISTRY".to_string(), "127.0.0.1:5055".to_string());
             m.get(v).cloned()
         };
         let seams = dev_seams_from(&read);
@@ -2755,11 +2755,11 @@ mod tests {
     fn seam_lookup_serves_the_exact_env_and_refuses_a_sibling() {
         let vars: BTreeMap<String, String> = [
             (
-                "CYTO_ENV_ROOTFS_SQUASHFS__fixture-env".to_string(),
+                "TXR_ENV_ROOTFS_SQUASHFS__fixture-env".to_string(),
                 "/srv/fixture.squashfs".to_string(),
             ),
             (
-                "CYTO_ENV_ROOTFS_DIR__other-env".to_string(),
+                "TXR_ENV_ROOTFS_DIR__other-env".to_string(),
                 "/srv/other".to_string(),
             ),
         ]
@@ -2788,11 +2788,11 @@ mod tests {
     fn seam_lookup_bare_artifact_needs_an_explicit_env_association() {
         let vars: BTreeMap<String, String> = [
             (
-                "CYTO_ENV_ROOTFS_SQUASHFS".to_string(),
+                "TXR_ENV_ROOTFS_SQUASHFS".to_string(),
                 "/srv/a.squashfs".to_string(),
             ),
             (
-                "CYTO_ENV_ROOTFS_SQUASHFS_ENV".to_string(),
+                "TXR_ENV_ROOTFS_SQUASHFS_ENV".to_string(),
                 "fixture-env".to_string(),
             ),
         ]
@@ -2811,7 +2811,7 @@ mod tests {
         // Bare artifact with NO association at all: unassociated refusal (the
         // txr node has no default env-id — DEC-13).
         let vars: BTreeMap<String, String> = [(
-            "CYTO_ENV_ROOTFS_SQUASHFS".to_string(),
+            "TXR_ENV_ROOTFS_SQUASHFS".to_string(),
             "/srv/a.squashfs".to_string(),
         )]
         .into_iter()
@@ -2825,7 +2825,7 @@ mod tests {
     #[test]
     fn seam_lookup_names_an_unusable_exact_artifact() {
         let vars: BTreeMap<String, String> = [(
-            "CYTO_ENV_ROOTFS_DIR__fixture-env".to_string(),
+            "TXR_ENV_ROOTFS_DIR__fixture-env".to_string(),
             "/srv/not-mounted".to_string(),
         )]
         .into_iter()

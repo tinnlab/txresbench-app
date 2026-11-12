@@ -1,5 +1,5 @@
 import { AppLayout } from '@/modules/layouts/app-layout'
-import type { LayoutDefinition } from '@ziee/framework/router'
+import type { LayoutDefinition } from '@txresbench/framework/router'
 import SettingsPage from '@/modules/settings/SettingsPage'
 
 export function SettingsLayout() {

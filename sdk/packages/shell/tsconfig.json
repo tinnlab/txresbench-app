@@ -14,10 +14,10 @@
     "noEmit": true,
     "types": ["node", "react", "react-dom"],
     "paths": {
-      "@ziee/kit": ["../kit/src/index.ts"],
-      "@ziee/kit/*": ["../kit/src/*"],
-      "@ziee/framework": ["../framework/src/index.ts"],
-      "@ziee/framework/*": ["../framework/src/*"]
+      "@txresbench/kit": ["../kit/src/index.ts"],
+      "@txresbench/kit/*": ["../kit/src/*"],
+      "@txresbench/framework": ["../framework/src/index.ts"],
+      "@txresbench/framework/*": ["../framework/src/*"]
     }
   },
   "include": ["src"]

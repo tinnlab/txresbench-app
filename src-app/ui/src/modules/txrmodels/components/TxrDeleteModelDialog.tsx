@@ -19,7 +19,7 @@
 import { useState, type CSSProperties } from 'react'
 import { ApiClient } from '@/api-client'
 import type { ModelSummary } from '@/api-client/types'
-import { Button, Dialog } from '@ziee/kit'
+import { Button, Dialog } from '@txresbench/kit'
 
 /** The one failure line (the engine's message, else this constant). */
 const DELETE_FAILED_LINE = 'The model could not be deleted.'

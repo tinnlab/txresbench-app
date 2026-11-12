@@ -1,24 +1,24 @@
-//! Who may reach a FILE — cytoanalyst's answer, and the seam it is injected
+//! Who may reach a FILE — txresbench's answer, and the seam it is injected
 //! through.
 //!
 //! ## Why this module exists
 //!
-//! `ziee-file` is a generic blob store. Its own scope is `files.user_id`, the
+//! `txresbench-file` is a generic blob store. Its own scope is `files.user_id`, the
 //! UPLOADING actor (`ingest_bytes(&…, auth.user.id, …)`), and `files` carries no
-//! `account_id` (DEC-7). In cytoanalyst a file is reached through the DATASET it
+//! `account_id` (DEC-7). In txresbench a file is reached through the DATASET it
 //! is linked to, and a dataset belongs to an ACCOUNT — so `files.user_id` records
 //! provenance and says nothing about entitlement. The two come apart the moment a
 //! member is removed from an organization: the `account_members` row goes, and
 //! `files.user_id` still names them, forever.
 //!
 //! That gap was #170 on the sandbox byte-staging path, and it was the SAME gap,
-//! wider, on `ziee-file`'s own mounted HTTP surface — which authorized
+//! wider, on `txresbench-file`'s own mounted HTTP surface — which authorized
 //! `GET /files`, `/download`, `/raw`, every version route, the download-token
 //! mint and `DELETE` on nothing but `files.user_id`. #170's comment named that
 //! surface and recorded that it could not be fixed there because `sdk` was a
 //! pinned submodule. This module is that fix's other half: the SDK grew an
-//! injected [`ziee_file::seams::FileAccessPolicy`], and
-//! [`DatasetFileAccessPolicy`] is cytoanalyst's implementation of it.
+//! injected [`txresbench_file::seams::FileAccessPolicy`], and
+//! [`DatasetFileAccessPolicy`] is txresbench's implementation of it.
 //!
 //! ## One predicate, two callers
 //!
@@ -59,13 +59,13 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_core::AppError;
-use ziee_file::seams::{FileAccess, FileAccessPolicy};
+use txresbench_core::AppError;
+use txresbench_file::seams::{FileAccess, FileAccessPolicy};
 
 /// The subset of `candidates` that `user_id` may read, PRESERVING the given
 /// order.
 ///
-/// This is cytoanalyst's single authority on file readability. `sandbox::inputs::
+/// This is txresbench's single authority on file readability. `sandbox::inputs::
 /// file_readable_by` is a one-element adapter over it, and
 /// [`DatasetFileAccessPolicy`] is the HTTP surface's route into it.
 ///
@@ -123,7 +123,7 @@ pub async fn readable_file_ids(
         // sole authority" is true OF THIS PREDICATE, not of the system.
         //
         // SUPERSEDED (this branch, and the reason this predicate moved here): the text
-        // that stood here said `ziee-file`'s own HTTP surface still authorized
+        // that stood here said `txresbench-file`'s own HTTP surface still authorized
         // `GET /files/{id}/download`, list and DELETE on a bare `files.user_id = $n`,
         // and that it could not be fixed because `sdk` was a pinned submodule. **That
         // is no longer true and must not be read as current.** The pin was moved, the
@@ -162,7 +162,7 @@ pub async fn readable_file_ids(
         //
         // RESIDUE SCOPE UPDATE (this branch): the paragraph below was written when this
         // predicate governed only sandbox byte-staging. It is now ALSO the authorization
-        // for `ziee-file`'s mounted HTTP surface, so the same cascade re-grants a removed
+        // for `txresbench-file`'s mounted HTTP surface, so the same cascade re-grants a removed
         // member `GET /api/files`, `/download`, `/raw` and `DELETE` — not merely the
         // ability to stage bytes into a sandbox. Same residue, materially wider blast
         // radius. The fix is unchanged and still write-side (`files.account_id`).
@@ -337,7 +337,7 @@ pub async fn writable_file_ids(
         .collect())
 }
 
-/// CytoAnalyst's [`FileAccessPolicy`]: reads resolve through [`readable_file_ids`],
+/// TxResBench's [`FileAccessPolicy`]: reads resolve through [`readable_file_ids`],
 /// writes through [`writable_file_ids`].
 ///
 /// # Read standing and write standing are different questions
@@ -440,7 +440,7 @@ impl FileAccessPolicy for DatasetFileAccessPolicy {
 /// predicate consumes: a JSON array of 32-char lowercase hex strings (the
 /// `uuid::Uuid::simple()` form), compared against a 16-byte BLOB column
 /// through `unhex()` — `f.id IN (SELECT unhex(j.value) FROM json_each($1) AS j)`.
-/// This is the ITEM-15 `ziee-file` convention (its `uuid_list_json`), kept
+/// This is the ITEM-15 `txresbench-file` convention (its `uuid_list_json`), kept
 /// local here because the app's modules are single-driver (DEC-1) and beside
 /// the `= ANY($1)` predicate this module serves no other surface. The caller's
 /// order is restored in Rust (the `IN` returns rows in whatever order the

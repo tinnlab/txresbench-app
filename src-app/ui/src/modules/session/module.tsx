@@ -1,4 +1,4 @@
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 // Side-effect imports: `Session.store` self-registers via `registerLazyStore`
 // AND sets the SDK permission seam at module scope.
 import '@/modules/session/Session.store'

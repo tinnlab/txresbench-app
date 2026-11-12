@@ -5,7 +5,7 @@
 // Runnable: node tests/e2e/shared-deck-charts.e2e.mjs [baseUrl]
 import { chromium } from 'playwright'
 const BASE = process.argv[2] ?? 'http://localhost:1482'
-const SC = '/tmp/claude-1000/-data-pbya-ziee-ziee/b5b52393-63e9-49f1-8500-803873494642/scratchpad'
+const SC = '/tmp/claude-1000/-data-pbya-txresbench-txresbench/b5b52393-63e9-49f1-8500-803873494642/scratchpad'
 
 const b = await chromium.launch()
 const p = await b.newPage({ viewport: { width: 1500, height: 920 } })

@@ -30,14 +30,14 @@ import { parseMulti, parseOne } from './roots.mjs'
 //                         selector LIST, so `.dark, .app-force-dark { … }` is found.
 //   --out <file>          where to write/check the spec.
 //   --app-name <name>     the contract's title.
-// All resolved vs CWD; defaults reproduce ziee's single-`src/index.css` layout.
+// All resolved vs CWD; defaults reproduce txresbench's single-`src/index.css` layout.
 /** The `--css` specs exactly as given (unresolved), for the generated stamp. */
 const CSS_SPECS = parseMulti('css')
 const CSS_FILES = (CSS_SPECS.length ? CSS_SPECS : ['src/index.css']).map(f =>
   path.resolve(process.cwd(), f),
 )
 const OUT = path.resolve(process.cwd(), parseOne('out') ?? 'DESIGN_SYSTEM.md')
-const APP_NAME = parseOne('app-name') ?? 'Ziee'
+const APP_NAME = parseOne('app-name') ?? 'TxResBench'
 const DARK_SELECTOR = parseOne('dark-selector') ?? '.dark'
 
 /** Exit with a message an app author can act on — not an uncaught stack trace. */
@@ -175,13 +175,13 @@ const radii = [...theme].filter(([k]) => k.startsWith('radius-')).map(([k, v]) =
 
 // --- compose the spec -----------------------------------------------------------
 // Name the sheets this run actually read. The stamp used to hardcode
-// `src-app/ui/src/index.css`, which is only true for an app shaped like ziee —
+// `src-app/ui/src/index.css`, which is only true for an app shaped like txresbench —
 // an app that LAYERS its own sheet over a package token sheet got a generated,
 // committed doc asserting a path it was not generated from (CODING_GUIDELINES
 // §17: docs reference only verified paths). The default single-sheet case keeps
 // the historical wording byte-for-byte, so no existing consumer's committed
 // spec drifts.
-// The ziee-shaped single-sheet run (defaulted, or `--css src/index.css`) keeps
+// The txresbench-shaped single-sheet run (defaulted, or `--css src/index.css`) keeps
 // the historical wording BYTE-for-byte — its consumers have the old string in a
 // committed spec and `check:design-spec` would go red on a cosmetic change.
 const isLegacyShape =

@@ -1,10 +1,10 @@
 //! JSON-RPC handler for `POST /api/mcp`. Gated on `mcp::use`
 //! ([`RequirePermissions`]). Three tools (from the SDK's
-//! `ziee_control_mcp::tools::tool_list()`): `list_capabilities` /
+//! `txresbench_control_mcp::tools::tool_list()`): `list_capabilities` /
 //! `describe_capability` / `invoke_capability`, dispatched over the MERGE of
 //! two capability catalogs:
-//! - the REST/OpenAPI catalog (`ziee_control_mcp::catalog`), ported verbatim
-//!   from ziee's `modules/control_mcp` — `invoke_capability` of a REST op
+//! - the REST/OpenAPI catalog (`txresbench_control_mcp::catalog`), ported verbatim
+//!   from txresbench's `modules/control_mcp` — `invoke_capability` of a REST op
 //!   dispatches to the real route over loopback, forwarding the caller's JWT
 //!   so the target route's own `RequirePermissions` re-authorizes from the DB
 //!   (no authz reimplemented here);
@@ -17,7 +17,7 @@
 //! MCP tool result `isError`" — so `NOT_PERMITTED` /
 //! `FRONTEND_NOT_CONNECTED` / `FRONTEND_RELOADED` / `FRONTEND_UNRESPONSIVE`
 //! are returned as `Ok(<isError tool result>)`, never a JSON-RPC-level error.
-//! REST-kind failures keep ziee `control_mcp`'s original behavior (an unknown
+//! REST-kind failures keep txresbench `control_mcp`'s original behavior (an unknown
 //! or forbidden `operation_id` is a JSON-RPC-level error; an HTTP-level
 //! failure from the dispatched route is an `isError` tool result) — this
 //! module was NOT asked to change that half, only to add the frontend one.
@@ -34,11 +34,11 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use ziee_auth::{Group, User};
-use ziee_control_mcp::catalog::{self, ControlCatalog, Operation};
-use ziee_control_mcp::{policy, tools};
-use ziee_core::AppError;
-use ziee_framework::mcp::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
+use txresbench_auth::{Group, User};
+use txresbench_control_mcp::catalog::{self, ControlCatalog, Operation};
+use txresbench_control_mcp::{policy, tools};
+use txresbench_core::AppError;
+use txresbench_framework::mcp::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 
 use crate::modules::permissions::{principal_holds, RequirePermissions};
 
@@ -68,7 +68,7 @@ pub(super) fn base_url() -> Option<&'static str> {
     MCP_BASE_URL.get().map(String::as_str)
 }
 
-/// One shared client for the loopback dispatch (mirrors ziee `control_mcp`).
+/// One shared client for the loopback dispatch (mirrors txresbench `control_mcp`).
 /// Loopback only, but still bounded + no redirects.
 static HTTP_CLIENT: LazyLock<Option<reqwest::Client>> = LazyLock::new(|| {
     reqwest::Client::builder()
@@ -99,7 +99,7 @@ pub async fn jsonrpc_handler(
 
     // Notifications (no id) are intentionally ACKed without dispatch, per
     // JSON-RPC 2.0 (a notification has no response by definition) — matches
-    // the ziee reference `control_mcp` handler. None of our methods have a
+    // the txresbench reference `control_mcp` handler. None of our methods have a
     // side effect that a notification-form call would need to trigger, so
     // there's nothing to lose by not processing the body.
     if req.id.is_none() {
@@ -113,7 +113,7 @@ pub async fn jsonrpc_handler(
             json!({
                 "protocolVersion": "2025-11-25",
                 "capabilities": { "tools": {} },
-                "serverInfo": { "name": "cytoanalyst-mcp", "version": env!("CARGO_PKG_VERSION") },
+                "serverInfo": { "name": "txresbench-mcp", "version": env!("CARGO_PKG_VERSION") },
             }),
         ),
         "tools/list" => ok_response(id, tools::tool_list()),
@@ -184,11 +184,11 @@ struct ToolCallParams {
     arguments: Value,
 }
 
-// ── REST-catalog permission filter (mirrors ziee control_mcp) ───────────────
+// ── REST-catalog permission filter (mirrors txresbench control_mcp) ───────────────
 
 /// An op is offered to the model only when it is not policy-denied AND the
 /// user is permitted to run it. `principal_holds` already short-circuits
-/// admins, so unlike ziee's `control_mcp` there's no separate `user_may_run`.
+/// admins, so unlike txresbench's `control_mcp` there's no separate `user_may_run`.
 fn op_available(user: &User, groups: &[Group], op: &Operation) -> bool {
     if policy::is_denied(op) {
         return false;
@@ -481,7 +481,7 @@ async fn invoke_capability(
 
 /// REST-kind dispatch: real REST route over loopback, forwarding the caller's
 /// bearer so the target route's own `RequirePermissions` re-authorizes from
-/// the DB. Ported near-verbatim from ziee `modules/control_mcp::handlers`.
+/// the DB. Ported near-verbatim from txresbench `modules/control_mcp::handlers`.
 async fn invoke_rest(
     op: &Operation,
     catalog: &ControlCatalog,
@@ -731,7 +731,7 @@ fn frontend_success_result(
     result
 }
 
-// ── shared helpers (ported from ziee control_mcp) ────────────────────────────
+// ── shared helpers (ported from txresbench control_mcp) ────────────────────────────
 
 /// Substitute `{name}` path params. Each value must be present and contain
 /// only URL-path-safe characters (blocks path traversal + host injection).

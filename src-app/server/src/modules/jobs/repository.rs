@@ -23,7 +23,7 @@
 use chrono::{DateTime, Utc};
 use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::models::{CreateJobRequest, Job, JobLog, JobMetric, JobMilestone};
 use super::runtime::runtime;
@@ -71,7 +71,7 @@ pub struct ReaperOutcome {
 /// predicates consume: a JSON array of 32-char lowercase hex strings (the
 /// `uuid::Uuid::simple()` form), compared against a 16-byte BLOB column
 /// through `unhex()` — `id IN (SELECT unhex(j.value) FROM json_each($1) AS j)`.
-/// This is the ITEM-15 `ziee-file` convention (its `uuid_list_json`), kept
+/// This is the ITEM-15 `txresbench-file` convention (its `uuid_list_json`), kept
 /// local here because the app's modules are single-driver (DEC-1) and beside
 /// the `= ANY(uuid[])` sites in this module it serves no other surface.
 fn uuid_list_json(ids: &[Uuid]) -> String {

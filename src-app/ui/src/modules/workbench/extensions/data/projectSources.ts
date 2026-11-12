@@ -33,7 +33,7 @@
 // Keyed then on the project id. A project switch therefore gets a cold source, which is correct:
 // the catalog and every artifact id change with it.
 
-import { asDataSource, type DataSource } from '@ziee/viz'
+import { asDataSource, type DataSource } from '@txresbench/viz'
 import { resolveOrThrow, type WorkbenchAPI } from '@/modules/workbench/core'
 import {
   DATA_CAPABILITY_ID,
@@ -205,7 +205,7 @@ export function __resetProjectSourcesForTests(handle: CapabilityHandle): void {
   // a missing one — the same defect pointing the other way.
 }
 
-// ── read-only e2e seam: the stream PROGRESS log (mirrors `window.__cyto_read` / `__canvasPanes`) ──
+// ── read-only e2e seam: the stream PROGRESS log (mirrors `window.__txr_read` / `__canvasPanes`) ──
 //
 // `WorkbenchStreamingSource.onProgress` is the app's own per-chunk arrival channel (ITEM-19) and
 // the thing `CanvasCoverage` renders. It is NOT observable from the DOM alone: the indicator is
@@ -217,7 +217,7 @@ export function __resetProjectSourcesForTests(handle: CapabilityHandle): void {
 // the component. A recorder that subscribed on mount would be racing the first read, and a spec
 // built on it would be measuring when the recorder attached rather than what arrived.
 //
-// Gated exactly like `window.__cyto_read`: present under the Vite dev server and under the e2e's
+// Gated exactly like `window.__txr_read`: present under the Vite dev server and under the e2e's
 // production PREVIEW build (`VITE_ENABLE_TEST_SEAMS=1`), absent from a real release bundle.
 // Read-only, append-only, and CAPPED — a long session must not grow an unbounded array.
 
@@ -253,10 +253,10 @@ function recordProgressForTestSeam(source: WorkbenchStreamingSource): void {
 /**
  * The PRODUCTION source pair, by project — the object the grid is actually handed.
  *
- * ── WHY THIS EXISTS, AND WHY `__cyto_ds` IS NOT A SUBSTITUTE ────────────────────────────────
- * `__cyto_ds` mints a BARE `WorkbenchDataSource`. That is deliberately not what production
+ * ── WHY THIS EXISTS, AND WHY `__txr_ds` IS NOT A SUBSTITUTE ────────────────────────────────
+ * `__txr_ds` mints a BARE `WorkbenchDataSource`. That is deliberately not what production
  * renders against: the app builds `asDataSource(WorkbenchStreamingSource)` and hands the grid
- * THAT, so a claim about "the production data source" proven through `__cyto_ds` is a claim
+ * THAT, so a claim about "the production data source" proven through `__txr_ds` is a claim
  * about a different object — and the specific defect #159 exists to close was a seam that
  * worked on the class and was dropped by the adapter. A spec that cannot reach the adapted
  * object cannot tell those two states apart.
@@ -279,7 +279,7 @@ function publishSourcesForTestSeam(projectId: string, built: ProjectSources): vo
  * Idempotent by an explicit check rather than by being called from one place: it has two
  * callers, both of which run on every `buildProjectSources`, and an earlier attempt at this
  * guard sat in the SECOND of them — where the object it was checking for had been installed by
- * the first a few lines earlier, so it never fired and `window.__cyto_stream` was still replaced
+ * the first a few lines earlier, so it never fired and `window.__txr_stream` was still replaced
  * on every build. The guard belongs in the function that does the installing, where both callers
  * reach it.
  *
@@ -287,9 +287,9 @@ function publishSourcesForTestSeam(projectId: string, built: ProjectSources): vo
  * before a second project opened would otherwise be holding a discarded object.
  */
 function installStreamSeam(): void {
-  const w = window as unknown as { __cyto_stream?: unknown }
-  if (w.__cyto_stream) return
-  w.__cyto_stream = {
+  const w = window as unknown as { __txr_stream?: unknown }
+  if (w.__txr_stream) return
+  w.__txr_stream = {
     /** Every progress event this page has observed, oldest first. A COPY — a spec must not be
      *  able to mutate the app's record of what happened. */
     progress: () => PROGRESS_LOG.map(e => ({ ...e })),

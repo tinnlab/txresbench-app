@@ -177,13 +177,13 @@ process.on('exit', () => {
 });
 
 /**
- * Where fixtures live. `CYTO_CTL_TMPDIR` overrides, because `os.tmpdir()` is shared: on a busy
+ * Where fixtures live. `TXR_CTL_TMPDIR` overrides, because `os.tmpdir()` is shared: on a busy
  * box something reaped the pristine tree MID-RUN and seven cases failed with `ENOENT` on a
  * directory this file had created — a failure that looks exactly like a real red and is not
  * one. `pristineDir()` below additionally REBUILDS if the tree has gone, so a reap costs time
  * rather than a spurious verdict.
  */
-const CTL_TMP = process.env.CYTO_CTL_TMPDIR || os.tmpdir();
+const CTL_TMP = process.env.TXR_CTL_TMPDIR || os.tmpdir();
 
 /** Built once, and rebuilt if the environment removes it under us. */
 function buildPristine() {
@@ -376,7 +376,7 @@ test('TEST-4b an UNPINNED scripts/*.mjs is scanned too — the widening is not a
 
 // ── TEST-5 ───────────────────────────────────────────────────────────────────────
 test('TEST-5 the exemption is a DECLARED BLOCK in a PINNED file — and nothing wider', () => {
-  const block = `# cyto:guard-vocabulary\nFIXTURE_HUNTED='${LEAK_TERM}'\n# cyto:end-guard-vocabulary`;
+  const block = `# txr:guard-vocabulary\nFIXTURE_HUNTED='${LEAK_TERM}'\n# txr:end-guard-vocabulary`;
 
   // (a) inside the block, in a PINNED file: exempt. A guard that HUNTS a term must spell it.
   const inside = runGuard(fixture({ 'scripts/check-substrate-retired.sh': append(block) }));
@@ -404,7 +404,7 @@ test('TEST-5 the exemption is a DECLARED BLOCK in a PINNED file — and nothing 
   const unterminated = runGuard(
     fixture({
       'scripts/check-substrate-retired.sh': append(
-        `# cyto:guard-vocabulary\nFIXTURE_HUNTED='${LEAK_TERM}'`,
+        `# txr:guard-vocabulary\nFIXTURE_HUNTED='${LEAK_TERM}'`,
       ),
     }),
   );
@@ -470,7 +470,7 @@ test('TEST-8 the RED output is the documentation — it names the tier and the r
   // A reader who hits this red must learn, from the red itself, that `.mjs` is now scanned and
   // what a guard that legitimately hunts the vocabulary is supposed to do instead.
   assert.match(r.out, /scripts\/\*\.mjs/);
-  assert.match(r.out, /cyto:guard-vocabulary/);
+  assert.match(r.out, /txr:guard-vocabulary/);
   assert.match(r.out, /no longer exempts the whole file/);
 });
 
@@ -763,7 +763,7 @@ test('TEST-13 the build surface is the whole of scripts/, not an extension list'
 // ── TEST-14 ──────────────────────────────────────────────────────────────────────
 test('TEST-14 the declared block is a whole-file-scope exemption bounded by the PIN', () => {
   const G = 'scripts/check-substrate-retired.sh';
-  const block = `# cyto:guard-vocabulary\nFIXTURE_HUNTED='${LEAK_TERM}'\n# cyto:end-guard-vocabulary`;
+  const block = `# txr:guard-vocabulary\nFIXTURE_HUNTED='${LEAK_TERM}'\n# txr:end-guard-vocabulary`;
   const dispatch = `case "$KIND" in ${LEAK_TERM}) exec_domain_path ;; esac`;
 
   // Three SYNTACTIC bounds were tried on this block and a blind audit defeated each in one
@@ -784,8 +784,8 @@ test('TEST-14 the declared block is a whole-file-scope exemption bounded by the 
     [G]: (before, rel) => {
       if (before === null) throw new Error(`${rel} missing from the fixture`);
       const lines = before.split('\n');
-      lines.splice(1, 0, '# cyto:guard-vocabulary');
-      return `${lines.join('\n')}\n${dispatch}\n# cyto:end-guard-vocabulary\n`;
+      lines.splice(1, 0, '# txr:guard-vocabulary');
+      return `${lines.join('\n')}\n${dispatch}\n# txr:end-guard-vocabulary\n`;
     },
   });
   repin(wide);
@@ -860,7 +860,7 @@ test('TEST-17 the vocabulary-block markers exist ONLY on the build tier', () => 
   // test noticing. The marker is a build-tier mechanism; anywhere else it is just text.
   const inRust = runGuard(
     fixture({
-      'src-app/server/src/gen/f0.rs': (before) => `// cyto:guard-vocabulary\n${before}`,
+      'src-app/server/src/gen/f0.rs': (before) => `// txr:guard-vocabulary\n${before}`,
     }),
   );
   assert.equal(inRust.code, 0, `a marker in an app-core .rs file is just text:\n${inRust.out}`);
@@ -871,7 +871,7 @@ test('TEST-17 the vocabulary-block markers exist ONLY on the build tier', () => 
 
   // …and the same marker in a framework .py file, which is the other ungated tier.
   const inPy = runGuard(
-    fixture({ 'src-app/packages/_lib/cyto_columns.py': prepend('# cyto:guard-vocabulary') }),
+    fixture({ 'src-app/packages/_lib/txr_columns.py': prepend('# txr:guard-vocabulary') }),
   );
   assert.equal(inPy.code, 0, `a marker in a framework .py file is just text:\n${inPy.out}`);
   assert.ok(!inPy.out.includes('!!'), `no structural record from the framework tier:\n${inPy.out}`);
@@ -879,7 +879,7 @@ test('TEST-17 the vocabulary-block markers exist ONLY on the build tier', () => 
   // …while on the BUILD tier the same marker in an unpinned file is still a hard failure, so
   // this is a gate on the TIER and not the mechanism being switched off.
   const onBuild = runGuard(
-    fixture({ 'scripts/preland-frontend-health.mjs': append('// cyto:guard-vocabulary') }),
+    fixture({ 'scripts/preland-frontend-health.mjs': append('// txr:guard-vocabulary') }),
   );
   assert.equal(onBuild.code, 1, `the marker must still bite on the build tier:\n${onBuild.out}`);
   assert.match(onBuild.out, /is NOT pinned/);
@@ -1054,7 +1054,7 @@ test('TEST-20 [acceptance] [invariant: INV-3] both guards AGREE on the #324 regi
 // ── TEST-21 ──────────────────────────────────────────────────────────────────────
 test('TEST-21 [acceptance] [invariant: INV-2] the declared block is honoured IDENTICALLY, and exempts no leak', () => {
   const G = 'scripts/check-substrate-retired.sh';
-  const decl = `# cyto:guard-vocabulary\nFIXTURE_HUNTED='${SHARED_TERM}'\n# cyto:end-guard-vocabulary`;
+  const decl = `# txr:guard-vocabulary\nFIXTURE_HUNTED='${SHARED_TERM}'\n# txr:end-guard-vocabulary`;
 
   // #311 residual 1, closed. A guard that legitimately HUNTS a spatial id has to spell it,
   // declares the block to say so, and until now passed the shell guard and FAILED the pytest,
@@ -1105,7 +1105,7 @@ test('TEST-21 [acceptance] [invariant: INV-2] the declared block is honoured IDE
 
   // (e) an UNTERMINATED block blanks nothing rather than the rest of the file — the whole-file
   //     exemption #304 removed, arriving back through a typo. Fail-closed in both.
-  const open = fixture({ [G]: append(`# cyto:guard-vocabulary\nFIXTURE_HUNTED='${SHARED_TERM}'`) });
+  const open = fixture({ [G]: append(`# txr:guard-vocabulary\nFIXTURE_HUNTED='${SHARED_TERM}'`) });
   repin(open);
   const openShell = runGuard(open);
   const openOther = runOtherGuard(open);
@@ -1211,7 +1211,7 @@ test('TEST-22 the declaration fails CLOSED, and every written exception is load-
   //     line count of the file LIST and never had anything to do with what awk processed.
   const badMarker = runGuard(
     fixture({
-      [DECL]: declEdit((b) => b.replace(/^vocab_block_open .*$/m, 'vocab_block_open cyto:guard-vocabulary(')),
+      [DECL]: declEdit((b) => b.replace(/^vocab_block_open .*$/m, 'vocab_block_open txr:guard-vocabulary(')),
       [`${VIZ_SCRIPTS}/zz-planted.py`]: () => `KIND = "${SHARED_TERM}"\n`,
     }),
   );

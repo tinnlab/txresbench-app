@@ -4,7 +4,7 @@
 //! run an R/Python analysis script in the sandbox; the thin `POST
 //! /api/sandbox/execute` route (routes.rs) is a companion so the whole
 //! mechanism is exercisable + testable now. NOT an MCP server (companion-driven
-//! — ziee drives CytoAnalyst via control_mcp).
+//! — txresbench drives TxResBench via control_mcp).
 //!
 //! `run_method_in_stack` is the txr method-run seam (PROV-SS-1): ONE benchmark
 //! method in its OWN stacked base+layer sandbox, per contract.md's
@@ -16,7 +16,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::env_image::EnvImageProvider;
 use super::stack::{MethodRunMode, MethodRunRequest, MethodRunResult, ModelMount};
@@ -127,12 +127,12 @@ pub async fn run_analysis(
     // the precise hole DEC-4 closes elsewhere — the env registry is open by design (any
     // well-formed id resolves to its own repo, asserted by `env_image_test.rs`), so a
     // caller-supplied env-id here would let a request select any image the registry
-    // serves. The operator overrides (`CYTO_SANDBOX_ENV_ID`, the settings row) remain
+    // serves. The operator overrides (`TXR_SANDBOX_ENV_ID`, the settings row) remain
     // the only way to move this path off the default.
     let env_id = super::env_image::default_env_id().ok_or_else(|| {
         unavailable(
             "no sandbox env image declared: no installed processor manifest declares an \
-             `env`, and CYTO_SANDBOX_ENV_ID is unset"
+             `env`, and TXR_SANDBOX_ENV_ID is unset"
                 .to_string(),
         )
     })?;

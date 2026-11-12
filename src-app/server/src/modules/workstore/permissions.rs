@@ -6,7 +6,7 @@
 //! `RequirePermissions` checks. Admin-only this round (admins hold `*`), so no
 //! group-grant migration is needed (DEC-4).
 
-use ziee_identity::PermissionCheck;
+use txresbench_identity::PermissionCheck;
 
 /// Read the workstore settings (GC policy + ingest size caps).
 pub struct WorkstoreSettingsRead;

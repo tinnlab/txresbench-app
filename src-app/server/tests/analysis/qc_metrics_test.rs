@@ -75,7 +75,7 @@ fn qc_metrics_emit_per_cell_obs_artifact() {
         return;
     }
 
-    let root = tmp_dir("cyto-qc15");
+    let root = tmp_dir("txr-qc15");
     let inputs = root.join("inputs");
     let outputs = root.join("outputs");
     std::fs::create_dir_all(&inputs).unwrap();
@@ -240,7 +240,7 @@ fn qc_only_custom_metric_emits_only_that_column() {
         return;
     }
 
-    let root = tmp_dir("cyto-qc15b");
+    let root = tmp_dir("txr-qc15b");
     let inputs = root.join("inputs");
     let outputs = root.join("outputs");
     std::fs::create_dir_all(&inputs).unwrap();

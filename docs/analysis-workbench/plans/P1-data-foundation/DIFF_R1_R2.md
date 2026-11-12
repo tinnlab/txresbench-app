@@ -3,7 +3,7 @@
 ## Substantively new in r2 (not in r1)
 - **Dedicated Object GC subsystem (r2 ITEM-12, `gc.rs`).** A boot-time + periodic sweep that
   reclaims content-addressed blobs referenced by no live table, explicitly sweeping the **union**
-  of all referencing tables (`analysis_results` + `ziee-file` + P4 run-artifact links). r1 only
+  of all referencing tables (`analysis_results` + `txresbench-file` + P4 run-artifact links). r1 only
   reference-counts at delete time inside the cascade (ITEM-10) — no standing GC sweep item.
 - **Single-`artifacts`-table framing pushed onto P1↔P2.** r2 keeps `datatype`/`storage_layout` as
   plain string columns and frames the catalog as the future unified `artifacts` table; a minor
@@ -27,12 +27,12 @@ study-scoped natural key with `run_id`/layout/`object_key`/`shape`/`params`/stat
 **ingest write-path** consuming a P3-co-owned `/outputs` produces-manifest (undeclared files not
 promoted, one run → N artifacts), a **JSON control plane** + **raw-typed-array binary data plane**
 (ArrayBuffer, not Arrow/JSON-of-numbers), **authed study-scoped HTTP-Range/206 serving** (not a
-static file server, not routed through uploads-only `ziee-file`), a **frontend thin binary client**
+static file server, not routed through uploads-only `txresbench-file`), a **frontend thin binary client**
 working around the FE-10 `emit_ts` gap (flag `responseType` to the SDK, deferred), the
 **OpenAPI-honest octet-stream `OperationOutput`** keeping `types_ts_parity` green, **study-scoped
 sync + `on_study_deleted`/`on_study_duplicated` cascade**, config/boot wiring under `<app_data>`,
 and the same decisions (Zarr+Parquet not server-sliced HDF5; sha256/blake3 content-addressing;
-generic-layout-not-domain; auth on every byte). The reuse targets (`ziee-file` hardening/download
+generic-layout-not-domain; auth on every byte). The reuse targets (`txresbench-file` hardening/download
 token, `dataset` sqlx pattern, study `effective_permission`, sync) match.
 
 ## Verdict

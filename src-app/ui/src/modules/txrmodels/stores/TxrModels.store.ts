@@ -53,7 +53,7 @@ import type {
   ModelEligibility,
   PretrainedDownloadStatus,
 } from '@/api-client/types'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 import { useTxrIntakeStore } from '@/modules/txrintake'
 import {
   stableInventoryKey,

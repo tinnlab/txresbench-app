@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import type { NotificationRendererCtx } from '@ziee/framework/notification'
+import type { NotificationRendererCtx } from '@txresbench/framework/notification'
 import {
   Button,
   Card,
@@ -11,8 +11,8 @@ import {
   Segmented,
   Spin,
   Text,
-} from '@ziee/kit'
-import { SettingsPageContainer } from '@ziee/shell'
+} from '@txresbench/kit'
+import { SettingsPageContainer } from '@txresbench/shell'
 
 import { NotificationItem } from './NotificationItem'
 import { notificationsStore } from './storeView'
@@ -20,7 +20,7 @@ import type { NotificationRow } from './types'
 
 /**
  * The full notification inbox at the app's inbox route. Generic + app-agnostic:
- * each row dispatches per-kind through the `@ziee/framework/notification`
+ * each row dispatches per-kind through the `@txresbench/framework/notification`
  * renderer registry (render + inline actions), with a generic title/body
  * fallback, and whole-row selection routes through the app-supplied `onNavigate`
  * seam — the SDK hardcodes ZERO routes.

@@ -10,10 +10,10 @@
  * file's assertions throw. So a `node:test` suite left inside vitest's `include` is
  * strictly worse than an unrun one: it is an unrun one that reports green.
  *
- * That trap was live in this repo. `@ziee/kit`'s `vitest.config.ts` already derived an
+ * That trap was live in this repo. `@txresbench/kit`'s `vitest.config.ts` already derived an
  * exclusion for exactly this reason, but nothing then RAN the excluded file, so
- * `kit/src/kit/table-view-core.test.ts` (14 tests) was dark. `@ziee/framework` (8 test
- * files) and `@ziee/gallery` (7) had no `test` script at all — 15 files, ~66 tests,
+ * `kit/src/kit/table-view-core.test.ts` (14 tests) was dark. `@txresbench/framework` (8 test
+ * files) and `@txresbench/gallery` (7) had no `test` script at all — 15 files, ~66 tests,
  * committed and never executed anywhere.
  *
  * Both consumers of this module derive from the SAME criterion, so a new `node:test`

@@ -304,7 +304,7 @@ def test_a_missing_sample_key_is_a_named_refusal_not_an_anonymous_batch(detect_r
     if encoding == "categorical":
         values = pd.Categorical(labels)
     elif encoding == "pandas_na":
-        # `pd.NA` is neither `None` nor float-NaN, so `cyto_columns._as_strings` does NOT map
+        # `pd.NA` is neither `None` nor float-NaN, so `txr_columns._as_strings` does NOT map
         # it to `""` — it becomes the literal string `"<NA>"`. The column is still stamped
         # `kind: categorical` in its meta, so the sample picker OFFERS it, and it carries no
         # `missing_level` for the stamp reader to find. A guard that knew only about blanks

@@ -19,7 +19,7 @@ for _v in THREAD_ENV_VARS:
     os.environ.setdefault(_v, "1")
 os.environ.setdefault("NUMBA_CPU_NAME", "generic")
 
-import cyto_deps
+import txr_deps
 import json
 import sys
 from pathlib import Path
@@ -39,8 +39,8 @@ def fail(message, code=2):
 
 
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -68,7 +68,7 @@ def progress(phase, pct=None, message=None):
             parts.append("")
         parts.append(str(message))
     line = "|".join(parts)
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if fifo:
         if _PROGRESS_FD[0] < 0:
             try:
@@ -99,9 +99,9 @@ def write_manifest(outputs_dir, entries):
     # environment does not satisfy the declaration. Placed here, on the one path every
     # successful run takes, so recording is structural rather than remembered: a compute
     # cannot emit its outputs without also emitting what produced them.
-    # The datatype is THIS package's, passed in: `cyto_deps` is app-core and may not
+    # The datatype is THIS package's, passed in: `txr_deps` is app-core and may not
     # name a contributed domain's vocabulary, so the caller supplies the pair.
-    cyto_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
+    txr_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
     (outputs_dir / "manifest.json").write_text(json.dumps({"outputs": entries}, indent=2))
 
 

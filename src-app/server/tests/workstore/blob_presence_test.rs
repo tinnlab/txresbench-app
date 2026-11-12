@@ -18,8 +18,8 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::object_store::ObjectStore;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::object_store::ObjectStore;
 
 use super::{
     create_member_token, create_project, new_artifact, pool_for, server_store, setup_admin,

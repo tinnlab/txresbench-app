@@ -14,7 +14,7 @@
  * reported 90 failing surfaces / 21,065 findings, none of which existed in the tree
  * being gated.
  *
- * The port now comes from the unified run key (`@ziee/gallery/scripts/lib/run-key`,
+ * The port now comes from the unified run key (`@txresbench/gallery/scripts/lib/run-key`,
  * the Node twin of the Rust worktree-db key): `webGallery` floor 20000 + (key % 200),
  * then the first OS-bindable port at/after that base across the WHOLE dual stack
  * (0.0.0.0 + ::1 + 127.0.0.1 — an IPv6-only probe miss is what produced the
@@ -28,7 +28,7 @@ import {
   pickBindablePort,
   resolveGalleryPort,
   worktreeKey,
-} from '@ziee/gallery/scripts/lib/run-key.mjs'
+} from '@txresbench/gallery/scripts/lib/run-key.mjs'
 
 const base = resolveGalleryPort({ env: process.env.GALLERY_PORT, cfgPort: null })
 const port = await pickBindablePort(base)

@@ -69,9 +69,9 @@ EXPECTED_OUTPUT_IDS = (
     "visium-hd-import-summary",
     # APPENDED BY `write_manifest`, not by `run_import`, which is why it is LAST and why this
     # enumeration is taken from the manifest rather than from the returned entries.
-    # `cyto_deps.augment` is called on the one path every successful run passes through, so
+    # `txr_deps.augment` is called on the one path every successful run passes through, so
     # that "a compute cannot emit its outputs without also emitting the record of the
-    # environment that produced them" (`_lib/cyto_deps.py`). This row was ABSENT from the
+    # environment that produced them" (`_lib/txr_deps.py`). This row was ABSENT from the
     # first cut of both the module and this list — the list was written from what the code
     # already emitted, which is exactly how an omission gets ratified by its own test.
     "run-environment",
@@ -131,16 +131,16 @@ def _emitted_cell(out, indptr, indices, data, cell, gene):
     return float(data[span][int(hits[0])])
 
 
-def _stored_cyto(out, rel_dir):
-    """`attributes.cyto` of a written store — the declaration mirrored into its OWN bytes.
+def _stored_txr(out, rel_dir):
+    """`attributes.txr` of a written store — the declaration mirrored into its OWN bytes.
 
-    `hd_fixtures` exposes `store_declarations` (the `cyto_spatial` sub-block) and
-    `member_attributes` (one member's), but not the store root's whole `cyto` block, which is
+    `hd_fixtures` exposes `store_declarations` (the `txr_spatial` sub-block) and
+    `member_attributes` (one member's), but not the store root's whole `txr` block, which is
     where `aligned_to` and `key_sequence_digest` live. This is that one read; it is here
     rather than in the helper because only this file needs it.
     """
     doc = json.loads((Path(out) / rel_dir / "zarr.json").read_text(encoding="utf-8"))
-    return doc.get("attributes", {}).get("cyto", {})
+    return doc.get("attributes", {}).get("txr", {})
 
 
 # ── TEST-22: the counts store, the digests, and the row order ───────────────────────
@@ -246,21 +246,21 @@ def test_TEST_22_both_axis_key_artifacts_digest_to_the_aligned_to_EVERYTHING_was
     The alternative failure is not an error: it is a dataset whose columns line up against
     the wrong bins, which nothing downstream can see.
     """
-    import cyto_columns
+    import txr_columns
     import pandas as pd
 
     out = imported["out"]
     digests = {}
     for axis, rel in (("cells", "axis/barcode.zarr"), ("genes", "axis/gene_id.zarr")):
         keys = [str(k) for k in HF.read_values(out, rel)]
-        recomputed = cyto_columns.axis_key_digest(pd.Series(keys))
-        stored = _stored_cyto(out, rel).get("key_sequence_digest")
+        recomputed = txr_columns.axis_key_digest(pd.Series(keys))
+        stored = _stored_txr(out, rel).get("key_sequence_digest")
         assert stored == recomputed, (
             f"the {axis} key artifact declares key_sequence_digest {stored!r} but the keys it "
             f"actually stores digest to {recomputed!r} — the stamp describes a sequence that "
             "is not the one on disk"
         )
-        assert _stored_cyto(out, rel).get("kind") == "table"
+        assert _stored_txr(out, rel).get("kind") == "table"
         digests[axis] = recomputed
 
     assert digests["cells"] != digests["genes"], (
@@ -270,7 +270,7 @@ def test_TEST_22_both_axis_key_artifacts_digest_to_the_aligned_to_EVERYTHING_was
 
     aligned = {}
     for entry in imported["entries"]:
-        stored = _stored_cyto(out, entry["path"]) if entry["path"].endswith(".zarr") else {}
+        stored = _stored_txr(out, entry["path"]) if entry["path"].endswith(".zarr") else {}
         if "aligned_to" in stored:
             aligned[entry["id"]] = (entry.get("axis"), stored["aligned_to"])
     assert aligned, (

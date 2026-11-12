@@ -29,14 +29,14 @@
 
 use std::collections::HashSet;
 
-use cytoanalyst::modules::dataset::repository::{DatasetAccess, DatasetRepository};
-use cytoanalyst::modules::jobs::repository::JobRepository;
-use cytoanalyst::modules::project::{EffectivePermission, ProjectRepository, ProjectScope};
-use cytoanalyst::modules::sandbox::inputs::file_readable_by;
-use cytoanalyst::modules::workstore::authz::{
+use txresbench::modules::dataset::repository::{DatasetAccess, DatasetRepository};
+use txresbench::modules::jobs::repository::JobRepository;
+use txresbench::modules::project::{EffectivePermission, ProjectRepository, ProjectScope};
+use txresbench::modules::sandbox::inputs::file_readable_by;
+use txresbench::modules::workstore::authz::{
     require_artifact_read, require_dataset_read, require_project_read,
 };
-use cytoanalyst::modules::workstore::catalog::{Artifact, CatalogRepository, NewArtifact};
+use txresbench::modules::workstore::catalog::{Artifact, CatalogRepository, NewArtifact};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
@@ -619,10 +619,10 @@ async fn removed_member_loses_the_workstore_gates() {
     );
 }
 
-/// TEST-12 (fix/ziee-file-authz) — REGRESSION PIN for the predicate promotion.
+/// TEST-12 (fix/txresbench-file-authz) — REGRESSION PIN for the predicate promotion.
 /// `file_readable_by` was refactored to delegate to
 /// `modules::file::access::readable_file_ids` so the sandbox gate and the
-/// `ziee-file` HTTP seam share ONE SQL literal. This test is unmodified and must
+/// `txresbench-file` HTTP seam share ONE SQL literal. This test is unmodified and must
 /// keep passing: it is the evidence that the promotion was behaviour-preserving.
 ///
 /// TEST-6 [acceptance] [invariant: INV-11] — `sandbox::inputs::file_readable_by`,
@@ -1633,8 +1633,8 @@ async fn removed_member_cannot_revoke_shares_on_the_accounts_project() {
 /// answers `NotVisible` and the arm is never entered.
 #[tokio::test]
 async fn a_removed_member_with_a_surviving_edit_share_may_watch_but_not_stop() {
-    use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
-    use cytoanalyst::modules::jobs::models::Job;
+    use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
+    use txresbench::modules::jobs::models::Job;
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -2284,10 +2284,10 @@ async fn dec12_account_role_floor_is_unchanged() {
 /// because a flipped characterization is exactly where a vacuous pass hides.
 #[tokio::test]
 async fn the_two_filed_holes_are_closed() {
-    use cytoanalyst::modules::dataset::sync::dataset_audience;
-    use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
-    use cytoanalyst::modules::jobs::models::Job;
-    use cytoanalyst::modules::project::scope::project_audience;
+    use txresbench::modules::dataset::sync::dataset_audience;
+    use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
+    use txresbench::modules::jobs::models::Job;
+    use txresbench::modules::project::scope::project_audience;
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -2447,7 +2447,7 @@ async fn seed_job(pool: &SqlitePool, owner: Uuid, scope: Option<(&str, Uuid)>) -
     id
 }
 
-async fn load_job(pool: &SqlitePool, id: Uuid) -> cytoanalyst::modules::jobs::models::Job {
+async fn load_job(pool: &SqlitePool, id: Uuid) -> txresbench::modules::jobs::models::Job {
     sqlx::query_as("SELECT * FROM jobs WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -2488,7 +2488,7 @@ async fn seed_file(pool: &SqlitePool, uploader: Uuid, dataset: Option<Uuid>) -> 
 /// `error` string — over every job they had started inside the organization, forever.
 #[tokio::test]
 async fn removed_member_loses_control_of_the_job_they_created() {
-    use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
+    use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -2624,7 +2624,7 @@ async fn removed_member_is_absent_from_the_controllable_subset_for_their_own_job
 /// project arms could be reverted with TEST-1/2/3 still green.
 #[tokio::test]
 async fn removed_member_loses_the_project_scoped_job_they_created() {
-    use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
+    use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -2695,7 +2695,7 @@ async fn removed_member_loses_the_project_scoped_job_they_created() {
 /// project they created — and was still told, in real time, every time one changed.
 #[tokio::test]
 async fn removed_member_leaves_the_project_sync_audience() {
-    use cytoanalyst::modules::project::scope::project_audience;
+    use txresbench::modules::project::scope::project_audience;
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -2766,7 +2766,7 @@ async fn removed_member_leaves_the_project_sync_audience() {
 /// inconsistency the issue reports).
 #[tokio::test]
 async fn removed_member_leaves_the_dataset_sync_audience() {
-    use cytoanalyst::modules::dataset::sync::dataset_audience;
+    use txresbench::modules::dataset::sync::dataset_audience;
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -2902,7 +2902,7 @@ async fn a_removed_members_own_undatasetted_file_stays_readable_by_their_sandbox
 /// STANDING does not.
 #[tokio::test]
 async fn an_edit_sharee_keeps_control_of_the_job_they_started() {
-    use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
+    use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -3013,8 +3013,8 @@ async fn an_edit_sharee_keeps_control_of_the_job_they_started() {
 /// principal WITHOUT it is refused on all three surfaces.
 #[tokio::test]
 async fn a_removed_members_surviving_share_still_grants_what_it_granted() {
-    use cytoanalyst::modules::dataset::sync::dataset_audience;
-    use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
+    use txresbench::modules::dataset::sync::dataset_audience;
+    use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -3097,9 +3097,9 @@ async fn a_removed_members_surviving_share_still_grants_what_it_granted() {
 /// never seen an organization.
 #[tokio::test]
 async fn a_personal_account_owner_is_unaffected_by_every_gate_on_this_branch() {
-    use cytoanalyst::modules::dataset::sync::dataset_audience;
-    use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
-    use cytoanalyst::modules::project::scope::project_audience;
+    use txresbench::modules::dataset::sync::dataset_audience;
+    use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
+    use txresbench::modules::project::scope::project_audience;
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
@@ -3175,7 +3175,7 @@ async fn a_personal_account_owner_is_unaffected_by_every_gate_on_this_branch() {
 /// this test rather than changing behaviour quietly.
 #[tokio::test]
 async fn a_scope_less_job_stays_creator_only_even_after_removal() {
-    use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
+    use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -3249,7 +3249,7 @@ async fn a_scope_less_job_stays_creator_only_even_after_removal() {
 /// branch does not touch; it is reported to the owner instead.
 #[tokio::test]
 async fn the_three_jobs_graders_agree_on_the_removed_and_shared_creators() {
-    use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
+    use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -3316,7 +3316,7 @@ async fn the_three_jobs_graders_agree_on_the_removed_and_shared_creators() {
 /// other way this branch could have over-tightened.
 #[tokio::test]
 async fn platform_staff_still_reach_a_removed_members_job() {
-    use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
+    use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -3733,7 +3733,7 @@ async fn removed_member_receives_no_frames_from_the_project_and_dataset_routes()
 /// is attributable to that arm alone.
 #[tokio::test]
 async fn a_group_share_is_standing_for_the_creator_arm_in_all_three_graders() {
-    use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
+    use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -3858,8 +3858,8 @@ async fn a_group_share_is_standing_for_the_creator_arm_in_all_three_graders() {
     );
     // …and the route-level filter really does drop it, so the sentence above is a
     // division of labour and not an excuse.
-    let still_active = cytoanalyst::modules::permissions::active_group_ids(&[
-        ziee_auth::Group {
+    let still_active = txresbench::modules::permissions::active_group_ids(&[
+        txresbench_auth::Group {
             id: group,
             name: "shared-167".into(),
             description: None,
@@ -3895,7 +3895,7 @@ async fn a_group_share_is_standing_for_the_creator_arm_in_all_three_graders() {
 /// needs #167 option (b) (`jobs.account_id`), a migration and an owner decision.
 #[tokio::test]
 async fn a_deleted_scope_returns_the_removed_creators_reach() {
-    use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
+    use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -4035,7 +4035,7 @@ async fn a_deleted_dataset_returns_the_removed_uploaders_bytes() {
 /// it (every other job in this suite is owned by alice, bob or dana, none of them admin).
 #[tokio::test]
 async fn the_job_creating_platform_admin_stays_in_its_audience() {
-    use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
+    use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;

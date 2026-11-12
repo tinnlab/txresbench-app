@@ -1,6 +1,6 @@
 {
   "attributes": {
-    "cyto": {
+    "txr": {
       "kind": "categorical",
       "levels": [
         "g1",

@@ -1,4 +1,4 @@
-//! Build-time staging of the CytoAnalyst analysis-rootfs embed slot.
+//! Build-time staging of the TxResBench analysis-rootfs embed slot.
 //!
 //! FETCH-NEWEST, NOTHING EMBEDDED (DEC-24 reversed / DEC-I): the analysis rootfs
 //! is a CI-built, GHCR-published OCI artifact that `OciEnvImageProvider`
@@ -30,7 +30,7 @@ use crate::rootfs_version::{
 };
 
 /// Staging path (manifest-relative, so it persists across `cargo clean` like
-/// ziee's hub-seed — avoids re-running docker on every clean build).
+/// txresbench's hub-seed — avoids re-running docker on every clean build).
 const STAGE_REL: &str = "binaries/sandbox-rootfs/rootfs.squashfs";
 const VERSION_REL: &str = "binaries/sandbox-rootfs/.version";
 
@@ -42,7 +42,7 @@ const VERSION_REL: &str = "binaries/sandbox-rootfs/.version";
 /// i.e. baked into the binary before any data was loaded. It now names only the tree;
 /// WHICH recipe is a build INPUT (see [`resolve_recipe`]) and the ids are read off
 /// disk as DATA. Mirrors the runtime, where the env-id likewise comes from the
-/// contributed manifests / `CYTO_SANDBOX_ENV_ID` and never from a source literal
+/// contributed manifests / `TXR_SANDBOX_ENV_ID` and never from a source literal
 /// (`modules::sandbox::env_image::default_env_id`).
 const ENV_ROOTFS_REL: &str = "../env-rootfs";
 
@@ -53,7 +53,7 @@ struct SelectedRecipe {
 }
 
 /// Resolve which env recipe this build targets, from the tree on disk plus the
-/// `CYTO_ENV_ROOTFS_ID` override. `None` when the tree is empty or an override
+/// `TXR_ENV_ROOTFS_ID` override. `None` when the tree is empty or an override
 /// names an absent recipe (the caller then stages a stub, loudly).
 fn resolve_recipe(env_root: &Path) -> Option<SelectedRecipe> {
     let override_id = std::env::var(ENV_ROOTFS_ID_VAR).ok();
@@ -115,7 +115,7 @@ pub fn setup(manifest_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     // cargo does not re-fire on a directory's own mtime for an in-place edit — so watch
     // the declaration file by name, exactly as each recipe file is watched above.
     println!("cargo:rerun-if-changed={}", env_root.join(ENV_DEFAULT_FILE).display());
-    println!("cargo:rerun-if-env-changed=CYTO_SKIP_SANDBOX_ROOTFS");
+    println!("cargo:rerun-if-env-changed=TXR_SKIP_SANDBOX_ROOTFS");
     // Re-run when the selected env recipe changes (W2 — the domain is an input).
     println!("cargo:rerun-if-env-changed={ENV_ROOTFS_ID_VAR}");
     // Re-run when the TARGET arch changes (per-arch rootfs — ITEM-27).
@@ -150,8 +150,8 @@ pub fn setup(manifest_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     return write_stub(&stage, &version_file);
 
     #[allow(unreachable_code)]
-    if std::env::var("CYTO_SKIP_SANDBOX_ROOTFS").ok().as_deref() == Some("1") {
-        println!("cargo:warning=sandbox rootfs: CYTO_SKIP_SANDBOX_ROOTFS=1 -> stub (sandbox self-disables at runtime)");
+    if std::env::var("TXR_SKIP_SANDBOX_ROOTFS").ok().as_deref() == Some("1") {
+        println!("cargo:warning=sandbox rootfs: TXR_SKIP_SANDBOX_ROOTFS=1 -> stub (sandbox self-disables at runtime)");
         return write_stub(&stage, &version_file);
     }
 
@@ -185,7 +185,7 @@ pub fn setup(manifest_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
         return write_stub(&stage, &version_file);
     }
 
-    // W2: WHICH env recipe this build targets is an INPUT (`CYTO_ENV_ROOTFS_ID`),
+    // W2: WHICH env recipe this build targets is an INPUT (`TXR_ENV_ROOTFS_ID`),
     // defaulting to the tree's sole recipe — no domain path is hardcoded here.
     let Some(recipe) = resolve_recipe(&env_root) else {
         println!(
@@ -255,13 +255,13 @@ fn build_and_stage(
 
     // Per-env AND per-arch tag, so building a second env cannot clobber the first.
     let tag = format!(
-        "cytoanalyst-sandbox-rootfs:{ROOTFS_SCHEMA_VERSION}-{env_id}-{}",
+        "txresbench-sandbox-rootfs:{ROOTFS_SCHEMA_VERSION}-{env_id}-{}",
         variant.cargo_arch
     );
     let context = manifest_dir.join("rootfs");
 
     // Operator-supplied tool tarballs (S8): each build-arg URL THE RECIPE DECLARES
-    // (`ARG <NAME>_URL`) is forwarded verbatim from `CYTO_<NAME>_URL`. Empty => the
+    // (`ARG <NAME>_URL`) is forwarded verbatim from `TXR_<NAME>_URL`. Empty => the
     // Dockerfile skips that layer (fail-soft); the runtime then reports the tool
     // absent and the declaring processor's arch/availability gate degrades. This
     // helper names no tool — the table is parsed out of the recipe.

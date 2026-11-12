@@ -4,7 +4,7 @@
  * combo. The linchpin of the visual-testing system: Layers A/B/C all run against
  * this one stable surface.
  */
-import { Flex, Select, Text, Title } from '@ziee/kit'
+import { Flex, Select, Text, Title } from '@txresbench/kit'
 import { getGalleryConfig } from './config'
 import { GALLERY_DIRS, GALLERY_THEMES } from './matrix'
 import { StorySection } from './story'
@@ -83,7 +83,7 @@ export function GalleryPage({
       // only via the DEV-gated dev-gallery lazy import, so it is tree-shaken out
       // of prod; if the gallery ever leaked, this attribute value (a used JSX
       // string literal) survives minification and the check catches it.
-      data-gallery-build-marker="ZIEE_GALLERY_SEED_MARKER"
+      data-gallery-build-marker="TXR_GALLERY_SEED_MARKER"
       className="min-h-full w-full overflow-x-hidden bg-background text-foreground"
     >
       <ControlBar />

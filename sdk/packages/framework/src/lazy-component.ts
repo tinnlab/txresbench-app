@@ -7,7 +7,7 @@ import type { ComponentType } from 'react'
 // Modules hand the shell three different things under one field name — an
 // already-built element, a component, or a dynamic-import LOADER
 // (`() => import('./Page')`) — and the renderers (`router/LazyRouteRenderer`,
-// `@ziee/shell`'s `LazyComponentRenderer`) have to tell them apart to know
+// `@txresbench/shell`'s `LazyComponentRenderer`) have to tell them apart to know
 // whether a `<Suspense>` boundary is required.
 //
 // ── The bug this module exists to end ───────────────────────────────────────
@@ -54,7 +54,7 @@ export type LazyLoader = () => Promise<{ default: ComponentType<any> }>
 
 /** Brand applied by {@link markLazyLoader}; `Symbol.for` so duplicate copies of
  *  this module (two bundles, a dev/prod split) still agree. */
-const LAZY_LOADER_MARK = Symbol.for('ziee.framework.lazyLoader')
+const LAZY_LOADER_MARK = Symbol.for('txresbench.framework.lazyLoader')
 
 /** React's own tag for a `React.lazy(...)` exotic component. */
 const REACT_LAZY = Symbol.for('react.lazy')
@@ -246,7 +246,7 @@ export function warnUnrenderable(debugId: string | undefined, reason: string): v
   if (!isDevBuild()) return
   warnOnce(
     `invalid:${debugId ?? '?'}:${reason}`,
-    `[ziee] ${describe(debugId)} was given a value that is not renderable (${reason}). ` +
+    `[txresbench] ${describe(debugId)} was given a value that is not renderable (${reason}). ` +
       'Nothing will render here. Expected a React element, a component, or a ' +
       "dynamic-import loader such as `() => import('./Page')`.",
   )
@@ -266,10 +266,10 @@ export function warnLoaderRenderedAsComponent(
   if (!isDevBuild()) return
   warnOnce(
     `thenable:${debugId ?? '?'}:${fnName}`,
-    `[ziee] ${describe(debugId)} rendered '${fnName}' as a component, but it returned a ` +
+    `[txresbench] ${describe(debugId)} rendered '${fnName}' as a component, but it returned a ` +
       'Promise — it is a dynamic-import loader that this renderer could not recognise ' +
       'from its shape. Nothing will render here. Wrap it: ' +
-      "`markLazyLoader(() => import('./Page'))` from '@ziee/framework'.",
+      "`markLazyLoader(() => import('./Page'))` from '@txresbench/framework'.",
   )
 }
 

@@ -1,7 +1,7 @@
 // canvasFeed — resolve a declarative view's `canvas` block into a CanvasView feed
 // (declarative-processor-ui Slice 3 / ITEM-10). GENERAL: it takes ANY declarative view's
 // `canvas` VizOption declaration + the view's resolved `$data` obs slices and produces the
-// `{ option, resolver }` the center CanvasView drives onto the single `@ziee/viz` grid. This
+// `{ option, resolver }` the center CanvasView drives onto the single `@txresbench/viz` grid. This
 // is the analysis-agnostic analog of `criteriaCanvas.ts::resolveCriteriaCanvas` (which is
 // cell-filter-specific): both funnel through `resolveCanvasOption` + `createDatasetResolver`
 // (canvasBinding.ts), but this one drives from a DECLARED canvas block + the store's data,
@@ -10,9 +10,9 @@
 // Pure / framework-free (no React) so the resolution is directly unit-testable.
 
 import type { ViewSpec } from '@/modules/workbench/core/manifest/viewSpec'
-import type { DataSource, DatasetResolver, VizDataset, VizOption, VizSeries } from '@ziee/viz'
+import type { DataSource, DatasetResolver, VizDataset, VizOption, VizSeries } from '@txresbench/viz'
 
-/** The `@ziee/viz` image-underlay payload shape (raster + 2×3 affine) — derived, not re-declared. */
+/** The `@txresbench/viz` image-underlay payload shape (raster + 2×3 affine) — derived, not re-declared. */
 type ImageUnderlay = Awaited<ReturnType<DataSource['imageUnderlay']>>
 import {
   createDatasetResolver,

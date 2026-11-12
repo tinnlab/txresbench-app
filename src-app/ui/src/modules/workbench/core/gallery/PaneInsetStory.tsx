@@ -25,7 +25,7 @@ import { WorkbenchProvider } from '@/modules/workbench/core/shell/WorkbenchConte
 import { PaneBody } from '@/modules/workbench/core/shell/regions/RegionShell'
 import { PANE_KINDS } from '@/modules/workbench/core/shell/dock/paneModel'
 
-const GALLERY_EXTENSION_ID = 'cyto.workbench.pane-inset-gallery'
+const GALLERY_EXTENSION_ID = 'txr.workbench.pane-inset-gallery'
 const PROJECT_ID = 'wb-gallery-pane-inset'
 
 /** Wider than the form column's `max-w-lg` (512px) cap — see the header. */

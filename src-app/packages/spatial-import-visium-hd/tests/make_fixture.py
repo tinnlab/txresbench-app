@@ -123,7 +123,7 @@ TISSUE_RX, TISSUE_RY = 0.34, 0.30
 #: `spatial-import-visium/tests/fixtures/visium-outs/filtered_feature_bc_matrix.h5`, whose
 #: root attributes are `chemistry_description`, `filetype`, `library_ids`,
 #: `original_gem_groups`, `software_version`, `version`).
-LIBRARY_ID = "Cyto_Synthetic_Visium_HD_Run"
+LIBRARY_ID = "TxResBench_Synthetic_Visium_HD_Run"
 
 #: The vendor's `Sample ID` from `metrics_summary.csv`, and DELIBERATELY NOT `LIBRARY_ID`.
 #:
@@ -131,7 +131,7 @@ LIBRARY_ID = "Cyto_Synthetic_Visium_HD_Run"
 #: in which the two are the SAME STRING cannot tell the two rungs apart, so the precedence
 #: assertion would pass whichever one the code actually used. They are different here so that
 #: test can fail.
-SAMPLE_ID = "Cyto-Synthetic-HD-Sample-A"
+SAMPLE_ID = "TxResBench-Synthetic-HD-Sample-A"
 SOFTWARE_VERSION = "spaceranger-3.1.0"
 CHEMISTRY = "Visium HD v1"
 GENOME = "GRCh38"

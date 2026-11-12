@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 // ─────────────────────── where a run's outputs are staged (ITEM-17) ──────────
 
@@ -608,7 +608,7 @@ mod tests {
     async fn role_flows_into_produced_output() {
         // A run's STAGING dir (ITEM-17) — `load_produced_outputs` reads
         // `<staging>/outputs`, which is why this fixture builds that shape.
-        let ws = std::env::temp_dir().join(format!("cyto-roles-{}", uuid::Uuid::new_v4()));
+        let ws = std::env::temp_dir().join(format!("txr-roles-{}", uuid::Uuid::new_v4()));
         let out_dir = outputs_dir(&ws);
         tokio::fs::create_dir_all(&out_dir).await.unwrap();
         tokio::fs::write(out_dir.join("expr.zarr"), b"expr").await.unwrap();

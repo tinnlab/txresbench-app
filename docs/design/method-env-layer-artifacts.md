@@ -9,7 +9,7 @@
 
 ## §1 What is being designed
 
-The desktop app runs each benchmark method inside the ziee sandbox. The
+The desktop app runs each benchmark method inside the txresbench sandbox. The
 shipped sandbox mounts ONE per-domain env rootfs; the app's design replaces
 that with a **stack**: a trimmed **per-language base rootfs** (R or Python,
 built and published by the `sandbox-stacked` node) plus one small
@@ -197,7 +197,7 @@ contains:
 - the method's installed package files at the same paths the per-language base
   uses (the delta — the added/changed files, not a copy of the base);
 - `/.txr-method-env-layer-schema`, content `1` (LAYER_SCHEMA_VERSION, DEC-11:
-  the same marker discipline as the shipped `/.cytoanalyst-sandbox-rootfs-schema`),
+  the same marker discipline as the shipped `/.txresbench-sandbox-rootfs-schema`),
   mirrored in the manifest entry (`layer_schema` = integer `1`) and in the
   artifact annotation (`com.txr.layer_schema` = `"1"`); the runtime compares
   the marker to the manifest value and refuses a mismatch;

@@ -32,7 +32,7 @@
 use std::path::Path;
 
 use sqlx::SqlitePool;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use crate::modules::model_store::store::{self, ImportOptions, Provenance};
 use crate::modules::pretrained_catalogue::bundled;
@@ -693,7 +693,7 @@ mod tests {
 
     /// TEST-PC-09 (layout override): the bundled-dir constructor seam points
     /// the source order at a NON-default dir (the same resolution the
-    /// `CYTO_TXR_BUNDLED_MODELS_DIR` env override drives — the env branch
+    /// `TXR_BUNDLED_MODELS_DIR` env override drives — the env branch
     /// itself is the seams' one-liner in `catalogue.rs` and is exercised
     /// end-to-end by the integration tier's spawned server, never by an
     /// in-process `set_var`).

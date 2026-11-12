@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ruff: noqa
-"""import-h5ad — CytoAnalyst sandbox compute processor (ITEM-9).
+"""import-h5ad — TxResBench sandbox compute processor (ITEM-9).
 
 Reads an uploaded AnnData ``.h5ad`` dataset and re-emits it as typed workstore
 outputs:
@@ -16,10 +16,10 @@ outputs:
 The run contract (DESIGN §2, ``sandbox/outputs.rs``): read ``/inputs/<slot>`` +
 ``/inputs/inputs.json`` + ``/inputs/params.json``; write ``/outputs/<file>`` +
 ``/outputs/manifest.json`` = ``{"outputs":[{id,datatype,path,layout,role}]}``.
-Progress lines ``phase|pct|message`` may go to ``$CYTO_PROGRESS_FIFO``.
+Progress lines ``phase|pct|message`` may go to ``$TXR_PROGRESS_FIFO``.
 
-The ``/inputs`` and ``/outputs`` roots are overridable via ``CYTO_INPUTS_DIR`` /
-``CYTO_OUTPUTS_DIR`` (unset in the sandbox → the fixed ``/inputs`` / ``/outputs``
+The ``/inputs`` and ``/outputs`` roots are overridable via ``TXR_INPUTS_DIR`` /
+``TXR_OUTPUTS_DIR`` (unset in the sandbox → the fixed ``/inputs`` / ``/outputs``
 binds) — the ONLY seam that lets the harness drive the REAL script off-sandbox.
 """
 import json
@@ -41,9 +41,9 @@ import numpy as np
 import scipy.sparse as sp
 
 # The shared output-format library (`_lib`, DEC-7) — staged into `/code` alongside every
-# Python entry, same as `align` / `colsummary`. `cyto_columns` imports pandas lazily.
-import cyto_deps
-import cyto_columns
+# Python entry, same as `align` / `colsummary`. `txr_columns` imports pandas lazily.
+import txr_deps
+import txr_columns
 
 # ─────────────────────────── shared compute runtime ───────────────────────────
 # Inlined (not imported) because the sandbox stages exactly ONE entry file at
@@ -60,8 +60,8 @@ DT_EMBEDDING = ("embedding", "chunked-dense")
 
 
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -121,7 +121,7 @@ def progress(phase, pct=None, message=None):
             parts.append("")  # keep message in field 3
         parts.append(str(message))
     line = "|".join(parts)
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if fifo:
         # Persistent write fd: opened once, reused, closed at process exit — one
         # continuous stream to the runner's FIFO drain (streaming.rs), no per-frame
@@ -155,9 +155,9 @@ def write_manifest(outputs_dir, entries):
     # environment does not satisfy the declaration. Placed here, on the one path every
     # successful run takes, so recording is structural rather than remembered: a compute
     # cannot emit its outputs without also emitting what produced them.
-    # The datatype is THIS package's, passed in: `cyto_deps` is app-core and may not
+    # The datatype is THIS package's, passed in: `txr_deps` is app-core and may not
     # name a contributed domain's vocabulary, so the caller supplies the pair.
-    cyto_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
+    txr_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
     (outputs_dir / "manifest.json").write_text(
         json.dumps({"outputs": entries}, indent=2)
     )
@@ -221,7 +221,7 @@ def main():
     entries = [output_entry(
         "expression", DT_EXPRESSION, expr_path, "artifact",
         # The `.h5ad` passes through untouched — opaque bytes, declared as such.
-        structure=cyto_columns.opaque("application/x-hdf5"),
+        structure=txr_columns.opaque("application/x-hdf5"),
         meta={"kind": "expression", "n_cells": n_cells, "n_genes": n_genes},
     )]
 
@@ -230,7 +230,7 @@ def main():
     import pandas as pd
 
     progress("metadata", 65, "obs columns")
-    structure, meta = cyto_columns.write_metadata_column(
+    structure, meta = txr_columns.write_metadata_column(
         outputs_dir, "metadata/cell_id.zarr", "cell_id",
         pd.Series(adata.obs_names.astype(str)), axis="cells")
     entries.append(output_entry(
@@ -238,7 +238,7 @@ def main():
         structure=structure, meta=meta))
     for col in list(adata.obs.columns):
         rel = f"metadata/{sanitize_col_name(col)}.zarr"
-        structure, meta = cyto_columns.write_metadata_column(
+        structure, meta = txr_columns.write_metadata_column(
             outputs_dir, rel, str(col), adata.obs[col], axis="cells")
         entries.append(output_entry(
             f"metadata-column:{col}", DT_METADATA_COLUMN, rel, "artifact",
@@ -269,7 +269,7 @@ def main():
     (outputs_dir / "inspect.json").write_text(json.dumps(inspect, indent=2, default=_jsonable))
     entries.append(output_entry(
         "inspect", DT_REPORT_HTML, "inspect.json", "intermediate",
-        structure=cyto_columns.opaque("application/json"),
+        structure=txr_columns.opaque("application/json"),
         meta={"kind": "inspect", "n_cells": n_cells, "n_genes": n_genes},
     ))
 

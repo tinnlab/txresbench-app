@@ -28,7 +28,7 @@ import {
 // + the canvas structural flip run for real). Headless Chromium cannot paint the deck.gl grid, so the
 // live loop is asserted via the STRUCTURAL canvas flip (`data-viz-framework`) + a clean interpreter/
 // store/viz console (the derive→re-render loop ran without throwing), not GL pixels. The Run COMMIT
-// (`cf.run` → real `run_processor`→`wait_for`) is REAL-compute — gated on CYTO_E2E_REAL_COMPUTE.
+// (`cf.run` → real `run_processor`→`wait_for`) is REAL-compute — gated on TXR_E2E_REAL_COMPUTE.
 //
 // SEEDING — the two halves need DIFFERENT things, so each seeds its OWN project, coherently:
 //   • the PURE half needs obs COLUMNS to drive the min/max controls and the live mask, and no
@@ -57,7 +57,7 @@ import {
 // same. `seedRunnableExpression` used to post the raw `tiny_counts.h5ad` bytes as ONE opaque blob
 // (`SeedBytes::Input => SeedBlob::Single`) with no `structure`, so both computes exited 2 on it —
 // and every other real-compute spec seeded that way was equally unrunnable, unnoticed, because
-// they all sit behind `CYTO_E2E_REAL_COMPUTE`. `seedRunnableExpression` now IMPORTS the fixture
+// they all sit behind `TXR_E2E_REAL_COMPUTE`. `seedRunnableExpression` now IMPORTS the fixture
 // through the deployment's own on-ingest converter, so what lands is the CSC Zarr store the real
 // producer writes (see its header for why a committed or generated FIXTURE cannot serve). The
 // assertions below were written against the correct behaviour and are unchanged.

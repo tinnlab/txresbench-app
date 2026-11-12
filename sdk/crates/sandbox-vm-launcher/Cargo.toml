@@ -9,7 +9,7 @@ publish = false
 # to a stub that errors, so `cargo build` of the workspace stays sane.
 
 [[bin]]
-name = "ziee-sandbox-vm-launcher"
+name = "txresbench-sandbox-vm-launcher"
 path = "src/main.rs"
 
 [lints]

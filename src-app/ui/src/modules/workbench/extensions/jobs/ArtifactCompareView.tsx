@@ -5,7 +5,7 @@
 // pop-out-N-tabs compare), scrolling horizontally inside its own container. The
 // dispatch decision is the pure, unit-tested `dispatchCompare`.
 
-import { ScrollArea } from '@ziee/kit'
+import { ScrollArea } from '@txresbench/kit'
 import { ArtifactPanel } from './ArtifactPanel'
 import { dispatchCompare } from '../../core/contributions/artifactRegistry'
 

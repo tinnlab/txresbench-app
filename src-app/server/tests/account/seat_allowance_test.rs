@@ -92,7 +92,7 @@ async fn member_snapshot(pool: &SqlitePool, account: uuid::Uuid) -> Vec<(uuid::U
 /// numbers are an owner call (#141 DEC-8) and re-pricing must not break these tests.
 #[cfg(feature = "saas")]
 fn free_allowance() -> i64 {
-    cytoanalyst::modules::billing::catalog::plan("free")
+    txresbench::modules::billing::catalog::plan("free")
         .expect("the free plan exists")
         .member_allowance
 }
@@ -322,8 +322,8 @@ async fn test7_two_concurrent_adds_against_the_last_seat_yield_exactly_one_winne
 #[cfg(feature = "saas")]
 #[tokio::test]
 async fn test8_minting_is_ungated_and_membership_creation_is_the_only_authority() {
-    use cytoanalyst::modules::account::invitation_limits::InvitationLimits;
-    use cytoanalyst::modules::account::{AccountRepository, AccountRole, ActorCeiling};
+    use txresbench::modules::account::invitation_limits::InvitationLimits;
+    use txresbench::modules::account::{AccountRepository, AccountRole, ActorCeiling};
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
@@ -499,8 +499,8 @@ async fn test8_minting_is_ungated_and_membership_creation_is_the_only_authority(
 /// "coverage that isn't" this module refuses elsewhere.
 #[tokio::test]
 async fn test20_the_guard_refuses_an_unserializable_transaction_context() {
-    use cytoanalyst::modules::account::seat::SEAT_NO_TRANSACTION;
-    use cytoanalyst::modules::account::{AccountRepository, AccountRole, ActorCeiling};
+    use txresbench::modules::account::seat::SEAT_NO_TRANSACTION;
+    use txresbench::modules::account::{AccountRepository, AccountRole, ActorCeiling};
     use sqlx::Acquire;
 
     let server = TestServer::spawn().await;
@@ -719,7 +719,7 @@ async fn test20_the_guard_refuses_an_unserializable_transaction_context() {
 #[tokio::test]
 async fn test23_an_unknown_plan_is_refused_with_its_own_code() {
     use crate::admin::admin_add_member;
-    use cytoanalyst::modules::account::seat::SEAT_PLAN_UNKNOWN;
+    use txresbench::modules::account::seat::SEAT_PLAN_UNKNOWN;
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
@@ -1105,7 +1105,7 @@ async fn test15_a_suspended_account_is_not_refused_by_the_seat_check() {
 #[cfg(feature = "saas")]
 #[tokio::test]
 async fn test17_the_seat_refusal_leaves_the_callers_transaction_usable() {
-    use cytoanalyst::modules::account::{AccountRepository, AccountRole, ActorCeiling};
+    use txresbench::modules::account::{AccountRepository, AccountRole, ActorCeiling};
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
@@ -1448,7 +1448,7 @@ fn test11_add_member_in_tx_is_the_only_path_that_adds_to_an_existing_account() {
 #[cfg(feature = "saas")]
 #[test]
 fn test22_the_desktop_arms_still_cross_the_boundary() {
-    let free = cytoanalyst::modules::billing::catalog::plan("free")
+    let free = txresbench::modules::billing::catalog::plan("free")
         .expect("the free plan exists")
         .member_allowance;
 

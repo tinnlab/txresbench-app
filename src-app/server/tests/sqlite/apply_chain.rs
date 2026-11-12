@@ -4,7 +4,7 @@
 //! The port is verified against real SQLite (the sqlx-bundled 3.46 engine)
 //! without a full compiled tree, exactly as DEC-19 prescribes: this test
 //! composes the ported chain through the REAL SDK composer
-//! (`ziee_build_support::compose_merged_migrations_from`) with the SAME source
+//! (`txresbench_build_support::compose_merged_migrations_from`) with the SAME source
 //! lists `build.rs` uses (the module-owned `src/modules/*/migrations/` root
 //! plus the three schema-bound SDK crates' `migrations/` dirs — ITEM-26
 //! collapsed the driver selection, so the lists are now UNCONDITIONAL and the
@@ -15,8 +15,8 @@
 //! What each chain item adds here: the group's file set applies from scratch
 //! (zero errors), every file has a unique numeric prefix, the group's table
 //! set matches the Postgres chain, and the group-specific row semantics hold
-//! (TEST-15…TEST-18). ITEM-7 owns the SDK group: `ziee-auth` (5 files),
-//! `ziee-file` (1), `ziee-notification` (1). ITEM-8 owns the app group part 1:
+//! (TEST-15…TEST-18). ITEM-7 owns the SDK group: `txresbench-auth` (5 files),
+//! `txresbench-file` (1), `txresbench-notification` (1). ITEM-8 owns the app group part 1:
 //! `jobs` (6), `sandbox` (3), `mcp` (2), `features` (1), `file` (1). ITEM-9
 //! owns the app group part 2: `workstore` (19) — the shared-harness leg pins
 //! the whole 39-file chain + the app groups' row semantics; the jobs-specific
@@ -41,7 +41,7 @@ use sqlx::Row;
 
 /// The SDK chain groups ITEM-7 ports: (crate dir name, expected `.sql` count).
 const SDK_CHAIN_GROUPS: &[(&str, usize)] =
-    &[("ziee-auth", 5), ("ziee-file", 1), ("ziee-notification", 1)];
+    &[("txresbench-auth", 5), ("txresbench-file", 1), ("txresbench-notification", 1)];
 
 /// The app chain module groups ITEM-8 + ITEM-9 + ITEM-10 + ITEM-11 ports:
 /// (module dir name, expected `.sql` count).
@@ -207,7 +207,7 @@ pub(crate) struct Scratch(PathBuf);
 
 impl Scratch {
     pub(crate) fn new(tag: &str) -> Self {
-        let base = std::env::temp_dir().join("cyto-sqlite-apply-chain");
+        let base = std::env::temp_dir().join("txr-sqlite-apply-chain");
         std::fs::create_dir_all(&base).expect("scratch base");
         let unique = UNIQUE.fetch_add(1, Ordering::Relaxed);
         let dir = base.join(format!("{tag}-{}-{unique}", std::process::id()));
@@ -238,13 +238,13 @@ fn manifest_dir() -> PathBuf {
 pub(crate) fn compose_sqlite_chain(scratch: &Path) -> PathBuf {
     let manifest = manifest_dir();
     let module_roots = vec![manifest.join("src/modules")];
-    let sdk_dirs: Vec<PathBuf> = ["ziee-auth", "ziee-file", "ziee-notification"]
+    let sdk_dirs: Vec<PathBuf> = ["txresbench-auth", "txresbench-file", "txresbench-notification"]
         .iter()
         .map(|c| manifest.join("../../sdk/crates").join(c).join("migrations"))
         .collect();
 
     let merged = scratch.join("migrations-merged");
-    ziee_build_support::compose_merged_migrations_from(&merged, &module_roots, &sdk_dirs);
+    txresbench_build_support::compose_merged_migrations_from(&merged, &module_roots, &sdk_dirs);
     merged
 }
 

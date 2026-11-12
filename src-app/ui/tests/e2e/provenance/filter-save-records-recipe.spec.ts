@@ -37,13 +37,13 @@ const FILTER_COLUMN = 'total_counts'
 // sandbox-executable host (bwrap + a staged analysis rootfs) to commit a genuine
 // `cell.filter` run, so `playwright.config.ts` excludes that tag from a DEFAULT run via
 // `grepInvert`, and `just verify-acceptance` positively selects it (`--grep @acceptance`,
-// with CYTO_E2E_REAL_COMPUTE=1 dropping the exclusion).
+// with TXR_E2E_REAL_COMPUTE=1 dropping the exclusion).
 //
 // Two earlier levers, kept on the record because the reasoning is load-bearing:
 //
 //  - R3-114: a file-level `testIgnore` removed this spec from COLLECTION, which is
 //    undetectable in the run output — worker E measured 224 tests collected by default vs
-//    241 with `CYTO_E2E_REAL_COMPUTE=1`, and nothing in the repo set the flag, so this
+//    241 with `TXR_E2E_REAL_COMPUTE=1`, and nothing in the repo set the flag, so this
 //    file (the plan's own `[acceptance][INV-8]` spec and the ONLY test exercising the
 //    frontend save path) had never run in any gate while the run still read green. Its
 //    rationale — "an in-body skip reports ok having executed nothing" — is true of Rust

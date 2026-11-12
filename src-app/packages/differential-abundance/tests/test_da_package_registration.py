@@ -32,7 +32,7 @@ def test_pytest_ini_registers_this_suite():
 def test_the_manifest_is_registrable():
     doc = yaml.safe_load(_MANIFEST.read_text())
     assert doc["id"] == "differential-abundance"
-    assert doc["publisher"] == "cyto"
+    assert doc["publisher"] == "txr"
     assert doc["version"]
     assert doc["apiVersion"] == "1.0"
     assert {a["id"] for a in doc["contributes"]["analyses"]} == {"da.neighbourhoods", "da.clusters"}

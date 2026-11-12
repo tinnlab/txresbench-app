@@ -1,4 +1,4 @@
-import { SettingsPageContainer } from '@ziee/shell'
+import { SettingsPageContainer } from '@txresbench/shell'
 import { ThemeSettings } from '@/modules/settings-general/components/ThemeSettings'
 
 export default function GeneralSettings() {

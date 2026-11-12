@@ -6,7 +6,7 @@
 
 import type { Draft, DraftableSpec } from '@/api-client/types'
 import type { DraftableBinding } from '@/modules/workbench/core/runtime/store'
-import { authStoreProxy } from '@ziee/framework/permissions'
+import { authStoreProxy } from '@txresbench/framework/permissions'
 import { Drafts } from './Drafts.store'
 // The live-session registries (instance / launch-intent / in-flight) live in the CALL-FREE
 // `draftRegistry` module so `draftActions` can read them WITHOUT importing this resolver — which

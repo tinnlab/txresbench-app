@@ -55,8 +55,8 @@
 //! would lock out. This module already made that mistake once next door, at
 //! `cancel_transfer`, which was gated and then reverted.
 
-use cytoanalyst::modules::account::{AccountRepository, AccountRole};
-use cytoanalyst::modules::project::{EffectivePermission, ProjectRepository};
+use txresbench::modules::account::{AccountRepository, AccountRole};
+use txresbench::modules::project::{EffectivePermission, ProjectRepository};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
@@ -267,7 +267,7 @@ async fn spawn_blocked_accept(
     recipient: Uuid,
     label: &str,
     threshold: std::time::Duration,
-) -> tokio::task::JoinHandle<Result<bool, ziee_core::AppError>> {
+) -> tokio::task::JoinHandle<Result<bool, txresbench_core::AppError>> {
     let projects = fx.projects();
     let handle = tokio::spawn(async move { projects.accept_transfer(offer, recipient).await });
 
@@ -284,7 +284,7 @@ async fn spawn_blocked_accept(
 /// Assert an `AppError` is the accept-time refusal, by CODE and status — not by
 /// status alone, which `create_transfer`'s pre-existing `TRANSFER_PENDING` /
 /// `TRANSFER_DISABLED` also carry.
-fn assert_transfer_revoked(err: ziee_core::AppError, ctx: &str) {
+fn assert_transfer_revoked(err: txresbench_core::AppError, ctx: &str) {
     let rendered = format!("{err:?}");
     assert!(
         rendered.contains("TRANSFER_REVOKED"),

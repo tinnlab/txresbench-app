@@ -2,7 +2,7 @@
 // draggable handles (+ an optional draggable band spanning them) that maps a pointer
 // position to a data value in [min,max] (clamped, lo≤hi) and calls `onChange([lo,hi])`.
 // Pure pointer-drag DOM (no library) — the shared body of visualMap handles, dataZoom
-// slider, draggable threshold, and timeline. Framework-agnostic (no @ziee/*).
+// slider, draggable threshold, and timeline. Framework-agnostic (no @txresbench/*).
 //
 // The pointer→value math lives in the exported pure function `railValueAt` so it is
 // unit-testable in node with no DOM.

@@ -35,7 +35,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // ── Resolve Playwright robustly so the skill is self-contained/portable. Try a
 //    normal bare import first (works when run from a workspace that has it),
-//    then fall back to an explicit node_modules dir (ziee repo root by default,
+//    then fall back to an explicit node_modules dir (txresbench repo root by default,
 //    overridable with PLAYWRIGHT_DIR for another app).
 async function loadChromium() {
   try {
@@ -45,7 +45,7 @@ async function loadChromium() {
       process.env.PLAYWRIGHT_DIR,
       path.resolve(__dirname, '../../../node_modules'),
       path.resolve(__dirname, '../../../src-app/ui/node_modules'),
-      '/data/pbya/ziee/ziee/node_modules',
+      '/data/pbya/txresbench/txresbench/node_modules',
     ].filter(Boolean)
     for (const dir of candidates) {
       try {
@@ -623,7 +623,7 @@ const FLOWS = {
     steps: [
       ask(
         'sandbox-exec',
-        'Use your code execution tool to run this exact bash command and show me its output: echo ZIEE_SANDBOX_OK_123',
+        'Use your code execution tool to run this exact bash command and show me its output: echo TXR_SANDBOX_OK_123',
         { expect: 'toolCard', cap: 300000 },
       ),
       {
@@ -663,7 +663,7 @@ const FLOWS = {
               ASSISTANT_MSG,
             )
             .catch(() => '')
-          const executed = /ZIEE_SANDBOX_OK_123/.test(asstText)
+          const executed = /TXR_SANDBOX_OK_123/.test(asstText)
           const awaitingApproval =
             (p.approval ?? 0) > 0 || /requires your approval|needs approval/i.test(asstText)
           findings.push({
@@ -672,7 +672,7 @@ const FLOWS = {
             selector: null,
             detail:
               `SANDBOX EXECUTION ${executed ? 'CONFIRMED' : 'NOT CONFIRMED'}: sentinel ` +
-              `ZIEE_SANDBOX_OK_123 ${executed ? 'found' : 'absent'} in ASSISTANT/tool output ` +
+              `TXR_SANDBOX_OK_123 ${executed ? 'found' : 'absent'} in ASSISTANT/tool output ` +
               `(user-prompt echo excluded). awaiting_approval=${awaitingApproval} ` +
               `toolCard=${p.toolCard ?? 0} approval=${p.approval ?? 0} toolError=${p.toolError ?? 0}. ` +
               `Ground truth for "did it run" is GET /api/mcp/tool-calls, not page text. ` +
@@ -710,7 +710,7 @@ const FLOWS = {
           }
           const tmp = path.join(OUT, 'audit-attachment.txt')
           try {
-            fs.writeFileSync(tmp, 'ziee live-ui-audit attachment fixture\n')
+            fs.writeFileSync(tmp, 'txresbench live-ui-audit attachment fixture\n')
             await input.setInputFiles(tmp)
           } catch (e) {
             findings.push({
@@ -762,7 +762,7 @@ function loadOpenApi() {
   const candidates = [
     process.env.OPENAPI_JSON,
     path.resolve(__dirname, '../../../src-app/ui/openapi/openapi.json'),
-    '/data/pbya/ziee/ziee/src-app/ui/openapi/openapi.json',
+    '/data/pbya/txresbench/txresbench/src-app/ui/openapi/openapi.json',
   ].filter(Boolean)
   for (const p of candidates) {
     try {

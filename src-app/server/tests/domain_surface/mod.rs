@@ -1743,8 +1743,8 @@ fn prose_text(src: &str) -> String {
 /// `NON_DOMAIN_IDENTIFIERS` is checked against the WHOLE surrounding identifier, which is
 /// right for the `once_cell` / `refcell` class (the entry IS the whole name) and useless
 /// the moment the different-word lands inside a COMPOUND name — the normal case in
-/// SCREAMING_SNAKE. `CYTO_ENV_IMAGE_IDENTITY_REGEXP` (`sandbox/env_image.rs`) yields
-/// `cyto_env_image_identity_regexp`, which is not in the set, so the `identity` entry
+/// SCREAMING_SNAKE. `TXR_ENV_IMAGE_IDENTITY_REGEXP` (`sandbox/env_image.rs`) yields
+/// `txr_env_image_identity_regexp`, which is not in the set, so the `identity` entry
 /// never fires and the round-3 `ident` token reports 3 hits on an operator-facing env-var
 /// name with no domain content. A noisy token is a token that gets deleted, so the
 /// BOUNDARY is fixed rather than the vocabulary.
@@ -3815,7 +3815,7 @@ async fn the_project_admin_wire_shape_no_longer_carries_the_dec_m_fields() {
         .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
-            "email": "admin@cyto.test",
+            "email": "admin@txresbench.test",
             "password": "adminPassw0rd!",
             "display_name": "Admin"
         }))

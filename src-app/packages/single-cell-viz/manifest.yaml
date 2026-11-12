@@ -30,7 +30,7 @@
 # directory carries no meaning — this manifest names the files.
 id: single-cell-viz
 name: Single-cell Visualize sections
-publisher: cyto
+publisher: txr
 version: 0.2.0
 apiVersion: "1.0"
 contributes:

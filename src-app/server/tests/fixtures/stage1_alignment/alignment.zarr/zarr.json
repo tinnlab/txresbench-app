@@ -2,7 +2,7 @@
   "zarr_format": 3,
   "node_type": "group",
   "attributes": {
-    "cyto_alignment": {
+    "txr_alignment": {
       "unified_levels": {
         "group": [
           "g1",
@@ -15,7 +15,7 @@
         "group": null
       }
     },
-    "cyto": {
+    "txr": {
       "encoding": "zarr_v3",
       "kind": "table",
       "axis": "unified_entities",

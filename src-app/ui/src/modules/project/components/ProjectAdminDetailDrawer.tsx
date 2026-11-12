@@ -1,8 +1,8 @@
 import { Permissions } from '@/api-client/permissions'
 import { usePermission } from '@/core/permissions'
 import { ProjectAdmin } from '@/modules/project/stores/ProjectAdmin.store'
-import { Badge, Button, Confirm, Empty, ErrorState, Spinner, Tag } from '@ziee/kit'
-import { Drawer } from '@ziee/shell'
+import { Badge, Button, Confirm, Empty, ErrorState, Spinner, Tag } from '@txresbench/kit'
+import { Drawer } from '@txresbench/shell'
 import { useState } from 'react'
 
 const STATUS_TONE: Record<string, 'success' | 'warning' | undefined> = {

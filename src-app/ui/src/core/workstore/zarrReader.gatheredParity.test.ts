@@ -18,7 +18,7 @@
 //   `zarrReader.ts` exactly as the existing suite does. If satisfying this test ever requires
 //   editing the reader, INV-3 is false and that is the finding — not a thing to work around.
 // * **The bytes are REAL, and `stored/` is now what the WRITER emits.** `stored/` is a
-//   `cyto_zarr`-produced column in the production chain — `sharding_indexed[ bytes,
+//   `txr_zarr`-produced column in the production chain — `sharding_indexed[ bytes,
 //   numcodecs.shuffle, gzip ]` — copied verbatim; `gathered/` is produced by the Rust gather
 //   reading the DECODED bytes of an equally real, shuffled source
 //   (`server/tests/workstore/gathered_fixture_test.rs`). It used to be an uncompressed,
@@ -101,13 +101,13 @@ function loadStore(which: string): ZarrStore {
 /**
  * A fixture store's DECLARATION, read from its own root group node.
  *
- * This is what ingest records as the artifact row's `structure` — `attributes.cyto`,
+ * This is what ingest records as the artifact row's `structure` — `attributes.txr`,
  * verbatim — so reading it here is reading the same object `parseStructure` is handed in
  * production, rather than a hand-written stand-in.
  */
 function declarationOf(which: string): unknown {
   const raw = readFileSync(join(ROOT, which, 'zarr.json'), 'utf8')
-  return JSON.parse(raw).attributes?.cyto
+  return JSON.parse(raw).attributes?.txr
 }
 
 /**
@@ -275,7 +275,7 @@ describe('ITEM-24 — progress inputs are identical, so the existing stride path
 // ── WHY THE ROW'S `structure` IS IN THE FIXTURE AT ALL ────────────────────────────────
 //
 // The previous acceptance proof was a Rust integration test that asserted through the
-// server's HTTP route and read `attributes.cyto.levels` itself. It never entered the layer
+// server's HTTP route and read `attributes.txr.levels` itself. It never entered the layer
 // where the defect lived: the creator wrote `{kind, axis, n, data_type, gathered_from}` —
 // no `encoding`, no `columns[]`, no member — so `parseStructure` threw on its first line and
 // no client path could reach the vocabulary the server had gone to the trouble of building.
@@ -418,17 +418,17 @@ describe('INV-3 through the real serve path, entered through the CLIENT reader',
     // real level a dataset happens to spell that way — two states agreeing in the output,
     // which no assertion on the rendered value can separate.
     const array = await openZarrArray(store, member.path)
-    expect(array.cyto?.missing_level).toBe('NA')
-    expect(categories.indexOf(array.cyto?.missing_level as string)).toBe(2)
+    expect(array.txr?.missing_level).toBe('NA')
+    expect(categories.indexOf(array.txr?.missing_level as string)).toBe(2)
 
     // THE DISCRIMINATOR — the two captures must DISAGREE, or a reader that ignored
     // `missing_level` entirely would pass both and this test would be asserting the fixture's
     // coincidence rather than the code's behaviour.
     const plainDecl = JSON.parse(readFileSync(join(ROOT, 'route', 'structure.json'), 'utf8'))
     const plain = await openZarrArray(loadStore('route'), resolveMember('route', asZarrTable('route', parseStructure('route', plainDecl))).path)
-    expect(plain.cyto?.levels).toHaveLength(4)
-    expect(plain.cyto?.missing_level).toBeUndefined()
-    expect(plain.cyto?.levels).not.toEqual(array.cyto?.levels)
+    expect(plain.txr?.levels).toHaveLength(4)
+    expect(plain.txr?.missing_level).toBeUndefined()
+    expect(plain.txr?.levels).not.toEqual(array.txr?.levels)
   })
 
   // **THE POSITIVE CONTROL — a REAL `metadata-column` store, through the same four calls.**
@@ -454,7 +454,7 @@ describe('INV-3 through the real serve path, entered through the CLIENT reader',
       }
     }
     walk(root)
-    const declared = JSON.parse(new TextDecoder().decode(files.get('zarr.json'))).attributes.cyto
+    const declared = JSON.parse(new TextDecoder().decode(files.get('zarr.json'))).attributes.txr
 
     const structure = parseStructure('real', declared)
     const table = asZarrTable('real', structure)

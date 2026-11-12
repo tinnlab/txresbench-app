@@ -131,22 +131,22 @@ def entry_by_id(entries, output_id):
 def read_member(outputs_dir, rel_dir, member):
     """Read one member of a written store back as a numpy array.
 
-    Through `_lib`'s OWN reader (`cyto_zarr_read`), which is the reader the platform ships
+    Through `_lib`'s OWN reader (`txr_zarr_read`), which is the reader the platform ships
     for these stores — the writer emits Zarr v3 with the repo's shuffle/codec conventions,
     and a third-party `zarr` at v2 cannot open it. Reading BACK rather than trusting the
     writer's return value is the whole point: these suites assert on the bytes that landed,
     which is what a consumer will see.
     """
-    import cyto_zarr_read
+    import txr_zarr_read
 
-    return cyto_zarr_read.read_array(str(Path(outputs_dir) / rel_dir), member)
+    return txr_zarr_read.read_array(str(Path(outputs_dir) / rel_dir), member)
 
 
 def read_column(outputs_dir, rel_dir, member="values"):
     """A column artifact as what it MEANS — categorical labels resolved, strings decoded."""
-    import cyto_zarr_read
+    import txr_zarr_read
 
-    return cyto_zarr_read.read_column(str(Path(outputs_dir) / rel_dir), member)
+    return txr_zarr_read.read_column(str(Path(outputs_dir) / rel_dir), member)
 
 
 def read_values(outputs_dir, rel_dir):
@@ -159,7 +159,7 @@ def read_values(outputs_dir, rel_dir):
 
 
 def store_declarations(outputs_dir, rel_dir):
-    """`attributes.cyto.cyto_spatial` of a written store — the declaration MIRRORED into the
+    """`attributes.txr.txr_spatial` of a written store — the declaration MIRRORED into the
     store's own bytes (#211).
 
     Read from the STORE ROOT's `zarr.json`, not from a member's, because that is where the
@@ -170,15 +170,15 @@ def store_declarations(outputs_dir, rel_dir):
     doc = json.loads(
         (Path(outputs_dir) / rel_dir / "zarr.json").read_text(encoding="utf-8")
     )
-    return doc.get("attributes", {}).get("cyto", {}).get("cyto_spatial", {})
+    return doc.get("attributes", {}).get("txr", {}).get("txr_spatial", {})
 
 
 def member_attributes(outputs_dir, rel_dir, member):
-    """`attributes.cyto` of one member — the declaration that travels WITH the bytes."""
+    """`attributes.txr` of one member — the declaration that travels WITH the bytes."""
     doc = json.loads(
         (Path(outputs_dir) / rel_dir / member / "zarr.json").read_text(encoding="utf-8")
     )
-    return doc.get("attributes", {}).get("cyto", {})
+    return doc.get("attributes", {}).get("txr", {})
 
 
 # ── the bundle and its variants ──────────────────────────────────────────────────────
@@ -255,8 +255,8 @@ def _entry_invocation(inputs_dir, outputs_dir, env, params):
         (inputs_dir / "inputs.json").write_text(json.dumps({"inputs": []}), encoding="utf-8")
 
     child = dict(os.environ)
-    child["CYTO_INPUTS_DIR"] = str(inputs_dir)
-    child["CYTO_OUTPUTS_DIR"] = str(outputs_dir)
+    child["TXR_INPUTS_DIR"] = str(inputs_dir)
+    child["TXR_OUTPUTS_DIR"] = str(outputs_dir)
     child["PYTHONPATH"] = os.pathsep.join([str(PKG / "compute"), str(PACKAGES / "_lib")])
     if env:
         child.update(env)
@@ -264,7 +264,7 @@ def _entry_invocation(inputs_dir, outputs_dir, env, params):
 
 
 def run_entry(inputs_dir, outputs_dir, *, env=None, params=None, timeout=1800):
-    """Run the entry as `main()` does in production — a SUBPROCESS over the `CYTO_*` seam.
+    """Run the entry as `main()` does in production — a SUBPROCESS over the `TXR_*` seam.
 
     A subprocess and not an in-process call, because `main()`'s refusal path is `sys.exit(2)`
     and because the sandbox runs it exactly this way: one entry file, the declared helpers

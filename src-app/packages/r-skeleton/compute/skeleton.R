@@ -11,7 +11,7 @@
 #   write   <outputs>/manifest.json       the canonical OutputsManifest, LAST
 #
 # Roots are `/inputs` and `/outputs` under bwrap; both are overridable via
-# CYTO_INPUTS_DIR / CYTO_OUTPUTS_DIR so the same file is runnable on a host, exactly as
+# TXR_INPUTS_DIR / TXR_OUTPUTS_DIR so the same file is runnable on a host, exactly as
 # the python entries are. `manifest.json` is written LAST and only after the artifact
 # exists, so a crash mid-run leaves NO manifest rather than a manifest naming bytes that
 # are not there -- the host reads a missing/invalid manifest on exit 0 as a typed
@@ -56,8 +56,8 @@
 
 suppressPackageStartupMessages(library(jsonlite))
 
-inputs_dir <- Sys.getenv("CYTO_INPUTS_DIR", unset = "/inputs")
-outputs_dir <- Sys.getenv("CYTO_OUTPUTS_DIR", unset = "/outputs")
+inputs_dir <- Sys.getenv("TXR_INPUTS_DIR", unset = "/inputs")
+outputs_dir <- Sys.getenv("TXR_OUTPUTS_DIR", unset = "/outputs")
 dir.create(outputs_dir, recursive = TRUE, showWarnings = FALSE)
 
 params_path <- file.path(inputs_dir, "params.json")

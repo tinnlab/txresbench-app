@@ -13,7 +13,7 @@
 # Usage:
 #   scripts/check-network-allowlist.sh
 #   scripts/check-network-allowlist.sh --verbose
-#   CYTO_NETWORK_ALLOWLIST=... scripts/check-network-allowlist.sh
+#   TXR_NETWORK_ALLOWLIST=... scripts/check-network-allowlist.sh
 #
 # Options (used by the test):
 #   --allowlist=FILE   allowlist file (default scripts/network-allowlist.txt)
@@ -29,15 +29,15 @@ ROOTS=(
   "$REPO/src-app/ui/src"
   "$REPO/src-app/libs/dock/src"
   "$REPO/src-app/libs/viz/src"
-  "$REPO/sdk/crates/ziee-core/src"
-  "$REPO/sdk/crates/ziee-framework/src"
-  "$REPO/sdk/crates/ziee-file/src"
-  "$REPO/sdk/crates/ziee-health/src"
-  "$REPO/sdk/crates/ziee-identity/src"
-  "$REPO/sdk/crates/ziee-notification/src"
-  "$REPO/sdk/crates/ziee-control-mcp/src"
-  "$REPO/sdk/crates/ziee-auth/src"
-  "$REPO/sdk/crates/ziee-build-support/src"
+  "$REPO/sdk/crates/txresbench-core/src"
+  "$REPO/sdk/crates/txresbench-framework/src"
+  "$REPO/sdk/crates/txresbench-file/src"
+  "$REPO/sdk/crates/txresbench-health/src"
+  "$REPO/sdk/crates/txresbench-identity/src"
+  "$REPO/sdk/crates/txresbench-notification/src"
+  "$REPO/sdk/crates/txresbench-control-mcp/src"
+  "$REPO/sdk/crates/txresbench-auth/src"
+  "$REPO/sdk/crates/txresbench-build-support/src"
   "$REPO/sdk/crates/sandbox-seccomp/src"
   "$REPO/sdk/desktop/harness/src"
   "$REPO/sdk/packages/framework/src"
@@ -80,7 +80,7 @@ for lock in "${LOCKS[@]}"; do
     exit 2
   fi
 done
-export REPO CYTO_NETWORK_ROOT_LOCKS="$(IFS=,; echo "${LOCKS[*]}")"
+export REPO TXR_NETWORK_ROOT_LOCKS="$(IFS=,; echo "${LOCKS[*]}")"
 python3 <<'PYEOF' || exit $?
 import json
 import os
@@ -98,7 +98,7 @@ TELEMETRY = re.compile(
 )
 
 found = []
-for lock in os.environ["CYTO_NETWORK_ROOT_LOCKS"].split(","):
+for lock in os.environ["TXR_NETWORK_ROOT_LOCKS"].split(","):
     if not lock:
         continue
     text = open(lock, encoding="utf-8", errors="replace").read()
@@ -118,7 +118,7 @@ PYEOF
 
 # 2. Outbound hosts as http(s)/ws(s) literals in shipped non-test source.
 export REPO ALLOWLIST VERBOSE
-export CYTO_NETWORK_ROOTS="$(IFS=,; echo "${ROOTS[*]}")"
+export TXR_NETWORK_ROOTS="$(IFS=,; echo "${ROOTS[*]}")"
 python3 <<'PYEOF' || exit $?
 import os
 import re
@@ -126,7 +126,7 @@ import sys
 
 repo = os.environ["REPO"]
 allowlist_path = os.environ["ALLOWLIST"]
-roots = [r for r in os.environ.get("CYTO_NETWORK_ROOTS", "").split(",") if r]
+roots = [r for r in os.environ.get("TXR_NETWORK_ROOTS", "").split(",") if r]
 verbose = os.environ.get("VERBOSE") == "1"
 
 allowed = set()

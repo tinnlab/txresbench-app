@@ -75,7 +75,7 @@ def test_it_writes_BOTH_padj_and_spatial_fdr_and_headlines_the_weighted_one(neig
     assert np.allclose(headline, -np.log10(np.clip(spatial, 1e-300, 1.0)), rtol=0, atol=1e-9)
     assert not np.allclose(headline, neglog10p)
 
-    attrs = run.da_cyto(entry)["da"]
+    attrs = run.da_txr(entry)["da"]
     assert attrs["significance_column"] == "spatial_fdr", (
         "every threshold, badge and headline must read the connectivity-weighted value")
     assert attrs["headline_column"] == "neglog10_significance"
@@ -195,7 +195,7 @@ def test_the_fdr_threshold_is_APPLIED_not_merely_recorded(neighbourhoods_run):
     assert n_strict is not None and n_loose is not None
     assert n_loose > n_strict, (
         f"the FDR threshold changed nothing: {n_strict} called at 0.001 and {n_loose} at 0.9")
-    assert strict.da_cyto(strict.da_entries()[0])["da"]["n_significant"] == n_strict
+    assert strict.da_txr(strict.da_entries()[0])["da"]["n_significant"] == n_strict
 
 
 def test_min_cells_is_counted_in_CELLS_not_in_neighbourhood_memberships(neighbourhoods_run):

@@ -11,9 +11,9 @@ import { openVisualize } from './_visualize'
 // per-column through `<member>/sparse/<C>`). Request-identical to a real dataset; the mask is never a
 // surface, and only the KEPT rows are shown.
 //
-// HOST-CAPABILITY-gated on CYTO_E2E_REAL_COMPUTE (bwrap + CYTO_ENV_ROOTFS_DIR): the filter VD is
+// HOST-CAPABILITY-gated on TXR_E2E_REAL_COMPUTE (bwrap + TXR_ENV_ROOTFS_DIR): the filter VD is
 // produced by a real filter run. Assertions read the app's streaming seams
-// (`window.__cyto_read.decodes` / `__cyto_stream`), which are exposed under VITE_ENABLE_TEST_SEAMS=1
+// (`window.__txr_read.decodes` / `__txr_stream`), which are exposed under VITE_ENABLE_TEST_SEAMS=1
 // (the visualize harness sets it) — a headless canvas has no GPU to screenshot.
 //
 // NOTE (phase-8): the VD-selection + column-colour STEPS below drive the visualize surface the same
@@ -48,7 +48,7 @@ test.describe('a filtered virtual dataset visualizes as a real one (ITEM-12)', (
     // INV-26: the positions were read as TWO numeric column streams (interleaved by the adapter),
     // never a single 2-D positions member. The read-decode seam records one decode per column.
     const decodeKinds = await page.evaluate(() => {
-      const r = (window as unknown as { __cyto_read?: Decodes }).__cyto_read
+      const r = (window as unknown as { __txr_read?: Decodes }).__txr_read
       return r ? Object.keys(r.decodes.counts()) : []
     })
     // A masked scatter's positions come from two continuous/value column reads — never a

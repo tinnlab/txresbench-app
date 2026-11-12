@@ -10,7 +10,7 @@
 
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::core::extension::get_global_registry;
 use super::gc::{sweep_gc_manifest, GcManifest};

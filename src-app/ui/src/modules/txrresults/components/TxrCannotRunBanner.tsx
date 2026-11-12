@@ -19,7 +19,7 @@
  * (the page filters `run.methods`), `total` the run's method count.
  */
 import type { CSSProperties } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import type { TxrRunReason } from '@/api-client/types'
 import { formatReasonText } from '../lib/format'
 

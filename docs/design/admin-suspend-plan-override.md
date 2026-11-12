@@ -1,7 +1,7 @@
 # Admin suspend/disable account + plan/tier override (no Stripe round-trip)
 
 Design note for GitHub issues **#37** (admin suspend/disable an account) and **#38** (admin
-change plan / tier override), CytoAnalyst Admin Console epic. Both are admin billing/account
+change plan / tier override), TxResBench Admin Console epic. Both are admin billing/account
 WRITE controls that share files (the `accounts` billing columns, the admin scopes, the
 `check_quota` gate, the webhook state machine), so they are planned + built together.
 

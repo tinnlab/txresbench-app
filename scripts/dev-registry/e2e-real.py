@@ -23,7 +23,7 @@ WHAT IT DOES (one line per step, exit non-zero on the first failure):
  14. history (both runs)                         GET /api/txr/history, /api/txr/runs
 
 The app must already be running against the dev registry (debug build with
-CYTO_TXR_METHOD_ENV_REGISTRY + CYTO_TXR_ENV_MANIFEST set — the README's
+TXR_METHOD_ENV_REGISTRY + TXR_ENV_MANIFEST set — the README's
 "Start the app against it"). The dev registry must be up too.
 
 --example MODE (qa-fixes3 ITEM-5, TEST-QF3-3)

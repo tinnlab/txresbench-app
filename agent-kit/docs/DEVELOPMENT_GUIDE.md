@@ -1,6 +1,6 @@
 # Development Guide
 
-> The app-agnostic workflow: how a ziee-SDK app is laid out, brought up, changed,
+> The app-agnostic workflow: how a txresbench-SDK app is laid out, brought up, changed,
 > and gated. App-specific commands, ports and services stay in that app's own
 > `CLAUDE.md` — this doc is the **shape** every app follows, not a command list
 > for one of them.
@@ -18,7 +18,7 @@
 ├─ src-app/
 │  ├─ docker-compose.yaml   # the shared build-DB cluster
 │  ├─ server/               # the app binary crate — modules self-register
-│  └─ ui/                   # the app UI on @ziee/framework + @ziee/kit + @ziee/shell
+│  └─ ui/                   # the app UI on @txresbench/framework + @txresbench/kit + @txresbench/shell
 └─ .claude/            # app.config + lifecycle/skills symlinks into agent-kit
 ```
 
@@ -31,7 +31,7 @@ that is not deliberately bumping a pin.
 
 Two mixed-language boundaries to keep straight: the Rust workspace **excludes**
 `sdk/` (it is its own nested workspace), while the npm workspace **includes**
-`sdk/packages/*` (so `@ziee/*` resolve to the working tree, not a registry).
+`sdk/packages/*` (so `@txresbench/*` resolve to the working tree, not a registry).
 
 ---
 
@@ -50,7 +50,7 @@ verifies its sqlx macros against a real migrated schema at *compile* time, and
 - The composed migration set is exercised at check time — **a bad migration fails
   `cargo check`, not first boot.**
 - Every worktree gets its own DB, so parallel worktrees do not collide.
-- One cluster is shared by every ziee app on the box; if one is already
+- One cluster is shared by every txresbench app on the box; if one is already
   listening, reuse it rather than starting a second.
 
 **Per-machine config is gitignored.** A fresh clone or a new worktree ships only
@@ -84,7 +84,7 @@ it is worth a recipe — and the recipe is what CI and other agents will call.
 ## 4. Generated files — regenerate, never hand-edit
 
 One command writes **five** files unconditionally
-(`sdk-crates:ziee-framework/src/openapi/mod.rs:51-89`):
+(`sdk-crates:txresbench-framework/src/openapi/mod.rs:51-89`):
 
 ```
 ui/openapi/openapi.json
@@ -141,7 +141,7 @@ symlinks them in and `@import`s `agent-kit/docs/FRAMEWORK.md`.
 | build ONE item through 8 phases (plan → audit → tests → decisions → implement → blind audit → fix → gated run) | `feature-lifecycle` | `lifecycle-check.mjs` |
 | dispatch + merge a fleet of item builds | `feature-orchestration` | `merge-gate.mjs <branch>` |
 
-All three scripts are **de-ziee-ified**: everything app-specific comes from
+All three scripts are **de-txresbench-ified**: everything app-specific comes from
 `.claude/app.config`, and **an unset key makes that check SKIP**. So adopting the
 tooling in a new app is writing that file, not editing the scripts.
 
@@ -191,5 +191,5 @@ with plain data by the contributor, permission-filtered by the owner. Details:
 | `Invalid hook call` from a handler | a plain state read outside render — use `X.$.field` |
 | a slot surface vanishes on some pages | the filling module is not eligible there; a module filling a globally rendered slot must be eligible **site-wide** |
 | a deep link redirects to `/` | route-driven module loading is missing (the SDK router has no `RouteModuleLoader`) |
-| kit components render unstyled | Tailwind's `@source` list is missing the workspace-linked `@ziee/*` package trees |
+| kit components render unstyled | Tailwind's `@source` list is missing the workspace-linked `@txresbench/*` package trees |
 | the dark/light flash on first paint | the pre-hydration script in `index.html` and the theme store's default disagree — they read the same persisted key and must be kept in sync |

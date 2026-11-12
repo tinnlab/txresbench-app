@@ -1,4 +1,4 @@
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 
 /**
  * txrlist — TxResBench's shared model/method selection list.

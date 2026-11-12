@@ -1,5 +1,5 @@
-//! CytoAnalyst integration test binary. One test crate (`--test
-//! integration_tests`) aggregating per-module test modules, mirroring ziee's
+//! TxResBench integration test binary. One test crate (`--test
+//! integration_tests`) aggregating per-module test modules, mirroring txresbench's
 //! layout. Run with `--test-threads` ≥ 1 (per-test DB isolation makes
 //! parallelism safe); needs a reachable Postgres (see `common`).
 
@@ -26,7 +26,7 @@ mod execution_engine;
 mod geneset;
 mod extensions;
 mod features;
-// The `ziee-file` HTTP surface merged by `modules::file` — its authorization
+// The `txresbench-file` HTTP surface merged by `modules::file` — its authorization
 // suite (the removed-member deny matrix + positive controls).
 mod file;
 // The `file_validator` suites (rule-port acceptance TEST-FV-17/18; the HTTP
@@ -64,7 +64,7 @@ mod workstore;
 
 // TEST-19 (artifact-model ITEM-13) — the INVERTED suite: this module used to hold the
 // native SOMA read/serve tests behind a `#[cfg(…)]` gate on the `tiledb_serve` cargo
-// flag. It now asserts that the module, the cargo flag and `CYTO_TILEDB_LIB` are ABSENT.
+// flag. It now asserts that the module, the cargo flag and `TXR_TILEDB_LIB` are ABSENT.
 // It is deliberately UNGATED — a removal proof hidden behind the very build flag whose
 // removal it proves could never run.
 mod tiledb_serve;

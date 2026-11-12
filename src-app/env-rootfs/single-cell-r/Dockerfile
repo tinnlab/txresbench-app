@@ -24,7 +24,7 @@
 #     object and never becomes one.
 #   * `rhdf5`/`HDF5Array` — HDF5 is an IMPORT-boundary format here, not the analysis wire
 #     format. Verified against the tree, not assumed: every artifact a processor reads or
-#     writes is a Zarr v3 sharded store (`packages/_lib/cyto_zarr.py`, and `qc`'s own
+#     writes is a Zarr v3 sharded store (`packages/_lib/txr_zarr.py`, and `qc`'s own
 #     manifest: "a `single-cell/expression` artifact in a real project is a MULTIFILE
 #     ZARR store, not an `.h5ad` blob"). `h5py`/`read_h5ad` appear only in the two import
 #     converters. So the matrix/IO substrate an R entry needs is `jsonlite` + `Matrix`
@@ -49,7 +49,7 @@
 # alone, this recipe's R-form pins are declarable at all (see `requirements.txt`'s grammar
 # directive), and `provide()` routes a declared env to its OWN staged rootfs rather than
 # silently serving the python one. Until E6/E7 land, the image is reachable only by an
-# operator (`CYTO_SANDBOX_ENV_ID`) or an admin-set `default_env_id`.
+# operator (`TXR_SANDBOX_ENV_ID`) or an admin-set `default_env_id`.
 # Recorded as DISP-2 in the item's decisions; ruled 2026-09-03.
 #
 # ── SO THIS RECIPE DECLARES ITSELF, AND THE MARKER BELOW IS THAT DECLARATION ─────────
@@ -66,10 +66,10 @@
 #   * on a CONVERTER — same reason, and no converter targets this image at all.
 #
 # The third channel is the one that fits: a deployment selects this image with
-# `CYTO_SANDBOX_ENV_ID` (or an admin-set `default_env_id`), which
+# `TXR_SANDBOX_ENV_ID` (or an admin-set `default_env_id`), which
 # `processor_manifest.rs` documents as a first-class way to choose an env, and the marker
 # is how a recipe SAYS that about itself — the same declare-don't-infer idiom as this
-# file's `cyto:env-smoke` marker below.
+# file's `txr:env-smoke` marker below.
 #
 # It is a DECLARATION, not an exemption, and the difference is the whole point: the
 # marker puts this id INTO the derived vocabulary, so it stays FORBIDDEN as a literal in
@@ -77,7 +77,7 @@
 # — it buys the right kind of noise. And it is deliberately not removable by accident:
 # once E6/E7 declare this env on a real analysis, deleting the marker is a reviewed diff
 # rather than a line that quietly stops mattering.
-# cyto:env-operator-selected
+# txr:env-operator-selected
 #
 # ── PUBLISHING IS MANUAL, EXACTLY AS FOR THE PYTHON RECIPE ───────────────────────────
 # `.github/workflows/env-images.yml` is `.disabled` (the organization's Actions billing
@@ -99,10 +99,10 @@
 # **Both coordinates are DECLARED IN `requirements.txt`** and read from there by the
 # installer below (#192) — they used to be `ARG CRAN_SNAPSHOT` / `ARG BIOC_VERSION` here,
 # which meant the same fact lived in two files with nothing holding them together:
-#   1. `# cyto:pin-source=dated-snapshot:<url>` — a DATE-PINNED Posit Package Manager
+#   1. `# txr:pin-source=dated-snapshot:<url>` — a DATE-PINNED Posit Package Manager
 #      binary CRAN snapshot, which makes CRAN a function from name to version (the
 #      `rocker-versioned2` mechanism);
-#   2. `# cyto:pin-source=release-channel:bioconductor-<rel>` — a FIXED Bioconductor
+#   2. `# txr:pin-source=release-channel:bioconductor-<rel>` — a FIXED Bioconductor
 #      release, in lockstep with the R version;
 #   3. a VERSION-ASSERTION pass that compares every installed package against
 #      `requirements.txt` and FAILS the build on any mismatch. That third step is what
@@ -159,7 +159,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # The two fixed coordinates the pin set is resolved AT are DECLARED IN THE PIN FILE, as
-# `# cyto:pin-source=<class>:<coordinate>` lines, and read from there below (#192).
+# `# txr:pin-source=<class>:<coordinate>` lines, and read from there below (#192).
 #
 # They used to be `ARG CRAN_SNAPSHOT=…` / `ARG BIOC_VERSION=…` here, with the pin file's
 # header describing them in prose ("currently .../noble/2026-09-01"). That is the same
@@ -198,11 +198,11 @@ COPY requirements.txt /tmp/requirements.txt
 # The alternative — a backslash-continued one-liner — would make a 70-line installer
 # unreadable and unreviewable, and this recipe's whole position is that the install regime
 # should be legible enough to review.
-RUN <<'CYTO_INSTALL'
+RUN <<'TXR_INSTALL'
 set -eux
 # ── THE REGIME FUNCTIONS, IN A SEPARATELY DELIMITED BLOCK (#192) ─────────────────────
 # Everything that decides what this image RECORDS — the pin parser, the coordinate
-# reader, and the closure-lock writer — lives in `cyto-regime.R` below. It is written
+# reader, and the closure-lock writer — lives in `txr-regime.R` below. It is written
 # FROM THIS FILE rather than COPYied from a sibling `.R` for the reason the recipe is
 # exactly two files: `watched_env_pin_files` watches precisely `Dockerfile` +
 # `requirements.txt` for cargo's `rerun-if-changed`, so a third file would change without
@@ -221,14 +221,14 @@ set -eux
 # It is nonetheless a SEPARATE, NAMED heredoc rather than more lines of the installer,
 # and every function takes its inputs as ARGUMENTS instead of reading globals. That is
 # what makes it RUNNABLE outside a `docker build`: `tests/run-r-tests.sh` extracts this
-# exact block by its `CYTO_REGIME_R` delimiter and executes it under `Rscript` against
+# exact block by its `TXR_REGIME_R` delimiter and executes it under `Rscript` against
 # fixtures — including the two cases the comments record as found the hard way (a package
 # installed twice, and a lock that would disagree with R's own resolver). A `docker
 # build` is a 20-minute, multi-GB operation this repository cannot run in a test, so the
 # only alternative would be a static predicate over these lines — and a predicate over
 # text is exactly what has repeatedly been defeated here by the next spelling rather than
 # by a real defect.
-cat > /tmp/cyto-regime.R <<'CYTO_REGIME_R'
+cat > /tmp/txr-regime.R <<'TXR_REGIME_R'
 ## ---- THE CANONICAL-BYTES PRECONDITION, checked before anything is parsed.
 ##
 ## WHY THIS EXISTS. This installer and the Rust build gate are the TWO programs that read
@@ -245,7 +245,7 @@ cat > /tmp/cyto-regime.R <<'CYTO_REGIME_R'
 ## every character nobody thought of. A blind audit of #214 walked through the next door:
 ## Rust's `is_control()` covers category `Cc` only, so the whole `Cf` FORMAT class passed —
 ## U+FEFF, U+200B, U+00AD, and the bidi overrides of Trojan Source (CVE-2021-42574). A
-## zero-width space in `#<ZWSP>cyto:pin-source=` makes the directive inert while leaving it
+## zero-width space in `#<ZWSP>txr:pin-source=` makes the directive inert while leaving it
 ## visibly present, in the file AND in the generated artefact a reviewer reads.
 ##
 ## So the polarity is inverted rather than the set widened a fifth time. This file may
@@ -258,11 +258,11 @@ cat > /tmp/cyto-regime.R <<'CYTO_REGIME_R'
 ## Both the gate and this installer express the same four-character rule, and
 ## `processor_manifest.rs::the_two_readers_allow_exactly_the_same_non_ascii_characters`
 ## reads this vector out of this file to hold the two lists together.
-cyto_allowed_non_ascii <- c(0xa7, 0x2014, 0x2192, 0x2500)
+txr_allowed_non_ascii <- c(0xa7, 0x2014, 0x2192, 0x2500)
 
 ## `text` is the file read as ONE string (`readChar`), not `readLines` — a CR is invisible
 ## to a line-splitting reader by construction, which is precisely the byte this refuses.
-cyto_assert_canonical_bytes <- function(text) {
+txr_assert_canonical_bytes <- function(text) {
   ## FAIL CLOSED ON INVALID UTF-8 — BEFORE `strsplit`, and this placement is the whole fix.
   ##
   ## Originally this check did not exist and one stray 0x80 disabled the whole function. The
@@ -283,15 +283,15 @@ cyto_assert_canonical_bytes <- function(text) {
   if (!length(chars)) return(invisible(TRUE))
   cps <- utf8ToInt(paste(chars, collapse = ""))
   ok <- (cps >= 0x21 & cps <= 0x7e) | cps %in% c(0x20, 0x09, 0x0a) |
-        cps %in% cyto_allowed_non_ascii
+        cps %in% txr_allowed_non_ascii
   hit <- which(!ok)
   if (length(hit)) {
     i <- hit[[1]]
     line <- sum(cps[seq_len(i)] == 0x0a) + 1L
     stop(sprintf(
-      "requirements.txt line %d: character U+%04X is not permitted. A pin file may contain printable ASCII, SPACE, TAB, LF, and only these non-ASCII characters: %s. Everything else is refused BY DEFAULT. The Rust build gate and this installer do not agree about which exotic bytes separate tokens or end lines, and a character a human reviewer cannot see is one they cannot review. If you genuinely need this character in prose, add it to `cyto_allowed_non_ascii` here AND to `PIN_FILE_ALLOWED_NON_ASCII` in the build gate AND to `pin_file_canon.py` — two cross-check tests hold the three lists to each other.",
+      "requirements.txt line %d: character U+%04X is not permitted. A pin file may contain printable ASCII, SPACE, TAB, LF, and only these non-ASCII characters: %s. Everything else is refused BY DEFAULT. The Rust build gate and this installer do not agree about which exotic bytes separate tokens or end lines, and a character a human reviewer cannot see is one they cannot review. If you genuinely need this character in prose, add it to `txr_allowed_non_ascii` here AND to `PIN_FILE_ALLOWED_NON_ASCII` in the build gate AND to `pin_file_canon.py` — two cross-check tests hold the three lists to each other.",
       line, cps[[i]],
-      paste(sprintf("U+%04X", cyto_allowed_non_ascii), collapse = ", ")), call. = FALSE)
+      paste(sprintf("U+%04X", txr_allowed_non_ascii), collapse = ", ")), call. = FALSE)
   }
   invisible(TRUE)
 }
@@ -311,10 +311,10 @@ cyto_assert_canonical_bytes <- function(text) {
 ##
 ## `readChar` + `useBytes`, never `readLines`: `readLines` splits on CR as well as LF, so it
 ## cannot see the one byte the precondition below exists for.
-cyto_read_pin_lines <- function(path) {
+txr_read_pin_lines <- function(path) {
   text <- readChar(path, file.info(path)$size, useBytes = TRUE)
   Encoding(text) <- "UTF-8"
-  cyto_assert_canonical_bytes(text)
+  txr_assert_canonical_bytes(text)
   strsplit(text, "\n", fixed = TRUE)[[1]]
 }
 
@@ -328,7 +328,7 @@ cyto_read_pin_lines <- function(path) {
 ## `\s` INSIDE a bracket expression — `[^\s#]` reads as "not backslash, not s, not #", so
 ## the version capture swallowed the padding spaces and every pin compared unequal to
 ## itself ("installed 1.30.27 != pinned 1.30.27"). Caught by the assertion doing its job.
-cyto_parse_pins <- function(raw) {
+txr_parse_pins <- function(raw) {
   pat <- "^[[:space:]]*([A-Za-z0-9][A-Za-z0-9._]*)==([^[:space:]#]+)[[:space:]]*#[[:space:]]*import=([A-Za-z0-9._]+)"
   pins <- list()
   for (i in seq_along(raw)) {
@@ -371,25 +371,25 @@ cyto_parse_pins <- function(raw) {
 ## NUL — so the asymmetry is a property of the language, not a choice, and the gate is the
 ## only thing standing between a NUL and a silently-truncated install. Invalid UTF-8 was a
 ## second instance until #214 — one stray byte disabled the whole check — and
-## `cyto_assert_canonical_bytes` now refuses it with `validUTF8`, BEFORE anything transforms
+## `txr_assert_canonical_bytes` now refuses it with `validUTF8`, BEFORE anything transforms
 ## the string. `regime_test.R` exercises both, which is what makes the claim checkable
 ## rather than asserted: the first attempt at the UTF-8 fix had no test and did not work.
-cyto_parse_sources <- function(raw) {
+txr_parse_sources <- function(raw) {
   known <- c("immutable-index", "dated-snapshot", "release-channel")
   out <- list()
   for (i in seq_along(raw)) {
     body <- sub("^[[:space:]]*#*[[:space:]]*", "", raw[[i]])
-    ## MATCH THE KEY, THEN REQUIRE THE `=`. Matching `^cyto:pin-source[[:space:]]*=` in one
+    ## MATCH THE KEY, THEN REQUIRE THE `=`. Matching `^txr:pin-source[[:space:]]*=` in one
     ## step meant a line that NAMED the directive without an `=` was silently SKIPPED —
-    ## `# cyto:pin-source vcs-head:x` walked straight past the #209 refusal below, while the
+    ## `# txr:pin-source vcs-head:x` walked straight past the #209 refusal below, while the
     ## Rust gate hard-errored on it. A gate with a spelling that bypasses it is not a gate,
     ## and "these two readers agree about which lines are directives" was the claim this
     ## file makes three paragraphs up. The word boundary is required for the same reason the
-    ## Rust side requires one: `cyto:pin-sourceXYZ=a:b` is not this directive.
-    if (!grepl("^cyto:pin-source([[:space:]]|=|$)", body)) next
-    rest <- sub("^cyto:pin-source[[:space:]]*", "", body)
+    ## Rust side requires one: `txr:pin-sourceXYZ=a:b` is not this directive.
+    if (!grepl("^txr:pin-source([[:space:]]|=|$)", body)) next
+    rest <- sub("^txr:pin-source[[:space:]]*", "", body)
     if (!startsWith(rest, "=")) {
-      stop(sprintf("requirements.txt line %d: `%s` names `cyto:pin-source` but is not `cyto:pin-source=<class>:<coordinate>` — a near-miss is refused rather than skipped, because a skipped near-miss is how a refused source class gets installed anyway", i, trimws(raw[[i]])), call. = FALSE)
+      stop(sprintf("requirements.txt line %d: `%s` names `txr:pin-source` but is not `txr:pin-source=<class>:<coordinate>` — a near-miss is refused rather than skipped, because a skipped near-miss is how a refused source class gets installed anyway", i, trimws(raw[[i]])), call. = FALSE)
     }
     value <- trimws(sub("^=", "", rest))
     ## A trailing comment is stripped only when it is SEPARATED by whitespace. A bare
@@ -400,13 +400,13 @@ cyto_parse_sources <- function(raw) {
     value <- trimws(sub("[[:space:]]+#.*$", "", value))
     m <- regmatches(value, regexec("^([A-Za-z-]+):(.+)$", value))[[1]]
     if (length(m) != 3L) {
-      stop(sprintf("requirements.txt line %d: `cyto:pin-source=%s` is not `<class>:<coordinate>` (a class, a colon, and a non-empty coordinate)", i, value), call. = FALSE)
+      stop(sprintf("requirements.txt line %d: `txr:pin-source=%s` is not `<class>:<coordinate>` (a class, a colon, and a non-empty coordinate)", i, value), call. = FALSE)
     }
     cls <- m[[2]]
     coord <- trimws(m[[3]])
     if (identical(cls, "vcs-head")) {
       stop(sprintf(
-        "requirements.txt line %d: `cyto:pin-source=vcs-head:%s` is REFUSED. An unversioned VCS head does not make `<name>==<version>` denote one source tree: two builds a day apart record the SAME version string for DIFFERENT code, so a run's provenance record would lie. Shipping from one needs a commit pin PLUS a source hash — that is #209.",
+        "requirements.txt line %d: `txr:pin-source=vcs-head:%s` is REFUSED. An unversioned VCS head does not make `<name>==<version>` denote one source tree: two builds a day apart record the SAME version string for DIFFERENT code, so a run's provenance record would lie. Shipping from one needs a commit pin PLUS a source hash — that is #209.",
         i, coord), call. = FALSE)
     }
     if (!(cls %in% known)) {
@@ -424,7 +424,7 @@ cyto_parse_sources <- function(raw) {
     out[[length(out) + 1L]] <- list(class = cls, coordinate = coord)
   }
   if (!length(out)) {
-    stop("requirements.txt declares no `cyto:pin-source=<class>:<coordinate>` — an unrecorded regime is how a published result comes to rest on a dependency version that appears in no diff in this repository", call. = FALSE)
+    stop("requirements.txt declares no `txr:pin-source=<class>:<coordinate>` — an unrecorded regime is how a published result comes to rest on a dependency version that appears in no diff in this repository", call. = FALSE)
   }
   out
 }
@@ -432,7 +432,7 @@ cyto_parse_sources <- function(raw) {
 ## Exactly one coordinate of a given class, or an error. "Exactly": two dated snapshots
 ## would make "which one did these pins come from" unanswerable, and silently taking the
 ## first is the shape of answer this whole file exists to refuse.
-cyto_source_coordinate <- function(sources, cls) {
+txr_source_coordinate <- function(sources, cls) {
   hit <- Filter(function(s) identical(s$class, cls), sources)
   if (length(hit) != 1L) {
     stop(sprintf("requirements.txt must declare exactly one `%s` pin source; found %d", cls, length(hit)), call. = FALSE)
@@ -443,7 +443,7 @@ cyto_source_coordinate <- function(sources, cls) {
 ## The Bioconductor RELEASE out of a `release-channel` coordinate. The prefix is required
 ## rather than stripped-if-present: `release-channel:3.23` names a release of nothing, and
 ## a coordinate that does not say which channel it is is not a coordinate.
-cyto_bioc_release <- function(coord) {
+txr_bioc_release <- function(coord) {
   ## The `.+` is not decoration: `bioconductor-` alone satisfied a bare prefix test and
   ## returned "", which then reached `BiocManager::repositories(version = "")` and was
   ## printed into the lock header as `# bioconductor `. A coordinate that names a channel
@@ -470,7 +470,7 @@ cyto_bioc_release <- function(coord) {
 ## `ip` is an `installed.packages()`-shaped frame; `resolve_version(name)` is what R
 ## actually LOADS; `repo_of(name)` is the `Repository` field the package records. All
 ## three are ARGUMENTS so this is exercisable without an installed library set.
-cyto_write_env_lock <- function(path, pins, header, ip, resolve_version, repo_of, lib_paths,
+txr_write_env_lock <- function(path, pins, header, ip, resolve_version, repo_of, lib_paths,
                                 priority_of = function(nm) NA_character_) {
   ## EVERY interpolated field, not just this one.
   ##
@@ -602,23 +602,23 @@ cyto_write_env_lock <- function(path, pins, header, ip, resolve_version, repo_of
   }
   list(resolved = nrow(resolved), shadowed = nrow(shadowed))
 }
-CYTO_REGIME_R
-cat > /tmp/cyto-install.R <<'RSCRIPT'
-source("/tmp/cyto-regime.R")
+TXR_REGIME_R
+cat > /tmp/txr-install.R <<'RSCRIPT'
+source("/tmp/txr-regime.R")
 
 ## Read the file ONCE, as bytes, and refuse the divergence class before parsing anything.
 ## `readLines` would have already split on a CR and hidden it.
 req_path <- "/tmp/requirements.txt"
-raw <- cyto_read_pin_lines(req_path)
-pins <- cyto_parse_pins(raw)
+raw <- txr_read_pin_lines(req_path)
+pins <- txr_parse_pins(raw)
 names_wanted <- vapply(pins, function(p) p$name, "")
 cat(sprintf("pin file: %d exact pins\n", length(pins)))
 
 ## The two coordinates come from the PIN FILE, which is the source of truth for what is
 ## installed — not from a build arg, which nothing records (#192).
-srcs <- cyto_parse_sources(raw)
-cran <- cyto_source_coordinate(srcs, "dated-snapshot")
-bioc <- cyto_bioc_release(cyto_source_coordinate(srcs, "release-channel"))
+srcs <- txr_parse_sources(raw)
+cran <- txr_source_coordinate(srcs, "dated-snapshot")
+bioc <- txr_bioc_release(txr_source_coordinate(srcs, "release-channel"))
 cat(sprintf("pin sources: CRAN snapshot %s / Bioconductor %s\n", cran, bioc))
 
 ## ---- resolve the two coordinates into a repo list. Bioc FIRST so a name present in
@@ -637,7 +637,7 @@ if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocMana
 br <- BiocManager::repositories(version = bioc)
 br <- br[names(br) != "CRAN"]
 options(repos = c(br, CRAN = cran), timeout = 1800,
-        Ncpus = max(1L, as.integer(Sys.getenv("CYTO_BUILD_NCPUS", "8"))))
+        Ncpus = max(1L, as.integer(Sys.getenv("TXR_BUILD_NCPUS", "8"))))
 
 install.packages(names_wanted)
 
@@ -694,15 +694,15 @@ if (length(bad)) {
 cat(sprintf("pin assertion: %d/%d packages at their exact pinned versions\n", length(pins), length(pins)))
 
 ## ---- freeze the FULL resolved closure INTO the image, BEFORE the trim (the same
-## ordering the python recipe's own test asserts for `.cyto-env-lock.txt`: a freeze that
+## ordering the python recipe's own test asserts for `.txresbench-env-lock.txt`: a freeze that
 ## ran after a trim can silently produce an empty file, and an empty lock records nothing
 ## while looking exactly like a lock).
 ##
-## The writer itself is `cyto_write_env_lock` in `/tmp/cyto-regime.R` above — extracted so
+## The writer itself is `txr_write_env_lock` in `/tmp/txr-regime.R` above — extracted so
 ## it can be RUN against fixtures outside a docker build (#192). Its inputs are passed in
 ## rather than read from the environment, which is what makes that possible.
-lock <- "/usr/local/lib/R/.cyto-env-lock.txt"
-counts <- cyto_write_env_lock(
+lock <- "/usr/local/lib/R/.txresbench-env-lock.txt"
+counts <- txr_write_env_lock(
   path = lock,
   pins = pins,
   header = c(
@@ -752,10 +752,10 @@ cat(sprintf("env lock: %d packages (%d shadowed duplicate(s) recorded as comment
 
 ## ---- emit the derived smoke list so the layer below can `library()` every pin without
 ## a second hand-maintained list.
-writeLines(names_wanted, "/tmp/cyto-smoke-names.txt")
+writeLines(names_wanted, "/tmp/txr-smoke-names.txt")
 RSCRIPT
-Rscript --vanilla /tmp/cyto-install.R
-CYTO_INSTALL
+Rscript --vanilla /tmp/txr-install.R
+TXR_INSTALL
 
 # ── SINGLE-THREADED NUMERICS (INV-6) ─────────────────────────────────────────────────
 # The queue runs many jobs concurrently, each with its own CPU ceiling. R's BLAS, OpenMP,
@@ -871,11 +871,11 @@ RUN set -eux; \
         \( -name 'doc' -o -name 'html' \) -prune -exec rm -rf {} + 2>/dev/null || true; \
     rm -rf /usr/local/lib/R/doc /usr/share/doc /usr/share/man /usr/share/info \
            /usr/local/lib/R/site-library/*/libs/*.a /root/.cache /tmp/Rtmp* ; \
-    CYTO_PURGED='libcurl4-openssl-dev libssl-dev libxml2-dev zlib1g-dev libbz2-dev liblzma-dev libglpk-dev libgsl-dev libfftw3-dev libgeos-dev libudunits2-dev libproj-dev libgdal-dev libpng-dev libjpeg-dev libtiff5-dev libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev libmagick++-dev libcairo2-dev binutils'; \
-    n_purge=$(printf '%s\n' $CYTO_PURGED | grep -c .); \
+    TXR_PURGED='libcurl4-openssl-dev libssl-dev libxml2-dev zlib1g-dev libbz2-dev liblzma-dev libglpk-dev libgsl-dev libfftw3-dev libgeos-dev libudunits2-dev libproj-dev libgdal-dev libpng-dev libjpeg-dev libtiff5-dev libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev libmagick++-dev libcairo2-dev binutils'; \
+    n_purge=$(printf '%s\n' $TXR_PURGED | grep -c .); \
     [ "$n_purge" -ge 20 ] || { echo "FAILED: the purge list holds $n_purge package(s); the recipe apt-installs a ~23-package build toolchain above and every one of them must be named here. An EMPTY or truncated list makes BOTH the purge and the check below no-ops — the toolchain ships and nothing is red, which is the exact shape this floor exists to catch (the .so walk twelve lines up has the same floor for the same reason)." >&2; exit 1; }; \
-    apt-get purge -y --auto-remove=false $CYTO_PURGED >/dev/null 2>&1 || true; \
-    for pkg in $CYTO_PURGED; do \
+    apt-get purge -y --auto-remove=false $TXR_PURGED >/dev/null 2>&1 || true; \
+    for pkg in $TXR_PURGED; do \
         if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q 'install ok installed'; then \
             echo "FAILED: apt-get purge left \`$pkg\` installed. The purge is best-effort per package (hence the || true) and this checks EVERY name it was asked to remove: a compiler and its headers have no use inside a sandbox with no network, and they carry a CVE surface that outlives them." >&2; \
             exit 1; \
@@ -956,11 +956,11 @@ RUN set -eux; \
 # (`sandbox/spec.rs`), site files honoured. `--vanilla` is correct for the INSTALL layer
 # (it runs before that configuration exists and must not depend on it) and wrong for every
 # layer whose job is to observe it.
-RUN <<'CYTO_SMOKE'
+RUN <<'TXR_SMOKE'
 set -eux
-cat > /tmp/cyto-smoke.R <<'RSCRIPT'
+cat > /tmp/txr-smoke.R <<'RSCRIPT'
 ## THE FOURTH PARSER IS GONE. This stage used to re-implement the pin grammar inline — a
-## second regex, a second >=10 floor, and, unlike `cyto_parse_pins`, a silent
+## second regex, a second >=10 floor, and, unlike `txr_parse_pins`, a silent
 ## `m <- m[lengths(m) == 4L]` that DROPPED every line it could not read instead of
 ## refusing. So "what is pinned" and "what is verified at build time" were derived by two
 ## parsers with nothing holding them together, and an audit narrowed this copy until the
@@ -968,8 +968,8 @@ cat > /tmp/cyto-smoke.R <<'RSCRIPT'
 ##
 ## It now sources the same block the installer uses and the tests execute. One parser, one
 ## floor, one refusal path.
-source("/tmp/cyto-regime.R")
-m <- cyto_parse_pins(cyto_read_pin_lines("/tmp/requirements.txt"))
+source("/tmp/txr-regime.R")
+m <- txr_parse_pins(txr_read_pin_lines("/tmp/requirements.txt"))
 bad <- character(0)
 for (r in m) {
   lib <- r$import; want <- r$version
@@ -984,8 +984,8 @@ for (r in m) {
 if (length(bad)) stop(sprintf("build-time smoke FAILED:\n%s", paste(bad, collapse = "\n")), call. = FALSE)
 cat(sprintf("R analysis stack OK — %d pinned packages load at their pinned versions\n", length(m)))
 RSCRIPT
-Rscript /tmp/cyto-smoke.R
-CYTO_SMOKE
+Rscript /tmp/txr-smoke.R
+TXR_SMOKE
 
 # An EXPLICIT `library()` line naming every pinned package, alongside the derived check
 # above. It is redundant for this recipe's own correctness and that is fine: it exists so
@@ -995,13 +995,13 @@ CYTO_SMOKE
 # `test_every_pin_is_named_on_the_explicit_smoke_line`.
 #
 # The marker below is #196's declared INTERFACE for "this is the instruction that LOADS
-# every pinned distribution" (`env_image.rs::SMOKE_MARKER` = `cyto:env-smoke`, required on
+# every pinned distribution" (`env_image.rs::SMOKE_MARKER` = `txr:env-smoke`, required on
 # its own line immediately above the instruction). It sits on THIS line and not on the
 # derived heredoc above, deliberately: the derived check names no package, and a
 # correspondence guard keyed on each pin's own `# import=` token needs a surface where
 # those tokens actually appear. Conforming to that interface is this recipe's side of the
 # coordination with #196 — the guard itself is #196's file and is not touched here.
-# cyto:env-smoke
+# txr:env-smoke
 RUN Rscript -e "library(BiocManager); library(Matrix); library(jsonlite); library(bit64); library(digest); library(BiocParallel); library(SingleCellExperiment); library(scDblFinder); library(SpatialExperiment); library(edgeR); library(DESpace); library(spacexr); library(spicyR); library(Statial); library(spatstat); library(lme4); library(refund); library(spatialFDA); cat('explicit smoke OK\n')"
 
 # ── TEST-E3-9 [acceptance] [invariant: INV-6] — one thread, MEASURED ─────────────────
@@ -1010,7 +1010,7 @@ RUN Rscript -e "library(BiocManager); library(Matrix); library(jsonlite); librar
 # version of this layer contained that very failure: it ran under `--vanilla`, which skips
 # both site files, so it was asking an R that could not see the configuration under test.
 # Run plainly, exactly as the sandbox does.
-RUN <<'CYTO_THREADS'
+RUN <<'TXR_THREADS'
 set -eux
 
 # ── CONTROL HALF 1, RUN IN THE SHELL AND NOT IN R ────────────────────────────────────
@@ -1038,7 +1038,7 @@ for v in OMP_NUM_THREADS OPENBLAS_NUM_THREADS MKL_NUM_THREADS R_DATATABLE_NUM_TH
 done
 printf 'control: the image environment sets none of the thread variables (so R is their only source)\n'
 
-cat > /tmp/cyto-threads.R <<'RSCRIPT'
+cat > /tmp/txr-threads.R <<'RSCRIPT'
 v <- c(OMP_NUM_THREADS = Sys.getenv("OMP_NUM_THREADS"),
        OPENBLAS_NUM_THREADS = Sys.getenv("OPENBLAS_NUM_THREADS"),
        MKL_NUM_THREADS = Sys.getenv("MKL_NUM_THREADS"),
@@ -1073,8 +1073,8 @@ if (!identical(frame, "CTRL[mc=TRUE]")) {
 }
 cat("single-thread pinning OK (BLAS/OpenMP/data.table/mc.cores/BiocParallel = 1; the --vanilla control confirms Rprofile.site is the source of the options half, and the shell control above confirms the image environment is the source of none of it)\n")
 RSCRIPT
-Rscript /tmp/cyto-threads.R
-CYTO_THREADS
+Rscript /tmp/txr-threads.R
+TXR_THREADS
 
 # Schema marker read by the runtime mount probe (must equal ROOTFS_SCHEMA_VERSION).
 # NOT bumped for a second image — see the header, and
@@ -1087,9 +1087,9 @@ ARG ROOTFS_SCHEMA_VERSION=5
 # of truth for exactly the question `requirements.txt` exists to answer. The layer then
 # ASSERTS /tmp is empty, because a `rm -f` of a path that moved is silent.
 RUN set -eux; \
-    printf '%s\n' "$ROOTFS_SCHEMA_VERSION" > /.cytoanalyst-sandbox-rootfs-schema; \
-    rm -f /tmp/cyto-install.R /tmp/cyto-regime.R /tmp/cyto-smoke-names.txt \
-          /tmp/cyto-smoke.R /tmp/cyto-threads.R /tmp/requirements.txt; \
+    printf '%s\n' "$ROOTFS_SCHEMA_VERSION" > /.txresbench-sandbox-rootfs-schema; \
+    rm -f /tmp/txr-install.R /tmp/txr-regime.R /tmp/txr-smoke-names.txt \
+          /tmp/txr-smoke.R /tmp/txr-threads.R /tmp/requirements.txt; \
     left="$(find /tmp -mindepth 1 -print)"; \
     if [ -n "$left" ]; then \
         printf 'FAILED: build artifacts remain in /tmp and would ship inside the squashfs:\n%s\n' "$left" >&2; \

@@ -82,7 +82,7 @@ use crate::modules::execution_engine::types::{TxrEndpoint, TxrMethodEnv, TxrTask
 use crate::modules::method_catalogue::types::RequiredMarkers;
 use crate::modules::model_store::types::{CovariateFacts, MarkerFacts, ModelProvenance};
 use crate::modules::sandbox::stack::verify_model_tree;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Format constants + the error vocabulary

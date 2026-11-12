@@ -10,7 +10,7 @@ suites. Nothing held their grammars together. Four audit rounds on #192 each pro
 demonstrated exploitable defects, and every one was a disagreement between two of those
 grammars about which bytes separate tokens or end lines:
 
-  * `#<NBSP>cyto:pin-source=` — a directive to the Rust gate, prose to the R installer;
+  * `#<NBSP>txr:pin-source=` — a directive to the Rust gate, prose to the R installer;
   * a lone CR — a comment fragment to every Rust and Python reader, a whole directive line
     to the one program that installs;
   * `U+000B` — excluded by `is_ascii_whitespace`, included by POSIX `[[:space:]]`;

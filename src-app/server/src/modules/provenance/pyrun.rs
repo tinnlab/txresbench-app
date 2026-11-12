@@ -14,7 +14,7 @@ use std::io::Write as _;
 /// Compile the emitted module with the host's python3; `Err` when it is not a
 /// single well-formed module (or the interpreter could not be used).
 pub fn python_compiles(src: &str) -> Result<(), String> {
-    let dir = std::env::temp_dir().join(format!("cyto-pyc-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("txr-pyc-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let f = dir.join("emitted.py");
     std::fs::File::create(&f)
@@ -72,7 +72,7 @@ pub fn run_select_raw(src: &str, ctx_text: &str) -> Vec<bool> {
         ),
         Err(e) => panic!("could not probe python3 (this is NOT 'python3 is absent'): {e}"),
     }
-    let dir = std::env::temp_dir().join(format!("cyto-pyrun-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("txr-pyrun-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("create temp dir for the emitted script");
     let py = dir.join("emitted.py");
     std::fs::File::create(&py)

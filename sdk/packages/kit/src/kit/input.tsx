@@ -117,7 +117,7 @@ Input.displayName = 'Input'
 // what survived, so a truncation is undetectable; and announcing "kept 72, dropped 18" would be
 // announcing that the app chose a credential the user did not.
 //
-// The failure it produced is not theoretical: cytoanalyst's profile page capped BOTH the new and
+// The failure it produced is not theoretical: txresbench's profile page capped BOTH the new and
 // the confirm password at 72, so a longer passphrase was cut identically in both, the two matched,
 // validation passed, the change succeeded — and the passphrase the user saved was not the one that
 // had been set. There is no signal anywhere in that sequence that anything was dropped.

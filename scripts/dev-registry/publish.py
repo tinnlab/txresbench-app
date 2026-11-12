@@ -543,7 +543,7 @@ def build_fixture_layer(out_dir):
             "    w.writerow(['patient_id', 'risk', 'call', 'note'])\n"
             "    for i in ids:\n"
             "        w.writerow([i, 0.5, 0, ''])\n"
-            "fifo = os.environ.get('CYTO_PROGRESS_FIFO')\n"
+            "fifo = os.environ.get('TXR_PROGRESS_FIFO')\n"
             "if fifo:\n"
             "    with open(fifo, 'w') as f:\n"
             "        f.write('milestone|fit|started\\n')\n"

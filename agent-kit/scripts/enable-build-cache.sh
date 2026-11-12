@@ -53,7 +53,7 @@
 #   win is, and C/C++ is what the expensive vendored crates are.
 #
 #   ⚠️ IT ONLY WORKS IF EVERY BUILD TREE IS ACTUALLY UNDER IT. A basedir of
-#   /data/pbya/ziee does nothing for a tree in /tmp — the paths never normalise,
+#   /data/pbya/txresbench does nothing for a tree in /tmp — the paths never normalise,
 #   so the keys never match. This bit merge-gate.mjs, which staged its build in
 #   the system temp dir; it now stages BESIDE THE REPO for exactly this reason.
 #   Before trusting a basedir, check that the gate/CI staging paths sit under it.
@@ -63,7 +63,7 @@
 #   hit again. Expect ONE full-miss build, and expect the store to roughly
 #   double before the LRU evicts the old generation. Do it when the box is quiet.
 #
-# WHAT THE EXPENSIVE NATIVE BUILDS ACTUALLY ARE (ziee, 2026-07)
+# WHAT THE EXPENSIVE NATIVE BUILDS ACTUALLY ARE (txresbench, 2026-07)
 #   `aws-lc-sys` (~1500 C files) is the dominant one, reached via
 #   rustls <- reqwest / hyper-rustls / ngrok. Also rquickjs-sys (QuickJS),
 #   ring, zstd-sys, libseccomp-sys, pdfium-render. Two notes worth carrying:
@@ -85,13 +85,13 @@ MODE=${1:-enable}
 CARGO_CFG="$HOME/.cargo/config.toml"
 SCCACHE_BIN="$HOME/.cargo/bin/sccache"
 # Default the store to the big volume the worktrees live on, not $HOME.
-CACHE_DIR=${SCCACHE_DIR:-/data/pbya/ziee/.sccache}
+CACHE_DIR=${SCCACHE_DIR:-/data/pbya/txresbench/.sccache}
 CACHE_SIZE=${SCCACHE_CACHE_SIZE:-200G}
 # The COMMON ANCESTOR of every worktree on this box. sccache rewrites absolute
 # paths under it to relative ones, so the same native object compiled in two
 # different worktrees hashes to ONE key. Without this, every new worktree
 # re-compiles the whole C/C++ surface (aws-lc-sys alone is ~1500 files).
-BASE_DIR=${SCCACHE_BASEDIRS:-/data/pbya/ziee}
+BASE_DIR=${SCCACHE_BASEDIRS:-/data/pbya/txresbench}
 
 status() {
   echo "sccache binary : $([ -x "$SCCACHE_BIN" ] && "$SCCACHE_BIN" --version || echo 'NOT INSTALLED')"

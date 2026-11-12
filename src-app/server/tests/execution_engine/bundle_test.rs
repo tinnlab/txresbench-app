@@ -6,13 +6,13 @@
 //! (TEST-EE-22 — every fixture is an in-test construct).
 
 use super::{cohort_measurements_parsed, cohort_patients_parsed};
-use cytoanalyst::modules::execution_engine::bundle::{
+use txresbench::modules::execution_engine::bundle::{
     self, BundleError, BundleSettings, MarkerSelection,
 };
-use cytoanalyst::modules::execution_engine::envmanifest;
-use cytoanalyst::modules::execution_engine::types::RunConfig;
-use cytoanalyst::modules::file_validator::bundle::canonical_bundle;
-use cytoanalyst::modules::file_validator::types::{
+use txresbench::modules::execution_engine::envmanifest;
+use txresbench::modules::execution_engine::types::RunConfig;
+use txresbench::modules::file_validator::bundle::canonical_bundle;
+use txresbench::modules::file_validator::types::{
     AnalysisParameters, JoinOffer, MarkerMapping, ValidationMode, ValidationRequest,
 };
 
@@ -32,7 +32,7 @@ fn cohort_vreq(decision_day: f64) -> ValidationRequest {
 
 /// The 30-patient canonical bundle through the REAL validator (the same call
 /// the run start's `prepare_run` makes — one code path, DEC-15).
-fn cohort_canonical() -> cytoanalyst::modules::file_validator::types::CanonicalBundle {
+fn cohort_canonical() -> txresbench::modules::file_validator::types::CanonicalBundle {
     canonical_bundle(&cohort_vreq(56.0)).expect("the cohort fixture validates")
 }
 
@@ -159,7 +159,7 @@ fn per_method_marker_set_obeys_the_package_count_rule() {
     for v in &canonical.values {
         if v.day == 0.0 && v.feature == "14804-9" {
             values.push(
-                cytoanalyst::modules::file_validator::types::CanonicalValue {
+                txresbench::modules::file_validator::types::CanonicalValue {
                     patient_id: v.patient_id.clone(),
                     day: 0.0,
                     feature: "2039-6".to_string(),
@@ -175,7 +175,7 @@ fn per_method_marker_set_obeys_the_package_count_rule() {
     assert!(
         matches!(
             facts.markers.kind,
-            cytoanalyst::modules::method_catalogue::types::MarkerKind::Single
+            txresbench::modules::method_catalogue::types::MarkerKind::Single
         ),
         "the fixture method is a single-marker method"
     );

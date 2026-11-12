@@ -3,7 +3,7 @@
 // The oracle throughout is the PULL source. `streamingFixtures.test.ts:24` set the bar for a
 // `StreamingSource` in this codebase — byte-parity between `asDataSource(streaming)` and the
 // equivalent pull method — and this holds the app's source to the same one, against the SHIPPING
-// Python writer's bytes (`core/workstore/__fixtures__/zarr/`, produced by `cyto_zarr`), not
+// Python writer's bytes (`core/workstore/__fixtures__/zarr/`, produced by `txr_zarr`), not
 // against a sketch of them.
 //
 // ONLY the octet boundary is faked. Every decode — the shard index, the gzip inflate, the
@@ -31,7 +31,7 @@ import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@ziee/kit', () => ({
+vi.mock('@txresbench/kit', () => ({
   message: { info: () => {}, success: () => {}, error: () => {} },
 }))
 
@@ -42,7 +42,7 @@ import {
   streamBinaryColumn,
   type Channel,
   type MembersRef,
-} from '@ziee/viz'
+} from '@txresbench/viz'
 import { datatypeRegistry, type Datatype } from '@/core/datatypes'
 import {
   __resetArtifactArrayCache,

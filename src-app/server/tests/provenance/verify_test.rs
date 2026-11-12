@@ -15,11 +15,11 @@ use std::time::Duration;
 
 use super::*;
 
-use cytoanalyst::modules::datatype::registry::{set_global_registry, DatatypeRegistry};
-use cytoanalyst::modules::provenance::repository::{NewRun, ProvenanceRepository};
-use cytoanalyst::modules::workstore::object_store::{content_hash_of_path, ObjectStore};
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::datatype::registry::{set_global_registry, DatatypeRegistry};
+use txresbench::modules::provenance::repository::{NewRun, ProvenanceRepository};
+use txresbench::modules::workstore::object_store::{content_hash_of_path, ObjectStore};
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
 
 // ------------------------------- seed helpers -------------------------------
 
@@ -201,7 +201,7 @@ async fn content_hash_matches_p1_catalog_identity() {
             .as_storage_layout()
     };
     // A single-file blob type, and the type a processor really emits for a
-    // DIRECTORY-shaped chunked store (`cyto_csc.write_csc_zarr`'s output).
+    // DIRECTORY-shaped chunked store (`txr_csc.write_csc_zarr`'s output).
     let single_file_dt = "file/upload";
     let multi_file_dt = "single-cell/expression";
     // The multi-file half must genuinely declare a multi-file layout, or this test
@@ -225,9 +225,9 @@ async fn content_hash_matches_p1_catalog_identity() {
 
     // Ingest through P1's real write path (datatype validation runs — the registry is
     // published above) using a locally-constructed content-addressed store.
-    let store = cytoanalyst::modules::workstore::object_store::LocalFsStore::new(&root.join("store"));
+    let store = txresbench::modules::workstore::object_store::LocalFsStore::new(&root.join("store"));
     let run_id = Uuid::new_v4();
-    let rows = cytoanalyst::modules::workstore::ingest::ingest_run_outputs(
+    let rows = txresbench::modules::workstore::ingest::ingest_run_outputs(
         &pool, &store, Some(project_id), None, run_id, None, &ws,
     )
     .await
@@ -382,7 +382,7 @@ async fn verify_authz_401_403_404() {
     assert_eq!(resp.status().as_u16(), 401, "unauthenticated → 401");
 
     // 403 — a user WITHOUT provenance::export (A9 deny path).
-    let denied = create_user_without_provenance(&server, &admin, "noexport", "noexport@cyto.test").await;
+    let denied = create_user_without_provenance(&server, &admin, "noexport", "noexport@txresbench.test").await;
     let resp = post_verify(&server, &denied, project_id, run, None).await;
     assert_eq!(resp.status().as_u16(), 403, "lacking provenance::export → 403");
 
@@ -578,10 +578,10 @@ async fn boot_reclamation_resolves_orphaned_pending() {
 /// TEST-34/35 siblings below: it self-skips only when no rootfs is usable here,
 /// and RUNS on any host where one is.
 ///
-/// It used to gate on a bare `std::env::var("ZIEE_SANDBOX_ROOTFS")` — the LEGACY
-/// seam. This branch standardised on `CYTO_ENV_ROOTFS_SQUASHFS` /
-/// `CYTO_ENV_ROOTFS_DIR` / the live OCI pull, all of which `rootfs_gate` honors
-/// (it still honors `ZIEE_SANDBOX_ROOTFS` too). Under the config the branch
+/// It used to gate on a bare `std::env::var("TXR_SANDBOX_ROOTFS")` — the LEGACY
+/// seam. This branch standardised on `TXR_ENV_ROOTFS_SQUASHFS` /
+/// `TXR_ENV_ROOTFS_DIR` / the live OCI pull, all of which `rootfs_gate` honors
+/// (it still honors `TXR_SANDBOX_ROOTFS` too). Under the config the branch
 /// documents, the bespoke check made this test report `ok … finished in 0.00s`
 /// having executed NOTHING, in the very same run in which its siblings executed
 /// against a real pinned rootfs — so "on a maintainer's box it asserts for real"
@@ -619,7 +619,7 @@ async fn real_sandbox_rerun_reproduces() {
     // NOT `workstore::try_get_object_store()`: that reads a process-global OnceLock
     // initialised by the workstore module inside the SPAWNED SERVER process, so in
     // THIS test binary it is always `None` and the old `.unwrap()` panicked. That
-    // line had never executed — the legacy `ZIEE_SANDBOX_ROOTFS` gate returned
+    // line had never executed — the legacy `TXR_SANDBOX_ROOTFS` gate returned
     // before reaching it on every host (see the gate note above), which is exactly
     // the cost of a self-skip that reads as a PASS.
     let store = hc_server_store(&server);
@@ -1085,7 +1085,7 @@ async fn project_sharee(
     username: &str,
     level: &str,
 ) -> String {
-    let email = format!("{username}@cyto.test");
+    let email = format!("{username}@txresbench.test");
     create_user(server, admin, username, &email).await;
     let token = login(server, username).await;
     let share = server
@@ -1126,7 +1126,7 @@ async fn a_verification_job_grades_stop_like_every_other_project_scoped_run() {
     // A NON-ADMIN project owner, deliberately: an admin owner would satisfy every
     // `can_stop` through the admin wildcard, and the assertion "the project OWNER may
     // stop" would pass without the owner arm existing at all.
-    create_user(&server, &admin, "vscowner", "vscowner@cyto.test").await;
+    create_user(&server, &admin, "vscowner", "vscowner@txresbench.test").await;
     let owner = login(&server, "vscowner").await;
     let project_id = create_project(&server, &owner, "verify stop project").await;
     let editor = project_sharee(&server, &admin, &owner, project_id, "vsceditor", "editor").await;

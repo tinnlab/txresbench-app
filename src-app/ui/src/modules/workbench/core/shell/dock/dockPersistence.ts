@@ -4,7 +4,7 @@
 // opened it). Both use a guarded storage (probe once, fall back to in-memory in a locked-down
 // context, mirroring `WorkbenchLayout.store`'s `safeStorage`).
 
-import { leafIds, removeLeaf, type ContainerId, type DropTarget, type LayoutNode } from '@ziee/dock'
+import { leafIds, removeLeaf, type ContainerId, type DropTarget, type LayoutNode } from '@txresbench/dock'
 import type { WorkbenchPane } from './paneModel'
 import {
   type DockMainSlice,
@@ -39,13 +39,13 @@ export interface PopupSlice {
   cells: Record<string, WorkbenchPane>
 }
 
-const MAIN_KEY = 'cyto.wb.dock.main'
-const POPUP_KEY = 'cyto.wb.dock.popups'
+const MAIN_KEY = 'txr.wb.dock.main'
+const POPUP_KEY = 'txr.wb.dock.popups'
 
 /** Guarded storage: probe once, fall back to an in-memory map when Web Storage throws (private
  *  mode / sandboxed iframe / SSR) so the store never takes the app down. Shared with
  *  `regions/regionsPersistence` (the region-arrangement twin of this module). */
-export function guardedStorage(get: () => Storage | undefined, probe = '__cyto_wb_dock_probe__'): SimpleStorage {
+export function guardedStorage(get: () => Storage | undefined, probe = '__txr_wb_dock_probe__'): SimpleStorage {
   try {
     const s = get()
     if (!s) throw new Error('no storage')

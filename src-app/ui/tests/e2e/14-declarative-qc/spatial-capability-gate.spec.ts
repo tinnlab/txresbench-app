@@ -224,14 +224,14 @@ test('BOTH clauses of the invariant, on ONE project — TEST-1', async ({ page, 
 
   // CLAUSE 2 — and on the SAME project, the object the grid holds answers rather than throwing.
   await page.waitForFunction(
-    () => !!(window as unknown as { __cyto_stream?: { source?: unknown } }).__cyto_stream?.source,
+    () => !!(window as unknown as { __txr_stream?: { source?: unknown } }).__txr_stream?.source,
     undefined,
     { timeout: 60_000 },
   )
   const served = await page.evaluate(async (id: string) => {
     const seam = (
-      window as unknown as { __cyto_stream: { source: (p: string) => Record<string, unknown> | null } }
-    ).__cyto_stream
+      window as unknown as { __txr_stream: { source: (p: string) => Record<string, unknown> | null } }
+    ).__txr_stream
     const source = seam.source(id)
     if (!source) return { error: 'no production source published for this project' }
     try {

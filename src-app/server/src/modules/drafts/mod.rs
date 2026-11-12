@@ -25,7 +25,7 @@ use std::sync::Arc;
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 pub use permissions::DraftsUse;
 

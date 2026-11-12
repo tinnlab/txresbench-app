@@ -63,7 +63,7 @@
     }
   ],
   "attributes": {
-    "cyto": {
+    "txr": {
       "kind": "categorical",
       "name": "cat16",
       "levels": [

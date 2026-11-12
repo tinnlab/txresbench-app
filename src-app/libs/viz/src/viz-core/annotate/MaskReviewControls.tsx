@@ -9,7 +9,7 @@
 //
 // Framework-agnostic (viz-core): plain React + raw elements only, matching `LabelMaskView.tsx`.
 // ITEM-4 adds ICONS from the shared registry (the corrections were text-only, which read as a lesser
-// part of the app beside the two icon rails). Per DEC-6 the panel does NOT convert to `@ziee/kit` —
+// part of the app beside the two icon rails). Per DEC-6 the panel does NOT convert to `@txresbench/kit` —
 // importing an icon component is not an architectural change (lucide is already a viz dependency),
 // converting the panel's raw elements to kit would be.
 

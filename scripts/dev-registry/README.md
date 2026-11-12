@@ -65,17 +65,17 @@ environment in DEBUG builds only:
 
 ```sh
 CONFIG_FILE=config/dev.yaml \
-CYTO_TXR_METHOD_ENV_REGISTRY=127.0.0.1:5055 \
-CYTO_TXR_ENV_MANIFEST=/data/pbya/txresbench-app-work/qa-build-real/method-env-images.dev.json \
+TXR_METHOD_ENV_REGISTRY=127.0.0.1:5055 \
+TXR_ENV_MANIFEST=/data/pbya/txresbench-app-work/qa-build-real/method-env-images.dev.json \
 cargo run
 ```
 
-* `CYTO_TXR_METHOD_ENV_REGISTRY` — the HOST to fetch from instead of
+* `TXR_METHOD_ENV_REGISTRY` — the HOST to fetch from instead of
   `ghcr.io`; the compiled `tinnlab/txresbench-env` and
   `tinnlab/txr-method-env-layers` namespaces/repos stay, so the published
   refs are exactly the app's refs. Read only under `#[cfg(debug_assertions)]`
   — a release build always fetches from `ghcr.io`.
-* `CYTO_TXR_ENV_MANIFEST` — a schema-v1 environment manifest replacing the
+* `TXR_ENV_MANIFEST` — a schema-v1 environment manifest replacing the
   embedded `src-app/server/data/method-env-images.json` (the dev publisher's
   pins differ from the committed ghcr pins). The SAME validator runs,
   debug builds only.

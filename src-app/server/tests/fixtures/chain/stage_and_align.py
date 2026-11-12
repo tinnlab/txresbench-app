@@ -9,7 +9,7 @@ reference emitter's flags can express that: its `SOURCES` are fixed, so no sourc
 fixture it emits has the row count of any other fixture's output.
 
 So this script takes the datasets as DATA. What it does not do is construct an artifact — like
-the reference emitter, it stages real `cyto_columns` stores and runs
+the reference emitter, it stages real `txr_columns` stores and runs
 `compute/embedding_integrate.py` as a subprocess. The alignment in `<out-dir>/outputs` is
 whatever the producer actually writes today.
 
@@ -59,12 +59,12 @@ def stage(inputs_dir, datasets):
     """The reference emitter's `stage()`, over caller-supplied datasets.
 
     Deliberately the same shape: one artifact per column through
-    `cyto_columns.write_metadata_column` (the function INGEST uses), mount names derived from
+    `txr_columns.write_metadata_column` (the function INGEST uses), mount names derived from
     the SLOT and never equal to a dataset id, and the real `/inputs` wire
     (`{slot, kind, content_hash, sandbox_path}`) with no `dataset_id` field.
     """
     sys.path[:0] = [str(PACKAGES / "_lib"), str(PACKAGES / "_helpers")]
-    import cyto_columns
+    import txr_columns
     import pandas as pd
 
     index, used = {"inputs": []}, set()
@@ -81,7 +81,7 @@ def stage(inputs_dir, datasets):
                 n += 1
             mount = f"{stem}_{n}.zarr"
         used.add(mount)
-        cyto_columns.write_metadata_column(
+        txr_columns.write_metadata_column(
             inputs_dir, mount, name, pd.Series(series), axis=axis,
             holds_axis_keys=holds_axis_keys, aligned_to=aligned_to)
         index["inputs"].append({
@@ -98,7 +98,7 @@ def stage(inputs_dir, datasets):
     for position, spec in enumerate(datasets):
         dataset_id = spec["dataset_id"]
         dataset_ids.append(dataset_id)
-        entity_digest = cyto_columns.axis_key_digest(pd.Series(spec["codes"]))
+        entity_digest = txr_columns.axis_key_digest(pd.Series(spec["codes"]))
         bind(f"entity:{position}:code", "code", spec["codes"], axis="entities",
              holds_axis_keys=True, content_hash=f"sha256:{dataset_id}-code")
         bind(f"entity:{position}:alias", "alias", spec["alias"], axis="entities",
@@ -107,7 +107,7 @@ def stage(inputs_dir, datasets):
         bind("rows", "row_key", spec["rows"], axis="rows", holds_axis_keys=True,
              content_hash=rows_hash)
         hashes[dataset_id] = rows_hash
-        row_digest = cyto_columns.axis_key_digest(pd.Series(spec["rows"]))
+        row_digest = txr_columns.axis_key_digest(pd.Series(spec["rows"]))
         digests[dataset_id] = row_digest
         # ── THE VOCABULARY IS DECLARED, NEVER RE-DERIVED (measured, not reasoned) ──
         #
@@ -160,8 +160,8 @@ def main():
     (inputs / "params.json").write_text(json.dumps(params, indent=2))
 
     env = dict(os.environ)
-    env["CYTO_INPUTS_DIR"] = str(inputs)
-    env["CYTO_OUTPUTS_DIR"] = str(outputs)
+    env["TXR_INPUTS_DIR"] = str(inputs)
+    env["TXR_OUTPUTS_DIR"] = str(outputs)
     env["PYTHONPATH"] = os.pathsep.join([
         str(PACKAGES / "_helpers"), str(PACKAGES / "_lib"), env.get("PYTHONPATH", "")])
     # THE REAL PRODUCER, as a subprocess — not an import, and not a reconstruction.

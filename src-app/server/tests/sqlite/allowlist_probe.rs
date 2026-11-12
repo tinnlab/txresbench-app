@@ -31,7 +31,7 @@
 //!
 //! The SDK crates are scanned by nothing here: the fork stays dual-driver
 //! (DEC-1/DEC-14, PROV-sqlx-1 — the schema-bound SDK crates keep their
-//! postgres leg for ziee, app #1), and `sdk/crates/ziee-framework` itself
+//! postgres leg for txresbench, app #1), and `sdk/crates/txresbench-framework` itself
 //! contains `use postgresql_embedded` behind the `embedded-pg` cargo flag. The
 //! probe's "app source" = the repo's own shipped roots (the same roots the
 //! guard scans minus the SDK).
@@ -82,7 +82,7 @@ fn the_network_allowlist_guard_passes_on_the_branch() {
 fn the_app_lockfile_and_owned_source_carry_no_pg_downloader_reference() {
     // 1. The resolved app graph. The repo-root Cargo.lock is the app's
     //    workspace lock; the SDK's own `sdk/Cargo.lock` is out (dual-driver
-    //    substrate, ziee's leg keeps the downloader).
+    //    substrate, txresbench's leg keeps the downloader).
     let lock = repo_root().join("Cargo.lock");
     let lock_text = std::fs::read_to_string(&lock)
         .unwrap_or_else(|e| panic!("read {}: {e}", lock.display()));

@@ -15,7 +15,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
-const LOCK_DIR = process.env.ZIEE_E2E_LOCK_DIR || resolve(tmpdir(), 'ziee-test-locks')
+const LOCK_DIR = process.env.TXR_E2E_LOCK_DIR || resolve(tmpdir(), 'txresbench-test-locks')
 
 interface PgLock {
   pid: number

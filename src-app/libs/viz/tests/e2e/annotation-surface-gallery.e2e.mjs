@@ -7,7 +7,7 @@
 // Run `npx vite --port 1471 --strictPort` in the package first.
 import { chromium } from 'playwright'
 const BASE = process.argv[2] ?? 'http://localhost:1471'
-const SC = '/tmp/claude-1000/-data-pbya-ziee-ziee/b5b52393-63e9-49f1-8500-803873494642/scratchpad'
+const SC = '/tmp/claude-1000/-data-pbya-txresbench-txresbench/b5b52393-63e9-49f1-8500-803873494642/scratchpad'
 
 // story id → its root data-testid (the "rendered" signal).
 const STORIES = [

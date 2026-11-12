@@ -12,8 +12,8 @@ import { BACKEND, ownerApiToken } from '../_owner'
 //     first artifact's bytes are unchanged (INV-1).
 //
 // GATED on the single-cell rootfs (DEC-7): the freeze producer runs `python`+`numpy` in the
-// sandbox, so this spec needs `CYTO_ENV_ROOTFS_SQUASHFS` staged (the box's
-// `.cyto-cache/env-rootfs/single-cell-schema5-<arch>.squashfs`). Without a mounted rootfs the
+// sandbox, so this spec needs `TXR_ENV_ROOTFS_SQUASHFS` staged (the box's
+// `.txr-cache/env-rootfs/single-cell-schema5-<arch>.squashfs`). Without a mounted rootfs the
 // freeze job cannot complete; the poll below fails loudly rather than passing hollow.
 
 const KIND = 'geneset/collection'

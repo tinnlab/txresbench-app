@@ -151,7 +151,7 @@ def _reference_scores(tmp_path, dense, *, dbr, seed, params, tag):
     script.write_text(_REFERENCE_R)
     matrix_path = work / "counts.tsv"
     # THROUGH float32 FIRST. The entry reads its counts out of a CSC store whose `data`
-    # member is float32 (`cyto_csc.DATA_DTYPE`), so it sees float32-rounded values; a
+    # member is float32 (`txr_csc.DATA_DTYPE`), so it sees float32-rounded values; a
     # reference fed the full-precision array differs in the last bit and the comparison
     # fails at 4e-16 for a reason that has nothing to do with the prior. Both sides must see
     # the SAME numbers, so the bridge rounds the way the store does.

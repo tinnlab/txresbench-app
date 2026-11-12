@@ -4,7 +4,7 @@
    page, white cards, the navy brand, the olive success and red danger tones.
    The boards ship no dark palette (they are desktop-only, light-only), so the
    DARK values here are the app's own deliberate inversion, built to sit beside
-   the @ziee/kit token layer (kit `styles/tokens.css`): the dark surfaces match
+   the @txresbench/kit token layer (kit `styles/tokens.css`): the dark surfaces match
    the kit's dark card/secondary values and the brand blue is the kit's own
    dark primary (hsl 216 56% 64%), so kit inputs/buttons/selects and the app's
    panels read as ONE theme.

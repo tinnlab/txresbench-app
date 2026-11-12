@@ -10,7 +10,7 @@ _HERE = Path(__file__).resolve().parent
 _PKG = _HERE.parent
 _PROCESSORS = _PKG.parent
 # The compute dir (`_regime`/`_methods`/`_pseudobulk`) + `_lib` on the path, so a unit test can
-# `import _regime` and the compute's own `import cyto_columns` resolves — the same staging the
+# `import _regime` and the compute's own `import txr_columns` resolves — the same staging the
 # sandbox does into `/code`.
 for _p in (str(_HERE), str(_PKG / "compute"), str(_PROCESSORS / "_lib")):
     if _p not in sys.path:

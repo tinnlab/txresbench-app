@@ -1,5 +1,5 @@
 // raster.ts — PNG raster export from a canvas (DEC-31 "Raster" family). Framework-
-// agnostic (viz-core): plain DOM only, no @ziee/*. Produces a `data:` URL from a
+// agnostic (viz-core): plain DOM only, no @txresbench/*. Produces a `data:` URL from a
 // WebGL/2D canvas; a scale factor composites into an offscreen canvas for high-DPI /
 // print output; `transparentBackground` keeps alpha, otherwise the frame is flattened
 // onto white. Works headless: when there is no `document` to composite against (node

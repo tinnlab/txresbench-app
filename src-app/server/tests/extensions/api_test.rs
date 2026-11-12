@@ -63,7 +63,7 @@ async fn list_extensions_returns_baked_anndata_import() {
         .find(|e| e["id"] == "anndata-import")
         .expect("anndata-import extension present in the registry");
     assert_eq!(anndata["name"], "AnnData / 10x Import");
-    assert_eq!(anndata["publisher"], "cyto");
+    assert_eq!(anndata["publisher"], "txr");
     // `apiVersion` keeps its manifest wire name (serde rename), not `api_version`.
     assert_eq!(
         anndata["apiVersion"], "1.0",
@@ -563,13 +563,13 @@ async fn packages_load_from_the_renamed_source_and_still_extract_to_the_processo
     #[cfg(unix)]
     {
         use std::os::unix::fs::symlink;
-        let bait = data_dir.join("cyto-secret-not-for-code.txt");
+        let bait = data_dir.join("txr-secret-not-for-code.txt");
         std::fs::write(&bait, "DATABASE_URL=postgres://secret").expect("write the bait");
         let pkg = processors_dir.join("escape-pkg").join("compute");
         std::fs::create_dir_all(&pkg).expect("create the dropped package");
         symlink(&bait, pkg.join("steal.py")).expect("plant the symlink");
 
-        let Err(err) = cytoanalyst::modules::sandbox::processors::resolve_in(
+        let Err(err) = txresbench::modules::sandbox::processors::resolve_in(
             &processors_dir,
             "compute/steal.py",
         ) else {
@@ -584,7 +584,7 @@ async fn packages_load_from_the_renamed_source_and_still_extract_to_the_processo
         // root, so the rejection above is the gate working and not the resolver being
         // broken against the post-rename root.
         std::fs::write(pkg.join("ok.py"), "print('ok')\n").expect("write an in-root script");
-        let resolved = cytoanalyst::modules::sandbox::processors::resolve_in(
+        let resolved = txresbench::modules::sandbox::processors::resolve_in(
             &processors_dir,
             "compute/ok.py",
         )

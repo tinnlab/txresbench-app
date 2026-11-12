@@ -1,4 +1,4 @@
-//! One-time boot probes for the sandbox (ported from ziee
+//! One-time boot probes for the sandbox (ported from txresbench
 //! `code_sandbox/probes.rs`).
 //!
 //! Host-only probes (bwrap on PATH, delegated cgroup, seccomp compile) run at
@@ -13,7 +13,7 @@ use super::types::{CgroupMode, HardeningCapabilities, HostCapabilities, PidNsMod
 /// Host-only probe. `None` when bwrap is missing (sandbox self-disables).
 pub fn probe_host_only() -> Option<HostCapabilities> {
     let bwrap_path = which_bwrap()?;
-    let cgroup = probe_cgroup(&std::env::var("CYTO_SANDBOX_CGROUP_PARENT").unwrap_or_default());
+    let cgroup = probe_cgroup(&std::env::var("TXR_SANDBOX_CGROUP_PARENT").unwrap_or_default());
     let seccomp = compile_seccomp_filter();
     Some(HostCapabilities { bwrap_path, cgroup, seccomp })
 }

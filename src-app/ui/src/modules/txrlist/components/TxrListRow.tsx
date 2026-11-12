@@ -30,7 +30,7 @@
  * instead of growing it beyond the board's two-line height.
  */
 import type { CSSProperties } from 'react'
-import { Button, Checkbox } from '@ziee/kit'
+import { Button, Checkbox } from '@txresbench/kit'
 import type { TxrListChipTone, TxrListRow, TxrRunStatus } from '../types'
 
 /** The three status colours, verbatim from the boards (DEC-8). */

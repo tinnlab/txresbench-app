@@ -12,7 +12,7 @@
  *   modules/llm-provider/components/LlmProviderSettings
  *   components/ui/kit/button
  *
- * Config-driven (`@ziee/gallery`): the src root (`srcDir`), the walked roots
+ * Config-driven (`@txresbench/gallery`): the src root (`srcDir`), the walked roots
  * (`surfaceRoots`), and the gallery output dir (`galleryDir`) come from the app's
  * `gallery.config.json`, resolved against the invoking cwd.
  *

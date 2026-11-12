@@ -230,8 +230,8 @@ export interface ZarrArrayMetadata {
 }
 
 /**
- * The producer's declaration about what an array MEANS, namespaced under `cyto` in
- * `zarr.json` `attributes` (§2.5b: `meta.attributes.cyto.levels`).
+ * The producer's declaration about what an array MEANS, namespaced under `txr` in
+ * `zarr.json` `attributes` (§2.5b: `meta.attributes.txr.levels`).
  *
  * The reader never infers any of this from the bytes — a `uint16` array is not a
  * categorical because its values happen to be small (INV-2). `kind` says what it is;
@@ -253,7 +253,7 @@ export interface CytoArrayAttributes {
    * categorical: WHICH entry of {@link levels} was INVENTED to stand for "not in this
    * vocabulary" — present only when something was actually dropped.
    *
-   * Declared rather than derivable, and that is the whole point. `cyto_columns` gives a
+   * Declared rather than derivable, and that is the whole point. `txr_columns` gives a
    * pandas `-1` a real declared level rather than an out-of-range code, and a fused
    * (gathered) column does the same for a level an `authority` alignment dropped: the entry
    * is APPENDED to the vocabulary and the absent rows index it, so every code stays in
@@ -375,7 +375,7 @@ function chunkKey(meta: ZarrArrayMetadata, rank: number, index: number): string 
  * open time, before a byte of data is fetched.
  *
  * Refusing rather than implementing is the deliberate choice (the same one DEC-4 made for
- * blosc): no producer in `src-app/packages/` emits one — `cyto_zarr._codec_chain` builds
+ * blosc): no producer in `src-app/packages/` emits one — `txr_zarr._codec_chain` builds
  * exactly `[bytes, (numcodecs.shuffle)?, gzip]` and `_array_meta` wraps it in a lone
  * `sharding_indexed` — so there is nothing to support and nothing to test an
  * implementation against. What there IS to fix is the failure mode: SKIPPING an
@@ -736,8 +736,8 @@ export class ZarrArray {
   readonly innerChunkElements: number
   /** true ⇒ `sharding_indexed`; false ⇒ one file per chunk. */
   readonly sharded: boolean
-  /** producer declaration under `attributes.cyto`, if any. */
-  readonly cyto: CytoArrayAttributes | undefined
+  /** producer declaration under `attributes.txr`, if any. */
+  readonly txr: CytoArrayAttributes | undefined
 
   readonly #store: ZarrStore
   readonly #path: string
@@ -774,7 +774,7 @@ export class ZarrArray {
     this.dtype = resolveDataType(meta.data_type)
     this.length = product(this.shape)
     this.rowElements = product(this.shape.slice(1))
-    this.cyto = (meta.attributes?.cyto ?? undefined) as CytoArrayAttributes | undefined
+    this.txr = (meta.attributes?.txr ?? undefined) as CytoArrayAttributes | undefined
     this.#fillPattern = parseFillPattern(meta.fill_value, this.dtype)
     this.#prefetch = Math.max(1, options.prefetch ?? DEFAULT_PREFETCH)
     this.#cache = new ChunkCache(options.chunkCacheBytes ?? DEFAULT_CHUNK_CACHE_BYTES)
@@ -1293,7 +1293,7 @@ export async function openZarrArray(
  * Read a group's `zarr.json` (`node_type: "group"`) for its `attributes`.
  *
  * THROWS on an absent, unreadable or malformed document — it never answers `undefined` for
- * a group it failed to read. `undefined` means "the group is there and declares no `cyto`
+ * a group it failed to read. `undefined` means "the group is there and declares no `txr`
  * attributes", and a caller that cannot tell that apart from "the read failed" degrades
  * into whatever its no-declaration fallback is (see `openSplitStringColumn`).
  */
@@ -1302,7 +1302,7 @@ export async function openZarrGroupAttributes(store: ZarrStore, path = ''): Prom
   const bytes = await store.get(key)
   if (!bytes) throw new WorkstoreHttpError(404, `zarr: no ${key}`)
   const meta = parseZarrJson<{ attributes?: Record<string, unknown> }>(bytes, path)
-  return (meta.attributes?.cyto ?? undefined) as CytoArrayAttributes | undefined
+  return (meta.attributes?.txr ?? undefined) as CytoArrayAttributes | undefined
 }
 
 // ── logical decoders ────────────────────────────────────────────────────────────
@@ -1316,7 +1316,7 @@ export interface ZarrCategoricalColumn {
 
 /**
  * Read a categorical column: `uint8`/`uint16` codes plus the level set declared in
- * `zarr.json` `attributes.cyto.levels` (D10 — ONE artifact, not a codes artifact and a
+ * `zarr.json` `attributes.txr.levels` (D10 — ONE artifact, not a codes artifact and a
  * levels artifact).
  *
  * This is the shape `canvasBinding.ts::encodeCategorical` synthesizes today by fetching
@@ -1331,10 +1331,10 @@ export async function readCategorical(
   array: ZarrArray,
   options: { levels?: string[] } = {},
 ): Promise<ZarrCategoricalColumn> {
-  const levels = options.levels ?? array.cyto?.levels
+  const levels = options.levels ?? array.txr?.levels
   if (!levels) {
     throw new ZarrFormatError(
-      `${array.meta.data_type} array declares no attributes.cyto.levels — a categorical's level set is declared, never inferred from its codes`,
+      `${array.meta.data_type} array declares no attributes.txr.levels — a categorical's level set is declared, never inferred from its codes`,
     )
   }
   const codes = await array.readAll()
@@ -1426,12 +1426,12 @@ function requireWindowOffsets(got: number, start: number, end: number, what: str
 
 /**
  * Open a string column in the SPLIT layout — an `offsets` (`uint32`) member and a
- * `values` (`uint8`) member under one group. The form `cyto_zarr.Table.string` emits, and
+ * `values` (`uint8`) member under one group. The form `txr_zarr.Table.string` emits, and
  * the one §2.5b's "shuffled offsets + gzip" measurement is of (a shuffle over one mixed
  * buffer would transpose the UTF-8 too).
  *
  * `path` names the GROUP. The count comes from `options.count`, else the group's
- * `attributes.cyto.n`, else the DECLARED `offsets` shape (`n + 1`) — all three are
+ * `attributes.txr.n`, else the DECLARED `offsets` shape (`n + 1`) — all three are
  * declarations in `zarr.json`, none is derived from the data (INV-2). A declared `n` that
  * disagrees with the offsets shape is an error, not a precedence rule.
  *
@@ -1499,7 +1499,7 @@ export async function openSplitStringColumn(
 // The SINGLE-BUFFER arrow layout (`[u32 offsets × (n+1)][concatenated UTF-8]` in one
 // `uint8` array) had a windowed accessor + an eager wrapper here. Both are DELETED, and
 // the deletion is the finding: nothing could ever reach them. No producer emits the shape
-// — `cyto_zarr.Table.string` writes the SPLIT form and stamps `layout: "split"` on every
+// — `txr_zarr.Table.string` writes the SPLIT form and stamps `layout: "split"` on every
 // string member — and `conformance.py::_conform_string_member` reads `<path>/offsets` and
 // `<path>/values` unconditionally, so a single-buffer member fails the framework gate
 // before any reader sees it. `openStringColumn`'s `layout !== 'split'` arm was the only

@@ -12,7 +12,7 @@ life, and the converter's streaming transpose knew only the newest one:
                                      h5sparse_shape  = [rows, cols]
     hand-written              neither; only data / indices / indptr
 
-`cyto_csc.source_for_h5` once resolved a node by the modern spelling alone (even its
+`txr_csc.source_for_h5` once resolved a node by the modern spelling alone (even its
 no-`encoding-type` fallback read `attrs["shape"]` unguarded), so an h5sparse-era `/X`
 died with a bare `KeyError: 'shape'` in the middle of the convert step. That is not an
 exotic corner: `pbmc3k_raw.h5ad` — the canonical scanpy tutorial input, and the app
@@ -79,7 +79,7 @@ for _p in (str(_COMPUTE), str(_LIB_DIR), str(_HELPERS_DIR)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-import cyto_csc  # noqa: E402  — the `_lib` transpose engine + CSC reader
+import txr_csc  # noqa: E402  — the `_lib` transpose engine + CSC reader
 import h5ad_import as imp  # noqa: E402  — the converter, imported for its resolvers
 
 
@@ -206,7 +206,7 @@ def _write_h5ad(path, matrix, *, spelling, orientation="csr", cells=None, genes=
 
 
 def _read_back_source(source):
-    """A `cyto_csc` source, materialized into a `scipy` CSC via the source protocol
+    """A `txr_csc` source, materialized into a `scipy` CSC via the source protocol
     the transpose itself consumes (`shape` + `iter_entries`) — so what is asserted is
     what the transpose would read, not a second decode of the same file."""
     rows, cols, vals = [], [], []
@@ -492,7 +492,7 @@ def test_a_declared_format_with_no_shape_fails_loud(tmp_path):
 
 def test_a_group_declaring_no_geometry_at_all_fails_loud(tmp_path):
     """Neither orientation nor shape: unreadable, and it must say so in the same
-    terms. This is the case that used to reach `cyto_csc`'s unguarded `attrs["shape"]`
+    terms. This is the case that used to reach `txr_csc`'s unguarded `attrs["shape"]`
     and come back as a bare `KeyError: 'shape'` — the very defect under repair. It is
     asserted here, on the engine's own resolution, precisely so that the guard cannot
     regress now that nothing intercepts the group first."""
@@ -555,16 +555,16 @@ def test_an_undeclared_orientation_matching_neither_axis_fails_loud(tmp_path):
 
 def _invoke_converter(inputs_dir: Path, outputs_dir: Path):
     """Drive the real entry script off-sandbox over a populated inputs dir (the
-    `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR` seam), asserting a clean exit. Mirrors
+    `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR` seam), asserting a clean exit. Mirrors
     `test_convert._invoke_converter`; kept local because each suite in this package
     owns its own harness."""
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(
         [str(_HELPERS_DIR), str(_LIB_DIR), *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])]
     )
-    env["CYTO_INPUTS_DIR"] = str(inputs_dir)
-    env["CYTO_OUTPUTS_DIR"] = str(outputs_dir)
-    env.pop("CYTO_PROGRESS_FIFO", None)
+    env["TXR_INPUTS_DIR"] = str(inputs_dir)
+    env["TXR_OUTPUTS_DIR"] = str(outputs_dir)
+    env.pop("TXR_PROGRESS_FIFO", None)
     proc = subprocess.run(
         [sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True
     )
@@ -584,9 +584,9 @@ def _invoke_converter_failing(inputs_dir: Path, outputs_dir: Path):
     env["PYTHONPATH"] = os.pathsep.join(
         [str(_HELPERS_DIR), str(_LIB_DIR), *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])]
     )
-    env["CYTO_INPUTS_DIR"] = str(inputs_dir)
-    env["CYTO_OUTPUTS_DIR"] = str(outputs_dir)
-    env.pop("CYTO_PROGRESS_FIFO", None)
+    env["TXR_INPUTS_DIR"] = str(inputs_dir)
+    env["TXR_OUTPUTS_DIR"] = str(outputs_dir)
+    env.pop("TXR_PROGRESS_FIFO", None)
     proc = subprocess.run(
         [sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True
     )
@@ -625,7 +625,7 @@ def _run_square(tmp_path, name, spelling, orientation):
 
 
 def _read_expression(outputs_dir: Path, n_rows: int):
-    indptr, indices, data = cyto_csc.read_csc(outputs_dir / "expression")
+    indptr, indices, data = txr_csc.read_csc(outputs_dir / "expression")
     return sp.csc_matrix(
         (data, indices.astype(np.int64), indptr), shape=(n_rows, len(indptr) - 1)
     )

@@ -121,11 +121,11 @@ try {
 }
 
 // ---------------------------------------------------------------------------
-// app.config (the de-ziee-ify seam) — a plain KEY=value data file at
+// app.config (the de-txresbench-ify seam) — a plain KEY=value data file at
 // <repo>/.claude/app.config. The app-specific gates (C1 clean-build, C2
-// migration-collision, C3 regen-parity) read their ziee-vs-other paths from it
+// migration-collision, C3 regen-parity) read their txresbench-vs-other paths from it
 // and SKIP when their key is unset, so this same gate runs unchanged across
-// ziee and any future app. The app-agnostic gates (C4 stale-branch,
+// txresbench and any future app. The app-agnostic gates (C4 stale-branch,
 // staging-merge, P2 completeness, C5 lifecycle-strip) need no config.
 function loadAppConfig(root) {
   const cfg = {};
@@ -549,7 +549,7 @@ function mirrorDepDir(srcDir, dstDir) {
  * from where a link happens to point — because the source repo's `node_modules`
  * may itself be a symlink somewhere else entirely, in which case a workspace
  * link's realpath lands in a THIRD tree. Measured exactly that: a worktree whose
- * `node_modules` was symlinked from the main checkout resolved `@ziee/shell` to
+ * `node_modules` was symlinked from the main checkout resolved `@txresbench/shell` to
  * the MAIN CHECKOUT's sdk — pinned two bumps behind — so a gate running there
  * graded the merged app against the wrong SDK and failed on a hook that the
  * merged tree does have.
@@ -730,7 +730,7 @@ function gateMergeAndP2C5() {
 // merged tree, not over MERGE_GENERATED: a hand-maintained list of generated
 // paths has exactly the failure mode this gate exists to prevent — someone adds
 // a sixth output and nobody updates the list, so the guarantee silently lapses
-// for it (cytoanalyst shipped 5 openapi outputs against a 2-entry list). Scoping
+// for it (txresbench shipped 5 openapi outputs against a 2-entry list). Scoping
 // the diff to the list made an unlisted merged-outputs file PASS.
 //
 // MERGE_GENERATED is now only DOCUMENTATION of the expected set, and C6 below
@@ -846,7 +846,7 @@ function gateC3() {
 // C1 — clean build from the merged tree (the warm-build masking class).
 // A warm incremental build can compile against a STALE proc-macro expansion
 // (e.g. a codegen'd SSE variant); a genuinely clean build — what the merge/CI
-// does — fails. `cargo clean -p ziee && cargo check` from the merged staging
+// does — fails. `cargo clean -p txresbench && cargo check` from the merged staging
 // worktree is the authoritative catch. (Heavy. Skippable.)
 // ===========================================================================
 function touched(prefix) {
@@ -856,7 +856,7 @@ function touched(prefix) {
 function gateC1() {
   if (SKIP_HEAVY) { record('C1', 'clean-build', 'SKIP', '--skip-heavy'); return; }
   if (!CARGO_PACKAGE) { record('C1', 'clean-build', 'SKIP', 'MERGE_CARGO_PACKAGE unset (no cargo package configured)'); return; }
-  // cargo working dir: MERGE_CARGO_DIR if set, else the ziee-style src-app / src-app/server fallback.
+  // cargo working dir: MERGE_CARGO_DIR if set, else the txresbench-style src-app / src-app/server fallback.
   let cwd;
   if (APP.MERGE_CARGO_DIR) cwd = join(staging, APP.MERGE_CARGO_DIR);
   else cwd = existsSync(join(staging, 'src-app', 'Cargo.toml')) ? join(staging, 'src-app') : join(staging, 'src-app', 'server');

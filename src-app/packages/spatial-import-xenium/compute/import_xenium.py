@@ -9,7 +9,7 @@ abstraction generalises past one vendor, and to say plainly where it does not. I
 place it diverges is a decision with a reason, recorded below and in DECISIONS.md.
 
 Reads `/inputs/<slot>` (the auto-grouped `spatial/xenium-bundle` dataset), writes
-`/outputs/<file>` plus `/outputs/manifest.json`. `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR` are
+`/outputs/<file>` plus `/outputs/manifest.json`. `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR` are
 the ONLY seam that lets a test drive the REAL script off-sandbox, which is what
 `tests/test_producer_end_to_end.py` does.
 
@@ -105,9 +105,9 @@ for _v in (
 import numpy as np
 
 # `_lib` is staged into `/code` alongside every Python entry.
-import cyto_columns
-import cyto_csc
-import cyto_deps
+import txr_columns
+import txr_csc
+import txr_deps
 
 # The VENDORED write-time contract (#152) and its executable OME half (#155/#176), both
 # staged beside this entry by `run.helpers` and both byte-identical to
@@ -1051,8 +1051,8 @@ def _finite(value):
 
 
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -1096,7 +1096,7 @@ def progress(phase, pct=None, message=None):
             parts.append("")
         parts.append(str(message))
     line = "|".join(parts)
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if fifo:
         if _PROGRESS_FD[0] < 0:
             try:
@@ -1119,7 +1119,7 @@ def write_manifest(outputs_dir, entries):
     # #80 — append this run's ENVIRONMENT RECORD before the manifest is written, and
     # refuse the run if the environment does not satisfy `run.dependencies`. On the one
     # path every successful run takes, so recording is structural rather than remembered.
-    cyto_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
+    txr_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
     # Compact, not `indent=2`: only the server reads this, and pretty-printing doubles it
     # against `outputs.rs::MAX_MANIFEST_BYTES` (1 MiB, a hard failure past it).
     # `encoding="utf-8"` EXPLICITLY, not the LOCALE default. The measurement and the argument are
@@ -3061,7 +3061,7 @@ def emit_image(members, experiment, outputs_dir, *, space_id, coverage_bounds=No
     warnings.extend(pending_warnings)
     entries.append(output_entry(
         "spatial-image-morphology", DT_SPATIAL_IMAGE, rel, "artifact",
-        structure=cyto_columns.opaque(IMAGE_MEDIA_TYPE),
+        structure=txr_columns.opaque(IMAGE_MEDIA_TYPE),
         meta=meta,
         label="Morphology image (display)",
     ))
@@ -3670,7 +3670,7 @@ def run_import(bundle_root, outputs_dir):
         # ATTRIBUTE (the h5ad spelling) and 10x writes it as a dataset, so the generic
         # sniffer cannot read this file. Identical to the Visium path — this part of 10x's
         # format did not change between platforms.
-        source = cyto_csc.H5CsrSource(group, shape=(n_cells, n_features))
+        source = txr_csc.H5CsrSource(group, shape=(n_cells, n_features))
 
         # ── THE FEATURE CLASSES (DEC-11) ────────────────────────────────────────────
         # SPLIT, never drop. The house rule is `multimodal.split_by_feature_types`' — "EVERY
@@ -3735,10 +3735,10 @@ def run_import(bundle_root, outputs_dir):
                     feature_classes[ftype]["per_cell_column"] = column
 
         # ONE store, ONE feature class. `columns=` selects and re-indexes without a second
-        # read of the matrix (`cyto_csc.write_csc_zarr`'s own contract), so the controls cost
+        # read of the matrix (`txr_csc.write_csc_zarr`'s own contract), so the controls cost
         # nothing to skip.
         gene_columns = by_class[GENE_EXPRESSION]
-        counts_structure = cyto_csc.write_csc_zarr(
+        counts_structure = txr_csc.write_csc_zarr(
             source, outputs_dir / "expression.zarr", columns=gene_columns,
             axes=("cells", "genes"),
         )
@@ -3866,10 +3866,10 @@ def run_import(bundle_root, outputs_dir):
     )
 
     cells_keys = pd.Series([str(c) for c in cell_ids])
-    aligned_to = {"cells": cyto_columns.axis_key_digest(cells_keys)}
+    aligned_to = {"cells": txr_columns.axis_key_digest(cells_keys)}
     membership_of = {
         "cells": {"aligned_to": aligned_to["cells"],
-                  "derived_from": cyto_columns.axis_key_sequence(cells_keys),
+                  "derived_from": txr_columns.axis_key_sequence(cells_keys),
                   "members": None}
     }
 
@@ -3877,7 +3877,7 @@ def run_import(bundle_root, outputs_dir):
     # the emitted matrix's columns are a subset, so a digest over every feature would be
     # wrong for the one artifact that exists.
     gene_ids = pd.Series([str(feature_ids[i]) for i in gene_columns])
-    genes_aligned_to = cyto_columns.axis_key_digest(gene_ids)
+    genes_aligned_to = txr_columns.axis_key_digest(gene_ids)
     entries.append(output_entry(
         "expression", DT_COUNTS, "expression.zarr", "artifact",
         structure=counts_structure,
@@ -3904,11 +3904,11 @@ def run_import(bundle_root, outputs_dir):
     # nothing saying why.
     aligned_to["genes"] = genes_aligned_to
     membership_of["genes"] = {"aligned_to": genes_aligned_to,
-                              "derived_from": cyto_columns.axis_key_sequence(gene_ids),
+                              "derived_from": txr_columns.axis_key_sequence(gene_ids),
                               "members": None}
     for axis, name, keys in (("cells", "cell_id", cells_keys),
                              ("genes", "gene_id", gene_ids)):
-        structure, meta = cyto_columns.write_metadata_column(
+        structure, meta = txr_columns.write_metadata_column(
             outputs_dir, f"axis/{name}.zarr", name, keys, axis=axis,
             holds_axis_keys=True,
         )
@@ -3935,7 +3935,7 @@ def run_import(bundle_root, outputs_dir):
         ("gene_symbol", [str(feature_names[i]) for i in gene_columns]),
         ("feature_type", [str(feature_types[i]) for i in gene_columns]),
     ):
-        structure, meta = cyto_columns.write_metadata_column(
+        structure, meta = txr_columns.write_metadata_column(
             outputs_dir, f"axis/{name}.zarr", name, pd.Series(values), axis="genes",
             aligned_to=genes_aligned_to, membership=membership_of["genes"],
         )
@@ -4062,7 +4062,7 @@ def run_import(bundle_root, outputs_dir):
     ])
     for name, values in per_cell:
         rel = f"metadata/{name}.zarr"
-        structure, meta = cyto_columns.write_metadata_column(
+        structure, meta = txr_columns.write_metadata_column(
             outputs_dir, rel, name, values, axis="cells",
             aligned_to=aligned_to["cells"], membership=membership_of["cells"],
         )
@@ -4190,7 +4190,7 @@ def run_import(bundle_root, outputs_dir):
             for name, values in ((BD.START_COLUMN, encoded["start"]),
                                  (BD.COUNT_COLUMN, encoded["count"])):
                 rel = f"metadata/{name}.zarr"
-                structure, meta = cyto_columns.write_metadata_column(
+                structure, meta = txr_columns.write_metadata_column(
                     outputs_dir, rel, name, pd.Series(np.asarray(values, dtype=np.int64)),
                     axis="cells", aligned_to=aligned_to["cells"],
                     membership=membership_of["cells"],
@@ -4326,7 +4326,7 @@ def run_import(bundle_root, outputs_dir):
             (outputs_dir / overlay_rel).write_bytes(png)
             overlay_entries.append(output_entry(
                 f"{image_id}-registration-overlay", DT_REPORT_QC, overlay_rel, "artifact",
-                structure=cyto_columns.opaque("image/png"),
+                structure=txr_columns.opaque("image/png"),
                 label="Registration QC overlay",
                 meta={"kind": "xenium-registration-overlay",
                       "image_id": image_id,
@@ -4500,7 +4500,7 @@ def run_import(bundle_root, outputs_dir):
                                "consumer still sees a placement with no record that its "
                                "scale was contested or checked (#279)"),
         },
-        "library_versions": cyto_deps.resolve_and_check()["libraries"],
+        "library_versions": txr_deps.resolve_and_check()["libraries"],
     }
     reported_pixel_size = _finite(experiment.get("pixel_size"))
     if reported_pixel_size is not None:
@@ -4511,7 +4511,7 @@ def run_import(bundle_root, outputs_dir):
     )
     entries.append(output_entry(
         "xenium-import-report", DT_REPORT_QC, "xenium-import-report.json", "artifact",
-        structure=cyto_columns.opaque("application/json"),
+        structure=txr_columns.opaque("application/json"),
         meta={"kind": "xenium-import-report", "n_cells": n_cells,
               "coordinate_space": space_id,
               # #301's verdict, in the ONE channel this app shows a human — see
@@ -4526,7 +4526,7 @@ def run_import(bundle_root, outputs_dir):
     entries.append(output_entry(
         "xenium-import-summary", DT_REPORT_HTML, "xenium-import-summary.html",
         "intermediate",
-        structure=cyto_columns.opaque("text/html"),
+        structure=txr_columns.opaque("text/html"),
         meta=dict(
             {"kind": "xenium-import-summary",
              "registration_qc_verdict": registration.get("verdict"),

@@ -1,6 +1,6 @@
 ## regime_test.R — TEST-5 and TEST-6 for #192.
 ##
-## Run by `run-r-tests.sh`, which extracts the shipped `CYTO_REGIME_R` block out of the
+## Run by `run-r-tests.sh`, which extracts the shipped `TXR_REGIME_R` block out of the
 ## recipe's Dockerfile and hands it here as argv[1]. argv[2] is the SHIPPED pin file.
 ##
 ## Everything below RUNS the shipped functions. Nothing asserts about the text of the
@@ -63,13 +63,13 @@ expect_error <- function(label, expr, must_say) {
 ## `readLines(con = pin_file)` and with a one-line alias, and both mutants ran the whole
 ## suite green. A better predicate would have been the fifth predicate.
 ##
-## So the reader is now a FUNCTION in the shipped regime block — `cyto_read_pin_lines` —
+## So the reader is now a FUNCTION in the shipped regime block — `txr_read_pin_lines` —
 ## which the installer, the build-time smoke and this suite all call. There is nothing left
 ## to re-implement, which is a structural answer rather than a textual one. The source check
 ## below is correspondingly narrower and says only what it can prove.
-pin_lines <- cyto_read_pin_lines(pin_file)
+pin_lines <- txr_read_pin_lines(pin_file)
 ## …and the raw bytes, for the assertions that are ABOUT the bytes rather than the lines.
-## Read the same way `cyto_read_pin_lines` reads them, because they are the same read.
+## Read the same way `txr_read_pin_lines` reads them, because they are the same read.
 pin_text <- readChar(pin_file, file.info(pin_file)$size, useBytes = TRUE)
 Encoding(pin_text) <- "UTF-8"
 
@@ -79,9 +79,9 @@ cat("TEST-P16 (#214): this suite reads the pin file through the parser UNDER TES
 ## see a different set of lines from the program it is testing. The check is a
 ## DIFFERENTIAL one — a lone CR is the byte where `readLines` and the installer's reader
 ## disagree, so if this suite still had a `readLines` of its own, the two would differ.
-cr_text <- "# cyto:ecosystem=r\n# a comment\rb==1.0  # import=b\n"
+cr_text <- "# txr:ecosystem=r\n# a comment\rb==1.0  # import=b\n"
 ## The installer's reader REFUSES it outright…
-expect_error("the installer's reader refuses a lone CR", cyto_assert_canonical_bytes(cr_text),
+expect_error("the installer's reader refuses a lone CR", txr_assert_canonical_bytes(cr_text),
              "U+000D")
 ## …while `readLines` would silently hand back one MORE line than `strsplit(text, "\n")`.
 ## That difference is exactly the fourth line-ending opinion this suite used to carry.
@@ -121,8 +121,8 @@ expect_true("the self-parse produced this suite's code",
 expect_equal("this suite assigns `pin_lines` exactly ONCE", length(pin_assigns), 1L)
 expect_true("SECONDARY: it assigns `pin_lines` from the shipped reader BY NAME (the behavioural proof is in run-r-tests.sh)",
             length(pin_assigns) == 1L && is.call(pin_assigns[[1]][[3]]) &&
-              identical(as.character(pin_assigns[[1]][[3]][[1]]), "cyto_read_pin_lines"),
-            "pin_lines is no longer assigned from cyto_read_pin_lines(); this suite has grown a reader of its own")
+              identical(as.character(pin_assigns[[1]][[3]][[1]]), "txr_read_pin_lines"),
+            "pin_lines is no longer assigned from txr_read_pin_lines(); this suite has grown a reader of its own")
 ## ANTI-VACUITY: the parse must have produced this suite's code, or the walk above ranges
 ## over nothing and both assertions are about an empty list.
 expect_true("the self-parse produced this suite's code", length(as.list(parse(self_file))) > 40L,
@@ -138,14 +138,14 @@ reader_of <- function(e) {
 }
 decoy <- parse(text = "pin_lines <- readLines(con = pin_file, warn = FALSE)")[[1]]
 expect_true("the predicate REJECTS a private reader (so its acceptance above means something)",
-            !identical(reader_of(decoy), "cyto_read_pin_lines") &&
-              identical(reader_of(pin_assigns[[1]]), "cyto_read_pin_lines"),
+            !identical(reader_of(decoy), "txr_read_pin_lines") &&
+              identical(reader_of(pin_assigns[[1]]), "txr_read_pin_lines"),
             "the predicate cannot tell a private reader from the shipped one")
 
 ## ─────────────────────────── TEST-5 — the pins and the coordinates ─────────────────
 cat("TEST-5 (INV-1): exact pins, and the resolution coordinates, read off the SHIPPED file\n")
 
-pins <- cyto_parse_pins(pin_lines)
+pins <- txr_parse_pins(pin_lines)
 expect_true("the shipped pin file parses to a non-trivial pin set", length(pins) >= 18,
             sprintf("only %d pins parsed", length(pins)))
 names <- vapply(pins, function(p) p$name, "")
@@ -211,13 +211,13 @@ expect_true("at least one parsed version is still dash-shaped",
 ## was green for the wrong reason, which is what `expect_error`'s required substring is
 ## there to catch.)
 filler <- sprintf("pkg%02d==1.0  # import=pkg%02d", 1:10, 1:10)
-expect_error("a RANGE is refused", cyto_parse_pins(c(filler, "beta>=1.0  # import=beta")),
+expect_error("a RANGE is refused", txr_parse_pins(c(filler, "beta>=1.0  # import=beta")),
              "every line must be")
-expect_error("a BARE NAME is refused", cyto_parse_pins(c(filler, "beta  # import=beta")),
+expect_error("a BARE NAME is refused", txr_parse_pins(c(filler, "beta  # import=beta")),
              "every line must be")
-expect_error("a MISSING import token is refused", cyto_parse_pins(c(filler, "beta==1.0")),
+expect_error("a MISSING import token is refused", txr_parse_pins(c(filler, "beta==1.0")),
              "every line must be")
-expect_error("a DUPLICATE is refused", cyto_parse_pins(c(filler, "pkg01==2.0  # import=pkg01")),
+expect_error("a DUPLICATE is refused", txr_parse_pins(c(filler, "pkg01==2.0  # import=pkg01")),
              "is pinned twice")
 ## AT THE BOUNDARY, not at one pin. The fixture used to hold ONE pin, which is below any
 ## floor >= 2, so the constant was unconstrained downward: an audit lowered it to 2 — half
@@ -225,19 +225,19 @@ expect_error("a DUPLICATE is refused", cyto_parse_pins(c(filler, "pkg01==2.0  # 
 ## the required substring is a literal in the message rather than the compared number.
 ## Nine pins pins the number itself.
 expect_error("a file of NINE pins is refused — the floor is 10, and this pins the number not the message",
-             cyto_parse_pins(sprintf("p%02d==1.0  # import=p%02d", 1:9, 1:9)),
+             txr_parse_pins(sprintf("p%02d==1.0  # import=p%02d", 1:9, 1:9)),
              "fewer than 10 pins")
 expect_true("...and TEN is accepted, so the boundary is the boundary",
-            length(cyto_parse_pins(sprintf("p%02d==1.0  # import=p%02d", 1:10, 1:10))) == 10L)
+            length(txr_parse_pins(sprintf("p%02d==1.0  # import=p%02d", 1:10, 1:10))) == 10L)
 
-srcs <- cyto_parse_sources(pin_lines)
+srcs <- txr_parse_sources(pin_lines)
 expect_equal("the shipped file declares two coordinates", length(srcs), 2L)
 expect_true("one is a dated snapshot",
             "dated-snapshot" %in% vapply(srcs, function(s) s$class, ""))
 expect_true("one is a release channel",
             "release-channel" %in% vapply(srcs, function(s) s$class, ""))
-cran <- cyto_source_coordinate(srcs, "dated-snapshot")
-bioc <- cyto_bioc_release(cyto_source_coordinate(srcs, "release-channel"))
+cran <- txr_source_coordinate(srcs, "dated-snapshot")
+bioc <- txr_bioc_release(txr_source_coordinate(srcs, "release-channel"))
 expect_true("the CRAN coordinate is a URL", grepl("^https://", cran), cran)
 expect_true("the Bioconductor coordinate is a release", grepl("^[0-9]+\\.[0-9]+$", bioc), bioc)
 cat(sprintf("  ->   CRAN snapshot %s / Bioconductor %s\n", cran, bioc))
@@ -245,13 +245,13 @@ cat(sprintf("  ->   CRAN snapshot %s / Bioconductor %s\n", cran, bioc))
 ## The comment-body normalisation must MIRROR the Rust gate's `directive_body`. If these
 ## two readers disagreed about which lines are directives, the file the recipe installs
 ## from and the file the build gate checks would be different files with the same name.
-for (spelling in c("#cyto:pin-source=dated-snapshot:X",
-                   "#  cyto:pin-source=dated-snapshot:X",
-                   "## cyto:pin-source=dated-snapshot:X",
-                   "# cyto:pin-source = dated-snapshot:X",
-                   "\t# cyto:pin-source=dated-snapshot:X",
-                   "   # cyto:pin-source=dated-snapshot:X")) {
-  got <- tryCatch(cyto_parse_sources(spelling)[[1]]$coordinate, error = function(e) paste("ERR:", conditionMessage(e)))
+for (spelling in c("#txr:pin-source=dated-snapshot:X",
+                   "#  txr:pin-source=dated-snapshot:X",
+                   "## txr:pin-source=dated-snapshot:X",
+                   "# txr:pin-source = dated-snapshot:X",
+                   "\t# txr:pin-source=dated-snapshot:X",
+                   "   # txr:pin-source=dated-snapshot:X")) {
+  got <- tryCatch(txr_parse_sources(spelling)[[1]]$coordinate, error = function(e) paste("ERR:", conditionMessage(e)))
   expect_equal(sprintf("spelling %s is understood", sQuote(trimws(spelling))), got, "X")
 }
 
@@ -260,7 +260,7 @@ for (spelling in c("#cyto:pin-source=dated-snapshot:X",
 ## byte-identical expression, differing only in which substring of the same message it
 ## required — two `ok` lines for one behaviour, which is coverage inflation.
 local({
-  e <- tryCatch({ cyto_parse_sources("# cyto:pin-source=vcs-head:https://github.com/x/y"); NULL },
+  e <- tryCatch({ txr_parse_sources("# txr:pin-source=vcs-head:https://github.com/x/y"); NULL },
                 error = function(e) conditionMessage(e))
   expect_true("a `vcs-head` source is REFUSED, naming #209 AND why the identity fails",
               !is.null(e) && grepl("#209", e, fixed = TRUE) &&
@@ -268,37 +268,37 @@ local({
               if (is.null(e)) "no error raised" else e)
 })
 expect_error("an unknown class is refused rather than defaulted",
-             cyto_parse_sources("# cyto:pin-source=whatever:X"),
+             txr_parse_sources("# txr:pin-source=whatever:X"),
              "names no known pin-source class")
 expect_error("a class with no coordinate is refused",
-             cyto_parse_sources("# cyto:pin-source=dated-snapshot:"),
+             txr_parse_sources("# txr:pin-source=dated-snapshot:"),
              "is not `<class>:<coordinate>`")
 
 ## ─── The two readers must AGREE about which lines are directives (audit R1-4) ──────
 ## A line that NAMES the directive without an `=` used to be SILENTLY SKIPPED here while
-## the Rust gate hard-errored on it — so `# cyto:pin-source vcs-head:x` walked straight
+## the Rust gate hard-errored on it — so `# txr:pin-source vcs-head:x` walked straight
 ## past the #209 refusal on the one entry point that exists for an operator bypassing
 ## `cargo check`. A gate with a spelling that bypasses it is not a gate.
-expect_error("a `cyto:pin-source` line with no `=` is REFUSED, not skipped",
-             cyto_parse_sources(c("# cyto:pin-source vcs-head:https://github.com/x/y",
-                                  "# cyto:pin-source=dated-snapshot:ok")),
-             "names `cyto:pin-source` but is not")
+expect_error("a `txr:pin-source` line with no `=` is REFUSED, not skipped",
+             txr_parse_sources(c("# txr:pin-source vcs-head:https://github.com/x/y",
+                                  "# txr:pin-source=dated-snapshot:ok")),
+             "names `txr:pin-source` but is not")
 expect_error("the same (class, coordinate) twice is refused, as it is in the Rust gate",
-             cyto_parse_sources(c("# cyto:pin-source=dated-snapshot:a",
-                                  "# cyto:pin-source=dated-snapshot:a")),
+             txr_parse_sources(c("# txr:pin-source=dated-snapshot:a",
+                                  "# txr:pin-source=dated-snapshot:a")),
              "is declared twice")
 ## A `#` inside a coordinate is NOT a comment. Truncating it would make the regime the
 ## file declares differ from the regime the build resolves, with no error anywhere.
 expect_equal("a `#` inside a coordinate does not truncate it",
-             cyto_parse_sources("# cyto:pin-source=dated-snapshot:https://x/y#frag")[[1]]$coordinate,
+             txr_parse_sources("# txr:pin-source=dated-snapshot:https://x/y#frag")[[1]]$coordinate,
              "https://x/y#frag")
 expect_equal("a whitespace-separated trailing comment IS stripped",
-             cyto_parse_sources("# cyto:pin-source=dated-snapshot:https://x/y   # why")[[1]]$coordinate,
+             txr_parse_sources("# txr:pin-source=dated-snapshot:https://x/y   # why")[[1]]$coordinate,
              "https://x/y")
 ## A class that names a channel and no release is not a coordinate — one level down from
 ## the doc comment's own argument for requiring the prefix.
 expect_error("`bioconductor-` with no release is refused",
-             cyto_bioc_release("bioconductor-"),
+             txr_bioc_release("bioconductor-"),
              "does not name a channel AND a release")
 
 ## ─── The invisible-character class, refused BY DEFAULT (rounds 2-4, inverted by #214) ───
@@ -310,12 +310,12 @@ expect_error("`bioconductor-` with no release is refused",
 ## then found the whole `Cf` FORMAT class outside `is_control()`.
 ##
 ## Four widenings of a FORBIDDEN set, each correct, each insufficient. The rule is now an
-## ALLOWLIST — printable ASCII, SPACE, TAB, LF, and `cyto_allowed_non_ascii` — so the
+## ALLOWLIST — printable ASCII, SPACE, TAB, LF, and `txr_allowed_non_ascii` — so the
 ## property to assert is no longer "these N characters are refused" but "everything outside
 ## the allowlist is refused, INCLUDING characters nobody has enumerated anywhere".
 expect_true("the recipe allows only a small, named set of non-ASCII characters",
-            length(cyto_allowed_non_ascii) > 0L && length(cyto_allowed_non_ascii) <= 8L,
-            paste("allowlist size:", length(cyto_allowed_non_ascii)))
+            length(txr_allowed_non_ascii) > 0L && length(txr_allowed_non_ascii) <= 8L,
+            paste("allowlist size:", length(txr_allowed_non_ascii)))
 ## U+0000 IS SKIPPED HERE, AND THAT IS ITSELF THE FINDING. An R character vector cannot
 ## contain a NUL — `intToUtf8(0)` yields "" — so this reader is constitutionally unable to
 ## see one, and `readChar` TRUNCATES the file at the first one. The Rust gate reads the
@@ -333,8 +333,8 @@ probe <- c(0x01, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x1f, 0x7f,
 ws_bad <- 0L
 for (cp in probe) {
   ch <- intToUtf8(cp)
-  txt <- paste0("#", ch, "cyto:pin-source=dated-snapshot:https://evil/x\n")
-  e <- tryCatch({ cyto_assert_canonical_bytes(txt); NULL }, error = function(e) conditionMessage(e))
+  txt <- paste0("#", ch, "txr:pin-source=dated-snapshot:https://evil/x\n")
+  e <- tryCatch({ txr_assert_canonical_bytes(txt); NULL }, error = function(e) conditionMessage(e))
   ## `fixed = TRUE`: `+` is a regex metacharacter, so `grepl("U+000B", e)` searches for
   ## one-or-more `U` followed by `000B` and never matches the message it is checking. The
   ## first cut had it unfixed and reported all 22 characters as failing while every one of
@@ -351,7 +351,7 @@ expect_equal("every probed invisible character is refused, naming itself", ws_ba
 ## `strsplit` yields NA_character_ and `paste` turns that into the literal string "NA").
 bad_utf8 <- rawToChar(as.raw(c(0x61, 0x6c, 0x70, 0x68, 0x61, 0x80, 0x0a)))
 expect_error("invalid UTF-8 is REFUSED, not silently skipped",
-             cyto_assert_canonical_bytes(bad_utf8), "not valid UTF-8")
+             txr_assert_canonical_bytes(bad_utf8), "not valid UTF-8")
 ## …and the refusal is reached BEFORE the split, which is where the first attempt failed.
 ##
 ## Asserted via the MESSAGE, not via `strsplit`'s behaviour. The first cut checked
@@ -363,7 +363,7 @@ expect_error("invalid UTF-8 is REFUSED, not silently skipped",
 expect_true("the fixture really is invalid UTF-8", !validUTF8(bad_utf8))
 expect_true("the refusal is the UTF-8 one, i.e. reached BEFORE the character scan",
             grepl("not valid UTF-8",
-                  tryCatch({ cyto_assert_canonical_bytes(bad_utf8); "" },
+                  tryCatch({ txr_assert_canonical_bytes(bad_utf8); "" },
                            error = function(e) conditionMessage(e)), fixed = TRUE),
             "the file was refused for some other reason, so the placement of the check is unproven")
 ## A NUL is the one byte this reader is CONSTITUTIONALLY unable to see: an R character
@@ -377,22 +377,22 @@ expect_true("LEMMA: a NUL cannot even enter an R string — this is why the gate
             "R now accepts an embedded NUL in a string, so this asymmetry may be closeable here too")
 
 ## THE POINT OF AN ALLOWLIST, stated as a test: a character in NO enumeration anywhere — not
-## in the probe above, not in `cyto_allowed_non_ascii`, not in any round's finding — is
+## in the probe above, not in `txr_allowed_non_ascii`, not in any round's finding — is
 ## refused because it was never permitted. A forbidden set could not express this.
 expect_error("a character nobody enumerated anywhere is refused by default",
-             cyto_assert_canonical_bytes("# a \u2603 snowman\n"), "U+2603")
+             txr_assert_canonical_bytes("# a \u2603 snowman\n"), "U+2603")
 expect_true("SPACE, TAB and LF are still permitted",
-            is.null(tryCatch({ cyto_assert_canonical_bytes("# a\tb c\n"); NULL },
+            is.null(tryCatch({ txr_assert_canonical_bytes("# a\tb c\n"); NULL },
                              error = function(e) conditionMessage(e))))
 ## A LONE CR is the byte a line-splitting reader cannot see by construction: `readLines`
 ## would already have split on it. This is why the check reads the file as one string.
-expect_error("a lone CR is refused", cyto_assert_canonical_bytes("# see the runbook\r# cyto:pin-source=x:y\n"),
+expect_error("a lone CR is refused", txr_assert_canonical_bytes("# see the runbook\r# txr:pin-source=x:y\n"),
              "U+000D")
 ## The SHIPPED file passes, so the precondition cannot be arbitrarily strict unnoticed.
 ##
 ## ── THIS ASSERTION WAS VACUOUS, AND #192's ROUND 4 REPORTED IT FIXED WHEN IT WAS NOT ──
 ##
-## It read `cyto_assert_canonical_bytes(paste(pin_lines, collapse = "\n"))` — a
+## It read `txr_assert_canonical_bytes(paste(pin_lines, collapse = "\n"))` — a
 ## `readLines` + `paste` RECONSTRUCTION of the file, not the file. That round-trip launders
 ## every CR into an LF before the check ever sees it, so the one claim in this suite that
 ## the shipped bytes are canonical was blind to exactly the byte class the precondition was
@@ -403,7 +403,7 @@ expect_error("a lone CR is refused", cyto_assert_canonical_bytes("# see the runb
 ##
 ## It now checks `pin_text` — the file's actual bytes, as read above.
 expect_true("the shipped pin file satisfies the precondition",
-            is.null(tryCatch({ cyto_assert_canonical_bytes(pin_text); NULL },
+            is.null(tryCatch({ txr_assert_canonical_bytes(pin_text); NULL },
                              error = function(e) conditionMessage(e))))
 
 ## ─── The admissibility GATE, not just the `known` vector (audit round 3) ──────────
@@ -414,20 +414,20 @@ expect_true("the shipped pin file satisfies the precondition",
 ## not in `known` must be REFUSED.
 for (bogus in c("vendored-tarball", "mirror-pin", "git-tag", "local-path")) {
   expect_error(sprintf("class %s is refused (the GATE, not the vector)", sQuote(bogus)),
-               cyto_parse_sources(sprintf("# cyto:pin-source=%s:x", bogus)),
+               txr_parse_sources(sprintf("# txr:pin-source=%s:x", bogus)),
                "names no known pin-source class")
 }
 
 ## ─── TWO DIFFERENT coordinates of ONE class (audit round 3) ──────────────────────
 ## The Rust gate refuses this at parse time and its comment justifies that by asserting
 ## "the recipe's own installer refuses the same state". The installer's refusal lives in
-## `cyto_source_coordinate`'s `length(hit) != 1L`, and nothing exercised it: an audit
+## `txr_source_coordinate`'s `length(hit) != 1L`, and nothing exercised it: an audit
 ## changed it to `< 1L` — silently taking the FIRST of two — and all four suites stayed
 ## green. That is the exact half that turns a hidden line into an origin swap.
 expect_error("two DIFFERENT coordinates of one class are refused by the installer too",
-             cyto_source_coordinate(
-               cyto_parse_sources(c("# cyto:pin-source=dated-snapshot:https://good/x",
-                                    "# cyto:pin-source=dated-snapshot:https://evil/x")),
+             txr_source_coordinate(
+               txr_parse_sources(c("# txr:pin-source=dated-snapshot:https://good/x",
+                                    "# txr:pin-source=dated-snapshot:https://evil/x")),
                "dated-snapshot"),
              "must declare exactly one")
 
@@ -436,13 +436,13 @@ expect_error("two DIFFERENT coordinates of one class are refused by the installe
 ## `derived-guards.md` §4: a derivation reading the same source the subject is built from
 ## moves with it, so it is blind in the direction of a removal. These two mutations are
 ## that direction.
-deleted_sources <- grep("cyto:pin-source", pin_lines, value = TRUE, invert = TRUE)
+deleted_sources <- grep("txr:pin-source", pin_lines, value = TRUE, invert = TRUE)
 expect_error("DELETING every pin-source line goes RED (not a silent default)",
-             cyto_parse_sources(deleted_sources),
-             "declares no `cyto:pin-source=")
+             txr_parse_sources(deleted_sources),
+             "declares no `txr:pin-source=")
 expect_error("DELETING only the release-channel line goes RED for the coordinate that needs it",
-             cyto_bioc_release(cyto_source_coordinate(
-               cyto_parse_sources(grep("release-channel", pin_lines, value = TRUE, invert = TRUE)),
+             txr_bioc_release(txr_source_coordinate(
+               txr_parse_sources(grep("release-channel", pin_lines, value = TRUE, invert = TRUE)),
                "release-channel")),
              "must declare exactly one")
 
@@ -488,7 +488,7 @@ loaded_row <- function(nm) {
   rows[order(match(rows$LibPath, libs)), , drop = FALSE][1, , drop = FALSE]
 }
 
-counts <- cyto_write_env_lock(tmp, fixture_pins,
+counts <- txr_write_env_lock(tmp, fixture_pins,
                               header = c("# R 4.6.1", "# bioconductor 3.23"),
                               ip = ip, resolve_version = resolve, repo_of = repo_of,
                               lib_paths = libs)
@@ -516,7 +516,7 @@ expect_true("a transitive package nobody pinned is recorded too",
 ## A package whose DESCRIPTION records no Repository (a base/recommended package R ships)
 ## is written `unrecorded`, never blank — a blank column reads as a bug.
 tmp2 <- tempfile(fileext = ".txt")
-invisible(cyto_write_env_lock(tmp2, list(list(name = "Matrix", version = "1.7-6")),
+invisible(txr_write_env_lock(tmp2, list(list(name = "Matrix", version = "1.7-6")),
                     header = "# h", ip = loaded_row("Matrix"),
                     resolve_version = resolve,
                     repo_of = function(nm) NA_character_, lib_paths = libs))
@@ -528,7 +528,7 @@ expect_true("a package with no recorded Repository and no base/recommended prior
 ## rule ever disagreed with R's own resolver the lock would be authoritative and wrong,
 ## which is the worst state for a provenance record to be in.
 expect_error("a lock that would DISAGREE with R's resolver is refused",
-             cyto_write_env_lock(tempfile(), fixture_pins, header = "# h", ip = ip,
+             txr_write_env_lock(tempfile(), fixture_pins, header = "# h", ip = ip,
                                  resolve_version = function(nm) "9.9.9",
                                  repo_of = repo_of, lib_paths = libs),
              "the lock must record what LOADS")
@@ -538,7 +538,7 @@ expect_error("a lock that would DISAGREE with R's resolver is refused",
 ## call site (the installer always passes a four-line header). The guard counts package
 ## ROWS now; this fixture passes the header the installer actually passes.
 expect_error("a ZERO-PACKAGE lock is refused even though the FILE is non-empty",
-             cyto_write_env_lock(tempfile(), list(),
+             txr_write_env_lock(tempfile(), list(),
                                  header = c("# R 4.6.1", "# bioconductor 3.23",
                                             "# cran-snapshot X", "# direct-pins 0"),
                                  ip = ip[0, , drop = FALSE],
@@ -551,14 +551,14 @@ expect_error("a ZERO-PACKAGE lock is refused even though the FILE is non-empty",
 ## cannot find, so `identical(NA, NA)` was TRUE and the one case where the lock records
 ## NOTHING for a direct pin was the case the check accepted.
 expect_error("a pin ABSENT from the installed set is refused, not silently agreed with",
-             cyto_write_env_lock(tempfile(),
+             txr_write_env_lock(tempfile(),
                                  list(list(name = "Ghost", version = "9.9")),
                                  header = "# h", ip = ip,
                                  resolve_version = function(nm) NA_character_,
                                  repo_of = repo_of, lib_paths = libs),
              "would record NOTHING for the pinned package Ghost")
 expect_error("a pin R cannot RESOLVE is refused",
-             cyto_write_env_lock(tempfile(),
+             txr_write_env_lock(tempfile(),
                                  list(list(name = "Matrix", version = "1.7-6")),
                                  header = "# h", ip = ip,
                                  resolve_version = function(nm) NA_character_,
@@ -569,7 +569,7 @@ expect_error("a pin R cannot RESOLVE is refused",
 ## itself ships this" and "this came from somewhere nothing here can name" are opposite
 ## answers to the question the column exists to answer.
 tmp3 <- tempfile(fileext = ".txt")
-invisible(cyto_write_env_lock(tmp3, list(list(name = "Matrix", version = "1.7-6")),
+invisible(txr_write_env_lock(tmp3, list(list(name = "Matrix", version = "1.7-6")),
                               header = "# h", ip = rbind(loaded_row("Matrix"), loaded_row("digest")),
                               resolve_version = resolve,
                               repo_of = function(nm) if (identical(nm, "Matrix")) "CRAN" else NA_character_,
@@ -580,7 +580,7 @@ expect_true("a package R SHIPS is recorded as such, not as `unrecorded`",
             any(grepl("# source=r-recommended", lock3, fixed = TRUE)),
             paste(lock3, collapse = " | "))
 tmp4 <- tempfile(fileext = ".txt")
-invisible(cyto_write_env_lock(tmp4, list(list(name = "Matrix", version = "1.7-6")),
+invisible(txr_write_env_lock(tmp4, list(list(name = "Matrix", version = "1.7-6")),
                               header = "# h", ip = rbind(loaded_row("Matrix"), loaded_row("digest")),
                               resolve_version = resolve,
                               repo_of = function(nm) if (identical(nm, "Matrix")) "CRAN" else NA_character_,
@@ -595,7 +595,7 @@ expect_true("a package from NO declared coordinate is NAMED as such, distinguish
 ## counted and printed as an installed version, in the file that IS the answer to "which
 ## versions did this run use".
 tmp6 <- tempfile(fileext = ".txt")
-counts6 <- cyto_write_env_lock(tmp6, list(list(name = "Matrix", version = "1.7-6")),
+counts6 <- txr_write_env_lock(tmp6, list(list(name = "Matrix", version = "1.7-6")),
                                header = "# h", ip = ip[ip$Package %in% c("Matrix", "digest"), , drop = FALSE],
                                resolve_version = resolve,
                                repo_of = function(nm) if (identical(nm, "digest")) "CRAN\n  ghostpkg==9.9.9  # source=CRAN" else "CRAN",
@@ -629,7 +629,7 @@ ip7 <- data.frame(
   Version = c("0.1.0\n ghostpkg==9.9.9  # source=CRAN"),
   LibPath = c(libs[[1]]), stringsAsFactors = FALSE
 )
-counts7 <- cyto_write_env_lock(tmp7, list(list(name = "goodpkg", version = ip7$Version[[1]])),
+counts7 <- txr_write_env_lock(tmp7, list(list(name = "goodpkg", version = ip7$Version[[1]])),
                                header = "# h", ip = ip7,
                                resolve_version = function(nm) ip7$Version[[1]],
                                repo_of = function(nm) "CRAN", lib_paths = libs)
@@ -648,7 +648,7 @@ ip8 <- data.frame(
   LibPath = c(libs[[1]], "/usr/local/lib/R/library\nfakepkg==7.7.7  # source=CRAN"),
   stringsAsFactors = FALSE
 )
-counts8 <- cyto_write_env_lock(tmp8, list(list(name = "goodpkg", version = "1.0")),
+counts8 <- txr_write_env_lock(tmp8, list(list(name = "goodpkg", version = "1.0")),
                                header = "# h", ip = ip8,
                                resolve_version = function(nm) "1.0",
                                repo_of = function(nm) "CRAN", lib_paths = libs)
@@ -663,7 +663,7 @@ expect_equal("...and the shadowed copy is still recorded", counts8$shadowed, 1L)
 ## build failure.
 tmp5 <- tempfile(fileext = ".txt")
 res5 <- tryCatch({
-  cyto_write_env_lock(tmp5, list(list(name = "Matrix", version = "1.7-6")),
+  txr_write_env_lock(tmp5, list(list(name = "Matrix", version = "1.7-6")),
                       header = "# h", ip = loaded_row("Matrix"),
                       resolve_version = resolve,
                       repo_of = function(nm) character(0), lib_paths = libs)

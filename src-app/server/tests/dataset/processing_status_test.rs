@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::dataset::repository::DatasetRepository;
+use txresbench::modules::dataset::repository::DatasetRepository;
 
 use super::hardening_common::{admin_user_id, pool_for};
 use super::{create_dataset, create_user, login, setup_admin};
@@ -138,7 +138,7 @@ async fn processing_status_derives_and_redacts_error_for_sharees() {
     );
 
     // A view-sharee sees the FAILED status but NOT the raw error (redacted).
-    let bob_id = create_user(&server, &admin, "proc_bob", "proc_bob@cyto.test").await;
+    let bob_id = create_user(&server, &admin, "proc_bob", "proc_bob@txresbench.test").await;
     let share = server
         .client
         .post(server.api_url(&format!("/datasets/{ds}/shares")))
@@ -206,8 +206,8 @@ async fn processing_error_is_shown_to_editors_and_still_redacted_for_viewers() {
     let failed = insert_processing_job(&pool, owner, "failed", Some("boom: /outputs/ws/x")).await;
     repo.set_processing_job(ds_uuid, failed).await.expect("link failed job");
 
-    let ed_id = create_user(&server, &admin, "red_ed", "red_ed@cyto.test").await;
-    let viv_id = create_user(&server, &admin, "red_viv", "red_viv@cyto.test").await;
+    let ed_id = create_user(&server, &admin, "red_ed", "red_ed@txresbench.test").await;
+    let viv_id = create_user(&server, &admin, "red_viv", "red_viv@txresbench.test").await;
     for (pid, role) in [(&ed_id, "edit"), (&viv_id, "view")] {
         let r = server
             .client
@@ -258,7 +258,7 @@ async fn processing_error_is_shown_to_editors_and_still_redacted_for_viewers() {
 /// asserts they agree per role instead of trusting a reader to notice.
 #[tokio::test]
 async fn editable_subset_matches_access() {
-    use cytoanalyst::modules::dataset::repository::DatasetAccess;
+    use txresbench::modules::dataset::repository::DatasetAccess;
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
@@ -269,7 +269,7 @@ async fn editable_subset_matches_access() {
 
     let mut ids = vec![];
     for (name, role) in [("sub_ed", Some("edit")), ("sub_viv", Some("view")), ("sub_out", None)] {
-        let uid = create_user(&server, &admin, name, &format!("{name}@cyto.test")).await;
+        let uid = create_user(&server, &admin, name, &format!("{name}@txresbench.test")).await;
         if let Some(role) = role {
             let r = server
                 .client
@@ -309,7 +309,7 @@ async fn editable_subset_matches_access() {
     // is exactly the condition on which they could drift apart; #147 asks for the
     // existing lock-step to be extended here rather than bypassed.
     let rm = Uuid::parse_str(
-        &create_user(&server, &admin, "sub_rm", "sub_rm@cyto.test").await,
+        &create_user(&server, &admin, "sub_rm", "sub_rm@txresbench.test").await,
     )
     .unwrap();
     let org = crate::account::make_org_account(&pool, "SubsetLab", admin_user_id(&pool).await).await;

@@ -1,4 +1,4 @@
-// Public UI surface for the app. Import from '@ziee/kit'.
+// Public UI surface for the app. Import from '@txresbench/kit'.
 //   shadcn/* = vendored primitives (CLI-generated via `npx shadcn@latest add <c> --overwrite`).
 //   kit/*    = our components: shadcn-native types + deliberate additions, a11y-enforced,
 //              all reacting to the ambient KitSurface (disabled/loading/readOnly/size).

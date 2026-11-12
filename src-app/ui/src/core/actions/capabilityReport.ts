@@ -27,7 +27,7 @@
 // Every report is a FULL SNAPSHOT, never a delta — an add-only protocol could
 // not express a removal.
 
-import { callAsync } from '@ziee/framework/api-client'
+import { callAsync } from '@txresbench/framework/api-client'
 
 /** One reported capability. Field-for-field the backend's
  *  `FrontendActionEntry` (`server/src/modules/mcp/frontend_catalog.rs`), which

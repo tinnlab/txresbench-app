@@ -55,9 +55,9 @@ export class ZarrFormatError extends Error {
  * The node at this path is not an ARRAY (a `zarr.json` with `node_type: "group"`).
  *
  * Its own subtype because it is a routine, EXPECTED shape rather than a malformed artifact: a
- * split-string column (`cyto.kind: "string"`, `layout: "split"`) is written as a GROUP holding
+ * split-string column (`txr.kind: "string"`, `layout: "split"`) is written as a GROUP holding
  * `offsets`/`values` sub-arrays, and the producer stamps such a column's catalog `meta.kind` as
- * `categorical` (`cyto_columns.py` routes every object-dtype Series through `Table.string()`), so
+ * `categorical` (`txr_columns.py` routes every object-dtype Series through `Table.string()`), so
  * metadata readers legitimately arrive at a group path. A caller for whom "no array here" is an
  * ANSWER (`readDeclaredLevels`: a group declares no `levels`) catches this and only this — catching
  * `ZarrFormatError` at large would swallow a genuinely malformed member.

@@ -10,8 +10,8 @@ suite stay green:
   the literal header row as a spot. The headerless Space Ranger <= 1.x spelling, which is
   the whole reason that function is forty lines long, was exercised by nothing.
 * **`main()` was exercised by nothing.** Every other test calls `run_import()` directly, so
-  the actual production entrypoint — the `CYTO_INPUTS_DIR`/`CYTO_OUTPUTS_DIR` seam,
-  `load_inputs_index`, `write_manifest`, `cyto_deps.augment`, the refusal exit code, and the
+  the actual production entrypoint — the `TXR_INPUTS_DIR`/`TXR_OUTPUTS_DIR` seam,
+  `load_inputs_index`, `write_manifest`, `txr_deps.augment`, the refusal exit code, and the
   `/outputs/manifest.json` the SERVER actually reads — was never run.
 """
 import csv
@@ -161,7 +161,7 @@ def test_the_entrypoint_writes_the_manifest_the_server_reads(tmp_path):
     """`main()` end to end — the document the server actually consumes.
 
     Everything else in this suite calls `run_import()`. That leaves the entry's own half —
-    resolving the slot out of `inputs.json`, `write_manifest`, and `cyto_deps.augment`'s
+    resolving the slot out of `inputs.json`, `write_manifest`, and `txr_deps.augment`'s
     run-environment record — exercised by nothing, which is how a compute can be green in
     its tests and unrunnable in a job.
     """
@@ -184,7 +184,7 @@ def test_the_entrypoint_writes_the_manifest_the_server_reads(tmp_path):
     env_entries = [e for e in manifest["outputs"]
                    if "environment" in e["id"] or "environment" in str(e.get("path", ""))]
     assert env_entries, (
-        f"no run-environment record in the manifest — `cyto_deps.augment` did not run. "
+        f"no run-environment record in the manifest — `txr_deps.augment` did not run. "
         f"ids: {ids}"
     )
     assert "progress:" in result.stderr, "the entry emitted no progress frames"

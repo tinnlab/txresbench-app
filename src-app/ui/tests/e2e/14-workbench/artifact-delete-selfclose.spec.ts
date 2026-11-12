@@ -120,7 +120,7 @@ test('[negative-perm] a Viewer does not see the artifact Delete affordance (edit
   await createMember(request, admin, viewer)
   const share = await request.post(`${BACKEND}/api/projects/${id}/shares`, {
     headers: { authorization: `Bearer ${admin}` },
-    data: { email: `${viewer}@cyto.test`, permission_level: 'viewer' },
+    data: { email: `${viewer}@txresbench.test`, permission_level: 'viewer' },
   })
   expect(share.ok()).toBeTruthy()
 

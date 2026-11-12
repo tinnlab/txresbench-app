@@ -20,11 +20,11 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use cytoanalyst::modules::model_store::container::{
+use txresbench::modules::model_store::container::{
     read_container_bytes, ContainerHeader, ContainerKind, END_MAGIC, MAGIC,
 };
-use cytoanalyst::modules::model_store::store::{self, ImportOptions, Provenance};
-use cytoanalyst::modules::model_store::types::{ModelProvenance, ModelStoreLimits};
+use txresbench::modules::model_store::store::{self, ImportOptions, Provenance};
+use txresbench::modules::model_store::types::{ModelProvenance, ModelStoreLimits};
 
 use crate::common::TestServer;
 use super::pool;
@@ -160,7 +160,7 @@ fn packer_output_layout_and_reader_accepted() {
     // The header's tree digest IS the engine's own digest of the same tree
     // (the Python port pin vs the Rust implementer — the load-bearing cross).
     let expected_digest =
-        cytoanalyst::modules::sandbox::stack::tree_sha256(&fixture("tree")).expect("digest");
+        txresbench::modules::sandbox::stack::tree_sha256(&fixture("tree")).expect("digest");
     assert_eq!(model.tree_sha256, expected_digest, "packer digest == engine digest");
     // size_bytes is the SUM of the tree files (the payload), not the whole
     // container — the store's reader reconciles it against the framed bytes.

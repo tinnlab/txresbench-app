@@ -8,7 +8,7 @@
 // labeled before its lazy sheet contents exist).
 
 import { useState } from 'react'
-import { Button, Sheet } from '@ziee/kit'
+import { Button, Sheet } from '@txresbench/kit'
 import { PanelLeft, PanelRight, PanelBottom } from 'lucide-react'
 import { PlacedArea } from './PlacedArea'
 import { SectionStack } from './SectionStack'

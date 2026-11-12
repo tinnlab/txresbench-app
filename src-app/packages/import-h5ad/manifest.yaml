@@ -14,7 +14,7 @@
 # dispatched via `api.compute.run` → `code_ref`, NOT a backend converter/view).
 id: import-h5ad
 name: Import AnnData (.h5ad)
-publisher: cyto
+publisher: txr
 # 0.3.0 — the manifest/UI separation: `when`/`accepts`/`params`/`defaults`/
 # `schedule.resources`/`inStandardRecipe`/`recipeOrder` are GONE (each a LOAD ERROR
 # now, DEC-3) and `appliesTo` replaces them. Seed reconciliation is version-keyed, so

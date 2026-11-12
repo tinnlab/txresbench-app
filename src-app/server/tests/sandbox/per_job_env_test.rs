@@ -107,7 +107,7 @@ async fn extensions_wire_is_unchanged_for_packages_declaring_no_env() {
             // spelled here: naming an env-id in the app's test surface is the domain leak
             // INV-4 forbids, and it would also make this pass for a wire that had been
             // replaced by that constant.
-            let declared = cytoanalyst::modules::extensions::declared_env_for_analysis(id);
+            let declared = txresbench::modules::extensions::declared_env_for_analysis(id);
             match declared {
                 None => {
                     env_less_seen += 1;
@@ -179,7 +179,7 @@ async fn shipped_env_less_analyses_resolve_exactly_as_before() {
     let server = TestServer::spawn().await;
     let _token = setup_admin(&server).await;
 
-    use cytoanalyst::modules::sandbox::env_image::{declared_env_ids, resolve_env_id};
+    use txresbench::modules::sandbox::env_image::{declared_env_ids, resolve_env_id};
 
     let deployment_default = resolve_env_id(None);
     assert!(
@@ -203,7 +203,7 @@ async fn shipped_env_less_analyses_resolve_exactly_as_before() {
         .expect("server dir has a parent")
         .join("env-rootfs");
     let recipe_ids =
-        cytoanalyst::modules::rootfs::version::discover_env_recipes(&recipe_root);
+        txresbench::modules::rootfs::version::discover_env_recipes(&recipe_root);
     assert!(
         !recipe_ids.is_empty(),
         "no env recipe under {} — the cross-source check below would be vacuous",
@@ -228,12 +228,12 @@ async fn shipped_env_less_analyses_resolve_exactly_as_before() {
         );
     }
 
-    let reg = cytoanalyst::modules::extensions::registry();
+    let reg = txresbench::modules::extensions::registry();
     let mut env_less_seen = 0usize;
     let mut declaring_seen = 0usize;
     for m in reg.all() {
         for a in &m.contributes.analyses {
-            let declared = cytoanalyst::modules::extensions::declared_env_for_analysis(&a.id);
+            let declared = txresbench::modules::extensions::declared_env_for_analysis(&a.id);
             match declared {
                 None => {
                     env_less_seen += 1;
@@ -247,7 +247,7 @@ async fn shipped_env_less_analyses_resolve_exactly_as_before() {
                 Some(want) => {
                     declaring_seen += 1;
                     // A DECLARING analysis resolves to what it declared — the per-job
-                    // half of the contract. (No `CYTO_SANDBOX_ENV_ID` is set in this
+                    // half of the contract. (No `TXR_SANDBOX_ENV_ID` is set in this
                     // process, so the operator override does not displace it here.)
                     assert_eq!(
                         resolve_env_id(Some(&want)),
@@ -310,7 +310,7 @@ async fn shipped_env_less_analyses_resolve_exactly_as_before() {
 /// Lifecycle id: **TEST-28** (see `.lifecycle/analysis-env-selection/TESTS.md`).
 #[tokio::test]
 async fn an_unpublished_declared_env_fails_by_name_and_never_substitutes() {
-    use cytoanalyst::modules::sandbox::env_image::{
+    use txresbench::modules::sandbox::env_image::{
         resolve, EnvImageProvider, OciEnvImageProvider,
     };
     use std::time::Duration;
@@ -445,8 +445,8 @@ fn the_submodule_pins_do_not_move_on_this_branch() {
 /// Lifecycle id: **TEST-33** (see `.lifecycle/analysis-env-selection/TESTS.md`).
 #[tokio::test]
 async fn a_declared_env_survives_every_hop_to_the_compute_spec() {
-    use cytoanalyst::modules::sandbox::backend::{ComputeSpec, PriorityClass, ResourceClass};
-    use cytoanalyst::modules::sandbox::spec::AnalysisSpec;
+    use txresbench::modules::sandbox::backend::{ComputeSpec, PriorityClass, ResourceClass};
+    use txresbench::modules::sandbox::spec::AnalysisSpec;
 
     const DECLARED: &str = "fixture-declared-env";
 
@@ -477,7 +477,7 @@ async fn a_declared_env_survives_every_hop_to_the_compute_spec() {
         input_mounts: vec![],
         code_mount: None,
         extra_mounts: vec![],
-        profile: cytoanalyst::modules::sandbox::backend::ResourceProfile {
+        profile: txresbench::modules::sandbox::backend::ResourceProfile {
             memory_max_bytes: 1,
             memory_swap_max_bytes: 1,
             pids_max: 1,
@@ -497,7 +497,7 @@ async fn a_declared_env_survives_every_hop_to_the_compute_spec() {
     // hop 3: what the backend resolves from it — the value that reaches `provide()`.
     // With no operator override set, the declared env wins.
     let resolved =
-        cytoanalyst::modules::sandbox::env_image::resolve_env_id(compute.env_id.as_deref());
+        txresbench::modules::sandbox::env_image::resolve_env_id(compute.env_id.as_deref());
     assert_eq!(
         resolved.as_deref(),
         Some(DECLARED),
@@ -521,7 +521,7 @@ async fn a_declared_env_survives_every_hop_to_the_compute_spec() {
          BOTH contribution kinds, and the converter half had no test at all"
     );
     assert_eq!(
-        cytoanalyst::modules::sandbox::env_image::resolve_env_id(conv.env.as_deref()).as_deref(),
+        txresbench::modules::sandbox::env_image::resolve_env_id(conv.env.as_deref()).as_deref(),
         Some(DECLARED)
     );
 
@@ -533,8 +533,8 @@ async fn a_declared_env_survives_every_hop_to_the_compute_spec() {
     .unwrap();
     assert_eq!(bare.env, None);
     assert_eq!(
-        cytoanalyst::modules::sandbox::env_image::resolve_env_id(bare.env.as_deref()),
-        cytoanalyst::modules::sandbox::env_image::default_env_id(),
+        txresbench::modules::sandbox::env_image::resolve_env_id(bare.env.as_deref()),
+        txresbench::modules::sandbox::env_image::default_env_id(),
         "an env-less job resolves exactly what it resolved before per-job selection (INV-1)"
     );
 }
@@ -551,12 +551,12 @@ async fn a_declared_env_survives_every_hop_to_the_compute_spec() {
 /// Lifecycle id: **TEST-34** (see `.lifecycle/analysis-env-selection/TESTS.md`).
 #[tokio::test]
 async fn a_run_records_the_digest_its_own_workspace_carries() {
-    use cytoanalyst::modules::sandbox::env_image::{read_run_env_digest, write_run_env_digest};
+    use txresbench::modules::sandbox::env_image::{read_run_env_digest, write_run_env_digest};
 
     // Two runs, two workspaces, two DIFFERENT digests — the configuration in which a
     // process-global carrier records the wrong one.
     let mk = |tag: &str, hex: &str| {
-        let root = std::env::temp_dir().join(format!("cyto-rec-{tag}-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("txr-rec-{tag}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         write_run_env_digest(&root, Some(hex));
         (root, hex.to_string())
@@ -585,7 +585,7 @@ async fn a_run_records_the_digest_its_own_workspace_carries() {
 
     // A run that mounted NOTHING records None — never a neighbour's digest. This is the
     // honest record for an in-app interaction run or a promote/byte-copy run.
-    let empty = std::env::temp_dir().join(format!("cyto-rec-none-{}", uuid::Uuid::new_v4()));
+    let empty = std::env::temp_dir().join(format!("txr-rec-none-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&empty).unwrap();
     assert_eq!(read_run_env_digest(&empty), None);
 

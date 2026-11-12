@@ -20,14 +20,14 @@
 //!
 //! The R image is BUILT LOCALLY (E5 / #193, `just env-rootfs-local --all`) and is not
 //! published — publishing is gated (#80 / #217). So the runtime reaches it through the
-//! ENV-SCOPED air-gap seam `CYTO_ENV_ROOTFS_SQUASHFS__<env-id>`, which is the production
+//! ENV-SCOPED air-gap seam `TXR_ENV_ROOTFS_SQUASHFS__<env-id>`, which is the production
 //! mechanism for an air-gapped deployment, not a test hook: `provide()` hashes the file,
 //! stages it into the content-digest cache and mounts it by digest, exactly as the OCI
 //! path does after a pull. Run this tier as:
 //!
 //! ```text
 //! sh scripts/build-env-rootfs-local.sh --print-seam     # emits the exact prefix
-//! env '<...>' '<...>' cargo test -p cytoanalyst --test integration_tests \
+//! env '<...>' '<...>' cargo test -p txresbench --test integration_tests \
 //!     sandbox::r_walking_skeleton -- --test-threads=1
 //! ```
 //!
@@ -39,7 +39,7 @@
 //!
 
 //! Every gate below records a self-skip through the shared ledger
-//! (`record_skip`) rather than passing quietly, and `CYTO_TEST_NO_SKIP=1` turns each into
+//! (`record_skip`) rather than passing quietly, and `TXR_TEST_NO_SKIP=1` turns each into
 //! a hard failure — which is the mode this tier's acceptance run uses.
 //!
 //! ## Nothing here names an env, a package or an analysis by literal
@@ -58,7 +58,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::repository::JobRepository;
+use txresbench::modules::jobs::repository::JobRepository;
 
 use super::setup_admin;
 use crate::common::TestServer;
@@ -203,7 +203,7 @@ pub(crate) struct ShippedR {
 /// `lint-no-domain-in-builtin` forbids the app carrying an analysis-domain id at all — the
 /// domain lattice is DATA. Spelling one here would have been a domain leak in the app, in
 /// exactly the file whose header says "derived facts, never literals".
-fn is_the_meaningless_probe(a: &cytoanalyst::modules::extensions::types::AnalysisContributionData) -> bool {
+fn is_the_meaningless_probe(a: &txresbench::modules::extensions::types::AnalysisContributionData) -> bool {
     !a.rest
         .get("launchable")
         .and_then(|v| v.as_bool())
@@ -211,8 +211,8 @@ fn is_the_meaningless_probe(a: &cytoanalyst::modules::extensions::types::Analysi
 }
 
 pub(crate) fn shipped_rscript_analysis() -> Option<ShippedR> {
-    use cytoanalyst::modules::sandbox::spec::Language;
-    let reg = cytoanalyst::modules::extensions::try_registry()?;
+    use txresbench::modules::sandbox::spec::Language;
+    let reg = txresbench::modules::extensions::try_registry()?;
     let mut found: Vec<ShippedR> = Vec::new();
     for m in reg.all() {
         for a in &m.contributes.analyses {
@@ -291,8 +291,8 @@ fn other_staged_env(env_id: &str) -> Option<String> {
 
 /// A shipped analysis that declares NO env — the INV-1 control subject. Also derived.
 fn shipped_env_less_python_analysis() -> Option<(String, String, String)> {
-    use cytoanalyst::modules::sandbox::spec::Language;
-    let reg = cytoanalyst::modules::extensions::try_registry()?;
+    use txresbench::modules::sandbox::spec::Language;
+    let reg = txresbench::modules::extensions::try_registry()?;
     for m in reg.all() {
         for a in &m.contributes.analyses {
             let Some(run) = a.run() else { continue };
@@ -311,7 +311,7 @@ fn shipped_env_less_python_analysis() -> Option<(String, String, String)> {
 /// The per-env air-gap seam variable for `env_id` (`env_image.rs` `SEAM_KEYS[0]` +
 /// `ENV_SEAM_SUFFIX`), spelled once here so no test builds the name a second way.
 pub(crate) fn seam_var(env_id: &str) -> String {
-    format!("CYTO_ENV_ROOTFS_SQUASHFS__{env_id}")
+    format!("TXR_ENV_ROOTFS_SQUASHFS__{env_id}")
 }
 
 /// The artifact the seam for `env_id` points at, if it is set AND the file is there.
@@ -522,7 +522,7 @@ async fn artifact_bytes(server: &TestServer, token: &str, id: Uuid) -> String {
     resp.text().await.expect("artifact body")
 }
 
-/// Run `cytoanalyst run-job --job-id <id>` as a subprocess against the test server's DB +
+/// Run `txresbench run-job --job-id <id>` as a subprocess against the test server's DB +
 /// data dir, with `mutate` applied to its environment first.
 ///
 /// The subprocess is what makes the ENV controllable per test: a `TestServer` inherits
@@ -535,17 +535,17 @@ async fn run_job_subprocess_with(
     job_id: Uuid,
     mutate: impl FnOnce(&mut tokio::process::Command),
 ) -> (i32, String) {
-    let bin = env!("CARGO_BIN_EXE_cytoanalyst");
+    let bin = env!("CARGO_BIN_EXE_txresbench");
     let data_dir = server.data_dir();
     let cfg = write_run_job_config(data_dir, server.database_url());
 
     let mut cmd = tokio::process::Command::new(bin);
     cmd.args(["run-job", "--job-id", &job_id.to_string()])
         .env("CONFIG_FILE", &cfg)
-        .env("CYTO_APP_DATA_DIR", data_dir)
-        .env("CYTO_SCHEDULER_ENABLED", "off");
+        .env("TXR_APP_DATA_DIR", data_dir)
+        .env("TXR_SCHEDULER_ENABLED", "off");
     mutate(&mut cmd);
-    let out = cmd.output().await.expect("spawn cytoanalyst run-job");
+    let out = cmd.output().await.expect("spawn txresbench run-job");
     let combined = format!(
         "{}\n{}",
         String::from_utf8_lossy(&out.stdout),
@@ -570,7 +570,7 @@ fn write_run_job_config(dir: &Path, database_url: &str) -> PathBuf {
     let (host_port, db) = hostpart.split_once('/').expect("host/db");
     let (host, port) = host_port.split_once(':').unwrap_or((host_port, "5432"));
     let cfg = format!(
-        "postgresql:\n  use_embedded: false\n  external:\n    host: \"{host}\"\n    port: {port}\n    username: \"{user}\"\n    password: \"{pass}\"\n    database: \"{db}\"\n  pool:\n    max_connections: 5\n    min_connections: 1\n    acquire_timeout_secs: 5\n    idle_timeout_secs: 30\n    max_lifetime_secs: 300\nserver:\n  host: \"127.0.0.1\"\n  port: 3198\n  api_prefix: \"/api\"\nlogging:\n  level: \"info\"\n  format: \"pretty\"\njwt:\n  secret: \"r-walking-skeleton-test-secret-key-at-least-32-chars\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
+        "postgresql:\n  use_embedded: false\n  external:\n    host: \"{host}\"\n    port: {port}\n    username: \"{user}\"\n    password: \"{pass}\"\n    database: \"{db}\"\n  pool:\n    max_connections: 5\n    min_connections: 1\n    acquire_timeout_secs: 5\n    idle_timeout_secs: 30\n    max_lifetime_secs: 300\nserver:\n  host: \"127.0.0.1\"\n  port: 3198\n  api_prefix: \"/api\"\nlogging:\n  level: \"info\"\n  format: \"pretty\"\njwt:\n  secret: \"r-walking-skeleton-test-secret-key-at-least-32-chars\"\n  issuer: \"txresbench\"\n  audience: \"txresbench-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
     );
     let path = dir.join(format!("probe-run-job-{}.yaml", Uuid::new_v4()));
     std::fs::write(&path, cfg).expect("write config");
@@ -770,7 +770,7 @@ async fn the_declared_r_env_reaches_the_run_and_its_digest_reaches_provenance() 
     //   * fall back to an unstaged id and let an `if let` quietly not run (the next cut) —
     //     turns a loud, ledgered gate into a SILENT no-op, which is strictly worse.
     // So it sits LAST, after everything else has asserted, and its absence is RECORDED:
-    // `record_skip` lands in the ledger and PANICS under `CYTO_TEST_NO_SKIP=1`, which is
+    // `record_skip` lands in the ledger and PANICS under `TXR_TEST_NO_SKIP=1`, which is
     // the mode the acceptance tier runs in and where both envs are staged.
     let Some(other) = staged_artifact(&other_env) else {
         record_skip(
@@ -968,7 +968,7 @@ async fn the_r_run_produces_values_only_r_could_have_computed() {
     // E6 is a tracer bullet. If the skeleton contributed a datatype, a converter or a
     // view, E7 could take a dependency on a SHAPE rather than on PROV-E6-1/2 — which is
     // what INV-5 forbids. Asserted against the loaded registry, not the manifest text.
-    let reg = cytoanalyst::modules::extensions::try_registry().expect("registry");
+    let reg = txresbench::modules::extensions::try_registry().expect("registry");
     let m = reg
         .all()
         .into_iter()
@@ -1155,7 +1155,7 @@ const T4: &str = "sandbox::r_walking_skeleton::operator_override_fails_closed";
 
 /// TEST-4 — Arm B of DEC-7: an operator override into the WRONG image fails CLOSED.
 ///
-/// `CYTO_SANDBOX_ENV_ID` sits ABOVE a declared env by design (`env_image.rs:144`): it is
+/// `TXR_SANDBOX_ENV_ID` sits ABOVE a declared env by design (`env_image.rs:144`): it is
 /// the operator's escape hatch for pinning a whole process to one image. E6 does not
 /// re-litigate that precedence, and it does NOT add a runtime interpreter-presence
 /// precheck — that needs a per-env capability declaration nothing on main carries, and
@@ -1201,7 +1201,7 @@ async fn an_operator_override_into_the_python_image_fails_closed() {
     });
     let job = running_job(&pool, owner, Some(project), params).await;
     let (code, out) = run_job_subprocess_with(&server, job, |cmd| {
-        cmd.env("CYTO_SANDBOX_ENV_ID", &other_env);
+        cmd.env("TXR_SANDBOX_ENV_ID", &other_env);
     })
     .await;
 
@@ -1221,7 +1221,7 @@ async fn an_operator_override_into_the_python_image_fails_closed() {
     // The interpreter name is DERIVED from the language the manifest declares, through
     // the same function the runner uses to build the command — not typed here, so it
     // cannot drift from what actually gets exec'd.
-    let interpreter = cytoanalyst::modules::sandbox::spec::Language::from_runtime(&r.runtime)
+    let interpreter = txresbench::modules::sandbox::spec::Language::from_runtime(&r.runtime)
         .expect("the declared runtime resolves to a language")
         .command_for("/code/entry")
         .split_whitespace()
@@ -1314,7 +1314,7 @@ async fn an_operator_override_into_the_python_image_fails_closed() {
     )
     .await;
     let (ok_code, ok_out) = run_job_subprocess_with(&server, ok_job, |cmd| {
-        cmd.env_remove("CYTO_SANDBOX_ENV_ID");
+        cmd.env_remove("TXR_SANDBOX_ENV_ID");
     })
     .await;
     assert_eq!(

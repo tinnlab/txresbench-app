@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { createAppStoreSeam, createStoreProxy } from '@ziee/framework'
+import { createAppStoreSeam, createStoreProxy } from '@txresbench/framework'
 
 /**
  * SEAMS: the app-registered stores the shell reads but cannot import (the app

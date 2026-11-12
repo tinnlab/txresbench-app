@@ -1,7 +1,7 @@
 //! Project persistence. Uses sqlx COMPILE-TIME `query_as!`/`query!` macros (the
 //! canonical pattern — see `dataset/repository.rs`): every query is verified
 //! against the build DB's real schema at `cargo check` time. `timestamptz`
-//! columns need the `col as "col: DateTime<Utc>"` override (ziee-auth pulls
+//! columns need the `col as "col: DateTime<Utc>"` override (txresbench-auth pulls
 //! sqlx's `time` feature, whose default is `OffsetDateTime`). Every read is
 //! owner-/recipient-scoped; a foreign project reads as `None` → 404 (no leak).
 //!
@@ -20,7 +20,7 @@ use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use crate::modules::dataset::models::Dataset;
 

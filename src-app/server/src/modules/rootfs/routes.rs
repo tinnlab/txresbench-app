@@ -2,7 +2,7 @@
 //!
 //! Streams the content-digest-keyed rootfs squashfs from the LOCAL cache so a
 //! reproducer can obtain the EXACT historical rootfs a run pinned
-//! (`env_rootfs_sha256`) from a RUNNING CytoAnalyst — v1's deployment-assisted
+//! (`env_rootfs_sha256`) from a RUNNING TxResBench — v1's deployment-assisted
 //! delivery (no public GitHub-Release/OCI/CI publish; that's a fast-follow). A
 //! reproduce capsule's `environments.json` records, per distinct digest,
 //! `obtain = "GET /api/sandbox/rootfs/<digest>"` + `placement =
@@ -23,7 +23,7 @@ use axum::routing::get;
 use aide::axum::ApiRouter;
 use tokio::io::AsyncReadExt;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::cache;
 use crate::modules::permissions::RequirePermissions;
@@ -102,7 +102,7 @@ async fn serve_rootfs(
         (header::CONTENT_LENGTH, len.to_string()),
         (
             header::CONTENT_DISPOSITION,
-            format!("attachment; filename=\"ziee-rootfs-{digest}.squashfs\""),
+            format!("attachment; filename=\"txresbench-rootfs-{digest}.squashfs\""),
         ),
         // Content-addressed bytes never change for a digest → safe to cache hard.
         (header::CACHE_CONTROL, "private, max-age=86400".to_string()),

@@ -17,8 +17,8 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, useLocation } from 'react-router-dom'
-import type { AppEvents } from '@ziee/framework/events'
-import { useEventBusStore } from '@ziee/framework/events'
+import type { AppEvents } from '@txresbench/framework/events'
+import { useEventBusStore } from '@txresbench/framework/events'
 import type {
   TxrPredictionsResponse,
   TxrProducedModel,

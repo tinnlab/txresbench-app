@@ -5,7 +5,7 @@
  * RED when a live copy loses a core. So every case below MUTATES a copy and
  * asserts the guard fires, with a positive control that the unmutated set passes.
  *
- * **Nothing here names a consumer app's paths.** This file used to read ziee's
+ * **Nothing here names a consumer app's paths.** This file used to read txresbench's
  * real tree (`src-app/desktop/ui/...`) from inside the shared package, so it was
  * red-by-construction in a standalone sdk checkout — the same "shared tooling
  * assumes one consumer" defect the guard exists to prevent. The real-tree

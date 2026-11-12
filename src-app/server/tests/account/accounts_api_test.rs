@@ -15,12 +15,12 @@ async fn list_accounts_is_owner_filtered_and_gated() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
 
-    let alice_id = create_user(&server, &admin, "acc_alice", "acc_alice@cyto.test").await;
+    let alice_id = create_user(&server, &admin, "acc_alice", "acc_alice@txresbench.test").await;
     let alice = login(&server, "acc_alice").await;
     let pool = pool_for(&server).await;
 
     // An org account alice is NOT a member of (owned by a different user).
-    let bob_id = create_user(&server, &admin, "acc_bob", "acc_bob@cyto.test").await;
+    let bob_id = create_user(&server, &admin, "acc_bob", "acc_bob@txresbench.test").await;
     let foreign_org = make_org_account(&pool, "bobs-org", bob_id).await;
 
     // GET /api/accounts as alice → exactly her memberships (her personal account),
@@ -70,7 +70,7 @@ async fn list_accounts_is_owner_filtered_and_gated() {
 
     // 403 for a user lacking `account::read` (stripped from the Users group, which
     // grants it).
-    create_user_without_projects(&server, &admin, "acc_norg", "acc_norg@cyto.test").await;
+    create_user_without_projects(&server, &admin, "acc_norg", "acc_norg@txresbench.test").await;
     let norg = login(&server, "acc_norg").await;
     let deny = server
         .client
@@ -87,7 +87,7 @@ async fn list_members_gated_by_membership_404s_non_member() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
 
-    let owner_id = create_user(&server, &admin, "mem_owner", "mem_owner@cyto.test").await;
+    let owner_id = create_user(&server, &admin, "mem_owner", "mem_owner@txresbench.test").await;
     let owner = login(&server, "mem_owner").await;
     let pool = pool_for(&server).await;
     let org = make_org_account(&pool, "members-org", owner_id).await;
@@ -111,12 +111,12 @@ async fn list_members_gated_by_membership_404s_non_member() {
     let m = &members[0];
     assert_eq!(m["user_id"].as_str().unwrap(), owner_id.to_string());
     assert_eq!(m["username"], "mem_owner", "member row carries username");
-    assert_eq!(m["email"], "mem_owner@cyto.test", "member row carries email");
+    assert_eq!(m["email"], "mem_owner@txresbench.test", "member row carries email");
     assert!(m.get("display_name").is_some(), "display_name key present (null when unset)");
 
     // A NON-member's request to the same org → 404 (existence oracle — never 403,
     // never member data).
-    create_user(&server, &admin, "mem_stranger", "mem_stranger@cyto.test").await;
+    create_user(&server, &admin, "mem_stranger", "mem_stranger@txresbench.test").await;
     let stranger = login(&server, "mem_stranger").await;
     let resp = server
         .client

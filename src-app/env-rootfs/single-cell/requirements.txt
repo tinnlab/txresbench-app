@@ -12,7 +12,7 @@
 #      asserts every line below is covered by the Dockerfile's build-time import smoke
 #      line ("an install the smoke line does not verify silently ships absent"). It runs
 #      over EVERY recipe `discover_env_recipes` finds, not this one, and it locates the
-#      smoke line by the `# cyto:env-smoke` marker the Dockerfile puts above it — which is
+#      smoke line by the `# txr:env-smoke` marker the Dockerfile puts above it — which is
 #      why the `# import=` token below is required of every pin in every recipe: it is the
 #      key the check is made on. (#196 moved this claim here from one analysis package's
 #      test directory, where it named a single recipe and left any second one unguarded.)
@@ -33,7 +33,7 @@
 # dependency version that appears in NO diff in this repo. A range would not fix it (two
 # builds a month apart still land on different versions inside the range); only an exact
 # pin does. The full TRANSITIVE closure is not pinned here — it is frozen INTO the image
-# at `/opt/venv/.cyto-env-lock.txt` (148 distributions as built) and recorded per run, so
+# at `/opt/venv/.txresbench-env-lock.txt` (148 distributions as built) and recorded per run, so
 # transitive drift is visible in the provenance record of the run it affected instead of
 # being invisible. The escalation conditions for promoting that freeze to a committed
 # hash-pinned lockfile are in the runbook.
@@ -66,8 +66,8 @@
 # denotes one artifact forever. That is the strongest of the classes the regime knows
 # apart from a dated snapshot, and it is why the transitive-closure caveat below is about
 # what was NOT pinned rather than about what a pin means.
-# cyto:ecosystem=python
-# cyto:pin-source=immutable-index:https://pypi.org/simple
+# txr:ecosystem=python
+# txr:pin-source=immutable-index:https://pypi.org/simple
 
 # ── the numerical floor ──────────────────────────────────────────────────────────────
 numpy==2.4.6                # import=numpy — the array floor every module below stands on
@@ -113,7 +113,7 @@ liana==1.10.0               # import=liana — ligand-receptor inference; its re
 # SHIPPED-BUT-UNDECLARED until now, which is the whole point of the fix. Both were
 # already in the image as TRANSITIVE dependencies of scikit-image/squidpy — verified by
 # inspecting the published rootfs (`unsquashfs -l
-# .cyto-cache/env-rootfs/single-cell-schema5-amd64.squashfs` lists
+# .txr-cache/env-rootfs/single-cell-schema5-amd64.squashfs` lists
 # `tifffile-2026.3.3.dist-info` and `imagecodecs-2025.11.11.dist-info`) — so these pins
 # freeze what ALREADY SHIPS and need NO rootfs republish. What they change is that the
 # two libraries are now inside the build-time gate instead of outside it: an unrelated
@@ -159,7 +159,7 @@ pillow==12.3.0              # import=PIL — PNG decode for the Visium tissue im
 # this version, as a HARD transitive of the already-pinned `spatialdata==0.7.3`
 # (`Requires-Dist: pyarrow`, unconditional — read out of the image's own
 # `spatialdata-0.7.3.dist-info/METADATA`). VERIFIED the same way #181 verified its two:
-# `unsquashfs -l .cyto-cache/env-rootfs/single-cell-schema5-amd64.squashfs` lists
+# `unsquashfs -l .txr-cache/env-rootfs/single-cell-schema5-amd64.squashfs` lists
 # `pyarrow-25.0.0.dist-info`. So this pin FREEZES WHAT ALREADY SHIPS.
 #
 # What it changes is that the library is now inside the build-time gate
@@ -174,7 +174,7 @@ pillow==12.3.0              # import=PIL — PNG decode for the Visium tissue im
 pyarrow==25.0.0             # import=pyarrow — parquet decode for the Xenium cell boundaries (#163)
 
 # ── the version-comparison reference implementation ──────────────────────────────────
-# Promoted from a transitive dependency to an explicit pin because `_lib/cyto_deps.py`
+# Promoted from a transitive dependency to an explicit pin because `_lib/txr_deps.py`
 # imports it to compare a RESOLVED version against a DECLARED range. A reproducibility
 # gate must not itself rest on an unpinned dependency.
 packaging==26.3             # import=packaging — PEP 440 specifier comparison

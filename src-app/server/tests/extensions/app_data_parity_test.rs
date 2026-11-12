@@ -1,12 +1,12 @@
 //! TEST-14 [ITEM-12] [acceptance] [invariant: INV-6] — desktop parity: the whole
 //! extract+scan pipeline derives its folder SOLELY from `rootfs::data_root()`
-//! (which honors `CYTO_APP_DATA_DIR`, else the SDK's `get_app_data_dir()`), so there
-//! is NO server-vs-desktop path fork. The desktop bundles the SAME `cytoanalyst`
+//! (which honors `TXR_APP_DATA_DIR`, else the SDK's `get_app_data_dir()`), so there
+//! is NO server-vs-desktop path fork. The desktop bundles the SAME `txresbench`
 //! crate (`boot_in_background`) with the SAME `include_dir!` seed and NO module
 //! blocklist, so proving the server extracts UNDER its app-data dir proves the
 //! desktop does too.
 //!
-//! The integration harness sets `CYTO_APP_DATA_DIR` to each test's isolated data dir
+//! The integration harness sets `TXR_APP_DATA_DIR` to each test's isolated data dir
 //! (`common/mod.rs`), so a real spawned server's processors folder MUST land under
 //! `server.data_dir()` — never a shared global home. That is exactly the app-data-dir
 //! derivation the desktop relies on.
@@ -21,7 +21,7 @@ async fn extract_and_scan_land_under_the_app_data_dir() {
     let server = TestServer::spawn().await;
     let token = setup_admin(&server).await;
 
-    // The processors folder is UNDER the server's app-data dir (CYTO_APP_DATA_DIR),
+    // The processors folder is UNDER the server's app-data dir (TXR_APP_DATA_DIR),
     // not a global `~/.app` — the single `rootfs::data_root()` derivation (INV-6).
     let data_dir = server.data_dir();
     let processors_dir = data_dir.join("processors");

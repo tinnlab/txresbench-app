@@ -9,9 +9,9 @@
 use serde_json::json;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::gather_exec::resolve;
-use cytoanalyst::modules::workstore::object_store::ObjectStore;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::gather_exec::resolve;
+use txresbench::modules::workstore::object_store::ObjectStore;
 
 use super::vdm_fixtures::{
     decode_f32, put_gathered, put_mask, put_multifile, put_source, structure_of, zarr_array, AXIS,

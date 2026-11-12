@@ -5,18 +5,18 @@
 //
 // `zarrReader.test.ts` and `artifactReader.test.ts` rest their entire claim on a
 // sentence: the fixture bytes were "written by the real producer" — `src-app/packages/
-// _lib`'s `cyto_zarr`, the module a processor actually emits artifacts with — so the TS
+// _lib`'s `txr_zarr`, the module a processor actually emits artifacts with — so the TS
 // reader has to agree with bytes it did not produce. That is what makes them evidence
 // rather than a snapshot of whatever the reader happened to do.
 //
-// The sentence went FALSE. `cyto_zarr.Table.string()` began stamping a `values_digest`
+// The sentence went FALSE. `txr_zarr.Table.string()` began stamping a `values_digest`
 // onto a string member's declaration, and the two string-bearing nodes in the tree
 // (`table/zarr.json`, `str_large/zarr.json`) silently fell behind the writer: re-running
 // the generator changed committed bytes, so the fixtures were no longer what the shipping
 // producer writes and nothing anywhere noticed. A contract test resting on a stale
 // artefact still passes — it just stops testing the contract.
 //
-// So determinism is now CHECKED, exactly as `sdk/crates/ziee-framework/src/openapi/
+// So determinism is now CHECKED, exactly as `sdk/crates/txresbench-framework/src/openapi/
 // emit_ts.rs`'s golden parity test (`generator_golden_fixture`) checks `types.ts` — the
 // SDK owns that mechanism; there is no `server/src/openapi/`, which is what this comment
 // used to cite while its sibling in `server/src/modules/datatype/tests/mod.rs` cited the
@@ -109,7 +109,7 @@ function regenerate(): Map<string, Uint8Array> {
 }
 
 describe('the committed Zarr fixtures are what the real producer writes today', () => {
-  it('a fresh run of `cyto_zarr` reproduces the committed tree byte for byte', () => {
+  it('a fresh run of `txr_zarr` reproduces the committed tree byte for byte', () => {
     const committed = tree(COMMITTED)
     const fresh = regenerate()
 

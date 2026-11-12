@@ -1,6 +1,6 @@
 # Admin credits / comp / premium ledger + allowance override (B-Credits)
 
-Design note for GitHub issue **#39** (CytoAnalyst Admin Console epic, Tier-2). Extends the
+Design note for GitHub issue **#39** (TxResBench Admin Console epic, Tier-2). Extends the
 verdict engine of `docs/design/metering-billing-quota.md` §4.2/§4.3 (the `check_quota`
 admission gate) with an **admin-granted override layer** that sits ABOVE the plan-derived
 verdict. Net-new concept: the existing billing epic has NO notion of per-account credits or a

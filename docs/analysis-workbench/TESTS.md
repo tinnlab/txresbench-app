@@ -1,6 +1,6 @@
 # TESTS — analysis-workflow interface
 
-**Convention (match-existing):** cyto's frontend has **no unit runner** (no vitest) — its established test
+**Convention (match-existing):** txr's frontend has **no unit runner** (no vitest) — its established test
 tiers are **e2e (Playwright)** under `src-app/ui/tests/e2e/**` plus `tsc` + `gate:ui` (the gallery
 runtime/visual canary, recorded as the A7 boot canary, not a TEST-N). So the pure registry/store logic is
 exercised **through the real UI** in e2e (the browser runs `availability()`/`standardRecipe()`/the store

@@ -368,7 +368,7 @@ def test_TEST_21_the_SHIPPED_ENTRYPOINT_refuses_hostile_vendor_text_in_ONE_clean
     """TEST-21 [e2e] — the whole chain, on the bytes that actually reach `drain_logs`.
 
     Everything above tests a function. This tests the PROCESS: the shipped entry, launched as
-    a subprocess over the `CYTO_*` seam exactly as the sandbox launches it, over a bundle whose
+    a subprocess over the `TXR_*` seam exactly as the sandbox launches it, over a bundle whose
     `scalefactors_json.json` carries [`HOSTILE`] — terminal-clearing ESC, a `CR`, a `BEL`, a
     raw `\\n` followed by a forged `spatial.import-visium-hd: import SUCCEEDED` sentence, and
     a trailing lone surrogate that makes the document unwritable.

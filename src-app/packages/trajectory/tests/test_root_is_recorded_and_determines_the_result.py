@@ -72,7 +72,7 @@ def test_the_resolved_root_and_the_rule_that_resolved_it_are_recorded(dpt_run, f
     # …and the recorded params carry the mode the run actually honoured.
     assert report["parameters"]["root_mode"] == "root_cluster"
     # the artifact itself carries it too, not only the side-car report.
-    assert run.group_cyto("metadata-column")["trajectory"]["root"]["index"] == root["index"]
+    assert run.group_txr("metadata-column")["trajectory"]["root"]["index"] == root["index"]
 
 
 def test_a_root_with_no_key_column_records_an_honest_absence_not_an_invented_barcode(

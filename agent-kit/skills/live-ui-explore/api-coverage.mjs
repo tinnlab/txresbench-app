@@ -25,8 +25,8 @@ const arg = (n, d) => {
   const i = process.argv.indexOf(`--${n}`)
   return i >= 0 ? process.argv[i + 1] : d
 }
-const SPEC = arg('spec', '/data/pbya/ziee/tmp/live-rig-wt/src-app/ui/openapi/openapi.json')
-const HITS = arg('hits', '/data/pbya/ziee/tmp/live-ui-explore/api-coverage.json')
+const SPEC = arg('spec', '/data/pbya/txresbench/tmp/live-rig-wt/src-app/ui/openapi/openapi.json')
+const HITS = arg('hits', '/data/pbya/txresbench/tmp/live-ui-explore/api-coverage.json')
 const TOP = Number(arg('top', 40))
 
 const spec = JSON.parse(readFileSync(SPEC, 'utf8'))

@@ -6,7 +6,7 @@ r"""Every unguarded `/matrix` read becomes a NAMED refusal (#345 / #451).
 `/matrix` group itself, `/matrix/shape` and `/matrix/features` — and `main()` catches only
 `VisiumImportError`. Every one of those reads was UNGUARDED: a malformed bundle escaped as
 a raw traceback at exit 1 (INV-1's prohibited outcome), because nothing between the open
-and the first writer (`cyto_csc.write_csc_zarr`, which creates `outputs/expression.zarr`)
+and the first writer (`txr_csc.write_csc_zarr`, which creates `outputs/expression.zarr`)
 turned the failure into a named refusal. #345 / #451 add four validators that fire
 STRICTLY BEFORE that first writer, so a refused bundle leaves no store, no partial store
 and nothing for a later reader to find (INV-2).
@@ -14,7 +14,7 @@ and nothing for a later reader to find (INV-2).
 This file is the regression battery for those validators. Every row below was MEASURED on
 this exact tree BEFORE the fix, through the SHIPPED entrypoint —
 `visium_fixtures.run_entry_bytes`, which runs `compute/import_visium.py` as a subprocess
-over the `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR` seam with stdout/stderr captured as BYTES.
+over the `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR` seam with stdout/stderr captured as BYTES.
 The measured pre-fix outcome is quoted in each test's docstring; a test that merely
 restated the code would not be a regression test.
 
@@ -508,7 +508,7 @@ def test_TEST_84_a_truncated_features_name_is_refused(tmp_path):
 
         rc=1  paths=39
         ValueError: this table declares 3 rows while its membership(s) name 150 — ...
-          File ".../_lib/cyto_zarr.py", line 1080, in _membership_entries
+          File ".../_lib/txr_zarr.py", line 1080, in _membership_entries
 
     A raw traceback out of `_lib` — INV-1's prohibited outcome — and it fired AFTER
     `write_csc_zarr` and the axis stores, so 39 paths were already on disk (INV-2
@@ -1816,7 +1816,7 @@ def test_TEST_139_the_unmutated_fixture_still_imports_through_the_same_run_path(
 
     The corrupted-bundle test proves the refusal; THIS proves the mutation is what the
     refusal is about. The UNMUTATED committed fixture is driven through the SAME shipped
-    entrypoint (`visium_fixtures.run_entry_bytes`, the `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR`
+    entrypoint (`visium_fixtures.run_entry_bytes`, the `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR`
     seam) and must import at rc 0 with a real manifest — the same import that the guard
     must NOT newly refuse: an over-broad guard would refuse this valid bundle at rc 2,
     which is exactly what this positive control reddens on. The ZERO-PATH content of INV-2

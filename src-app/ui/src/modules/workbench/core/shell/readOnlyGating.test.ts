@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PRIMARY_CONTAINER, type ContainerId } from '@ziee/dock'
+import { PRIMARY_CONTAINER, type ContainerId } from '@txresbench/dock'
 import { launcherRowEnabled, paneChromeAction } from './readOnlyGating'
 import { JOB_STOP_UNAVAILABLE_REASON, jobStopUnavailableReason } from '@/modules/jobs/stopAuthority'
 

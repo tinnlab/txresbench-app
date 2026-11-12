@@ -5,7 +5,7 @@
 //! [`JobRepository::create`]), only scoped to a **dataset** instead of a project.
 //!
 //! What it adds over a bare `POST /jobs`: it resolves the dataset's one-or-many
-//! ziee-file file(s) into `dataset_file_ref` sandbox inputs server-side (the
+//! txresbench-file file(s) into `dataset_file_ref` sandbox inputs server-side (the
 //! caller never handles raw `files.id`s), folds them into the processor's spec,
 //! and stamps `CreateJobRequest.dataset_id = {id}` so the finalize ingest tags the
 //! produced `artifacts.dataset_id` with this dataset (ITEM-23 — already wired in
@@ -21,7 +21,7 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_core::{ApiResult, AppError};
+use txresbench_core::{ApiResult, AppError};
 
 use crate::modules::jobs::models::{CreateJobRequest, Job};
 use crate::modules::jobs::repository::JobRepository;

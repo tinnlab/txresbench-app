@@ -63,8 +63,8 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
 
 use super::{create_project, pool_for, server_store, setup_admin, write_manifest};
 use crate::common::TestServer;
@@ -227,13 +227,13 @@ async fn tables_containing(pool: &SqlitePool, needle: &str) -> Vec<(String, i64)
 async fn ingest_key_artifact(
     server: &TestServer,
     pool: &SqlitePool,
-    store: &cytoanalyst::modules::workstore::object_store::LocalFsStore,
+    store: &txresbench::modules::workstore::object_store::LocalFsStore,
     project: Uuid,
     output_id: &str,
     label: &str,
     members: &[(&str, &[u8])],
     n: usize,
-) -> cytoanalyst::modules::workstore::catalog::models::Artifact {
+) -> txresbench::modules::workstore::catalog::models::Artifact {
     ingest_key_artifact_scoped(
         server,
         pool,
@@ -256,7 +256,7 @@ async fn ingest_key_artifact(
 async fn ingest_key_artifact_scoped(
     server: &TestServer,
     pool: &SqlitePool,
-    store: &cytoanalyst::modules::workstore::object_store::LocalFsStore,
+    store: &txresbench::modules::workstore::object_store::LocalFsStore,
     project: Option<Uuid>,
     dataset: Option<Uuid>,
     datatype: &str,
@@ -264,7 +264,7 @@ async fn ingest_key_artifact_scoped(
     label: &str,
     members: &[(&str, &[u8])],
     n: usize,
-) -> cytoanalyst::modules::workstore::catalog::models::Artifact {
+) -> txresbench::modules::workstore::catalog::models::Artifact {
     let ws = server
         .data_dir()
         .join(format!("staging-{}", Uuid::new_v4()));
@@ -310,7 +310,7 @@ const COL_AXIS: &str = "columns";
 /// The family's BASE type, derived from the registry-resolved id-set: the id whose
 /// descendant closure covers every other member. Returns `None` for an empty set.
 fn family_base(ids: &[String]) -> Option<String> {
-    use cytoanalyst::modules::datatype::DatatypeRegistry;
+    use txresbench::modules::datatype::DatatypeRegistry;
     let reg = DatatypeRegistry::build_from_embedded().expect("merged registry builds");
     ids.iter()
         .find(|cand| {
@@ -323,7 +323,7 @@ fn family_base(ids: &[String]) -> Option<String> {
 /// The axis-index FAMILY id-set `sandbox::inputs::axis_index_datatype_allow`
 /// resolves from the registry (DEC-12) — derived, never a datatype-id literal.
 fn metadata_column_family() -> Vec<String> {
-    use cytoanalyst::modules::datatype::DatatypeRegistry;
+    use txresbench::modules::datatype::DatatypeRegistry;
     let reg = DatatypeRegistry::build_from_embedded().expect("merged registry builds");
     let mut set: Vec<String> = reg
         .types_with_capability("metadata-column-family")
@@ -359,7 +359,7 @@ fn metadata_column_family() -> Vec<String> {
 /// (the id-set [`metadata_column_family`] resolves), and no member of it declares
 /// `opaque`, so there is nothing in scope to select.
 fn declared_layout(datatype: &str) -> String {
-    use cytoanalyst::modules::datatype::DatatypeRegistry;
+    use txresbench::modules::datatype::DatatypeRegistry;
     let reg = DatatypeRegistry::build_from_embedded().expect("merged registry builds");
     reg.get(datatype)
         .unwrap_or_else(|| {
@@ -385,7 +385,7 @@ fn declared_layout(datatype: &str) -> String {
 /// non-tautological: it fails the same way whether a future edit reintroduces a literal,
 /// selects an abstract datatype, or drifts the shape.
 fn certify_producible(manifest: &Value) {
-    use cytoanalyst::modules::datatype::{validate_artifact_typing, DatatypeRegistry};
+    use txresbench::modules::datatype::{validate_artifact_typing, DatatypeRegistry};
     let reg = DatatypeRegistry::build_from_embedded().expect("merged registry builds");
     for entry in manifest["outputs"]
         .as_array()
@@ -887,9 +887,9 @@ async fn gathered_key_column(
     datatype: &str,
     axis: &str,
     definition: &str,
-) -> cytoanalyst::modules::workstore::catalog::models::Artifact {
-    use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-    use cytoanalyst::modules::workstore::virtual_dataset::{gathered_structure, KeyIdentity};
+) -> txresbench::modules::workstore::catalog::models::Artifact {
+    use txresbench::modules::workstore::catalog::models::NewArtifact;
+    use txresbench::modules::workstore::virtual_dataset::{gathered_structure, KeyIdentity};
     repo.insert_artifact(&NewArtifact {
         project_id: None,
         dataset_id: Some(dataset),

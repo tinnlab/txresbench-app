@@ -2,7 +2,7 @@ import { ApiClient } from '@/api-client'
 import { type McpSettings as McpSettingsRow, type UpdateMcpSettings } from '@/api-client/types'
 import { Permissions } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /**
  * MCP admin settings singleton (issue #54: agent/tool caps + pairing-TTL) for the

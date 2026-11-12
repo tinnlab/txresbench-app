@@ -5,7 +5,7 @@
 //! run through — ONE verification function, no divergent copies (INV-11).
 //!
 //! The layout: the bundle dir is the seams' `bundled_dir()` (the
-//! `CYTO_TXR_BUNDLED_MODELS_DIR` env override, else
+//! `TXR_BUNDLED_MODELS_DIR` env override, else
 //! `<data_root>/pretrained-bundled/` — resolved in `catalogue.rs`); each
 //! bundled entry's file lives at `<bundled_dir>/<asset.file>` and is
 //! verified against the CATALOGUE entry's `asset.sha256` + `asset.size_bytes`

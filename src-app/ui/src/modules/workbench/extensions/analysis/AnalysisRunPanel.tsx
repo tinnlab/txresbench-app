@@ -9,7 +9,7 @@
 // pane).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Tag } from '@ziee/kit'
+import { Alert, Button, Tag } from '@txresbench/kit'
 import { ApiClient } from '@/api-client'
 import type { Artifact } from '@/api-client/types'
 // The DECLARED axis names of an artifact's datatype (the same registry the workbench

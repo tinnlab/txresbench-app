@@ -1,4 +1,4 @@
-import type { TagTone } from '@ziee/kit'
+import type { TagTone } from '@txresbench/kit'
 
 /**
  * The artifact-status VOCABULARY, in one place (ITEM-41).

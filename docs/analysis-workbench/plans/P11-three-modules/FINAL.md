@@ -3,7 +3,7 @@
 The end-to-end proof that a single-cell workflow (upload → QC/normalize → embed → cluster → explore) is
 buildable as **three no-Rust extensions** under `extensions/{data-io,embedding,clustering}/`, each a
 **manifest (`extension.yaml`) + sandboxed Python/scanpy `compute/*.py` + declarative `schema/*.json`
-(params + settings) + thin `ui/*.tsx` over `@cyto/workbench-api`**, composed purely through the typed
+(params + settings) + thin `ui/*.tsx` over `@txresbench/workbench-api`**, composed purely through the typed
 artifact graph (`accepts`/`produces`) and never importing one another. P11 builds **zero kernel machinery**;
 it *consumes* P1–P10 and is the acceptance test that "add a feature = drop a folder, kernel unchanged." If a
 module reaches for Rust, that's a gap in P1–P8 to fix in-kernel, not a P11 item.
@@ -22,7 +22,7 @@ declarative schemas.
 ## Items
 
 ### Module 1 — data-io (upload → sandboxed QC/normalize → save)
-- **ITEM-1**: `extensions/data-io/extension.yaml` — manifest (`id: cyto.data-io`, `apiVersion:"^1.0"`) declaring
+- **ITEM-1**: `extensions/data-io/extension.yaml` — manifest (`id: txr.data-io`, `apiVersion:"^1.0"`) declaring
   `analyses: [data.process, save.sample]`; `views: [{samples, area:left, component:ui/UploadPanel},
   {qc-review, area:bottom, when:"has:qc-report", component:ui/QcReviewPanel}]`; `settings:[{id:qc-defaults,
   schema:schema/qc.settings.json}]`; `activation:[onView:samples, onAnalysis:data.process]`. Each analysis
@@ -60,8 +60,8 @@ declarative schemas.
 - **ITEM-6**: `schema/qc.settings.json` + declarative `settings:qc-defaults` (P5-A provisioner) —
   deployment-wide default QC thresholds an admin sets; host renders the admin card + gated GET/PUT + sync
   entity, **zero server code**; `data.process` params default from this row when unset.
-- **ITEM-7**: `ui/UploadPanel.tsx` (code `view`, left dock) — thin panel over `@cyto/kit`+`@cyto/workbench-api`:
-  drag-drop to the host **file store** (`ziee-file`, `api.files.upload`; types AnnData `.h5ad`, 10x
+- **ITEM-7**: `ui/UploadPanel.tsx` (code `view`, left dock) — thin panel over `@txresbench/kit`+`@txresbench/workbench-api`:
+  drag-drop to the host **file store** (`txresbench-file`, `api.files.upload`; types AnnData `.h5ad`, 10x
   `.h5`/`.zip`/`.tar.gz`, mtx trio), lists uploads → `uploaded-matrix` artifact, offers "Process" (opens the
   host-rendered `data.process` form). Client-side preview (assays, N cells, metadata cols) mirrors legacy
   `read-anndata`/`read-10X` — JS parse for preview only; real ingest is the sandbox. Reuses interface-round
@@ -78,7 +78,7 @@ declarative schemas.
   `metadata-column`, `embedding`, `clustering` are P2-core.
 
 ### Module 2 — embedding (sandboxed pca/umap → embedding; fieldProvider; scatter view-kind)
-- **ITEM-10**: `extensions/embedding/extension.yaml` — `id: cyto.embedding`,
+- **ITEM-10**: `extensions/embedding/extension.yaml` — `id: txr.embedding`,
   `analyses:[embedding.pca, embedding.umap]`, `fieldProviders:[embeddings]`,
   `activation:[onAnalysis:embedding.pca, onAnalysis:embedding.umap]`; `recipeOrder` after data-io; LLM
   metadata + `safety:read-run`. References the built-in `scatter` view-kind for `coordinates`/`embedding`.
@@ -113,7 +113,7 @@ declarative schemas.
   module template).
 
 ### Module 3 — clustering (sandboxed leiden/louvain → clustering; fieldProvider; selectionAction:subcluster)
-- **ITEM-17**: `extensions/clustering/extension.yaml` — `id: cyto.clustering`,
+- **ITEM-17**: `extensions/clustering/extension.yaml` — `id: txr.clustering`,
   `analyses:[clustering.leiden, clustering.louvain]` (`accepts:[{type:embedding}] → produces:[clustering]`;
   gated until an `embedding` exists), `fieldProviders:[clusterings]`, `selectionActions:[{id:subcluster,
   when:"has-selection", command:clustering.subcluster}]`. LLM metadata + `safety:read-run`.
@@ -255,10 +255,10 @@ become real compute outputs.
   SelectableScatter + ChunkedScatter + conformance battery) — **adopted** as the built-in view-kind, not
   rebuilt.
 - **Host kernel**: P1 data API/catalog/range-serving, P2 datatype registry, P3 `sandbox::run_analysis` +
-  `ExtraMount` + JobRunner + rootfs, P4 provenance, P5 `@cyto/workbench-api` + manifest loader + `settings`
+  `ExtraMount` + JobRunner + rootfs, P4 provenance, P5 `@txresbench/workbench-api` + manifest loader + `settings`
   provisioner + discovery glob, P6 docks/form-from-schema (incl. artifact-ref picker)/result-from-kind/
   fieldProvider+selectionAction slots, P7 view-kind registry, P8 selection/recipe, P10 study scoping, file
-  store `ziee-file`.
+  store `txresbench-file`.
 - **§8.5 worked example**: module-1 manifest, directory layout, and compose-DAG are the literal template.
 
 ---
@@ -269,7 +269,7 @@ become real compute outputs.
 | **HARD** | **P1 data-foundation** | working store + `analysis_results` catalog + data API + authed byte-range (Zarr) serving + outputs-manifest ingest (fan-out). Every module's outputs land here. |
 | **HARD** | **P2 datatype-system** | the datatypes (`single-cell/expression`, `embedding`, `clustering`, `metadata-column`, `matrix`, `report/qc`) + subtyping + `accepts`/`produces` type-match gating + storage layouts (chunked-sparse CSC / chunked-dense / Zarr / Parquet). |
 | **HARD** | **P3 compute-scheduling** | JobRunner→bwrap + a **scanpy scientific rootfs** + the `inputs.json`/`/outputs`+`manifest.json` contract + interactive/batch class. **THE key dependency — no analysis runs without it.** |
-| **HARD** | **P5 contribution-api** | `@cyto/workbench-api`, the manifest schema + validator, the `artifact-ref` param type, the declarative `settings` provisioner (qc-defaults), and build-time discovery/loader. |
+| **HARD** | **P5 contribution-api** | `@txresbench/workbench-api`, the manifest schema + validator, the `artifact-ref` param type, the declarative `settings` provisioner (qc-defaults), and build-time discovery/loader. |
 | **HARD** | **P6 workbench-shell** | JSON-schema→form renderer INCLUDING the **artifact-ref auto-populated picker widget**, result-from-kind panels, semantic dock slots (left/bottom), file-store upload affordance, `fieldProvider`/`selectionAction` slots. |
 | **HARD** | **P7 visualization** | the **view-kind registry** the built-in scatter registers into + fieldProvider color-by + categorical legend rendering embedding/clustering. |
 | SOFT | **P4 provenance** | inherited automatically — each sandbox run = a run node + code blob; `methodsText` feeds methods export. No P11 code. |
@@ -386,7 +386,7 @@ Within each module: manifest+schema (declarative, testable against the P5 valida
 
 ## Effort estimate
 Consumer, not a builder — **assuming P1–P8 are landed**; near-zero novel infra (all reuse + port). Dominated by
-the three `compute/*.py` correctness + the integration/e2e proof; the UI is thin over `@cyto/workbench-api`.
+the three `compute/*.py` correctness + the integration/e2e proof; the UI is thin over `@txresbench/workbench-api`.
 **Zero Rust.**
 - **data-io**: L (~40%) — upload UI + multi-output compute + QC-review panel + settings + the hardest read
   paths + `report/qc` datatype. (~2 wk)

@@ -46,9 +46,9 @@
 
 use async_trait::async_trait;
 
-use ziee_auth::{User, UserCreatedHook};
-use ziee_core::AppError;
-use ziee_core::DbConnection;
+use txresbench_auth::{User, UserCreatedHook};
+use txresbench_core::AppError;
+use txresbench_core::DbConnection;
 
 use super::repository::AccountRepository;
 

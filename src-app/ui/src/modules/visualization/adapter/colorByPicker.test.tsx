@@ -26,13 +26,13 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { SELECT_SEARCH_THRESHOLD } from '@ziee/kit'
-import type { DatasetCatalog } from '@ziee/viz'
+import { SELECT_SEARCH_THRESHOLD } from '@txresbench/kit'
+import type { DatasetCatalog } from '@txresbench/viz'
 
 const coloringCalls: string[] = []
 
-vi.mock('@ziee/viz', async importOriginal => {
-  const actual = await importOriginal<typeof import('@ziee/viz')>()
+vi.mock('@txresbench/viz', async importOriginal => {
+  const actual = await importOriginal<typeof import('@txresbench/viz')>()
   return {
     ...actual,
     // The two GL/canvas mounts. Nothing else is replaced.
@@ -82,7 +82,7 @@ function openColorBy(): void {
 /** The catalog the page itself mounts — same source, same seed, a token point count. Every
  *  column name the assertions use comes from HERE. */
 async function pageCatalog(): Promise<DatasetCatalog> {
-  const { FixtureSource } = await import('@ziee/viz')
+  const { FixtureSource } = await import('@txresbench/viz')
   return new FixtureSource({ seed: 42, pointCount: 16 }).catalog()
 }
 

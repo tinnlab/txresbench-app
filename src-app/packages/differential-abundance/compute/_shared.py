@@ -44,8 +44,8 @@ from pathlib import Path
 
 import numpy as np
 
-import cyto_columns
-import cyto_deps
+import txr_columns
+import txr_deps
 
 
 # ── datatypes emitted (id, artifact-row layout) — the SHAPE ingest validates ───────
@@ -136,7 +136,7 @@ def safe_label(raw, *, default="abundance", limit=64):
 
     The label is a free-text control the user types, and it reaches `outputs/columns/<label>.zarr`.
     A label containing `/` or `..` would put the artifact somewhere the run does not own — the
-    same traversal `cyto_zarr.Table._claim` refuses for a member NAME, at the one level above it.
+    same traversal `txr_zarr.Table._claim` refuses for a member NAME, at the one level above it.
     So it is reduced here rather than trusted: every character outside the conservative set above
     becomes `_`, runs of `_` collapse, and the result is trimmed and capped. An empty or
     fully-unsafe label falls back to the default rather than producing an empty path segment.
@@ -165,8 +165,8 @@ def fail(message, code=2):
 
 # ── io + wire contract (mirrors clustering/_shared, differential-expression/_shared) ─
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -249,7 +249,7 @@ def progress(phase, pct=None, message=None):
             parts.append("")
         parts.append(str(message))
     line = "|".join(parts)
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if fifo:
         if _PROGRESS_FD[0] < 0:
             try:
@@ -276,9 +276,9 @@ def write_manifest(outputs_dir, entries):
     # id. Round R1 found this package holding the BUILD-time half of #80 (`run.dependencies[]`)
     # and none of the run-time half — the only compute package in the tree in that state.
     #
-    # The datatype is passed IN, not named by `cyto_deps`: that module is app-core and may not
+    # The datatype is passed IN, not named by `txr_deps`: that module is app-core and may not
     # name a package's datatypes.
-    cyto_deps.augment(outputs_dir, entries, DT_REPORT_QC)
+    txr_deps.augment(outputs_dir, entries, DT_REPORT_QC)
     (outputs_dir / "manifest.json").write_text(json.dumps({"outputs": entries}, indent=2))
 
 
@@ -288,9 +288,9 @@ def output_entry(id, datatype_layout, path, role, *, structure, meta=None):
             "structure": structure, "meta": meta}
 
 
-def stamp_cyto_attributes(store_dir, structure, **kv):
-    """Merge extra provenance keys into an ALREADY-WRITTEN cyto_zarr store's group
-    `attributes.cyto` AND the in-memory `structure`, keeping the two IDENTICAL (the
+def stamp_txr_attributes(store_dir, structure, **kv):
+    """Merge extra provenance keys into an ALREADY-WRITTEN txr_zarr store's group
+    `attributes.txr` AND the in-memory `structure`, keeping the two IDENTICAL (the
     conformance gate requires a store-URL reader and an artifact-row reader to decode
     identically). `None` values are skipped so an absent bit stays absent (honest)."""
     for k, v in kv.items():
@@ -302,7 +302,7 @@ def stamp_cyto_attributes(store_dir, structure, **kv):
     if not isinstance(attrs, dict):
         attrs = {}
         doc["attributes"] = attrs
-    attrs["cyto"] = structure
+    attrs["txr"] = structure
     meta.write_text(json.dumps(doc, indent=2, ensure_ascii=False))
     return structure
 
@@ -316,8 +316,8 @@ def artifact_structure(path):
         doc = json.loads(meta.read_text())
     except (OSError, ValueError):
         return None
-    cyto = (doc.get("attributes") or {}).get("cyto")
-    return cyto if isinstance(cyto, dict) else None
+    txr = (doc.get("attributes") or {}).get("txr")
+    return txr if isinstance(txr, dict) else None
 
 
 def read_embedding_structure(path, slot):
@@ -332,7 +332,7 @@ def read_embedding_structure(path, slot):
     if structure is None:
         fail(
             f"input on slot {slot!r} at {path.name!r} carries no `structure` declaration in a "
-            "group `zarr.json` — an `embedding` artifact is a dense 2-D cyto_zarr store"
+            "group `zarr.json` — an `embedding` artifact is a dense 2-D txr_zarr store"
         )
     arrays = structure.get("arrays") or []
     dense = [a for a in arrays if isinstance(a, dict) and len(a.get("shape") or []) == 2]
@@ -361,36 +361,36 @@ def read_embedding_structure(path, slot):
 
 def read_embedding_matrix(path, member):
     """Read the dense `(n_cells × n_dims)` embedding member as a float32 numpy array."""
-    import cyto_zarr_read
+    import txr_zarr_read
 
-    return np.asarray(cyto_zarr_read.read_array(Path(path), member), dtype=np.float32)
+    return np.asarray(txr_zarr_read.read_array(Path(path), member), dtype=np.float32)
 
 
 def read_column_values(path, slot):
     """A `metadata-column` artifact → its VALUES as a list of `str` (population / condition /
     sample labels). Native dtype is coerced to text so a categorical grouping reads uniformly."""
-    import cyto_zarr_read
+    import txr_zarr_read
 
     path = Path(path)
     structure = artifact_structure(path)
     if structure is None:
         fail(
             f"column input on slot {slot!r} at {path.name!r} carries no `structure` declaration "
-            "— it is not a cyto_zarr column artifact"
+            "— it is not a txr_zarr column artifact"
         )
     member = structure.get("key")
     if not member:
         columns = structure.get("columns") or []
         if len(columns) == 1 and isinstance(columns[0], dict):
             member = columns[0].get("path") or columns[0].get("name")
-    values = cyto_zarr_read.read_column(path, member or "values")
+    values = txr_zarr_read.read_column(path, member or "values")
     if hasattr(values, "tolist"):
         values = values.tolist()
     return [("" if v is None else str(v)) for v in values]
 
 
 def column_provenance(path):
-    """A column's `attributes.cyto` provenance dict (the regime classifier's input). Returns the
+    """A column's `attributes.txr` provenance dict (the regime classifier's input). Returns the
     whole dict (it may carry a `clustering`/annotation/prediction sub-key, or an `external` bit)
     or `{}` when the column declares none.
 
@@ -414,7 +414,7 @@ def column_provenance(path):
     The residual, honest risk: if the population labels WERE derived with knowledge of the
     condition (clustering after condition-aware integration; an annotation transferred from a
     condition-matched reference) then the selection IS circular. That cannot be detected reliably
-    from `attributes.cyto` today, so it is a STATED LIMITATION in `methods.md` rather than a fake
+    from `attributes.txr` today, so it is a STATED LIMITATION in `methods.md` rather than a fake
     guard — inventing a detector we cannot make sound would be worse than disclosing the gap.
     """
     return artifact_structure(path) or {}
@@ -479,12 +479,12 @@ def write_da_result(outputs_dir, rel_dir, name, population_ids, columns, *, regi
 
     Returns `(structure, meta)` — the two declarations the manifest entry carries.
     """
-    import cyto_zarr
+    import txr_zarr
 
     n = len(population_ids)
     dest = outputs_dir / rel_dir
     written = []
-    with cyto_zarr.Table(dest, axis="populations", n=n, key="population",
+    with txr_zarr.Table(dest, axis="populations", n=n, key="population",
                          aligned_to=aligned_to) as t:
         t.string("population", [str(p) for p in population_ids])
         for member, arr in columns.items():
@@ -503,7 +503,7 @@ def write_da_result(outputs_dir, rel_dir, name, population_ids, columns, *, regi
              "spatial_fdr_written": "spatial_fdr" in written}
     if extra_attrs:
         attrs.update(extra_attrs)
-    stamp_cyto_attributes(dest, structure, da=attrs)
+    stamp_txr_attributes(dest, structure, da=attrs)
     meta["da"] = attrs
     return structure, meta
 
@@ -535,10 +535,10 @@ def regime_note_for(regime_module, regime, fit_record):
 
 
 def library_versions():
-    """The RESOLVED version of every library this entry DECLARED — from `cyto_deps` (#80).
+    """The RESOLVED version of every library this entry DECLARED — from `txr_deps` (#80).
 
     ── WHY THIS IS NOT A HAND-WRITTEN LIST ───────────────────────────────────────────────────
-    It was one, and `_lib/cyto_deps.py` exists because four packages each had the same one. Its
+    It was one, and `_lib/txr_deps.py` exists because four packages each had the same one. Its
     docstring names the three defects every copy shared, and this copy had all three: the library
     list was typed out separately from the libraries the code imports (so it drifted — round R1
     found `da.clusters` reaching `scanpy`, `anndata` and `sklearn` through `__import__` here while
@@ -546,12 +546,12 @@ def library_versions():
     an absent library read as "unknown" and the run continued); and nothing compared the recorded
     version to anything (so recording it changed no outcome).
 
-    `cyto_deps` fixes all three by construction: the subject set is the DECLARED contract — the
+    `txr_deps` fixes all three by construction: the subject set is the DECLARED contract — the
     same `run.dependencies[]` the build gate reads — an unreadable version REFUSES, and every
     version is checked against its declared range. It reads distribution metadata rather than
     `__version__`, which is being removed (this function's own `__import__` was emitting
     `FutureWarning: __version__ is deprecated` on every run).
 
-    Memoized in `cyto_deps`, so this and the manifest-write hook resolve once and cannot disagree.
+    Memoized in `txr_deps`, so this and the manifest-write hook resolve once and cannot disagree.
     """
-    return cyto_deps.resolve_and_check()["libraries"]
+    return txr_deps.resolve_and_check()["libraries"]

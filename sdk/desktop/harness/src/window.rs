@@ -1,17 +1,17 @@
 //! The reusable desktop **window + boot→window orchestration** shell
 //! (Chunk D-full).
 //!
-//! Moved verbatim from `ziee-desktop`'s `modules/backend/mod.rs`:
+//! Moved verbatim from `txresbench-desktop`'s `modules/backend/mod.rs`:
 //!   - `create_main_window` (the per-OS main-window construction), and
 //!   - the boot→window spawn skeleton of `start_backend_server`
 //!     ([`spawn_boot_then_window`]), generalized over the [`ServerBoot`] seam.
 //!
-//! A second SDK app (CytoAnalyst) gets the identical window lifecycle for free.
+//! A second SDK app (TxResBench) gets the identical window lifecycle for free.
 //! The app supplies only its window parameters ([`WindowConfig`]) + its domain
 //! post-boot steps (the `on_ready` closure); the harness owns the per-OS window
 //! chrome, the boot spawn, and the "create the window on BOTH the success and
 //! failure paths" contract. The harness names ONLY the [`ServerBoot`] seam —
-//! never `ziee::` — so it stays app-agnostic.
+//! never `txresbench::` — so it stays app-agnostic.
 
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -56,7 +56,7 @@ fn popout_new_window_response(
 /// live here.
 #[derive(Clone, Debug)]
 pub struct WindowConfig {
-    /// Window title (ziee passes `""` — the titlebar is drawn by the web UI).
+    /// Window title (txresbench passes `""` — the titlebar is drawn by the web UI).
     pub title: String,
     /// Initial inner size `(width, height)` in logical px.
     pub inner_size: (f64, f64),
@@ -81,7 +81,7 @@ pub struct WindowConfig {
 ///
 /// The window is created on BOTH the success and failure paths (a failed boot
 /// still shows the window so the UI's bootstrap retry loop can render its
-/// "backend failed" state) — preserved verbatim from the ziee desktop shell.
+/// "backend failed" state) — preserved verbatim from the txresbench desktop shell.
 pub fn spawn_boot_then_window<F, Fut>(
     boot: Arc<dyn ServerBoot>,
     app_handle: tauri::AppHandle,
@@ -112,7 +112,7 @@ pub fn spawn_boot_then_window<F, Fut>(
                 // Creating the window anyway lets the desktop UI's bootstrap
                 // retry loop run, time out against the dead backend, and render
                 // the 'failed' state ("Backend failed to start. Try restarting
-                // Ziee.").
+                // TxResBench.").
                 create_main_window(&app_handle, &window);
             }
         }

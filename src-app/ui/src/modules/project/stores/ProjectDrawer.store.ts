@@ -1,5 +1,5 @@
 import { type ProjectDto } from '@/api-client/types'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /** UI-only store for the project create/edit form drawer + the share + transfer
  *  drawers (which entity they target lives in ProjectDetail). */

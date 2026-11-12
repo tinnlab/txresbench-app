@@ -34,7 +34,7 @@
  * read "failure").
  */
 import type { CSSProperties } from 'react'
-import { Input, MultiSelect, Select } from '@ziee/kit'
+import { Input, MultiSelect, Select } from '@txresbench/kit'
 import type { TxrHeatmapColumn, TxrOutcomeKey, TxrSortKey } from '../types'
 import { LEGEND_LABEL } from '../lib/format'
 

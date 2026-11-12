@@ -7,7 +7,7 @@ the `/inputs`/`/outputs` wire contract, slot resolution, the CSC-matrix reader, 
 ceiling gate, `progress`/`fail`, the manifest writer and the column-reading helpers - but not
 function-for-function: this module adds `column_missing_level`, `is_missing_label`,
 `import_threshold_backend`, `_peak_bytes` and `_stricter_only`, omits embedding's Harmony
-helpers and `stamp_cyto_attributes`, and its `ceiling_refuse_if_over` has a different
+helpers and `stamp_txr_attributes`, and its `ceiling_refuse_if_over` has a different
 signature and a materially different memory model. The
 entry declares `helpers: [compute/_shared.py]` so the runner stages this sibling into
 `/code` alongside it, where `import _shared` resolves off `sys.path[0]` (the entry's own
@@ -46,9 +46,9 @@ from pathlib import Path
 
 import numpy as np
 
-# The shared output-format library (`_lib`, staged into `/code`). `cyto_columns` imports
+# The shared output-format library (`_lib`, staged into `/code`). `txr_columns` imports
 # pandas lazily, so importing it here keeps this module's floor at numpy + stdlib.
-import cyto_columns
+import txr_columns
 
 
 # ── datatypes emitted (id, layout) — the SHAPE ingest validates ───────────────────
@@ -72,8 +72,8 @@ def fail(message, code=2):
 
 # ── io + wire contract (mirrors qc-10x.py / embedding/_shared.py) ──────────────────
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -132,7 +132,7 @@ def progress(phase, pct=None, message=None):
             parts.append("")
         parts.append(str(message))
     line = "|".join(parts)
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if fifo:
         if _PROGRESS_FD[0] < 0:
             try:
@@ -170,8 +170,8 @@ def artifact_structure(path):
         doc = json.loads(meta.read_text())
     except (OSError, ValueError):
         return None
-    cyto = (doc.get("attributes") or {}).get("cyto")
-    return cyto if isinstance(cyto, dict) else None
+    txr = (doc.get("attributes") or {}).get("txr")
+    return txr if isinstance(txr, dict) else None
 
 
 def read_matrix_structure(path, slot):
@@ -223,10 +223,10 @@ def read_matrix_csc(path, structure):
     A `single-cell/expression` store is CSC over the GENES axis (`axes: [cells, genes]`), so
     `indptr` cuts by gene/column and `indices` holds cell/row ids — exactly what a scipy CSC
     wants (`(data, indices, indptr)`, `shape=(n_cells, n_genes)`)."""
-    import cyto_csc
+    import txr_csc
     import scipy.sparse as sp
 
-    indptr, indices, data = cyto_csc.read_csc(Path(path))
+    indptr, indices, data = txr_csc.read_csc(Path(path))
     n_cells, n_genes = int(structure["shape"][0]), int(structure["shape"][1])
 
     # The ceiling gate sized this run from the DECLARED `nnz`. That declaration is now
@@ -262,21 +262,21 @@ def read_column_native(path, slot):
     labels, strings, or a numpy numeric array). Used by the inline filter so a numeric obs
     column keeps its dtype and the `criteria_keep_mask` range branch takes the numeric fast
     path, exactly as `cell-filter` reads `adata.obs`."""
-    import cyto_zarr_read
+    import txr_zarr_read
 
     path = Path(path)
     structure = artifact_structure(path)
     if structure is None:
         fail(
             f"input on slot {slot!r} at {path.name!r} carries no `structure` declaration — "
-            "it is not a cyto_zarr column artifact"
+            "it is not a txr_zarr column artifact"
         )
     member = structure.get("key")
     if not member:
         columns = structure.get("columns") or []
         if len(columns) == 1 and isinstance(columns[0], dict):
             member = columns[0].get("path")
-    return cyto_zarr_read.read_column(path, member or "values")
+    return txr_zarr_read.read_column(path, member or "values")
 
 
 def read_column_values(path, slot):
@@ -291,7 +291,7 @@ def column_missing_level(path):
     """The label a CATEGORICAL column artifact invented for its MISSING values, or `None`.
 
     This exists because "missing" has two spellings on the wire and only one of them is
-    blank. `cyto_columns.write_metadata_column`'s STRING branch writes a missing value as
+    blank. `txr_columns.write_metadata_column`'s STRING branch writes a missing value as
     `""`; its CATEGORICAL branch instead invents a real declared level — `_missing_level`,
     `"NA"` unless that collides — and stamps its name so a reader can tell it apart from a
     genuine category that happens to be spelled "NA".
@@ -303,8 +303,8 @@ def column_missing_level(path):
     structure = artifact_structure(path)
     if not isinstance(structure, dict):
         return None
-    # The stamp lives on the COLUMN ENTRY in the group's declared structure — `cyto_zarr`
-    # writes it there and NOT onto the member array's own `attributes.cyto`, so a lookup on
+    # The stamp lives on the COLUMN ENTRY in the group's declared structure — `txr_zarr`
+    # writes it there and NOT onto the member array's own `attributes.txr`, so a lookup on
     # the array node is dead code. Select the entry the SAME way `read_column_native` selects
     # the member whose values we read (`structure["key"]`, else the sole column, else
     # `"values"`); scanning for "the first column that has one" would, on a multi-member
@@ -321,7 +321,7 @@ def column_missing_level(path):
 
 #: The EXACT string forms a missing value arrives as, matched CASE-SENSITIVELY.
 #:
-#: `cyto_columns._as_strings` maps `None` and float-`NaN` to `""`, so a blank covers those.
+#: `txr_columns._as_strings` maps `None` and float-`NaN` to `""`, so a blank covers those.
 #: What it does NOT map is `pd.NA` (object dtype), which becomes the literal `"<NA>"`, and
 #: `pd.NaT` (datetime), which becomes `"NaT"` — and both of those columns are stamped
 #: `kind: categorical`, so the sample picker offers them and they carry no `missing_level`

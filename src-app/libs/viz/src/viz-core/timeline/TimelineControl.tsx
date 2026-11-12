@@ -2,7 +2,7 @@
 // A horizontal rail whose single handle scrubs the frame, plus play/pause + prev/next
 // step buttons and an rAF play loop. Controlled: `model` in, `onChange(model)` out —
 // the parent maps `model.frame` → a GPU `filterRange` (frameToRange) to filter points.
-// Framework-agnostic viz-core (no @ziee/*): reuses the shared DragRail primitive (does
+// Framework-agnostic viz-core (no @txresbench/*): reuses the shared DragRail primitive (does
 // NOT reimplement pointer-drag).
 
 import { useCallback, useEffect, useRef } from 'react'

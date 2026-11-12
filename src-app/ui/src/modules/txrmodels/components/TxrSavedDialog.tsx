@@ -26,7 +26,7 @@
  */
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Dialog } from '@ziee/kit'
+import { Button, Dialog } from '@txresbench/kit'
 import type { ModelSaveResponse } from '@/api-client/types'
 import { ApiClient } from '@/api-client'
 import { useTxrIntakeStore } from '@/modules/txrintake'

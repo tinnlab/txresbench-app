@@ -50,7 +50,7 @@ from align import AlignmentError, _apply_normalize, _as_key, align
 
 # THE MISSING-LEVEL LABEL RULE, imported rather than copied (C4).
 #
-# `cyto_columns` already owns the tree's answer to "what does a missing categorical value
+# `txr_columns` already owns the tree's answer to "what does a missing categorical value
 # hold": *"give it a real, declared level rather than dropping it or storing an out-of-range
 # code"*. This module needs the SAME rule for the UNIFIED vocabulary, applied to a different
 # level set — so it must be the same function, not a second implementation of it.
@@ -60,7 +60,7 @@ from align import AlignmentError, _apply_normalize, _as_key, align
 # level could be shadowed. It is `_`-private and this is the only cross-package use; that is
 # a smaller cost than the divergence, and both files are staged into the same `/code` bundle
 # so the import is free at runtime.
-from cyto_columns import _missing_level as missing_level_label
+from txr_columns import _missing_level as missing_level_label
 
 # No `__all__`. It was added out of habit, was already missing `alignment_metadata`,
 # `coverage_sidecar` and `definition_content_hash` — the producer's own primary calls — on
@@ -759,7 +759,7 @@ def resolve_levels(sources, level_sets, *, mode=None, authority=None):
     #   * a level that is `_ABSENT_KEY` in the source — absence, deliberately not recorded
     #     as dropped.
     #
-    # Both leave a row needing a value, and the answer is NOT a sentinel. `cyto_columns`
+    # Both leave a row needing a value, and the answer is NOT a sentinel. `txr_columns`
     # settled this for the whole tree — *"give it a real, declared level rather than
     # dropping it or storing an out-of-range code"* — and the `-1` this function used to
     # imply is exactly the out-of-range code that idiom refuses.
@@ -832,7 +832,7 @@ def apply_level_lookup(codes, lookup):
 #:
 #: The original comment below is preserved because its reasoning is where the mistake was:
 #: `-1` is pandas' own missing code IN MEMORY, and translating that to STORAGE is exactly
-#: what `cyto_columns` refuses (*"rather than storing an out-of-range code"*).
+#: what `txr_columns` refuses (*"rather than storing an out-of-range code"*).
 #:
 #: The STORED spelling of "this mode dropped that level", in an emitted level-lookup vector.
 #:
@@ -1090,21 +1090,21 @@ def source_key_digests(sources):
     producer has not finished writing. The ordered key sequence is the only identity a
     declaration can carry, which is why it, and not the hash, pins the sources.
 
-    ## Why `cyto_zarr.key_sequence_digest` and not a set hash
+    ## Why `txr_zarr.key_sequence_digest` and not a set hash
 
     It is ORDER-SENSITIVE, and that is the entire property. Two arrays holding the same keys
     in a different order describe DIFFERENT alignments — row 3 means a different entity in
     each — so an order-independent set hash (which this same module also offers, as
     `vocab_declaration`'s `vocab_digest`) would certify exactly the failure the digest exists
-    to catch. The two live side by side in `cyto_zarr`, so picking the wrong one is a real
+    to catch. The two live side by side in `txr_zarr`, so picking the wrong one is a real
     and easy mistake.
 
     `None` means **"cannot be checked"** and must never read as "matches" (INV-5).
     """
-    import cyto_zarr
+    import txr_zarr
 
     return [
-        None if source.row_keys is None else cyto_zarr.key_sequence_digest(source.row_keys)
+        None if source.row_keys is None else txr_zarr.key_sequence_digest(source.row_keys)
         for source in sources
     ]
 

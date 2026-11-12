@@ -76,8 +76,8 @@ def encoded():
 def _write_through_the_shipped_writer(encoded, tmp_path):
     """`BD.write_boundaries` — the REAL writer, never a re-spelling of it here.
 
-    The first cut of this file built its own `cyto_zarr.Table` with the member names typed
-    out again as literals. That proved `cyto_zarr` can write three members with those names;
+    The first cut of this file built its own `txr_zarr.Table` with the member names typed
+    out again as literals. That proved `txr_zarr` can write three members with those names;
     it proved nothing about the producer, and renaming `BD.X_MEMBER` left the entire suite
     green — while `boundaries.py` claimed in a comment that a drift from the declaration
     would go red. A blind audit found it. Driving the shipped writer is what makes the
@@ -138,7 +138,7 @@ def test_a_ragged_polygon_set_encodes_with_zero_framework_change(encoded, tmp_pa
          `_AUX_ROLES` grew the two entries §6.4 exists to avoid.
     """
     import conformance
-    import cyto_zarr
+    import txr_zarr
 
     counts = encoded["count"]
     present = counts[counts > 0]
@@ -184,8 +184,8 @@ def test_a_ragged_polygon_set_encodes_with_zero_framework_change(encoded, tmp_pa
 #: those (falsely) or silently pardon a real `conformance.py` edit riding alongside them.
 FRAMEWORK_FILES_THE_ENCODING_RUNS_THROUGH = (
     "src-app/packages/_lib/conformance.py",
-    "src-app/packages/_lib/cyto_zarr.py",
-    "src-app/packages/_lib/cyto_columns.py",
+    "src-app/packages/_lib/txr_zarr.py",
+    "src-app/packages/_lib/txr_columns.py",
     "src-app/packages/spatial-types/manifest.yaml",
 )
 
@@ -325,18 +325,18 @@ def test_the_offsets_are_metadata_columns_and_the_slice_recovers_the_vendors_own
     regression each turn this red.
     """
     import conformance
-    import cyto_columns
+    import txr_columns
     import pandas as pd
 
     BD, rings, order = encoded["BD"], encoded["rings"], encoded["order"]
     start, count = encoded["start"], encoded["count"]
     keys = pd.Series([str(k) for k in order])
-    aligned_to = cyto_columns.axis_key_digest(keys)
+    aligned_to = txr_columns.axis_key_digest(keys)
 
     written = {}
     for name, values in ((BD.START_COLUMN, start), (BD.COUNT_COLUMN, count)):
         rel = f"metadata/{name}.zarr"
-        structure, meta = cyto_columns.write_metadata_column(
+        structure, meta = txr_columns.write_metadata_column(
             tmp_path, rel, name, pd.Series(np.asarray(values, dtype=np.int64)),
             axis="cells", aligned_to=aligned_to,
         )

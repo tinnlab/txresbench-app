@@ -1,6 +1,6 @@
 // TEST-516 (ITEM-54) — the OPEN field-renderer registry that replaces the
 // `ScalarField`/`SchemaForm` hardcoded `switch`/if-chain. VITEST style (the gate),
-// node env, no DOM. `@ziee/kit` is neutralized so the real built-in renderers import
+// node env, no DOM. `@txresbench/kit` is neutralized so the real built-in renderers import
 // under the node runner (mirrors `host/workbenchDataSource.test.ts`). We assert the
 // registry contract: a renderer resolves per `field.type`, a registered CUSTOM type
 // resolves, an UNKNOWN type yields the visible `UnknownFieldFallback` (not a crash, not
@@ -8,7 +8,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-vi.mock('@ziee/kit', () => {
+vi.mock('@txresbench/kit', () => {
   const Stub = () => null
   return {
     Input: Stub,

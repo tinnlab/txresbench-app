@@ -5820,8 +5820,8 @@ dependencies = [
  "linkme",
  "sqlx 0.8.6",
  "tokio",
- "ziee-core",
- "ziee-framework",
+ "txresbench-core",
+ "txresbench-framework",
 ]
 
 [[package]]
@@ -8699,7 +8699,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ziee-auth"
+name = "txresbench-auth"
 version = "0.0.0"
 dependencies = [
  "aide",
@@ -8729,14 +8729,14 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
- "ziee-build-support",
- "ziee-core",
- "ziee-framework",
- "ziee-identity",
+ "txresbench-build-support",
+ "txresbench-core",
+ "txresbench-framework",
+ "txresbench-identity",
 ]
 
 [[package]]
-name = "ziee-build-support"
+name = "txresbench-build-support"
 version = "0.0.0"
 dependencies = [
  "sqlx 0.8.6",
@@ -8745,18 +8745,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "ziee-control-mcp"
+name = "txresbench-control-mcp"
 version = "0.0.0"
 dependencies = [
  "aide",
  "serde_json",
  "tracing",
- "ziee-framework",
- "ziee-identity",
+ "txresbench-framework",
+ "txresbench-identity",
 ]
 
 [[package]]
-name = "ziee-core"
+name = "txresbench-core"
 version = "0.0.0"
 dependencies = [
  "axum",
@@ -8773,7 +8773,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ziee-desktop-harness"
+name = "txresbench-desktop-harness"
 version = "0.0.0"
 dependencies = [
  "anyhow",
@@ -8785,13 +8785,13 @@ dependencies = [
  "tracing",
  "uuid",
  "webkit2gtk",
- "ziee-auth",
- "ziee-core",
- "ziee-identity",
+ "txresbench-auth",
+ "txresbench-core",
+ "txresbench-identity",
 ]
 
 [[package]]
-name = "ziee-file"
+name = "txresbench-file"
 version = "0.0.0"
 dependencies = [
  "aide",
@@ -8811,16 +8811,16 @@ dependencies = [
  "tower",
  "tracing",
  "uuid",
- "ziee-auth",
- "ziee-build-support",
- "ziee-core",
- "ziee-framework",
- "ziee-identity",
+ "txresbench-auth",
+ "txresbench-build-support",
+ "txresbench-core",
+ "txresbench-framework",
+ "txresbench-identity",
  "zip",
 ]
 
 [[package]]
-name = "ziee-framework"
+name = "txresbench-framework"
 version = "0.0.0"
 dependencies = [
  "aide",
@@ -8848,13 +8848,13 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
- "ziee-build-support",
- "ziee-core",
- "ziee-identity",
+ "txresbench-build-support",
+ "txresbench-core",
+ "txresbench-identity",
 ]
 
 [[package]]
-name = "ziee-hardware"
+name = "txresbench-hardware"
 version = "0.0.0"
 dependencies = [
  "ash",
@@ -8873,12 +8873,12 @@ dependencies = [
  "tracing",
  "uuid",
  "wgpu-hal",
- "ziee-core",
- "ziee-identity",
+ "txresbench-core",
+ "txresbench-identity",
 ]
 
 [[package]]
-name = "ziee-health"
+name = "txresbench-health"
 version = "0.0.0"
 dependencies = [
  "aide",
@@ -8891,17 +8891,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "ziee-identity"
+name = "txresbench-identity"
 version = "0.0.0"
 dependencies = [
  "schemars 0.9.0",
  "serde",
  "serde_json",
- "ziee-core",
+ "txresbench-core",
 ]
 
 [[package]]
-name = "ziee-notification"
+name = "txresbench-notification"
 version = "0.0.0"
 dependencies = [
  "aide",
@@ -8915,15 +8915,15 @@ dependencies = [
  "sqlx 0.8.6",
  "tokio",
  "uuid",
- "ziee-auth",
- "ziee-build-support",
- "ziee-core",
- "ziee-framework",
- "ziee-identity",
+ "txresbench-auth",
+ "txresbench-build-support",
+ "txresbench-core",
+ "txresbench-framework",
+ "txresbench-identity",
 ]
 
 [[package]]
-name = "ziee-onboarding"
+name = "txresbench-onboarding"
 version = "0.0.0"
 dependencies = [
  "schemars 0.9.0",
@@ -8931,12 +8931,12 @@ dependencies = [
  "sqlx 0.8.6",
  "tokio",
  "uuid",
- "ziee-build-support",
- "ziee-core",
+ "txresbench-build-support",
+ "txresbench-core",
 ]
 
 [[package]]
-name = "ziee-sandbox"
+name = "txresbench-sandbox"
 version = "0.0.0"
 dependencies = [
  "async-trait",
@@ -8961,12 +8961,12 @@ dependencies = [
  "windows-service",
  "windows-sys 0.59.0",
  "winreg 0.52.0",
- "ziee-core",
- "ziee-framework",
+ "txresbench-core",
+ "txresbench-framework",
 ]
 
 [[package]]
-name = "ziee-seed"
+name = "txresbench-seed"
 version = "0.0.0"
 dependencies = [
  "async-trait",
@@ -8981,22 +8981,22 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
- "ziee-core",
- "ziee-framework",
+ "txresbench-core",
+ "txresbench-framework",
 ]
 
 [[package]]
-name = "ziee-server-update"
+name = "txresbench-server-update"
 version = "0.0.0"
 dependencies = [
  "schemars 0.9.0",
  "serde",
  "serde_json",
- "ziee-identity",
+ "txresbench-identity",
 ]
 
 [[package]]
-name = "ziee-test-harness"
+name = "txresbench-test-harness"
 version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
@@ -9014,7 +9014,7 @@ dependencies = [
  "url",
  "uuid",
  "wiremock",
- "ziee-build-support",
+ "txresbench-build-support",
 ]
 
 [[package]]

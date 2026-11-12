@@ -46,9 +46,9 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::detach_guard::{detach_verdict, DetachVerdict, Reason};
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::detach_guard::{detach_verdict, DetachVerdict, Reason};
 
 use super::{create_project, pool_for, setup_admin};
 use crate::common::TestServer;

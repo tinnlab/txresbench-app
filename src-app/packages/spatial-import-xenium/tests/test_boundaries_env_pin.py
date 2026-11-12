@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import xenium_fixtures as XF  # noqa: E402
 
 _REPO = Path(__file__).resolve().parents[4]
-_CACHE = _REPO / ".cyto-cache" / "env-rootfs"
+_CACHE = _REPO / ".txr-cache" / "env-rootfs"
 
 
 def _staged_image():
@@ -41,7 +41,7 @@ def test_the_pin_and_the_smoke_line_agree_with_the_declared_dependency():
     """The three places the reader is named must not drift apart.
 
     The manifest declares a `run.dependencies[]` range; the recipe pins an exact version the
-    build gate resolves it against; the Dockerfile's `# cyto:env-smoke` line is what proves
+    build gate resolves it against; the Dockerfile's `# txr:env-smoke` line is what proves
     the install actually happened. A pin the smoke line does not verify silently ships absent.
     """
     import yaml
@@ -63,9 +63,9 @@ def test_the_pin_and_the_smoke_line_agree_with_the_declared_dependency():
         f"not: {line!r}"
     )
 
-    smoke = [l for l in dockerfile.read_text().splitlines() if "cyto:env-smoke" in l]
-    assert smoke, "the Dockerfile lost its `# cyto:env-smoke` marker"
-    body = dockerfile.read_text().split("# cyto:env-smoke", 1)[1].splitlines()[1]
+    smoke = [l for l in dockerfile.read_text().splitlines() if "txr:env-smoke" in l]
+    assert smoke, "the Dockerfile lost its `# txr:env-smoke` marker"
+    body = dockerfile.read_text().split("# txr:env-smoke", 1)[1].splitlines()[1]
     assert "pyarrow" in body, (
         "the smoke line does not import pyarrow, so the install is unverified at build time"
     )

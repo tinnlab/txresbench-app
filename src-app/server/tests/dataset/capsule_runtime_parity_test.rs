@@ -97,7 +97,7 @@ async fn capsule_reproduces_no_docker_and_is_runtime_portable() {
         // A PARTIAL skip: the no-Docker leg above really ran and really asserted, but the
         // container-parity leg — the half that proves the two runtimes agree — did not.
         // Routed through the shared recorder so it lands in the skip ledger and fails
-        // under `CYTO_TEST_NO_SKIP=1`; a bare print here made a HALF-run test read as a
+        // under `TXR_TEST_NO_SKIP=1`; a bare print here made a HALF-run test read as a
         // full pass.
         record_skip(
             "capsule_reproduces_no_docker_and_is_runtime_portable (container-parity leg)",

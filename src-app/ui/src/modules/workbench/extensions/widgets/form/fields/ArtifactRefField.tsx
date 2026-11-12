@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Button, Empty, MultiSelect, Select, Tag } from '@ziee/kit'
+import { Button, Empty, MultiSelect, Select, Tag } from '@txresbench/kit'
 import {
   BINDING_ORIGIN_COPY,
   ORIGIN_AUTO,

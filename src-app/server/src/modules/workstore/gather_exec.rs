@@ -26,7 +26,7 @@ use serde_json::Value;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::catalog::repository::CatalogRepository;
 use super::object_store::ObjectStore;
@@ -54,7 +54,7 @@ pub struct ResolvedGather {
     /// attributes. `None` for a column the alignment does not remap.
     levels: Option<Value>,
     /// **Which entry of `levels` MEANS "not in this vocabulary"** (DEC-27), verbatim from the
-    /// alignment's `attributes.cyto_alignment.missing_levels[<column>]`. `None` when the run
+    /// alignment's `attributes.txr_alignment.missing_levels[<column>]`. `None` when the run
     /// dropped nothing, which is the common case.
     missing_level: Option<Value>,
     /// Elements per chunk, from that declaration — the SAME number `synthetic_zarr_json`
@@ -100,7 +100,7 @@ impl ResolvedGather {
     ///
     /// **The levels ride the ARRAY node, beside `kind`** — measured off the real writer
     /// (`level_0_group.zarr/values/zarr.json`), and it is where `readCategoricalColumn`'s
-    /// `array.cyto?.levels` and `cyto_zarr_read.read_column`'s `attributes.cyto.kind` both
+    /// `array.txr?.levels` and `txr_zarr_read.read_column`'s `attributes.txr.kind` both
     /// already look. They used to be stamped on a ROOT array no client path could reach.
     fn flat_array_zarr_json(&self) -> Result<Value, AppError> {
         super::gathered::gathered_array_zarr_json(
@@ -949,7 +949,7 @@ pub async fn resolve_shared(
 /// At creation the VD writer stamps `n` = the SOURCE row count (it cannot know `N_kept` without
 /// reading the mask); the serve path resolves it here, from the SAME resolution that produces
 /// the chunks. `synthetic_zarr_json`/`gathered_group_zarr_json` read `structure.n` for the
-/// array shape and copy `n`/`columns[0]` into the group node's `attributes.cyto`, so all three
+/// array shape and copy `n`/`columns[0]` into the group node's `attributes.txr`, so all three
 /// spellings — top-level `n`, `columns[0].n`, `columns[0].shape[0]` — are set to `n_kept` in
 /// lockstep. Leaving any one at the source count is the drift INV-17 forbids: the array node
 /// would declare `N_kept` while the group node's declaration still claimed the source count.
@@ -1189,7 +1189,7 @@ async fn resolve_single_source_node(
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
         let at = |key: &str| {
             meta.as_ref()
-                .and_then(|m| m.pointer(&format!("/attributes/cyto/{key}")))
+                .and_then(|m| m.pointer(&format!("/attributes/txr/{key}")))
                 .cloned()
                 .filter(|v| !v.is_null())
         };
@@ -1665,7 +1665,7 @@ async fn resolve_node(
     // ── THE UNIFIED VOCABULARY — a straight copy, never a derivation ───────────────
     //
     // Stage 1 emits it on the alignment store's GROUP attributes:
-    //   `<alignment>.zarr/zarr.json` → `attributes.cyto_alignment.unified_levels[<column>]`
+    //   `<alignment>.zarr/zarr.json` → `attributes.txr_alignment.unified_levels[<column>]`
     // with the INDEX being the unified code. It rides group attributes rather than
     // `structure` because `structure` also travels into the artifact row, which has a hard
     // manifest-size cap — the cap that already forced a large member entry down to a digest.
@@ -1702,7 +1702,7 @@ async fn resolve_node(
         let at = |key: &str| {
             group
                 .as_ref()
-                .and_then(|g| g.pointer(&format!("/attributes/cyto_alignment/{key}")))
+                .and_then(|g| g.pointer(&format!("/attributes/txr_alignment/{key}")))
                 .and_then(|v| v.get(column))
                 .cloned()
                 // A declared JSON `null` is "this run dropped nothing", which is the same

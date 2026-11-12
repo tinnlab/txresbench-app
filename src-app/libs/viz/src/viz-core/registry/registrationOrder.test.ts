@@ -10,7 +10,7 @@
 //
 // Nothing enforced the order. Which installer runs first is decided by MODULE-EVAL order —
 // `grid/GridWorkspace.tsx` calls `installBuiltins()` at module load, the host app calls
-// `installBuiltinSchemas()` from its `view_spec` validator — and in the CytoAnalyst app the
+// `installBuiltinSchemas()` from its `view_spec` validator — and in the TxResBench app the
 // builtins won. So the schema-only descriptors were registered SECOND and clobbered the
 // render-capable ones: every chart cell rendered `unsupported kind: <type>` on a fully-registered
 // type, and the console carried one "already registered; replacing" warning per built-in (the
@@ -52,7 +52,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 // — a registry that deadlocks rather than one that is slow to import — still fails, just later.
 const COLD_IMPORT_BUDGET_MS = 30_000
 
-/** A pristine `@ziee/viz` registry + both installers, with no state shared with any other case. */
+/** A pristine `@txresbench/viz` registry + both installers, with no state shared with any other case. */
 async function freshRegistry() {
   vi.resetModules()
   const [{ installBuiltins }, { installBuiltinSchemas }, registry, { isSchemaOnly }] =

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { VizController, installBuiltins } from '@ziee/viz'
+import { VizController, installBuiltins } from '@txresbench/viz'
 import {
   parseLogicalDatasetId,
   createDatasetResolver,
@@ -118,7 +118,7 @@ describe('createDatasetResolver — logical id → DataSource (TEST-2, ITEM-2)',
 
 // Slice-6 INV-16: the canvas resolver serves a spatial tissue-image underlay so a declared
 // `image` before/after series (cell-filter's `showSpatial`) PAINTS on the general canvas —
-// routing into the EXISTING @ziee/viz ImageUnderlay (raster + 2×3 affine), no new viz API.
+// routing into the EXISTING @txresbench/viz ImageUnderlay (raster + 2×3 affine), no new viz API.
 describe('spatial image underlay (Slice 6, INV-16)', () => {
   const IMAGE = {
     data: new Uint8Array(4 * 2 * 2),
@@ -290,7 +290,7 @@ describe('resolveCanvasOption — for_each multi-dataset expansion (TEST-8-adjac
 // ── drive the canvas via ONE VizController (TEST-4, ITEM-4) ─────────────────────
 // NOTE: the "two violins sharing ONE coordId" before/after shape is exercised as OPTION
 // CONSTRUCTION above (`resolveCanvasOption`) but NOT driven through `setOption` here, because
-// `@ziee/viz` `parseOption` enforces one-series-per-region (v1). The DRIVE test therefore uses the
+// `@txresbench/viz` `parseOption` enforces one-series-per-region (v1). The DRIVE test therefore uses the
 // parse-valid two-cell layout (before cell over `obs`, after cell over `obs.kept`) — how before/
 // after actually mounts on the canvas today. (Overlaying two series in one cell is a slice-4 viz
 // decision; see the mechanism report.)

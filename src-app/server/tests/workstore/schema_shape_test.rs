@@ -19,9 +19,9 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
-use cytoanalyst::modules::workstore::object_store::{ContentKey, ObjectStore};
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::workstore::object_store::{ContentKey, ObjectStore};
 
 use super::{create_project, pool_for, server_store, setup_admin, write_manifest};
 use crate::common::TestServer;

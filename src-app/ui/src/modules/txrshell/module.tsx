@@ -1,4 +1,4 @@
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 import TxrLayout from './TxrLayout'
 import { NotFoundPage } from './pages/NotFoundPage'
 

@@ -17,7 +17,7 @@
 //! pulls that exact image (provenance-by-reference). No embedded fallback — an
 //! unreachable/un-cached registry is a clear error, not a silent stale rootfs.
 //!
-//! This mirrors the ziee SDK's `ziee-sandbox` `RootfsProvider` seam (fetch +
+//! This mirrors the txresbench SDK's `txresbench-sandbox` `RootfsProvider` seam (fetch +
 //! mount, injected so backends never name concrete fetch modules); here the
 //! injected axis is the ENV rather than the flavor.
 //!
@@ -26,8 +26,8 @@
 //! **Both are ENV-SCOPED (#189 / PROV-E1-5).** A staged rootfs is one env's filesystem,
 //! so it is associated with an env-id and serves only that env:
 //!
-//! * `CYTO_ENV_ROOTFS_{SQUASHFS,DIR}__<env-id>` serves `<env-id>` exactly.
-//! * The un-suffixed variable serves ONE env — `CYTO_ENV_ROOTFS_{SQUASHFS,DIR}_ENV` if
+//! * `TXR_ENV_ROOTFS_{SQUASHFS,DIR}__<env-id>` serves `<env-id>` exactly.
+//! * The un-suffixed variable serves ONE env — `TXR_ENV_ROOTFS_{SQUASHFS,DIR}_ENV` if
 //!   set, else the deployment default — which keeps every single-env deployment (and
 //!   `just e2e-processors`) behaving exactly as before.
 //! * A request for any OTHER env is **REFUSED BY NAME**, never substituted and never
@@ -40,7 +40,7 @@
 //!   one env as a squashfs and another as a pre-mounted dir.
 //!
 //! **One behaviour genuinely changed beyond the substitution fix:** a bare artifact that
-//! the deployment can associate with NO env (no `<key>_ENV`, no `CYTO_SANDBOX_ENV_ID`, no
+//! the deployment can associate with NO env (no `<key>_ENV`, no `TXR_SANDBOX_ENV_ID`, no
 //! settings row, no env declared by the loaded registry) is now refused rather than
 //! served for whatever asks. A process that never builds the extension registry and sets
 //! only the bare variable therefore fails where it previously served — deliberately, and
@@ -55,13 +55,13 @@
 //! resolver. Only the un-suffixed variable's single-env association preserves the old
 //! behaviour, and only for the env it actually serves.
 //!
-//! 1. `CYTO_ENV_ROOTFS_SQUASHFS=<path/to/rootfs.squashfs>` — **preferred**. The
+//! 1. `TXR_ENV_ROOTFS_SQUASHFS=<path/to/rootfs.squashfs>` — **preferred**. The
 //!    provider content-hashes the file, stages it into the digest cache, RECORDS
 //!    the digest, and mounts by digest. A run under it is fully reproducible: its
 //!    `env_rootfs_sha256` is a self-verifying sha256 of the exact mounted bytes,
 //!    those bytes are servable at `GET /api/sandbox/rootfs/{digest}`, and its
 //!    export capsule therefore EXECUTES.
-//! 2. `CYTO_ENV_ROOTFS_DIR=<already-mounted dir>` — legacy. A mount dir carries no
+//! 2. `TXR_ENV_ROOTFS_DIR=<already-mounted dir>` — legacy. A mount dir carries no
 //!    content identity, so a digest is recorded only when the dir is the cache's
 //!    own mount point (`<cache>/<64hex>[/mnt]`) for a cached digest; otherwise the
 //!    run is UNPINNED (its capsule is provenance-only, not executable) and the
@@ -76,7 +76,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// A resolved env-image reference: the digest-addressed OCI location of a
 /// domain's environment image. `provenance` records `{oci_ref, digest}` on a run
@@ -85,7 +85,7 @@ use ziee_core::AppError;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnvImageRef {
     /// The OCI repository ref (per-env repo): `<registry-base>/<env-id>`, e.g.
-    /// `ghcr.io/ziee-ai/cyto-env/<env-id>` (DEC-23/DEC-L).
+    /// `ghcr.io/tinnlab/txresbench-env/<env-id>` (DEC-23/DEC-L).
     ///
     /// The trailing component is **DATA, never an app constant** — it is the
     /// `env-id` a contributed converter manifest declares (`contributes.
@@ -121,7 +121,7 @@ impl EnvImageRef {
 /// manifests (`contributes.converters[].env`, see
 /// [`ConverterContribution::env`](crate::modules::extensions::types::ConverterContribution::env));
 /// this reads the first one the loaded extension registry declares, so the app
-/// carries no env-name literal. An operator can override with `CYTO_SANDBOX_ENV_ID`
+/// carries no env-name literal. An operator can override with `TXR_SANDBOX_ENV_ID`
 /// (useful before the registry is built, or to pin a specific env).
 ///
 /// `None` when neither is available — the caller then has no rootfs to provide and
@@ -141,7 +141,7 @@ pub fn default_env_id() -> Option<String> {
 ///
 /// The precedence, highest first:
 ///
-/// 1. `CYTO_SANDBOX_ENV_ID` — the OPERATOR override.
+/// 1. `TXR_SANDBOX_ENV_ID` — the OPERATOR override.
 /// 2. the job's own declared `env`.
 /// 3. `sandbox_settings.default_env_id` — the admin-configured deployment default.
 /// 4. the union of envs the loaded registry declares.
@@ -150,7 +150,7 @@ pub fn default_env_id() -> Option<String> {
 /// **The operator override sits ABOVE the declared env deliberately, and this is the one
 /// ordering here that is not obvious.** A declared env is the package author's statement
 /// of what their code needs, so it beats a deployment-wide default (2 over 3) — that is
-/// the whole point of per-job selection. But `CYTO_SANDBOX_ENV_ID` is the operator's
+/// the whole point of per-job selection. But `TXR_SANDBOX_ENV_ID` is the operator's
 /// escape hatch, used to pin a whole process to one image: it is how a single-env or
 /// air-gapped deployment, a recovery run, or an in-pod re-entry forces a known env
 /// regardless of what any manifest asks for. If a declared env could override it, that
@@ -160,7 +160,7 @@ pub fn default_env_id() -> Option<String> {
 /// Steps 3-5 are byte-identical to the pre-#189 chain, so a job declaring no env
 /// resolves exactly as it did before this existed (INV-1).
 pub fn resolve_env_id(declared: Option<&str>) -> Option<String> {
-    if let Ok(raw) = std::env::var("CYTO_SANDBOX_ENV_ID") {
+    if let Ok(raw) = std::env::var("TXR_SANDBOX_ENV_ID") {
         // TRIM once, here. Comparing trimmed and returning untrimmed let a value like
         // `" python "` skip the (correct) displacement warning and then fail the seam
         // lookup, producing a refusal naming `" python "` against `"python"`.
@@ -176,7 +176,7 @@ pub fn resolve_env_id(declared: Option<&str>) -> Option<String> {
                     tracing::warn!(
                         declared_env = %d,
                         override_env = %id,
-                        "CYTO_SANDBOX_ENV_ID overrides this job's declared env; the job \
+                        "TXR_SANDBOX_ENV_ID overrides this job's declared env; the job \
                          will run in the operator-pinned image, not the one it declared"
                     );
                 }
@@ -290,15 +290,15 @@ pub fn last_resolved_digest() -> Option<String> {
 }
 
 /// The GHCR org/owner + per-env repo prefix (DEC-B/DEC-L). One repo per env:
-/// `ghcr.io/ziee-ai/cyto-env/<env>`. Overridable per-provider via
+/// `ghcr.io/tinnlab/txresbench-env/<env>`. Overridable per-provider via
 /// [`EnvImageSeams::registry`] (ITEM-5 loopback seam, honored in debug builds only).
-const DEFAULT_REGISTRY: &str = "ghcr.io/ziee-ai/cyto-env";
+const DEFAULT_REGISTRY: &str = "ghcr.io/tinnlab/txresbench-env";
 
 /// Per-provider configuration of the registry + signature-verification seams,
 /// passed EXPLICITLY into [`OciEnvImageProvider::with_seams`].
 ///
-/// **Why this is a parameter and not an env var.** `CYTO_ENV_IMAGE_REGISTRY` and
-/// `CYTO_ENV_IMAGE_COSIGN_KEY` used to configure these seams, read LIVE and
+/// **Why this is a parameter and not an env var.** `TXR_ENV_IMAGE_REGISTRY` and
+/// `TXR_ENV_IMAGE_COSIGN_KEY` used to configure these seams, read LIVE and
 /// in-process at the moment of use. That made one test's configuration global to
 /// its whole test binary: a test that `set_var`'d the registry redirected every
 /// concurrently-running sibling that resolved an env-ref, for as long as its pull
@@ -328,18 +328,18 @@ pub struct EnvImageSeams {
     /// builds only.
     pub cosign_key: Option<PathBuf>,
     /// Certificate-identity regexp for the KEYLESS path, overriding
-    /// `CYTO_ENV_IMAGE_IDENTITY_REGEXP` and the strict `@refs/heads/main` default.
+    /// `TXR_ENV_IMAGE_IDENTITY_REGEXP` and the strict `@refs/heads/main` default.
     /// Release-honored (operator staging override).
     pub identity_regexp: Option<String>,
-    /// Ignore the AIR-GAP env seams (`CYTO_ENV_ROOTFS_SQUASHFS` /
-    /// `CYTO_ENV_ROOTFS_DIR`) and drive the real resolve → verify → pull → mount
+    /// Ignore the AIR-GAP env seams (`TXR_ENV_ROOTFS_SQUASHFS` /
+    /// `TXR_ENV_ROOTFS_DIR`) and drive the real resolve → verify → pull → mount
     /// path. Debug builds only.
     ///
     /// This closes the LAST place the process environment could still overrule a
     /// provider that was configured explicitly — the failure class this whole struct
     /// exists to remove, in the other direction. The air-gap seams are consulted at
     /// the TOP of [`OciEnvImageProvider::provide`], so a run that exports
-    /// `CYTO_ENV_ROOTFS_SQUASHFS` — which is the DOCUMENTED procedure for the
+    /// `TXR_ENV_ROOTFS_SQUASHFS` — which is the DOCUMENTED procedure for the
     /// rootfs-dependent tests, since they cannot reach the private GHCR package —
     /// silently turned the OCI end-to-end test into a no-op that returns the operator's
     /// squashfs: no resolve, no pull, and no COSIGN VERIFY. The verification test was
@@ -429,7 +429,7 @@ pub fn resolve(env_id: &str) -> Option<EnvImageRef> {
 /// under its original path so every existing caller is unchanged.
 pub use super::env_id::is_valid_env_id;
 
-/// The compiled env-image registry BASE (`ghcr.io/ziee-ai/cyto-env`), for READ-ONLY
+/// The compiled env-image registry BASE (`ghcr.io/tinnlab/txresbench-env`), for READ-ONLY
 /// display on the admin settings page (#54). This is a release-time security boundary
 /// (a release binary carries no code that could redirect a pull to another registry),
 /// so it is shown, never made operator-writable — see [`EnvImageSeams`] / INV-4.
@@ -452,7 +452,7 @@ fn resolve_with(env_id: &str, seams: &EnvImageSeams) -> Option<EnvImageRef> {
     })
 }
 
-/// A `RootfsProvider`-style seam (mirrors the SDK's `ziee-sandbox`
+/// A `RootfsProvider`-style seam (mirrors the SDK's `txresbench-sandbox`
 /// `RootfsProvider`): turn an env-id into a ready-to-bind rootfs MOUNT DIR (the
 /// dir whose `usr/` the sandbox binds read-only). Injecting this behind a trait
 /// keeps the sandbox run path from naming a concrete OCI-fetch module, so an
@@ -528,7 +528,7 @@ pub struct OciEnvImageProvider {
 impl OciEnvImageProvider {
     /// The production provider: [`DEFAULT_REGISTRY`] + keyless OIDC verification
     /// against the strict `@refs/heads/main` identity (unless the operator's
-    /// `CYTO_ENV_IMAGE_IDENTITY_REGEXP` staging override is set).
+    /// `TXR_ENV_IMAGE_IDENTITY_REGEXP` staging override is set).
     pub fn new() -> Self {
         Self::default()
     }
@@ -560,8 +560,8 @@ impl EnvImageProvider for OciEnvImageProvider {
         // parse, at spec validation, and in `resolve_with` on the OCI path.
         let air_gap = !air_gap_bypassed(&self.seams);
         // ── air-gap seam 1 (PREFERRED, provenance-honest) ─────────────────────
-        // `CYTO_ENV_ROOTFS_SQUASHFS__<env-id>=<path>` serves THAT env; the un-suffixed
-        // `CYTO_ENV_ROOTFS_SQUASHFS=<path>` serves a single-env deployment exactly as it
+        // `TXR_ENV_ROOTFS_SQUASHFS__<env-id>=<path>` serves THAT env; the un-suffixed
+        // `TXR_ENV_ROOTFS_SQUASHFS=<path>` serves a single-env deployment exactly as it
         // did before #189. Either way the provider content-hashes the file, stages it
         // into the local digest cache, and mounts BY DIGEST — so a run under this seam
         // pins a real, self-verifying `env_rootfs_sha256`, the serve endpoint can hand
@@ -584,7 +584,7 @@ impl EnvImageProvider for OciEnvImageProvider {
             }
         }
         // ── air-gap seam 2 (LEGACY pre-mounted dir) ───────────────────────────
-        // `CYTO_ENV_ROOTFS_DIR` points at an ALREADY-MOUNTED rootfs dir (the dir
+        // `TXR_ENV_ROOTFS_DIR` points at an ALREADY-MOUNTED rootfs dir (the dir
         // whose `usr/` the sandbox binds). Used directly, skipping the OCI
         // resolve/pull/verify — the operator vouches for the bytes. A mount dir
         // carries no content identity of its own, so provenance can only be pinned
@@ -610,9 +610,9 @@ impl EnvImageProvider for OciEnvImageProvider {
                     if digest.is_none() {
                         tracing::warn!(
                             dir = %p.display(),
-                            "CYTO_ENV_ROOTFS_DIR: a bare pre-mounted dir has no content identity, so \
+                            "TXR_ENV_ROOTFS_DIR: a bare pre-mounted dir has no content identity, so \
                              runs record NO env_rootfs_sha256 and their export capsules cannot be \
-                             executed — point CYTO_ENV_ROOTFS_SQUASHFS at the squashfs file instead"
+                             executed — point TXR_ENV_ROOTFS_SQUASHFS at the squashfs file instead"
                         );
                     }
                     if let Some(hex) = digest.as_deref() {
@@ -770,9 +770,9 @@ pub fn read_run_env_digest(workspace_root: &Path) -> Option<String> {
     crate::modules::rootfs::cache::is_valid_digest(hex).then(|| hex.to_string())
 }
 
-/// The env-var suffix separator for a per-env air-gap seam: `CYTO_ENV_ROOTFS_*__<env-id>`.
+/// The env-var suffix separator for a per-env air-gap seam: `TXR_ENV_ROOTFS_*__<env-id>`.
 ///
-/// A DOUBLE underscore purely for READABILITY against the `CYTO_ENV_ROOTFS_SQUASHFS_ENV`
+/// A DOUBLE underscore purely for READABILITY against the `TXR_ENV_ROOTFS_SQUASHFS_ENV`
 /// association variable, which a single underscore would sit confusingly close to.
 /// Parsing is unambiguous either way, because the prefix is FIXED-LENGTH and stripped as
 /// a whole — the env-id is whatever remains. (An earlier version of this comment claimed
@@ -787,16 +787,16 @@ const ENV_SEAM_SUFFIX: &str = "__";
 /// resolvers and the refusal all read it, so a third seam added later cannot be served by
 /// some of them and silently skipped by the rest — which would fail OPEN, falling through
 /// to an OCI pull the operator air-gapped themselves away from.
-const SEAM_KEYS: [&str; 2] = ["CYTO_ENV_ROOTFS_SQUASHFS", "CYTO_ENV_ROOTFS_DIR"];
+const SEAM_KEYS: [&str; 2] = ["TXR_ENV_ROOTFS_SQUASHFS", "TXR_ENV_ROOTFS_DIR"];
 
 /// Which locally-staged squashfs — if any — SERVES `env_id`.
 ///
 /// This is PROV-E1-5's positive half. The rule, in order:
 ///
-/// 1. `CYTO_ENV_ROOTFS_SQUASHFS__<env_id>` set ⇒ that file serves this env. Exact,
+/// 1. `TXR_ENV_ROOTFS_SQUASHFS__<env_id>` set ⇒ that file serves this env. Exact,
 ///    unambiguous, and the shape a multi-env air-gapped deployment should use.
-/// 2. Otherwise the bare `CYTO_ENV_ROOTFS_SQUASHFS`, if set, serves exactly ONE env —
-///    the one named by `CYTO_ENV_ROOTFS_SQUASHFS_ENV`, else the deployment default.
+/// 2. Otherwise the bare `TXR_ENV_ROOTFS_SQUASHFS`, if set, serves exactly ONE env —
+///    the one named by `TXR_ENV_ROOTFS_SQUASHFS_ENV`, else the deployment default.
 ///    Requesting THAT env is served.
 /// 3. Anything else ⇒ this seam DECLINES (`None`).
 ///
@@ -823,7 +823,7 @@ fn staged_squashfs_for(env_id: &str) -> Option<PathBuf> {
     seam_serves(SEAM_KEYS[0], env_id, default_env_id)
 }
 
-/// The pre-mounted-dir twin of [`staged_squashfs_for`] (`CYTO_ENV_ROOTFS_DIR`), by the
+/// The pre-mounted-dir twin of [`staged_squashfs_for`] (`TXR_ENV_ROOTFS_DIR`), by the
 /// identical rule so the legacy seam cannot become a way to get the substitution back.
 fn staged_rootfs_dir_for(env_id: &str) -> Option<PathBuf> {
     seam_serves(SEAM_KEYS[1], env_id, default_env_id)
@@ -1024,7 +1024,7 @@ fn env_path(key: &str) -> Option<PathBuf> {
     }
 }
 
-/// The digest a pre-mounted `CYTO_ENV_ROOTFS_DIR` corresponds to, when — and ONLY
+/// The digest a pre-mounted `TXR_ENV_ROOTFS_DIR` corresponds to, when — and ONLY
 /// when — the dir is the content-digest cache's own mount point for a digest that
 /// is actually present in the cache: `<cache>/<64hex>/mnt` or `<cache>/<64hex>`.
 /// Requiring `cache::has_digest` is what keeps this honest: the digest is recorded
@@ -1065,14 +1065,14 @@ fn squashfs_content_digest(path: &Path) -> Result<String, AppError> {
         AppError::new(
             axum::http::StatusCode::NOT_FOUND,
             "ENV_ROOTFS_SQUASHFS_MISSING",
-            format!("CYTO_ENV_ROOTFS_SQUASHFS={} is not readable: {e}", path.display()),
+            format!("TXR_ENV_ROOTFS_SQUASHFS={} is not readable: {e}", path.display()),
         )
     })?;
     if !meta.is_file() || meta.len() == 0 {
         return Err(AppError::new(
             axum::http::StatusCode::BAD_REQUEST,
             "ENV_ROOTFS_SQUASHFS_INVALID",
-            format!("CYTO_ENV_ROOTFS_SQUASHFS={} is not a non-empty file", path.display()),
+            format!("TXR_ENV_ROOTFS_SQUASHFS={} is not a non-empty file", path.display()),
         ));
     }
     let mtime = meta
@@ -1370,7 +1370,7 @@ fn cosign_verify(pinned: &str, deadline: Instant, seams: &EnvImageSeams) -> Resu
     // rootfs signed after merge-to-main, NOT one a write collaborator signed from an
     // arbitrary branch/tag without review (least privilege).
     //
-    // [`EnvImageSeams::identity_regexp`], else `CYTO_ENV_IMAGE_IDENTITY_REGEXP`
+    // [`EnvImageSeams::identity_regexp`], else `TXR_ENV_IMAGE_IDENTITY_REGEXP`
     // (both release-honored), is an OPERATOR-CONTROLLED STAGING OVERRIDE that widens
     // the accepted ref — e.g. to `@refs/(heads|tags)/.*$` — so a tag- or branch-signed
     // image can be verified PRE-merge (this is how TEST-15 verifies the `env-v0-test`
@@ -1379,12 +1379,12 @@ fn cosign_verify(pinned: &str, deadline: Instant, seams: &EnvImageSeams) -> Resu
     // test never has to write it into the process env (see [`EnvImageSeams`]).
     const ISSUER: &str = "https://token.actions.githubusercontent.com";
     const DEFAULT_IDENTITY_RE: &str =
-        r"^https://github\.com/ziee-ai/cytoanalyst/\.github/workflows/env-images\.yml@refs/heads/main$";
+        r"^https://github\.com/tinnlab/txresbench/\.github/workflows/env-images\.yml@refs/heads/main$";
     let identity_re = seams
         .identity_regexp
         .clone()
         .into_iter()
-        .chain(std::env::var("CYTO_ENV_IMAGE_IDENTITY_REGEXP").ok())
+        .chain(std::env::var("TXR_ENV_IMAGE_IDENTITY_REGEXP").ok())
         .find(|s| !s.is_empty())
         .unwrap_or_else(|| DEFAULT_IDENTITY_RE.to_string());
     let cap = remaining(deadline, "cosign verify")?.min(TOOL_METADATA_TIMEOUT);
@@ -1475,14 +1475,14 @@ fn pull_and_stage(
 /// THE process-environment lock for this crate's tests.
 ///
 /// `PodShape::from_env`, `default_env_id`, `resolve_env_id` and both air-gap seams all
-/// read the SAME process-global state (`CYTO_*` variables plus the settings-cache
+/// read the SAME process-global state (`TXR_*` variables plus the settings-cache
 /// snapshot), and #189 widened that overlap further: `staged_artifact_for` now calls
 /// `default_env_id()`, so the seam tests and the env-id tests touch one another's inputs.
 ///
 /// Before this there were three disjoint mutexes over overlapping globals, which is not
 /// isolation — it is a slower race, and one that presents as an order-dependent failure
 /// rather than a consistent one (exactly how it was found). Any test in ANY module that
-/// sets or removes a `CYTO_*` variable, or invalidates the settings cache, must hold this.
+/// sets or removes a `TXR_*` variable, or invalidates the settings cache, must hold this.
 #[cfg(test)]
 static PROCESS_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -1524,7 +1524,7 @@ mod tests {
         // The app-owned half of the ref is the REGISTRY BASE and only that. Pinned
         // literally here (it is a real published location, product-scoped, carrying
         // no analysis domain) so a silent change to `DEFAULT_REGISTRY` still fails.
-        assert_eq!(DEFAULT_REGISTRY, "ghcr.io/ziee-ai/cyto-env");
+        assert_eq!(DEFAULT_REGISTRY, "ghcr.io/tinnlab/txresbench-env");
         assert_eq!(sc.pull_ref(), format!("{}/demo-env:{expect_tag}", DEFAULT_REGISTRY));
         assert_eq!(
             sc.pinned_at("sha256:abc"),
@@ -1559,7 +1559,7 @@ mod tests {
         }
     }
 
-    /// Serializes the tests that read/write CYTO_SANDBOX_ENV_ID + the settings cache.
+    /// Serializes the tests that read/write TXR_SANDBOX_ENV_ID + the settings cache.
     // (The former private `ENV_ID_LOCK` is gone — every user now takes the crate-wide
     // `super::process_env_guard`, because the state these tests mutate overlaps.)
 
@@ -1571,10 +1571,10 @@ mod tests {
         use crate::modules::sandbox::settings::SandboxResourceLimits;
         use crate::modules::sandbox::settings_cache;
         let _g = super::process_env_guard();
-        let saved = std::env::var("CYTO_SANDBOX_ENV_ID").ok();
+        let saved = std::env::var("TXR_SANDBOX_ENV_ID").ok();
 
         // Settings sets a default; no env var → the settings value is returned.
-        std::env::remove_var("CYTO_SANDBOX_ENV_ID");
+        std::env::remove_var("TXR_SANDBOX_ENV_ID");
         settings_cache::invalidate(SandboxResourceLimits {
             default_env_id: Some("from-settings".into()),
             ..SandboxResourceLimits::defaults()
@@ -1582,12 +1582,12 @@ mod tests {
         assert_eq!(default_env_id().as_deref(), Some("from-settings"));
 
         // Env var overrides the settings value.
-        std::env::set_var("CYTO_SANDBOX_ENV_ID", "from-env");
+        std::env::set_var("TXR_SANDBOX_ENV_ID", "from-env");
         assert_eq!(default_env_id().as_deref(), Some("from-env"));
 
         // Unset settings (defaults) + no env var → falls through (None here: no
         // extension registry loaded in a unit test), exactly as before the setting.
-        std::env::remove_var("CYTO_SANDBOX_ENV_ID");
+        std::env::remove_var("TXR_SANDBOX_ENV_ID");
         settings_cache::invalidate(SandboxResourceLimits::defaults());
         assert!(default_env_id().is_none(), "unset falls through to registry auto-detect");
 
@@ -1606,7 +1606,7 @@ mod tests {
         // tree exercised a declared env against a NON-EMPTY settings default, so nothing
         // would have gone red if the precedence were reversed either. This pins the
         // behaviour so the trade is legible instead of latent.
-        std::env::remove_var("CYTO_SANDBOX_ENV_ID");
+        std::env::remove_var("TXR_SANDBOX_ENV_ID");
         settings_cache::invalidate(SandboxResourceLimits {
             default_env_id: Some("admin-chose-this".into()),
             ..SandboxResourceLimits::defaults()
@@ -1626,19 +1626,19 @@ mod tests {
         // …and the operator override still outranks BOTH, which is the escape hatch that
         // makes the above tolerable: an admin who needs those twelve back on one image can
         // still pin the whole process.
-        std::env::set_var("CYTO_SANDBOX_ENV_ID", "operator-pinned");
+        std::env::set_var("TXR_SANDBOX_ENV_ID", "operator-pinned");
         assert_eq!(
             resolve_env_id(Some("declared-by-the-package")).as_deref(),
             Some("operator-pinned"),
-            "CYTO_SANDBOX_ENV_ID outranks a declared env — without this the setting above \
+            "TXR_SANDBOX_ENV_ID outranks a declared env — without this the setting above \
              would be unrecoverable for a deployment that needs to force one image"
         );
 
         // Restore ambient state for sibling tests in this binary.
         settings_cache::invalidate(SandboxResourceLimits::defaults());
         match saved {
-            Some(v) => std::env::set_var("CYTO_SANDBOX_ENV_ID", v),
-            None => std::env::remove_var("CYTO_SANDBOX_ENV_ID"),
+            Some(v) => std::env::set_var("TXR_SANDBOX_ENV_ID", v),
+            None => std::env::remove_var("TXR_SANDBOX_ENV_ID"),
         }
     }
 
@@ -1652,7 +1652,7 @@ mod tests {
     #[test]
     fn run_maps_missing_tool_and_nonzero_exit_to_typed_errors() {
         // Missing binary → ENV_IMAGE_TOOL_MISSING.
-        let miss = run("cyto-nonexistent-tool-xyz", &["--version"], Duration::from_secs(30)).unwrap_err();
+        let miss = run("txr-nonexistent-tool-xyz", &["--version"], Duration::from_secs(30)).unwrap_err();
         assert_eq!(miss.error_code(), "ENV_IMAGE_TOOL_MISSING");
 
         // Present binary, non-zero exit (what a rejected `cosign verify` is) →
@@ -1739,8 +1739,8 @@ mod tests {
     #[test]
     fn provide_unknown_env_errors() {
         let _lock = air_gap_env_guard();
-        std::env::remove_var("CYTO_ENV_ROOTFS_DIR"); // ignore any ambient override
-        std::env::remove_var("CYTO_ENV_ROOTFS_SQUASHFS");
+        std::env::remove_var("TXR_ENV_ROOTFS_DIR"); // ignore any ambient override
+        std::env::remove_var("TXR_ENV_ROOTFS_SQUASHFS");
         let err = OciEnvImageProvider::new()
             .provide("Bogus/Env:xyz", Duration::from_secs(30))
             .unwrap_err();
@@ -1765,7 +1765,7 @@ mod tests {
     #[test]
     fn bypass_air_gap_env_takes_the_oci_path_while_the_seam_is_set() {
         let _lock = air_gap_env_guard();
-        let tmp = std::env::temp_dir().join(format!("cyto-env-bypass-{}", uuid::Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("txresbench-env-bypass-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&tmp).unwrap();
         let src = tmp.join("rootfs.squashfs");
         let body = format!("stand-in-{}", uuid::Uuid::new_v4()).into_bytes();
@@ -1776,7 +1776,7 @@ mod tests {
         // which needs squashfuse; the assertion that matters is that it did NOT take the
         // OCI path, so an environment without squashfuse is still a valid control — it
         // fails inside seam 1's own staging/mount, never with `ENV_IMAGE_UNKNOWN`.)
-        std::env::set_var("CYTO_ENV_ROOTFS_SQUASHFS", &src);
+        std::env::set_var("TXR_ENV_ROOTFS_SQUASHFS", &src);
         let control = OciEnvImageProvider::new().provide("Bogus/Env:xyz", Duration::from_secs(30));
         assert_ne!(
             control.as_ref().err().map(|e| e.error_code().to_string()),
@@ -1796,11 +1796,11 @@ mod tests {
             "a bypassing provider must reach the OCI path even with the air-gap seam set"
         );
 
-        std::env::remove_var("CYTO_ENV_ROOTFS_SQUASHFS");
+        std::env::remove_var("TXR_ENV_ROOTFS_SQUASHFS");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
-    // The air-gap seam-1 fix: a run under `CYTO_ENV_ROOTFS_SQUASHFS` PINS a real,
+    // The air-gap seam-1 fix: a run under `TXR_ENV_ROOTFS_SQUASHFS` PINS a real,
     // self-verifying env digest. `squashfs_content_digest` is exactly sha256 of the
     // bytes, memoized; `stage_squashfs_into_cache` makes that digest present in the
     // content-digest cache (so `ensure_ready_by_digest` can mount it and the serve
@@ -1810,7 +1810,7 @@ mod tests {
     #[test]
     fn squashfs_seam_hashes_and_stages_a_pinnable_digest() {
         use sha2::{Digest, Sha256};
-        let tmp = std::env::temp_dir().join(format!("cyto-env-seam-{}", uuid::Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("txresbench-env-seam-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&tmp).unwrap();
         let src = tmp.join("rootfs.squashfs");
         let bytes = format!("not-a-real-squashfs-{}", uuid::Uuid::new_v4()).into_bytes();
@@ -1982,7 +1982,7 @@ mod tests {
     ///
     /// The property — "every env image can run `jq`, so a converter wrapper can parse
     /// params.json" — is held BEHAVIOURALLY in the image-build path by
-    /// `scripts/lib/env-image-verify.sh::cyto_verify_image_runs_jq`, which RUNS jq inside
+    /// `scripts/lib/env-image-verify.sh::txr_verify_image_runs_jq`, which RUNS jq inside
     /// the built image before it is pushed, and is re-checked against the received
     /// artifact by `fetch-env-rootfs.sh`. Read that file for the tiering and the reason.
     ///
@@ -2124,8 +2124,8 @@ mod tests {
         assert_ne!(hex_1, hex_2, "the two staged rootfs must be distinguishable at all");
 
         // BOTH staged, each under its own env's seam key.
-        std::env::set_var(format!("CYTO_ENV_ROOTFS_DIR{ENV_SEAM_SUFFIX}{first}"), &dir_1);
-        std::env::set_var(format!("CYTO_ENV_ROOTFS_DIR{ENV_SEAM_SUFFIX}{second}"), &dir_2);
+        std::env::set_var(format!("TXR_ENV_ROOTFS_DIR{ENV_SEAM_SUFFIX}{first}"), &dir_1);
+        std::env::set_var(format!("TXR_ENV_ROOTFS_DIR{ENV_SEAM_SUFFIX}{second}"), &dir_2);
 
         let got_1 = OciEnvImageProvider::new()
             .provide(&first, Duration::from_secs(30))
@@ -2150,7 +2150,7 @@ mod tests {
         // Now stage ONLY the first. Asking for the second must REFUSE, by name — never
         // fall through to the one that happens to be staged.
         clear_seam_vars();
-        std::env::set_var(format!("CYTO_ENV_ROOTFS_DIR{ENV_SEAM_SUFFIX}{first}"), &dir_1);
+        std::env::set_var(format!("TXR_ENV_ROOTFS_DIR{ENV_SEAM_SUFFIX}{first}"), &dir_1);
         let err = OciEnvImageProvider::new()
             .provide(&second, Duration::from_secs(30))
             .expect_err("an env with no staged rootfs must be refused, never substituted");
@@ -2317,7 +2317,7 @@ RUN apt-get install -y --no-install-recommends \\
     /// a deliberate line in a reviewed diff rather than an accident, which is the same
     /// standard `check-guard-integrity.sh` sets for itself: the property is not "cannot be
     /// weakened", it is "cannot be weakened SILENTLY".
-    const SMOKE_MARKER: &str = "cyto:env-smoke";
+    const SMOKE_MARKER: &str = "txr:env-smoke";
 
     /// Is this comment line the smoke MARKER, rather than prose that merely mentions it?
     ///
@@ -2327,8 +2327,8 @@ RUN apt-get install -y --no-install-recommends \\
     /// edit spelling the marker in that prose would have re-opened exactly the hole the
     /// declared marker was introduced to close.
     ///
-    /// The rule is "the comment's body BEGINS with the marker", so `# cyto:env-smoke` and
-    /// `# cyto:env-smoke (see the pin file)` mark, while "The `cyto:env-smoke` marker
+    /// The rule is "the comment's body BEGINS with the marker", so `# txr:env-smoke` and
+    /// `# txr:env-smoke (see the pin file)` mark, while "The `txr:env-smoke` marker
     /// below…" does not.
     fn is_smoke_marker(comment_line: &str) -> bool {
         comment_line
@@ -2418,7 +2418,7 @@ RUN apt-get install -y --no-install-recommends \\
     /// `RUN` surface. No interpreter, no recipe and no env-id is named here.
     ///
     /// ── which instruction counts as the SMOKE surface ───────────────────────────────
-    /// The one the RECIPE DECLARES, with a `cyto:env-smoke` comment on the line above it —
+    /// The one the RECIPE DECLARES, with a `txr:env-smoke` comment on the line above it —
     /// see that constant for the three ways an inferred surface was broken by a blind audit,
     /// and why no syntactic rule can separate "installs" from "loads" across package
     /// managers this guard has never seen. Everything not so declared is out, including the
@@ -2709,7 +2709,7 @@ RUN apt-get install -y --no-install-recommends \\
                 .expect("clock")
                 .as_nanos();
             let p = std::env::temp_dir()
-                .join(format!("cyto-envroot-{tag}-{}-{nanos}", std::process::id()));
+                .join(format!("txr-envroot-{tag}-{}-{nanos}", std::process::id()));
             std::fs::create_dir_all(&p).expect("create fixture env root");
             Self(p)
         }
@@ -2724,12 +2724,12 @@ RUN apt-get install -y --no-install-recommends \\
             // ~20 pin literals focused on what they are actually about; a fixture that
             // wants to exercise a MISSING declaration spells one out and this leaves it
             // alone.
-            let pins = if pins.contains("cyto:ecosystem") {
+            let pins = if pins.contains("txr:ecosystem") {
                 pins.to_string()
             } else {
                 format!(
-                    "# cyto:ecosystem=python\n\
-                     # cyto:pin-source=immutable-index:https://example.invalid/simple\n\
+                    "# txr:ecosystem=python\n\
+                     # txr:pin-source=immutable-index:https://example.invalid/simple\n\
                      {pins}"
                 )
             };
@@ -2772,7 +2772,7 @@ RUN apt-get install -y --no-install-recommends \\
          RUN pkgmgr install -y jq curl\n\
          COPY requirements.txt /tmp/requirements.txt\n\
          RUN installer --from /tmp/requirements.txt\n\
-         # cyto:env-smoke\n\
+         # txr:env-smoke\n\
          RUN loader -e 'load(alpha); load(beta); load(gamma)'\n";
     const OK_PINS: &str = "# a comment line\n\
          alpha==1.0  # import=alpha\n\
@@ -2855,7 +2855,7 @@ RUN apt-get install -y --no-install-recommends \\
         root.recipe("aaa-first", OK_RECIPE, OK_PINS);
         root.recipe(
             "zzz-second",
-            "FROM scratch\n# cyto:env-smoke\nRUN loader -e 'load(alpha); load(beta)'\n",
+            "FROM scratch\n# txr:env-smoke\nRUN loader -e 'load(alpha); load(beta)'\n",
             "alpha==1.0  # import=alpha\nbeta==2.0  # import=beta\ndelta==4.0  # import=delta\n",
         );
         let err = verify_recipe_pin_smoke_correspondence(root.path())
@@ -3015,7 +3015,7 @@ RUN apt-get install -y --no-install-recommends \\
         root.recipe(
             "only",
             "FROM scratch\n\
-             # cyto:env-smoke\n\
+             # txr:env-smoke\n\
              RUN loader -e 'load(alpha); load(beta)'\n\
              RUN rm -rf /opt/venv/gamma-1.0.dist-info /var/cache/alpha\n",
             OK_PINS,
@@ -3037,7 +3037,7 @@ RUN apt-get install -y --no-install-recommends \\
         a.recipe(
             "only",
             "FROM scratch\n\
-             # cyto:env-smoke\n\
+             # txr:env-smoke\n\
              RUN true  # loads everything in requirements.txt\n",
             OK_PINS,
         );
@@ -3050,7 +3050,7 @@ RUN apt-get install -y --no-install-recommends \\
         b.recipe(
             "only",
             "FROM scratch\n\
-             # cyto:env-smoke\n\
+             # txr:env-smoke\n\
              COPY requirements.txt /x\n",
             OK_PINS,
         );
@@ -3063,9 +3063,9 @@ RUN apt-get install -y --no-install-recommends \\
         c.recipe(
             "only",
             "FROM scratch\n\
-             # cyto:env-smoke\n\
+             # txr:env-smoke\n\
              RUN echo hello  # see requirements.txt\n\
-             # cyto:env-smoke\n\
+             # txr:env-smoke\n\
              RUN loader -e 'load(alpha)'\n",
             OK_PINS,
         );
@@ -3081,9 +3081,9 @@ RUN apt-get install -y --no-install-recommends \\
         dd.recipe(
             "only",
             "FROM scratch\n\
-             # cyto:env-smoke\n\
+             # txr:env-smoke\n\
              RUN echo hi\n\
-             # cyto:env-smoke\n\
+             # txr:env-smoke\n\
              COPY requirements.txt /x\n",
             OK_PINS,
         );
@@ -3096,7 +3096,7 @@ RUN apt-get install -y --no-install-recommends \\
         for spelling in ["RUN (true)# loads everything in requirements.txt",
                          "RUN true `#loads everything in requirements.txt`"] {
             let t = TmpEnvRoot::new("derived-spelling");
-            t.recipe("only", &format!("FROM scratch\n# cyto:env-smoke\n{spelling}\n"), OK_PINS);
+            t.recipe("only", &format!("FROM scratch\n# txr:env-smoke\n{spelling}\n"), OK_PINS);
             let err = verify_recipe_pin_smoke_correspondence(t.path())
                 .unwrap_err();
             assert!(err.contains("alpha"), "{spelling} still exempts: {err}");
@@ -3108,7 +3108,7 @@ RUN apt-get install -y --no-install-recommends \\
         e.recipe(
             "only",
             "FROM scratch\n\
-             # cyto:env-smoke\n\
+             # txr:env-smoke\n\
              RUNNER /tmp/requirements.txt\n",
             OK_PINS,
         );
@@ -3121,7 +3121,7 @@ RUN apt-get install -y --no-install-recommends \\
         ok.recipe(
             "only",
             "FROM scratch\n\
-             # cyto:env-smoke\n\
+             # txr:env-smoke\n\
              RUN loader --load-each requirements.txt\n",
             OK_PINS,
         );
@@ -3135,7 +3135,7 @@ RUN apt-get install -y --no-install-recommends \\
         heredoc.recipe(
             "only",
             "FROM scratch\n\
-             # cyto:env-smoke\n\
+             # txr:env-smoke\n\
              RUN <<'S'\n\
              #!/bin/sh\n\
              set -eux\n\
@@ -3247,7 +3247,7 @@ RUN apt-get install -y --no-install-recommends \\
         let err = verify_recipe_pin_smoke_correspondence(root.path())
             .expect_err("an undeclared smoke surface must FAIL");
         assert!(err.contains("DECLARES no build-time smoke surface"), "{err}");
-        assert!(err.contains("cyto:env-smoke"), "the failure must name the marker: {err}");
+        assert!(err.contains("txr:env-smoke"), "the failure must name the marker: {err}");
     }
 
     /// TEST-10, case 6 — a load written across a `\`-CONTINUED `RUN` is still the smoke
@@ -3261,7 +3261,7 @@ RUN apt-get install -y --no-install-recommends \\
         let root = TmpEnvRoot::new("continuation");
         root.recipe(
             "only",
-            "FROM scratch\n# cyto:env-smoke\nRUN loader -e 'load(alpha);' \\\n    -e 'load(beta);' \\\n    -e 'load(gamma)'\n",
+            "FROM scratch\n# txr:env-smoke\nRUN loader -e 'load(alpha);' \\\n    -e 'load(beta);' \\\n    -e 'load(gamma)'\n",
             OK_PINS,
         );
         assert_eq!(
@@ -3287,13 +3287,13 @@ RUN apt-get install -y --no-install-recommends \\
         root.recipe(
             "only",
             "FROM scratch\n\
-             RUN <<'CYTO_INSTALL'\n\
+             RUN <<'TXR_INSTALL'\n\
              installer --from /tmp/requirements.txt\n\
-             CYTO_INSTALL\n\
-             # cyto:env-smoke\n\
-             RUN <<'CYTO_SMOKE'\n\
+             TXR_INSTALL\n\
+             # txr:env-smoke\n\
+             RUN <<'TXR_SMOKE'\n\
              for m in $(parse /tmp/requirements.txt); do loader -e \"load($m)\"; done\n\
-             CYTO_SMOKE\n",
+             TXR_SMOKE\n",
             OK_PINS,
         );
         assert_eq!(
@@ -3308,9 +3308,9 @@ RUN apt-get install -y --no-install-recommends \\
         bare.recipe(
             "only",
             "FROM scratch\n\
-             RUN <<'CYTO_INSTALL'\n\
+             RUN <<'TXR_INSTALL'\n\
              installer --from /tmp/requirements.txt\n\
-             CYTO_INSTALL\n",
+             TXR_INSTALL\n",
             OK_PINS,
         );
         let err = verify_recipe_pin_smoke_correspondence(bare.path())
@@ -3327,10 +3327,10 @@ RUN apt-get install -y --no-install-recommends \\
         root.recipe(
             "only",
             "FROM scratch\n\
-             # cyto:env-smoke\n\
-             RUN <<'CYTO_SMOKE'\n\
+             # txr:env-smoke\n\
+             RUN <<'TXR_SMOKE'\n\
              loader -e 'load(alpha); load(beta)'\n\
-             CYTO_SMOKE\n",
+             TXR_SMOKE\n",
             OK_PINS,
         );
         let err = verify_recipe_pin_smoke_correspondence(root.path())
@@ -3350,9 +3350,9 @@ RUN apt-get install -y --no-install-recommends \\
         root.recipe(
             "only",
             "FROM scratch\n\
-             # The `cyto:env-smoke` marker below declares the verification.\n\
+             # The `txr:env-smoke` marker below declares the verification.\n\
              RUN pkgmgr install -y alpha beta gamma\n\
-             # cyto:env-smoke\n\
+             # txr:env-smoke\n\
              RUN loader -e 'load(alpha)'\n",
             OK_PINS,
         );
@@ -3377,7 +3377,7 @@ RUN apt-get install -y --no-install-recommends \\
         root.recipe(
             "only",
             "FROM scratch\n\
-             # cyto:env-smoke\n\
+             # txr:env-smoke\n\
              \n\
              RUN loader \\\n\
              \x20 # load everything pinned\n\
@@ -3471,7 +3471,7 @@ RUN apt-get install -y --no-install-recommends \\
         let root = TmpEnvRoot::new("boundary");
         root.recipe(
             "only",
-            "FROM scratch\n# cyto:env-smoke\nRUN loader -e 'load(alphanumeric); load(beta); load(gamma)'\n",
+            "FROM scratch\n# txr:env-smoke\nRUN loader -e 'load(alphanumeric); load(beta); load(gamma)'\n",
             OK_PINS,
         );
         let err = verify_recipe_pin_smoke_correspondence(root.path())
@@ -3705,14 +3705,14 @@ RUN apt-get install -y --no-install-recommends \\
             }
         }
         for k in [
-            "CYTO_ENV_ROOTFS_SQUASHFS",
-            "CYTO_ENV_ROOTFS_SQUASHFS_ENV",
-            "CYTO_ENV_ROOTFS_SQUASHFS__env-a",
-            "CYTO_ENV_ROOTFS_SQUASHFS__env-b",
-            "CYTO_ENV_ROOTFS_DIR",
-            "CYTO_ENV_ROOTFS_DIR_ENV",
-            "CYTO_ENV_ROOTFS_DIR__env-a",
-            "CYTO_ENV_ROOTFS_DIR__env-b",
+            "TXR_ENV_ROOTFS_SQUASHFS",
+            "TXR_ENV_ROOTFS_SQUASHFS_ENV",
+            "TXR_ENV_ROOTFS_SQUASHFS__env-a",
+            "TXR_ENV_ROOTFS_SQUASHFS__env-b",
+            "TXR_ENV_ROOTFS_DIR",
+            "TXR_ENV_ROOTFS_DIR_ENV",
+            "TXR_ENV_ROOTFS_DIR__env-a",
+            "TXR_ENV_ROOTFS_DIR__env-b",
         ] {
             std::env::remove_var(k);
         }
@@ -3738,8 +3738,8 @@ RUN apt-get install -y --no-install-recommends \\
         clear_seam_vars();
 
         // A single-env deployment: the BARE variable, explicitly associated with env-a.
-        std::env::set_var("CYTO_ENV_ROOTFS_SQUASHFS", "/staged/a.squashfs");
-        std::env::set_var("CYTO_ENV_ROOTFS_SQUASHFS_ENV", "env-a");
+        std::env::set_var("TXR_ENV_ROOTFS_SQUASHFS", "/staged/a.squashfs");
+        std::env::set_var("TXR_ENV_ROOTFS_SQUASHFS_ENV", "env-a");
 
         // The env it DOES serve is served — this is the single-env back-compat path
         // (DEC-3), and it is the control that keeps the refusal below meaningful: without
@@ -3778,7 +3778,7 @@ RUN apt-get install -y --no-install-recommends \\
         let _g = air_gap_env_guard();
         clear_seam_vars();
 
-        std::env::set_var("CYTO_ENV_ROOTFS_SQUASHFS__env-a", "/staged/a.squashfs");
+        std::env::set_var("TXR_ENV_ROOTFS_SQUASHFS__env-a", "/staged/a.squashfs");
 
         assert_eq!(
             staged_squashfs_for("env-a").expect("its own env resolves").as_path(),
@@ -3803,8 +3803,8 @@ RUN apt-get install -y --no-install-recommends \\
 
         // The suffixed variable WINS over a bare one pointed elsewhere — the exact
         // spelling matters more than the fallback.
-        std::env::set_var("CYTO_ENV_ROOTFS_SQUASHFS", "/staged/other.squashfs");
-        std::env::set_var("CYTO_ENV_ROOTFS_SQUASHFS_ENV", "env-b");
+        std::env::set_var("TXR_ENV_ROOTFS_SQUASHFS", "/staged/other.squashfs");
+        std::env::set_var("TXR_ENV_ROOTFS_SQUASHFS_ENV", "env-b");
         assert_eq!(
             staged_squashfs_for("env-a").expect("the exact per-env variable wins").as_path(),
             std::path::Path::new("/staged/a.squashfs")
@@ -3843,8 +3843,8 @@ RUN apt-get install -y --no-install-recommends \\
     fn provide_itself_refuses_a_mismatched_staged_env() {
         let _g = air_gap_env_guard();
         clear_seam_vars();
-        std::env::set_var("CYTO_ENV_ROOTFS_SQUASHFS", "/staged/a.squashfs");
-        std::env::set_var("CYTO_ENV_ROOTFS_SQUASHFS_ENV", "env-a");
+        std::env::set_var("TXR_ENV_ROOTFS_SQUASHFS", "/staged/a.squashfs");
+        std::env::set_var("TXR_ENV_ROOTFS_SQUASHFS_ENV", "env-a");
 
         let err = OciEnvImageProvider::new()
             .provide("env-b", Duration::from_secs(5))
@@ -3862,7 +3862,7 @@ RUN apt-get install -y --no-install-recommends \\
     /// `usr/`-bearing mount dir for it — what the pre-mounted-dir seam accepts and
     /// derives a digest from.
     fn stage_a_distinct_env(tag: &str) -> (String, std::path::PathBuf, std::path::PathBuf) {
-        let tmp = std::env::temp_dir().join(format!("cyto-env-conc-{tag}-{}", uuid::Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("txresbench-env-conc-{tag}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&tmp).unwrap();
         let src = tmp.join("rootfs.squashfs");
         let bytes = format!("distinct-rootfs-{tag}-{}", uuid::Uuid::new_v4()).into_bytes();
@@ -3903,8 +3903,8 @@ RUN apt-get install -y --no-install-recommends \\
         let (hex_b, dir_b, tmp_b) = stage_a_distinct_env("b");
         assert_ne!(hex_a, hex_b, "the two envs must be distinguishable at all");
 
-        std::env::set_var("CYTO_ENV_ROOTFS_DIR__env-a", &dir_a);
-        std::env::set_var("CYTO_ENV_ROOTFS_DIR__env-b", &dir_b);
+        std::env::set_var("TXR_ENV_ROOTFS_DIR__env-a", &dir_a);
+        std::env::set_var("TXR_ENV_ROOTFS_DIR__env-b", &dir_b);
 
         // Enough rounds that a shared-cell implementation is overwhelmingly likely to be
         // caught interleaved, rather than passing on a lucky schedule.
@@ -3955,7 +3955,7 @@ RUN apt-get install -y --no-install-recommends \\
     /// Lifecycle id: **TEST-16** (see `.lifecycle/analysis-env-selection/TESTS.md`).
     #[test]
     fn the_run_env_digest_sidecar_round_trips_and_is_per_workspace() {
-        let root = std::env::temp_dir().join(format!("cyto-envdigest-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("txr-envdigest-{}", uuid::Uuid::new_v4()));
 
         // Absent ⇒ None. This is the honest record for a run that mounted no env image
         // (an in-app interaction run, a promote/byte-copy run) and is what closes the
@@ -3975,7 +3975,7 @@ RUN apt-get install -y --no-install-recommends \\
         assert_eq!(read_run_env_digest(&root).as_deref(), Some(hex.as_str()));
 
         // Writing `None` records nothing rather than clearing to an empty file.
-        let other = std::env::temp_dir().join(format!("cyto-envdigest-{}", uuid::Uuid::new_v4()));
+        let other = std::env::temp_dir().join(format!("txr-envdigest-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&other).unwrap();
         write_run_env_digest(&other, None);
         assert_eq!(read_run_env_digest(&other), None);
@@ -3984,7 +3984,7 @@ RUN apt-get install -y --no-install-recommends \\
         // their own value.
         let roots: Vec<(std::path::PathBuf, String)> = (0..8)
             .map(|i| {
-                let r = std::env::temp_dir().join(format!("cyto-envdigest-c{i}-{}", uuid::Uuid::new_v4()));
+                let r = std::env::temp_dir().join(format!("txr-envdigest-c{i}-{}", uuid::Uuid::new_v4()));
                 std::fs::create_dir_all(&r).unwrap();
                 (r, format!("{i:x}").repeat(64)[..64].to_string())
             })
@@ -4046,9 +4046,9 @@ RUN apt-get install -y --no-install-recommends \\
 
         // A bare pre-mounted dir: `usr/` present, but NOT the digest cache's own mount
         // point, so no digest can be derived from it.
-        let bare = std::env::temp_dir().join(format!("cyto-env-bare-{}", uuid::Uuid::new_v4()));
+        let bare = std::env::temp_dir().join(format!("txresbench-env-bare-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(bare.join("usr")).unwrap();
-        std::env::set_var("CYTO_ENV_ROOTFS_DIR__env-a", &bare);
+        std::env::set_var("TXR_ENV_ROOTFS_DIR__env-a", &bare);
 
         let provided = OciEnvImageProvider::new()
             .provide("env-a", Duration::from_secs(5))
@@ -4070,7 +4070,7 @@ RUN apt-get install -y --no-install-recommends \\
     /// The contract fixes an ordering that is easy to get backwards, and I did get it
     /// backwards on the first pass: the natural implementation is
     /// `declared.or_else(default_env_id)`, which puts the DECLARED env above the operator
-    /// override. That silently breaks `CYTO_SANDBOX_ENV_ID` as an escape hatch the moment
+    /// override. That silently breaks `TXR_SANDBOX_ENV_ID` as an escape hatch the moment
     /// any package declares an env — precisely when an operator (air-gapped deployment,
     /// recovery run, in-pod re-entry) most needs to force a known image.
     ///
@@ -4086,10 +4086,10 @@ RUN apt-get install -y --no-install-recommends \\
         const SETTINGS: &str = "fixture-settings";
 
         let _g = super::process_env_guard();
-        let saved = std::env::var("CYTO_SANDBOX_ENV_ID").ok();
+        let saved = std::env::var("TXR_SANDBOX_ENV_ID").ok();
 
         // ── boundary 1: the DECLARED env outranks the settings row ──
-        std::env::remove_var("CYTO_SANDBOX_ENV_ID");
+        std::env::remove_var("TXR_SANDBOX_ENV_ID");
         settings_cache::invalidate(SandboxResourceLimits {
             default_env_id: Some(SETTINGS.into()),
             ..SandboxResourceLimits::defaults()
@@ -4107,16 +4107,16 @@ RUN apt-get install -y --no-install-recommends \\
         );
 
         // ── boundary 2: the OPERATOR override outranks the declared env ──
-        std::env::set_var("CYTO_SANDBOX_ENV_ID", OPERATOR);
+        std::env::set_var("TXR_SANDBOX_ENV_ID", OPERATOR);
         assert_eq!(
             resolve_env_id(Some(DECLARED)).as_deref(),
             Some(OPERATOR),
-            "CYTO_SANDBOX_ENV_ID must remain an escape hatch even when a job declares an env"
+            "TXR_SANDBOX_ENV_ID must remain an escape hatch even when a job declares an env"
         );
         assert_eq!(resolve_env_id(None).as_deref(), Some(OPERATOR));
 
         // ── a blank declared env is ABSENT, not an env named "" ──
-        std::env::remove_var("CYTO_SANDBOX_ENV_ID");
+        std::env::remove_var("TXR_SANDBOX_ENV_ID");
         assert_eq!(resolve_env_id(Some("   ")).as_deref(), Some(SETTINGS));
 
         // ── and `default_env_id()` is exactly `resolve_env_id(None)` ──
@@ -4124,8 +4124,8 @@ RUN apt-get install -y --no-install-recommends \\
 
         settings_cache::invalidate(SandboxResourceLimits::defaults());
         match saved {
-            Some(v) => std::env::set_var("CYTO_SANDBOX_ENV_ID", v),
-            None => std::env::remove_var("CYTO_SANDBOX_ENV_ID"),
+            Some(v) => std::env::set_var("TXR_SANDBOX_ENV_ID", v),
+            None => std::env::remove_var("TXR_SANDBOX_ENV_ID"),
         }
     }
 
@@ -4134,7 +4134,7 @@ RUN apt-get install -y --no-install-recommends \\
     ///
     /// Found by a blind audit, which observed that the `served == None` arm swallowed
     /// this and that every other seam test steered around it by setting
-    /// `CYTO_ENV_ROOTFS_SQUASHFS_ENV` explicitly. It is reachable: with `*_ENV`, the
+    /// `TXR_ENV_ROOTFS_SQUASHFS_ENV` explicitly. It is reachable: with `*_ENV`, the
     /// operator override, the settings row and the registry all empty, the ONLY way
     /// `provide` is called is with an env a JOB declared — so "serve the bare artifact
     /// anyway" means running that job against a rootfs nothing claims is the right one,
@@ -4150,10 +4150,10 @@ RUN apt-get install -y --no-install-recommends \\
         // process globals: whether the real `default_env_id()` is None depends on whether
         // another test in this binary has published a registry, which would make this
         // test pass or fail by execution order instead of by behaviour.
-        std::env::set_var("CYTO_ENV_ROOTFS_SQUASHFS", "/staged/unknown.squashfs");
+        std::env::set_var("TXR_ENV_ROOTFS_SQUASHFS", "/staged/unknown.squashfs");
 
         assert!(
-            seam_serves("CYTO_ENV_ROOTFS_SQUASHFS", "env-a", || None).is_none(),
+            seam_serves("TXR_ENV_ROOTFS_SQUASHFS", "env-a", || None).is_none(),
             "an unassociated seam serves nothing"
         );
         let err = staged_env_refusal_with("env-a", || None)
@@ -4167,22 +4167,22 @@ RUN apt-get install -y --no-install-recommends \\
         let msg = format!("{err}");
         assert!(msg.contains("env-a"), "names the requested env: {msg}");
         assert!(
-            msg.contains("CYTO_ENV_ROOTFS_SQUASHFS_ENV"),
+            msg.contains("TXR_ENV_ROOTFS_SQUASHFS_ENV"),
             "tells the operator how to state the association: {msg}"
         );
 
         // …and the moment the association IS stated, the same request is served — so the
         // refusal above is about the missing association, not about refusing everything.
-        std::env::set_var("CYTO_ENV_ROOTFS_SQUASHFS_ENV", "env-a");
+        std::env::set_var("TXR_ENV_ROOTFS_SQUASHFS_ENV", "env-a");
         assert_eq!(
-            seam_serves("CYTO_ENV_ROOTFS_SQUASHFS", "env-a", || None)
+            seam_serves("TXR_ENV_ROOTFS_SQUASHFS", "env-a", || None)
                 .expect("now associated")
                 .as_path(),
             std::path::Path::new("/staged/unknown.squashfs")
         );
         // …and a DIFFERENT env is still refused once the association exists.
         assert!(
-            seam_serves("CYTO_ENV_ROOTFS_SQUASHFS", "env-b", || None).is_none()
+            seam_serves("TXR_ENV_ROOTFS_SQUASHFS", "env-b", || None).is_none()
                 && staged_env_refusal_with("env-b", || None).is_some(),
             "an associated artifact still refuses the env it does not serve"
         );
@@ -4203,8 +4203,8 @@ RUN apt-get install -y --no-install-recommends \\
         clear_seam_vars();
 
         let (_hex, dir_b, tmp_b) = stage_a_distinct_env("crossseam");
-        std::env::set_var("CYTO_ENV_ROOTFS_SQUASHFS__env-a", "/staged/a.squashfs");
-        std::env::set_var("CYTO_ENV_ROOTFS_DIR__env-b", &dir_b);
+        std::env::set_var("TXR_ENV_ROOTFS_SQUASHFS__env-a", "/staged/a.squashfs");
+        std::env::set_var("TXR_ENV_ROOTFS_DIR__env-b", &dir_b);
 
         // env-b is served by seam 2, even though seam 1 stages a sibling.
         let provided = OciEnvImageProvider::new()
@@ -4241,18 +4241,18 @@ RUN apt-get install -y --no-install-recommends \\
         let (_hex, dir_b, tmp_b) = stage_a_distinct_env("crossbare");
 
         // (a) seam 1 bare + ASSOCIATED to a different env; seam 2 has an exact match.
-        std::env::set_var("CYTO_ENV_ROOTFS_SQUASHFS", "/staged/a.squashfs");
-        std::env::set_var("CYTO_ENV_ROOTFS_SQUASHFS_ENV", "env-a");
-        std::env::set_var("CYTO_ENV_ROOTFS_DIR__env-b", &dir_b);
+        std::env::set_var("TXR_ENV_ROOTFS_SQUASHFS", "/staged/a.squashfs");
+        std::env::set_var("TXR_ENV_ROOTFS_SQUASHFS_ENV", "env-a");
+        std::env::set_var("TXR_ENV_ROOTFS_DIR__env-b", &dir_b);
         let provided = OciEnvImageProvider::new()
             .provide("env-b", Duration::from_secs(5))
             .expect("an exact per-env artifact under seam 2 must win over seam 1's bare one");
         assert_eq!(provided.rootfs_dir, dir_b);
 
         // (b) seam 1 bare + UNASSOCIATED; seam 2 still has the exact match.
-        std::env::remove_var("CYTO_ENV_ROOTFS_SQUASHFS_ENV");
+        std::env::remove_var("TXR_ENV_ROOTFS_SQUASHFS_ENV");
         assert_eq!(
-            seam_serves("CYTO_ENV_ROOTFS_DIR", "env-b", || None)
+            seam_serves("TXR_ENV_ROOTFS_DIR", "env-b", || None)
                 .expect("seam 2 still serves it")
                 .as_path(),
             dir_b.as_path()
@@ -4286,9 +4286,9 @@ RUN apt-get install -y --no-install-recommends \\
         clear_seam_vars();
 
         // Declared for env-b, but the dir has no `usr/` — it cannot be mounted.
-        let bare = std::env::temp_dir().join(format!("cyto-nousr-{}", uuid::Uuid::new_v4()));
+        let bare = std::env::temp_dir().join(format!("txr-nousr-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&bare).unwrap();
-        std::env::set_var("CYTO_ENV_ROOTFS_DIR__env-b", &bare);
+        std::env::set_var("TXR_ENV_ROOTFS_DIR__env-b", &bare);
 
         let err = OciEnvImageProvider::new()
             .provide("env-b", Duration::from_secs(5))

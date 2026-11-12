@@ -27,7 +27,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, act, fireEvent, waitFor, within } from '@testing-library/react'
-import { Toaster } from '@ziee/kit'
+import { Toaster } from '@txresbench/kit'
 import type { Job } from '@/api-client/types'
 
 // The navigation the toast's OTHER exit performs. Mocked so this suite can prove the close

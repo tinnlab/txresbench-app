@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, type ComponentRef } from 'react'
 import { CheckCircle2, Loader2 } from 'lucide-react'
-import { Alert, Button, Progress, ScrollArea } from '@ziee/kit'
+import { Alert, Button, Progress, ScrollArea } from '@txresbench/kit'
 import type { FrameMetric, FrameLog } from '../jobs/jobFrames'
 
 /** A phase in the run timeline (from the SSE `progress` frames). */

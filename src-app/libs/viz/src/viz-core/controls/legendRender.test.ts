@@ -72,7 +72,7 @@ describe('legendLayoutToMarks (export == on-screen geometry)', () => {
   })
 })
 
-// ── the PROVENANCE NOTE leg (ziee visualize-pane ITEM-19 / DEC-13) ───────────────────────────────
+// ── the PROVENANCE NOTE leg (txresbench visualize-pane ITEM-19 / DEC-13) ───────────────────────────────
 //
 // The legend is the load-bearing surface for a marker that has to survive leaving the app: a
 // screenshot crops the pane chrome and keeps the legend. These assert the two properties that make

@@ -123,7 +123,7 @@ fn list_cached_in(base: &Path) -> Vec<CachedDigest> {
 /// ≈ 1.2 GB at the ~300 MB/digest this deployment measures — enough that an
 /// in-flight reproduce of a recent run still hits the local cache, small enough
 /// that a year of republishes cannot fill a disk. An operator whose reproduce
-/// window is longer raises it with `CYTO_ROOTFS_CACHE_MAX_DIGESTS`.
+/// window is longer raises it with `TXR_ROOTFS_CACHE_MAX_DIGESTS`.
 pub const MAX_CACHED_DIGESTS_DEFAULT: usize = 4;
 
 /// The configured retention cap. Release-honored (this is a capacity knob, not a
@@ -131,7 +131,7 @@ pub const MAX_CACHED_DIGESTS_DEFAULT: usize = 4;
 /// A malformed or zero value falls back to the default — a cap of 0 would ask the
 /// GC to evict the digest currently being run on.
 pub fn max_cached_digests() -> usize {
-    std::env::var("CYTO_ROOTFS_CACHE_MAX_DIGESTS")
+    std::env::var("TXR_ROOTFS_CACHE_MAX_DIGESTS")
         .ok()
         .and_then(|v| v.trim().parse::<usize>().ok())
         .filter(|n| *n > 0)
@@ -485,7 +485,7 @@ mod tests {
     }
 
     fn scratch() -> PathBuf {
-        std::env::temp_dir().join(format!("cyto-rootfs-gc-{}", uuid::Uuid::new_v4()))
+        std::env::temp_dir().join(format!("txr-rootfs-gc-{}", uuid::Uuid::new_v4()))
     }
 
     fn place(base: &Path, digest: &str, bytes: &[u8]) {

@@ -14,13 +14,13 @@
     "noEmit": true,
     "types": ["node", "react", "react-dom"],
     "paths": {
-      "@ziee/kit": ["../kit/src/index.ts"],
-      "@ziee/kit/*": ["../kit/src/*"],
-      "@ziee/framework": ["../framework/src/index.ts"],
-      "@ziee/framework/api-client": ["../framework/src/api-client/index.ts"],
-      "@ziee/framework/*": ["../framework/src/*"],
-      "@ziee/shell": ["../shell/src/index.ts"],
-      "@ziee/shell/*": ["../shell/src/*"]
+      "@txresbench/kit": ["../kit/src/index.ts"],
+      "@txresbench/kit/*": ["../kit/src/*"],
+      "@txresbench/framework": ["../framework/src/index.ts"],
+      "@txresbench/framework/api-client": ["../framework/src/api-client/index.ts"],
+      "@txresbench/framework/*": ["../framework/src/*"],
+      "@txresbench/shell": ["../shell/src/index.ts"],
+      "@txresbench/shell/*": ["../shell/src/*"]
     }
   },
   "include": ["src"]

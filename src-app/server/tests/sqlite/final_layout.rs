@@ -44,7 +44,7 @@ const MIGRATION_MODULES: &[&str] = &[
 ];
 
 /// The schema-bound SDK crates whose migrations the app composes.
-const SDK_MIGRATION_CRATES: &[&str] = &["ziee-auth", "ziee-file", "ziee-notification"];
+const SDK_MIGRATION_CRATES: &[&str] = &["txresbench-auth", "txresbench-file", "txresbench-notification"];
 
 fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -179,7 +179,7 @@ fn final_layout_has_one_sqlite_chain_and_no_pg_dialect() {
     // 3. The REAL composer with build.rs's source lists produces exactly the
     //    module union, byte-identical per file.
     let scratch = std::env::temp_dir().join(format!(
-        "cyto-final-layout-{}-{}",
+        "txr-final-layout-{}-{}",
         std::process::id(),
         uuid::Uuid::new_v4()
     ));
@@ -190,7 +190,7 @@ fn final_layout_has_one_sqlite_chain_and_no_pg_dialect() {
         .iter()
         .map(|c| sdk_crate_migrations(c))
         .collect();
-    ziee_build_support::compose_merged_migrations_from(&merged, &module_roots, &sdk_dirs);
+    txresbench_build_support::compose_merged_migrations_from(&merged, &module_roots, &sdk_dirs);
 
     let mut expected_files: Vec<PathBuf> = Vec::new();
     for module in MIGRATION_MODULES {

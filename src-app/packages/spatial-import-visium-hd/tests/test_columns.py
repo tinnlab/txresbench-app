@@ -28,10 +28,10 @@ A producer that returns a correct declaration and writes something else is exact
 failure a read-back test exists to catch, so every VALUE assertion below goes through
 `HF.read_member` / `HF.read_values` — `_lib`'s own reader, over the store on disk.
 
-The one claim that CANNOT be read back is the legend. `cyto_columns.write_metadata_column`
+The one claim that CANNOT be read back is the legend. `txr_columns.write_metadata_column`
 stores a bool column as a plain bool array and says so outright — "the legend is a display
 fact, not a storage one, so it rides on `meta` … this `levels` is the ONLY copy" — so there
-is no `attributes.cyto.levels` to read. It is therefore asserted against `manifest.json` AS
+is no `attributes.txr.levels` to read. It is therefore asserted against `manifest.json` AS
 WRITTEN BY THE SHIPPED WRITER (`module.write_manifest`), which is the document the server
 actually consumes, rather than against the in-memory `entries` list alone.
 """
@@ -118,8 +118,8 @@ def test_TEST_23_in_tissue_is_a_CATEGORICAL_with_a_declared_false_true_legend(im
     )
     assert meta["levels"] == ["false", "true"], (
         f"the declared legend is {meta.get('levels')!r}; a reader has no other channel for "
-        "it — `cyto_columns` stores a bool column as a plain bool array with no "
-        "`attributes.cyto.levels` to fall back on"
+        "it — `txr_columns` stores a bool column as a plain bool array with no "
+        "`attributes.txr.levels` to fall back on"
     )
 
     values = HF.read_member(imported["out"], "metadata/in_tissue.zarr", "values")
@@ -168,7 +168,7 @@ def test_TEST_23_in_tissue_carries_the_VENDORS_call_for_the_matrixs_own_bins(imp
 def test_TEST_23_the_lattice_indices_are_int32_and_match_the_parquet_PER_BARCODE(imported, name):
     """TEST-23 — the vendor's own lattice indices, at the width they were declared at.
 
-    `int32` matters on its own: `cyto_columns` keeps integers "at the SOURCE width", and a
+    `int32` matters on its own: `txr_columns` keeps integers "at the SOURCE width", and a
     column silently widened to `int64` or floated to `1.0`/`2.0` is a different artifact from
     the one the manifest declares. It is asserted on the STORED array's dtype, not on the
     structure the writer returned.

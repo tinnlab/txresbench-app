@@ -1,10 +1,10 @@
 import { lazy, useState, type ComponentType, type LazyExoticComponent } from 'react'
-import type { ModuleGallery, PageDriver } from '@ziee/gallery'
-import { Dropdown, InputNumber, MultiSelect, Select, type SelectOption } from '@ziee/kit'
-import type { ContainerId } from '@ziee/dock'
+import type { ModuleGallery, PageDriver } from '@txresbench/gallery'
+import { Dropdown, InputNumber, MultiSelect, Select, type SelectOption } from '@txresbench/kit'
+import type { ContainerId } from '@txresbench/dock'
 import { createWorkbenchApi, type ParamField } from '@/modules/workbench/core'
 import type { ArtifactRow } from '@/modules/workbench/extensions/data'
-import { FixtureSource } from '@ziee/viz'
+import { FixtureSource } from '@txresbench/viz'
 import { makeFakeHost, type FakeHostSeed } from './core/host/createHost'
 import {
   declarativeFixtureSurfaces,
@@ -61,7 +61,7 @@ loadDiscoveredProcessors()
  * gates.
  */
 
-const GALLERY_EXTENSION_ID = 'cyto.workbench.gallery'
+const GALLERY_EXTENSION_ID = 'txr.workbench.gallery'
 
 function artifact(id: string, projectId: string, datatype: string, structure: unknown): ArtifactRow {
   return {
@@ -79,7 +79,7 @@ function artifact(id: string, projectId: string, datatype: string, structure: un
   }
 }
 
-/** The `zarr_v3` sparse matrix `cyto_csc.write_csc_zarr` declares (its own default axis
+/** The `zarr_v3` sparse matrix `txr_csc.write_csc_zarr` declares (its own default axis
  *  labels are `rows`/`columns` — a label, never a key: INV-3). */
 function cscStructure(rows: number, cols: number): unknown {
   return {
@@ -104,7 +104,7 @@ function layoutStructure(n: number, dims: number): unknown {
   }
 }
 
-/** The single-member categorical table `cyto_columns.write_metadata_column` declares. */
+/** The single-member categorical table `txr_columns.write_metadata_column` declares. */
 function categoricalStructure(n: number): unknown {
   return {
     encoding: 'zarr_v3',

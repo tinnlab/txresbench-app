@@ -1,5 +1,5 @@
 {
-  "name": "@ziee/dock",
+  "name": "@txresbench/dock",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,7 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ziee/kit": "*"
+    "@txresbench/kit": "*"
   },
   "peerDependencies": {
     "react": "^19.2.6",

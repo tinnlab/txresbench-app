@@ -1,13 +1,13 @@
 /**
  * Unified per-worktree RUN KEY — the Node twin of the Rust
- * `ziee-build-support::worktree_db` key (audit §7). ONE mechanism every
+ * `txresbench-build-support::worktree_db` key (audit §7). ONE mechanism every
  * harness/dev/gallery resource derives its port-base / namespace from, so N
  * concurrent git worktrees never collide on a shared mutable resource.
  *
  * Byte-identical to Rust: `worktreeKey` uses the SAME FNV-1a
  * (0xcbf29ce484222325 / 0x100000001b3, fold `h ^ (h>>32)` → 8 hex) over the SAME
  * absolute worktree-root string, and `portBase` uses the SAME modulo math. A
- * shared fixture vector ("/data/pbya/ziee/tmp/xwt-a" → "12080097") is asserted in
+ * shared fixture vector ("/data/pbya/txresbench/tmp/xwt-a" → "12080097") is asserted in
  * BOTH this package's node test AND the Rust `#[cfg(test)]`, so a drift in either
  * language goes red.
  *

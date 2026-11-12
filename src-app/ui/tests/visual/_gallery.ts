@@ -1,5 +1,5 @@
 // Shared helpers for the Layer-A visual specs (declarative-rendering-hardening ITEM-14).
-// Adapted from `@ziee/gallery`'s `playwright/templates/_gallery.template.ts`, with the
+// Adapted from `@txresbench/gallery`'s `playwright/templates/_gallery.template.ts`, with the
 // template's fixed sleeps replaced by real readiness CONDITIONS — a spec that loops over 12
 // surfaces cannot afford 6s of unconditional waiting per surface (it blew the 60s per-test
 // budget), and a condition is more robust than a sleep anyway.

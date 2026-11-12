@@ -153,7 +153,7 @@ pub async fn verify_run(
     target_run_id: Uuid,
     acting_user: Uuid,
     mode: ToleranceMode,
-) -> Result<(), ziee_core::AppError> {
+) -> Result<(), txresbench_core::AppError> {
     let repo = ProvenanceRepository::new(pool.clone());
 
     // The recorded run — for its captured env + the re-run spec. A missing run or
@@ -245,7 +245,7 @@ async fn finalize(
     diff_report: serde_json::Value,
     rerun_rootfs: Option<String>,
     recorded_rootfs: Option<String>,
-) -> Result<(), ziee_core::AppError> {
+) -> Result<(), txresbench_core::AppError> {
     let verified_at = chrono::Utc::now().to_rfc3339();
     let env_changed = env_differs(&recorded_rootfs, &rerun_rootfs);
     let cert = certificate::build_certificate(
@@ -411,9 +411,9 @@ mod tests {
 
     #[test]
     fn redact_strips_host_paths_but_keeps_semantics() {
-        let msg = "hash output embedding: read /tmp/ziee-sandboxes/abc/outputs/x.zarr: No such file";
+        let msg = "hash output embedding: read /tmp/txresbench-sandboxes/abc/outputs/x.zarr: No such file";
         let red = redact_host_paths(msg);
-        assert!(!red.contains("/tmp/ziee-sandboxes"), "host path is redacted");
+        assert!(!red.contains("/tmp/txresbench-sandboxes"), "host path is redacted");
         assert!(red.contains("<path>"));
         assert!(red.contains("hash output embedding") && red.contains("No such file"), "semantics kept");
         // Single-component absolute paths are also redacted (not just >=2 slashes).

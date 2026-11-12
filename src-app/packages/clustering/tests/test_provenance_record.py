@@ -32,7 +32,7 @@ def test_full_provenance_record_set_is_present_and_reproduces_labels(cluster_run
                       aligned_to=cells_digest(120))
     run.run_ok({"resolution": 1.0, "n_neighbors": 15, "metric": "euclidean", "seed": 5})
 
-    tag = run.label_group_cyto()["clustering"]
+    tag = run.label_group_txr()["clustering"]
     for f in _REQUIRED_TAG_FIELDS:
         assert f in tag, f
     # library versions (leidenalg / python-igraph / scanpy) are recorded in the report.
@@ -60,7 +60,7 @@ def test_neighbour_path_is_exact_below_the_switch_and_recorded(cluster_run):
     # 90 cells < 8192 → exact; the field is present with the recorded switch point.
     assert report["parameters"]["neighbour_path"] == "exact"
     assert report["parameters"]["neighbour_path_switch_cells"] == 8192
-    assert run.label_group_cyto()["clustering"]["neighbour_path"] == "exact"
+    assert run.label_group_txr()["clustering"]["neighbour_path"] == "exact"
 
 
 def test_neighbour_path_is_approximate_at_or_above_the_switch_and_recorded(cluster_run):
@@ -83,7 +83,7 @@ def test_neighbour_path_is_approximate_at_or_above_the_switch_and_recorded(clust
     # 8193 ≥ 8192 → approximate; the switch point is the same pinned constant.
     assert report["parameters"]["neighbour_path"] == "approximate"
     assert report["parameters"]["neighbour_path_switch_cells"] == 8192
-    assert run.label_group_cyto()["clustering"]["neighbour_path"] == "approximate"
+    assert run.label_group_txr()["clustering"]["neighbour_path"] == "approximate"
 
 
 def test_metric_and_n_neighbors_recorded_as_choice_not_recommendation(cluster_run):

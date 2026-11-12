@@ -1,7 +1,7 @@
 # Backend Architecture
 
-> Rust/axum server on the ziee SDK crates. `sdk-crates:` = `sdk/crates/…` (the
-> pinned SDK submodule); `ziee:` = the reference app (`ziee/src-app/server/…`),
+> Rust/axum server on the txresbench SDK crates. `sdk-crates:` = `sdk/crates/…` (the
+> pinned SDK submodule); `txresbench:` = the reference app (`txresbench/src-app/server/…`),
 > the provenance anchor for conventions the crates cannot express.
 >
 > Enforcement tags follow `CODING_GUIDELINES.md`: 🔧 lint · 🧪 test · 🔬 ci ·
@@ -15,7 +15,7 @@
 
 There is **no central module list to edit**. A module registers itself into a
 `linkme` distributed slice defined in the framework crate
-(`sdk-crates:ziee-framework/src/module_api.rs`):
+(`sdk-crates:txresbench-framework/src/module_api.rs`):
 
 ```rust
 #[distributed_slice(MODULE_ENTRIES)]
@@ -40,11 +40,11 @@ static PROJECT_MODULE_REGISTRATION: ModuleEntry = ModuleEntry {
 `ModuleContext` carries `db_pool`, the app-agnostic `ServerConfig`, and
 `app_config: Arc<dyn Any + Send + Sync>` — the app's monolithic config,
 type-erased. A module needing a domain sub-config **downcasts** it through one
-app-side helper (`ziee:src/module_api/mod.rs:19-25`), so the framework's context
+app-side helper (`txresbench:src/module_api/mod.rs:19-25`), so the framework's context
 names no app type.
 
 🔬 **`order` is the init sequence and it is sorted by `(order, name)`** —
-`sdk-crates:ziee-framework/src/app_builder.rs:26-50`. The name tiebreak is load
+`sdk-crates:txresbench-framework/src/app_builder.rs:26-50`. The name tiebreak is load
 bearing: a distributed slice's element order comes from the linker, so without it
 two modules sharing an `order` could silently swap between builds, changing the
 emitted `openapi.json` path order (a committed generated file) and any init
@@ -75,20 +75,20 @@ modules/<name>/
 - 🔧 **All business SQL lives in `repository.rs`.** No inline `sqlx::query` in a
   handler.
 - 🔬 **Handlers ≤ 800 lines**; split into a `handlers/` directory of submodules
-  past that (`ziee:src/modules/user/handlers/`). Extractors do extraction +
+  past that (`txresbench:src/modules/user/handlers/`). Extractors do extraction +
   authorization only — no business logic.
 - 🔬 **The module graph is a DAG.** A hub/aggregator module never imports a
   feature module's types. Shared infra goes to `common/` / `core/`.
 - 📐 **Inversion over import.** When module A needs to contribute to module B's
   surface, B publishes an extension slice and A registers into it — B never
-  imports A. `ziee:src/modules/project/routes.rs:32-45` documents three such
+  imports A. `txresbench:src/modules/project/routes.rs:32-45` documents three such
   inversions (project↔file, project↔chat, project↔mcp) where the routes moved to
   the *contributing* module.
 
 Repository access is through the generated `Repos` accessor —
-`ziee_framework::declare_repositories! { project: ProjectRepository => crate::modules::project, … }`
+`txresbench_framework::declare_repositories! { project: ProjectRepository => crate::modules::project, … }`
 expands the factory, the `Deref` wrappers and `Repos` **in the invoking crate**
-(`sdk-crates:ziee-framework/src/repository.rs:1-33`), so handlers just write
+(`sdk-crates:txresbench-framework/src/repository.rs:1-33`), so handlers just write
 `Repos.project.create(...)`.
 
 ---
@@ -129,14 +129,14 @@ pub fn create_project_docs(op: TransformOperation) -> TransformOperation {
         .response_with::<400, (), _>(|res| res.description("Invalid request"))
 }
 ```
-*(`ziee:src/modules/project/{routes.rs:10-31,handlers.rs:252-304}`)*
+*(`txresbench:src/modules/project/{routes.rs:10-31,handlers.rs:252-304}`)*
 
 🔧 The `_docs` fn **must** end with a `.description(...)` and document the non-2xx
 responses. `.id("Module.method")` is what names the generated TS client method.
 
 **Generated + committed artifacts** — regenerate, never hand-edit. The generator
 does **five unconditional `fs::write`s**
-(`sdk-crates:ziee-framework/src/openapi/mod.rs:51-89`) from one regen command
+(`sdk-crates:txresbench-framework/src/openapi/mod.rs:51-89`) from one regen command
 (`just openapi-regen` in both reference apps): `ui/openapi/openapi.json` and
 `ui/src/api-client/{types,permissionDescriptions,permissions,apiEndpoints}.ts`.
 The exact set for your app is `MERGE_GENERATED` in `.claude/app.config`; naming
@@ -155,7 +155,7 @@ deserialize_with = "deserialize_nullable_field")]`.
 ## 4. Errors
 
 `ApiResult<T> = Result<(StatusCode, T), (StatusCode, AppError)>`
-(`sdk-crates:ziee-core/src/error.rs:27`). Constructors:
+(`sdk-crates:txresbench-core/src/error.rs:27`). Constructors:
 `AppError::not_found(resource)` (`:87`), `AppError::forbidden(code, msg)`
 (`:115`), `AppError::internal_error(msg)` (`:119`).
 
@@ -188,7 +188,7 @@ impl PermissionCheck for ProjectsRead {
 AND across the tuple; it authenticates via the injected `IdentityResolver`,
 **short-circuits on `user.is_admin`**, then checks the UNION of the user's direct
 permissions and every ACTIVE group's permissions, returning 403 with the missing
-names (`sdk-crates:ziee-framework/src/permissions/extractors.rs:73-129`).
+names (`sdk-crates:txresbench-framework/src/permissions/extractors.rs:73-129`).
 `RequireAdmin` is root-admin-only.
 
 🔧 Never hand-roll a JWT check. 🔬 An `.api_route` whose handler takes no
@@ -212,7 +212,7 @@ counter**, not wall-clock seconds, assigned to preserve **FK-topological order**
 The reference banding: `0001` framework bootstrap · `0050` auth schema · `0100+`
 per-module tables (no inline FKs) · `4000+` deferred FK ALTERs · `4500/5000+` seed
 data · `6000+` permission grants.
-*(`ziee:src/modules/MIGRATIONS.md`)*
+*(`txresbench:src/modules/MIGRATIONS.md`)*
 
 Ownership rules:
 1. 🔬 **One owner per table.** Others reference it by FK; join tables belong to
@@ -222,7 +222,7 @@ Ownership rules:
    `Users=['profile::read','profile::edit']`); every domain permission grant lives
    in the owning module's own `*_grant_permissions.sql`. 🧪 Assert the
    `PermissionCheck::PERMISSION` strings match that grant migration in an
-   in-source test (`ziee:src/modules/project/permissions.rs:42-50`).
+   in-source test (`txresbench:src/modules/project/permissions.rs:42-50`).
 3. 🔬 **FKs are deferred** to a post-schema band, so cross-module order is free.
 4. 🔧 **An APPLIED migration file is immutable, comments included** (sqlx
    checksums the full bytes). Change schema only by adding a new migration.
@@ -252,7 +252,7 @@ Two distinct buses, easy to conflate:
 The `EventHandler` **trait** lives in the framework crate and takes the event
 type-erased as `&(dyn Any + Send + Sync)`, so the framework stays domain-free;
 handlers `downcast_ref::<AppEvent>()`
-(`sdk-crates:ziee-framework/src/events.rs:16-42`). The concrete `AppEvent` enum
+(`sdk-crates:txresbench-framework/src/events.rs:16-42`). The concrete `AppEvent` enum
 and the dispatcher are app-side.
 
 🔬 **Every successful mutation does BOTH**: `event_bus.emit_async(...)` **and**
@@ -261,7 +261,7 @@ module that mutates has an `events.rs` with a typed event.
 
 Sync is **notify-and-refetch**: the SSE stream carries `{entity, action, id}`
 only; the client refetches through the permission-checked REST endpoint
-(`ziee:src/modules/sync/mod.rs:1-9`). Pick the `Audience` at the call site
+(`txresbench:src/modules/sync/mod.rs:1-9`). Pick the `Audience` at the call site
 (owner-scoped by default) — **the permission the audience implies must equal the
 read-perm of the endpoint the client will refetch from.** 🏛 A new cross-device
 entity adds its `SyncEntity` variant **first**; the `sync:<entity>` TS event key
@@ -285,7 +285,7 @@ fn register_routes(&self, router: ApiRouter) -> ApiRouter {
     router.merge(routes::voice_router())
 }
 ```
-*(`ziee:src/modules/voice/mod.rs:126-135`)*
+*(`txresbench:src/modules/voice/mod.rs:126-135`)*
 
 Gating only `init()` leaves the routes mounted — the toggle becomes decorative.
 

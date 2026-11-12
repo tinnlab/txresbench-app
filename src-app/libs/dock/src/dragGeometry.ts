@@ -4,7 +4,7 @@
 // while a drop in a DIFFERENT container is a MOVE (dock the pane into that window — beside a pane, or
 // into its empty body). Same coordinate space per window: the caller snapshots each window's rects in
 // THAT window's client coords and feeds the matching window's local pointer coords here.
-// No DOM/React — node-unit-testable; the pointer-drag lifecycle in `@ziee/dock`'s `useGripDrag` feeds
+// No DOM/React — node-unit-testable; the pointer-drag lifecycle in `@txresbench/dock`'s `useGripDrag` feeds
 // it snapshots.
 
 import type { SplitDir } from './layout/splitTree'

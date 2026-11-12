@@ -142,7 +142,7 @@ export function makeAnnotateFixture(opts: AnnotateFixtureOpts = {}): AnnotateFix
  *   • a classified POINT,
  *   • QuPath `classification:{name,color:[r,g,b]}` + `objectType` + foreign `measurements`
  *     (the foreign-property passthrough bag), and mixed ring winding (read permissively).
- * Coordinates are full-resolution pixels (QuPath's default export space) — no `ziee:crs`.
+ * Coordinates are full-resolution pixels (QuPath's default export space) — no `txresbench:crs`.
  */
 export const QUPATH_GEOJSON_SAMPLE = JSON.stringify(
   {

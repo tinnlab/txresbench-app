@@ -6,7 +6,7 @@ valuable and gated by the phase before it.
 
 ## End state (one line)
 A **fixed Rust microkernel** (study substrate + working store + compute + extension host) exposing a
-**versioned `@cyto/workbench-api`**; a **workbench shell** hosting **live3's deck.gl view-kinds**; and
+**versioned `@txresbench/workbench-api`**; a **workbench shell** hosting **live3's deck.gl view-kinds**; and
 **analysis features as no-Rust extensions** (sandboxed compute + declarative + frontend) that compose through
 the **artifact graph**, which is *also* the **provenance graph** — all scoped/governed by the **study**.
 
@@ -64,7 +64,7 @@ Depends: nothing (kernel). Draws: `DATA_STORAGE_REDESIGN`, sandbox/jobs modules,
 `research/data-processing`.
 
 ## Phase 1 — Contribution API + kernel (dogfood)
-**1a.** Extract **`@cyto/workbench-api`**: the contribution registries (analyses · plotTypes · fieldProviders ·
+**1a.** Extract **`@txresbench/workbench-api`**: the contribution registries (analyses · plotTypes · fieldProviders ·
 views · commands · selectionActions · resultRenderers) + the data/selection/compute/commands APIs (§1–§2).
 **1b.** Rebuild the built-in analyses to use ONLY the public API (the "dogfood the API" rule).
 **1c.** The **extension host** with build-time discovery of built-in extensions (glob) — no external loader yet.
@@ -75,7 +75,7 @@ Depends: Phase 0. Draws: the interface-round `analysisRegistry` (generalizes to 
 **2a.** The **shell**: the researched IA — center canvas + collapsible left(metadata/genes)/right(selection)/
 bottom(results) docks + **collapse-to-stripe** + thin top toolbar (`WORKBENCH_IA.md`).
 **2b.** **Adopt `feat/visualization`** as the canvas engine: its **view-kind registry == the `plotTypes`
-contribution point**; publish its **conformance battery** in `@cyto/workbench-api` (so third-party view-kinds
+contribution point**; publish its **conformance battery** in `@txresbench/workbench-api` (so third-party view-kinds
 pass the same gate); its grid + Coordination store == linked small-multiples.
 **2c.** Wire **brushing-and-linking**: lasso → selection inspector (write-back annotation) → bottom results
 tables; selection persists as a provenance recipe.
@@ -135,7 +135,7 @@ runtime view-kind registry). So the pragmatic near-term is bottom-up:
    value; stop branch drift.
 2. **Thin vertical slice, not the framework** — a minimal working store + ONE real analysis end-to-end
    (upload→embedding) on live3's canvas with real data. Prove the data path.
-3. **Extract `@cyto/workbench-api` FROM 2–3 real modules** — including the bounded refactor of live3's
+3. **Extract `@txresbench/workbench-api` FROM 2–3 real modules** — including the bounded refactor of live3's
    `switch(cell.kind)` → a `registerViewKind` registry — rather than designing the API top-down. Defer
    platform-ization (external extensions, provisioners, marketplace) until there are internal extensions to
    generalize. *Extract the framework from features; don't design it upfront.*

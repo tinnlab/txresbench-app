@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use crate::modules::dataset::repository::{DatasetRepository, MAX_PER_PAGE};
 use crate::modules::workstore::catalog::models::{Artifact, ArtifactFilter, NewArtifact};
@@ -1356,7 +1356,7 @@ mod tests {
                 {
                     "slot": "expression",
                     "sandbox_subpath": "expression.h5ad",
-                    "host_path": "/var/lib/cytoanalyst/workspaces/9f2/inputs/expression.h5ad",
+                    "host_path": "/var/lib/txresbench/workspaces/9f2/inputs/expression.h5ad",
                     "artifact_ref": "11111111-1111-1111-1111-111111111111"
                 }
             ],
@@ -1369,7 +1369,7 @@ mod tests {
         let text = red.to_string();
 
         // 1. no host path survives, in any form.
-        assert!(!text.contains("/var/lib/cytoanalyst"), "input host path leaked: {text}");
+        assert!(!text.contains("/var/lib/txresbench"), "input host path leaked: {text}");
         assert!(!text.contains("/srv/refs"), "reference-mount host path leaked: {text}");
         assert!(!text.contains("host_path"), "the carrier key itself is gone: {text}");
         assert!(red.get("extra_mounts").is_none(), "extra_mounts is dropped wholesale");

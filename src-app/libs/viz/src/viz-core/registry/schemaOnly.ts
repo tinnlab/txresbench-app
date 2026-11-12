@@ -9,7 +9,7 @@
 // (it still warns for a genuine double-registration, which is the case the warning is for).
 
 /** Set on a descriptor registered by `installBuiltinSchemas()`. */
-export const SCHEMA_ONLY_DESCRIPTOR = Symbol.for('@ziee/viz.schemaOnlyDescriptor')
+export const SCHEMA_ONLY_DESCRIPTOR = Symbol.for('@txresbench/viz.schemaOnlyDescriptor')
 
 /** Whether `desc` is a parse-time placeholder awaiting its render-capable upgrade. */
 export function isSchemaOnly(desc: object | undefined): boolean {

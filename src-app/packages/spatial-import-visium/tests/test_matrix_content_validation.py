@@ -2,19 +2,19 @@
 # ruff: noqa
 r"""The `/matrix` CSC triple's INTERNAL CONSISTENCY is validated BEFORE the first writer (#349).
 
-`run_import` reads the 10x `/matrix` group and hands it straight to `cyto_csc.H5CsrSource`
-and then `cyto_csc.write_csc_zarr` — the FIRST WRITER, which creates
+`run_import` reads the 10x `/matrix` group and hands it straight to `txr_csc.H5CsrSource`
+and then `txr_csc.write_csc_zarr` — the FIRST WRITER, which creates
 `outputs/expression.zarr`. The content and shape of `/matrix/data`, `/matrix/indices` and
 `/matrix/indptr` were never validated; they were first touched INSIDE the writer, i.e. AFTER
 artifact bytes already existed on disk. #349 adds `refuse_malformed_counts(group,
 n_barcodes, n_features)` and calls it inside `run_import`, inside the
-`with h5py.File(...) as h5:` block, immediately BEFORE `cyto_csc.H5CsrSource(...)` — strictly
+`with h5py.File(...) as h5:` block, immediately BEFORE `txr_csc.H5CsrSource(...)` — strictly
 BEFORE the first writer.
 
 This file is the regression battery for that function. Every row below was MEASURED on this
 exact tree BEFORE the fix, through the SHIPPED entrypoint — `visium_fixtures.run_entry_bytes`,
-which runs `compute/import_visium.py` as a subprocess over the `CYTO_INPUTS_DIR` /
-`CYTO_OUTPUTS_DIR` seam with stdout/stderr captured as BYTES. The measured pre-fix outcome is
+which runs `compute/import_visium.py` as a subprocess over the `TXR_INPUTS_DIR` /
+`TXR_OUTPUTS_DIR` seam with stdout/stderr captured as BYTES. The measured pre-fix outcome is
 quoted in each test's docstring; a test that merely restated the code would not be a
 regression test.
 
@@ -153,7 +153,7 @@ def test_TEST_44_a_lying_indptr_is_refused_not_silently_imported(tmp_path):
 
         rc=1  paths=5
         RuntimeError: transpose scatter did not fill the band exactly
-        (_lib/cyto_csc.py:626)
+        (_lib/txr_csc.py:626)
 
     A raw traceback and a PARTIAL STORE — the operator is told nothing about the bundle. This
     row is P1 alongside M1: the pre-fix run did not merely crash, it left five artifact paths
@@ -184,7 +184,7 @@ def test_TEST_45_a_group_where_data_should_be_is_refused(tmp_path):
 
         rc=1  paths=5
         TypeError: Accessing a group is done with bytes or str, not <class 'slice'>
-        (_lib/cyto_csc.py:212)
+        (_lib/txr_csc.py:212)
 
     A raw traceback out of h5py and a PARTIAL STORE. Post-fix the refusal names the member:
     `.../matrix/data is not a dataset ('Group'). A 10x feature-barcode matrix stores its
@@ -209,7 +209,7 @@ def test_TEST_46_a_scalar_where_data_should_be_is_refused(tmp_path):
 
         rc=1  paths=5
         ValueError: Illegal slicing argument for scalar dataspace
-        (_lib/cyto_csc.py:212)
+        (_lib/txr_csc.py:212)
 
     A raw traceback and a PARTIAL STORE. Post-fix the refusal names the member:
     `.../matrix/data is not a one-dimensional dataset ('()'). A 10x feature-barcode matrix
@@ -234,7 +234,7 @@ def test_TEST_47_a_2d_data_member_is_refused(tmp_path):
 
         rc=1  paths=5
         IndexError: index 142 is out of bounds for axis 0 with size 100
-        (_lib/cyto_csc.py:619)
+        (_lib/txr_csc.py:619)
 
     A raw traceback and a PARTIAL STORE. Post-fix the refusal names the member:
     `.../matrix/data is 2-dimensional (shape '(100, 3)'). A 10x feature-barcode matrix stores
@@ -260,7 +260,7 @@ def test_TEST_48_a_truncated_data_member_is_refused(tmp_path):
 
         rc=1  paths=5
         IndexError: index 142 is out of bounds for axis 0 with size 100
-        (_lib/cyto_csc.py:619)
+        (_lib/txr_csc.py:619)
 
     A raw traceback and a PARTIAL STORE. Post-fix the refusal names both halves:
     `.../matrix/data holds 100 value(s) but /matrix/indices holds 17677 feature id(s). They
@@ -286,7 +286,7 @@ def test_TEST_49_a_decreasing_indptr_is_refused(tmp_path):
 
         rc=1  paths=5
         ValueError: repeats may not contain negative values.
-        (_lib/cyto_csc.py:213)
+        (_lib/txr_csc.py:213)
 
     A raw traceback and a PARTIAL STORE. Post-fix the refusal names the member and the exact
     position: `.../matrix/indptr decreases at position 59 (8678 -> -5). A CSC offset array
@@ -313,7 +313,7 @@ def test_TEST_50_indices_out_of_range_are_refused(tmp_path):
 
         rc=1  paths=0
         ValueError: operands could not be broadcast together with shapes (150,) (100000,) (150,)
-        (_lib/cyto_csc.py:199)
+        (_lib/txr_csc.py:199)
 
     A raw traceback (no partial store this time, but still INV-1's prohibited outcome).
     Post-fix the refusal names the member, the value and the position:
@@ -338,7 +338,7 @@ def test_TEST_51_a_group_where_indices_should_be_is_refused(tmp_path):
 
         rc=1  paths=0
         TypeError: Accessing a group is done with bytes or str, not <class 'slice'>
-        (_lib/cyto_csc.py:198)
+        (_lib/txr_csc.py:198)
 
     A raw traceback out of h5py. Post-fix the refusal names the member:
     `.../matrix/indices is not a dataset ('Group'). A 10x feature-barcode matrix stores its
@@ -363,7 +363,7 @@ def test_TEST_52_a_scalar_where_indices_should_be_is_refused(tmp_path):
 
         rc=1  paths=0
         ValueError: Illegal slicing argument for scalar dataspace
-        (_lib/cyto_csc.py:198)
+        (_lib/txr_csc.py:198)
 
     A raw traceback. Post-fix the refusal names the member:
     `.../matrix/indices is not a one-dimensional dataset ('()'). A 10x feature-barcode matrix
@@ -389,7 +389,7 @@ def test_TEST_53_a_shifted_indptr_is_refused(tmp_path):
 
         rc=1  paths=5
         RuntimeError: transpose scatter did not fill the band exactly
-        (_lib/cyto_csc.py:626)
+        (_lib/txr_csc.py:626)
 
     A raw traceback and a PARTIAL STORE. Post-fix the refusal names the member:
     `.../matrix/indptr starts at 5 rather than 0. A CSC offset array starts at 0; one that
@@ -415,7 +415,7 @@ def test_TEST_54_an_indices_value_equal_to_n_features_is_refused(tmp_path):
 
         rc=1  paths=0
         ValueError: operands could not be broadcast together with shapes (150,) (151,) (150,)
-        (_lib/cyto_csc.py:199)
+        (_lib/txr_csc.py:199)
 
     A raw traceback. Post-fix the refusal names the member, the value and the position:
     `.../matrix/indices holds feature id 150 at position 17676, but this file declares only
@@ -467,9 +467,9 @@ def test_TEST_56_an_indptr_one_short_is_refused(tmp_path):
 
         rc=1  paths=0
         ValueError: CSR indptr has 120 entries for 120 rows
-        (_lib/cyto_csc.py:184)
+        (_lib/txr_csc.py:184)
 
-    This is the case that escaped as a bare `ValueError` from `_lib/cyto_csc.py:184` — shared
+    This is the case that escaped as a bare `ValueError` from `_lib/txr_csc.py:184` — shared
     framework, not this package's to change. Post-fix the refusal names the member and states
     the arithmetic: `.../matrix/indptr has 120 entries; a CSC matrix over 120 barcodes has
     exactly 121.`
@@ -569,7 +569,7 @@ def test_TEST_59_a_string_dtype_data_member_is_refused(tmp_path):
 
         rc=1  paths=5
         ValueError: could not convert string to float
-        (_lib/cyto_csc.py:619)
+        (_lib/txr_csc.py:619)
 
     A raw traceback and a PARTIAL STORE. Post-fix the refusal names the member:
     `.../matrix/data is not stored as a number (type name '|S1'). A 10x feature-barcode
@@ -624,7 +624,7 @@ def test_TEST_61_a_compound_data_dtype_with_a_huge_non_ascii_field_name_is_refus
 
         rc=1  paths=5
         ValueError: could not convert string to float
-        (_lib/cyto_csc.py:619)
+        (_lib/txr_csc.py:619)
         ... 61,124 bytes of raw non-ASCII on stderr ...
 
     A raw traceback, a PARTIAL STORE, and 61,124 bytes of raw non-ASCII on stderr — a
@@ -665,7 +665,7 @@ def test_TEST_62_an_indptr_that_under_declares_its_last_offset_is_refused(tmp_pa
     This is a THIRD silent-corruption class, distinct from the truncated-`indices` one
     (TEST-43, which fails EARLIER at `len(data) != len(indices)`): here `data` and
     `indices` agree with each other, and only `indptr[-1]` under-declares. `_lib`'s
-    `H5CsrSource.nnz` is `int(self._indptr[-1])` (`_lib/cyto_csc.py:190`) and
+    `H5CsrSource.nnz` is `int(self._indptr[-1])` (`_lib/txr_csc.py:190`) and
     `column_counts` reads `ind[0:nnz]`, so the store lands silently TRUNCATED at rc 0 —
     MEASURED pre-fix through the shipped entrypoint:
 
@@ -702,7 +702,7 @@ def test_TEST_63_an_indptr_that_wraps_under_np_diff_is_refused(tmp_path):
 
         rc=1  paths=5
         MemoryError
-        (_lib/cyto_csc.py)
+        (_lib/txr_csc.py)
 
     A raw traceback and a FIVE-PATH PARTIAL STORE — INV-1 and INV-2 both broken. The
     element-wise spelling (`indptr[1:] < indptr[:-1]`) sees `p[2] < p[1]` directly and
@@ -763,7 +763,7 @@ def test_TEST_65_a_data_member_with_undecodable_bytes_is_refused(tmp_path):
     metadata check above (presence, kind, 1-D, right length, numeric dtype) but whose raw
     bytes raise `OSError` when read — an unavailable compression filter, a truncated chunk,
     a failed fletcher32 checksum. Without the probe that `OSError` fires INSIDE
-    `cyto_csc.write_csc_zarr`, i.e. AFTER the first writer has created
+    `txr_csc.write_csc_zarr`, i.e. AFTER the first writer has created
     `outputs/expression.zarr` — a raw traceback at exit 1 and a partial store, INV-1 and
     INV-2 both broken.
 
@@ -817,7 +817,7 @@ def test_TEST_116_a_data_member_with_undecodable_bytes_in_a_LATER_chunk_is_refus
     but whose BYTES cannot be decoded in a LATER chunk (chunk 5, not chunk 0).
 
     The one-element `data[0:1]` probe only reads chunk 0, so a corrupt LATER chunk
-    escaped it and died inside `cyto_csc.write_csc_zarr` — MEASURED pre-fix through the
+    escaped it and died inside `txr_csc.write_csc_zarr` — MEASURED pre-fix through the
     shipped entrypoint:
 
         rc=1  paths=5
@@ -827,8 +827,8 @@ def test_TEST_116_a_data_member_with_undecodable_bytes_in_a_LATER_chunk_is_refus
     blockwise decodability scan reads EVERY block of `/matrix/data`, so the corrupt
     chunk 5 is caught before the first writer and refused by name, with nothing on disk.
 
-    WHY THIS TEST RUNS WITH `CYTO_TRANSPOSE_READ_NNZ=10` — the #474 all-zero scan and
-    the #505 decodability scan share the SAME block size (`cyto_csc.READ_NNZ`). At the
+    WHY THIS TEST RUNS WITH `TXR_TRANSPOSE_READ_NNZ=10` — the #474 all-zero scan and
+    the #505 decodability scan share the SAME block size (`txr_csc.READ_NNZ`). At the
     default 4,000,000 the fixture's 17,677 stored values fit in ONE block, so the #474
     scan's own guarded read pulls the WHOLE dataset and happens to hit the corrupted
     chunk 5 — masking whether the #505 scan is present at all (MEASURED: reverting ONLY
@@ -839,8 +839,8 @@ def test_TEST_116_a_data_member_with_undecodable_bytes_in_a_LATER_chunk_is_refus
     regardless of block size, so it still walks every block and reaches the corrupted
     chunk. With the patch in effect, reverting the #505 scan alone REDDENS this test —
     the two mechanisms are isolated. The patch is delivered through the subprocess
-    environment (`CYTO_TRANSPOSE_READ_NNZ`), because `run_entry_bytes` runs the SHIPPED
-    ENTRYPOINT as a subprocess and a `monkeypatch` on the test process's `cyto_csc`
+    environment (`TXR_TRANSPOSE_READ_NNZ`), because `run_entry_bytes` runs the SHIPPED
+    ENTRYPOINT as a subprocess and a `monkeypatch` on the test process's `txr_csc`
     module would not reach it.
 
     The bundle is built like TEST-65's, but CHUNKED at 1000 values (so there are 18
@@ -869,7 +869,7 @@ def test_TEST_116_a_data_member_with_undecodable_bytes_in_a_LATER_chunk_is_refus
         fh.seek(offset)
         fh.write(bytes(raw))
     out = tmp_path / "out" / "outputs"
-    result = VF.run_entry_bytes(bundle, out, env={"CYTO_TRANSPOSE_READ_NNZ": "10"})
+    result = VF.run_entry_bytes(bundle, out, env={"TXR_TRANSPOSE_READ_NNZ": "10"})
 
     _assert_refused(result, out, b"data", marker=b"cannot be read")
     assert len(result.stderr) < 10000, (

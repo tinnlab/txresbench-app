@@ -1,4 +1,4 @@
-# CytoAnalyst — agent developer docs
+# TxResBench — agent developer docs
 
 **This file is re-sent on EVERY turn and loaded whole into EVERY subagent**, so its size is a
 `size × turns × (1 + subagents)` multiplier. It holds only what is needed on almost every turn.
@@ -115,8 +115,8 @@ Root cause filed as issue #479.
 ## Working files — never `/tmp` (owner rule)
 
 **Do not put anything in `/tmp`.** If this box crashes, everything there is gone. Worktrees, logs,
-scratch scripts, fixtures, baselines and evidence all go under **`/data/pbya/cytoanalyst/`**, e.g.
-`/data/pbya/cytoanalyst/tmp/<task>/` (outside the repo, so it is not git noise). For test and gate
+scratch scripts, fixtures, baselines and evidence all go under **`/data/pbya/txresbench/`**, e.g.
+`/data/pbya/txresbench/tmp/<task>/` (outside the repo, so it is not git noise). For test and gate
 runs, export `TMPDIR` to a directory there as well, so tool-created temp dirs follow.
 `/` and `/tmp` share one 879G overlay; `/data/pbya` is a separate ZFS pool with ~44T free. Freeing
 space under `/data/pbya` does nothing for `/`.

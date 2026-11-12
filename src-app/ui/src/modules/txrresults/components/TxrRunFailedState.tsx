@@ -35,7 +35,7 @@
  * it, no failure is claimed).
  */
 import type { CSSProperties } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import type { TxrRunDetail, TxrRunMethod } from '@/api-client/types'
 import { formatReasonText } from '../lib/format'
 

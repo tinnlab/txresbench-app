@@ -3,7 +3,7 @@
 //! projects (attach lives in the project module), streaming upload → dataset(s)
 //! grouped by the datatype's `FileLayout`, and an owner-scoped folder layer.
 //!
-//! Capability gate: `projects::use` (every real CytoAnalyst user holds it — no new
+//! Capability gate: `projects::use` (every real TxResBench user holds it — no new
 //! global permission, DEC-23); the AUTHZ boundary is dataset ownership + shares.
 
 use aide::axum::routing::{delete_with, get_with, post_with, put_with};
@@ -17,13 +17,13 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_core::{ApiResult, AppError};
+use txresbench_core::{ApiResult, AppError};
 // `ingest_bytes` is still the right call for the PROMOTE path (`promote_artifact`),
 // which re-ingests bytes it already holds from the workstore — a different path from
 // the three multipart UPLOAD routes, which stream (#182). Its own whole-file buffer
 // is out of scope here and recorded as still-buffering in the branch's report.
-use ziee_file::ingest::ingest_bytes;
-use ziee_file::FileRepository;
+use txresbench_file::ingest::ingest_bytes;
+use txresbench_file::FileRepository;
 
 use crate::modules::file::stream::{
     ingest_staged, multipart_error, read_text_capped, stage_multipart_field, StagedPart,
@@ -1132,7 +1132,7 @@ async fn upload_datasets(
     // #160 — a part filename is now expected to carry a relative PATH, so its length is no
     // longer bounded by "a basename someone typed". Two things break without a bound:
     //
-    //  * `files.filename` is `varchar(255)` (ziee-file's `202607140125_file_schema.sql`),
+    //  * `files.filename` is `varchar(255)` (txresbench-file's `202607140125_file_schema.sql`),
     //    so a longer name is a Postgres 22001 → a 500, raised INSIDE the per-group ingest
     //    loop, i.e. after earlier groups are already committed as datasets with enqueued
     //    converters. A half-applied upload reported as a server error.
@@ -1496,7 +1496,7 @@ async fn upload_datasets(
             .await
             .map_err(e)?;
 
-        // Ingest each file in the group into ziee-file, then link it. #182: the
+        // Ingest each file in the group into txresbench-file, then link it. #182: the
         // staged temp file is MOVED into the blob store — the bytes are never
         // materialized in this process.
         for (ordinal, &fi) in group.indices.iter().enumerate() {
@@ -1781,7 +1781,7 @@ fn upload_datasets_docs(op: TransformOperation) -> TransformOperation {
         })
 }
 
-/// Upload ONE file INTO an existing dataset (ITEM-4): store the blob in ziee-file
+/// Upload ONE file INTO an existing dataset (ITEM-4): store the blob in txresbench-file
 /// (owner-scoped by the uploader), sniff its datatype (P2 sniff-on-upload), link
 /// it onto the dataset + re-merkle the `content_hash`, and record a deployment
 /// global `kind='upload'` provenance reference root so every backward walk
@@ -2427,7 +2427,7 @@ fn add_supporting_file_docs(op: TransformOperation) -> TransformOperation {
 
 /// Promote a `role='artifact'` workstore output to a NEW owner-scoped Dataset
 /// (DEC-7). **Byte-preserving:** the artifact's bytes are read from the workstore
-/// object store and re-ingested into ziee-file, so the new dataset's merkle
+/// object store and re-ingested into txresbench-file, so the new dataset's merkle
 /// `content_hash` equals the source artifact's `content_hash`. Records a
 /// `kind='promote'` provenance run node (source artifact → promoted dataset,
 /// dataset-scoped) so the derivation chain crosses the promote boundary.
@@ -2455,7 +2455,7 @@ async fn promote_artifact(
 
     // 2b. ITEM-18 / DEC-12 — the READ half of the conformance gate, and the surface where
     //     forgetting it costs the most. Promote is BYTE-PRESERVING: it re-ingests the
-    //     artifact's bytes into ziee-file as a new owner-scoped Dataset. A `datasets` row
+    //     artifact's bytes into txresbench-file as a new owner-scoped Dataset. A `datasets` row
     //     carries no conformance status, so a condemned artifact promoted once is laundered
     //     PERMANENTLY — the flag stays on the artifact and the copy that outlives it has
     //     nothing on it at all. Refused before any byte is read.
@@ -2498,7 +2498,7 @@ async fn promote_artifact(
     }
 
     // 4. Multi-file artifacts (Zarr chunk-dirs / BAM+bai) are not promotable in
-    //    v1 — byte-preserving equality under ziee-file's per-file name handling is
+    //    v1 — byte-preserving equality under txresbench-file's per-file name handling is
     //    deferred (ITEM-7 promotes single-blob artifacts; the tested path).
     if artifact.is_multifile {
         return Err(e(AppError::unprocessable_entity(
@@ -2582,7 +2582,7 @@ async fn promote_artifact(
         .await
         .map_err(e)?;
 
-    // 8. Re-ingest the bytes into ziee-file + link (single file → content_hash ==
+    // 8. Re-ingest the bytes into txresbench-file + link (single file → content_hash ==
     //    source artifact hash, byte-preserving).
     let file_repo = FileRepository::new(pool.clone());
     let file = ingest_bytes(
@@ -3050,7 +3050,7 @@ mod tests {
     /// parallel-safe and cannot be made vacuous by test ordering.
     fn shipped_declarations() -> Vec<(String, String)> {
         use crate::modules::extensions::{embedded, ExtensionRegistry};
-        let dir = std::env::temp_dir().join(format!("cyto-supkind-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("txr-supkind-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("temp seed dir");
         embedded::reconcile(&dir, &embedded::embedded_seed()).expect("extract the seed");
         let reg = ExtensionRegistry::build_from_dir(&dir).expect("build the shipped registry");

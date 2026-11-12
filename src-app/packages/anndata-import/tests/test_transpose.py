@@ -4,7 +4,7 @@
 
 `h5ad_import` used to obtain its CSC gene-expression projection by writing a whole
 TileDB-SOMA store and streaming the trio back OUT of it: SOMA was a transpose BUFFER,
-and it cost 86 % of the import. `cyto_csc` replaces it with a banded, out-of-core
+and it cost 86 % of the import. `txr_csc` replaces it with a banded, out-of-core
 counting sort that writes Zarr directly.
 
 Two claims, and they pull in opposite directions, which is why both are tested:
@@ -40,7 +40,7 @@ import pytest
 import scipy.sparse as sp
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
-import cyto_csc  # noqa: E402
+import txr_csc  # noqa: E402
 
 LIB = str(Path(__file__).resolve().parents[2] / "_lib")
 
@@ -125,11 +125,11 @@ def test_transpose_is_byte_identical_to_scipy_tocsc(tmp_path, case, nnz_cap):
     want_ptr, want_ind, want_dat = oracle(M)
 
     out = tmp_path / case
-    structure = cyto_csc.write_csc_zarr(
-        cyto_csc.ArraySource(M), out, nnz_cap=nnz_cap, read_nnz=2,
+    structure = txr_csc.write_csc_zarr(
+        txr_csc.ArraySource(M), out, nnz_cap=nnz_cap, read_nnz=2,
         axes=("cells", "genes"),
     )
-    got_ptr, got_ind, got_dat = cyto_csc.read_csc(out)
+    got_ptr, got_ind, got_dat = txr_csc.read_csc(out)
 
     assert got_ptr.dtype == np.int64 and got_ind.dtype == np.uint32
     assert got_dat.dtype == np.float32
@@ -151,8 +151,8 @@ def test_transpose_from_an_h5_csr_group_matches_scipy(tmp_path, case):
     h5_csr(tmp_path / "m.h5", M)
     out = tmp_path / "out"
     with h5py.File(tmp_path / "m.h5", "r") as f:
-        cyto_csc.write_csc_zarr(cyto_csc.source_for_h5(f["X"]), out, nnz_cap=4, read_nnz=3)
-    got_ptr, got_ind, got_dat = cyto_csc.read_csc(out)
+        txr_csc.write_csc_zarr(txr_csc.source_for_h5(f["X"]), out, nnz_cap=4, read_nnz=3)
+    got_ptr, got_ind, got_dat = txr_csc.read_csc(out)
     assert got_ptr.tobytes() == want_ptr.tobytes()
     assert got_ind.tobytes() == want_ind.tobytes()
     assert got_dat.tobytes() == want_dat.tobytes()
@@ -181,8 +181,8 @@ def test_every_h5ad_x_encoding_transposes_to_the_same_csc(tmp_path, encoding):
             g.create_dataset("indptr", data=np.asarray(S.indptr, dtype="int64"))
     out = tmp_path / "out"
     with h5py.File(path, "r") as f:
-        cyto_csc.write_csc_zarr(cyto_csc.source_for_h5(f["X"]), out, nnz_cap=3, read_nnz=2)
-    got_ptr, got_ind, got_dat = cyto_csc.read_csc(out)
+        txr_csc.write_csc_zarr(txr_csc.source_for_h5(f["X"]), out, nnz_cap=3, read_nnz=2)
+    got_ptr, got_ind, got_dat = txr_csc.read_csc(out)
     assert got_ptr.tobytes() == want_ptr.tobytes()
     assert got_ind.tobytes() == want_ind.tobytes()
     assert got_dat.tobytes() == want_dat.tobytes()
@@ -212,9 +212,9 @@ def test_a_non_canonical_csc_source_is_repaired_not_passed_through(tmp_path):
         g.create_dataset("indptr", data=np.asarray(scrambled.indptr, dtype="int64"))
     out = tmp_path / "out"
     with h5py.File(path, "r") as f:
-        cyto_csc.write_csc_zarr(cyto_csc.source_for_h5(f["X"]), out, nnz_cap=10**9, read_nnz=4)
+        txr_csc.write_csc_zarr(txr_csc.source_for_h5(f["X"]), out, nnz_cap=10**9, read_nnz=4)
     want_ptr, want_ind, want_dat = oracle(M)
-    got_ptr, got_ind, got_dat = cyto_csc.read_csc(out)
+    got_ptr, got_ind, got_dat = txr_csc.read_csc(out)
     assert got_ptr.tobytes() == want_ptr.tobytes()
     assert got_ind.tobytes() == want_ind.tobytes()
     assert got_dat.tobytes() == want_dat.tobytes()
@@ -231,10 +231,10 @@ def test_a_column_selection_reindexes_and_still_matches_scipy(tmp_path):
     want = M.tocsc()[:, cols].tocsc()
 
     out = tmp_path / "sel"
-    st = cyto_csc.write_csc_zarr(
-        cyto_csc.ArraySource(M), out, columns=cols, nnz_cap=7, read_nnz=11
+    st = txr_csc.write_csc_zarr(
+        txr_csc.ArraySource(M), out, columns=cols, nnz_cap=7, read_nnz=11
     )
-    got_ptr, got_ind, got_dat = cyto_csc.read_csc(out)
+    got_ptr, got_ind, got_dat = txr_csc.read_csc(out)
     assert got_ptr.tobytes() == want.indptr.astype(np.int64).tobytes()
     assert got_ind.tobytes() == want.indices.astype(np.uint32).tobytes()
     assert got_dat.tobytes() == want.data.astype(np.float32).tobytes()
@@ -256,7 +256,7 @@ def test_the_band_size_never_changes_the_bytes(tmp_path):
     ref = None
     for cap, read in [(10**9, 10**9), (1, 1), (37, 5), (500, 128)]:
         out = tmp_path / f"c{cap}-{read}"
-        cyto_csc.write_csc_zarr(cyto_csc.ArraySource(M), out, nnz_cap=cap, read_nnz=read)
+        txr_csc.write_csc_zarr(txr_csc.ArraySource(M), out, nnz_cap=cap, read_nnz=read)
         got = tree(out)
         if ref is None:
             ref = got
@@ -269,7 +269,7 @@ def test_the_structure_declares_what_a_reader_needs(tmp_path):
     into the group's own `zarr.json`, so the two can never disagree."""
     M = awkward_matrix()
     out = tmp_path / "s"
-    st = cyto_csc.write_csc_zarr(cyto_csc.ArraySource(M), out, axes=("cells", "genes"))
+    st = txr_csc.write_csc_zarr(txr_csc.ArraySource(M), out, axes=("cells", "genes"))
     assert st["encoding"] == "zarr_v3" and st["kind"] == "sparse_csc"
     assert st["axes"] == ["cells", "genes"]
     assert st["indptr"]["dtype"] == "int64" and st["indptr"]["shape"] == [M.shape[1] + 1]
@@ -277,7 +277,7 @@ def test_the_structure_declares_what_a_reader_needs(tmp_path):
     assert st["data"]["dtype"] == "float32" and st["data"]["shape"] == [int(M.nnz)]
     stamped = json.loads((out / "zarr.json").read_text())
     assert stamped["node_type"] == "group"
-    assert stamped["attributes"]["cyto"] == st
+    assert stamped["attributes"]["txr"] == st
 
 
 # ═════════════════ TEST-37 — bounded peak RSS (the anti-`tocsc` gate) ════════════
@@ -363,10 +363,10 @@ def test_peak_rss_stays_bounded_far_past_the_cap(big_h5, tmp_path):
     out = tmp_path / "big-out"
     result = _run_child(f"""
         base = vmhwm_mb()
-        import cyto_csc
+        import txr_csc
         with h5py.File({str(big_h5)!r}, "r") as f:
-            src = cyto_csc.source_for_h5(f["X"])
-            st = cyto_csc.write_csc_zarr(src, {str(out)!r},
+            src = txr_csc.source_for_h5(f["X"])
+            st = txr_csc.write_csc_zarr(src, {str(out)!r},
                                          nnz_cap={RSS_CAP}, read_nnz={RSS_CAP})
         print(json.dumps({{"base": base, "peak": vmhwm_mb(), "nnz": st["nnz"]}}))
     """)
@@ -418,10 +418,10 @@ def test_peak_rss_does_not_track_the_matrix_size(big_h5, tmp_path):
     quarter = list(range(RSS_COLS // 4))
     small = _run_child(f"""
         base = vmhwm_mb()
-        import cyto_csc
+        import txr_csc
         with h5py.File({str(big_h5)!r}, "r") as f:
-            src = cyto_csc.source_for_h5(f["X"])
-            st = cyto_csc.write_csc_zarr(src, {str(tmp_path / "quarter")!r},
+            src = txr_csc.source_for_h5(f["X"])
+            st = txr_csc.write_csc_zarr(src, {str(tmp_path / "quarter")!r},
                                          columns=list(range({RSS_COLS} // 4)),
                                          nnz_cap={RSS_CAP}, read_nnz={RSS_CAP})
         print(json.dumps({{"base": base, "peak": vmhwm_mb(), "nnz": st["nnz"]}}))

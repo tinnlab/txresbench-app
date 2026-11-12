@@ -1,19 +1,19 @@
 import { Check } from 'lucide-react'
-import { Button, Card, Select } from '@ziee/kit'
+import { Button, Card, Select } from '@txresbench/kit'
 import {
   Field,
   FieldContent,
   FieldDescription,
   FieldGroup,
   FieldTitle,
-} from '@ziee/kit/shadcn/field'
+} from '@txresbench/kit/shadcn/field'
 import { ConfigClient } from '@/modules/config-client/ConfigClient.store'
 import type { ThemePreference } from '@/modules/config-client/ConfigClient.store'
 import {
   ACCENT_PRESETS,
   ACCENT_ORDER,
   type AccentPreset,
-} from '@ziee/shell'
+} from '@txresbench/shell'
 import { cn } from '@/lib/utils'
 
 export function ThemeSettings() {

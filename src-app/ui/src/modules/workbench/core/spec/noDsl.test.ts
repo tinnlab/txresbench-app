@@ -150,12 +150,12 @@ test('TEST-24: no production module names a selection symbol', () => {
   )
 })
 
-test('TEST-24: OVER-DELETION guard — @ziee/viz still exports its own selection API', () => {
+test('TEST-24: OVER-DELETION guard — @txresbench/viz still exports its own selection API', () => {
   // ITEM-9 deletes the WORKBENCH selection feature. The canvas library's own
   // point/lasso selection is a different thing and must NOT have gone with it — deleting
   // it would silently remove the ability to select anything on a plot at all.
   const vizSrc = path.resolve(UI_SRC, '../../libs/viz/src')
-  assert.ok(existsSync(vizSrc), `@ziee/viz sources not found at ${vizSrc}`)
+  assert.ok(existsSync(vizSrc), `@txresbench/viz sources not found at ${vizSrc}`)
   const found: string[] = []
   const walk = (d: string) => {
     for (const e of readdirSync(d, { withFileTypes: true })) {
@@ -171,7 +171,7 @@ test('TEST-24: OVER-DELETION guard — @ziee/viz still exports its own selection
   walk(vizSrc)
   assert.ok(
     found.length >= 1,
-    "@ziee/viz's `toIndices` selection API is gone — ITEM-9 over-deleted past the workbench",
+    "@txresbench/viz's `toIndices` selection API is gone — ITEM-9 over-deleted past the workbench",
   )
 })
 

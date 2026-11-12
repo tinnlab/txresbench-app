@@ -31,7 +31,7 @@ pub use permissions::FeaturesManage;
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 pub struct FeaturesModule;
 

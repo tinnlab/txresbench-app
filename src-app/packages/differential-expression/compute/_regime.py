@@ -28,14 +28,14 @@ R1_PRIME = "R1_prime"  # declared-only in v1 (count-splitting, ITEM-12 descoped)
 
 REGIMES = (R1, R2, R3, R1_PRIME)
 
-#: The `attributes.cyto` sub-keys that mark a grouping as MATRIX-DERIVED (defined from the same
+#: The `attributes.txr` sub-keys that mark a grouping as MATRIX-DERIVED (defined from the same
 #: matrix, so testing it is circular — double dipping). A column carrying any of these is R2.
 MATRIX_DERIVED_KEYS = ("clustering", "annotation", "prediction", "cell_type_prediction",
                        "leiden", "louvain", "embedding_cluster")
 
 
 def is_matrix_derived(provenance):
-    """Does the grouping column's `attributes.cyto` mark it as derived from the matrix? Any
+    """Does the grouping column's `attributes.txr` mark it as derived from the matrix? Any
     MATRIX_DERIVED_KEYS sub-key, or an explicit `{"derived_from_matrix": true}` / a
     `provenance` == 'matrix-derived' tag."""
     if not isinstance(provenance, dict):
@@ -62,7 +62,7 @@ def is_external(provenance):
 def classify(provenance, *, samples_per_side=None):
     """Classify the regime from the grouping column's provenance (INV-2).
 
-    `provenance` — the grouping column's `attributes.cyto` dict (may be `{}`).
+    `provenance` — the grouping column's `attributes.txr` dict (may be `{}`).
     `samples_per_side` — for `de.compare`, the min count of DISTINCT samples across the two
     sides of the contrast (an int); `None` for `de.markers` (no sample column).
 
@@ -86,7 +86,7 @@ def classify_contrast(provenances, *, samples_per_side=None):
     """Classify the regime for an ADVANCED (criteria-built) contrast, CONSERVATIVELY over the
     COMBINED provenance of EVERY criterion column of BOTH groups (INV-A4 / DEC-A3).
 
-    `provenances` — the list of `attributes.cyto` dicts, one per criterion column across
+    `provenances` — the list of `attributes.txr` dicts, one per criterion column across
     `group1` AND `group2` (order irrelevant). `samples_per_side` — the min distinct samples
     across the two mask-defined sides (an int), or `None` when no sample column is bound.
 

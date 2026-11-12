@@ -190,7 +190,7 @@ export function __resetDeclarativeMountsForTests(): void {
 // `keptMask` (the surviving-cell count) that feeds the `obs.kept` scatter — proving the filter
 // wiring independently of headless-GL pixels. Read-only.
 //
-// GATED like every sibling seam (`__cyto_read`/`__cyto_count_decodes`/`__cyto_stream`/
+// GATED like every sibling seam (`__txr_read`/`__txr_count_decodes`/`__txr_stream`/
 // `__vizPaneColors`/the chunk-delay seam): present in a dev server and in the e2e preview build
 // (`VITE_ENABLE_TEST_SEAMS=1`), and folded away at build time in a release bundle — so a shipped
 // app has no `__declarativeStores` at all.

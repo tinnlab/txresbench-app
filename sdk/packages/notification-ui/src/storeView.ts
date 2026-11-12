@@ -1,4 +1,4 @@
-import { createAppStoreSeam } from '@ziee/framework'
+import { createAppStoreSeam } from '@txresbench/framework'
 
 import type { NotificationsStoreView } from './types'
 
@@ -8,7 +8,7 @@ export const notificationsSeam = createAppStoreSeam<NotificationsStoreView>('Not
 /**
  * Read the app-registered `Stores.Notifications` through a typed-view cast —
  * the SDK never depends on the app's concrete store type (mirrors how
- * `@ziee/shell` reads `Stores.AppLayout`). The app registers the store (created
+ * `@txresbench/shell` reads `Stores.AppLayout`). The app registers the store (created
  * by `createNotificationsStore`) under the `Notifications` name, so at runtime
  * this resolves the same reactive proxy the app would read directly.
  *

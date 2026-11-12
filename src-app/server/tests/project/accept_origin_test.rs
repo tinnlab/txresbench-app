@@ -46,12 +46,12 @@ async fn invite(server: &TestServer, owner: &str, project_id: &str, email: &str)
 async fn accepting_a_share_suppresses_every_frame_on_the_acting_connection() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    create_user(&server, &admin, "sharee", "sharee@cyto.test").await;
+    create_user(&server, &admin, "sharee", "sharee@txresbench.test").await;
     let sharee = login(&server, "sharee").await;
 
     let project = create_project(&server, &admin, "shared-project").await;
     let pid = project["id"].as_str().expect("project id").to_string();
-    let share_id = invite(&server, &admin, &pid, "sharee@cyto.test").await;
+    let share_id = invite(&server, &admin, &pid, "sharee@txresbench.test").await;
 
     let mut sharee_probe = SyncProbe::open(&server, &sharee).await;
 
@@ -78,7 +78,7 @@ async fn accepting_a_share_suppresses_every_frame_on_the_acting_connection() {
 async fn accepting_a_transfer_suppresses_every_frame_on_the_acting_connection_control() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    create_user(&server, &admin, "newowner", "newowner@cyto.test").await;
+    create_user(&server, &admin, "newowner", "newowner@txresbench.test").await;
     let new_owner = login(&server, "newowner").await;
 
     let project = create_project(&server, &admin, "to-be-transferred").await;
@@ -88,7 +88,7 @@ async fn accepting_a_transfer_suppresses_every_frame_on_the_acting_connection_co
         .client
         .post(server.api_url(&format!("/projects/{pid}/transfer")))
         .bearer_auth(&admin)
-        .json(&json!({ "email": "newowner@cyto.test" }))
+        .json(&json!({ "email": "newowner@txresbench.test" }))
         .send()
         .await
         .expect("create transfer");
@@ -119,12 +119,12 @@ async fn accepting_a_transfer_suppresses_every_frame_on_the_acting_connection_co
 async fn accepting_a_share_still_reaches_a_non_acting_connection_and_the_owner() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    create_user(&server, &admin, "sharee2", "sharee2@cyto.test").await;
+    create_user(&server, &admin, "sharee2", "sharee2@txresbench.test").await;
     let sharee = login(&server, "sharee2").await;
 
     let project = create_project(&server, &admin, "shared-project-2").await;
     let pid = project["id"].as_str().expect("project id").to_string();
-    let share_id = invite(&server, &admin, &pid, "sharee2@cyto.test").await;
+    let share_id = invite(&server, &admin, &pid, "sharee2@txresbench.test").await;
 
     // The sharee's SECOND device, and the owner — neither is the acting connection.
     let mut sharee_other_device = SyncProbe::open(&server, &sharee).await;

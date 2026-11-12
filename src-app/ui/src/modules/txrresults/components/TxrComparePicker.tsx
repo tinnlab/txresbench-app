@@ -16,7 +16,7 @@
  * derivation.
  */
 import type { CSSProperties } from 'react'
-import { Select } from '@ziee/kit'
+import { Select } from '@txresbench/kit'
 import type { TxrHeatmapColumn } from '../types'
 
 const ROW: CSSProperties = {

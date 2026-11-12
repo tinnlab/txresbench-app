@@ -23,7 +23,7 @@ notions of a separator, and called the class closed.
 A blind audit of #214 walked through the next door. Rust's `char::is_control()` is category
 `Cc` only, so the whole `Cf` FORMAT class passed: U+FEFF, U+200B, U+00AD, U+2060, and the
 bidi overrides behind Trojan Source (CVE-2021-42574). One zero-width space in
-`#<ZWSP>cyto:pin-source=` makes the directive *inert* while leaving it visibly present — in
+`#<ZWSP>txr:pin-source=` makes the directive *inert* while leaving it visibly present — in
 the pin file and in the generated artefact a human reviews.
 
 **A forbidden set fails OPEN on everything nobody thought of, and this class has produced
@@ -44,7 +44,7 @@ when a covered entry changes, never on an addition.
 ## The three implementations are held together mechanically
 
   * the Rust gate: `processor_manifest.rs::PIN_FILE_ALLOWED_NON_ASCII`;
-  * the R installer: `cyto_allowed_non_ascii` in the recipe's Dockerfile;
+  * the R installer: `txr_allowed_non_ascii` in the recipe's Dockerfile;
   * this module.
 
 `the_two_readers_allow_exactly_the_same_non_ascii_characters` (Rust ⇄ R) and
@@ -104,6 +104,6 @@ def assert_canonical(path: Path) -> None:
                 "characters and each widening was correct and insufficient; this is the "
                 "other polarity. If you genuinely need this character in prose, add it to "
                 "`ALLOWED_NON_ASCII` here AND to `PIN_FILE_ALLOWED_NON_ASCII` in the build "
-                "gate AND to `cyto_allowed_non_ascii` in the R recipe — two cross-check "
+                "gate AND to `txr_allowed_non_ascii` in the R recipe — two cross-check "
                 "tests hold the three lists to each other."
             )

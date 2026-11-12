@@ -124,5 +124,5 @@ def test_no_removed_keys_anywhere():
     assert "inputs" not in (detect.get("run") or {})
     assert "resources" not in (detect.get("schedule") or {})
     # no forecast of produced columns — the landed column's kind is READ from the artifact,
-    # which stamps its own `attributes.cyto`; a manifest forecast is checked by nothing.
+    # which stamps its own `attributes.txr`; a manifest forecast is checked by nothing.
     assert "produces_annotations" not in detect

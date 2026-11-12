@@ -43,10 +43,10 @@ from pathlib import Path
 
 import numpy as np
 
-# The shared output-format library (`_lib`, staged into `/code`). `cyto_columns` imports
+# The shared output-format library (`_lib`, staged into `/code`). `txr_columns` imports
 # pandas lazily, so importing it here keeps the module's floor at numpy + stdlib.
-import cyto_deps
-import cyto_columns
+import txr_deps
+import txr_columns
 
 
 # ── datatypes emitted (id, layout) — the SHAPE ingest validates ───────────────────
@@ -69,7 +69,7 @@ def harmonypy_pin():
     the one in the environment recipe with nothing connecting them — so the two could
     disagree silently, and the report would then record a "pin" that pinned nothing. The
     declaration in this package's manifest is now the single statement of that intent: the
-    BUILD gate checks it against the recipe, `cyto_deps` checks the RESOLVED version
+    BUILD gate checks it against the recipe, `txr_deps` checks the RESOLVED version
     against it, and this reads the same text for the report and the refusal message.
 
     Falls back to the constant when no contract is staged — a unit test importing this
@@ -98,8 +98,8 @@ def _harmonypy_spec():
     `text` is the bare version when the declaration is exact, and the raw specifier set
     otherwise. Callers decide how to render it; nothing here disguises one as the other.
     """
-    for dep in cyto_deps.load_contract():
-        if cyto_deps.normalize_name(dep["library"]) != "harmonypy":
+    for dep in txr_deps.load_contract():
+        if txr_deps.normalize_name(dep["library"]) != "harmonypy":
             continue
         spec = dep["version"].strip()
         # Only an EXACT declaration is a pin. Returning the raw range from a function
@@ -197,7 +197,7 @@ _MEM_BUDGET_BYTES = int(os.environ.get("EMBEDDING_MEMORY_BUDGET_BYTES", str(4 * 
 _CPU_SECS_BUDGET = float(os.environ.get("EMBEDDING_CPU_SECS_BUDGET", "600"))
 
 #: Bytes resident per stored value FOR ONE COPY: `uint32` index (4) + `float32` datum (4) = 8
-#: (`cyto_csc.INDICES_DTYPE`/`DATA_DTYPE`). This is the arithmetic INV-8/ITEM-16 name in
+#: (`txr_csc.INDICES_DTYPE`/`DATA_DTYPE`). This is the arithmetic INV-8/ITEM-16 name in
 #: the refusal, read from the declared `nnz` — never from a matrix read.
 _BYTES_PER_NNZ = 8
 
@@ -234,8 +234,8 @@ def fail(message, code=2):
 
 # ── io + wire contract (mirrors qc-10x.py) ─────────────────────────────────────────
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -294,7 +294,7 @@ def progress(phase, pct=None, message=None):
             parts.append("")
         parts.append(str(message))
     line = "|".join(parts)
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if fifo:
         if _PROGRESS_FD[0] < 0:
             try:
@@ -319,23 +319,23 @@ def write_manifest(outputs_dir, entries):
     # environment does not satisfy the declaration. Placed here, on the one path every
     # successful run takes, so recording is structural rather than remembered: a compute
     # cannot emit its outputs without also emitting what produced them.
-    # The datatype is THIS package's, passed in: `cyto_deps` is app-core and may not
+    # The datatype is THIS package's, passed in: `txr_deps` is app-core and may not
     # name a contributed domain's vocabulary, so the caller supplies the pair.
-    cyto_deps.augment(outputs_dir, entries, DT_REPORT_QC)
+    txr_deps.augment(outputs_dir, entries, DT_REPORT_QC)
     (outputs_dir / "manifest.json").write_text(json.dumps({"outputs": entries}, indent=2))
 
 
-def stamp_cyto_attributes(store_dir, structure, **kv):
-    """Merge extra provenance keys into an ALREADY-WRITTEN cyto_zarr store's group
-    `attributes.cyto` AND the in-memory `structure` dict, keeping the two IDENTICAL (ITEM-25 / F2).
+def stamp_txr_attributes(store_dir, structure, **kv):
+    """Merge extra provenance keys into an ALREADY-WRITTEN txr_zarr store's group
+    `attributes.txr` AND the in-memory `structure` dict, keeping the two IDENTICAL (ITEM-25 / F2).
 
-    `write_embedding` (`_lib`, off-limits) stamps the STRUCTURE into `attributes.cyto` at
+    `write_embedding` (`_lib`, off-limits) stamps the STRUCTURE into `attributes.txr` at
     `close()`; but the provenance bits the PRODUCER decides — the `correction` attestation and
     the `method` — are only known to the caller and used to live solely in the manifest-entry
     `meta`, so a DOWNSTREAM reader that opens the artifact (`embedding.visualize`, and the
-    clustering package) saw `attributes.cyto.correction == None` and coerced it to
+    clustering package) saw `attributes.txr.correction == None` and coerced it to
     `unattested`, silently downgrading a real Harmony correction. This post-write stamp merges
-    those keys into BOTH the on-disk `attributes.cyto` and the `structure` the manifest entry
+    those keys into BOTH the on-disk `attributes.txr` and the `structure` the manifest entry
     carries, so the bit SURVIVES the reduce→visualize hop AND the two declarations stay
     byte-equal (the conformance gate `_conform_group_attributes` requires it — a store-URL
     reader and an artifact-row reader must decode identically). Never edits `_lib`; `None`
@@ -349,8 +349,8 @@ def stamp_cyto_attributes(store_dir, structure, **kv):
     if not isinstance(attrs, dict):
         attrs = {}
         doc["attributes"] = attrs
-    # write the FULL updated structure back as attributes.cyto so disk == entry structure.
-    attrs["cyto"] = structure
+    # write the FULL updated structure back as attributes.txr so disk == entry structure.
+    attrs["txr"] = structure
     meta.write_text(json.dumps(doc, indent=2, ensure_ascii=False))
     return structure
 
@@ -370,8 +370,8 @@ def artifact_structure(path):
         doc = json.loads(meta.read_text())
     except (OSError, ValueError):
         return None
-    cyto = (doc.get("attributes") or {}).get("cyto")
-    return cyto if isinstance(cyto, dict) else None
+    txr = (doc.get("attributes") or {}).get("txr")
+    return txr if isinstance(txr, dict) else None
 
 
 def read_matrix_structure(path, slot):
@@ -403,10 +403,10 @@ def read_matrix_csc(path, structure):
     A `single-cell/expression` store is CSC over the GENES axis (`axes: [cells, genes]`),
     so `indptr` cuts by gene/column and `indices` holds cell/row ids — exactly what a
     scipy CSC wants (`(data, indices, indptr)`, `shape=(n_cells, n_genes)`)."""
-    import cyto_csc
+    import txr_csc
     import scipy.sparse as sp
 
-    indptr, indices, data = cyto_csc.read_csc(Path(path))
+    indptr, indices, data = txr_csc.read_csc(Path(path))
     n_cells, n_genes = int(structure["shape"][0]), int(structure["shape"][1])
     mat = sp.csc_matrix(
         (np.asarray(data), np.asarray(indices), np.asarray(indptr)),
@@ -417,24 +417,24 @@ def read_matrix_csc(path, structure):
 
 def read_column_native(path, slot):
     """A `metadata-column` artifact → its VALUES in their NATIVE meaning (categorical labels,
-    strings, or a numpy numeric array — `cyto_zarr_read.read_column`'s own contract). Used by
+    strings, or a numpy numeric array — `txr_zarr_read.read_column`'s own contract). Used by
     the inline filter so a numeric obs column keeps its dtype and the `criteria_keep_mask`
     range branch takes the numeric fast path, exactly as `cell-filter` reads `adata.obs`."""
-    import cyto_zarr_read
+    import txr_zarr_read
 
     path = Path(path)
     structure = artifact_structure(path)
     if structure is None:
         fail(
             f"input on slot {slot!r} at {path.name!r} carries no `structure` declaration — "
-            "it is not a cyto_zarr column artifact"
+            "it is not a txr_zarr column artifact"
         )
     member = structure.get("key")
     if not member:
         columns = structure.get("columns") or []
         if len(columns) == 1 and isinstance(columns[0], dict):
             member = columns[0].get("path")
-    return cyto_zarr_read.read_column(path, member or "values")
+    return txr_zarr_read.read_column(path, member or "values")
 
 
 def read_column_values(path, slot):

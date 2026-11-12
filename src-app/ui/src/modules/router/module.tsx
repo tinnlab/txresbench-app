@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { Button, Result } from '@ziee/kit'
-import { createRouterModule } from '@ziee/framework/router'
-import { Loading } from '@ziee/shell'
+import { Button, Result } from '@txresbench/kit'
+import { createRouterModule } from '@txresbench/framework/router'
+import { Loading } from '@txresbench/shell'
 import { usePermission } from '@/core/permissions'
 import type { PermissionExpr } from '@/core/permissions'
 
-// CytoAnalyst opts into the SDK router (@ziee/framework/router). The SDK ships
+// TxResBench opts into the SDK router (@txresbench/framework/router). The SDK ships
 // the generic RouterComponent — layout grouping, guard grouping, route
 // collection from every module's `routes`, and the Routes store. This app
 // injects ONLY its knobs: redirect paths, the Suspense fallback, and the

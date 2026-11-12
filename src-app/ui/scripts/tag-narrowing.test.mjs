@@ -132,7 +132,7 @@ test('a config that narrows has its narrowing announced AFTER the run, with the 
 })
 
 test('a config that narrows NOTHING prints nothing — the reporter is shared by four configs', () => {
-  // Keying this on `CYTO_E2E_REAL_COMPUTE` instead of the running config would have made
+  // Keying this on `TXR_E2E_REAL_COMPUTE` instead of the running config would have made
   // the viz/gallery/visual runs — which exclude nothing — carry an exclusion notice.
   const out = runReporter({ projects: [{ testDir: '/nonexistent' }] })
   assert.doesNotMatch(out, /EXCLUDED/)

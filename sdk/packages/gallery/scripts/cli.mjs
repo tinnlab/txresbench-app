@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `ziee-gallery <command> [args]` — dispatch to the config-driven gallery scripts.
+ * `txresbench-gallery <command> [args]` — dispatch to the config-driven gallery scripts.
  * Each script resolves `gallery.config.json` from the current working directory,
  * so run it from the app's `ui/` root.
  */
@@ -26,7 +26,7 @@ const [cmd, ...rest] = process.argv.slice(2)
 const script = COMMANDS[cmd]
 if (!script) {
   console.error(
-    `ziee-gallery: unknown command "${cmd ?? ''}". Known: ${Object.keys(COMMANDS).join(', ')}`,
+    `txresbench-gallery: unknown command "${cmd ?? ''}". Known: ${Object.keys(COMMANDS).join(', ')}`,
   )
   process.exit(2)
 }

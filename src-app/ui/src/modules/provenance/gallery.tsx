@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import type { ModuleGallery } from '@ziee/gallery'
+import type { ModuleGallery } from '@txresbench/gallery'
 import type { GraphDto, RunNodeDto, ProjectDto } from '@/api-client/types'
 import { useProvenanceStore } from '@/modules/provenance/stores/Provenance.store'
 import { useProvenanceExportStore } from '@/modules/provenance/stores/ProvenanceExport.store'

@@ -1,4 +1,4 @@
-import { Badge, Empty, Pagination, Table, Tooltip, type TableColumn } from '@ziee/kit'
+import { Badge, Empty, Pagination, Table, Tooltip, type TableColumn } from '@txresbench/kit'
 import { Provenance } from '@/modules/provenance/stores/Provenance.store'
 import type { RunNodeDto } from '@/api-client/types'
 import { ORIGIN_AUTO } from '@/modules/workbench/core'

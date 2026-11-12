@@ -39,7 +39,7 @@
  * selector; same class as `txr-heatmap-show-more`).
  */
 import type { CSSProperties } from 'react'
-import { Button, Progress } from '@ziee/kit'
+import { Button, Progress } from '@txresbench/kit'
 import type { TxrHeatmapColumn, TxrHeatmapRow, TxrOutcomeKey } from '../types'
 import { formatPct } from '../lib/format'
 

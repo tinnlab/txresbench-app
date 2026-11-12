@@ -43,7 +43,7 @@ vi.mock('./Drafts.store', () => ({
 }))
 
 let currentUser: string | undefined = 'user-A'
-vi.mock('@ziee/framework/permissions', () => ({
+vi.mock('@txresbench/framework/permissions', () => ({
   authStoreProxy: () => ({ $: { user: currentUser ? { id: currentUser } : null } }),
 }))
 

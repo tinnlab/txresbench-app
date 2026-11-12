@@ -41,12 +41,12 @@ export interface FigureManifestInput {
   vizVersion: string
   /** ITEM-17 — HOW the selection was made (the ordered op recipe + the display context it was made
    *  under), so an exported figure carries its provenance and not just its outcome. Optional: a
-   *  figure exported with no selection simply omits it, and `schema` stays `'ziee-viz-figure/1'`. */
+   *  figure exported with no selection simply omits it, and `schema` stays `'txresbench-viz-figure/1'`. */
   selection?: { ops: readonly VizSelectionOp[]; context?: VizSelectionContext } | null
 }
 
 export interface FigureManifest {
-  schema: 'ziee-viz-figure/1'
+  schema: 'txresbench-viz-figure/1'
   createdAt: string
   cell: { id: string; kind: string }
   data: { datasetId: string | null; contentHash: string | null }
@@ -64,7 +64,7 @@ export interface FigureManifest {
 /** Assemble the manifest from captured cell state. `now` is injectable so tests are deterministic. */
 export function buildFigureManifest(input: FigureManifestInput, now: () => string = () => new Date().toISOString()): FigureManifest {
   return {
-    schema: 'ziee-viz-figure/1',
+    schema: 'txresbench-viz-figure/1',
     createdAt: now(),
     cell: { id: input.cellId, kind: input.kind },
     data: {

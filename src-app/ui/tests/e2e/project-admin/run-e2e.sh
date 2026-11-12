@@ -4,23 +4,23 @@
 # The backend's store is the SQLite leg of this node: ONE local file, no
 # server process, no cluster to provision. The recipe deletes the per-run DB
 # file before boot (a clean first-run-setup, which is exactly what each e2e run
-# needs) and points the backend at it via CYTO_DATABASE_URL; the runner's own
+# needs) and points the backend at it via TXR_DATABASE_URL; the runner's own
 # `vite preview` proxies /api → backend. Both servers are pre-booted in the
 # background with a trap-cleanup (the `&`+trap keeps the harness from surfacing
 # an exit-144 from a killed child), then Playwright runs with
 # `reuseExistingServer` so it attaches to our servers instead of booting a
-# fresh cytoanalyst_e2e (which would collide on :3155).
+# fresh txresbench_e2e (which would collide on :3155).
 #
 # NODE_OPTIONS=--dns-result-order=ipv4first: the backend binds 127.0.0.1 (IPv4)
 # but Node v24 resolves `localhost` (the config's webServer reuse-check URL) to
 # ::1 first — forcing ipv4-first makes the reuse-check hit our backend.
 set -u
 
-ROOT=/data/pbya/ziee/tmp/project-admin-wt
-TMP=/data/pbya/ziee/tmp
+ROOT=/data/pbya/txresbench/tmp/project-admin-wt
+TMP=/data/pbya/txresbench/tmp
 cd "$ROOT" || exit 2
 
-pkill -f target/debug/cytoanalyst 2>/dev/null || true
+pkill -f target/debug/txresbench 2>/dev/null || true
 pkill -f "vite preview" 2>/dev/null || true
 sleep 1
 
@@ -32,11 +32,11 @@ echo "== resetting sqlite DB $DBFILE =="
 rm -f "$DBFILE" "$DBFILE-wal" "$DBFILE-shm"
 
 echo "== building backend =="
-( cd src-app/server && cargo build --bin cytoanalyst ) > "$TMP/project-admin-build-be.log" 2>&1
+( cd src-app/server && cargo build --bin txresbench ) > "$TMP/project-admin-build-be.log" 2>&1
 if [ $? -ne 0 ]; then echo "BACKEND BUILD FAILED"; tail -40 "$TMP/project-admin-build-be.log"; exit 2; fi
 
 echo "== booting backend :3155 =="
-( cd src-app/server && CYTO_DATABASE_URL="sqlite://$DBFILE" CONFIG_FILE="$CFG" ../../target/debug/cytoanalyst > "$TMP/project-admin-BE.log" 2>&1 ) &
+( cd src-app/server && TXR_DATABASE_URL="sqlite://$DBFILE" CONFIG_FILE="$CFG" ../../target/debug/txresbench > "$TMP/project-admin-BE.log" 2>&1 ) &
 BE_PID=$!
 
 echo "== building frontend =="
@@ -50,7 +50,7 @@ FE_PID=$!
 
 cleanup() {
   kill $BE_PID $FE_PID 2>/dev/null || true
-  pkill -f target/debug/cytoanalyst 2>/dev/null || true
+  pkill -f target/debug/txresbench 2>/dev/null || true
   pkill -f "vite preview" 2>/dev/null || true
 }
 trap cleanup EXIT

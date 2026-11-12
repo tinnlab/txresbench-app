@@ -64,7 +64,7 @@ fn count_cached(base: &std::path::Path) -> usize {
 /// It also covers the halves the unit tests cannot reach: the `SELECT DISTINCT
 /// env_rootfs_sha256` against a real Postgres (a fresh deployment has no runs, so
 /// the referenced set is legitimately empty), and `data_root()` resolving through
-/// `CYTO_APP_DATA_DIR` in the spawned binary rather than through a thread-local.
+/// `TXR_APP_DATA_DIR` in the spawned binary rather than through a thread-local.
 #[tokio::test]
 async fn boot_pass_bounds_an_over_cap_rootfs_cache() {
     let server = TestServer::spawn_with(TestOptions {
@@ -130,10 +130,10 @@ async fn a_cache_already_under_the_cap_is_left_alone() {
 
 // ─────────────────────────── #54: settings-driven GC ───────────────────────────
 
-use cytoanalyst::modules::provenance::repository::{NewRun, ProvenanceRepository};
-use cytoanalyst::modules::provenance::rootfs_gc;
-use cytoanalyst::modules::provenance::settings::ProvenanceSettingsRepository;
-use cytoanalyst::modules::rootfs::{cache, scoped_data_root};
+use txresbench::modules::provenance::repository::{NewRun, ProvenanceRepository};
+use txresbench::modules::provenance::rootfs_gc;
+use txresbench::modules::provenance::settings::ProvenanceSettingsRepository;
+use txresbench::modules::rootfs::{cache, scoped_data_root};
 use super::{create_project, setup_admin};
 use serde_json::json;
 use sqlx::sqlite::SqlitePoolOptions;
@@ -279,7 +279,7 @@ async fn gc_never_deletes_provenance_records() {
 // This closes the hollow-coverage gap the boot test cannot: `boot_pass_bounds_an_over_cap_
 // rootfs_cache` asserts the cache settles at the DEFAULT cap (4 == the retired const), so it
 // would stay green even if spawn_loop ignored settings. Here the spawned server inherits
-// CYTO_ROOTFS_CACHE_MAX_DIGESTS=2 (the harness spawns with env inherited), the boot-seed folds
+// TXR_ROOTFS_CACHE_MAX_DIGESTS=2 (the harness spawns with env inherited), the boot-seed folds
 // it into the settings row, and the REAL boot GC pass reads the settings cap and bounds the
 // pre-staged cache to 2 — NOT the default 4. Mutation-kills reverting spawn_loop to
 // `sweep_now_with_cap(&referenced, MAX_CACHED_DIGESTS_DEFAULT)`: that would settle at 4 and
@@ -289,13 +289,13 @@ async fn running_gc_loop_honors_a_non_default_settings_cap() {
     // Inherited by the spawned server (Command::env, no env_clear). Integration tests run
     // single-threaded (--test-threads=1), so this process-global set is race-free; remove it
     // right after spawn (the child captured it at spawn time).
-    std::env::set_var("CYTO_ROOTFS_CACHE_MAX_DIGESTS", "2");
+    std::env::set_var("TXR_ROOTFS_CACHE_MAX_DIGESTS", "2");
     let server = TestServer::spawn_with(TestOptions {
         prestage_rootfs_digests: PRESTAGED, // 9, comfortably above both 4 and 2
         ..Default::default()
     })
     .await;
-    std::env::remove_var("CYTO_ROOTFS_CACHE_MAX_DIGESTS");
+    std::env::remove_var("TXR_ROOTFS_CACHE_MAX_DIGESTS");
 
     let base = server.data_dir().join("sandbox-rootfs");
     assert!(base.is_dir(), "prestaged cache present");

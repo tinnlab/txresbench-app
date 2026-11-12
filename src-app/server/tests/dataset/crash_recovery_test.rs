@@ -13,9 +13,9 @@
 
 use std::sync::Arc;
 
-use cytoanalyst::modules::jobs::scheduler::reconcile_orphaned_running_in;
-use cytoanalyst::modules::jobs::seams::NoopRunRecorder;
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::jobs::scheduler::reconcile_orphaned_running_in;
+use txresbench::modules::jobs::seams::NoopRunRecorder;
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
 
 use super::hardening_common::*;
 use super::setup_admin;

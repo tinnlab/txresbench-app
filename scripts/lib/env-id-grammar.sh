@@ -35,7 +35,7 @@
 # with bash's defaults, but a latent divergence between two implementations of one grammar
 # is exactly what the parity test exists to prevent — so the class is made locale-proof
 # rather than left depending on a shell option nobody sets deliberately.
-cyto_is_valid_env_id() {
+txr_is_valid_env_id() {
   case "$1" in
     "") return 1 ;;
     *[!abcdefghijklmnopqrstuvwxyz0123456789._-]*) return 1 ;;

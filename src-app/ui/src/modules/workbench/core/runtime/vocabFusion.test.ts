@@ -13,7 +13,7 @@ import type { ArtifactRow } from '@/modules/workbench/core/artifacts/catalog'
 import { reconcileVocabularies, vocabDeclarationOf, type VocabDeclaration } from './vocabFusion'
 import { resolveRowSpaceColumns } from './rowSpaceColumns'
 
-/** The producer's own digest, ported from `cyto_zarr.vocab_declaration` — sorted per-level short
+/** The producer's own digest, ported from `txr_zarr.vocab_declaration` — sorted per-level short
  *  hashes, so the SUBSET arm is exercised against the real shape rather than a stand-in. The
  *  hashes here are synthetic (one byte of level identity, padded), because what this check reads
  *  is the SET of 8-byte tokens and never their provenance. */
@@ -183,7 +183,7 @@ describe('vocabDeclarationOf — the digest is read off the STRUCTURE member, th
 
   it('reads both, from the two places the producer actually writes them', () => {
     // The producer puts `vocab_digest`/`vocab_sketch`/`ordered` on the member entry beside
-    // `levels_digest` (`cyto_zarr.Table.categorical`), and `colsummary`'s dict on `meta`.
+    // `levels_digest` (`txr_zarr.Table.categorical`), and `colsummary`'s dict on `meta`.
     // Reading either from the other place finds nothing and silently degrades to undecidable —
     // a fusion that never fires, with no error anywhere.
     const row = artifact({

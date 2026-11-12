@@ -3,7 +3,7 @@
 # cross-package resolution rejects it.
 id: badpkg
 name: Bad Package
-publisher: cyto
+publisher: txr
 version: 0.1.0
 apiVersion: "1.0"
 contributes:

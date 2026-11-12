@@ -68,7 +68,7 @@ impl TmpRepo {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("cyto-{tag}-{}-{nanos}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("txr-{tag}-{}-{nanos}", std::process::id()));
         fs::create_dir_all(&root).expect("create fixture root");
         let st = Command::new("git")
             .args(["init", "-q"])
@@ -142,13 +142,13 @@ fn the_server_dependency_graph_has_no_format_parsing_crate() {
 
 #[test]
 fn the_dependency_guard_actually_matches_what_is_present() {
-    // NEGATIVE CONTROL. `CYTO_DEPGUARD_EXTRA_DENY` is ADD-only — it can make the guard
+    // NEGATIVE CONTROL. `TXR_DEPGUARD_EXTRA_DENY` is ADD-only — it can make the guard
     // stricter and never laxer — so it is safe to leave in the script and is the only
     // honest way to prove the matcher fires. `serde` is unquestionably in the graph.
     let (ok, out) = run(
         &repo_root(),
         DEP_GUARD,
-        &[("CYTO_DEPGUARD_EXTRA_DENY", "serde")],
+        &[("TXR_DEPGUARD_EXTRA_DENY", "serde")],
     );
     assert!(
         !ok,
@@ -357,7 +357,7 @@ fn the_integrity_guard_pins_itself() {
 // case to PASS. Without the second, a guard that failed on everything would satisfy the
 // first.
 //
-// Both drive the REAL script through its `CYTO_DEPGUARD_SCAN_ROOT` seam, so they test the
+// Both drive the REAL script through its `TXR_DEPGUARD_SCAN_ROOT` seam, so they test the
 // shipped guard rather than a re-implementation of its rule.
 
 /// A minimal server source tree under `<tmp>/src-app/server/src`, with one file planted.
@@ -404,7 +404,7 @@ fn a_decoder_outside_the_gather_module_is_refused() {
         &repo_root(),
         DEP_GUARD,
         &[(
-            "CYTO_DEPGUARD_SCAN_ROOT",
+            "TXR_DEPGUARD_SCAN_ROOT",
             repo.root().to_str().expect("utf-8 path"),
         )],
     );
@@ -438,7 +438,7 @@ fn the_same_decoder_inside_the_gather_module_is_allowed() {
         &repo_root(),
         DEP_GUARD,
         &[(
-            "CYTO_DEPGUARD_SCAN_ROOT",
+            "TXR_DEPGUARD_SCAN_ROOT",
             repo.root().to_str().expect("utf-8 path"),
         )],
     );
@@ -472,7 +472,7 @@ fn a_decoder_written_against_any_linkable_crate_is_refused_outside_the_gather_mo
             &repo_root(),
             DEP_GUARD,
             &[(
-                "CYTO_DEPGUARD_SCAN_ROOT",
+                "TXR_DEPGUARD_SCAN_ROOT",
                 repo.root().to_str().expect("utf-8 path"),
             )],
         );
@@ -505,7 +505,7 @@ fn a_decoder_in_a_sibling_workspace_crate_is_refused_too() {
         &repo_root(),
         DEP_GUARD,
         &[(
-            "CYTO_DEPGUARD_SCAN_ROOT",
+            "TXR_DEPGUARD_SCAN_ROOT",
             repo.root().to_str().expect("utf-8 path"),
         )],
     );

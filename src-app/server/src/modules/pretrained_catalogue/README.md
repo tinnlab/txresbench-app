@@ -38,7 +38,7 @@ commit) is `scripts/pretrained-catalogue/README.md`.
 3. **Live** — `POST /api/txr/pretrained/refresh` fetches
    `https://tinnlab.github.io/txresbench-app/pretrained-catalogue.json`
    (the landing-site CATALOGUE constant; overridable through the
-   `CYTO_TXR_CATALOGUE_URL` env seam), validates, writes the last-good copy
+   `TXR_CATALOGUE_URL` env seam), validates, writes the last-good copy
    and serves. A failed refresh is silent — offline is a valid state and
    never fails boot (INV-8).
 
@@ -55,7 +55,7 @@ redirects to it.
   pretrained/cache/<sha256>.txr` (verified, content-addressed),
   `<data_root>/txr-pretrained/<id>.json` (per-id terminal state,
   atomic-write, survives a restart), `<data_root>/pretrained-bundled/` (the
-  installer bundle, overridable through `CYTO_TXR_BUNDLED_MODELS_DIR`).
+  installer bundle, overridable through `TXR_BUNDLED_MODELS_DIR`).
 - At most two transfers in flight; one per id (a second start joins the
   running transfer); the state vocabulary is the method-environment
   manager's (`not_downloaded` / `downloading` / `ready` / `failed`).

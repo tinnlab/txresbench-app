@@ -1,6 +1,6 @@
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 // Side-effect import: `ConfigClient.store` self-registers via `registerLazyStore`
-// AND sets the `@ziee/shell` ThemeProvider seam at module scope, so it must be
+// AND sets the `@txresbench/shell` ThemeProvider seam at module scope, so it must be
 // evaluated before <AppShell> first renders.
 import '@/modules/config-client/ConfigClient.store'
 

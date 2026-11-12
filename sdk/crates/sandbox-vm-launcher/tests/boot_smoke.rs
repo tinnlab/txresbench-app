@@ -13,7 +13,7 @@
 //!   cargo test --release --test boot_smoke -- --ignored --nocapture
 //!
 //! Paths are overridable via env vars; defaults match the dev cache layout
-//! under `.ziee-cache/` at the repo root.
+//! under `.txresbench-cache/` at the repo root.
 
 #![cfg(target_os = "macos")]
 
@@ -33,9 +33,9 @@ fn env_or(key: &str, default: &str) -> String {
 
 fn repo_cache(rel: &str) -> String {
     // Canonicalize: macOS unix-socket sun_path is 104 bytes max, and
-    // launcher_dir + "/../../.ziee-cache/..." easily overshoots that.
+    // launcher_dir + "/../../.txresbench-cache/..." easily overshoots that.
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let raw = std::path::PathBuf::from(format!("{manifest_dir}/../../.ziee-cache"));
+    let raw = std::path::PathBuf::from(format!("{manifest_dir}/../../.txresbench-cache"));
     let canon = std::fs::canonicalize(&raw).unwrap_or(raw);
     canon.join(rel).to_string_lossy().into_owned()
 }
@@ -44,13 +44,13 @@ fn repo_cache(rel: &str) -> String {
 #[ignore = "needs libkrun + codesigned launcher + assembled guest root + dummy squashfs"]
 fn boot_smoke_echo_round_trip() {
     let launcher = env_or(
-        "ZIEE_LAUNCHER_BIN",
-        &format!("{}/target/release/ziee-sandbox-vm-launcher", env!("CARGO_MANIFEST_DIR")),
+        "TXR_LAUNCHER_BIN",
+        &format!("{}/target/release/txresbench-sandbox-vm-launcher", env!("CARGO_MANIFEST_DIR")),
     );
-    let guest_root = env_or("ZIEE_SANDBOX_GUEST_ROOT", &repo_cache("guest-root"));
-    let sandbox_disk = env_or("ZIEE_SANDBOX_DISK", &repo_cache("test-validation/dummy-sandbox.sqfs"));
-    let workspace_root = env_or("ZIEE_WORKSPACE", &repo_cache("test-validation/workspace"));
-    let cache_dir = env_or("ZIEE_TEST_CACHE", &repo_cache("test-validation"));
+    let guest_root = env_or("TXR_SANDBOX_GUEST_ROOT", &repo_cache("guest-root"));
+    let sandbox_disk = env_or("TXR_SANDBOX_DISK", &repo_cache("test-validation/dummy-sandbox.sqfs"));
+    let workspace_root = env_or("TXR_WORKSPACE", &repo_cache("test-validation/workspace"));
+    let cache_dir = env_or("TXR_TEST_CACHE", &repo_cache("test-validation"));
 
     std::fs::create_dir_all(&workspace_root).expect("workspace mkdir");
     std::fs::create_dir_all(&cache_dir).expect("cache mkdir");
@@ -82,7 +82,7 @@ fn boot_smoke_echo_round_trip() {
         "workspace_host_path": workspace_root,
         "vsock_socket_path": sock_path,
         "vsock_port": 1024,
-        "agent_exec_path": "/usr/bin/ziee-sandbox-agent",
+        "agent_exec_path": "/usr/bin/txresbench-sandbox-agent",
     });
     std::fs::write(&cfg_path, serde_json::to_vec_pretty(&cfg).unwrap())
         .expect("write launch.json");

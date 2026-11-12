@@ -22,9 +22,9 @@ import {
   IMAGE_WIDGET_SPACE,
 } from './viz'
 import type { Scope } from '@/modules/workbench/core/runtime/expr'
-import { installBuiltins, parseOption } from '@ziee/viz'
+import { installBuiltins, parseOption } from '@txresbench/viz'
 
-// TEST-8 (PLAN.md ITEM-8) — the `scatter` / `violin` widgets build a valid `@ziee/viz`
+// TEST-8 (PLAN.md ITEM-8) — the `scatter` / `violin` widgets build a valid `@txresbench/viz`
 // `VizOption` from their `encode` bindings (metric columns, colorBy %mito, groupKey), and
 // their frame-backed `FrameDataSource` decodes the columnar slice into wire shapes.
 
@@ -148,7 +148,7 @@ describe('violin widget → VizOption (ITEM-8)', () => {
   })
 })
 
-// DEC-12 — the GENERAL bar / histogram / image kinds lower onto existing @ziee/viz chart kinds.
+// DEC-12 — the GENERAL bar / histogram / image kinds lower onto existing @txresbench/viz chart kinds.
 
 describe('bar widget → VizOption (DEC-12)', () => {
   it('lowers onto the viz `bar` kind with a categorical GROUP channel (encode.groupKey)', () => {
@@ -221,7 +221,7 @@ describe('image widget → VizOption (DEC-12 / INV-16)', () => {
   // NOT a check that `positions()` returns something: that was already true and was exactly the
   // shape of the defect (a value produced and discarded).
   it('a widget with `points` declares a frame its raster and its layout SHARE, so the overlay binds', async () => {
-    const { resolvePaneFrame } = await import('@ziee/viz/core')
+    const { resolvePaneFrame } = await import('@txresbench/viz/core')
     const image = {
       data: new Uint8Array([1, 2, 3, 4]),
       width: 1,
@@ -270,7 +270,7 @@ describe('image widget → VizOption (DEC-12 / INV-16)', () => {
   })
 
   it('a widget whose image payload cannot be placed declares NO frame, so nothing overlays', async () => {
-    const { resolvePaneFrame } = await import('@ziee/viz/core')
+    const { resolvePaneFrame } = await import('@txresbench/viz/core')
     // No `affine` — the widget's own contract is that `affine` is what relates the points to the
     // raster, so without it there is no declaration to bind on. It is not a wildcard.
     const src = buildImageSource(

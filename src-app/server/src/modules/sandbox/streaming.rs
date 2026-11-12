@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::backend::{ComputeSpec, LaunchedCompute, MilestoneFrame, ProgressFrame, ProgressSink};
 use super::sandbox::{spawn_bwrap_child, SandboxSetup};

@@ -36,7 +36,7 @@
 // `stores`) is an INPUT, owned by the mask plane or the shell. This module owns no state at all.
 import { useEffect } from 'react'
 import type { RefObject } from 'react'
-import { PRIMARY_CONTAINER, type ContainerId } from '@ziee/dock'
+import { PRIMARY_CONTAINER, type ContainerId } from '@txresbench/dock'
 import type { SharedLabelMask } from '../annotate/sharedMask'
 import type { SharedMaskController } from '../annotate/sharedMaskController'
 import type { VizStores } from '../../adapter/vizStores'

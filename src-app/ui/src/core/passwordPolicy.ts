@@ -4,7 +4,7 @@ import { z } from 'zod'
  * THE CLIENT MIRROR OF THE SERVER'S PASSWORD RULE — REFUSAL, NEVER TRUNCATION.
  *
  * ── Where the numbers come from ────────────────────────────────────────────────────────────
- * `sdk/crates/ziee-auth/src/auth/password.rs::validate_password_strength` is the authority:
+ * `sdk/crates/txresbench-auth/src/auth/password.rs::validate_password_strength` is the authority:
  *
  *     if password.len() < MIN_PASSWORD_LENGTH { … }   // MIN_PASSWORD_LENGTH = 8
  *     if password.len() > MAX_PASSWORD_LENGTH { … }   // MAX_PASSWORD_LENGTH = 72

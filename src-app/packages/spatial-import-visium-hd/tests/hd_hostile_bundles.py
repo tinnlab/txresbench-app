@@ -575,7 +575,7 @@ def a_matrix_with_no_stored_values_but_indptr_ENDING_AT_5(tmp_path, bin_um=8):
 def a_matrix_with_a_NON_MONOTONIC_indptr(tmp_path):
     """A CSC offset array that decreases.
 
-    Reaches `cyto_csc.write_csc_zarr` unvalidated and raises out of `_lib` -- shared framework
+    Reaches `txr_csc.write_csc_zarr` unvalidated and raises out of `_lib` -- shared framework
     code whose raise is not this package's to change -- so the failure arrives as a traceback
     from inside the platform rather than as a statement about this bundle, with paths already
     on disk.
@@ -751,7 +751,7 @@ def a_matrix_whose_indptr_is_UNSIGNED_and_decreasing(tmp_path):
     positive number and `(np.diff(indptr) < 0).any()` is unconditionally False. The signed
     builder above cannot reach this, because it writes back through
     `h5["matrix/indptr"][:] = ...`, which PRESERVES the fixture's int64. MEASURED at uint32:
-    `ValueError: repeats may not contain negative values` out of `_lib/cyto_csc.py`, exit 1,
+    `ValueError: repeats may not contain negative values` out of `_lib/txr_csc.py`, exit 1,
     five paths on disk -- verbatim the failure the guard was written to prevent.
     """
     import h5py
@@ -811,7 +811,7 @@ def a_matrix_whose_DATA_cannot_be_SIZED(tmp_path):
     exception tuple. A group has no `.shape`, so `AttributeError` escaped `main()` entirely --
     exit 1 with a raw traceback, which INV-9 forbids by name, at a line a fix round had just
     added. A SCALAR dataset took the other door: `shape == ()` raises `IndexError`, which WAS
-    caught, so the check was silently skipped and the run died inside `_lib/cyto_csc.py` with
+    caught, so the check was silently skipped and the run died inside `_lib/txr_csc.py` with
     five paths already on disk.
 
     TODAY this is refused EARLIER, by the member loop's `isinstance(..., h5py.Dataset)` leg
@@ -833,7 +833,7 @@ def a_matrix_whose_INDICES_cannot_be_SIZED(tmp_path):
 
     The round-3 guard hardened `/matrix/data` and `/matrix/indptr` and left the THIRD member
     of the same CSC triple unexamined. MEASURED: exit 1 with `TypeError: Accessing a group is
-    done with bytes or str, not <class 'slice'>` raised out of `_lib/cyto_csc.py`'s
+    done with bytes or str, not <class 'slice'>` raised out of `_lib/txr_csc.py`'s
     `column_counts()` -- a raw traceback from shared framework code, which INV-9 forbids by
     name. A SCALAR dataset takes the other door with `ValueError: Illegal slicing argument for
     scalar dataspace`, same file, same outcome.
@@ -875,7 +875,7 @@ def a_matrix_with_a_FEATURE_ID_PAST_THE_END(tmp_path):
     """One `/matrix/indices` entry naming a feature row this file does not declare.
 
     MEASURED: `ValueError: operands could not be broadcast together with shapes (40,)
-    (1000001,) (40,)` out of `np.bincount` inside `_lib/cyto_csc.py::column_counts` -- exit 1,
+    (1000001,) (40,)` out of `np.bincount` inside `_lib/txr_csc.py::column_counts` -- exit 1,
     a raw traceback, zero paths on disk. INV-8 holds and INV-9 does not.
     """
     import h5py
@@ -935,7 +935,7 @@ def a_matrix_whose_DATA_IS_NOT_A_NUMBER(tmp_path):
 
     The worst of the three, because the shape checks pass and nothing looks at the values
     until the writer does. MEASURED: exit 1 and FIVE PATHS ON DISK, `ValueError: could not
-    convert string to float` from `_lib/cyto_csc.py::_scatter_band` -- past the first writer,
+    convert string to float` from `_lib/txr_csc.py::_scatter_band` -- past the first writer,
     so INV-8 as well as INV-9.
     """
     import numpy as np
@@ -1093,7 +1093,7 @@ def a_matrix_whose_DATA_has_EXTERNAL_raw_storage(tmp_path):
     """`/matrix/data` as EXTERNAL raw storage over a MISSING `.bin`.
 
     MEASURED pre-fix through the shipped entrypoint on the 8 um bin: rc 1, a raw
-    `OSError` traceback out of `_lib/cyto_csc.py::H5CsrSource.iter_entries` -- the
+    `OSError` traceback out of `_lib/txr_csc.py::H5CsrSource.iter_entries` -- the
     row-block read -- and a FIVE-PATH PARTIAL STORE (`expression.zarr/data/c`,
     `expression.zarr/indices/c`, ...) -- INV-8 and INV-9 broken together. The refusal
     converts that into a named refusal with an empty outputs tree.
@@ -2622,7 +2622,7 @@ REFUSALS = (
     #    reach. Four doors, four different framework tracebacks, one of them silent.
     ("indices-not-sizeable", a_matrix_whose_INDICES_cannot_be_SIZED, None,
      "an `/matrix/indices` that cannot be sized, which arrived as a `TypeError` out of "
-     "`_lib/cyto_csc.py` rather than a statement about this bundle"),
+     "`_lib/txr_csc.py` rather than a statement about this bundle"),
     ("indices-length-disagrees", a_matrix_whose_INDICES_ARE_TOO_SHORT, None,
      "a truncated `/matrix/indices`, which h5py CLAMPS -- so the import succeeded and "
      "silently stored half the bundle's non-zero values"),

@@ -16,7 +16,7 @@ import { releasePostgresPortLock } from './port-manager.ts'
 
 export function createGlobalTeardown(cfg: E2EConfig) {
   return async function globalTeardown(pwConfig: FullConfig): Promise<void> {
-    console.log('\n🧹 Cleaning up @ziee/test-e2e infrastructure...\n')
+    console.log('\n🧹 Cleaning up @txresbench/test-e2e infrastructure...\n')
     const runId = process.env.TEST_RUN_ID
     if (!runId) {
       console.log('⚠️  No TEST_RUN_ID — skipping cleanup')

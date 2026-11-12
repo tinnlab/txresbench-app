@@ -1,12 +1,12 @@
 //! Sandbox module permissions.
 //!
-//! `PermissionCheck` impls (mirror `ziee-hardware/permissions.rs`). The
+//! `PermissionCheck` impls (mirror `txresbench-hardware/permissions.rs`). The
 //! `NAME` becomes the emitted FE `Permissions.<Name>` constant (via the 403
 //! example the framework's `with_permission` documents); the `PERMISSION`
 //! string is what `RequirePermissions` checks. Admin-only this round (admins
 //! hold `*`), so no group-grant migration is needed (DEC — admin-only).
 
-use ziee_identity::PermissionCheck;
+use txresbench_identity::PermissionCheck;
 
 /// Read the sandbox settings + status.
 pub struct SandboxSettingsRead;

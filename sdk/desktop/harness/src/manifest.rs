@@ -18,8 +18,8 @@
 //! ## What lives here vs. app-side
 //!
 //! The manifest **STRUCTURE + mode keying** are reusable and live in this
-//! harness crate. The manifest **CONTENTS** (which modules ziee registers on
-//! desktop, which frontend module ids ziee's web bundle drops, ziee's exact
+//! harness crate. The manifest **CONTENTS** (which modules txresbench registers on
+//! desktop, which frontend module ids txresbench's web bundle drops, txresbench's exact
 //! feature overrides) stay **app-side** — the app constructs one
 //! [`CapabilityManifest`] per mode from its own domain vocabulary. This mirrors
 //! Chunk D's "stays app-side" list: the `create_desktop_modules` vec, the
@@ -207,7 +207,7 @@ mod tests {
 
     #[test]
     fn desktop_manifest_captures_all_four_parts() {
-        // A desktop manifest expressed the way ziee-desktop would build it —
+        // A desktop manifest expressed the way txresbench-desktop would build it —
         // contents are illustrative (the real vocabulary stays app-side).
         let m = CapabilityManifest::new(DeploymentMode::Desktop)
             .with_backend_modules(["remote_access", "magic_link", "host_mount"])

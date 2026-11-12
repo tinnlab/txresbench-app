@@ -74,7 +74,7 @@ def _tracked(*pathspecs):
 #:     which scans everything, carried the red. A guard that cannot see a region is not a
 #:     guard for it.
 #:   * FALSELY RED — #311 residual 1. A sibling guard that legitimately HUNTS a spatial id
-#:     must spell it, declares a `cyto:guard-vocabulary` block to say so, passes the shell
+#:     must spell it, declares a `txr:guard-vocabulary` block to say so, passes the shell
 #:     guard — and fails HERE, which granted no exemption at all. Latent today, and latent is
 #:     not fixed: §1 says a guard that "starts refusing things it never meant to refuse" is
 #:     the same defect as one that stops covering what it names.
@@ -96,7 +96,7 @@ _DECL_MULTI = ("scan_root", "surface_root", "data_root", "test_path_segment")
 #: The charsets. Enforced HERE as well as in the shell guard, and identically, because
 #: the values are interpolated into four matcher languages (an awk ERE, a BRE `grep`, a
 #: Python `re`, a git pathspec) and a blind audit defeated all four from the declaration
-#: alone — `vocab_block_open cyto:guard-vocabulary(` killed awk's lazily-compiled dynamic
+#: alone — `vocab_block_open txr:guard-vocabulary(` killed awk's lazily-compiled dynamic
 #: regex on every build file with its stderr swallowed, and the shell guard printed PASS
 #: over a planted leak. A charset with no metacharacter in any of the four needs no
 #: escaping in any of them, which is what makes "one declaration, two readers" true of the
@@ -167,7 +167,7 @@ def _declaration():
         raise AssertionError(
             f"{_SURFACE_DECL} is missing. It is the ONE declaration this test and "
             "scripts/check-derived-vocabulary.sh both read for the scan roots, the build "
-            "surface and the cyto:guard-vocabulary exemption (#311). Restore it rather "
+            "surface and the txr:guard-vocabulary exemption (#311). Restore it rather "
             "than re-typing any of those rules into a guard — two hand-kept copies is the "
             "defect it removes."
         )
@@ -370,7 +370,7 @@ def _pinned_files(decl):
 
 
 def _blank_declared_vocabulary(text, rel, decl, pinned):
-    """Blank the lines inside a DECLARED `cyto:guard-vocabulary` block, and ONLY there.
+    """Blank the lines inside a DECLARED `txr:guard-vocabulary` block, and ONLY there.
 
     The exemption #304 gave the shell guard, honoured here on the SAME two committed keys so
     the two guards cannot disagree about a legitimately-spelling guard (#311 residual 1):
@@ -518,7 +518,7 @@ def test_a_new_kind_costs_zero_core_code():
     omission, not a subtraction rule. The forbidden terms are DERIVED from the manifest.
 
     ONE exemption, at the LINE axis, added by #311 and deliberately not wider: a line inside
-    a DECLARED `cyto:guard-vocabulary` block in a file PINNED in the manifest
+    a DECLARED `txr:guard-vocabulary` block in a file PINNED in the manifest
     `scripts/lib/zero-core-surface.txt` names. It exists because a sibling GUARD must SPELL
     the vocabulary it HUNTS (`check-kinds-zero-core.sh`'s `KINDS=`,
     `check-no-legacy-wire.sh`'s `DOMAIN_REGEX=`) and `check-derived-vocabulary.sh` has

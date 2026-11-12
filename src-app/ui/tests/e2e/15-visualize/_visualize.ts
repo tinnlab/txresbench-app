@@ -651,7 +651,7 @@ import {
 
 /**
  * The inline member set (ITEM-5's `bitmap`) — the exact inverse of
- * `cyto_zarr.encode_member_set`, and the fixture side of the codec `decodeMemberSet` reads.
+ * `txr_zarr.encode_member_set`, and the fixture side of the codec `decodeMemberSet` reads.
  *
  * Base64 over a DELTA-VARINT (LEB128): each position stored as its gap from the previous one,
  * each gap as a base-128 varint, `previous` starting at -1 so the first gap is `p + 1`.
@@ -812,7 +812,7 @@ export async function seedPopulations(
 
 /**
  * The SUBSET half of {@link seedPopulations} — the coordinate and the three columns that make
- * its offer decidable. Written as a producer writes them (`cyto_zarr.Table.close()`):
+ * its offer decidable. Written as a producer writes them (`txr_zarr.Table.close()`):
  *
  *   · the index BODY is a Zarr member of the coordinate artifact, and it is declared ON THE
  *     MEMBERSHIP ENTRY (`members` names it, `path` addresses it) and NOWHERE ELSE. It is

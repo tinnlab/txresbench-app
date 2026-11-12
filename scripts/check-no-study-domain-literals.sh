@@ -14,14 +14,14 @@
 #   - the MECHANICALLY-GENERATED api-client (`api-client/types.ts`, `openapi/openapi.json`),
 #     which regenerate deterministically from reviewed Rust source and carry the SDK's
 #     preserved doc-comment example verbatim (an `study_share_invite` example on the
-#     shared `NotificationDto` — sourced in `sdk/crates/ziee-notification`, not cyto);
+#     shared `NotificationDto` — sourced in `sdk/crates/txresbench-notification`, not txr);
 #   - build/dep dirs (`target/`, `node_modules/`);
 #   - the TxResBench module family `src-app/ui/src/modules/txr*` — `txrshell`, `txrlist`,
 #     `txrintake`, and any future `txr`-prefixed module (the GRAPH.md / DEC-17 recorded
 #     scope, a conservative default): the TxResBench app's board spec names screen B
 #     "Your study" and the intake flow's own vocabulary IS `study` (`/study` route,
 #     `mode: 'study'`, the B screen copy), so those literals are that product's
-#     legitimate UI words, NOT residuals of the cytoanalyst study→project rename this
+#     legitimate UI words, NOT residuals of the txresbench study→project rename this
 #     guard enforces (two different products/domains). The exclude is the txr
 #     module-family prefix ONLY — never any other path; the rename-purpose stays
 #     intact everywhere else in `src-app/**` — a surviving `study` domain literal

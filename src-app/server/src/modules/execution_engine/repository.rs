@@ -34,7 +34,7 @@ use chrono::{DateTime, Utc};
 use serde_json::Value as Json;
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::types::{
     EngineReasonCode, RunConfig, TxrAppConfig, TxrCoverage, TxrLogStream, TxrMethodEnv,
@@ -144,7 +144,7 @@ pub(crate) fn parse_config(cell: &Json) -> Result<RunConfig, AppError> {
 /// Serialize a `uuid[]` batch into the JSON-hex form the SQLite membership
 /// predicates consume: a JSON array of 32-char lowercase hex strings,
 /// compared against a 16-byte BLOB column through `unhex()` — the ITEM-15
-/// `ziee-file` convention (its `uuid_list_json` is the `jobs` repository's
+/// `txresbench-file` convention (its `uuid_list_json` is the `jobs` repository's
 /// copy; the app's modules are single-driver so the one helper is local
 /// again, beside the only `IN (…)` site this module has).
 fn uuid_list_json(ids: &[Uuid]) -> String {
@@ -606,7 +606,7 @@ impl TxrRepository {
 
     /// The History page as summaries. The page's method ids are fetched with
     /// ONE JSON-membership query (the sqlite port of `= ANY(uuid[])` — the
-    /// `ziee-file` `unhex`/`json_each` convention this module's plan binds,
+    /// `txresbench-file` `unhex`/`json_each` convention this module's plan binds,
     /// CONS-EE-3): a second statement per run row would be N+1 on a 200-row
     /// page.
     pub async fn list_run_summaries(

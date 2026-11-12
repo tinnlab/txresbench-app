@@ -17,7 +17,7 @@ def test_r2_omits_the_p_members_entirely(markers_run):
     members = run.de_members(e)
     assert "neglog10p" not in members and "padj" not in members and "padj_across" not in members
     # the store's `de` attr records p was not written (absence-is-absence, honestly declared).
-    assert run.de_cyto(e)["de"]["pvalues_written"] is False
+    assert run.de_txr(e)["de"]["pvalues_written"] is False
 
 
 def test_r3_unreplicated_omits_the_p_members(compare_run):

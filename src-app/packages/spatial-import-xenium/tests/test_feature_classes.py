@@ -23,7 +23,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import xenium_fixtures as XF  # noqa: E402
 
-import cyto_zarr_read as CZR  # noqa: E402
+import txr_zarr_read as CZR  # noqa: E402
 
 #: The class §15.5 says "must be divided out" before it means anything, and which this
 #: importer therefore refuses to emit as counts (DEC-11 / INV-9).

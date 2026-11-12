@@ -1,7 +1,7 @@
 // The job-result DATA RESOLVER (PLAN.md ITEM-9 / DRIFT-3.5) — the last-mile seam that
 // turns a declarative `view_spec`'s `data` declarations
 // (`{ obs: { source: job.result, args: { path: /obs } }, vis2D: … }`) into the resolved
-// columnar slices the reactive store's `derived` primitives + the `@ziee/viz` sources read
+// columnar slices the reactive store's `derived` primitives + the `@txresbench/viz` sources read
 // (`buildScatterSource`/`buildViolinSource` over `$data.obs`).
 //
 // The RESOLVER is pure + injectable (a `readSlice` callback that yields each slice's parsed

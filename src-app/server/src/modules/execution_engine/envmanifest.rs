@@ -380,7 +380,7 @@ const MANIFEST_JSON: &[u8] = include_bytes!(concat!(
 ));
 
 /// ITEM-2 (qa-hardening): a DEBUG build may point the engine at a dev
-/// manifest (`CYTO_TXR_ENV_MANIFEST=<path>`) — the dev publisher's schema-v1
+/// manifest (`TXR_ENV_MANIFEST=<path>`) — the dev publisher's schema-v1
 /// file whose pins are its own built digests. The bytes go through the SAME
 /// [`parse_manifest`] validator, so every `MANIFEST_*` check applies to the
 /// dev data too (nothing is skipped, nothing unverified). A RELEASE build
@@ -389,7 +389,7 @@ const MANIFEST_JSON: &[u8] = include_bytes!(concat!(
 fn manifest_bytes() -> Result<Vec<u8>, ManifestLoadError> {
     if let Some(path) = manifest_override_path(&|k| std::env::var(k).ok()) {
         return std::fs::read(&path).map_err(|e| ManifestLoadError::EmbedParse {
-            message: format!("read the CYTO_TXR_ENV_MANIFEST override {}: {e}", path),
+            message: format!("read the TXR_ENV_MANIFEST override {}: {e}", path),
         });
     }
     #[cfg(not(debug_assertions))]
@@ -398,11 +398,11 @@ fn manifest_bytes() -> Result<Vec<u8>, ManifestLoadError> {
 }
 
 /// The pure env → path core of the override (injected read): a debug build
-/// honors `CYTO_TXR_ENV_MANIFEST`; a release build never sees it.
+/// honors `TXR_ENV_MANIFEST`; a release build never sees it.
 fn manifest_override_path(read: &impl Fn(&str) -> Option<String>) -> Option<String> {
     #[cfg(debug_assertions)]
     {
-        return read("CYTO_TXR_ENV_MANIFEST")
+        return read("TXR_ENV_MANIFEST")
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty());
     }
@@ -989,7 +989,7 @@ mod tests {
         let set = |v: &str| {
             let held = format!("/data/pbya/txresbench-app-work/qa-build/method-env-images.dev.json");
             let mut m = std::collections::HashMap::new();
-            m.insert("CYTO_TXR_ENV_MANIFEST".to_string(), held);
+            m.insert("TXR_ENV_MANIFEST".to_string(), held);
             m.get(v).cloned()
         };
         assert_eq!(

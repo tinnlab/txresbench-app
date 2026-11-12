@@ -1,6 +1,6 @@
 //! Content-addressed object store (ITEM-1) + multi-file merkle identity (ITEM-6).
 //!
-//! A domain-neutral blob substrate behind ONE seam, distinct from `ziee-file`
+//! A domain-neutral blob substrate behind ONE seam, distinct from `txresbench-file`
 //! (user-scoped, uploads-only, UUID-keyed, not content-addressed). Keys are the
 //! content hash `sha256:<hex>` (DEC-2), so the store gives free dedup + cache +
 //! the immutability the provenance/verification path needs. The `get_range`
@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream::BoxStream;
 use std::collections::BTreeMap;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 pub mod dual_read;
 pub mod local_fs;

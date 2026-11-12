@@ -71,7 +71,7 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use crate::modules::execution_engine::repository::TxrRepository;
 use crate::modules::history_store::repository::dir_size;

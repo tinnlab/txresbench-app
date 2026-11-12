@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Spinner } from '@ziee/kit'
+import { Alert, Button, Card, Spinner } from '@txresbench/kit'
 
 interface SettingsSectionStatusProps {
   /** Card title, kept identical to the loaded section so the page layout is stable. */

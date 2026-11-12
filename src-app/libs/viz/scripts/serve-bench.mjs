@@ -8,7 +8,7 @@
  *
  * ── The staleness bug this exists to prevent ────────────────────────────────────────────────
  * `playwright.viz.config.ts` already warns, about its own :1421 dev server, that a stale reused
- * server "would silently validate the WRONG @ziee/viz build and blind the merge gate". A prod
+ * server "would silently validate the WRONG @txresbench/viz build and blind the merge gate". A prod
  * bundle is far worse: a dev server at least re-transforms on request, whereas `dist-bench/` is a
  * frozen artifact that will happily serve last week's code forever. A perf gate reading a stale
  * bundle does not fail — it REPORTS THE OLD NUMBERS, which is indistinguishable from "the fix

@@ -1,6 +1,6 @@
-//! CytoAnalyst build-helper modules (invoked from `build.rs`).
+//! TxResBench build-helper modules (invoked from `build.rs`).
 //!
-//! Mirrors ziee's `build_helper/` layout: each file stages one embedded asset
+//! Mirrors txresbench's `build_helper/` layout: each file stages one embedded asset
 //! under `binaries/` for the runtime `include_bytes!`, fail-soft (a failure
 //! writes a zero-byte stub and the feature self-disables at runtime — never a
 //! build panic). See [[feedback_build_system]].

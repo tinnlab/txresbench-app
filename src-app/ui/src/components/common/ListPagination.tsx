@@ -1,4 +1,4 @@
-import { Pagination } from '@ziee/kit'
+import { Pagination } from '@txresbench/kit'
 
 interface ListPaginationProps {
   current: number

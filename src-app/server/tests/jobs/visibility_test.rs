@@ -389,10 +389,10 @@ async fn project_scoped_job_follows_the_same_rule_for_sight_and_for_stop() {
     let (invited, _invited_id) = register_user(&server, "pjvinvited").await;
 
     let pid = create_project(&server, &owner, "shared-project").await;
-    share_project(&server, &owner, &pid, &ed1, "pjved1@cyto.test", "editor").await;
-    share_project(&server, &owner, &pid, &ed2, "pjved2@cyto.test", "editor").await;
-    share_project(&server, &owner, &pid, &viewer, "pjvviewer@cyto.test", "viewer").await;
-    offer_project_share(&server, &owner, &pid, "pjvinvited@cyto.test", "editor").await;
+    share_project(&server, &owner, &pid, &ed1, "pjved1@txresbench.test", "editor").await;
+    share_project(&server, &owner, &pid, &ed2, "pjved2@txresbench.test", "editor").await;
+    share_project(&server, &owner, &pid, &viewer, "pjvviewer@txresbench.test", "viewer").await;
+    offer_project_share(&server, &owner, &pid, "pjvinvited@txresbench.test", "editor").await;
 
     hold_the_only_slot(&server, &admin, &owner).await;
     let scope = json!({ "project_id": pid });
@@ -424,7 +424,7 @@ async fn project_scoped_job_follows_the_same_rule_for_sight_and_for_stop() {
         .client
         .post(server.api_url(&format!("/projects/{pid}/shares")))
         .bearer_auth(&owner)
-        .json(&json!({ "email": "pjvinvited@cyto.test", "permission_level": "editor" }))
+        .json(&json!({ "email": "pjvinvited@txresbench.test", "permission_level": "editor" }))
         .send()
         .await
         .expect("re-offer");
@@ -473,7 +473,7 @@ async fn project_jobs_panel_shows_every_members_job_and_still_filters_by_project
 
     let a = create_project(&server, &owner, "project-a").await;
     let b = create_project(&server, &owner, "project-b").await;
-    share_project(&server, &owner, &a, &ed, "pjped@cyto.test", "editor").await;
+    share_project(&server, &owner, &a, &ed, "pjped@txresbench.test", "editor").await;
 
     hold_the_only_slot(&server, &admin, &owner).await;
     let in_a = create_scoped_job(&server, &ed, "editors-job-in-a", &json!({ "project_id": a })).await;
@@ -585,8 +585,8 @@ async fn a_job_is_listed_exactly_when_it_can_be_opened() {
     share_dataset(&server, &owner, &ds, &eddie_id, "edit").await;
     share_dataset(&server, &owner, &ds, &viv_id, "view").await;
     let pid = create_project(&server, &owner, "drift-project").await;
-    share_project(&server, &owner, &pid, &eddie, "drfeddie@cyto.test", "editor").await;
-    share_project(&server, &owner, &pid, &viv, "drfviv@cyto.test", "viewer").await;
+    share_project(&server, &owner, &pid, &eddie, "drfeddie@txresbench.test", "editor").await;
+    share_project(&server, &owner, &pid, &viv, "drfviv@txresbench.test", "viewer").await;
 
     hold_the_only_slot(&server, &admin, &owner).await;
     let jobs = vec![
@@ -1002,9 +1002,9 @@ async fn can_stop_on_the_wire_is_exactly_what_stop_does() {
     share_dataset(&server, &owner, &ds, &edna_id, "edit").await;
     share_dataset(&server, &owner, &ds, &viv_id, "view").await;
     let pid = create_project(&server, &owner, "canstop-project").await;
-    share_project(&server, &owner, &pid, &eddie, "csweddie@cyto.test", "editor").await;
-    share_project(&server, &owner, &pid, &edna, "cswedna@cyto.test", "editor").await;
-    share_project(&server, &owner, &pid, &viv, "cswviv@cyto.test", "viewer").await;
+    share_project(&server, &owner, &pid, &eddie, "csweddie@txresbench.test", "editor").await;
+    share_project(&server, &owner, &pid, &edna, "cswedna@txresbench.test", "editor").await;
+    share_project(&server, &owner, &pid, &viv, "cswviv@txresbench.test", "viewer").await;
 
     hold_the_only_slot(&server, &admin, &owner).await;
 
@@ -1103,9 +1103,9 @@ async fn the_batched_stop_grader_and_the_per_job_gate_agree() {
     share_dataset(&server, &owner, &ds, &edna_id, "edit").await;
     share_dataset(&server, &owner, &ds, &viv_id, "view").await;
     let pid = create_project(&server, &owner, "grader-project").await;
-    share_project(&server, &owner, &pid, &eddie, "bsgeddie@cyto.test", "editor").await;
-    share_project(&server, &owner, &pid, &edna, "bsgedna@cyto.test", "editor").await;
-    share_project(&server, &owner, &pid, &viv, "bsgviv@cyto.test", "viewer").await;
+    share_project(&server, &owner, &pid, &eddie, "bsgeddie@txresbench.test", "editor").await;
+    share_project(&server, &owner, &pid, &edna, "bsgedna@txresbench.test", "editor").await;
+    share_project(&server, &owner, &pid, &viv, "bsgviv@txresbench.test", "viewer").await;
 
     hold_the_only_slot(&server, &admin, &owner).await;
     let jobs = vec![

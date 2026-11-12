@@ -62,7 +62,7 @@ import {
   type MockRequestContext,
   type ModuleGallery,
   type SpecialRoute,
-} from '@ziee/gallery'
+} from '@txresbench/gallery'
 import { TxrIntake } from '@/modules/txrintake'
 import { AppShell } from '../txrshell/components/AppShell'
 import { TXR_LOGS, TXR_RUNS } from '../txrresults/fixtures'

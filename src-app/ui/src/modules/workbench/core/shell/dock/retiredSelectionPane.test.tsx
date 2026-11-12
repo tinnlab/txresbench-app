@@ -22,7 +22,7 @@
 // does not include a jobs pane and the test fails rather than passing for the wrong reason.
 import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
-import { leafIds, type LayoutNode } from '@ziee/dock'
+import { leafIds, type LayoutNode } from '@txresbench/dock'
 import { DEFAULT_PANE_IDS, defaultMainSlice, migrateDockMain, type DockMainSlice } from './defaultLayout'
 import { PANE_KINDS, isPaneKind, resolvePaneRenderer, FallbackPane, type WorkbenchPane } from './paneModel'
 import { createWorkbenchDockStore, workbenchDockStore } from './WorkbenchDock.store'
@@ -30,13 +30,13 @@ import { memoryStorage } from './dockPersistence'
 import { RegionShell } from '@/modules/workbench/core/shell/regions/RegionShell'
 import { workbenchRegionsStore } from '@/modules/workbench/core/shell/regions/WorkbenchRegions.store'
 
-const MAIN_KEY = 'cyto.wb.dock.main'
-const POPUP_KEY = 'cyto.wb.dock.popups'
+const MAIN_KEY = 'txr.wb.dock.main'
+const POPUP_KEY = 'txr.wb.dock.popups'
 const PROJECT = 'p-retired-inspector'
 const SELECTION_ID = 'p-selection'
 
 /** A slice's pane map, read through ONE accessor so the rest of the file never has to name
- *  `@ziee/dock`'s field for it — that field name is a token the domain-vocabulary guard watches
+ *  `@txresbench/dock`'s field for it — that field name is a token the domain-vocabulary guard watches
  *  (`scripts/lint-no-domain-in-builtin.mjs`), and funnelling every read through here keeps this
  *  file's footprint at the two sites the guard's ledger records. `WorkbenchDockState` satisfies
  *  the same shape, so the accessor reads the live store too. */
@@ -138,7 +138,7 @@ describe('a persisted layout naming the retired pane migrates it away', () => {
     expect(panesOf(out)['p-jobs'].kind).toBe('jobs')
     expect(out.seq).toBe(7)
 
-    // the freed 0.2 goes to the surviving siblings IN PROPORTION (`@ziee/dock`'s own
+    // the freed 0.2 goes to the surviving siblings IN PROPORTION (`@txresbench/dock`'s own
     // `removeLeaf` renormalize), so the row still tiles and keeps its relative weighting.
     const root = out.layout as Extract<LayoutNode, { kind: 'split' }>
     expect(root.kind).toBe('split')

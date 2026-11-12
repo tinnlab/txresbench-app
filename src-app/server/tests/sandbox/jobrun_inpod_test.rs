@@ -1,8 +1,8 @@
 //! TEST-6/7/8 (#66 / k8s-jobrun-dataplane) — the IN-POD one-shot executor
-//! (`cytoanalyst run-job --job-id X`) the job-per-run `KubernetesBackend` pod runs.
+//! (`txresbench run-job --job-id X`) the job-per-run `KubernetesBackend` pod runs.
 //!
 //! These drive the REAL `run-job` binary as a SUBPROCESS (the same entrypoint the pod runs),
-//! sharing the test server's DB + `CYTO_APP_DATA_DIR` (so the same object store + sandbox rootfs
+//! sharing the test server's DB + `TXR_APP_DATA_DIR` (so the same object store + sandbox rootfs
 //! cache). This is the faithful in-pod proof: the executor forces the local bwrap backend and
 //! reuses the SAME `materialize_inputs` + `finalize_analysis` as the worker-pod path, so the
 //! inputs.json / `/outputs` contract is byte-identical (INV-1/INV-2) and a fetch failure fails
@@ -18,7 +18,7 @@ use std::path::Path;
 use serde_json::json;
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::repository::JobRepository;
+use txresbench::modules::jobs::repository::JobRepository;
 
 use super::setup_admin;
 use crate::common::TestServer;
@@ -61,20 +61,20 @@ async fn running_heavy_job(
 /// Write a minimal config.yaml pointing the `run-job` subprocess at the test server's
 /// sqlite FILE (the `database.url` the harness hands the app — the config key
 /// `ServerConfig` resolves), so the pod entrypoint boots the same assembly against the
-/// same DB. The object store + sandbox rootfs are shared via `CYTO_APP_DATA_DIR`.
+/// same DB. The object store + sandbox rootfs are shared via `TXR_APP_DATA_DIR`.
 fn write_config(dir: &Path, database_url: &str) -> std::path::PathBuf {
     let cfg = format!(
-        "database:\n  url: \"{database_url}\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3199\n  api_prefix: \"/api\"\nlogging:\n  level: \"info\"\n  format: \"pretty\"\njwt:\n  secret: \"jobrun-inpod-test-secret-key-at-least-32-characters\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
+        "database:\n  url: \"{database_url}\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3199\n  api_prefix: \"/api\"\nlogging:\n  level: \"info\"\n  format: \"pretty\"\njwt:\n  secret: \"jobrun-inpod-test-secret-key-at-least-32-characters\"\n  issuer: \"txresbench\"\n  audience: \"txresbench-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
     );
     let path = dir.join(format!("run-job-config-{}.yaml", Uuid::new_v4()));
     std::fs::write(&path, cfg).expect("write config");
     path
 }
 
-/// Run `cytoanalyst run-job --job-id <id>` as a subprocess against the shared DB + data dir.
+/// Run `txresbench run-job --job-id <id>` as a subprocess against the shared DB + data dir.
 /// Returns `(exit_code, combined_output)` — 0 iff the outputs were durably cataloged.
 async fn run_job_subprocess(server: &TestServer, job_id: Uuid) -> (i32, String) {
-    let bin = env!("CARGO_BIN_EXE_cytoanalyst");
+    let bin = env!("CARGO_BIN_EXE_txresbench");
     let data_dir = server.data_dir();
     let cfg = write_config(data_dir, server.database_url());
 
@@ -82,12 +82,12 @@ async fn run_job_subprocess(server: &TestServer, job_id: Uuid) -> (i32, String) 
         .args(["run-job", "--job-id", &job_id.to_string()])
         .env("CONFIG_FILE", &cfg)
         // Share the test server's object store + sandbox rootfs cache.
-        .env("CYTO_APP_DATA_DIR", data_dir)
+        .env("TXR_APP_DATA_DIR", data_dir)
         // Belt (run_job_once also sets it): never claim/reconcile other jobs.
-        .env("CYTO_SCHEDULER_ENABLED", "off")
+        .env("TXR_SCHEDULER_ENABLED", "off")
         .output()
         .await
-        .expect("spawn cytoanalyst run-job");
+        .expect("spawn txresbench run-job");
     let combined = format!(
         "{}\n{}",
         String::from_utf8_lossy(&out.stdout),

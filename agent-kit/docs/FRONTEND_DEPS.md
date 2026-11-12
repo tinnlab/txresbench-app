@@ -1,6 +1,6 @@
 # Frontend Dependency Hygiene
 
-> `sdk:` = `sdk/packages/…`; `ziee:` = the reference app. This doc covers the
+> `sdk:` = `sdk/packages/…`; `txresbench:` = the reference app. This doc covers the
 > **npm side**: workspace layout, version policy, the `npm run check` gate chain,
 > and bump cadence.
 
@@ -8,7 +8,7 @@
 > `@ant-design/cli`, `just antd-check`, or antd v6 deprecations is **stale**.
 > **antd is gone**: the reference app has zero `antd` imports and no `antd`
 > dependency (verified), and a Biome rule rejects the import
-> (`ziee:biome.json:17-21`). UI comes from `@ziee/kit`. A vestigial
+> (`txresbench:biome.json:17-21`). UI comes from `@txresbench/kit`. A vestigial
 > `antd-diagnose` recipe may still exist in an app's justfile; it is dead.
 
 ---
@@ -21,14 +21,14 @@ The repo root is an **npm workspaces** root that includes the SDK's package tree
 { "workspaces": ["src-app/ui", "sdk/packages/*"] }
 ```
 
-So `@ziee/framework`, `@ziee/kit`, `@ziee/shell`, `@ziee/gallery`, `@ziee/config`,
-`@ziee/test-e2e` resolve to the **working tree**, not a registry. Consequences:
+So `@txresbench/framework`, `@txresbench/kit`, `@txresbench/shell`, `@txresbench/gallery`, `@txresbench/config`,
+`@txresbench/test-e2e` resolve to the **working tree**, not a registry. Consequences:
 
 - `npm install` at the ROOT, once, hoists for every workspace. Installing inside
   `src-app/ui` alone will produce a broken or duplicated tree.
 - Editing a file under `sdk/packages/*` changes the app immediately — and is a
   **submodule** change that must be committed and pinned separately.
-- **Tailwind must `@source` the workspace-linked `@ziee/*` trees it uses**
+- **Tailwind must `@source` the workspace-linked `@txresbench/*` trees it uses**
   (kit, shell) in `index.css`, or those packages' component classes are never
   generated and the UI renders unstyled.
 
@@ -50,7 +50,7 @@ only for a genuine duplicate-instance hazard, not to dodge a peer warning.
 
 ```js
 // .syncpackrc.mjs
-import { defineSyncpack } from '@ziee/config/syncpack'
+import { defineSyncpack } from '@txresbench/config/syncpack'
 export default defineSyncpack({
   source: ['package.json', 'src-app/ui/package.json'],
   versionGroups: [ /* app-specific, LABELLED exceptions only */ ],
@@ -129,7 +129,7 @@ remove its last use — `check` will not catch a dead dep for you.
 | Anti-pattern | Do instead |
 |---|---|
 | `npm install` inside `src-app/ui` | install at the repo ROOT (workspaces hoist) |
-| Adding a dep to the app that the SDK already ships | import it from `@ziee/*` |
+| Adding a dep to the app that the SDK already ships | import it from `@txresbench/*` |
 | Editing `sdk/packages/*` and committing only the app | that is a **submodule** change — commit it there and bump the pin deliberately |
 | `git add -A` on a branch that isn't bumping a pin | it reverts submodule pins; stage explicitly |
 | An unlabelled `versionGroups` exception | label it with the reason |

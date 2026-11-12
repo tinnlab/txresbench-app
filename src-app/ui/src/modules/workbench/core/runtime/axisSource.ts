@@ -705,7 +705,7 @@ export function declaredMemberships(structure: unknown): DeclaredMembership[] {
 /**
  * The inline member set (ITEM-5's `bitmap`) → the exact member positions, ascending.
  *
- * The inverse of `cyto_zarr.encode_member_set`, and the ONLY decoder on this side. Base64 over
+ * The inverse of `txr_zarr.encode_member_set`, and the ONLY decoder on this side. Base64 over
  * a DELTA-VARINT (LEB128): each position is stored as its gap from the previous one, and each
  * gap as a base-128 varint. See that function's own docstring for why the format is not a
  * roaring bitmap (DRIFT-1.6): the blob has to be readable by numpy+stdlib AND by a browser,
@@ -1995,7 +1995,7 @@ function isProducedBy(row: ArtifactRow, generators: readonly string[] | undefine
  * The name a metadata column carries in a FRAME — the producer's name, not the container's.
  *
  * A single-column store writes its sole member under the CONSTANT path `values`
- * (`_lib/cyto_columns.py`: `t.categorical("values", …)` / `t.string(…)` / `t.numeric(…)`),
+ * (`_lib/txr_columns.py`: `t.categorical("values", …)` / `t.string(…)` / `t.numeric(…)`),
  * and records the column's real name in `meta.name`. So on a real import EVERY column on an
  * axis declares the same member name, and any map keyed on it collapses to ONE entry — the
  * frame becomes a single column called `values`, the `as: sources` map becomes

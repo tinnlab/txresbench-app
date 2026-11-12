@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `npm run viz-showcase` — boot the @ziee/viz showcase on THIS worktree's derived port.
+ * `npm run viz-showcase` — boot the @txresbench/viz showcase on THIS worktree's derived port.
  *
  * The blessed human entry point, and the third consumer of the viz port after
  * `playwright.viz.config.ts` and the `e2e-viz-package` justfile recipe. All three
@@ -36,7 +36,7 @@ const child = spawn(
   'npm',
   [
     '--workspace',
-    '@ziee/viz',
+    '@txresbench/viz',
     'run',
     'dev',
     '--',

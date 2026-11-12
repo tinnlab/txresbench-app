@@ -5,7 +5,7 @@
  * `--root=<dir>` / `--root <dir>` (repeatable) — a directory to scan; resolved
  * relative to the process CWD. When no `--root` is given, the caller's `defaults`
  * are used (also resolved vs CWD). This is what lets ANY app run the lint against
- * its own tree: `ziee-lint-colors --root=src --root=../desktop/ui/src`.
+ * its own tree: `txresbench-lint-colors --root=src --root=../desktop/ui/src`.
  */
 import path from 'node:path'
 

@@ -17,7 +17,7 @@
 
 import type { ComponentType } from 'react'
 import type { ViewContribution } from '@/modules/workbench/core'
-import { Empty } from '@ziee/kit'
+import { Empty } from '@txresbench/kit'
 import { selectRenderStrategy } from './renderStrategies'
 import { isDeclarativeRenderSpec } from '@/modules/workbench/core/runtime/seam'
 import { DeclarativeStack } from '@/modules/workbench/core/render/DeclarativeRegion'

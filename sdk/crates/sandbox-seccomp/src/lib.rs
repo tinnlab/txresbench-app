@@ -177,7 +177,7 @@ mod tests {
 
     /// Security-critical breakout syscalls that MUST stay classified EPERM.
     /// This table is the authoritative pin: derived from the current
-    /// `DENY_EPERM` contents AND ziee's `code_sandbox/tier4_seccomp.rs`
+    /// `DENY_EPERM` contents AND txresbench's `code_sandbox/tier4_seccomp.rs`
     /// `PROD_DENY_LIST`. If anyone deletes one of these from `DENY_EPERM`,
     /// `deny_eperm_pins_every_breakout_syscall` fails closed. Do NOT prune
     /// this table to make it pass — a name missing from `DENY_EPERM` is a

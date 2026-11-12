@@ -55,7 +55,7 @@ gene/cluster-specific vocabulary.
 
 ## Per-group DISPLAY OVERRIDES (color + label) — legacy parity, especially for export
 
-Legacy CytoAnalyst let users override an INDIVIDUAL group's **color** AND its **label** in the
+Legacy TxResBench let users override an INDIVIDUAL group's **color** AND its **label** in the
 plot, regardless of the raw input — mainly to produce publication-ready exported figures. Support
 this as a per-category display-override layer (the color half is the `categoryColors` map above; the
 label half is new):

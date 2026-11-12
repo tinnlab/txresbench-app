@@ -10,12 +10,12 @@
 //! ensure_desktop_admin`, and the per-boot JWT-secret policy. It selects the
 //! concrete pieces from the SDK auth/identity crates:
 //!
-//! - **mint** — [`ziee_auth::auth::refresh_tokens::mint_session_tokens`], the
+//! - **mint** — [`txresbench_auth::auth::refresh_tokens::mint_session_tokens`], the
 //!   SAME jti-whitelisted path every server login uses, so desktop sessions are
 //!   revocable (logout-everywhere) and pruned like any other.
-//! - **owner lookup** — [`ziee_auth::user::UserRepository`].
+//! - **owner lookup** — [`txresbench_auth::user::UserRepository`].
 //! - **owner-`*`** — the owner is an admin whose Administrators group carries
-//!   `"*"`; the RBAC evaluator ([`ziee_identity`]'s `is_admin` short-circuit +
+//!   `"*"`; the RBAC evaluator ([`txresbench_identity`]'s `is_admin` short-circuit +
 //!   `"*"` wildcard) then satisfies every `RequirePermissions` check.
 //!
 //! ## What stays app-side (BA decision, preserved here)
@@ -31,14 +31,14 @@
 //! [`mint_owner_login`]: SingleUserStrategy::mint_owner_login
 
 use serde::Serialize;
-use ziee_auth::auth::JwtService;
-use ziee_auth::auth::refresh_tokens::mint_session_tokens;
-use ziee_auth::user::UserRepository;
-use ziee_auth::User;
-use ziee_core::{AppError, DbPool};
+use txresbench_auth::auth::JwtService;
+use txresbench_auth::auth::refresh_tokens::mint_session_tokens;
+use txresbench_auth::user::UserRepository;
+use txresbench_auth::User;
+use txresbench_core::{AppError, DbPool};
 
 /// The permission the single-user owner holds — the full wildcard. Evaluated by
-/// `ziee-identity`'s RBAC wildcard match, so a desktop owner passes every
+/// `txresbench-identity`'s RBAC wildcard match, so a desktop owner passes every
 /// `RequirePermissions<...>` gate the multi-user server defines. Kept as a
 /// named constant so the app's Administrators-group grant and the harness agree.
 pub const OWNER_WILDCARD_PERMISSION: &str = "*";
@@ -68,7 +68,7 @@ impl Default for SingleUserStrategy {
 }
 
 impl SingleUserStrategy {
-    /// The current ziee-desktop owner: `"admin"` / `admin@localhost` /
+    /// The current txresbench-desktop owner: `"admin"` / `admin@localhost` /
     /// `"desktop-auto-login"`. Equivalence-preserving reproduction of
     /// `ensure_desktop_admin` + `mint_admin_login`.
     pub fn desktop_default() -> Self {

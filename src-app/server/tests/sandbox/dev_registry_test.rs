@@ -7,15 +7,15 @@
 //! fake method + its stdlib-only base, the same publisher code the real
 //! methods go through), then runs this test with the environment:
 //!
-//! * `CYTO_TXR_ACCEPT_REGISTRY`   — `127.0.0.1:<port>` of the dev registry;
-//! * `CYTO_TXR_ACCEPT_MANIFEST`   — the fixture app manifest
+//! * `TXR_ACCEPT_REGISTRY`   — `127.0.0.1:<port>` of the dev registry;
+//! * `TXR_ACCEPT_MANIFEST`   — the fixture app manifest
 //!   (`method-env-images.fixture.json`, schema v1);
-//! * `CYTO_TXR_ACCEPT_ORAS_DIR`   — a dir holding the `oras` dev shim
+//! * `TXR_ACCEPT_ORAS_DIR`   — a dir holding the `oras` dev shim
 //!   (`oras_dev.py`); the child puts it first on PATH so
 //!   [`method_env::tool_bin`] resolves it like a real oras install;
-//! * `CYTO_TXR_ACCEPT_DATA_DIR`   — an isolated app-data dir (outside the
+//! * `TXR_ACCEPT_DATA_DIR`   — an isolated app-data dir (outside the
 //!   repo), so the cache/mount/workspace state is the test's own;
-//! * `CYTO_TXR_ACCEPT_WORK`       — the child's bundle/output workspace.
+//! * `TXR_ACCEPT_WORK`       — the child's bundle/output workspace.
 //!
 //! Without that environment (a plain `cargo test` on this node's tree) the
 //! test records an honest skip exactly like the other tool-gated legs here —
@@ -25,7 +25,7 @@
 //!
 //! 1. the dev manifest parses through the engine's own validator
 //!    ([`execution_engine::envmanifest::ensure_loaded`], with the debug-only
-//!    `CYTO_TXR_ENV_MANIFEST` override) and the fixture entry resolves;
+//!    `TXR_ENV_MANIFEST` override) and the fixture entry resolves;
 //! 2. the engine's own ref builders ([`layer_env_ref`] / [`base_env_ref`])
 //!    produce refs the manager accepts;
 //! 3. [`MethodEnvManager`] (the env-var registry seam) pulls base + layer
@@ -48,7 +48,7 @@ use uuid::Uuid;
 
 use crate::dataset::hardening_common::record_skip;
 
-const CHILD_MARKER: &str = "CYTO_TXR_ACCEPT_CHILD";
+const CHILD_MARKER: &str = "TXR_ACCEPT_CHILD";
 const CHILD_TEST_PATH: &str = "sandbox::dev_registry_test::dev_registry_acceptance_child";
 
 fn have(tool: &str) -> bool {
@@ -66,8 +66,8 @@ fn env(key: &str) -> Option<String> {
 
 /// The sink the child passes to the seam (frames kept for the assertions).
 struct RecordingSinkExt {
-    progress: std::sync::Mutex<Vec<cytoanalyst::modules::sandbox::backend::ProgressFrame>>,
-    milestones: std::sync::Mutex<Vec<cytoanalyst::modules::sandbox::backend::MilestoneFrame>>,
+    progress: std::sync::Mutex<Vec<txresbench::modules::sandbox::backend::ProgressFrame>>,
+    milestones: std::sync::Mutex<Vec<txresbench::modules::sandbox::backend::MilestoneFrame>>,
 }
 
 impl RecordingSinkExt {
@@ -79,11 +79,11 @@ impl RecordingSinkExt {
     }
 }
 
-impl cytoanalyst::modules::sandbox::backend::ProgressSink for RecordingSinkExt {
-    fn progress(&self, frame: cytoanalyst::modules::sandbox::backend::ProgressFrame) {
+impl txresbench::modules::sandbox::backend::ProgressSink for RecordingSinkExt {
+    fn progress(&self, frame: txresbench::modules::sandbox::backend::ProgressFrame) {
         self.progress.lock().unwrap_or_else(|p| p.into_inner()).push(frame);
     }
-    fn milestone(&self, frame: cytoanalyst::modules::sandbox::backend::MilestoneFrame) {
+    fn milestone(&self, frame: txresbench::modules::sandbox::backend::MilestoneFrame) {
         self.milestones.lock().unwrap_or_else(|p| p.into_inner()).push(frame);
     }
 }
@@ -91,19 +91,19 @@ impl cytoanalyst::modules::sandbox::backend::ProgressSink for RecordingSinkExt {
 /// The child process (see the file header; the parent gates + spawns it).
 #[tokio::test]
 async fn dev_registry_acceptance_child() {
-    use cytoanalyst::modules::sandbox::config::{self, SandboxAvailability, SandboxState};
-    use cytoanalyst::modules::sandbox::probes;
-    use cytoanalyst::modules::sandbox::service::run_method_in_stack;
-    use cytoanalyst::modules::sandbox::stack::{self, read_run_layer_digest};
-    use cytoanalyst::modules::sandbox::types::ExtraMount;
+    use txresbench::modules::sandbox::config::{self, SandboxAvailability, SandboxState};
+    use txresbench::modules::sandbox::probes;
+    use txresbench::modules::sandbox::service::run_method_in_stack;
+    use txresbench::modules::sandbox::stack::{self, read_run_layer_digest};
+    use txresbench::modules::sandbox::types::ExtraMount;
 
     if env(CHILD_MARKER).is_none() {
         return; // bare libtest run: the child only exists behind a parent
     }
-    let data_dir = PathBuf::from(env("CYTO_APP_DATA_DIR").expect("CYTO_APP_DATA_DIR"));
-    let work = PathBuf::from(env("CYTO_TXR_ACCEPT_WORK").expect("CYTO_TXR_ACCEPT_WORK"));
-    let registry = env("CYTO_TXR_ACCEPT_REGISTRY").expect("registry");
-    let _manifest_path = PathBuf::from(env("CYTO_TXR_ACCEPT_MANIFEST").expect("manifest"));
+    let data_dir = PathBuf::from(env("TXR_APP_DATA_DIR").expect("TXR_APP_DATA_DIR"));
+    let work = PathBuf::from(env("TXR_ACCEPT_WORK").expect("TXR_ACCEPT_WORK"));
+    let registry = env("TXR_ACCEPT_REGISTRY").expect("registry");
+    let _manifest_path = PathBuf::from(env("TXR_ACCEPT_MANIFEST").expect("manifest"));
 
     let fail = |what: String| -> ! {
         eprintln!("PROBE_ERR {what}");
@@ -111,10 +111,10 @@ async fn dev_registry_acceptance_child() {
     };
 
     // ── 1. the engine's own validator over the dev manifest ────────────────
-    let manifest = cytoanalyst::modules::execution_engine::envmanifest::ensure_loaded()
+    let manifest = txresbench::modules::execution_engine::envmanifest::ensure_loaded()
         .map_err(|e| format!("the dev manifest failed the app's boot validation: {e}"))
         .unwrap_or_else(|e| fail(e));
-    let arch = cytoanalyst::modules::execution_engine::envmanifest::EnvArch::host()
+    let arch = txresbench::modules::execution_engine::envmanifest::EnvArch::host()
         .expect("host arch supported");
     let entry = manifest
         .find("txr-dev-fixture", arch)
@@ -123,24 +123,24 @@ async fn dev_registry_acceptance_child() {
     assert_eq!(entry.oci_ref, "ghcr.io/tinnlab/txr-method-env-layers/txr-dev-fixture");
 
     // ── 2. the engine's own ref builders ───────────────────────────────────
-    let base_ref = cytoanalyst::modules::execution_engine::orchestrator::base_env_ref(entry);
-    let layer_ref = cytoanalyst::modules::execution_engine::orchestrator::layer_env_ref(entry);
+    let base_ref = txresbench::modules::execution_engine::orchestrator::base_env_ref(entry);
+    let layer_ref = txresbench::modules::execution_engine::orchestrator::layer_env_ref(entry);
     assert_eq!(base_ref.oci_ref, "ghcr.io/tinnlab/txresbench-env/base-py");
     assert_eq!(base_ref.tag.as_deref(), Some("2.0-amd64"));
     assert_eq!(base_ref.digest, entry.base_digest.strip_prefix("sha256:").unwrap());
     assert_eq!(layer_ref.digest, entry.layer_sha256);
 
     // ── 3. the seam + the real OCI path (oras shim on PATH) ────────────────
-    let effective = cytoanalyst::modules::sandbox::method_env::effective_base_prefix();
+    let effective = txresbench::modules::sandbox::method_env::effective_base_prefix();
     assert!(
         effective.starts_with(&registry),
         "the status surface must report the dev registry host, got {effective}"
     );
-    let manager = cytoanalyst::modules::sandbox::method_env::manager();
+    let manager = txresbench::modules::sandbox::method_env::manager();
     let base = manager
         .ensure(
             &base_ref,
-            cytoanalyst::modules::sandbox::method_env::EnvKind::Base,
+            txresbench::modules::sandbox::method_env::EnvKind::Base,
             std::time::Duration::from_secs(600),
         )
         .unwrap_or_else(|e| fail(format!("base ensure: {e}")));
@@ -148,7 +148,7 @@ async fn dev_registry_acceptance_child() {
     let layer = manager
         .ensure(
             &layer_ref,
-            cytoanalyst::modules::sandbox::method_env::EnvKind::Layer,
+            txresbench::modules::sandbox::method_env::EnvKind::Layer,
             std::time::Duration::from_secs(600),
         )
         .unwrap_or_else(|e| fail(format!("layer ensure: {e}")));
@@ -156,13 +156,13 @@ async fn dev_registry_acceptance_child() {
     let base_status = manager.status("base-py");
     assert_eq!(
         base_status.state,
-        cytoanalyst::modules::sandbox::method_env::MethodEnvState::Ready
+        txresbench::modules::sandbox::method_env::MethodEnvState::Ready
     );
     assert!(base_status.mounted, "the base mount is live");
     let layer_status = manager.status("txr-dev-fixture");
     assert_eq!(
         layer_status.state,
-        cytoanalyst::modules::sandbox::method_env::MethodEnvState::Ready
+        txresbench::modules::sandbox::method_env::MethodEnvState::Ready
     );
     assert!(layer_status.mounted, "the layer mount is live");
 
@@ -172,7 +172,7 @@ async fn dev_registry_acceptance_child() {
     let err = manager
         .ensure(
             &bad,
-            cytoanalyst::modules::sandbox::method_env::EnvKind::Layer,
+            txresbench::modules::sandbox::method_env::EnvKind::Layer,
             std::time::Duration::from_secs(60),
         )
         .expect_err("a wrong pin must refuse");
@@ -283,26 +283,26 @@ async fn dev_registry_acceptance_child() {
 /// the child with the dev-registry env, record skips honestly.
 #[tokio::test]
 async fn dev_registry_fetch_verify_mount_and_run() {
-    let Some(registry) = env("CYTO_TXR_ACCEPT_REGISTRY") else {
+    let Some(registry) = env("TXR_ACCEPT_REGISTRY") else {
         record_skip(
             stringify!(dev_registry_fetch_verify_mount_and_run),
             "dev-registry acceptance env not set (run scripts/dev-registry/acceptance.sh)",
         );
         return;
     };
-    let Some(manifest) = env("CYTO_TXR_ACCEPT_MANIFEST") else {
-        record_skip(stringify!(dev_registry_fetch_verify_mount_and_run), "CYTO_TXR_ACCEPT_MANIFEST not set");
+    let Some(manifest) = env("TXR_ACCEPT_MANIFEST") else {
+        record_skip(stringify!(dev_registry_fetch_verify_mount_and_run), "TXR_ACCEPT_MANIFEST not set");
         return;
     };
-    let Some(oras_dir) = env("CYTO_TXR_ACCEPT_ORAS_DIR") else {
-        record_skip(stringify!(dev_registry_fetch_verify_mount_and_run), "CYTO_TXR_ACCEPT_ORAS_DIR not set");
+    let Some(oras_dir) = env("TXR_ACCEPT_ORAS_DIR") else {
+        record_skip(stringify!(dev_registry_fetch_verify_mount_and_run), "TXR_ACCEPT_ORAS_DIR not set");
         return;
     };
-    let Some(data_dir) = env("CYTO_TXR_ACCEPT_DATA_DIR") else {
-        record_skip(stringify!(dev_registry_fetch_verify_mount_and_run), "CYTO_TXR_ACCEPT_DATA_DIR not set");
+    let Some(data_dir) = env("TXR_ACCEPT_DATA_DIR") else {
+        record_skip(stringify!(dev_registry_fetch_verify_mount_and_run), "TXR_ACCEPT_DATA_DIR not set");
         return;
     };
-    let work = env("CYTO_TXR_ACCEPT_WORK").unwrap_or_else(|| {
+    let work = env("TXR_ACCEPT_WORK").unwrap_or_else(|| {
         format!("/data/pbya/txresbench-app-work/tmp-qa-hardening/accept-{}", Uuid::new_v4())
     });
 
@@ -347,13 +347,13 @@ async fn dev_registry_fetch_verify_mount_and_run() {
         .arg("--exact")
         .arg("--nocapture")
         .env(CHILD_MARKER, "1")
-        .env("CYTO_APP_DATA_DIR", &data_dir)
-        .env("CYTO_TXR_ACCEPT_REGISTRY", &registry)
-        .env("CYTO_TXR_ACCEPT_MANIFEST", &manifest)
-        .env("CYTO_TXR_ACCEPT_ORAS_DIR", &oras_dir)
-        .env("CYTO_TXR_ACCEPT_WORK", &work)
-        .env("CYTO_TXR_METHOD_ENV_REGISTRY", &registry)
-        .env("CYTO_TXR_ENV_MANIFEST", &manifest)
+        .env("TXR_APP_DATA_DIR", &data_dir)
+        .env("TXR_ACCEPT_REGISTRY", &registry)
+        .env("TXR_ACCEPT_MANIFEST", &manifest)
+        .env("TXR_ACCEPT_ORAS_DIR", &oras_dir)
+        .env("TXR_ACCEPT_WORK", &work)
+        .env("TXR_METHOD_ENV_REGISTRY", &registry)
+        .env("TXR_ENV_MANIFEST", &manifest)
         .env("PATH", &path)
         .output()
         .expect("spawn child");

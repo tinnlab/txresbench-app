@@ -32,7 +32,7 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::account::{
+use txresbench::modules::account::{
     invitation_token, AccountRepository, AccountRole, ActorCeiling, InvitationLimits,
     InvitationOutcome, INVITATION_RATE_LIMITED, PERSONAL_ACCOUNT_NOT_MANAGEABLE,
     ROLE_ABOVE_ACTOR,
@@ -299,13 +299,13 @@ async fn inv8_invitation_create_is_enumeration_safe_across_all_four_cases() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "e8_owner", "e8_owner@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "e8_owner", "e8_owner@txresbench.test").await;
     let existing_member =
-        create_user(&server, &admin_token, "e8_member", "e8_member@cyto.test").await;
+        create_user(&server, &admin_token, "e8_member", "e8_member@txresbench.test").await;
     // Registered, but NOT a member of this org — case (ii). Created for the ADDRESS, not
-    // for the id: the whole point is that `e8_outsider@cyto.test` resolves to a real user
-    // while `e8_nobody@cyto.test` does not, and that the caller cannot tell which.
-    let _outsider = create_user(&server, &admin_token, "e8_outsider", "e8_outsider@cyto.test").await;
+    // for the id: the whole point is that `e8_outsider@txresbench.test` resolves to a real user
+    // while `e8_nobody@txresbench.test` does not, and that the caller cannot tell which.
+    let _outsider = create_user(&server, &admin_token, "e8_outsider", "e8_outsider@txresbench.test").await;
     let owner_token = login(&server, "e8_owner").await;
 
     // POPULATED: a real org with two members.
@@ -315,7 +315,7 @@ async fn inv8_invitation_create_is_enumeration_safe_across_all_four_cases() {
     let org_s = org.to_string();
 
     // Case (iv) needs a live invitation to already exist. Create it first, then repeat it.
-    let already_invited = "e8_pending@cyto.test";
+    let already_invited = "e8_pending@txresbench.test";
     let seed = post_invitation(
         &server,
         &owner_token,
@@ -350,9 +350,9 @@ async fn inv8_invitation_create_is_enumeration_safe_across_all_four_cases() {
              duplicate create below must not move");
 
     // ── the four cases ──
-    let unregistered = "e8_nobody@cyto.test";
-    let registered_non_member = "e8_outsider@cyto.test";
-    let registered_member = "e8_member@cyto.test";
+    let unregistered = "e8_nobody@txresbench.test";
+    let registered_non_member = "e8_outsider@txresbench.test";
+    let registered_member = "e8_member@txresbench.test";
 
     let r1 = post_invitation(&server, &owner_token, &org_s, unregistered, "member", None).await;
     let r2 = post_invitation(
@@ -493,8 +493,8 @@ async fn inv5_an_admin_cannot_invite_at_owner() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "e5_owner", "e5_owner@cyto.test").await;
-    let actor = create_user(&server, &admin_token, "e5_admin", "e5_admin@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "e5_owner", "e5_owner@txresbench.test").await;
+    let actor = create_user(&server, &admin_token, "e5_admin", "e5_admin@txresbench.test").await;
     let owner_token = login(&server, "e5_owner").await;
     let actor_token = login(&server, "e5_admin").await;
 
@@ -507,7 +507,7 @@ async fn inv5_an_admin_cannot_invite_at_owner() {
         &server,
         &actor_token,
         &org_s,
-        "e5_target@cyto.test",
+        "e5_target@txresbench.test",
         "owner",
         None,
     )
@@ -520,7 +520,7 @@ async fn inv5_an_admin_cannot_invite_at_owner() {
         deny.text
     );
     assert_eq!(
-        invitation_rows(&pool, org, "e5_target@cyto.test").await,
+        invitation_rows(&pool, org, "e5_target@txresbench.test").await,
         0,
         "and NO row is written — a refused mutation must leave nothing behind"
     );
@@ -530,7 +530,7 @@ async fn inv5_an_admin_cannot_invite_at_owner() {
         &server,
         &actor_token,
         &org_s,
-        "e5_peer@cyto.test",
+        "e5_peer@txresbench.test",
         "admin",
         None,
     )
@@ -541,20 +541,20 @@ async fn inv5_an_admin_cannot_invite_at_owner() {
          onboard a peer. This is the boundary a `>=` mutation swallows: {}",
         at_admin.text
     );
-    assert_eq!(invitation_rows(&pool, org, "e5_peer@cyto.test").await, 1);
+    assert_eq!(invitation_rows(&pool, org, "e5_peer@txresbench.test").await, 1);
 
     let at_member = post_invitation(
         &server,
         &actor_token,
         &org_s,
-        "e5_junior@cyto.test",
+        "e5_junior@txresbench.test",
         "member",
         None,
     )
     .await;
     assert_eq!(at_member.status, 202, "below own role: {}", at_member.text);
     assert_eq!(
-        invitation_rows(&pool, org, "e5_junior@cyto.test").await,
+        invitation_rows(&pool, org, "e5_junior@txresbench.test").await,
         1,
         "…and it really wrote a row, like its `at_admin` sibling — a 202 with no row would \
          satisfy the status assertion while proving nothing"
@@ -566,7 +566,7 @@ async fn inv5_an_admin_cannot_invite_at_owner() {
         &server,
         &owner_token,
         &org_s,
-        "e5_successor@cyto.test",
+        "e5_successor@txresbench.test",
         "owner",
         None,
     )
@@ -597,7 +597,7 @@ async fn inv5_an_admin_cannot_invite_at_owner() {
     // the transaction's read are microseconds apart. So this arm drives the repository
     // directly with a deliberately STALE-HIGH `observed_role`, which is exactly how
     // `member_mutations_test.rs` pins the same property for `set_role`.
-    let demotee = create_user(&server, &admin_token, "e5_demotee", "e5_demotee@cyto.test").await;
+    let demotee = create_user(&server, &admin_token, "e5_demotee", "e5_demotee@txresbench.test").await;
     add_member(&pool, org, demotee, "admin").await;
     let demotee_token = login(&server, "e5_demotee").await;
 
@@ -609,7 +609,7 @@ async fn inv5_an_admin_cannot_invite_at_owner() {
     let err = repo
         .create_invitation(
             org,
-            "e5_stale@cyto.test",
+            "e5_stale@txresbench.test",
             AccountRole::Owner,
             stale_high,
             InvitationLimits::defaults(),
@@ -625,7 +625,7 @@ async fn inv5_an_admin_cannot_invite_at_owner() {
         "the LIVE role wins: {err:?}"
     );
     assert_eq!(
-        invitation_rows(&pool, org, "e5_stale@cyto.test").await,
+        invitation_rows(&pool, org, "e5_stale@txresbench.test").await,
         0,
         "and nothing was written"
     );
@@ -634,7 +634,7 @@ async fn inv5_an_admin_cannot_invite_at_owner() {
     let ok_at_admin = repo
         .create_invitation(
             org,
-            "e5_stale_ok@cyto.test",
+            "e5_stale_ok@txresbench.test",
             AccountRole::Admin,
             stale_high,
             InvitationLimits::defaults(),
@@ -649,7 +649,7 @@ async fn inv5_an_admin_cannot_invite_at_owner() {
         &server,
         &demotee_token,
         &org_s,
-        "e5_after@cyto.test",
+        "e5_after@txresbench.test",
         "owner",
         None,
     )
@@ -668,7 +668,7 @@ async fn inv5_an_admin_cannot_invite_at_owner() {
         after_demotion.text
     );
     assert_eq!(
-        invitation_rows(&pool, org, "e5_after@cyto.test").await,
+        invitation_rows(&pool, org, "e5_after@txresbench.test").await,
         0,
         "no row from a refused request"
     );
@@ -677,7 +677,7 @@ async fn inv5_an_admin_cannot_invite_at_owner() {
         &server,
         &demotee_token,
         &org_s,
-        "e5_still@cyto.test",
+        "e5_still@txresbench.test",
         "admin",
         None,
     )
@@ -712,12 +712,12 @@ async fn inv16_the_plaintext_token_is_nowhere_at_rest() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "e16_owner", "e16_owner@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "e16_owner", "e16_owner@txresbench.test").await;
     let owner_token = login(&server, "e16_owner").await;
     let org = make_org_account(&pool, "E16 Org", owner).await;
     let org_s = org.to_string();
 
-    let email = "e16_invitee@cyto.test";
+    let email = "e16_invitee@txresbench.test";
     let created = post_invitation(&server, &owner_token, &org_s, email, "member", None).await;
     assert_eq!(created.status, 202, "{}", created.text);
 
@@ -854,14 +854,14 @@ async fn invitation_list_is_paged_and_reveals_nothing_user_shaped() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "e9_owner", "e9_owner@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "e9_owner", "e9_owner@txresbench.test").await;
     // A REGISTERED user who is not a member — so a `users` join would have a row to find.
-    let _registered = create_user(&server, &admin_token, "e9_known", "e9_known@cyto.test").await;
+    let _registered = create_user(&server, &admin_token, "e9_known", "e9_known@txresbench.test").await;
     let owner_token = login(&server, "e9_owner").await;
     let org = make_org_account(&pool, "E9 Org", owner).await;
     let org_s = org.to_string();
 
-    for (i, email) in ["e9_known@cyto.test", "e9_a@cyto.test", "e9_b@cyto.test"]
+    for (i, email) in ["e9_known@txresbench.test", "e9_a@txresbench.test", "e9_b@txresbench.test"]
         .iter()
         .enumerate()
     {
@@ -875,13 +875,13 @@ async fn invitation_list_is_paged_and_reveals_nothing_user_shaped() {
             &server,
             &owner_token,
             &org_s,
-            "e9_revoked@cyto.test",
+            "e9_revoked@txresbench.test",
             "member",
             None,
         )
         .await;
         assert_eq!(r.status, 202, "{}", r.text);
-        live_invitation(&pool, org, "e9_revoked@cyto.test")
+        live_invitation(&pool, org, "e9_revoked@txresbench.test")
             .await
             .expect("live")
     };
@@ -896,13 +896,13 @@ async fn invitation_list_is_paged_and_reveals_nothing_user_shaped() {
             &server,
             &owner_token,
             &org_s,
-            "e9_expired@cyto.test",
+            "e9_expired@txresbench.test",
             "member",
             None,
         )
         .await;
         assert_eq!(r.status, 202, "{}", r.text);
-        let id = live_invitation(&pool, org, "e9_expired@cyto.test")
+        let id = live_invitation(&pool, org, "e9_expired@txresbench.test")
             .await
             .expect("live");
         sqlx::query("UPDATE account_invitations SET expires_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day') WHERE id = $1")
@@ -944,7 +944,7 @@ async fn invitation_list_is_paged_and_reveals_nothing_user_shaped() {
     }
 
     // ── POSITIVE CONTROL: the fields that SHOULD be there are ──
-    assert!(listed.text.contains("e9_known@cyto.test"), "{}", listed.text);
+    assert!(listed.text.contains("e9_known@txresbench.test"), "{}", listed.text);
     let first = &v["invitations"][0];
     for present in ["id", "email", "role", "created_at", "expires_at", "invited_by"] {
         assert!(
@@ -1020,9 +1020,9 @@ async fn inv1_cross_tenant_invitation_routes_are_404_on_populated_state() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let a_owner = create_user(&server, &admin_token, "e1_a", "e1_a@cyto.test").await;
-    let b_owner = create_user(&server, &admin_token, "e1_b", "e1_b@cyto.test").await;
-    let b_member = create_user(&server, &admin_token, "e1_bm", "e1_bm@cyto.test").await;
+    let a_owner = create_user(&server, &admin_token, "e1_a", "e1_a@txresbench.test").await;
+    let b_owner = create_user(&server, &admin_token, "e1_b", "e1_b@txresbench.test").await;
+    let b_member = create_user(&server, &admin_token, "e1_bm", "e1_bm@txresbench.test").await;
     let a_token = login(&server, "e1_a").await;
     let b_token = login(&server, "e1_b").await;
 
@@ -1035,12 +1035,12 @@ async fn inv1_cross_tenant_invitation_routes_are_404_on_populated_state() {
     let b_s = b.to_string();
     let a_s = a.to_string();
     assert_eq!(
-        post_invitation(&server, &b_token, &b_s, "e1_binvitee@cyto.test", "member", None)
+        post_invitation(&server, &b_token, &b_s, "e1_binvitee@txresbench.test", "member", None)
             .await
             .status,
         202
     );
-    let b_invite = live_invitation(&pool, b, "e1_binvitee@cyto.test")
+    let b_invite = live_invitation(&pool, b, "e1_binvitee@txresbench.test")
         .await
         .expect("B has a live invitation");
     let b_token_hash_before: Vec<u8> =
@@ -1055,12 +1055,12 @@ async fn inv1_cross_tenant_invitation_routes_are_404_on_populated_state() {
     let b_invite_s = b_invite.to_string();
 
     // ── DENY, all four routes, A's owner acting on B ──
-    let c_post = post_invitation(&server, &a_token, &b_s, "e1_x@cyto.test", "member", None).await;
+    let c_post = post_invitation(&server, &a_token, &b_s, "e1_x@txresbench.test", "member", None).await;
     let c_get = get_invitations(&server, &a_token, &b_s, "", None).await;
     let c_resend = post_resend(&server, &a_token, &b_s, &b_invite_s).await;
     let c_del = delete_invitation(&server, &a_token, &b_s, &b_invite_s).await;
 
-    let g_post = post_invitation(&server, &a_token, &nowhere, "e1_x@cyto.test", "member", None).await;
+    let g_post = post_invitation(&server, &a_token, &nowhere, "e1_x@txresbench.test", "member", None).await;
     let g_get = get_invitations(&server, &a_token, &nowhere, "", None).await;
     let g_resend = post_resend(&server, &a_token, &nowhere, &b_invite_s).await;
     let g_del = delete_invitation(&server, &a_token, &nowhere, &b_invite_s).await;
@@ -1109,15 +1109,15 @@ async fn inv1_cross_tenant_invitation_routes_are_404_on_populated_state() {
         "the intruder's revoke did not revoke B's invitation"
     );
     assert_eq!(
-        invitation_rows(&pool, b, "e1_x@cyto.test").await,
+        invitation_rows(&pool, b, "e1_x@txresbench.test").await,
         0,
         "the intruder's create wrote nothing into B"
     );
 
     // ── POSITIVE CONTROL: the identical four calls on A succeed ──
-    let p_post = post_invitation(&server, &a_token, &a_s, "e1_ok@cyto.test", "member", None).await;
+    let p_post = post_invitation(&server, &a_token, &a_s, "e1_ok@txresbench.test", "member", None).await;
     assert_eq!(p_post.status, 202, "{}", p_post.text);
-    let a_invite = live_invitation(&pool, a, "e1_ok@cyto.test")
+    let a_invite = live_invitation(&pool, a, "e1_ok@txresbench.test")
         .await
         .expect("A's own invitation");
     let p_get = get_invitations(&server, &a_token, &a_s, "", None).await;
@@ -1149,8 +1149,8 @@ async fn inv4_a_bare_member_is_403_on_every_invitation_route() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "e4_owner", "e4_owner@cyto.test").await;
-    let plain = create_user(&server, &admin_token, "e4_member", "e4_member@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "e4_owner", "e4_owner@txresbench.test").await;
+    let plain = create_user(&server, &admin_token, "e4_member", "e4_member@txresbench.test").await;
     let owner_token = login(&server, "e4_owner").await;
     let member_token = login(&server, "e4_member").await;
 
@@ -1161,17 +1161,17 @@ async fn inv4_a_bare_member_is_403_on_every_invitation_route() {
     // A live invitation to aim resend/revoke at, so those arms are not refused merely for
     // pointing at nothing.
     assert_eq!(
-        post_invitation(&server, &owner_token, &org_s, "e4_inv@cyto.test", "member", None)
+        post_invitation(&server, &owner_token, &org_s, "e4_inv@txresbench.test", "member", None)
             .await
             .status,
         202
     );
-    let inv = live_invitation(&pool, org, "e4_inv@cyto.test")
+    let inv = live_invitation(&pool, org, "e4_inv@txresbench.test")
         .await
         .expect("live")
         .to_string();
 
-    let post = post_invitation(&server, &member_token, &org_s, "e4_x@cyto.test", "member", None).await;
+    let post = post_invitation(&server, &member_token, &org_s, "e4_x@txresbench.test", "member", None).await;
     let get = get_invitations(&server, &member_token, &org_s, "", None).await;
     let resend = post_resend(&server, &member_token, &org_s, &inv).await;
     let del = delete_invitation(&server, &member_token, &org_s, &inv).await;
@@ -1192,7 +1192,7 @@ async fn inv4_a_bare_member_is_403_on_every_invitation_route() {
         );
     }
     assert_eq!(
-        invitation_rows(&pool, org, "e4_x@cyto.test").await,
+        invitation_rows(&pool, org, "e4_x@txresbench.test").await,
         0,
         "nothing written by the refused create"
     );
@@ -1212,7 +1212,7 @@ async fn inv4_a_bare_member_is_403_on_every_invitation_route() {
         &server,
         &admin_token,
         "e4_nocap",
-        "e4_nocap@cyto.test",
+        "e4_nocap@txresbench.test",
     )
     .await;
     add_member(&pool, org, admin_of_org, "admin").await;
@@ -1234,7 +1234,7 @@ async fn inv4_a_bare_member_is_403_on_every_invitation_route() {
          manage capability"
     );
 
-    let nocap = post_invitation(&server, &nocap_token, &org_s, "e4_y@cyto.test", "member", None).await;
+    let nocap = post_invitation(&server, &nocap_token, &org_s, "e4_y@txresbench.test", "member", None).await;
     assert_eq!(nocap.status, 403, "{}", nocap.text);
     assert_eq!(
         nocap.code().as_deref(),
@@ -1272,7 +1272,7 @@ async fn inv12_a_personal_account_cannot_be_invited_into() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let user = create_user(&server, &admin_token, "e12_user", "e12_user@cyto.test").await;
+    let user = create_user(&server, &admin_token, "e12_user", "e12_user@txresbench.test").await;
     let token = login(&server, "e12_user").await;
     let personal = personal_account_id(&pool, user).await;
 
@@ -1280,7 +1280,7 @@ async fn inv12_a_personal_account_cannot_be_invited_into() {
         &server,
         &token,
         &personal.to_string(),
-        "e12_x@cyto.test",
+        "e12_x@txresbench.test",
         "member",
         None,
     )
@@ -1293,7 +1293,7 @@ async fn inv12_a_personal_account_cannot_be_invited_into() {
         r.text
     );
     assert_eq!(
-        invitation_rows(&pool, personal, "e12_x@cyto.test").await,
+        invitation_rows(&pool, personal, "e12_x@txresbench.test").await,
         0
     );
 
@@ -1302,7 +1302,7 @@ async fn inv12_a_personal_account_cannot_be_invited_into() {
     let err = repo
         .create_invitation(
             personal,
-            "e12_y@cyto.test",
+            "e12_y@txresbench.test",
             AccountRole::Member,
             super::staff_ceiling(),
             InvitationLimits::defaults(),
@@ -1342,7 +1342,7 @@ async fn inv12_a_personal_account_cannot_be_invited_into() {
         &server,
         &token,
         &org.to_string(),
-        "e12_x@cyto.test",
+        "e12_x@txresbench.test",
         "member",
         None,
     )
@@ -1381,11 +1381,11 @@ async fn invr1_add_member_refuses_to_mint_a_role_above_the_actors() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "er1_owner", "er1_owner@cyto.test").await;
-    let actor = create_user(&server, &admin_token, "er1_admin", "er1_admin@cyto.test").await;
-    let target = create_user(&server, &admin_token, "er1_target", "er1_target@cyto.test").await;
-    let target2 = create_user(&server, &admin_token, "er1_t2", "er1_t2@cyto.test").await;
-    let target3 = create_user(&server, &admin_token, "er1_t3", "er1_t3@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "er1_owner", "er1_owner@txresbench.test").await;
+    let actor = create_user(&server, &admin_token, "er1_admin", "er1_admin@txresbench.test").await;
+    let target = create_user(&server, &admin_token, "er1_target", "er1_target@txresbench.test").await;
+    let target2 = create_user(&server, &admin_token, "er1_t2", "er1_t2@txresbench.test").await;
+    let target3 = create_user(&server, &admin_token, "er1_t3", "er1_t3@txresbench.test").await;
 
     let org = make_org_account(&pool, "ER1 Org", owner).await;
     add_member(&pool, org, actor, "admin").await;
@@ -1485,9 +1485,9 @@ async fn invrl_invitation_create_is_rate_limited_per_actor_and_per_account() {
     let pool = pool_for(&server).await;
     let limits = InvitationLimits::defaults();
 
-    let owner = create_user(&server, &admin_token, "erl_owner", "erl_owner@cyto.test").await;
-    let admin2 = create_user(&server, &admin_token, "erl_admin", "erl_admin@cyto.test").await;
-    let other_owner = create_user(&server, &admin_token, "erl_other", "erl_other@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "erl_owner", "erl_owner@txresbench.test").await;
+    let admin2 = create_user(&server, &admin_token, "erl_admin", "erl_admin@txresbench.test").await;
+    let other_owner = create_user(&server, &admin_token, "erl_other", "erl_other@txresbench.test").await;
     let owner_token = login(&server, "erl_owner").await;
     let admin2_token = login(&server, "erl_admin").await;
     let other_token = login(&server, "erl_other").await;
@@ -1513,7 +1513,7 @@ async fn invrl_invitation_create_is_rate_limited_per_actor_and_per_account() {
         "precondition for isolation: the actor ceiling must be strictly below the account's"
     );
 
-    let over = post_invitation(&server, &owner_token, &org_s, "erl_a@cyto.test", "member", None).await;
+    let over = post_invitation(&server, &owner_token, &org_s, "erl_a@txresbench.test", "member", None).await;
     assert_eq!(over.status, 429, "over the ACTOR ceiling: {}", over.text);
     assert_eq!(
         over.code().as_deref(),
@@ -1528,7 +1528,7 @@ async fn invrl_invitation_create_is_rate_limited_per_actor_and_per_account() {
         over.text
     );
     assert_eq!(
-        invitation_rows(&pool, org, "erl_a@cyto.test").await,
+        invitation_rows(&pool, org, "erl_a@txresbench.test").await,
         0,
         "a refused create writes nothing"
     );
@@ -1537,7 +1537,7 @@ async fn invrl_invitation_create_is_rate_limited_per_actor_and_per_account() {
     // only `per_actor_per_hour` mints, which is under its own ceiling, so only the ACTOR
     // window was full. This is what proves the two windows are independent rather than one
     // window with two names.
-    let peer_ok = post_invitation(&server, &admin2_token, &org_s, "erl_peer@cyto.test", "member", None).await;
+    let peer_ok = post_invitation(&server, &admin2_token, &org_s, "erl_peer@txresbench.test", "member", None).await;
     assert_eq!(
         peer_ok.status, 202,
         "a second admin is unaffected by the FIRST admin's exhausted actor window: {}",
@@ -1551,7 +1551,7 @@ async fn invrl_invitation_create_is_rate_limited_per_actor_and_per_account() {
     // drive the different-account control below, and charging them the top-up here would
     // refuse that control on their own ACTOR window — which is exactly the confound this
     // phase exists to avoid, in the other direction.
-    let filler = create_user(&server, &admin_token, "erl_filler", "erl_filler@cyto.test").await;
+    let filler = create_user(&server, &admin_token, "erl_filler", "erl_filler@txresbench.test").await;
     seed_mints(
         &pool,
         org,
@@ -1560,7 +1560,7 @@ async fn invrl_invitation_create_is_rate_limited_per_actor_and_per_account() {
         "c",
     )
     .await;
-    let peer = post_invitation(&server, &admin2_token, &org_s, "erl_b@cyto.test", "member", None).await;
+    let peer = post_invitation(&server, &admin2_token, &org_s, "erl_b@txresbench.test", "member", None).await;
     assert_eq!(
         peer.status, 429,
         "a second admin of the same account is now refused by the ACCOUNT window even \
@@ -1576,7 +1576,7 @@ async fn invrl_invitation_create_is_rate_limited_per_actor_and_per_account() {
     // …while an admin of a DIFFERENT account is not, so the ceiling is scoped and not
     // simply global. `other_owner` has minted nothing anywhere, so neither window can
     // refuse them — which is what makes this a control for SCOPE rather than for luck.
-    let elsewhere = post_invitation(&server, &other_token, &other_s, "erl_c@cyto.test", "member", None).await;
+    let elsewhere = post_invitation(&server, &other_token, &other_s, "erl_c@txresbench.test", "member", None).await;
     assert_eq!(
         elsewhere.status, 202,
         "another ACCOUNT is unaffected — the window is per-account, not global: {}",
@@ -1584,14 +1584,14 @@ async fn invrl_invitation_create_is_rate_limited_per_actor_and_per_account() {
     );
 
     // ── the limit runs BEFORE the email-dependent branch ──
-    // `erl_owner@cyto.test` is already a member of this account, so without the ordering
+    // `erl_owner@txresbench.test` is already a member of this account, so without the ordering
     // it would be a silent no-op 202 and the rate limit would be observable by which
     // addresses "get through". It must be 429, and byte-identically to the first refusal.
     let member_addr = post_invitation(
         &server,
         &owner_token,
         &org_s,
-        "erl_owner@cyto.test",
+        "erl_owner@txresbench.test",
         "member",
         None,
     )
@@ -1609,7 +1609,7 @@ async fn invrl_invitation_create_is_rate_limited_per_actor_and_per_account() {
 
     // ── POSITIVE CONTROL: age the seeded rows out and the very next create succeeds ──
     age_out_mints(&pool, org).await;
-    let after = post_invitation(&server, &owner_token, &org_s, "erl_d@cyto.test", "member", None).await;
+    let after = post_invitation(&server, &owner_token, &org_s, "erl_d@txresbench.test", "member", None).await;
     assert_eq!(
         after.status, 202,
         "rows aged OUT of the window stop counting — this is a sliding window, not a \
@@ -1617,10 +1617,10 @@ async fn invrl_invitation_create_is_rate_limited_per_actor_and_per_account() {
          endpoint that always refused: {}",
         after.text
     );
-    assert_eq!(invitation_rows(&pool, org, "erl_d@cyto.test").await, 1);
+    assert_eq!(invitation_rows(&pool, org, "erl_d@txresbench.test").await, 1);
 
     // ── resend mints a token too, so it is limited by the same ceilings ──
-    let inv = live_invitation(&pool, org, "erl_d@cyto.test")
+    let inv = live_invitation(&pool, org, "erl_d@txresbench.test")
         .await
         .expect("live")
         .to_string();
@@ -1661,8 +1661,8 @@ async fn invd8_an_invitation_survives_its_inviter_leaving_and_being_deleted() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let inviter = create_user(&server, &admin_token, "ed8_inviter", "ed8_inviter@cyto.test").await;
-    let survivor = create_user(&server, &admin_token, "ed8_survivor", "ed8_survivor@cyto.test").await;
+    let inviter = create_user(&server, &admin_token, "ed8_inviter", "ed8_inviter@txresbench.test").await;
+    let survivor = create_user(&server, &admin_token, "ed8_survivor", "ed8_survivor@txresbench.test").await;
     let inviter_token = login(&server, "ed8_inviter").await;
     let survivor_token = login(&server, "ed8_survivor").await;
 
@@ -1671,7 +1671,7 @@ async fn invd8_an_invitation_survives_its_inviter_leaving_and_being_deleted() {
     add_member(&pool, org, survivor, "owner").await;
     let org_s = org.to_string();
 
-    let email = "ed8_invitee@cyto.test";
+    let email = "ed8_invitee@txresbench.test";
     assert_eq!(
         post_invitation(&server, &inviter_token, &org_s, email, "member", None)
             .await
@@ -1772,13 +1772,13 @@ async fn resend_and_revoke_lifecycle_and_the_expired_slot() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "e16b_owner", "e16b_owner@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "e16b_owner", "e16b_owner@txresbench.test").await;
     let owner_token = login(&server, "e16b_owner").await;
     let org = make_org_account(&pool, "E16b Org", owner).await;
     let org_s = org.to_string();
     let repo = AccountRepository::new(pool.clone());
 
-    let email = "e16b_invitee@cyto.test";
+    let email = "e16b_invitee@txresbench.test";
     assert_eq!(
         post_invitation(&server, &owner_token, &org_s, email, "member", None)
             .await
@@ -1932,9 +1932,9 @@ async fn resend_and_revoke_lifecycle_and_the_expired_slot() {
     // `accepted_at IS NULL` from the SQL left TEST-3 green and nothing else red. A blind
     // tests-quality audit measured exactly that: of the three clauses, only
     // `revoked_at IS NULL` was covered behaviourally. These two arms cover the others.
-    let fresh = post_invitation(&server, &owner_token, &org_s, "e16b_claim@cyto.test", "member", None).await;
+    let fresh = post_invitation(&server, &owner_token, &org_s, "e16b_claim@txresbench.test", "member", None).await;
     assert_eq!(fresh.status, 202, "{}", fresh.text);
-    let claim_id = live_invitation(&pool, org, "e16b_claim@cyto.test").await.expect("live");
+    let claim_id = live_invitation(&pool, org, "e16b_claim@txresbench.test").await.expect("live");
     let claim_tok = post_resend(&server, &owner_token, &org_s, &claim_id.to_string())
         .await
         .json()["invite_token"]
@@ -2047,9 +2047,9 @@ async fn inv2_the_account_header_is_ignored_in_both_directions() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let a_owner = create_user(&server, &admin_token, "e2_a", "e2_a@cyto.test").await;
-    let b_owner = create_user(&server, &admin_token, "e2_b", "e2_b@cyto.test").await;
-    let b_member = create_user(&server, &admin_token, "e2_bm", "e2_bm@cyto.test").await;
+    let a_owner = create_user(&server, &admin_token, "e2_a", "e2_a@txresbench.test").await;
+    let b_owner = create_user(&server, &admin_token, "e2_b", "e2_b@txresbench.test").await;
+    let b_member = create_user(&server, &admin_token, "e2_bm", "e2_bm@txresbench.test").await;
     let a_token = login(&server, "e2_a").await;
     let b_token = login(&server, "e2_b").await;
 
@@ -2061,7 +2061,7 @@ async fn inv2_the_account_header_is_ignored_in_both_directions() {
 
     // B is POPULATED and holds a live invitation of its own.
     assert_eq!(
-        post_invitation(&server, &b_token, &b_s, "e2_binv@cyto.test", "member", None)
+        post_invitation(&server, &b_token, &b_s, "e2_binv@txresbench.test", "member", None)
             .await
             .status,
         202
@@ -2070,8 +2070,8 @@ async fn inv2_the_account_header_is_ignored_in_both_directions() {
 
     // ── DENY: path = B (A's owner is not a member), header = A (where they ARE owner) ──
     let with_header =
-        post_invitation(&server, &a_token, &b_s, "e2_x@cyto.test", "member", Some(&a_s)).await;
-    let no_header = post_invitation(&server, &a_token, &b_s, "e2_x@cyto.test", "member", None).await;
+        post_invitation(&server, &a_token, &b_s, "e2_x@txresbench.test", "member", Some(&a_s)).await;
+    let no_header = post_invitation(&server, &a_token, &b_s, "e2_x@txresbench.test", "member", None).await;
 
     assert_eq!(
         (with_header.status, no_header.status),
@@ -2086,18 +2086,18 @@ async fn inv2_the_account_header_is_ignored_in_both_directions() {
          consulted at all' means, as opposed to 'the path is preferred'"
     );
     assert_eq!(
-        invitation_rows(&pool, b, "e2_x@cyto.test").await,
+        invitation_rows(&pool, b, "e2_x@txresbench.test").await,
         0,
         "nothing landed on B"
     );
     assert_eq!(
-        invitation_rows(&pool, a, "e2_x@cyto.test").await,
+        invitation_rows(&pool, a, "e2_x@txresbench.test").await,
         0,
         "…and nothing was redirected onto A either"
     );
 
     // ── POSITIVE CONTROL: path = A (theirs), header = B (foreign, ambient) ⇒ 202 on A ──
-    let ok = post_invitation(&server, &a_token, &a_s, "e2_ok@cyto.test", "member", Some(&b_s)).await;
+    let ok = post_invitation(&server, &a_token, &a_s, "e2_ok@txresbench.test", "member", Some(&b_s)).await;
     assert_eq!(
         ok.status, 202,
         "a foreign ambient header must not BLOCK a request whose path is legitimate — \
@@ -2105,12 +2105,12 @@ async fn inv2_the_account_header_is_ignored_in_both_directions() {
         ok.text
     );
     assert_eq!(
-        invitation_rows(&pool, a, "e2_ok@cyto.test").await,
+        invitation_rows(&pool, a, "e2_ok@txresbench.test").await,
         1,
         "the row landed on the PATH's account"
     );
     assert_eq!(
-        invitation_rows(&pool, b, "e2_ok@cyto.test").await,
+        invitation_rows(&pool, b, "e2_ok@txresbench.test").await,
         0,
         "…and NOT on the header's — writing to the header's account while authorizing on \
          the path is the textbook confused deputy"
@@ -2119,7 +2119,7 @@ async fn inv2_the_account_header_is_ignored_in_both_directions() {
     // ── B is untouched throughout ──
     assert_eq!(member_count(&pool, b).await, 2);
     assert!(
-        live_invitation(&pool, b, "e2_binv@cyto.test").await.is_some(),
+        live_invitation(&pool, b, "e2_binv@txresbench.test").await.is_some(),
         "B's own invitation is still live"
     );
 }
@@ -2169,15 +2169,15 @@ async fn invrl_a_resend_consumes_mint_budget_not_merely_checks_it() {
     let pool = pool_for(&server).await;
     let limits = InvitationLimits::defaults();
 
-    let owner = create_user(&server, &admin_token, "ers_owner", "ers_owner@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "ers_owner", "ers_owner@txresbench.test").await;
     let owner_token = login(&server, "ers_owner").await;
     let org = make_org_account(&pool, "ERS Org", owner).await;
     let org_s = org.to_string();
 
     // A FRESH actor with an EMPTY window: exactly one create, then nothing but resends.
-    let created = post_invitation(&server, &owner_token, &org_s, "ers_a@cyto.test", "member", None).await;
+    let created = post_invitation(&server, &owner_token, &org_s, "ers_a@txresbench.test", "member", None).await;
     assert_eq!(created.status, 202, "{}", created.text);
-    let inv = live_invitation(&pool, org, "ers_a@cyto.test")
+    let inv = live_invitation(&pool, org, "ers_a@txresbench.test")
         .await
         .expect("live");
     let inv_s = inv.to_string();
@@ -2262,14 +2262,14 @@ async fn invrl_a_resend_consumes_mint_budget_not_merely_checks_it() {
 
     // ── and the budget is SHARED with create, not a separate allowance: with the actor's
     //    window now full of resends, a plain create is refused too. ──
-    let create_after = post_invitation(&server, &owner_token, &org_s, "ers_b@cyto.test", "member", None).await;
+    let create_after = post_invitation(&server, &owner_token, &org_s, "ers_b@txresbench.test", "member", None).await;
     assert_eq!(
         create_after.status, 429,
         "resends and creates draw on ONE budget — otherwise an attacker simply alternates \
          between them: {}",
         create_after.text
     );
-    assert_eq!(invitation_rows(&pool, org, "ers_b@cyto.test").await, 0);
+    assert_eq!(invitation_rows(&pool, org, "ers_b@txresbench.test").await, 0);
 }
 
 // ===========================================================================
@@ -2299,8 +2299,8 @@ async fn resend_re_grades_the_role_ceiling_against_the_live_role() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "erg_owner", "erg_owner@cyto.test").await;
-    let junior = create_user(&server, &admin_token, "erg_admin", "erg_admin@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "erg_owner", "erg_owner@txresbench.test").await;
+    let junior = create_user(&server, &admin_token, "erg_admin", "erg_admin@txresbench.test").await;
     let owner_token = login(&server, "erg_owner").await;
     let junior_token = login(&server, "erg_admin").await;
 
@@ -2309,13 +2309,13 @@ async fn resend_re_grades_the_role_ceiling_against_the_live_role() {
     let org_s = org.to_string();
 
     // The OWNER issues an `owner` invitation and an `admin` one.
-    for (email, role) in [("erg_o@cyto.test", "owner"), ("erg_a@cyto.test", "admin")] {
+    for (email, role) in [("erg_o@txresbench.test", "owner"), ("erg_a@txresbench.test", "admin")] {
         let r = post_invitation(&server, &owner_token, &org_s, email, role, None).await;
         assert_eq!(r.status, 202, "seed {email}: {}", r.text);
     }
-    let owner_inv_u = live_invitation(&pool, org, "erg_o@cyto.test").await.expect("live");
+    let owner_inv_u = live_invitation(&pool, org, "erg_o@txresbench.test").await.expect("live");
     let owner_inv = owner_inv_u.to_string();
-    let admin_inv = live_invitation(&pool, org, "erg_a@cyto.test").await.expect("live").to_string();
+    let admin_inv = live_invitation(&pool, org, "erg_a@txresbench.test").await.expect("live").to_string();
 
     // Capture the owner-invitation's token hash so we can prove a refused resend changed
     // nothing — a guard that refuses AFTER writing is not a guard.
@@ -2411,7 +2411,7 @@ async fn a_malformed_or_injecting_address_is_400_and_stores_nothing() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "einj_owner", "einj_owner@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "einj_owner", "einj_owner@txresbench.test").await;
     let owner_token = login(&server, "einj_owner").await;
     let org = make_org_account(&pool, "EINJ Org", owner).await;
     let org_s = org.to_string();
@@ -2513,10 +2513,10 @@ async fn add_member_in_tx_composes_with_a_caller_owned_transaction() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "eit_owner", "eit_owner@cyto.test").await;
-    let actor = create_user(&server, &admin_token, "eit_admin", "eit_admin@cyto.test").await;
-    let target = create_user(&server, &admin_token, "eit_t", "eit_t@cyto.test").await;
-    let target2 = create_user(&server, &admin_token, "eit_t2", "eit_t2@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "eit_owner", "eit_owner@txresbench.test").await;
+    let actor = create_user(&server, &admin_token, "eit_admin", "eit_admin@txresbench.test").await;
+    let target = create_user(&server, &admin_token, "eit_t", "eit_t@txresbench.test").await;
+    let target2 = create_user(&server, &admin_token, "eit_t2", "eit_t2@txresbench.test").await;
 
     let org = make_org_account(&pool, "EIT Org", owner).await;
     add_member(&pool, org, actor, "admin").await;
@@ -2596,8 +2596,8 @@ async fn add_member_in_tx_composes_with_a_caller_owned_transaction() {
     //
     // Under DEC-12 the missed state is not cosmetic: a membership row on a personal account
     // is an implicit ≥Viewer grant over everything that user ever created.
-    let victim = create_user(&server, &admin_token, "eit_victim", "eit_victim@cyto.test").await;
-    let intruder = create_user(&server, &admin_token, "eit_intruder", "eit_intruder@cyto.test").await;
+    let victim = create_user(&server, &admin_token, "eit_victim", "eit_victim@txresbench.test").await;
+    let intruder = create_user(&server, &admin_token, "eit_intruder", "eit_intruder@txresbench.test").await;
     let victim_personal = personal_account_id(&pool, victim).await;
     {
         let mut tx = pool.begin().await.expect("begin");
@@ -2628,7 +2628,7 @@ async fn add_member_in_tx_composes_with_a_caller_owned_transaction() {
 
     // ── ATOMICITY: a caller that rolls back takes the membership with it, which is the
     //    property #146's INV-17 needs and which the pool-owning wrapper cannot provide. ──
-    let target3 = create_user(&server, &admin_token, "eit_t3", "eit_t3@cyto.test").await;
+    let target3 = create_user(&server, &admin_token, "eit_t3", "eit_t3@txresbench.test").await;
     {
         let mut tx = pool.begin().await.expect("begin");
         AccountRepository::add_member_in_tx(&mut tx, org, target3, AccountRole::Member, as_admin, None)
@@ -2665,19 +2665,19 @@ async fn an_expired_invitation_can_still_be_revoked_but_an_accepted_one_cannot()
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "eexp_owner", "eexp_owner@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "eexp_owner", "eexp_owner@txresbench.test").await;
     let owner_token = login(&server, "eexp_owner").await;
     let org = make_org_account(&pool, "EEXP Org", owner).await;
     let org_s = org.to_string();
 
     // ── an EXPIRED, unsettled invitation ──
     assert_eq!(
-        post_invitation(&server, &owner_token, &org_s, "eexp_a@cyto.test", "member", None)
+        post_invitation(&server, &owner_token, &org_s, "eexp_a@txresbench.test", "member", None)
             .await
             .status,
         202
     );
-    let expired = live_invitation(&pool, org, "eexp_a@cyto.test").await.expect("live");
+    let expired = live_invitation(&pool, org, "eexp_a@txresbench.test").await.expect("live");
     sqlx::query("UPDATE account_invitations SET expires_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day') WHERE id = $1")
         .bind(expired)
         .execute(&pool)
@@ -2712,12 +2712,12 @@ async fn an_expired_invitation_can_still_be_revoked_but_an_accepted_one_cannot()
     // ── an ACCEPTED invitation cannot be retroactively withdrawn ──
     // (#146 sets `accepted_at`/`accepted_by`; simulated here, since accept is its item.)
     assert_eq!(
-        post_invitation(&server, &owner_token, &org_s, "eexp_b@cyto.test", "member", None)
+        post_invitation(&server, &owner_token, &org_s, "eexp_b@txresbench.test", "member", None)
             .await
             .status,
         202
     );
-    let accepted = live_invitation(&pool, org, "eexp_b@cyto.test").await.expect("live");
+    let accepted = live_invitation(&pool, org, "eexp_b@txresbench.test").await.expect("live");
     sqlx::query(
         "UPDATE account_invitations SET accepted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), accepted_by = $2 WHERE id = $1",
     )
@@ -2768,9 +2768,9 @@ async fn concurrent_creates_for_one_address_serialize_even_with_no_owner_rows() 
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "elk_owner", "elk_owner@cyto.test").await;
-    let admin_a = create_user(&server, &admin_token, "elk_a", "elk_a@cyto.test").await;
-    let admin_b = create_user(&server, &admin_token, "elk_b", "elk_b@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "elk_owner", "elk_owner@txresbench.test").await;
+    let admin_a = create_user(&server, &admin_token, "elk_a", "elk_a@txresbench.test").await;
+    let admin_b = create_user(&server, &admin_token, "elk_b", "elk_b@txresbench.test").await;
     let org = make_org_account(&pool, "ELK Org", owner).await;
     add_member(&pool, org, admin_a, "admin").await;
     add_member(&pool, org, admin_b, "admin").await;
@@ -2801,7 +2801,7 @@ async fn concurrent_creates_for_one_address_serialize_even_with_no_owner_rows() 
         .await
         .expect("wide contender pool");
 
-    let email = "elk_target@cyto.test";
+    let email = "elk_target@txresbench.test";
     let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(4));
     let mut handles = Vec::new();
     for actor in [admin_a, admin_b, admin_a, admin_b] {
@@ -2878,8 +2878,8 @@ async fn the_mint_ledger_prune_runs_scoped_and_never_eats_a_counted_row() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "epr_owner", "epr_owner@cyto.test").await;
-    let other = create_user(&server, &admin_token, "epr_other", "epr_other@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "epr_owner", "epr_owner@txresbench.test").await;
+    let other = create_user(&server, &admin_token, "epr_other", "epr_other@txresbench.test").await;
     let owner_token = login(&server, "epr_owner").await;
     let org = make_org_account(&pool, "EPR Org", owner).await;
     let neighbour = make_org_account(&pool, "EPR Neighbour", other).await;
@@ -2924,7 +2924,7 @@ async fn the_mint_ledger_prune_runs_scoped_and_never_eats_a_counted_row() {
     assert_eq!(exists(stale_theirs).await, 1, "precondition");
 
     // One create is enough — the prune runs at every mint.
-    let r = post_invitation(&server, &owner_token, &org_s, "epr_a@cyto.test", "member", None).await;
+    let r = post_invitation(&server, &owner_token, &org_s, "epr_a@txresbench.test", "member", None).await;
     assert_eq!(r.status, 202, "{}", r.text);
 
     // ── ARM 1: the prune actually RAN ──
@@ -2962,7 +2962,7 @@ async fn the_mint_ledger_prune_runs_scoped_and_never_eats_a_counted_row() {
         &server,
         &other_token,
         &neighbour.to_string(),
-        "epr_b@cyto.test",
+        "epr_b@txresbench.test",
         "member",
         None,
     )

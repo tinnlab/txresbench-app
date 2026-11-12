@@ -9,8 +9,8 @@ import {
   Tag,
   Upload,
   message,
-} from '@ziee/kit'
-import { Field, FieldDescription, FieldLabel } from '@ziee/kit/shadcn/field'
+} from '@txresbench/kit'
+import { Field, FieldDescription, FieldLabel } from '@txresbench/kit/shadcn/field'
 import { DatasetDetail } from '@/modules/datasets/stores/DatasetDetail.store'
 import { FileUp, Plus, Table2, X } from 'lucide-react'
 import type { DatasetFile } from '@/api-client/types'

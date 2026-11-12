@@ -22,7 +22,7 @@
 import * as React from 'react'
 import { render, cleanup } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { LayoutNode } from '@ziee/dock'
+import type { LayoutNode } from '@txresbench/dock'
 import { PaneTree } from './PaneTree'
 import { paneTestId, type GridCell } from './gridModel'
 

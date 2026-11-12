@@ -1,0 +1,113 @@
+[package]
+name = "txresbench-notification"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+# `txresbench-notification` owns the DB-free wire/insert types (`models`:
+# `Notification`/`NewNotification`/`NotificationPage`/`UnreadCount`, schemars
+# keys preserved; `Notification` derives `sqlx::FromRow`) + the
+# `NotificationsRead` permission key (`txresbench_identity::PermissionCheck`), and
+# CARRIES THE MODULE'S MIGRATIONS (`migrations/`, globbed into the app's merged
+# set). With NO features the crate is types-only + build-DB-free (no axum/aide).
+#
+# STANDALONE-APPLICABLE (gap N-1): this crate's `migrations/` is DOMAIN-AGNOSTIC.
+# The former txresbench-chat-specific FK-nullable columns
+# (`scheduled_task_id`/`workflow_run_id`/`conversation_id`) are replaced by ONE
+# `payload jsonb` column (R2 payload adoption), and there is NO FK to `users` in
+# the crate migration, so `migrations/` applies alone on a fresh DB that has none
+# of chat's `conversations`, scheduler's `scheduled_tasks`, workflow's
+# `workflow_runs`, or txresbench-auth's `users`. An app that DOES have a users table
+# adds the `user_id` FK constraint in its own module migration
+# (`server/src/modules/notification/migrations/*_notification_fkeys.sql`), sorted
+# after both `notifications` and the users table exist. Only `txresbench-identity` is a
+# declared dep of the types-only lane, and it ships no migrations. Versions match
+# the txresbench server crate so the single src-app/Cargo.lock unifies them.
+txresbench-identity = { path = "../txresbench-identity" }
+
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.141"
+schemars = { version = "0.9.0", features = ["chrono04", "uuid1"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid", "json", "time", "macros", "migrate"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.18", features = ["serde", "v4", "v5"] }
+
+# HTTP/engine surface (the `routes` feature). Optional so a types-only consumer
+# never pulls axum/aide/tokio. `default-features = false` on the framework +
+# auth edges — see the feature block above: their driver variants are selected
+# by THIS crate's embedded-pg / sqlite-backend passthrough features, never by
+# their own defaults. `txresbench-auth` supplies the concrete `{User, Group}`
+# wire types the generic router is bound over (mirrors `txresbench-file`'s
+# `file_routes<R: IdentityResolver<User=User, Group=Group>>`), and — for the
+# `module` self-registration only — its `DefaultIdentityResolver`.
+linkme = { version = "0.3", optional = true }
+aide = { version = "0.15", features = ["axum", "axum-json", "axum-query", "macros"], optional = true }
+axum = { version = "0.8.4", features = ["macros"], optional = true }
+tokio = { version = "1", features = ["rt", "time", "macros"], optional = true }
+async-trait = { version = "0.1", optional = true }
+txresbench-core = { path = "../txresbench-core", optional = true }
+txresbench-framework = { path = "../txresbench-framework", optional = true, default-features = false }
+txresbench-auth = { path = "../txresbench-auth", optional = true, default-features = false }
+
+[features]
+default = []
+# `routes` — the mountable, RESOLVER-GENERIC engine: `repository`
+# (compile-time `query!`/`query_as!`), the `events` producer + pluggable
+# `set_sync_emitter` sync seam, the aide/axum `handlers` +
+# `notification_router::<R>()`, and the per-module `NOTIFICATION_KINDS`
+# contribution registry. An app that already owns its `IdentityResolver` (like
+# txresbench, with `TxResBenchIdentityResolver`) enables ONLY this and mounts
+# `notification_router::<ItsResolver>()` from its own thin module — so it never
+# links a second, conflicting self-registered module (mirrors `txresbench-auth`'s
+# `routes`-vs-`module` split, and `txresbench-file`).
+routes = [
+    "dep:linkme",
+    "dep:aide",
+    "dep:axum",
+    "dep:tokio",
+    "dep:async-trait",
+    "dep:txresbench-core",
+    "dep:txresbench-framework",
+    "dep:txresbench-auth",
+]
+# `module` (turnkey, default-OFF) — implies `routes` and adds the
+# `#[distributed_slice(MODULE_ENTRIES)]` self-registering `NotificationModule`
+# that mounts `notification_router::<DefaultIdentityResolver>()` + spawns the
+# retention prune, for a batteries-included app on the `build_api_router` path
+# (e.g. TxResBench). OFF by default so txresbench — which keeps its
+# `TxResBenchIdentityResolver`-backed thin module — never links a second, conflicting
+# notification module (keeps txresbench's route/OpenAPI surface single-sourced).
+# `DefaultIdentityResolver` lives behind `txresbench-auth`'s own `routes` feature
+# (`auth::turnkey`), so `module` carries it explicitly — the auth EDGE below is
+# declared without default features, so nothing is implied by it anymore.
+module = ["routes", "txresbench-auth/routes"]
+# Dual-driver selection (sqlite-store DEC-1 / DEC-21). OFF (default) = the PG
+# variant: `DbPool` is `PgPool`, the query sets + `NOTIFICATION_MIGRATOR` are
+# the Postgres chain (`migrations-pg/` — ITEM-26 renamed the PG chain out of
+# the canonical name), and txresbench's behavior is byte-identical to the pre-seam
+# build. ON = the SQLite variant (`DbPool` = `SqlitePool`, cfg-gated sqlite
+# query sets + the `migrations/` chain). The switch is a COMPILE-TIME feature,
+# never a runtime config toggle; the app builds the SDK with it on.
+#
+# The `txresbench-framework` + `txresbench-auth` edges below are declared WITHOUT default
+# features: their driver variants are selected by THESE passthrough features
+# instead of their own defaults, so a `sqlite-backend` build links no
+# `postgresql_embedded` downloader at all — with the `txresbench-control-mcp` edge
+# flip (DRIFT-1 ITEM-16 #3) no edge in the server graph carries a driver
+# default anymore, completing TEST-1(a)'s build-graph prune. The crate's OWN
+# `default = []` (the types-only lane) is deliberately UNCHANGED — the base
+# shipped it, and a types-only consumer must stay types-only.
+embedded-pg = ["txresbench-framework/embedded-pg", "txresbench-auth/embedded-pg"]
+sqlite-backend = ["txresbench-framework/sqlite-backend", "txresbench-auth/sqlite-backend"]
+
+# build.rs provisions a per-worktree build DB (this crate's own migration) + sets
+# DATABASE_URL so the `routes`-feature `query!`/`query_as!` macros verify at
+# compile time. Runs its DB logic ONLY when CARGO_FEATURE_ROUTES is set (see
+# build.rs), so a types-only build never needs Postgres.
+[build-dependencies]
+txresbench-build-support = { path = "../txresbench-build-support" }
+
+[dev-dependencies]
+# Crate-scoped DB integration test (`tests/schema_and_models.rs`): applies the
+# crate migration to a throwaway DB + round-trips the model.
+tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread"] }

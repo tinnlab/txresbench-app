@@ -7,7 +7,7 @@
 //
 // TWO fixture sources, both real:
 //   * `__fixtures__/zarr/{table,csc}` — written by `src-app/packages/_lib`'s
-//     `cyto_zarr.py` / `cyto_csc.py` (cross-language byte parity; the generator IMPORTS
+//     `txr_zarr.py` / `txr_csc.py` (cross-language byte parity; the generator IMPORTS
 //     the shipping writers).
 //   * hand-laid raw Zarr bytes for the ONE shape the Python writer does not emit — an
 //     uncompressed, unsharded column. Laid out here, and said so.
@@ -72,8 +72,8 @@ function stampedStructure(id: string, tree: Map<string, Uint8Array>) {
   return parseStructure(
     id,
     (JSON.parse(new TextDecoder().decode(tree.get('zarr.json')!)) as {
-      attributes: { cyto: unknown }
-    }).attributes.cyto,
+      attributes: { txr: unknown }
+    }).attributes.txr,
   )
 }
 
@@ -533,7 +533,7 @@ describe('readCategoricalColumn — codes + the DECLARED level set (D10)', () =>
 //
 // `openStringColumn` used to dispatch `layout === 'split'` ⇒ the offsets/values pair,
 // ANYTHING ELSE ⇒ a single-buffer arrow decoder. That decoder was built, exported and
-// unit-tested, and could never run: `cyto_zarr.Table.string` writes the split form and
+// unit-tested, and could never run: `txr_zarr.Table.string` writes the split form and
 // stamps `layout: "split"` on every string member, and `conformance.py`'s
 // `_conform_string_member` reads `<path>/offsets` + `<path>/values` unconditionally, so a
 // single-buffer member fails the framework gate before any reader sees it. It is deleted;
@@ -702,7 +702,7 @@ describe('readNumericColumn / readPositions', () => {
 
 // ── sparse_csc: the PRODUCER's bytes, decoded by the SHIPPED reader ────────────
 //
-// Every assertion here runs `cyto_csc.write_csc_zarr`'s output — real shuffle+gzip inside
+// Every assertion here runs `txr_csc.write_csc_zarr`'s output — real shuffle+gzip inside
 // a real sharding index — through `readSparseColumn`. The oracle is `expected.json`, which
 // the generator computed from its numpy input, so neither side of the comparison is
 // derived from the thing under test.
@@ -956,7 +956,7 @@ describe('readSparseColumn over the real request path', () => {
 // ── one member, SEVERAL consumers: the opened-array cache ──────────────────────
 //
 // A member is routinely read by several independent consumers that cannot see each other
-// (for a project layout: the canvas grid's positions handoff inside `@ziee/viz` AND the
+// (for a project layout: the canvas grid's positions handoff inside `@txresbench/viz` AND the
 // declarative-canvas host's plottable-XY resolve, in different packages, each already
 // memoizing its OWN single read). The bytes are immutable and content-addressed, so the
 // SECOND consumer must pay nothing — and a second consumer that starts while the first is
@@ -1262,7 +1262,7 @@ describe('readTable — an opaque JSON-columnar blob is a table too', () => {
 // a `kind: "string"` column is written as a GROUP (`offsets` + `values` under it), so the open threw
 // `node_type "group", expected "array"`. No fixture-backed test called it on the `str` member —
 // every caller in the suite passed a numeric or categorical path — while the SHIPPING producer
-// stamps such a column's catalog `meta.kind` as `categorical` (`cyto_columns.py` routes every
+// stamps such a column's catalog `meta.kind` as `categorical` (`txr_columns.py` routes every
 // object-dtype Series through `Table.string()`), so the categorical path reaches it in the field.
 // The rejection then escaped `Promise.all` in the streaming source's `#buildCatalog` and was cached,
 // taking the whole project's streaming canvas down until reload.
@@ -1291,7 +1291,7 @@ describe('readDeclaredLevels — a group member answers "none", it does not thro
 
 // ── THE MEMBER INDEX BODY IS ADDRESSED BY ITS MEMBERSHIP ENTRY (ITEM-3) ─────────────────────
 //
-// `cyto_zarr.Table.close()` writes the index body through `write_array` and DECLARES it on the
+// `txr_zarr.Table.close()` writes the index body through `write_array` and DECLARES it on the
 // membership entry that owns it — never in `columns`/`arrays`, because "its length is the member
 // COUNT, its values are positions into a DIFFERENT sequence (the axis), and offering it in the
 // column picker would offer the row numbers as a thing to colour by".

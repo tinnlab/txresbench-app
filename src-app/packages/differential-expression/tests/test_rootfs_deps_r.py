@@ -188,23 +188,23 @@ def test_the_r_recipe_declares_the_case_preserving_ecosystem():
     """
     # THE DECLARATION AS THE GATE READ IT, not as a second regex reads it (#214).
     #
-    # This was `re.search(r"^\s*#*\s*cyto:ecosystem\s*=\s*r\b", text, re.M)` — a THIRD
+    # This was `re.search(r"^\s*#*\s*txr:ecosystem\s*=\s*r\b", text, re.M)` — a THIRD
     # grammar in this one module (the pin regex, this, and the pin-source findall below),
     # each with its own idea of what starts a line. `re.M`'s `^` matches after `\n` only,
     # while `str.splitlines()` also breaks on U+001C/1D/1E and `\r`; a file could therefore
     # satisfy this search and the gate's reader disagree about which line the directive was
     # even on. Reading the gate's answer removes the question.
     assert env_pins.ecosystem(_R_ENV.name, env_root=_ENV_ROOT) == "r", (
-        "the R pin file must declare `# cyto:ecosystem=r`. Without it the build gate "
+        "the R pin file must declare `# txr:ecosystem=r`. Without it the build gate "
         "refuses the recipe outright (there is no default), and if a default were ever "
         "reintroduced this file would be read as python: PEP 440 versions and PEP 503 "
         "LOWERCASED names, so a declaration could match a differently-cased pin and "
         "report green"
     )
     text = _R_PINS.read_text()
-    assert "cyto:version-grammar" not in text, (
-        "`cyto:version-grammar` is retired (#192); the build gate refuses a pin file that "
-        "still carries it. Declare `cyto:ecosystem=r` instead — both the version grammar "
+    assert "txr:version-grammar" not in text, (
+        "`txr:version-grammar` is retired (#192); the build gate refuses a pin file that "
+        "still carries it. Declare `txr:ecosystem=r` instead — both the version grammar "
         "and the name rule follow from it"
     )
     # The rule is only worth having if this file exercises it. A recipe all of whose names
@@ -226,7 +226,7 @@ def test_the_pin_file_declares_where_its_pins_were_resolved():
     whose whole job is to be the record of what the pins mean.
     """
     # THE DECLARATIONS AS THE GATE READ THEM (#214). This was the module's THIRD grammar,
-    # `re.findall(r"^\s*#*\s*cyto:pin-source\s*=\s*([^\s#]+)", text, re.M)` — and note its
+    # `re.findall(r"^\s*#*\s*txr:pin-source\s*=\s*([^\s#]+)", text, re.M)` — and note its
     # `[^\s#]+` capture stops at U+001C-1F where the gate's does not, so a coordinate could
     # be TRUNCATED here and still satisfy an assertion about it. That is not hypothetical:
     # the same `[^\s#]+` shape in `spatial-import-visium` was filed as exactly that defect.
@@ -264,7 +264,7 @@ def test_the_coordinates_are_written_in_exactly_one_place():
     1. the coordinate values appear only in `requirements.txt`. A second copy in the
        Dockerfile is a second thing to update, and the failure it produces is a header
        that lies about what built the image.
-    2. the Dockerfile actually WRITES and SOURCES `cyto-regime.R`. The regime functions
+    2. the Dockerfile actually WRITES and SOURCES `txr-regime.R`. The regime functions
        are extracted into their own delimited block precisely so `tests/run-r-tests.sh`
        can execute them; if the installer stopped using that block, the tests would still
        pass while testing something the image no longer runs.
@@ -303,15 +303,15 @@ def test_the_coordinates_are_written_in_exactly_one_place():
         "the coordinate build-args are removed deliberately (#192): an overridable "
         "coordinate is an unrecorded input to a published number"
     )
-    assert any("cyto-regime.R" in l and "<<" in l for l in instr), (
-        "the recipe must WRITE `/tmp/cyto-regime.R` from a heredoc — that block is what "
+    assert any("txr-regime.R" in l and "<<" in l for l in instr), (
+        "the recipe must WRITE `/tmp/txr-regime.R` from a heredoc — that block is what "
         "`tests/run-r-tests.sh` extracts and executes"
     )
-    assert any('source("/tmp/cyto-regime.R")' in l for l in instr), (
+    assert any('source("/tmp/txr-regime.R")' in l for l in instr), (
         "the installer must SOURCE the regime block. Without this the tested functions "
         "are dead code sitting beside a second, untested copy"
     )
-    for fn in ("cyto_parse_pins(", "cyto_parse_sources(", "cyto_write_env_lock("):
+    for fn in ("txr_parse_pins(", "txr_parse_sources(", "txr_write_env_lock("):
         assert any(fn in l for l in instr), (
             f"the installer must CALL `{fn}` — a regime function nothing invokes is an "
             "unfinished feature, not a finished one"
@@ -362,7 +362,7 @@ def test_the_recipe_installs_from_the_pin_file_and_verifies_every_pin():
     # The lock is frozen BEFORE the trim, same ordering rule as the sibling recipe.
     #
     # COMMENTS ARE STRIPPED FIRST, and that is not tidiness. This recipe carries a prose
-    # block naming `.cyto-env-lock.txt` ~5 lines ABOVE the instruction that writes it, so
+    # block naming `.txresbench-env-lock.txt` ~5 lines ABOVE the instruction that writes it, so
     # an unstripped scan located the COMMENT and the ordering assertion measured nothing:
     # a blind mutation moved the real freeze to after `apt-get purge` and this test stayed
     # green. `convert_soma_test.rs` already strips comments for exactly this reason.
@@ -370,7 +370,7 @@ def test_the_recipe_installs_from_the_pin_file_and_verifies_every_pin():
         return [l.split("#")[0] for l in t.splitlines()]
 
     lines = _instruction_lines(text)
-    lock_at = next((i for i, l in enumerate(lines) if ".cyto-env-lock.txt" in l), None)
+    lock_at = next((i for i, l in enumerate(lines) if ".txresbench-env-lock.txt" in l), None)
     trim_at = next((i for i, l in enumerate(lines) if "apt-get purge" in l), None)
     assert lock_at is not None, (
         "the recipe does not freeze the resolved closure on any INSTRUCTION line (a "
@@ -624,7 +624,7 @@ def _digest_of(pairs) -> str:
 #
 # MOVED A SECOND TIME, f63e3745 -> 1587d45a, and that one was a MERGE artefact rather than
 # either branch's mistake. #191 recorded f63e3745 while #196 was independently editing the
-# same recipe: #196's `cba5e076` adds the `# cyto:env-smoke` marker above the smoke line and
+# same recipe: #196's `cba5e076` adds the `# txr:env-smoke` marker above the smoke line and
 # rewrites the comment block naming the guard that reads it (`env_image::tests::
 # every_env_recipe_smoke_verifies_every_pinned_import`, which replaced a python-side test).
 # Each branch was green alone; the lock went red only once BOTH were on main, because #196
@@ -650,15 +650,15 @@ def _digest_of(pairs) -> str:
 #     exactly this pin and named its future consumer; `spatial-import-visium`'s
 #     `ome_writer.py` is it, because `tifffile` CANNOT decode a PNG and the Visium vendor
 #     bundle ships one.
-#   * `Dockerfile` gains `PIL` to the `# cyto:env-smoke` line, which
+#   * `Dockerfile` gains `PIL` to the `# txr:env-smoke` line, which
 #     `env_image::tests::every_env_recipe_smoke_verifies_every_pinned_import` requires of
 #     every pin. Adding the pin without the smoke import would have gone red there.
 #   * No republish is implied: `pillow-12.3.0.dist-info` is already in the shipped image,
 #     so the pin FREEZES WHAT IS ALREADY THERE.
 #
 # What #192/#214 (this branch) changed:
-#   * `requirements.txt` gains a header block declaring `# cyto:ecosystem=python` and
-#     `# cyto:pin-source=immutable-index:…`. Every recipe must declare both, with no
+#   * `requirements.txt` gains a header block declaring `# txr:ecosystem=python` and
+#     `# txr:pin-source=immutable-index:…`. Every recipe must declare both, with no
 #     default — a default makes a DELETED declaration indistinguishable from a python
 #     recipe, which is the one direction a derivation reading this same file cannot see
 #     (`docs/design/derived-guards.md` §4). "Required of every recipe" is only a floor if
@@ -683,13 +683,13 @@ def _digest_of(pairs) -> str:
 #     `cell_boundaries.parquet` this tree had no reader for. #162's DEC-3 chose
 #     `cells.csv.gz` over `cells.parquet` precisely to avoid this pin, and recorded that
 #     boundaries would not have that luxury. They do not.
-#   * `Dockerfile` gains `pyarrow` to the `# cyto:env-smoke` line, which
+#   * `Dockerfile` gains `pyarrow` to the `# txr:env-smoke` line, which
 #     `env_image::tests::every_env_recipe_smoke_verifies_every_pinned_import` requires of
 #     every pin — adding the pin without the smoke import would have gone red there.
 #
 # NO REPUBLISH IS IMPLIED, and that is measured rather than hoped: `pyarrow-25.0.0.dist-info`
 # is ALREADY in the shipped image (`unsquashfs -l
-# .cyto-cache/env-rootfs/single-cell-schema5-amd64.squashfs`), arriving as a hard transitive
+# .txr-cache/env-rootfs/single-cell-schema5-amd64.squashfs`), arriving as a hard transitive
 # of the already-pinned `spatialdata==0.7.3` (`Requires-Dist: pyarrow`, unconditional). The
 # pin FREEZES WHAT ALREADY SHIPS — the same shape as #181's tifffile/imagecodecs and #155's
 # pillow, and the opposite of what design §10 predicted for the Xenium leg.
@@ -891,7 +891,7 @@ def test_the_two_pin_source_readers_know_the_same_class_vocabulary():
 
     `processor_manifest.rs` derives its class lookup from `PIN_SOURCE_CLASSES` precisely so
     a retyped list cannot fall behind ("A retyped list is one more place to forget when
-    #209 adds a class"). The recipe's `cyto_parse_sources` then retypes exactly that list
+    #209 adds a class"). The recipe's `txr_parse_sources` then retypes exactly that list
     in R, where there is no enum to derive from — so the mirror is kept mechanical HERE, in
     the one place that can read both files, rather than remembered.
 
@@ -903,7 +903,7 @@ def test_the_two_pin_source_readers_know_the_same_class_vocabulary():
 
     df = _R_DOCKERFILE.read_text()
     known = re.search(r'known\s*<-\s*c\(([^)]*)\)', df)
-    assert known, "the recipe's `cyto_parse_sources` no longer declares a `known` vector"
+    assert known, "the recipe's `txr_parse_sources` no longer declares a `known` vector"
     r_admissible = set(re.findall(r'"([a-z-]+)"', known.group(1)))
     # The recipe refuses `vcs-head` explicitly before the `known` test, so its full
     # vocabulary is the admissible set plus that one.
@@ -916,7 +916,7 @@ def test_the_two_pin_source_readers_know_the_same_class_vocabulary():
     assert r_tokens == rust_tokens, (
         f"the two pin-source readers disagree: Rust knows {sorted(rust_tokens)}, the recipe "
         f"knows {sorted(r_tokens)}. Add the class to `known` in the recipe's "
-        "`cyto_parse_sources`, or remove it from `PinSourceClass`."
+        "`txr_parse_sources`, or remove it from `PinSourceClass`."
     )
 
 
@@ -968,7 +968,7 @@ def test_all_three_readers_allow_the_same_characters():
     """**TEST-16**, restated for the ALLOWLIST (#192 round 4 → #214).
 
     Three implementations of one rule, in three languages that cannot share code: the Rust
-    build gate (`PIN_FILE_ALLOWED_NON_ASCII`), the R installer (`cyto_allowed_non_ascii`),
+    build gate (`PIN_FILE_ALLOWED_NON_ASCII`), the R installer (`txr_allowed_non_ascii`),
     and `pin_file_canon.ALLOWED_NON_ASCII`. This is the edge the Rust⇄R check next door
     does not cover — python against the other two.
 
@@ -978,7 +978,7 @@ def test_all_three_readers_allow_the_same_characters():
     minus SPACE/TAB/LF" — the union of three languages' notions of a separator — because a
     `U+001C` had passed a set drawn around only Rust and R. A blind audit of #214 then
     walked through the next door: `char::is_control()` is category `Cc` only, so the whole
-    `Cf` FORMAT class passed. A `U+200B` in `#<ZWSP>cyto:pin-source=` makes the directive
+    `Cf` FORMAT class passed. A `U+200B` in `#<ZWSP>txr:pin-source=` makes the directive
     inert while leaving it visibly present, in the pin file AND in the artefact a human
     reviews.
 
@@ -992,16 +992,16 @@ def test_all_three_readers_allow_the_same_characters():
 
     df = _R_DOCKERFILE.read_text()
     # EXACTLY ONCE — the same check the Rust twin has. Both extractors take the FIRST
-    # match, so a shadowing `cyto_allowed_non_ascii <- c(cyto_allowed_non_ascii, 0x2000)`
+    # match, so a shadowing `txr_allowed_non_ascii <- c(txr_allowed_non_ascii, 0x2000)`
     # widens what the installer accepts while every cross-check stays green. The Rust side
     # got this check in round 3 and this one did not, which is itself the
     # two-implementations divergence; a blind audit measured it.
-    assert df.count("cyto_allowed_non_ascii <- c(") == 1, (
-        "the recipe assigns `cyto_allowed_non_ascii` more than once. This extractor and its "
+    assert df.count("txr_allowed_non_ascii <- c(") == 1, (
+        "the recipe assigns `txr_allowed_non_ascii` more than once. This extractor and its "
         "Rust twin both read only the FIRST, so a later assignment widens what the installer "
         "allows with every cross-check green."
     )
-    m = re.search(r"cyto_allowed_non_ascii <- c\((.*?)\)", df, re.S)
+    m = re.search(r"txr_allowed_non_ascii <- c\((.*?)\)", df, re.S)
     assert m, "the recipe no longer enumerates the non-ASCII characters it allows"
     # EVERY token must parse, not just the ones that look like `0x…` — a `filter`-shaped
     # extractor drops what it cannot read, and the comparison then passes while R honours a
@@ -1010,7 +1010,7 @@ def test_all_three_readers_allow_the_same_characters():
     r_side = set()
     for tok in r_tokens:
         assert re.fullmatch(r"0x[0-9a-fA-F]+", tok), (
-            f"the recipe's `cyto_allowed_non_ascii` contains {tok!r}, which this extractor "
+            f"the recipe's `txr_allowed_non_ascii` contains {tok!r}, which this extractor "
             "cannot read as `0x<hex>`. It would have been DROPPED and this comparison would "
             "pass while R allowed a character the gate does not."
         )
@@ -1082,7 +1082,7 @@ def test_a_non_canonical_pin_file_is_refused_by_the_python_guards(tmp_path):
 def test_all_three_of_this_modules_grammars_read_the_exported_parse(monkeypatch):
     """TEST-P12 — this module had THREE grammars over the pin file and has none.
 
-    The pin regex `_PIN_RE`, the `cyto:ecosystem` `re.M` search and the `cyto:pin-source`
+    The pin regex `_PIN_RE`, the `txr:ecosystem` `re.M` search and the `txr:pin-source`
     `re.M` findall were three independent opinions about where a line starts, in one file,
     all reading the same bytes as the build gate and none of them checked against it.
 
@@ -1114,7 +1114,7 @@ def test_all_three_of_this_modules_grammars_read_the_exported_parse(monkeypatch)
     # `re.search(..., re.M)` in the consumer and that version stayed green. The probe has to
     # call the consumer, or it proves nothing about the consumer.
     monkeypatch.setattr(env_pins, "ecosystem", lambda *a, **k: "sentinel-ecosystem")
-    with pytest.raises(AssertionError, match="cyto:ecosystem=r"):
+    with pytest.raises(AssertionError, match="txr:ecosystem=r"):
         test_the_r_recipe_declares_the_case_preserving_ecosystem()
     monkeypatch.undo()
 

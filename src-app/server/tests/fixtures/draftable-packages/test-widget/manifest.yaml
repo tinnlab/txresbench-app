@@ -15,7 +15,7 @@
 # `test/widget`, so this package must never register it. Every id is domain-noun-free.
 id: test-widget
 name: Test Widget (freeze fixture)
-publisher: cyto-test
+publisher: txr-test
 version: 0.1.0
 apiVersion: "1.0"
 contributes:

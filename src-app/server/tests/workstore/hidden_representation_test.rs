@@ -14,8 +14,8 @@
 
 use serde_json::Value;
 
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::catalog::ArtifactFilter;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::catalog::ArtifactFilter;
 
 use super::{create_project, new_artifact, pool_for, setup_admin};
 use crate::common::TestServer;

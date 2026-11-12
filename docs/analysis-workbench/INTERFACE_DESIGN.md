@@ -35,7 +35,7 @@ user can reach every parameter. This doc defines that framework; the companion v
    over-integration flags appear as inline advisories — never as blocking modals.
 6. **Nothing is a dead end.** Every result offers **Export** (figure / table / object / script + methods
    text). Every study is **shareable read-only** (reuses the existing study share).
-7. **On-system only.** Built from `@ziee/kit` (shadcn/Tailwind-v4) + shadcn tokens
+7. **On-system only.** Built from `@txresbench/kit` (shadcn/Tailwind-v4) + shadcn tokens
    (`bg-card`/`text-muted-foreground`/`border-border`/`border-primary`) — no invented tokens, no raw hex.
    Plugs into the study shell as `study_nav` sections + `detail_panels` (like `dataset`).
 
@@ -245,6 +245,6 @@ and the study-extension plug-in points (§7) — V2 only changes the shell that 
 **Delivers (interface):** the analysis-plugin framework + registry, the shell (timeline + workspace +
 catalog + progressive disclosure), QC review, a mock Explorer, result cards + export affordances, the
 guided recipe, the gallery coverage + `gate:ui` green — all on mock data.
-**Defers (future rounds):** real upload/`ziee-file`, the kind-typed HDF5 working store + catalog, jobs↔
+**Defers (future rounds):** real upload/`txresbench-file`, the kind-typed HDF5 working store + catalog, jobs↔
 sandbox execution, the scientific rootfs, deck.gl + typed-binary streaming, real statistical methods. The
 descriptor `run()`/`ResultView` contract is the seam those land behind.

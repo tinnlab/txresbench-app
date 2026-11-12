@@ -24,7 +24,7 @@
 //      words, "so viz reads a column's legend ... WITHOUT downloading the column values".
 //      It is bounded at the producer by BOTH a count (50) and a byte budget (1 KiB), and
 //      it rides the row every picker already holds. See {@link declaredValuePreview}.
-//   2. `attributes.cyto.levels` on a dictionary-encoded member — ONE metadata request, no
+//   2. `attributes.txr.levels` on a dictionary-encoded member — ONE metadata request, no
 //      data array. Reached through the port.
 //   3. the first chunk of an inline-utf8 member — one bounded byte-range read. Also the
 //      port.

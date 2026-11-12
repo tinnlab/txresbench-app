@@ -10,7 +10,7 @@
 
 import { Permissions } from '@/api-client/permissions'
 import type { Permission } from './types'
-import { usePermission } from '@ziee/framework/permissions'
+import { usePermission } from '@txresbench/framework/permissions'
 
 /** Every permission string the CURRENT build generated (the enum's VALUES, e.g.
  *  `'admin::accounts'`). Computed once — the enum is a build constant. A

@@ -9,7 +9,7 @@ use axum::{Extension, Json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_core::{ApiResult, AppError};
+use txresbench_core::{ApiResult, AppError};
 
 use crate::modules::permissions::RequirePermissions;
 use crate::modules::project::scope::ProjectScope;

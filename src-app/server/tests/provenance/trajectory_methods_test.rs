@@ -32,7 +32,7 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::extensions::types::ExtensionManifest;
+use txresbench::modules::extensions::types::ExtensionManifest;
 
 use super::{admin_user_id, create_project_with_artifact, pool_for, setup_admin};
 use crate::common::TestServer;
@@ -108,9 +108,9 @@ fn recorded_params() -> Value {
 async fn record_ordering_run(pool: &sqlx::SqlitePool, project_id: Uuid, root_artifact_id: Uuid)
     -> Uuid
 {
-    use cytoanalyst::modules::jobs::models::Job;
-    use cytoanalyst::modules::jobs::seams::{PeakMetrics, RunRecorder};
-    use cytoanalyst::modules::provenance::recorder::ProvenanceRunRecorder;
+    use txresbench::modules::jobs::models::Job;
+    use txresbench::modules::jobs::seams::{PeakMetrics, RunRecorder};
+    use txresbench::modules::provenance::recorder::ProvenanceRunRecorder;
 
     let owner = admin_user_id(pool).await;
     let job = Job {

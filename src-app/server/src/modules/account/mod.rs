@@ -50,7 +50,7 @@ pub mod sync;
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 // The seams downstream epic items (A2/A3/A4/A5) + the billing epic consume.
 pub use extractor::ActiveAccount;
@@ -144,6 +144,6 @@ impl AppModule for AccountModule {
 static ACCOUNT: ModuleEntry = ModuleEntry {
     name: "account",
     order: 23,
-    description: "Accounts + membership (CytoAnalyst tenancy).",
+    description: "Accounts + membership (TxResBench tenancy).",
     constructor: || Box::new(AccountModule),
 };

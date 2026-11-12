@@ -32,13 +32,13 @@ _KERNEL = os.path.join(_PROCESSORS, "cell-filter", "compute", "cell-filter.py")
 
 # The sandbox runner assembles ONE `/code` dir per job: the entry script plus the app's
 # cross-cutting modules — the `_helpers` compute helpers and the `_lib` output-format
-# library (`cyto_columns` / `cyto_zarr`, DEC-7). A compute script therefore says
-# `import cyto_columns` at MODULE SCOPE, so anything that loads it by path has to stage
+# library (`txr_columns` / `txr_zarr`, DEC-7). A compute script therefore says
+# `import txr_columns` at MODULE SCOPE, so anything that loads it by path has to stage
 # the same names or it dies with `ModuleNotFoundError` before the first mask is computed.
 # `src-app/packages/conftest.py` does exactly this for the pytest suites; this script is
 # the one by-path loader that runs OUTSIDE pytest, so it does its own.
 #
-# Not hypothetical: commit 2751dac5 added `import cyto_columns` to cell-filter.py and this
+# Not hypothetical: commit 2751dac5 added `import txr_columns` to cell-filter.py and this
 # reader went dead (`just check-coercion` → exit 2) for the rest of the branch, taking the
 # three-reader parity property with it, while `just check-py` stayed green on conftest's
 # wiring. The failure is LOUD when the gate runs; `just check` runs it.

@@ -22,12 +22,12 @@
 // ITEM-39 removed this file's five widget-CORE cases (`PRIMITIVE 1..4` + "binds all four
 // REGISTERED primitive kinds") and every `controlShapeForType` assertion: the four general
 // dimension primitives are deleted, so there is no builder / control-shape mapping left to
-// drive. The `@ziee/kit` browser boundary is neutralized so the host module imports under
+// drive. The `@txresbench/kit` browser boundary is neutralized so the host module imports under
 // the node runner (mirrors workbenchDataSource.test).
 
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@ziee/kit', () => ({
+vi.mock('@txresbench/kit', () => ({
   message: { info: () => {}, success: () => {}, error: () => {} },
 }))
 

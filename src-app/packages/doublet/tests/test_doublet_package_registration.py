@@ -50,7 +50,7 @@ def test_pytest_ini_registers_the_doublet_suite():
 def test_manifest_has_the_shape_the_processor_lint_accepts():
     doc = yaml.safe_load(_MANIFEST.read_text())
     assert doc["id"] == "doublet"
-    assert doc["publisher"] == "cyto"
+    assert doc["publisher"] == "txr"
     assert doc["apiVersion"] == "1.0"
     # a dotted, non-empty version string — what the seed reconciler compares and what
     # `check-processor-seed-versions.sh` requires to have MOVED when the package's bytes did.
@@ -113,7 +113,7 @@ def test_manifest_has_the_shape_the_processor_lint_accepts():
     # TEST-13, which proves by mutation that declaring one turns the tree red.
     assert not r["run"].get("dependencies"), (
         "the R entry must declare NO `run.dependencies`: the recorder that would enforce "
-        "such a contract (`cyto_deps.py`) is a python helper an R entry never receives, "
+        "such a contract (`txr_deps.py`) is a python helper an R entry never receives, "
         "and `every_dependency_declaring_entry_reaches_the_recorder` refuses a declaration "
         "with no reachable recorder — with no language exemption")
 

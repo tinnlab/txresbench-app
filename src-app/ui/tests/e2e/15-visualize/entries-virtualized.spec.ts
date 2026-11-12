@@ -56,7 +56,7 @@ async function setRegionWidth(page: Page, px: number): Promise<void> {
       blob.prefs = { leftWidth: width, rightWidth: width, bottomHeight: 240 }
       window.localStorage.setItem(key, JSON.stringify(blob))
     },
-    ['cyto.wb.regions', px] as [string, number],
+    ['txr.wb.regions', px] as [string, number],
   )
 }
 

@@ -4,7 +4,7 @@
 //    because its container is on the main window."
 //
 // A pane popped out of the workbench renders into a second window's document (`window.open` →
-// `@ziee/dock`'s `ContainerWindows` portals the pane's React subtree into it). Every kit overlay is
+// `@txresbench/dock`'s `ContainerWindows` portals the pane's React subtree into it). Every kit overlay is
 // portaled by Base UI, which resolved its target as `container ?? parentPortalNode ?? document.body`
 // — with `document` being the AMBIENT global, i.e. the OPENER's. So an overlay opened from inside a
 // popped-out pane was appended to the main window instead: invisible where the user is looking, and

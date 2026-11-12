@@ -11,7 +11,7 @@
 // `window.__workbenchPanes.open('run', <id>)`; `AnalysisRunPanel` refuses to build a rival form
 // in that case and renders a signpost to the analysis' own pane.
 
-import { Empty } from '@ziee/kit'
+import { Empty } from '@txresbench/kit'
 import { useWorkbench } from '../../core/shell/WorkbenchContext'
 import type { BindingOrigin } from '@/modules/workbench/core'
 import { AnalysisRunPanel } from '../analysis/AnalysisRunPanel'

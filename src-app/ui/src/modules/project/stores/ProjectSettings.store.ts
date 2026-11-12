@@ -2,7 +2,7 @@ import { ApiClient } from '@/api-client'
 import { type ProjectSettings as ProjectSettingsRow } from '@/api-client/types'
 import { Permissions } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /**
  * Admin view of the deployment-wide project settings (singleton): the

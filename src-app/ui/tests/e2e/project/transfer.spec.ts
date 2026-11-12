@@ -27,7 +27,7 @@ test('transfer ownership → recipient accepts → ownership moves', async ({ pa
   await page.getByTestId('project-name-input').fill(name)
   await page.getByTestId('project-form-submit').click()
   await runProjectCardAction(page, name, /transfer/i)
-  await page.getByTestId('project-transfer-email').fill(`${dave}@cyto.test`)
+  await page.getByTestId('project-transfer-email').fill(`${dave}@txresbench.test`)
   await page.getByTestId('project-transfer-submit').click()
 
   // Dave accepts the transfer via his notification.

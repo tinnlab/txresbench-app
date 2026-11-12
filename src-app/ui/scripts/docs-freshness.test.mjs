@@ -144,7 +144,7 @@ describe('TEST-43 (ITEM-35) — the SDK change carries its coordination record',
 //   ITEM-13 — `STREAMING_PROGRESSIVE_PLAN.md` planned a `data/arrowStream.ts` Arrow-IPC reader
 //             and gated phase 2.6 on "the backend can serve Arrow columns". That file was never
 //             written and never will be: DEC-4 chose byte-shuffle + gzip precisely so the browser
-//             decodes natively (`_lib/cyto_zarr.py:26-32`), and the producer contract states there
+//             decodes natively (`_lib/txr_zarr.py:26-32`), and the producer contract states there
 //             is "no Arrow IPC on the wire" (`:5-8`). The phantom blocker cost one reader a day.
 //   ITEM-14 — `coordinates.yaml` / `colour-by.yaml` justified per-cell dataset bases by an
 //             identity-space argument that `canvasFeed.ts`'s `sharedCoordinateBase` (`450efed6`)
@@ -221,7 +221,7 @@ describe('TEST-18 (ITEM-13, ITEM-14) — superseded prose does not outlive the c
     } else {
       assert.ok(
         !named,
-        'STREAMING_PROGRESSIVE_PLAN.md still specifies `data/arrowStream.ts`, a file that does not exist — DEC-4 chose shuffle+gzip so the browser decodes natively (_lib/cyto_zarr.py:26-32) and the wire carries no Arrow IPC (:5-8). Leaving the row makes phase 2.6 look blocked on a backend format nobody is going to build (ITEM-13)',
+        'STREAMING_PROGRESSIVE_PLAN.md still specifies `data/arrowStream.ts`, a file that does not exist — DEC-4 chose shuffle+gzip so the browser decodes natively (_lib/txr_zarr.py:26-32) and the wire carries no Arrow IPC (:5-8). Leaving the row makes phase 2.6 look blocked on a backend format nobody is going to build (ITEM-13)',
       )
     }
   })
@@ -290,7 +290,7 @@ describe('TEST-18 (ITEM-13, ITEM-14) — superseded prose does not outlive the c
 // TEST-23's two claims (a stream call is NEVER joined, so two callers get two independent bodies;
 // a non-cloneable joined value hard-fails where it is caused) are proven in the SDK SUBMODULE, at
 // `sdk/packages/framework/src/api-client/stream-response.test.ts`, as SDKSTREAM-3 and SDKSTREAM-5.
-// They run in `@ziee/framework`'s `node:test` tier — that package's vitest config EXCLUDES the
+// They run in `@txresbench/framework`'s `node:test` tier — that package's vitest config EXCLUDES the
 // file, so `npx vitest run <it>` reports "No test files found", which is standing-check 6 arriving
 // from the other side.
 //

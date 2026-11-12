@@ -25,9 +25,9 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::detach_guard::{detach_verdict, DetachVerdict, Reason};
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::detach_guard::{detach_verdict, DetachVerdict, Reason};
 
 /// The datatype the fixture's manifest declares. Named HERE, in a test, rather than in the
 /// guard: the guard selects on the artifact's STRUCTURAL signature precisely so that app code

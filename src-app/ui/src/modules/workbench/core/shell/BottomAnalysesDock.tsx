@@ -26,7 +26,7 @@
 // surfaces sharing the noun was the other half of the confusion.)
 
 import { useMemo, useState } from 'react'
-import { Button, Empty, ScrollArea, SectionHeader, Tabs } from '@ziee/kit'
+import { Button, Empty, ScrollArea, SectionHeader, Tabs } from '@txresbench/kit'
 import { type AnalysisContribution } from '@/modules/workbench/core'
 import { useWhenContext, useWorkbench } from './WorkbenchContext'
 import { placeViews } from './placement'

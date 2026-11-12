@@ -4,7 +4,7 @@ WHAT THIS ASSERTS
 -----------------
 1. `compute/h5ad_import.py` contains no EXECUTABLE reference to the TileDB-SOMA
    library, nor to the two `tiledbsoma.io` entry points that wrote the store.
-2. The replacement is actually wired in (`cyto_csc` + `write_expression_csc`), so
+2. The replacement is actually wired in (`txr_csc` + `write_expression_csc`), so
    the check cannot pass by the script having been emptied.
 3. `manifest.yaml` no longer DECLARES the retired output type, and still declares
    the CSC matrix it does produce.
@@ -90,7 +90,7 @@ def test_the_import_script_has_no_executable_store_library_reference():
     for banned in BANNED:
         assert banned not in code, (
             "`%s` is still executable in %s — ITEM-27 replaced the transpose buffer "
-            "with the streaming counting sort in `cyto_csc`, so any live reference "
+            "with the streaming counting sort in `txr_csc`, so any live reference "
             "means the buffer is back on the critical path"
             % (banned, os.path.basename(_SCRIPT))
         )
@@ -100,8 +100,8 @@ def test_the_streaming_transpose_replacement_is_wired_in():
     # The positive control for the test above: an EMPTIED script would satisfy every
     # absence assertion, so the replacement has to be present for those to mean anything.
     code = _executable_source(_SCRIPT)
-    assert "cyto_csc" in code, (
-        "%s must use the streaming transpose (`cyto_csc`) it was moved to"
+    assert "txr_csc" in code, (
+        "%s must use the streaming transpose (`txr_csc`) it was moved to"
         % os.path.basename(_SCRIPT)
     )
     assert "def write_expression_csc" in code, (

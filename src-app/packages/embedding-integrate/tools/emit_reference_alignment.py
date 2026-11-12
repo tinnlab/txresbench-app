@@ -18,7 +18,7 @@ producer emits segments over N datasets, every test on both sides passed, and no
 put one side's output in front of the other's input.
 
 So this script does NOT construct an artifact. It stages two real source datasets with the
-real `cyto_zarr.Table` writer, then **invokes `compute/embedding_integrate.py` as a
+real `txr_zarr.Table` writer, then **invokes `compute/embedding_integrate.py` as a
 subprocess**, exactly as the sandbox runner does. What lands in `<output-dir>` is whatever
 the producer actually writes today; if the producer changes, this changes with it, and a
 consumer pinned to the old shape goes red — which is the point.
@@ -154,7 +154,7 @@ def stage(inputs_dir, sources):
     `{slot, kind, content_hash, sandbox_path}` (`InputsJsonEntry`, `inputs.rs:63-69`) —
     there is no `dataset_id` field on the wire, and an earlier version invented one.
 
-    **ONE ARTIFACT PER COLUMN**, written through `cyto_columns.write_metadata_column` — the
+    **ONE ARTIFACT PER COLUMN**, written through `txr_columns.write_metadata_column` — the
     function INGEST uses. A real `metadata-column` store has a single member always called
     `values` and carries its display name nowhere, so the grid's coordinates ride the SLOT
     NAMES (`entity:<i>:<col>`, `level:<i>:<col>`); `rows` is one ordinary slot with one
@@ -170,7 +170,7 @@ def stage(inputs_dir, sources):
     Returns `(index, dataset_ids, content_hashes)` for the caller's params.
     """
     sys.path[:0] = [str(PACKAGES / "_lib"), str(PACKAGES / "_helpers")]
-    import cyto_columns
+    import txr_columns
     import pandas as pd
 
     index, used = {"inputs": []}, set()
@@ -187,7 +187,7 @@ def stage(inputs_dir, sources):
                 n += 1
             mount = f"{stem}_{n}.zarr"
         used.add(mount)
-        cyto_columns.write_metadata_column(
+        txr_columns.write_metadata_column(
             inputs_dir, mount, name, pd.Series(series), axis=axis,
             holds_axis_keys=holds_axis_keys, aligned_to=aligned_to)
         index["inputs"].append({
@@ -207,7 +207,7 @@ def stage(inputs_dir, sources):
 
     for position, (dataset_id, spec) in enumerate(sources):
         dataset_ids.append(dataset_id)
-        entity_digest = cyto_columns.axis_key_digest(pd.Series(spec["codes"]))
+        entity_digest = txr_columns.axis_key_digest(pd.Series(spec["codes"]))
         bind(f"entity:{position}:code", "code", spec["codes"], axis="entities",
              holds_axis_keys=True, content_hash=f"sha256:{dataset_id}-code")
         if spec.get("alias") is not None:
@@ -218,7 +218,7 @@ def stage(inputs_dir, sources):
         bind("rows", "row_key", spec["rows"], axis="rows", holds_axis_keys=True,
              content_hash=rows_hash)
         hashes[dataset_id] = rows_hash
-        row_digest = cyto_columns.axis_key_digest(pd.Series(spec["rows"]))
+        row_digest = txr_columns.axis_key_digest(pd.Series(spec["rows"]))
         # `dtype="category"` so the levels are stored SORTED (pandas' own order), which is
         # what makes the declared code space differ from observation order — the property
         # `--preflight`'s exit-3 self-check verifies rather than assumes.
@@ -275,8 +275,8 @@ def main():
     (inputs / "params.json").write_text(json.dumps(params, indent=2))
 
     env = dict(os.environ)
-    env["CYTO_INPUTS_DIR"] = str(inputs)
-    env["CYTO_OUTPUTS_DIR"] = str(outputs)
+    env["TXR_INPUTS_DIR"] = str(inputs)
+    env["TXR_OUTPUTS_DIR"] = str(outputs)
     env["PYTHONPATH"] = os.pathsep.join([
         str(PACKAGES / "_helpers"), str(PACKAGES / "_lib"), env.get("PYTHONPATH", "")
     ])
@@ -307,8 +307,8 @@ def main():
         (pf_in / "params.json").write_text(json.dumps(
             {"dataset_ids": pf_ids, "dataset_content_hashes": pf_hashes}, indent=2))
         pf_env = dict(env)
-        pf_env["CYTO_INPUTS_DIR"] = str(pf_in)
-        pf_env["CYTO_OUTPUTS_DIR"] = str(pf_out)
+        pf_env["TXR_INPUTS_DIR"] = str(pf_in)
+        pf_env["TXR_OUTPUTS_DIR"] = str(pf_out)
         pf_env["PYTHONPATH"] = os.pathsep.join(
             [str(HERE.parent / "compute"), pf_env["PYTHONPATH"]]
         )
@@ -331,7 +331,7 @@ def main():
         # SELF-CHECK: an authority artifact must actually EXERCISE the absence code, or it
         # is a reference for a contract value it cannot carry.
         sys.path[:0] = [str(PACKAGES / "_lib")]
-        import cyto_zarr_read as _r
+        import txr_zarr_read as _r
 
         root = outputs / "alignment.zarr"
         # SINCE C4 the absence code is the vocabulary's DECLARED absence label, not `-1`.
@@ -339,7 +339,7 @@ def main():
         # absence path — and changed what it looks for. Looking for a negative code would
         # now be looking for a value the producer can no longer emit, which is a self-check
         # that can never pass rather than one that guards anything.
-        attrs = json.loads((root / "zarr.json").read_text())["attributes"]["cyto_alignment"]
+        attrs = json.loads((root / "zarr.json").read_text())["attributes"]["txr_alignment"]
         missing = {c: lv for c, lv in attrs["missing_levels"].items() if lv is not None}
         if not missing:
             sys.stderr.write(
@@ -380,11 +380,11 @@ def main():
 
     if not args.agreeing:
         sys.path[:0] = [str(PACKAGES / "_lib")]
-        import cyto_zarr_read
+        import txr_zarr_read
 
         root = outputs / "alignment.zarr"
-        order = cyto_zarr_read.read_array(root, "segment_order").tolist()
-        start = cyto_zarr_read.read_array(root, "segment_start").tolist()
+        order = txr_zarr_read.read_array(root, "segment_order").tolist()
+        start = txr_zarr_read.read_array(root, "segment_start").tolist()
         if order == sorted(order) or start == sorted(start):
             sys.stderr.write(
                 f"emitted a reference artifact whose segment_order={order} and "
@@ -405,18 +405,18 @@ def main():
     # artifact cannot demonstrate it. Derived from the STORE, not from `SOURCES`, so it
     # cannot be satisfied by a list that no longer describes what was written.
     sys.path[:0] = [str(PACKAGES / "_lib")]
-    import cyto_zarr_read as _rr
+    import txr_zarr_read as _rr
 
     declared = json.loads(
         (outputs / "alignment.zarr" / "zarr.json").read_text()
-    )["attributes"]["cyto_alignment"]["unified_levels"]
+    )["attributes"]["txr_alignment"]["unified_levels"]
     staged_orders = []
     for entry in json.loads((inputs / "inputs.json").read_text())["inputs"]:
         if not entry["slot"].startswith("level:"):
             continue
         store = inputs / Path(entry["sandbox_path"]).name
         staged_orders.append(
-            list(_rr.read_meta(store, "values")["attributes"]["cyto"]["levels"])
+            list(_rr.read_meta(store, "values")["attributes"]["txr"]["levels"])
         )
     if not staged_orders:
         sys.stderr.write("no `level:` binding was staged — nothing declares a code space.\n")

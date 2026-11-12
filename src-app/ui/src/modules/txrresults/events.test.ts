@@ -22,8 +22,8 @@ import { afterEach, beforeEach, describe, expect, expectTypeOf, it } from 'vites
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { useEventBusStore } from '@ziee/framework/events'
-import type { AppEvents, BaseEvent } from '@ziee/framework/events'
+import { useEventBusStore } from '@txresbench/framework/events'
+import type { AppEvents, BaseEvent } from '@txresbench/framework/events'
 import { emitSaveModels, emitSaveOneModel } from './events'
 
 const MODULE_DIR = fileURLToPath(new URL('.', import.meta.url))

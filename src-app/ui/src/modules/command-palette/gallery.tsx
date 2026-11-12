@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import type { ModuleGallery } from '@ziee/gallery'
+import type { ModuleGallery } from '@txresbench/gallery'
 import { CommandPalette } from './CommandPalette'
 import { closeCommandPalette, openCommandPalette } from './paletteState'
 

@@ -1,7 +1,7 @@
 //! `job_settings` singleton persistence (concurrency cap + reserved interactive
 //! slots).
 //!
-//! Mirrors ziee-auth's `SessionSettingsRepository`: a single `id = TRUE` row,
+//! Mirrors txresbench-auth's `SessionSettingsRepository`: a single `id = TRUE` row,
 //! partial COALESCE update, read-at-use (the scheduler reads it every tick, with
 //! a safe fallback on DB error so the hot path never breaks). Compile-time
 //! `query_as!` macros (SDK gap G4 resolved).
@@ -17,7 +17,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::models::{JobSettings, UpdateJobSettingsRequest};
 use super::scheduler::ReaperLimits;

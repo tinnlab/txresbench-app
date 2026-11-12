@@ -40,7 +40,7 @@ import { expect, type APIRequestContext, type Page } from '@playwright/test'
 
 export const OWNER = {
   username: 'e2eadmin',
-  email: 'e2e@cyto.test',
+  email: 'e2e@txresbench.test',
   password: 'e2ePassw0rd!',
 }
 
@@ -114,7 +114,7 @@ export async function ownerApiToken(request: APIRequestContext): Promise<string>
 
 /**
  * Wait for + return the persisted access token — the same one
- * `@ziee/framework/api-client`'s `getAuthToken()` reads (`Auth.store.ts`).
+ * `@txresbench/framework/api-client`'s `getAuthToken()` reads (`Auth.store.ts`).
  *
  * NOTE the `undefined` second argument. `waitForFunction(pageFunction, arg,
  * options)`: passing the options object second makes it the page function's

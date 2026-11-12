@@ -4,14 +4,14 @@
 
 use super::*;
 
-use cytoanalyst::modules::workstore::object_store::sha256_hex;
+use txresbench::modules::workstore::object_store::sha256_hex;
 
 #[tokio::test]
 async fn dataset_upload_records_a_hashed_upload_root() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
 
-    // Create the dataset then upload a matrix blob (the real ziee-file path).
+    // Create the dataset then upload a matrix blob (the real txresbench-file path).
     let ds: Value = server
         .client
         .post(server.api_url("/datasets"))

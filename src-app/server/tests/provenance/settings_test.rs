@@ -192,13 +192,13 @@ async fn db_check_rejects_out_of_range_gc_values() {
     assert!(bad_cap_hi.is_err(), "DB CHECK rejects an over-ceiling cap");
 }
 
-// TEST-14 [acceptance][INV-1] — the legacy CYTO_ROOTFS_CACHE_MAX_DIGESTS env var is a boot
+// TEST-14 [acceptance][INV-1] — the legacy TXR_ROOTFS_CACHE_MAX_DIGESTS env var is a boot
 // SEED, not a read-time override: it seeds the cap only while the row has never been
 // admin-modified, and an admin PUT supersedes it for good — so an admin change to the cap is
 // never silently inert (the phase-6 medium finding).
 #[tokio::test]
 async fn env_seed_seeds_only_until_an_admin_put() {
-    use cytoanalyst::modules::provenance::settings::ProvenanceSettingsRepository;
+    use txresbench::modules::provenance::settings::ProvenanceSettingsRepository;
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;

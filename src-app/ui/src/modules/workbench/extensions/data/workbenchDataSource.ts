@@ -1,6 +1,6 @@
 // workbenchDataSource.ts — ITEM-66: the project `DataSource` (the single
-// viz-integration seam). Implements `@ziee/viz`'s domain-agnostic `DataSource`
-// (`viz/src/viz-core/data/wire.ts`) over the CytoAnalyst project data plane (the P1
+// viz-integration seam). Implements `@txresbench/viz`'s domain-agnostic `DataSource`
+// (`viz/src/viz-core/data/wire.ts`) over the TxResBench project data plane (the P1
 // workstore artifact catalog + the raw-bytes octet endpoints reachable through
 // `@/core/workstore`). It is the real-data source ITEM-56 will bind the canvas
 // `GridWorkspace` to, AND the coordinate provider that fixes `createHost`'s
@@ -33,7 +33,7 @@
 // Selection and decoded Arrow-IPC; `positions`/`continuous` fetched a whole raw-f32 blob
 // and refused outright (`NotReachableError`) if the artifact was multi-file. That refusal
 // is why this seam had to move rather than merely being tidied: the producers now emit
-// Zarr DIRECTORIES (`cyto_columns.write_embedding` / `write_metadata_column`), so
+// Zarr DIRECTORIES (`txr_columns.write_embedding` / `write_metadata_column`), so
 // `is_multifile` is true for every embedding and every metadata column, and the old
 // `positions()` threw on all of them.
 //
@@ -71,8 +71,8 @@ import {
 //
 // #159 adds `OmeTiffPyramid`, which the barrel DOES export (it is the reader's own public
 // result type) — still type-only, so the runtime import of the reader stays where it
-// belongs, behind the dynamic `import('@ziee/viz')` in `defaultDeps`.
-import type { DataSource, DatasetCatalog, OmeTiffPyramid } from '@ziee/viz'
+// belongs, behind the dynamic `import('@txresbench/viz')` in `defaultDeps`.
+import type { DataSource, DatasetCatalog, OmeTiffPyramid } from '@txresbench/viz'
 import {
   axisAmbiguousMessage,
   resolveAxisLabel,
@@ -129,7 +129,7 @@ export interface DataPlaneArtifact {
    *  verbatim by the server, which never interprets it).
    *
    *  Read here for ONE thing: `meta.name`, the producer's own name for a WHOLE-ARTIFACT
-   *  column. `structure` cannot supply it — `cyto_columns.write_metadata_column` writes
+   *  column. `structure` cannot supply it — `txr_columns.write_metadata_column` writes
    *  every such column as a one-member table whose member path is the constant
    *  `"values"` — identical for every column in the project — and puts the column's real
    *  name in `meta`. That name is the key
@@ -570,7 +570,7 @@ function defaultDeps(): WorkbenchDataSourceDeps {
     // main bundle for every project that has no raster — which is almost all of them. The same
     // shape the workstore's own pyramid seam uses.
     openPyramid: async (artifactId, byteLength) => {
-      const { loadOmeTiffPyramid } = await import('@ziee/viz')
+      const { loadOmeTiffPyramid } = await import('@txresbench/viz')
       return loadOmeTiffPyramid(artifactByteRangeSource(artifactId, byteLength))
     },
     fetchArtifactBytes: id => fetchArtifactRange(id),
@@ -620,7 +620,7 @@ function labelFor(a: DataPlaneArtifact): string {
  * The producer's DECLARED name for a WHOLE-ARTIFACT column (`meta.name`), or `undefined`
  * when it declared none.
  *
- * `structure` cannot answer this. `cyto_columns.write_metadata_column` writes each such
+ * `structure` cannot answer this. `txr_columns.write_metadata_column` writes each such
  * column as a one-member table whose member path is the constant `"values"` — identical
  * for every column in the project — and returns the real name on the `meta` half of the
  * pair. So `meta.name` is the ONLY place the name exists, and it is a producer
@@ -1038,11 +1038,11 @@ export class WorkbenchDataSource implements DataSource {
    * Two declaration shapes, one per producer entry point:
    *
    *   `table`      → the SINGULAR `axis`. Every member of a table shares ONE axis by
-   *                  construction — `cyto_zarr.Table(root, axis=…)` stamps the group's
+   *                  construction — `txr_zarr.Table(root, axis=…)` stamps the group's
    *                  `axis` and each member entry's from the same `self.axis` — so the
    *                  table-level key is the whole answer and a per-member one would be a
    *                  second copy of it.
-   *   `sparse_csc` → `axes[0]`, the ROW axis (`cyto_csc.write_csc_zarr(axes=(row, col))`
+   *   `sparse_csc` → `axes[0]`, the ROW axis (`txr_csc.write_csc_zarr(axes=(row, col))`
    *                  — an import declares the two axes its matrix spans). A value column
    *                  is ONE column's values ACROSS the row entries — column `j`'s
    *                  non-zeros are ROW indices, spanned by `indptr[j]..indptr[j+1]`, so
@@ -1401,7 +1401,7 @@ export class WorkbenchDataSource implements DataSource {
     //
     // ITEM-7: which artifacts are sparse, and how many columns each has, are both read
     // off the producer's declaration — `kind: "sparse_csc"` and its `shape: [rows, cols]`
-    // (`cyto_csc.write_csc_zarr`). Previously `storage_layout === 'chunked-sparse'` plus
+    // (`txr_csc.write_csc_zarr`). Previously `storage_layout === 'chunked-sparse'` plus
     // `shape.cols`, two columns that a producer could set inconsistently with the bytes.
     const valueColumns: string[] = []
     for (const a of arts) {
@@ -1503,7 +1503,7 @@ export class WorkbenchDataSource implements DataSource {
       const raster = await this.resolveRaster()
       if (raster) {
         openedRaster = true
-        const { omeTiffUnderlayMeta } = await import('@ziee/viz')
+        const { omeTiffUnderlayMeta } = await import('@txresbench/viz')
         image = omeTiffUnderlayMeta(raster.pyramid, raster.toSpace, raster.space)
       }
     } catch (e) {
@@ -1857,7 +1857,7 @@ export class WorkbenchDataSource implements DataSource {
   async imageUnderlay(): Promise<ImageUnderlay> {
     const raster = await this.resolveRaster()
     if (!raster) throw new NotReachableError('image underlay')
-    const { omeTiffUnderlay } = await import('@ziee/viz')
+    const { omeTiffUnderlay } = await import('@txresbench/viz')
     return omeTiffUnderlay(raster.pyramid, raster.toSpace)
   }
 
@@ -1894,14 +1894,14 @@ export class WorkbenchDataSource implements DataSource {
 }
 
 // DEV-only testability seam: expose a project-bound `WorkbenchDataSource` on
-// `window.__cyto_ds` so an e2e can drive the REAL catalog→select flow (the exact path
+// `window.__txr_ds` so an e2e can drive the REAL catalog→select flow (the exact path
 // the color-by picker uses: `catalog()` → a composite value/categorical key →
 // `valueColumn()`/`categorical()`) against the running backend with NO route mocking —
 // proving the composite-key threading (H2) + the ingest column-catalog (M6) end-to-end,
-// not via the low-level `__cyto_read` decoder shortcut. Gated so it is tree-shaken out of
+// not via the low-level `__txr_read` decoder shortcut. Gated so it is tree-shaken out of
 // a real release (present under the Vite dev server AND the e2e preview build, which sets
 // `VITE_ENABLE_TEST_SEAMS=1`; a shipped release sets neither).
 if ((import.meta.env.DEV || import.meta.env.VITE_ENABLE_TEST_SEAMS) && typeof window !== 'undefined') {
-  ;(window as unknown as { __cyto_ds?: unknown }).__cyto_ds = (projectId: string) =>
+  ;(window as unknown as { __txr_ds?: unknown }).__txr_ds = (projectId: string) =>
     new WorkbenchDataSource(projectId)
 }

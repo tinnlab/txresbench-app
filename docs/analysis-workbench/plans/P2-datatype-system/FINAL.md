@@ -18,7 +18,7 @@ every cross-part seam open, build only the near-term local slice.
 and `artifacts.layout` — registry, subtype-check, schema validation, layout→reader dispatch, sniff/convert,
 viewer dispatch — all keyed off a P1-owned `artifacts` catalog row. Grounded in `DATA_MODEL.md`,
 `PLATFORM_ARCHITECTURE.md §1/§4.2/§5/§5.5`, `docs/DATA_STORAGE_REDESIGN.md`, `BUILD_PLAN.md` Phase 0/1, and the
-actual code at main `63520fb` (`modules/dataset`, `modules/study`, `modules/analysis`, `sdk/crates/ziee-file`,
+actual code at main `63520fb` (`modules/dataset`, `modules/study`, `modules/analysis`, `sdk/crates/txresbench-file`,
 viz `viz-core/{grid,data/wire.ts}`).
 
 ---
@@ -151,7 +151,7 @@ viz `viz-core/{grid,data/wire.ts}`).
   `datatype: single-cell/anndata` or `file/*` pre-ingest). **P1 owns that migration + data migration**; P2 gives
   the rows their type meaning (sniff/validate). Keep the module's FE surface/routes and the
   `dataset/study_extension` `on_study_deleted` cascade seam intact (reframe the model underneath it).
-- **ITEM-25 — P5 handoff.** When `@cyto/workbench-api` is extracted, re-export ITEM-1's type contract as the
+- **ITEM-25 — P5 handoff.** When `@txresbench/workbench-api` is extracted, re-export ITEM-1's type contract as the
   `datatypes` contribution point (alongside `analyses`/`plotTypes`); **no logic moves** — it already lives in
   `core/`. No block on P5.
 - **ITEM-26 — Tests (unit + parity + integration).** Enumerated in the test section below; the exit-condition
@@ -207,13 +207,13 @@ extraction unmoved):**
 - **`dataset/mod.rs` `MODULE_ENTRIES`** — the `AppModule` boilerplate for `DatatypeModule`.
 - **`modules/analysis/registry.ts` `AnalysisRegistry` singleton** — same shape → the TS `DatatypeRegistry`; its
   `Kind` union is the closed vocab being generalized.
-- **ziee `web_search` `catalog()`** — set-in-code registry with only per-instance config in DB → the no-table
+- **txresbench `web_search` `catalog()`** — set-in-code registry with only per-instance config in DB → the no-table
   registry model (DEC-2).
 - **viz `viz-core/data/wire.ts` `DataSource`/`DatasetCatalog`/`ColumnKind`** typed-binary framing → `dataSource.ts`
   client data plane (ITEM-11); it already targets real `GET /datasets/{id}/…` octet endpoints.
 - **viz `viz-core/grid/{gridModel.ts,CellView.tsx}`** closed `CellKind` union + exhaustive switch → P7's
   `registerViewKind`; P2's `ViewerRef` contract is what feeds that registry.
-- **`sdk/crates/ziee-file` (`ingest.rs`, `FilesystemStorage`)** — the physical blob backing P2 sniffs/converts
+- **`sdk/crates/txresbench-file` (`ingest.rs`, `FilesystemStorage`)** — the physical blob backing P2 sniffs/converts
   into (P1 owns the store; P2 references it).
 - **`dataset/{models,repository,routes}.rs`** — CRUD/aide scaffolding template + the sqlx compile-time `query_as!`
   discipline (+ the `timestamptz as "c: DateTime<Utc>"` override gotcha) for typed catalog reads.
@@ -232,7 +232,7 @@ extraction unmoved):**
 - **P1 (data-foundation) — HARD.** Owns the `artifacts` table + blob store + authed byte-Range endpoint + the
   ingest seam that calls P2 `validate`/`sniff`, AND the `datasets→artifacts` cutover migration. P2 is a semantic
   layer *over* P1. **P2 can be authored in parallel** (ITEM-1/2/3/4/5/6/7/8/19 have no P1 dep); ITEM-12/13/14/
-  20/21/22/24 integrate with P1's table+ingest. **P1 must add CAS/content-hash keying** (`ziee-file` is today
+  20/21/22/24 integrate with P1's table+ingest. **P1 must add CAS/content-hash keying** (`txresbench-file` is today
   UUID-pathed per-user with a `checksum` column but no content-addressing) that ITEM-14's `content_hash` assumes.
 - **P3 (compute) — SOFT (common-path).** Sandbox converters (ITEM-18) + the multi-output `/outputs` manifest
   (ITEM-15) — P2 **imports P3's canonical `OutputsManifest`/`OutputEntry`** (A1) and consumes its `datatype`/
@@ -271,7 +271,7 @@ extraction unmoved):**
    single-output path working meanwhile).
 8. **ITEM-9** `LayoutSlicer` seam stays a trait (no impl near-term).
 9. **ITEM-24** dataset→source-artifact reframe (after the artifact model is stable; P1 owns the migration).
-10. **ITEM-25** P5 handoff when `@cyto/workbench-api` is extracted (no logic moves).
+10. **ITEM-25** P5 handoff when `@txresbench/workbench-api` is extracted (no logic moves).
 11. **ITEM-26** integration/parity/FE tests last.
 
 Steps 1–4 are fully parallel to P1; steps 5+ gate on P1's table + P10's auth.
@@ -294,10 +294,10 @@ Steps 1–4 are fully parallel to P1; steps 5+ gate on P1's table + P10's auth.
   re-closes the Galaxy model — **P2 ships a test asserting P1 didn't** (ITEM-23/R2). Stale rows referencing an
   uninstalled-extension datatype degrade to a generic "unknown datatype" card (fail-soft, mirror
   `memory_admin_settings.enabled`), never crash.
-- **DEC-3 — The registry lives in P2 core; P5's `@cyto/workbench-api` CONSUMES it.** Registry logic + seed
+- **DEC-3 — The registry lives in P2 core; P5's `@txresbench/workbench-api` CONSUMES it.** Registry logic + seed
   lattice + validation/dispatch = P2, in both languages, near-term resident in app **core**
   (`server/src/modules/datatype/` + `ui/src/core/datatypes/` — deliberately `core/`, not a feature `modules/`,
-  so it survives the P5 extraction unmoved). When P5 extracts `@cyto/workbench-api`, it re-exports P2's contract
+  so it survives the P5 extraction unmoved). When P5 extracts `@txresbench/workbench-api`, it re-exports P2's contract
   as the `datatypes` contribution point. No hard block on P5.
 - **DEC-4 — Layouts keyed on LAYOUT, not domain.** `{ChunkedDense, ChunkedSparse{CSC|CSR}, ColumnarTable,
   Chunked1d, OpaqueAsIs}` — the Zarr/TileDB/Arrow model. A new **datatype** is a registry entry (no core change);
@@ -343,7 +343,7 @@ Steps 1–4 are fully parallel to P1; steps 5+ gate on P1's table + P10's auth.
   decouples the vertical slice; sequence sandbox conversion (ITEM-18) + multi-output (ITEM-15) late.
 - **R4 — Viewer-dispatch double-ownership with P7** → DEC-7 joint `ViewerRef`/`consumes` contract, agreed before
   P7's switch→registry refactor.
-- **R5 — `@cyto/workbench-api` absent (P5)** → DEC-3 ship in `core/`, extract later; no block.
+- **R5 — `@txresbench/workbench-api` absent (P5)** → DEC-3 ship in `core/`, extract later; no block.
 - **R6 — Rust Zarr/Parquet tooling maturity** → mitigated: serving is byte-Range only (no Rust codec); writes in
   Python/sandbox; DEC-6b keeps the host codec-free.
 - **R7 — Over-building Tier-2 slicers** → ship only the client zarrita path near-term (ITEM-11); the

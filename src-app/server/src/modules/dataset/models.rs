@@ -1,6 +1,6 @@
 //! Dataset wire + DB types (the owner-corrected entity, DESIGN §5).
 //!
-//! A **Dataset** is one-or-many files in the ziee-file store — owner-scoped,
+//! A **Dataset** is one-or-many files in the txresbench-file store — owner-scoped,
 //! shareable, attachable to many projects — with type-dependent `metadata` (a
 //! JSONB bag the pipeline fills) and NO domain counts. The files live in
 //! `dataset_files`; the merkle `content_hash` over those files is the provenance
@@ -17,7 +17,7 @@ use uuid::Uuid;
 pub struct Dataset {
     pub id: Uuid,
     pub name: String,
-    /// The owning user (ziee-file-style ownership). Visibility = owner ∪ sharees.
+    /// The owning user (txresbench-file-style ownership). Visibility = owner ∪ sharees.
     pub owner_id: Uuid,
     /// The account this dataset belongs to (A2 ownership key). `owner_id` is
     /// retained alongside; authz still runs on `owner_id` until A3 flips it.

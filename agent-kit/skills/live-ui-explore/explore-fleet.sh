@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # explore-fleet.sh — run N explorers concurrently against ONE stack.
 #
-# Why: coverage is rate-limited, not ceiling-limited. Measured on ziee, 231 of
+# Why: coverage is rate-limited, not ceiling-limited. Measured on txresbench, 231 of
 # the 267 untouched endpoints were plausibly UI-reachable, at ~0.25 new endpoints
 # per ~168s cycle — about 43 hours of single-explorer runtime, and the rate
 # decays. A single explorer is one browser taking one action at a time; nothing
@@ -33,13 +33,13 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-STATE=${STATE:-/data/pbya/ziee/tmp/live-ui-explore}
-RIG=${RIG:-/data/pbya/ziee/tmp/live-rig-wt}
+STATE=${STATE:-/data/pbya/txresbench/tmp/live-ui-explore}
+RIG=${RIG:-/data/pbya/txresbench/tmp/live-rig-wt}
 BASE=${EXPLORE_URL:-http://127.0.0.1:1520}
 SKILL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IDENTITY=${IDENTITY_FILE:-$STATE/admin-identity.txt}
-PG=${PG_CONTAINER:-ziee-showcase-pg}
-DB=${DB_NAME:-ziee_rig}
+PG=${PG_CONTAINER:-txresbench-showcase-pg}
+DB=${DB_NAME:-txresbench_rig}
 USER_=${RIG_USER:-admin}
 PASS=${RIG_PASS:-password123}
 
@@ -103,7 +103,7 @@ worker() {
     # Concrete routes the app declares, so the explorer can be told which whole
     # SCREENS it has never opened — the constraint that actually gated coverage.
     local routes=""
-    [ -s /data/pbya/ziee/tmp/declared-routes.txt ] && routes=$(cat /data/pbya/ziee/tmp/declared-routes.txt)
+    [ -s /data/pbya/txresbench/tmp/declared-routes.txt ] && routes=$(cat /data/pbya/txresbench/tmp/declared-routes.txt)
     ( cd "$RIG/src-app/ui" && timeout 3600 node "$SKILL/explore.mjs" \
         --url="$BASE" --user="$user_" --password="$PASS" \
         --unvisited-routes="$routes" \

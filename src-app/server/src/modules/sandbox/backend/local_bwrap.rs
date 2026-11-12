@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use sqlx::SqlitePool;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::{
     backend_unavailable, BackendAvailability, ComputeBackend, ComputeSpec, LaunchedCompute,
@@ -93,7 +93,7 @@ impl ComputeBackend for LocalBwrapBackend {
             .ok_or_else(|| {
                 backend_unavailable(
                     "no sandbox env image declared: this job declares no `env`, no installed \
-                     processor manifest declares one, and CYTO_SANDBOX_ENV_ID is unset",
+                     processor manifest declares one, and TXR_SANDBOX_ENV_ID is unset",
                 )
             })?;
         // CLEAR any sidecar a PREVIOUS attempt at this job left, BEFORE trying to
@@ -209,7 +209,7 @@ impl BackendRegistry {
     }
 
     /// The LOCAL bwrap backend, regardless of resource class. Used by the in-pod one-shot
-    /// executor (`cytoanalyst run-job`): a heavy-class pod is ALREADY placed on its
+    /// executor (`txresbench run-job`): a heavy-class pod is ALREADY placed on its
     /// GPU/highmem node by the job-per-run pod scheduler, so it runs bwrap LOCALLY in-pod —
     /// it must NOT re-select the remote `KubernetesBackend` (which would recursively mint
     /// another pod). This is the one place the class→backend mapping is deliberately bypassed.

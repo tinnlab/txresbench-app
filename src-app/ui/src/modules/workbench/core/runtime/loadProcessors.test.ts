@@ -66,7 +66,7 @@ function viewSpec(id: string): ViewSpec {
 }
 
 function pkg(over: Partial<ProcessorPackage> & { id?: string; uiPaths?: string[] } = {}): ProcessorPackage {
-  const id = over.id ?? 'cyto.demo'
+  const id = over.id ?? 'txr.demo'
   return {
     manifest: over.manifest ?? {
       id,
@@ -86,9 +86,9 @@ beforeEach(() => {
 
 describe('processorAnalysisToContribution (ITEM-23)', () => {
   it('projects DATA → a live AnalysisContribution, filling extensionId + apiVersion', () => {
-    const c = processorAnalysisToContribution(ANALYSIS_DATA, 'cyto.demo')
+    const c = processorAnalysisToContribution(ANALYSIS_DATA, 'txr.demo')
     expect(c.id).toBe('demo.metric')
-    expect(c.extensionId).toBe('cyto.demo')
+    expect(c.extensionId).toBe('txr.demo')
     expect(c.apiVersion).toBe(WORKBENCH_API_VERSION)
     expect(c.category).toBe('qc')
     expect(c.produces).toEqual(['metadata-column'])
@@ -97,7 +97,7 @@ describe('processorAnalysisToContribution (ITEM-23)', () => {
   })
 
   it('wraps a methodsText TEMPLATE STRING into an interpolating fn (INV-1: no shipped closure)', () => {
-    const c = processorAnalysisToContribution(ANALYSIS_DATA, 'cyto.demo')
+    const c = processorAnalysisToContribution(ANALYSIS_DATA, 'txr.demo')
     expect(typeof c.methodsText).toBe('function')
     expect(c.methodsText?.({ name: 'mito' })).toBe('Computed mito on the matrix.')
   })
@@ -122,18 +122,18 @@ describe('processorAnalysisToContribution (ITEM-23)', () => {
     ['schedule.resources', { schedule: { class: 'normal', resources: { cpu: 4 } } }],
   ])('REFUSES a manifest still declaring the removed key %s', (key, extra) => {
     const data = { ...ANALYSIS_DATA, ...extra } as unknown as ProcessorAnalysisData
-    expect(() => processorAnalysisToContribution(data, 'cyto.demo')).toThrowError(
+    expect(() => processorAnalysisToContribution(data, 'txr.demo')).toThrowError(
       new RegExp(`removed key .*${key.replace('.', '\\.')}`),
     )
   })
 
   it('accepts a manifest carrying NONE of them (the positive control)', () => {
-    expect(() => processorAnalysisToContribution(ANALYSIS_DATA, 'cyto.demo')).not.toThrow()
+    expect(() => processorAnalysisToContribution(ANALYSIS_DATA, 'txr.demo')).not.toThrow()
   })
 
   it('omits methodsText when the DATA carries none', () => {
     const { methodsText: _m, ...noText } = ANALYSIS_DATA
-    const c = processorAnalysisToContribution(noText as ProcessorAnalysisData, 'cyto.demo')
+    const c = processorAnalysisToContribution(noText as ProcessorAnalysisData, 'txr.demo')
     expect(c.methodsText).toBeUndefined()
   })
 
@@ -159,7 +159,7 @@ describe('registerProcessorPackage (ITEM-3/23)', () => {
   it('registers a ui/*.yaml view_spec via registerDeclarativeViews (actions into defineAction)', () => {
     const { registry, views } = mockRegistry()
     const res = registerProcessorPackage(
-      pkg({ id: 'cyto.demo1', views: { 'ui/v1.yaml': viewSpec('demo/v1') }, uiPaths: ['ui/v1.yaml'] }),
+      pkg({ id: 'txr.demo1', views: { 'ui/v1.yaml': viewSpec('demo/v1') }, uiPaths: ['ui/v1.yaml'] }),
       registry,
     )
     expect(res.errors).toEqual([])
@@ -176,7 +176,7 @@ describe('registerProcessorPackage (ITEM-3/23)', () => {
     const { registry, analyses } = mockRegistry()
     const bad = { id: 'demo/bad', title: 'x', permission: 'jobs::use', state: {}, widgets: [{ kind: 'not-a-kind' }], actions: [] }
     const res = registerProcessorPackage(
-      pkg({ id: 'cyto.demo2', views: { 'ui/bad.yaml': bad }, uiPaths: ['ui/bad.yaml'] }),
+      pkg({ id: 'txr.demo2', views: { 'ui/bad.yaml': bad }, uiPaths: ['ui/bad.yaml'] }),
       registry,
     )
     // the analysis still registered; the bad view is an error, not a throw.
@@ -197,7 +197,7 @@ describe('registerProcessorPackage (ITEM-3/23)', () => {
     const { registry, views } = mockRegistry()
     const res = registerProcessorPackage(
       pkg({
-        id: 'cyto.stack',
+        id: 'txr.stack',
         uiPaths: ['ui/second.yaml', 'ui/first.yaml'], // declaration order, deliberately NOT alphabetical
         views: { 'ui/first.yaml': viewSpec('stack/first'), 'ui/second.yaml': viewSpec('stack/second') },
       }),
@@ -226,7 +226,7 @@ describe('registerProcessorPackage (ITEM-3/23)', () => {
     const res = registerProcessorPackage(
       {
         manifest: {
-          id: 'cyto.two',
+          id: 'txr.two',
           name: 'Two',
           version: '0.1.0',
           apiVersion: '^1.0',
@@ -256,7 +256,7 @@ describe('registerProcessorPackage (ITEM-3/23)', () => {
     const bad = { id: 'stack/bad', title: 'x', permission: 'jobs::use', state: {}, widgets: [{ kind: 'not-a-kind' }], actions: [] }
     const res = registerProcessorPackage(
       pkg({
-        id: 'cyto.halfbad',
+        id: 'txr.halfbad',
         uiPaths: ['ui/ok.yaml', 'ui/bad.yaml'],
         views: { 'ui/ok.yaml': viewSpec('stack/ok'), 'ui/bad.yaml': bad },
       }),

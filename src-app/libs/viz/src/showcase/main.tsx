@@ -7,7 +7,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ShowcaseApp } from './ShowcaseApp'
 import { installSingletonResidueProbe } from './singletonResidue'
-// Tailwind + @ziee/kit tokens for the standalone showcase (so the kit-based in-cell controls render).
+// Tailwind + @txresbench/kit tokens for the standalone showcase (so the kit-based in-cell controls render).
 import './showcase.css'
 
 // Cross-story contamination probe: exposes how far the MODULE-SINGLETON viz stores have drifted

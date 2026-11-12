@@ -1,4 +1,4 @@
-# @ziee/viz
+# @txresbench/viz
 
 A domain-neutral, GPU-accelerated chart engine built on [deck.gl](https://deck.gl)
 and [luma.gl](https://luma.gl). It renders scatter / image / grid / violin / box /
@@ -14,12 +14,12 @@ regions, coordinate systems).
 
 ## Install
 
-`@ziee/viz` is a workspace package. React 19 is a peer dependency.
+`@txresbench/viz` is a workspace package. React 19 is a peer dependency.
 
 ```ts
-import { Viz } from '@ziee/viz/react'
-import { use, registerChartType } from '@ziee/viz/core'
-import { ScatterChart, installBuiltins } from '@ziee/viz/charts'
+import { Viz } from '@txresbench/viz/react'
+import { use, registerChartType } from '@txresbench/viz/core'
+import { ScatterChart, installBuiltins } from '@txresbench/viz/charts'
 ```
 
 ### Subpath exports
@@ -29,11 +29,11 @@ tree-shakeable (importing `/core` never pulls in the ten built-in charts).
 
 | Subpath | What it exposes |
 | --- | --- |
-| `@ziee/viz` | The full barrel — everything below, re-exported for back-compat. |
-| `@ziee/viz/core` | The engine: chart/coordinate-system registries, the `use(...)` extension surface, the declarative option pipeline (`parseOption`, `VizController`), the plain-zustand coordination + workspace stores, and the pure data/coordination helpers. Renders nothing on its own. |
-| `@ziee/viz/charts` | The ten built-in chart installers (`ScatterChart`, `ViolinChart`, …), `installBuiltins()` / `AllCharts`, and the deck-backed chart Views. |
-| `@ziee/viz/react` | The React surface: `<Viz option={...} />`, `GridWorkspace`, `ExportDialog`, `AxisDataZoom`. |
-| `@ziee/viz/popout` | The SDK-free pop-out window (`PopoutWindow`). |
+| `@txresbench/viz` | The full barrel — everything below, re-exported for back-compat. |
+| `@txresbench/viz/core` | The engine: chart/coordinate-system registries, the `use(...)` extension surface, the declarative option pipeline (`parseOption`, `VizController`), the plain-zustand coordination + workspace stores, and the pure data/coordination helpers. Renders nothing on its own. |
+| `@txresbench/viz/charts` | The ten built-in chart installers (`ScatterChart`, `ViolinChart`, …), `installBuiltins()` / `AllCharts`, and the deck-backed chart Views. |
+| `@txresbench/viz/react` | The React surface: `<Viz option={...} />`, `GridWorkspace`, `ExportDialog`, `AxisDataZoom`. |
+| `@txresbench/viz/popout` | The SDK-free pop-out window (`PopoutWindow`). |
 
 Only these named subpaths are public — internal modules are not deep-importable.
 
@@ -45,9 +45,9 @@ to them), plus the deck buffers / `source` / `catalog` that `GridWorkspace` need
 The built-in chart types must be registered first.
 
 ```tsx
-import { Viz } from '@ziee/viz/react'
-import { installBuiltins } from '@ziee/viz/charts'
-import type { VizOption } from '@ziee/viz/core'
+import { Viz } from '@txresbench/viz/react'
+import { installBuiltins } from '@txresbench/viz/charts'
+import type { VizOption } from '@txresbench/viz/core'
 
 installBuiltins() // register the ten built-ins (idempotent)
 
@@ -84,8 +84,8 @@ built-in chart is exported as a self-registering installer, so you can pull in o
 the ones you need instead of `installBuiltins()`:
 
 ```ts
-import { use, getChartType } from '@ziee/viz/core'
-import { ScatterChart, ViolinChart } from '@ziee/viz/charts'
+import { use, getChartType } from '@txresbench/viz/core'
+import { ScatterChart, ViolinChart } from '@txresbench/viz/charts'
 
 use([ScatterChart, ViolinChart]) // registers ONLY these two
 getChartType('scatter') // → the ScatterChart descriptor
@@ -97,7 +97,7 @@ the same `type` warns and replaces (last wins), so hot-reload never hard-fails.
 Driving the stores directly is possible via the `VizController`:
 
 ```ts
-import { VizController } from '@ziee/viz/core'
+import { VizController } from '@txresbench/viz/core'
 
 const controller = new VizController({ resolveDataset: id => mySource })
 await controller.setOption(option)
@@ -106,12 +106,12 @@ controller.dispatch({ type: 'select', originId: 'pts', ids: selectedIds })
 
 ## Write your own chart type
 
-A chart type is one `ChartTypeDescriptor` (`@ziee/viz/core`). The core dispatches to
+A chart type is one `ChartTypeDescriptor` (`@txresbench/viz/core`). The core dispatches to
 it generically — a third-party type is byte-identical in shape to a built-in.
 
 ```tsx
-import { registerChartType, makeChartModel } from '@ziee/viz/core'
-import type { ChartTypeDescriptor, ChartViewProps, BindingChannel } from '@ziee/viz/core'
+import { registerChartType, makeChartModel } from '@txresbench/viz/core'
+import type { ChartTypeDescriptor, ChartViewProps, BindingChannel } from '@txresbench/viz/core'
 
 // The data channels this chart needs; each `source` names the catalog vocabulary
 // that fills its default (value / categorical / valueList / continuous / table).

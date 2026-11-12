@@ -15,12 +15,12 @@ from embedding_fixtures import ReduceRun, VisualizeRun, seam_available  # noqa: 
 @pytest.fixture
 def require_seam():
     """Gate the REAL Harmony test (TEST-33) on the env-rootfs seam. This is a conditional
-    on TOOLING AVAILABILITY, not a way to go green: with `CYTO_ENV_ROOTFS_SQUASHFS` pointed
+    on TOOLING AVAILABILITY, not a way to go green: with `TXR_ENV_ROOTFS_SQUASHFS` pointed
     at a rebuilt single-cell rootfs (harmonypy + scikit-misc), it runs for real (DEC-14).
     Only a host without the seam skips — and that skip names exactly what to set."""
     if not seam_available():
         pytest.skip(
-            "TEST-33 needs the harmonypy env-rootfs seam: set CYTO_ENV_ROOTFS_SQUASHFS to a "
+            "TEST-33 needs the harmonypy env-rootfs seam: set TXR_ENV_ROOTFS_SQUASHFS to a "
             "rebuilt single-cell rootfs squashfs (harmonypy + scikit-misc) + install bwrap "
             "+ squashfuse. harmonypy ships only in the rootfs, never the host interpreter.")
     return True

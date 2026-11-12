@@ -20,7 +20,7 @@ use chrono::{DateTime, Utc};
 use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 // #171 (a) — the offboarding hook's SQL lives in the project module's repository
 // (guideline §9: a module owns its own tables), and is called here on this
@@ -492,7 +492,7 @@ pub async fn record_member_event(
     // directory's, so any later join would silently miss.
     //
     // The consequence, stated so nobody re-derives it: matching an invitation address against a
-    // user must `lower()` BOTH sides, the way `ziee-auth` itself does
+    // user must `lower()` BOTH sides, the way `txresbench-auth` itself does
     // (`LOWER(email) = LOWER($1)`). Note the directory's UNIQUE constraint is on the verbatim
     // column and its lower() index is NOT unique, so two users can differ only by case and such
     // a match can return more than one row — the caller has to handle that rather than assume
@@ -787,7 +787,7 @@ struct ResolvedCeiling {
 /// consequences, both stated:
 ///
 /// * the lock granularity is the whole database, not one row — the finer PG
-///   grain is not expressible on SQLite (same trade `ziee-file`'s quota leg
+///   grain is not expressible on SQLite (same trade `txresbench-file`'s quota leg
 ///   records), and the membership mutation paths are short + write-rare, so the
 ///   coarser grain is the right trade;
 /// * the two statements that follow every `lock_account_row` call (the
@@ -2630,7 +2630,7 @@ impl AccountRepository {
         // precision, which OMITS the `.SSS` fraction when it is zero, and a
         // bound "…00Z" does NOT sort lexicographically against a stored
         // "…00.000Z" at the same instant (the 'Z' > '.' bytes compare). The
-        // canonical-format bind (the ITEM-14 `ziee-auth` precedent) keeps
+        // canonical-format bind (the ITEM-14 `txresbench-auth` precedent) keeps
         // lexicographic == chronological exactly.
         let expires_at = Utc::now() + limits.ttl;
         let expires_at_sqlite = expires_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
@@ -3882,7 +3882,7 @@ pub struct AcceptedInvitation {
 /// predicates consume: a JSON array of 32-char lowercase hex strings (the
 /// `uuid::Uuid::simple()` form), compared against a 16-byte BLOB column
 /// through `unhex()` — `id IN (SELECT unhex(j.value) FROM json_each($1) AS j)`.
-/// This is the ITEM-15 `ziee-file` convention (its `uuid_list_json`), kept
+/// This is the ITEM-15 `txresbench-file` convention (its `uuid_list_json`), kept
 /// local here because the app's modules are single-driver (DEC-1) and beside
 /// the one `= ANY(uuid[])` site it serves no other surface.
 fn uuid_list_json(ids: &[Uuid]) -> String {

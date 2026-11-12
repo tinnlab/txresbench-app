@@ -8,7 +8,7 @@
 //!
 //! ## Lifecycle (CODING_GUIDELINES §5 / §16)
 //! - **Kill-switch (DEC-13):** a DEPLOY-level `enabled` toggle, default ON, read
-//!   once in [`start`] (env `CYTO_PROCESSOR_WATCH_ENABLED`). When OFF, NO watcher
+//!   once in [`start`] (env `TXR_PROCESSOR_WATCH_ENABLED`). When OFF, NO watcher
 //!   thread/task is spawned — boot-rescan + the manual reload endpoint still work,
 //!   so disabling the watch never disables the feature.
 //! - **Supervised task:** the spawned tokio task's `JoinHandle`, the cancellation
@@ -48,7 +48,7 @@ pub const WATCH_DEBOUNCE: Duration = Duration::from_millis(500);
 
 /// The deploy-level kill-switch env (DEC-13). Default ON; set to a falsey value
 /// (`0`/`false`/`no`/`off`) to disable the live watch subsystem for a deployment.
-const WATCH_ENABLED_ENV: &str = "CYTO_PROCESSOR_WATCH_ENABLED";
+const WATCH_ENABLED_ENV: &str = "TXR_PROCESSOR_WATCH_ENABLED";
 
 /// Is the live watcher enabled for this deployment? Default ON; only an explicit
 /// falsey env value turns it off (an unset / unparseable value stays ON).
@@ -176,7 +176,7 @@ where
 /// > reflect → `Access(Open)` events → non-empty batch → reflect → …
 ///
 /// self-sustaining forever at the debouncer's tick rate (`WATCH_DEBOUNCE / 4` =
-/// 125 ms). Measured on an idle server (fresh DB, private `CYTO_APP_DATA_DIR`, zero
+/// 125 ms). Measured on an idle server (fresh DB, private `TXR_APP_DATA_DIR`, zero
 /// requests): **8.00 reflects/s and 18.5% of a core**, each reflect a full recursive
 /// scan + YAML parse + lint of every package + a datatype-registry rebuild + two
 /// `Arc` swaps + an INFO log — plus ~8 log lines/s (~690k/day). Instrumenting that
@@ -277,7 +277,7 @@ mod tests {
         fn new(tag: &str) -> Self {
             let seq = TEST_SEQ.fetch_add(1, Ordering::Relaxed);
             let p = std::env::temp_dir()
-                .join(format!("cyto-watch-{tag}-{}-{seq}", std::process::id()));
+                .join(format!("txr-watch-{tag}-{}-{seq}", std::process::id()));
             let _ = std::fs::remove_dir_all(&p);
             std::fs::create_dir_all(&p).unwrap();
             TmpDir(p)

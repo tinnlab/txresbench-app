@@ -17,8 +17,8 @@
  * the trigger selectors `${testid}-tab-${key}` (the kit's declared
  * convention), i.e. `txr-results-outcome-tab-pfs|os|response`.
  */
-import { Tabs } from '@ziee/kit'
-import type { TabItem } from '@ziee/kit'
+import { Tabs } from '@txresbench/kit'
+import type { TabItem } from '@txresbench/kit'
 import type { TxrHeatmapColumn, TxrOutcomeKey } from '../types'
 import { formatTaskLabel } from '../lib/format'
 

@@ -138,7 +138,7 @@ test('BLIND SPOT 4: a scope that matches nothing is a FAILURE, not a clean run',
 
 test('--root is honoured, not silently dropped', () => {
   const repo = newRepo()
-  // A UI tree that is NOT ziee's hard-coded default path.
+  // A UI tree that is NOT txresbench's hard-coded default path.
   write(repo, 'web/src/Comp.tsx', 'export const C = () => <div className="pl-4" />\n')
   git(repo, 'add', '-A')
   // Without a scope the default trees match nothing → the zero-scan floor fires.

@@ -1,4 +1,4 @@
-//! `CytoServerBoot` — CytoAnalyst's impl of the SDK harness's `ServerBoot` seam.
+//! `CytoServerBoot` — TxResBench's impl of the SDK harness's `ServerBoot` seam.
 //!
 //! This is the whole point of the dogfood: the reusable Tauri shell drives the
 //! embedded server entirely through this seam. We hand it the server's
@@ -7,8 +7,8 @@
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use ziee_core::ServerConfig;
-use ziee_desktop_harness::boot::{BootHandle, ServerBoot};
+use txresbench_core::ServerConfig;
+use txresbench_desktop_harness::boot::{BootHandle, ServerBoot};
 
 /// Holds the desktop config until the single `boot` call consumes it.
 pub struct CytoServerBoot {
@@ -27,7 +27,7 @@ impl CytoServerBoot {
 impl ServerBoot for CytoServerBoot {
     async fn boot(&self) -> anyhow::Result<BootHandle> {
         // take() before the first await so the guard is dropped and the future
-        // stays Send (mirrors app#1's ZieeServerBoot).
+        // stays Send (mirrors app#1's TxResBenchServerBoot).
         let config = self
             .config
             .lock()
@@ -35,7 +35,7 @@ impl ServerBoot for CytoServerBoot {
             .take()
             .ok_or_else(|| anyhow::anyhow!("CytoServerBoot::boot called more than once"))?;
 
-        let parts = cytoanalyst::boot_in_background(config)
+        let parts = txresbench::boot_in_background(config)
             .await
             .map_err(|e| anyhow::anyhow!("failed to start embedded server: {e}"))?;
 
@@ -47,6 +47,6 @@ impl ServerBoot for CytoServerBoot {
     }
 
     async fn shutdown(&self) {
-        cytoanalyst::cleanup().await;
+        txresbench::cleanup().await;
     }
 }

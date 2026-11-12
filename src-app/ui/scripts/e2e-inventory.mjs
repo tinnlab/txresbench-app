@@ -10,7 +10,7 @@
  * Two mechanisms make a spec file collect ZERO tests without anyone noticing:
  *
  *  1. A config-level `grepInvert` (`playwright.config.ts` excludes `@acceptance`
- *     unless `CYTO_E2E_REAL_COMPUTE=1`). This one is loud — the config prints a
+ *     unless `TXR_E2E_REAL_COMPUTE=1`). This one is loud — the config prints a
  *     banner naming the excluded specs.
  *  2. A file-level `if (REAL_COMPUTE) { test.describe(...) }` wrapper. This one is
  *     SILENT. The file is collected, evaluated, and registers nothing; Playwright
@@ -27,7 +27,7 @@
  * failure on every dev box is not the fix, knowing about them is.
  *
  * Usage:  node scripts/e2e-inventory.mjs [--json]
- *         CYTO_E2E_REAL_COMPUTE=1 node scripts/e2e-inventory.mjs   (the delta is the point)
+ *         TXR_E2E_REAL_COMPUTE=1 node scripts/e2e-inventory.mjs   (the delta is the point)
  */
 import { execFileSync } from 'node:child_process'
 import { readdirSync, existsSync, statSync } from 'node:fs'
@@ -87,8 +87,8 @@ if (process.argv.includes('--json')) {
   process.exit(0)
 }
 
-const real = !!process.env.CYTO_E2E_REAL_COMPUTE
-console.log(`\ne2e inventory  (CYTO_E2E_REAL_COMPUTE=${real ? '1' : 'unset'})`)
+const real = !!process.env.TXR_E2E_REAL_COMPUTE
+console.log(`\ne2e inventory  (TXR_E2E_REAL_COMPUTE=${real ? '1' : 'unset'})`)
 const w = (s, n) => String(s).padEnd(n)
 console.log(`  ${w('config', 32)}${w('testDir', 22)}${w('files', 7)}${w('collect', 9)}${w('tests', 7)}silent`)
 let totalTests = 0
@@ -112,8 +112,8 @@ for (const r of report) {
 }
 if (totalSilent > 0 && !real)
   console.log(
-    `\n  Most of these are host-capability gated on CYTO_E2E_REAL_COMPUTE (bwrap + a staged\n` +
-      `  analysis rootfs). Re-run with CYTO_E2E_REAL_COMPUTE=1 to see the delta. A file that\n` +
+    `\n  Most of these are host-capability gated on TXR_E2E_REAL_COMPUTE (bwrap + a staged\n` +
+      `  analysis rootfs). Re-run with TXR_E2E_REAL_COMPUTE=1 to see the delta. A file that\n` +
       `  collects nothing is NOT a passing file — do not report a green e2e number without\n` +
       `  saying how many registered no tests at all.`,
   )

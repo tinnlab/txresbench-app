@@ -41,7 +41,7 @@
 //!
 //! Real-run gates follow the shipped discipline precisely: every gate routes
 //! through the SHARED [`record_skip`] (`target/test-skip-ledger.tsv`;
-//! `CYTO_TEST_NO_SKIP=1` turns each skip into a hard failure), and the reason
+//! `TXR_TEST_NO_SKIP=1` turns each skip into a hard failure), and the reason
 //! it prints is TRUE of the box it prints on. Tool-gated (docker, oras,
 //! cosign, squashfuse, bwrap) per tier through the skip recorder.
 //!
@@ -69,7 +69,7 @@ use crate::dataset::hardening_common::record_skip;
 
 /// The marker that switches `stacked_layer_child` from libtest pass-through
 /// into the probe it actually is.
-const CHILD_MARKER: &str = "CYTO_MEL_CHILD";
+const CHILD_MARKER: &str = "TXR_MEL_CHILD";
 
 /// The parent's `--exact` test path for the child.
 const CHILD_TEST_PATH: &str = "sandbox::method_env_layer_test::stacked_layer_child";
@@ -169,7 +169,7 @@ fn stack_gate(test: &str) -> Option<()> {
 /// The strict-PID-ns gate, probed against the BUILT base dir. `None` =
 /// record_skip with the probe's exact reason.
 fn stack_gate_pidns(test: &str, base_dir: &Path) -> Option<()> {
-    use cytoanalyst::modules::sandbox::probes;
+    use txresbench::modules::sandbox::probes;
     let caps = probes::probe_host_only()?;
     if let Err(reason) = probes::probe_rootfs_dependent(&caps, base_dir) {
         record_skip(test, &reason);
@@ -429,23 +429,23 @@ impl Drop for RegistryGuard {
 /// `PROBE_SKIP` / panic line.
 #[tokio::test]
 async fn stacked_layer_child() {
-    use cytoanalyst::modules::sandbox::config::{self, SandboxAvailability, SandboxState};
-    use cytoanalyst::modules::sandbox::probes;
-    use cytoanalyst::modules::sandbox::service::run_method_in_stack;
-    use cytoanalyst::modules::sandbox::stack::{
+    use txresbench::modules::sandbox::config::{self, SandboxAvailability, SandboxState};
+    use txresbench::modules::sandbox::probes;
+    use txresbench::modules::sandbox::service::run_method_in_stack;
+    use txresbench::modules::sandbox::stack::{
         EnvRef, MethodRunMode, MethodRunRequest, TXR_BASE_REGISTRY_PREFIX,
         TXR_LAYER_REGISTRY_PREFIX,
     };
-    use cytoanalyst::modules::sandbox::types::ExtraMount;
+    use txresbench::modules::sandbox::types::ExtraMount;
 
     let Some(marker) = std::env::var_os(CHILD_MARKER) else {
         return; // bare libtest run: the child only exists behind a parent
     };
     let _ = marker;
     let data_dir = PathBuf::from(
-        std::env::var_os("CYTO_APP_DATA_DIR").expect("parent passes CYTO_APP_DATA_DIR"),
+        std::env::var_os("TXR_APP_DATA_DIR").expect("parent passes TXR_APP_DATA_DIR"),
     );
-    let work = PathBuf::from(std::env::var_os("CYTO_MEL_WORK").expect("CYTO_MEL_WORK"));
+    let work = PathBuf::from(std::env::var_os("TXR_MEL_WORK").expect("TXR_MEL_WORK"));
 
     let fail = |what: String| -> ! {
         eprintln!("PROBE_ERR {what}");
@@ -469,8 +469,8 @@ async fn stacked_layer_child() {
         .await
         .expect("in-memory pool");
 
-    let base_sqfs = PathBuf::from(std::env::var_os("CYTO_MEL_BASE_SQFS").expect("base"));
-    let layer_sqfs = PathBuf::from(std::env::var_os("CYTO_MEL_LAYER_SQFS").expect("layer"));
+    let base_sqfs = PathBuf::from(std::env::var_os("TXR_MEL_BASE_SQFS").expect("base"));
+    let layer_sqfs = PathBuf::from(std::env::var_os("TXR_MEL_LAYER_SQFS").expect("layer"));
     let base_pin = sha256_hex(&std::fs::read(&base_sqfs).expect("read base fixture"));
     let layer_pin = sha256_hex(&std::fs::read(&layer_sqfs).expect("read layer fixture"));
     let base_ref = EnvRef {
@@ -542,26 +542,26 @@ fn spawn_child(work: &Path, data_dir: &Path, base_sqfs: &Path, layer_sqfs: &Path
             "--test-threads=1",
         ])
         .env(CHILD_MARKER, "fitpredict")
-        .env("CYTO_APP_DATA_DIR", data_dir)
-        .env("CYTO_MEL_WORK", work)
-        .env("CYTO_MEL_BASE_SQFS", base_sqfs)
-        .env("CYTO_MEL_LAYER_SQFS", layer_sqfs)
+        .env("TXR_APP_DATA_DIR", data_dir)
+        .env("TXR_MEL_WORK", work)
+        .env("TXR_MEL_BASE_SQFS", base_sqfs)
+        .env("TXR_MEL_LAYER_SQFS", layer_sqfs)
         .env(
-            format!("CYTO_ENV_ROOTFS_SQUASHFS__{BASE_ID}"),
+            format!("TXR_ENV_ROOTFS_SQUASHFS__{BASE_ID}"),
             base_sqfs,
         )
         .env(
-            format!("CYTO_ENV_ROOTFS_SQUASHFS__{FIXTURE_METHOD_ID}"),
+            format!("TXR_ENV_ROOTFS_SQUASHFS__{FIXTURE_METHOD_ID}"),
             layer_sqfs,
         )
         // The child must start from a clean seam environment: whatever this box
         // exported would otherwise leak in and decide the outcome.
-        .env_remove("CYTO_ENV_ROOTFS_SQUASHFS")
-        .env_remove("CYTO_ENV_ROOTFS_SQUASHFS_ENV")
-        .env_remove("CYTO_ENV_ROOTFS_DIR")
-        .env_remove("CYTO_ENV_ROOTFS_DIR_ENV")
-        .env_remove("CYTO_SANDBOX_ENV_ID")
-        .env_remove("CYTO_TEST_NO_SKIP")
+        .env_remove("TXR_ENV_ROOTFS_SQUASHFS")
+        .env_remove("TXR_ENV_ROOTFS_SQUASHFS_ENV")
+        .env_remove("TXR_ENV_ROOTFS_DIR")
+        .env_remove("TXR_ENV_ROOTFS_DIR_ENV")
+        .env_remove("TXR_SANDBOX_ENV_ID")
+        .env_remove("TXR_TEST_NO_SKIP")
         .output()
         .expect("spawn the child");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();

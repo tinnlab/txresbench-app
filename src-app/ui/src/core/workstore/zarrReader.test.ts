@@ -7,15 +7,15 @@
 // nothing.
 //
 // So the bytes here come from **the real producer** — `src-app/packages/_lib`'s
-// `cyto_zarr`, the module a processor actually emits artifacts with (ITEM-1..4), driven
+// `txr_zarr`, the module a processor actually emits artifacts with (ITEM-1..4), driven
 // by `__fixtures__/generate_zarr_fixtures.py` and checked in. Not a sketch of it, not a
 // reimplementation: the shipping writer, in another language, with no compile-time link
-// to this file. `cyto_zarr`'s docstring names THIS module as the consumer of its on-disk
+// to this file. `txr_zarr`'s docstring names THIS module as the consumer of its on-disk
 // vocabulary; the fixtures are what make that claim checkable.
 //
 // Four anchors, weakest to strongest:
 //   1. array fixtures         — bytes from the real writer, expected values from its inputs
-//   2. `zarr/table/`          — a real `cyto_zarr.Table` artifact: n member arrays under
+//   2. `zarr/table/`          — a real `txr_zarr.Table` artifact: n member arrays under
 //                               ONE directory, the shape the client actually opens
 //   3. primitive vectors      — each transform in isolation, so a failure names the
 //                               STAGE; `isIdentity: false` stops the shuffle assertions
@@ -23,7 +23,7 @@
 //   4. `crc32c("123456789")`  — the published CRC-32C check value, so a bug shared by
 //                               BOTH implementations still fails
 //
-// Some fixtures are deliberately NOT from `cyto_zarr` (`i32_plain` and the four exotic
+// Some fixtures are deliberately NOT from `txr_zarr` (`i32_plain` and the four exotic
 // dtypes `f16_*`/`c64`/`c128`/`r24`) — shapes and v3 CORE data types the reader must
 // handle that the writer does not emit. The generator says which and why. `str_arrow` was
 // a sixth until ROUND-6 FINDING 6: it fed a single-buffer string decoder that nothing
@@ -488,7 +488,7 @@ describe('TEST-27 · declaration errors are errors, never a best-effort guess (I
 // wrong order, with no error anywhere — the worst failure mode this reader has.
 //
 // The fix is a refusal, not an implementation of `transpose`: no producer in
-// `src-app/packages/` emits an array→array codec (`cyto_zarr._codec_chain` builds
+// `src-app/packages/` emits an array→array codec (`txr_zarr._codec_chain` builds
 // exactly `[bytes, (numcodecs.shuffle)?, gzip]`, and `_array_meta` wraps that in a lone
 // `sharding_indexed`), so there is nothing to support and no producer bytes to test an
 // implementation against — but there IS a wrong answer to stop returning.
@@ -638,7 +638,7 @@ describe('ROUND-6 FINDING 5 · a codec beside `sharding_indexed` is refused too'
 
 // ── TEST-28 · categorical + arrow strings, off a REAL table artifact ─────────────
 //
-// `zarr/table/` was written through `cyto_zarr.Table` — the exact call a processor
+// `zarr/table/` was written through `txr_zarr.Table` — the exact call a processor
 // makes (ITEM-4): n arrays sharing one axis under ONE directory, one merkle identity.
 // Everything above exercises the byte layer; this exercises the artifact SHAPE the
 // client will actually open.
@@ -655,17 +655,17 @@ describe('TEST-28 · categorical {codes, categories}', () => {
 
   it('the table artifact is one directory of member arrays (one merkle identity)', async () => {
     const exp = table()
-    // The group node carries the producer's `structure` under `attributes.cyto`, so a
+    // The group node carries the producer's `structure` under `attributes.txr`, so a
     // client handed nothing but the store URL learns how to decode every member from
     // the first request it was going to make anyway.
     const group = JSON.parse(new TextDecoder().decode(TREE.get('table/zarr.json')!)) as {
       node_type: string
-      attributes: { cyto: { kind: string; axis: string; n: number; columns: unknown[] } }
+      attributes: { txr: { kind: string; axis: string; n: number; columns: unknown[] } }
     }
     expect(group.node_type).toBe('group')
-    expect(group.attributes.cyto.kind).toBe('table')
-    expect(group.attributes.cyto.n).toBe(exp.n)
-    expect(group.attributes.cyto.columns.length).toBe(4)
+    expect(group.attributes.txr.kind).toBe('table')
+    expect(group.attributes.txr.n).toBe(exp.n)
+    expect(group.attributes.txr.columns.length).toBe(4)
 
     // …and a member reads by path through that one directory.
     const col = await openZarrArray(store, 'table/f32col')
@@ -735,7 +735,7 @@ describe('TEST-28 · arrow-layout strings', () => {
   const table = () => expectedFor<{ str: { n: number; values: string[] } }>('table').str
 
   it('SPLIT layout (shuffled u32 offsets + gzipped UTF-8) decodes to what the writer encoded', async () => {
-    // The form `cyto_zarr` actually emits, and the one §2.5b's "shuffled offsets + gzip"
+    // The form `txr_zarr` actually emits, and the one §2.5b's "shuffled offsets + gzip"
     // measurement is of — a shuffle over one mixed buffer would transpose the UTF-8 too.
     expect(await readSplitStrings(store, 'table/str')).toEqual(table().values)
   })
@@ -755,7 +755,7 @@ describe('TEST-28 · arrow-layout strings', () => {
 
   // The SINGLE-BUFFER arrow layout had three cases here (decode / undeclared-count
   // refusal / short-header refusal). They went with the decoder: no producer emits that
-  // shape (`cyto_zarr.Table.string` writes the split form and stamps `layout: "split"`),
+  // shape (`txr_zarr.Table.string` writes the split form and stamps `layout: "split"`),
   // and `conformance.py::_conform_string_member` refuses it outright by reading
   // `<path>/offsets` + `<path>/values`. Tests for a path nothing can reach are coverage
   // in name only. `artifactReader.test.ts` now asserts the refusal that replaced it.
@@ -776,7 +776,7 @@ describe('TEST-28 · arrow-layout strings', () => {
 
 // ── ROUND-6 FINDING 4 · the declared-`n` check cannot be skipped by a failed read ──
 //
-// `openSplitStringColumn` reads the GROUP's `zarr.json` for `attributes.cyto.n` and
+// `openSplitStringColumn` reads the GROUP's `zarr.json` for `attributes.txr.n` and
 // refuses a declared `n` that disagrees with the `offsets` member's shape. That read was
 // `.catch(() => undefined)`, so ANY failure — a deleted group node, a malformed document,
 // a 500 — turned the mandatory check into no check: the reader fell through to the shape
@@ -814,7 +814,7 @@ describe('ROUND-6 FINDING 4 · an unreadable group `zarr.json` is an ERROR, not 
       'col/zarr.json': enc({
         zarr_format: 3,
         node_type: 'group',
-        attributes: { cyto: { kind: 'string', layout: 'split', n: groupN } },
+        attributes: { txr: { kind: 'string', layout: 'split', n: groupN } },
       }),
       'col/offsets/zarr.json': enc(arrayMeta('uint32', OFFSETS.length)),
       'col/offsets/c/0': new Uint8Array(OFFSETS.buffer.slice(0)),
@@ -899,7 +899,7 @@ describe('ROUND-6 FINDING 4 · an unreadable group `zarr.json` is an ERROR, not 
 
   it('NEGATIVE CONTROL: the writer\'s own string column still opens and reads its VALUES', async () => {
     // A group read that propagates must not turn the healthy path into a failure. This is
-    // the real `cyto_zarr.Table.string` artifact, read with no `count` at all — so the
+    // the real `txr_zarr.Table.string` artifact, read with no `count` at all — so the
     // group node IS fetched, parsed, and its `n` agrees.
     const exp = expectedFor<{ str: { n: number; values: string[] } }>('table').str
     const column = await openSplitStringColumn(store, 'table/str')

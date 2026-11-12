@@ -366,7 +366,7 @@ test('TEST-5: all six manifest gates accept `sections` as a contribution kind', 
 // ── TEST-87 (visualize-pane ITEM-69): the two senses of "packages" are SEPARATED ──────
 //
 // The rename gave one word two jobs and then took one back: `src-app/packages/` used to
-// hold the two npm LIBRARIES (`@ziee/viz`, `@ziee/dock`) and now holds the contributed
+// hold the two npm LIBRARIES (`@txresbench/viz`, `@txresbench/dock`) and now holds the contributed
 // DATA packages, with the libraries moved out to `src-app/libs/`.
 //
 // The hazard is silent in BOTH directions, which is why this asserts both:
@@ -377,7 +377,7 @@ test('TEST-5: all six manifest gates accept `sections` as a contribution kind', 
 //     reader to add a `package.json` under a contributed package would silently acquire
 //     a workspace.
 //   · a glob that no longer resolves the libraries is equally silent at install time and
-//     surfaces much later as an unresolvable `@ziee/viz` import.
+//     surfaces much later as an unresolvable `@txresbench/viz` import.
 //
 // So: the globs must REACH the libraries at their new home, must NOT claim the
 // contributed-package tree — and that tree must really be the one with no `package.json`
@@ -399,8 +399,8 @@ test('TEST-87 (ITEM-69): the workspace globs reach src-app/libs and do NOT claim
   // The glob RESOLVES: both libraries are on disk under it, each with the package.json
   // that makes it a workspace (this is the half a glob edit alone cannot promise).
   for (const [dir, name] of [
-    ['libs/viz', '@ziee/viz'],
-    ['libs/dock', '@ziee/dock'],
+    ['libs/viz', '@txresbench/viz'],
+    ['libs/dock', '@txresbench/dock'],
   ]) {
     const manifest = path.join(REPO, 'src-app', dir, 'package.json')
     expect(existsSync(manifest), `${dir}/package.json is missing — the glob resolves nothing`).toBe(true)

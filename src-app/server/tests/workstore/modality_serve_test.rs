@@ -20,9 +20,9 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::object_store::ObjectStore;
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::object_store::ObjectStore;
 
 use super::{create_project, pool_for, server_store, setup_admin};
 

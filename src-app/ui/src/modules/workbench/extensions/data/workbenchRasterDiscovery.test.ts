@@ -19,7 +19,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('@ziee/kit', () => ({
+vi.mock('@txresbench/kit', () => ({
   message: { info: () => {}, success: () => {}, error: () => {} },
 }))
 
@@ -65,7 +65,7 @@ const HIRES_FIXTURE = path.join(FIXTURES, 'spatial-image-hires.ome.tif')
 const HIRES_STORED_BYTES = statSync(HIRES_FIXTURE).size
 
 async function realPyramid() {
-  const { loadOmeTiffPyramid } = await import('@ziee/viz/core')
+  const { loadOmeTiffPyramid } = await import('@txresbench/viz/core')
   const bytes = readFileSync(path.join(FIXTURES, 'spatial-image-hires.ome.tif'))
   return loadOmeTiffPyramid({
     byteLength: bytes.byteLength,

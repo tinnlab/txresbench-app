@@ -2,7 +2,7 @@ import { ApiClient } from '@/api-client'
 import { Permissions } from '@/api-client/permissions'
 import { type CreateDraftRequest, type Draft, type FreezeResponse } from '@/api-client/types'
 import { hasPermissionNow } from '@/core/permissions'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /**
  * The client `Drafts` store (draftable-entity ITEM-11) — the API + sync surface the

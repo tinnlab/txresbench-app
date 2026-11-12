@@ -38,7 +38,7 @@ form. So here is where the two routes actually diverge, measured in the implemen
 * **The Rust gather computes the served codes from the `levels__<column>__<src>` LOOKUP
   ARRAYS** (`gather_exec.rs:371-372` → `gathered::remap_codes`). It **never reads a source's
   own declared level list** — `sources/<level entry>.zarr/values/zarr.json` →
-  `attributes.cyto.levels` appears nowhere on that path.
+  `attributes.txr.levels` appears nowhere on that path.
 * **This script computes them from exactly that list**: stored code → the source's own
   declared label → that label's index in the unified vocabulary. It does not use the lookup
   arrays to produce the answer.
@@ -102,7 +102,7 @@ COLUMN = "group"
 MEMBER = "values"
 
 sys.path[:0] = [str(PACKAGES / "_lib"), str(PACKAGES / "_helpers")]
-import cyto_zarr_read as czr  # noqa: E402
+import txr_zarr_read as czr  # noqa: E402
 
 
 def die(msg):
@@ -121,7 +121,7 @@ def main():
 
     # ── (3) the unified vocabulary — read, never reconstructed ────────────────────
     attrs = json.loads((align / "zarr.json").read_text()).get("attributes", {})
-    unified = (attrs.get("cyto_alignment", {}).get("unified_levels", {}) or {}).get(COLUMN)
+    unified = (attrs.get("txr_alignment", {}).get("unified_levels", {}) or {}).get(COLUMN)
     if not unified:
         die(f"the alignment declares no unified_levels for {COLUMN!r}")
     code_of = {label: i for i, label in enumerate(unified)}
@@ -141,7 +141,7 @@ def main():
     # It remains an independent route to the answer: the missing level is read from the
     # alignment's own `missing_levels[<column>]` declaration, never from the served bytes and
     # never from the lookup tables the gather uses.
-    missing_level = (attrs.get("cyto_alignment", {}).get("missing_levels", {}) or {}).get(COLUMN)
+    missing_level = (attrs.get("txr_alignment", {}).get("missing_levels", {}) or {}).get(COLUMN)
     if missing_level is not None and missing_level not in code_of:
         die(f"the alignment declares missing level {missing_level!r} for {COLUMN!r}, which is "
             f"not in its own unified vocabulary {unified} — the two disagree")
@@ -236,14 +236,14 @@ def main():
     for ds in index_of:
         root = FIXTURE / "sources" / level_mount_of[ds]
         store_attrs = json.loads((root / "zarr.json").read_text()).get("attributes", {})
-        stamped = (store_attrs.get("cyto") or {}).get("aligned_to")
+        stamped = (store_attrs.get("txr") or {}).get("aligned_to")
         pinned = sources[index_of[ds]].get("key_sequence_digest")
         if stamped is not None and pinned is not None and stamped != pinned:
             die(f"{ds!r} was resolved to {level_mount_of[ds]}, which declares aligned_to="
                 f"{stamped!r}, but the alignment pins {pinned!r} for {ds!r} — the grid "
                 "resolution is off and every label below would come from the wrong source")
         declared = (
-            czr.read_meta(root, MEMBER).get("attributes", {}).get("cyto", {}).get("levels")
+            czr.read_meta(root, MEMBER).get("attributes", {}).get("txr", {}).get("levels")
         )
         if declared is None:
             die(f"source {ds!r} stamps no declared levels on {MEMBER!r}")
@@ -355,7 +355,7 @@ def main():
             die(f"the alignment declares no {member} for source {ds!r}")
         lookup = ints(align, member)
         root = FIXTURE / "sources" / level_mount_of[ds]
-        declared = czr.read_meta(root, MEMBER)["attributes"]["cyto"]["levels"]
+        declared = czr.read_meta(root, MEMBER)["attributes"]["txr"]["levels"]
         if len(lookup) != len(declared):
             die(f"{member} has {len(lookup)} entries for {len(declared)} declared levels "
                 f"of {ds!r} — a stored code could index past the end")

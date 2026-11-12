@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Alert, Card, Form, FormField, InputNumber, message, useForm } from '@ziee/kit'
+import { Alert, Card, Form, FormField, InputNumber, message, useForm } from '@txresbench/kit'
 import { Permissions } from '@/api-client/permissions'
 import { usePermission } from '@/core/permissions'
 import { McpSettings } from '@/modules/mcp/stores/McpSettings.store'

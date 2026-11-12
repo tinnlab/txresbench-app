@@ -2,7 +2,7 @@
 // normalized shape the Viv spatial view consumes, plus the affine composition that
 // places a full-resolution image into GLOBAL micron space as a deck.gl `modelMatrix`.
 //
-// Framework-agnostic (viz-core): no @deck.gl / react / @ziee imports — just the
+// Framework-agnostic (viz-core): no @deck.gl / react / @txresbench imports — just the
 // existing 2×3 `Affine` model (`../data/image`) and its GPU flattening
 // (`../data/affineMatrix`). DEC-28 generic naming: this file knows about
 // images/channels/levels, nothing about biology.

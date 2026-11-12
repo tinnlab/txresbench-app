@@ -3,9 +3,9 @@ import { type Notification as NotificationRow } from '@/api-client/types'
 import { Permissions } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
 import { echoLocalSync } from '@/core/sync/localEcho'
-import type { AppNotification } from '@ziee/framework/notification'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
-import { message } from '@ziee/kit'
+import type { AppNotification } from '@txresbench/framework/notification'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
+import { message } from '@txresbench/kit'
 
 /** A bulk mutation has no single row id; the subscriber refetches the list regardless. */
 const NIL_UUID = '00000000-0000-0000-0000-000000000000'

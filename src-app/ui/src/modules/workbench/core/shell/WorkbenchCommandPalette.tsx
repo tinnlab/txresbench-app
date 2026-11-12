@@ -34,7 +34,7 @@
 // with ⌘K) rather than Base UI's substring one.
 
 import { useMemo, useState } from 'react'
-import { message } from '@ziee/kit'
+import { message } from '@txresbench/kit'
 import {
   Combobox,
   ComboboxContent,
@@ -42,8 +42,8 @@ import {
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
-} from '@ziee/kit/shadcn/combobox'
-import { InputGroupAddon } from '@ziee/kit/shadcn/input-group'
+} from '@txresbench/kit/shadcn/combobox'
+import { InputGroupAddon } from '@txresbench/kit/shadcn/input-group'
 import { Search } from 'lucide-react'
 import { getActionRegistry, runAction, type ActionMeta } from '@/core/actions/defineAction'
 import { actionMatches } from '@/core/actions/search'
@@ -52,7 +52,7 @@ import { instancesOfType } from '@/core/actions/instanceRegistry'
 import { hasPermissionNow, type Permission } from '@/core/permissions'
 // `authStoreProxy` isn't re-exported by `@/core/permissions`; reading its `permissions` field here
 // (a reactive proxy read) recomputes the list the instant a live permission change lands.
-import { authStoreProxy } from '@ziee/framework/permissions'
+import { authStoreProxy } from '@txresbench/framework/permissions'
 
 const WORKBENCH_CONTEXT = 'workbench'
 

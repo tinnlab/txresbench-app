@@ -85,7 +85,7 @@ RUN uv pip install --no-cache -r /tmp/requirements.txt
 # `requirements.txt` pins the 25 DIRECT distributions; this file records all 148
 # resolved packages, including every transitive one nobody named. It is what makes the
 # difference between "the declared stack is reproducible" and "the environment a result
-# came out of is KNOWN": `_lib/cyto_deps.py` folds its digest into every run's recorded
+# came out of is KNOWN": `_lib/txr_deps.py` folds its digest into every run's recorded
 # environment, so a transitive change is visible in the provenance record of the run it
 # affected instead of being invisible.
 #
@@ -93,9 +93,9 @@ RUN uv pip install --no-cache -r /tmp/requirements.txt
 # pip/setuptools/wheel. `uv pip freeze` reads the venv's installed-distribution metadata
 # (not pip itself), but the trim also strips `*.dist-info` siblings in ways a future edit
 # could extend — freezing first makes the record independent of what the trim does.
-RUN /usr/local/bin/uv pip freeze > /opt/venv/.cyto-env-lock.txt \
-    && test -s /opt/venv/.cyto-env-lock.txt \
-    && printf 'env lock: %s packages\n' "$(wc -l < /opt/venv/.cyto-env-lock.txt)"
+RUN /usr/local/bin/uv pip freeze > /opt/venv/.txresbench-env-lock.txt \
+    && test -s /opt/venv/.txresbench-env-lock.txt \
+    && printf 'env lock: %s packages\n' "$(wc -l < /opt/venv/.txresbench-env-lock.txt)"
 
 # Aggressive trim (426→316 MB proven). strip .so debug syms (the big win) + drop
 # headers/static-libs/tests/docs/pyc + remove build tools. KEEP .pyi/.pyx/.pxd —
@@ -124,7 +124,7 @@ RUN set -eux; \
 # The marker below is what DECLARES this instruction as the verification, for EVERY recipe
 # in any language: the guard covers recipes whose package manager and interpreter it knows
 # nothing about, so it cannot infer which line loads rather than installs. It reads this.
-# cyto:env-smoke
+# txr:env-smoke
 RUN /opt/venv/bin/python -c "import numpy,scipy,scipy.sparse,scipy.stats,pandas,sklearn,skimage,skmisc,zarr,h5py,anndata,scanpy,leidenalg,igraph,umap,numba,llvmlite,harmonypy,pydeseq2,decoupler,statsmodels,squidpy,spatialdata,celltypist,liana,tifffile,imagecodecs,PIL,packaging,pyarrow; print('scientific + spatial stack OK')"
 
 # --- Cell Ranger CLI (x86_64 only; operator-supplied signed URL) — UNCHANGED from
@@ -141,7 +141,7 @@ RUN set -eux; \
 
 # Schema marker read by the runtime mount probe (must equal ROOTFS_SCHEMA_VERSION).
 ARG ROOTFS_SCHEMA_VERSION=5
-RUN printf '%s\n' "$ROOTFS_SCHEMA_VERSION" > /.cytoanalyst-sandbox-rootfs-schema
+RUN printf '%s\n' "$ROOTFS_SCHEMA_VERSION" > /.txresbench-sandbox-rootfs-schema
 
 # ---------------------------------------------------------------------------
 # Stage 2 — pack into a squashfs inside the container (host lacks squashfs-tools).

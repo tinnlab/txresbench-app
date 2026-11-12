@@ -3,7 +3,7 @@
 //!
 //! The harness owns the readable/mint half of single-user (via
 //! `SingleUserStrategy`); owner *creation* stays app-side (the SDK design keeps
-//! admin CRUD out of the reusable crates). SDK_GAPS D-1: ziee-auth's
+//! admin CRUD out of the reusable crates). SDK_GAPS D-1: txresbench-auth's
 //! `UserRepository::create` can't set `is_admin` and ships no `set_admin`, so the
 //! app drops to a raw UPDATE to make the owner an admin.
 //!
@@ -14,8 +14,8 @@
 use std::sync::{Arc, OnceLock};
 
 use sqlx::SqlitePool;
-use ziee_auth::auth::JwtService;
-use ziee_desktop_harness::single_user::{OwnerLogin, SingleUserStrategy};
+use txresbench_auth::auth::JwtService;
+use txresbench_desktop_harness::single_user::{OwnerLogin, SingleUserStrategy};
 
 /// Set once in the boot→window `on_ready` closure.
 pub static SERVER_PORT: OnceLock<u16> = OnceLock::new();
@@ -47,10 +47,10 @@ pub async fn auto_login() -> Result<OwnerLogin, String> {
 
 /// Create the single desktop owner (admin) on first run. Idempotent — no-ops once
 /// an admin exists. Shared with the HTTP server's local-session mint
-/// (`cytoanalyst::modules::localsession::ensure_owner`), so the desktop and the
+/// (`txresbench::modules::localsession::ensure_owner`), so the desktop and the
 /// web-service mode provision the SAME owner.
 pub async fn ensure_owner(pool: &SqlitePool) -> anyhow::Result<()> {
-    Ok(cytoanalyst::modules::localsession::ensure_owner(pool).await?)
+    Ok(txresbench::modules::localsession::ensure_owner(pool).await?)
 }
 
 /// The run-folder reveal seam (DEC-9 / PROV-UR-7, ITEM-10): open a run's
@@ -137,14 +137,14 @@ mod tests {
     /// variant — no `postgresql` block, a `database:` block naming the store
     /// file under the app-data dir — and the app-name the SDK derives the data
     /// dir from is `txresbench` (`~/.txresbench`, never the stale
-    /// `~/.cytoanalyst`).
+    /// `~/.txresbench`).
     #[test]
     fn desktop_config_is_sqlite_and_data_dir_is_txresbench() {
         // The app name is set-ONCE (OnceLock), so it must be set before any
         // other app-state access; this test is the only one in this crate's
         // binary touching `app_state`. HOME is pointed at a scratch dir so the
         // assertions never touch the real `~/.txresbench`.
-        let scratch = scratch_dir("cyto_desktop_config");
+        let scratch = scratch_dir("txr_desktop_config");
         std::env::set_var("HOME", &scratch);
 
         let cfg = super::super::config::desktop_config();
@@ -180,7 +180,7 @@ mod tests {
     #[tokio::test]
     async fn desktop_ensure_owner_yields_exactly_one_personal_account() {
         // A unique, isolated SQLite FILE (never a shared cluster DB).
-        let dir = scratch_dir("cyto_desktop_owner");
+        let dir = scratch_dir("txr_desktop_owner");
         let db_path = dir.join("txresbench.db");
         let url = format!("sqlite://{}", db_path.display());
 
@@ -194,8 +194,8 @@ mod tests {
             .await
             .expect("open isolated sqlite file");
 
-        // Apply the merged migrations (app + ziee-auth + ziee-file +
-        // ziee-notification) at runtime — the composed dir the boot embeds.
+        // Apply the merged migrations (app + txresbench-auth + txresbench-file +
+        // txresbench-notification) at runtime — the composed dir the boot embeds.
         let migrations =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../server/migrations-merged");
         let mut migrator = sqlx::migrate::Migrator::new(migrations)
@@ -267,7 +267,7 @@ mod tests {
     /// rendering on any rejection.
     #[test]
     fn reveal_validation_accepts_an_existing_absolute_directory() {
-        let dir = scratch_dir("cyto_desktop_reveal_dir");
+        let dir = scratch_dir("txr_desktop_reveal_dir");
         assert!(
             super::validate_reveal_path(dir.to_str().expect("scratch path is utf8")).is_ok(),
             "an existing absolute directory passes the reveal gate"
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn reveal_validation_rejects_missing_paths() {
-        let dir = scratch_dir("cyto_desktop_reveal_missing");
+        let dir = scratch_dir("txr_desktop_reveal_missing");
         let missing = dir.join("no-such-run-dir");
         assert!(
             super::validate_reveal_path(missing.to_str().expect("utf8")).is_err(),
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn reveal_validation_rejects_a_file() {
-        let dir = scratch_dir("cyto_desktop_reveal_file");
+        let dir = scratch_dir("txr_desktop_reveal_file");
         let file = dir.join("predictions.csv");
         std::fs::write(&file, b"patient_id\nS0001\n").expect("write scratch file");
         assert!(

@@ -7,8 +7,8 @@
 //! **App-side `secrets.storage_key` (#60).** The SDK `ServerConfig` (a FROZEN
 //! submodule pin) has no `secrets` field, and serde ignores the extra top-level
 //! key, so the at-rest secret storage key is parsed HERE (app-side) from the same
-//! config file, with a `CYTO_SECRET_STORAGE_KEY` env override. It is initialized
-//! once at boot via `ziee_framework::secrets::init_storage_key` (see `lib.rs`).
+//! config file, with a `TXR_SECRET_STORAGE_KEY` env override. It is initialized
+//! once at boot via `txresbench_framework::secrets::init_storage_key` (see `lib.rs`).
 //! Unset ⇒ compat mode (no DB secret encryption; env fallback).
 //!
 //! **App-side DB target (sqlite-store ITEM-5).** The SDK `ServerConfig` parses
@@ -21,18 +21,18 @@
 //! refusal message.
 
 use serde::Deserialize;
-use ziee_core::ServerConfig;
+use txresbench_core::ServerConfig;
 
 type BoxErr = Box<dyn std::error::Error + Send + Sync>;
 
 /// Env var overriding `secrets.storage_key` (12-factor). Takes precedence over the
 /// config file when set + non-empty.
-pub const STORAGE_KEY_ENV: &str = "CYTO_SECRET_STORAGE_KEY";
+pub const STORAGE_KEY_ENV: &str = "TXR_SECRET_STORAGE_KEY";
 
 /// Env var overriding the DB target (12-factor). Takes precedence over the
 /// config file's `database:` block when set + non-empty — the same shape as
 /// [`STORAGE_KEY_ENV`] and the SDK's own `CONFIG_FILE` discovery.
-pub const DATABASE_URL_ENV: &str = "CYTO_DATABASE_URL";
+pub const DATABASE_URL_ENV: &str = "TXR_DATABASE_URL";
 
 /// Default SQLite database file name inside the app-data dir. Kept in sync
 /// with the plan's `<app-data-dir>/txresbench.db` (DEC-13 / PROV-sqlite-store-1).
@@ -67,7 +67,7 @@ pub fn load_config(explicit: Option<&str>) -> Result<ServerConfig, BoxErr> {
 }
 
 /// Resolve the at-rest secret storage key for THIS process. The
-/// `CYTO_SECRET_STORAGE_KEY` env override wins; otherwise the discovered config
+/// `TXR_SECRET_STORAGE_KEY` env override wins; otherwise the discovered config
 /// file's `secrets.storage_key`. `None` ⇒ compat mode. A parse failure is
 /// non-fatal (returns `None` + logs) — an unreadable `secrets:` block must never
 /// crash boot, it simply falls back to compat mode.
@@ -113,7 +113,7 @@ pub fn resolve_storage_key(explicit: Option<&str>) -> Option<String> {
 ///    value);
 /// 3. the `database:` block's `path` — a plain filesystem path;
 /// 4. `<default_db_dir>/txresbench.db` — the app-data-dir location
-///    (`CYTO_APP_DATA_DIR` / `get_app_data_dir()`; `~/.txresbench` for the
+///    (`TXR_APP_DATA_DIR` / `get_app_data_dir()`; `~/.txresbench` for the
 ///    desktop once the app name is set).
 ///
 /// `default_db_dir` is the caller's already-resolved app data dir (the app
@@ -194,7 +194,7 @@ mod tests {
 
 /// TEST-13 (sqlite-store ITEM-5 + ITEM-26): the app-side `database:` config
 /// surface — block parse (url wins over path; defaults for pool), the
-/// `CYTO_DATABASE_URL` override precedence, the default app-data-dir target,
+/// `TXR_DATABASE_URL` override precedence, the default app-data-dir target,
 /// and the boot refusal message for a config that still carries ANY
 /// `postgresql:` block (ITEM-26 dropped the accepted-with-warning leg).
 #[cfg(test)]
@@ -204,7 +204,7 @@ mod database_target_tests {
 
     const STRONG_SECRET: &str = "0123456789abcdef0123456789abcdef-strong";
 
-    /// Serializes tests that mutate `CYTO_DATABASE_URL` (env vars are process-
+    /// Serializes tests that mutate `TXR_DATABASE_URL` (env vars are process-
     /// global; a second test reading the var mid-mutation would be flaky).
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -275,7 +275,7 @@ mod database_target_tests {
     }
 
     #[test]
-    fn cyto_database_url_env_overrides_the_database_block() {
+    fn txr_database_url_env_overrides_the_database_block() {
         let _guard = ENV_LOCK.lock().unwrap();
         let yaml = app_yaml("database:\n  url: sqlite:///from-config.db\n");
         let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");

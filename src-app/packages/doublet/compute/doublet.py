@@ -83,8 +83,8 @@ Three knobs of the standalone Scrublet class (`min_counts`, `min_cells`,
 filtering and HVG step — so they are recorded under `fixed_by_scanpy` rather than faked as
 parameters this package cannot honour.
 
-Roots overridable via `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR`. Progress ->
-`$CYTO_PROGRESS_FIFO`.
+Roots overridable via `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR`. Progress ->
+`$TXR_PROGRESS_FIFO`.
 """
 import _shared as S  # FIRST — pins the six thread vars before numpy/scanpy load
 
@@ -92,7 +92,7 @@ import json
 
 import numpy as np
 
-import cyto_columns
+import txr_columns
 import _criteria as CR  # the cell-filter predicate kernel, VENDORED VERBATIM
 
 
@@ -839,7 +839,7 @@ def main():
     # ── the INLINE pre-filter, applied BEFORE the split ─────────────────────────────
     #
     # Best practice is to score the QC-FILTERED matrix — junk cells (empty-ish droplets,
-    # dying cells) skew the simulated-doublet population and the kNN density. CytoAnalyst
+    # dying cells) skew the simulated-doublet population and the kNN density. TxResBench
     # cannot express that directly, and the reason is architectural rather than an oversight:
     # `cell.filter` is NON-DESTRUCTIVE. It commits a per-cell keep-mask COLUMN and never
     # writes a filtered matrix, so there is no "QC-filtered matrix artifact" to consume. The
@@ -1125,7 +1125,7 @@ def main():
                 f"the `{CELLS_INDEX_SLOT}` artifact holds {len(keys)} keys but the matrix "
                 f"declares {n_cells} cells — they are not the same cells axis"
             )
-        aligned_to = cyto_columns.axis_key_digest(pd.Series([str(k) for k in keys]))
+        aligned_to = txr_columns.axis_key_digest(pd.Series([str(k) for k in keys]))
 
     entries = []
 
@@ -1133,7 +1133,7 @@ def main():
     # the method could not score a cell.
     score_name = f"{label}_score"
     score_rel = f"metadata/{score_name}.zarr"
-    score_structure, score_meta = cyto_columns.write_metadata_column(
+    score_structure, score_meta = txr_columns.write_metadata_column(
         outputs_dir, score_rel, score_name, pd.Series(scores, dtype="float64"),
         axis="cells", aligned_to=aligned_to)
     score_meta.update({"method": METHOD, "produced_by": "doublet.detect"})
@@ -1150,7 +1150,7 @@ def main():
     if predicted is not None:
         calls, call_levels = _build_call_series(predicted, has_call)
         call_rel = f"metadata/{call_name}.zarr"
-        call_structure, call_meta = cyto_columns.write_metadata_column(
+        call_structure, call_meta = txr_columns.write_metadata_column(
             outputs_dir, call_rel, call_name, pd.Series(calls),
             axis="cells", aligned_to=aligned_to)
         call_meta.update({"method": METHOD, "produced_by": "doublet.detect",
@@ -1282,7 +1282,7 @@ def main():
     (outputs_dir / "doublet-report.json").write_text(json.dumps(report, indent=2))
     entries.append(S.output_entry(
         "doublet-report", S.DT_REPORT_QC, "doublet-report.json", "artifact",
-        structure=cyto_columns.opaque("application/json"),
+        structure=txr_columns.opaque("application/json"),
         meta={"kind": "doublet-report", "n_cells": n_cells,
               "n_called": report["n_called"], "batched": report["batched"],
               "call_emitted": report["call_emitted"]}))

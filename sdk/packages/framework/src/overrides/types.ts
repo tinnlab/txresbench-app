@@ -6,7 +6,7 @@
  * the whole enclosing file. Each seam declares its key → props contract here via
  * declaration merging, exactly like the `Slots` / `PanelRendererMap` idiom:
  *
- *   declare module '@ziee/framework/overrides' {
+ *   declare module '@txresbench/framework/overrides' {
  *     interface UIOverrides {
  *       'hardware.monitor-button': Record<string, never>
  *       'layout.drawer-header': { title: ReactNode; onClose: () => void }

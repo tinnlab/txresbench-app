@@ -53,7 +53,7 @@
 
 import type { ReactNode } from 'react'
 import { X } from 'lucide-react'
-import { Tooltip } from '@ziee/kit'
+import { Tooltip } from '@txresbench/kit'
 import { cn } from '@/lib/utils'
 import { paneTitle } from '@/modules/workbench/core/shell/dock/paneModel'
 import type { WorkbenchPane } from '@/modules/workbench/core/shell/dock/paneModel'

@@ -16,7 +16,7 @@ import {
   useListEstimate,
   useMethodRows,
 } from '@/modules/txrlist'
-import { Alert, Button, message, Skeleton } from '@ziee/kit'
+import { Alert, Button, message, Skeleton } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { useShortShell } from '../lib/useNarrow'
 import {

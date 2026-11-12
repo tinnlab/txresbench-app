@@ -12,9 +12,9 @@
 use serde_json::json;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::object_store::{ContentKey, ObjectStore};
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::object_store::{ContentKey, ObjectStore};
 
 use crate::common::TestServer;
 
@@ -149,7 +149,7 @@ async fn gathered(
         // Derived from the CREATOR's own arithmetic, never restated here — the same
         // discipline `structure` above follows. A hand-written literal would agree with
         // the serve path by construction and could not catch a drift between them.
-        logical_bytes: cytoanalyst::modules::workstore::virtual_dataset::gathered_logical_bytes(
+        logical_bytes: txresbench::modules::workstore::virtual_dataset::gathered_logical_bytes(
             "float32", n,
         ),
         created_by: None,
@@ -237,7 +237,7 @@ async fn an_unresolvable_artifact_refuses_the_byte_route_with_its_own_error_code
 /// landed `ready` and `unresolvable` had no seed path at all.
 #[test]
 fn the_seed_spec_accepts_a_declared_status_and_defaults_to_none() {
-    use cytoanalyst::modules::workstore::data_api::SeedArtifactSpec;
+    use txresbench::modules::workstore::data_api::SeedArtifactSpec;
 
     let with: SeedArtifactSpec = serde_json::from_value(serde_json::json!({
         "output_id": "x", "datatype": "data/opaque",
@@ -572,7 +572,7 @@ fn store_declared_identity(fixture: &str, mount: &str) -> String {
     .expect("store attrs parse");
     for field in ["aligned_to", "key_sequence_digest"] {
         if let Some(v) = attrs
-            .pointer(&format!("/attributes/cyto/{field}"))
+            .pointer(&format!("/attributes/txr/{field}"))
             .and_then(|v| v.as_str())
         {
             return v.to_string();
@@ -830,7 +830,7 @@ async fn producer_scene_over(
                 // it agreed with the serve path by construction and could not have caught
                 // C2 — the creator omitted `encoding`/`columns[]` entirely, so no client
                 // path could parse a real gathered row while every scene here read fine.
-                let mut st = cytoanalyst::modules::workstore::virtual_dataset::gathered_structure(
+                let mut st = txresbench::modules::workstore::virtual_dataset::gathered_structure(
                     // A `level:` entry is a uint8 categorical; the `rows` binding is a SPLIT
                     // utf8 column, and the gather branches on this DECLARATION rather than
                     // sniffing bytes.
@@ -849,7 +849,7 @@ async fn producer_scene_over(
                     // identity relation is `detach_chain_test`'s and the creator's. Passing
                     // `Unpinned` keeps every assertion in this file byte-identical to what it
                     // asserted before the parameter existed.
-                    cytoanalyst::modules::workstore::virtual_dataset::KeyIdentity::Unpinned,
+                    txresbench::modules::workstore::virtual_dataset::KeyIdentity::Unpinned,
                     json!({
                     "alignment_artifact_id": align,
                     // The MEMBER PATH inside each source store. Under the slot-family layout
@@ -884,7 +884,7 @@ async fn producer_scene_over(
             // From the creator's own function, over the SAME dtype the declaration above
             // states. A `utf8` (split string) gather has no derivable width and lands on
             // `None` — the unknown case, exercised here rather than only in unit tests.
-            logical_bytes: cytoanalyst::modules::workstore::virtual_dataset::gathered_logical_bytes(
+            logical_bytes: txresbench::modules::workstore::virtual_dataset::gathered_logical_bytes(
                 match gather {
                     SceneGather::Level(_) => "uint8",
                     SceneGather::Rows => "utf8",
@@ -946,7 +946,7 @@ async fn the_serve_path_gathers_real_writer_bytes_from_two_sources() {
 
     // The synthetic declaration the client reads, from the real route. TWO nodes now
     // (DEC-26): a GROUP at the root carrying the artifact's declaration, and the ARRAY under
-    // `values/` carrying the geometry — which is the shape `cyto_zarr` emits and the shape
+    // `values/` carrying the geometry — which is the shape `txr_zarr` emits and the shape
     // `resolveMember` can address.
     let fetch_json = |m: String| {
         let url = server.api_url(&format!("/artifacts/{g}/data/{m}"));
@@ -966,7 +966,7 @@ async fn the_serve_path_gathers_real_writer_bytes_from_two_sources() {
     let root = fetch_json("zarr.json".into()).await;
     assert_eq!(root["node_type"], json!("group"), "root is a GROUP: {root}");
     assert_eq!(
-        root["attributes"]["cyto"]["columns"][0]["path"],
+        root["attributes"]["txr"]["columns"][0]["path"],
         json!("values"),
         "…and it declares the member the array actually lives at. A root ARRAY is the shape \
          no client path could reach: {root}"
@@ -1145,8 +1145,8 @@ async fn capture_route_fixture(
         .expect("row")
         .expect("exists");
     let consumable =
-        cytoanalyst::modules::workstore::consume::ConsumableArtifact::try_new(row).expect("ready");
-    let members = cytoanalyst::modules::workstore::gather_exec::resolve(
+        txresbench::modules::workstore::consume::ConsumableArtifact::try_new(row).expect("ready");
+    let members = txresbench::modules::workstore::gather_exec::resolve(
         pool,
         &server_store(server),
         consumable.id,
@@ -1567,8 +1567,8 @@ async fn the_detector_refuses_to_condemn_a_stored_artifact() {
 ///    they coincided would pass under both the old and the new behaviour.
 #[tokio::test]
 async fn a_gathered_artifact_materialises_to_the_same_bytes_the_route_serves() {
-    use cytoanalyst::modules::workstore::consume::ConsumableArtifact;
-    use cytoanalyst::modules::workstore::gather_exec;
+    use txresbench::modules::workstore::consume::ConsumableArtifact;
+    use txresbench::modules::workstore::gather_exec;
 
     let server = TestServer::spawn().await;
     let token = setup_admin(&server).await;
@@ -1589,7 +1589,7 @@ async fn a_gathered_artifact_materialises_to_the_same_bytes_the_route_serves() {
         .await
         .expect("resolve");
 
-    let dir = std::env::temp_dir().join(format!("cyto-mat-{}-{}", std::process::id(), g));
+    let dir = std::env::temp_dir().join(format!("txr-mat-{}-{}", std::process::id(), g));
     let written = resolved.materialize(&dir).await.expect("materialise");
 
     // (1) COMPLETE — every member the route serves, on disk, and nothing empty.
@@ -1597,7 +1597,7 @@ async fn a_gathered_artifact_materialises_to_the_same_bytes_the_route_serves() {
     // Enumerated through `member_paths`, which is the SAME list the route dispatches on: a
     // processor reading `<root>/values/zarr.json` off disk and a browser fetching it over
     // HTTP must find the same members, and the previous shape wrote a ROOT array while the
-    // processor's own reader (`cyto_zarr_read.read_column`) looked under `values/`.
+    // processor's own reader (`txr_zarr_read.read_column`) looked under `values/`.
     let members = resolved.member_paths();
     assert!(
         members.contains(&"zarr.json".to_string())
@@ -1616,7 +1616,7 @@ async fn a_gathered_artifact_materialises_to_the_same_bytes_the_route_serves() {
 
     // …and the PRODUCER-SIDE reader really decodes it. `read_column` is what a processor
     // consuming this staged input calls, and it looked under `values/` and dispatched on
-    // `attributes.cyto.kind` while this path wrote neither — so it died with a KeyError on a
+    // `attributes.txr.kind` while this path wrote neither — so it died with a KeyError on a
     // store every assertion above would have called complete.
     // `str(v)` per element, deliberately: a categorical read yields LABELS and a raw read
     // yields numpy scalars, and stringifying both makes the two comparable — so a member
@@ -1625,7 +1625,7 @@ async fn a_gathered_artifact_materialises_to_the_same_bytes_the_route_serves() {
     let decoded = std::process::Command::new("python3")
         .arg("-c")
         .arg(
-            "import sys,json; sys.path.insert(0, sys.argv[1]); import cyto_zarr_read as r; \
+            "import sys,json; sys.path.insert(0, sys.argv[1]); import txr_zarr_read as r; \
               print(json.dumps([str(v) for v in r.read_column(sys.argv[2])]))",
         )
         .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/../packages/_lib"))
@@ -2088,7 +2088,7 @@ async fn a_recipe_naming_a_column_the_alignment_does_not_fuse_is_refused_by_name
 /// **The unified vocabulary reaches the client VERBATIM, and `-1` never does.**
 ///
 /// Stage 1 emits it on the alignment store's group attributes
-/// (`attributes.cyto_alignment.unified_levels[<column>]`, index = the unified code) because
+/// (`attributes.txr_alignment.unified_levels[<column>]`, index = the unified code) because
 /// `structure` also travels into the artifact row, which has a hard manifest-size cap — a
 /// vocabulary truncated there would be lost exactly where labels matter most.
 ///
@@ -2108,7 +2108,7 @@ async fn the_unified_vocabulary_is_passed_through_and_absence_is_refused() {
     let (g, _, _) = producer_scene(&repo, &store, project, None).await;
 
     // The vocabulary rides the ARRAY node, beside `kind` — where `readCategoricalColumn`
-    // and `cyto_zarr_read.read_column` both look (DEC-26), and where the real writer puts it.
+    // and `txr_zarr_read.read_column` both look (DEC-26), and where the real writer puts it.
     let decl: serde_json::Value = reqwest::Client::new()
         .get(server.api_url(&format!("/artifacts/{g}/data/values/zarr.json")))
         .bearer_auth(&token)
@@ -2119,7 +2119,7 @@ async fn the_unified_vocabulary_is_passed_through_and_absence_is_refused() {
         .await
         .expect("json");
     assert_eq!(
-        decl["attributes"]["cyto"]["kind"],
+        decl["attributes"]["txr"]["kind"],
         json!("categorical"),
         "the member declares the kind a client dispatches on — without it \
          `readCategoricalColumn` labels the codes with their own decimal spellings: {decl}"
@@ -2137,14 +2137,14 @@ async fn the_unified_vocabulary_is_passed_through_and_absence_is_refused() {
     )
     .expect("parses");
     let want = emitted
-        .pointer("/attributes/cyto_alignment/unified_levels/group")
+        .pointer("/attributes/txr_alignment/unified_levels/group")
         .expect("the producer emits a vocabulary for group");
     assert!(
         want.as_array().is_some_and(|a| !a.is_empty()),
         "FIXTURE IS VACUOUS: no labels to pass through"
     );
     assert_eq!(
-        decl.pointer("/attributes/cyto/levels"),
+        decl.pointer("/attributes/txr/levels"),
         Some(want),
         "the vocabulary must arrive VERBATIM — not derived, reordered or filtered. A label \
          set assembled on this side would be right for this fixture and wrong wherever \
@@ -2235,11 +2235,11 @@ async fn an_absent_level_is_served_as_its_declared_missing_level_not_refused() {
         .json()
         .await
         .expect("json");
-    let levels = decl["attributes"]["cyto"]["levels"]
+    let levels = decl["attributes"]["txr"]["levels"]
         .as_array()
         .unwrap_or_else(|| panic!("a fused categorical must serve its vocabulary: {decl}"))
         .clone();
-    let missing = decl["attributes"]["cyto"]["missing_level"]
+    let missing = decl["attributes"]["txr"]["missing_level"]
         .as_str()
         .unwrap_or_else(|| {
             panic!(
@@ -2263,13 +2263,13 @@ async fn an_absent_level_is_served_as_its_declared_missing_level_not_refused() {
     .expect("parses");
     assert_eq!(
         serde_json::Value::Array(levels.clone()),
-        emitted["attributes"]["cyto_alignment"]["unified_levels"]["group"],
+        emitted["attributes"]["txr_alignment"]["unified_levels"]["group"],
         "the vocabulary is passed through VERBATIM, invented entry included — the codes index \
          into the FULL list, so filtering it would re-index every label after it"
     );
     assert_eq!(
         serde_json::Value::String(missing.clone()),
-        emitted["attributes"]["cyto_alignment"]["missing_levels"]["group"],
+        emitted["attributes"]["txr_alignment"]["missing_levels"]["group"],
         "…and the missing level is the PRODUCER's declared label, not a convention this side \
          re-derives"
     );
@@ -2368,7 +2368,7 @@ async fn a_column_declared_wider_than_its_sources_is_converted_on_read() {
         .as_array_mut()
         .expect("declared columns")
     {
-        if column["name"] == cytoanalyst::modules::workstore::virtual_dataset::SOURCE_MEMBER {
+        if column["name"] == txresbench::modules::workstore::virtual_dataset::SOURCE_MEMBER {
             column["dtype"] = json!("uint16");
         }
     }
@@ -2682,7 +2682,7 @@ async fn decode_level(
     keys_artifact: Uuid,
     keys_structure: &serde_json::Value,
 ) -> GatheredLevel {
-    use cytoanalyst::modules::workstore::gather_exec;
+    use txresbench::modules::workstore::gather_exec;
 
     let codes = gather_exec::resolve(pool, store, codes_artifact, codes_structure)
         .await
@@ -2694,7 +2694,7 @@ async fn decode_level(
             .expect("the array node"),
     )
     .expect("array node parses");
-    let levels: Vec<String> = decl["attributes"]["cyto"]["levels"]
+    let levels: Vec<String> = decl["attributes"]["txr"]["levels"]
         .as_array()
         .expect("a fused column serves its unified vocabulary")
         .iter()
@@ -2743,7 +2743,7 @@ fn stage_and_align(spec: &serde_json::Value) -> (std::path::PathBuf, serde_json:
         .join("tests/fixtures/chain/stage_and_align.py");
     assert!(script.is_file(), "{} is missing", script.display());
     let dir = std::env::temp_dir().join(format!(
-        "cyto-chain-{}-{}",
+        "txr-chain-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2817,13 +2817,13 @@ async fn gathered_over(
     alignment_column: serde_json::Value,
     sources: Vec<(&str, Uuid)>,
 ) -> Uuid {
-    let mut structure = cytoanalyst::modules::workstore::virtual_dataset::gathered_structure(
+    let mut structure = txresbench::modules::workstore::virtual_dataset::gathered_structure(
         data_type,
         kind,
         SCENE_SOURCE_AXIS,
         n_rows,
         // No axis identity: see the note on the other `gathered_structure` call in this file.
-        cytoanalyst::modules::workstore::virtual_dataset::KeyIdentity::Unpinned,
+        txresbench::modules::workstore::virtual_dataset::KeyIdentity::Unpinned,
         json!({
             "alignment_artifact_id": alignment,
             "column_selector": "values",
@@ -2850,7 +2850,7 @@ async fn gathered_over(
         // Derived from the CREATOR's arithmetic, never a literal: a hand-written
         // number would agree with the serve path by construction and could not
         // catch a drift between them.
-        logical_bytes: cytoanalyst::modules::workstore::virtual_dataset::gathered_logical_bytes(
+        logical_bytes: txresbench::modules::workstore::virtual_dataset::gathered_logical_bytes(
             data_type, n_rows,
         ),
         created_by: None,
@@ -3120,7 +3120,7 @@ async fn level_one(repo: &CatalogRepository, store: &dyn ObjectStore, project: U
 /// Three producer runs: `A1` over `ds-a`+`ds-b`, `A2` over `A1`'s gathered output + `ds-c`,
 /// `A3` over `A2`'s gathered output + `ds-d`. The artifact the request names therefore reads
 /// through two intermediates before it reaches a byte, and every byte it returns comes from a
-/// store `cyto_zarr` wrote.
+/// store `txr_zarr` wrote.
 ///
 /// The assertion is on LABELS and KEYS, never on codes. A fused categorical's codes are
 /// per-source and every level re-unifies them, so the code that means `g4` differs at each
@@ -3221,7 +3221,7 @@ async fn a_three_deep_chain_of_real_producer_alignments_serves_the_right_rows() 
         .expect("request");
     assert_eq!(decl.status(), 200, "{:?}", decl.text().await);
     let decl: serde_json::Value = decl.json().await.expect("array node");
-    let levels: Vec<String> = decl["attributes"]["cyto"]["levels"]
+    let levels: Vec<String> = decl["attributes"]["txr"]["levels"]
         .as_array()
         .expect("the served vocabulary")
         .iter()
@@ -3273,7 +3273,7 @@ async fn a_chain_deeper_than_the_bound_is_refused_by_name_over_the_route() {
         .and_then(|s| s.parse::<Uuid>().ok())
         .expect("the level-1 alignment id");
     // One more than the bound: the LAST one added must be refused.
-    for level in 0..cytoanalyst::modules::workstore::gathered::MAX_CHAIN_DEPTH {
+    for level in 0..txresbench::modules::workstore::gathered::MAX_CHAIN_DEPTH {
         top = gathered_over(
             &repo,
             project,
@@ -3301,7 +3301,7 @@ async fn a_chain_deeper_than_the_bound_is_refused_by_name_over_the_route() {
          overflow: {status} {body}"
     );
     assert!(
-        body.contains(&cytoanalyst::modules::workstore::gathered::MAX_CHAIN_DEPTH.to_string()),
+        body.contains(&txresbench::modules::workstore::gathered::MAX_CHAIN_DEPTH.to_string()),
         "and it must say what the bound is: {body}"
     );
 }
@@ -3633,7 +3633,7 @@ async fn put_bool_mask(
         is_multifile: true,
         content_hash: put.content_hash.clone(),
         structure: json!({ "columns": [{ "name": "values", "path": "values" }] }),
-        meta: cytoanalyst::modules::workstore::mask::mask_meta("ds-inner"),
+        meta: txresbench::modules::workstore::mask::mask_meta("ds-inner"),
         role: "artifact".to_string(),
         stored_bytes: 0,
         logical_bytes: Some(0),
@@ -3669,7 +3669,7 @@ async fn a_filter_over_an_integration_keeps_the_unified_vocabulary() {
     let (inner, _, _) = producer_scene(&repo, &store, project, None).await;
 
     // Sanity: the inner already serves the unified vocabulary [g1,g2,g3,g4] and codes [1,0,2,3,1].
-    let inner_res = cytoanalyst::modules::workstore::gather_exec::resolve(
+    let inner_res = txresbench::modules::workstore::gather_exec::resolve(
         &pool,
         &store,
         inner,
@@ -3679,7 +3679,7 @@ async fn a_filter_over_an_integration_keeps_the_unified_vocabulary() {
     .expect("resolve inner integration");
     let inner_decl: serde_json::Value =
         serde_json::from_slice(&inner_res.member("values/zarr.json").unwrap().unwrap()).unwrap();
-    let unified = inner_decl["attributes"]["cyto"]["levels"].clone();
+    let unified = inner_decl["attributes"]["txr"]["levels"].clone();
     assert_eq!(
         unified,
         json!(["g1", "g2", "g3", "g4"]),
@@ -3698,12 +3698,12 @@ async fn a_filter_over_an_integration_keeps_the_unified_vocabulary() {
             object_key: None,
             is_multifile: false,
             content_hash: format!("sha256:{}", Uuid::new_v4().simple()),
-            structure: cytoanalyst::modules::workstore::virtual_dataset::gathered_structure(
+            structure: txresbench::modules::workstore::virtual_dataset::gathered_structure(
                 "uint8",
                 Some("categorical"),
                 SCENE_SOURCE_AXIS,
                 5, // the inner's output rows (pre-mask); resolve renumbers to N_kept
-                cytoanalyst::modules::workstore::virtual_dataset::KeyIdentity::Unpinned,
+                txresbench::modules::workstore::virtual_dataset::KeyIdentity::Unpinned,
                 json!({
                     "alignment_artifact_id": null,
                     "column_selector": "values",
@@ -3715,7 +3715,7 @@ async fn a_filter_over_an_integration_keeps_the_unified_vocabulary() {
             meta: json!({}),
             role: "artifact".to_string(),
             stored_bytes: 0,
-            logical_bytes: cytoanalyst::modules::workstore::virtual_dataset::gathered_logical_bytes(
+            logical_bytes: txresbench::modules::workstore::virtual_dataset::gathered_logical_bytes(
                 "uint8", 5,
             ),
             created_by: None,
@@ -3726,7 +3726,7 @@ async fn a_filter_over_an_integration_keeps_the_unified_vocabulary() {
         .expect("insert outer filter")
         .id;
 
-    let resolved = cytoanalyst::modules::workstore::gather_exec::resolve(
+    let resolved = txresbench::modules::workstore::gather_exec::resolve(
         &pool,
         &store,
         outer,
@@ -3741,7 +3741,7 @@ async fn a_filter_over_an_integration_keeps_the_unified_vocabulary() {
     let decl: serde_json::Value =
         serde_json::from_slice(&resolved.member("values/zarr.json").unwrap().unwrap()).unwrap();
     assert_eq!(
-        decl["attributes"]["cyto"]["levels"],
+        decl["attributes"]["txr"]["levels"],
         json!(["g1", "g2", "g3", "g4"]),
         "the filter over an integration must carry the inner node's UNIFIED vocabulary on its \
          resolved member — dropping it serves unified codes with no labels (INV-13)"
@@ -3756,7 +3756,7 @@ async fn a_filter_over_an_integration_keeps_the_unified_vocabulary() {
     assert_eq!(codes, vec![1u8, 2, 3], "kept codes are inner rows 0,2,3");
     let labels: Vec<&str> = codes
         .iter()
-        .map(|&c| decl["attributes"]["cyto"]["levels"][c as usize].as_str().unwrap())
+        .map(|&c| decl["attributes"]["txr"]["levels"][c as usize].as_str().unwrap())
         .collect();
     assert_eq!(
         labels,

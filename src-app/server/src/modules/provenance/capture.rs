@@ -2,7 +2,7 @@
 //! capture write path; the seam in `seams.rs` is only the notify hook.
 
 use sqlx::SqlitePool;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use crate::modules::workstore::object_store::sha256_hex;
 

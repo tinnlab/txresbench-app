@@ -59,7 +59,7 @@ use chrono::{DateTime, Utc};
 use serde_json::json;
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::alignment::AlignmentPlan;
 use super::catalog::models::{Artifact, NewArtifact};
@@ -406,7 +406,7 @@ pub fn definition_selector(alignment_column: Option<&str>, key_column: &str) -> 
 /// **The element type a SOURCE store declares for its member — read from the producer's own
 /// vocabulary, not from this side's.**
 ///
-/// A real `metadata-column` artifact's `structure` is the store's `attributes.cyto` verbatim
+/// A real `metadata-column` artifact's `structure` is the store's `attributes.txr` verbatim
 /// (that is what ingest records), and it carries **no top-level `data_type`**: the dtype
 /// lives on the entry of `columns[]` whose `path` is the member. This side's GATHERED
 /// declaration is the one that uses a top-level `data_type`, and conflating the two reads
@@ -440,7 +440,7 @@ pub fn source_dtype(structure: &serde_json::Value, member: &str) -> Option<Strin
 /// **The member KIND a SOURCE store declares — the same lookup as [`source_dtype`], on the
 /// same entry.**
 ///
-/// It is the field `readCategoricalColumn` and `cyto_zarr_read.read_column` both dispatch on:
+/// It is the field `readCategoricalColumn` and `txr_zarr_read.read_column` both dispatch on:
 /// `categorical` resolves codes through a declared level set, `string` decodes the split
 /// pair, anything else is read as raw numbers. A gathered column is the same KIND of thing as
 /// the columns it gathers, so this is CARRIED rather than decided here — deciding it would be
@@ -489,7 +489,7 @@ pub fn source_kind(structure: &serde_json::Value, member: &str) -> Option<String
 ///   on most even ones (`row 0 holds level code 256`), and in the residual case `Ok(())`
 ///   having written across two rows.
 ///
-/// The union size is not a guess — it is `|attributes.cyto_alignment.unified_levels[column]|`,
+/// The union size is not a guess — it is `|attributes.txr_alignment.unified_levels[column]|`,
 /// which the producer declares and the serve path already reads verbatim. `union_levels` is
 /// that count, and `None` means the creator could not read it.
 ///
@@ -520,7 +520,7 @@ pub fn unified_code_dtype(
 }
 
 /// **The `structure` a gathered artifact declares — the SAME vocabulary a real store's
-/// `attributes.cyto` uses (DEC-26).**
+/// `attributes.txr` uses (DEC-26).**
 ///
 /// It used to be `{kind, axis, n, data_type, gathered_from}`, which no client path could
 /// read: `parseStructure` threw on the missing `encoding` before a byte was fetched,
@@ -600,7 +600,7 @@ pub fn gathered_structure(
     });
     if kind == "string" {
         // The split pair's own addresses, relative to the store root — exactly what
-        // `cyto_zarr.Table.string` declares, and what `openSplitStringColumn` reads beneath
+        // `txr_zarr.Table.string` declares, and what `openSplitStringColumn` reads beneath
         // the member.
         column["layout"] = json!("split");
         column["offsets"] = json!(format!("{SOURCE_MEMBER}/offsets"));
@@ -664,7 +664,7 @@ async fn read_unified_levels(pool: &SqlitePool, alignment_id: Uuid) -> Option<se
         .ok()?;
     serde_json::from_slice::<serde_json::Value>(&bytes)
         .ok()?
-        .pointer("/attributes/cyto_alignment/unified_levels")
+        .pointer("/attributes/txr_alignment/unified_levels")
         .cloned()
 }
 
@@ -2268,12 +2268,12 @@ mod tests {
                     .unwrap_or_else(|e| panic!("{store} must be readable: {e}")),
             )
             .expect("zarr.json parses");
-            // `attributes.cyto` is verbatim what ingest records as the artifact's
+            // `attributes.txr` is verbatim what ingest records as the artifact's
             // `structure` — so this is the value the creator will really be handed.
             let structure = zarr
                 .get("attributes")
-                .and_then(|a| a.get("cyto"))
-                .expect("a real store stamps attributes.cyto");
+                .and_then(|a| a.get("txr"))
+                .expect("a real store stamps attributes.txr");
             assert!(
                 structure.get("data_type").is_none(),
                 "{store}: a real store carries NO top-level `data_type` — if that ever \

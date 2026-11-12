@@ -2453,7 +2453,7 @@ test('[WS-R4][boundary] a vocabulary token inside a DIFFERENT compound word is s
   }
   // The reported false positive: `sandbox/env_image.rs`'s operator-facing env var.
   for (const s of [
-    'const CYTO_ENV_IMAGE_IDENTITY_REGEXP: u8 = 1;',
+    'const TXR_ENV_IMAGE_IDENTITY_REGEXP: u8 = 1;',
     'const DEFAULT_IDENTITY_RE: &str = "x";',
     'let identity_re = 1;',
   ]) {
@@ -2501,7 +2501,7 @@ test('[WS-R8][cargo-cfg-feature] the `#[cfg(feature="saas")]` GRAMMAR is NOT fla
     '//! compiled ONLY behind the `saas` cargo feature',
     '// requires a build with the `saas` cargo feature; ships local-fs otherwise',
     '// this module + the client crates are ABSENT from a no-default-features build',
-    '//   cargo test -p cytoanalyst --features saas --test integration_tests',
+    '//   cargo test -p txresbench --features saas --test integration_tests',
   ]) {
     assert.deepEqual(hits(s, 'rust'), [], `cargo/cfg build token, not a genomic feature: ${s}`)
   }
@@ -3021,7 +3021,7 @@ test('[WS-R5][G1] `#[cfg(not(test))]` is SHIPPING code and is SCANNED', () => {
 // ── WS-R6 — the census skips RUNTIME ARTEFACTS, and only those ───────────────
 //
 // The WS-R5 G3 census made "not scanned" a decision for every tree ON DISK, which is
-// not the set of trees the repo AUTHORS. `cytoanalyst-data/` (the app's runtime data
+// not the set of trees the repo AUTHORS. `txresbench-data/` (the app's runtime data
 // directory — embedded Postgres, `dev/`, `e2e/`, artefacts; 922 MB on a used machine)
 // is created the moment anyone runs the server, is gitignored, holds zero tracked
 // files, and was in no declaration — so the guard was RED on every developer machine
@@ -3059,7 +3059,7 @@ test('[WS-R6] a GITIGNORED, ZERO-TRACKED tree is a runtime artefact and is SKIPP
     git('add', '.gitignore')
     git('commit', '-qm', 'init')
     const skip = mod.gitRuntimeArtefactTrees(['runtime-data'], dir)
-    assert.deepEqual([...skip], ['runtime-data'], 'the shape of `cytoanalyst-data`: ignored + 0 tracked')
+    assert.deepEqual([...skip], ['runtime-data'], 'the shape of `txresbench-data`: ignored + 0 tracked')
   })
 })
 

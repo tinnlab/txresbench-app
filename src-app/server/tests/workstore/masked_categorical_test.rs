@@ -17,18 +17,18 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::gather_exec::{resolve, ResolvedGather};
-use cytoanalyst::modules::workstore::object_store::ObjectStore;
-use cytoanalyst::modules::workstore::virtual_dataset::{gathered_structure, KeyIdentity};
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::gather_exec::{resolve, ResolvedGather};
+use txresbench::modules::workstore::object_store::ObjectStore;
+use txresbench::modules::workstore::virtual_dataset::{gathered_structure, KeyIdentity};
 
 use super::{create_project, pool_for, server_store, setup_admin};
 use crate::common::TestServer;
 
 const AXIS: &str = "rows";
 
-/// One 1-D zarr-v3 array in the decodable container, optionally carrying `attributes.cyto.levels`.
+/// One 1-D zarr-v3 array in the decodable container, optionally carrying `attributes.txr.levels`.
 fn zarr_array(
     prefix: &str,
     dtype: &str,
@@ -70,7 +70,7 @@ fn zarr_array(
         }],
     });
     if let Some(levels) = levels {
-        meta["attributes"] = json!({ "cyto": { "kind": "categorical", "levels": levels } });
+        meta["attributes"] = json!({ "txr": { "kind": "categorical", "levels": levels } });
     }
     vec![
         (
@@ -140,7 +140,7 @@ async fn put_mask(
         is_multifile: true,
         content_hash: put.content_hash.clone(),
         structure: json!({ "columns": [{ "name": "values", "path": "values" }] }),
-        meta: cytoanalyst::modules::workstore::mask::mask_meta("ds-source"),
+        meta: txresbench::modules::workstore::mask::mask_meta("ds-source"),
         role: "artifact".to_string(),
         stored_bytes: 0,
         logical_bytes: Some(0),
@@ -211,11 +211,11 @@ fn decode_codes(resolved: &ResolvedGather) -> Vec<u8> {
     bytes
 }
 
-/// The `levels` array on the served member's `zarr.json` (`attributes.cyto.levels`).
+/// The `levels` array on the served member's `zarr.json` (`attributes.txr.levels`).
 fn served_levels(resolved: &ResolvedGather) -> Value {
     let arr: Value =
         serde_json::from_slice(&resolved.member("values/zarr.json").unwrap().unwrap()).unwrap();
-    arr["attributes"]["cyto"]["levels"].clone()
+    arr["attributes"]["txr"]["levels"].clone()
 }
 
 /// **A masked categorical's labels equal the unmasked labels of the KEPT rows — with a vocabulary

@@ -2,7 +2,7 @@
 import { chromium } from 'playwright-core'
 
 const URL = 'http://localhost:1421/viz-showcase.html'
-const OUT = '/tmp/claude-1000/-data-pbya-ziee-ziee/b5b52393-63e9-49f1-8500-803873494642/scratchpad/viz-showcase.png'
+const OUT = '/tmp/claude-1000/-data-pbya-txresbench-txresbench/b5b52393-63e9-49f1-8500-803873494642/scratchpad/viz-showcase.png'
 
 const browser = await chromium.launch({
   args: [

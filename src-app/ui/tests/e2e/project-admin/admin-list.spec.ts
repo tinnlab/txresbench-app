@@ -24,7 +24,7 @@ test('admin sees the cross-user project list with owner identity, columns, searc
   await expect(page.getByTestId(`project-admin-row-${a.projectId}`)).toBeVisible()
   await expect(page.getByTestId(`project-admin-owner-${a.projectId}`)).toContainText(a.owner.username)
   await expect(page.getByTestId(`project-admin-owner-${a.projectId}`)).toContainText(
-    `${a.owner.username}@cyto.test`,
+    `${a.owner.username}@txresbench.test`,
   )
   await expect(page.getByTestId(`project-admin-row-${b.projectId}`)).toBeVisible()
   await expect(page.getByTestId(`project-admin-owner-${b.projectId}`)).toContainText(b.owner.username)

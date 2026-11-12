@@ -42,12 +42,12 @@ use std::path::Path;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::sandbox::inputs::{input_mounts, materialize_inputs, MaterializedInput};
-use cytoanalyst::modules::sandbox::spec::AnalysisSpec;
-use cytoanalyst::modules::sandbox::types::MountMode;
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::object_store::{LocalFsStore, ObjectStore};
+use txresbench::modules::sandbox::inputs::{input_mounts, materialize_inputs, MaterializedInput};
+use txresbench::modules::sandbox::spec::AnalysisSpec;
+use txresbench::modules::sandbox::types::MountMode;
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::object_store::{LocalFsStore, ObjectStore};
 
 use super::hardening_common::{admin_user_id, create_project, pool_for, server_store};
 use super::setup_admin;
@@ -73,7 +73,7 @@ fn zarr_members() -> Vec<(String, Vec<u8>)> {
 }
 
 /// The `structure` a real `single-cell/expression` artifact declares — the CSC Zarr
-/// store `packages/_lib/cyto_csc.py::write_csc_zarr` emits. Copied in shape (not by
+/// store `packages/_lib/txr_csc.py::write_csc_zarr` emits. Copied in shape (not by
 /// import: the server may not know a contributed package's vocabulary), because the
 /// whole point of ITEM-23 is that the mount name is read off THIS document.
 fn zarr_v3_structure() -> Value {

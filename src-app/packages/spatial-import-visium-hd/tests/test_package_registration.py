@@ -140,12 +140,12 @@ def test_TEST_26_every_declared_dependency_is_PINNED_and_INSIDE_its_declared_ran
     against a PREFIX of the real pin — reporting a declaration satisfied that the gate would
     refuse. One parse, one answer.
 
-    Distribution names are folded PEP 503-style (`cyto_deps.normalize_name`, which mirrors
+    Distribution names are folded PEP 503-style (`txr_deps.normalize_name`, which mirrors
     `normalize_dist_name` exactly), because an index treats `Pillow`, `pillow` and
     `pil-low`... does not, but does treat `foo.bar`/`foo_bar`/`foo-bar` as one distribution,
     and a declaration must not be rejected over a hyphen.
     """
-    import cyto_deps
+    import txr_deps
     import env_pins
     from packaging.specifiers import SpecifierSet
     from packaging.version import Version
@@ -172,7 +172,7 @@ def test_TEST_26_every_declared_dependency_is_PINNED_and_INSIDE_its_declared_ran
     for dep in declared:
         raw = dep["library"]
         assert str(raw).strip(), f"a dependency declares an empty library name: {dep!r}"
-        lib = cyto_deps.normalize_name(raw)
+        lib = txr_deps.normalize_name(raw)
         assert lib, (
             f"the library name {raw!r} folds to nothing under the PEP 503 rule the build "
             "gate applies, which the gate refuses by name"
@@ -288,12 +288,12 @@ def test_TEST_26_every_declared_helper_EXISTS_and_every_bare_import_is_STAGED():
     # the declared set is what makes an UNDECLARED third-party import fail below instead of
     # being waved through because the recipe happens to install it.
     pins = {p["name"]: p for p in env_pins.pins(analysis["env"], env_root=ENV_ROOT)}
-    import cyto_deps
+    import txr_deps
 
     third_party = {
-        pins[cyto_deps.normalize_name(d["library"])]["import"]
+        pins[txr_deps.normalize_name(d["library"])]["import"]
         for d in run["dependencies"]
-        if cyto_deps.normalize_name(d["library"]) in pins
+        if txr_deps.normalize_name(d["library"]) in pins
     }
     stdlib = set(sys.stdlib_module_names)
 
@@ -323,7 +323,7 @@ def test_TEST_26_every_declared_helper_EXISTS_and_every_bare_import_is_STAGED():
         f"a declared helper {sorted(declared_modules - entry_imports)} is imported by "
         "NOTHING in the staged set — the manifest stages a module no code asks for"
     )
-    assert {"cyto_columns", "cyto_csc", "cyto_deps"} <= entry_imports, (
+    assert {"txr_columns", "txr_csc", "txr_deps"} <= entry_imports, (
         "the entry no longer imports the `_lib` modules this check is calibrated on; the "
         f"staged-vs-declared assertion above may now be measuring nothing (imports: "
         f"{sorted(entry_imports)})"
@@ -341,7 +341,7 @@ def test_TEST_26_the_manifest_declares_its_TOP_LEVEL_identity():
         packages/spatial-import-visium-hd/manifest.yaml: malformed manifest --
         missing field `id` at line 152 column 1
 
-    That came out of `cargo check -p cytoanalyst`, i.e. from `server/build.rs`'s
+    That came out of `cargo check -p txresbench`, i.e. from `server/build.rs`'s
     processor-manifest gate, which is the only thing in the tree that had an opinion. A gate
     that lives only in the Rust build is a gate a python-only iteration never runs, and the
     failure it catches is total: no analysis, no contribution, nothing offered.
@@ -360,7 +360,7 @@ def test_TEST_26_the_manifest_declares_its_TOP_LEVEL_identity():
         "`embedded.rs` extracts by directory and the loader scans the folder, so the two "
         "must be one identity"
     )
-    assert manifest.get("publisher") == "cyto"
+    assert manifest.get("publisher") == "txr"
     name = manifest.get("name")
     assert isinstance(name, str) and name.strip(), "the package declares no `name`"
     assert manifest.get("apiVersion") == "1.0"

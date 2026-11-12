@@ -143,7 +143,7 @@ def test_TEST_4_the_entity_reaches_a_SANDBOXED_consumer(tmp_path):
 
     `meta` never crosses into the sandbox; the store's own bytes do. So a declaration that
     lived only in the manifest row would be unreadable by the analyses that need it most.
-    This asserts the entity is in the store's MIRRORED `attributes.cyto.cyto_spatial`, which
+    This asserts the entity is in the store's MIRRORED `attributes.txr.txr_spatial`, which
     is the copy a sandboxed reader gets through
     `spatial_declarations.require_spatial_declarations`.
     """

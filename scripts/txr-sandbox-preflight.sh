@@ -35,9 +35,9 @@
 # human-facing checklist with the one-line fix per item.
 set -u
 
-# D01: the app-data dir is `~/.txresbench`; CYTO_APP_DATA_DIR overrides it,
+# D01: the app-data dir is `~/.txresbench`; TXR_APP_DATA_DIR overrides it,
 # which is the same precedence the server's `data_root()` uses.
-APP_DATA="${CYTO_APP_DATA_DIR:-$HOME/.txresbench}"
+APP_DATA="${TXR_APP_DATA_DIR:-$HOME/.txresbench}"
 
 FAIL=0
 

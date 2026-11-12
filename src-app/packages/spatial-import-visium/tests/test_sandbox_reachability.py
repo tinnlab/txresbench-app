@@ -21,8 +21,8 @@ the issue text:
   pinned by `inputs_json_is_hash_referenced_and_deterministic` (`:1135, :1152`).
 * **the staged bytes** — `stage_prefix_members` (`inputs.rs:848-880`) copies every member
   BYTE-VERBATIM out of the content-addressed pool. For a zarr artifact that includes
-  `<store>/zarr.json`, whose `attributes.cyto` carries the producer's `structure`
-  (`_lib/cyto_zarr.py:1667-1669`) — the channel `stamp_cyto_attributes` /
+  `<store>/zarr.json`, whose `attributes.txr` carries the producer's `structure`
+  (`_lib/txr_zarr.py:1667-1669`) — the channel `stamp_txr_attributes` /
   `structure_extra` exists to widen.
 
 The manifest entry's `meta` is in NEITHER. It becomes the `artifacts.meta` jsonb column
@@ -167,7 +167,7 @@ def test_the_affine_is_absent_from_inputs_json_and_present_in_the_image_bytes(
     assert needle not in (inputs / "inputs.json").read_text()
     assert needle not in (inputs / "params.json").read_text()
     # And there is no store to carry a `structure`: an opaque single-file artifact has no
-    # `zarr.json`, which is what closes the `stamp_cyto_attributes` route for this kind.
+    # `zarr.json`, which is what closes the `stamp_txr_attributes` route for this kind.
     assert list(inputs.rglob("zarr.json")) == []
 
     # ── positive: the BYTES carry it ─────────────────────────────────────────────────
@@ -184,7 +184,7 @@ def test_a_consumer_with_no_placement_refuses_rather_than_assuming_identity(tmp_
     """TEST-10 (cont.) [invariant: INV-10] — the refusal, on the reader side.
 
     Mirrors `require_micron_scale`'s discipline. An image written by some other tool
-    carries no `cyto` payload, and the only safe answer is to stop: assuming the identity
+    carries no `txr` payload, and the only safe answer is to stop: assuming the identity
     affine would claim the pixels are already full-resolution space pixels, and if they
     are not, every spot drawn on the image lands in the wrong place with nothing to say so.
     """
@@ -345,7 +345,7 @@ PROBE_RADIUS_UM = 30.0
 #: because that is what a flat `/code` gives it, and it asks for everything through the
 #: `require_*` functions rather than reading keys, so a missing declaration STOPS it.
 #
-#: It also READS THE COORDINATE VALUES, through `cyto_zarr_read` — the platform's own
+#: It also READS THE COORDINATE VALUES, through `txr_zarr_read` — the platform's own
 #: reader, staged globally by `PY_HELPER_FILES`. That is not decoration: without it, the
 #: whole global-staging half of the harness would be inert, and a mutation that staged
 #: NOTHING from that table left this test green (mutant M6). A real spatial analysis reads
@@ -353,7 +353,7 @@ PROBE_RADIUS_UM = 30.0
 #: quantity in microns — which is the operation #99 and #109 are actually blocked on.
 _CONSUMER = '''
 import json, math, os, sys
-import cyto_zarr_read
+import txr_zarr_read
 import spatial_declarations as SD
 
 inputs = sys.argv[1]
@@ -371,16 +371,16 @@ SD.require_full_positioning(block.get("positioning"),
                             consumer="a neighbourhood analysis")
 
 # the positions themselves, through the platform reader a real compute uses. The member
-# name comes from the framework's OWN declaration in the same `attributes.cyto` the
+# name comes from the framework's OWN declaration in the same `attributes.txr` the
 # spatial block rides in — `arrays`, not `columns`: a 2-D member is an ARRAY and
 # `columns` is empty for a coordinates artifact. A coordinates artifact declares exactly
 # one array, so taking the sole element is not a positional choice, it is the only
 # element there is.
-declaration = cyto_zarr_read.structure(store)
+declaration = txr_zarr_read.structure(store)
 arrays = declaration["arrays"]
 if len(arrays) != 1:
     raise SystemExit("a coordinates artifact declares one array, got " + str(len(arrays)))
-values = cyto_zarr_read.read_array(store, arrays[0]["path"])
+values = txr_zarr_read.read_array(store, arrays[0]["path"])
 span_px = math.hypot(float(values[:, 0].max() - values[:, 0].min()),
                      float(values[:, 1].max() - values[:, 1].min()))
 
@@ -588,7 +588,7 @@ def test_the_same_sandboxed_consumer_REFUSES_when_the_declaration_is_absent(
     inputs = stage_store_as_sandbox_input(coordinates["store"], tmp_path)
     staged = inputs / Path(coordinates["store"]).name
     doc = json.loads((staged / "zarr.json").read_text())
-    del doc["attributes"]["cyto"]["cyto_spatial"]
+    del doc["attributes"]["txr"]["txr_spatial"]
     (staged / "zarr.json").write_text(json.dumps(doc, indent=2))
 
     result = run_consumer(tmp_path / "code", inputs)
@@ -620,7 +620,7 @@ def test_the_opaque_image_gains_no_second_route_to_the_coordinate_space(
     image_inputs = stage_as_sandbox_input(produced["out"] / image_entry["path"], tmp_path)
 
     assert list(image_inputs.rglob("zarr.json")) == []
-    assert "cyto_spatial" not in json.dumps(image_entry["structure"])
+    assert "txr_spatial" not in json.dumps(image_entry["structure"])
     # the image's ONE route still works
     staged = image_inputs / Path(image_entry["path"]).name
     with tifffile.TiffFile(staged) as tf:
@@ -631,7 +631,7 @@ def test_the_opaque_image_gains_no_second_route_to_the_coordinate_space(
     # ── the control: the coordinates artifact DOES have both ─────────────────────────
     coord_inputs = stage_store_as_sandbox_input(coordinates["store"], tmp_path / "coord")
     assert list(coord_inputs.rglob("zarr.json")) != []
-    assert "cyto_spatial" in json.dumps(coordinates["entry"]["structure"])
+    assert "txr_spatial" in json.dumps(coordinates["entry"]["structure"])
 
     # ── the scale on the image channel carries ITS PROVENANCE, and the RIGHT one ─────
     #
@@ -667,7 +667,7 @@ def test_the_helper_table_parser_raises_rather_than_matching_nothing(tmp_path, m
     a file where the table is not.
     """
     assert len(CODE.py_helper_files()) >= 4
-    assert ("cyto_zarr_read.py", "_lib", "cyto_zarr_read.py") in CODE.py_helper_files()
+    assert ("txr_zarr_read.py", "_lib", "txr_zarr_read.py") in CODE.py_helper_files()
 
     decoy = tmp_path / "mod.rs"
     decoy.write_text("// no table here\npub const SOMETHING_ELSE: &[u8] = &[];\n")
@@ -682,7 +682,7 @@ def test_the_helper_table_parser_raises_rather_than_matching_nothing(tmp_path, m
         'const RESERVED_HELPER_PACKAGE: &str = "_helpers";\n'
         'const RESERVED_LIB_PACKAGE: &str = "_lib";\n'
         "pub const PY_HELPER_FILES: &[(&str, &str, &str)] = &[\n"
-        '    ("cyto_zarr.py", RESERVED_LIB_PACKAGE, "cyto_zarr.py"),\n'
+        '    ("txr_zarr.py", RESERVED_LIB_PACKAGE, "txr_zarr.py"),\n'
         "    ];\n"
         "const OTHER: &[(&str, &str, &str)] = &[\n"
         '    ("not_staged.py", RESERVED_LIB_PACKAGE, "not_staged.py"),\n'
@@ -690,7 +690,7 @@ def test_the_helper_table_parser_raises_rather_than_matching_nothing(tmp_path, m
     )
     monkeypatch.setattr(CODE, "_PROCESSORS_RS", runon)
     staged_names = {name for name, _pkg, _rel in CODE.py_helper_files()}
-    assert staged_names == {"cyto_zarr.py"}, (
+    assert staged_names == {"txr_zarr.py"}, (
         f"the parser ran past the indented `];` into a neighbouring const: {staged_names}"
     )
 
@@ -701,19 +701,19 @@ def test_the_helper_table_parser_raises_rather_than_matching_nothing(tmp_path, m
         'const RESERVED_HELPER_PACKAGE: &str = "_helpers";\n'
         'const RESERVED_LIB_PACKAGE: &str = "_lib";\n'
         "pub const PY_HELPER_FILES: &[(&str, &str, &str)] = &[\n"
-        '    ("cyto_zarr.py", RESERVED_LIB_PACKAGE, "cyto_zarr.py"),\n'
+        '    ("txr_zarr.py", RESERVED_LIB_PACKAGE, "txr_zarr.py"),\n'
         '    /* ("removed.py", RESERVED_LIB_PACKAGE, "removed.py"), */\n'
         "\n];\n"
     )
     monkeypatch.setattr(CODE, "_PROCESSORS_RS", commented)
-    assert {n for n, _p, _r in CODE.py_helper_files()} == {"cyto_zarr.py"}
+    assert {n for n, _p, _r in CODE.py_helper_files()} == {"txr_zarr.py"}
 
     gated = tmp_path / "gated.rs"
     gated.write_text(
         'const RESERVED_HELPER_PACKAGE: &str = "_helpers";\n'
         'const RESERVED_LIB_PACKAGE: &str = "_lib";\n'
         "pub const PY_HELPER_FILES: &[(&str, &str, &str)] = &[\n"
-        '    ("cyto_zarr.py", RESERVED_LIB_PACKAGE, "cyto_zarr.py"),\n'
+        '    ("txr_zarr.py", RESERVED_LIB_PACKAGE, "txr_zarr.py"),\n'
         '    #[cfg(test)] ("only_in_tests.py", RESERVED_LIB_PACKAGE, "t.py"),\n'
         '    /* ("removed.py", RESERVED_LIB_PACKAGE, "removed.py"), */\n'
         "\n];\n"

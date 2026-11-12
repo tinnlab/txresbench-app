@@ -10,7 +10,7 @@
 //! The two dialects answer that differently, and this is where it is pinned:
 //!
 //!   * the `Range:` HEADER form **clamps** the inclusive end to the last byte → `206`;
-//!   * the `?range=` QUERY form — the one every ziee client speaks, because the URL is then
+//!   * the `?range=` QUERY form — the one every txresbench client speaks, because the URL is then
 //!     the cache key — **refuses** it → `416`, with `Content-Range: bytes */{total}`.
 //!
 //! So the client MUST clamp before it spells the span, and this test is what makes that
@@ -22,8 +22,8 @@
 //! 1234`), because an object that happened to be block-aligned would never produce the
 //! overrun and this test would assert nothing.
 
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::object_store::ObjectStore;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::object_store::ObjectStore;
 
 use super::{create_project, new_artifact, pool_for, server_store, setup_admin};
 use crate::common::TestServer;

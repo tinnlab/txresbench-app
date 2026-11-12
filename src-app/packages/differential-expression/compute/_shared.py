@@ -40,8 +40,8 @@ from pathlib import Path
 
 import numpy as np
 
-import cyto_deps
-import cyto_columns
+import txr_deps
+import txr_columns
 
 
 # ── datatypes emitted (id, artifact-row layout) — the SHAPE ingest validates ───────
@@ -94,8 +94,8 @@ def fail(message, code=2):
 
 # ── io + wire contract (mirrors clustering/_shared) ────────────────────────────────
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -155,7 +155,7 @@ def progress(phase, pct=None, message=None):
             parts.append("")
         parts.append(str(message))
     line = "|".join(parts)
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if fifo:
         if _PROGRESS_FD[0] < 0:
             try:
@@ -180,9 +180,9 @@ def write_manifest(outputs_dir, entries):
     # environment does not satisfy the declaration. Placed here, on the one path every
     # successful run takes, so recording is structural rather than remembered: a compute
     # cannot emit its outputs without also emitting what produced them.
-    # The datatype is THIS package's, passed in: `cyto_deps` is app-core and may not
+    # The datatype is THIS package's, passed in: `txr_deps` is app-core and may not
     # name a contributed domain's vocabulary, so the caller supplies the pair.
-    cyto_deps.augment(outputs_dir, entries, DT_REPORT_QC)
+    txr_deps.augment(outputs_dir, entries, DT_REPORT_QC)
     (outputs_dir / "manifest.json").write_text(json.dumps({"outputs": entries}, indent=2))
 
 
@@ -192,9 +192,9 @@ def output_entry(id, datatype_layout, path, role, *, structure, meta=None):
             "structure": structure, "meta": meta}
 
 
-def stamp_cyto_attributes(store_dir, structure, **kv):
-    """Merge extra provenance keys into an ALREADY-WRITTEN cyto_zarr store's group
-    `attributes.cyto` AND the in-memory `structure`, keeping the two IDENTICAL (the
+def stamp_txr_attributes(store_dir, structure, **kv):
+    """Merge extra provenance keys into an ALREADY-WRITTEN txr_zarr store's group
+    `attributes.txr` AND the in-memory `structure`, keeping the two IDENTICAL (the
     conformance gate requires a store-URL reader and an artifact-row reader to decode
     identically). `None` values are skipped so an absent bit stays absent (honest)."""
     for k, v in kv.items():
@@ -206,7 +206,7 @@ def stamp_cyto_attributes(store_dir, structure, **kv):
     if not isinstance(attrs, dict):
         attrs = {}
         doc["attributes"] = attrs
-    attrs["cyto"] = structure
+    attrs["txr"] = structure
     meta.write_text(json.dumps(doc, indent=2, ensure_ascii=False))
     return structure
 
@@ -220,8 +220,8 @@ def artifact_structure(path):
         doc = json.loads(meta.read_text())
     except (OSError, ValueError):
         return None
-    cyto = (doc.get("attributes") or {}).get("cyto")
-    return cyto if isinstance(cyto, dict) else None
+    txr = (doc.get("attributes") or {}).get("txr")
+    return txr if isinstance(txr, dict) else None
 
 
 #: The datatype ids a normalized/log layer carries — the ones the RAW-COUNTS compare path
@@ -284,37 +284,37 @@ def _declared_gene_names(structure, n_genes):
 
 def read_expression_csc(path):
     """Read the expression CSC trio `(indptr, indices, data)` — the columns are the genes."""
-    import cyto_csc
+    import txr_csc
 
-    return cyto_csc.read_csc(Path(path))
+    return txr_csc.read_csc(Path(path))
 
 
 def read_column_values(path, slot):
     """A `metadata-column` artifact → its VALUES as a list of `str` (the grouping / sample
     labels). Native dtype is coerced to text so the categorical grouping reads uniformly."""
-    import cyto_zarr_read
+    import txr_zarr_read
 
     path = Path(path)
     structure = artifact_structure(path)
     if structure is None:
         fail(
             f"column input on slot {slot!r} at {path.name!r} carries no `structure` "
-            "declaration — it is not a cyto_zarr column artifact"
+            "declaration — it is not a txr_zarr column artifact"
         )
     member = structure.get("key")
     if not member:
         columns = structure.get("columns") or []
         if len(columns) == 1 and isinstance(columns[0], dict):
             member = columns[0].get("path") or columns[0].get("name")
-    values = cyto_zarr_read.read_column(path, member or "values")
+    values = txr_zarr_read.read_column(path, member or "values")
     if hasattr(values, "tolist"):
         values = values.tolist()
     return [("" if v is None else str(v)) for v in values]
 
 
 def column_provenance(path):
-    """The grouping column's `attributes.cyto` provenance (the regime classifier's input,
-    INV-2). Returns the whole `attributes.cyto` dict (may carry a `clustering`/annotation/
+    """The grouping column's `attributes.txr` provenance (the regime classifier's input,
+    INV-2). Returns the whole `attributes.txr` dict (may carry a `clustering`/annotation/
     prediction sub-key) or `{}` when the column declares none."""
     return artifact_structure(path) or {}
 
@@ -373,12 +373,12 @@ def write_de_result(outputs_dir, rel_dir, name, gene_names, columns, *, regime,
 
     Returns `(structure, meta)` — the two declarations the manifest entry carries.
     """
-    import cyto_zarr
+    import txr_zarr
 
     n = len(gene_names)
     dest = outputs_dir / rel_dir
     written = []
-    with cyto_zarr.Table(dest, axis="genes", n=n, key="gene", aligned_to=aligned_to) as t:
+    with txr_zarr.Table(dest, axis="genes", n=n, key="gene", aligned_to=aligned_to) as t:
         t.string("gene", [str(g) for g in gene_names])
         for member, arr in columns.items():
             a = np.asarray(arr, dtype=np.float64)
@@ -391,12 +391,12 @@ def write_de_result(outputs_dir, rel_dir, name, gene_names, columns, *, regime,
     meta = {"name": name, "axis": "genes", "n": n, "regime": regime,
             "multiplicity_family": multiplicity_family, "members": written,
             "entity_axis": "gene"}
-    # regime + multiplicity_family + the p-absence record ride the store's attributes.cyto
-    # AND the manifest structure (INV-8 G3/G4) — kept identical by stamp_cyto_attributes.
+    # regime + multiplicity_family + the p-absence record ride the store's attributes.txr
+    # AND the manifest structure (INV-8 G3/G4) — kept identical by stamp_txr_attributes.
     attrs = {"regime": regime, "multiplicity_family": multiplicity_family,
              "entity_axis": "gene", "pvalues_written": "neglog10p" in written}
     if extra_attrs:
         attrs.update(extra_attrs)
-    stamp_cyto_attributes(dest, structure, de=attrs)
+    stamp_txr_attributes(dest, structure, de=attrs)
     meta["de"] = attrs
     return structure, meta

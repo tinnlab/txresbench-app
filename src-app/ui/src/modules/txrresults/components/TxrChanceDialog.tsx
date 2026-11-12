@@ -11,7 +11,7 @@
  * `prob_source: 'none'` → null, so the nulls are simply not counted).
  */
 import type { CSSProperties } from 'react'
-import { Dialog } from '@ziee/kit'
+import { Dialog } from '@txresbench/kit'
 import type { TxrOutcomeKey } from '../types'
 
 /** The dialog's title (`Results.dc.html`'s aside link text). */

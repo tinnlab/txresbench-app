@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import cyto_deps  # noqa: E402
+import txr_deps  # noqa: E402
 
 #: A domain-free `(datatype, layout)` pair. The recorder takes this from its CALLER — a
 #: package knows its own output type and app-core does not — so these fixtures name an
@@ -39,16 +39,16 @@ FIXTURE_DT = ("test/opaque-record", "opaque")
 def _clear_memo():
     """The module memoizes its answer per (code_dir, lock_path); clear it between tests so
     one test's fixture cannot satisfy another's."""
-    cyto_deps._MEMO.clear()
+    txr_deps._MEMO.clear()
     yield
-    cyto_deps._MEMO.clear()
+    txr_deps._MEMO.clear()
 
 
 def _staged(tmp_path, contract):
     """A throwaway `/code`-shaped dir holding a staged contract."""
     d = tmp_path / "code"
     d.mkdir()
-    (d / cyto_deps.CONTRACT_FILENAME).write_text(json.dumps(contract))
+    (d / txr_deps.CONTRACT_FILENAME).write_text(json.dumps(contract))
     return d
 
 
@@ -56,7 +56,7 @@ def _staged(tmp_path, contract):
 
 def test_resolves_the_declared_version_and_records_it(tmp_path):
     code = _staged(tmp_path, [{"library": "packaging", "version": ">=20,<100"}])
-    rec = cyto_deps.resolve_and_check(code_dir=code, lock_path=str(tmp_path / "absent"))
+    rec = txr_deps.resolve_and_check(code_dir=code, lock_path=str(tmp_path / "absent"))
     assert set(rec["libraries"]) == {"packaging"}, rec
     resolved = rec["libraries"]["packaging"]
     assert resolved and resolved[0].isdigit(), f"a real resolved version, got {resolved!r}"
@@ -70,23 +70,23 @@ def test_resolves_the_declared_version_and_records_it(tmp_path):
 
 def test_an_absent_lock_file_is_recorded_as_absent_not_fabricated(tmp_path):
     code = _staged(tmp_path, [])
-    rec = cyto_deps.resolve_and_check(code_dir=code, lock_path=str(tmp_path / "nope"))
+    rec = txr_deps.resolve_and_check(code_dir=code, lock_path=str(tmp_path / "nope"))
     assert rec["env_lock_sha256"] is None
     lock = tmp_path / "lock.txt"
     lock.write_text("alpha==1.0\nbeta==2.0\n")
-    cyto_deps._MEMO.clear()
-    rec = cyto_deps.resolve_and_check(code_dir=code, lock_path=str(lock))
+    txr_deps._MEMO.clear()
+    rec = txr_deps.resolve_and_check(code_dir=code, lock_path=str(lock))
     assert rec["env_lock_sha256"].startswith("sha256:")
 
 
 # ── the two refusals (the half the old mechanism did not have at all) ────────────────
 
 def test_a_declared_library_that_is_absent_is_a_named_refusal(tmp_path):
-    code = _staged(tmp_path, [{"library": "cyto-not-a-real-distribution", "version": ">=1.0"}])
-    with pytest.raises(cyto_deps.DependencyRefusal) as e:
-        cyto_deps.resolve_and_check(code_dir=code, lock_path=str(tmp_path / "absent"))
+    code = _staged(tmp_path, [{"library": "txr-not-a-real-distribution", "version": ">=1.0"}])
+    with pytest.raises(txr_deps.DependencyRefusal) as e:
+        txr_deps.resolve_and_check(code_dir=code, lock_path=str(tmp_path / "absent"))
     msg = str(e.value)
-    assert "cyto-not-a-real-distribution" in msg, msg
+    assert "txr-not-a-real-distribution" in msg, msg
     assert "republish" in msg.lower(), "the refusal must say what to DO about it"
     # NOT a bare ImportError: the whole point is that the failure names itself.
     assert not isinstance(e.value, ImportError)
@@ -101,18 +101,18 @@ def test_a_resolved_version_outside_the_declared_range_is_a_named_refusal(tmp_pa
     not prove this one.
     """
     code = _staged(tmp_path, [{"library": "packaging", "version": "<1.0"}])
-    with pytest.raises(cyto_deps.DependencyRefusal) as e:
-        cyto_deps.resolve_and_check(code_dir=code, lock_path=str(tmp_path / "absent"))
+    with pytest.raises(txr_deps.DependencyRefusal) as e:
+        txr_deps.resolve_and_check(code_dir=code, lock_path=str(tmp_path / "absent"))
     msg = str(e.value)
     assert "packaging" in msg and "<1.0" in msg, msg
     assert "OUTSIDE" in msg, msg
     # …and the SAME library passes under a range that admits it, so the refusal is about
     # the range rather than the mechanism refusing everything.
-    cyto_deps._MEMO.clear()
+    txr_deps._MEMO.clear()
     widened = tmp_path / "widened"
     widened.mkdir()
     ok = _staged(widened, [{"library": "packaging", "version": ">=1.0"}])
-    rec = cyto_deps.resolve_and_check(code_dir=ok, lock_path=str(tmp_path / "absent"))
+    rec = txr_deps.resolve_and_check(code_dir=ok, lock_path=str(tmp_path / "absent"))
     assert "packaging" in rec["libraries"]
 
 
@@ -129,19 +129,19 @@ def test_a_missing_contract_is_an_empty_contract_but_a_malformed_one_is_refused(
     """
     empty = tmp_path / "empty"
     empty.mkdir()
-    assert cyto_deps.load_contract(code_dir=empty) == []
+    assert txr_deps.load_contract(code_dir=empty) == []
 
     bad = tmp_path / "bad"
     bad.mkdir()
-    (bad / cyto_deps.CONTRACT_FILENAME).write_text("{not json")
-    with pytest.raises(cyto_deps.DependencyRefusal):
-        cyto_deps.load_contract(code_dir=bad)
+    (bad / txr_deps.CONTRACT_FILENAME).write_text("{not json")
+    with pytest.raises(txr_deps.DependencyRefusal):
+        txr_deps.load_contract(code_dir=bad)
 
     wrong = tmp_path / "wrong"
     wrong.mkdir()
-    (wrong / cyto_deps.CONTRACT_FILENAME).write_text(json.dumps([{"library": "x"}]))
-    with pytest.raises(cyto_deps.DependencyRefusal):
-        cyto_deps.load_contract(code_dir=wrong)
+    (wrong / txr_deps.CONTRACT_FILENAME).write_text(json.dumps([{"library": "x"}]))
+    with pytest.raises(txr_deps.DependencyRefusal):
+        txr_deps.load_contract(code_dir=wrong)
 
 
 def test_name_normalization_matches_the_build_gate(tmp_path):
@@ -153,7 +153,7 @@ def test_name_normalization_matches_the_build_gate(tmp_path):
         ("Scikit.Learn", "scikit-learn"),
         ("  UMAP__Learn  ", "umap-learn"),
     ]:
-        assert cyto_deps.normalize_name(raw) == want
+        assert txr_deps.normalize_name(raw) == want
 
 
 # ── the wiring: check + record happen together, once ─────────────────────────────────
@@ -165,13 +165,13 @@ def test_augment_appends_the_record_and_shares_one_resolution(tmp_path):
     either alone."""
     code = _staged(tmp_path, [{"library": "packaging", "version": ">=1.0"}])
     outputs = tmp_path / "outputs"
-    early = cyto_deps.resolve_and_check(code_dir=code, lock_path=str(tmp_path / "absent"))
+    early = txr_deps.resolve_and_check(code_dir=code, lock_path=str(tmp_path / "absent"))
 
     entries = [{"id": "something-else"}]
-    cyto_deps.augment(outputs, entries, FIXTURE_DT, code_dir=code, lock_path=str(tmp_path / "absent"))
+    txr_deps.augment(outputs, entries, FIXTURE_DT, code_dir=code, lock_path=str(tmp_path / "absent"))
     assert len(entries) == 2
     rec_entry = entries[-1]
-    assert rec_entry["id"] == cyto_deps.OUTPUT_ID
+    assert rec_entry["id"] == txr_deps.OUTPUT_ID
     assert rec_entry["hidden"] is True, "a provenance carrier, not a user-facing result"
     assert rec_entry["datatype"] == FIXTURE_DT[0], (
         "the entry carries the datatype the CALLER passed, not one this module chose"
@@ -188,8 +188,8 @@ def test_augment_refuses_before_writing_anything(tmp_path):
     outputs dir behind — the refusal comes first."""
     code = _staged(tmp_path, [{"library": "packaging", "version": "<1.0"}])
     outputs = tmp_path / "outputs"
-    with pytest.raises(cyto_deps.DependencyRefusal):
-        cyto_deps.augment(outputs, [], FIXTURE_DT, code_dir=code, lock_path=str(tmp_path / "absent"))
+    with pytest.raises(txr_deps.DependencyRefusal):
+        txr_deps.augment(outputs, [], FIXTURE_DT, code_dir=code, lock_path=str(tmp_path / "absent"))
     assert not (outputs / "run-environment.json").exists()
 
 
@@ -199,7 +199,7 @@ def test_an_entry_declaring_nothing_still_records_an_empty_contract(tmp_path):
     code = _staged(tmp_path, [])
     outputs = tmp_path / "outputs"
     entries = []
-    cyto_deps.augment(outputs, entries, FIXTURE_DT, code_dir=code, lock_path=str(tmp_path / "absent"))
+    txr_deps.augment(outputs, entries, FIXTURE_DT, code_dir=code, lock_path=str(tmp_path / "absent"))
     written = json.loads((outputs / entries[0]["path"]).read_text())
     assert written["declared"] == [] and written["libraries"] == {}
     assert written["python"].startswith("3.")
@@ -218,9 +218,9 @@ def test_the_record_entry_declares_a_decodable_structure(tmp_path):
     emitted entry; nothing asserted it here, so the same mistake could recur silently.
     """
     code = _staged(tmp_path, [])
-    entry = cyto_deps.write_record(
+    entry = txr_deps.write_record(
         tmp_path / "outputs",
-        cyto_deps.resolve_and_check(code_dir=code, lock_path=str(tmp_path / "absent")),
+        txr_deps.resolve_and_check(code_dir=code, lock_path=str(tmp_path / "absent")),
         FIXTURE_DT,
     )
     assert entry["datatype"] == FIXTURE_DT[0], (
@@ -244,20 +244,20 @@ def test_an_optional_declaration_tolerates_absence_but_not_a_bad_version(tmp_pat
     whose result depends on it.
     """
     absent = _staged(tmp_path, [
-        {"library": "cyto-not-a-real-distribution", "version": ">=1.0", "optional": True},
+        {"library": "txr-not-a-real-distribution", "version": ">=1.0", "optional": True},
     ])
-    rec = cyto_deps.resolve_and_check(code_dir=absent, lock_path=str(tmp_path / "absent"))
+    rec = txr_deps.resolve_and_check(code_dir=absent, lock_path=str(tmp_path / "absent"))
     assert rec["declared"][0]["resolved"] is None
     assert rec["declared"][0]["optional"] is True
     # …and it is NOT reported as a resolved library, because nothing resolved.
     assert rec["libraries"] == {}
 
-    cyto_deps._MEMO.clear()
+    txr_deps._MEMO.clear()
     bad = tmp_path / "bad"
     bad.mkdir()
     out_of_range = _staged(bad, [{"library": "packaging", "version": "<1.0", "optional": True}])
-    with pytest.raises(cyto_deps.DependencyRefusal) as e:
-        cyto_deps.resolve_and_check(code_dir=out_of_range, lock_path=str(tmp_path / "absent"))
+    with pytest.raises(txr_deps.DependencyRefusal) as e:
+        txr_deps.resolve_and_check(code_dir=out_of_range, lock_path=str(tmp_path / "absent"))
     assert "OUTSIDE" in str(e.value), "an INSTALLED optional library is still range-checked"
 
 
@@ -279,8 +279,8 @@ def test_a_contract_that_cannot_be_enforced_is_refused_not_softened(tmp_path):
         d = tmp_path / f"c{abs(hash(str(entry)))}"
         d.mkdir()
         code = _staged(d, [entry])
-        with pytest.raises(cyto_deps.DependencyRefusal) as e:
-            cyto_deps.load_contract(code_dir=code)
+        with pytest.raises(txr_deps.DependencyRefusal) as e:
+            txr_deps.load_contract(code_dir=code)
         assert needle in str(e.value), f"{entry} -> {e.value}"
 
 
@@ -302,8 +302,8 @@ def test_the_env_lock_digest_is_a_function_of_the_lock_CONTENT(tmp_path):
     a.write_bytes(b"numpy==2.4.6\nscipy==1.17.1\n")
     b.write_bytes(b"numpy==2.4.6\nscipy==1.17.2\n")
 
-    da = cyto_deps.env_lock_digest(a)
-    db = cyto_deps.env_lock_digest(b)
+    da = txr_deps.env_lock_digest(a)
+    db = txr_deps.env_lock_digest(b)
 
     # EQUALITY WITH THE REFERENCE, not a prefix check: this is the claim.
     assert da == "sha256:" + hashlib.sha256(a.read_bytes()).hexdigest()
@@ -324,23 +324,23 @@ def test_a_lock_that_records_nothing_is_not_given_a_digest(tmp_path):
     """
     empty = tmp_path / "empty.txt"
     empty.write_bytes(b"")
-    assert cyto_deps.env_lock_digest(empty) is None
+    assert txr_deps.env_lock_digest(empty) is None
 
     header_only = tmp_path / "hdr.txt"
     header_only.write_bytes(b"# R 4.6.1\n# bioconductor 3.23\n# direct-pins 18\n")
-    assert cyto_deps.env_lock_digest(header_only) is None
+    assert txr_deps.env_lock_digest(header_only) is None
 
     # A shadowed-copy COMMENT carries `==` and is still not a package — the same grammar
     # the shell reader enforces, so the two cannot disagree about what a lock is.
     shadow_only = tmp_path / "shadow.txt"
     shadow_only.write_bytes(b"# R 4.6.1\n# shadowed Matrix==1.7-5 in /x (not the copy R loads)\n")
-    assert cyto_deps.env_lock_digest(shadow_only) is None
+    assert txr_deps.env_lock_digest(shadow_only) is None
 
     # CONTROL: one real package line and the same file IS digested, so the cases above
     # fail for the absence of packages and not for the fixture.
     real = tmp_path / "real.txt"
     real.write_bytes(b"# R 4.6.1\n# shadowed Matrix==1.7-5 in /x\nMatrix==1.7-6  # source=CRAN\n")
-    assert cyto_deps.env_lock_digest(real) is not None
+    assert txr_deps.env_lock_digest(real) is not None
 
 
 def test_a_symlinked_lock_is_not_digested(tmp_path):
@@ -354,8 +354,8 @@ def test_a_symlinked_lock_is_not_digested(tmp_path):
     target.write_bytes(b"numpy==2.4.6\n")
     link = tmp_path / "link.txt"
     link.symlink_to(target)
-    assert cyto_deps.env_lock_digest(link) is None
-    assert cyto_deps.env_lock_digest(target) is not None
+    assert txr_deps.env_lock_digest(link) is None
+    assert txr_deps.env_lock_digest(target) is not None
 
 
 # ─────────────────────────────── #214 ───────────────────────────────────────────────
@@ -439,7 +439,7 @@ def test_the_reader_refuses_a_stale_or_absent_exported_parse(tmp_path):
     # A recipe is a DIRECTORY WITH A DOCKERFILE — the same marker the build gate discovers
     # by. The reader compares the artefact's recipe set against the tree's.
     (root / "envx" / "Dockerfile").write_text("FROM scratch\n")
-    header = b"# cyto:ecosystem=python\n"
+    header = b"# txr:ecosystem=python\n"
     pin_line = b"alpha==1.0  # import=alpha"
     pin_bytes = header + pin_line + b"\n"
     (root / "envx" / "requirements.txt").write_bytes(pin_bytes)
@@ -613,7 +613,7 @@ def test_the_reader_refuses_a_stale_or_absent_exported_parse(tmp_path):
     #      may be contained in the row's line and still sit in its COMMENT half; the audit
     #      aimed `version_span` at a version-looking string in a comment and `version_of`
     #      returned the wrong version for the shipped python recipe.
-    adj = b"# cyto:ecosystem=python\nalpha==1.0  # import=alpha, was 9.9\n"
+    adj = b"# txr:ecosystem=python\nalpha==1.0  # import=alpha, was 9.9\n"
     (root / "envx" / "requirements.txt").write_bytes(adj)
     off2 = adj.index(b"alpha==1.0")
     write_ok = {
@@ -677,7 +677,7 @@ def test_the_readers_refusals_are_all_EnvPinsError(tmp_path):
     root = tmp_path / "env-rootfs"
     (root / "envx").mkdir(parents=True)
     (root / "envx" / "Dockerfile").write_text("FROM scratch\n")
-    header = b"# cyto:ecosystem=python\n"
+    header = b"# txr:ecosystem=python\n"
     pin_line = b"alpha==1.0  # import=alpha"
     raw_bytes = header + pin_line + b"\n\xff\n"
     (root / "envx" / "requirements.txt").write_bytes(raw_bytes)

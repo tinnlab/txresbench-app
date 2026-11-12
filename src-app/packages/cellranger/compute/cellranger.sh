@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cellranger — CytoAnalyst sandbox compute glue (ITEM-13, DESIGN §2). A `bash`
+# cellranger — TxResBench sandbox compute glue (ITEM-13, DESIGN §2). A `bash`
 # language entry (ITEM-5b): a thin CLI-wrapper that drives the `cellranger count`
 # binary present in the rootfs as a child process, then writes the typed
 # `/outputs/manifest.json` over its native `outs/`. bwrap+seccomp confine syscalls/
@@ -10,21 +10,21 @@
 # Run contract (identical to the python processors, `sandbox/outputs.rs`): read
 # `/inputs/<slot>` + `/inputs/params.json`; write `/outputs/<file>` +
 # `/outputs/manifest.json` = {"outputs":[{id,datatype,path,layout,role}]}. Progress
-# lines `phase|pct|message` go to $CYTO_PROGRESS_FIFO. Roots overridable via
-# CYTO_INPUTS_DIR / CYTO_OUTPUTS_DIR (unset in the sandbox → the fixed binds).
+# lines `phase|pct|message` go to $TXR_PROGRESS_FIFO. Roots overridable via
+# TXR_INPUTS_DIR / TXR_OUTPUTS_DIR (unset in the sandbox → the fixed binds).
 set -euo pipefail
 
-INPUTS_DIR="${CYTO_INPUTS_DIR:-/inputs}"
-OUTPUTS_DIR="${CYTO_OUTPUTS_DIR:-/outputs}"
+INPUTS_DIR="${TXR_INPUTS_DIR:-/inputs}"
+OUTPUTS_DIR="${TXR_OUTPUTS_DIR:-/outputs}"
 # The reference transcriptome rides an admin-allowlisted read-only reference mount
 # (GAP-3b / DEC-11), NOT materialize_inputs — a genome is large + shared.
-REFERENCE_ROOT="${CYTO_REFERENCE_ROOT:-/refdata}"
+REFERENCE_ROOT="${TXR_REFERENCE_ROOT:-/refdata}"
 mkdir -p "$OUTPUTS_DIR"
 
 progress() {
   local line="$1"
-  if [ -n "${CYTO_PROGRESS_FIFO:-}" ] && [ -p "$CYTO_PROGRESS_FIFO" ]; then
-    printf '%s\n' "$line" >"$CYTO_PROGRESS_FIFO" 2>/dev/null || true
+  if [ -n "${TXR_PROGRESS_FIFO:-}" ] && [ -p "$TXR_PROGRESS_FIFO" ]; then
+    printf '%s\n' "$line" >"$TXR_PROGRESS_FIFO" 2>/dev/null || true
   fi
   printf 'progress: %s\n' "$line" >&2
 }

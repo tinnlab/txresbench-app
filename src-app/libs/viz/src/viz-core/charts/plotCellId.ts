@@ -24,7 +24,7 @@
 // cell it was captured from. The two store maps (`dataZoomWindows` / `filters`) are independent, so
 // one id safely serves both a cell's zoom window and its filter.
 //
-// viz-core rule: react only (no @ziee/*, no deck) — so a chart View importing this stays a leaf.
+// viz-core rule: react only (no @txresbench/*, no deck) — so a chart View importing this stays a leaf.
 
 import { createContext, useCallback, useContext, useEffect } from 'react'
 import type { ContinuousColormap } from '../data/color'

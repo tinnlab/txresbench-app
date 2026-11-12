@@ -1,6 +1,6 @@
 import { Database } from 'lucide-react'
 import { Permissions } from '@/api-client/permissions'
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 import { AppLayoutDef } from '@/modules/layouts/app-layout'
 import { lazyWithPreload } from '@/utils/lazyWithPreload'
 import { RecentDatasetsWidget } from '@/modules/datasets/widgets/RecentDatasetsWidget'

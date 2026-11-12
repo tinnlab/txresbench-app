@@ -62,7 +62,7 @@ and `npm ci` already done:
 3. **Guards:** `scripts/check-network-allowlist.sh`,
    `scripts/check-guard-integrity.sh` and
    `scripts/check-no-study-domain-literals.sh` on the release tree, plus
-   `cargo test -p cytoanalyst-desktop` for the desktop shell the installers
+   `cargo test -p txresbench-desktop` for the desktop shell the installers
    ship.
 
 The local build is unsigned (there is no signing key on a build machine) and

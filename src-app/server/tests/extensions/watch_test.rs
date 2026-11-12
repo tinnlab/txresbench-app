@@ -77,7 +77,7 @@ async fn live_watcher_reflects_dropin_and_removal_without_reload() {
     std::fs::create_dir_all(pkg.join("compute")).expect("create pkg dir");
     std::fs::write(
         pkg.join("manifest.yaml"),
-        "id: watch-dropin\nname: Watch Dropin\npublisher: cyto\nversion: 0.1.0\napiVersion: \"1.0\"\ncontributes: {}\n",
+        "id: watch-dropin\nname: Watch Dropin\npublisher: txr\nversion: 0.1.0\napiVersion: \"1.0\"\ncontributes: {}\n",
     )
     .expect("write manifest");
 

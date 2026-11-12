@@ -112,7 +112,7 @@ use crate::modules::workstore::mask;
 use serde_json::Value;
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// The STRUCTURAL signature of an alignment, used instead of its datatype id.
 ///

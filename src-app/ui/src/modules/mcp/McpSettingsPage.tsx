@@ -1,5 +1,5 @@
-import { ErrorState, Spin } from '@ziee/kit'
-import { SettingsPageContainer } from '@ziee/shell'
+import { ErrorState, Spin } from '@txresbench/kit'
+import { SettingsPageContainer } from '@txresbench/shell'
 import { McpSettings } from '@/modules/mcp/stores/McpSettings.store'
 import { McpLimitsCard } from '@/modules/mcp/components/McpLimitsCard'
 

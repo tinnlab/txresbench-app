@@ -620,7 +620,7 @@ mod tests {
     /// verify, never a pass.
     fn python_compiles(src: &str) -> Result<(), String> {
         use std::io::Write as _;
-        let dir = std::env::temp_dir().join(format!("ziee-emit-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("txresbench-emit-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let f = dir.join("emitted.py");
         std::fs::File::create(&f)
@@ -779,7 +779,7 @@ mod tests {
             ),
             Err(e) => panic!("could not probe python3 (this is NOT 'python3 is absent'): {e}"),
         }
-        let dir = std::env::temp_dir().join(format!("ziee-run-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("txresbench-run-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create temp dir for the emitted script");
         let py = dir.join("emitted.py");
         std::fs::File::create(&py)

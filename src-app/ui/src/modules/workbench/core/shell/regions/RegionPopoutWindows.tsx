@@ -1,12 +1,12 @@
 // RegionPopoutWindows — renders every popped-out pane (workbenchRegionsStore.poppedOut) into its own
-// OS window via `@ziee/dock`'s `ContainerWindows` (which portals content into the registered popup
+// OS window via `@txresbench/dock`'s `ContainerWindows` (which portals content into the registered popup
 // window + reports OS/close). Each popped pane fills its window BARE (no tab/region chrome) and the
 // window's title = the pane title; closing the window un-pops the pane (back to its region). The pane
 // content renders through the SAME React tree, so `useWorkbench()` context is preserved in the popup.
 
 import { useEffect, useRef } from 'react'
 import { useStore } from 'zustand'
-import { ContainerWindows, closePopupWindow, getPopupWindow, type ContainerId } from '@ziee/dock'
+import { ContainerWindows, closePopupWindow, getPopupWindow, type ContainerId } from '@txresbench/dock'
 import { workbenchDockStore } from '@/modules/workbench/core/shell/dock/WorkbenchDock.store'
 import { resolvePaneRenderer, paneTitle, usePaneSubjectEpoch } from '@/modules/workbench/core/shell/dock/paneModel'
 import { workbenchRegionsStore } from './WorkbenchRegions.store'

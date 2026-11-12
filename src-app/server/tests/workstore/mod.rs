@@ -13,13 +13,13 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::catalog::ArtifactFilter;
-use cytoanalyst::modules::workstore::gc::GcSweeper;
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
-use cytoanalyst::modules::workstore::object_store::{ContentKey, LocalFsStore, ObjectStore};
-use cytoanalyst::modules::workstore::partition::StoreClaim;
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::catalog::ArtifactFilter;
+use txresbench::modules::workstore::gc::GcSweeper;
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::workstore::object_store::{ContentKey, LocalFsStore, ObjectStore};
+use txresbench::modules::workstore::partition::StoreClaim;
 
 use crate::common::TestServer;
 
@@ -86,7 +86,7 @@ mod gathered_fixture_test;
 mod virtual_row_shape_test;
 // THE ACCEPTANCE tier for the creator: a REAL `embedding-integrate` run through the runner in
 // the real sandbox. Rootfs-gated with a recorded self-skip; `just test-sandbox` sets
-// CYTO_TEST_NO_SKIP=1, which turns that skip into a hard failure.
+// TXR_TEST_NO_SKIP=1, which turns that skip into a hard failure.
 mod creator_real_run_test;
 mod serve_opaque_test;
 mod zarr_store_test;
@@ -173,7 +173,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .client
         .post(server.api_url("/session/local"))
         .json(&json!({
-            "username": "admin", "email": "admin@cyto.test",
+            "username": "admin", "email": "admin@txresbench.test",
             "password": "adminPassw0rd!", "display_name": "Admin"
         }))
         .send()
@@ -194,7 +194,7 @@ async fn create_member_token(server: &TestServer, admin: &str, username: &str) -
         .client
         .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
-        .json(&json!({ "username": username, "email": format!("{username}@cyto.test"), "password": "memberPassw0rd!" }))
+        .json(&json!({ "username": username, "email": format!("{username}@txresbench.test"), "password": "memberPassw0rd!" }))
         .send()
         .await
         .expect("create user");
@@ -980,7 +980,7 @@ async fn test18_range_206_serving_over_http() {
 /// was given.
 ///
 /// WHAT THIS DOES AND DOES NOT CLAIM. The bytes below are laid out by these tests, not by
-/// a producer: the real producer (`_lib/cyto_csc.py::write_csc_zarr`) writes a **Zarr v3
+/// a producer: the real producer (`_lib/txr_csc.py::write_csc_zarr`) writes a **Zarr v3
 /// store** — shuffle + gzip inside a sharding index, declared `{"encoding": "zarr_v3",
 /// "kind": "sparse_csc"}` — and the browser decodes it with
 /// `artifactReader.ts::readSparseColumn`. Reproducing that container in Rust would be a
@@ -1157,9 +1157,9 @@ async fn test23_project_delete_cascades_catalog_and_axes() {
 
 #[tokio::test]
 async fn test25_publish_artifact_fans_to_project_audience() {
-    use cytoanalyst::modules::project::scope::project_audience;
-    use cytoanalyst::modules::project::ProjectRepository;
-    use cytoanalyst::modules::workstore::sync::publish_artifact;
+    use txresbench::modules::project::scope::project_audience;
+    use txresbench::modules::project::ProjectRepository;
+    use txresbench::modules::workstore::sync::publish_artifact;
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
@@ -1168,7 +1168,7 @@ async fn test25_publish_artifact_fans_to_project_audience() {
     let (collab_id, collab_token) = create_member_token(&server, &admin, "collab").await;
     let share = server.client.post(server.api_url(&format!("/projects/{sid}/shares")))
         .bearer_auth(&admin)
-        .json(&json!({ "email": "collab@cyto.test", "permission_level": "viewer" }))
+        .json(&json!({ "email": "collab@txresbench.test", "permission_level": "viewer" }))
         .send().await.unwrap();
     assert!(share.status().is_success(), "share: {}", share.status());
     let share_id = share.json::<Value>().await.unwrap()["id"].as_str().expect("share id").to_string();
@@ -1192,9 +1192,9 @@ async fn test25_publish_artifact_fans_to_project_audience() {
     publish_artifact(
         &pool,
         sid,
-        cytoanalyst::modules::sync::SyncAction::Create,
+        txresbench::modules::sync::SyncAction::Create,
         Uuid::new_v4(),
-        cytoanalyst::modules::sync::Actor::detached(),
+        txresbench::modules::sync::Actor::detached(),
     )
     .await;
 }
@@ -1230,7 +1230,7 @@ async fn test234_artifact_delete_requires_edit_not_read() {
         .client
         .post(server.api_url(&format!("/projects/{sid}/shares")))
         .bearer_auth(&admin)
-        .json(&json!({ "email": "viewer1@cyto.test", "permission_level": "viewer" }))
+        .json(&json!({ "email": "viewer1@txresbench.test", "permission_level": "viewer" }))
         .send()
         .await
         .unwrap();
@@ -1317,7 +1317,7 @@ async fn test234_artifact_delete_requires_edit_not_read() {
 
 #[tokio::test]
 async fn test27_gc_frees_orphans_but_shared_blobs_survive() {
-    use cytoanalyst::modules::project::GcManifest;
+    use txresbench::modules::project::GcManifest;
 
     let server = TestServer::spawn().await;
     let token = setup_admin(&server).await;
@@ -1487,7 +1487,7 @@ async fn gc_sweep_abandons_and_names_the_artifact_whose_manifest_is_absent() {
 /// datatype predicate is active.
 #[tokio::test]
 async fn test17_axis_index_datatype_filter_is_capability_derived() {
-    use cytoanalyst::modules::datatype::DatatypeRegistry;
+    use txresbench::modules::datatype::DatatypeRegistry;
 
     let server = TestServer::spawn().await;
     let token = setup_admin(&server).await;

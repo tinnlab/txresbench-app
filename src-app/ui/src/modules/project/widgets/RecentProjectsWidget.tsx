@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Button, Empty, ErrorState, Spinner } from '@ziee/kit'
+import { Button, Empty, ErrorState, Spinner } from '@txresbench/kit'
 import { RecentProjects } from '@/modules/project/stores/RecentProjects.store'
 import { FlaskConical } from 'lucide-react'
 

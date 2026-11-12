@@ -4,7 +4,7 @@
 // screen pixels) and colormap the per-cell aggregate — the render cost scales with CELLS,
 // not points, so millions of points render as a density image at 60fps.
 //
-// Framework-agnostic (viz-core): depends ONLY on @deck.gl/* + react (no @ziee/*), mirroring
+// Framework-agnostic (viz-core): depends ONLY on @deck.gl/* + react (no @txresbench/*), mirroring
 // DeckScatterCanvas. RENDERER: deck.gl's `@deck.gl/aggregation-layers` `ScreenGridLayer`,
 // which does the screen-space binning + aggregation ON THE GPU (`gpuAggregation`) — the same
 // class of additive-blend-into-a-float-target technique the in-repo `gpu/groupReduce` /

@@ -1,5 +1,5 @@
 //! The frontend-action catalog — the `frontend`-side parallel of
-//! `ziee_control_mcp::catalog::init_from_openapi`. `handlers.rs` merges this with
+//! `txresbench_control_mcp::catalog::init_from_openapi`. `handlers.rs` merges this with
 //! the REST/OpenAPI catalog behind ONE uniform
 //! `list_capabilities`/`describe_capability`/`invoke_capability` surface;
 //! `invoke_capability` of a `kind=frontend` entry routes to
@@ -33,7 +33,7 @@
 //! once ([`app_owned_entries`]) and the merge is a per-request map build over
 //! ~60 entries, which is not on any hot path (`tools/call` only).
 //!
-//! CytoAnalyst stays backend-authoritative for the PERMISSION CHECK either way:
+//! TxResBench stays backend-authoritative for the PERMISSION CHECK either way:
 //! a reported action that declares no `permission` is dropped fail-closed rather
 //! than advertised ungated ([`super::capabilities::sanitize`]).
 

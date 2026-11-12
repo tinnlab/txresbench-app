@@ -79,7 +79,7 @@ SANCTIONED_CORE = {
 SANCTIONED_ROOT = {
     # E6/#194 — `just test-sandbox` must hand the tier the PER-ENV air-gap seams. A bare
     # seam serves exactly ONE env, so without this an analysis declaring a NON-DEFAULT env
-    # self-skips — and under `CYTO_TEST_NO_SKIP=1` a self-skip PANICS, turning the
+    # self-skips — and under `TXR_TEST_NO_SKIP=1` a self-skip PANICS, turning the
     # acceptance tier red for a missing setup step rather than a defect.
     "justfile",
 }

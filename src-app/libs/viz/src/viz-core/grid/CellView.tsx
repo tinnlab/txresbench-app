@@ -23,27 +23,27 @@
 // A registry MISS (an unregistered / unsupported kind) renders the visible `Unsupported`
 // fallback and never crashes — the generic replacement for the old switch's `default`.
 //
-// viz-core rule: depends only on react + sibling viz-core modules (no @ziee/*).
+// viz-core rule: depends only on react + sibling viz-core modules (no @txresbench/*).
 
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
 import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { PaneRect } from '../layers/multiView'
 import type { DataSource, DatasetCatalog } from '../data/wire'
 import { type CellKind, type GridCell, cellTestId, isDenseKind } from './gridModel'
-import { type DragRect, type DropTarget, type DropZone, PRIMARY_CONTAINER, useGripDrag, useGripDragState } from '@ziee/dock'
+import { type DragRect, type DropTarget, type DropZone, PRIMARY_CONTAINER, useGripDrag, useGripDragState } from '@txresbench/dock'
 // The collapsed colour-by trigger paints a GLYPH, and every glyph on the pane toolbar comes from the
 // one vocabulary — an unregistered icon here is how two Pencils shipped (finding #14).
 import { toolFor } from '../tools/registry'
 import { type GutterSide, gutterFromParts, gutterPadding } from './plotGutter'
 import type { ColorBy } from '../data/engine'
-import type { SplitDir } from '@ziee/dock'
+import type { SplitDir } from '@txresbench/dock'
 import { PaneToolbar } from './PaneToolbar'
-import { Button as KitButton, Select as KitSelect } from '@ziee/kit'
+import { Button as KitButton, Select as KitSelect } from '@txresbench/kit'
 import { ExternalLink, CornerUpLeft } from 'lucide-react'
 import { useVizStores } from '../../adapter/vizStores'
-import { registerPopupWindow, nextPopupContainerId } from '@ziee/dock'
+import { registerPopupWindow, nextPopupContainerId } from '@txresbench/dock'
 import { buildPopupFeatures, centeredGeometry } from '../popout/windowPortalCore'
-import type { ContainerId } from '@ziee/dock'
+import type { ContainerId } from '@txresbench/dock'
 import { getChartType } from '../registry/registry'
 import { makeChartModel, asRefusal, refusalMessage } from '../registry/model'
 import { VizEventBusContext } from '../events/EventBusContext'
@@ -56,7 +56,7 @@ import { PlotCellIdContext, cellPlotId } from '../charts/plotCellId'
 // ---------------------------------------------------------------------------
 // Grip drag (POINTER-based). A cell is dragged by its chrome GRIP; the drag tracks via WINDOW-level
 // `pointermove`/`pointerup` (NOT pointer capture) so it follows the cursor across whatever's underneath,
-// including a dense cell's deck — `@ziee/dock`'s `useGripDrag` owns that lifecycle. On move we hit-test
+// including a dense cell's deck — `@txresbench/dock`'s `useGripDrag` owns that lifecycle. On move we hit-test
 // the pointer against a per-window SNAPSHOT of the docked cell rects + the workspace rect (taken at
 // drag start) via the pure `resolveDrop`:
 //   • over another cell in the SAME container → SWAP target (highlight it);
@@ -288,7 +288,7 @@ function CellViewImpl({
             : 'bottom'
         : null
   // The GENERIC cross-window pointer-drag lifecycle (module drag singleton, ghost re-homed across
-  // windows, per-window listeners + hit-test, Escape/blur abort, cleanup) is `@ziee/dock`'s
+  // windows, per-window listeners + hit-test, Escape/blur abort, cleanup) is `@txresbench/dock`'s
   // `useGripDrag`. CellView supplies ONLY: a per-window rect snapshot (its DOM query against each
   // window's document) + what a resolved drop DOES — swap in the source container, MOVE to another
   // window's container, or tear-off to a new window.
@@ -830,7 +830,7 @@ const POPOUT_BTN_STYLE: CSSProperties = {
 
 // Two more constants stood here — `GRAPH_BTN_ACTIVE_STYLE` (the graph-overlay toggle) and
 // `COLORBY_SELECT_STYLE` (a native `<select>`'s chrome-height styling) — plus a doc comment for a
-// drag ghost this file no longer owns (`@ziee/dock`'s `useGripDrag` re-homes it). All three
+// drag ghost this file no longer owns (`@txresbench/dock`'s `useGripDrag` re-homes it). All three
 // outlived their consumers: the graph toggle was removed from the pane chrome, the colour-by picker
 // became a kit `<Select>` styled by className, and the ghost moved packages. None was referenced,
 // and a style constant nothing renders is §15 dead code, so they are deleted with the pill they

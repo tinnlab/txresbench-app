@@ -1,5 +1,5 @@
 {
-  "name": "@ziee/notification-ui",
+  "name": "@txresbench/notification-ui",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,9 +10,9 @@
     "./*": "./src/*"
   },
   "peerDependencies": {
-    "@ziee/framework": "*",
-    "@ziee/kit": "*",
-    "@ziee/shell": "*",
+    "@txresbench/framework": "*",
+    "@txresbench/kit": "*",
+    "@txresbench/shell": "*",
     "lucide-react": "^1.21.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

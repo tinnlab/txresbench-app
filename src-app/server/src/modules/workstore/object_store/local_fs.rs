@@ -3,7 +3,7 @@
 //! native here. Layout: `<root>/blobs/<aa>/<bb>/<full-hash>` (2-level fan-out);
 //! writes are staged under `<root>/staging/` and atomically `rename`d, so a dead
 //! key never appears half-written and an already-present key drops the temp (one
-//! physical copy — dedup). Reuses ziee-file's `reject_if_symlink` hardening.
+//! physical copy — dedup). Reuses txresbench-file's `reject_if_symlink` hardening.
 
 use async_trait::async_trait;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::fs;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::{
     decode_manifest, encode_manifest, merkle_root, sha256_hex, BlobLink, ByteStream, ContentKey,
@@ -276,7 +276,7 @@ impl LocalFsStore {
         }
     }
 
-    /// Refuse to read a path that is a symlink (mirrors ziee-file's F-15 guard).
+    /// Refuse to read a path that is a symlink (mirrors txresbench-file's F-15 guard).
     ///
     /// An error other than "not there" is refused too: a guard that cannot see
     /// what it is guarding has not cleared anything, and `Ok(())` on an unreadable
@@ -1144,7 +1144,7 @@ mod tests {
 
         let other = PathBuf::from("/dev/shm");
         if let Ok(m) = fs::metadata(&other).await {
-            let dest = other.join(format!("cyto-xdev-{}", Uuid::new_v4()));
+            let dest = other.join(format!("txr-xdev-{}", Uuid::new_v4()));
             let got = s.link_blob(&k, &dest).await;
             if m.dev() == pool_dev {
                 assert_eq!(got, BlobLink::Linked, "same device → it links");

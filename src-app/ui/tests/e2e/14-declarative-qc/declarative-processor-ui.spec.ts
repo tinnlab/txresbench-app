@@ -10,8 +10,8 @@ import { REAL_COMPUTE, REAL_COMPUTE_SKIP } from '../14-workbench/_analysis'
 // metric is computed — the full declared path with ZERO bespoke React mounted; then the SAME declared
 // surface is driven once via the AI co-drive seam (`window.__actions.run`) to prove co-drive (INV-3).
 //
-// REAL-compute — gated on CYTO_E2E_REAL_COMPUTE (a sandbox-executable backend: bwrap +
-// CYTO_ENV_ROOTFS_DIR). The run must COMPLETE a real `qc.10x` job over a seeded runnable `.h5ad`.
+// REAL-compute — gated on TXR_E2E_REAL_COMPUTE (a sandbox-executable backend: bwrap +
+// TXR_ENV_ROOTFS_DIR). The run must COMPLETE a real `qc.10x` job over a seeded runnable `.h5ad`.
 // The gate is a describe-level `test.skip` so a container-only run REPORTS it as skipped, with the
 // env var to set — see `../14-workbench/_analysis.ts` for why it is not an `if (REAL) { … }` wrapper.
 

@@ -17,7 +17,7 @@
 # INV-2). Method dispatch is a `catalog()` registry with ≥2 methods per analysis (INV-12).
 id: differential-expression
 name: Differential expression
-publisher: cyto
+publisher: txr
 # 0.2.2 — the package's zero-src-app-diff guard is now SELF-LIMITING: it runs only on the
 # branch that introduced this package (add-only marker on this manifest) and SKIPS
 # visibly elsewhere, instead of re-asserting this branch's diff shape on every future

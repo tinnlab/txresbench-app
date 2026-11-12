@@ -89,12 +89,12 @@ def test_the_side_channel_carries_what_one_structure_kind_cannot(run):
 def test_the_side_channel_keys_are_outside_the_writer_owned_set(run):
     """The writer REFUSES a caller that redeclares the decode contract of bytes it did not
     write, so the channel's key names are part of the contract rather than free choice."""
-    import cyto_csc
+    import txr_csc
 
     structure = run.graph_structure()
     ours = {"paga", "nodes", "tree_edges"}
     assert ours <= set(structure)
-    assert not (ours & set(cyto_csc._WRITER_OWNED_STRUCTURE_KEYS)), (
+    assert not (ours & set(txr_csc._WRITER_OWNED_STRUCTURE_KEYS)), (
         "a side-channel key collides with the writer's own decode contract")
 
 
@@ -132,8 +132,8 @@ def test_a_declared_but_EMPTY_level_is_excluded_and_the_exclusion_is_recorded(pa
     dest = run.inputs_dir / mount
     values = [str(v) for v in branch]
     series = pd.Series(pd.Categorical(values, categories=["A", "B", "ghost", "trunk"]))
-    import cyto_columns
-    cyto_columns.write_metadata_column(dest.parent, dest.name, "branch", series,
+    import txr_columns
+    txr_columns.write_metadata_column(dest.parent, dest.name, "branch", series,
                                        axis="cells")
     run._declare("partition", mount)
     run.run_ok({"n_neighbors": 15})

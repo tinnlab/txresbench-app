@@ -137,7 +137,7 @@ function RenderPerfStory() {
             // #ccc` in an inline `style` — three ways at once past the token system (an arbitrary
             // value, an inline style color prop, and a hardcoded brand blue standing in for the
             // runtime accent), so the strip was theme-blind and unreadable in dark mode. The showcase
-            // loads the kit's token layer (`showcase.css` → `@ziee/kit/styles/tokens.css`), so the
+            // loads the kit's token layer (`showcase.css` → `@txresbench/kit/styles/tokens.css`), so the
             // semantic classes resolve here exactly as they do in the app.
             //
             // EXACTLY what moved, per FIX_ROUND-4 / R4-7 (this comment previously claimed "layout

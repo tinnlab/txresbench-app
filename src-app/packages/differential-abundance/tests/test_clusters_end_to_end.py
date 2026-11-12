@@ -67,7 +67,7 @@ def test_spatial_fdr_is_absent_from_a_cluster_result_in_every_regime(clusters_ru
         run.run_ok({"method": "nb_glm", "group1": "treat", "group2": "ctrl"})
         entry = run.da_entries()[0]
         assert "spatial_fdr" not in run.da_members(entry)
-        assert run.da_cyto(entry)["da"]["spatial_fdr_written"] is False
+        assert run.da_txr(entry)["da"]["spatial_fdr_written"] is False
 
 
 def test_it_commits_a_per_cell_effect_column_that_colours_the_embedding_for_free(clusters_run):
@@ -188,7 +188,7 @@ def test_the_reference_normalization_runs_and_records_its_assumption(clusters_ru
     assert report["normalization"]["reference_population"] == "C"
     assert "ABSOLUTE ABUNDANCE IS CONSTANT" in report["normalization"]["assumption"]
     entry = run.da_entries()[0]
-    attrs = run.da_cyto(entry)["da"]
+    attrs = run.da_txr(entry)["da"]
     assert attrs["normalization"] == "reference"
     assert attrs["reference_population"] == "C"
     # THE REFERENCE ROW IS ABSENT, NOT ~0. This assertion used to read
@@ -238,7 +238,7 @@ def test_the_headline_column_is_minus_log10_of_plain_BH_for_disjoint_populations
     assert np.any(headline < neglog10p - 1e-9), (
         "an adjusted value can only be >= the raw p, so its −log10 must be <= the raw −log10p "
         "somewhere; if they are identical the correction is inert")
-    assert run.da_cyto(entry)["da"]["headline_column"] == "neglog10_significance"
+    assert run.da_txr(entry)["da"]["headline_column"] == "neglog10_significance"
 
 
 def test_the_fdr_threshold_is_APPLIED_not_merely_recorded(clusters_run):
@@ -329,11 +329,11 @@ def test_an_in_range_fdr_still_runs_and_reaches_the_report(clusters_run):
 def test_the_run_environment_record_rides_out_with_the_outputs(clusters_run):
     """TEST-54 [invariant: INV-DA-6] — the RUN-TIME half of the #80 dependency contract.
 
-    Round R2 finding: deleting `cyto_deps.augment(...)` from `write_manifest()` AND reducing
+    Round R2 finding: deleting `txr_deps.augment(...)` from `write_manifest()` AND reducing
     `library_versions()` to `return {}` left the whole suite green at 208 passed. The fix round 7
     made for its own finding #4 had zero coverage, so the record `provenance/recorder.rs` lifts
     could be removed from this package without a single test noticing. Nothing in `tests/`
-    mentioned `cyto_deps`, `augment` or `run-environment` at all.
+    mentioned `txr_deps`, `augment` or `run-environment` at all.
 
     The placement is the point: `write_manifest` is the ONE path every successful run passes, so a
     compute cannot emit outputs without also emitting the environment that produced them.
@@ -348,24 +348,24 @@ def test_the_run_environment_record_rides_out_with_the_outputs(clusters_run):
     ids = [e["id"] for e in run.manifest()["outputs"]]
     assert "run-environment" in ids, (
         f"no `run-environment` output was emitted; manifest ids = {ids}. The environment record is "
-        "appended by `cyto_deps.augment` in `_shared.write_manifest`, and without it a published "
+        "appended by `txr_deps.augment` in `_shared.write_manifest`, and without it a published "
         "result cannot say which environment produced it.")
 
     libs = run.report().get("library_versions")
     assert isinstance(libs, dict) and libs, (
-        f"`library_versions` is {libs!r}. It comes from `cyto_deps.resolve_and_check()`, which "
+        f"`library_versions` is {libs!r}. It comes from `txr_deps.resolve_and_check()`, which "
         "refuses an unreadable version rather than recording None — an empty mapping means the "
         "call was removed or never resolved.")
     assert any(v for v in libs.values()), (
         f"every recorded library version is falsy: {libs!r}. Recording a version that is not a "
-        "version is the defect `cyto_deps` was written to remove.")
+        "version is the defect `txr_deps` was written to remove.")
 
 
 def test_the_artifact_provenance_flags_are_TRUE_when_the_p_family_IS_written(clusters_run):
     """TEST-55 [invariant: INV-DA-2] — the other side of an assertion that was only ever checked
     one way.
 
-    Round R2: `pvalues_written` and `spatial_fdr_written` on `attributes.cyto.da` were asserted
+    Round R2: `pvalues_written` and `spatial_fdr_written` on `attributes.txr.da` were asserted
     ONLY as `is False` anywhere in the suite, so hardcoding both to `False` — making every R1
     artifact claim no p-values were written when they were — left the suite green at 208 passed.
     A flag checked in one direction is a flag that can be stuck in the other.

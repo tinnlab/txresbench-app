@@ -1,16 +1,16 @@
-//! The app's `AuthSyncSink` — the one place `ziee-auth`'s crate-local sync
+//! The app's `AuthSyncSink` — the one place `txresbench-auth`'s crate-local sync
 //! vocabulary becomes this app's concrete [`SyncEntity`] / [`SyncAction`].
 //!
 //! ── why this file exists ────────────────────────────────────────────────────
 //!
-//! `ziee-auth` cannot name `SyncEntity`: it derives `JsonSchema` for the OpenAPI
+//! `txresbench-auth` cannot name `SyncEntity`: it derives `JsonSchema` for the OpenAPI
 //! codegen contract and stays app-side. So the SDK's auth handlers publish in
 //! terms of `AuthSyncEntity` / `AuthSyncAction` through an `AuthSyncSink`, and
 //! the app maps.
 //!
 //! Until the SDK grew an injection point there was no way to install one on the
 //! turnkey `AuthModule` path: `AuthModule::init` hard-coded `NoopAuthSyncSink`.
-//! Seven publish sites in `ziee-auth` — profile update, session-settings update,
+//! Seven publish sites in `txresbench-auth` — profile update, session-settings update,
 //! logout's session signal, all four auth-provider mutations — ran, computed
 //! their frames, and dropped them. The frontend's `sync:profile` and
 //! `sync:session_settings` subscriptions were refreshes that could never happen,
@@ -19,7 +19,7 @@
 //!
 //! ── audiences are the SDK's, not ours ───────────────────────────────────────
 //!
-//! Each `ziee-auth` call site picks its own `Audience` (owner-scoped for
+//! Each `txresbench-auth` call site picks its own `Audience` (owner-scoped for
 //! profile/session, `perm::<SessionSettingsRead>()` / `perm::<AuthProvidersRead>()`
 //! for the admin singletons) and passes it through. This sink FORWARDS it
 //! unchanged — widening an audience here would turn a per-user notification into
@@ -30,11 +30,11 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use ziee_auth::auth::{AuthSyncAction, AuthSyncEntity, AuthSyncSink};
+use txresbench_auth::auth::{AuthSyncAction, AuthSyncEntity, AuthSyncSink};
 
 use super::{publish, publish_session_to_users, Audience, SyncAction, SyncEntity};
 
-/// Routes `ziee-auth`'s publishes into this app's SSE fan-out.
+/// Routes `txresbench-auth`'s publishes into this app's SSE fan-out.
 pub struct AuthPublishSink;
 
 /// Map the SDK's abstract auth entity onto this app's concrete wire entity.
@@ -83,7 +83,7 @@ impl AuthSyncSink for AuthPublishSink {
 /// declaration, so a missing call is a loud startup failure and not a silently
 /// dead channel.
 pub fn install() {
-    ziee_auth::auth::install_auth_sync_sink(Arc::new(AuthPublishSink));
+    txresbench_auth::auth::install_auth_sync_sink(Arc::new(AuthPublishSink));
 }
 
 #[cfg(test)]

@@ -10,8 +10,8 @@ use axum::{Extension, Json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_core::{ApiResult, AppError};
-use ziee_notification::NewNotification;
+use txresbench_core::{ApiResult, AppError};
+use txresbench_notification::NewNotification;
 
 use crate::modules::permissions::RequirePermissions;
 use crate::modules::sync::{publish, Actor, Audience, SyncAction, SyncEntity};
@@ -85,7 +85,7 @@ async fn perform_change_owner(
 
     if notify {
         // NON-FATAL: ownership is already committed.
-        if let Err(err) = ziee_notification::create_and_emit(
+        if let Err(err) = txresbench_notification::create_and_emit(
             pool,
             NewNotification::new(new_owner, KIND_OWNERSHIP_CHANGED, format!("You now own: {}", project.name))
                 .body(format!("An administrator made you the owner of \"{}\".", project.name))
@@ -147,7 +147,7 @@ async fn run_batch_reassign(pool: &SqlitePool, ids: &[Uuid], to: Uuid) -> BatchR
     }
     if moved > 0 {
         let n = moved;
-        if let Err(err) = ziee_notification::create_and_emit(
+        if let Err(err) = txresbench_notification::create_and_emit(
             pool,
             NewNotification::new(
                 to,
@@ -264,7 +264,7 @@ pub async fn admin_share(
 
     // NON-FATAL notify (share row is committed). Reuses the share-invite kind so
     // the recipient gets the same Accept/Decline renderer.
-    if let Err(err) = ziee_notification::create_and_emit(
+    if let Err(err) = txresbench_notification::create_and_emit(
         &pool,
         NewNotification::new(req.recipient_id, KIND_SHARE_INVITE, format!("Project shared: {}", project.name))
             .body(format!("An administrator shared \"{}\" with you.", project.name))

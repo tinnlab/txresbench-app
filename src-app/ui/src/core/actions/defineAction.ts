@@ -243,7 +243,7 @@ export function getActionMeta(id: string): ActionMeta | undefined {
 // for one failure. An action that has already shown the user its own, better
 // worded message marks the error; a dispatcher that sees the mark still rejects
 // and still logs, it just does not toast a duplicate.
-const SURFACED = '__ziee_action_surfaced__'
+const SURFACED = '__txresbench_action_surfaced__'
 
 /** Mark an error as already reported to the user by the action itself. */
 export function markSurfaced<E>(err: E): E {

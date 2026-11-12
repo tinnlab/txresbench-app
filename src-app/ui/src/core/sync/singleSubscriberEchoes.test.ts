@@ -73,9 +73,9 @@ vi.mock('@/api-client', () => ({
   },
 }))
 
-vi.mock('@ziee/kit', () => ({ message: { info: () => {}, error: () => {}, success: () => {} } }))
+vi.mock('@txresbench/kit', () => ({ message: { info: () => {}, error: () => {}, success: () => {} } }))
 
-const { useEventBusStore } = await import('@ziee/framework/events')
+const { useEventBusStore } = await import('@txresbench/framework/events')
 const { useNotificationsStore } = await import('@/modules/notification/Notifications.store')
 const { useProvenanceStore } = await import('@/modules/provenance/stores/Provenance.store')
 

@@ -29,7 +29,7 @@ would make this measurement about something else entirely.
 
 ## The two legs, and why neither alone is enough
 
-1. **Production, exactly**: `python3 /code/import_visium_hd.py` over the `CYTO_*` seam, with a
+1. **Production, exactly**: `python3 /code/import_visium_hd.py` over the `TXR_*` seam, with a
    `--clearenv`-shaped environment. Zero deviation from what a real job runs.
 2. **The consumer**: a probe staged into the same dir that `import import_visium_hd` BY ITS
    STAGED BARE NAME and calls `run_import` on a real bundle. Leg 1 proves the process starts;
@@ -68,7 +68,7 @@ ENTRY_NAME = HF.COMPUTE.name
 #: — rather than with a `ModuleNotFoundError` from inside a subprocess.
 _MUST_BE_STAGED = (
     "spatial_declarations.py", "ome_writer.py", "registration_qc.py",
-    "cyto_columns.py", "cyto_csc.py", "cyto_deps.py",
+    "txr_columns.py", "txr_csc.py", "txr_deps.py",
 )
 
 #: The probe. Its whole world is `/code` and the inputs dir it is handed. It imports the entry
@@ -172,7 +172,7 @@ def test_TEST_30_the_SHIPPED_ENTRY_runs_to_completion_in_the_flat_code_dir(tmp_p
     """TEST-30 [e2e] — leg 1: exactly what `stage_and_launch` runs, with nothing added.
 
     `python3 /code/import_visium_hd.py`, a `--clearenv`-shaped environment carrying only the
-    `CYTO_*` seam plus PATH/HOME/LANG/LC_ALL, `cwd` outside the source tree so nothing resolves
+    `TXR_*` seam plus PATH/HOME/LANG/LC_ALL, `cwd` outside the source tree so nothing resolves
     by accident, and the FLAT staged bundle `dataset/process.rs::build_dataset_inputs` actually
     writes.
 
@@ -188,7 +188,7 @@ def test_TEST_30_the_SHIPPED_ENTRY_runs_to_completion_in_the_flat_code_dir(tmp_p
     result = subprocess.run(
         [sys.executable, str(code / ENTRY_NAME)],
         capture_output=True, text=True, cwd=str(inputs),
-        env=_sandbox_env(CYTO_INPUTS_DIR=str(inputs), CYTO_OUTPUTS_DIR=str(outputs)),
+        env=_sandbox_env(TXR_INPUTS_DIR=str(inputs), TXR_OUTPUTS_DIR=str(outputs)),
     )
     assert result.returncode == 0, (
         f"the entry did not run in the modelled `/code` dir (rc={result.returncode}). This is "
@@ -271,7 +271,7 @@ def test_TEST_30_removing_ONE_staged_helper_makes_the_entry_die_at_process_start
     result = subprocess.run(
         [sys.executable, str(code / ENTRY_NAME)],
         capture_output=True, text=True, cwd=str(inputs),
-        env=_sandbox_env(CYTO_INPUTS_DIR=str(inputs), CYTO_OUTPUTS_DIR=str(tmp_path / "outputs")),
+        env=_sandbox_env(TXR_INPUTS_DIR=str(inputs), TXR_OUTPUTS_DIR=str(tmp_path / "outputs")),
     )
     assert result.returncode != 0, (
         "the entry ran with a declared helper missing from `/code`, so it is NOT resolving its "

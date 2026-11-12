@@ -41,13 +41,13 @@ const require = createRequire(import.meta.url)
 const ts = require('typescript')
 // Parameterized over the app's src path(s) via `--path-include=<substr>` (repeatable):
 // only changed files whose repo-relative path contains one of these substrings are
-// scanned. Defaults to ziee's monorepo UI trees for backward-compatible behavior.
+// scanned. Defaults to txresbench's monorepo UI trees for backward-compatible behavior.
 // A SCOPE FLAG THAT IS SILENTLY IGNORED IS A GATE THAT SCANS THE WRONG TREE.
 //
 // Every other lint in this directory is scoped with `--root=<dir>` (roots.mjs),
 // and callers reasonably pass the same flag here. This script read only
 // `--path-include`, so `--root=src` was accepted, dropped on the floor, and the
-// scan silently fell back to ziee's hard-coded trees. An app whose UI does NOT
+// scan silently fell back to txresbench's hard-coded trees. An app whose UI does NOT
 // live at `src-app/ui/src/` therefore ran this lint over ZERO files and was told
 // its new code was clean. `--root` is now honoured: each root is resolved
 // against CWD and turned into the repo-relative prefix the diff filter wants.

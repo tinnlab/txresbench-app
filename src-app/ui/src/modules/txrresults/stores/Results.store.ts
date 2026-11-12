@@ -54,7 +54,7 @@ import type {
   TxrRunStatus,
   TxrRunStatusFrame,
 } from '@/api-client/types'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 import type { TxrOutcomeKey, TxrSortKey } from '../types'
 
 /** The board's bounded row window (DEC-12 / OWNER-UR-5: 100 rows + "Show all M"). */

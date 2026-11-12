@@ -1,5 +1,5 @@
 // DeckScatterCanvas.tsx — the core GPU scatter canvas (ITEM-4/5). Framework-agnostic
-// (viz-core): depends ONLY on @deck.gl/* + react (no @ziee/*), so it extracts with the
+// (viz-core): depends ONLY on @deck.gl/* + react (no @txresbench/*), so it extracts with the
 // package. OrthographicView (flipY) + a ScatterplotLayer fed BINARY typed-array
 // attributes (buildScatterProps). GPU picking for hover.
 
@@ -124,7 +124,7 @@ export interface DeckScatterCanvasProps {
    * selected points stay full. A selection change swaps ONLY the tiny 1-float/point
    * `getSelected` attribute (+ a uniform) — no second overlay layer, no positions
    * re-upload, no per-point CPU recolor. Framework-agnostic: the adapter/caller wires the
-   * Coordination store's `pointSelection` → these props (no @ziee dependency).
+   * Coordination store's `pointSelection` → these props (no @txresbench dependency).
    */
   highlightMask?: Uint8Array | null
   /** whether a live selection exists (dim the base + draw the overlay). */

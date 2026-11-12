@@ -21,7 +21,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
-import { EventBus } from '@ziee/framework/stores'
+import { EventBus } from '@txresbench/framework/stores'
 import type { DatasetArtifactSummary } from '@/api-client/types'
 
 vi.mock('@/core/permissions', () => ({ hasPermissionNow: () => true }))

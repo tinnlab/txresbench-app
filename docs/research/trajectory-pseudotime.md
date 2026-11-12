@@ -56,7 +56,7 @@ The wire is small and complete:
   entry is all it takes.
 * **Structure** — `structure` must be a JSON object naming an `encoding`
   (`src-app/server/src/modules/workstore/ingest.rs`). It is the producer's decode
-  declaration, stamped into the store's `zarr.json` under `attributes.cyto` so the store-URL
+  declaration, stamped into the store's `zarr.json` under `attributes.txr` so the store-URL
   reader and the catalog row decode identically.
 * **Conformance** — `src-app/packages/_lib/conformance.py`, invoked *by the ingest path*
   (`src-app/server/src/modules/jobs/conformance.rs` → `verify_conformance.py`), judges the
@@ -286,7 +286,7 @@ Declare no new kind.** The lead in the brief is correct, with one qualification 
 
 * `adjacency` — `dims: [{axis: node}, {axis: node}]`, `attrs: [{name: weight, dtype: f32}]`,
   `layout: chunked_sparse/csc`. PAGA connectivities is exactly a symmetric weighted
-  `node × node` sparse matrix. `cyto_csc.write_csc_zarr(..., axes=("node","node"))` works —
+  `node × node` sparse matrix. `txr_csc.write_csc_zarr(..., axes=("node","node"))` works —
   the writer stringifies `axes` with no validation, so both dims naming one axis is legal.
   One narrowing to record: scanpy returns `float64` **CSR**; the declared attr is `f32` and
   the declared orientation is CSC. Both conversions are lossy-in-the-last-bits and must be
@@ -310,9 +310,9 @@ kind, exactly as the brief suspected. `metadata-column` declares
 `axes: [{name: cells, key_label: barcode}]`, `storage.layout: chunked_1d`,
 `capabilities: [obs-aligned, continuous-column, metadata-column-family]` and — this is the
 point — **no dtype and no continuous/categorical declaration at all**. The split is made
-per-artifact by the producer: `_lib/cyto_columns.py::write_metadata_column` dispatches on the
+per-artifact by the producer: `_lib/txr_columns.py::write_metadata_column` dispatches on the
 pandas dtype and stamps `meta.kind ∈ {"continuous","categorical"}` (vocabulary pinned at
-`cyto_columns.py:79-80`). A float column becomes `kind: "continuous"`,
+`txr_columns.py:79-80`). A float column becomes `kind: "continuous"`,
 `stored_dtype: "float32"`. `qc.10x` already writes exactly this for its per-cell float
 metrics.
 

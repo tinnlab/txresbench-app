@@ -1,11 +1,11 @@
 /**
  * Generic UI extension slot registry (dogfood gap G8, frontend half).
  *
- * The FE counterpart of `ziee_framework::entity_extension`: a domain-agnostic
+ * The FE counterpart of `txresbench_framework::entity_extension`: a domain-agnostic
  * primitive for the "modules register ordered React components into named UI
  * injection points, and a `<Slot>` component renders whatever is registered"
- * pattern. ziee's chat extension registry grew this inline (its `slotRegistry`
- * Map + `renderSlot` + hand-written `<ExtensionSlot>`); CytoAnalyst re-grew the
+ * pattern. txresbench's chat extension registry grew this inline (its `slotRegistry`
+ * Map + `renderSlot` + hand-written `<ExtensionSlot>`); TxResBench re-grew the
  * same shape. Only the slot-NAME union and the wrapper `data-*` attribute
  * differ — the mechanics (register-by-owner, order-sort, enabled-gate,
  * unregister-by-owner, keyed render) are identical and live here.
@@ -165,7 +165,7 @@ export interface CreateExtensionSlotOptions {
   /**
    * `data-*` attribute stamped on the wrapper div (default
    * `'data-extension-slot'`). Apps set their existing attribute so DOM +
-   * E2E selectors stay byte-identical (ziee chat uses
+   * E2E selectors stay byte-identical (txresbench chat uses
    * `'data-chat-extension-slot'`).
    */
   slotAttr?: string

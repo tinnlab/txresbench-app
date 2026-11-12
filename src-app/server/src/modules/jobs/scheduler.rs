@@ -21,7 +21,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::watch;
 use tokio::time::interval;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::models::{Job, JobStatus};
 use super::repository::JobRepository;
@@ -113,11 +113,11 @@ pub fn worker_id() -> String {
     format!("{host}-{}", Uuid::new_v4())
 }
 
-/// Set by `run_worker` before module init: a `cytoanalyst worker` pod ALWAYS runs the
-/// scheduler loop (G2 / DEC-3), regardless of the `CYTO_SCHEDULER_ENABLED` flag.
+/// Set by `run_worker` before module init: a `txresbench worker` pod ALWAYS runs the
+/// scheduler loop (G2 / DEC-3), regardless of the `TXR_SCHEDULER_ENABLED` flag.
 static WORKER_MODE: AtomicBool = AtomicBool::new(false);
 
-/// Mark this process as a `cytoanalyst worker` (called from `run_worker` before boot, so
+/// Mark this process as a `txresbench worker` (called from `run_worker` before boot, so
 /// `JobsModule::init` sees it). The SaaS API pod never calls this.
 pub fn set_worker_mode() {
     WORKER_MODE.store(true, Ordering::SeqCst);
@@ -128,7 +128,7 @@ pub fn is_worker_mode() -> bool {
     WORKER_MODE.load(Ordering::SeqCst)
 }
 
-/// Whether the `CYTO_SCHEDULER_ENABLED` flag admits the scheduler loop on a `serve` boot.
+/// Whether the `TXR_SCHEDULER_ENABLED` flag admits the scheduler loop on a `serve` boot.
 /// Default ON (single-box/desktop is byte-identical, INV-4); the SaaS API (`serve`) pod sets
 /// it to a false-y value (`0`/`false`/`no`/`off`) to run ENQUEUE-ONLY (G2). Pure —
 /// unit-testable, so the flag's meaning is pinned without a live boot.
@@ -150,7 +150,7 @@ pub fn scheduler_flag_enabled(raw: Option<&str>) -> bool {
 /// cross-process double-CLAIM safety is T4's DB-level concern, not T3's.
 pub fn scheduler_should_spawn() -> bool {
     is_worker_mode()
-        || scheduler_flag_enabled(std::env::var("CYTO_SCHEDULER_ENABLED").ok().as_deref())
+        || scheduler_flag_enabled(std::env::var("TXR_SCHEDULER_ENABLED").ok().as_deref())
 }
 
 /// Owns the shared handles the loop + executors need.
@@ -1155,7 +1155,7 @@ mod tests {
         assert!(!JobStatus::Running.is_terminal());
     }
 
-    // TEST-2 (unit leg, G2 / PROV-T3-2): the CYTO_SCHEDULER_ENABLED flag is load-bearing.
+    // TEST-2 (unit leg, G2 / PROV-T3-2): the TXR_SCHEDULER_ENABLED flag is load-bearing.
     // Default (unset) ON; only the explicit false-y spellings disable; anything else is ON.
     // This pins the flag's meaning; the enqueue-vs-claim behaviour is proven by the
     // integration split test.
@@ -1287,7 +1287,7 @@ mod tests {
         // Stage a real per-run pair of dirs: a workspace, and — SEPARATELY, outside
         // it (ITEM-17) — a staging dir with a valid manifest + two output files (the
         // `load_produced_outputs` convention: path relative to /outputs).
-        let base = std::env::temp_dir().join(format!("cyto-reconcile-unit-{}", Uuid::new_v4()));
+        let base = std::env::temp_dir().join(format!("txr-reconcile-unit-{}", Uuid::new_v4()));
         let ws = base.join("sandboxes").join("job");
         let staging = base.join("run-staging").join("job");
         tokio::fs::create_dir_all(&ws).await.unwrap();
@@ -1475,7 +1475,7 @@ mod tests {
         );
     }
 
-    // TEST-12 (ITEM-8 / #66): the in-pod `run-job` executor sets `CYTO_SCHEDULER_ENABLED=off`
+    // TEST-12 (ITEM-8 / #66): the in-pod `run-job` executor sets `TXR_SCHEDULER_ENABLED=off`
     // and does NOT enter worker mode, so the boot reconcile + sweep + scheduler claim loop —
     // all gated on `scheduler_should_spawn()` (jobs/mod.rs) — are skipped. That predicate is
     // `is_worker_mode() || scheduler_flag_enabled(env)`; run-job leaves worker mode false, so

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ruff: noqa
-"""`cyto_csc.source_for_h5` — resolving an h5ad matrix node's ORIENTATION and SHAPE.
+"""`txr_csc.source_for_h5` — resolving an h5ad matrix node's ORIENTATION and SHAPE.
 
 This file exists because the resolver silently returned the TRANSPOSE of the stored
 matrix, on a real input shape, with exit 0 and no warning. Three distinct routes led
@@ -36,7 +36,7 @@ import pytest
 import h5py
 import scipy.sparse as sp
 
-import cyto_csc
+import txr_csc
 
 
 # ───────────────────────────────── fixtures ──────────────────────────────────
@@ -45,7 +45,7 @@ import cyto_csc
 # shape, so a wrong orientation is invisible in the geometry and visible only in the
 # values. A symmetric fixture here would pass against the bug.
 #
-# Square is not an exotic input for this engine. `cyto_csc` is domain-agnostic — an
+# Square is not an exotic input for this engine. `txr_csc` is domain-agnostic — an
 # adjacency / k-NN connectivity matrix (`obsp`/`varp`) and a gene-gene correlation
 # matrix are both square, so "an expression matrix is never square" is not an argument
 # this resolver is allowed to make.
@@ -111,10 +111,10 @@ def roundtrip(path, out, expect_shape):
     raises here rather than quietly comparing unequal-shaped arrays.
     """
     with h5py.File(path, "r") as f:
-        src = cyto_csc.source_for_h5(f["X"])
+        src = txr_csc.source_for_h5(f["X"])
         picked = type(src).__name__
-        cyto_csc.write_csc_zarr(src, out, nnz_cap=3, read_nnz=2)
-    indptr, indices, data = cyto_csc.read_csc(out)
+        txr_csc.write_csc_zarr(src, out, nnz_cap=3, read_nnz=2)
+    indptr, indices, data = txr_csc.read_csc(out)
     assert int(indptr.shape[0]) - 1 == expect_shape[1], (
         f"the output has {int(indptr.shape[0]) - 1} columns, not the declared "
         f"{expect_shape[1]} — the matrix came back transposed"
@@ -147,12 +147,12 @@ def test_a_square_undeclared_store_is_refused_not_transposed(tmp_path, stored):
     # for an unrelated reason. Without this the test below could pass on the wrong
     # error entirely.
     with h5py.File(path, "r") as f:
-        assert cyto_csc.h5_sparse_format(f["X"]) is None
-        assert cyto_csc.h5_matrix_shape(f["X"]) == SQUARE.shape
+        assert txr_csc.h5_sparse_format(f["X"]) is None
+        assert txr_csc.h5_matrix_shape(f["X"]) == SQUARE.shape
         assert SQUARE.shape[0] == SQUARE.shape[1], "the fixture must be square"
 
         with pytest.raises(ValueError) as excinfo:
-            cyto_csc.source_for_h5(f["X"])
+            txr_csc.source_for_h5(f["X"])
 
     message = str(excinfo.value)
     assert "/X" in message, f"the failing node is not named: {message}"
@@ -174,11 +174,11 @@ def test_the_refusal_is_narrow_a_square_store_is_not_refused_on_principle(tmp_pa
         tmp_path / "sq_declared.h5", SQUARE, orientation="csc", spelling="modern"
     )
     with h5py.File(declared, "r") as f:
-        assert cyto_csc.source_for_h5(f["X"]) is not None  # square, but declared
+        assert txr_csc.source_for_h5(f["X"]) is not None  # square, but declared
 
     undeclared_wide = write_group(tmp_path / "wide_bare.h5", WIDE, orientation="csr")
     with h5py.File(undeclared_wide, "r") as f:
-        assert cyto_csc.source_for_h5(f["X"]) is not None  # undeclared, but not square
+        assert txr_csc.source_for_h5(f["X"]) is not None  # undeclared, but not square
 
 
 # ───────────────── 2. negative control: square DECLARED, both ways ────────────
@@ -255,7 +255,7 @@ def test_the_h5sparse_era_shape_spelling_is_read_not_a_bare_keyerror(tmp_path):
     )
     with h5py.File(path, "r") as f:
         assert "shape" not in f["X"].attrs, "the fixture must use the OLD spelling only"
-        assert cyto_csc.h5_matrix_shape(f["X"]) == WIDE.shape
+        assert txr_csc.h5_matrix_shape(f["X"]) == WIDE.shape
 
     got, _ = roundtrip(path, tmp_path / "out_era", WIDE.shape)
     np.testing.assert_array_equal(got, oracle(WIDE))
@@ -271,7 +271,7 @@ def test_a_group_declaring_no_shape_at_all_fails_loud_naming_both_spellings(tmp_
     )
     with h5py.File(path, "r") as f:
         with pytest.raises(ValueError) as excinfo:
-            cyto_csc.source_for_h5(f["X"])
+            txr_csc.source_for_h5(f["X"])
     message = str(excinfo.value)
     assert "/X" in message, f"the failing node is not named: {message}"
     assert "shape" in message and "h5sparse_shape" in message, message
@@ -289,7 +289,7 @@ def test_an_undeclared_indptr_matching_neither_axis_fails_loud(tmp_path):
         f["X"].create_dataset("indptr", data=np.array([0, 1, 2, 4], dtype="int64"))
     with h5py.File(path, "r") as f:
         with pytest.raises(ValueError, match="neither an orientation"):
-            cyto_csc.source_for_h5(f["X"])
+            txr_csc.source_for_h5(f["X"])
 
 
 # ───────────────── 5. the rejections the engine already owned ────────────────
@@ -306,7 +306,7 @@ def test_a_non_matrix_group_still_gets_the_canonical_unsupported_error(tmp_path)
         g.create_dataset("index", data=np.arange(4))
     with h5py.File(path, "r") as f:
         with pytest.raises(ValueError, match="unsupported h5ad matrix encoding"):
-            cyto_csc.source_for_h5(f["X"])
+            txr_csc.source_for_h5(f["X"])
 
 
 def test_a_declared_group_missing_its_members_fails_loud(tmp_path):
@@ -319,7 +319,7 @@ def test_a_declared_group_missing_its_members_fails_loud(tmp_path):
         g.attrs["shape"] = np.asarray([2, 5], dtype="int64")
     with h5py.File(path, "r") as f:
         with pytest.raises(ValueError) as excinfo:
-            cyto_csc.source_for_h5(f["X"])
+            txr_csc.source_for_h5(f["X"])
     message = str(excinfo.value)
     assert "/X" in message and "missing" in message, message
 
@@ -340,7 +340,7 @@ def test_a_declared_orientation_contradicting_its_indptr_is_not_silently_reread(
         )
     with h5py.File(path, "r") as f:
         with pytest.raises(ValueError, match="CSR indptr"):
-            cyto_csc.source_for_h5(f["X"])
+            txr_csc.source_for_h5(f["X"])
 
 
 def test_a_dense_dataset_is_still_resolved_by_its_own_shape(tmp_path):

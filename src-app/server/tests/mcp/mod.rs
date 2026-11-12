@@ -21,7 +21,7 @@ pub(crate) async fn setup_admin(server: &TestServer) -> String {
         .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
-            "email": "admin@cyto.test",
+            "email": "admin@txresbench.test",
             "password": "adminPassw0rd!",
             "display_name": "Admin"
         }))
@@ -281,7 +281,7 @@ async fn initialize_and_tools_list_expose_three_control_tools() {
 
     let (status, init) = mcp_rpc(&server, &admin, "initialize", json!({})).await;
     assert_eq!(status, 200);
-    assert_eq!(init["result"]["serverInfo"]["name"], "cytoanalyst-mcp");
+    assert_eq!(init["result"]["serverInfo"]["name"], "txresbench-mcp");
     assert_eq!(init["result"]["protocolVersion"], "2025-11-25");
     assert!(init["result"]["capabilities"]["tools"].is_object());
 

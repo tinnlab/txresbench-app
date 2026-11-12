@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import { useDocumentTitle } from '../lib/document-title'
 import { PageFrame } from '../components/PageFrame'
 import { ScrollRegion } from '../components/ScrollRegion'

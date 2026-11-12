@@ -1,6 +1,6 @@
 # Admin settings coverage — expose the hardcoded billing knobs (design)
 
-**Source of intent:** GitHub issue [#41](https://github.com/ziee-ai/cytoanalyst/issues/41)
+**Source of intent:** GitHub issue [#41](https://github.com/tinnlab/txresbench/issues/41)
 ("Backend: admin settings coverage + expose hardcoded catalog/rate knobs") — a
 remainder item of the Admin Console epic (#30/#42, `docs/design/admin-console-shell.md`).
 The epic promises an admin can "view, update, list, change all settings of everything";

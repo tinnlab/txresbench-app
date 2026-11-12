@@ -2,7 +2,7 @@
 
 ## Pre-Phase-1 — Design candidates + deep research (this round)
 - **Goal:** Produce MULTIPLE coherent design candidates for the study analysis workflow
-  (upload→QC→save→analysis→viz), grounded in (1) current cyto code, (2) current-tools
+  (upload→QC→save→analysis→viz), grounded in (1) current txr code, (2) current-tools
   research, (3) user-JTBD research. PAUSE for the user to pick before implementing.
 - **Grounding read:** `docs/DATA_STORAGE_REDESIGN.md` (working-store artifacts + typed-binary
   streaming), study-extension registry (both sides), jobs (FCFS + JobRunner seam), sandbox
@@ -30,4 +30,4 @@ _(Phases 1→9 begin once the user picks a candidate.)_
   the diff → false A10). All later phases (diff coverage) depend on this.
 - 12 ITEMs (registry + 8 seed plugins + mock engine/store + explorer canvas + dock + context-panel +
   catalog + result overlays + samples/QC + study-extension reg + export + gallery). 13 e2e TESTs +
-  gate:ui/tsc canaries. FE convention = e2e-only (no vitest in cyto).
+  gate:ui/tsc canaries. FE convention = e2e-only (no vitest in txr).

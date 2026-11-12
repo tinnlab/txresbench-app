@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { collectStream } from '@ziee/viz'
+import { collectStream } from '@txresbench/viz'
 import { makeColumnarFrameReader } from './columnarRead'
 import type { ProjectSources } from './projectSources'
 

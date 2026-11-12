@@ -5,7 +5,7 @@
  * The gallery is reachable only from the dev-gallery chunk: the standalone
  * `gallery.html` entry is not a prod `rollupOptions.input`, and the in-app
  * dev-gallery route is `import.meta.env.DEV`-gated. The runtime registry carries
- * the sentinel `ZIEE_GALLERY_SEED_MARKER`; a correct prod build tree-shakes the
+ * the sentinel `TXR_GALLERY_SEED_MARKER`; a correct prod build tree-shakes the
  * gallery out entirely, so the sentinel must be ABSENT from every emitted asset.
  *
  * Run: node scripts/check-gallery-prod-exclusion.mjs         (uses existing dist/ui)

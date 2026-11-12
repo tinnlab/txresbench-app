@@ -158,7 +158,7 @@ def test_recipe_freezes_the_full_closure_before_the_trim():
     assert freeze_at < trim_at, (
         "the closure freeze must run BEFORE the trim that uninstalls pip/setuptools"
     )
-    assert "/opt/venv/.cyto-env-lock.txt" in _DOCKERFILE.read_text()
+    assert "/opt/venv/.txresbench-env-lock.txt" in _DOCKERFILE.read_text()
 
 
 def test_schema_version_not_bumped_for_a_package_change():

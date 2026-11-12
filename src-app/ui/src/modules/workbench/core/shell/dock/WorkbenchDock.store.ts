@@ -1,5 +1,5 @@
-// WorkbenchDock.store (ITEM-8) — the per-project dock store over `@ziee/dock`'s
-// `ContainerModel`. It is the workbench's `@ziee/dock` CONSUMER store — the twin of viz's
+// WorkbenchDock.store (ITEM-8) — the per-project dock store over `@txresbench/dock`'s
+// `ContainerModel`. It is the workbench's `@txresbench/dock` CONSUMER store — the twin of viz's
 // `GridWorkspace.store` (`toContainerModel`/`fromContainerModel`, `movePane`, aim-to-place,
 // serialize/hydrate) — but its content is `WorkbenchPane`s (not `GridCell`s) and its
 // PERSISTENCE is split: the MAIN (`'main'`) layout persists PER-PROJECT to localStorage
@@ -8,7 +8,7 @@
 //
 // Plain-zustand factory (mirrors viz's `createGridWorkspaceStore`) so it's isolable per
 // unit test AND per project; a module-singleton `workbenchDockStore` is the app instance.
-// All mutations rebuild the tree via the pure `@ziee/dock` ops (no immer).
+// All mutations rebuild the tree via the pure `@txresbench/dock` ops (no immer).
 
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
@@ -32,7 +32,7 @@ import {
   closePopupWindow,
   getPopupWindowsSnapshot,
   PRIMARY_CONTAINER,
-} from '@ziee/dock'
+} from '@txresbench/dock'
 import type { PaneKind, WorkbenchPane } from './paneModel'
 import { type DockMainSlice, defaultMainSlice } from './defaultLayout'
 import {
@@ -166,7 +166,7 @@ export interface WorkbenchDockActions {
    */
   removeBlockedReason: () => string | null
   /** Move the divider `dividerIndex` of the split at `path` by `deltaFraction` (clamped).
-   *  Delegates to `@ziee/dock`'s `resizeDivider`. */
+   *  Delegates to `@txresbench/dock`'s `resizeDivider`. */
   resizeDivider: (
     path: number[],
     dividerIndex: number,
@@ -174,7 +174,7 @@ export interface WorkbenchDockActions {
     containerId?: ContainerId,
   ) => void
   /** Commit a split's full `sizes` vector (the renderer's on-release path) by FOLDING
-   *  `@ziee/dock`'s `resizeDivider` per divider — so a divider drag persists to the tree. */
+   *  `@txresbench/dock`'s `resizeDivider` per divider — so a divider drag persists to the tree. */
   commitSizes: (path: number[], sizes: number[], containerId?: ContainerId) => void
   /** Swap the CONTENT (`kind`/`ref`) of two panes (drag-to-swap) — trades their display while
    *  KEEPING each pane's id + position/divider sizes. No-op if either id is missing or equal. */
@@ -537,7 +537,7 @@ export function createWorkbenchDockStore(opts: DockStoreOptions = {}) {
             let next = tree
             let now = split.sizes.slice()
             // Fold `resizeDivider` left→right so the tree ends at the target vector (the drag
-            // already produced a valid layout, so no clamp fights). Delegates to @ziee/dock.
+            // already produced a valid layout, so no clamp fights). Delegates to @txresbench/dock.
             for (let i = 0; i < sizes.length - 1 && i < now.length - 1; i++) {
               const delta = sizes[i] - now[i]
               if (Math.abs(delta) < 1e-6) continue

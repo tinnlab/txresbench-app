@@ -44,7 +44,7 @@ def resolved_determinism_env():
     return out
 
 
-import cyto_deps
+import txr_deps
 import json
 import sys
 from pathlib import Path
@@ -138,8 +138,8 @@ def fail(message, code=2):
 
 # ── io + wire contract (mirrors cell-filter.py / embedding's _shared) ──────────────
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -199,7 +199,7 @@ def progress(phase, pct=None, message=None):
             parts.append("")
         parts.append(str(message))
     line = "|".join(parts)
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if fifo:
         if _PROGRESS_FD[0] < 0:
             try:
@@ -224,9 +224,9 @@ def write_manifest(outputs_dir, entries):
     # environment does not satisfy the declaration. Placed here, on the one path every
     # successful run takes, so recording is structural rather than remembered: a compute
     # cannot emit its outputs without also emitting what produced them.
-    # The datatype is THIS package's, passed in: `cyto_deps` is app-core and may not
+    # The datatype is THIS package's, passed in: `txr_deps` is app-core and may not
     # name a contributed domain's vocabulary, so the caller supplies the pair.
-    cyto_deps.augment(outputs_dir, entries, DT_REPORT_QC)
+    txr_deps.augment(outputs_dir, entries, DT_REPORT_QC)
     (outputs_dir / "manifest.json").write_text(json.dumps({"outputs": entries}, indent=2))
 
 
@@ -241,12 +241,12 @@ def output_entry(id, datatype_layout, path, role, *, structure, meta=None):
 
 # ── reading a staged artifact (format from the declaration, cell-filter idiom) ─────
 #
-# A staged artifact says what it is: a `cyto_zarr` store stamps the producer-declared
-# `structure` into its group `zarr.json` under `attributes.cyto`. That declaration is the
+# A staged artifact says what it is: a `txr_zarr` store stamps the producer-declared
+# `structure` into its group `zarr.json` under `attributes.txr`. That declaration is the
 # format contract; a filename is not.
 def artifact_structure(path):
     """The producer-DECLARED `structure` of a staged artifact, or ``None`` when the path is
-    not a `cyto_zarr` store."""
+    not a `txr_zarr` store."""
     meta = Path(path) / "zarr.json"
     if not meta.is_file():
         return None
@@ -254,8 +254,8 @@ def artifact_structure(path):
         doc = json.loads(meta.read_text())
     except (OSError, ValueError):
         return None
-    cyto = (doc.get("attributes") or {}).get("cyto")
-    return cyto if isinstance(cyto, dict) else None
+    txr = (doc.get("attributes") or {}).get("txr")
+    return txr if isinstance(txr, dict) else None
 
 
 def read_embedding_structure(path, slot):
@@ -268,7 +268,7 @@ def read_embedding_structure(path, slot):
     if structure is None:
         fail(
             f"input on slot {slot!r} at {path.name!r} carries no `structure` declaration in "
-            "a group `zarr.json` — an `embedding` artifact is a dense 2-D cyto_zarr store"
+            "a group `zarr.json` — an `embedding` artifact is a dense 2-D txr_zarr store"
         )
     arrays = structure.get("arrays") or []
     dense = [a for a in arrays if isinstance(a, dict) and len(a.get("shape") or []) == 2]
@@ -298,9 +298,9 @@ def read_embedding_structure(path, slot):
 
 def read_embedding_matrix(path, member):
     """Read the dense `(n_cells × n_dims)` embedding member as a float32 numpy array."""
-    import cyto_zarr_read
+    import txr_zarr_read
 
-    return np.asarray(cyto_zarr_read.read_array(Path(path), member), dtype=np.float32)
+    return np.asarray(txr_zarr_read.read_array(Path(path), member), dtype=np.float32)
 
 
 # ── reading the OPTIONAL expression matrix for the descriptive-markers pass (Stage B) ─
@@ -385,15 +385,15 @@ def markers_memory_refuse_if_over(nnz):
 
 def read_expression_csc(path):
     """Read the expression CSC trio `(indptr, indices, data)` — the columns are the genes."""
-    import cyto_csc
+    import txr_csc
 
-    return cyto_csc.read_csc(Path(path))
+    return txr_csc.read_csc(Path(path))
 
 
 def embedding_identity(structure, content_hash):
     """The identity of the embedding being partitioned (INV-13): its correction method
     (pca|harmony|scvi|unattested), the row-space digest it is aligned to, and the staged
-    artifact's content-hash. `method` is read from the producer's `attributes.cyto` when it
+    artifact's content-hash. `method` is read from the producer's `attributes.txr` when it
     stamped one (EA-reduce records `method`/`correction`); ABSENT is `unattested`, never
     silently "pca" — inventing a provenance is the inference INV-2 forbids."""
     method = structure.get("method")
@@ -454,22 +454,22 @@ def ceiling_refuse_if_over(n_cells, n_dims, n_neighbors=15):
             "estimated_cpu_seconds": cpu_secs, "cpu_seconds_budget": _CPU_SECS_BUDGET}
 
 
-# ── stamp the clustering provenance into the produced column's attributes.cyto ─────
+# ── stamp the clustering provenance into the produced column's attributes.txr ─────
 def stamp_clustering_provenance(store_path, provenance):
     """Merge a `clustering` provenance tag into the produced `metadata-column` store's group
-    `attributes.cyto` (INV-2 / owner DEC-9(c)).
+    `attributes.txr` (INV-2 / owner DEC-9(c)).
 
-    `write_metadata_column` writes the decode `structure` into `attributes.cyto`; this adds
-    the clustering-provenance sub-key ALONGSIDE it (`attributes.cyto.clustering = {...}`) so
+    `write_metadata_column` writes the decode `structure` into `attributes.txr`; this adds
+    the clustering-provenance sub-key ALONGSIDE it (`attributes.txr.clustering = {...}`) so
     the artifact is identifiable as clustering-produced WITHOUT an exclusive datatype — it
     stays a categorical `metadata-column` the shipped colour-by `Groups` slice reads for
-    free. This is the same declaration channel (`attributes.cyto`) cell-filter's producer
+    free. This is the same declaration channel (`attributes.txr`) cell-filter's producer
     stamp uses; it is a package-local post-write merge, so no framework `_lib` edit is made.
     """
     p = Path(store_path) / "zarr.json"
     doc = json.loads(p.read_text())
     attrs = doc.setdefault("attributes", {})
-    cyto = attrs.setdefault("cyto", {})
-    cyto["clustering"] = provenance
+    txr = attrs.setdefault("txr", {})
+    txr["clustering"] = provenance
     p.write_text(json.dumps(doc, indent=2))
     return provenance

@@ -1,10 +1,10 @@
-//! CytoAnalyst server library — the reusable boot spine.
+//! TxResBench server library — the reusable boot spine.
 //!
 //! Exposes the module set + a `boot_in_background` that both the CLI binary
 //! (`main.rs`) and the desktop harness consume. Uses the SDK batteries: the
 //! framework's `serve` (connect-info + graceful shutdown; was SDK_GAPS G7) and
 //! `ServerConfig::load*` (via `config`; was G2). The identity resolver is now
-//! the SDK's turnkey `AuthModule` (ziee-auth module support, gap N-3) — it
+//! the SDK's turnkey `AuthModule` (txresbench-auth module support, gap N-3) — it
 //! self-registers via `MODULE_ENTRIES` and mounts `/api/auth/*` + the whole-app
 //! auth extensions, so the app carries no hand-written auth module.
 
@@ -23,7 +23,7 @@ pub mod openapi;
 // pattern `build.rs` uses at its `#[path = "src/modules/rootfs/version.rs"]`). It
 // is SELF-CONTAINED (std + serde/serde_norway/serde_json only, no crate imports),
 // so it compiles into the lib unchanged. Its `#[cfg(test)]` backstop (TEST-12 +
-// the per-package + single-source anchors) runs under `cargo test -p cytoanalyst`.
+// the per-package + single-source anchors) runs under `cargo test -p txresbench`.
 #[path = "../build_helper/processor_manifest.rs"]
 pub mod processor_manifest_lint;
 
@@ -31,14 +31,14 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use sqlx::SqlitePool;
-use ziee_core::ServerConfig;
-use ziee_framework::app_builder::{
+use txresbench_core::ServerConfig;
+use txresbench_framework::app_builder::{
     apply_rate_limit_layer, build_api_router, create_cors_layer, create_modules, initialize_modules,
 };
-use ziee_framework::ModuleContext;
+use txresbench_framework::ModuleContext;
 
 // Re-export the JWT service so the desktop crate names it through the app.
-pub use ziee_auth::auth::JwtService;
+pub use txresbench_auth::auth::JwtService;
 
 type BoxErr = Box<dyn std::error::Error + Send + Sync>;
 
@@ -65,12 +65,12 @@ async fn build_app(
     // the shared assembler, so a single first-wins init runs per process with no
     // spurious "called twice" warning.)
 
-    // Initialize the ziee-file blob store under the app-data dir (honors
-    // CYTO_APP_DATA_DIR, so each integration test isolates its own file store).
+    // Initialize the txresbench-file blob store under the app-data dir (honors
+    // TXR_APP_DATA_DIR, so each integration test isolates its own file store).
     // Global, called once at boot — the store-generic file handlers + the
     // dataset upload path read it via `get_file_storage()`.
     let files_root = modules::rootfs::data_root().join("files");
-    ziee_file::init_file_storage(&files_root);
+    txresbench_file::init_file_storage(&files_root);
 
     // #182 (ITEM-6): reclaim upload temp parts abandoned by a process that was
     // KILLED mid-upload. `StagedPart`'s Drop guard covers every in-process exit
@@ -87,14 +87,14 @@ async fn build_app(
     modules::file::stream::spawn_tmp_upload_sweeper();
 
     // Initialize the workstore content-addressed object store under the app-data
-    // dir (mirrors `init_file_storage`; honors CYTO_APP_DATA_DIR per-worktree),
+    // dir (mirrors `init_file_storage`; honors TXR_APP_DATA_DIR per-worktree),
     // PARTITIONED by the identity of the catalog `config` binds us to — see
     // `workstore::partition`. `config` is passed for exactly that: the sweep
     // spawned two lines below unlinks the complement of THIS pool's keep-set, so
     // it may only ever run against a store this catalog owns.
     // Then spawn the standing blob-GC union sweep (ITEM-14); the loop self-gates on
     // the live `gc_enabled` setting (issue #54).
-    // FAIL-CLOSED (#69): an unrecognized CYTO_WORKSTORE_BACKEND makes resolution return Err, so
+    // FAIL-CLOSED (#69): an unrecognized TXR_WORKSTORE_BACKEND makes resolution return Err, so
     // the server REFUSES TO BOOT here rather than silently running on the local-fs backend.
     let workstore_cfg = modules::workstore::config::WorkstoreConfig::resolve_for(config)?;
     let workstore_store = modules::workstore::init_working_store(&workstore_cfg)?;
@@ -108,7 +108,7 @@ async fn build_app(
         Err(e) => tracing::warn!(error = %e, "workstore: could not reap interrupted migrations at boot"),
     }
     // Byte-preservation for env-configured deployments (INV-1 / DEC-8): the legacy
-    // GC env overrides (`CYTO_WORKSTORE_GC_ENABLED` / `_INTERVAL_HOURS`) seed the
+    // GC env overrides (`TXR_WORKSTORE_GC_ENABLED` / `_INTERVAL_HOURS`) seed the
     // settings row while it has never been admin-modified, so a deployment that tuned
     // GC via env and never PUTs behaves exactly as before this change. A later admin
     // PUT (which stamps `updated_by`) supersedes env for good. Runs AFTER migrations
@@ -128,7 +128,7 @@ async fn build_app(
     // next read retries. Runs AFTER migrations so the singleton row exists.
     let _ = modules::mcp::settings_cache::get(&pool).await;
     // Same pattern for provenance's rootfs-cache GC cap: the legacy
-    // `CYTO_ROOTFS_CACHE_MAX_DIGESTS` env override seeds the `provenance_settings` row while
+    // `TXR_ROOTFS_CACHE_MAX_DIGESTS` env override seeds the `provenance_settings` row while
     // it has never been admin-modified, so an env-tuned deployment that never PUTs behaves
     // exactly as before #54 (INV-2). The DB setting is authoritative at read-at-use, so a
     // later admin change to the cap is never silently overridden by the env var (DEC-2
@@ -159,10 +159,10 @@ async fn build_app(
     // `SqlitePool` on this build). No-op
     // events seam (no `SyncEntity::File` today); the download-token signer
     // shares the access-token JWT issuer/secret so a generated token verifies.
-    let file_ctx = ziee_file::http::FileContext {
-        files: Arc::new(ziee_file::FileRepository::new((*pool).clone())),
+    let file_ctx = txresbench_file::http::FileContext {
+        files: Arc::new(txresbench_file::FileRepository::new((*pool).clone())),
         events: Arc::new(modules::file::NoopFileEvents),
-        download_token: ziee_file::http::DownloadTokenSigner {
+        download_token: txresbench_file::http::DownloadTokenSigner {
             issuer: config.jwt.issuer.clone(),
             secret: config.jwt.secret.clone(),
         },
@@ -179,12 +179,12 @@ async fn build_app(
 
     // Wire the SDK notification module's pluggable sync seam to this app's
     // concrete `SyncEntity::Notification` (the crate never names it). Idempotent.
-    ziee_notification::set_sync_emitter(Arc::new(|user_id, action, id, origin| {
+    txresbench_notification::set_sync_emitter(Arc::new(|user_id, action, id, origin| {
         use modules::sync::{publish, Audience, SyncAction, SyncEntity};
         let action = match action {
-            ziee_notification::NotifSyncAction::Create => SyncAction::Create,
-            ziee_notification::NotifSyncAction::Update => SyncAction::Update,
-            ziee_notification::NotifSyncAction::Delete => SyncAction::Delete,
+            txresbench_notification::NotifSyncAction::Create => SyncAction::Create,
+            txresbench_notification::NotifSyncAction::Update => SyncAction::Update,
+            txresbench_notification::NotifSyncAction::Delete => SyncAction::Delete,
         };
         publish(
             SyncEntity::Notification,
@@ -205,7 +205,7 @@ async fn build_app(
 
     // A5 / G-AUTHEVT: install the clean in-transaction personal-account hook BEFORE
     // `initialize_modules` (so it is live before any user can be created). The SDK's
-    // `ziee-auth` fires this INSIDE the user-creation transaction on EVERY creation
+    // `txresbench-auth` fires this INSIDE the user-creation transaction on EVERY creation
     // path (local register, LDAP/OAuth first-login, admin-create, first-run setup),
     // so a fresh user's personal account is provisioned atomically with the user row
     // — no window in which a committed user lacks one, and no authenticated request
@@ -216,7 +216,7 @@ async fn build_app(
     // on their next authenticated request. Both bind the same idempotent upsert, so
     // a user covered by both converges on exactly one account. See
     // `modules::account::hook`.
-    ziee_auth::install_user_created_hook(Arc::new(modules::account::hook::PersonalAccountHook));
+    txresbench_auth::install_user_created_hook(Arc::new(modules::account::hook::PersonalAccountHook));
 
     let ctx = ModuleContext::new(
         pool.clone(),
@@ -229,7 +229,7 @@ async fn build_app(
     let (api_router, mut api_doc) =
         build_api_router(&modules, &config.server.api_prefix, (*pool).clone());
     // Auth routes (`/api/auth/*`) + the whole-app resolver/JWT/AuthContext
-    // extensions are installed by the SDK's turnkey `AuthModule` (ziee-auth
+    // extensions are installed by the SDK's turnkey `AuthModule` (txresbench-auth
     // module support, gap N-3) — a MODULE_ENTRIES module that registers LAST
     // and layers those extensions over every module's routes. No app-side
     // `install_auth_layers` needed. `jwt` here is still built for `BootParts`
@@ -239,7 +239,7 @@ async fn build_app(
     // ai-mcp slice 1) from the now-finished OpenAPI doc: the SDK-derived
     // REST/OpenAPI catalog, then the compile-time frontend-action manifest.
     // Must run AFTER `finish_api` (the doc isn't fully populated before it).
-    ziee_control_mcp::catalog::init_from_openapi(&api_doc);
+    txresbench_control_mcp::catalog::init_from_openapi(&api_doc);
     modules::mcp::frontend_catalog::init_from_manifest();
     // The harness WORKTREE SENTINEL — `GET /__worktree`, debug builds only,
     // registered on the plain axum router (AFTER `finish_api`) so it never enters
@@ -279,21 +279,21 @@ async fn build_app(
 /// **Non-blocking** — the caller keeps the process alive (desktop event loop).
 pub async fn boot_in_background(config: ServerConfig) -> Result<BootParts, BoxErr> {
     // At-rest secret storage key (#60): the DESKTOP entrypoint's init (this path does
-    // not parse a CLI `--config-file`, so it resolves from `CYTO_SECRET_STORAGE_KEY` or
+    // not parse a CLI `--config-file`, so it resolves from `TXR_SECRET_STORAGE_KEY` or
     // the discovered config's `secrets.storage_key`). First-wins OnceCell. `None` ⇒
     // compat mode. (The CLI serve/worker binary inits in `main` with the explicit path.)
-    ziee_framework::secrets::init_storage_key(config::resolve_storage_key(None));
+    txresbench_framework::secrets::init_storage_key(config::resolve_storage_key(None));
     let (app, pool, jwt) = build_app(&config).await?;
     let listener = tokio::net::TcpListener::bind(config.server_address()).await?;
     let addr = listener.local_addr()?;
     tracing::info!(
-        "CytoAnalyst listening on http://{addr}{}",
+        "TxResBench listening on http://{addr}{}",
         config.server.api_prefix
     );
 
     tokio::spawn(async move {
         // SDK `serve`: connect-info (rate-limiter PeerIp) + graceful shutdown.
-        if let Err(e) = ziee_framework::serve(listener, app).await {
+        if let Err(e) = txresbench_framework::serve(listener, app).await {
             tracing::error!("server task exited: {e}");
         }
         // Tear down any squashfuse rootfs mount on graceful shutdown (LOW-4).
@@ -313,9 +313,9 @@ pub async fn serve_blocking(config: ServerConfig) -> Result<(), BoxErr> {
     let (app, _pool, _jwt) = build_app(&config).await?;
     let listener = tokio::net::TcpListener::bind(config.server_address()).await?;
     let addr = listener.local_addr()?;
-    println!("CytoAnalyst listening on http://{}/api", addr);
+    println!("TxResBench listening on http://{}/api", addr);
 
-    ziee_framework::serve(listener, app).await?;
+    txresbench_framework::serve(listener, app).await?;
     // Clean-exit teardown of the squashfuse rootfs mount (LOW-4); PDEATHSIG is
     // the SIGKILL/OOM backstop.
     modules::rootfs::shutdown();
@@ -327,34 +327,34 @@ pub async fn serve_blocking(config: ServerConfig) -> Result<(), BoxErr> {
 
 /// Worker entrypoint (T3 / ITEM-2 / §4.3): boot the SAME library assembly the CLI `serve`
 /// path boots — same `SqlitePool`, same module set (which builds the `BackendRegistry` + object
-/// store), same scheduler loop — **minus the public router**. `cytoanalyst worker` is a MODE
+/// store), same scheduler loop — **minus the public router**. `txresbench worker` is a MODE
 /// of the binary, not a second service (INV-1): it reuses `build_app` (so `JobsModule::init`
 /// runs verbatim) and never binds a listener. `set_worker_mode()` is set FIRST so the jobs
 /// module's G2 gate always spawns the scheduler loop here (a worker ALWAYS claims, regardless
-/// of `CYTO_SCHEDULER_ENABLED`). The process then blocks on a shutdown signal so the
+/// of `TXR_SCHEDULER_ENABLED`). The process then blocks on a shutdown signal so the
 /// background scheduler keeps claiming + running jobs.
 pub async fn run_worker(config: ServerConfig) -> Result<(), BoxErr> {
     crate::modules::jobs::scheduler::set_worker_mode();
     // Build the full assembly (initializes every module, incl. the scheduler loop) but do
     // NOT serve — the worker has no public HTTP surface. `_app` is intentionally dropped.
     let (_app, _pool, _jwt) = build_app(&config).await?;
-    tracing::info!("cytoanalyst worker started — claiming + running jobs (no public router)");
-    println!("cytoanalyst worker started (no public router; claiming jobs)");
+    tracing::info!("txresbench worker started — claiming + running jobs (no public router)");
+    println!("txresbench worker started (no public router; claiming jobs)");
     worker_shutdown_signal().await;
-    tracing::info!("cytoanalyst worker shutting down");
+    tracing::info!("txresbench worker shutting down");
     modules::rootfs::shutdown();
     modules::extensions::watch::shutdown();
     database::cleanup_database().await;
     Ok(())
 }
 
-/// In-pod ONE-SHOT job executor (ITEM-5 / #66) — the body of `cytoanalyst run-job --job-id X`.
+/// In-pod ONE-SHOT job executor (ITEM-5 / #66) — the body of `txresbench run-job --job-id X`.
 ///
 /// This is the entrypoint the job-per-run `KubernetesBackend` pod runs (its container command).
 /// It boots the SAME `build_app` assembly `serve`/`worker` boot — same `SqlitePool`, same module set
 /// (which builds the object store + the ingest/provenance/meter seams + the sandbox config) —
 /// but runs NO public router and, crucially, NO scheduler loop / boot reconcile: it sets
-/// `CYTO_SCHEDULER_ENABLED=off` and never enters worker mode, so `scheduler_should_spawn()` is
+/// `TXR_SCHEDULER_ENABLED=off` and never enters worker mode, so `scheduler_should_spawn()` is
 /// `false` (jobs module G2 gate) and this pod NEVER claims or reconciles OTHER jobs — it executes
 /// exactly the one job it was launched for and exits.
 ///
@@ -368,7 +368,7 @@ pub async fn run_job_once(config: ServerConfig, job_id: uuid::Uuid) -> Result<()
     // Disable the scheduler loop + boot reconcile on THIS process (G2, jobs/mod.rs) — a run-job
     // pod must not claim or reconcile jobs other processes own. Set BEFORE build_app so
     // `JobsModule::init` sees it. NOT worker mode (which would force the loop on).
-    std::env::set_var("CYTO_SCHEDULER_ENABLED", "off");
+    std::env::set_var("TXR_SCHEDULER_ENABLED", "off");
 
     let (_app, pool, _jwt) = build_app(&config).await?;
     // `build_app` hands back an `Arc<SqlitePool>`; the jobs/sandbox APIs take a bare
@@ -385,7 +385,7 @@ pub async fn run_job_once(config: ServerConfig, job_id: uuid::Uuid) -> Result<()
         crate::modules::sandbox::backend::local_bwrap::BackendRegistry::new(pool.clone()),
     );
 
-    tracing::info!(%job_id, "cytoanalyst run-job: executing one analysis in-pod (no scheduler)");
+    tracing::info!(%job_id, "txresbench run-job: executing one analysis in-pod (no scheduler)");
     let code = crate::modules::jobs::runner::execute_job_in_pod(&job, pool.clone(), registry)
         .await
         .map_err(|e| -> BoxErr { e.into() })?;

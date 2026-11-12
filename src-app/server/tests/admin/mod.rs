@@ -15,9 +15,9 @@
 use serde_json::{json, Value};
 use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
-use cytoanalyst::modules::account::{AccountRepository, AccountRole, ActorCeiling};
+use txresbench::modules::account::{AccountRepository, AccountRole, ActorCeiling};
 
 use crate::common::TestServer;
 

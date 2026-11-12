@@ -25,7 +25,7 @@
  * records (DEC-3: never another module's store).
  */
 import { useEffect, useState } from 'react'
-import { useEventBusStore } from '@ziee/framework/events'
+import { useEventBusStore } from '@txresbench/framework/events'
 import type { ModelSaveResponse } from '@/api-client/types'
 import { TxrSaveModelsDialog } from './TxrSaveModelsDialog'
 import { TxrSaveOneDialog } from './TxrSaveOneDialog'
@@ -45,14 +45,14 @@ type TxrDialogRequest =
   | null
 
 // The release-gated e2e seam for the L entry (the repo's own testing device —
-// `core/workstore`'s `window.__cyto_read` precedent): on the deterministic
+// `core/workstore`'s `window.__txr_read` precedent): on the deterministic
 // real-backend tier NO run ever produces a model (DEC-14's all-cannot-run
 // scope), so the results screen's "Save the models (N)" button never renders
 // and the event it would emit is unreachable from a spec. The full-backend
 // spec therefore drives the SAME bus event this host subscribes to through
 // this guard: present under the Vite dev server and the e2e preview build
 // (`VITE_ENABLE_TEST_SEAMS=1`), absent from a release bundle (neither set —
-// the seam cannot be talked into from the outside, the `__cyto_read`
+// the seam cannot be talked into from the outside, the `__txr_read`
 // gating). The payload shape stays the `txrresults`-owned contract
 // (`{type, runId, methodIds}` — PROV-UR-3); the host only ever opens what it
 // is told to.

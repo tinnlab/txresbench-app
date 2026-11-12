@@ -3,8 +3,8 @@
 ## Reconciliation applied
 Cross-part audit resolution baked into this plan: **A6** — the conformance-battery ownership between
 P7 and P5 is settled. The battery **TYPES / pure invariant predicates + the `runConformance`
-host-gate signature live in `@cyto/workbench-api` (P5)**; **P7 provides the concrete view-kind
-test-suite that IMPORTS them** from `@cyto/workbench-api`. The import direction is **P7 → P5** (P7
+host-gate signature live in `@txresbench/workbench-api` (P5)**; **P7 provides the concrete view-kind
+test-suite that IMPORTS them** from `@txresbench/workbench-api`. The import direction is **P7 → P5** (P7
 depends on P5, never the reverse — **no package cycle**). P7 is the single source of the predicate
 *bodies* (re-exported through P5's surface), and owns the per-view-kind conformance closures + the
 registry-iterating battery runner. See ITEM-8/9/10.
@@ -14,7 +14,7 @@ registry-iterating battery runner. See ITEM-8/9/10.
 headline refactor — turn its **closed `switch(cell.kind)` / `CellKind` union / `isDenseKind` /
 `CELL_KIND_OPTIONS` / `swapCellContent` / `Record<CellKind, KindRunner>` battery** into an **open runtime
 `registerViewKind` / `getViewKind` / `listViewKinds` registry that IS the P5 `plotTypes` contribution point** —
-publish its conformance battery in `@cyto/workbench-api`, add **viewer-keyed-by-datatype** dispatch, wire the
+publish its conformance battery in `@txresbench/workbench-api`, add **viewer-keyed-by-datatype** dispatch, wire the
 existing Coordination linked small-multiples + synced brushing to the platform shared selection, and generalize
 overlays. Genome/structure/network viewer families = later datatype-contributed seams; keep them open, do not
 build them.
@@ -25,8 +25,8 @@ build them.
 hard-importing a chart View; `isDenseKind()` hardcodes `scatter||image`; `defaultBindings()` +
 `swapCellContent()` hardcode chart-binding / display-field sets; `CELL_KIND_OPTIONS` (`CellChrome.tsx`) is a
 hand-maintained copy of the union; `viewKindBattery.test.ts` is a `Record<CellKind, KindRunner>` (compile-time
-exhaustive). `showcase/registry.ts` is a *story* catalog only. `viz-core` is deck.gl-only and **`@ziee/*`-free**;
-only `adapter/` (Coordination.store, GridWorkspace.store via `@ziee/framework/store-kit`, VisualizationPage,
+exhaustive). `showcase/registry.ts` is a *story* catalog only. `viz-core` is deck.gl-only and **`@txresbench/*`-free**;
+only `adapter/` (Coordination.store, GridWorkspace.store via `@txresbench/framework/store-kit`, VisualizationPage,
 autosave, popout) is app-coupled. `wire.ts::DataSource` is the typed-binary seam, today backed by `FixtureSource`.
 So: **library-extensible via a closed union, NOT platform-extensible** — the switch→registry refactor is the P7
 headline.
@@ -37,7 +37,7 @@ headline.
 
 - **ITEM-1**: Adopt `feat/visualization` unchanged. Land live3 to main first (BUILD_PLAN re-sequencing step 1),
   then relocate `viz-core/` + `adapter/` under the workbench module (`modules/workbench/canvas/`). `viz-core`
-  stays `@ziee/*`-free (keep the rule); only `adapter/` imports platform APIs. No behavior change — move + re-home,
+  stays `@txresbench/*`-free (keep the rule); only `adapter/` imports platform APIs. No behavior change — move + re-home,
   gated by the existing viz vitest suite + `tsc` staying green (known-good baseline before any refactor).
 - **ITEM-2**: Define the **`ViewKindDescriptor`** type + a runtime **`registerViewKind` / `listViewKinds` /
   `getViewKind`** registry (`viz-core/registry/viewKindRegistry.ts`). Descriptor =
@@ -70,10 +70,10 @@ headline.
   binding resolver (keeps `defaultBindings` as the fallback resolver).
 - **ITEM-8 (A6)**: Publish `conformance/invariants.ts`'s pure structural predicates (`assertFiniteRange`,
   `assertMatrixShape`, `assertPartitionCoversAll`, `assertMonotoneTicks`, `assertByteQuad`, `assertMaskLength`,
-  `assertQuartilesOrdered`, `assertCountsSumTo`, …) through the **`@cyto/workbench-api` surface** (P5) — **P5
+  `assertQuartilesOrdered`, `assertCountsSumTo`, …) through the **`@txresbench/workbench-api` surface** (P5) — **P5
   owns the published invariant-predicate + `runConformance` host-gate CONTRACT** (the TYPES/signatures), P7
   supplies the predicate *bodies* re-exported there, and **P7's concrete view-kind test-suite IMPORTS them from
-  `@cyto/workbench-api`** (import direction P7 → P5, no cycle) — so third-party view-kinds are validated by the
+  `@txresbench/workbench-api`** (import direction P7 → P5, no cycle) — so third-party view-kinds are validated by the
   *same* predicates the built-ins pass.
 - **ITEM-9**: Refactor `viewKindBattery.test.ts` from the fixed `Record<CellKind, KindRunner>` table to
   **iterate `listViewKinds()`**, running each registered descriptor's `conformance(buildCase(...))` over the same
@@ -82,7 +82,7 @@ headline.
   every registered id has a `conformance` fn and the battery runs it. Keep the determinism knobs (`NUM_RUNS`,
   `FC_SEED`).
 - **ITEM-10 (A6)**: **`runViewKindConformance(descriptor)` / the `runConformance` host gate** — its
-  **signature/contract is published by `@cyto/workbench-api` (P5)**; **P7 provides the concrete implementation +
+  **signature/contract is published by `@txresbench/workbench-api` (P5)**; **P7 provides the concrete implementation +
   the view-kind test-suite that imports it** (the property + degenerate + NaN-missing generators, generalized to
   any descriptor; P7 → P5, no cycle). The
   host runs it at registration/load time on a *contributed* view-kind (reject-on-throw), so a third-party plot
@@ -158,7 +158,7 @@ headline.
   density, export, a11y, tooltip, timeline, controls, core, layout, heatmap-matrix, overlays, conformance).
   Framework-agnostic; land unchanged (ITEM-1).
 - `adapter/{Coordination,GridWorkspace}.store.ts`, `adapter/VisualizationPage.tsx`, `adapter/autosave.ts`,
-  `adapter/useCellPopout.ts`, `adapter/PopoutWindow.tsx` — the ziee/store-kit binding layer.
+  `adapter/useCellPopout.ts`, `adapter/PopoutWindow.tsx` — the txresbench/store-kit binding layer.
 - `showcase/**` — the story gallery (visual-test surface).
 
 **Create:**
@@ -168,7 +168,7 @@ headline.
   `scatter`/`image` — the 10 built-in descriptors + `dataContract` (ITEM-6/7).
 - `viz-core/registry/viewerFamily.ts` — datatype→viewer-family dispatch (ITEM-11/12).
 - `viz-core/overlays/overlayRegistry.ts` — the overlay contribution seam (ITEM-16).
-- `viz-core/conformance/hostGate.ts` (or in `@cyto/workbench-api`) — `runViewKindConformance`/`runConformance`
+- `viz-core/conformance/hostGate.ts` (or in `@txresbench/workbench-api`) — `runViewKindConformance`/`runConformance`
   reject-on-throw host gate (ITEM-10).
 - `adapter/PlatformDataSource.ts` — real `DataSource` impl over P1 endpoints (ITEM-17).
 
@@ -177,7 +177,7 @@ headline.
 - `grid/gridModel.ts` — `CellKind` union → `string`; `isDenseKind`/`defaultBindings`/`swapCellContent`
   registry-driven (ITEM-4/7).
 - `grid/CellChrome.tsx` — `CELL_KIND_OPTIONS` → `listViewKinds()` (datatype-filtered) (ITEM-5/11).
-- `conformance/invariants.ts` → re-exported via `@cyto/workbench-api`; `conformance/viewKindBattery.test.ts` →
+- `conformance/invariants.ts` → re-exported via `@txresbench/workbench-api`; `conformance/viewKindBattery.test.ts` →
   registry-iterating (ITEM-8/9/10).
 - `adapter/module.tsx` — top-level route → center-canvas slot contribution + dev-flag standalone route
   (ITEM-18/19).
@@ -190,7 +190,7 @@ timeline,layers,spatial,controls,core}/*`, `adapter/{GridWorkspace.store,autosav
 (ITEM-20).
 
 **Cross-part (owned elsewhere, P7 consumes/contributes to):**
-- `@cyto/workbench-api` (P5) — publishes `plotTypes`/`viewers`/`overlays` registries + the conformance
+- `@txresbench/workbench-api` (P5) — publishes `plotTypes`/`viewers`/`overlays` registries + the conformance
   invariants + `runViewKindConformance`.
 - P2 datatype registry — `Datatype.viewers` field + subtyping lattice (ITEM-11/12).
 - P1 data API — the real `DataSource` backing (ITEM-17).
@@ -229,7 +229,7 @@ Nearly the entire engine is reused verbatim; the refactor is surgical (make disp
 
 ## Dependencies
 
-- **P5 contribution-api — KEY DEP.** The `@cyto/workbench-api` registries (`plotTypes`/`viewers`/`overlays`) +
+- **P5 contribution-api — KEY DEP.** The `@txresbench/workbench-api` registries (`plotTypes`/`viewers`/`overlays`) +
   the manifest are where the view-kind/viewer/overlay contribution types live and where the conformance battery
   is published. P7's registry (ITEM-2) is the concrete first implementation of P5's `plotTypes` point; they must
   agree on the `ViewKind`/`Viewer`/`Overlay` type shapes (P7 defines the descriptor in viz-core; P5 re-exports —
@@ -261,7 +261,7 @@ Nearly the entire engine is reused verbatim; the refactor is surgical (make disp
    `swapCellContent`, self-register the 10 built-ins by import side-effect + per-view-kind binding resolver +
    `CELL_KIND_OPTIONS` from `listViewKinds()`. **Gate: byte-identical behavior** (existing vitest + gallery
    green) — the risky refactor; converge here before moving on.
-4. **Conformance published + registry-driven** (ITEM-8,9,10) — move invariants into `@cyto/workbench-api`, make
+4. **Conformance published + registry-driven** (ITEM-8,9,10) — move invariants into `@txresbench/workbench-api`, make
    the battery iterate the registry, add the host `runConformance` reject gate.
 5. **Data API swap** (ITEM-17) — `PlatformDataSource` once P1 lands; `FixtureSource` keeps P7 unblocked meanwhile.
 6. **Viewer-per-datatype** (ITEM-11,12) — once P2's datatype type exists; register the deck.gl family as the
@@ -292,7 +292,7 @@ validated by the existing viz test suite + the new registry-driven battery.
   gate (existing tests stay green).
 - **DEC-P7-3** The refactor is **behavior-preserving first** (ITEM-6 registers exactly the 10 existing kinds with
   identical render/aggregate). No new plots, no new data wiring in the refactor step — de-risks it.
-- **DEC-P7-4** The registry lives in **`viz-core` (`@ziee/*`-free); `@cyto/workbench-api` re-exports it** — keeps
+- **DEC-P7-4** The registry lives in **`viz-core` (`@txresbench/*`-free); `@txresbench/workbench-api` re-exports it** — keeps
   viz-core a standalone package while P5 owns the public contribution surface. The descriptor type is the shared
   contract.
 - **DEC-P7-5** Conformance is a **per-descriptor closure the published harness drives**, NOT a hand-maintained
@@ -347,7 +347,7 @@ validated by the existing viz test suite + the new registry-driven battery.
   designed against `DATA_STORAGE_REDESIGN` §2/§3.4 — hold P1 to those framings; the decoders are the contract
   test.
 - **R6 (adapter store-kit coupling on move)** `Coordination`/`GridWorkspace` stores use
-  `@ziee/framework/store-kit`; re-homing must keep the import path valid in the platform tree. **Mitigation:**
+  `@txresbench/framework/store-kit`; re-homing must keep the import path valid in the platform tree. **Mitigation:**
   move `adapter/` intact; viz-core stays framework-free.
 - **R7 (pop-out renders a scatter fixture regardless of `cell.kind`)** — noted in the `CellView` C3a comment.
   Generalizing pop-out to the actual registered view-kind is now easy via the registry but is real work. **Flag

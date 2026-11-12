@@ -1,8 +1,8 @@
 // VisualizationPage.tsx — the real app page (adapter layer: binds viz-core to the
-// ziee app shell). A full-height workspace: a fixture-seeded resizable grid of scatter
+// txresbench app shell). A full-height workspace: a fixture-seeded resizable grid of scatter
 // views with a color-by control.
 //
-// Consumes the consolidated `@ziee/viz` public API (viz-api-consolidation ITEM-17): the
+// Consumes the consolidated `@txresbench/viz` public API (viz-api-consolidation ITEM-17): the
 // grid is mounted via `<Viz source option onChange onController>` (superseding the raw
 // `<GridWorkspace>` mount). `onChange` streams the strict-JSON `VizOption` to the autosave
 // hook; `onController` binds the `VizController` so restore drives `setOption(saved,
@@ -11,7 +11,7 @@
 // streaming source drops in behind the same seam later).
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Select, Text, type SelectOption, type SelectOptionGroup } from '@ziee/kit'
+import { Button, Select, Text, type SelectOption, type SelectOptionGroup } from '@txresbench/kit'
 import {
   Viz,
   FixtureSource,
@@ -27,7 +27,7 @@ import {
   type TooltipContext,
   type Rect,
   type LegendExportSpec,
-} from '@ziee/viz'
+} from '@txresbench/viz'
 import { useWorkspaceAutosave } from './autosave'
 
 /** The color-by control's value ⇄ `ColorBy` mapping, in ONE place. `mode:key` (the key itself

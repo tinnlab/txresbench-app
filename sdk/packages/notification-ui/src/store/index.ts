@@ -1,5 +1,5 @@
-import { hasPermissionNow } from '@ziee/framework/permissions'
-import { defineStore } from '@ziee/framework/store-kit'
+import { hasPermissionNow } from '@txresbench/framework/permissions'
+import { defineStore } from '@txresbench/framework/store-kit'
 
 import type { NotificationsStoreDeps } from '../types'
 import { setNotificationDeps } from './_deps'

@@ -9,7 +9,7 @@
  *
  * ── WHY A SECOND SWEEP EXISTED TO BE WRITTEN ──────────────────────────────────────────────────
  * The gallery sweep walks 94 gallery surfaces and reported a clean tree. Not one of them mounts a
- * `@ziee/viz` component: `modules/visualization/gallery.tsx` is `{ crawlOnly: true }`, so the whole
+ * `@txresbench/viz` component: `modules/visualization/gallery.tsx` is `{ crawlOnly: true }`, so the whole
  * plotting package — its pane chrome, its rails, its legend — was outside the guard's reach and a
  * green run said nothing at all about it. The sibling `viz-e2e/icon-button-tooltips-viz.spec.ts`
  * closes that by driving the same detector over the showcase, which is where those components

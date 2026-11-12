@@ -4,12 +4,12 @@
 
     python3 src-app/packages/doublet/tests/stage_fixtures.py
 
-Writes `.cyto-cache/fixtures/pbmc3k_raw.h5ad` — `sc.datasets.pbmc3k()` (2,700 x 32,738 RAW
+Writes `.txr-cache/fixtures/pbmc3k_raw.h5ad` — `sc.datasets.pbmc3k()` (2,700 x 32,738 RAW
 UMIs) with a `cell_type` obs column carrying the published `louvain` cell-type labels from
 `sc.datasets.pbmc3k_processed()`, joined BY BARCODE (the 62 barcodes the processed object
 dropped become `unassigned`).
 
-Why a new fixture at all: `.cyto-cache/fixtures/pbmc68k_reduced.h5ad`, the fixture already
+Why a new fixture at all: `.txr-cache/fixtures/pbmc68k_reduced.h5ad`, the fixture already
 in the tree, is **normalized and scaled**. Scrublet does its own total-count normalize, HVG
 selection and PCA internally, so feeding it normalized data silently produces meaningless
 scores — the compute refuses it outright. A raw-count method needs a raw-count fixture.
@@ -18,9 +18,9 @@ Why the labels: the ground-truth validity suite constructs HETEROTYPIC synthetic
 summing pairs of cells drawn from DIFFERENT lineages. That construction needs published cell
 types; it is not something the fixture can be asked to guess.
 
-`.cyto-cache/` is gitignored — this is the repo's documented fixture-staging convention
-(README.md; the `e2e-processors` recipe exports `CYTO_E2E_FIXTURES` from the same directory).
-Downloads land in `.cyto-cache/scanpy-datasets/` rather than scanpy's default `./data`, so a
+`.txr-cache/` is gitignored — this is the repo's documented fixture-staging convention
+(README.md; the `e2e-processors` recipe exports `TXR_E2E_FIXTURES` from the same directory).
+Downloads land in `.txr-cache/scanpy-datasets/` rather than scanpy's default `./data`, so a
 staging run never leaves an untracked directory in the working tree.
 """
 from __future__ import annotations
@@ -30,8 +30,8 @@ from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 REPO_ROOT = _HERE.parents[3]
-FIXTURE_DIR = REPO_ROOT / ".cyto-cache" / "fixtures"
-DATASET_DIR = REPO_ROOT / ".cyto-cache" / "scanpy-datasets"
+FIXTURE_DIR = REPO_ROOT / ".txr-cache" / "fixtures"
+DATASET_DIR = REPO_ROOT / ".txr-cache" / "scanpy-datasets"
 FIXTURE = FIXTURE_DIR / "pbmc3k_raw.h5ad"
 
 EXPECTED_SHAPE = (2700, 32738)

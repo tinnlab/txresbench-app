@@ -242,7 +242,7 @@ happen later in `run_import` than the first write. This argues for the general f
 today is true of the two boundaries this design guards and of no others.
 
 **(b) A filesystem error at any write is still an uncaught traceback.** Measured at five sites
-(`manifest.json`, the report, the summary, `_lib/cyto_deps.py`'s `run-environment.json`, and
+(`manifest.json`, the report, the summary, `_lib/txr_deps.py`'s `run-environment.json`, and
 `io_dirs()`'s mkdir): `exit=1`, a traceback, and 183–186 paths on disk. `write_manifest` is called
 AFTER `main()`'s `try/except` closes, so that site is not catchable even in principle without moving
 the call. That is #301's `ENOSPC` shape, still open, **filed as #332** with the measurements rather
@@ -421,7 +421,7 @@ is a rule that answers differently in two places.
 Its two call sites here are `dict(h5.attrs)` in `run_import` and the parse inside
 `read_scalefactors`. **The second one is not where it is called from today.** Measured on the
 pre-change body, `read_scalefactors` is invoked at `import_visium.py:1869`, while the FIRST
-artifact write — `cyto_csc.write_csc_zarr(... "expression.zarr")` — is at `:1733`. A refusal
+artifact write — `txr_csc.write_csc_zarr(... "expression.zarr")` — is at `:1733`. A refusal
 raised where that call sits today fires with the expression store, both axis stores and the
 metadata columns already on disk. **MEASURED by actually un-hoisting the read on a copy of the
 fixed body and re-running door (b): 51 paths, `expression.zarr` present,

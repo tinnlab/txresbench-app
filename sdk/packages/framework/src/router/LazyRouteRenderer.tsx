@@ -4,7 +4,7 @@ import {
   type ComponentLike,
 } from '../lazy-component-view'
 
-// @ziee/framework/router — self-contained lazy component renderer.
+// @txresbench/framework/router — self-contained lazy component renderer.
 //
 // Materializes a route element that may be an already-rendered element, a
 // `React.lazy` component, or a bare dynamic-import loader
@@ -12,7 +12,7 @@ import {
 // coupling — the fallback is passed in.
 //
 // The classification + Suspense-ownership logic lives in `../lazy-component-view`
-// so this and `@ziee/shell`'s `LazyComponentRenderer` cannot drift apart again;
+// so this and `@txresbench/shell`'s `LazyComponentRenderer` cannot drift apart again;
 // they previously carried independent copies of a name-based loader heuristic
 // and so carried the same silent-empty-region bug twice. See `../lazy-component`.
 

@@ -43,7 +43,7 @@
  * longer lives here).
  */
 import type { CSSProperties } from 'react'
-import { Button, Confirm } from '@ziee/kit'
+import { Button, Confirm } from '@txresbench/kit'
 import type { TxrRunMethod } from '@/api-client/types'
 import type { TxrRunPerMethod } from '../stores/TxrRun.store'
 import { TxrAtATimeControl } from './TxrAtATimeControl'

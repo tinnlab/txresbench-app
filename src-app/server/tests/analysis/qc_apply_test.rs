@@ -106,7 +106,7 @@ fn threshold_plus_gate_intersection_survivors() {
         return;
     }
     let (root, inputs, outputs, filter) = setup(
-        "cyto-qc24a",
+        "txr-qc24a",
         &[50.0, 0.0, 0.0, 8.33, 0.0],
         &["A", "A", "B", "B", "B"],
     );
@@ -153,7 +153,7 @@ fn per_sample_threshold_scopes_to_its_sample() {
         return;
     }
     let (root, inputs, outputs, filter) = setup(
-        "cyto-qc24b",
+        "txr-qc24b",
         &[50.0, 0.0, 25.0, 8.33, 0.0],
         &["A", "A", "B", "B", "B"],
     );

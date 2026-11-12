@@ -45,7 +45,7 @@ pub use crate::common::processors_root;
 /// name the whole AnnData-era stack; a probe that over-requires does not fail safe, it
 /// turns a runnable test into a self-skip on a host that could have RUN it — and a
 /// self-skip is a SKIP, never a pass. Neither entry imports `scanpy`, `anndata` or
-/// `scipy` any longer (grep either file: `numpy`, `pandas`, and the staged `cyto_*`
+/// `scipy` any longer (grep either file: `numpy`, `pandas`, and the staged `txr_*`
 /// modules, which hold the same numpy+stdlib floor), and the artifacts they read are
 /// written below through those same staged modules.
 pub fn python_stack_ready() -> bool {
@@ -68,7 +68,7 @@ pub fn tmp_dir(prefix: &str) -> PathBuf {
 ///
 /// ## Why a DIRECTORY and not `PYTHONPATH`
 ///
-/// A migrated processor does a bare `import cyto_columns`, so the shared format library has
+/// A migrated processor does a bare `import txr_columns`, so the shared format library has
 /// to be reachable or the script dies at `ModuleNotFoundError` before it runs a line. The
 /// previous version of this helper bought that reachability with
 /// `PYTHONPATH=<packages/_lib>` and called it "the honest mirror". It was neither:
@@ -91,10 +91,10 @@ pub fn tmp_dir(prefix: &str) -> PathBuf {
 /// re-list would fall behind [`PY_HELPER_FILES`] / [`RESERVED_ENTRY_HELPERS`] the next time
 /// either table changes, which is how this hole opened in the first place.
 ///
-/// [`RESERVED_ENTRY_HELPERS`]: cytoanalyst::modules::sandbox::processors
-/// [`PY_HELPER_FILES`]: cytoanalyst::modules::sandbox::processors::PY_HELPER_FILES
+/// [`RESERVED_ENTRY_HELPERS`]: txresbench::modules::sandbox::processors
+/// [`PY_HELPER_FILES`]: txresbench::modules::sandbox::processors::PY_HELPER_FILES
 pub fn stage_code_dir(code_ref: &str, package: Option<&str>) -> (PathBuf, &'static str) {
-    use cytoanalyst::modules::sandbox::processors::{declared_run, resolve_in_with};
+    use txresbench::modules::sandbox::processors::{declared_run, resolve_in_with};
     // These tests spawn no `TestServer`, so they publish the registry themselves —
     // the same one-shot the harness runs, so ordering between them is irrelevant.
     crate::common::ensure_extension_registry();
@@ -106,7 +106,7 @@ pub fn stage_code_dir(code_ref: &str, package: Option<&str>) -> (PathBuf, &'stat
     // `DeclaredRun::default()`, so every entry loses the siblings its manifest DECLARES.
     let resolved = resolve_in_with(&root, code_ref, package, &declared_run(code_ref, package))
         .unwrap_or_else(|e| panic!("resolve code_ref {code_ref:?} from {root:?}: {e}"));
-    let code = tmp_dir("cyto-code");
+    let code = tmp_dir("txr-code");
     let entry = resolved.language.entry_filename();
     std::fs::write(code.join(entry), resolved.script.as_bytes())
         .unwrap_or_else(|e| panic!("stage entry {code_ref:?}: {e}"));
@@ -138,8 +138,8 @@ pub fn run_staged(
         .arg(code_dir.join(script_name))
         .args(args)
         .env_remove("PYTHONPATH")
-        .env("CYTO_INPUTS_DIR", inputs)
-        .env("CYTO_OUTPUTS_DIR", outputs)
+        .env("TXR_INPUTS_DIR", inputs)
+        .env("TXR_OUTPUTS_DIR", outputs)
         .output()
         .unwrap_or_else(|e| panic!("spawn {script_name}: {e}"))
 }
@@ -158,8 +158,8 @@ pub fn run_staged(
 /// encoding, gene labels leaving the matrix), and NOTHING failed until the compute
 /// itself was rewritten — because a fixture that nobody derives cannot notice.
 ///
-/// So `write_matrix` / `write_column` below call `cyto_csc.write_csc_zarr` and
-/// `cyto_columns.write_metadata_column` — the same two functions the import converter
+/// So `write_matrix` / `write_column` below call `txr_csc.write_csc_zarr` and
+/// `txr_columns.write_metadata_column` — the same two functions the import converter
 /// writes its outputs with — resolved out of THIS directory, which
 /// [`stage_code_dir`] assembled with production's own resolver. The staleness story is
 /// therefore that there ISN'T one: no copy of the on-disk format exists in the test
@@ -192,7 +192,7 @@ impl StagedProcessor {
         let script = format!("_stage_{what}.py");
         std::fs::write(self.dir.join(&script), body)
             .unwrap_or_else(|e| panic!("write the {what} stager beside the staged entry: {e}"));
-        let io = tmp_dir("cyto-stage-io");
+        let io = tmp_dir("txr-stage-io");
         let out = run_staged(&self.dir, &script, args, &io, &io);
         assert!(
             out.status.success(),
@@ -204,7 +204,7 @@ impl StagedProcessor {
     }
 
     /// Stage a count-matrix artifact at `dest` from a dense block, one row per entity on
-    /// the first axis. `cyto_csc.ArraySource` takes a dense array directly, so the block
+    /// the first axis. `txr_csc.ArraySource` takes a dense array directly, so the block
     /// the test already holds is handed over unchanged.
     pub fn write_matrix(&self, dest: &Path, rows: &[&[u32]]) {
         let rows_json =
@@ -215,9 +215,9 @@ impl StagedProcessor {
             r#"
 import json, sys
 import numpy as np
-import cyto_csc
+import txr_csc
 block = np.asarray(json.loads(sys.argv[1]), dtype=np.float32)
-cyto_csc.write_csc_zarr(cyto_csc.ArraySource(block), sys.argv[2], axes=tuple(json.loads(sys.argv[3])))
+txr_csc.write_csc_zarr(txr_csc.ArraySource(block), sys.argv[2], axes=tuple(json.loads(sys.argv[3])))
 "#,
             &[&rows_json, &dest.to_string_lossy(), &axes],
         );
@@ -233,8 +233,8 @@ cyto_csc.write_csc_zarr(cyto_csc.ArraySource(block), sys.argv[2], axes=tuple(jso
             r#"
 import json, sys
 import pandas as pd
-import cyto_columns
-cyto_columns.write_metadata_column(
+import txr_columns
+txr_columns.write_metadata_column(
     __import__("pathlib").Path(sys.argv[1]), sys.argv[2], sys.argv[3],
     pd.Series(json.loads(sys.argv[4])), axis=sys.argv[5])
 "#,

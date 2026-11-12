@@ -21,8 +21,8 @@ use serde_json::json;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::models::{CreateJobRequest, Job};
-use cytoanalyst::modules::jobs::repository::JobRepository;
+use txresbench::modules::jobs::models::{CreateJobRequest, Job};
+use txresbench::modules::jobs::repository::JobRepository;
 
 use super::{pool_for, setup_admin};
 use crate::common::TestServer;

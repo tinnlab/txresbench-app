@@ -1081,7 +1081,7 @@ export interface ConverterContribution {
    *  is deployment data, not a list this type knows.
    *
    *  `None` ⇒ the DEPLOYMENT DEFAULT (`env_image::default_env_id`: the
-   *  `CYTO_SANDBOX_ENV_ID` override, else the admin settings row, else the union of
+   *  `TXR_SANDBOX_ENV_ID` override, else the admin settings row, else the union of
    *  the envs the loaded registry declares). There is **no embedded-rootfs
    *  fallback** — this doc claimed one until #189, and the claim was false:
    *  the embedded rootfs was removed when DEC-24 was reversed (see the `env_image` module
@@ -1358,7 +1358,7 @@ export interface Dataset {
    */
   metadata: unknown
   name: string
-  /** The owning user (ziee-file-style ownership). Visibility = owner ∪ sharees. */
+  /** The owning user (txresbench-file-style ownership). Visibility = owner ∪ sharees. */
   owner_id: string
   /**
    * How the dataset came to be: `upload` (user drop) or `promote` (from an
@@ -1548,7 +1548,7 @@ export interface DatasetListItem {
    */
   metadata: unknown
   name: string
-  /** The owning user (ziee-file-style ownership). Visibility = owner ∪ sharees. */
+  /** The owning user (txresbench-file-style ownership). Visibility = owner ∪ sharees. */
   owner_id: string
   /** See [`DatasetWithFiles::processing_error`]. */
   processing_error?: string
@@ -1638,7 +1638,7 @@ export interface DatasetWithFiles {
    */
   metadata: unknown
   name: string
-  /** The owning user (ziee-file-style ownership). Visibility = owner ∪ sharees. */
+  /** The owning user (txresbench-file-style ownership). Visibility = owner ∪ sharees. */
   owner_id: string
   /**
    * The failure reason when `processing_status == "failed"` (the job's `error`);
@@ -1967,7 +1967,7 @@ export interface DependencyRequirement {
    *  the subset the build enforces can never be looser than what the run time — which
    *  uses the reference implementation — enforces.
    *
-   *  ONE EXCEPTION, since #192: against a recipe that declares `cyto:ecosystem=r`, this
+   *  ONE EXCEPTION, since #192: against a recipe that declares `txr:ecosystem=r`, this
    *  is read under R `DESCRIPTION` rules, where `-` and `.` are the same separator. That
    *  is the correct reading for an R declaration and it is confined to R recipes.
    */
@@ -2643,8 +2643,8 @@ export interface HighlightRect {
  * A named, operator-supplied host resource an entry needs mounted read-only (S7).
  *
  *  The NAME is a deployment contract, not a concept the server understands: an
- *  operator points `CYTO_SANDBOX_RESOURCE_<NAME>` at a host path and allowlists its
- *  root via `CYTO_SANDBOX_REFERENCE_MOUNTS`. Nothing about WHAT the resource is — a
+ *  operator points `TXR_SANDBOX_RESOURCE_<NAME>` at a host path and allowlists its
+ *  root via `TXR_SANDBOX_REFERENCE_MOUNTS`. Nothing about WHAT the resource is — a
  *  reference index, a model, a lookup table — is encoded here; only "this entry needs
  *  the resource called X at path Y".
  */
@@ -4401,7 +4401,7 @@ export interface PairExchangeRequest {
 /**
  * `POST /api/mcp/pair/exchange` response — an access+refresh token pair for
  *  the pairing code's owner, minted the same way any other login-shaped flow
- *  mints one (`ziee-auth`'s `mint_session_tokens`).
+ *  mints one (`txresbench-auth`'s `mint_session_tokens`).
  */
 export interface PairExchangeResponse {
   access_token: string
@@ -5337,7 +5337,7 @@ export interface RecordSelectionRequest {
 export interface RefreshTokenRequest {
   /**
    * The refresh token. Optional: web clients omit it and the server
-   *  reads the httpOnly `ziee_refresh` cookie instead; desktop/tunnel
+   *  reads the httpOnly `txresbench_refresh` cookie instead; desktop/tunnel
    *  clients keep sending it in the body. An explicit body token wins
    *  over the cookie, and the response mirrors the source (body-in→
    *  body-out, cookie-in→cookie-out).
@@ -5565,7 +5565,7 @@ export interface RunSpec {
    *
    *  The server formerly carried ONE named reference dataset as a CONCEPT directly:
    *  a `needs_reference: bool` column in a code table, a fixed
-   *  `CYTO_SANDBOX_REFERENCE_ROOT` env var, a fixed `/refdata` mount path, and an
+   *  `TXR_SANDBOX_REFERENCE_ROOT` env var, a fixed `/refdata` mount path, and an
    *  error message naming that one resource. A processor now DECLARES what it
    *  needs and where; the operator maps the NAME to a host path.
    */
@@ -5616,7 +5616,7 @@ export interface SandboxResourceLimits {
   cpu_max: string
   cpu_secs_max: number
   /**
-   * when neither the per-job converter nor `CYTO_SANDBOX_ENV_ID` names one. `None`
+   * when neither the per-job converter nor `TXR_SANDBOX_ENV_ID` names one. `None`
    *  (or empty) = auto-detect from the installed processors' declared `env`, exactly
    *  as before this row existed. DATA (a manifest-declared env name), not the
    *  registry security boundary — the registry base stays a compiled read-only const.

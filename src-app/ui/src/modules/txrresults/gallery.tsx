@@ -47,7 +47,7 @@
  */
 import { lazy, useEffect, useRef, type ReactNode } from 'react'
 import { useStore } from 'zustand'
-import { jsonResponse, type ModuleGallery, type SpecialRoute } from '@ziee/gallery'
+import { jsonResponse, type ModuleGallery, type SpecialRoute } from '@txresbench/gallery'
 import { AppShell } from '@/modules/txrshell/components/AppShell'
 import { ResultsPage } from './pages/ResultsPage'
 import { MethodResultsPage } from './pages/MethodResultsPage'

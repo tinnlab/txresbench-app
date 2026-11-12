@@ -43,7 +43,7 @@ export function createGlobalSetup(cfg: E2EConfig) {
       dirname(fileURLToPath(pwConfig.configFile ?? `file://${process.cwd()}/`))
     const rel = (p: string) => resolve(rootDir, p)
 
-    console.log('\n🚀 Starting @ziee/test-e2e infrastructure...\n')
+    console.log('\n🚀 Starting @txresbench/test-e2e infrastructure...\n')
 
     if (cfg.envFile && existsSync(rel(cfg.envFile))) {
       // dotenv is a peer/dev dep; import lazily so a suite that sets no envFile
@@ -66,7 +66,7 @@ export function createGlobalSetup(cfg: E2EConfig) {
     cleanupStaleConfigFiles(configDir)
 
     const basePort =
-      Number(process.env[cfg.basePgPortEnv ?? 'ZIEE_E2E_BASE_PG_PORT']) ||
+      Number(process.env[cfg.basePgPortEnv ?? 'TXR_E2E_BASE_PG_PORT']) ||
       (cfg.defaultBasePgPort ?? 54331)
     const sessionNs = `pg${basePort}`
     const runId = process.env.TEST_RUN_ID || `${sessionNs}-${crypto.randomBytes(4).toString('hex')}`
@@ -78,7 +78,7 @@ export function createGlobalSetup(cfg: E2EConfig) {
     let postgresPort = 0
     let dockerComposePath = ''
     if (cfg.dockerComposeTemplate) {
-      const prefix = cfg.containerNamePrefix ?? 'ziee-e2e-postgres'
+      const prefix = cfg.containerNamePrefix ?? 'txresbench-e2e-postgres'
       // Reap only THIS session's crashed containers; a live lock protects a
       // sibling session's running one.
       console.log('🧹 Cleaning up stale PostgreSQL containers...')

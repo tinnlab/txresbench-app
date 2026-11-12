@@ -57,7 +57,7 @@
     }
   ],
   "attributes": {
-    "cyto": {
+    "txr": {
       "kind": "categorical",
       "name": "values",
       "levels": [

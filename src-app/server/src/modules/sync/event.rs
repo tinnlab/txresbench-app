@@ -1,4 +1,4 @@
-//! Sync wire types + the `publish` seam for CytoAnalyst realtime cross-device
+//! Sync wire types + the `publish` seam for TxResBench realtime cross-device
 //! sync.
 //!
 //! Events are **notify-and-refetch**: the wire payload is only
@@ -7,7 +7,7 @@
 //! never carries anything sensitive. The genuinely app-agnostic half of realtime
 //! sync (the per-user connection registry, audience routing, self-echo
 //! suppression, the mountable `/sync/subscribe` handler) lives in the SDK
-//! (`ziee_framework::sync`); this module supplies the concrete, schema-bearing
+//! (`txresbench_framework::sync`); this module supplies the concrete, schema-bearing
 //! wire vocabulary + the process-wide registry singleton (see `surface.rs`).
 
 use axum::response::sse::Event;
@@ -15,7 +15,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use uuid::Uuid;
 
-use ziee_framework::sync::Audience;
+use txresbench_framework::sync::Audience;
 
 /// The kind of entity that changed. Serialized snake_case to match the
 /// frontend's `sync:<entity>` event vocabulary. ADD a variant when wiring a new
@@ -106,7 +106,7 @@ pub enum SyncEntity {
     Group,
     /// An auth provider (local / LDAP / OAuth2 row) was created, edited or
     /// deleted. Delivered to holders of `auth::providers::read` — published by
-    /// `ziee-auth`'s admin provider routes through `AuthSyncEntity::AuthProvider`.
+    /// `txresbench-auth`'s admin provider routes through `AuthSyncEntity::AuthProvider`.
     /// See the `auth_provider` ALLOW_LIST entry in `syncChannelParity.test.ts`:
     /// this app mounts the admin provider ENDPOINTS but has no admin provider
     /// UI, so the client half does not exist yet.
@@ -314,7 +314,7 @@ fn fan_out_plan(owner_id: Uuid, others: &[Uuid], actor: Actor) -> Vec<(Uuid, Opt
 }
 
 /// Fan a `Session` permissions-changed signal out to many users at once (used
-/// by group-permission edits that affect every member, and by `ziee-auth`'s
+/// by group-permission edits that affect every member, and by `txresbench-auth`'s
 /// session fan-out through `sync::auth_sink`). Delivers via a SINGLE registry
 /// lock acquisition rather than one `publish` per user.
 pub fn publish_session_to_users(user_ids: &[Uuid], origin: Option<Uuid>) {
@@ -483,7 +483,7 @@ mod tests {
             // Accounts epic A1 (vocabulary only; emitted by A4).
             (SyncEntity::Account, "account"),
             (SyncEntity::AccountMember, "account_member"),
-            // The auth-domain entities `ziee-auth` publishes through
+            // The auth-domain entities `txresbench-auth` publishes through
             // `AuthSyncSink` (mapped in `sync::auth_sink`). Their wire names are
             // what the FE `sync:<entity>` subscriptions key on, so a rename here
             // silently unwires those stores.

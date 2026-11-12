@@ -12,7 +12,7 @@ use axum::Json;
 use schemars::JsonSchema;
 use serde::Serialize;
 
-use ziee_core::{ApiResult, AppError};
+use txresbench_core::{ApiResult, AppError};
 
 use crate::modules::permissions::{with_permission, RequirePermissions};
 use crate::modules::project::ProjectsUse;

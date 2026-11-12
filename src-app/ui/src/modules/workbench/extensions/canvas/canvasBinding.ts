@@ -1,9 +1,9 @@
 // canvasBinding.ts — the CANVAS resolution seam (declarative-canvas-plots ITEM-2/3/4/8/10).
 //
-// A processor declares its canvas plot as a strict-JSON `@ziee/viz` `VizOption` in the
+// A processor declares its canvas plot as a strict-JSON `@txresbench/viz` `VizOption` in the
 // view_spec's `canvas` block (schema.ts / ITEM-1). The workbench RESOLVES that declaration and
 // drives the SINGLE canvas `GridWorkspace` via `VizController.setOption` — it never spawns a
-// second `<Viz>`. Two resolution seams keep `@ziee/viz` pure:
+// second `<Viz>`. Two resolution seams keep `@txresbench/viz` pure:
 //
 //   1. `DatasetResolver(id) → DataSource` (ITEM-2/10) — maps the LOGICAL dataset ids a
 //      declaration uses (`<default>` / `<default>.kept` / `<ds>.<default>` / `<ds>.kept`) onto
@@ -28,7 +28,7 @@ import type {
   DataSource,
   DatasetResolver,
   DatasetCatalog,
-} from '@ziee/viz'
+} from '@txresbench/viz'
 import { evalExpr, evalWhen, expandForEach, interpolate, isRef, type Scope } from '@/modules/workbench/core/runtime/expr'
 import { asNumsZeroMissing, asStrs, isColumn, isIdentifierColumn } from '@/modules/workbench/core'
 
@@ -165,7 +165,7 @@ function encodeCategorical(values: string[]): { codes: Uint16Array; categories: 
 }
 
 /**
- * A `DataSource` (the `@ziee/viz` wire contract) synthesized from a `/obs` columnar slice, with an
+ * A `DataSource` (the `@txresbench/viz` wire contract) synthesized from a `/obs` columnar slice, with an
  * optional client keep-mask (the `.kept` variant). Its catalog lists numeric columns as BOTH value
  * and continuous columns, and string columns as categorical.
  *
@@ -489,7 +489,7 @@ export class CanvasObsSource implements DataSource {
 
   async imageUnderlay(): Promise<ImageUnderlay> {
     // INV-16 (Slice 6): serve the spatial tissue-image underlay (raster + the 2×3 affine that is
-    // the single alignment source of truth). Routes into the EXISTING `@ziee/viz` ImageUnderlay —
+    // the single alignment source of truth). Routes into the EXISTING `@txresbench/viz` ImageUnderlay —
     // NO new viz API (VIZ_REQUIREMENTS.md §4g). A metric-only source (no image) still throws.
     const i = this.image
     if (!this.hasCompleteImage()) {

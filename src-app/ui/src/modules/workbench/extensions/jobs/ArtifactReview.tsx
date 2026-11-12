@@ -8,7 +8,7 @@
 // (ITEM-25) and the "start next analysis" chaining chips (ITEM-27).
 
 import { useEffect } from 'react'
-import { Button, Card, Empty, ErrorState, SectionHeader, Separator, Spinner, Tag } from '@ziee/kit'
+import { Button, Card, Empty, ErrorState, SectionHeader, Separator, Spinner, Tag } from '@txresbench/kit'
 import type { Artifact } from '@/api-client/types'
 import { ArtifactPanel } from './ArtifactPanel'
 import { ArtifactCompareView } from './ArtifactCompareView'

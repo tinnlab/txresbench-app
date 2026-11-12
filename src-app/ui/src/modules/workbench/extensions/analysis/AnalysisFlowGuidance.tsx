@@ -9,7 +9,7 @@
 // analysis appears automatically with no upstream edit. Launch is a write → `canEdit`-gated.
 
 import { ArrowRight, CircleCheck } from 'lucide-react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import { runAction } from '@/core/actions/defineAction'
 import { useWorkbench } from '../../core/shell/WorkbenchContext'
 import { deriveNextSteps, producedSummary } from './nextSteps'

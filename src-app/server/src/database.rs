@@ -1,4 +1,4 @@
-//! Database bootstrap — the SQLite store shim over `ziee_framework::embedded_db`
+//! Database bootstrap — the SQLite store shim over `txresbench_framework::embedded_db`
 //! (the driver-side counterpart of `embedded_pg`, which this app never starts
 //! or embeds any more).
 //!
@@ -7,10 +7,10 @@
 //! busy_timeout from `database.pool`), the pool (max/min/acquire from
 //! `database.pool`), the process-wide pool cache, and the WAL checkpoint on
 //! cleanup. We supply only the two app-bound pieces it is parameterized over:
-//!   - the resolved database target — `CYTO_DATABASE_URL` >
+//!   - the resolved database target — `TXR_DATABASE_URL` >
 //!     `database.url` > `database.path` > `<app-data-dir>/txresbench.db`
 //!     (src/config.rs, DEC-13's precedence as amended), where the app data
-//!     dir is `modules::rootfs::data_root()` (`CYTO_APP_DATA_DIR`, else the
+//!     dir is `modules::rootfs::data_root()` (`TXR_APP_DATA_DIR`, else the
 //!     desktop's `~/.txresbench`);
 //!   - `MERGED_MIGRATOR` — our merged (`migrations-merged`) migration set, with
 //!     `set_ignore_missing(true)` so a subset-owning binary is tolerated. See
@@ -24,8 +24,8 @@
 use std::sync::Arc;
 
 use sqlx::SqlitePool;
-use ziee_core::ServerConfig;
-use ziee_framework::embedded_db;
+use txresbench_core::ServerConfig;
+use txresbench_framework::embedded_db;
 
 /// The merged migration set composed by build.rs (the module-owned SQLite
 /// chains in `src/modules/<m>/migrations/` + the SDK crates' `migrations/` —
@@ -73,8 +73,8 @@ use ziee_framework::embedded_db;
 ///     one.
 ///   * **The per-worktree BUILD database** (`build.rs`): nothing to do —
 ///     `provision_build_db` deletes + re-migrates
-///     `target/sqlx-build/cytoanalyst_build_<key>.sqlite` on every build. If a
-///     stale one somehow survives, `cargo clean -p cytoanalyst` forces
+///     `target/sqlx-build/txresbench_build_<key>.sqlite` on every build. If a
+///     stale one somehow survives, `cargo clean -p txresbench` forces
 ///     `build.rs` to re-run.
 ///
 /// A new migration is still an ADDITIVE file, exactly as before: the chain is
@@ -133,7 +133,7 @@ mod tests {
     //! below) only exist when the matching feature is enabled on the crate's
     //! sqlx dependency, so a dropped feature set breaks the build before the
     //! test can even run. The PROV-sqlx-1 contract keeps BOTH feature sets in
-    //! the graph (the SDK stays dual-driver for ziee), so the postgres probe
+    //! the graph (the SDK stays dual-driver for txresbench), so the postgres probe
     //! stays meaningful after the flip. Nothing here touches a database — it
     //! asserts the compile/link environment, which is exactly the surface
     //! ITEM-1 changes.

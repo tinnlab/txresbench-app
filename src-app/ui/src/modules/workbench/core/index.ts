@@ -1,11 +1,11 @@
 // @/modules/workbench/core — the single public extension surface (P5). The only
-// package an extension imports. Built ON the ziee SDK (`@ziee/*`); re-exports P2
+// package an extension imports. Built ON the txresbench SDK (`@txresbench/*`); re-exports P2
 // datatype TYPES (never their runtimes) so the package graph is an acyclic leaf.
 // See PLATFORM_ARCHITECTURE.md §2 + the P5 FINAL plan.
 //
 // DEC-L (ITEM-34) removed the `core/conformance/` subtree from this barrel with the
 // subtree itself: it was declared as "the `plotTypes` contribution point's backing
-// store", and `plotTypes` is gone. The REAL plot-type registry is `@ziee/viz`'s
+// store", and `plotTypes` is gone. The REAL plot-type registry is `@txresbench/viz`'s
 // `registerChartType`/`installBuiltins()`, which lives with the canvas that owns it.
 
 // --- version / compatibility gate (ITEM-2) ---

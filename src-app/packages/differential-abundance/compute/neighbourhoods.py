@@ -42,7 +42,7 @@ import json
 
 import numpy as np
 
-import cyto_columns
+import txr_columns
 import _regime as R
 import _kernel as K
 import _nhoods as NH
@@ -463,7 +463,7 @@ def main():
     }
     (outputs_dir / "da-report.json").write_text(json.dumps(report, indent=2))
     entries.append(S.output_entry("da-report", S.DT_REPORT_QC, "da-report.json", "artifact",
-                                  structure=cyto_columns.opaque("application/json"),
+                                  structure=txr_columns.opaque("application/json"),
                                   meta={"kind": "da-report", "analysis": ANALYSIS_ID,
                                         "n_comparisons": 1, "regime": regime}))
     S.write_manifest(outputs_dir, entries)

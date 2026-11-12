@@ -1,8 +1,8 @@
-// @ziee/viz/react — the REACT-binding subpath (EXTENSIBILITY_STUDY Part 6 STEP 7): the
+// @txresbench/viz/react — the REACT-binding subpath (EXTENSIBILITY_STUDY Part 6 STEP 7): the
 // declarative `<Viz option={...} />` component (wraps the STEP-6 `VizController`) plus the
 // existing imperative `GridWorkspace` component + the pop-out surface. Importing this subpath
 // pulls in the chart Views (via `GridWorkspace`, which `installBuiltins()` at module load), so
-// it is the "batteries-included" React surface; `@ziee/viz/core` stays chart-free.
+// it is the "batteries-included" React surface; `@txresbench/viz/core` stays chart-free.
 
 export { Viz } from './react/Viz'
 export type { VizProps } from './react/Viz'

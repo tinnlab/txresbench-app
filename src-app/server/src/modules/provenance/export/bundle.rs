@@ -9,7 +9,7 @@ use std::sync::{Mutex, OnceLock};
 
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use crate::modules::provenance::graph::{WalkArtifact, WalkRun};
 use crate::modules::provenance::models::UsedEdgeDto;
@@ -124,7 +124,7 @@ pub async fn build_bundle(
         by_hash.entry(a.content_hash.as_str()).or_insert(a);
     }
     // Dataset lookup by content hash — a carried root hash that is a DATASET (not a
-    // workstore artifact) has its ziee-file bytes fetched into `data/<hash>` (ITEM-21).
+    // workstore artifact) has its txresbench-file bytes fetched into `data/<hash>` (ITEM-21).
     let mut dataset_by_hash: HashMap<&str, &super::super::graph::DatasetNode> = HashMap::new();
     for d in &ctx.dataset_nodes {
         dataset_by_hash.entry(d.content_hash.as_str()).or_insert(d);
@@ -437,7 +437,7 @@ pub async fn build_bundle(
                 }
             }
         } else if let Some(d) = dataset_by_hash.get(hash.as_str()) {
-            // A DATASET root (ziee-file, ITEM-21). A single-file dataset's merkle
+            // A DATASET root (txresbench-file, ITEM-21). A single-file dataset's merkle
             // hash == its file's sha256, so `data/<hash>` holds that file's bytes.
             // A multi-file dataset's merkle root maps to no single file → a hole.
             match d.file_ids.as_slice() {
@@ -452,7 +452,7 @@ pub async fn build_bundle(
                             fetch_txt.push_str(&format!("{name}\tdataset:{}\t{}\n", d.dataset_id, size));
                             holes.insert(hash.clone(), format!(
                                 "over this deployment's export size cap ({size} bytes); fetch \
-                                 dataset {} from ziee-file (see fetch.txt)", d.dataset_id));
+                                 dataset {} from txresbench-file (see fetch.txt)", d.dataset_id));
                         } else {
                             match fetch_dataset_file_bytes(pool, *file_id).await {
                                 Ok(bytes) => {
@@ -487,12 +487,12 @@ pub async fn build_bundle(
                 _ => {
                     // Multi-file (or file-less) dataset — no single-file byte source.
                     fetch_txt.push_str(&format!(
-                        "{name}\tdataset:{} (multi-file — fetch each file from ziee-file)\t?\n",
+                        "{name}\tdataset:{} (multi-file — fetch each file from txresbench-file)\t?\n",
                         d.dataset_id
                     ));
                     holes.insert(hash.clone(), format!(
                         "dataset {} is MULTI-FILE (or file-less), so its merkle root maps to no \
-                         single blob; fetch each file from ziee-file (see fetch.txt)",
+                         single blob; fetch each file from txresbench-file (see fetch.txt)",
                         d.dataset_id));
                 }
             }
@@ -792,7 +792,7 @@ struct ReadinessAssembly {
 /// **What the members are.** Without them a capsule could not re-run a single shipped
 /// Python processor: the sandbox assembles `/code` from the entry script PLUS
 /// `staged_python_helpers()`, while the capsule staged the entry ALONE, so a step
-/// whose script begins `import cyto_columns` died at process start on
+/// whose script begins `import txr_columns` died at process start on
 /// `ModuleNotFoundError` — the recorded blob is faithful, the code DIR was not. It
 /// went unnoticed while no shipped entry imported a staged module; every migrated one
 /// does now, which is what turned the reproduce guarantee from partial into empty.
@@ -1419,22 +1419,22 @@ fn input_subpaths_from_rerun(rerun: &Option<serde_json::Value>) -> Vec<(String, 
 /// is enforced without materializing an oversize root in memory (OOM guard).
 /// `Ok(None)` = the file row is gone.
 async fn dataset_file_size(pool: &SqlitePool, file_id: Uuid) -> Result<Option<u64>, AppError> {
-    Ok(ziee_file::FileRepository::new(pool.clone())
+    Ok(txresbench_file::FileRepository::new(pool.clone())
         .get_by_id(file_id)
         .await?
         .map(|f| f.file_size.max(0) as u64))
 }
 
-/// Load a Dataset file's bytes from ziee-file (mirrors `sandbox/inputs.rs`'s
+/// Load a Dataset file's bytes from txresbench-file (mirrors `sandbox/inputs.rs`'s
 /// `stage_dataset_file`) — the byte source for a `data/<hash>` dataset root on
 /// export (ITEM-21).
 async fn fetch_dataset_file_bytes(pool: &SqlitePool, file_id: Uuid) -> Result<Vec<u8>, AppError> {
-    let file = ziee_file::FileRepository::new(pool.clone())
+    let file = txresbench_file::FileRepository::new(pool.clone())
         .get_by_id(file_id)
         .await?
         .ok_or_else(|| AppError::not_found("dataset file"))?;
     let extension = file.filename.rsplit('.').next().unwrap_or("bin").to_lowercase();
-    ziee_file::get_file_storage()
+    txresbench_file::get_file_storage()
         .load_original(file.user_id, file.blob_version_id, &extension)
         .await
         .map_err(|e| AppError::internal_error(format!("load dataset file {file_id}: {e}")))
@@ -1471,7 +1471,7 @@ fn verify_outputs_sh(
 ) -> String {
     let mut s = String::from(
         r#"#!/usr/bin/env bash
-# Output verification for this reproducibility capsule (generated by CytoAnalyst).
+# Output verification for this reproducibility capsule (generated by TxResBench).
 #
 # WHAT A `REPRODUCED` VERDICT PROVES: every output content hash recorded when this
 # analysis was captured was regenerated BYTE-IDENTICALLY by this capsule, on this
@@ -2232,7 +2232,7 @@ mod science_params_tests {
             "dataset 00000000-0000-0000-0000-000000000000's file record is gone, so its bytes have no source",
             "dataset 00000000-0000-0000-0000-000000000000's file bytes could not be read: io error",
             "dataset 00000000-0000-0000-0000-000000000000's file size could not be read: io error",
-            "dataset 00000000-0000-0000-0000-000000000000 is MULTI-FILE (or file-less), so its merkle root maps to no single blob; fetch each file from ziee-file (see fetch.txt)",
+            "dataset 00000000-0000-0000-0000-000000000000 is MULTI-FILE (or file-less), so its merkle root maps to no single blob; fetch each file from txresbench-file (see fetch.txt)",
             "no source in this deployment — a reference-resource root, a pruned artifact, or a foreign hash; obtain the bytes and place them under data/",
             "no data/ member was written for this root and the export recorded no reason; its bytes are absent from this bundle",
         ] {
@@ -2946,12 +2946,12 @@ mod science_params_tests {
         // digest, which a stubbed-rootfs build has not got — the same caveat the
         // sibling tests carry — so "complete ⇒ ready" is asserted as
         // `ready == env_pinned`).
-        let ok = assemble(&|| Ok(vec![("cyto_columns.py", b"# helper\n".to_vec())]));
+        let ok = assemble(&|| Ok(vec![("txr_columns.py", b"# helper\n".to_vec())]));
         let ok_json = emitted(&ok);
         assert_eq!(
             ok.helper_members,
             vec![(
-                format!("{}cyto_columns.py", reproduce_script::HELPER_MEMBER_PREFIX),
+                format!("{}txr_columns.py", reproduce_script::HELPER_MEMBER_PREFIX),
                 b"# helper\n".to_vec()
             )],
             "the read modules are written under the prefix run.sh copies from"
@@ -3159,7 +3159,7 @@ mod science_params_tests {
         let sh = verify_outputs_sh(&[step], &outputs, &Default::default());
 
         let run_sh = |body: &str| -> (Option<i32>, String, String) {
-            let dir = std::env::temp_dir().join(format!("cyto-verify-{}", Uuid::new_v4()));
+            let dir = std::env::temp_dir().join(format!("txr-verify-{}", Uuid::new_v4()));
             std::fs::create_dir_all(&dir).expect("temp dir");
             let path = dir.join("verify_outputs.sh");
             std::fs::File::create(&path)
@@ -3238,7 +3238,7 @@ mod science_params_tests {
     /// per-step `work/NN/outputs` files, run it, and return (exit code, stdout, stderr).
     fn exec_verifier(body: &str, outputs_on_disk: &[(&str, &str)]) -> (Option<i32>, String, String) {
         use std::io::Write as _;
-        let dir = std::env::temp_dir().join(format!("cyto-verify-{}", Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("txr-verify-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         for (rel, contents) in outputs_on_disk {
             let p = dir.join(rel);

@@ -62,7 +62,7 @@ def test_pytest_ini_registers_this_suite():
 def test_manifest_has_the_shape_the_processor_lint_accepts():
     doc = yaml.safe_load(_MANIFEST.read_text())
     assert doc["id"] == "spatial-import-visium"
-    assert doc["publisher"] == "cyto"
+    assert doc["publisher"] == "txr"
     assert doc["apiVersion"] == "1.0"
     assert doc["version"], "the seed reconciliation keys on `version`"
 

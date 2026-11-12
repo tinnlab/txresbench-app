@@ -17,7 +17,7 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use crate::modules::project::{
     GcManifest, ProjectExtension, ProjectExtensionEntry, ProjectSummaryTag, PROJECT_EXTENSIONS,

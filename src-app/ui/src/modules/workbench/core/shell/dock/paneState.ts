@@ -8,7 +8,7 @@
 // shape.
 //
 // Module-level (one map per document) + reactive via `useSyncExternalStore`, mirroring the
-// `@ziee/dock` popup registry.
+// `@txresbench/dock` popup registry.
 
 import { useSyncExternalStore } from 'react'
 

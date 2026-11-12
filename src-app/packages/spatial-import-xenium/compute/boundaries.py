@@ -15,7 +15,7 @@ Realizes `docs/design/spatial-storage-layout.md` §6.4 (`origin/docs/spatial-des
 The alternative it displaces is an `aux` member with an entity extent, which would need two
 new `_AUX_ROLES` entries in `_lib/conformance.py` — a framework-owned gate change on the
 critical path of a domain declaration. Nothing here touches `_lib`. The vertex table is an
-ordinary `cyto_zarr.Table` over an ordinary axis, and the offsets are ordinary
+ordinary `txr_zarr.Table` over an ordinary axis, and the offsets are ordinary
 `metadata-column`s; both go through the same conformance gate every other artifact does.
 
 ## What the VENDOR actually ships, measured rather than assumed
@@ -975,11 +975,11 @@ def write_boundaries(outputs_dir, rel_dir, encoded, *, space, series,
     per cell; stamping the cells digest here would claim a per-cell alignment this table does
     not have.
     """
-    import cyto_zarr
+    import txr_zarr
     import spatial_declarations as SD
 
     dest = outputs_dir / rel_dir
-    with cyto_zarr.Table(dest, axis="vertex", n=int(encoded["entity"].shape[0])) as table:
+    with txr_zarr.Table(dest, axis="vertex", n=int(encoded["entity"].shape[0])) as table:
         table.numeric(ENTITY_INDEX_MEMBER, encoded["entity"], dtype="int64")
         table.numeric(X_MEMBER, encoded["x"], dtype="float32")
         table.numeric(Y_MEMBER, encoded["y"], dtype="float32")

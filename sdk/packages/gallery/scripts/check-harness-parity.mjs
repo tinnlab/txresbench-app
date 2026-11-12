@@ -12,7 +12,7 @@
  * verification that a copy behaves correctly.
  *
  * That limit is why the harness was UNIFIED rather than more heavily guarded.
- * Both ziee ui workspaces now run ONE implementation (these very scripts) with
+ * Both txresbench ui workspaces now run ONE implementation (these very scripts) with
  * their own `gallery.config.json`; the desktop forks were deleted. Parity is
  * true by construction, and the check that actually carries the invariant is
  * the consumer test's "no workspace re-forks the harness" assertion plus its
@@ -28,7 +28,7 @@
  * Exit 0 = every live copy carries every core. Exit 1 = a copy is missing one.
  *
  * Run (from the app's ui/ cwd, so gallery.config.json resolves):
- *   node node_modules/@ziee/gallery/scripts/check-harness-parity.mjs
+ *   node node_modules/@txresbench/gallery/scripts/check-harness-parity.mjs
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -114,8 +114,8 @@ export const CORES = [
 /**
  * WHICH copies exist is the CONSUMER's fact, not this package's.
  *
- * This guard used to hardcode `src-app/desktop/ui/...` — ziee's layout — inside
- * the shared `@ziee/gallery` package, which made the guard and its own test
+ * This guard used to hardcode `src-app/desktop/ui/...` — txresbench's layout — inside
+ * the shared `@txresbench/gallery` package, which made the guard and its own test
  * red-by-construction in a standalone sdk checkout or in any second consumer.
  * That is the SAME defect class the guard exists to prevent (shared tooling that
  * assumes one consumer), so the paths are now supplied the way every other
@@ -160,7 +160,7 @@ export function checkParity(readFile, copies) {
     if (copy.cores)
       violations.push(
         `${copy.id}: declares "cores" — remove it. Required cores are derived ` +
-          `from the role by @ziee/gallery; a per-copy list is how a core silently ` +
+          `from the role by @txresbench/gallery; a per-copy list is how a core silently ` +
           `stops being checked.`,
       )
   }

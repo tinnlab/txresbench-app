@@ -4,7 +4,7 @@
 //!
 //! Runs the freeze producer through the analysis sandbox — gated by `rootfs_gate`. A runtime
 //! dependency gate (via `record_skip`, never a compile-time attribute) fires when the sandbox
-//! genuinely cannot execute, naming the blocker (point `CYTO_ENV_ROOTFS_SQUASHFS` at the
+//! genuinely cannot execute, naming the blocker (point `TXR_ENV_ROOTFS_SQUASHFS` at the
 //! single-cell schema5 squashfs). With the rootfs staged, the suite EXECUTES — no gate fires.
 
 use serde_json::json;
@@ -115,7 +115,7 @@ async fn ready_env(server: &TestServer, test: &str) -> Result<(String, String), 
         record_skip(
             test,
             "the analysis sandbox rootfs is not runnable here — the freeze runs the geneset \
-             producer through the sandbox. Point CYTO_ENV_ROOTFS_SQUASHFS at the single-cell \
+             producer through the sandbox. Point TXR_ENV_ROOTFS_SQUASHFS at the single-cell \
              schema5 rootfs.squashfs (+ unprivileged userns + bwrap + squashfuse) to run it.",
         );
         return Err(());

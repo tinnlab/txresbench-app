@@ -4,7 +4,7 @@ import { chromium } from 'playwright-core'
 import { mkdirSync } from 'node:fs'
 
 const URL = 'http://localhost:1421/viz-showcase.html'
-const DIR = process.env.SHOT_DIR || '/tmp/claude-1000/-data-pbya-ziee-ziee/b5b52393-63e9-49f1-8500-803873494642/scratchpad/shots'
+const DIR = process.env.SHOT_DIR || '/tmp/claude-1000/-data-pbya-txresbench-txresbench/b5b52393-63e9-49f1-8500-803873494642/scratchpad/shots'
 mkdirSync(DIR, { recursive: true })
 
 const browser = await chromium.launch({

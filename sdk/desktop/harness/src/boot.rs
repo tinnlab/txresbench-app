@@ -4,10 +4,10 @@
 //! ## Why a seam, not a move
 //!
 //! The desktop shell's embed-server glue calls
-//! `ziee::start_server_with_routes`, which is the **app's entire server
+//! `txresbench::start_server_with_routes`, which is the **app's entire server
 //! assembly** (`setup_server`): it initializes the global `Repos`, builds the
 //! app-specific module vec via `create_modules()`, installs the app's
-//! `ZieeIdentityResolver` + `AuthContext`, and ingests the control-mcp catalog.
+//! `TxResBenchIdentityResolver` + `AuthContext`, and ingests the control-mcp catalog.
 //! None of that is app-agnostic, so it cannot move into a reusable crate. The
 //! harness therefore depends on an **injected** boot function the app supplies —
 //! exactly the pluggable-identity / de-globalized posture BG established for the
@@ -24,8 +24,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ziee_auth::auth::JwtService;
-use ziee_core::DbPool;
+use txresbench_auth::auth::JwtService;
+use txresbench_core::DbPool;
 
 /// What the harness needs back from the app after the embedded server is up: the
 /// bound address (published to the Tauri command + the remote-access forwarder),

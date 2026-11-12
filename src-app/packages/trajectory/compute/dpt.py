@@ -35,7 +35,7 @@ root, and the normalization then divides ONLY by the finite maximum — so a dis
 graph yields a finite range of exactly [0, 1] plus a pile of infinities. Two things follow:
 
   1. A finite-looking `[0,1]` range is NOT evidence the run was fine.
-  2. `+inf` must never reach the writer. `cyto_columns` counts missing values with
+  2. `+inf` must never reach the writer. `txr_columns` counts missing values with
      `np.isnan`, and `np.isnan(inf)` is **False**, so an infinity handed straight over is
      stored as a NOT-missing value that a colour scale renders as "the end of the
      trajectory". Infinities are converted to NaN here, before the write.
@@ -51,7 +51,7 @@ and read branching from the abstracted graph. Its splitting criterion additional
 stabilization hack for small branches, which is an admission of instability in the API
 surface itself. No branch column is emitted.
 
-Roots overridable via `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR`. Progress → `$CYTO_PROGRESS_FIFO`.
+Roots overridable via `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR`. Progress → `$TXR_PROGRESS_FIFO`.
 """
 import _shared as S  # FIRST — pins the determinism env before numpy/scanpy load
 
@@ -60,7 +60,7 @@ import os
 
 import numpy as np
 
-import cyto_columns
+import txr_columns
 import _root as R
 
 
@@ -318,7 +318,7 @@ def main():
     # because the ordering is computed over exactly those rows and every other bound column
     # was checked against it above. It stays absent when the embedding declares none, rather
     # than being invented.
-    col_structure, col_meta = cyto_columns.write_metadata_column(
+    col_structure, col_meta = txr_columns.write_metadata_column(
         outputs_dir, rel, col_name, series, axis="cells",
         aligned_to=embedding_row_space)
 
@@ -484,7 +484,7 @@ def main():
 
 def _stamp(store_path, provenance):
     """Merge the trajectory provenance into the produced column store's group
-    `attributes.cyto`, ALONGSIDE the decode structure the writer put there.
+    `attributes.txr`, ALONGSIDE the decode structure the writer put there.
 
     The store stamp is what a consumer reading the store URL sees; the manifest entry's
     `structure` is what rides the artifact row. Both carry the same dict, because two copies
@@ -497,8 +497,8 @@ def _stamp(store_path, provenance):
     p = Path(store_path) / "zarr.json"
     doc = json.loads(p.read_text())
     attrs = doc.setdefault("attributes", {})
-    cyto = attrs.setdefault("cyto", {})
-    cyto["trajectory"] = provenance
+    txr = attrs.setdefault("txr", {})
+    txr["trajectory"] = provenance
     p.write_text(json.dumps(doc, indent=2))
     return provenance
 

@@ -22,7 +22,7 @@ convention/design. Zero open markers.
 
 ### DEC-5: Scatter rendering tech?
 **Resolution:** a self-contained **Canvas 2D** mock scatter (deterministic, seeded) this round; **deck.gl deferred** to the data round behind the same `ExplorerCanvas` boundary.
-**Basis:** convention/scope — no deck.gl dep in cyto yet; a real WebGL/streaming plane is the data round (DATA_STORAGE_REDESIGN). Determinism required for Layer-B snapshot stability.
+**Basis:** convention/scope — no deck.gl dep in txr yet; a real WebGL/streaming plane is the data round (DATA_STORAGE_REDESIGN). Determinism required for Layer-B snapshot stability.
 
 ### DEC-6: Gating — does the analysis surface add a new permission?
 **Resolution:** **No new permission.** The surfaces inherit the study's existing gating: run/add/edit affordances are shown only when `study.effective_permission ∈ {owner, editor}` (the `canEdit` pattern in `DatasetsPanel`); a viewer (read-only shared study) sees the explorer + results **read-only** (no Run/Add/Export-write). 
@@ -70,4 +70,4 @@ convention/design. Zero open markers.
 
 ### DEC-17: testid convention?
 **Resolution:** stable `data-testid`s per surface (`analysis-workspace`, `analysis-dock`, `analysis-dock-chip-<id>`, `analysis-catalog`, `analysis-catalog-card-<id>`, `analysis-context-panel`, `analysis-advanced-toggle`, `analysis-run`, `analysis-result-card`, `analysis-explorer-canvas`, `analysis-colorby-<mode>`, `analysis-gene-input`, `analysis-marker-table`, `analysis-guardrail-note`, `samples-panel`, `samples-qc-card-<id>`, `samples-upload-stub`, `analysis-export-menu`) driving the e2e specs.
-**Basis:** convention — `DatasetsPanel` uses `data-testid`; cyto e2e selects by role/testid.
+**Basis:** convention — `DatasetsPanel` uses `data-testid`; txr e2e selects by role/testid.

@@ -14,7 +14,7 @@
 
 use serde_json::{json, Value};
 
-use cytoanalyst::modules::workstore::gathered::verify_leaf_digest;
+use txresbench::modules::workstore::gathered::verify_leaf_digest;
 
 /// The gather's leaf-digest extraction, replicated verbatim from the `expand` call site: the
 /// identity lives in ONE of two fields (`key_sequence_digest` on the artifact that CARRIES the

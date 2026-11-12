@@ -130,7 +130,7 @@ vi.mock('@/api-client', () => ({
   },
 }))
 
-const { useEventBusStore } = await import('@ziee/framework/events')
+const { useEventBusStore } = await import('@txresbench/framework/events')
 const { useProjectsStore } = await import('./Projects.store')
 const { useRecentProjectsStore } = await import('./RecentProjects.store')
 const { useProjectDetailStore } = await import('./ProjectDetail.store')

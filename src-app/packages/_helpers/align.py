@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ruff: noqa
-"""align — CytoAnalyst shared AXIS-AGNOSTIC alignment engine (ITEM-8, DEC-2/DEC-18).
+"""align — TxResBench shared AXIS-AGNOSTIC alignment engine (ITEM-8, DEC-2/DEC-18).
 
 A keyed **left-join** that folds a supporting annotation table onto a primary
 dataset's ENTITY AXIS (cells / genes / variants / samples / … — the engine never

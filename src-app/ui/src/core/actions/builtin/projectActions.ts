@@ -3,7 +3,7 @@ import { Permissions } from '@/api-client/permissions'
 import { Projects } from '@/modules/project/stores/Projects.store'
 import { defineAction } from '../defineAction'
 
-// Slice 2 (PLAN.md ITEM-2) — registers cyto's real PROJECT user actions as
+// Slice 2 (PLAN.md ITEM-2) — registers txr's real PROJECT user actions as
 // global `defineAction`s, delegating to the existing `Projects` store
 // actions (`src/modules/project/stores/Projects.store.ts`) — no logic
 // duplication. These are the same actions the project grid's "New project" /
@@ -49,7 +49,7 @@ defineAction({
   permission: Permissions.ProjectsUse,
   mutating: true,
   // Destructive/hard-to-undo — mirrors `ProjectCard.tsx`'s required delete
-  // confirm dialog (`@ziee/kit`'s `Confirm`). The command palette
+  // confirm dialog (`@txresbench/kit`'s `Confirm`). The command palette
   // interposes its own confirmation step before invoking a `dangerous`
   // action (`CommandPalette.tsx`); see `ActionMeta.dangerous`.
   dangerous: true,

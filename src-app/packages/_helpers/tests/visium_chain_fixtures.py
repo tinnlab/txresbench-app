@@ -39,8 +39,8 @@ all solved it the same way; this follows them.
 
 ## How a step is driven
 
-Through the ONLY seam that runs a shipped compute outside bwrap: `CYTO_INPUTS_DIR` /
-`CYTO_OUTPUTS_DIR`, with `_helpers` and `_lib` on `PYTHONPATH` exactly as the sandbox stages
+Through the ONLY seam that runs a shipped compute outside bwrap: `TXR_INPUTS_DIR` /
+`TXR_OUTPUTS_DIR`, with `_helpers` and `_lib` on `PYTHONPATH` exactly as the sandbox stages
 `/code`. Every input is declared in `/inputs/inputs.json` in the real `render_inputs_json`
 wire shape (`{slot, kind, content_hash, sandbox_path}`) with a **MEANINGLESS `in0`/`in1`
 mount name**, so a compute that resolved its inputs by filename suffix instead of by slot
@@ -79,7 +79,7 @@ _LIB = PACKAGES / "_lib"
 _HELPERS = PACKAGES / "_helpers"
 
 sys.path.insert(0, str(_LIB))
-import cyto_zarr_read  # noqa: E402
+import txr_zarr_read  # noqa: E402
 
 #: The committed REAL vendor bundle, owned by `spatial-import-visium` and only READ here.
 #: A 10x `Visium_Mouse_Olfactory_Bulb` Space Ranger 2.0.0 `outs/` bundle, subset to 120
@@ -187,10 +187,10 @@ class ChainStep:
         env["PYTHONPATH"] = os.pathsep.join(
             [str(_HELPERS), str(_LIB),
              *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])])
-        env["CYTO_INPUTS_DIR"] = str(self.inputs_dir)
-        env["CYTO_OUTPUTS_DIR"] = str(self.outputs_dir)
+        env["TXR_INPUTS_DIR"] = str(self.inputs_dir)
+        env["TXR_OUTPUTS_DIR"] = str(self.outputs_dir)
         # UNSET rather than blanked: an empty FIFO path is a different code path from none.
-        env.pop("CYTO_PROGRESS_FIFO", None)
+        env.pop("TXR_PROGRESS_FIFO", None)
         # SINGLE-THREADED BLAS, for the same reason `qc/compute/qc-10x.py:88-92` pins the
         # same four variables for itself and says so: "Also makes the compute deterministic."
         # This suite compares two arms' `float32` ARPACK PCA output with `array_equal` — zero
@@ -247,12 +247,12 @@ def read_column(store: Path, member: str = "values"):
     `read_column` is the platform's own dispatch over the four encodings; a raw array read
     fails on a split-string column, which is what a TEXT metadata-column is stored as.
     """
-    return list(cyto_zarr_read.read_column(str(store), member))
+    return list(txr_zarr_read.read_column(str(store), member))
 
 
 def read_array(store: Path, member: str):
     """One numeric member as a numpy array — used for the 2-D coordinates and the PCA."""
-    return np.asarray(cyto_zarr_read.read_array(str(store), member))
+    return np.asarray(txr_zarr_read.read_array(str(store), member))
 
 
 def csc_members(store: Path) -> dict:
@@ -279,11 +279,11 @@ def structure_of(entry: dict) -> dict:
     return entry.get("structure") or {}
 
 
-def store_cyto_attributes(store: Path) -> dict:
-    """A written store's group `attributes.cyto` — the declaration that travels WITH the
+def store_txr_attributes(store: Path) -> dict:
+    """A written store's group `attributes.txr` — the declaration that travels WITH the
     bytes, and therefore the only one a sandboxed consumer can see (#211)."""
     doc = json.loads((Path(store) / "zarr.json").read_text())
-    return (doc.get("attributes") or {}).get("cyto") or {}
+    return (doc.get("attributes") or {}).get("txr") or {}
 
 
 # ── the two importer arms ───────────────────────────────────────────────────────────
@@ -306,7 +306,7 @@ def import_ordinary(base: Path, matrix_h5: Path = VISIUM_MATRIX_H5) -> ChainStep
 
     `anndata.import` dispatches a 10x `filtered_feature_bc_matrix.h5` to
     `sc.read_10x_h5(..., gex_only=False)` and emits `single-cell/expression` as a
-    `sparse_csc` cyto_zarr store. It knows nothing about tissue positions, scale factors
+    `sparse_csc` txr_zarr store. It knows nothing about tissue positions, scale factors
     or coordinate spaces — which is the entire point. It differs from the spatial arm in
     exactly one variable: the importer.
 
@@ -345,11 +345,11 @@ def gene_symbol_store(step: ChainStep) -> Path:
 
 
 #: The spatial declarations the SPATIAL-MARKED arm stamps into the store's own
-#: `attributes.cyto` — the ONE channel that actually reaches a sandboxed compute.
+#: `attributes.txr` — the ONE channel that actually reaches a sandboxed compute.
 #:
 #: Lifted from what a real `spatial.import-visium` run puts on its coordinates artifact's
 #: manifest-entry `meta`. Today (#211) those live ONLY on the catalog entry and never cross
-#: into the sandbox; `attributes.cyto` does cross, because it is literally bytes inside the
+#: into the sandbox; `attributes.txr` does cross, because it is literally bytes inside the
 #: hardlinked zarr store. So stamping them there is a forward-looking experiment: it asks
 #: what would happen to the chain if #211 were FIXED and every declaration became visible.
 SPATIAL_MARKERS = {
@@ -364,12 +364,12 @@ SPATIAL_MARKERS = {
 
 
 def stamp_spatial_markers(store: Path) -> dict:
-    """Merge `SPATIAL_MARKERS` into a written store's group `attributes.cyto`, in place.
+    """Merge `SPATIAL_MARKERS` into a written store's group `attributes.txr`, in place.
 
     Writes to the store's `zarr.json`. For the matrix this is called on, that file is
-    written by `_lib/cyto_csc.py::write_csc_zarr`, which ends in
-    `cyto_zarr.write_group(out_dir, attrs)` with `attrs["cyto"]` set to the structure —
-    NOT by `cyto_zarr.Table.close()`, which is the table/column writer. It travels WITH the
+    written by `_lib/txr_csc.py::write_csc_zarr`, which ends in
+    `txr_zarr.write_group(out_dir, attrs)` with `attrs["txr"]` set to the structure —
+    NOT by `txr_zarr.Table.close()`, which is the table/column writer. It travels WITH the
     bytes — `sandbox/inputs.rs` hardlinks a stored
     artifact's members, so whatever is in this file is what a sandboxed analysis reads back.
     The structural keys the consumers narrow on (`kind`, `axes`, `nnz`, …) are left exactly
@@ -379,20 +379,20 @@ def stamp_spatial_markers(store: Path) -> dict:
     doc_path = Path(store) / "zarr.json"
     doc = json.loads(doc_path.read_text())
     attributes = doc.setdefault("attributes", {})
-    cyto = attributes.setdefault("cyto", {})
+    txr = attributes.setdefault("txr", {})
     # BEFORE the write, and on the property that can actually be violated. The previous
-    # version asserted `before <= set(cyto)` AFTER writing — a tautology, since `dict.update`
+    # version asserted `before <= set(txr)` AFTER writing — a tautology, since `dict.update`
     # cannot remove a key, and too late to prevent a bad store reaching disk. What can go
     # wrong is a marker COLLIDING with a structural key and silently overwriting it.
-    collisions = set(SPATIAL_MARKERS) & set(cyto)
+    collisions = set(SPATIAL_MARKERS) & set(txr)
     assert not collisions, (
         f"the spatial markers {sorted(collisions)} collide with keys the producer already "
         f"wrote. Stamping must ADD to the declaration, never redefine part of it — a "
         f"marked arm whose `kind` or `nnz` differed would diverge because of the BYTES, "
         f"not because of the markers")
-    cyto.update(SPATIAL_MARKERS)
+    txr.update(SPATIAL_MARKERS)
     doc_path.write_text(json.dumps(doc, indent=2))
-    return cyto
+    return txr
 
 
 def import_visium_marked(base: Path, bundle: Path = VISIUM_BUNDLE) -> ChainStep:
@@ -402,7 +402,7 @@ def import_visium_marked(base: Path, bundle: Path = VISIUM_BUNDLE) -> ChainStep:
     ## Why this arm exists
 
     The two-importer comparison alone cannot falsify INV-2. Measured: the visium importer
-    and the ordinary one emit BYTE-IDENTICAL matrices whose in-store `attributes.cyto` are
+    and the ordinary one emit BYTE-IDENTICAL matrices whose in-store `attributes.txr` are
     also identical, and `inputs.json` carries only `{slot, kind, content_hash,
     sandbox_path}`. So no compute in the chain has any channel through which it could learn
     the matrix is spatial, and "the two arms agree" is ENTAILED rather than measured — a
@@ -412,7 +412,7 @@ def import_visium_marked(base: Path, bundle: Path = VISIUM_BUNDLE) -> ChainStep:
     This arm supplies the missing variable. It gives the chain a matrix that DOES announce
     itself as spatial, through the one channel that reaches a sandbox, and requires the
     chain to produce the same answer anyway. A consumer that dispatched on
-    `attributes.cyto.platform` or `.measured_entity` — the special-casing §9 forbids —
+    `attributes.txr.platform` or `.measured_entity` — the special-casing §9 forbids —
     would diverge HERE and nowhere else.
     """
     step = import_visium(base, bundle)
@@ -531,7 +531,7 @@ class ChainRun:
     def mask(self) -> list[bool]:
         """The keep-mask as booleans.
 
-        Stored as a PLAIN `bool` array, not a categorical: `_lib/cyto_columns.py:236-241`
+        Stored as a PLAIN `bool` array, not a categorical: `_lib/txr_columns.py:236-241`
         is explicit that "a bool is written as a plain bool array, so there is no
         [categorical]", with the display levels riding on `meta`. `read_column` therefore
         yields numpy booleans here; the `str(...) in (...)` widening below is defensive

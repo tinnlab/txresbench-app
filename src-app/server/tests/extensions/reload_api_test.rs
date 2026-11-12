@@ -36,7 +36,7 @@ async fn reload_requires_admin() {
 
     // A regular user lacks `sandbox::settings::manage` → 403 (M6: reconciled from the
     // old root-only `RequireAdmin` to the perm the Administrators group holds via `*`).
-    create_user(&server, &admin, "reloaduser", "reloaduser@cyto.test").await;
+    create_user(&server, &admin, "reloaduser", "reloaduser@txresbench.test").await;
     let user = login(&server, "reloaduser").await;
     let resp = server
         .client
@@ -94,7 +94,7 @@ async fn list_processors_requires_auth_and_dumps_status() {
     // A regular user LACKS `sandbox::settings::read` → 403 (M6: the list is gated on the
     // same admin-held read-perm the `/settings/processors` page gates on, so the client
     // self-gate equals the endpoint perm — the FE never shows the page to a rejected user).
-    create_user(&server, &admin, "listuser", "listuser@cyto.test").await;
+    create_user(&server, &admin, "listuser", "listuser@txresbench.test").await;
     let user = login(&server, "listuser").await;
     let resp = server
         .client
@@ -141,7 +141,7 @@ async fn packages_route_requires_auth_and_serves_assets() {
 
     // A regular user holds projects::use (Users group) → 200, serving each registered
     // package's manifest + ui/*.yaml bytes from the runtime folder.
-    create_user(&server, &admin, "pkguser", "pkguser@cyto.test").await;
+    create_user(&server, &admin, "pkguser", "pkguser@txresbench.test").await;
     let user = login(&server, "pkguser").await;
     let resp = server
         .client
@@ -182,7 +182,7 @@ async fn reload_surfaces_malformed_package_as_skipped_with_error() {
     std::fs::create_dir_all(&bad).expect("create pkg dir");
     std::fs::write(
         bad.join("manifest.yaml"),
-        "id: broken-rest-pkg\nname: Broken\npublisher: cyto\nversion: 0.1.0\napiVersion: \"1.0\"\nbogus_unknown_key: true\ncontributes: {}\n",
+        "id: broken-rest-pkg\nname: Broken\npublisher: txr\nversion: 0.1.0\napiVersion: \"1.0\"\nbogus_unknown_key: true\ncontributes: {}\n",
     )
     .expect("write manifest");
 

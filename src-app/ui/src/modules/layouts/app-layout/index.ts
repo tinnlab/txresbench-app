@@ -1,4 +1,4 @@
-import type { LayoutDefinition } from '@ziee/framework/router'
+import type { LayoutDefinition } from '@txresbench/framework/router'
 import { AppLayout } from '@/modules/layouts/app-layout/AppLayout'
 
 /**

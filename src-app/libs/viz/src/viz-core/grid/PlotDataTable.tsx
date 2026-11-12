@@ -14,7 +14,7 @@
 // rendered, keeping a 100k-row table cheap.
 
 import { useRef, useState, useCallback, useMemo, useEffect } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import { X, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import { toolFor } from '../tools/registry'
 

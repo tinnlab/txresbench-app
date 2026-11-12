@@ -746,9 +746,9 @@ describe('categorical spelling — a saved keep-set must resolve identically (IT
   })
 
   it('THE DIVERGENCE: the PRODUCER declares bool levels as "false"/"true", lowercase', () => {
-    // `cyto_columns.py:225` — `meta.update({"kind": KIND_CATEGORICAL, "levels": ["false", "true"]})`
+    // `txr_columns.py:225` — `meta.update({"kind": KIND_CATEGORICAL, "levels": ["false", "true"]})`
     // — and for a bool that `meta.levels` is the ONLY copy, because a bool is written as a plain
-    // bool array with no `attributes.cyto.levels` to fall back on.
+    // bool array with no `attributes.txr.levels` to fall back on.
     //
     // So serving the picker from DECLARED levels without reconciling the spelling offers
     // "true"/"false" while the comparator spells the row "True"/"False". Nothing matches, and

@@ -7,7 +7,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react'
 import { useStore } from 'zustand'
-import { Button, Popover, ScrollArea, Tooltip } from '@ziee/kit'
+import { Button, Popover, ScrollArea, Tooltip } from '@txresbench/kit'
 import { X, Plus, ExternalLink, ChevronsLeft, ChevronsRight, PanelLeftClose, PanelRightClose, PanelLeftOpen, PanelRightOpen } from 'lucide-react'
 import { Session } from '@/modules/session/Session.store'
 import { evaluatePermission } from '@/core/permissions'
@@ -72,7 +72,7 @@ function AddPaneMenu({
     // The tooltip composes straight onto the Popover's trigger. It used to need a wrapper span:
     // a second Base UI trigger on the same element was stamped but never opened, because
     // Tooltip.Trigger keys its store on the `id` it is GIVEN while the Popover's injected `id`
-    // won the DOM node. `@ziee/kit` now hoists that `id` onto the trigger (kit/tooltip.tsx,
+    // won the DOM node. `@txresbench/kit` now hoists that `id` onto the trigger (kit/tooltip.tsx,
     // kit/button.tsx), so one element is both triggers again and the wrapper is gone.
     <Popover
       open={open}
@@ -264,7 +264,7 @@ function tabCloseAlwaysVisible(kind: PaneKind): boolean {
  * …and no POP-OUT either, for the same reason one layer down.
  *
  * A popped-out pane renders its body into ANOTHER OS WINDOW's document
- * (`RegionPopoutWindows` → `@ziee/dock`'s `ContainerWindows`). A hosted surface's body is a
+ * (`RegionPopoutWindows` → `@txresbench/dock`'s `ContainerWindows`). A hosted surface's body is a
  * container the OWNING engine has already portaled a React tree into, in THIS document, with
  * this document's stylesheet and this document's overlay roots. Moving that node across
  * documents is not a thing the shell can promise, so the affordance is withheld rather than

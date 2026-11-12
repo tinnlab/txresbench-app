@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Permissions } from '@/api-client/permissions'
 import { usePermission } from '@/core/permissions'
 import { ProjectSettings } from '@/modules/project/stores/ProjectSettings.store'
-import { Card, Spinner, Switch } from '@ziee/kit'
+import { Card, Spinner, Switch } from '@txresbench/kit'
 import { SettingsFormActions } from '@/modules/settings/components/SettingsFormActions'
 
 /**

@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 const calls: { url: string; body: Record<string, unknown> }[] = []
 let failNext = false
 
-vi.mock('@ziee/framework/api-client', () => ({
+vi.mock('@txresbench/framework/api-client', () => ({
   callAsync: async (url: string, body: Record<string, unknown>) => {
     calls.push({ url, body })
     if (failNext) {

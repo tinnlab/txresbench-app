@@ -33,7 +33,7 @@ import { seedQcDataset } from '../14-declarative-qc/_seed'
 import { DT } from '../14-declarative-qc/_fixtures'
 import { openVisualize, renderedOrder } from './_visualize'
 
-const DATA_ROOT = process.env.CYTO_APP_DATA_DIR
+const DATA_ROOT = process.env.TXR_APP_DATA_DIR
 
 /** The kind both fixture sections declare they apply to. Contributed by a DIFFERENT package
  *  than either of these, which is the half of INV-14 that a self-contributed datatype would
@@ -55,7 +55,7 @@ const BETA: Probe = { pkg: 'e2e-viz-beta', section: 'e2e.beta.block', title: 'Pr
 function manifestText(p: Probe): string {
   return `id: ${p.pkg}
 name: ${p.title} package
-publisher: cyto-e2e
+publisher: txr-e2e
 version: 0.0.1
 apiVersion: "1.0"
 contributes:
@@ -107,7 +107,7 @@ function removePackage(p: Probe): void {
 
 test.describe('a package with no analysis contributes Visualize sections, with zero app change (TEST-A14, TEST-A20)', () => {
   // Skipped at DESCRIBE level and only for a missing data root — never for a failure. The
-  // runner's own config exports `CYTO_APP_DATA_DIR`, so this is the "someone ran playwright
+  // runner's own config exports `TXR_APP_DATA_DIR`, so this is the "someone ran playwright
   // by hand against a foreign server" case, not a routine one.
   test.skip(!DATA_ROOT || !existsSync(DATA_ROOT), 'needs the harness app-data root to drop a runtime package')
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ruff: noqa
-"""h5ad_import — CytoAnalyst sandbox compute processor (ITEM-7/8/9).
+"""h5ad_import — TxResBench sandbox compute processor (ITEM-7/8/9).
 
 The comprehensive **h5ad / 10x → Zarr** converter. Reads an uploaded AnnData
 ``.h5ad`` OR a 10x CellRanger matrix (``.h5`` / ``.mtx`` trio / archive), detects
@@ -9,7 +9,7 @@ object as typed, role-tagged workstore outputs (§ Output spec):
 
   * ``expression``       — the count matrix as a CSC (gene-major) **Zarr v3** store
                            (``indptr``/``indices``/``data``), produced by the
-                           streaming counting-sort transpose in ``cyto_csc``
+                           streaming counting-sort transpose in ``txr_csc``
                            (role=artifact). Emitted PER MODALITY when
                            ``var['feature_types']`` names more than one.
   * ``embedding``×N      — one per ``obsm`` ≥2-D numeric key (X_umap/X_pca/…/novel),
@@ -25,7 +25,7 @@ object as typed, role-tagged workstore outputs (§ Output spec):
 **The TileDB-SOMA output is gone** (ITEM-27). It was never a second product: the
 CSC trio was read back OUT of the store it had just been written to, so SOMA was a
 TRANSPOSE BUFFER on the critical path — 86 % of import wall clock on the measured
-150k × 32k case. ``cyto_csc`` does the transpose directly, out-of-core, and writes
+150k × 32k case. ``txr_csc`` does the transpose directly, out-of-core, and writes
 Zarr, so every output this processor emits is now one format the browser reads with
 no dependencies. What went with it: the store was also the dtype-exact archive, so
 an integer count matrix's SOURCE dtype now survives as
@@ -40,7 +40,7 @@ converted losslessly but NEVER labeled as raw counts. No force-cast, no silent l
 
 Run feedback (DEC-12 / ITEM-24): besides the fine ``phase|pct|message`` progress
 lines, this emits biologist-facing MILESTONES + data-determined FINDINGS to
-``$CYTO_PROGRESS_FIFO`` as ``milestone|<id>|<status>[|<detail-json>]`` lines
+``$TXR_PROGRESS_FIFO`` as ``milestone|<id>|<status>[|<detail-json>]`` lines
 (status ∈ ``started|done|failed``). Milestone ids (declared, ordered):
 ``read`` → ``detect-counts`` → ``convert`` → ``embeddings`` → ``metadata`` →
 ``summarize``; each carries the structured finding it discovered at runtime.
@@ -48,12 +48,12 @@ lines, this emits biologist-facing MILESTONES + data-determined FINDINGS to
 The run contract (``sandbox/outputs.rs``): read ``/inputs/<slot>`` +
 ``/inputs/inputs.json`` + ``/inputs/params.json``; write ``/outputs/<file>`` +
 ``/outputs/manifest.json`` = ``{"outputs":[{id,datatype,path,layout,role,label?,meta?}]}``.
-The ``/inputs`` and ``/outputs`` roots are overridable via ``CYTO_INPUTS_DIR`` /
-``CYTO_OUTPUTS_DIR`` (unset in the sandbox → the fixed ``/inputs`` / ``/outputs``
+The ``/inputs`` and ``/outputs`` roots are overridable via ``TXR_INPUTS_DIR`` /
+``TXR_OUTPUTS_DIR`` (unset in the sandbox → the fixed ``/inputs`` / ``/outputs``
 binds) — the ONLY seam that lets the harness drive the REAL script off-sandbox.
 """
 import gzip
-import cyto_deps
+import txr_deps
 import json
 import os
 import sys
@@ -84,8 +84,8 @@ import scipy.sparse as sp
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
-import cyto_columns  # the shared `_lib` output-format adapter (DEC-7)
-import cyto_csc  # the shared `_lib` out-of-core CSR→CSC transpose (ITEM-27)
+import txr_columns  # the shared `_lib` output-format adapter (DEC-7)
+import txr_csc  # the shared `_lib` out-of-core CSR→CSC transpose (ITEM-27)
 from colsummary import summarize_column  # noqa: E402
 
 # Slice-6 multi-modal ingest CORRECTNESS kernels (INV-10..17), co-located sibling. Pure
@@ -102,7 +102,7 @@ import multimodal as mm  # noqa: E402
 # manifest must declare (`datatype/builtin.rs`, `StorageLayout::as_str`).
 # The CSC-sparse gene-expression matrix (cells × genes), written as a Zarr v3 group of
 # three sharded members — `indptr` (int64, n_vars+1), `indices` (uint32 cell rows),
-# `data` (float32) — by `cyto_csc.write_csc_zarr`. Since ITEM-27 deleted the SOMA
+# `data` (float32) — by `txr_csc.write_csc_zarr`. Since ITEM-27 deleted the SOMA
 # store this is THE count matrix, not a projection of one, so it carries `role=artifact`
 # rather than the viz-only `intermediate` it had while an archive existed beside it.
 DT_EXPRESSION = ("single-cell/expression", "chunked-sparse")
@@ -126,9 +126,9 @@ DT_DATA = ("data/opaque", "opaque")
 # of every stage rather than true by delegation to a store:
 #   * detect-counts scans the h5ad stored-value datasets in chunks (h5py);
 #   * metadata/embeddings read from a BACKED handle (X is never loaded);
-#   * the CSC expression matrix is produced by `cyto_csc`'s BANDED counting-sort
+#   * the CSC expression matrix is produced by `txr_csc`'s BANDED counting-sort
 #     transpose, whose peak is bounded by its declared `nnz_cap` (env
-#     `CYTO_TRANSPOSE_NNZ_CAP`), not by the matrix.
+#     `TXR_TRANSPOSE_NNZ_CAP`), not by the matrix.
 # Measured on a 40k × 20k / 39.0M-nnz fixture: 9.5 s and 0.72 GB peak, against
 # 14.8 s and 1.76 GB for the `from_h5ad` + read-back-out-of-SOMA path it replaces.
 # The full-load fallback that the old `uns`/X-absent edge cases dropped into is
@@ -136,8 +136,8 @@ DT_DATA = ("data/opaque", "opaque")
 
 
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -194,7 +194,7 @@ def _fifo_write(line):
     Persistent write fd: opened once, reused, closed at process exit — one
     continuous stream to the runner's FIFO drain (streaming.rs), no per-frame
     reopen churn. Retry the open if the reader was not ready on frame 1."""
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if not fifo:
         return
     if _PROGRESS_FD[0] < 0:
@@ -266,9 +266,9 @@ def write_manifest(outputs_dir, entries):
     # environment does not satisfy the declaration. Placed here, on the one path every
     # successful run takes, so recording is structural rather than remembered: a compute
     # cannot emit its outputs without also emitting what produced them.
-    # The datatype is THIS package's, passed in: `cyto_deps` is app-core and may not
+    # The datatype is THIS package's, passed in: `txr_deps` is app-core and may not
     # name a contributed domain's vocabulary, so the caller supplies the pair.
-    cyto_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
+    txr_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
     # Compact, not `indent=2`. Only the server reads this file, and pretty-printing
     # it doubled its size (a real import measured 1.06 MB of content as a 2.12 MB
     # file) against the 1 MiB cap in `outputs.rs`. Whitespace is not metadata.
@@ -319,19 +319,19 @@ def write_metadata_column(outputs_dir, rel_dir, name, series, axis,
 
     Was a single-file JSON carrying every value as a Python literal — a 150k-cell
     column cost ~2 MB of text the client parsed in full before it could paint. The
-    shared `cyto_columns` adapter now picks the encoding from the column's pandas dtype
+    shared `txr_columns` adapter now picks the encoding from the column's pandas dtype
     (declared categorical → codes + the declared level set, integer → an exact-width
     integer array, float → float with native NaN, anything else → arrow strings) and
     returns the two producer declarations the manifest entry carries.
 
-    `axis` is positional-or-keyword and has NO default, here or in `cyto_columns`. It used
+    `axis` is positional-or-keyword and has NO default, here or in `txr_columns`. It used
     to default to `"cells"` in both, and the pair was worse than either alone: the manifest
     entry each caller builds declares `axis=` explicitly anyway, so the `structure.axis`
     and the entry's `axis` came from two different places and could silently disagree. Now
-    every call site names it once, and `cyto_columns` — framework code that must know no
+    every call site names it once, and `txr_columns` — framework code that must know no
     domain (INV-5) — names it never.
     """
-    return cyto_columns.write_metadata_column(outputs_dir, rel_dir, name, series, axis=axis,
+    return txr_columns.write_metadata_column(outputs_dir, rel_dir, name, series, axis=axis,
                                               holds_axis_keys=holds_axis_keys,
                                               aligned_to=aligned_to, membership=membership)
 
@@ -367,7 +367,7 @@ def write_expression_csc(source, outputs_dir, rel_dir, *, columns=None, counts=N
     ITEM-26/27 — this was the LAST output still written as raw little-endian bins
     (`indptr` i64 / `indices` u32 / `data` f32). It stayed raw not by oversight but
     because it is the one output never materialized in memory, and the batch
-    `cyto_zarr` writer took a whole array; ITEM-28's incremental shard writer removed
+    `txr_zarr` writer took a whole array; ITEM-28's incremental shard writer removed
     that constraint, so the processor now emits ONE format everywhere.
 
     `columns` selects + re-indexes the output columns for a per-modality split;
@@ -388,7 +388,7 @@ def write_expression_csc(source, outputs_dir, rel_dir, *, columns=None, counts=N
     matrix an absent key means "no prefix" — the pre-multimodal behaviour — so stamping a
     key there would silently rename every column of every ordinary import.
     """
-    structure = cyto_csc.write_csc_zarr(
+    structure = txr_csc.write_csc_zarr(
         source, outputs_dir / rel_dir, columns=columns, counts=counts,
         axes=("cells", "genes"),
         structure_extra={"modality": modality} if modality else None,
@@ -442,14 +442,14 @@ def embedding_label_method(key):
 # so the whole real-file import path was dead for the oldest and most widely circulated
 # shape of the format this processor is named after.
 #
-# ALL OF THAT NOW LIVES IN ``cyto_csc``, once. Read its "h5ad sparse layout" block for
+# ALL OF THAT NOW LIVES IN ``txr_csc``, once. Read its "h5ad sparse layout" block for
 # the format table and for the two things it deliberately does NOT infer (an undeclared
 # SHAPE, and the orientation of a SQUARE undeclared store — half of those guesses hand
 # back the transpose as science, and nothing downstream can tell).
 #
 # THIS MODULE USED TO CARRY A SECOND COPY of that resolution — ~70 lines of helpers
 # plus a re-implemented sparse branch — on the stated grounds that
-# ``cyto_csc.source_for_h5`` "resolves by the MODERN spelling alone" and that an
+# ``txr_csc.source_for_h5`` "resolves by the MODERN spelling alone" and that an
 # h5sparse-era ``/X`` "dies there with a bare ``KeyError: 'shape'``". Commit
 # ``2a15e681`` made both false: the engine reads either spelling for orientation AND
 # for shape, and an h5sparse-era CSC group resolves cleanly. The justification having
@@ -458,16 +458,16 @@ def embedding_label_method(key):
 # their message wording). The names below stay so this module's own call sites and the
 # layout tests keep addressing the reader they belong to.
 
-h5_attr_text = cyto_csc.h5_attr_text
-h5_sparse_format = cyto_csc.h5_sparse_format
-h5_matrix_shape = cyto_csc.h5_matrix_shape
-SPARSE_FORMAT_ATTRS = cyto_csc.SPARSE_FORMAT_ATTRS
-SPARSE_SHAPE_ATTRS = cyto_csc.SPARSE_SHAPE_ATTRS
-SPARSE_MEMBERS = cyto_csc.SPARSE_MEMBERS
-#: A `cyto_csc` transpose source for an h5ad matrix node, across format versions.
+h5_attr_text = txr_csc.h5_attr_text
+h5_sparse_format = txr_csc.h5_sparse_format
+h5_matrix_shape = txr_csc.h5_matrix_shape
+SPARSE_FORMAT_ATTRS = txr_csc.SPARSE_FORMAT_ATTRS
+SPARSE_SHAPE_ATTRS = txr_csc.SPARSE_SHAPE_ATTRS
+SPARSE_MEMBERS = txr_csc.SPARSE_MEMBERS
+#: A `txr_csc` transpose source for an h5ad matrix node, across format versions.
 #: Dense, sparse, under-declared and not-a-matrix all resolve — or fail loud — in the
 #: engine; see its `source_for_h5`.
-source_for_h5_matrix = cyto_csc.source_for_h5
+source_for_h5_matrix = txr_csc.source_for_h5
 
 
 # ─────────────────────── streaming (never-load-the-matrix) ────────────────────
@@ -731,11 +731,11 @@ def write_embedding(outputs_dir, rel_dir, arr, method=None, aligned_to=None, nam
     Downcast to float32 for the viz artifact (the source dtype stays exact in the
     lossless store). The previous writer reached for `zarr-python` and silently fell
     back to a `.npy` when the import failed — two formats for one output, one of which
-    the browser cannot read. `cyto_columns` writes the same sharded v3 store every
+    the browser cannot read. `txr_columns` writes the same sharded v3 store every
     other output uses, with no optional dependency and therefore no fallback. Returns
     `(structure, meta)`."""
     mat = np.asarray(arr.todense() if sp.issparse(arr) else arr)
-    # `axis` / `name` / `kind` are all declared HERE. `cyto_columns` used to default them
+    # `axis` / `name` / `kind` are all declared HERE. `txr_columns` used to default them
     # to `"cells"` / `"embedding"` / `"embedding"`, i.e. a framework library naming this
     # processor's domain (INV-5) and inventing declarations for it (INV-2). This processor
     # is the one entitled to say them: its obs axis IS `cells`, and the member the
@@ -748,7 +748,7 @@ def write_embedding(outputs_dir, rel_dir, arr, method=None, aligned_to=None, nam
     # SYMPTOM. The producer is the only party that knows these are UMAP, PCA and t-SNE, it
     # already derives exactly those words (`embedding_label_method`), and it was throwing them
     # away here. `kind` stays the datatype word — that one IS a kind, and nothing displays it.
-    return cyto_columns.write_embedding(outputs_dir, rel_dir, mat, axis="cells",
+    return txr_columns.write_embedding(outputs_dir, rel_dir, mat, axis="cells",
                                         name=(name or "embedding"), kind="embedding",
                                         method=method, aligned_to=aligned_to,
                                         membership=membership)
@@ -1179,7 +1179,7 @@ def _emit_spatial_output(entries, outputs_dir, spatial_plan):
     entries.append(
         output_entry("spatial", DT_DATA, "spatial.json", "artifact",
                      label="Spatial coords + image affine", meta=spatial_plan,
-                     structure=cyto_columns.opaque("application/json"))
+                     structure=txr_columns.opaque("application/json"))
     )
     return True
 
@@ -1238,7 +1238,7 @@ def main():
     density = round(nnz / (n_obs * n_vars), 8) if (n_obs and n_vars) else 0.0
 
     # ── convert — the COUNTING pass of the out-of-core transpose (ITEM-27) ──────
-    # There is no intermediate store any more. `cyto_csc` reads the h5ad matrix node
+    # There is no intermediate store any more. `txr_csc` reads the h5ad matrix node
     # directly and counts each column's stored values; the counts become `indptr` and
     # are REUSED across every per-modality split below, so a multi-modal file is
     # histogrammed once rather than once per modality.
@@ -1258,12 +1258,12 @@ def main():
     # here would agree with the stored one on ordinary data and disagree silently on anything
     # the writer had to coerce.
     axis_keys = {
-        "cells": cyto_columns.axis_key_sequence(cells_keys),
-        "genes": cyto_columns.axis_key_sequence(genes_keys),
+        "cells": txr_columns.axis_key_sequence(cells_keys),
+        "genes": txr_columns.axis_key_sequence(genes_keys),
     }
     aligned_to = {
-        "cells": cyto_columns.axis_key_digest(cells_keys),
-        "genes": cyto_columns.axis_key_digest(genes_keys),
+        "cells": txr_columns.axis_key_digest(cells_keys),
+        "genes": txr_columns.axis_key_digest(genes_keys),
     }
     # ── WHICH ROWS, not just WHICH AXIS (ITEM-2's producer side) ─────────────────────────
     #
@@ -1413,7 +1413,7 @@ def main():
                 output_entry(
                     "multimodal-container", DT_MULTIMODAL_CONTAINER, "container.json", "artifact",
                     label="Multi-modal container", meta=container,
-                    structure=cyto_columns.opaque("application/json"),
+                    structure=txr_columns.opaque("application/json"),
                 )
             )
             milestone("expression", "done", {"modalities": len(modalities), "split": [m["modality"] for m in modality_links]})
@@ -1527,7 +1527,7 @@ def main():
                 f"the {axis_name!r} axis stored a key sequence digesting to "
                 f"{structure['key_sequence_digest'][:12]}… but this run already declared "
                 f"aligned_to={aligned_to[axis_name][:12]}… on its other artifacts — "
-                "`cyto_columns.axis_key_digest` no longer anticipates what the writer stores"
+                "`txr_columns.axis_key_digest` no longer anticipates what the writer stores"
             )
         summary = summarize_column(series, out_id)
         summary["is_axis_index"] = True
@@ -1656,7 +1656,7 @@ def main():
         # artifact — still persisted + fetchable by id, just filtered from the list.
         output_entry("dataset-metadata", DT_DATA, "dataset-metadata.json", "intermediate",
                      label="Dataset metadata", hidden=True,
-                     structure=cyto_columns.opaque("application/json"))
+                     structure=txr_columns.opaque("application/json"))
     )
     milestone("metadata", "done", {"obs_columns": len(obs_descriptors),
                                   "var_columns": len(var_descriptors)})
@@ -1667,7 +1667,7 @@ def main():
     write_inspect_html(outputs_dir, "inspect.html", dataset_metadata)
     entries.append(
         output_entry("inspect", DT_REPORT_HTML, "inspect.html", "intermediate",
-                     label="Import summary", structure=cyto_columns.opaque("text/html"))
+                     label="Import summary", structure=txr_columns.opaque("text/html"))
     )
 
     # Drop the staged 10x→h5ad temp (if any) so it isn't collected as an artifact

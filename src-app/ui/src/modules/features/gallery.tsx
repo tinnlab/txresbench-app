@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import type { ModuleGallery } from '@ziee/gallery'
+import type { ModuleGallery } from '@txresbench/gallery'
 import type { FeatureFlagView } from '@/api-client/types'
 import { useFeatureFlagsStore } from '@/modules/features/FeatureFlags.store'
 // Side-effect import: register the feature-flag action so the gallery's

@@ -2,8 +2,8 @@
 // candidate dataset. Split out of the panel so the exact node the picker shows is
 // directly renderable in a test — the panel calls this and does nothing else to it.
 
-import type { SelectOption } from '@ziee/kit'
-import { Tag } from '@ziee/kit'
+import type { SelectOption } from '@txresbench/kit'
+import { Tag } from '@txresbench/kit'
 import { ProcessingStatusBadge } from '@/modules/datasets/components/ProcessingStatusBadge'
 import { candidateSearchText, isReady, type AttachCandidate } from './attachOptions'
 

@@ -4,7 +4,7 @@
 
 use super::*;
 
-use cytoanalyst::modules::provenance::repository::{NewReference, ProvenanceRepository};
+use txresbench::modules::provenance::repository::{NewReference, ProvenanceRepository};
 
 #[tokio::test]
 async fn reference_resource_is_a_valid_closure_terminus() {

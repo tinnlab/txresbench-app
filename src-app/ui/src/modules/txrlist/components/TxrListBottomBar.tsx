@@ -34,7 +34,7 @@
  * a `null` totalText shows the loading ellipsis (EXAMPLE-UL-7).
  */
 import type { CSSProperties } from 'react'
-import { Button, Checkbox, Select } from '@ziee/kit'
+import { Button, Checkbox, Select } from '@txresbench/kit'
 import { pluralize, runLabel } from '../lib/format'
 
 /** The at-a-time choices — the BusyRunning board's own option set (3, 1, 2, 4). */

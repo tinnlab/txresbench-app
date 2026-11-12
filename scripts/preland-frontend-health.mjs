@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * preland-frontend-health.mjs — a CYTO-LOCAL, diff-triggered FRONTEND merge gate.
+ * preland-frontend-health.mjs — a TXRESBENCH-LOCAL, diff-triggered FRONTEND merge gate.
  *
  * WHY THIS EXISTS
  * ---------------
@@ -12,7 +12,7 @@
  *
  * WHY NOT WIRE `npm run gate:ui` INTO agent-kit's merge-gate (the obvious fix)
  * ---------------------------------------------------------------------------
- *   1. `merge-gate.mjs` lives in the `agent-kit` SUBMODULE (shared with ziee) —
+ *   1. `merge-gate.mjs` lives in the `agent-kit` SUBMODULE (shared with txresbench) —
  *      editing it needs a push there + a gitlink bump here.
  *   2. The gate stages the candidate merge into a `git worktree add` tree that
  *      holds TRACKED FILES ONLY — no `node_modules`, no Playwright browsers. A
@@ -42,7 +42,7 @@
  * The durable form is an optional `MERGE_FRONTEND_GATE_CMD` + `MERGE_FRONTEND_GATE_DIR`
  * pair read from `.claude/app.config` as a new `gateC6` in agent-kit's
  * `merge-gate.mjs` — which fits its existing "every key is OPTIONAL; an unset key
- * SKIPS its gate" design, so ziee is unaffected until it opts in. Blocker 3 is
+ * SKIPS its gate" design, so txresbench is unaffected until it opts in. Blocker 3 is
  * gone; that leaves blocker 2 — the staging tree still needs `npm install` +
  * Playwright browsers provisioned before any gate there can render a page.
  *
@@ -71,7 +71,7 @@
  *
  * THE FIX (two halves — a source change alone would not have held)
  *   1. NO FIXED PORT. `gallery.config.json` sets `"port": null`, so the port comes
- *      from the unified per-worktree run key (`@ziee/gallery/scripts/lib/run-key`),
+ *      from the unified per-worktree run key (`@txresbench/gallery/scripts/lib/run-key`),
  *      then the first port bindable across the whole dual stack (0.0.0.0 + ::1 +
  *      127.0.0.1 — an IPv4-only probe is how two vite servers once landed on ONE
  *      port and produced the ERR_NETWORK_CHANGED storm).
@@ -125,7 +125,7 @@ import {
   resolveWorktreeRoot,
   serverIsThisWorktree,
   worktreeKey,
-} from '@ziee/gallery/scripts/lib/run-key.mjs'
+} from '@txresbench/gallery/scripts/lib/run-key.mjs'
 
 import { reuseRequested } from '../src-app/ui/scripts/harness-origin.mjs'
 
@@ -160,7 +160,7 @@ if (top.status !== 0) {
 }
 const REPO = top.stdout.trim()
 const UI_DIR = path.join(REPO, 'src-app/ui')
-// Anchor on the app's gallery.config.json (the same file @ziee/gallery reads) so
+// Anchor on the app's gallery.config.json (the same file @txresbench/gallery reads) so
 // the dir/URL/port never drift from the pass this script drives.
 // NOTE the `port: null` default — "derive per worktree", NOT the historical fixed
 // 1420. A default that is a real port number is a shared mutable resource on a
@@ -204,7 +204,7 @@ if (!Number.isInteger(PORT_BASE) || PORT_BASE < 1 || PORT_BASE > 65535) {
   process.exit(2)
 }
 const GALLERY_DIR = path.join(UI_DIR, GCFG.galleryDir)
-const GALLERY_SCRIPTS = path.join(REPO, 'node_modules/@ziee/gallery/scripts')
+const GALLERY_SCRIPTS = path.join(REPO, 'node_modules/@txresbench/gallery/scripts')
 const PASS_SCRIPT = path.join(
   GALLERY_SCRIPTS,
   GATE_UI ? 'gate-ui.mjs' : 'runtime-health.mjs',

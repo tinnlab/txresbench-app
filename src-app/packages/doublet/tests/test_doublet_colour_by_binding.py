@@ -126,9 +126,9 @@ def test_produced_score_artifact_is_continuous_and_declares_its_row_space(detect
     # …and it is the digest of the keys we actually bound, not some other axis's.
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
-    import cyto_columns
+    import txr_columns
     import pandas as pd
-    expected = cyto_columns.axis_key_digest(
+    expected = txr_columns.axis_key_digest(
         pd.Series([f"cell-{i}" for i in range(dense.shape[0])]))
     assert structure["aligned_to"] == expected
 

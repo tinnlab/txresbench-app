@@ -6,11 +6,11 @@
 
 use super::*;
 
-use cytoanalyst::modules::jobs::models::Job;
-use cytoanalyst::modules::jobs::seams::PeakMetrics;
-use cytoanalyst::modules::jobs::seams::RunRecorder;
-use cytoanalyst::modules::provenance::recorder::ProvenanceRunRecorder;
-use cytoanalyst::modules::provenance::repository::ProvenanceRepository;
+use txresbench::modules::jobs::models::Job;
+use txresbench::modules::jobs::seams::PeakMetrics;
+use txresbench::modules::jobs::seams::RunRecorder;
+use txresbench::modules::provenance::recorder::ProvenanceRunRecorder;
+use txresbench::modules::provenance::repository::ProvenanceRepository;
 
 /// A synthetic analysis `Job` whose params pin `root_id` as an `artifact_ref`
 /// input. `owner` (a real user, so a seeded `jobs` row's FK holds) / `run_id` are
@@ -95,7 +95,7 @@ async fn record_run_writes_the_sidecar_with_pinned_inputs() {
 
     // M4: the recorder hashes the entry STAGED in the run workspace at spawn. Stage it
     // (matching the inline script) so the staged-bytes path is exercised.
-    let ws = std::env::temp_dir().join(format!("cyto-rec-ws-{job_id}"));
+    let ws = std::env::temp_dir().join(format!("txr-rec-ws-{job_id}"));
     std::fs::create_dir_all(ws.join("code")).unwrap();
     std::fs::write(ws.join("code").join("entry.py"), "import scanpy as sc\nprint('ok')\n").unwrap();
 
@@ -291,7 +291,7 @@ async fn a_run_does_not_pin_an_artifact_from_a_dataset_its_owner_cannot_read() {
 // `None` envelope for a run that recorded one.
 #[tokio::test]
 async fn every_repository_path_returns_the_rerun_envelope() {
-    use cytoanalyst::modules::provenance::repository::NewRun;
+    use txresbench::modules::provenance::repository::NewRun;
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
@@ -303,7 +303,7 @@ async fn every_repository_path_returns_the_rerun_envelope() {
 
     // (a) insert_run — the RETURNING projection.
     let project_run = record_filter_run(&pool, project_id, root_id).await;
-    let spec_params = |row: &cytoanalyst::modules::provenance::repository::RunReproRow| {
+    let spec_params = |row: &txresbench::modules::provenance::repository::RunReproRow| {
         row.rerun_spec_json
             .as_ref()
             .and_then(|s| s.get("params").cloned())
@@ -544,9 +544,9 @@ async fn both_lineage_edges_survive_the_widened_row_and_promoted_params() {
 /// `/inputs/expression.zarr`; the pre-fix capsule said `/inputs/matrix.h5ad`.
 #[tokio::test]
 async fn the_exported_capsule_binds_inputs_where_the_run_actually_mounted_them() {
-    use cytoanalyst::modules::sandbox::inputs::materialize_inputs;
-    use cytoanalyst::modules::sandbox::spec::AnalysisSpec;
-    use cytoanalyst::modules::workstore::object_store::{LocalFsStore, ObjectStore};
+    use txresbench::modules::sandbox::inputs::materialize_inputs;
+    use txresbench::modules::sandbox::spec::AnalysisSpec;
+    use txresbench::modules::workstore::object_store::{LocalFsStore, ObjectStore};
 
     use crate::dataset::hardening_common::{download_zip, export_bundle, unzip_store};
 
@@ -596,7 +596,7 @@ async fn the_exported_capsule_binds_inputs_where_the_run_actually_mounted_them()
     seed_job_scope(&pool, &job, Some(project_id)).await;
 
     // ── (1) RUN IT: the real staging chokepoint, into a real run workspace ────────
-    let ws = std::env::temp_dir().join(format!("cyto-bindfid-ws-{job_id}"));
+    let ws = std::env::temp_dir().join(format!("txr-bindfid-ws-{job_id}"));
     std::fs::create_dir_all(ws.join("code")).expect("workspace");
     std::fs::write(
         ws.join("code").join("entry.py"),
@@ -880,7 +880,7 @@ async fn the_origin_reaches_every_used_edge_arm() {
         .expect("link file to dataset");
 
     // (c) A readable host path → `host_path_edge`.
-    let host_file = std::env::temp_dir().join(format!("cyto-origin-arm-{}.txt", Uuid::new_v4()));
+    let host_file = std::env::temp_dir().join(format!("txr-origin-arm-{}.txt", Uuid::new_v4()));
     std::fs::write(&host_file, b"host bytes\n").expect("write host input");
 
     let job = analysis_job_with_inputs(

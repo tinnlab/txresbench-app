@@ -1,6 +1,6 @@
 //! cgroup v2 transient-scope creation (per analysis run).
 //!
-//! Ported from ziee `code_sandbox/cgroup.rs`. Writes directly to sysfs (no
+//! Ported from txresbench `code_sandbox/cgroup.rs`. Writes directly to sysfs (no
 //! systemd-run). The delegated parent comes from the boot cgroup probe. Only
 //! invoked on the Linux exec path, but the struct itself is OS-independent
 //! (plain `std::fs`) so the scope-name logic is unit-testable everywhere.
@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::settings::SandboxResourceLimits;
 
@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn read_metrics_on_a_plain_dir_is_all_none() {
         // A non-cgroup tmpfs dir has none of the pseudo-files → all None, no error.
-        let dir = std::env::temp_dir().join(format!("cyto-cgm-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("txr-cgm-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let scope = CgroupScope::for_test(dir.clone());
         let m = scope.read_metrics();
@@ -218,7 +218,7 @@ mod tests {
         // dir. (A real cgroupfs pre-creates the controller pseudo-files;
         // `CgroupScope::create` on a plain tmpfs would materialize them and make
         // the dir non-empty, which is a tmpfs artifact, not the Drop contract.)
-        let parent = std::env::temp_dir().join(format!("cyto-cg-{}", std::process::id()));
+        let parent = std::env::temp_dir().join(format!("txr-cg-{}", std::process::id()));
         let path = parent.join(scope_name(Uuid::nil()));
         std::fs::create_dir_all(&path).unwrap();
         {

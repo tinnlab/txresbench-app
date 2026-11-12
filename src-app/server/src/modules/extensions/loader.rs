@@ -18,7 +18,7 @@
 //! seeded ones and a rescan discovers it with no rebuild.
 //!
 //! `serde_norway` is present-but-unused elsewhere in this crate (config delegates
-//! to `ziee_core`).
+//! to `txresbench_core`).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -75,10 +75,10 @@ pub(crate) fn is_reserved_package(folder_name: &str) -> bool {
 ///
 /// Deliberately an env var read at the publish site rather than a settings row: it has to
 /// work when the thing that is broken is the boot itself, before any database read.
-pub const ALLOW_BROKEN_FIRST_PARTY_ENV: &str = "CYTO_PROCESSOR_ALLOW_BROKEN_FIRST_PARTY";
+pub const ALLOW_BROKEN_FIRST_PARTY_ENV: &str = "TXR_PROCESSOR_ALLOW_BROKEN_FIRST_PARTY";
 
 /// Is the first-party refusal downgraded to the tolerant posture? Read the same way as the
-/// other deploy-level kill-switches (`CYTO_PROCESSOR_SEED_ONLY`, `CYTO_PROCESSOR_WATCH_ENABLED`).
+/// other deploy-level kill-switches (`TXR_PROCESSOR_SEED_ONLY`, `TXR_PROCESSOR_WATCH_ENABLED`).
 pub fn allow_broken_first_party() -> bool {
     #[cfg(test)]
     if let Some(forced) = override_seam::forced() {
@@ -412,7 +412,7 @@ impl ExtensionRegistry {
              vacuously green while the product silently loses every analysis. Likely \
              causes — the embedded seed failed to extract; the app data root moved or \
              points somewhere else; the folder was emptied or its manifests deleted by \
-             hand; or CYTO_PROCESSOR_SEED_ONLY is set{} (a `_`-prefixed reserved package \
+             hand; or TXR_PROCESSOR_SEED_ONLY is set{} (a `_`-prefixed reserved package \
              is not a candidate, so a folder holding only those counts as zero here). To \
              limp along with an empty registry while you fix it, set \
              {ALLOW_BROKEN_FIRST_PARTY_ENV}=1.",
@@ -1396,7 +1396,7 @@ mod tests {
         ExtensionManifest {
             id: id.to_string(),
             name: id.to_string(),
-            publisher: "cyto".to_string(),
+            publisher: "txr".to_string(),
             version: "0.1.0".to_string(),
             api_version: "1.0".to_string(),
             contributes: Contributes {
@@ -1444,13 +1444,13 @@ mod tests {
     /// A throwaway data dir under the system temp dir with the REAL embedded seed
     /// extracted into it (via `embedded::reconcile`), so the scan tests exercise
     /// `build_from_dir` over the same folder layout production scans — WITHOUT
-    /// mutating `CYTO_APP_DATA_DIR` (parallel-safe; never pollutes the real data dir).
+    /// mutating `TXR_APP_DATA_DIR` (parallel-safe; never pollutes the real data dir).
     struct SeedDir(PathBuf);
     impl SeedDir {
         fn new(tag: &str) -> Self {
             let seq = TEST_SEQ.fetch_add(1, Ordering::Relaxed);
             let p = std::env::temp_dir().join(format!(
-                "cyto-loader-scan-{tag}-{}-{seq}",
+                "txr-loader-scan-{tag}-{}-{seq}",
                 std::process::id()
             ));
             let _ = std::fs::remove_dir_all(&p);
@@ -1523,7 +1523,7 @@ mod tests {
         let yaml = r#"
 id: demo
 name: Demo
-publisher: cyto
+publisher: txr
 version: 0.0.1
 apiVersion: "1.0"
 contributes:
@@ -1785,7 +1785,7 @@ run: { kind: sandbox, runtime: python, entry: compute/x.py }
         std::fs::create_dir_all(pkg.join("compute")).unwrap();
         std::fs::write(
             pkg.join("manifest.yaml"),
-            "id: newly-dropped\nname: Newly Dropped\npublisher: cyto\nversion: 0.1.0\napiVersion: \"1.0\"\ncontributes: {}\n",
+            "id: newly-dropped\nname: Newly Dropped\npublisher: txr\nversion: 0.1.0\napiVersion: \"1.0\"\ncontributes: {}\n",
         )
         .unwrap();
         let reg2 = ExtensionRegistry::build_from_dir(dir).expect("rescan after add");
@@ -1821,7 +1821,7 @@ run: { kind: sandbox, runtime: python, entry: compute/x.py }
         std::fs::create_dir_all(&bad).unwrap();
         std::fs::write(
             bad.join("manifest.yaml"),
-            "id: broken-pkg\nname: Broken\npublisher: cyto\nversion: 0.1.0\napiVersion: \"1.0\"\nbogus_unknown_key: true\ncontributes: {}\n",
+            "id: broken-pkg\nname: Broken\npublisher: txr\nversion: 0.1.0\napiVersion: \"1.0\"\nbogus_unknown_key: true\ncontributes: {}\n",
         )
         .unwrap();
 
@@ -1888,7 +1888,7 @@ run: { kind: sandbox, runtime: python, entry: compute/x.py }
             let mut m = String::new();
             m.push_str(&format!("id: {pkg}\n"));
             m.push_str(&format!("name: {pkg}\n"));
-            m.push_str("publisher: cyto\n");
+            m.push_str("publisher: txr\n");
             m.push_str("version: 0.1.0\n");
             m.push_str("apiVersion: \"1.0\"\n");
             m.push_str("contributes:\n");
@@ -2067,7 +2067,7 @@ run: { kind: sandbox, runtime: python, entry: compute/x.py }
     /// lint that reads them.
     fn datatype_pkg_yaml(pkg: &str, dt: &str, extends: &str) -> String {
         format!(
-            "id: {pkg}\nname: Probe\npublisher: cyto\nversion: 0.1.0\napiVersion: \"1.0\"\n\
+            "id: {pkg}\nname: Probe\npublisher: txr\nversion: 0.1.0\napiVersion: \"1.0\"\n\
              contributes:\n  datatypes:\n    - id: {dt}\n      title: Probe Thing\n      \
              extends: {extends}\n      is_abstract: false\n      axes:\n        - name: cells\n          \
              key_label: barcode\n      entity_axis: cells\n      storage:\n        layout:\n          \
@@ -2078,7 +2078,7 @@ run: { kind: sandbox, runtime: python, entry: compute/x.py }
     /// A minimal, otherwise-VALID manifest contributing one analysis that declares `env`.
     fn env_pkg_yaml(pkg: &str, env: &str) -> String {
         format!(
-            "id: {pkg}\nname: Env Probe\npublisher: cyto\nversion: 0.1.0\napiVersion: \"1.0\"\n\
+            "id: {pkg}\nname: Env Probe\npublisher: txr\nversion: 0.1.0\napiVersion: \"1.0\"\n\
              contributes:\n  analyses:\n    - id: {pkg}.run\n      category: demo\n      \
              title: Probe analysis\n      env: {env}\n      appliesTo: []\n      produces: [tabular]\n      \
              run: {{ kind: sandbox, runtime: python, entry: compute/demo.py }}\n"
@@ -2089,7 +2089,7 @@ run: { kind: sandbox, runtime: python, entry: compute/x.py }
     /// the `deny_unknown_fields` schema refuses — the shape a bad hand-edit actually takes.
     fn broken_manifest(id: &str) -> String {
         format!(
-            "id: {id}\nname: Broken\npublisher: cyto\nversion: 0.1.0\napiVersion: \"1.0\"\n\
+            "id: {id}\nname: Broken\npublisher: txr\nversion: 0.1.0\napiVersion: \"1.0\"\n\
              bogus_unknown_key: true\ncontributes: {{}}\n"
         )
     }
@@ -2681,7 +2681,7 @@ run: { kind: sandbox, runtime: python, entry: compute/x.py }
     #[test]
     fn an_attacker_chosen_string_is_bounded_and_de_fanged_before_it_is_reported() {
         // Control characters become visible escapes; the text stays diagnosable.
-        let forged = "x\n2026-09-03T00:00:00Z  INFO cytoanalyst: all loaded, none refused";
+        let forged = "x\n2026-09-03T00:00:00Z  INFO txresbench: all loaded, none refused";
         let clean = sanitize_for_report(forged);
         assert!(
             !clean.contains('\n') && clean.contains("\\n"),
@@ -2689,7 +2689,7 @@ run: { kind: sandbox, runtime: python, entry: compute/x.py }
              forge what looks like its own log record: {clean:?}"
         );
         assert!(
-            clean.contains("INFO cytoanalyst"),
+            clean.contains("INFO txresbench"),
             "…while the text itself is preserved, so it stays diagnosable: {clean:?}"
         );
         for c in ['\u{1b}', '\r', '\u{7}', '\u{0}'] {
@@ -3190,7 +3190,7 @@ run: { kind: sandbox, runtime: python, entry: compute/x.py }
         // `env` deep inside a datatype's free-form `schema` — a normal JSON-Schema idiom,
         // and NOT an env-id.
         let yaml = format!(
-            "id: zzz-freeform\nname: Free\npublisher: cyto\nversion: 0.1.0\napiVersion: \"1.0\"\n\
+            "id: zzz-freeform\nname: Free\npublisher: txr\nversion: 0.1.0\napiVersion: \"1.0\"\n\
              contributes:\n  datatypes:\n    - id: probe/free\n      title: Free\n      \
              extends: {}\n      is_abstract: false\n      axes:\n        - name: cells\n          \
              key_label: barcode\n      entity_axis: cells\n      storage:\n        layout:\n          \
@@ -3219,7 +3219,7 @@ run: { kind: sandbox, runtime: python, entry: compute/x.py }
     #[test]
     fn a_scan_that_discovers_zero_packages_fails_with_a_diagnosis() {
         let empty = std::env::temp_dir().join(format!(
-            "cyto-loader-empty-{}-{}",
+            "txr-loader-empty-{}-{}",
             std::process::id(),
             TEST_SEQ.fetch_add(1, Ordering::Relaxed)
         ));
@@ -3257,7 +3257,7 @@ run: { kind: sandbox, runtime: python, entry: compute/x.py }
              derived from the fixture, so adding one costs no edit: {err}",
             non_package_dirs.len()
         );
-        for cause in ["seed \nfailed to extract", "data root", "CYTO_PROCESSOR_SEED_ONLY"] {
+        for cause in ["seed \nfailed to extract", "data root", "TXR_PROCESSOR_SEED_ONLY"] {
             let cause = cause.replace(" \n", " ");
             assert!(
                 err.replace('\n', " ").contains(&cause),
@@ -3340,7 +3340,7 @@ run: { kind: sandbox, runtime: python, entry: compute/x.py }
              constant would all pass a weaker assertion"
         );
         assert_eq!(
-            ALLOW_BROKEN_FIRST_PARTY_ENV, "CYTO_PROCESSOR_ALLOW_BROKEN_FIRST_PARTY",
+            ALLOW_BROKEN_FIRST_PARTY_ENV, "TXR_PROCESSOR_ALLOW_BROKEN_FIRST_PARTY",
             "the env var an operator is told to set is part of the contract, so a rename \
              must be a deliberate edit here rather than a silently dead escape hatch"
         );
@@ -3461,7 +3461,7 @@ run: { kind: sandbox, runtime: python, entry: compute/x.py }
             missing.is_empty(),
             "these packages are EMBEDDED but are NOT in the loaded registry: {missing:?}. A \
              shipped package that does not load registers nothing — which is exactly \
-             ziee-ai/cytoanalyst#190 / #197."
+             tinnlab/txresbench#190 / #197."
         );
         assert!(
             embedded_ids.len() >= 12,

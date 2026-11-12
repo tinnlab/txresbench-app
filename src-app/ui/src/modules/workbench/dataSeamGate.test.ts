@@ -34,10 +34,10 @@ const srcRoot = path.resolve(here, '../..')
 /** file → the seam identifier whose install must be gated. */
 const DATA_BEARING_SEAMS: ReadonlyArray<readonly [file: string, seam: string]> = [
   ['modules/workbench/core/render/declarativeMount.ts', '__declarativeStores'],
-  ['core/workstore/index.ts', '__cyto_read'],
-  ['core/workstore/decodeCounter.ts', '__cyto_count_decodes'],
-  ['modules/workbench/extensions/data/projectSources.ts', '__cyto_stream'],
-  ['modules/workbench/extensions/data/workbenchDataSource.ts', '__cyto_ds'],
+  ['core/workstore/index.ts', '__txr_read'],
+  ['core/workstore/decodeCounter.ts', '__txr_count_decodes'],
+  ['modules/workbench/extensions/data/projectSources.ts', '__txr_stream'],
+  ['modules/workbench/extensions/data/workbenchDataSource.ts', '__txr_ds'],
 ]
 
 /** The exact expression Vite folds. Whitespace-tolerant, token-exact. */

@@ -17,7 +17,7 @@ import { BACKEND, findDatasetRow, loginOwnerToDatasets, ownerToken } from './_he
 //   2. the deployment's own on-ingest converter runs it for real, in the sandbox, and the
 //      UI's processing badge is what reports completion;
 //   3. the emitted axis indexes are asserted to be DIRECTORIES, not files;
-//   4. the shipped reader (`window.__cyto_read`) decodes the served bytes in the page, and
+//   4. the shipped reader (`window.__txr_read`) decodes the served bytes in the page, and
 //      the ordered key sequence it recovers is checked against the digest the PRODUCER
 //      declared at write time — two independent sources, so a matching digest cannot be
 //      manufactured by this spec.
@@ -41,7 +41,7 @@ import { BACKEND, findDatasetRow, loginOwnerToDatasets, ownerToken } from './_he
 //     opaque reports are not decoded here.
 //   • The converter is the AUTO-ENQUEUED on-ingest run, so no Run control is pressed. The
 //     upload journey is real UI; the user-initiated launch surface is not this spec's.
-//   • The reader is exercised through the `__cyto_read` seam — the shipped decoder itself,
+//   • The reader is exercised through the `__txr_read` seam — the shipped decoder itself,
 //     over real HTTP — but not through a PAINTED surface. A regression that decodes
 //     correctly and then fails to bind into a view would pass here.
 
@@ -173,7 +173,7 @@ function smallestImportableFixture(types: InputType[]): { path: string; extensio
 
 /**
  * A sha256 over an ORDERED key sequence, byte-identical to the producer's
- * `cyto_zarr.key_sequence_digest`: each key is length-prefixed (u64 LE) before its UTF-8
+ * `txr_zarr.key_sequence_digest`: each key is length-prefixed (u64 LE) before its UTF-8
  * bytes, then a `0xff` terminator and the count.
  *
  * Reimplemented here ON PURPOSE. The comparison in this spec is only worth something if the
@@ -210,10 +210,10 @@ async function readThroughShippedReader(
     async ({ id, declared }) => {
       const seam = (
         window as unknown as {
-          __cyto_read?: { table: (id: string, s: unknown) => Promise<{ columns: string[]; rows: unknown[][] }> }
+          __txr_read?: { table: (id: string, s: unknown) => Promise<{ columns: string[]; rows: unknown[][] }> }
         }
-      ).__cyto_read
-      if (!seam) return { error: 'no __cyto_read seam on the page' }
+      ).__txr_read
+      if (!seam) return { error: 'no __txr_read seam on the page' }
       try {
         const table = await seam.table(id, declared)
         return { columns: table.columns, rows: table.rows }
@@ -396,11 +396,11 @@ test('a real import completes through the UI and its Zarr-store artifacts read b
     const group = (await groupRes.json()) as {
       zarr_format?: number
       node_type?: string
-      attributes?: { cyto?: unknown }
+      attributes?: { txr?: unknown }
     }
     expect(group.zarr_format, `${where} is a v3 store`).toBe(3)
     expect(group.node_type, `${where} is a group (a directory of members), not an array`).toBe('group')
-    expect(group.attributes?.cyto, `${where}: the store restates the row's declaration`).toEqual(axis.structure)
+    expect(group.attributes?.txr, `${where}: the store restates the row's declaration`).toEqual(axis.structure)
 
     // ── 4. the SHIPPED reader decodes it, in the page, over real HTTP ─────────────────
     const decoded = await readThroughShippedReader(page, axis.id, axis.structure)

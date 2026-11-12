@@ -12,7 +12,7 @@
  * testid registry nor the duplicate-literal build gate.
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react'
-import { Text, Title } from '@ziee/kit'
+import { Text, Title } from '@txresbench/kit'
 import { MemoryRouter } from 'react-router-dom'
 
 /** One permutation of a component (a variant × state × size cell). */

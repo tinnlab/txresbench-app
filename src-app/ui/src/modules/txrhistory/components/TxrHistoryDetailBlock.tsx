@@ -42,7 +42,7 @@
  */
 import type { CSSProperties } from 'react'
 import type { TxrHistoryDetail, TxrHistoryModelsMade } from '@/api-client/types'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import { tookLine } from '../lib/format'
 import { modelLinks, type TxrModelSetLink } from '../lib/title'
 import { TxrHistoryActions } from './TxrHistoryActions'

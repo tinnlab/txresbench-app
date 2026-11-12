@@ -255,7 +255,7 @@ def test_h5ad_write_metadata_column_uses_unified_kinds(tmp_path):
         # producer declarations `(structure, meta)`; the display vocabulary lives on
         # `meta`, which is what has to keep agreeing with colsummary.
         # `axis` is declared, never defaulted: neither `h5ad_import` nor the framework
-        # `cyto_columns` it delegates to holds a default any more (INV-2/INV-5).
+        # `txr_columns` it delegates to holds a default any more (INV-2/INV-5).
         _structure, meta = h5.write_metadata_column(tmp_path, rel, name, series, "cells")
         return meta
 

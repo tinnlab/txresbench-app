@@ -26,7 +26,7 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::account::{
+use txresbench::modules::account::{
     record_member_event, AccountRepository, AccountRole, ActorCeiling, AuditActor,
     MemberEventAction, NewMemberEvent,
 };
@@ -158,8 +158,8 @@ async fn inv13_role_change_writes_one_row_with_both_roles() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "ev_own", "ev_own@cyto.test").await;
-    let target = create_user(&server, &admin_token, "ev_tgt", "ev_tgt@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "ev_own", "ev_own@txresbench.test").await;
+    let target = create_user(&server, &admin_token, "ev_tgt", "ev_tgt@txresbench.test").await;
     let org = make_org_account(&pool, "Ledger Org", owner).await;
     add_member(&pool, org, target, "member").await;
     let token = login(&server, "ev_own").await;
@@ -199,10 +199,10 @@ async fn inv13_removed_and_left_are_distinguished_by_the_actor() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "rm_own", "rm_own@cyto.test").await;
-    let evicted = create_user(&server, &admin_token, "rm_evi", "rm_evi@cyto.test").await;
-    let leaver = create_user(&server, &admin_token, "rm_lea", "rm_lea@cyto.test").await;
-    let selfdel = create_user(&server, &admin_token, "rm_sdl", "rm_sdl@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "rm_own", "rm_own@txresbench.test").await;
+    let evicted = create_user(&server, &admin_token, "rm_evi", "rm_evi@txresbench.test").await;
+    let leaver = create_user(&server, &admin_token, "rm_lea", "rm_lea@txresbench.test").await;
+    let selfdel = create_user(&server, &admin_token, "rm_sdl", "rm_sdl@txresbench.test").await;
     let org = make_org_account(&pool, "Departures", owner).await;
     add_member(&pool, org, evicted, "member").await;
     add_member(&pool, org, leaver, "member").await;
@@ -287,8 +287,8 @@ async fn inv13_refused_mutations_leave_zero_rows() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "rf_own", "rf_own@cyto.test").await;
-    let admin_member = create_user(&server, &admin_token, "rf_adm", "rf_adm@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "rf_own", "rf_own@txresbench.test").await;
+    let admin_member = create_user(&server, &admin_token, "rf_adm", "rf_adm@txresbench.test").await;
     let org = make_org_account(&pool, "Refusals", owner).await;
     add_member(&pool, org, admin_member, "admin").await;
 
@@ -387,7 +387,7 @@ async fn inv13_provisioning_joins_are_recorded_with_the_right_actor_kind() {
 
     // (a) creating a USER provisions their personal account — an unattended action with no
     //     human actor.
-    let user = create_user(&server, &admin_token, "pv_usr", "pv_usr@cyto.test").await;
+    let user = create_user(&server, &admin_token, "pv_usr", "pv_usr@txresbench.test").await;
     let personal: Uuid = sqlx::query_scalar(
         "SELECT id FROM accounts WHERE kind = 'personal' AND personal_user_id = $1",
     )
@@ -496,9 +496,9 @@ async fn inv13b_staff_and_self_service_rows_are_distinguishable() {
     let pool = pool_for(&server).await;
     let staff = admin_user_id(&pool).await;
 
-    let owner = create_user(&server, &admin_token, "sd_own", "sd_own@cyto.test").await;
-    let subject = create_user(&server, &admin_token, "sd_sub", "sd_sub@cyto.test").await;
-    let added = create_user(&server, &admin_token, "sd_add", "sd_add@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "sd_own", "sd_own@txresbench.test").await;
+    let subject = create_user(&server, &admin_token, "sd_sub", "sd_sub@txresbench.test").await;
+    let added = create_user(&server, &admin_token, "sd_add", "sd_add@txresbench.test").await;
     let org = make_org_account(&pool, "Two Surfaces", owner).await;
     add_member(&pool, org, subject, "member").await;
     let owner_token = login(&server, "sd_own").await;
@@ -514,7 +514,7 @@ async fn inv13b_staff_and_self_service_rows_are_distinguishable() {
             org,
             subject,
             AccountRole::Admin,
-            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+            txresbench::modules::account::ActorCeiling::PlatformStaff {
                 staff_user_id: staff,
             },
         )
@@ -553,7 +553,7 @@ async fn inv13b_staff_and_self_service_rows_are_distinguishable() {
             org,
             added,
             AccountRole::Member,
-            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+            txresbench::modules::account::ActorCeiling::PlatformStaff {
                 staff_user_id: staff,
             },
         )
@@ -578,7 +578,7 @@ async fn inv13b_staff_and_self_service_rows_are_distinguishable() {
             org,
             added,
             AccountRole::Member,
-            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+            txresbench::modules::account::ActorCeiling::PlatformStaff {
                 staff_user_id: staff,
             },
         )
@@ -594,7 +594,7 @@ async fn inv13b_staff_and_self_service_rows_are_distinguishable() {
             org,
             Uuid::new_v4(),
             AccountRole::Member,
-            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+            txresbench::modules::account::ActorCeiling::PlatformStaff {
                 staff_user_id: staff,
             },
         )
@@ -627,8 +627,8 @@ async fn inv13c_ledger_refuses_update_delete_and_truncate() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "ap_own", "ap_own@cyto.test").await;
-    let target = create_user(&server, &admin_token, "ap_tgt", "ap_tgt@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "ap_own", "ap_own@txresbench.test").await;
+    let target = create_user(&server, &admin_token, "ap_tgt", "ap_tgt@txresbench.test").await;
     let org = make_org_account(&pool, "Append Only", owner).await;
     add_member(&pool, org, target, "member").await;
     let token = login(&server, "ap_own").await;
@@ -688,8 +688,8 @@ async fn inv13c_cascade_is_permitted_and_corrections_append() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "cs_own", "cs_own@cyto.test").await;
-    let target = create_user(&server, &admin_token, "cs_tgt", "cs_tgt@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "cs_own", "cs_own@txresbench.test").await;
+    let target = create_user(&server, &admin_token, "cs_tgt", "cs_tgt@txresbench.test").await;
     let org = make_org_account(&pool, "Cascade Org", owner).await;
     add_member(&pool, org, target, "member").await;
     let token = login(&server, "cs_own").await;
@@ -753,8 +753,8 @@ async fn a_membership_ended_by_the_users_cascade_is_still_recorded() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "cx_own", "cx_own@cyto.test").await;
-    let doomed = create_user(&server, &admin_token, "cx_dmd", "cx_dmd@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "cx_own", "cx_own@txresbench.test").await;
+    let doomed = create_user(&server, &admin_token, "cx_dmd", "cx_dmd@txresbench.test").await;
     let org = make_org_account(&pool, "Cascade Ledger", owner).await;
     add_member(&pool, org, doomed, "admin").await;
 
@@ -805,7 +805,7 @@ async fn a_membership_ended_by_the_users_cascade_is_still_recorded() {
 
     // CONTROL — the trigger fires ONLY for a cascade. A removal through the repository still
     // writes exactly one row, from the repository, at depth 1: no double-recording.
-    let evictee = create_user(&server, &admin_token, "cx_evi", "cx_evi@cyto.test").await;
+    let evictee = create_user(&server, &admin_token, "cx_evi", "cx_evi@txresbench.test").await;
     add_member(&pool, org, evictee, "member").await;
     let owner_token = login(&server, "cx_own").await;
     let s = server
@@ -876,8 +876,8 @@ async fn in_transaction_ledger_row_shares_the_mutation_xmin() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "xm_own", "xm_own@cyto.test").await;
-    let target = create_user(&server, &admin_token, "xm_tgt", "xm_tgt@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "xm_own", "xm_own@txresbench.test").await;
+    let target = create_user(&server, &admin_token, "xm_tgt", "xm_tgt@txresbench.test").await;
     let org = make_org_account(&pool, "Xmin Org", owner).await;
     add_member(&pool, org, target, "member").await;
     let _token = login(&server, "xm_own").await;
@@ -890,7 +890,7 @@ async fn in_transaction_ledger_row_shares_the_mutation_xmin() {
     // hyphens must be stripped or the WHEN clause never matches (the ITEM-25 record).
     let org_hex = format!("{:x}", org).replace('-', "");
     sqlx::query(&format!(
-        "CREATE TRIGGER cyto_test_ledger_fault BEFORE INSERT ON account_member_events \
+        "CREATE TRIGGER txr_test_ledger_fault BEFORE INSERT ON account_member_events \
          FOR EACH ROW WHEN (lower(hex(NEW.account_id)) = '{org_hex}') \
          BEGIN SELECT RAISE(ABORT, 'injected fault at the ledger write'); END"
     ))
@@ -936,7 +936,7 @@ async fn in_transaction_ledger_row_shares_the_mutation_xmin() {
         "and no ledger row survives either — one transaction in both directions"
     );
 
-    sqlx::query("DROP TRIGGER cyto_test_ledger_fault")
+    sqlx::query("DROP TRIGGER txr_test_ledger_fault")
         .execute(&pool)
         .await
         .expect("disarm the fault trigger");
@@ -1001,8 +1001,8 @@ async fn in_transaction_a_rolled_back_mutation_leaves_no_row() {
     let admin_token = setup_admin(&server).await;
     let pool = barrier_pool(&server).await;
 
-    let owner = create_user(&server, &admin_token, "rb_own", "rb_own@cyto.test").await;
-    let target = create_user(&server, &admin_token, "rb_tgt", "rb_tgt@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "rb_own", "rb_own@txresbench.test").await;
+    let target = create_user(&server, &admin_token, "rb_tgt", "rb_tgt@txresbench.test").await;
     let org = make_org_account(&pool, "Rollback Org", owner).await;
     add_member(&pool, org, target, "member").await;
 
@@ -1011,7 +1011,7 @@ async fn in_transaction_a_rolled_back_mutation_leaves_no_row() {
     // hyphens must be stripped or the WHEN clause never matches (the ITEM-25 record).
     let org_hex = format!("{:x}", org).replace('-', "");
     sqlx::query(&format!(
-        "CREATE TRIGGER cyto_test_ledger_fault BEFORE INSERT ON account_member_events \
+        "CREATE TRIGGER txr_test_ledger_fault BEFORE INSERT ON account_member_events \
          FOR EACH ROW WHEN (lower(hex(NEW.account_id)) = '{org_hex}') \
          BEGIN SELECT RAISE(ABORT, 'injected fault at the ledger write'); END"
     ))
@@ -1057,7 +1057,7 @@ async fn in_transaction_a_rolled_back_mutation_leaves_no_row() {
          directions, not merely `the ledger followed the mutation`",
     );
 
-    sqlx::query("DROP TRIGGER cyto_test_ledger_fault")
+    sqlx::query("DROP TRIGGER txr_test_ledger_fault")
         .execute(&pool)
         .await
         .expect("disarm the fault trigger");
@@ -1107,7 +1107,7 @@ async fn an_overflowing_page_yields_an_empty_page_not_a_panic() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "pg_own", "pg_own@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "pg_own", "pg_own@txresbench.test").await;
     let org = make_org_account(&pool, "Paging Org", owner).await;
     let owner_token = login(&server, "pg_own").await;
 
@@ -1170,8 +1170,8 @@ async fn a_removal_that_removed_nothing_is_a_404_and_writes_no_row() {
     let admin_token = setup_admin(&server).await;
     let pool = barrier_pool(&server).await;
 
-    let owner = create_user(&server, &admin_token, "ra_own", "ra_own@cyto.test").await;
-    let target = create_user(&server, &admin_token, "ra_tgt", "ra_tgt@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "ra_own", "ra_own@txresbench.test").await;
+    let target = create_user(&server, &admin_token, "ra_tgt", "ra_tgt@txresbench.test").await;
     let org = make_org_account(&pool, "Vanished", owner).await;
     add_member(&pool, org, target, "member").await;
 
@@ -1255,8 +1255,8 @@ async fn account_scoped_projection_omits_system_redacts_staff_and_drops_reason()
     let pool = pool_for(&server).await;
     let staff = admin_user_id(&pool).await;
 
-    let owner = create_user(&server, &admin_token, "pj_own", "pj_own@cyto.test").await;
-    let subject = create_user(&server, &admin_token, "pj_sub", "pj_sub@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "pj_own", "pj_own@txresbench.test").await;
+    let subject = create_user(&server, &admin_token, "pj_sub", "pj_sub@txresbench.test").await;
     let org = make_org_account(&pool, "Projection Org", owner).await;
     add_member(&pool, org, subject, "member").await;
     let owner_token = login(&server, "pj_own").await;
@@ -1272,7 +1272,7 @@ async fn account_scoped_projection_omits_system_redacts_staff_and_drops_reason()
             org,
             subject,
             AccountRole::Member,
-            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+            txresbench::modules::account::ActorCeiling::PlatformStaff {
                 staff_user_id: staff,
             },
         )
@@ -1451,16 +1451,16 @@ async fn inv1_cross_tenant_ledger_reads_are_404_on_populated_state() {
     let pool = pool_for(&server).await;
 
     // Tenant A — the caller's.
-    let p = create_user(&server, &admin_token, "xt_p", "xt_p@cyto.test").await;
-    let a_member = create_user(&server, &admin_token, "xt_am", "xt_am@cyto.test").await;
+    let p = create_user(&server, &admin_token, "xt_p", "xt_p@txresbench.test").await;
+    let a_member = create_user(&server, &admin_token, "xt_am", "xt_am@txresbench.test").await;
     let a = make_org_account(&pool, "Tenant A", p).await;
     add_member(&pool, a, a_member, "member").await;
     let p_token = login(&server, "xt_p").await;
     assert_eq!(patch_role(&server, &p_token, a, a_member, "admin").await, 200);
 
     // Tenant B — independent, and independently POPULATED.
-    let b_owner = create_user(&server, &admin_token, "xt_bo", "xt_bo@cyto.test").await;
-    let b_member = create_user(&server, &admin_token, "xt_bm", "xt_bm@cyto.test").await;
+    let b_owner = create_user(&server, &admin_token, "xt_bo", "xt_bo@txresbench.test").await;
+    let b_member = create_user(&server, &admin_token, "xt_bm", "xt_bm@txresbench.test").await;
     let b = make_org_account(&pool, "Tenant B", b_owner).await;
     add_member(&pool, b, b_member, "member").await;
     let b_token = login(&server, "xt_bo").await;
@@ -1520,8 +1520,8 @@ async fn inv4_bare_member_is_403_on_events_and_200_on_members() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "fl_own", "fl_own@cyto.test").await;
-    let bare = create_user(&server, &admin_token, "fl_bar", "fl_bar@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "fl_own", "fl_own@txresbench.test").await;
+    let bare = create_user(&server, &admin_token, "fl_bar", "fl_bar@txresbench.test").await;
     let org = make_org_account(&pool, "Floor Org", owner).await;
     add_member(&pool, org, bare, "member").await;
     let bare_token = login(&server, "fl_bar").await;
@@ -1568,8 +1568,8 @@ async fn the_system_visibility_table_matches_what_the_route_actually_serves() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "sv_own", "sv_own@cyto.test").await;
-    let subject = create_user(&server, &admin_token, "sv_sub", "sv_sub@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "sv_own", "sv_own@txresbench.test").await;
+    let subject = create_user(&server, &admin_token, "sv_sub", "sv_sub@txresbench.test").await;
     let org = make_org_account(&pool, "Visibility", owner).await;
     add_member(&pool, org, subject, "member").await;
     let owner_token = login(&server, "sv_own").await;
@@ -1603,7 +1603,7 @@ async fn the_system_visibility_table_matches_what_the_route_actually_serves() {
                 subject,
             );
             ev.target_user_id = None;
-            ev.target_email = Some("sweep@cyto.test".to_string());
+            ev.target_email = Some("sweep@txresbench.test".to_string());
             ev
         }),
         (MemberEventAction::InviteExpired, {
@@ -1614,7 +1614,7 @@ async fn the_system_visibility_table_matches_what_the_route_actually_serves() {
                 subject,
             );
             ev.target_user_id = None;
-            ev.target_email = Some("sweep2@cyto.test".to_string());
+            ev.target_email = Some("sweep2@txresbench.test".to_string());
             ev
         }),
         (MemberEventAction::InviteRevoked, {
@@ -1625,7 +1625,7 @@ async fn the_system_visibility_table_matches_what_the_route_actually_serves() {
                 subject,
             );
             ev.target_user_id = None;
-            ev.target_email = Some("sweep3@cyto.test".to_string());
+            ev.target_email = Some("sweep3@txresbench.test".to_string());
             ev
         }),
         (MemberEventAction::InviteResent, {
@@ -1636,7 +1636,7 @@ async fn the_system_visibility_table_matches_what_the_route_actually_serves() {
                 subject,
             );
             ev.target_user_id = None;
-            ev.target_email = Some("sweep4@cyto.test".to_string());
+            ev.target_email = Some("sweep4@txresbench.test".to_string());
             ev
         }),
     ];
@@ -1654,7 +1654,7 @@ async fn the_system_visibility_table_matches_what_the_route_actually_serves() {
         let visible = events
             .iter()
             .any(|e| e["actor_kind"] == "system" && e["action"] == action.as_str());
-        let expected = cytoanalyst::modules::account::system_row_is_tenant_visible(action);
+        let expected = txresbench::modules::account::system_row_is_tenant_visible(action);
         assert_eq!(
             visible,
             expected,
@@ -1724,8 +1724,8 @@ async fn invitation_mutations_write_their_audit_rows() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "iv2_own", "iv2_own@cyto.test").await;
-    let member = create_user(&server, &admin_token, "iv2_mem", "iv2_mem@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "iv2_own", "iv2_own@txresbench.test").await;
+    let member = create_user(&server, &admin_token, "iv2_mem", "iv2_mem@txresbench.test").await;
     let org = make_org_account(&pool, "Invited Org", owner).await;
     add_member(&pool, org, member, "member").await;
     let token = login(&server, "iv2_own").await;
@@ -1744,7 +1744,7 @@ async fn invitation_mutations_write_their_audit_rows() {
     }
 
     // ── `invited` ───────────────────────────────────────────────────────────────────────
-    assert_eq!(invite(&server, &token, org, "newcomer@cyto.test", "member").await, 202);
+    assert_eq!(invite(&server, &token, org, "newcomer@txresbench.test", "member").await, 202);
     let rows = stored_events(&pool, org).await;
     assert_eq!(rows.len(), 1, "one row for one invitation: {rows:?}");
     let inv = &rows[0];
@@ -1755,7 +1755,7 @@ async fn invitation_mutations_write_their_audit_rows() {
         inv.target_user_id, None,
         "an invitee to an ADDRESS has no user id — the address is the identifier",
     );
-    assert_eq!(inv.target_email.as_deref(), Some("newcomer@cyto.test"));
+    assert_eq!(inv.target_email.as_deref(), Some("newcomer@txresbench.test"));
     assert_eq!(inv.new_role.as_deref(), Some("member"), "the role being offered");
     assert_eq!(inv.old_role, None, "there is no role before an invitation");
     let invitation_id = inv.invitation_id.expect("the row ties to its invitation");
@@ -1763,7 +1763,7 @@ async fn invitation_mutations_write_their_audit_rows() {
     // ── the two early-return arms mint nothing, so they record nothing ──────────────────
     let before = event_count(&pool, org).await;
     assert_eq!(
-        invite(&server, &token, org, "newcomer@cyto.test", "member").await,
+        invite(&server, &token, org, "newcomer@txresbench.test", "member").await,
         202,
         "uniform response (INV-8)"
     );
@@ -1774,7 +1774,7 @@ async fn invitation_mutations_write_their_audit_rows() {
          records nothing — the response is deliberately uniform, and the ledger must not be \
          the oracle the response refuses to be",
     );
-    assert_eq!(invite(&server, &token, org, "iv2_mem@cyto.test", "member").await, 202);
+    assert_eq!(invite(&server, &token, org, "iv2_mem@txresbench.test", "member").await, 202);
     assert_eq!(
         event_count(&pool, org).await,
         before,
@@ -1795,7 +1795,7 @@ async fn invitation_mutations_write_their_audit_rows() {
         .as_array()
         .expect("invitations array")
         .iter()
-        .find(|i| i["email"] == "newcomer@cyto.test")
+        .find(|i| i["email"] == "newcomer@txresbench.test")
         .and_then(|i| i["id"].as_str())
         .expect("the invitation we just created")
         .to_string();
@@ -1814,7 +1814,7 @@ async fn invitation_mutations_write_their_audit_rows() {
         .find(|r| r.action == "invite_resent")
         .expect("a resend is recorded");
     assert_eq!(resent.actor_user_id, Some(owner));
-    assert_eq!(resent.target_email.as_deref(), Some("newcomer@cyto.test"));
+    assert_eq!(resent.target_email.as_deref(), Some("newcomer@txresbench.test"));
     assert_eq!(
         resent.invitation_id,
         Some(invitation_id),
@@ -1836,7 +1836,7 @@ async fn invitation_mutations_write_their_audit_rows() {
         .find(|r| r.action == "invite_revoked")
         .expect("a revoke is recorded");
     assert_eq!(revoked.actor_user_id, Some(owner));
-    assert_eq!(revoked.target_email.as_deref(), Some("newcomer@cyto.test"));
+    assert_eq!(revoked.target_email.as_deref(), Some("newcomer@txresbench.test"));
     assert_eq!(revoked.invitation_id, Some(invitation_id));
     assert_eq!(
         rows.iter().filter(|r| r.action == "invited").count(),
@@ -1880,7 +1880,7 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "iv_own", "iv_own@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "iv_own", "iv_own@txresbench.test").await;
     let org = make_org_account(&pool, "Invites Org", owner).await;
     let invitation = Uuid::new_v4();
 
@@ -1892,7 +1892,7 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
             actor: AuditActor::User(owner),
             action: MemberEventAction::Invited,
             target_user_id: None,
-            target_email: Some("newcomer@cyto.test".to_string()),
+            target_email: Some("newcomer@txresbench.test".to_string()),
             old_role: None,
             new_role: Some(AccountRole::Member),
             invitation_id: Some(invitation),
@@ -1908,7 +1908,7 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
             actor: AuditActor::User(owner),
             action: MemberEventAction::InviteRevoked,
             target_user_id: None,
-            target_email: Some("newcomer@cyto.test".to_string()),
+            target_email: Some("newcomer@txresbench.test".to_string()),
             old_role: None,
             new_role: None,
             invitation_id: Some(invitation),
@@ -1922,7 +1922,7 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
     let rows = stored_events(&pool, org).await;
     assert_eq!(rows.len(), 2, "a revoke APPENDS; it does not mutate the invite (INV-13c)");
     let invited = rows.iter().find(|r| r.action == "invited").expect("invited row");
-    assert_eq!(invited.target_email.as_deref(), Some("newcomer@cyto.test"));
+    assert_eq!(invited.target_email.as_deref(), Some("newcomer@txresbench.test"));
     assert_eq!(invited.target_user_id, None, "an invitation has no user yet");
     assert_eq!(invited.invitation_id, Some(invitation), "which ties `invited` to `joined`");
     assert_eq!(invited.new_role.as_deref(), Some("member"));
@@ -1933,7 +1933,7 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
     let both = sqlx::query(
         "INSERT INTO account_member_events \
              (id, account_id, actor_user_id, actor_kind, action, target_user_id, target_email) \
-         VALUES (randomblob(16), $1, $2, 'user', 'invited', $2, 'both@cyto.test')",
+         VALUES (randomblob(16), $1, $2, 'user', 'invited', $2, 'both@txresbench.test')",
     )
     .bind(org)
     .bind(owner)
@@ -1980,7 +1980,7 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
     let membership_by_email = sqlx::query(
         "INSERT INTO account_member_events \
              (id, account_id, actor_user_id, actor_kind, action, target_email, old_role) \
-         VALUES (randomblob(16), $1, $2, 'user', 'removed', 'ghost@cyto.test', 'member')",
+         VALUES (randomblob(16), $1, $2, 'user', 'removed', 'ghost@txresbench.test', 'member')",
     )
     .bind(org)
     .bind(owner)
@@ -2006,7 +2006,7 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
     let mut good =
         NewMemberEvent::about(org, AuditActor::User(owner), MemberEventAction::Invited, owner);
     good.target_user_id = None;
-    good.target_email = Some("sanity@cyto.test".to_string());
+    good.target_email = Some("sanity@txresbench.test".to_string());
     assert!(
         record_member_event(&mut tx, good).await.is_ok(),
         "sanity: an invitation naming an address and no user is accepted",
@@ -2025,7 +2025,7 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
     let mut membership_no_user =
         NewMemberEvent::about(org, AuditActor::User(owner), MemberEventAction::Removed, owner);
     membership_no_user.target_user_id = None;
-    membership_no_user.target_email = Some("ghost@cyto.test".to_string());
+    membership_no_user.target_email = Some("ghost@txresbench.test".to_string());
     assert!(
         record_member_event(&mut tx, membership_no_user).await.is_err(),
         "and a membership action carrying only an address is refused in Rust too",
@@ -2169,7 +2169,7 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
             actor: AuditActor::User(owner),
             action: MemberEventAction::Invited,
             target_user_id: None,
-            target_email: Some("  Mixed.Case@Cyto.TEST  ".to_string()),
+            target_email: Some("  Mixed.Case@Txresbench.TEST  ".to_string()),
             old_role: None,
             new_role: Some(AccountRole::Member),
             invitation_id: Some(mixed),
@@ -2186,7 +2186,7 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
         .expect("the mixed-case row");
     assert_eq!(
         stored.target_email.as_deref(),
-        Some("Mixed.Case@Cyto.TEST"),
+        Some("Mixed.Case@Txresbench.TEST"),
         "trimmed, and otherwise exactly what was recorded",
     );
 

@@ -197,7 +197,7 @@ EXPECTED_XML = (
 #: committed fixture but one carries. A regeneration through `ome_writer.write_ome_tiff` or raw
 #: `tifffile.TiffWriter` is the cheap way to lose this fixture's whole value while leaving a
 #: plausible OME-TIFF in place, and these are what refuse it.
-FORBIDDEN_XML = ('Creator="tifffile', "cyto-spatial/1")
+FORBIDDEN_XML = ('Creator="tifffile', "txr-spatial/1")
 
 
 def _fail(problems: list[str]) -> int:

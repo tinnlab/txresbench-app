@@ -7,7 +7,7 @@
 // mismatched type renders nothing rather than throwing — the registry only ever routes
 // the matching type here).
 
-import { Input, InputNumber, MultiSelect, Select, Slider, Switch, Textarea } from '@ziee/kit'
+import { Input, InputNumber, MultiSelect, Select, Slider, Switch, Textarea } from '@txresbench/kit'
 import type {
   ArrayField as ArrayFieldT,
   BooleanField as BooleanFieldT,

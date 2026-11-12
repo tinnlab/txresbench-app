@@ -8,7 +8,7 @@ import {
   verifyDensifyParity,
   verifyBoxStatsParity,
   verifySignificanceParity,
-} from '@ziee/viz'
+} from '@txresbench/viz'
 
 async function run() {
   const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 64

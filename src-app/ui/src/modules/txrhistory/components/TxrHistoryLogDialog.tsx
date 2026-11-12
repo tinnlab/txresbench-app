@@ -19,7 +19,7 @@
  */
 import { useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Button, Dialog, message, Select, Switch } from '@ziee/kit'
+import { Button, Dialog, message, Select, Switch } from '@txresbench/kit'
 import type { TxrRunLogLine } from '@/api-client/types'
 import { isTechnicalLogNoise } from '@/modules/txrrun/lib/format'
 

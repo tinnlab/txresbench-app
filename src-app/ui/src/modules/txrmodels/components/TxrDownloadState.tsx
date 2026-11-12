@@ -35,7 +35,7 @@
  * `formatBytes` (the ONE bytes formatter; never a second spelling).
  */
 import type { CSSProperties } from 'react'
-import { Button, Spinner } from '@ziee/kit'
+import { Button, Spinner } from '@txresbench/kit'
 import { formatBytes } from '../lib/format'
 import type { TxrModelDownloadState } from '../types'
 

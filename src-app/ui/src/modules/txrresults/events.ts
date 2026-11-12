@@ -26,10 +26,10 @@
  * every `AppEvents` member shared the same top-level keys).
  */
 
-import { useEventBusStore } from '@ziee/framework/events'
-import type { BaseEvent } from '@ziee/framework/events'
+import { useEventBusStore } from '@txresbench/framework/events'
+import type { BaseEvent } from '@txresbench/framework/events'
 
-declare module '@ziee/framework' {
+declare module '@txresbench/framework' {
   interface AppEvents {
     'txr:save-models-requested': BaseEvent & {
       type: 'txr:save-models-requested'

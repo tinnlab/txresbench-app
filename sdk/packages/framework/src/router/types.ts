@@ -5,13 +5,13 @@ import type {
   LazyExoticComponent,
 } from 'react'
 
-// @ziee/framework/router — types.
+// @txresbench/framework/router — types.
 //
-// A domain-agnostic port of ziee's own `ui/src/modules/router` module. It ships
-// the same three things ziee's does — a `Routes` store, the
+// A domain-agnostic port of txresbench's own `ui/src/modules/router` module. It ships
+// the same three things txresbench's does — a `Routes` store, the
 // `CreateModuleOptions.routes` declaration-merge, and the `routerEffects` /
 // `routeGuards` slots — but with ZERO app coupling: no `@/core/permissions`,
-// no `@ziee/kit`, no `@/core/components`. Permission gating and the loading
+// no `@txresbench/kit`, no `@/core/components`. Permission gating and the loading
 // fallback are injected by the consuming app (see `createRouterModule`).
 
 /**
@@ -86,7 +86,7 @@ export interface RouteConfig {
 /**
  * Extend `CreateModuleOptions` so any module can declare `routes`. This is how
  * the router collects routes from every registered module (via
- * `onModuleRegister`). Mirrors ziee's own router.
+ * `onModuleRegister`). Mirrors txresbench's own router.
  */
 declare module '../module' {
   interface CreateModuleOptions {

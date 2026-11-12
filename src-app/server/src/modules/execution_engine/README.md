@@ -199,7 +199,7 @@ scripts/check-network-allowlist.sh          # INV-5: zero host literal
 scripts/check-no-format-crates.sh           # no `csv`-family crate linked
 scripts/check-guard-integrity.sh            # pins unchanged
 scripts/check-no-study-domain-literals.sh   # pre-existing libs/viz redness
-cargo run --bin cytoanalyst -- --generate-openapi ../ui/openapi
+cargo run --bin txresbench -- --generate-openapi ../ui/openapi
                                                # TEST-EE-29 parity: the
                                                # regen must be byte-idempotent
                                                # (clean `git diff` after;

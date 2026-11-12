@@ -4,7 +4,7 @@ import type {
   ComponentType,
   LazyExoticComponent,
 } from 'react'
-import type { PermissionExpr } from '@ziee/framework/permissions'
+import type { PermissionExpr } from '@txresbench/framework/permissions'
 
 // The AppLayout SIDEBAR SLOT contract — the 7 slot definitions the shell's
 // generic `AppLayout` renders, expressed as TYPE declarations only. An app
@@ -89,7 +89,7 @@ export interface SidebarWidgetItem {
 /**
  * Register AppLayout sidebar slots
  */
-declare module '@ziee/framework/module-system/types' {
+declare module '@txresbench/framework/module-system/types' {
   interface Slots {
     sidebarNavigation: SidebarNavItem[]
     sidebarTools: SidebarToolItem[]

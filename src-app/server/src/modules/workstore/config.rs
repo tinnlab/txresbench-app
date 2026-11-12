@@ -1,7 +1,7 @@
 //! Workstore config + store-root resolution (ITEM-15).
 //!
 //! The store root is resolved UNDER `rootfs::data_root()`, which already honors
-//! `CYTO_APP_DATA_DIR` for per-worktree test isolation (DEC-16 — the exact
+//! `TXR_APP_DATA_DIR` for per-worktree test isolation (DEC-16 — the exact
 //! precedent is `lib.rs`'s `files_root = data_root().join("files")`).
 //!
 //! It is no longer a bare `.join("workstore")`: that made every server sharing a
@@ -21,7 +21,7 @@
 
 use std::path::Path;
 
-use ziee_core::{AppError, ServerConfig};
+use txresbench_core::{AppError, ServerConfig};
 
 use super::partition::{catalog_key, resolve_owned_root, StoreClaim};
 
@@ -63,7 +63,7 @@ impl CloudProvider {
 }
 
 /// Connection config for the cloud `S3` backend (ITEM-4). Resolved from env when
-/// `CYTO_WORKSTORE_BACKEND=s3`. Credentials default to the cloud's **ambient identity**
+/// `TXR_WORKSTORE_BACKEND=s3`. Credentials default to the cloud's **ambient identity**
 /// (IRSA / Workload-Identity / ADC — no static key), with static creds honored for the
 /// emulator/test path (PROV-T1-4). The loopback `endpoint` override is a **debug-only
 /// test seam** (DEC-3): `resolve_for` reads `S3_ENDPOINT` / `STORAGE_EMULATOR_HOST` only
@@ -142,10 +142,10 @@ fn endpoint_seam(raw: Option<String>) -> Option<String> {
 
 impl S3ConnConfig {
     /// Resolve S3/GCS connection config from env. Provider defaults to S3; set
-    /// `CYTO_WORKSTORE_CLOUD=gcs` for the native-GCS backend. The loopback endpoint
+    /// `TXR_WORKSTORE_CLOUD=gcs` for the native-GCS backend. The loopback endpoint
     /// override is honored only in debug builds (DEC-3 / [`endpoint_seam`]).
     pub fn from_env() -> Self {
-        let provider = match std::env::var("CYTO_WORKSTORE_CLOUD").as_deref() {
+        let provider = match std::env::var("TXR_WORKSTORE_CLOUD").as_deref() {
             Ok("gcs") | Ok("gcp") => CloudProvider::Gcs,
             _ => CloudProvider::S3,
         };
@@ -154,21 +154,21 @@ impl S3ConnConfig {
             CloudProvider::S3 => endpoint_seam(env_opt("S3_ENDPOINT")),
             CloudProvider::Gcs => endpoint_seam(env_opt("STORAGE_EMULATOR_HOST")),
         };
-        let path_style = env_bool("CYTO_WORKSTORE_S3_PATH_STYLE")
+        let path_style = env_bool("TXR_WORKSTORE_S3_PATH_STYLE")
             // floci/R2 (an endpoint override present) need path-style; real AWS uses
             // virtual-hosted. Default follows the endpoint's presence.
             .unwrap_or(endpoint.is_some());
         Self {
             provider,
-            bucket: env_opt("CYTO_WORKSTORE_S3_BUCKET").unwrap_or_default(),
+            bucket: env_opt("TXR_WORKSTORE_S3_BUCKET").unwrap_or_default(),
             region: env_opt("AWS_REGION").unwrap_or_else(|| "us-east-1".to_string()),
             endpoint,
             access_key_id: env_opt("AWS_ACCESS_KEY_ID"),
             secret_access_key: env_opt("AWS_SECRET_ACCESS_KEY"),
             path_style,
-            multipart_threshold: env_usize("CYTO_WORKSTORE_S3_MULTIPART_THRESHOLD")
+            multipart_threshold: env_usize("TXR_WORKSTORE_S3_MULTIPART_THRESHOLD")
                 .unwrap_or(DEFAULT_MULTIPART_THRESHOLD),
-            part_size: env_usize("CYTO_WORKSTORE_S3_PART_SIZE")
+            part_size: env_usize("TXR_WORKSTORE_S3_PART_SIZE")
                 .map(|p| p.max(MIN_PART_SIZE))
                 .unwrap_or(DEFAULT_PART_SIZE),
         }
@@ -206,8 +206,8 @@ impl WorkstoreLimits {
     pub fn from_env() -> Self {
         let d = Self::default();
         Self {
-            gc_enabled: env_bool("CYTO_WORKSTORE_GC_ENABLED").unwrap_or(d.gc_enabled),
-            gc_interval_hours: env_u64("CYTO_WORKSTORE_GC_INTERVAL_HOURS")
+            gc_enabled: env_bool("TXR_WORKSTORE_GC_ENABLED").unwrap_or(d.gc_enabled),
+            gc_interval_hours: env_u64("TXR_WORKSTORE_GC_INTERVAL_HOURS")
                 .map(|h| h.clamp(1, 24 * 30))
                 .unwrap_or(d.gc_interval_hours),
             table_page_max: d.table_page_max,
@@ -237,7 +237,7 @@ impl WorkstoreConfig {
         self.claim.root()
     }
 
-    /// Resolve the store root under the app-data dir (honors `CYTO_APP_DATA_DIR`),
+    /// Resolve the store root under the app-data dir (honors `TXR_APP_DATA_DIR`),
     /// partitioned by the identity of the catalog `config` binds this server to,
     /// + the tunables. `object_store_backend` is `local` unless overridden to a
     /// value we build (only `local` is built).
@@ -247,9 +247,9 @@ impl WorkstoreConfig {
     /// the one that owns that directory.
     pub fn resolve_for(config: &ServerConfig) -> Result<Self, AppError> {
         let claim = resolve_owned_root(&crate::modules::rootfs::data_root(), &catalog_key(config));
-        // FAIL-CLOSED (#69): an unrecognized CYTO_WORKSTORE_BACKEND refuses to boot here rather
+        // FAIL-CLOSED (#69): an unrecognized TXR_WORKSTORE_BACKEND refuses to boot here rather
         // than silently resolving to Local. An unset var is Ok(Local) (INV-5 byte-identity).
-        let backend = backend_from_env(std::env::var("CYTO_WORKSTORE_BACKEND").ok().as_deref())?;
+        let backend = backend_from_env(std::env::var("TXR_WORKSTORE_BACKEND").ok().as_deref())?;
         // Resolve cloud connection config only when the S3 backend is selected.
         let s3 = match backend {
             ObjectStoreKind::S3 => Some(S3ConnConfig::from_env()),
@@ -291,7 +291,7 @@ pub fn resolve_backend_and_s3(
 ) -> Result<(ObjectStoreKind, Option<S3ConnConfig>), AppError> {
     // FAIL-CLOSED (#69): a bad env backend errors here too, so no admin/boot path that layers a
     // DB row over env can silently fall back to Local on a mis-set var.
-    let env_backend = backend_from_env(std::env::var("CYTO_WORKSTORE_BACKEND").ok().as_deref())?;
+    let env_backend = backend_from_env(std::env::var("TXR_WORKSTORE_BACKEND").ok().as_deref())?;
     let backend = merge_backend(env_backend, db.backend.as_deref())?;
     let s3 = match backend {
         ObjectStoreKind::S3 => Some(merge_s3_conn(S3ConnConfig::from_env(), db)),
@@ -300,29 +300,29 @@ pub fn resolve_backend_and_s3(
     Ok((backend, s3))
 }
 
-/// The backend selector — pure, so the `CYTO_WORKSTORE_BACKEND` mapping is unit-testable
+/// The backend selector — pure, so the `TXR_WORKSTORE_BACKEND` mapping is unit-testable
 /// without touching process env (which is global + racy under parallel tests).
 ///
 /// FAIL-CLOSED (#69, INV-4): an UNSET (or blank) value is the default `Local`; `s3` selects
 /// the cloud backend; an explicit `local`/`local-fs` is `Local` too. ANY OTHER value is
 /// REFUSED with an error — it does NOT silently degrade to `Local`. A deployment that
-/// mis-sets the backend (the intuitive-but-wrong `CYTO_WORKSTORE_BACKEND=gcs`, a typo like
+/// mis-sets the backend (the intuitive-but-wrong `TXR_WORKSTORE_BACKEND=gcs`, a typo like
 /// `S3`) must refuse to boot rather than quietly run on the pod's ephemeral local disk and
 /// lose data on pod death — the same principle by which a weak `jwt.secret` refuses boot.
 ///
 /// Whitespace/case (DEC-1): surrounding whitespace is TRIMMED, then the token is matched
 /// CASE-SENSITIVELY. So `"s3 "` ⇒ `S3` (whitespace forgiven for a valid token) but `"S3"` /
 /// `"S3 "` ⇒ error (wrong case is the mis-set class #69 surfaces). The PROVIDER (s3 vs the
-/// native GCS backend) is chosen by `CYTO_WORKSTORE_CLOUD`, never by this var.
+/// native GCS backend) is chosen by `TXR_WORKSTORE_CLOUD`, never by this var.
 pub(crate) fn backend_from_env(raw: Option<&str>) -> Result<ObjectStoreKind, AppError> {
     match raw.map(str::trim) {
         None | Some("") => Ok(ObjectStoreKind::Local),
         Some(token) => parse_backend_token(token).map_err(|bad| {
             AppError::internal_error(format!(
-                "CYTO_WORKSTORE_BACKEND='{bad}' is not a recognized object-store backend. \
-                 The cloud PROVIDER is chosen by CYTO_WORKSTORE_CLOUD, not by this var — e.g. for \
-                 native GCS set CYTO_WORKSTORE_BACKEND=s3 together with CYTO_WORKSTORE_CLOUD=gcs. \
-                 Valid CYTO_WORKSTORE_BACKEND values: unset | {VALID_BACKEND_TOKENS}."
+                "TXR_WORKSTORE_BACKEND='{bad}' is not a recognized object-store backend. \
+                 The cloud PROVIDER is chosen by TXR_WORKSTORE_CLOUD, not by this var — e.g. for \
+                 native GCS set TXR_WORKSTORE_BACKEND=s3 together with TXR_WORKSTORE_CLOUD=gcs. \
+                 Valid TXR_WORKSTORE_BACKEND values: unset | {VALID_BACKEND_TOKENS}."
             ))
         }),
     }
@@ -376,7 +376,7 @@ pub fn validate_admin_backend(raw: Option<&str>) -> Result<Option<ObjectStoreKin
                 format!(
                     "backend='{bad}' is not a recognized object-store backend. \
                      Valid backend values: {VALID_BACKEND_TOKENS}. The cloud PROVIDER \
-                     (s3 vs gcs) is chosen by CYTO_WORKSTORE_CLOUD / the provider field, \
+                     (s3 vs gcs) is chosen by TXR_WORKSTORE_CLOUD / the provider field, \
                      not by this field."
                 ),
             )
@@ -403,7 +403,7 @@ pub fn validate_admin_backend(raw: Option<&str>) -> Result<Option<ObjectStoreKin
 /// `{:?}` must never print them — only their presence.
 #[derive(Clone, Default)]
 pub struct ObjectStoreDbConfig {
-    /// `"local"` | `"s3"`. `None` ⇒ env `CYTO_WORKSTORE_BACKEND`.
+    /// `"local"` | `"s3"`. `None` ⇒ env `TXR_WORKSTORE_BACKEND`.
     pub backend: Option<String>,
     /// `"s3"` | `"gcs"`. `None` ⇒ env provider.
     pub provider: Option<String>,
@@ -470,7 +470,7 @@ pub(crate) fn merge_backend(
             AppError::internal_error(format!(
                 "stored object-store backend='{bad}' is not a recognized value. \
                  Valid backend values: {VALID_BACKEND_TOKENS} (the cloud provider is chosen \
-                 separately by CYTO_WORKSTORE_CLOUD / the provider field). Fix the admin \
+                 separately by TXR_WORKSTORE_CLOUD / the provider field). Fix the admin \
                  object-store configuration."
             ))
         }),
@@ -669,7 +669,7 @@ mod tests {
     }
 
     /// TEST-2 (selection: unset default) [acceptance] [invariant: INV-2] — an UNSET or blank
-    /// `CYTO_WORKSTORE_BACKEND` resolves to `Local`, byte-identical to prior behavior, so the
+    /// `TXR_WORKSTORE_BACKEND` resolves to `Local`, byte-identical to prior behavior, so the
     /// desktop / single-box path is unchanged (DE-INV-1). Pure — no process env.
     #[test]
     fn backend_selector_unset_or_blank_is_local_default() {
@@ -693,7 +693,7 @@ mod tests {
     /// an UNRECOGNIZED non-empty value ERRORS, it does NOT silently degrade to `Local`. Covers
     /// the intuitive-but-wrong `gcs`, another provider name `minio`, and a wrong-case token (RETIRED-SUBSTRATE: named only as a rejected fixture)
     /// with whitespace `S3 `. The error message names the offending value AND points at
-    /// `CYTO_WORKSTORE_CLOUD` (so the operator learns the provider is chosen there). Flipping
+    /// `TXR_WORKSTORE_CLOUD` (so the operator learns the provider is chosen there). Flipping
     /// the selector back to silent-`Local` turns this test RED. Pure — no process env.
     #[test]
     fn backend_selector_fails_closed_on_unrecognized_value() {
@@ -706,8 +706,8 @@ mod tests {
                 "error must name the offending value {bad:?}: {msg}"
             );
             assert!(
-                msg.contains("CYTO_WORKSTORE_CLOUD"),
-                "error must point at CYTO_WORKSTORE_CLOUD: {msg}"
+                msg.contains("TXR_WORKSTORE_CLOUD"),
+                "error must point at TXR_WORKSTORE_CLOUD: {msg}"
             );
         }
     }
@@ -788,7 +788,7 @@ mod tests {
 
     /// TEST-6 (#70) [acceptance] [invariant: INV-3] — the #69 ENV path is UNCHANGED after the
     /// refactor onto the shared parser: unset/blank ⇒ Local; `s3` ⇒ S3; `local`/`local-fs` ⇒
-    /// Local; `s3 ` (trim) ⇒ S3; `gcs`/`S3` ⇒ Err still naming `CYTO_WORKSTORE_CLOUD`. Proves
+    /// Local; `s3 ` (trim) ⇒ S3; `gcs`/`S3` ⇒ Err still naming `TXR_WORKSTORE_CLOUD`. Proves
     /// the desktop/default selector stays byte-identical. Pure — no process env.
     #[test]
     fn env_selector_unchanged_after_shared_parser() {
@@ -802,7 +802,7 @@ mod tests {
         for bad in ["gcs", "S3"] {
             let msg = backend_from_env(Some(bad)).unwrap_err().to_string();
             assert!(msg.contains(bad), "error names the value: {msg}");
-            assert!(msg.contains("CYTO_WORKSTORE_CLOUD"), "error points at the provider var: {msg}");
+            assert!(msg.contains("TXR_WORKSTORE_CLOUD"), "error points at the provider var: {msg}");
         }
     }
 
@@ -840,7 +840,7 @@ mod tests {
     fn debug_redacts_the_credentials() {
         let cfg = S3ConnConfig {
             provider: CloudProvider::S3,
-            bucket: "cyto-worklab".to_string(),
+            bucket: "txr-worklab".to_string(),
             region: "us-east-1".to_string(),
             endpoint: Some("http://127.0.0.1:9000".to_string()),
             access_key_id: Some("AKIA_SUPER_SECRET_ID".to_string()),
@@ -863,7 +863,7 @@ mod tests {
             "presence is shown as redacted: {dbg}"
         );
         assert!(
-            dbg.contains("cyto-worklab"),
+            dbg.contains("txr-worklab"),
             "non-secret bucket is still shown: {dbg}"
         );
     }
@@ -878,13 +878,13 @@ mod tests {
     }
 
     /// The e2e/production contract, on the REAL resolver: whatever
-    /// `rootfs::data_root()` returns — and `CYTO_APP_DATA_DIR` is what sets it
+    /// `rootfs::data_root()` returns — and `TXR_APP_DATA_DIR` is what sets it
     /// for the integration + e2e harnesses — a single-catalog deployment's store
     /// sits at exactly `<that>/workstore`. The catalog partitioning must be
     /// invisible here, or every existing deployment's blobs are stranded.
     #[test]
     fn a_single_catalog_resolves_to_data_root_slash_workstore() {
-        let data = std::env::temp_dir().join(format!("cyto-cfgroot-{}", uuid::Uuid::new_v4()));
+        let data = std::env::temp_dir().join(format!("txr-cfgroot-{}", uuid::Uuid::new_v4()));
         let _guard = crate::modules::rootfs::scoped_data_root(&data);
 
         // SQLite-shaped config (ITEM-26): no `postgresql:` block; the DB target
@@ -898,15 +898,15 @@ server:
   api_prefix: "/api"
 jwt:
   secret: "test-secret-key-for-jwt-tokens-min-32-chars-long"
-  issuer: "cytoanalyst"
-  audience: "cytoanalyst-api"
+  issuer: "txresbench"
+  audience: "txresbench-api"
   access_token_expiry_hours: 24
   refresh_token_expiry_days: 30
 "#,
         )
         .expect("test config parses");
 
-        // TEST-4: resolve_for now returns Result; with CYTO_WORKSTORE_BACKEND unset it is Ok
+        // TEST-4: resolve_for now returns Result; with TXR_WORKSTORE_BACKEND unset it is Ok
         // and byte-identical (INV-2). (This test never sets the env var — see DEC-4 on why a
         // bad-value boot case is a pure unit test, not this process-global path.)
         let cfg = WorkstoreConfig::resolve_for(&server_cfg).expect("unset backend resolves Ok");

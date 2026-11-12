@@ -8,7 +8,7 @@ run whose `params` bag IS the opaque `draft.data`; the sandbox harness writes th
 `/outputs`, plus the `/outputs/manifest.json` the ingest sink consumes.
 
 Contract mirrored from the shipped packages' `_shared.py` (`io_dirs`, `params`,
-`write_manifest`, `output_entry`, `CYTO_OUTPUTS_DIR`), but inlined + STDLIB-ONLY so the
+`write_manifest`, `output_entry`, `TXR_OUTPUTS_DIR`), but inlined + STDLIB-ONLY so the
 producer needs no staged helpers and no scientific stack — any rootfs with `python3` runs it.
 
 Two properties the acceptance tests rest on:
@@ -23,8 +23,8 @@ import json
 import os
 from pathlib import Path
 
-inputs_dir = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-outputs_dir = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+inputs_dir = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+outputs_dir = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
 outputs_dir.mkdir(parents=True, exist_ok=True)
 
 # The opaque draft body (whatever JSON the draft carries). Absent/garbled -> {}.

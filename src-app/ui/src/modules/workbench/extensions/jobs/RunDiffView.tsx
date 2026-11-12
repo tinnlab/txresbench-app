@@ -6,7 +6,7 @@
 // mounts it directly with seeded entries (backend-free). Diff logic is the pure,
 // unit-tested `buildRunDiff` (TEST-532).
 
-import { Alert, Button, SectionHeader, Table, Tag, type TableColumn } from '@ziee/kit'
+import { Alert, Button, SectionHeader, Table, Tag, type TableColumn } from '@txresbench/kit'
 import { buildRunDiff, type DiffRow, type RunObservablesEntry } from './runDiff'
 
 export interface RunDiffViewProps {

@@ -187,7 +187,7 @@ def spike_in_run(tmp_path_factory):
     """
     require_skimage()
     # `require_fixture()`, NOT a bare `fixture_path().is_file()` check: the harness builds
-    # that helper precisely so `CYTO_REQUIRE_FIXTURES=1` turns a missing fixture into a
+    # that helper precisely so `TXR_REQUIRE_FIXTURES=1` turns a missing fixture into a
     # FAILURE rather than a skip ("a skip there is not a pass"). Short-circuiting it here
     # would have let the one test that asks whether the method finds doublets at all skip
     # silently under the very flag meant to stop that.
@@ -413,7 +413,7 @@ def test_the_run_is_deterministic(spike_in_run, tmp_path):
 def test_the_staging_recipe_declares_the_fixture_it_produces():
     """A fixture-dependent tier that skips silently when the fixture is missing reads as a
     pass. The recipe is in-package, its command is named in the skip message, and
-    `CYTO_REQUIRE_FIXTURES=1` turns the skip into a hard failure for whoever runs the tier."""
+    `TXR_REQUIRE_FIXTURES=1` turns the skip into a hard failure for whoever runs the tier."""
     from pathlib import Path
 
     import doublet_fixtures as DF

@@ -7,7 +7,7 @@ import { seedPlottableProject } from '../14-declarative-qc/_seed'
 // WHOLE-GRID export (the reported symptom) and for a single plot's export alike.
 //
 // ── The reported symptom, and what makes it measurable ──────────────────────────────────────
-// `@ziee/viz`'s grid falls back to its OWN internal right panel (`viz-edit-panel`) whenever the
+// `@txresbench/viz`'s grid falls back to its OWN internal right panel (`viz-edit-panel`) whenever the
 // host provides no container for an open surface, and that panel is a ~300px column INSIDE the
 // workspace, a flex SIBLING of `viz-grid-workspace`. So "Export whole grid" opened inside the
 // canvas and shrank the very grid the user was about to export.

@@ -8,14 +8,14 @@
 export { default as App } from './App'
 
 // Core utilities and stores
-export * from '@ziee/framework'
+export * from '@txresbench/framework'
 
 // Module system
 export { loadModules } from './modules/loader'
-export { createModule } from '@ziee/framework/module'
+export { createModule } from '@txresbench/framework/module'
 
 // API Client
 export * from './api-client'
 
 // Re-export types for consumers
-export type { AppModule } from '@ziee/framework/module-system/types'
+export type { AppModule } from '@txresbench/framework/module-system/types'

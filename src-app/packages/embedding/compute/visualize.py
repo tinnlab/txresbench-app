@@ -29,9 +29,9 @@ import os
 
 import numpy as np
 
-import cyto_deps
-import cyto_columns
-import cyto_zarr_read
+import txr_deps
+import txr_columns
+import txr_zarr_read
 
 #: scanpy's exact/approx neighbour switch (INV-6 / ITEM-21). Seam-overridable so a small
 #: fixture can exercise the approximate branch without an 8192-cell matrix.
@@ -94,7 +94,7 @@ def main():
     structure = S.artifact_structure(emb_path)
     if structure is None:
         S.fail("the `embedding` input carries no `structure` declaration — it is not a "
-               "cyto_zarr artifact")
+               "txr_zarr artifact")
     member, declared_dims = _embedding_member(structure)
     if member is None or declared_dims is None:
         S.fail("the `embedding` input declares no 2-D coordinate member")
@@ -108,7 +108,7 @@ def main():
         )
 
     progress("read", 12, "reading the embedding")
-    X = np.asarray(cyto_zarr_read.read_array(emb_path, member), dtype=np.float32)
+    X = np.asarray(txr_zarr_read.read_array(emb_path, member), dtype=np.float32)
     if X.ndim != 2 or X.shape[1] < 3:
         S.fail(f"the input embedding read back as shape {X.shape}; expected ≥3 columns")
     n_obs = int(X.shape[0])
@@ -160,8 +160,8 @@ def main():
                          "protocol": "kobak_berens"}
 
     # ── the input embedding's correction bit (ITEM-25 / DEC-5 / F2) ──────────────────
-    # We read what the input DECLARED on its `attributes.cyto`. Our OWN reduce producer now
-    # STAMPS `correction` there (F2 — `stamp_cyto_attributes`), so a real PCA embedding reads
+    # We read what the input DECLARED on its `attributes.txr`. Our OWN reduce producer now
+    # STAMPS `correction` there (F2 — `stamp_txr_attributes`), so a real PCA embedding reads
     # back `none` and a Harmony one `harmony`; the bit SURVIVES the reduce→visualize hop
     # (TEST-30). An imported latent of unknown provenance carries no such declaration and is
     # `unattested`, NEVER defaulted to "not corrected".
@@ -173,14 +173,14 @@ def main():
 
     progress("write", 86, "writing the 2-D embedding")
     rel = f"embeddings/{emb_name}.zarr"
-    emb_structure, emb_meta = cyto_columns.write_embedding(
+    emb_structure, emb_meta = txr_columns.write_embedding(
         outputs_dir, rel, coords, axis="cells", name=emb_name, kind="embedding",
         method=method, aligned_to=aligned_to)
     emb_meta.update({"correction": correction, "derived_from": "embedding"})
-    # ITEM-25 / F2: propagate the correction + method onto the ARTIFACT's `attributes.cyto`
+    # ITEM-25 / F2: propagate the correction + method onto the ARTIFACT's `attributes.txr`
     # (not just the manifest meta) so the bit survives THIS hop too — a reader of the 2-D
     # layout (or the clustering package) sees the correction the input carried, not `unattested`.
-    S.stamp_cyto_attributes(outputs_dir / rel, emb_structure, correction=correction, method=method)
+    S.stamp_txr_attributes(outputs_dir / rel, emb_structure, correction=correction, method=method)
     entries = [S.output_entry(f"embedding:{emb_name}", S.DT_EMBEDDING, rel, "artifact",
                               structure=emb_structure, meta=emb_meta)]
 
@@ -219,7 +219,7 @@ def main():
     (outputs_dir / "embedding-report.json").write_text(json.dumps(report, indent=2))
     entries.append(S.output_entry(
         "embedding-report", S.DT_REPORT_QC, "embedding-report.json", "artifact",
-        structure=cyto_columns.opaque("application/json"),
+        structure=txr_columns.opaque("application/json"),
         meta={"kind": "embedding-report", "n_cells": n_obs, "method": method}))
 
     S.write_manifest(outputs_dir, entries)
@@ -244,10 +244,10 @@ def _library_versions():
       supported against, so recording it changes an outcome instead of only decorating
       the report.
 
-    Memoized in `cyto_deps`, so this and the manifest-write hook resolve once and cannot
+    Memoized in `txr_deps`, so this and the manifest-write hook resolve once and cannot
     disagree about what ran.
     """
-    return cyto_deps.resolve_and_check()["libraries"]
+    return txr_deps.resolve_and_check()["libraries"]
 
 
 if __name__ == "__main__":

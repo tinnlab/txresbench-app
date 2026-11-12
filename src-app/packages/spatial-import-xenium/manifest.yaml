@@ -164,7 +164,7 @@
 # reading a dependency graph.
 id: spatial-import-xenium
 name: Import Xenium (Onboard Analysis)
-publisher: cyto
+publisher: txr
 # Bump on ANY file change in this package — the seed reconciliation keys on it.
 #
 # 0.1.1 — #160, test-only: `tests/test_bundle_container.py`'s basename matcher was a FOURTH
@@ -174,7 +174,7 @@ publisher: cyto
 # pinned to `server/src/modules/dataset/member_match_cases.json`, the table the other three
 # implementations already answer to. No compute, manifest surface or declaration changed.
 #  0.2.0 — #211: the spatial declarations are MIRRORED into the coordinates store's own
-#          `attributes.cyto` (`structure['cyto_spatial']`), so a SANDBOXED consumer can
+#          `attributes.txr` (`structure['txr_spatial']`), so a SANDBOXED consumer can
 #          read the coordinate space, the micron scale (and its provenance), the
 #          measured entity, the positioning and the section. `meta` never crossed into
 #          the sandbox; the store's own bytes do. Reader side: `require_spatial_declarations`,

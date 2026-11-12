@@ -26,7 +26,7 @@
 //! Regeneration (the only writer):
 //!
 //! ```text
-//! TXRESBENCH_CATALOG_REGEN=1 cargo test -p cytoanalyst --lib \
+//! TXRESBENCH_CATALOG_REGEN=1 cargo test -p txresbench --lib \
 //!   -- file_validator::catalog::catalog_roundtrip_and_committed_copy
 //! ```
 //! (the `scripts/file-validator/gen_help_catalog.sh` wrapper — every process

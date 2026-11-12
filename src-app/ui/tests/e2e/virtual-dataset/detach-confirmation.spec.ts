@@ -95,7 +95,7 @@ test('detach asks first: dismissing leaves the link intact, accepting removes it
 // PLAN-STAGE-3-ui.md says a missing narrow state "fails `check:state-matrix`". MEASURED:
 // this repo has no `check:state-matrix`, no `check:gallery-coverage`, and neither is
 // invoked by `npm run check` or by `gate:ui` — those names come from the shared agent-kit
-// validator's ziee vocabulary, not from CytoAnalyst's `src-app/ui/package.json`. So
+// validator's txresbench vocabulary, not from TxResBench's `src-app/ui/package.json`. So
 // nothing mechanical enforces a narrow-viewport requirement, and a responsive claim
 // resting on a gate that does not exist is not a claim. This spec is the enforcement.
 //

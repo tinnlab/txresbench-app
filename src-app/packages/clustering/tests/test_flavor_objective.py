@@ -18,7 +18,7 @@ def test_records_leiden_igraph_two_iterations_undirected_and_a_seed(cluster_run)
     run.add_embedding(three_blob_embedding(30, 8, seed=0), aligned_to=cells_digest(90))
     run.run_ok({"resolution": 1.0, "seed": 3})
 
-    tag = run.label_group_cyto()["clustering"]
+    tag = run.label_group_txr()["clustering"]
     report = run.report()
     # INV-3 — recorded flavor MUST be igraph (a Louvain / leidenalg mutation fails here).
     assert tag["method"] == "leiden" and report["algorithm"] == "leiden"
@@ -33,7 +33,7 @@ def test_records_modularity_objective_labelled_on_the_resolution(cluster_run):
     run.add_embedding(three_blob_embedding(30, 8, seed=0), aligned_to=cells_digest(90))
     run.run_ok({"resolution": 1.0})
 
-    tag = run.label_group_cyto()["clustering"]
+    tag = run.label_group_txr()["clustering"]
     report = run.report()
     # INV-4 — modularity family (scanpy igraph override of igraph's raw CPM default). A
     # mutation leaving CPM is caught: recorded objective ≠ modularity fails.

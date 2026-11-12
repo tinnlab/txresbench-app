@@ -21,8 +21,8 @@
 //! `(matrix, mask)` view replaces the old filtered-matrix re-attach). No python/rootfs — a
 //! pure lattice contract, so it RUNS on any host.
 
-use cytoanalyst::modules::datatype::registry::DatatypeRegistry;
-use cytoanalyst::modules::datatype::types::TypeSelector;
+use txresbench::modules::datatype::registry::DatatypeRegistry;
+use txresbench::modules::datatype::types::TypeSelector;
 
 /// The `qc.10x` produced datatype ids (manifest `produces`) — ANNOTATE-ONLY: metric
 /// `metadata-column`s + the `report/qc` obs table. QC does NOT produce a (filtered)

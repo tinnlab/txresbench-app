@@ -23,7 +23,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import type { ExampleSetResponse } from '@/api-client/types'
 import { useStore } from 'zustand'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'

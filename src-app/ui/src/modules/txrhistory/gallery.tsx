@@ -60,7 +60,7 @@
 import { lazy, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
 import { useStore } from 'zustand'
-import { extendCassette, type MockRequestContext, type ModuleGallery } from '@ziee/gallery'
+import { extendCassette, type MockRequestContext, type ModuleGallery } from '@txresbench/gallery'
 import { AppShell } from '@/modules/txrshell/components/AppShell'
 import { HistoryPage } from './pages/HistoryPage'
 import { TxrHistory, useTxrHistory } from './index'

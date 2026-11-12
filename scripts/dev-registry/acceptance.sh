@@ -24,8 +24,8 @@
 #       --registry 127.0.0.1:5055 --out /data/pbya/txresbench-app-work/qa-build-real
 #
 # and then the app (debug build) is started against it with
-#   CYTO_TXR_METHOD_ENV_REGISTRY=127.0.0.1:5055 \
-#   CYTO_TXR_ENV_MANIFEST=/data/pbya/txresbench-app-work/qa-build-real/method-env-images.dev.json
+#   TXR_METHOD_ENV_REGISTRY=127.0.0.1:5055 \
+#   TXR_ENV_MANIFEST=/data/pbya/txresbench-app-work/qa-build-real/method-env-images.dev.json
 # (see scripts/dev-registry/README.md).
 
 set -eu
@@ -76,11 +76,11 @@ chmod +x "$ORAS_DIR/oras"
 
 echo "acceptance: cargo test --test integration_tests :: sandbox::dev_registry_test"
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-/data/pbya/txresbench-app-work/target/qa-hardening}" \
-CYTO_TXR_ACCEPT_REGISTRY="$REGISTRY" \
-CYTO_TXR_ACCEPT_MANIFEST="$MANIFEST" \
-CYTO_TXR_ACCEPT_ORAS_DIR="$ORAS_DIR" \
-CYTO_TXR_ACCEPT_DATA_DIR="$APP_DATA" \
-CYTO_TXR_ACCEPT_WORK="$WORK" \
+TXR_ACCEPT_REGISTRY="$REGISTRY" \
+TXR_ACCEPT_MANIFEST="$MANIFEST" \
+TXR_ACCEPT_ORAS_DIR="$ORAS_DIR" \
+TXR_ACCEPT_DATA_DIR="$APP_DATA" \
+TXR_ACCEPT_WORK="$WORK" \
 cargo test --test integration_tests -- sandbox::dev_registry_test --nocapture
 
 RC=$?

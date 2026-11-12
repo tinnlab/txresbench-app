@@ -1,6 +1,6 @@
 # Segmentation-scale — design (in-grid masks · shared-across-panes · hierarchy)
 
-Governing design for the `segmentation-scale` feature in `@ziee/viz` (frontend
+Governing design for the `segmentation-scale` feature in `@txresbench/viz` (frontend
 only). Extends the shipped `annotation-surface` (see `annotation-surface.md`) with
 three capabilities the user chose the maximal version of. Grounded in
 `.lifecycle/segmentation-scale/RESEARCH.md` (findings `F-HIER-*`, `F-TILE-*`).

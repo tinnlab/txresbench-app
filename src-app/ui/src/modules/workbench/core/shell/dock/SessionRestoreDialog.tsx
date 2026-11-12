@@ -6,7 +6,7 @@
 // are drained (a blocked one stays pending for a retry / merge — nothing is lost).
 
 import { useStore } from 'zustand'
-import { Button, Dialog } from '@ziee/kit'
+import { Button, Dialog } from '@txresbench/kit'
 import { workbenchDockStore } from './WorkbenchDock.store'
 import { reopenRestoredWindows } from './popout'
 

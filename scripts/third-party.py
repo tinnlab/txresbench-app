@@ -4,13 +4,13 @@
 Reads:
   - Cargo.lock (root workspace) via `cargo metadata --locked --offline` for the
     resolved dependency graph of the desktop build (the normal-dependency
-    closure of the `cytoanalyst` and `cytoanalyst-desktop` binaries), falling
+    closure of the `txresbench` and `txresbench-desktop` binaries), falling
     back to the raw lockfile when metadata cannot be produced.
   - sdk/Cargo.lock for the SDK-workspace crates that are vendored in this repo
     but not linked into the app (licences resolved from the local cargo
     registry cache; unresolved ones are marked, never guessed).
   - package-lock.json via `npm ls --package-lock-only --omit=dev --all --json
-    --workspace=@cytoanalyst/ui` for the UI's runtime dependency closure.
+    --workspace=@txresbench/ui` for the UI's runtime dependency closure.
 
 Usage:
   python3 scripts/third-party.py notices [--out THIRD-PARTY-NOTICES.md]
@@ -151,7 +151,7 @@ def runtime_closure(meta: dict) -> set[str]:
     members = [
         n["id"]
         for n in nodes.values()
-        if n["id"] in byid and byid[n["id"]]["name"] in ("cytoanalyst", "cytoanalyst-desktop")
+        if n["id"] in byid and byid[n["id"]]["name"] in ("txresbench", "txresbench-desktop")
     ]
     seen: set[str] = set()
     stack = list(members)
@@ -232,7 +232,7 @@ def npm_runtime_packages(root: str) -> list[Pkg]:
     try:
         r = subprocess.run(
             ["npm", "ls", "--package-lock-only", "--omit=dev", "--all", "--json",
-             "--workspace=@cytoanalyst/ui"],
+             "--workspace=@txresbench/ui"],
             cwd=root, capture_output=True, text=True, timeout=600,
         )
         if r.returncode == 0:

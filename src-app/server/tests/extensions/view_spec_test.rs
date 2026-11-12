@@ -7,7 +7,7 @@
 //! `#[serde(default)]`) — the wire contract `GET /api/extensions` dumps and the FE
 //! `workbenchRegistry` projects.
 
-use cytoanalyst::modules::extensions::types::ViewContribution;
+use txresbench::modules::extensions::types::ViewContribution;
 use serde_json::{json, Value};
 
 // A view carrying a declarative view_spec round-trips it verbatim.

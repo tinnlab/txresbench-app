@@ -9,9 +9,9 @@ import {
   Spinner,
   Tag,
   message,
-} from '@ziee/kit'
+} from '@txresbench/kit'
 import { Datasets } from '@/modules/datasets/stores/Datasets.store'
-import { useForm, zodResolver } from '@ziee/kit'
+import { useForm, zodResolver } from '@txresbench/kit'
 import { Trash2 } from 'lucide-react'
 import type { DatasetShare } from '@/api-client/types'
 

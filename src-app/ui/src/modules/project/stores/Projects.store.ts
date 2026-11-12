@@ -9,7 +9,7 @@ import {
 } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
 import { echoLocalSync } from '@/core/sync/localEcho'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 const PAGE_SIZE = 20
 const SEARCH_DEBOUNCE_MS = 250

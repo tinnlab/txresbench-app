@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 // @ts-expect-error - plain .mjs tooling shared by every package's config + node runner
 import { listNodeTestFiles } from '../../scripts/node-test-files.mjs'
 
-// Unit runner for @ziee/kit. Most of the kit is exercised through the consuming app's suites; this
+// Unit runner for @txresbench/kit. Most of the kit is exercised through the consuming app's suites; this
 // pass exists for behaviour that can ONLY be asserted about the kit itself — currently the
 // cross-window portal contract (kit/portal-container.test.tsx), which needs two real documents and
 // so cannot be expressed in a consumer's single-document render test.

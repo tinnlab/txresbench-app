@@ -4,7 +4,7 @@
 //! gating, linking, hashing and enqueue behaviour asserted here must be identical.
 //! TEST-11 / TEST-14 / TEST-19 [ITEM-9, ITEM-11, ITEM-14, ITEM-17, ITEM-18] —
 //! `POST /datasets/{id}/supporting-files` through the full production path (real
-//! spawned server + Postgres + ziee-file blob store).
+//! spawned server + Postgres + txresbench-file blob store).
 //!
 //! Covers: a supporting file links `role='supporting'` and the detail view surfaces
 //! role + kind; the 422 carve-out gates (a dataset-input datatype →
@@ -25,7 +25,7 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::dataset::repository::DatasetRepository;
+use txresbench::modules::dataset::repository::DatasetRepository;
 
 use super::hardening_common::{admin_user_id, pool_for};
 use super::{create_user, login, read_until, setup_admin};
@@ -302,7 +302,7 @@ async fn add_supporting_view_sharee_403_and_foreign_404() {
     let admin = setup_admin(&server).await;
     let ds = upload_typed_dataset(&server, &admin, "pbmc").await;
 
-    let bob_id = create_user(&server, &admin, "bob_support", "bob_support@cyto.test").await;
+    let bob_id = create_user(&server, &admin, "bob_support", "bob_support@txresbench.test").await;
     let bob = login(&server, "bob_support").await;
 
     // FOREIGN (not shared) → 404 (existence not leaked).
@@ -415,7 +415,7 @@ async fn an_edit_sharees_add_emits_sync_to_the_dataset_owner() {
     let admin = setup_admin(&server).await;
     let ds = upload_typed_dataset(&server, &admin, "owned").await;
 
-    let editor_id = create_user(&server, &admin, "edit_sharee", "edit_sharee@cyto.test").await;
+    let editor_id = create_user(&server, &admin, "edit_sharee", "edit_sharee@txresbench.test").await;
     let editor = login(&server, "edit_sharee").await;
     let share = server
         .client

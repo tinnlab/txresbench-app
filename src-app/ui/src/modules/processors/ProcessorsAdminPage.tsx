@@ -1,5 +1,5 @@
-import { ErrorState } from '@ziee/kit'
-import { SettingsPageContainer } from '@ziee/shell'
+import { ErrorState } from '@txresbench/kit'
+import { SettingsPageContainer } from '@txresbench/shell'
 import { ProcessorsAdmin } from '@/modules/processors/stores/ProcessorsAdmin.store'
 import { ProcessorsListCard } from '@/modules/processors/components/ProcessorsListCard'
 

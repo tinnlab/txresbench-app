@@ -29,8 +29,8 @@ const BWRAP_INFRA_FAILURE = {
   structured_content: {
     stdout: '',
     stderr:
-      "bwrap: Can't find source path ./.ziee-cache/sandbox-rootfs/1.0.0-alpha/" +
-      'ziee-sandbox-rootfs-x86_64-full/usr: No such file or directory\n',
+      "bwrap: Can't find source path ./.txresbench-cache/sandbox-rootfs/1.0.0-alpha/" +
+      'txresbench-sandbox-rootfs-x86_64-full/usr: No such file or directory\n',
     exit_code: 1,
     timed_out: false,
     duration_ms: 422,

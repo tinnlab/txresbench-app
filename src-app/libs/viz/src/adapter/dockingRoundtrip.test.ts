@@ -16,7 +16,7 @@ import { VizController } from './VizController'
 import { createVizStores } from './vizStores'
 import { FixtureSource } from '../viz-core/data/fixtures'
 import { installBuiltins } from '../viz-core/charts/installBuiltins'
-import { leafIds } from '@ziee/dock'
+import { leafIds } from '@txresbench/dock'
 import type { VizOption } from '../viz-core/option/types'
 
 installBuiltins()

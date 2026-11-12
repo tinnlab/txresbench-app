@@ -21,7 +21,7 @@ import {
   type NodeTypes,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { Alert, Button, Empty, ErrorState, Popover, Result, ScrollArea, Spinner, Tabs, Tag } from '@ziee/kit'
+import { Alert, Button, Empty, ErrorState, Popover, Result, ScrollArea, Spinner, Tabs, Tag } from '@txresbench/kit'
 import { Check, Download, TriangleAlert } from 'lucide-react'
 import { Provenance } from '@/modules/provenance/stores/Provenance.store'
 import { ProvenanceExport } from '@/modules/provenance/stores/ProvenanceExport.store'

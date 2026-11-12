@@ -457,11 +457,11 @@ test('the PRODUCTION data source answers imageUnderlay() rather than throwing â€
   await openWorkbench(page, projectId)
 
   // THE OBJECT THE GRID HOLDS â€” `asDataSource(WorkbenchStreamingSource)`, reached through the
-  // app's own read-only seam. Deliberately NOT `__cyto_ds`, which mints a bare pull instance:
+  // app's own read-only seam. Deliberately NOT `__txr_ds`, which mints a bare pull instance:
   // the defect this item closes was a seam that worked on the class and was dropped by the
   // adapter, and a spec that asked the class could not tell those two states apart.
   await page.waitForFunction(
-    () => !!(window as unknown as { __cyto_stream?: { source?: unknown } }).__cyto_stream?.source,
+    () => !!(window as unknown as { __txr_stream?: { source?: unknown } }).__txr_stream?.source,
     undefined,
     { timeout: 60_000 },
   )
@@ -469,9 +469,9 @@ test('the PRODUCTION data source answers imageUnderlay() rather than throwing â€
   const result = await page.evaluate(async (id: string) => {
     const seam = (
       window as unknown as {
-        __cyto_stream: { source: (p: string) => Record<string, unknown> | null }
+        __txr_stream: { source: (p: string) => Record<string, unknown> | null }
       }
-    ).__cyto_stream
+    ).__txr_stream
     const source = seam.source(id)
     if (!source) return { error: 'the production source was not published for this project' }
     try {

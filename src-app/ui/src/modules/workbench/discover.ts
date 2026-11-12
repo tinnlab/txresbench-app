@@ -33,7 +33,7 @@ const lattice: DatatypeLattice = {
 // The discovered-guard is pinned to globalThis alongside the (globalThis-shared)
 // contribution registry it protects, so an HMR reload / duplicate module instance
 // doesn't re-run discovery into an already-populated registry (audit CONC-4).
-const G_KEY = '__cyto_workbench_discovered__'
+const G_KEY = '__txr_workbench_discovered__'
 function isDiscovered(): boolean {
   return Boolean((globalThis as unknown as Record<string, boolean | undefined>)[G_KEY])
 }

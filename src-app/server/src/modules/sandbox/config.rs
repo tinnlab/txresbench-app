@@ -1,6 +1,6 @@
 //! Sandbox availability + global per-process state.
 //!
-//! Ported from ziee `code_sandbox/config.rs`. The sandbox SELF-ENABLES (DEC-2:
+//! Ported from txresbench `code_sandbox/config.rs`. The sandbox SELF-ENABLES (DEC-2:
 //! there is no config toggle — `ServerConfig` ignores extra app keys); every
 //! non-`Ready` variant is a specific reason `init()` recorded, surfaced by the
 //! admin status endpoint so the UI degrades gracefully.

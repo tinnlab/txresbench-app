@@ -5,7 +5,7 @@
 # datatype registry: the `annotation-table` supporting datatype.
 id: anndata-import
 name: AnnData / 10x Import
-publisher: cyto
+publisher: txr
 # 0.4.0 — the manifest/UI separation: the FE `analyses` entry drops
 # `when`/`accepts`/`params`/`defaults`/`schedule.resources`/`inStandardRecipe`/
 # `recipeOrder` (each is now a LOAD ERROR, DEC-3) for `appliesTo` + `consumes`, and the
@@ -171,7 +171,7 @@ contributes:
       params: none
       # The analysis-domain env image this converter runs inside (ITEM-23 /
       # DEC-22/23): resolved by the sandbox `env_image` registry to
-      # `ghcr.io/ziee-ai/cyto-env/single-cell@sha256:…`, lazy-fetched on first
+      # `ghcr.io/tinnlab/txresbench-env/single-cell@sha256:…`, lazy-fetched on first
       # use. Falls back to the EMBEDDED rootfs (DEC-24) until OCI/GHCR lands, so
       # this runs today with no network.
       env: single-cell

@@ -1,7 +1,7 @@
 import { type AdminUserOption, type BatchResult } from '@/api-client/types'
 import { ProjectAdmin } from '@/modules/project/stores/ProjectAdmin.store'
-import { Button, message } from '@ziee/kit'
-import { Drawer } from '@ziee/shell'
+import { Button, message } from '@txresbench/kit'
+import { Drawer } from '@txresbench/shell'
 import { useState } from 'react'
 import { UserPicker } from './UserPicker'
 

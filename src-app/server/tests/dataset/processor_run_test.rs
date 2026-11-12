@@ -21,7 +21,7 @@ use std::collections::HashSet;
 
 use serde_json::{json, Value};
 
-use cytoanalyst::modules::workstore::object_store::{ContentKey, ObjectStore};
+use txresbench::modules::workstore::object_store::{ContentKey, ObjectStore};
 
 use super::hardening_common::*;
 use super::setup_admin;

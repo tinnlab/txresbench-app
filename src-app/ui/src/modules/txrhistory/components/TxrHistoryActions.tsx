@@ -21,7 +21,7 @@
  * links row the board's 16 px gap under them.
  */
 import type { CSSProperties } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import { actionsFor, type TxrActionFacts } from '../lib/actions'
 
 /** The action column (the board's right block of the expanded row). */

@@ -436,7 +436,7 @@ export async function fetchRuntimeProcessorPackages(): Promise<ProcessorPackage[
 // Idempotency guard — pinned to globalThis alongside the (globalThis-shared) contribution
 // registry, so an HMR reload / duplicate module instance doesn't re-run discovery into an
 // already-populated registry (mirrors `discover.ts`'s `discoverBuiltins` guard).
-const G_KEY = '__cyto_processors_loaded__'
+const G_KEY = '__txr_processors_loaded__'
 function isLoaded(): boolean {
   return Boolean((globalThis as unknown as Record<string, boolean | undefined>)[G_KEY])
 }
@@ -448,8 +448,8 @@ function markLoaded(): void {
 // the SAME reason `G_KEY` does: the contribution registry is globalThis-shared, so a
 // duplicate module instance (HMR, a second bundle copy) must observe the same latch or it
 // would re-register the delta into an already-populated registry.
-const G_RUNTIME_KEY = '__cyto_runtime_processors_loaded__'
-const G_BAKED_KEY = '__cyto_processors_baked_ids__'
+const G_RUNTIME_KEY = '__txr_runtime_processors_loaded__'
+const G_BAKED_KEY = '__txr_processors_baked_ids__'
 function isRuntimeLoaded(): boolean {
   return Boolean((globalThis as unknown as Record<string, boolean | undefined>)[G_RUNTIME_KEY])
 }

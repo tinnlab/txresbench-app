@@ -1,6 +1,6 @@
 import { ApiClient } from '@/api-client'
 import { type AdminUserOption } from '@/api-client/types'
-import { Input, Spinner, Tag } from '@ziee/kit'
+import { Input, Spinner, Tag } from '@txresbench/kit'
 import { X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 

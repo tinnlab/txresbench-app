@@ -28,7 +28,7 @@
 import { spellDeclaredLevel } from '@/modules/workbench/core/criteria/criteria'
 
 /** The reserved frame key. Double-underscored + namespaced so a real column cannot collide. */
-export const DECLARED_KEY = '__cyto_declared__'
+export const DECLARED_KEY = '__txr_declared__'
 
 /** What the producer declared about ONE column. */
 export interface ColumnDeclaration {

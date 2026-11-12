@@ -408,7 +408,7 @@ export interface TextWidget extends WidgetBase {
 }
 
 /** CATEGORICAL keep-set control (Slice 4, ITEM-9/29) — a multi-select of the categories to keep for
- *  a categorical criterion. LOWERS onto `@ziee/kit` `MultiSelect`; onChange forwards `{...args,
+ *  a categorical criterion. LOWERS onto `@txresbench/kit` `MultiSelect`; onChange forwards `{...args,
  *  value: string[]}`. General (any processor composes it), NOT cell-filter-named. */
 export interface MultiSelectWidget extends WidgetBase {
   kind: 'multiselect'
@@ -1313,7 +1313,7 @@ export interface ViolinWidget extends WidgetBase {
 }
 
 /** GENERAL bar-chart widget (DEC-12) — a categorical value chart LOWERING onto the
- *  EXISTING `@ziee/viz` `bar` chart kind (no new viz API). NOT analysis-named: any
+ *  EXISTING `@txresbench/viz` `bar` chart kind (no new viz API). NOT analysis-named: any
  *  processor composes it. `encode.groupBy`/`.x` names the categorical column. */
 export interface BarWidget extends WidgetBase {
   kind: 'bar'
@@ -1328,7 +1328,7 @@ export interface BarWidget extends WidgetBase {
 }
 
 /** GENERAL histogram widget (DEC-12) — a continuous-value distribution LOWERING onto
- *  the EXISTING `@ziee/viz` `histogram` chart kind (no new viz API). `encode.x`/`.value`
+ *  the EXISTING `@txresbench/viz` `histogram` chart kind (no new viz API). `encode.x`/`.value`
  *  names the continuous column. */
 export interface HistogramWidget extends WidgetBase {
   kind: 'histogram'
@@ -1343,7 +1343,7 @@ export interface HistogramWidget extends WidgetBase {
 }
 
 /** GENERAL image-underlay widget (DEC-12 / INV-16) — a raster underlay (+ optional point
- *  overlay) LOWERING onto the EXISTING `@ziee/viz` `image` view-kind + `imageUnderlay()`
+ *  overlay) LOWERING onto the EXISTING `@txresbench/viz` `image` view-kind + `imageUnderlay()`
  *  data source (no new viz API). `image` resolves an `ImageUnderlay`-shaped payload
  *  (`$data.image`); `points` an optional positions map (`$data.spatial`). */
 export interface ImageWidget extends WidgetBase {
@@ -1519,7 +1519,7 @@ export interface ViewSpec {
   checks?: ViewCheckSpec[]
   actions: ActionSpec[]
   /**
-   * OPTIONAL declarative CANVAS plot(s) (declarative-canvas-plots ITEM-1): a `@ziee/viz`
+   * OPTIONAL declarative CANVAS plot(s) (declarative-canvas-plots ITEM-1): a `@txresbench/viz`
    * `VizOption` (strict-JSON `datasets[]` / `grid[]` / `series[]` / `filters` / `encode`) the
    * workbench RESOLVES (`$state`/`$derived` ref resolution + `for_each` multi-dataset expansion)
    * and drives the SINGLE canvas `GridWorkspace` via `VizController.setOption` — NOT a second

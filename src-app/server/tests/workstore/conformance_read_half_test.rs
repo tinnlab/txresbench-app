@@ -39,9 +39,9 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::object_store::ObjectStore;
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::object_store::ObjectStore;
 
 use super::{
     create_member_token, create_project, new_artifact, pool_for, server_store, setup_admin,
@@ -50,7 +50,7 @@ use crate::common::TestServer;
 
 /// The error code every refusal carries. Named once, from the same constant the server
 /// exports, so a rename cannot leave this suite asserting a string nothing produces.
-const ERR: &str = cytoanalyst::modules::workstore::consume::ERR_NOT_CONFORMING;
+const ERR: &str = txresbench::modules::workstore::consume::ERR_NOT_CONFORMING;
 
 const GOOD_BYTES: &[u8] = b"an artifact whose bytes match what it declares";
 const BAD_BYTES: &[u8] = b"an artifact the conformance gate condemned";
@@ -111,7 +111,7 @@ async fn seed(server: &TestServer, token: &str, name: &str) -> Fixture {
 /// artifact the way production does rather than by writing SQL of its own.
 async fn condemn(server: &TestServer, id: Uuid) {
     let flipped = CatalogRepository::new(pool_for(server).await)
-        .set_status(id, cytoanalyst::modules::jobs::conformance::STATUS_FAILED)
+        .set_status(id, txresbench::modules::jobs::conformance::STATUS_FAILED)
         .await
         .expect("set_status");
     assert!(flipped, "the fixture row must exist to be condemned");
@@ -461,8 +461,8 @@ async fn the_catalog_drops_a_condemned_axis_but_keeps_its_row() {
 /// SAME spec, owner, store and pool for both legs, so the only difference is `status`.
 #[tokio::test]
 async fn job_input_staging_refuses_a_condemned_artifact() {
-    use cytoanalyst::modules::sandbox::inputs::materialize_inputs;
-    use cytoanalyst::modules::sandbox::spec::AnalysisSpec;
+    use txresbench::modules::sandbox::inputs::materialize_inputs;
+    use txresbench::modules::sandbox::spec::AnalysisSpec;
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;

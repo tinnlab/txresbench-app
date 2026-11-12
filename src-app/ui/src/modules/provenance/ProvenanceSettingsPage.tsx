@@ -1,5 +1,5 @@
-import { ErrorState, Spin } from '@ziee/kit'
-import { SettingsPageContainer } from '@ziee/shell'
+import { ErrorState, Spin } from '@txresbench/kit'
+import { SettingsPageContainer } from '@txresbench/shell'
 import { ProvenanceSettings } from '@/modules/provenance/stores/ProvenanceSettings.store'
 import { ProvenanceSettingsCard } from '@/modules/provenance/components/ProvenanceSettingsCard'
 

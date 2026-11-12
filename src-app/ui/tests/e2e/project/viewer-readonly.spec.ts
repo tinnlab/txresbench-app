@@ -94,7 +94,7 @@ test('viewer gets a read-only project workbench (TEST-9)', async ({ browser, req
   const admin = await ownerToken(request)
   const viewer = `roview${Date.now()}`
   await createMember(request, admin, viewer)
-  const name = await seedSharedProject(request, admin, `${viewer}@cyto.test`, 'viewer')
+  const name = await seedSharedProject(request, admin, `${viewer}@txresbench.test`, 'viewer')
 
   const ctx = await browser.newContext()
   const vp = await ctx.newPage()
@@ -131,7 +131,7 @@ test('editor sees edit + attach affordances — positive control (TEST-10)', asy
   const admin = await ownerToken(request)
   const editor = `roedit${Date.now()}`
   await createMember(request, admin, editor)
-  const name = await seedSharedProject(request, admin, `${editor}@cyto.test`, 'editor')
+  const name = await seedSharedProject(request, admin, `${editor}@txresbench.test`, 'editor')
 
   const ctx = await browser.newContext()
   const ep = await ctx.newPage()

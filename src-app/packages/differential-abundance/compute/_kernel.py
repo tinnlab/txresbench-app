@@ -356,7 +356,7 @@ def engine_size_factors(dds, *, fail=None):
     the newest the local package mirror offers — correctly found a crash and then over-generalised
     it to "the default engine crashes on every run". It does not. What was genuinely wrong is
     narrower and still real: `run.dependencies[]` declared `>=0.5,<0.6`, which ADMITS 0.5.0 and
-    0.5.1, and `cyto_deps.resolve_and_check()` will happily certify a deployment that resolved one
+    0.5.1, and `txr_deps.resolve_and_check()` will happily certify a deployment that resolved one
     of them. The environment contract was wider than the code it was certifying.
 
     Both halves are fixed: the declaration is narrowed to `>=0.5.2,<0.6`, and this reader accepts

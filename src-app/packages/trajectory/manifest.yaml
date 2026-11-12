@@ -25,7 +25,7 @@
 # manifest does not describe.
 id: trajectory
 name: Trajectory
-publisher: cyto
+publisher: txr
 # 0.1.0 — the package skeleton, both computes, the declarative views, the `methods:`
 # narration and the scientific-validity suite (INV-1..INV-7).
 # TEST-5 (fix/trajectory-zero-core-guard) — this `version:` line is the assertion's subject:

@@ -3,14 +3,14 @@
 """Off-sandbox run harness for the `clustering` compute (DEC-10 / TEST-26).
 
 Drives the REAL `compute/cluster.py` as a SUBPROCESS through the only seam that runs it
-outside bwrap (`CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR`), with `_lib` on `PYTHONPATH` exactly
+outside bwrap (`TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR`), with `_lib` on `PYTHONPATH` exactly
 as the sandbox stages `/code`. Every input is declared in `/inputs/inputs.json` (the
 `render_inputs_json` wire shape) with a MEANINGLESS `in0`/`in1` mount name, so a compute
 that resolves by filename suffix cannot pass (mirrors `embedding/tests/embedding_fixtures.py`).
 
 Test-input strategy (DEC-10): no package produces an `embedding` on this branch (EA-reduce is
 still building), so the e2e clusters a FIXTURE `embedding` artifact written via the real
-`cyto_zarr` (`write_embedding`), modelling EA-reduce's output — including the `method` /
+`txr_zarr` (`write_embedding`), modelling EA-reduce's output — including the `method` /
 `aligned_to` provenance the real reducer stamps, so INV-13 has a real identity to record.
 
 Helpers live HERE (not in `conftest.py`) so `from clustering_fixtures import …` never
@@ -38,25 +38,25 @@ _COMPUTE = _PKG / "compute"
 CLUSTER = _COMPUTE / "cluster.py"
 
 sys.path.insert(0, str(_LIB_DIR))
-import cyto_columns  # noqa: E402
-import cyto_csc  # noqa: E402
-import cyto_zarr  # noqa: E402
-import cyto_zarr_read  # noqa: E402
+import txr_columns  # noqa: E402
+import txr_csc  # noqa: E402
+import txr_zarr  # noqa: E402
+import txr_zarr_read  # noqa: E402
 
 
 def cells_digest(n: int) -> str:
     """The `key_sequence_digest` a `cells` axis of `n` barcodes declares — a real digest to
     stamp as an embedding's `aligned_to` (a bare 64-hex string, not a label)."""
-    return cyto_zarr.key_sequence_digest([f"cell-{i}" for i in range(n)])
+    return txr_zarr.key_sequence_digest([f"cell-{i}" for i in range(n)])
 
 
 # ── staging helpers ────────────────────────────────────────────────────────────────
-def _stamp_cyto_attributes_like_ea(dest: Path, structure: dict, **kv) -> dict:
+def _stamp_txr_attributes_like_ea(dest: Path, structure: dict, **kv) -> dict:
     """Mirror EA-reduce's REAL producer stamp, `embedding/compute/_shared.py::
-    stamp_cyto_attributes` (on `feat/embedding-analysis-stage0`), BYTE-for-byte in shape:
+    stamp_txr_attributes` (on `feat/embedding-analysis-stage0`), BYTE-for-byte in shape:
     set each non-None key on the in-memory `structure`, then OVERWRITE the store's group
-    `attributes.cyto` with that full structure — so `method`/`correction` land as TOP-LEVEL
-    `attributes.cyto` keys (NOT merely on the manifest-entry `meta`). This is where the real
+    `attributes.txr` with that full structure — so `method`/`correction` land as TOP-LEVEL
+    `attributes.txr` keys (NOT merely on the manifest-entry `meta`). This is where the real
     producer records them since its EA phase-7 F2 fix; clustering's `embedding_identity`
     reads exactly there. `None` values are skipped so an absent bit stays absent (honest)."""
     for k, v in kv.items():
@@ -68,35 +68,35 @@ def _stamp_cyto_attributes_like_ea(dest: Path, structure: dict, **kv) -> dict:
     if not isinstance(attrs, dict):
         attrs = {}
         doc["attributes"] = attrs
-    attrs["cyto"] = structure
+    attrs["txr"] = structure
     zj.write_text(json.dumps(doc, indent=2))
     return structure
 
 
 def write_embedding_store(dest: Path, arr, *, name="X_pca", method="pca",
                           correction="none", aligned_to=None,
-                          provenance_channel="attributes_cyto") -> dict:
+                          provenance_channel="attributes_txr") -> dict:
     """A fixture `embedding` artifact (as EA-reduce would emit it).
 
     `provenance_channel` selects HOW the producer recorded `method`/`correction`:
 
-      * ``"attributes_cyto"`` (default, EA-REAL) — after the real `write_embedding`, stamp
-        `method`/`correction` into the store's group `attributes.cyto` exactly as EA-reduce's
-        `stamp_cyto_attributes` does (top-level cyto keys). This is the real producer contract
+      * ``"attributes_txr"`` (default, EA-REAL) — after the real `write_embedding`, stamp
+        `method`/`correction` into the store's group `attributes.txr` exactly as EA-reduce's
+        `stamp_txr_attributes` does (top-level txr keys). This is the real producer contract
         the clustering INV-13 read is proven against.
       * ``"meta_only"`` — the PRE-EA-phase-7 producer: `write_embedding` records `method` ONLY
-        on its returned manifest-entry `meta` (`cyto_columns.py`), leaving `attributes.cyto`
+        on its returned manifest-entry `meta` (`txr_columns.py`), leaving `attributes.txr`
         WITHOUT `method`/`correction`. A store-URL reader (clustering) then sees no method →
         records the honest `unattested`. Used to prove the seam is a REAL read of the
-        producer's `attributes.cyto`, not a fixture authored to the reader.
+        producer's `attributes.txr`, not a fixture authored to the reader.
     """
-    structure, meta = cyto_columns.write_embedding(
+    structure, meta = txr_columns.write_embedding(
         dest.parent, dest.name, np.asarray(arr, dtype=np.float32),
         axis="cells", name=name, kind="embedding", method=method, aligned_to=aligned_to)
-    if provenance_channel == "attributes_cyto":
-        _stamp_cyto_attributes_like_ea(dest, structure, method=method, correction=correction)
+    if provenance_channel == "attributes_txr":
+        _stamp_txr_attributes_like_ea(dest, structure, method=method, correction=correction)
     elif provenance_channel == "meta_only":
-        pass  # method lives only on `meta` (as write_embedding leaves it) — NOT in attributes.cyto
+        pass  # method lives only on `meta` (as write_embedding leaves it) — NOT in attributes.txr
     else:
         raise ValueError(f"unknown provenance_channel {provenance_channel!r}")
     return structure
@@ -108,19 +108,19 @@ def write_expression_store(dest: Path, matrix) -> dict:
     import scipy.sparse as sp
 
     m = sp.csr_matrix(np.asarray(matrix, dtype=np.float32))
-    structure = cyto_csc.write_csc_zarr(cyto_csc.ArraySource(m), dest, axes=("cells", "genes"))
+    structure = txr_csc.write_csc_zarr(txr_csc.ArraySource(m), dest, axes=("cells", "genes"))
     return structure
 
 
 def write_layout_store(dest: Path, arr, *, name="X_umap") -> dict:
     """A fixture 2-D LAYOUT artifact (a UMAP/t-SNE picture) — the thing INV-11 forbids as a
     clustering graph source. Written as a 2-column embedding member tagged as a layout."""
-    structure, _meta = cyto_columns.write_embedding(
+    structure, _meta = txr_columns.write_embedding(
         dest.parent, dest.name, np.asarray(arr, dtype=np.float32)[:, :2],
         axis="cells", name=name, kind="embedding", method="umap")
     zj = dest / "zarr.json"
     doc = json.loads(zj.read_text())
-    doc.setdefault("attributes", {}).setdefault("cyto", {})["kind"] = "layout"
+    doc.setdefault("attributes", {}).setdefault("txr", {})["kind"] = "layout"
     zj.write_text(json.dumps(doc, indent=2))
     return structure
 
@@ -150,7 +150,7 @@ class ClusterRun:
 
     def add_embedding(self, arr, *, slot="embedding", name="X_pca", method="pca",
                       correction="none", aligned_to=None, content_hash=None,
-                      mount=None, provenance_channel="attributes_cyto") -> Path:
+                      mount=None, provenance_channel="attributes_txr") -> Path:
         mount = self._mount(mount)
         dest = self.inputs_dir / mount
         write_embedding_store(dest, arr, name=name, method=method, correction=correction,
@@ -185,9 +185,9 @@ class ClusterRun:
         env["PYTHONPATH"] = os.pathsep.join(
             [str(_HELPERS_DIR), str(_LIB_DIR),
              *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])])
-        env["CYTO_INPUTS_DIR"] = str(self.inputs_dir)
-        env["CYTO_OUTPUTS_DIR"] = str(self.outputs_dir)
-        env.pop("CYTO_PROGRESS_FIFO", None)
+        env["TXR_INPUTS_DIR"] = str(self.inputs_dir)
+        env["TXR_OUTPUTS_DIR"] = str(self.outputs_dir)
+        env.pop("TXR_PROGRESS_FIFO", None)
         for k, v in (env_extra or {}).items():
             if v is None:
                 env.pop(str(k), None)  # UNSET (absent), not empty-string
@@ -225,15 +225,15 @@ class ClusterRun:
     def label_store(self) -> Path:
         return self.outputs_dir / self.label_entry()["path"]
 
-    def label_group_cyto(self) -> dict:
-        """The produced column store's group `attributes.cyto` (where the clustering
+    def label_group_txr(self) -> dict:
+        """The produced column store's group `attributes.txr` (where the clustering
         provenance tag is stamped)."""
         doc = json.loads((self.label_store() / "zarr.json").read_text())
-        return (doc.get("attributes") or {}).get("cyto") or {}
+        return (doc.get("attributes") or {}).get("txr") or {}
 
     def labels(self) -> list:
         """The per-cell cluster labels, codes resolved through the declared level set."""
-        return list(cyto_zarr_read.read_column(self.label_store(), "values"))
+        return list(txr_zarr_read.read_column(self.label_store(), "values"))
 
     def progress_phases(self, proc) -> list[str]:
         return [l.split(":", 1)[1].strip().split("|")[0]

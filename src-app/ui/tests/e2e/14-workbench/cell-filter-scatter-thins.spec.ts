@@ -40,10 +40,10 @@ import {
 // machine (and on that one, once the scratch dir was cleaned) the fixture was absent, so this
 // spec skipped — and `just e2e-processors` treats ANY skip as a hard FAIL, so the missing file
 // was load-bearing in a way nobody would expect from reading the tier.
-// `.cyto-cache/fixtures/` is the convention the recipe already stages into; `CYTO_E2E_FIXTURES`
+// `.txr-cache/fixtures/` is the convention the recipe already stages into; `TXR_E2E_FIXTURES`
 // relocates the whole staging dir, and `CELLFILTER_H5AD` still overrides this one file.
 const HERE = dirname(fileURLToPath(import.meta.url))
-const FIXTURES = process.env.CYTO_E2E_FIXTURES ?? resolve(HERE, '../../../../../.cyto-cache/fixtures')
+const FIXTURES = process.env.TXR_E2E_FIXTURES ?? resolve(HERE, '../../../../../.txr-cache/fixtures')
 const H5AD_PATH = process.env.CELLFILTER_H5AD ?? resolve(FIXTURES, 'pbmc68k_reduced.h5ad')
 // Screenshot sink: Playwright's own per-test output dir (`test-results/…`, gitignored + reported)
 // unless overridden. The previous default wrote PNGs into that same foreign absolute path.
@@ -113,7 +113,7 @@ async function cellPaint(page: Page, cellId: string): Promise<{ painted: number;
 test.describe('cell-filter embedding scatter paints real UMAP + thins on filter', () => {
   test.skip(
     !HAVE_H5AD,
-    `pbmc68k UMAP .h5ad not staged at ${H5AD_PATH} — stage it there, or set CYTO_E2E_FIXTURES ` +
+    `pbmc68k UMAP .h5ad not staged at ${H5AD_PATH} — stage it there, or set TXR_E2E_FIXTURES ` +
       `(the staging dir) / CELLFILTER_H5AD (this one file)`,
   )
   // A large viewport so the auto-grid's before/after panes (2 emb + the criteria's violin/bar

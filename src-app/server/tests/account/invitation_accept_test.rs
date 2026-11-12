@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::account::{
+use txresbench::modules::account::{
     invitation_token, INVALID_INVITATION, PERSONAL_ACCOUNT_NOT_MANAGEABLE, ROLE_ABOVE_ACTOR,
 };
 
@@ -372,14 +372,14 @@ async fn fixture(prefix: &str) -> Fixture {
         &server,
         &admin,
         &format!("{prefix}_owner"),
-        &format!("{prefix}_owner@cyto.test"),
+        &format!("{prefix}_owner@txresbench.test"),
     )
     .await;
     let bystander = create_user(
         &server,
         &admin,
         &format!("{prefix}_bystander"),
-        &format!("{prefix}_bystander@cyto.test"),
+        &format!("{prefix}_bystander@txresbench.test"),
     )
     .await;
     let owner_token = login(&server, &format!("{prefix}_owner")).await;
@@ -435,8 +435,8 @@ async fn invitee(f: &Fixture, name: &str, email: &str) -> (Uuid, String) {
 #[tokio::test]
 async fn inv9_every_invalid_token_is_byte_identical() {
     let f = fixture("i9").await;
-    let (recipient_id, recipient_token) = invitee(&f, "i9_recipient", "i9_recipient@cyto.test").await;
-    let (_wrong_id, wrong_token) = invitee(&f, "i9_wrong", "i9_wrong@cyto.test").await;
+    let (recipient_id, recipient_token) = invitee(&f, "i9_recipient", "i9_recipient@txresbench.test").await;
+    let (_wrong_id, wrong_token) = invitee(&f, "i9_wrong", "i9_wrong@txresbench.test").await;
     // The expired arm gets its OWN address AND its own user (FIX_ROUND-1, R1-8). Two
     // invitations for the SAME address make #145 DEC-4's supersede-on-re-invite mark the
     // first one REVOKED as well as expired — so the arm that was supposed to be "expired"
@@ -444,7 +444,7 @@ async fn inv9_every_invalid_token_is_byte_identical() {
     // tests-quality audit. Presenting it as its OWN recipient also keeps the arm from being
     // confounded a second way, with the email mismatch.
     let (_expired_user_id, expired_user_token) =
-        invitee(&f, "i9_expired", "i9_expired@cyto.test").await;
+        invitee(&f, "i9_expired", "i9_expired@txresbench.test").await;
 
     // (ii) expired — and ONLY expired.
     let (expired_inv, expired) = mint_invitation(
@@ -452,7 +452,7 @@ async fn inv9_every_invalid_token_is_byte_identical() {
         &f.owner_token,
         &f.pool,
         f.org,
-        "i9_expired@cyto.test",
+        "i9_expired@txresbench.test",
         "member",
     )
     .await;
@@ -476,7 +476,7 @@ async fn inv9_every_invalid_token_is_byte_identical() {
         &f.owner_token,
         &f.pool,
         f.org,
-        "i9_recipient@cyto.test",
+        "i9_recipient@txresbench.test",
         "member",
     )
     .await;
@@ -505,13 +505,13 @@ async fn inv9_every_invalid_token_is_byte_identical() {
     // so it was revoked AND an email mismatch: deleting `revoked_at IS NULL` from the claim
     // predicate left the suite green, because the mismatch answered anyway. Five causes were
     // still four. Found by a round-2 blind tests-quality audit.
-    let (_revokee_id, revokee_token) = invitee(&f, "i9_revokee", "i9_revokee@cyto.test").await;
+    let (_revokee_id, revokee_token) = invitee(&f, "i9_revokee", "i9_revokee@txresbench.test").await;
     let (revoked_inv, revoked_token) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i9_revokee@cyto.test",
+        "i9_revokee@txresbench.test",
         "member",
     )
     .await;
@@ -529,7 +529,7 @@ async fn inv9_every_invalid_token_is_byte_identical() {
         "the `revoked` arm must be revoked and NOTHING ELSE, or it duplicates another cause"
     );
     assert_eq!(
-        revoked_email, "i9_revokee@cyto.test",
+        revoked_email, "i9_revokee@txresbench.test",
         "…and it is presented BY that address below, so the email binding is not a second \
          reason for its refusal"
     );
@@ -541,7 +541,7 @@ async fn inv9_every_invalid_token_is_byte_identical() {
         &f.owner_token,
         &f.pool,
         f.org,
-        "i9_someone_else@cyto.test",
+        "i9_someone_else@txresbench.test",
         "member",
     )
     .await;
@@ -630,18 +630,18 @@ async fn inv9_no_miss_opens_a_transaction_so_the_404_is_indistinguishable_in_tim
     let f = fixture("i9t").await;
 
     // One user per cause, so each arm's ONLY defect is the one it is named for.
-    let (_str_id, stranger) = invitee(&f, "i9t_str", "i9t_str@cyto.test").await;
-    let (rec_id, recipient) = invitee(&f, "i9t_rec", "i9t_rec@cyto.test").await;
-    let (_exp_id, expired_user) = invitee(&f, "i9t_exp", "i9t_exp@cyto.test").await;
-    let (used_id, used_user) = invitee(&f, "i9t_used", "i9t_used@cyto.test").await;
-    let (_rev_id, revoked_user) = invitee(&f, "i9t_rev", "i9t_rev@cyto.test").await;
+    let (_str_id, stranger) = invitee(&f, "i9t_str", "i9t_str@txresbench.test").await;
+    let (rec_id, recipient) = invitee(&f, "i9t_rec", "i9t_rec@txresbench.test").await;
+    let (_exp_id, expired_user) = invitee(&f, "i9t_exp", "i9t_exp@txresbench.test").await;
+    let (used_id, used_user) = invitee(&f, "i9t_used", "i9t_used@txresbench.test").await;
+    let (_rev_id, revoked_user) = invitee(&f, "i9t_rev", "i9t_rev@txresbench.test").await;
 
     let (_li, live) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i9t_rec@cyto.test",
+        "i9t_rec@txresbench.test",
         "member",
     )
     .await;
@@ -650,7 +650,7 @@ async fn inv9_no_miss_opens_a_transaction_so_the_404_is_indistinguishable_in_tim
         &f.owner_token,
         &f.pool,
         f.org,
-        "i9t_exp@cyto.test",
+        "i9t_exp@txresbench.test",
         "member",
     )
     .await;
@@ -659,7 +659,7 @@ async fn inv9_no_miss_opens_a_transaction_so_the_404_is_indistinguishable_in_tim
         &f.owner_token,
         &f.pool,
         f.org,
-        "i9t_used@cyto.test",
+        "i9t_used@txresbench.test",
         "member",
     )
     .await;
@@ -668,7 +668,7 @@ async fn inv9_no_miss_opens_a_transaction_so_the_404_is_indistinguishable_in_tim
         &f.owner_token,
         &f.pool,
         f.org,
-        "i9t_rev@cyto.test",
+        "i9t_rev@txresbench.test",
         "member",
     )
     .await;
@@ -775,13 +775,13 @@ async fn inv9_no_miss_opens_a_transaction_so_the_404_is_indistinguishable_in_tim
 #[tokio::test]
 async fn the_email_binding_is_re_evaluated_inside_the_transaction() {
     let f = fixture("ieb2").await;
-    let (rec_id, recipient) = invitee(&f, "ieb2_rec", "ieb2_rec@cyto.test").await;
+    let (rec_id, recipient) = invitee(&f, "ieb2_rec", "ieb2_rec@txresbench.test").await;
     let (inv, token) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "ieb2_rec@cyto.test",
+        "ieb2_rec@txresbench.test",
         "member",
     )
     .await;
@@ -811,7 +811,7 @@ async fn the_email_binding_is_re_evaluated_inside_the_transaction() {
         tokio::time::sleep(LOCK_BARRIER_GRACE).await;
         sqlx::query("UPDATE users SET email = $2 WHERE id = $1")
             .bind(rec_id)
-            .bind("ieb2_moved@cyto.test")
+            .bind("ieb2_moved@txresbench.test")
             .execute(&mut *blocker)
             .await
             .expect("change the redeemer's address while the accept waits");
@@ -837,7 +837,7 @@ async fn the_email_binding_is_re_evaluated_inside_the_transaction() {
     // ── POSITIVE CONTROL: restore the address, redeem the SAME token ──
     sqlx::query("UPDATE users SET email = $2 WHERE id = $1")
         .bind(rec_id)
-        .bind("ieb2_rec@cyto.test")
+        .bind("ieb2_rec@txresbench.test")
         .execute(&f.pool)
         .await
         .expect("restore the address");
@@ -874,13 +874,13 @@ async fn inv6_the_role_ceiling_is_rechecked_at_accept() {
     // ── ARM 1: the inviter is DEMOTED to `member` ──
     {
         let f = fixture("i6a").await;
-        let (invitee_id, invitee_token) = invitee(&f, "i6a_new", "i6a_new@cyto.test").await;
+        let (invitee_id, invitee_token) = invitee(&f, "i6a_new", "i6a_new@txresbench.test").await;
         let (inv, token) = mint_invitation(
             &f.server,
             &f.owner_token,
             &f.pool,
             f.org,
-            "i6a_new@cyto.test",
+            "i6a_new@txresbench.test",
             "owner",
         )
         .await;
@@ -912,16 +912,16 @@ async fn inv6_the_role_ceiling_is_rechecked_at_accept() {
     {
         let f = fixture("i6b").await;
         // A second owner, so removing the inviter does not trip LAST_OWNER in the fixture.
-        let coowner = create_user(&f.server, &f.admin, "i6b_co", "i6b_co@cyto.test").await;
+        let coowner = create_user(&f.server, &f.admin, "i6b_co", "i6b_co@txresbench.test").await;
         add_member(&f.pool, f.org, coowner, "owner").await;
 
-        let (invitee_id, invitee_token) = invitee(&f, "i6b_new", "i6b_new@cyto.test").await;
+        let (invitee_id, invitee_token) = invitee(&f, "i6b_new", "i6b_new@txresbench.test").await;
         let (inv, token) = mint_invitation(
             &f.server,
             &f.owner_token,
             &f.pool,
             f.org,
-            "i6b_new@cyto.test",
+            "i6b_new@txresbench.test",
             "owner",
         )
         .await;
@@ -944,16 +944,16 @@ async fn inv6_the_role_ceiling_is_rechecked_at_accept() {
     // independent halves, and this arm is what proves the second one is really there.
     {
         let f = fixture("i6c").await;
-        let coowner = create_user(&f.server, &f.admin, "i6c_co", "i6c_co@cyto.test").await;
+        let coowner = create_user(&f.server, &f.admin, "i6c_co", "i6c_co@txresbench.test").await;
         add_member(&f.pool, f.org, coowner, "owner").await;
 
-        let (invitee_id, invitee_token) = invitee(&f, "i6c_new", "i6c_new@cyto.test").await;
+        let (invitee_id, invitee_token) = invitee(&f, "i6c_new", "i6c_new@txresbench.test").await;
         let (_inv, token) = mint_invitation(
             &f.server,
             &f.owner_token,
             &f.pool,
             f.org,
-            "i6c_new@cyto.test",
+            "i6c_new@txresbench.test",
             "owner",
         )
         .await;
@@ -983,16 +983,16 @@ async fn inv6_the_role_ceiling_is_rechecked_at_accept() {
     // `!live.allows(Admin)` can refuse. One line, one arm.
     {
         let f = fixture("i6e").await;
-        let coowner = create_user(&f.server, &f.admin, "i6e_co", "i6e_co@cyto.test").await;
+        let coowner = create_user(&f.server, &f.admin, "i6e_co", "i6e_co@txresbench.test").await;
         add_member(&f.pool, f.org, coowner, "owner").await;
 
-        let (invitee_id, invitee_token) = invitee(&f, "i6e_new", "i6e_new@cyto.test").await;
+        let (invitee_id, invitee_token) = invitee(&f, "i6e_new", "i6e_new@txresbench.test").await;
         let (inv, token) = mint_invitation(
             &f.server,
             &f.owner_token,
             &f.pool,
             f.org,
-            "i6e_new@cyto.test",
+            "i6e_new@txresbench.test",
             "member",
         )
         .await;
@@ -1026,13 +1026,13 @@ async fn inv6_the_role_ceiling_is_rechecked_at_accept() {
     // ── POSITIVE CONTROL: the inviter is STILL an Owner ──
     {
         let f = fixture("i6d").await;
-        let (invitee_id, invitee_token) = invitee(&f, "i6d_new", "i6d_new@cyto.test").await;
+        let (invitee_id, invitee_token) = invitee(&f, "i6d_new", "i6d_new@txresbench.test").await;
         let (inv, token) = mint_invitation(
             &f.server,
             &f.owner_token,
             &f.pool,
             f.org,
-            "i6d_new@cyto.test",
+            "i6d_new@txresbench.test",
             "owner",
         )
         .await;
@@ -1070,7 +1070,7 @@ async fn inv6_the_role_ceiling_is_rechecked_at_accept() {
 #[cfg(feature = "saas")]
 #[tokio::test]
 async fn inv10_seats_are_enforced_transactionally_at_accept() {
-    let limit = cytoanalyst::modules::billing::catalog::plan("free")
+    let limit = txresbench::modules::billing::catalog::plan("free")
         .expect("the free plan exists")
         .member_allowance;
 
@@ -1083,7 +1083,7 @@ async fn inv10_seats_are_enforced_transactionally_at_accept() {
             &f.server,
             &f.admin,
             &format!("i10_fill{i}"),
-            &format!("i10_fill{i}@cyto.test"),
+            &format!("i10_fill{i}@txresbench.test"),
         )
         .await;
         add_member(&f.pool, f.org, u, "member").await;
@@ -1091,13 +1091,13 @@ async fn inv10_seats_are_enforced_transactionally_at_accept() {
     }
     assert_eq!(member_count(&f.pool, f.org).await, limit, "at the limit");
 
-    let (over_id, over_token) = invitee(&f, "i10_over", "i10_over@cyto.test").await;
+    let (over_id, over_token) = invitee(&f, "i10_over", "i10_over@txresbench.test").await;
     let (over_inv, over) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i10_over@cyto.test",
+        "i10_over@txresbench.test",
         "member",
     )
     .await;
@@ -1137,7 +1137,7 @@ async fn inv10_seats_are_enforced_transactionally_at_accept() {
 #[cfg(feature = "saas")]
 #[tokio::test]
 async fn inv10_two_concurrent_accepts_cannot_both_take_the_last_seat() {
-    let limit = cytoanalyst::modules::billing::catalog::plan("free")
+    let limit = txresbench::modules::billing::catalog::plan("free")
         .expect("the free plan exists")
         .member_allowance;
 
@@ -1147,7 +1147,7 @@ async fn inv10_two_concurrent_accepts_cannot_both_take_the_last_seat() {
             &f.server,
             &f.admin,
             &format!("i10r_fill{i}"),
-            &format!("i10r_fill{i}@cyto.test"),
+            &format!("i10r_fill{i}@txresbench.test"),
         )
         .await;
         add_member(&f.pool, f.org, u, "member").await;
@@ -1158,14 +1158,14 @@ async fn inv10_two_concurrent_accepts_cannot_both_take_the_last_seat() {
         "exactly ONE free seat"
     );
 
-    let (a_id, a_token) = invitee(&f, "i10r_a", "i10r_a@cyto.test").await;
-    let (b_id, b_token) = invitee(&f, "i10r_b", "i10r_b@cyto.test").await;
+    let (a_id, a_token) = invitee(&f, "i10r_a", "i10r_a@txresbench.test").await;
+    let (b_id, b_token) = invitee(&f, "i10r_b", "i10r_b@txresbench.test").await;
     let (_ia, ta) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i10r_a@cyto.test",
+        "i10r_a@txresbench.test",
         "member",
     )
     .await;
@@ -1174,7 +1174,7 @@ async fn inv10_two_concurrent_accepts_cannot_both_take_the_last_seat() {
         &f.owner_token,
         &f.pool,
         f.org,
-        "i10r_b@cyto.test",
+        "i10r_b@txresbench.test",
         "member",
     )
     .await;
@@ -1230,13 +1230,13 @@ async fn inv10_two_concurrent_accepts_cannot_both_take_the_last_seat() {
 #[tokio::test]
 async fn inv10_positive_control_an_accept_under_the_limit_succeeds() {
     let f = fixture("i10p").await;
-    let (id, token) = invitee(&f, "i10p_new", "i10p_new@cyto.test").await;
+    let (id, token) = invitee(&f, "i10p_new", "i10p_new@txresbench.test").await;
     let (_inv, t) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i10p_new@cyto.test",
+        "i10p_new@txresbench.test",
         "member",
     )
     .await;
@@ -1264,13 +1264,13 @@ async fn inv10_positive_control_an_accept_under_the_limit_succeeds() {
 #[tokio::test]
 async fn inv17_two_concurrent_accepts_of_one_token_yield_one_201_and_one_404() {
     let f = fixture("i17").await;
-    let (id, token) = invitee(&f, "i17_new", "i17_new@cyto.test").await;
+    let (id, token) = invitee(&f, "i17_new", "i17_new@txresbench.test").await;
     let (inv, t) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i17_new@cyto.test",
+        "i17_new@txresbench.test",
         "member",
     )
     .await;
@@ -1349,13 +1349,13 @@ async fn inv17_two_concurrent_accepts_of_one_token_yield_one_201_and_one_404() {
 #[tokio::test]
 async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_back_together() {
     let f = fixture("i17b").await;
-    let (id, token) = invitee(&f, "i17b_new", "i17b_new@cyto.test").await;
+    let (id, token) = invitee(&f, "i17b_new", "i17b_new@txresbench.test").await;
     let (inv, t) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i17b_new@cyto.test",
+        "i17b_new@txresbench.test",
         "member",
     )
     .await;
@@ -1370,7 +1370,7 @@ async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_bac
     // see `workstore/axis_identity_test` for the same idiom).
     let inv_hex = format!("{:x}", inv).replace('-', "");
     sqlx::query(&format!(
-        "CREATE TRIGGER cyto_test_accept_fault BEFORE UPDATE ON account_invitations \
+        "CREATE TRIGGER txr_test_accept_fault BEFORE UPDATE ON account_invitations \
          FOR EACH ROW WHEN (lower(hex(OLD.id)) = '{inv_hex}') \
          BEGIN SELECT RAISE(ABORT, 'injected fault at the accept stamp'); END"
     ))
@@ -1403,7 +1403,7 @@ async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_bac
         "nor may the audit ledger record a join that was rolled back"
     );
 
-    sqlx::query("DROP TRIGGER cyto_test_accept_fault")
+    sqlx::query("DROP TRIGGER txr_test_accept_fault")
         .execute(&f.pool)
         .await
         .expect("disarm the fault trigger");
@@ -1419,7 +1419,7 @@ async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_bac
     // survive.
     let org_hex = format!("{:x}", f.org).replace('-', "");
     sqlx::query(&format!(
-        "CREATE TRIGGER cyto_test_ledger_fault BEFORE INSERT ON account_member_events \
+        "CREATE TRIGGER txr_test_ledger_fault BEFORE INSERT ON account_member_events \
          FOR EACH ROW WHEN (lower(hex(NEW.account_id)) = '{org_hex}') \
          BEGIN SELECT RAISE(ABORT, 'injected fault at the ledger write'); END"
     ))
@@ -1433,16 +1433,16 @@ async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_bac
     // RETURNING` produced a row. So if this add is refused by the trigger, the trigger is on
     // a path only reachable once a membership INSERT has succeeded, which is exactly what
     // ARM 2 needs and what distinguishes it from ARM 1 (whose fault is on the stamp).
-    let probe = create_user(&f.server, &f.admin, "i17b_probe", "i17b_probe@cyto.test").await;
+    let probe = create_user(&f.server, &f.admin, "i17b_probe", "i17b_probe@txresbench.test").await;
     // SQLite port: the admin add ROUTE has no object on this node (stripped — DRIFT-1.25);
     // the repository call IS the surface (see `tests/admin/mod.rs`), and it reaches the
     // same `add_member_in_tx` + ledger-write path the removed route drove.
-    let probe_err = cytoanalyst::modules::account::AccountRepository::new(f.pool.clone())
+    let probe_err = txresbench::modules::account::AccountRepository::new(f.pool.clone())
         .add_member(
             f.org,
             probe,
-            cytoanalyst::modules::account::AccountRole::Member,
-            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+            txresbench::modules::account::AccountRole::Member,
+            txresbench::modules::account::ActorCeiling::PlatformStaff {
                 staff_user_id: uuid::Uuid::nil(),
             },
         )
@@ -1475,7 +1475,7 @@ async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_bac
     assert_eq!(member_count(&f.pool, f.org).await, before);
     assert!(!accepted_state(&f.pool, inv).await.0);
 
-    sqlx::query("DROP TRIGGER cyto_test_ledger_fault")
+    sqlx::query("DROP TRIGGER txr_test_ledger_fault")
         .execute(&f.pool)
         .await
         .expect("disarm the ledger fault trigger");
@@ -1532,13 +1532,13 @@ async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_bac
 #[tokio::test]
 async fn accept_never_holds_the_invitation_row_while_waiting_for_the_owner_rows() {
     let f = fixture("i7lo").await;
-    let (id, bearer) = invitee(&f, "i7lo_new", "i7lo_new@cyto.test").await;
+    let (id, bearer) = invitee(&f, "i7lo_new", "i7lo_new@txresbench.test").await;
     let (inv, token) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i7lo_new@cyto.test",
+        "i7lo_new@txresbench.test",
         "member",
     )
     .await;
@@ -1612,13 +1612,13 @@ async fn accept_never_holds_the_invitation_row_while_waiting_for_the_owner_rows(
 #[tokio::test]
 async fn accept_never_holds_the_owner_rows_while_waiting_for_the_account_row() {
     let f = fixture("i7lo2").await;
-    let (id, bearer) = invitee(&f, "i7lo2_new", "i7lo2_new@cyto.test").await;
+    let (id, bearer) = invitee(&f, "i7lo2_new", "i7lo2_new@txresbench.test").await;
     let (inv, token) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i7lo2_new@cyto.test",
+        "i7lo2_new@txresbench.test",
         "member",
     )
     .await;
@@ -1691,15 +1691,15 @@ async fn inv_email_binding_is_normalized_and_does_not_require_a_verified_address
     // The invitation is issued to a MIXED-CASE, PADDED address; #145 normalizes it at write
     // time. The recipient's stored address is the plain lowercase one.
     let (recipient_id, recipient_token) =
-        invitee(&f, "ieb_recipient", "ieb_recipient@cyto.test").await;
-    let (_other_id, other_token) = invitee(&f, "ieb_other", "ieb_other@cyto.test").await;
+        invitee(&f, "ieb_recipient", "ieb_recipient@txresbench.test").await;
+    let (_other_id, other_token) = invitee(&f, "ieb_other", "ieb_other@txresbench.test").await;
 
     let (inv, token) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "  IEB_Recipient@CYTO.test  ",
+        "  IEB_Recipient@TXRESBENCH.test  ",
         "member",
     )
     .await;
@@ -1757,7 +1757,7 @@ async fn inv_email_binding_is_normalized_and_does_not_require_a_verified_address
 ///
 /// Drives the real flow end to end for an invitee who has no account at all, and asserts
 /// the negative twice over: a `token` field smuggled into the REGISTER body does nothing,
-/// and the shipped `ziee-auth` register handler contains no invitation/token handling.
+/// and the shipped `txresbench-auth` register handler contains no invitation/token handling.
 ///
 /// **Positive control:** the second call — the accept — really does create the membership,
 /// so "registering created no membership" is not passing because nothing works.
@@ -1766,7 +1766,7 @@ async fn signup_then_accept_works_end_to_end_with_no_change_to_register() {
     let f = fixture("ste").await;
 
     // An invitation for an address that belongs to NO user yet.
-    let email = "ste_newcomer@cyto.test";
+    let email = "ste_newcomer@txresbench.test";
     let (inv, token) = mint_invitation(&f.server, &f.owner_token, &f.pool, f.org, email, "member")
         .await;
     let before = member_count(&f.pool, f.org).await;
@@ -1831,7 +1831,7 @@ async fn signup_then_accept_works_end_to_end_with_no_change_to_register() {
     assert_eq!(personal, 1, "exactly one personal account after signup");
 
     // ── and the register handler itself carries no invitation coupling ──
-    let register_src = include_str!("../../../../sdk/crates/ziee-auth/src/auth/http/handlers.rs");
+    let register_src = include_str!("../../../../sdk/crates/txresbench-auth/src/auth/http/handlers.rs");
     let lowered = register_src.to_lowercase();
     for coupling in ["invitation", "account_invitations", "invite_token"] {
         assert!(
@@ -1918,13 +1918,13 @@ async fn inv18_the_token_is_accepted_only_in_the_request_body() {
 
     // ── behavioural: query-string transport is not honoured ──
     let f = fixture("i18").await;
-    let (id, bearer) = invitee(&f, "i18_new", "i18_new@cyto.test").await;
+    let (id, bearer) = invitee(&f, "i18_new", "i18_new@txresbench.test").await;
     let (_inv, token) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i18_new@cyto.test",
+        "i18_new@txresbench.test",
         "member",
     )
     .await;
@@ -1964,13 +1964,13 @@ async fn inv18_the_token_is_accepted_only_in_the_request_body() {
 #[tokio::test]
 async fn accept_is_authenticated_but_not_capability_gated() {
     let f = fixture("i11").await;
-    let (id, bearer) = invitee(&f, "i11_new", "i11_new@cyto.test").await;
+    let (id, bearer) = invitee(&f, "i11_new", "i11_new@txresbench.test").await;
     let (_inv, token) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i11_new@cyto.test",
+        "i11_new@txresbench.test",
         "member",
     )
     .await;
@@ -2023,7 +2023,7 @@ async fn accept_is_authenticated_but_not_capability_gated() {
 #[tokio::test]
 async fn accepting_into_a_personal_account_is_refused_by_name() {
     let f = fixture("i12").await;
-    let (id, bearer) = invitee(&f, "i12_new", "i12_new@cyto.test").await;
+    let (id, bearer) = invitee(&f, "i12_new", "i12_new@txresbench.test").await;
 
     let personal: Uuid = sqlx::query_scalar(
         "SELECT id FROM accounts WHERE kind='personal' AND personal_user_id=$1",
@@ -2036,7 +2036,7 @@ async fn accepting_into_a_personal_account_is_refused_by_name() {
     let (personal_inv, personal_token) = plant_invitation(
         &f.pool,
         personal,
-        "i12_new@cyto.test",
+        "i12_new@txresbench.test",
         "member",
         Some(f.owner_id),
     )
@@ -2056,7 +2056,7 @@ async fn accepting_into_a_personal_account_is_refused_by_name() {
 
     // ── POSITIVE CONTROL: the same planting, on the ORG ──
     let (org_inv, org_token) =
-        plant_invitation(&f.pool, f.org, "i12_new@cyto.test", "member", Some(f.owner_id)).await;
+        plant_invitation(&f.pool, f.org, "i12_new@txresbench.test", "member", Some(f.owner_id)).await;
     let r = post_accept(&f.server, Some(&bearer), &org_token).await;
     assert_eq!(r.status, 201, "positive control: {}", r.text);
     assert_eq!(role_of(&f.pool, f.org, id).await.as_deref(), Some("member"));
@@ -2074,10 +2074,10 @@ async fn accepting_into_a_personal_account_is_refused_by_name() {
 #[tokio::test]
 async fn an_invitation_with_no_recorded_inviter_is_refused() {
     let f = fixture("i12b").await;
-    let (id, bearer) = invitee(&f, "i12b_new", "i12b_new@cyto.test").await;
+    let (id, bearer) = invitee(&f, "i12b_new", "i12b_new@txresbench.test").await;
 
     let (inv, token) =
-        plant_invitation(&f.pool, f.org, "i12b_new@cyto.test", "member", None).await;
+        plant_invitation(&f.pool, f.org, "i12b_new@txresbench.test", "member", None).await;
     let before = member_count(&f.pool, f.org).await;
 
     let r = post_accept(&f.server, Some(&bearer), &token).await;
@@ -2097,7 +2097,7 @@ async fn an_invitation_with_no_recorded_inviter_is_refused() {
     let (ok_inv, ok_token) = plant_invitation(
         &f.pool,
         f.org,
-        "i12b_new@cyto.test",
+        "i12b_new@txresbench.test",
         "member",
         Some(f.owner_id),
     )
@@ -2123,7 +2123,7 @@ async fn an_invitation_with_no_recorded_inviter_is_refused() {
 #[tokio::test]
 async fn accepting_as_an_existing_member_is_idempotent() {
     let f = fixture("i13").await;
-    let (id, bearer) = invitee(&f, "i13_member", "i13_member@cyto.test").await;
+    let (id, bearer) = invitee(&f, "i13_member", "i13_member@txresbench.test").await;
     add_member(&f.pool, f.org, id, "member").await;
 
     // PLANTED, not minted: `POST …/invitations` is a documented NO-OP when the address
@@ -2135,7 +2135,7 @@ async fn accepting_as_an_existing_member_is_idempotent() {
     let (inv, token) = plant_invitation(
         &f.pool,
         f.org,
-        "i13_member@cyto.test",
+        "i13_member@txresbench.test",
         "admin",
         Some(f.owner_id),
     )
@@ -2173,13 +2173,13 @@ async fn accepting_as_an_existing_member_is_idempotent() {
     );
 
     // ── POSITIVE CONTROL: a NON-member with the equivalent invitation ──
-    let (fresh_id, fresh_bearer) = invitee(&f, "i13_fresh", "i13_fresh@cyto.test").await;
+    let (fresh_id, fresh_bearer) = invitee(&f, "i13_fresh", "i13_fresh@txresbench.test").await;
     let (_inv2, token2) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i13_fresh@cyto.test",
+        "i13_fresh@txresbench.test",
         "admin",
     )
     .await;
@@ -2209,13 +2209,13 @@ async fn accepting_as_an_existing_member_is_idempotent() {
 #[tokio::test]
 async fn a_successful_accept_writes_one_joined_row_tied_to_its_invitation() {
     let f = fixture("i14").await;
-    let (id, bearer) = invitee(&f, "i14_new", "i14_new@cyto.test").await;
+    let (id, bearer) = invitee(&f, "i14_new", "i14_new@txresbench.test").await;
     let (inv, token) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i14_new@cyto.test",
+        "i14_new@txresbench.test",
         "admin",
     )
     .await;
@@ -2255,13 +2255,13 @@ async fn a_successful_accept_writes_one_joined_row_tied_to_its_invitation() {
     );
 
     // ── the DENY half: a refused accept writes nothing ──
-    let (refused_id, refused_bearer) = invitee(&f, "i14_ref", "i14_ref@cyto.test").await;
+    let (refused_id, refused_bearer) = invitee(&f, "i14_ref", "i14_ref@txresbench.test").await;
     let (_ri, rt) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i14_ref@cyto.test",
+        "i14_ref@txresbench.test",
         "owner",
     )
     .await;
@@ -2285,19 +2285,19 @@ async fn a_successful_accept_writes_one_joined_row_tied_to_its_invitation() {
 #[tokio::test]
 async fn the_admin_add_path_still_writes_a_joined_row_with_no_invitation_id() {
     let f = fixture("i17c").await;
-    let target = create_user(&f.server, &f.admin, "i17c_t", "i17c_t@cyto.test").await;
+    let target = create_user(&f.server, &f.admin, "i17c_t", "i17c_t@txresbench.test").await;
     let before = member_count(&f.pool, f.org).await;
 
     // The `/admin/accounts/{id}/members` route has no object on this node (stripped);
     // the repository function it drove is the retained admin add, driven directly
     // under `PlatformStaff` (the ceiling the admin route carried).
-    let repo = cytoanalyst::modules::account::AccountRepository::new(f.pool.clone());
+    let repo = txresbench::modules::account::AccountRepository::new(f.pool.clone());
     let member = repo
         .add_member(
             f.org,
             target,
-            cytoanalyst::modules::account::AccountRole::Member,
-            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+            txresbench::modules::account::AccountRole::Member,
+            txresbench::modules::account::ActorCeiling::PlatformStaff {
                 staff_user_id: Uuid::parse_str("00000000-0000-4000-8000-00000000f148")
                     .expect("staff uuid"),
             },
@@ -2337,37 +2337,37 @@ async fn the_admin_add_path_still_writes_a_joined_row_with_no_invitation_id() {
 #[cfg(feature = "saas")]
 #[tokio::test]
 async fn the_authorization_refusal_precedes_the_seat_refusal() {
-    let limit = cytoanalyst::modules::billing::catalog::plan("free")
+    let limit = txresbench::modules::billing::catalog::plan("free")
         .expect("the free plan exists")
         .member_allowance;
 
     let f = fixture("i18c").await;
     // A second Owner who stays an Owner — the control's invitation comes from them, so it
     // survives the fixture owner's demotion.
-    let coowner = create_user(&f.server, &f.admin, "i18c_co", "i18c_co@cyto.test").await;
+    let coowner = create_user(&f.server, &f.admin, "i18c_co", "i18c_co@txresbench.test").await;
     add_member(&f.pool, f.org, coowner, "owner").await;
     let coowner_token = login(&f.server, "i18c_co").await;
 
     // Both invitations are minted UP FRONT, while both owners still hold authority — the
     // demotion below would otherwise refuse the MINT and the test would be exercising
     // `create_invitation`'s gate instead of accept's step order.
-    let (over_id, over_bearer) = invitee(&f, "i18c_over", "i18c_over@cyto.test").await;
+    let (over_id, over_bearer) = invitee(&f, "i18c_over", "i18c_over@txresbench.test").await;
     let (_oi, over_token) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i18c_over@cyto.test",
+        "i18c_over@txresbench.test",
         "member",
     )
     .await;
-    let (ok_id, ok_bearer) = invitee(&f, "i18c_ok", "i18c_ok@cyto.test").await;
+    let (ok_id, ok_bearer) = invitee(&f, "i18c_ok", "i18c_ok@txresbench.test").await;
     let (_ok_inv, ok_token) = mint_invitation(
         &f.server,
         &coowner_token,
         &f.pool,
         f.org,
-        "i18c_ok@cyto.test",
+        "i18c_ok@txresbench.test",
         "member",
     )
     .await;
@@ -2377,7 +2377,7 @@ async fn the_authorization_refusal_precedes_the_seat_refusal() {
             &f.server,
             &f.admin,
             &format!("i18c_fill{i}"),
-            &format!("i18c_fill{i}@cyto.test"),
+            &format!("i18c_fill{i}@txresbench.test"),
         )
         .await;
         add_member(&f.pool, f.org, u, "member").await;
@@ -2442,27 +2442,27 @@ async fn over_seat_victim(f: &Fixture) -> Uuid {
 #[tokio::test]
 async fn the_token_lookup_precedes_the_ceiling_recheck() {
     let f = fixture("i18d").await;
-    let coowner = create_user(&f.server, &f.admin, "i18d_co", "i18d_co@cyto.test").await;
+    let coowner = create_user(&f.server, &f.admin, "i18d_co", "i18d_co@txresbench.test").await;
     add_member(&f.pool, f.org, coowner, "owner").await;
     let coowner_token = login(&f.server, "i18d_co").await;
 
-    let (exp_id, exp_bearer) = invitee(&f, "i18d_exp", "i18d_exp@cyto.test").await;
+    let (exp_id, exp_bearer) = invitee(&f, "i18d_exp", "i18d_exp@txresbench.test").await;
     let (exp_inv, exp_token) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i18d_exp@cyto.test",
+        "i18d_exp@txresbench.test",
         "member",
     )
     .await;
-    let (ok_id, ok_bearer) = invitee(&f, "i18d_ok", "i18d_ok@cyto.test").await;
+    let (ok_id, ok_bearer) = invitee(&f, "i18d_ok", "i18d_ok@txresbench.test").await;
     let (_ok_inv, ok_token) = mint_invitation(
         &f.server,
         &coowner_token,
         &f.pool,
         f.org,
-        "i18d_ok@cyto.test",
+        "i18d_ok@txresbench.test",
         "member",
     )
     .await;
@@ -2508,14 +2508,14 @@ async fn the_email_binding_precedes_the_ceiling_recheck() {
     // (No co-owner fixture here: nothing in this test removes the fixture owner, so a second
     // owner would be an inert step — FIX_ROUND-2, R2-7.)
     let (recipient_id, recipient_bearer) =
-        invitee(&f, "i18e_rec", "i18e_rec@cyto.test").await;
-    let (_stranger_id, stranger_bearer) = invitee(&f, "i18e_str", "i18e_str@cyto.test").await;
+        invitee(&f, "i18e_rec", "i18e_rec@txresbench.test").await;
+    let (_stranger_id, stranger_bearer) = invitee(&f, "i18e_str", "i18e_str@txresbench.test").await;
     let (inv, token) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i18e_rec@cyto.test",
+        "i18e_rec@txresbench.test",
         "owner",
     )
     .await;
@@ -2586,13 +2586,13 @@ async fn a_successful_accept_fans_an_account_member_frame_to_the_other_members()
     const WAIT: Duration = Duration::from_secs(10);
 
     let f = fixture("i15").await;
-    let (id, bearer) = invitee(&f, "i15_new", "i15_new@cyto.test").await;
+    let (id, bearer) = invitee(&f, "i15_new", "i15_new@txresbench.test").await;
     let (_inv, token) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i15_new@cyto.test",
+        "i15_new@txresbench.test",
         "member",
     )
     .await;
@@ -2608,20 +2608,20 @@ async fn a_successful_accept_fans_an_account_member_frame_to_the_other_members()
     // `account_member_events` only after its `INSERT INTO account_members … RETURNING`
     // produced a row, so reaching the fault proves the membership existed inside the
     // transaction — and the probe must still hear nothing.
-    let (_ref_id, ref_bearer) = invitee(&f, "i15_ref", "i15_ref@cyto.test").await;
+    let (_ref_id, ref_bearer) = invitee(&f, "i15_ref", "i15_ref@txresbench.test").await;
     let (_ri, ref_token) = mint_invitation(
         &f.server,
         &f.owner_token,
         &f.pool,
         f.org,
-        "i15_ref@cyto.test",
+        "i15_ref@txresbench.test",
         "member",
     )
     .await;
     // SQLite port: the plpgsql fault function is a `SELECT RAISE(ABORT, …)` trigger body.
     let org_hex_sync = format!("{:x}", f.org).replace('-', "");
     sqlx::query(&format!(
-        "CREATE TRIGGER cyto_test_sync_fault BEFORE INSERT ON account_member_events \
+        "CREATE TRIGGER txr_test_sync_fault BEFORE INSERT ON account_member_events \
          FOR EACH ROW WHEN (lower(hex(NEW.account_id)) = '{org_hex_sync}') \
          BEGIN SELECT RAISE(ABORT, 'injected fault after the membership insert'); END"
     ))
@@ -2642,7 +2642,7 @@ async fn a_successful_accept_fans_an_account_member_frame_to_the_other_members()
     );
     owner_probe.expect_silence(Duration::from_millis(750)).await;
 
-    sqlx::query("DROP TRIGGER cyto_test_sync_fault")
+    sqlx::query("DROP TRIGGER txr_test_sync_fault")
         .execute(&f.pool)
         .await
         .expect("disarm the sync fault trigger");

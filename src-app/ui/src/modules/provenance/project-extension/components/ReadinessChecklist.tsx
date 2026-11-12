@@ -1,4 +1,4 @@
-import { Badge, Empty } from '@ziee/kit'
+import { Badge, Empty } from '@txresbench/kit'
 import { Check, X } from 'lucide-react'
 import type { ReadinessDto } from '@/api-client/types'
 

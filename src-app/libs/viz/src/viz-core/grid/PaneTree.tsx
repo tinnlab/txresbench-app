@@ -38,7 +38,7 @@
 // prop would end that.
 import React from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
-import type { LayoutNode, SplitNode } from '@ziee/dock'
+import type { LayoutNode, SplitNode } from '@txresbench/dock'
 
 /** Separator visual size (px). */
 const SEP = 6

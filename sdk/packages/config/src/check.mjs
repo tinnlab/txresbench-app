@@ -2,20 +2,20 @@
 /**
  * Composable quality-gate runner: `tsc + biome guardrail + design-token
  * enforcement + hardcoded-color + design-spec (+ kit-manifest)` in ONE call, so a
- * new app gets ziee's whole config-layer gate by referencing this instead of
+ * new app gets txresbench's whole config-layer gate by referencing this instead of
  * hand-maintaining a 10-step `&&` chain.
  *
  * Everything is parameterized over the app's tree (defaults assume an app root with
  * `src/`, `src/index.css`, `tsconfig.json`, `DESIGN_SYSTEM.md`):
  *
- *   ziee-check                                  # all steps, defaults
- *   ziee-check --root=src --root=../desktop/ui/src
- *   ziee-check --css src/index.css --design-out ../../DESIGN_SYSTEM.md
- *   ziee-check --kit-barrel ../../sdk/packages/kit/src/index.ts --kit-out .../KIT_MANIFEST.md
- *   ziee-check --no-tsc --no-kit-manifest       # skip steps
+ *   txresbench-check                                  # all steps, defaults
+ *   txresbench-check --root=src --root=../desktop/ui/src
+ *   txresbench-check --css src/index.css --design-out ../../DESIGN_SYSTEM.md
+ *   txresbench-check --kit-barrel ../../sdk/packages/kit/src/index.ts --kit-out .../KIT_MANIFEST.md
+ *   txresbench-check --no-tsc --no-kit-manifest       # skip steps
  *
  * NOTE: this is the CONFIG-layer gate only. Gallery/visual checks (gallery-coverage,
- * state-matrix, runtime-health, …) belong to a separate @ziee/gallery layer and are
+ * state-matrix, runtime-health, …) belong to a separate @txresbench/gallery layer and are
  * NOT run here.
  */
 import { spawnSync } from 'node:child_process'
@@ -73,7 +73,7 @@ for (const [name, cmd, args] of steps) {
   }
 }
 if (failed) {
-  console.error(`\n[ziee-check] ✗ ${failed} step(s) failed.`)
+  console.error(`\n[txresbench-check] ✗ ${failed} step(s) failed.`)
   process.exit(1)
 }
-console.log(`\n[ziee-check] ✓ all ${steps.length} config-gate step(s) passed.`)
+console.log(`\n[txresbench-check] ✓ all ${steps.length} config-gate step(s) passed.`)

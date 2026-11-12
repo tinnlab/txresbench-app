@@ -29,7 +29,7 @@ import { trackErrors } from './_helpers'
 /** Keys where the module singletons differ from a never-touched `createVizStores()` set. */
 type ResidueDiff = { key: string; pristine: unknown; actual: unknown }[]
 
-/** The probe `@ziee/viz`'s Showcase entry installs (`showcase/singletonResidue.ts`). Re-declared
+/** The probe `@txresbench/viz`'s Showcase entry installs (`showcase/singletonResidue.ts`). Re-declared
  *  here because the ui test project does not compile the viz package's own global augmentation. */
 type ResidueWindow = Window & { __VIZ_SINGLETON_RESIDUE__?: () => ResidueDiff }
 

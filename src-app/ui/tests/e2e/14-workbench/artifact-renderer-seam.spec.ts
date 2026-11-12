@@ -9,7 +9,7 @@ import { seedRunnableMatrix } from './_seed'
 // the honest heuristic default). The named-ref resolver + fallback are pinned
 // deterministically by the unit test `ArtifactPanel.test.ts`.
 //
-// HOST-CAPABILITY-gated on CYTO_E2E_REAL_COMPUTE (bwrap + CYTO_ENV_ROOTFS_DIR).
+// HOST-CAPABILITY-gated on TXR_E2E_REAL_COMPUTE (bwrap + TXR_ENV_ROOTFS_DIR).
 
 test.describe('artifact-renderer seam — host-owned dispatch (ITEM-38)', () => {
   test.skip(!REAL_COMPUTE, REAL_COMPUTE_SKIP)

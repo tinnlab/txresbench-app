@@ -4,9 +4,9 @@ import {
   ACCENT_PRESETS,
   configClientSeam,
   DEFAULT_ACCENT,
-} from '@ziee/shell'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
-import type { StoreProxy } from '@ziee/framework/stores'
+} from '@txresbench/shell'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
+import type { StoreProxy } from '@txresbench/framework/stores'
 
 // Guarded persistence storage. Accessing `localStorage` throws in locked-down
 // contexts (private-mode quota, disabled storage, sandboxed iframe). Probe once
@@ -14,7 +14,7 @@ import type { StoreProxy } from '@ziee/framework/stores'
 // preference simply won't survive a reload there.
 const safeStorage = createJSONStorage(() => {
   try {
-    const probe = '__ziee_ls_probe__'
+    const probe = '__txresbench_ls_probe__'
     window.localStorage.setItem(probe, probe)
     window.localStorage.removeItem(probe)
     return window.localStorage
@@ -83,7 +83,7 @@ const ConfigClientDef = defineStore('ConfigClient', {
  */
 export const ConfigClient = registerLazyStore(ConfigClientDef)
 
-// SEAM: inject into the SDK shell's ThemeProvider (`@ziee/shell`
+// SEAM: inject into the SDK shell's ThemeProvider (`@txresbench/shell`
 // theme/ThemeProvider.tsx reads `configClientSeam.get()`), replacing the old
 // global registry lookup. Runs at module scope, and this file is
 // imported by `config-client/module.tsx` — which `loadModules()` pulls in
@@ -93,7 +93,7 @@ configClientSeam.set(ConfigClient)
 
 export const useConfigClientStore = ConfigClientDef.store
 
-declare module '@ziee/framework/stores' {
+declare module '@txresbench/framework/stores' {
   interface RegisteredStores {
     ConfigClient: StoreProxy<
       ReturnType<typeof ConfigClientDef.store.getState>

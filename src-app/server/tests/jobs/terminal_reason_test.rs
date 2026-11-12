@@ -34,8 +34,8 @@ use serde_json::json;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::models::{CreateJobRequest, Job};
-use cytoanalyst::modules::jobs::repository::{JobRepository, DEPENDENCY_FAILED};
+use txresbench::modules::jobs::models::{CreateJobRequest, Job};
+use txresbench::modules::jobs::repository::{JobRepository, DEPENDENCY_FAILED};
 
 use super::{create_job_full, poll_until, pool_for, register_user, setup_admin};
 use crate::common::TestServer;

@@ -1,10 +1,10 @@
 /**
- * `@ziee/test-e2e` — the ONE config seam every scaffold piece anchors on.
+ * `@txresbench/test-e2e` — the ONE config seam every scaffold piece anchors on.
  *
- * A ziee-SDK app supplies its OWN specs + fixtures; this package supplies the
+ * A txresbench-SDK app supplies its OWN specs + fixtures; this package supplies the
  * reusable Layer-B scaffold (Playwright preset + Postgres-docker global setup /
  * teardown + port allocator + testid selectors), all parameterized over
- * `E2EConfig`. Nothing here hardcodes a ziee path — the app passes its server
+ * `E2EConfig`. Nothing here hardcodes a txresbench path — the app passes its server
  * command, base URL, test dir, and docker template.
  *
  * Two presets share the config:
@@ -38,7 +38,7 @@ export interface UiBuildConfig {
 export interface ServerWarmupConfig {
   /** Working dir the build command runs in (the server crate root). */
   cwd: string
-  /** Build command + args (e.g. `['cargo', ['build', '--bin', 'ziee']]`). */
+  /** Build command + args (e.g. `['cargo', ['build', '--bin', 'txresbench']]`). */
   command: [string, string[]]
   /** Skip warmup when this env var === '1'. */
   skipEnv?: string

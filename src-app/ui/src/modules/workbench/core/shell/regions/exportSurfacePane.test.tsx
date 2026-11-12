@@ -6,7 +6,7 @@
 //
 // ── What is REAL here and what stands in ────────────────────────────────────────────────
 // Real: `paneSurfaceHost` (the containers + the projection), the pane registry, the region
-// model, the dock store, and the mounted `RegionShell`. Standing in: `@ziee/viz`'s
+// model, the dock store, and the mounted `RegionShell`. Standing in: `@txresbench/viz`'s
 // `GridDockLayer`, because it is a deck.gl/WebGL component jsdom cannot mount. `GridStandIn`
 // below is NOT a convenience mock — it reproduces that layer's EXPORT partition step for step
 // (`GridDockLayer.tsx:725-727, 997`): build the dialog for the open target; ask the host for a
@@ -123,7 +123,7 @@ function GridStandIn({
 /** The shell's own default panes render contributed areas, so the real `RegionShell` needs the
  *  workbench context a real mount gives it. Backend-free fake host. */
 function Shell({ children }: { children: ReactElement }) {
-  const api = createWorkbenchApi(makeFakeHost({ projectId: PROJECT }), 'cyto.workbench.export-pane-test')
+  const api = createWorkbenchApi(makeFakeHost({ projectId: PROJECT }), 'txr.workbench.export-pane-test')
   return (
     <WorkbenchProvider api={api} projectId={PROJECT} viewId={`test-${PROJECT}`} canEdit>
       {children}

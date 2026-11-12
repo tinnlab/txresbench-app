@@ -282,7 +282,7 @@ fn strip_cfg_test(text: &str) -> String {
 /// named embed error (`deny_unknown_fields`; the boot posture, DEC-15).
 #[test]
 fn schema_refuses_per_patient_and_per_dataset_fields() {
-    use cytoanalyst::modules::method_catalogue::catalogue::parse_catalogue;
+    use txresbench::modules::method_catalogue::catalogue::parse_catalogue;
 
     let base = r#"{{
         "schema_version": 1,

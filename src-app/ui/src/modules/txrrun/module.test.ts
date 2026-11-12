@@ -30,7 +30,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { AppModule } from '@ziee/framework/module-system/types'
+import type { AppModule } from '@txresbench/framework/module-system/types'
 import txrRunModule from './module'
 import { TxrLayoutDef } from '../txrshell/module'
 

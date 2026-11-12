@@ -51,7 +51,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 #:   without it, and the #80 gate resolves this analysis's declared `run.dependencies[]`
 #:   against this file at BUILD time, so an undeclared library fails `cargo check` instead
 #:   of a user's job. It is a RECIPE, not core code.
-#: * `env-rootfs/single-cell/Dockerfile` — one token on the `# cyto:env-smoke` line, which
+#: * `env-rootfs/single-cell/Dockerfile` — one token on the `# txr:env-smoke` line, which
 #:   `env_image::tests::every_env_recipe_smoke_verifies_every_pinned_import` requires of
 #:   every pin: an install the smoke line does not verify silently ships absent.
 #: * `env-rootfs/env-pins.generated.json` — MECHANICALLY DERIVED from the pin file by

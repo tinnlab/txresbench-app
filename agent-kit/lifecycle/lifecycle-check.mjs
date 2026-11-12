@@ -114,12 +114,12 @@ try {
 }
 
 // ---------------------------------------------------------------------------
-// app.config (the de-ziee-ify seam, shared with preflight.sh + merge-gate.mjs).
+// app.config (the de-txresbench-ify seam, shared with preflight.sh + merge-gate.mjs).
 // A plain KEY=value data file at <repo>/.claude/app.config — READ, never sourced
 // (a committed config a gate consumes must not be able to run arbitrary shell).
 // The frontend-workspace map, the openapi-spec paths (R2-5 route registry), and
-// the clean-tree noise filter (A2) are ziee-specific; each key DEFAULTS to
-// ziee's historical hard-coded value, so ziee (whether it sets the key or leaves
+// the clean-tree noise filter (A2) are txresbench-specific; each key DEFAULTS to
+// txresbench's historical hard-coded value, so txresbench (whether it sets the key or leaves
 // it unset) behaves byte-identically, while a differently-laid-out app supplies
 // its own. Same parser semantics as merge-gate.mjs (trim, keep-first-on-dup).
 function loadAppConfig(root) {
@@ -134,14 +134,14 @@ function loadAppConfig(root) {
       const k = line.slice(0, i).trim();
       if (!(k in cfg)) cfg[k] = line.slice(i + 1).trim();
     }
-  } catch { /* no app.config → every key falls back to its ziee default */ }
+  } catch { /* no app.config → every key falls back to its txresbench default */ }
   return cfg;
 }
 const APP = loadAppConfig(repo);
 // LIFECYCLE_FRONTEND_WORKSPACES: ordered `<path-prefix>:<workspace-label>` pairs
 // (space-separated). A changed file whose path starts with a prefix belongs to
 // that workspace; FIRST match wins, so list the more-specific prefix first
-// (desktop/ui before ui). Default = ziee's two npm workspaces.
+// (desktop/ui before ui). Default = txresbench's two npm workspaces.
 function parseFeWorkspaces(spec) {
   return (spec || 'src-app/desktop/ui/:desktop/ui src-app/ui/:ui')
     .split(/\s+/).filter(Boolean)
@@ -154,13 +154,13 @@ function parseFeWorkspaces(spec) {
 const FE_WORKSPACES = parseFeWorkspaces(APP.LIFECYCLE_FRONTEND_WORKSPACES);
 // LIFECYCLE_OPENAPI_SPECS: space-separated openapi.json paths that form the live
 // /api route registry the R2-5 e2e route-mock gate validates against. Default =
-// ziee's ui + desktop/ui specs.
+// txresbench's ui + desktop/ui specs.
 const OPENAPI_SPECS = (APP.LIFECYCLE_OPENAPI_SPECS
   || 'src-app/ui/openapi/openapi.json src-app/desktop/ui/openapi/openapi.json')
   .split(/\s+/).filter(Boolean);
 // LIFECYCLE_CLEAN_TREE_IGNORE: space-separated path substrings whose working-tree
 // status entries the A2 clean-tree gate ignores (noisy vendored submodules etc.).
-// `.log` scratch files are always ignored on top of this. Default = ziee's
+// `.log` scratch files are always ignored on top of this. Default = txresbench's
 // vendored pgvector submodule.
 const CLEAN_TREE_IGNORE = (APP.LIFECYCLE_CLEAN_TREE_IGNORE || 'vendor/pgvector')
   .split(/\s+/).filter(Boolean);
@@ -168,11 +168,11 @@ const CLEAN_TREE_IGNORE = (APP.LIFECYCLE_CLEAN_TREE_IGNORE || 'vendor/pgvector')
 // paths): the app's DECLARED codegen output set. Every declared path joins the
 // generated-file exemption below (DIFF_EXCLUDES + isGeneratedFe) IN ADDITION to
 // the historical openapi.json / api-client/types.ts patterns — an app whose
-// regen writes MORE than those two files (comic/cytoanalyst's `finish_and_emit`
+// regen writes MORE than those two files (comic/txresbench's `finish_and_emit`
 // writes five per workspace: + permissions.ts, permissionDescriptions.ts,
 // apiEndpoints.ts) otherwise has a regen-only diff misread as a real UI touch,
 // against this gate's own documented intent. Unset ⇒ exactly the historical
-// patterns (and ziee is byte-identical either way: its declared set is already
+// patterns (and txresbench is byte-identical either way: its declared set is already
 // covered by those patterns).
 const GENERATED_FILES = (APP.MERGE_GENERATED || '').split(/\s+/).filter(Boolean);
 // LIFECYCLE_LIGHT_MAX_LINES: the LIGHT-tier size threshold (added+deleted lines in
@@ -651,7 +651,7 @@ function changedFilePaths() {
 const RE_GENERATED_FE = /(?:^|\/)openapi\.json$|(?:^|\/)api-client\/types\.ts$/;
 const isGeneratedFe = (p) => RE_GENERATED_FE.test(p) || GENERATED_FILES.includes(p);
 // Map a set of paths → the frontend npm workspaces they touch, per the
-// (app.config-driven) FE_WORKSPACES prefix→label map. Default (ziee):
+// (app.config-driven) FE_WORKSPACES prefix→label map. Default (txresbench):
 // `src-app/desktop/ui/**` → "desktop/ui"; `src-app/ui/**` → "ui".
 function frontendWorkspacesOf(paths) {
   const ws = new Set();
@@ -1350,7 +1350,7 @@ function checkA10Passing(results) {
 // mocks (`${…}`) can't be resolved statically and are skipped.
 function openApiApiPaths() {
   // → array of normalized segment-arrays ({param} → '*') for every /api/* path.
-  // OPENAPI_SPECS is app.config-driven (default = ziee's ui + desktop/ui specs).
+  // OPENAPI_SPECS is app.config-driven (default = txresbench's ui + desktop/ui specs).
   const files = OPENAPI_SPECS.map((f) => join(repo, f));
   const out = [];
   let anyPresent = false;

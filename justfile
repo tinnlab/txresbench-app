@@ -1,4 +1,4 @@
-# CytoAnalyst task runner. Mirrors the recipe NAMES the ziee lifecycle gates
+# TxResBench task runner. Mirrors the recipe NAMES the txresbench lifecycle gates
 # shell out to (`just openapi-regen`, `just check`, `just test`) so the shared
 # lifecycle scripts work once they're app-parameterized (SDK_GAPS C-1).
 
@@ -10,7 +10,7 @@ default:
     @just --list
 
 # Backend integration tests. The harness gives each test its own SQLite file
-# (create + migrate + delete; ziee-test-harness) — no database cluster, no
+# (create + migrate + delete; txresbench-test-harness) — no database cluster, no
 # Postgres needed. Per-test file isolation makes parallel safe; keep
 # --test-threads modest on a shared host.
 test THREADS="4":
@@ -269,7 +269,7 @@ check-py:
 # The WORKSPACE PACKAGES' own vitest suites. Exactly the `check-py` shape, one directory
 # over: `npm run check` roots vitest at `src-app/ui`, so the sibling packages' suites were
 # executed by NO repo-wired runner — not this justfile, not `npm run check`, not CI.
-# Measured when this recipe was added: `@ziee/viz` 207 files / 2555 tests and `@ziee/dock`
+# Measured when this recipe was added: `@txresbench/viz` 207 files / 2555 tests and `@txresbench/dock`
 # 4 files / 84 tests, 2639 tests under nothing.
 #
 # NOT hypothetical, and not a near miss: a merge changed `libs/viz/src/adapter/
@@ -294,9 +294,9 @@ check-py:
 #   node scripts/check-package-suites.mjs --list   (or --json)
 #
 # The `sdk/**` exclusion above is now CONDITIONAL, and that is the second hole this
-# recipe closed. `@ziee/kit` — the component kit every cytoanalyst surface renders
-# through — ships 44 tests that ran under NO cytoanalyst gate, because "it's another
-# repo's suite" was applied unconditionally. Two mutations made in cytoanalyst work
+# recipe closed. `@txresbench/kit` — the component kit every txresbench surface renders
+# through — ships 44 tests that ran under NO txresbench gate, because "it's another
+# repo's suite" was applied unconditionally. Two mutations made in txresbench work
 # survived the whole app suite and died only in the kit suite, and three user-facing
 # kit defects shipped through the hole in one day (MultiSelect unopenable with a value
 # bound; Input remounting on the first keystroke; Tabs `fill` clipping content). The
@@ -312,7 +312,7 @@ check-py:
 # `main` it exited 2 with FIVE errors, four of them inside `*.test.ts(x)` files — including
 # `omeTiffFallback.test.tsx` importing two names `../grid/gridModel` does not export. The
 # suites were green the whole time because vitest transpiles without typechecking, and `ui`'s
-# `npm run check` runs `tsc` over the UI project, which reaches `@ziee/viz` only through the
+# `npm run check` runs `tsc` over the UI project, which reaches `@txresbench/viz` only through the
 # modules `ui` imports — a subset of its `src/` and NONE of its tests. A type-level API break
 # was invisible to every gate in the repo, for an unknown length of time.
 #
@@ -322,7 +322,7 @@ check-py:
 # errors without this would only have reset the clock.
 #
 # The alternative repair — adding viz's typecheck to `ui`'s `npm run check` chain — was
-# refused as the ENUMERATING one: it fixes viz and leaves `@ziee/dock`'s typecheck (which
+# refused as the ENUMERATING one: it fixes viz and leaves `@txresbench/dock`'s typecheck (which
 # also existed, and was also run by nothing) plus every future package to be hand-added
 # again. `docs/design/derived-guards.md` §2/§5.
 #
@@ -341,7 +341,7 @@ check-py:
 # anything is allowed to REPORT anything" — is no longer literally true, and is corrected
 # here rather than left to read as a property the code below no longer has.
 #
-# WORKSPACE-PACKAGE suites + typechecks (@ziee/viz, @ziee/dock, …) — derived from the globs.
+# WORKSPACE-PACKAGE suites + typechecks (@txresbench/viz, @txresbench/dock, …) — derived from the globs.
 check-packages:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -542,7 +542,7 @@ check-invariants:
 # in the load-bearing position this file already documents twice: a gate edited without its
 # controls still passing is a gate whose PASS is worth nothing. It is the committed proof
 # that the guard goes RED — on #277s original leak re-introduced into a pinned
-# `scripts/*.mjs`, on a domain id one line outside a declared `cyto:guard-vocabulary` block,
+# `scripts/*.mjs`, on a domain id one line outside a declared `txr:guard-vocabulary` block,
 # on a block a file tried to grant itself, and on a collapsed scan surface (#304). It drives
 # the REAL guard over a synthetic repo and never scans this tree, so it cannot redden for a
 # leak that belongs to the `check-derived-vocabulary` leg beside it.
@@ -632,7 +632,7 @@ check-env-loop:
 # needs BOTH envs' artifacts on disk, and the second env has never been published, so no
 # fetch can supply it. Without this recipe the test's precondition was reachable only by
 # a human remembering to run the loop first — and `just test-sandbox` sets
-# `CYTO_TEST_NO_SKIP=1`, which turns that missing precondition into a RED sandbox tier
+# `TXR_TEST_NO_SKIP=1`, which turns that missing precondition into a RED sandbox tier
 # rather than a skip. This is the setup step that recipe's comment now points at.
 #
 # It is deliberately NOT folded into `check-guards`: it runs real docker builds.
@@ -642,15 +642,15 @@ env-loop-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     root="{{justfile_directory()}}"
-    # PIN THE CACHE. The staging step honours an ambient CYTO_ENV_ROOTFS_CACHE (it is a
+    # PIN THE CACHE. The staging step honours an ambient TXR_ENV_ROOTFS_CACHE (it is a
     # documented operator override, and this feature's own tests use it), while the Rust
-    # acceptance test resolves artifacts unconditionally from <repo>/.cyto-cache/env-rootfs.
+    # acceptance test resolves artifacts unconditionally from <repo>/.txr-cache/env-rootfs.
     # With that variable exported the two halves disagree: the recipe stages elsewhere,
-    # check-env-loop passes, and then the test PANICS under CYTO_TEST_NO_SKIP=1 saying
+    # check-env-loop passes, and then the test PANICS under TXR_TEST_NO_SKIP=1 saying
     # "build them first" — immediately after this recipe ran exactly that. A recipe whose
     # whole claim is "it establishes its own precondition" must not be able to establish
     # it somewhere the consumer does not look.
-    export CYTO_ENV_ROOTFS_CACHE="$root/.cyto-cache/env-rootfs"
+    export TXR_ENV_ROOTFS_CACHE="$root/.txr-cache/env-rootfs"
     sh "$root/scripts/build-env-rootfs-local.sh" --all
     bash "$root/scripts/check-env-loop.sh"
     # ASSERT A TEST WAS SELECTED. libtest exits 0 when a filter matches ZERO tests, so a
@@ -659,8 +659,8 @@ env-loop-verify:
     # child and `check-env-loop.sh` guards with a derived pass-count floor. An exit code
     # is not evidence that a test ran.
     cd "$root/src-app/server"
-    out="$(CONFIG_FILE=config/dev.yaml CYTO_TEST_NO_SKIP=1 \
-      cargo test -p cytoanalyst --test integration_tests -- --exact \
+    out="$(CONFIG_FILE=config/dev.yaml TXR_TEST_NO_SKIP=1 \
+      cargo test -p txresbench --test integration_tests -- --exact \
       sandbox::env_image_oci_test::each_locally_built_env_resolves_to_its_own_artifact \
       --nocapture --test-threads=1 2>&1)" || { printf '%s\n' "$out"; exit 1; }
     printf '%s\n' "$out"
@@ -728,12 +728,12 @@ openapi-regen:
 # There is no bootstrap deadlock: the env var switches build.rs from comparing to WRITING,
 # so a stale artefact never blocks the build that refreshes it.
 env-pins-regen:
-    cd {{server_dir}} && CONFIG_FILE=config/dev.yaml CYTO_REGEN_ENV_PINS=1 cargo check -p cytoanalyst
+    cd {{server_dir}} && CONFIG_FILE=config/dev.yaml TXR_REGEN_ENV_PINS=1 cargo check -p txresbench
     @echo "env-pins-regen: wrote src-app/env-rootfs/env-pins.generated.json — commit it with the pin change"
 
 # Full build (backend binary + frontend bundle).
 build:
-    cd {{server_dir}} && CONFIG_FILE=config/dev.yaml cargo build --bin cytoanalyst
+    cd {{server_dir}} && CONFIG_FILE=config/dev.yaml cargo build --bin txresbench
     cd {{ui_dir}} && npm run build
 
 # ─── THE E2E RUNNERS ─────────────────────────────────────────────────────────
@@ -747,7 +747,7 @@ build:
 #   recipe            testDir              server(s) it drives
 #   ---------------   ------------------   -------------------------------------
 #   e2e               tests/e2e            cargo backend + vite preview, per-worktree ports
-#   e2e-viz           tests/viz-e2e        @ziee/viz showcase, per-worktree port (backend-free)
+#   e2e-viz           tests/viz-e2e        @txresbench/viz showcase, per-worktree port (backend-free)
 #   e2e-gallery       tests/gallery-e2e    component gallery, per-worktree port (backend-free)
 #   e2e-visual        tests/visual         component gallery, per-worktree port (backend-free)
 #
@@ -773,7 +773,7 @@ build:
 # SCOPE — this is the BACKEND suite only (`tests/e2e/`). It does NOT include the
 # backend-free viz / gallery / visual suites; run `just e2e-all` for everything.
 # Nor does it include the `@acceptance` tests (`just verify-acceptance`) or the
-# `CYTO_E2E_REAL_COMPUTE`-gated specs, which register zero tests without a
+# `TXR_E2E_REAL_COMPUTE`-gated specs, which register zero tests without a
 # sandbox-executable host — `just e2e-inventory` prints exactly what is missing.
 #
 # BACKEND e2e (tests/e2e) — cargo backend + vite preview. NOT viz/gallery/visual.
@@ -788,7 +788,7 @@ build:
 e2e:
     cd {{ui_dir}} && npm run test:e2e
 
-# The viz module's e2e (`tests/viz-e2e/`). BACKEND-FREE: boots only the @ziee/viz
+# The viz module's e2e (`tests/viz-e2e/`). BACKEND-FREE: boots only the @txresbench/viz
 # showcase and drives it under software-WebGL (swiftshader). This suite is 95 tests —
 # before the routing fix it had NO invocation anywhere in the repo.
 #
@@ -797,7 +797,7 @@ e2e:
 # fixed :1421/:1422, which two worktrees silently shared — see the PORT block in
 # `playwright.viz.config.ts`). `VIZ_E2E_PORT` / `VIZ_BENCH_PORT` pin them.
 #
-# VIZ e2e (tests/viz-e2e) — backend-free; @ziee/viz showcase, per-worktree port.
+# VIZ e2e (tests/viz-e2e) — backend-free; @txresbench/viz showcase, per-worktree port.
 e2e-viz:
     cd {{ui_dir}} && npm run test:e2e:viz
 
@@ -825,11 +825,11 @@ e2e-gallery:
 e2e-visual:
     cd {{ui_dir}} && npm run test:e2e:visual
 
-# The @ziee/viz PACKAGE's own e2e — 20 `tests/e2e/*.e2e.mjs` browser specs that drive
+# The @txresbench/viz PACKAGE's own e2e — 20 `tests/e2e/*.e2e.mjs` browser specs that drive
 # the showcase directly with `playwright.chromium`, NOT under a playwright.config. Its
 # `run-all.mjs` already globs the DIRECTORY on purpose ("the gate must be the DIRECTORY,
 # not a list") and refuses to report success on an empty set — but `npm --workspace
-# @ziee/viz run test:e2e` was invoked by no recipe and no other script, so all 20 were in
+# @txresbench/viz run test:e2e` was invoked by no recipe and no other script, so all 20 were in
 # the same un-runnable state as the viz playwright suite. Same class, different runner.
 #
 # Unlike the playwright suites this has no `webServer`, so the recipe boots the showcase
@@ -906,9 +906,9 @@ e2e-all:
         const n = m.narrowedOut({ testDir: "tests/e2e" })
         console.log(`  NOT included: ${n.tests.length} ${n.tag} test(s) in ${n.files.length} spec ` +
           `file(s) — \`just verify-acceptance\`,`)
-        console.log("  plus the CYTO_E2E_REAL_COMPUTE-gated specs — see `just e2e-inventory`.")
+        console.log("  plus the TXR_E2E_REAL_COMPUTE-gated specs — see `just e2e-inventory`.")
       })
-    ' || echo "  NOT included: @acceptance + CYTO_E2E_REAL_COMPUTE specs (count unavailable)"
+    ' || echo "  NOT included: @acceptance + TXR_E2E_REAL_COMPUTE specs (count unavailable)"
     exit $rc
 
 # WHAT ACTUALLY RUNS — the honest inventory. Per config: the specs on disk, the
@@ -923,7 +923,7 @@ e2e-inventory:
 # ─── REAL-COMPUTE PROCESSOR TIER (tier 4) ────────────────────────────────────
 # The tier that runs a PROCESSOR end-to-end: real fixture uploaded → real
 # on-ingest converter in a real bwrap sandbox → real UI (picker, selectors,
-# Run button) → real job → asserted result. Modelled on ziee's `check-sandbox`
+# Run button) → real job → asserted result. Modelled on txresbench's `check-sandbox`
 # (its tier 6: "real HTTP → real handler → real bwrap → real command → real
 # response").
 #
@@ -940,7 +940,7 @@ e2e-inventory:
 # rootfs gates in tests/{dataset,workstore,provenance}). Same disease as the e2e
 # side — they `record_skip` and print `ok` when no rootfs is reachable.
 #
-# `CYTO_TEST_NO_SKIP=1` turns each of those skips into a HARD FAILURE. The justfile
+# `TXR_TEST_NO_SKIP=1` turns each of those skips into a HARD FAILURE. The justfile
 # used to note that "nothing in the repo sets that variable, so it defends nothing on
 # its own" — this recipe is that missing invoker.
 #
@@ -957,7 +957,7 @@ test-sandbox FILTER="analysis:: dataset:: provenance:: sandbox:: workstore::":
     #!/usr/bin/env bash
     set -uo pipefail
     root="{{justfile_directory()}}"
-    # PREREQUISITE (E5 / #193): this tier sets CYTO_TEST_NO_SKIP=1, under which a
+    # PREREQUISITE (E5 / #193): this tier sets TXR_TEST_NO_SKIP=1, under which a
     # recorded skip PANICS. `sandbox::env_image_oci_test::each_locally_built_env_…`
     # needs BOTH envs' artifacts staged, and the second env has never been published, so
     # no fetch can supply it. Run `just env-loop-verify` (or `just env-rootfs-local
@@ -979,14 +979,14 @@ test-sandbox FILTER="analysis:: dataset:: provenance:: sandbox:: workstore::":
       echo "[test-sandbox] FAIL: preflight did not yield a usable env image." >&2
       exit 1
     fi
-    echo "[test-sandbox] seam 1: CYTO_ENV_ROOTFS_SQUASHFS=$sq"
-    echo "[test-sandbox] CYTO_TEST_NO_SKIP=1 — a rootfs-gated skip is a FAILURE here"
+    echo "[test-sandbox] seam 1: TXR_ENV_ROOTFS_SQUASHFS=$sq"
+    echo "[test-sandbox] TXR_TEST_NO_SKIP=1 — a rootfs-gated skip is a FAILURE here"
     # `env_image_oci_test` reads its OWN var (not the seam) for the real-stack test.
     # Same file, different name — feeding it here is what stops that test from being
-    # a permanent skip. Found by CYTO_TEST_NO_SKIP=1 turning it into a named failure.
-    echo "[test-sandbox] CYTO_REAL_ROOTFS_SQUASHFS=$sq (real scientific-stack OCI test)"
+    # a permanent skip. Found by TXR_TEST_NO_SKIP=1 turning it into a named failure.
+    echo "[test-sandbox] TXR_REAL_ROOTFS_SQUASHFS=$sq (real scientific-stack OCI test)"
     # The signed-GHCR verification test additionally wants a RELEASE build + an
-    # `oras login ghcr.io`, so it stays opt-in: `CYTO_REAL_GHCR_VERIFY=1 just test-sandbox`.
+    # `oras login ghcr.io`, so it stays opt-in: `TXR_REAL_GHCR_VERIFY=1 just test-sandbox`.
     # Leaving it unset makes it a hard FAILURE under no-skip, which is honest — run
     # `just test-sandbox-oci` for the full real-registry pass.
     # E6 (#194) — ALSO hand this tier the PER-ENV seams for every locally staged env.
@@ -994,8 +994,8 @@ test-sandbox FILTER="analysis:: dataset:: provenance:: sandbox:: workstore::":
     # `sq` above is the BARE seam, and a bare seam serves exactly ONE env: the deployment
     # default (`env_image.rs::seam_serves`). That is all this tier needed while every
     # analysis ran in one image. It is no longer: an analysis that DECLARES a second env
-    # (the R walking skeleton) is served only by `CYTO_ENV_ROOTFS_SQUASHFS__<env-id>`, so
-    # without these lines its tests would self-skip — and under `CYTO_TEST_NO_SKIP=1` a
+    # (the R walking skeleton) is served only by `TXR_ENV_ROOTFS_SQUASHFS__<env-id>`, so
+    # without these lines its tests would self-skip — and under `TXR_TEST_NO_SKIP=1` a
     # self-skip PANICS, turning this tier red for a missing SETUP step rather than a
     # defect. Exactly the failure mode the PREREQUISITE note above already describes for
     # E5's own test.
@@ -1053,7 +1053,7 @@ test-sandbox FILTER="analysis:: dataset:: provenance:: sandbox:: workstore::":
       echo "[test-sandbox] REFUSING: the per-env seam listing produced nothing (exit $seam_status)." >&2
       echo "[test-sandbox] The listing does not continue past its first failure, and one of the things it refuses on is a staged artifact no longer matching the sha256 the build loop recorded beside it — a substitution alarm, not a missing build. Read its own words below before assuming which of its refusals this is:" >&2
       cat "$seam_err" >&2
-      echo "[test-sandbox] This tier already REQUIRES a local build (see the PREREQUISITE note above) — an analysis declaring a NON-DEFAULT env would otherwise self-skip and PANIC under CYTO_TEST_NO_SKIP=1. Continuing would burn several minutes of cargo and then exit 0 on a green suite with that message scrolled past, which is the silence this replaced. If the words above say nothing is staged: sh scripts/build-env-rootfs-local.sh --all" >&2
+      echo "[test-sandbox] This tier already REQUIRES a local build (see the PREREQUISITE note above) — an analysis declaring a NON-DEFAULT env would otherwise self-skip and PANIC under TXR_TEST_NO_SKIP=1. Continuing would burn several minutes of cargo and then exit 0 on a green suite with that message scrolled past, which is the silence this replaced. If the words above say nothing is staged: sh scripts/build-env-rootfs-local.sh --all" >&2
       rm -f "$seam_err"
       exit 1
     fi
@@ -1061,8 +1061,8 @@ test-sandbox FILTER="analysis:: dataset:: provenance:: sandbox:: workstore::":
     cd "$root/src-app/server"
     env ${seams[@]+"${seams[@]}"} \
     CONFIG_FILE=config/dev.yaml \
-    CYTO_ENV_ROOTFS_SQUASHFS="$sq" CYTO_REAL_ROOTFS_SQUASHFS="$sq" \
-    CYTO_REAL_GHCR_VERIFY="${CYTO_REAL_GHCR_VERIFY:-}" CYTO_TEST_NO_SKIP=1 \
+    TXR_ENV_ROOTFS_SQUASHFS="$sq" TXR_REAL_ROOTFS_SQUASHFS="$sq" \
+    TXR_REAL_GHCR_VERIFY="${TXR_REAL_GHCR_VERIFY:-}" TXR_TEST_NO_SKIP=1 \
       cargo test --test integration_tests -- --test-threads=1 {{FILTER}}
 
 # The one test `just test-sandbox` cannot satisfy by itself: the REAL signed-GHCR
@@ -1077,7 +1077,7 @@ test-sandbox-oci:
     set -uo pipefail
     root="{{justfile_directory()}}"
     command -v cosign >/dev/null 2>&1 || { echo "[test-sandbox-oci] FAIL: cosign not on PATH — https://docs.sigstore.dev/cosign/installation/" >&2; exit 1; }
-    # PREREQUISITE (E5 / #193): this tier sets CYTO_TEST_NO_SKIP=1, under which a
+    # PREREQUISITE (E5 / #193): this tier sets TXR_TEST_NO_SKIP=1, under which a
     # recorded skip PANICS. `sandbox::env_image_oci_test::each_locally_built_env_…`
     # needs BOTH envs' artifacts staged, and the second env has never been published, so
     # no fetch can supply it. Run `just env-loop-verify` (or `just env-rootfs-local
@@ -1098,15 +1098,15 @@ test-sandbox-oci:
     [ -s "$sq" ] || { echo "[test-sandbox-oci] FAIL: preflight yielded no env image." >&2; exit 1; }
     cd "$root/src-app/server"
     CONFIG_FILE=config/dev.yaml \
-    CYTO_ENV_ROOTFS_SQUASHFS="$sq" CYTO_REAL_ROOTFS_SQUASHFS="$sq" \
-    CYTO_REAL_GHCR_VERIFY=1 CYTO_TEST_NO_SKIP=1 \
+    TXR_ENV_ROOTFS_SQUASHFS="$sq" TXR_REAL_ROOTFS_SQUASHFS="$sq" \
+    TXR_REAL_GHCR_VERIFY=1 TXR_TEST_NO_SKIP=1 \
       cargo test --release --test integration_tests -- --test-threads=1 \
         sandbox::env_image_oci_test::
 
 # One-time (~5 s, ~300 MB): fetch + cache the analysis env image squashfs.
-# Cached at .cyto-cache/env-rootfs/; re-running is a no-op on a digest match.
+# Cached at .txr-cache/env-rootfs/; re-running is a no-op on a digest match.
 # Needs a GitHub credential with read:packages (`gh auth login` or $GITHUB_TOKEN)
-# — ghcr.io/ziee-ai/cyto-env/* is NOT anonymously pullable.
+# — ghcr.io/tinnlab/txresbench-env/* is NOT anonymously pullable.
 #
 # NO DEFAULT ENV-ID IS TYPED HERE. This parameter used to default to a literal
 # analysis-domain id, which made adding a second domain a BUILD-RECIPE edit — the one
@@ -1164,12 +1164,12 @@ e2e-processors-preflight *ARGS:
 # LOUD SKIP CONTRACT — the whole point of this recipe. Three fail-closed layers:
 #   1. preflight FAILS (never skips) if bwrap/squashfuse/userns/fuse/the image is
 #      missing, naming the exact remediation.
-#   2. `CYTO_ENV_ROOTFS_SQUASHFS` (SEAM 1 — content-hashed, digest recorded,
+#   2. `TXR_ENV_ROOTFS_SQUASHFS` (SEAM 1 — content-hashed, digest recorded,
 #      capsule EXECUTES) is exported into the run, so the specs' host-capability
-#      guards are satisfied rather than dodged. Seam 2 (`CYTO_ENV_ROOTFS_DIR`) is
+#      guards are satisfied rather than dodged. Seam 2 (`TXR_ENV_ROOTFS_DIR`) is
 #      deliberately NOT used: it records no digest and leaves the run UNPINNED.
 #   3. the JUnit report is parsed fail-closed — `tests == 0`, any failure/error,
-#      and ANY skip are each a hard FAIL. Under CYTO_E2E_REAL_COMPUTE a skip means
+#      and ANY skip are each a hard FAIL. Under TXR_E2E_REAL_COMPUTE a skip means
 #      a capability this host was supposed to have is missing, so a skip is NOT a
 #      pass. This is the mechanism that stops a broken compute layer from looking
 #      identical to a working one.
@@ -1221,24 +1221,24 @@ e2e-processors *DIRS:
     junit="$root/target/e2e-processors-junit.xml"
     mkdir -p "$(dirname "$junit")"; rm -f "$junit"
     # Large real fixtures are not committed (one is a 4.5 MB matrix with real embedding
-    # coordinates). Convention: stage them in .cyto-cache/fixtures/ and the tier points the
+    # coordinates). Convention: stage them in .txr-cache/fixtures/ and the tier points the
     # specs at that DIRECTORY. The recipe names no dataset FILE and no per-spec env var — it
     # used to export a domain-named variable holding a domain-named filename, which made the
     # recipe a place a new domain would have to edit. Each spec resolves its own fixture
     # inside the staging dir (and may still override just its own, per-spec).
     # Without a staged fixture the spec needing it skips — and a skip FAILS this tier by
     # design, so the gate would be red for a missing file rather than a bug.
-    fixtures="$root/.cyto-cache/fixtures"
-    if [ -z "${CYTO_E2E_FIXTURES:-}" ] && [ -d "$fixtures" ]; then
-      export CYTO_E2E_FIXTURES="$fixtures"
-      echo "[e2e-processors] fixtures: CYTO_E2E_FIXTURES=$CYTO_E2E_FIXTURES"
+    fixtures="$root/.txr-cache/fixtures"
+    if [ -z "${TXR_E2E_FIXTURES:-}" ] && [ -d "$fixtures" ]; then
+      export TXR_E2E_FIXTURES="$fixtures"
+      echo "[e2e-processors] fixtures: TXR_E2E_FIXTURES=$TXR_E2E_FIXTURES"
     fi
-    echo "[e2e-processors] seam 1: CYTO_ENV_ROOTFS_SQUASHFS=$sq"
+    echo "[e2e-processors] seam 1: TXR_ENV_ROOTFS_SQUASHFS=$sq"
     echo "[e2e-processors] dirs:   $dirs"
     cd "$root/src-app/ui"
     set +e
-    CYTO_ENV_ROOTFS_SQUASHFS="$sq" \
-    CYTO_E2E_REAL_COMPUTE=1 CYTO_E2E_MULTIMODAL=1 \
+    TXR_ENV_ROOTFS_SQUASHFS="$sq" \
+    TXR_E2E_REAL_COMPUTE=1 TXR_E2E_MULTIMODAL=1 \
     CI="${CI:-1}" PLAYWRIGHT_JUNIT="$junit" \
       npx playwright test $dirs --workers=1
     pw_exit=$?
@@ -1263,7 +1263,7 @@ e2e-processors *DIRS:
       if(skip>0){
         // non-greedy + \s-anchored: a greedy [^>]*name=" backtracks into classname="
         const names=[...x.matchAll(/<testcase\s[^>]*?name="([^"]*)"[^>]*>\s*<skipped/g)].map(r=>r[1]);
-        console.error(`[e2e-processors] FAIL: ${skip} skip(s) under CYTO_E2E_REAL_COMPUTE=1 — a skip is not a pass.`);
+        console.error(`[e2e-processors] FAIL: ${skip} skip(s) under TXR_E2E_REAL_COMPUTE=1 — a skip is not a pass.`);
         for(const n of names) console.error(`    skipped: ${n}`);
         console.error("  Each of these needs a host capability this tier was supposed to provide.");
         process.exit(1);
@@ -1277,7 +1277,7 @@ e2e-processors *DIRS:
 #
 # It runs exactly ONE thing: the `@acceptance`-tagged spec(s), positively selected.
 #
-#  1. `CYTO_E2E_REAL_COMPUTE=1` — drops `playwright.config.ts`'s `grepInvert: /@acceptance/`,
+#  1. `TXR_E2E_REAL_COMPUTE=1` — drops `playwright.config.ts`'s `grepInvert: /@acceptance/`,
 #     so the tagged specs are COLLECTED here. They commit a GENUINE `cell.filter` sandbox
 #     run, so a default run on a sandbox-less host excludes them BY TAG — an exclusion that
 #     lives in the config + this invocation, in one greppable place, rather than inside the
@@ -1292,10 +1292,10 @@ e2e-processors *DIRS:
 #     report are each a hard FAIL. Before R6-D2 all four printed `collected=0 … passed=0`
 #     and exited 0 — the gate could pass having executed NOTHING. That is exactly the
 #     hazard (1) and (2) now depend on it to close: a `--grep` that selects nothing must
-#     not read as green. A non-zero `skipped` also FAILS — under CYTO_E2E_REAL_COMPUTE a
+#     not read as green. A non-zero `skipped` also FAILS — under TXR_E2E_REAL_COMPUTE a
 #     skip means a capability this host was supposed to have is missing.
 #
-# R6-D1 — REMOVED from this recipe: `CYTO_TEST_NO_SKIP=1`, `CYTO_TEST_SKIP_LEDGER`, and the
+# R6-D1 — REMOVED from this recipe: `TXR_TEST_NO_SKIP=1`, `TXR_TEST_SKIP_LEDGER`, and the
 # "skip ledger is 0 lines" assertion, which the header used to advertise as two of three
 # defences. Both env vars are read ONLY by `server/tests/dataset/hardening_common.rs` — the
 # RUST integration-test binary — which `npx playwright test` never spawns. The ledger was
@@ -1303,7 +1303,7 @@ e2e-processors *DIRS:
 # mechanism itself is still load-bearing for `cargo test` invocations of the Rust tier and
 # is untouched; only this recipe's false claim to be exercising it is gone. (See the
 # round-6 correction in `.lifecycle/filter-provenance/FIX_ROUND-4.md` §6.2. NOTE the
-# consequence: `CYTO_TEST_NO_SKIP=1` once again has NO invoker anywhere in the repo —
+# consequence: `TXR_TEST_NO_SKIP=1` once again has NO invoker anywhere in the repo —
 # R3-94/R3-116's original finding — because this recipe never really was one.)
 #
 # Ports/DB are ISOLATED PER WORKTREE AND PER RUN with no flags at all — the resolver
@@ -1319,7 +1319,7 @@ verify-acceptance:
     rm -f "$junit"
     cd {{ui_dir}}
     set +e
-    CYTO_E2E_REAL_COMPUTE=1 PLAYWRIGHT_JUNIT="$junit" \
+    TXR_E2E_REAL_COMPUTE=1 PLAYWRIGHT_JUNIT="$junit" \
       npx playwright test --grep '@acceptance' --workers=1
     pw_exit=$?
     set -e
@@ -1337,7 +1337,7 @@ verify-acceptance:
       const fail=g("failures")??0,err=g("errors")??0,skip=g("skipped")??0;
       console.log(`[verify-acceptance] collected=${tests} failed=${fail} errors=${err} skipped=${skip} passed=${tests-fail-err-skip}`);
       if(tests<1){console.error("[verify-acceptance] FAIL: 0 tests executed — an empty selection is not a pass (did --grep @acceptance match nothing?)");process.exit(1)}
-      if(skip>0){console.error(`[verify-acceptance] FAIL: ${skip} playwright skip(s) under CYTO_E2E_REAL_COMPUTE=1 — a skip is not a pass`);process.exit(1)}
+      if(skip>0){console.error(`[verify-acceptance] FAIL: ${skip} playwright skip(s) under TXR_E2E_REAL_COMPUTE=1 — a skip is not a pass`);process.exit(1)}
     ' "$junit"
     exit $pw_exit
 
@@ -1346,7 +1346,7 @@ verify-acceptance:
 # `npx playwright install chromium` once.
 #
 # NO FIXED PORT. Both recipes derive the SAME per-worktree port from the unified
-# run key (`@ziee/gallery/scripts/lib/run-key`), so `just gallery` in worktree A
+# run key (`@txresbench/gallery/scripts/lib/run-key`), so `just gallery` in worktree A
 # and `just gallery-runtime` in worktree B cannot meet. The previous
 # `GALLERY_PORT=1420` here pinned every worktree on this box to ONE port, which is
 # how the frontend gate spent a session auditing sibling worktrees' code. Pin one

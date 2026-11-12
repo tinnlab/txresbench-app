@@ -6,9 +6,9 @@ import assert from 'node:assert/strict'
 import { validateManifest } from './validate.ts'
 
 const good = {
-  id: 'cyto.clustering',
+  id: 'txr.clustering',
   name: 'Clustering',
-  publisher: 'cyto',
+  publisher: 'txr',
   version: '0.1.0',
   apiVersion: '^1.0',
   activation: ['onAnalysis:clustering.leiden'],
@@ -32,12 +32,12 @@ test('TEST-15: rejects missing required fields + unknown contribution kinds', ()
 
 test('TEST-15: rejects an id outside the schema charset (security: keeps the storage prefix injective)', () => {
   // A `:` in an id would break the `ext:<id>:` KV namespace (audit SEC-1).
-  for (const bad of ['a:b', 'Cyto.Demo', 'has space', '_leading']) {
+  for (const bad of ['a:b', 'TxResBench.Demo', 'has space', '_leading']) {
     const r = validateManifest({ ...good, id: bad })
     assert.equal(r.ok, false, `id "${bad}" must be rejected`)
     assert.ok(r.errors.some(e => e.path === '$.id'))
   }
-  assert.equal(validateManifest({ ...good, id: 'cyto.demo-1' }).ok, true)
+  assert.equal(validateManifest({ ...good, id: 'txr.demo-1' }).ok, true)
 })
 
 test('TEST-16: refuses an out-of-range apiVersion', () => {

@@ -11,9 +11,9 @@ Pinned cross-part audit decisions baked into this plan:
   defining a divergent one. The old P1 shape (`{output_id, datatype, from, layout?}`) is retired.
 - **A5 — one `SyncEntity` name.** P1 emits exactly `SyncEntity::Artifact` (matches P1's `artifacts` table);
   `SyncEntity::AnalysisResult` is NOT a separate entity (P10 is being corrected to use `::Artifact` too).
-- **A7 — re-grounded vs merged main (tip `63520fb`).** Main ALREADY adopted `ziee-file` as a real server
+- **A7 — re-grounded vs merged main (tip `63520fb`).** Main ALREADY adopted `txresbench-file` as a real server
   dependency with dataset multipart upload (P2/P10/P11 assume it exists). P1's grounding/Reuse/Items now treat
-  the ziee-file content-addressed store + dataset upload wiring as **ALREADY EXISTING on main**; P1 builds the
+  the txresbench-file content-addressed store + dataset upload wiring as **ALREADY EXISTING on main**; P1 builds the
   catalog + typed-binary data-API + content-address refcount **on top of it** and does NOT rebuild the
   upload/multipart path.
 
@@ -37,19 +37,19 @@ id/name/n_cells/n_genes/status, `upload`→`UploadStubResponse`, `datasets.file_
 NULL); `modules/jobs` is real (FCFS queue + `JobRunner` trait + `StubJobRunner`); `modules/sandbox::
 service::run_analysis(pool,&AnalysisRequest,&[ExtraMount])->AnalysisResult` (linux-only, 503 else)
 already plumbs RO/RW `ExtraMount{host_path,sandbox_path,mode}`. **No `analysis_results`/`artifacts`
-table, no content-addressed store, no byte-range/streaming exists anywhere.** `sdk/crates/ziee-file`
+table, no content-addressed store, no byte-range/streaming exists anywhere.** `sdk/crates/txresbench-file`
 is uploads-only: UUID-keyed (`blob_version_id`), sha256 `checksum` stored+indexed but NEVER used for
 pathing/dedup, every download loads a full `Vec<u8>` (no `Range`/`206`/`Accept-Ranges`), not
 study-scoped. So the content-addressed store + byte-range serving (ITEM-1/6/8/9) are greenfield —
-BUT the ziee-file *upload path itself already exists as a wired server dependency* (see A7 below).
+BUT the txresbench-file *upload path itself already exists as a wired server dependency* (see A7 below).
 
-**A7 re-grounding (this tree is BEHIND merged main tip `63520fb`).** The claim that "ziee-file is not
+**A7 re-grounding (this tree is BEHIND merged main tip `63520fb`).** The claim that "txresbench-file is not
 yet a server dependency / raw dataset upload is greenfield" was true only on this stale
-analysis-workflow tree. On **merged main** `ziee-file` is ALREADY a real server dependency with
+analysis-workflow tree. On **merged main** `txresbench-file` is ALREADY a real server dependency with
 **dataset multipart upload** wired in (`init_file_storage` + a multipart receiver + the
 content-addressed store); P2/P10/P11 correctly assume it exists. Therefore P1 **must NOT rebuild the
 upload/multipart path** — it builds the catalog + typed-binary data-API + content-address refcount
-**on top of the already-existing** ziee-file content-addressed store + dataset upload wiring. Only the
+**on top of the already-existing** txresbench-file content-addressed store + dataset upload wiring. Only the
 range-native serving, catalog, axes, and content-address-keyed layer are net-new.
 
 **Cross-part ownership resolutions baked in (agreed by adjacent parts' r3 passes):**
@@ -71,14 +71,14 @@ range-native serving, catalog, axes, and content-address-keyed layer are net-new
 ## Items
 
 - **ITEM-1**: **`ObjectStore` trait + local-FS content-addressed impl.** A domain-neutral blob
-  substrate behind one seam, distinct from `ziee-file` (user-scoped, uploads-only, UUID-keyed, not
+  substrate behind one seam, distinct from `txresbench-file` (user-scoped, uploads-only, UUID-keyed, not
   content-addressed). Ops: `put(reader)->ContentKey`, `put_prefix(dir)->Key` (multi-file artifacts:
   Zarr chunk-dir / BAM+bai), `get(&Key)->bytes`, **`get_range(&Key, byte_range)->impl AsyncRead`**
   (the range-native primitive the whole data plane rides — S3-byte-range-shaped from day one),
   `stat(key)->{len}`, `exists`, `delete`, `open_write()->staging handle`, `gc(keep_set)`. Keys =
   `sha256:<hex>` content hash (DEC-D3). Local layout `<app_data>/workstore/blobs/<aa>/<bb>/<full-hash>`
   (2-level fan-out); writes staged to a temp file, hashed while streaming, atomically `rename`d
-  (dedup: existing key ⇒ drop temp, one physical copy). Reuse `ziee-file`'s `reject_if_symlink` +
+  (dedup: existing key ⇒ drop temp, one physical copy). Reuse `txresbench-file`'s `reject_if_symlink` +
   `ensure_dir` hardening. `object_store/s3.rs` is a compiled `todo!()` stub/seam (not built).
   Content-addressing gives free dedup + cache + the immutability the provenance/verification path
   needs.
@@ -175,10 +175,10 @@ range-native serving, catalog, axes, and content-address-keyed layer are net-new
   The **dumb, domain-neutral** range server `DATA_MODEL.md` Tier-1 requires — VCF+tbi/BigWig/BAM/
   mmCIF/Zarr all serve through it; the browser owns the decoder; **no format-specific Rust**. **Auth
   on every byte** (DEC-D4) — permission + study scoped per request, NOT a static file server, NOT
-  routed through uploads-only `ziee-file`. Reuse `ziee-file`'s **download-token** JWT pattern
-  (`DownloadTokenClaims`, `aud: ziee-download`, made **study-scoped**) so a viewer streaming hundreds
+  routed through uploads-only `txresbench-file`. Reuse `txresbench-file`'s **download-token** JWT pattern
+  (`DownloadTokenClaims`, `aud: txresbench-download`, made **study-scoped**) so a viewer streaming hundreds
   of chunk ranges doesn't re-auth each range but can't escape its study. Range parse + `206` assembly
-  is net-new (ziee-file serves `200` octet only).
+  is net-new (txresbench-file serves `200` octet only).
 
 - **ITEM-9**: **Data plane Tier-2 — server-side typed-binary layout slicer** (the interactive fast
   path; `DATA_MODEL.md` Tier-2 — e.g. color-a-500k-cell scatter by gene = one sparse column).
@@ -236,19 +236,19 @@ range-native serving, catalog, axes, and content-address-keyed layer are net-new
 - **ITEM-14**: **Standing Object-GC union-sweep** (`gc.rs` — P1-owned, resolution #3). A boot-time +
   periodic (~6h, mirrors `mcp/tool_calls/prune.rs`) sweep that reclaims content-addressed blobs
   referenced by **NO** live table — sweeping the **union** of every referencing table:
-  `analysis_results` (object_key + manifest members) ∪ `ziee-file` (`files.checksum`) ∪ P4
+  `analysis_results` (object_key + manifest members) ∪ `txresbench-file` (`files.checksum`) ∪ P4
   run-artifact links. A blob is deletable iff its content-hash appears in no referencing table. This
   is the backstop to ITEM-12's delete-time refcount (a crash between row-delete and blob-delete, or an
-  orphaned staging temp, is reclaimed) and what makes cross-table dedup (a ziee-file file and an
+  orphaned staging temp, is reclaimed) and what makes cross-table dedup (a txresbench-file file and an
   artifact sharing a checksum) safe to delete. **Enumerate referencing tables in ONE place (a
   `blob_refs()` registry)** so adding P4's link table can't be forgotten.
 
 - **ITEM-15**: **Config + boot wiring + module registration.** `modules/workstore/config.rs`: resolve
   `workstore.root` (default `<app_data>/workstore` via `get_app_data_dir()`, + a
-  `CYTO_WORKSTORE_DIR`/`CYTO_APP_DATA_DIR` override for per-worktree test isolation, matching
+  `TXR_WORKSTORE_DIR`/`TXR_APP_DATA_DIR` override for per-worktree test isolation, matching
   `rootfs::data_root`); `workstore.gc_enabled`/`gc_interval_hours`; an `object_store_backend:
   local|s3` seam field (only `local` built). `init_working_store` in `lib.rs::build_app` (mirrors the
-  existing `ziee_file::init_file_storage` call), installing `Extension(WorkstoreContext{ store:
+  existing `txresbench_file::init_file_storage` call), installing `Extension(WorkstoreContext{ store:
   Arc<dyn ObjectStore>, catalog, axes })` handlers pull from. Register `WorkstoreModule` via
   `#[distributed_slice(MODULE_ENTRIES)]` (order ~25, after study/dataset). Desktop parity: it's a
   server-embedded foundational kernel module — rides desktop the same, **no `CORE_MODULE_BLOCKLIST`
@@ -307,7 +307,7 @@ range-native serving, catalog, axes, and content-address-keyed layer are net-new
 
 ## Reuse
 
-- **`sdk/crates/ziee-file`** — reuse the `FilesystemStorage{base_path}` handle + `reject_if_symlink`/
+- **`sdk/crates/txresbench-file`** — reuse the `FilesystemStorage{base_path}` handle + `reject_if_symlink`/
   `ensure_dir` hardening (`storage/filesystem.rs`) and the `download_with_token()` JWT-scoped-token
   shape as templates. **Do NOT route artifact data through it** (uploads/UUID-blob-only, not
   content-addressed, not study-scoped, no range — verified). Its sha256 `checksum` is the precedent
@@ -316,7 +316,7 @@ range-native serving, catalog, axes, and content-address-keyed layer are net-new
   `init_file_storage` + the multipart **dataset upload** receiver already exist server-side (A7 —
   the stale analysis-workflow tree lacks them, but P2/P10/P11 correctly assume them). So P1 does **NOT**
   rebuild the upload/multipart path — it builds its content-addressed store + catalog + range serving
-  **on top of** the existing ziee-file store + dataset-upload wiring.
+  **on top of** the existing txresbench-file store + dataset-upload wiring.
 - **`modules/dataset`** — the exact sqlx-compile-time repo + dated-migration + study-scoping +
   `ModuleEntry`/`AppModule` + multipart/`ingest_bytes` idioms (incl. the chrono `timestamptz`
   gotcha). The `dataset` placeholder folds into the catalog as a source artifact (DEC-D1), not a
@@ -331,7 +331,7 @@ range-native serving, catalog, axes, and content-address-keyed layer are net-new
   `ingest_run_outputs` is called BY P3's `JobRunner→sandbox::run_analysis` wiring (the `ExtraMount`/
   `MountMode` seam is the compute→results handoff). P1 does not touch the runner.
 - **`mcp/tool_calls/prune.rs`** — the boot-time + periodic prune-loop shape is ITEM-14's GC template.
-- **`ziee_core::app_state::get_app_data_dir`**, aide/axum/sqlx patterns, the per-test-UUID-DB
+- **`txresbench_core::app_state::get_app_data_dir`**, aide/axum/sqlx patterns, the per-test-UUID-DB
   integration harness.
 - **Legacy `sc-website`/`sc-task-queue`** — the CSC gene-column slice (`p[g..g+1]→i/x`),
   server-mediated streaming, and `systemCellId` split are the proven designs ITEM-3/4/9 reimplement
@@ -402,7 +402,7 @@ LayoutResolver exists.
   a genuine reversal of the redesign doc's HDF5 assumption; ripples into P3 (rootfs zarr/anndata +
   `.h5ad→Zarr`) and P11 (compute writes Zarr not HDF5); settle with P3 before compute lands.**
 - **D-hash (DEC-D3) — content-address = `sha256:<hex>`.** Deterministic, dedup-enabling, matches
-  ziee-file's `checksum` + the provenance/cosign hashing vocabulary. blake3 is faster for multi-GB
+  txresbench-file's `checksum` + the provenance/cosign hashing vocabulary. blake3 is faster for multi-GB
   artifacts; the `ObjectStore` key is opaque so it's swappable if a hot-path profile demands it — pin
   ONE with P4 for verification parity.
 - **D-catalog-owner (DEC-D1, resolution #1) — P1 owns the *table*, P2 owns the *type meaning*.** The
@@ -423,7 +423,7 @@ LayoutResolver exists.
   merkle/manifest content identity); a run producing N typed outputs = N artifacts sharing one run
   node. Don't conflate.
 - **D-serving-auth (DEC-D4) — the data plane is a dedicated authed, study-scoped Range endpoint,**
-  every byte `effective_permission`-gated; NOT the `ziee-file` download path, NOT a static server.
+  every byte `effective_permission`-gated; NOT the `txresbench-file` download path, NOT a static server.
   This is *why* the host mediates reads.
 - **D-object-store-seam — `get_range(key, byte_range)` is S3-byte-range-shaped from day one;** local-FS
   is the only impl built; `s3.rs` is a compiled stub.
@@ -467,7 +467,7 @@ LayoutResolver exists.
   view-array re-concat is once-per-live-set-change, not per read. (Flag for P4/P10.)
 - **Multi-file artifact hash cost** — merkle-hashing a large Zarr prefix on ingest is O(chunks);
   acceptable one-time, but stream it, don't re-read (ITEM-6).
-- **Cross-table dedup deletion hazard** — a blob shared by `ziee-file` and an artifact must not be
+- **Cross-table dedup deletion hazard** — a blob shared by `txresbench-file` and an artifact must not be
   deleted while either references it; ITEM-14's union-sweep is the guard, but the refcount union MUST
   include every referencing table. Enumerate them in ONE place (a `blob_refs()` registry) so adding
   P4's link table can't be forgotten.

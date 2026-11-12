@@ -106,16 +106,16 @@ def test_the_offsets_are_start_and_count_not_a_cumulative_indptr(run):
     that every kept cell's `[start, start+count)` still selects the same vertices it did
     before — the property an `indptr` would lose.
     """
-    import cyto_zarr_read
+    import txr_zarr_read
 
     outputs = run["outputs"]
-    start = np.asarray(cyto_zarr_read.read_column(
+    start = np.asarray(txr_zarr_read.read_column(
         outputs / "metadata" / "boundary_vertex_start.zarr", "values"), dtype=np.int64)
-    count = np.asarray(cyto_zarr_read.read_column(
+    count = np.asarray(txr_zarr_read.read_column(
         outputs / "metadata" / "boundary_vertex_count.zarr", "values"), dtype=np.int64)
-    entity = np.asarray(cyto_zarr_read.read_array(
+    entity = np.asarray(txr_zarr_read.read_array(
         outputs / "spatial" / "boundaries.zarr", "entity_index"), dtype=np.int64)
-    x = np.asarray(cyto_zarr_read.read_array(
+    x = np.asarray(txr_zarr_read.read_array(
         outputs / "spatial" / "boundaries.zarr", "x"), dtype=np.float32)
 
     n_cells = start.shape[0]

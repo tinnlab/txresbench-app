@@ -2,7 +2,7 @@
 
 **Round:** ITERATION /feature-lifecycle · design-candidates phase (no code).
 **Feature:** the end-to-end single-cell pipeline inside a study — **upload samples → QC → save → analysis → visualization**.
-**Deliverable:** N coherent candidate designs grounded in (1) the current cyto code, (2) current-tools research, (3) user-JTBD research → a recommendation → **PAUSE for the user to pick** before implementing.
+**Deliverable:** N coherent candidate designs grounded in (1) the current txr code, (2) current-tools research, (3) user-JTBD research → a recommendation → **PAUSE for the user to pick** before implementing.
 
 > **TL;DR recommendation:** **Candidate D — "Guided Pipeline + Explorer" (progressive-disclosure hybrid)**, built MVP-first (Candidate A's linear happy-path is literally phase 1 of D). It is the one design that fills the market's **unmet middle** — Cellenics' guided *per-sample* QC **+** cellxgene's WebGL-scale exploration **+** Azimuth's *reproducible script export* — which no existing tool spans, and it maps cleanly onto the study-extension seam, the jobs+sandbox executor, and the `DATA_STORAGE_REDESIGN` working-store. See **Part E**.
 
@@ -10,7 +10,7 @@
 
 # Part A — Research synthesis (what grounds the candidates)
 
-## A0. Current cyto code — what exists to build on (SUGGESTION, not constraint)
+## A0. Current txr code — what exists to build on (SUGGESTION, not constraint)
 
 | Seam | State today | Implication for this feature |
 |---|---|---|
@@ -18,7 +18,7 @@
 | **jobs** module (FCFS scheduler + concurrency cap; `JobRunner::spawn(job)->SpawnedJob` trait; per-job SSE logs+metrics; cancel; `Job{job_type:String, params:JSONB, status}`) | ✅ Works, but runner is a **stub** (`sh -c` loop). **No job-type registry** — `job_type` is free-form; nothing dispatches on it. | Analysis steps run as jobs. Must add a **job-type → runner dispatch** and drop `sandbox::run_analysis` behind the `JobRunner` trait. |
 | **sandbox** module (`run_analysis(cmd, extra_mounts)` → bwrap R/Python; per-job 0700 workspace bound RW at `/home/analyst`; `ExtraMount{host_path, sandbox_path, mode}`; Linux-only→503) | ✅ Execution primitive proven. | Plumb input matrix (RO) + output dir (RW) via `ExtraMount`. **Nuance:** `run_analysis` *awaits to completion* and returns `AnalysisResult`; `JobRunner::spawn` wants a *streamable child*. Reconcile (a spawn-variant that streams stdout→job_logs) — see **DEC-JOBSEAM**. |
 | **rootfs** (`include_bytes!`-embedded, squashfuse-mounted, `ensure_ready()`) | ⚠️ **Minimal** — Debian + `r-base-core` + `python3` + R `jsonlite` only. **No scanpy/anndata/Seurat.** | Provisioning the scientific stack into the rootfs Dockerfile (+ bump `ROOTFS_SCHEMA_VERSION`) is **in-scope, load-bearing work**. Drives the R-vs-Python decision (**DEC-LANG**). |
-| **dataset** module (`Dataset{n_cells,n_genes,status: created→uploaded→analyzed}`; registers as study extension) | ⚠️ **Upload is a STUB.** `ziee-file` (SDK blob store) exists but is **not even a dep** of the app server. No `study_id`/`file_id`/`owner_id` columns wired. | Wiring real matrix upload (multipart→`ziee-file`→parse) is **in-scope**. `datasets` ≈ the "samples" concept — decide whether to extend `dataset` or add a `sample`/`analysis` module (**DEC-MODULES**). |
+| **dataset** module (`Dataset{n_cells,n_genes,status: created→uploaded→analyzed}`; registers as study extension) | ⚠️ **Upload is a STUB.** `txresbench-file` (SDK blob store) exists but is **not even a dep** of the app server. No `study_id`/`file_id`/`owner_id` columns wired. | Wiring real matrix upload (multipart→`txresbench-file`→parse) is **in-scope**. `datasets` ≈ the "samples" concept — decide whether to extend `dataset` or add a `sample`/`analysis` module (**DEC-MODULES**). |
 | **`DATA_STORAGE_REDESIGN.md`** (working-store = kind-typed HDF5 artifacts + Postgres catalog; typed-binary streaming to deck.gl; canonical dense cell-index + bitmask set-ops; AnnData import/export only) | 📄 Proposal, not yet built. | This is the **data-path blueprint** for save+analysis+viz. All candidates adopt it; they differ only in how much of it phase-1 needs. Hits **SDK gap FE-10** (binary/ArrayBuffer response plane — worked around by a thin streaming client). |
 | **Study sharing + transfer** (already shipped: share drawer, transfer, sync) | ✅ | The "hand off an interactive result" JTBD (research §6) is **partly free** — a shared study already reaches another user; we add the read-only *explorer* view. |
 
@@ -211,7 +211,7 @@ Each is an independent study-extension → incremental, testable, `on_study_dele
 **Why not the others (as the target):** **A** alone strands the bioinformatician and skips the differentiators; **B** strands the biologist (no code-free path — our primary persona); **C**'s graph-canvas is a project unto itself and intimidates the primary persona — its one unique win (branch/compare) is captured in D as "branchable runs" without the canvas cost. C's template/throughput layer is the natural *future* extension of D if core-facility demand appears.
 
 **Proposed phasing (becomes the /feature-lifecycle plan once picked):**
-- **Phase 1 (MVP = Candidate A):** real sample upload (`ziee-file`) + per-sample **adaptive-MAD QC** with before/after diff → normalize→HVG→PCA→cluster→UMAP as jobs → **basic WebGL explorer** (color-by cluster/gene). Scientific rootfs + jobs↔sandbox seam + results-store + catalog + typed-binary streaming. *Ships the code-free happy path.*
+- **Phase 1 (MVP = Candidate A):** real sample upload (`txresbench-file`) + per-sample **adaptive-MAD QC** with before/after diff → normalize→HVG→PCA→cluster→UMAP as jobs → **basic WebGL explorer** (color-by cluster/gene). Scientific rootfs + jobs↔sandbox seam + results-store + catalog + typed-binary streaming. *Ships the code-free happy path.*
 - **Phase 2 (depth):** progressive-disclosure param panels; multi-sample **integration**; **branchable runs** + side-by-side compare; cheap re-cluster.
 - **Phase 3 (rigor + reach):** DE (marker + cross-condition) with **statistical guardrails**; **annotation** (suggest-with-evidence + reference mapping); **reproducibility** (auto params/versions/seed + methods text) + **script/`.h5ad`/`.rds` export**; **read-only Explorer share**.
 
@@ -221,7 +221,7 @@ Each is an independent study-extension → incremental, testable, `on_study_dele
 
 These are largely archetype-independent but the pick sets their context. Full framing in `LIVE5_QUESTIONS.md`.
 
-- **DEC-LANG — compute language in the rootfs.** **Python/scanpy (AnnData-native)** vs **R/Seurat** vs **both**. *Recommendation: Python/scanpy primary* — AnnData is the interop lingua franca and aligns with the storage doc's `read_elem`/`.h5ad` export path; scanpy is the pragmatic default with one canonical tutorial. (The legacy cyto ref used R/rhdf5; the storage doc keeps HDF5 but not R specifically.) R export (`.rds`) can come later for the bioinformatician.
+- **DEC-LANG — compute language in the rootfs.** **Python/scanpy (AnnData-native)** vs **R/Seurat** vs **both**. *Recommendation: Python/scanpy primary* — AnnData is the interop lingua franca and aligns with the storage doc's `read_elem`/`.h5ad` export path; scanpy is the pragmatic default with one canonical tutorial. (The legacy txr ref used R/rhdf5; the storage doc keeps HDF5 but not R specifically.) R export (`.rds`) can come later for the bioinformatician.
 - **DEC-QC — QC threshold strategy.** *Recommendation: adaptive MAD per-sample by default (5-MAD counts/genes + 3-MAD & `pct_mt>8%`), with fixed-cutoff override* — matches OSCA + scverse best-practices and the market gap Cellenics proved.
 - **DEC-MODULES — module decomposition.** Extend `dataset` for samples, or introduce `sample`/`analysis`/`explorer` modules? *Recommendation: keep `dataset`≈raw-file record; add `sample`+`analysis`+`explorer`+`results-store` as study extensions* (clean `on_study_deleted`, independent testability).
 - **DEC-JOBSEAM — jobs↔sandbox reconciliation.** `run_analysis` awaits; `JobRunner::spawn` streams. *Recommendation: add a spawn-style sandbox entry that streams stdout→job_logs and returns a child the executor drives* (preserves live progress; keeps the single executor).

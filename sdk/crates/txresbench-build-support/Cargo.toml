@@ -1,0 +1,25 @@
+[package]
+name = "txresbench-build-support"
+version = "0.0.0"
+edition.workspace = true
+
+# The SDK's `build.rs` support crate (decision #11): the module-owned
+# migration composition + the per-worktree build-DB keying/provisioning that
+# every SDK-consuming app's `build.rs` needs. Kept a LEAN, normal (non-proc-
+# macro) lib so it is cheap to use as a `[build-dependencies]` entry, and it is
+# itself build-DB-FREE (no compile-time `query!` macros — it only opens runtime
+# connections). Re-exported by `txresbench-framework` as `txresbench_framework::build_support`.
+
+[dependencies]
+# Runtime connection for the build-DB provisioner — Postgres today, with the
+# `sqlite` driver feature enabled alongside so the same helper can provision a
+# sqlite build file. Feature set + version mirror the txresbench server catalog so
+# the single src-app/Cargo.lock unifies them without a duplicate build. No
+# `macros` feature → no `query!` → build-DB-free.
+sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "sqlite", "runtime-tokio-rustls", "migrate"] }
+tokio = { version = "1.47.1", features = ["rt", "rt-multi-thread"] }
+
+[dev-dependencies]
+# Isolated temp dirs for the migration-composition unit tests (pure filesystem
+# logic — no DB). Version matches sibling `sandbox-seccomp`.
+tempfile = "3.15"

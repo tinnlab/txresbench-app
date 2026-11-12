@@ -1,4 +1,4 @@
-import { Tooltip, Button } from '@ziee/kit'
+import { Tooltip, Button } from '@txresbench/kit'
 import { PanelLeft, PanelRight } from 'lucide-react'
 import { AppLayout } from '@/modules/layouts/app-layout/AppLayout.store'
 import { cn } from '@/lib/utils'

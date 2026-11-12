@@ -2,7 +2,7 @@
 //!
 //! Single-user desktop: the SQLite store under the OS home dir (`~/.txresbench`
 //! — the SDK derives the default app-data dir from the app name set here; the
-//! stale `~/.cytoanalyst` branding is gone), an ephemeral HTTP port (bound with
+//! stale `~/.txresbench` branding is gone), an ephemeral HTTP port (bound with
 //! `:0`, the real port read back from `local_addr`), and a per-install JWT
 //! secret persisted next to the data dir.
 //!
@@ -11,8 +11,8 @@
 //! the server boots through the SQLite seam — no version, no port, no
 //! `installation_dir`, no pg logging.
 
-use ziee_core::app_state::{get_app_data_dir, set_app_name};
-use ziee_core::config::{DatabaseConfig, HttpServerConfig, JwtConfig, ServerConfig};
+use txresbench_core::app_state::{get_app_data_dir, set_app_name};
+use txresbench_core::config::{DatabaseConfig, HttpServerConfig, JwtConfig, ServerConfig};
 
 /// The app name the SDK derives the default app-data dir from (DEC-13 —
 /// `~/.txresbench`, the user-visible location the node's consumers bind).
@@ -22,7 +22,7 @@ pub const APP_NAME: &str = "txresbench";
 
 /// Point the SDK's app-data default at TxResBench — the DB target, the JWT
 /// secret and the workstore/files roots all derive from the data dir, so this
-/// is the first call of the desktop boot (mirrors ziee's `"ziee"` precedent).
+/// is the first call of the desktop boot (mirrors txresbench's `"txresbench"` precedent).
 pub fn init_app_name() {
     set_app_name(APP_NAME);
 }
@@ -58,7 +58,7 @@ pub fn desktop_config() -> ServerConfig {
         postgresql: None,
         database: Some(DatabaseConfig {
             // DEC-13's default location made explicit: the single DB file next
-            // to the JWT secret; `CYTO_DATABASE_URL` still overrides it
+            // to the JWT secret; `TXR_DATABASE_URL` still overrides it
             // (env > url > path > default, src/config.rs).
             path: Some(dir.join("txresbench.db").to_string_lossy().into_owned()),
             ..DatabaseConfig::default()
@@ -83,8 +83,8 @@ pub fn desktop_config() -> ServerConfig {
             // workstore defaults) — the desktop mints + verifies its own
             // tokens, so keeping the identity consistent across modes is what
             // matters, not the branding.
-            issuer: "cytoanalyst".to_string(),
-            audience: "cytoanalyst-api".to_string(),
+            issuer: "txresbench".to_string(),
+            audience: "txresbench-api".to_string(),
             access_token_expiry_hours: 24,
             refresh_token_expiry_days: 30,
             access_token_expiry_seconds: None,

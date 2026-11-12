@@ -1,5 +1,5 @@
 // `createWorkbenchApi` (ITEM-9) — construct a per-extension, capability-scoped
-// `WorkbenchAPI` from the injected host bundle. The CytoAnalyst shell calls this
+// `WorkbenchAPI` from the injected host bundle. The TxResBench shell calls this
 // once per activated extension (bound to the current project). Kept host-injected
 // so the package stays acyclic + the built-ins compile + run against a desktop
 // stub before P6/P8 land.

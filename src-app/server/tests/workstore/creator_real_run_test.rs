@@ -27,7 +27,7 @@
 //! ## The sources are the committed stage-1 fixture stores, and that is the point
 //!
 //! `tests/fixtures/stage1_alignment/sources/*.zarr` are the REAL writer's output
-//! (`cyto_columns.write_metadata_column`), regenerated and compared on every run by
+//! (`txr_columns.write_metadata_column`), regenerated and compared on every run by
 //! `stage1_fixture_drift_test`. Binding them means the run reads stores of the shape ingest
 //! actually emits — one member, always `values`, with the column's name nowhere inside it.
 //! A hand-built store here would test a shape the server never produces, which is the exact
@@ -61,7 +61,7 @@ fn fixture_root() -> PathBuf {
         .join(FIXTURE)
 }
 
-/// A source store's own `attributes.cyto` — which is verbatim what ingest records as the
+/// A source store's own `attributes.txr` — which is verbatim what ingest records as the
 /// artifact's `structure`.
 ///
 /// Read off disk rather than written here, so the catalog row this test creates carries the
@@ -73,9 +73,9 @@ fn store_structure(store: &Path) -> Value {
             .unwrap_or_else(|e| panic!("{}: {e}", store.display())),
     )
     .expect("zarr.json parses");
-    zarr.pointer("/attributes/cyto")
+    zarr.pointer("/attributes/txr")
         .cloned()
-        .unwrap_or_else(|| panic!("{}: a real store stamps attributes.cyto", store.display()))
+        .unwrap_or_else(|| panic!("{}: a real store stamps attributes.txr", store.display()))
 }
 
 /// Ingest one fixture store as a project artifact, returning `(id, content_hash)`.
@@ -85,13 +85,13 @@ fn store_structure(store: &Path) -> Value {
 /// test is what the creator writes about the run's OUTPUT, and nothing here writes any part
 /// of that.
 async fn stage_source(
-    repo: &cytoanalyst::modules::workstore::catalog::repository::CatalogRepository,
-    store: &dyn cytoanalyst::modules::workstore::object_store::ObjectStore,
+    repo: &txresbench::modules::workstore::catalog::repository::CatalogRepository,
+    store: &dyn txresbench::modules::workstore::object_store::ObjectStore,
     project: Uuid,
     output_id: &str,
     dir_name: &str,
 ) -> (Uuid, String) {
-    use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
+    use txresbench::modules::workstore::catalog::models::NewArtifact;
 
     let dir = fixture_root().join("sources").join(dir_name);
     let mut members: Vec<(String, Vec<u8>)> = Vec::new();
@@ -191,7 +191,7 @@ async fn a_real_integrate_run_creates_a_virtual_dataset_the_catalog_serves_with_
         record_skip(
             TEST,
             "no analysis rootfs available. Stage one with `just env-rootfs` and export \
-             CYTO_ENV_ROOTFS_SQUASHFS at the cached path (`scripts/e2e-processors-preflight.sh` \
+             TXR_ENV_ROOTFS_SQUASHFS at the cached path (`scripts/e2e-processors-preflight.sh` \
              checks the whole chain, ending in an in-sandbox execution canary)",
         );
         return;
@@ -200,7 +200,7 @@ async fn a_real_integrate_run_creates_a_virtual_dataset_the_catalog_serves_with_
     let project = create_project(&server, &token, "creator real run").await;
     let pool = pool_for(&server).await;
     let repo =
-        cytoanalyst::modules::workstore::catalog::repository::CatalogRepository::new(pool.clone());
+        txresbench::modules::workstore::catalog::repository::CatalogRepository::new(pool.clone());
     // The test process is NOT the server process, so `workstore::get_object_store()` (a
     // process-global set at the server's boot) is uninitialized here. `server_store` is a
     // LocalFsStore rooted at the SERVER's own blob dir, so what this stages is what the
@@ -454,7 +454,7 @@ async fn a_real_integrate_run_creates_a_virtual_dataset_the_catalog_serves_with_
     //
     // **The CLIENT's own address, followed rather than assumed (DEC-26).** The row declares
     // `columns[0].path`; the client resolves that member and reads `<member>/zarr.json`,
-    // where a fused categorical carries its unified vocabulary at `attributes.cyto.levels`.
+    // where a fused categorical carries its unified vocabulary at `attributes.txr.levels`.
     // This is the whole capability's user-visible surface: without it the client has codes
     // and no way to render them.
     //
@@ -487,7 +487,7 @@ async fn a_real_integrate_run_creates_a_virtual_dataset_the_catalog_serves_with_
         .await
         .expect("declaration json");
     let levels = decl
-        .pointer("/attributes/cyto/levels")
+        .pointer("/attributes/txr/levels")
         .and_then(|l| l.as_array())
         .unwrap_or_else(|| {
             panic!(

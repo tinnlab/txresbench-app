@@ -130,9 +130,9 @@ def zero_inter_edge_partition(n_per=100, n_dims=8, seed=0, n_groups=2, separatio
 def cells_digest(n):
     """The `key_sequence_digest` a cells axis of `n` barcodes declares — a real digest to
     stamp as a fixture embedding's `aligned_to`."""
-    import cyto_zarr
+    import txr_zarr
 
-    return cyto_zarr.key_sequence_digest(barcodes(n))
+    return txr_zarr.key_sequence_digest(barcodes(n))
 
 
 def barcodes(n):

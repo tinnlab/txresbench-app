@@ -33,7 +33,7 @@ pub async fn setup_admin(server: &TestServer) -> String {
         .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
-            "email": "admin@cyto.test",
+            "email": "admin@txresbench.test",
             "password": "adminPassw0rd!",
             "display_name": "Admin"
         }))
@@ -192,7 +192,7 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result
 /// `record_skip` with a precise message. It does NOT gate on the sandbox being runnable —
 /// callers pair this with [`rootfs_gate`](crate::dataset::hardening_common::rootfs_gate).
 pub async fn install_test_widget_fixture(server: &TestServer, admin: &str) -> Result<(), String> {
-    use cytoanalyst::modules::extensions::{loader, ExtensionRegistry};
+    use txresbench::modules::extensions::{loader, ExtensionRegistry};
 
     let fixture_parent = fixture_packages_dir();
 
@@ -210,7 +210,7 @@ pub async fn install_test_widget_fixture(server: &TestServer, admin: &str) -> Re
             .unwrap_or_else(|| "test-widget was not scanned (no manifest?)".to_string());
         return Err(format!("fixture lint/scan rejected test-widget: {why}"));
     }
-    let mut merged: Vec<cytoanalyst::modules::extensions::types::ExtensionManifest> =
+    let mut merged: Vec<txresbench::modules::extensions::types::ExtensionManifest> =
         loader::try_registry()
             .map(|r| r.all().into_iter().cloned().collect())
             .unwrap_or_default();

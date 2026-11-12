@@ -1,6 +1,6 @@
 // CanvasView (ITEM-56) — the permanent center HERO. This round replaces the
 // Observable-Plot `hasVizFramework=false` fallback with the REAL viz engine:
-// `<GridWorkspace source={workbenchDataSource} />` (the in-repo `@ziee/viz` deck.gl
+// `<GridWorkspace source={workbenchDataSource} />` (the in-repo `@txresbench/viz` deck.gl
 // grid), bound to the project `DataSource` (ITEM-66, api-injected so the fake-host
 // gallery drives the catalog with no backend). The canvas is NEVER a tab and NEVER
 // reflows on recolor — a recolor updates the floating legend chip while the grid node
@@ -17,7 +17,7 @@
 // so per-field GPU recolor is a follow-on data-resolution concern, not fabricated here.
 
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
-import { Empty, Tag } from '@ziee/kit'
+import { Empty, Tag } from '@txresbench/kit'
 import {
   GridWorkspace,
   VizController,
@@ -26,7 +26,7 @@ import {
   type DataSource,
   type DatasetResolver,
   type VizOption,
-} from '@ziee/viz'
+} from '@txresbench/viz'
 import {
   workbenchPlotSurfaceContainers,
   installHostedSurfaceCloser,

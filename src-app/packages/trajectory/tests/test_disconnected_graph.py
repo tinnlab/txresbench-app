@@ -7,7 +7,7 @@ and the normalisation then divides ONLY by the finite maximum. So a run over two
 blobs reports a tidy finite range of exactly [0, 1] while describing half the dataset. A
 finite-looking range is NOT evidence a run was fine.
 
-The trap that makes this more than a policy question: `cyto_columns` counts missing values
+The trap that makes this more than a policy question: `txr_columns` counts missing values
 with `np.isnan`, and **`np.isnan(inf)` is False**. An infinity handed straight to the writer
 is therefore stored as a NOT-missing value — a real number a colour scale renders as the end
 of the trajectory. The conversion to NaN has to happen in the compute, before the write.

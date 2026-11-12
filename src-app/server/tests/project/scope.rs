@@ -14,8 +14,8 @@ use uuid::Uuid;
 use super::{create_dataset, create_project, create_user, create_user_without_projects, login, setup_admin};
 use crate::common::TestServer;
 
-use cytoanalyst::modules::dataset::project_extension::extension::DatasetProjectExtension;
-use cytoanalyst::modules::project::{
+use txresbench::modules::dataset::project_extension::extension::DatasetProjectExtension;
+use txresbench::modules::project::{
     project_audience, sweep_gc_manifest, GcManifest, ProjectExtensionRegistry, ProjectRepository,
     ProjectScope,
 };

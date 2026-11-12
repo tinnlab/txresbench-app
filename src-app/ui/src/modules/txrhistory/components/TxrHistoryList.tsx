@@ -13,7 +13,7 @@
  * the builders' navigations (ITEM-5).
  */
 import type { CSSProperties } from 'react'
-import { Button, Skeleton } from '@ziee/kit'
+import { Button, Skeleton } from '@txresbench/kit'
 import type { TxrHistoryDetail, TxrHistoryItem } from '@/api-client/types'
 import { TxrHistoryCard } from './TxrHistoryCard'
 import { TxrHistoryEmpty } from './TxrHistoryEmpty'

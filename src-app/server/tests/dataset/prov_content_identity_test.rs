@@ -6,8 +6,8 @@
 
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
-use cytoanalyst::modules::workstore::object_store::content_hash_of_path;
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::workstore::object_store::content_hash_of_path;
 
 use super::hardening_common::*;
 use super::setup_admin;

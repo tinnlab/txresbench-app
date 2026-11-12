@@ -48,7 +48,7 @@ let seq = 0
 /** The shell inside its provider — `PlacedArea` (the canvas/visualize pane bodies) reads the
  *  workbench context, so a bare `<RegionShell/>` throws before any tab is drawn. */
 function mountShell() {
-  const api = createWorkbenchApi(makeFakeHost({ projectId: project }), `cyto.workbench.subject-${seq}`)
+  const api = createWorkbenchApi(makeFakeHost({ projectId: project }), `txr.workbench.subject-${seq}`)
   return render(
     <WorkbenchProvider api={api} projectId={project} viewId={`test-${project}`} canEdit>
       <RegionShell />
@@ -127,7 +127,7 @@ describe('a pane tab names its subject', () => {
   it('a PaneBody mounted ALONE still re-reads its title when the name arrives', async () => {
     const paneId = workbenchDockStore.getState().requestAddPane('jobs', JOB_ID)
     const pane = workbenchDockStore.getState().panes().find(c => c.id === paneId)!
-    const api = createWorkbenchApi(makeFakeHost({ projectId: project }), `cyto.workbench.subject-body-${seq}`)
+    const api = createWorkbenchApi(makeFakeHost({ projectId: project }), `txr.workbench.subject-body-${seq}`)
     render(
       <WorkbenchProvider api={api} projectId={project} viewId={`test-${project}`} canEdit>
         <PaneBody pane={pane} titled />

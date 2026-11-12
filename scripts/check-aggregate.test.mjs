@@ -971,10 +971,10 @@ const REACHABLE_FROM_CHECK = [
  * ─── END TABLE ───
  *
  * ── APP-REPO RE-ANCHOR (ITEM-27, citations only) ─────────────────────────────────────────
- * The cited commits above were original upsteam-cytoanalyst shas (a9bc4c1c, cce0282e,
+ * The cited commits above were original upsteam-txresbench shas (a9bc4c1c, cce0282e,
  * 051c09a1, 0bc9063e) that moved these recipe bodies in the UPSTREAM repo. The app repo
  * squashed that history at its baseline copy `8020d71` ("baseline: unchanged copy of
- * cytoanalyst") — no upstream sha exists here, so TEST-16's existence check reddened on
+ * txresbench") — no upstream sha exists here, so TEST-16's existence check reddened on
  * every row. The PIN VALUES did not move (TEST-10/TEST-21 still hold: the bytes of every
  * pinned recipe are unchanged since the baseline; the only later justfile commit —
  * e38a55d, the strip — touched NO pinned recipe body). The citations are therefore

@@ -236,7 +236,7 @@ async fn bundled_install_records_the_store_row_and_resolves() {
     assert_eq!(asset["contract"], "2.0");
     let host_dir = PathBuf::from(asset["host_dir"].as_str().expect("host_dir"));
     let recomputed =
-        cytoanalyst::modules::sandbox::stack::tree_sha256(&host_dir).expect("tree digest");
+        txresbench::modules::sandbox::stack::tree_sha256(&host_dir).expect("tree digest");
     assert_eq!(
         asset["tree_sha256"], recomputed,
         "the resolve digest re-verifies over the store tree"

@@ -17,7 +17,7 @@
 // "passed in so it is unit-testable without a live backend". So the HTTP call — the
 // external boundary — is the only thing substituted; the discovery, parse, lower and
 // register path is the real production code, end to end. See the TESTS.md amendment note.
-// vitest, not `node:test`: the parser transitively imports `@ziee/viz`, whose sources are
+// vitest, not `node:test`: the parser transitively imports `@txresbench/viz`, whose sources are
 // `.tsx`, which the plain-node strip-types runner cannot load.
 import { test, expect } from 'vitest'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'

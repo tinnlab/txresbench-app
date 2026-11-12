@@ -1,10 +1,10 @@
 // Viz widget RENDERERS (PLAN.md ITEM-8) — the `scatter` / `violin` kinds, wrapping
-// `@ziee/viz`'s `<Viz option source>` (replacing the wave-2 throwing stubs). A viz
+// `@txresbench/viz`'s `<Viz option source>` (replacing the wave-2 throwing stubs). A viz
 // widget is pure config-over-`<Viz>`: it builds a strict-JSON `VizOption` from its
 // `encode` bindings + reads its columnar frame off the render scope, then wires
 // the viz's interaction callbacks back through `ctx.dispatch` to the declared gate /
 // range actions (view_id injected by the host). It never ships a plot compiler or a JS
-// closure (research §11 boundary): the plot logic lives entirely in `@ziee/viz`.
+// closure (research §11 boundary): the plot logic lives entirely in `@txresbench/viz`.
 //
 // DEC-1 (no per-point mask): the dense scatter renders the per-metric thresholds as
 // value-range `filters` (sliders) + the brushed gate as a selection-dim; the violins /
@@ -14,7 +14,7 @@
 // the `VizOption` + source shape without a DOM.
 
 import * as React from 'react'
-import { Viz, toSpaceFromLevelAffine, type VizOption, type DataSource } from '@ziee/viz'
+import { Viz, toSpaceFromLevelAffine, type VizOption, type DataSource } from '@txresbench/viz'
 import type {
   ScatterWidget,
   ViolinWidget,
@@ -139,7 +139,7 @@ function keepUnhidden<T>(xs: T[], hidden: boolean[] | undefined): T[] {
 }
 
 /**
- * A `DataSource` (the `@ziee/viz` wire contract) synthesized from a columnar frame
+ * A `DataSource` (the `@txresbench/viz` wire contract) synthesized from a columnar frame
  * — so a declarative scatter/violin renders REAL rows with no backend. Pure /
  * framework-free (runs in a node test): TEST-8 builds one and reads `positions()`.
  */
@@ -396,7 +396,7 @@ export const ViolinRenderer: WidgetRenderer = (spec, ctx: WidgetRenderContext) =
   <ViolinViz w={spec as ViolinWidget} ctx={ctx} />
 )
 
-// ── bar / histogram / image (DEC-12 — GENERAL kinds lowering onto existing @ziee/viz) ──────────
+// ── bar / histogram / image (DEC-12 — GENERAL kinds lowering onto existing @txresbench/viz) ──────────
 //
 // Each is a THIN config-over-`<Viz>` renderer (INV-5: no second render path, no plot compiler).
 // `bar` lowers onto the viz `bar` chart kind (a categorical GROUP channel → grouped counts),

@@ -5,7 +5,7 @@ import { RouterComponent } from './RouterComponent'
 import { setRouterConfig, type RouterConfig } from './config'
 import './types' // Enable the CreateModuleOptions.routes + Slots declaration-merge
 
-// @ziee/framework/router — the router module factory.
+// @txresbench/framework/router — the router module factory.
 //
 // An app opts into SDK routing by registering the module this returns
 // (alongside its feature modules). It renders first (`order: 0`), collects

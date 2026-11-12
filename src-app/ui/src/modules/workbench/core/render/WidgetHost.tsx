@@ -6,7 +6,7 @@
 // so every renderer stays a pure kind→markup function.
 
 import * as React from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import type { WidgetSpec, WidgetBase } from '@/modules/workbench/core/manifest/viewSpec'
 import { runAction, wasSurfaced } from '@/core/actions/defineAction'
 import { evalWhen, expandForEach, type Scope } from '@/modules/workbench/core/runtime/expr'

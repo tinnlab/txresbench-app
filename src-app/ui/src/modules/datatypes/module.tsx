@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 import { Session } from '@/modules/session/Session.store'
 import { populateDatatypeRegistry, resetDatatypeRegistry, seedBootstrap } from '@/core/datatypes'
 

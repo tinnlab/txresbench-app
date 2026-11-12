@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Empty, ErrorState, Spinner } from '@ziee/kit'
+import { Empty, ErrorState, Spinner } from '@txresbench/kit'
 import { Datasets } from '@/modules/datasets/stores/Datasets.store'
 import { Database } from 'lucide-react'
 

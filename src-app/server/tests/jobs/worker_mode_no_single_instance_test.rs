@@ -16,7 +16,7 @@ use std::time::Duration;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::repository::JobRepository;
+use txresbench::modules::jobs::repository::JobRepository;
 
 use super::{pool_for, register_user};
 use crate::common::{TestOptions, TestServer};

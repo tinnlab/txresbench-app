@@ -17,7 +17,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// The singleton workstore settings row — the five promoted knobs (GC policy +
 /// ingest/body size caps). Byte fields are `bigint`/`i64` (DEC-9), converted to
@@ -217,8 +217,8 @@ impl UpdateWorkstoreSettings {
     }
 }
 
-/// The LEGACY GC env overrides (`CYTO_WORKSTORE_GC_ENABLED` /
-/// `CYTO_WORKSTORE_GC_INTERVAL_HOURS`) as a partial update — a field is PRESENT only
+/// The LEGACY GC env overrides (`TXR_WORKSTORE_GC_ENABLED` /
+/// `TXR_WORKSTORE_GC_INTERVAL_HOURS`) as a partial update — a field is PRESENT only
 /// when the operator actually set that var. Empty when neither is set. Used at boot
 /// (DEC-8) to seed the settings row so an env-configured deployment that never PUTs
 /// stays byte-identical (INV-1); superseded for good once an admin PUTs (which
@@ -226,8 +226,8 @@ impl UpdateWorkstoreSettings {
 /// env value can never seed an out-of-range row.
 pub fn gc_env_overrides() -> UpdateWorkstoreSettings {
     gc_env_overrides_from(
-        std::env::var("CYTO_WORKSTORE_GC_ENABLED").ok().as_deref(),
-        std::env::var("CYTO_WORKSTORE_GC_INTERVAL_HOURS").ok().as_deref(),
+        std::env::var("TXR_WORKSTORE_GC_ENABLED").ok().as_deref(),
+        std::env::var("TXR_WORKSTORE_GC_INTERVAL_HOURS").ok().as_deref(),
     )
 }
 

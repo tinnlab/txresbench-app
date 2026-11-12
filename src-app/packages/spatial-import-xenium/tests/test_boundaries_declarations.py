@@ -7,7 +7,7 @@ drawn at raw declared coordinates and never moved. Geometry has to land in that 
 or the polygons and the centroids are two pictures of different tissues.
 
 #211 established HOW a declaration reaches a sandboxed consumer: in the artifact's own file
-format — `structure['cyto_spatial']` in the Zarr store's `attributes.cyto`, written at one
+format — `structure['txr_spatial']` in the Zarr store's `attributes.txr`, written at one
 enforced call site. `meta` never crosses into the sandbox. This file asserts the two AGREE
 rather than asserting each exists: two routes to one fact is the #214 defect class, and the
 failure mode is a store whose stamped space quietly diverges from the row's.

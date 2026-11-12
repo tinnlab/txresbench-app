@@ -808,7 +808,7 @@ pub struct ConverterContribution {
     /// is deployment data, not a list this type knows.
     ///
     /// `None` ⇒ the DEPLOYMENT DEFAULT (`env_image::default_env_id`: the
-    /// `CYTO_SANDBOX_ENV_ID` override, else the admin settings row, else the union of
+    /// `TXR_SANDBOX_ENV_ID` override, else the admin settings row, else the union of
     /// the envs the loaded registry declares). There is **no embedded-rootfs
     /// fallback** — this doc claimed one until #189, and the claim was false:
     /// the embedded rootfs was removed when DEC-24 was reversed (see the `env_image` module
@@ -922,7 +922,7 @@ pub struct RunSpec {
     ///
     /// The server formerly carried ONE named reference dataset as a CONCEPT directly:
     /// a `needs_reference: bool` column in a code table, a fixed
-    /// `CYTO_SANDBOX_REFERENCE_ROOT` env var, a fixed `/refdata` mount path, and an
+    /// `TXR_SANDBOX_REFERENCE_ROOT` env var, a fixed `/refdata` mount path, and an
     /// error message naming that one resource. A processor now DECLARES what it
     /// needs and where; the operator maps the NAME to a host path.
     #[serde(default)]
@@ -983,7 +983,7 @@ pub struct DependencyRequirement {
     /// the subset the build enforces can never be looser than what the run time — which
     /// uses the reference implementation — enforces.
     ///
-    /// ONE EXCEPTION, since #192: against a recipe that declares `cyto:ecosystem=r`, this
+    /// ONE EXCEPTION, since #192: against a recipe that declares `txr:ecosystem=r`, this
     /// is read under R `DESCRIPTION` rules, where `-` and `.` are the same separator. That
     /// is the correct reading for an R declaration and it is confined to R recipes.
     //
@@ -1023,8 +1023,8 @@ pub struct DependencyRequirement {
 /// A named, operator-supplied host resource an entry needs mounted read-only (S7).
 ///
 /// The NAME is a deployment contract, not a concept the server understands: an
-/// operator points `CYTO_SANDBOX_RESOURCE_<NAME>` at a host path and allowlists its
-/// root via `CYTO_SANDBOX_REFERENCE_MOUNTS`. Nothing about WHAT the resource is — a
+/// operator points `TXR_SANDBOX_RESOURCE_<NAME>` at a host path and allowlists its
+/// root via `TXR_SANDBOX_REFERENCE_MOUNTS`. Nothing about WHAT the resource is — a
 /// reference index, a model, a lookup table — is encoded here; only "this entry needs
 /// the resource called X at path Y".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

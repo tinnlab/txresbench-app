@@ -1,5 +1,5 @@
 //! The Rust half of the Rust↔TS golden parity gate (ITEM-7/TEST-18). Mirrors
-//! `ziee-framework openapi/emit_ts.rs::generator_golden_fixture`: read the committed
+//! `txresbench-framework openapi/emit_ts.rs::generator_golden_fixture`: read the committed
 //! shared fixture, rebuild the registry from the real seed, and assert every
 //! `is_a`/`accepts`/`viewers_for` case matches. The FE e2e reads the SAME file — one
 //! source of truth prevents host-gating ↔ UI-picker drift.
@@ -39,7 +39,7 @@
 //!
 //! * the DERIVATION (this function's set comparison) cross-checks declared-vs-LOADED. It
 //!   catches a declared type that never loaded — a package silently skipped at load time,
-//!   which is a live defect (ziee-ai/cytoanalyst#197) that a count cannot see at all — and
+//!   which is a live defect (tinnlab/txresbench#197) that a count cannot see at all — and
 //!   a registry entry declared nowhere. It costs no edit when a package is contributed,
 //!   which is what makes INV-3 satisfiable.
 //! * the FROZEN halves — `MIN_*` floors below, and the `is_a` / `accepts` / `viewers_for` /
@@ -88,7 +88,7 @@ fn packages_root() -> PathBuf {
 /// DISCOVERY is not a feature — it is a second copy of the loader's folder rules that
 /// nothing keeps in sync, and it ALREADY diverges: `scan_dir` has a fourth rule this does
 /// not, the SEED-ONLY (M8) filter, which restricts the scan to baked-seed ids when
-/// `CYTO_PROCESSOR_SEED_ONLY` is set. That is safe here only because the env var is off by
+/// `TXR_PROCESSOR_SEED_ONLY` is set. That is safe here only because the env var is off by
 /// default and both sides then read the same tree — with it SET, this function still sees
 /// every folder while the registry sees fewer, so `lattice_golden_fixture` fails LOUDLY
 /// (a false red, not a false green). A fifth rule added to `scan_dir` would diverge the
@@ -241,7 +241,7 @@ fn assert_derivation_holds(
     let missing: Vec<&String> = expected.difference(actual).collect();
     assert!(
         missing.is_empty(),
-        "these datatypes are DECLARED but are NOT in the loaded registry: {missing:?}.          A declared type that does not load means its package was skipped at load time          (see `ExtensionRegistry::scan_dir`), which registers nothing and, before this          assertion existed, left every gate green (ziee-ai/cytoanalyst#197)."
+        "these datatypes are DECLARED but are NOT in the loaded registry: {missing:?}.          A declared type that does not load means its package was skipped at load time          (see `ExtensionRegistry::scan_dir`), which registers nothing and, before this          assertion existed, left every gate green (tinnlab/txresbench#197)."
     );
     let unexpected: Vec<&String> = actual.difference(expected).collect();
     assert!(
@@ -436,7 +436,7 @@ impl ScratchDir {
         use std::sync::atomic::{AtomicU64, Ordering};
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let p = std::env::temp_dir().join(format!(
-            "cyto-{tag}-{}-{}",
+            "txr-{tag}-{}-{}",
             std::process::id(),
             SEQ.fetch_add(1, Ordering::Relaxed)
         ));
@@ -463,7 +463,7 @@ fn a_contributed_datatype_needs_no_server_src_edit() {
     const ID: &str = "acceptance-probe/kind";
 
     // ENV DEPENDENCY, stated: `build_from_dir` consults `seed_only_enabled()`
-    // (`CYTO_PROCESSOR_SEED_ONLY`). With it set, the scan ignores any folder whose id is
+    // (`TXR_PROCESSOR_SEED_ONLY`). With it set, the scan ignores any folder whose id is
     // not a baked-seed package, so this probe would not register and the test fails. That
     // is a false RED, not a false green, and the variable is a deploy-level kill switch
     // that is off by default — but it is an ambient input to an otherwise hermetic test,
@@ -476,7 +476,7 @@ fn a_contributed_datatype_needs_no_server_src_edit() {
         format!(
             "id: {PKG}\n\
              name: Zero-core acceptance probe\n\
-             publisher: cyto\n\
+             publisher: txr\n\
              version: 0.1.0\n\
              apiVersion: \"1.0\"\n\
              contributes:\n\
@@ -662,7 +662,7 @@ fn the_shared_golden_holds_case_tables_and_no_frozen_lattice() {
 // ─────────────────────────────────────────────────────────────────────────────────
 // TEST-13 — the SILENT-SKIP reproduction, and the proof that the derivation DETECTS it.
 //
-// ziee-ai/cytoanalyst#197. A package whose datatype `extends:` a supertype owned by
+// tinnlab/txresbench#197. A package whose datatype `extends:` a supertype owned by
 // ANOTHER package is rejected at load time by the PER-package lint
 // (`lint_processor_package` resolves `extends` against the roots ∪ that one package's
 // own ids), so it is skipped and registers nothing — while `build.rs`'s CROSS-package
@@ -690,7 +690,7 @@ fn a_silently_skipped_package_is_caught_by_the_derivation() {
             format!(
                 "id: {folder}\n\
                  name: {folder}\n\
-                 publisher: cyto\n\
+                 publisher: txr\n\
                  version: 0.1.0\n\
                  apiVersion: \"1.0\"\n\
                  contributes:\n\
@@ -730,7 +730,7 @@ fn a_silently_skipped_package_is_caught_by_the_derivation() {
     );
     assert!(
         reg.get("probe/child").is_none(),
-        "`probe/child` LOADED — ziee-ai/cytoanalyst#197 appears to be fixed. Good: delete \
+        "`probe/child` LOADED — tinnlab/txresbench#197 appears to be fixed. Good: delete \
          or invert this test in that commit."
     );
 
@@ -778,7 +778,7 @@ fn a_collapsed_declaration_set_fails_the_floor() {
     std::fs::create_dir_all(&pkg).expect("create dir");
     std::fs::write(
         pkg.join("manifest.yaml"),
-        "id: one-package\nname: One\npublisher: cyto\nversion: 0.1.0\napiVersion: \"1.0\"\n\
+        "id: one-package\nname: One\npublisher: txr\nversion: 0.1.0\napiVersion: \"1.0\"\n\
          contributes:\n  datatypes:\n    - id: one/kind\n      extends: data\n\
          \x20     is_abstract: false\n",
     )
@@ -790,7 +790,7 @@ fn a_collapsed_declaration_set_fails_the_floor() {
 /// A reserved (`_`-prefixed) package that CONTRIBUTES must fail loudly, not be dropped.
 ///
 /// `scan_dir` skips `_`-prefixed folders, so such a contribution would silently never
-/// register — the same silent-skip class as ziee-ai/cytoanalyst#197. The panic existed
+/// register — the same silent-skip class as tinnlab/txresbench#197. The panic existed
 /// with no test proving it fires.
 #[test]
 #[should_panic(expected = "reserved package")]
@@ -800,7 +800,7 @@ fn a_reserved_package_that_contributes_a_datatype_fails_loudly() {
     std::fs::create_dir_all(&pkg).expect("create dir");
     std::fs::write(
         pkg.join("manifest.yaml"),
-        "id: _reserved\nname: Reserved\npublisher: cyto\nversion: 0.1.0\napiVersion: \"1.0\"\n\
+        "id: _reserved\nname: Reserved\npublisher: txr\nversion: 0.1.0\napiVersion: \"1.0\"\n\
          contributes:\n  datatypes:\n    - id: reserved/kind\n      extends: data\n\
          \x20     is_abstract: false\n",
     )
@@ -821,7 +821,7 @@ fn a_duplicate_datatype_id_across_packages_fails_loudly() {
         std::fs::write(
             pkg.join("manifest.yaml"),
             format!(
-                "id: {folder}\nname: {folder}\npublisher: cyto\nversion: 0.1.0\n\
+                "id: {folder}\nname: {folder}\npublisher: txr\nversion: 0.1.0\n\
                  apiVersion: \"1.0\"\ncontributes:\n  datatypes:\n    - id: dup/kind\n\
                  \x20     extends: data\n      is_abstract: false\n"
             ),

@@ -28,7 +28,7 @@ import { loginAsOwner, OWNER } from './helpers'
 // HOST-CAPABILITY GATE (the config's `@acceptance` rationale, applied by env rather than
 // tag): the drop must write the SERVER's `<data_root>/processors/`. That root defaults to a
 // machine-shared `~/.app` which several worktrees' servers read at once, so this runs ONLY
-// when the harness has isolated the data root via `CYTO_APP_DATA_DIR` — the same env the
+// when the harness has isolated the data root via `TXR_APP_DATA_DIR` — the same env the
 // backend reads. A Playwright skip is reported, with its reason, in the run summary; it is
 // never counted as passed.
 
@@ -36,11 +36,11 @@ const DROP_ID = 'e2e-runtime-dropin'
 const ANALYSIS_ID = 'e2e-runtime-dropin.inspect'
 const PACKAGES_PATH = '/api/processors/packages'
 
-const DATA_ROOT = process.env.CYTO_APP_DATA_DIR
+const DATA_ROOT = process.env.TXR_APP_DATA_DIR
 
 const MANIFEST = `id: ${DROP_ID}
 name: E2E runtime drop-in
-publisher: cyto-e2e
+publisher: txr-e2e
 version: 0.0.1
 apiVersion: "1.0"
 contributes:
@@ -61,7 +61,7 @@ test('a package dropped at runtime registers in a freshly-authenticated session 
 }) => {
   test.skip(
     !DATA_ROOT,
-    'needs CYTO_APP_DATA_DIR (an isolated server data root) — the drop writes the server folder',
+    'needs TXR_APP_DATA_DIR (an isolated server data root) — the drop writes the server folder',
   )
   const pkgDir = path.join(DATA_ROOT!, 'processors', DROP_ID)
 

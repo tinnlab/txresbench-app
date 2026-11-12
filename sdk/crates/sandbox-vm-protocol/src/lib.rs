@@ -49,10 +49,10 @@ use serde::{Deserialize, Serialize};
 pub const PROTOCOL_VERSION: u32 = 1;
 
 /// Path the sandbox step's code writes live-progress lines to (the value of
-/// `$ZIEE_PROGRESS`). `build_bwrap_argv` binds the host/guest progress FIFO
+/// `$TXR_PROGRESS`). `build_bwrap_argv` binds the host/guest progress FIFO
 /// onto this path inside the bwrap mount namespace and `--setenv`s it. Fixed so
 /// the argv builder + the agent + the runtime contract all agree.
-pub const PROGRESS_SANDBOX_PATH: &str = "/ziee/progress";
+pub const PROGRESS_SANDBOX_PATH: &str = "/txresbench/progress";
 
 /// Guest-local FIFO path the agent creates and the host-built bwrap argv binds
 /// to [`PROGRESS_SANDBOX_PATH`]. MUST live on a guest-local filesystem (the
@@ -60,7 +60,7 @@ pub const PROGRESS_SANDBOX_PATH: &str = "/ziee/progress";
 /// bug on macOS, so the FIFO cannot live on the virtio-fs-shared workspace.
 /// The Linux backend uses its own per-exec host path instead (the FIFO is
 /// host-local there); this constant is only the VM-backend (agent) location.
-pub const PROGRESS_GUEST_FIFO_PATH: &str = "/tmp/.ziee-progress.fifo";
+pub const PROGRESS_GUEST_FIFO_PATH: &str = "/tmp/.txresbench-progress.fifo";
 
 /// Per-line cap on a progress FIFO `write()`. A single FIFO write below
 /// `PIPE_BUF` (4096 on Linux) is atomic, so concurrent writers can't interleave
@@ -105,8 +105,8 @@ pub struct ExecRequest {
     /// [`PROGRESS_GUEST_FIFO_PATH`] before spawning bwrap, reads it line-by-line,
     /// and forwards each line as a [`Frame::ProcessProgress`] (using
     /// `request_id` as the handle). The host-built argv already binds that FIFO
-    /// onto [`PROGRESS_SANDBOX_PATH`] + sets `$ZIEE_PROGRESS`. `false` (default)
-    /// → no FIFO, no `$ZIEE_PROGRESS` (every chat/MCP exec; only the workflow
+    /// onto [`PROGRESS_SANDBOX_PATH`] + sets `$TXR_PROGRESS`. `false` (default)
+    /// → no FIFO, no `$TXR_PROGRESS` (every chat/MCP exec; only the workflow
     /// sandbox step opts in). Older agents lacking the field see `false`.
     #[serde(default)]
     pub progress: bool,
@@ -264,7 +264,7 @@ pub enum Frame {
     /// either direction: response to `Ping`.
     Pong,
     /// guest → host: a live-progress line for process `handle`, read from the
-    /// sandbox step's `$ZIEE_PROGRESS` FIFO. Same byte-frame shape as
+    /// sandbox step's `$TXR_PROGRESS` FIFO. Same byte-frame shape as
     /// `ProcessStdout`, but the host parses it as `progress.v1`, not step
     /// output. (Tag 16 — additive; ArtifactFile already claimed tag 15 on main.)
     ProcessProgress { handle: u64, bytes: Vec<u8> },

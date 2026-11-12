@@ -29,7 +29,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { useEventBusStore } from '@ziee/framework/events'
+import { useEventBusStore } from '@txresbench/framework/events'
 import {
   TXRMODELS_METHODS,
   TXRMODELS_PREDICTIONS,

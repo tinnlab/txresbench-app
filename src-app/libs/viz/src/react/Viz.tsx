@@ -179,7 +179,7 @@ export interface VizProps extends Omit<GridWorkspaceProps, 'source'> {
    * `fromArray()` at the source's own boundary — there is no non-streaming entry.
    *
    * SCOPE-DOWN: a legacy pull `DataSource` is STILL accepted here and routes to the byte-identical
-   * legacy `resolveDataset` path — the showcase stories + the CytoAnalyst adopter pass a
+   * legacy `resolveDataset` path — the showcase stories + the TxResBench adopter pass a
    * `FixtureSource`/`DataSource` and are migrated to `StreamingSource` under a SEPARATE item
    * (ITEM-17). This union is the transitional surface, not the end state.
    *

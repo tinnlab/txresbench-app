@@ -3,7 +3,7 @@ import { openStory, trackErrors } from './_helpers'
 
 // Cross-window pane DOCKING (docking P4). A pane is dragged by its chrome grip from ONE window and
 // dropped into ANOTHER: main → an existing popup (the popup then holds 2+ panes), and popup → main
-// (dragging the popup's LAST pane back closes the now-empty popup). Built on `@ziee/dock`'s cross-
+// (dragging the popup's LAST pane back closes the now-empty popup). Built on `@txresbench/dock`'s cross-
 // window `useGripDrag`: at pointerdown it attaches pointer listeners to EVERY open dock window; a
 // release in whichever window the pointer is in resolves (via `resolveDrop`) to a MOVE into that
 // container.

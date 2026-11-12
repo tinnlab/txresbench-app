@@ -13,7 +13,7 @@
 //! ever worked on the one encoding no producer writes, and every test on this side agreed
 //! with it because every fixture on this side chose it.
 //!
-//! Both inputs now come from `cyto_zarr`, the writer production uses, in the production
+//! Both inputs now come from `txr_zarr`, the writer production uses, in the production
 //! chain `sharding_indexed[ bytes, (numcodecs.shuffle,) gzip ]`, committed under
 //! `tests/fixtures/gathered_parity/` and regenerable with that directory's `generate.py`.
 //! The gather reads them through `gather_decode` — the one module INV-1's amendment (DEC-23)
@@ -55,8 +55,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use cytoanalyst::modules::workstore::gather_decode::{decode_member, DecodePlan};
-use cytoanalyst::modules::workstore::gathered::{
+use txresbench::modules::workstore::gather_decode::{decode_member, DecodePlan};
+use txresbench::modules::workstore::gathered::{
     gather_chunk, gathered_array_zarr_json, gathered_group_zarr_json, CHUNK_ELEMENTS_TEST,
 };
 use serde_json::json;
@@ -139,7 +139,7 @@ fn source_declared_axis() -> String {
     let zarr: serde_json::Value =
         serde_json::from_slice(&read(&writer_fixture_root("source").join("zarr.json")))
             .expect("the writer fixture's zarr.json parses");
-    zarr.pointer("/attributes/cyto/axis")
+    zarr.pointer("/attributes/txr/axis")
         .and_then(|a| a.as_str())
         .expect("the writer fixture's source store declares an axis")
         .to_string()
@@ -197,7 +197,7 @@ fn build_stores() -> Vec<(String, Vec<u8>)> {
     // The declaration comes from the CREATOR's own builder, and the two nodes from the same
     // functions the byte route serves — so this fixture cannot describe a store shape the
     // server does not produce, which is what the old hand-written `structure` allowed.
-    let mut structure = cytoanalyst::modules::workstore::virtual_dataset::gathered_structure(
+    let mut structure = txresbench::modules::workstore::virtual_dataset::gathered_structure(
         "float32",
         Some("numeric"),
         // The axis the writer-produced SOURCE store declares, read off that store rather
@@ -208,7 +208,7 @@ fn build_stores() -> Vec<(String, Vec<u8>)> {
         n,
         // A byte-parity fixture: it pins the STORE shape, not an axis identity. Said
         // explicitly now that the parameter exists, so the omission is a choice.
-        cytoanalyst::modules::workstore::virtual_dataset::KeyIdentity::Unpinned,
+        txresbench::modules::workstore::virtual_dataset::KeyIdentity::Unpinned,
         json!({}),
     );
     structure["chunk_elements"] = json!(CHUNK_ELEMENTS_TEST);

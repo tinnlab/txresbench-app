@@ -55,7 +55,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use sqlx::SqlitePool;
 
-use ziee_core::{ApiResult, AppError};
+use txresbench_core::{ApiResult, AppError};
 
 use crate::modules::execution_engine::repository::TxrRepository;
 use crate::modules::permissions::{with_permission, RequirePermissions};

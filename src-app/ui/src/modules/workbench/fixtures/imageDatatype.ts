@@ -96,7 +96,7 @@ export const imageDatatype: Datatype = {
 export const imageFixtureAnalysis: AnalysisContribution = {
   id: 'fixture.image-selection',
   launchable: false,
-  extensionId: 'cyto.workbench.fixtures',
+  extensionId: 'txr.workbench.fixtures',
   apiVersion: WORKBENCH_API_VERSION,
   title: 'Region selection (image fixture)',
   category: 'fixture',

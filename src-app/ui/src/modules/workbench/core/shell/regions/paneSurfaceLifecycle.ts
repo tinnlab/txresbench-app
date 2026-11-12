@@ -1,7 +1,7 @@
 // paneSurfaceLifecycle — the two SHELL operations `paneSurfaceHost.ts` drives, bound to the real
 // dock + regions stores. Split out only to keep that module free of the store graph: it is
 // re-exported by the public barrel, which must stay loadable under the `node:test` strip-types
-// runner, and the dock store reaches `@ziee/dock`'s `ContainerWindows.tsx` (see that module's
+// runner, and the dock store reaches `@txresbench/dock`'s `ContainerWindows.tsx` (see that module's
 // port note). Installed by `panes.tsx` at boot, beside the renderer registration.
 
 import { workbenchDockStore } from '@/modules/workbench/core/shell/dock/WorkbenchDock.store'

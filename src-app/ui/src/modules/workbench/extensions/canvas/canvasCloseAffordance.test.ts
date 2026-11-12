@@ -24,7 +24,7 @@
 // not duplicated: this side owns "who is blocked and why", that side owns "what the user gets".
 
 import { describe, expect, it } from 'vitest'
-import type { VizSeries } from '@ziee/viz'
+import type { VizSeries } from '@txresbench/viz'
 import type { ViewSpec } from '@/modules/workbench/core/manifest/viewSpec'
 import { resolveDeclarativeCanvas } from './canvasFeed'
 import { composeCanvas } from './canvasComposition'

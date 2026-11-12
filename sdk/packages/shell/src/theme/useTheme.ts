@@ -3,7 +3,7 @@ import { createContext, useContext } from 'react'
 export type ThemeName = 'light' | 'dark'
 
 /**
- * The persisted theme preference. Framework-level so `@ziee/shell` doesn't
+ * The persisted theme preference. Framework-level so `@txresbench/shell` doesn't
  * depend on the app's config store. A consuming app's own `ThemePreference`
  * (this exact literal union) is structurally identical, so the seam
  * (`Stores.ConfigClient`) type-checks either way.

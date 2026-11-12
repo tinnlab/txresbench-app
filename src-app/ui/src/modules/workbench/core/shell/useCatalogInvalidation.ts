@@ -49,7 +49,7 @@
 // nothing is happening.
 
 import { useEffect, useRef } from 'react'
-import { EventBus } from '@ziee/framework/stores'
+import { EventBus } from '@txresbench/framework/stores'
 import { Permissions } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
 

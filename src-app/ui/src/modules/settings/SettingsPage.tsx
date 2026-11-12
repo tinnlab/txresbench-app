@@ -1,24 +1,24 @@
-import { Button, Dropdown, Flex, Link, Result, ScrollArea, Title, Text } from '@ziee/kit'
+import { Button, Dropdown, Flex, Link, Result, ScrollArea, Title, Text } from '@txresbench/kit'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { useElementMinSize } from '@ziee/shell'
+import { useElementMinSize } from '@txresbench/shell'
 import { useNativeScroll } from '@/modules/layouts/app-layout/hooks/useNativeScroll'
-import { HeaderBarContainer } from '@ziee/shell'
+import { HeaderBarContainer } from '@txresbench/shell'
 import { cn } from '@/lib/utils'
 import { IoIosArrowDown, IoMdSettings } from 'react-icons/io'
 import { BookOpen, ExternalLink } from 'lucide-react'
 
 // Help destination: the app's GitHub repo README is the de-facto operator
-// documentation. (`ziee-ai/ziee` — renamed from `phibya/ziee-chat-new` in the
+// documentation. (`tinnlab/txresbench` — renamed from `phibya/txresbench-chat-new` in the
 // org migration.)
 const HELP_DOCS_URL = 'https://github.com/tinnlab/txresbench-app#readme'
 import { useEffect, useRef, useState } from 'react'
 import { AppLayout } from '@/modules/layouts/app-layout/AppLayout.store'
-import { ModuleSystem } from '@ziee/framework/stores'
+import { ModuleSystem } from '@txresbench/framework/stores'
 import { Session } from '@/modules/session/Session.store'
 import { evaluatePermission } from '@/core/permissions'
 import type { SettingsPageSlot } from '@/modules/settings/types/SettingsSlots'
-import { Menu } from '@ziee/kit'
-import type { MenuItem } from '@ziee/kit/kit/menu'
+import { Menu } from '@txresbench/kit'
+import type { MenuItem } from '@txresbench/kit/kit/menu'
 
 export default function SettingsPage() {
   const navigate = useNavigate()

@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react'
 import { Viz } from '../../react/Viz'
 import { FixtureSource } from '../../viz-core/data/fixtures'
 import type { VizOption } from '../../viz-core/option/types'
-import type { LayoutNode } from '@ziee/dock'
+import type { LayoutNode } from '@txresbench/dock'
 import { registerStory } from '../registry'
 
 const leaf = (id: string): LayoutNode => ({ kind: 'leaf', id })

@@ -2,7 +2,7 @@
 
 ## Problem
 
-Today all feature-gating in CytoAnalyst is **compile-time only**:
+Today all feature-gating in TxResBench is **compile-time only**:
 
 - the cargo `saas` feature (`#[cfg(feature = "saas")]`) links modules in or out,
 - `#[distributed_slice(MODULE_ENTRIES)]` self-registration decides what a binary carries,

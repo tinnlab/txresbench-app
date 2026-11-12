@@ -1,0 +1,105 @@
+[package]
+name = "txresbench-auth"
+version = "0.0.0"
+edition = "2024"
+
+[features]
+# `routes` (default-on) turns on the mountable HTTP/aide surface
+# (`auth::http` — handlers/routes/jwt_extractor/session_settings) and its
+# aide/axum deps. The auth ENGINE (repositories, JWT, providers, session
+# subsystem) compiles with `default-features = false` — no aide/axum — so a
+# second app that wants only the engine (or an engine-only build-DB lane) stays
+# lean. The routes surface has NO `query!` macros, so this feature does not
+# widen the auth-only build-DB story.
+default = ["routes", "embedded-pg"]
+routes = ["dep:aide", "dep:axum"]
+# Dual-driver selection (sqlite-store DEC-1 / DEC-21). OFF (default) = the PG
+# variant: `DbPool` is `PgPool`, the query sets + `AUTH_MIGRATOR` are the
+# Postgres chain (`migrations-pg/` — ITEM-26 renamed the PG chain out of the
+# canonical name), and txresbench's behavior is byte-identical to the pre-seam
+# build. ON = the SQLite variant (`DbPool` = `SqlitePool`, cfg-gated sqlite
+# query sets + the `migrations/` chain). The switch is a COMPILE-TIME feature,
+# never a runtime config toggle; the app builds the SDK with it on.
+#
+# The `txresbench-framework` edge below is declared WITHOUT default features: the
+# framework's driver variant (embedded-pg vs sqlite-backend) is selected by
+# THESE passthrough features instead of the framework's own defaults, so a
+# `sqlite-backend` build does not link the `postgresql_embedded` downloader
+# at all (DRIFT-1 ITEM-12 #3: TEST-1(a)'s lock prune is the query-port
+# items' manifest work).
+embedded-pg = ["txresbench-framework/embedded-pg"]
+sqlite-backend = ["txresbench-framework/sqlite-backend"]
+# `module` (gap N-3, default-OFF) ships the turnkey `AuthModule` — a
+# `#[distributed_slice(MODULE_ENTRIES)]`-registered `AppModule` for the standard
+# `build_api_router` path (routes at `/api/auth/*` + whole-app resolver/JWT
+# extensions), using `DefaultIdentityResolver`. Implies `routes` (needs the aide
+# surface) + the `linkme` module registration. OFF by default so txresbench — which
+# keeps its own `TxResBenchIdentityResolver`-backed module — never links a second,
+# conflicting auth module (keeps txresbench's route/OpenAPI surface byte-identical). A
+# fresh app that wants batteries-included auth on the module-system path enables
+# `features = ["module"]`.
+module = ["routes", "dep:linkme"]
+
+[dependencies]
+txresbench-core = { path = "../txresbench-core" }
+# `default-features = false` — see the feature block above: the framework
+# driver variant is selected by this crate's embedded-pg / sqlite-backend
+# passthrough features, never by the framework's own defaults.
+txresbench-framework = { path = "../txresbench-framework", default-features = false }
+txresbench-identity = { path = "../txresbench-identity" }
+
+# HTTP/aide surface (routes feature only). Versions match txresbench-framework so the
+# single src-app/Cargo.lock unifies them without a duplicate build.
+aide = { version = "0.15", features = ["axum", "axum-json", "macros"], optional = true }
+axum = { version = "0.8.4", features = ["macros", "multipart"], optional = true }
+# `module` feature only: the linkme distributed-slice registration for the
+# turnkey `AuthModule` (gap N-3). Version matches txresbench-framework so the single
+# src-app/Cargo.lock unifies the `MODULE_ENTRIES` slice across the crate boundary.
+linkme = { version = "0.3", optional = true }
+
+# Versions match the txresbench server crate (src-app/server/Cargo.toml) so the
+# single src-app/Cargo.lock unifies them without a duplicate build when txresbench
+# consumes txresbench-auth by path. txresbench-auth owns the concrete auth/user wire types
+# (User/Group/...) which derive serde/schemars + sqlx::FromRow, the schema-bound
+# auth repositories (`query!` macros), login/register/LDAP/OAuth2, the Session &
+# Token-Refresh subsystem, and its own migrations (AUTH_MIGRATOR).
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.141"
+schemars = { version = "0.9.0", features = ["chrono04", "uuid1"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid", "json", "time", "macros", "migrate"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.18", features = ["serde", "v4", "v5"] }
+tokio = { version = "1.47.1", features = ["full"] }
+async-trait = "0.1"
+thiserror = "2.0.12"
+tracing = "0.1"
+time = "0.3"
+http = "1.2"
+url = "2.5"
+base64 = "0.22"
+rand = "0.9.2"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "json"] }
+# `User` implements axum_login's `AuthUser` for the tower-sessions session store.
+axum-login = "0.18.0"
+# Auth-provider + token deps (versions from src-app/server/Cargo.toml).
+bcrypt = "0.17.1"
+jsonwebtoken = { version = "10.1.0", features = ["rust_crypto"] }
+ldap3 = { version = "0.12.1", default-features = false, features = ["tls-rustls-ring"] }
+oauth2 = "5.0.0"
+openidconnect = "4.0.1"
+
+[dev-dependencies]
+# `module`-feature test (gap N-3): drive the finished axum router with a
+# `oneshot` request to prove the whole-app resolver extension reaches a non-auth
+# gated route (401, not the 500 a missing resolver would yield). Versions pinned
+# to the workspace Cargo.lock.
+tower = { version = "0.5.3", features = ["util"] }
+http-body-util = "0.1.4"
+
+[build-dependencies]
+# Build-DB provisioning via the SDK's shared build support crate — the SAME
+# driver split the app's build.rs uses (scheme-selected leg: per-worktree
+# postgres cluster DB or per-worktree sqlite build FILE, key derivation +
+# migration apply single-sourced, never inlined here). txresbench-auth is a
+# schema-bound SDK crate; framework/core/identity stay build-DB-free.
+txresbench-build-support = { path = "../txresbench-build-support" }

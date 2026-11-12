@@ -66,9 +66,9 @@ import pandas as pd
 import pytest
 
 import conformance
-import cyto_csc
-import cyto_zarr as cz
-import cyto_zarr_read
+import txr_csc
+import txr_zarr as cz
+import txr_zarr_read
 
 
 # ── fixtures: REAL artifacts from the REAL writers ───────────────────────────────
@@ -88,14 +88,14 @@ def a_matrix(root, n_rows=40, n_cols=6):
     dense = np.zeros((n_rows, n_cols), dtype=np.float32)
     for r in range(n_rows):
         dense[r, r % n_cols] = float(r % n_cols) + 1.0
-    return cyto_csc.write_csc_zarr(cyto_csc.ArraySource(dense), root, axes=("rows", "columns"))
+    return txr_csc.write_csc_zarr(txr_csc.ArraySource(dense), root, axes=("rows", "columns"))
 
 
 def declare_levels(root, structure, col, levels):
     """Re-declare a categorical member's level set COHERENTLY across all three copies.
 
     A categorical's set now lives in three places with two shapes: the member's stamped
-    `attributes.cyto.levels` (the list, and the only copy any reader resolves through),
+    `attributes.txr.levels` (the list, and the only copy any reader resolves through),
     and the row's `levels_digest` + `n_levels` (the digest and the count). A test that
     edits one of them is testing the drift check, not whatever it meant to test — so a
     test that wants to change WHAT IS DECLARED changes all three, here.
@@ -107,7 +107,7 @@ def declare_levels(root, structure, col, levels):
     structure["columns"][col]["n_levels"] = len(levels)
     member = Path(root) / structure["columns"][col]["path"] / "zarr.json"
     node = json.loads(member.read_text())
-    node["attributes"]["cyto"]["levels"] = levels
+    node["attributes"]["txr"]["levels"] = levels
     member.write_text(json.dumps(node, indent=2, ensure_ascii=False))
 
 
@@ -115,7 +115,7 @@ def restamp(root, structure):
     """Rewrite the group's stamped declaration so a test that edits the RETURNED structure
     is testing the check it means to, not tripping the group/row drift check first."""
     node = json.loads((Path(root) / "zarr.json").read_text())
-    node["attributes"]["cyto"] = structure
+    node["attributes"]["txr"] = structure
     (Path(root) / "zarr.json").write_text(json.dumps(node, indent=2, ensure_ascii=False))
 
 
@@ -168,7 +168,7 @@ def test_the_staged_module_table_is_read_not_guessed():
     """
     staged = _staged_module_files()
     assert len(staged) >= 6, f"the staged table parsed to {sorted(staged)}"
-    for expected in ("cyto_zarr.py", "cyto_csc.py", "align.py", "colsummary.py"):
+    for expected in ("txr_zarr.py", "txr_csc.py", "align.py", "colsummary.py"):
         assert expected in staged, f"{expected} missing from the parsed table: {sorted(staged)}"
     for name, path in staged.items():
         assert path.is_file(), f"staged module {name} does not resolve to {path}"
@@ -500,13 +500,13 @@ def test_the_sampled_values_are_the_stored_ones_not_padding(tmp_path):
                   inner_chunk=16, chunks_per_shard=2)
         structure = t.close()
 
-    meta = cyto_zarr_read.read_meta(root, "value")
+    meta = txr_zarr_read.read_meta(root, "value")
     shard_rows = int(meta["chunk_grid"]["configuration"]["chunk_shape"][0])
     assert shard_rows == 32 and n > shard_rows * conformance.SAMPLE_SHARDS
 
     got, decode_errors = conformance._decode(root, "value", meta, full=False)
     assert decode_errors == [], decode_errors
-    whole = cyto_zarr_read.read_array(root, "value")
+    whole = txr_zarr_read.read_array(root, "value")
     last = (n - 1) // shard_rows
     expected = np.concatenate(
         [whole[0:shard_rows], whole[last * shard_rows : n]]
@@ -522,7 +522,7 @@ def test_the_sampled_values_are_the_stored_ones_not_padding(tmp_path):
 # The module documents that `full=` "only ever makes the check stricter". It did not, and it
 # was wrong in the direction that matters: `full=True` — the ONLY depth production uses
 # (`conform_outputs`, `verify_conformance.py`, `gate`) — went through
-# `cyto_zarr_read.read_array`, which implements the Zarr rule "absent chunk ⇒ fill_value",
+# `txr_zarr_read.read_array`, which implements the Zarr rule "absent chunk ⇒ fill_value",
 # while the bounded depth went through this module's own strict walker. So the weaker arm was
 # the live one. Each test below pins one half of the fix.
 
@@ -554,7 +554,7 @@ def test_a_blanked_shard_index_slot_is_rejected_at_the_depth_PRODUCTION_uses(tmp
 
     The two arms did not share a container reader. `read_array` (what `full=True` called)
     honours the Zarr fill-value rule for an absent chunk, which is correct for a reader and
-    wrong for a gate: `cyto_zarr` emits every chunk that covers logical rows, so an empty
+    wrong for a gate: `txr_zarr` emits every chunk that covers logical rows, so an empty
     slot inside `shape` is a corrupt store. The consumer read below is what the artifact
     actually means to anybody downstream — a run of zeroes in the middle of the column —
     and the gate said `[]` about it.
@@ -569,7 +569,7 @@ def test_a_blanked_shard_index_slot_is_rejected_at_the_depth_PRODUCTION_uses(tmp
                   inner_chunk=4, chunks_per_shard=2)
         structure = t.close()
 
-    meta = cyto_zarr_read.read_meta(root, "value")
+    meta = txr_zarr_read.read_meta(root, "value")
     per_shard = 2
     assert int(meta["chunk_grid"]["configuration"]["chunk_shape"][0]) == 8
 
@@ -580,11 +580,11 @@ def test_a_blanked_shard_index_slot_is_rejected_at_the_depth_PRODUCTION_uses(tmp
 
     edit_shard_index(
         a_shard_body(root, "value"), per_shard,
-        lambda idx: idx.__setitem__(1, (cyto_zarr_read.EMPTY, cyto_zarr_read.EMPTY)),
+        lambda idx: idx.__setitem__(1, (txr_zarr_read.EMPTY, txr_zarr_read.EMPTY)),
     )
 
     # What a consumer now reads: rows 4..7 are fill_value, not the stored values.
-    got = cyto_zarr_read.read_array(root, "value").tolist()
+    got = txr_zarr_read.read_array(root, "value").tolist()
     assert got[:8] == [1, 2, 3, 4, 0, 0, 0, 0], (
         f"the fixture must actually corrupt the values a consumer sees, got {got}"
     )
@@ -601,7 +601,7 @@ def test_a_blanked_shard_index_slot_is_rejected_at_the_depth_PRODUCTION_uses(tmp
 def test_a_shard_index_that_fails_its_crc32c_is_rejected(tmp_path):
     """The checksum the FORMAT writes for exactly this, which the gate was discarding.
 
-    `cyto_zarr` writes `crc32c` over each shard's chunk index (`index_codecs: [bytes,
+    `txr_zarr` writes `crc32c` over each shard's chunk index (`index_codecs: [bytes,
     crc32c]`) because the index is the one part of a shard whose corruption is otherwise
     SILENT: a flipped byte in a compressed chunk fails to gunzip, loudly, but a flipped byte
     in an OFFSET yields a completely successful decode of the wrong bytes. Neither depth
@@ -626,7 +626,7 @@ def test_a_shard_index_that_fails_its_crc32c_is_rejected(tmp_path):
         lambda idx: idx.__setitem__(slice(None), idx[::-1]),
         repair_crc=False,
     )
-    got = cyto_zarr_read.read_array(root, "value").tolist()
+    got = txr_zarr_read.read_array(root, "value").tolist()
     assert got[:8] == [5, 6, 7, 8, 1, 2, 3, 4], (
         f"the fixture must produce a VALID read of the WRONG bytes, got {got}"
     )
@@ -645,7 +645,7 @@ FIRST_SHARD_CORRUPTIONS = [
     ("truncated", lambda p, per: p.write_bytes(p.read_bytes()[:-4])),
     ("index-truncated", lambda p, per: p.write_bytes(p.read_bytes()[: per * 16 // 2])),
     ("slot-blanked", lambda p, per: edit_shard_index(
-        p, per, lambda idx: idx.__setitem__(0, (cyto_zarr_read.EMPTY, cyto_zarr_read.EMPTY)))),
+        p, per, lambda idx: idx.__setitem__(0, (txr_zarr_read.EMPTY, txr_zarr_read.EMPTY)))),
     ("slots-swapped-stale-crc", lambda p, per: edit_shard_index(
         p, per, lambda idx: idx.__setitem__(slice(None), idx[::-1]), repair_crc=False)),
     ("zero-length-chunk", lambda p, per: edit_shard_index(
@@ -675,7 +675,7 @@ def test_the_full_depth_detects_everything_the_bounded_depth_does(tmp_path, name
     """
     root = tmp_path / f"mono-{name}.zarr"
     structure = a_multi_shard_table(root)
-    meta = cyto_zarr_read.read_meta(root, "value")
+    meta = txr_zarr_read.read_meta(root, "value")
     per_shard = int(meta["chunk_grid"]["configuration"]["chunk_shape"][0]) // \
         int(meta["codecs"][0]["configuration"]["chunk_shape"][0])
 
@@ -744,7 +744,7 @@ def test_a_member_less_table_is_rejected(tmp_path, depth):
     """The silent-empty class, at the producer side. An artifact with nothing in it reads
     as an empty result to every consumer downstream; INV-2 says absence is an error."""
     root = tmp_path / "empty.zarr"
-    cz.write_group(root, {"cyto": {"encoding": "zarr_v3", "kind": "table",
+    cz.write_group(root, {"txr": {"encoding": "zarr_v3", "kind": "table",
                                    "axis": "rows", "n": 0, "columns": [], "arrays": []}})
     violations = conformance.conform_artifact(
         root, {"encoding": "zarr_v3", "kind": "table", "axis": "rows", "n": 0,
@@ -885,7 +885,7 @@ def test_the_key_tables_classify_every_key_the_writers_emit(tmp_path):
     * every key the gate REQUIRES is actually emitted — so the table cannot demand
       something no writer writes, which would refuse every conforming artifact.
 
-    Run over all three member kinds, a 2-D `arrays` member, and `cyto_csc`'s trio (whose
+    Run over all three member kinds, a 2-D `arrays` member, and `txr_csc`'s trio (whose
     members carry no `name`/`axis` at all, which is why those two are optional).
     """
     table = a_table(tmp_path / "t.zarr", n=64)
@@ -960,7 +960,7 @@ def test_a_member_kind_this_suite_does_not_implement_is_refused_by_name(tmp_path
 # is the same lever with the value left in place: `shape: 200` is PRESENT, so the presence
 # loop passes it, and every use of it then sat behind an `isinstance(…, list)` guard that a
 # scalar silently switched OFF — including the ONLY check pinning a string group's stamped
-# `attributes.cyto.n`. The oracle is the first test below; `WRONG_FORM_SUBSTITUTES` is the
+# `attributes.txr.n`. The oracle is the first test below; `WRONG_FORM_SUBSTITUTES` is the
 # class-level matrix (every required key × every kind × every JSON type it is not); and
 # `test_the_real_writers_declarations_are_in_their_declared_forms` is the control that stops
 # the new rule doing the one thing worse than the hole — refusing conforming artifacts.
@@ -1009,7 +1009,7 @@ def test_the_ORACLE_a_SCALAR_shape_leaves_a_string_groups_STAMP_unpinned(tmp_pat
     """THE MEASUREMENT: `shape: 200` returned `[]` for an artifact whose stamp says `n=999`.
 
     A string member's `shape` is the ONLY thing pinning `<member>/zarr.json`'s
-    `attributes.cyto.n` — the row's counterpart of the length a store-URL consumer allocates
+    `attributes.txr.n` — the row's counterpart of the length a store-URL consumer allocates
     for. That comparison was written `isinstance(declared_shape, list) and declared_shape`,
     so declaring the row's `shape` as a SCALAR did not fail the check, it removed it: the
     producer's stamp could then say anything. Measured through this same production entry
@@ -1032,7 +1032,7 @@ def test_the_ORACLE_a_SCALAR_shape_leaves_a_string_groups_STAMP_unpinned(tmp_pat
     # The producer's stamp lies about the length. Nothing else is touched: the bytes, the
     # offsets, the group stamp and the row are all the writer's own.
     node = json.loads((root / "label" / "zarr.json").read_text())
-    node["attributes"]["cyto"]["n"] = 999
+    node["attributes"]["txr"]["n"] = 999
     (root / "label" / "zarr.json").write_text(json.dumps(node, indent=2))
 
     # In the form the writer emits it, the row pins the stamp and the lie is named.
@@ -1478,7 +1478,7 @@ def test_the_real_writers_chunk_keys_are_accepted(tmp_path):
     """NEGATIVE CONTROL for the two above: the chunk-key rule must accept what is WRITTEN.
 
     A rule that refused a real store's chunk names would refuse every conforming artifact, so
-    both chunk-key shapes `cyto_zarr` emits are exercised — the flat `c/<shard>` of a 1-D
+    both chunk-key shapes `txr_zarr` emits are exercised — the flat `c/<shard>` of a 1-D
     member and the nested `c/<shard>/0` of a 2-D one — plus a member with more than one shard,
     at both depths.
     """
@@ -1548,7 +1548,7 @@ def test_a_chunk_index_beyond_the_declared_grid_is_refused(tmp_path):
     The plainest form of the hole: a perfectly-shaped chunk key for a chunk that does not
     exist. `a_table(n=200)` writes `value` at `inner_chunk=4096`, `chunks_per_shard=1` — one
     shard, so `c/0` and nothing else — and `c/7` is bytes no reader will ever fetch, because
-    `cyto_zarr_read.read_array` computes the same `ceil(shape/chunk_shape)` this rule does and
+    `txr_zarr_read.read_array` computes the same `ceil(shape/chunk_shape)` this rule does and
     stops at 0.
     """
     root = tmp_path / "t.zarr"
@@ -2255,7 +2255,7 @@ def chunk_grid_cells(root, member):
     entry at a time against the grid precisely so it never has to hold the key set, and a
     test is the only place that can afford to.
     """
-    grid = conformance._chunk_grid(cyto_zarr_read.read_meta(root, member))
+    grid = conformance._chunk_grid(txr_zarr_read.read_meta(root, member))
     assert isinstance(grid, list), f"{member}: an array node must have a derivable grid"
     return {"/".join(str(i) for i in cell)
             for cell in itertools.product(*[range(d) for d in grid])}
@@ -2328,8 +2328,8 @@ def test_the_derived_grid_is_EXACTLY_the_writers_chunk_key_set_for_the_CSC_trio(
         dense = np.zeros((n_rows, 6), dtype=np.float32)
         for r in range(n_rows):
             dense[r, r % 6] = float(r % 6) + 1.0
-        structure = cyto_csc.write_csc_zarr(
-            cyto_csc.ArraySource(dense), root, axes=("rows", "columns")
+        structure = txr_csc.write_csc_zarr(
+            txr_csc.ArraySource(dense), root, axes=("rows", "columns")
         )
         for member in ("indptr", "indices", "data"):
             derived = chunk_grid_cells(root, member)
@@ -2797,7 +2797,7 @@ def test_no_recursive_enumeration_hides_its_own_errors():
     * **Only these names** (`SILENT_RECURSIVE_ENUMERATORS`). A recursive enumerator reached
       by any other spelling — `shutil` internals, `os.fwalk`, `scandir` recursion in a helper
       module, a third-party walker, `getattr(p, "rgl" + "ob")` — is invisible here.
-    * **Only this module.** `cyto_zarr_read` and the processor entries are not scanned.
+    * **Only this module.** `txr_zarr_read` and the processor entries are not scanned.
     * **It does not check that the errors are USED.** `os.walk(onerror=lambda e: None)`
       passes this and swallows exactly as hard; the keyword is a shape, not a semantics.
     * **It says nothing about whether a banned call would actually fail open.** An `rglob`
@@ -2863,7 +2863,7 @@ def test_a_string_member_that_lies_about_its_payload_length_is_refused(tmp_path)
 
 # ── the SECOND copy of a member's declaration (the group's was the only one checked) ──
 #
-# `_conform_group_attributes` compares the GROUP's stamped `attributes.cyto` against the
+# `_conform_group_attributes` compares the GROUP's stamped `attributes.txr` against the
 # row's `structure` because "two copies that can drift is exactly the class of bug this
 # suite exists for". `write_array` stamps a THIRD copy per MEMBER and nothing compared it —
 # so the same argument, one level down, was unmade.
@@ -2875,7 +2875,7 @@ def test_a_members_own_stamped_declaration_is_cross_checked(tmp_path):
     Nothing else is touched — the artifact row, the group stamp and every byte are exactly
     as written — so no check that reads the row, the group or the bytes can see this. What
     sees it is a consumer holding nothing but the `/data` URL, which is a first-class client
-    per §0.3 and whose reference implementation is `cyto_zarr_read.read_column`. Both legs
+    per §0.3 and whose reference implementation is `txr_zarr_read.read_column`. Both legs
     below assert the DIVERGENCE first (the fault is real, not hypothetical) and then that
     the gate names it.
     """
@@ -2887,10 +2887,10 @@ def test_a_members_own_stamped_declaration_is_cross_checked(tmp_path):
     # The set the row's `levels_digest` was computed over — captured BEFORE the
     # corruption, because the row no longer restates the list and this oracle is
     # precisely about the stamp diverging from what the row declares.
-    row_levels = list(node["attributes"]["cyto"]["levels"])
-    node["attributes"]["cyto"]["levels"] = ["x", "y", "z", "w"]
+    row_levels = list(node["attributes"]["txr"]["levels"])
+    node["attributes"]["txr"]["levels"] = ["x", "y", "z", "w"]
     (root / "group" / "zarr.json").write_text(json.dumps(node, indent=2))
-    decoded = cyto_zarr_read.read_column(root, "group")
+    decoded = txr_zarr_read.read_column(root, "group")
     assert set(decoded) & {"x", "y", "z"} and not set(decoded) & set(row_levels), (
         f"the oracle failed: the store-URL consumer read {sorted(set(decoded))}, which does "
         "not diverge from the row's level set — then this test is not about a real fault"
@@ -2906,9 +2906,9 @@ def test_a_members_own_stamped_declaration_is_cross_checked(tmp_path):
     root = tmp_path / "kind.zarr"
     structure = a_table(root, n=64)
     node = json.loads((root / "group" / "zarr.json").read_text())
-    node["attributes"]["cyto"]["kind"] = "numeric"
+    node["attributes"]["txr"]["kind"] = "numeric"
     (root / "group" / "zarr.json").write_text(json.dumps(node, indent=2))
-    decoded = cyto_zarr_read.read_column(root, "group")
+    decoded = txr_zarr_read.read_column(root, "group")
     assert isinstance(decoded, np.ndarray), (
         "the oracle failed: the store-URL consumer still resolved labels, so the stamped "
         f"`kind` is not load-bearing for it (got {type(decoded).__name__})"
@@ -2918,7 +2918,7 @@ def test_a_members_own_stamped_declaration_is_cross_checked(tmp_path):
 
 
 def test_a_member_with_no_stamped_declaration_of_its_own_is_refused(tmp_path):
-    """A member node with no `attributes.cyto` is one a store-URL consumer cannot decode —
+    """A member node with no `attributes.txr` is one a store-URL consumer cannot decode —
     the same absence-selects-a-shallower-check shape, one level down."""
     root = tmp_path / "t.zarr"
     structure = a_table(root, n=64)
@@ -2926,7 +2926,7 @@ def test_a_member_with_no_stamped_declaration_of_its_own_is_refused(tmp_path):
     node["attributes"] = {}
     (root / "value" / "zarr.json").write_text(json.dumps(node, indent=2))
     violations = conformance.conform_artifact(root, structure, full=True)
-    assert any("carries no `attributes.cyto`" in v for v in violations), violations
+    assert any("carries no `attributes.txr`" in v for v in violations), violations
 
 
 def test_a_categorical_stamp_that_drops_its_levels_is_refused(tmp_path):
@@ -2935,7 +2935,7 @@ def test_a_categorical_stamp_that_drops_its_levels_is_refused(tmp_path):
     root = tmp_path / "t.zarr"
     structure = a_table(root, n=64)
     node = json.loads((root / "group" / "zarr.json").read_text())
-    node["attributes"]["cyto"].pop("levels")
+    node["attributes"]["txr"].pop("levels")
     (root / "group" / "zarr.json").write_text(json.dumps(node, indent=2))
     violations = conformance.conform_artifact(root, structure, full=True)
     assert any("stamps no `levels`" in v for v in violations), violations
@@ -2958,11 +2958,11 @@ def test_a_categorical_stamp_that_drops_its_levels_is_refused(tmp_path):
 
 def stamp_of(root, member_path):
     """The member's OWN stamped declaration, read off disk."""
-    return json.loads((Path(root) / member_path / "zarr.json").read_text())["attributes"]["cyto"]
+    return json.loads((Path(root) / member_path / "zarr.json").read_text())["attributes"]["txr"]
 
 
 def drop_from_stamp(root, member_path, key):
-    """Pop ONE key out of a member's own `attributes.cyto` and leave everything else alone.
+    """Pop ONE key out of a member's own `attributes.txr` and leave everything else alone.
 
     Not `restamp`: this edits the member's stamp, which is the copy of the declaration a
     store-URL consumer reads. The row and the GROUP stamp stay exactly as the writer wrote
@@ -2970,11 +2970,11 @@ def drop_from_stamp(root, member_path, key):
     """
     path = Path(root) / member_path / "zarr.json"
     node = json.loads(path.read_text())
-    assert key in node["attributes"]["cyto"], (
+    assert key in node["attributes"]["txr"], (
         f"the writer no longer stamps {key!r} on {member_path!r} — then the matrix is stale, "
         "and `_REQUIRED_STAMPED_KEYS` requires something nothing writes"
     )
-    node["attributes"]["cyto"].pop(key)
+    node["attributes"]["txr"].pop(key)
     path.write_text(json.dumps(node, indent=2))
 
 
@@ -3025,14 +3025,14 @@ def test_omitting_any_key_of_a_members_own_stamp_is_refused(tmp_path, member_pat
 
 
 def test_a_categorical_stamp_that_drops_ONLY_its_kind_is_refused(tmp_path):
-    """THE ORACLE the round-2 fix left open. Nothing but `attributes.cyto.kind` is touched.
+    """THE ORACLE the round-2 fix left open. Nothing but `attributes.txr.kind` is touched.
 
     `levels` is still stamped, `ordered` is still stamped, the row is untouched, the group
     stamp is untouched, every byte is untouched. The two bespoke `if`s that guarded
     `levels`/`ordered` therefore see nothing wrong, the field-by-field comparison `continue`s
     past a key that is not there, and the pre-fix gate reported `[]`.
 
-    What the fault IS: `cyto_zarr_read.read_column` — §0.3's first-class store-URL client and
+    What the fault IS: `txr_zarr_read.read_column` — §0.3's first-class store-URL client and
     the reference implementation of it — resolves codes through the level set only when the
     STAMP says `categorical`. With `kind` gone it returns the raw `uint8` codes, so the
     consumer gets `[0, 1, 2, …]` where the declaration says `['a', 'b', 'c']`: not a missing
@@ -3045,7 +3045,7 @@ def test_a_categorical_stamp_that_drops_ONLY_its_kind_is_refused(tmp_path):
 
     # NEGATIVE CONTROL: before the mutation, the consumer reads labels and the gate is silent
     # for the right reason.
-    assert cyto_zarr_read.read_column(root, "group")[:3] == ["a", "b", "c"]
+    assert txr_zarr_read.read_column(root, "group")[:3] == ["a", "b", "c"]
     assert conformance.conform_artifact(root, structure, full=True) == []
 
     drop_from_stamp(root, "group", "kind")
@@ -3055,7 +3055,7 @@ def test_a_categorical_stamp_that_drops_ONLY_its_kind_is_refused(tmp_path):
         "the set by digest, so agreement is checked the way the gate checks it.)"
     )
 
-    decoded = cyto_zarr_read.read_column(root, "group")
+    decoded = txr_zarr_read.read_column(root, "group")
     assert isinstance(decoded, np.ndarray), (
         "the oracle failed: the store-URL consumer still resolved labels, so a stamped `kind` "
         f"that is ABSENT is not load-bearing for it (got {type(decoded).__name__})"
@@ -3085,7 +3085,7 @@ def test_a_stamped_key_in_neither_table_is_reported_rather_than_riding_along(tmp
     structure = a_table(root, n=64)
     path = root / "value" / "zarr.json"
     node = json.loads(path.read_text())
-    node["attributes"]["cyto"]["wombat"] = 1
+    node["attributes"]["txr"]["wombat"] = 1
     path.write_text(json.dumps(node, indent=2))
     violations = conformance.conform_artifact(root, structure, full=True)
     assert any(
@@ -3103,7 +3103,7 @@ def test_the_stamp_tables_classify_every_stamped_key_the_writers_emit(tmp_path):
       kind, so the table cannot demand something nothing writes — which would refuse every
       conforming artifact.
 
-    Run over all three kinds, a 2-D `arrays` member and `cyto_csc`'s trio (whose members stamp
+    Run over all three kinds, a 2-D `arrays` member and `txr_csc`'s trio (whose members stamp
     a `role`, and stamp a `name` their row does not carry).
     """
     table_root, matrix_root, xy_root = (
@@ -3186,7 +3186,7 @@ def test_a_csc_member_stamping_a_name_its_row_does_not_carry_is_legal(tmp_path):
     """NEGATIVE CONTROL for the asymmetry rule: one copy may legitimately carry more.
 
     A stamped key whose ROW counterpart is absent is not a violation when the row is
-    explicitly allowed to omit it — `cyto_csc`'s trio stamps `name` (and `role`) while its row
+    explicitly allowed to omit it — `txr_csc`'s trio stamps `name` (and `role`) while its row
     declaration carries neither, by design (`_OPTIONAL_MEMBER_KEYS` says why). Without this
     test, "the two copies must agree" could have been implemented as "the two copies must have
     the same keys", which would refuse every CSC artifact ever written.
@@ -3228,7 +3228,7 @@ def test_a_string_member_with_non_monotonic_offsets_is_rejected(tmp_path, depth)
     at best and a nonsense one at worst — the consumer sees blank labels, not an error."""
     root = tmp_path / "s.zarr"
     structure = a_string_table(root, [f"row-{i}" for i in range(20)])
-    offsets = np.asarray(cyto_zarr_read.read_array(root, "label/offsets"), dtype=np.uint32)
+    offsets = np.asarray(txr_zarr_read.read_array(root, "label/offsets"), dtype=np.uint32)
     offsets[5], offsets[6] = offsets[6], offsets[5]
     rewrite_member(root, "label/offsets", offsets, dimension_names=["rows+1"])
     violations = conformance.conform_artifact(root, structure, full=depth)
@@ -3240,7 +3240,7 @@ def test_a_string_member_whose_offsets_do_not_span_the_payload_is_rejected(tmp_p
     string; a long one indexes past the end of the buffer."""
     root = tmp_path / "s.zarr"
     structure = a_string_table(root, [f"row-{i}" for i in range(20)])
-    offsets = np.asarray(cyto_zarr_read.read_array(root, "label/offsets"), dtype=np.uint32)
+    offsets = np.asarray(txr_zarr_read.read_array(root, "label/offsets"), dtype=np.uint32)
     offsets[-1] -= 3
     rewrite_member(root, "label/offsets", offsets, dimension_names=["rows+1"])
     violations = conformance.conform_artifact(root, structure, full=depth)
@@ -3250,7 +3250,7 @@ def test_a_string_member_whose_offsets_do_not_span_the_payload_is_rejected(tmp_p
 def test_a_string_member_that_does_not_start_at_zero_is_rejected(tmp_path, depth):
     root = tmp_path / "s.zarr"
     structure = a_string_table(root, [f"row-{i}" for i in range(20)])
-    offsets = np.asarray(cyto_zarr_read.read_array(root, "label/offsets"), dtype=np.uint32)
+    offsets = np.asarray(txr_zarr_read.read_array(root, "label/offsets"), dtype=np.uint32)
     offsets[0] = 1
     rewrite_member(root, "label/offsets", offsets, dimension_names=["rows+1"])
     violations = conformance.conform_artifact(root, structure, full=depth)
@@ -3261,7 +3261,7 @@ def test_a_string_member_with_the_wrong_offset_count_is_rejected(tmp_path, depth
     """`n` values need `n + 1` offsets. One fewer and the last value has no end."""
     root = tmp_path / "s.zarr"
     structure = a_string_table(root, [f"row-{i}" for i in range(20)])
-    offsets = np.asarray(cyto_zarr_read.read_array(root, "label/offsets"), dtype=np.uint32)
+    offsets = np.asarray(txr_zarr_read.read_array(root, "label/offsets"), dtype=np.uint32)
     rewrite_member(root, "label/offsets", offsets[:-1], dimension_names=["rows+1"])
     violations = conformance.conform_artifact(root, structure, full=depth)
     assert any("offsets for 20 values (expected 21)" in v for v in violations), violations
@@ -3272,7 +3272,7 @@ def test_a_string_member_whose_payload_is_not_utf8_is_rejected(tmp_path, depth):
     somebody else's loop, naming no member."""
     root = tmp_path / "s.zarr"
     structure = a_string_table(root, [f"row-{i}" for i in range(20)])
-    payload = np.asarray(cyto_zarr_read.read_array(root, "label/values"), dtype=np.uint8)
+    payload = np.asarray(txr_zarr_read.read_array(root, "label/values"), dtype=np.uint8)
     payload[0] = 0xFF  # never a valid UTF-8 lead byte
     rewrite_member(root, "label/values", payload, dimension_names=["utf8_bytes"])
     violations = conformance.conform_artifact(root, structure, full=depth)
@@ -3296,7 +3296,7 @@ def test_a_conforming_string_member_produces_no_violation(tmp_path):
     values = ["", "a", "unicode: ✓ →", "row-3" * 40]
     structure = a_string_table(root, values)
     assert conformance.conform_artifact(root, structure, full=True) == []
-    assert cyto_zarr_read.read_strings(root, "label") == values
+    assert txr_zarr_read.read_strings(root, "label") == values
 
 
 # ── the string RE-SPLIT: what the bytes genuinely cannot pin ─────────────────────
@@ -3352,13 +3352,13 @@ def test_a_boundary_preserving_string_resplit_is_rejected(tmp_path):
     resplit(root, "label", [0, 1, 3])
 
     # Every structural property still holds — the corruption is invisible to all of them.
-    offsets = cyto_zarr_read.read_array(root, "label/offsets")
-    payload = cyto_zarr_read.read_array(root, "label/values").tobytes()
+    offsets = txr_zarr_read.read_array(root, "label/offsets")
+    payload = txr_zarr_read.read_array(root, "label/values").tobytes()
     assert int(offsets[0]) == 0 and int(offsets[-1]) == len(payload)
     assert list(np.diff(offsets.astype(np.int64))) == [1, 2]
     payload.decode("utf-8")  # the whole payload is perfectly valid UTF-8
 
-    assert cyto_zarr_read.read_strings(root, "label") == ["a", "bc"], (
+    assert txr_zarr_read.read_strings(root, "label") == ["a", "bc"], (
         "the fixture must actually change what every consumer reads"
     )
     violations = conformance.conform_artifact(root, structure, full=True)
@@ -3381,9 +3381,9 @@ def test_an_offset_that_splits_a_utf8_codepoint_is_rejected(tmp_path):
     assert conformance.conform_artifact(root, structure, full=True) == []
 
     resplit(root, "label", [0, 1, 3])
-    cyto_zarr_read.read_array(root, "label/values").tobytes().decode("utf-8")  # still valid
+    txr_zarr_read.read_array(root, "label/values").tobytes().decode("utf-8")  # still valid
     with pytest.raises(UnicodeDecodeError):
-        cyto_zarr_read.read_strings(root, "label")
+        txr_zarr_read.read_strings(root, "label")
 
     violations = conformance.conform_artifact(root, structure, full=True)
     assert any("split a UTF-8 codepoint" in v for v in violations), (
@@ -3487,15 +3487,15 @@ def test_a_matrix_with_unsorted_row_ids_is_rejected_at_full_depth(tmp_path):
     indices_path = structure["indices"]["path"]
     # Rewrite `indices` with its first column's rows reversed, through the real writer so
     # the container stays valid and it is the ORDER that is wrong, nothing else.
-    ind = np.asarray(cyto_zarr_read.read_array(root, indices_path), dtype=np.uint32)
-    ptr = np.asarray(cyto_zarr_read.read_array(root, structure["indptr"]["path"]))
+    ind = np.asarray(txr_zarr_read.read_array(root, indices_path), dtype=np.uint32)
+    ptr = np.asarray(txr_zarr_read.read_array(root, structure["indptr"]["path"]))
     lo, hi = int(ptr[0]), int(ptr[1])
     assert hi - lo > 1, "the fixture's first column must hold more than one entry"
     ind[lo:hi] = ind[lo:hi][::-1]
     entry = cz.write_array(
         root, indices_path, ind, inner_chunk=structure["indices"]["inner_chunk"],
         chunks_per_shard=structure["indices"]["chunks_per_shard"], dimension_names=["nnz"],
-        attributes={"cyto": {"kind": "numeric", "name": "indices", "role": "indices"}},
+        attributes={"txr": {"kind": "numeric", "name": "indices", "role": "indices"}},
     )
     structure["indices"] = entry
     restamp(root, structure)
@@ -3800,7 +3800,7 @@ def test_no_declared_opt_out_weakens_the_gate(tmp_path):
 
     # 3. An environment variable. Nothing in the module reads `os.environ`.
     saved = {k: os.environ.get(k) for k in
-             ("CYTO_SKIP_CONFORMANCE", "CONFORMANCE", "CYTO_CONFORMANCE", "SKIP_CONFORMANCE")}
+             ("TXR_SKIP_CONFORMANCE", "CONFORMANCE", "TXR_CONFORMANCE", "SKIP_CONFORMANCE")}
     try:
         for k in saved:
             os.environ[k] = "0"
@@ -3817,8 +3817,8 @@ def test_no_declared_opt_out_weakens_the_gate(tmp_path):
             cz.Table(tmp_path / "x.zarr", axis="rows", n=1, **{kwarg: False})
     for kwarg in ("conformance", "gate", "skip_conformance"):
         with pytest.raises(TypeError):
-            cyto_csc.write_csc_zarr(
-                cyto_csc.ArraySource(np.eye(2, dtype=np.float32)),
+            txr_csc.write_csc_zarr(
+                txr_csc.ArraySource(np.eye(2, dtype=np.float32)),
                 tmp_path / "y.zarr", **{kwarg: False}
             )
 
@@ -4284,7 +4284,7 @@ def test_the_gate_never_reads_member_bytes_through_the_convenience_reader(tmp_pa
     """The module header's ONE-container-reader claim, asserted instead of documented.
 
     The header says "the gate never calls `read_array` for member bytes", and the reason it
-    matters is stated right there: `cyto_zarr_read` implements the Zarr rule that an absent
+    matters is stated right there: `txr_zarr_read` implements the Zarr rule that an absent
     chunk is `fill_value`, which is correct for a READER and exactly wrong for a gate — it
     turns a blanked shard-index slot into a silent run of zeroes (and, on an offsets array,
     into a silent re-split). The claim was FALSE for one live path:
@@ -4306,11 +4306,11 @@ def test_the_gate_never_reads_member_bytes_through_the_convenience_reader(tmp_pa
 
     def refuse(*args, **kwargs):
         raise AssertionError(
-            "the gate reached cyto_zarr_read.read_array for member bytes — the fill-value "
+            "the gate reached txr_zarr_read.read_array for member bytes — the fill-value "
             "rule that reader implements is the weaker arm the module header rules out"
         )
 
-    monkeypatch.setattr(cyto_zarr_read, "read_array", refuse)
+    monkeypatch.setattr(txr_zarr_read, "read_array", refuse)
     manifest = {"outputs": [
         {"id": "a", "path": "a.zarr", "structure": forward, "meta": {"is_axis_index": True}},
         {"id": "b", "path": "b.zarr", "structure": also, "meta": {"is_axis_index": True}},

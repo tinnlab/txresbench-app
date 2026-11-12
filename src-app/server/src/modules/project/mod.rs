@@ -1,5 +1,5 @@
 //! `project` module — the top-level, owner-scoped grouping above datasets/analyses
-//! (CytoAnalyst's home surface). Owner-scoped CRUD + dataset grouping + a
+//! (TxResBench's home surface). Owner-scoped CRUD + dataset grouping + a
 //! per-project resource ACL (email sharing) + admin-gated ownership transfer, with
 //! realtime sync + notification delivery.
 
@@ -20,8 +20,8 @@ use std::sync::Arc;
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
-use ziee_notification::{NotificationKindDescriptor, NOTIFICATION_KINDS};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_notification::{NotificationKindDescriptor, NOTIFICATION_KINDS};
 
 pub use self::core::extension::{
     ProjectExtension, ProjectExtensionEntry, ProjectExtensionRegistry, ProjectSummaryTag, PROJECT_EXTENSIONS,
@@ -99,7 +99,7 @@ impl AppModule for ProjectModule {
 static PROJECT: ModuleEntry = ModuleEntry {
     name: "project",
     order: 25,
-    description: "Project management (CytoAnalyst).",
+    description: "Project management (TxResBench).",
     constructor: || Box::new(ProjectModule),
 };
 

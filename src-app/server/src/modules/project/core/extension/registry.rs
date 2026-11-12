@@ -2,14 +2,14 @@
 //! sub-modules (samples, upload, clustering, embedding, visualization, …) plug
 //! into a project without the project core importing any of them.
 //!
-//! Mirrors ziee's `project/core/extension/registry.rs` (the Chat-Projects
+//! Mirrors txresbench's `project/core/extension/registry.rs` (the Chat-Projects
 //! extension pattern): a `linkme` distributed slice of registration entries, a
 //! `ProjectExtension` trait whose hooks default to no-ops, a registry that folds
 //! routes + fans lifecycle hooks over one shared transaction, and a process-wide
 //! `OnceCell` singleton.
 //!
-//! **Intentional divergence from ziee (per the feature brief):** we add an
-//! `on_project_deleted` hook. ziee's project pattern is cascade-only (it leans on
+//! **Intentional divergence from txresbench (per the feature brief):** we add an
+//! `on_project_deleted` hook. txresbench's project pattern is cascade-only (it leans on
 //! `ON DELETE CASCADE`); here a project delete must let each module clean up its
 //! project-scoped data AND files/artifacts (not just the DB rows a cascade would
 //! drop), so the delete runs in a transaction that fires this hook first.
@@ -22,7 +22,7 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use crate::modules::project::gc::GcManifest;
 
@@ -40,7 +40,7 @@ pub struct ProjectSummaryTag {
 /// Registration entry collected into the [`PROJECT_EXTENSIONS`] distributed slice.
 /// `Copy` so it can live as a `static`; `factory` is a bare fn pointer building
 /// the trait object from the DB pool (the only dependency the first consumer
-/// needs — kept narrower than ziee's `(SqlitePool, Config)`).
+/// needs — kept narrower than txresbench's `(SqlitePool, Config)`).
 #[derive(Clone, Copy)]
 pub struct ProjectExtensionEntry {
     pub name: &'static str,

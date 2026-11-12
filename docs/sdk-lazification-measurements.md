@@ -21,7 +21,7 @@ global, which is the multi-week Option-B migration (41 store files, 105
 consumers, 411 call sites). The +2 kB is the lazy machinery itself, present and
 inert.
 
-Ziee's measured entry-chunk result (632.6 kB → 16.9 kB gzip) came from Option B,
+TxResBench's measured entry-chunk result (632.6 kB → 16.9 kB gzip) came from Option B,
 **not** from adopting the SDK line. Do not read "adopted the lazy refactor" as a
 delivered perf win.
 
@@ -40,14 +40,14 @@ verified by grepping the built entry for the `Viz` chunk hash (2 references). So
 ~549 kB gzip of visualization code is downloaded on **every** page load,
 including the login screen, on a surface that cannot render a chart.
 
-`@ziee/viz` has **zero dynamic imports** and **10 static VALUE imports** (plus 4
+`@txresbench/viz` has **zero dynamic imports** and **10 static VALUE imports** (plus 4
 type-only, which are erased and free):
 
 | # | site |
 |---|---|
 | 1 | `src/gpu-parity.tsx:11` |
 | 2 | `modules/visualization/adapter/autosave.ts:26` |
-| 3 | `modules/visualization/module.tsx:16` — via `@ziee/viz/core`, a **different** specifier |
+| 3 | `modules/visualization/module.tsx:16` — via `@txresbench/viz/core`, a **different** specifier |
 | 4 | `modules/workbench/gallery.tsx:7` |
 | 5 | `modules/visualization/adapter/VisualizationPage.tsx:29` |
 | 6 | `modules/workbench/core/spec/schema.ts:13` |
@@ -61,14 +61,14 @@ the entry.
 
 > **CORRECTION.** An earlier revision of this document claimed "8 static import
 > sites … three value imports" and named only 6, 7 and 10. That was wrong: the
-> grep behind it matched only single-line `import … from '@ziee/viz'` and missed
-> every MULTI-LINE import ending in `} from '@ziee/viz'`. Deferring only those
+> grep behind it matched only single-line `import … from '@txresbench/viz'` and missed
+> every MULTI-LINE import ending in `} from '@txresbench/viz'`. Deferring only those
 > three would have left **seven** static value imports in place, kept the 549 kB
 > chunk eager, and produced no movement in the re-measure — the exact
 > "defeated by two lines in a barrel" failure this section cites. Caught by a
 > blind audit of this branch.
 
-This is the same shape as ziee's own biggest wins, which were also not stores:
+This is the same shape as txresbench's own biggest wins, which were also not stores:
 deferring Streamdown/shiki/KaTeX bought **−150.5 kB gzip**, and a later round
 found `LazyDatePicker` defeated by *two lines in a barrel*, costing 24.6 kB gzip
 on the preloaded path.
@@ -81,7 +81,7 @@ on the preloaded path.
    in `dist/index.html` as ground truth — not the import count, and not whether a
    chunk merely exists.
 2. **Audit the barrels** — build with `INEFFECTIVE_DYNAMIC_IMPORT` surfaced.
-   Every one of ziee's blockers traced to a barrel re-export, and this app has
+   Every one of txresbench's blockers traced to a barrel re-export, and this app has
    the same ones (`kit/index.ts`, `api-client/index.ts`, `stores/index.ts`).
 3. **Only then Option B**, incrementally — admin stores first, since they are
    read solely on settings pages.
@@ -104,7 +104,7 @@ Not bytes — correctness and transport:
 - the SDK's own `routesSeam` hole closed (nothing in `packages/` called `.set()`
   while two call sites called `.get()`, which throws — an app using the shipped
   router boot-crashed)
-- the kit fixes that `cyto` carried and `chat` lacked (dark-mode-invisible text,
+- the kit fixes that `txr` carried and `chat` lacked (dark-mode-invisible text,
   white borders, tab stacking)
 
 ## E2E: zero regressions, verified two independent ways
@@ -165,7 +165,7 @@ GET /api/processors/packages
 duplicates. It is genuinely wired (unconditional in `callAsync`), it simply has
 no work to do here.
 
-**Boot-chain parallelization is NOT adopted.** Ziee's `/auth/me` 360 ms → 62 ms
+**Boot-chain parallelization is NOT adopted.** TxResBench's `/auth/me` 360 ms → 62 ms
 came from an app-side change (`bootSessionVerify` called from the auth module's
 `initialize()`); this app has no such file and still issues `/auth/me` from
 `AuthGuard`'s mount effect (`AuthGuard.tsx:24`). That win is unclaimed.

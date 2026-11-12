@@ -1,5 +1,5 @@
 // `installWidgets()` (PLAN.md ITEM-7/ITEM-8) — the FORM-CONTROL widget bootstrap of the
-// builtin `widgets` extension, mirroring `@ziee/viz`'s `installBuiltins()`. Registers a
+// builtin `widgets` extension, mirroring `@txresbench/viz`'s `installBuiltins()`. Registers a
 // renderer for every core `WIDGET_KIND`. Idempotent: safe to call from any mount path.
 //
 // ITEM-36 / DEC-A: the five PLOT kinds (scatter/violin/bar/histogram/image) are no longer

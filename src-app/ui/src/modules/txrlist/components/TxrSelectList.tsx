@@ -62,7 +62,7 @@
  */
 import { useCallback, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { observeElementOffset, useVirtualizer } from '@tanstack/react-virtual'
-import { Button, ScrollArea, Skeleton } from '@ziee/kit'
+import { Button, ScrollArea, Skeleton } from '@txresbench/kit'
 import { useScrollRegionElement } from '@/modules/txrshell/components/ScrollRegionContext'
 import type {
   TxrFilterChip,

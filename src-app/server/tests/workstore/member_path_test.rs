@@ -41,10 +41,10 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::Artifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
-use cytoanalyst::modules::workstore::object_store::LocalFsStore;
+use txresbench::modules::workstore::catalog::models::Artifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::workstore::object_store::LocalFsStore;
 
 use super::{create_project, pool_for, server_store, setup_admin, write_manifest};
 use crate::common::TestServer;
@@ -87,9 +87,9 @@ fn composite_members() -> Vec<(String, Vec<u8>)> {
 /// `table` | `sparse_csc`, and an unrecognised kind throws rather than being guessed at).
 /// A fixture speaking a vocabulary nothing in the system speaks is how a test stops being
 /// evidence about the system: it can keep passing while the shape it asserts on has
-/// become unreadable everywhere else. The kind, the `columns`/`arrays` split (`cyto_zarr`
+/// become unreadable everywhere else. The kind, the `columns`/`arrays` split (`txr_zarr`
 /// `Table._record` files a 1-D member under `columns` and a ≥2-D one under `arrays`) and
-/// the per-member `path`/`shape` keys below are all the shapes `cyto_zarr.Table.close()`
+/// the per-member `path`/`shape` keys below are all the shapes `txr_zarr.Table.close()`
 /// actually writes.
 fn composite_structure() -> Value {
     json!({

@@ -21,9 +21,9 @@
 //! can actually import — which is the only formulation that fails on that route.
 
 use super::{processors_root, run_staged, stage_code_dir, tmp_dir};
-use cytoanalyst::modules::extensions::ExtensionRegistry;
-use cytoanalyst::modules::sandbox::processors::{PY_HELPER_FILES, VERIFY_CONFORMANCE_CODE_REF};
-use cytoanalyst::modules::sandbox::spec::Language;
+use txresbench::modules::extensions::ExtensionRegistry;
+use txresbench::modules::sandbox::processors::{PY_HELPER_FILES, VERIFY_CONFORMANCE_CODE_REF};
+use txresbench::modules::sandbox::spec::Language;
 
 /// Every shipped Python ENTRY as `(owning package, code_ref, declared siblings)`, with the
 /// sibling helpers its own manifest
@@ -112,7 +112,7 @@ fn probe_staged(package: Option<&str>, code_ref: &str, modules: &[&str]) -> serd
     let (code, _entry) = stage_code_dir(code_ref, package);
     std::fs::write(code.join("probe.py"), probe_source(&processors_root()))
         .expect("write the import probe beside the staged entry");
-    let io = tmp_dir("cyto-probe-io");
+    let io = tmp_dir("txr-probe-io");
     let out = run_staged(&code, "probe.py", modules, &io, &io);
     assert!(
         out.status.success(),
@@ -189,10 +189,10 @@ fn a_processor_cannot_import_the_gate_from_where_its_entry_runs() {
         let report = probe_staged(
             Some(&package),
             &code_ref,
-            &["cyto_columns", "cyto_zarr", "align", "conformance"],
+            &["txr_columns", "txr_zarr", "align", "conformance"],
         );
         let modules = &report["modules"];
-        for reachable in ["cyto_columns", "cyto_zarr", "align"] {
+        for reachable in ["txr_columns", "txr_zarr", "align"] {
             assert_eq!(
                 modules[reachable], "importable",
                 "{code_ref}: production stages `{reachable}` for every python entry, so the \

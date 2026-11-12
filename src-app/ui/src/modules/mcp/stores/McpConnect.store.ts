@@ -2,13 +2,13 @@ import { ApiClient } from '@/api-client'
 import { Permissions } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
 import { useSessionStore } from '@/modules/session/Session.store'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /**
  * Pairing state for the "AI Assistant Access" settings page
  * (PLAN.md ITEM-17/18). `startPairing` mints a one-time code + the MCP
  * server URL (`POST /api/mcp/pair/start` — CONTRACT.md) that the user
- * copies (or deep-links) into ziee; `pair/exchange` is called by ziee
+ * copies (or deep-links) into txresbench; `pair/exchange` is called by txresbench
  * itself, never the FE (CONTRACT.md), so this store only tracks the
  * mint side. No auto-load on init — pairing is user-initiated.
  */

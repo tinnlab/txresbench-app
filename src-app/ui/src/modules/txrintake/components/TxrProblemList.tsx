@@ -41,7 +41,7 @@
  * specs keep an unambiguous hook when a card shows both groups.
  */
 import { useState, type CSSProperties } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import { Link } from 'react-router-dom'
 import type { FileProblem, FileTableKind } from '@/api-client/types'
 import { helpPath, problemAnchorOf } from '@/modules/txrhelp'

@@ -7,7 +7,7 @@
 // `useCoordinationStore` / `useGridWorkspaceStore` bound zustand hooks (selector reads,
 // `.getState()`, `.subscribe(...)`, actions), never through the `Stores.X` proxy — so
 // no `RegisteredStores` augmentation is needed.
-import type { useCoordinationStore, useGridWorkspaceStore } from '@ziee/viz'
+import type { useCoordinationStore, useGridWorkspaceStore } from '@txresbench/viz'
 
 /** The bound zustand store hook types (state + actions). */
 export type CoordinationStore = typeof useCoordinationStore

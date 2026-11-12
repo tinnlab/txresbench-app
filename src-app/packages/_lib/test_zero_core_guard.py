@@ -473,7 +473,7 @@ def test_the_guard_module_is_not_staged_into_any_sandbox():
     # file that would contain the thing. If the staging tables move to another module, or
     # are built from a glob, the assertion below would stay green while this module could
     # in fact be staged. These two names are what make "not present" mean "not staged".
-    for expected in ("PY_HELPER_FILES", "cyto_zarr"):
+    for expected in ("PY_HELPER_FILES", "txr_zarr"):
         assert expected in staging, (
             f"`{expected}` is not in sandbox/processors/mod.rs — the staging tables have "
             f"moved, so the absence assertion below is being made against the wrong file"

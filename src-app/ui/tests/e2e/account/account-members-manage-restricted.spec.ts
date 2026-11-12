@@ -70,7 +70,7 @@ async function createUser(
 ): Promise<string> {
   const r = await request.post(`${BACKEND}/api/users`, {
     headers: { authorization: `Bearer ${admin}` },
-    data: { username, email: `${username}@cyto.test`, password: MEMBER_PASSWORD },
+    data: { username, email: `${username}@txresbench.test`, password: MEMBER_PASSWORD },
   })
   expect(r.ok(), `create user ${username}`).toBeTruthy()
   return (await r.json()).id

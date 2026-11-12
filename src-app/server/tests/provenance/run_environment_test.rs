@@ -23,13 +23,13 @@
 
 use super::*;
 
-use cytoanalyst::modules::jobs::models::Job;
-use cytoanalyst::modules::jobs::seams::{PeakMetrics, RunRecorder};
-use cytoanalyst::modules::provenance::recorder::{
+use txresbench::modules::jobs::models::Job;
+use txresbench::modules::jobs::seams::{PeakMetrics, RunRecorder};
+use txresbench::modules::provenance::recorder::{
     ProvenanceRunRecorder, RUN_ENVIRONMENT_OUTPUT_ID,
 };
-use cytoanalyst::modules::provenance::repository::ProvenanceRepository;
-use cytoanalyst::modules::sandbox::outputs::ProducedOutput;
+use txresbench::modules::provenance::repository::ProvenanceRepository;
+use txresbench::modules::sandbox::outputs::ProducedOutput;
 
 /// A synthetic completed analysis job (the shape `recorder_test` uses, minus the inputs
 /// this test does not need — the seam under test is outputs → column).
@@ -112,7 +112,7 @@ fn produced(id: &str, host_path: std::path::PathBuf) -> ProducedOutput {
 
 /// A workspace dir with the staged entry the recorder hashes.
 fn workspace(tag: &str) -> std::path::PathBuf {
-    let ws = std::env::temp_dir().join(format!("cyto-runenv-{tag}-{}", Uuid::new_v4()));
+    let ws = std::env::temp_dir().join(format!("txr-runenv-{tag}-{}", Uuid::new_v4()));
     std::fs::create_dir_all(ws.join("code")).unwrap();
     std::fs::write(ws.join("code").join("entry.py"), "print('ok')\n").unwrap();
     ws

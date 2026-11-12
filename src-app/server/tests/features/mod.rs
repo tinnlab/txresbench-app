@@ -66,7 +66,7 @@ pub async fn features_put(
 /// group, which does NOT hold `features::manage`, so they are the "lacks the perm"
 /// subject for the deny-path tests.
 pub async fn create_plain_user(server: &TestServer, admin: &str, username: &str) -> String {
-    let email = format!("{username}@cyto.test");
+    let email = format!("{username}@txresbench.test");
     let _id = create_user(server, admin, username, &email).await;
     login(server, username).await
 }

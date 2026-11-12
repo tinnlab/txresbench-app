@@ -9,11 +9,11 @@
 // `progressive-render.spec.ts` writes down at length. So each spec below asserts the app's own
 // state at the seam the behaviour actually passes through:
 //
-//   · TEST-8   — `window.__canvasPanes()` (the pane identity fold) + `window.__cyto_read.decodes`
+//   · TEST-8   — `window.__canvasPanes()` (the pane identity fold) + `window.__txr_read.decodes`
 //                (DECODES, not requests: artifact bytes are served `immutable`, so a repeated read
 //                usually issues no second request while still paying a full decode — a
 //                request-counting assertion reads 1 for both the shared case and the repeated one).
-//   · TEST-13  — `window.__cyto_stream.progress()`, the app's per-chunk arrival channel
+//   · TEST-13  — `window.__txr_stream.progress()`, the app's per-chunk arrival channel
 //                (`WorkbenchStreamingSource.onProgress`, ITEM-19) — the producer `CanvasCoverage`
 //                renders.
 //   · TEST-14  — the same channel, on a SINGLE-chunk artifact.
@@ -94,7 +94,7 @@ interface Progress {
 /** Every stream-progress event this page has observed, oldest first. */
 async function progressLog(page: Page): Promise<Progress[]> {
   return page.evaluate(() => {
-    const s = (window as unknown as { __cyto_stream?: { progress: () => Progress[] } }).__cyto_stream
+    const s = (window as unknown as { __txr_stream?: { progress: () => Progress[] } }).__txr_stream
     return s ? s.progress() : []
   })
 }
@@ -121,21 +121,21 @@ async function paneIdentities(
 
 /** Arm the DECODE counter BEFORE any app script runs.
  *
- *  Not `__cyto_read.decodes.enable()`: by the time a spec holds a page, the coordinate section has
+ *  Not `__txr_read.decodes.enable()`: by the time a spec holds a page, the coordinate section has
  *  already resolved and `zarrReader` caches decoded chunks, so every later read is served from that
  *  cache and records ZERO decodes. TEST-8's first run measured exactly that — `{"|values/values":
  *  2}`, with no positions decode at all — and an assertion written against it would have been
  *  satisfied by a correct implementation and by one with the multicast removed alike. */
 async function armDecodesFromLoad(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    ;(window as unknown as { __cyto_count_decodes: boolean }).__cyto_count_decodes = true
+    ;(window as unknown as { __txr_count_decodes: boolean }).__txr_count_decodes = true
   })
 }
 
 async function decodeCounts(page: Page): Promise<Record<string, number>> {
   return page.evaluate(() => {
-    const r = (window as unknown as { __cyto_read?: { decodes: { counts: () => Record<string, number> } } })
-      .__cyto_read
+    const r = (window as unknown as { __txr_read?: { decodes: { counts: () => Record<string, number> } } })
+      .__txr_read
     return r ? r.decodes.counts() : {}
   })
 }
@@ -195,10 +195,10 @@ async function coverageSeen(page: Page): Promise<Array<{ pct: number; text: stri
  *  A longer timeout cannot fix either: the timeout was already 60s and the read finishes in well
  *  under a second. What was missing was a commit, so the seam creates one — it does not wait
  *  longer, and it does not weaken an assertion. Set in `addInitScript` (like
- *  `__cyto_count_decodes`) so arming cannot race the first read. */
+ *  `__txr_count_decodes`) so arming cannot race the first read. */
 async function armChunkDelay(page: Page, ms: number): Promise<void> {
   await page.addInitScript(delay => {
-    ;(window as unknown as { __cyto_stream_chunk_delay_ms: number }).__cyto_stream_chunk_delay_ms = delay
+    ;(window as unknown as { __txr_stream_chunk_delay_ms: number }).__txr_stream_chunk_delay_ms = delay
   }, ms)
 }
 

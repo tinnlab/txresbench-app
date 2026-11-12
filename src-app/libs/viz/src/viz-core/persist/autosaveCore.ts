@@ -7,7 +7,7 @@
 // recovered, WITHOUT fighting the per-tab sessionStorage isolation (different storage,
 // different key namespace).
 //
-// viz-core rule (ITEM-65 / DEC-28): no `@ziee/*`, no React, no deck.gl — plain data +
+// viz-core rule (ITEM-65 / DEC-28): no `@txresbench/*`, no React, no deck.gl — plain data +
 // a minimal Storage seam, so it is node-unit-testable with a fake storage object.
 
 /** The minimal Web Storage surface this module needs (localStorage / sessionStorage,

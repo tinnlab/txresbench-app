@@ -1,12 +1,12 @@
 /*
- * @ziee/kit — design tokens (shadcn CSS variable layer).
+ * @txresbench/kit — design tokens (shadcn CSS variable layer).
  *
  * The self-contained token contract the kit's components render against
  * (bg-primary / text-muted-foreground / rounded-md / …). Extracted VERBATIM
- * from ziee's `src-app/ui/src/index.css` (lines 47–205), which remains the
+ * from txresbench's `src-app/ui/src/index.css` (lines 47–205), which remains the
  * application's single source of truth + the input to `npm run gen:design-spec`.
  * A consuming app either imports this file or supplies its own equivalent layer;
- * ziee keeps importing its own index.css, so this copy changes nothing for ziee.
+ * txresbench keeps importing its own index.css, so this copy changes nothing for txresbench.
  */
 
 @theme inline {

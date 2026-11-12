@@ -35,7 +35,7 @@
 //   run, no params   the run itself recorded none. A fact about the run.
 //   run with params  the rows.
 
-import { Alert, Descriptions, Empty, ErrorState, Spinner, type DescriptionsItem } from '@ziee/kit'
+import { Alert, Descriptions, Empty, ErrorState, Spinner, type DescriptionsItem } from '@txresbench/kit'
 import type { RunNodeDto } from '@/api-client/types'
 import { useRunNode } from '@/core/provenance'
 import { useArtifact } from '../../core/render/useArtifact'

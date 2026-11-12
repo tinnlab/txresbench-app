@@ -1078,7 +1078,7 @@ def _reconcile_scale(placement, arr, image_microns_per_pixel):
     # AND THE RESULT IS COMPARED BACK, WHICH IS THE HALF THAT WAS MISSING. `_extent` NORMALISES
     # — it is `int(_number(...))`, so it TRUNCATES — and merely rebinding its return let a
     # `{"width": 44.9}` block pass leg 2 on the truncated 44 and then ship `44.9` into the
-    # artifact's own `cyto` payload, where the inline rule had refused it. Measured end to end.
+    # artifact's own `txr` payload, where the inline rule had refused it. Measured end to end.
     # `display_derivative_provenance` STORES what `_extent` returns, so a constructor-built
     # block is unchanged by this comparison and only a hand-built one can trip it — which is
     # the caller this function exists for.
@@ -1157,8 +1157,8 @@ def _reconcile_scale(placement, arr, image_microns_per_pixel):
                 "record the resolution the emitted pixels actually have."
             )
     # LEG 4 — the OME header agrees. `PhysicalSizeX/Y` is what a generic OME reader — one
-    # that knows nothing about the `cyto` payload — measures with, so a pre-downsample value
-    # here misscales every non-CytoAnalyst tool by exactly the factor.
+    # that knows nothing about the `txr` payload — measures with, so a pre-downsample value
+    # here misscales every non-TxResBench tool by exactly the factor.
     if image_microns_per_pixel is None:
         raise SD.SpatialDeclarationError(
             "this image carries display-derivative provenance but is being written with no "
@@ -1422,7 +1422,7 @@ def write_ome_tiff(dest, arr, *, placement, codec=CODEC,
 
     `image_microns_per_pixel` is the physical size of a pixel IN THIS IMAGE, and it is what
     goes into OME `PhysicalSizeX/Y` — those are OME's own semantics and a generic OME
-    reader is entitled to them. The `cyto` payload's `microns_per_pixel` is a different
+    reader is entitled to them. The `txr` payload's `microns_per_pixel` is a different
     quantity: the scale of the COORDINATE SPACE, which is the same for every artifact
     placed in it. On a Visium hires image the two differ by 5x and on the lowres image by
     16.7x.
@@ -1612,7 +1612,7 @@ def write_ome_tiff(dest, arr, *, placement, codec=CODEC,
     # THE ONE PLACE BOTH FACTS ARE IN SCOPE, so the one place they can be reconciled.
     #
     # This function writes the pixels (from which tifffile derives OME `SizeX`/`SizeY`) AND
-    # the `cyto` payload (from `placement`), and nothing else ever sees both. `image_meta`'s
+    # the `txr` payload (from `placement`), and nothing else ever sees both. `image_meta`'s
     # re-validation structurally CANNOT catch a transposed extent — it re-runs
     # `coordinate_space`, which checks the extent's SHAPE and has no pixels to compare it
     # against. Without this assert a file can carry two contradictory extents and hand a

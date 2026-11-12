@@ -27,7 +27,7 @@
  * Surface id = path from src/ without extension (matches coverage.ts ids), e.g.
  *   modules/skill/components/SkillConversationDrawer
  *
- * Config-driven (`@ziee/gallery`): src root (`srcDir`), walked roots
+ * Config-driven (`@txresbench/gallery`): src root (`srcDir`), walked roots
  * (`surfaceRoots`), gallery dir (`galleryDir`), and the overlay-primitive import
  * specifiers (`overlayKitImports`) come from the app's `gallery.config.json`.
  *

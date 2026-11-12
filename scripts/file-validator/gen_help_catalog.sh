@@ -27,5 +27,5 @@ set -euo pipefail
 
 export TXRESBENCH_CATALOG_REGEN=1
 export CAP_CPUS="${CAP_CPUS:-2}"
-exec /data/share/pbya/sigtrans/ops/cap.sh cargo test -p cytoanalyst --lib \
+exec /data/share/pbya/sigtrans/ops/cap.sh cargo test -p txresbench --lib \
   -- file_validator::catalog::tests::catalog_roundtrip_and_committed_copy

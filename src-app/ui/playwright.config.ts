@@ -10,17 +10,17 @@ import { narrowedOut, narrowingBanner } from './scripts/tag-narrowing.mjs'
 // TxResBench E2E (Layer-B). The web model is TWO servers: the backend — on this
 // node the SQLite store, ONE local file per run, no server process and no cluster
 // to provision — + `vite preview` proxying `/api` → the backend. Neither
-// @ziee/test-e2e preset fits that exactly (the full-stack preset assumes a
+// @txresbench/test-e2e preset fits that exactly (the full-stack preset assumes a
 // per-run Postgres DOCKER container; the desktop preset assumes a SINGLE
 // webServer), so this is a native Playwright config that still reuses the
-// package's i18n-safe selectors + testid attribute. Logged as an @ziee/test-e2e
+// package's i18n-safe selectors + testid attribute. Logged as an @txresbench/test-e2e
 // dogfooding gap in SDK_GAPS (an "embedded-two-server web" preset would remove
 // this bespoke config).
 //
 // ── TEST ROUTING — four configs, four DISJOINT testDirs ──────────────────────────
 //
 //   playwright.config.ts          tests/e2e          backend + preview (ports DERIVED)
-//   playwright.viz.config.ts      tests/viz-e2e      @ziee/viz showcase (derived)
+//   playwright.viz.config.ts      tests/viz-e2e      @txresbench/viz showcase (derived)
 //   playwright.gallery.config.ts  tests/gallery-e2e  gallery (derived)
 //   playwright.visual.config.ts   tests/visual       gallery (derived, `npm run gate:ui`)
 //
@@ -83,7 +83,7 @@ import { narrowedOut, narrowingBanner } from './scripts/tag-narrowing.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const serverDir = resolve(here, '../server')
-const bin = resolve(here, '../../target/debug/cytoanalyst')
+const bin = resolve(here, '../../target/debug/txresbench')
 const RESOLVER = fileURLToPath(new URL('./scripts/resolve-harness-port.mjs', import.meta.url))
 
 type Verdict = { port: number; reused: boolean; pinned: boolean }
@@ -114,21 +114,21 @@ const APP_URL = `http://localhost:${APP_PORT}`
 // whole lesson of the incident this mechanism came from.
 const RUN_TAG = `${BACKEND_PORT}`
 /** Overridable, but DERIVED by default — the SQLite store: one file per run, deleted
- *  before boot (fresh DB → repeatable first-run setup; the real `cytoanalyst_e2e_*`
+ *  before boot (fresh DB → repeatable first-run setup; the real `txresbench_e2e_*`
  *  files the PG era shared across worktrees are gone with the cluster). */
-const E2E_DB_FILE = process.env.E2E_DB_FILE ?? `${tmpdir()}/cyto-e2e-${RUN_TAG}.sqlite`
+const E2E_DB_FILE = process.env.E2E_DB_FILE ?? `${tmpdir()}/txr-e2e-${RUN_TAG}.sqlite`
 /** The BASE config the per-run file is derived FROM (not the file the backend boots). */
 const E2E_BASE_CONFIG = process.env.E2E_CONFIG_FILE ?? 'config/e2e.yaml'
 /** The e2e backend's app-data dir — ISOLATED from the developer's. See the note on `command`
  *  below: sharing it let the workstore GC delete real user data. */
-const E2E_DATA_DIR = process.env.CYTO_APP_DATA_DIR ?? `${tmpdir()}/cyto-e2e-data-${RUN_TAG}`
+const E2E_DATA_DIR = process.env.TXR_APP_DATA_DIR ?? `${tmpdir()}/txr-e2e-data-${RUN_TAG}`
 // …and the TEST process must see the same value the server is given. It is passed to the
 // backend inline on `command` below, which puts it in that child's environment and nowhere
-// else — so a spec reading `process.env.CYTO_APP_DATA_DIR` saw nothing, and
+// else — so a spec reading `process.env.TXR_APP_DATA_DIR` saw nothing, and
 // `manifest-ui-separation.spec.ts` (which DROPS a fixture processor into the server's folder,
 // so it genuinely needs the path) skipped its three tests silently. A skip reads as a pass in
 // every summary, which is how three real tests sat un-run.
-process.env.CYTO_APP_DATA_DIR = E2E_DATA_DIR
+process.env.TXR_APP_DATA_DIR = E2E_DATA_DIR
 
 // `E2E_BACKEND` is what the spec helpers (`tests/e2e/_owner.ts`) hit directly. It is
 // DERIVED here rather than cross-checked, so a run can no longer seed one server while
@@ -168,7 +168,7 @@ process.env.E2E_APP_PORT = APP_PORT
 // replaced the four-source cross-check.
 const DERIVED_CONFIG = writeDerivedConfig({
   basePath: resolve(serverDir, E2E_BASE_CONFIG),
-  outPath: `${tmpdir()}/cyto-e2e-${RUN_TAG}.yaml`,
+  outPath: `${tmpdir()}/txr-e2e-${RUN_TAG}.yaml`,
   port: BACKEND_PORT,
   dbPath: E2E_DB_FILE,
 })
@@ -191,7 +191,7 @@ process.env.HARNESS_ORIGINS = JSON.stringify([
 // Tests that commit a GENUINE `cell.filter` sandbox run need a sandbox-executable host
 // (bwrap + a staged analysis rootfs). They carry `@acceptance` in their title, are
 // excluded from a DEFAULT run by the `grepInvert` below, and are positively selected by
-// `just verify-acceptance` (`CYTO_E2E_REAL_COMPUTE=1` + `--grep @acceptance`).
+// `just verify-acceptance` (`TXR_E2E_REAL_COMPUTE=1` + `--grep @acceptance`).
 //
 // ── R3-114: two earlier levers, and why each was wrong ────────────────────────────
 //
@@ -202,7 +202,7 @@ process.env.HARNESS_ORIGINS = JSON.stringify([
 //    never counted as passed. `testIgnore` is the one that hides: it removes the spec
 //    from COLLECTION, so its absence is invisible in the output. Worker E measured the
 //    consequence — **224 tests collected by default vs 241 with
-//    `CYTO_E2E_REAL_COMPUTE=1`** — and nothing in the repo set the flag, so
+//    `TXR_E2E_REAL_COMPUTE=1`** — and nothing in the repo set the flag, so
 //    `filter-save-records-recipe.spec.ts` (TEST-26, the plan's own `[acceptance][INV-8]`
 //    spec and the ONLY test exercising the frontend save path) had never run in any gate
 //    while 224 green looked exactly like 241 green.
@@ -216,7 +216,7 @@ process.env.HARNESS_ORIGINS = JSON.stringify([
 // and "selected nothing" cannot read as green either, because `just verify-acceptance`
 // parses its JUnit report FAIL-CLOSED and hard-fails on `tests == 0`. That coupling is
 // what makes a tag safe here where a bare grep filter would not be.
-const REAL_COMPUTE = !!process.env.CYTO_E2E_REAL_COMPUTE
+const REAL_COMPUTE = !!process.env.TXR_E2E_REAL_COMPUTE
 // WHAT THIS RUN LEFT OUT — derived, never remembered. This block used to carry
 // `REAL_COMPUTE_SPECS`, a hand-written array naming ONE spec file; by the time anyone
 // re-read it, FIVE spec files carried `@acceptance`, so the banner disclosed a fifth of
@@ -242,7 +242,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   // The HOST-CAPABILITY EXCLUSION itself (see the block above). Must be dropped under
-  // CYTO_E2E_REAL_COMPUTE rather than left on: a config-level `grepInvert` is ANDed with a
+  // TXR_E2E_REAL_COMPUTE rather than left on: a config-level `grepInvert` is ANDed with a
   // CLI `--grep` (runner applies the project filter independently of the CLI one), so
   // leaving it in place would make `verify-acceptance`'s `--grep @acceptance` select ZERO
   // tests — which that recipe's fail-closed JUnit parser now treats as a hard FAIL.
@@ -273,7 +273,7 @@ export default defineConfig({
       // first-run setup; the backend migrates it on boot), then boot the backend
       // on the RESOLVED port with the DERIVED config — which carries this run's
       // `database.path`. One local file, no server process, no cluster to
-      // provision. `CYTO_APP_DATA_DIR` is LOAD-BEARING, and its absence
+      // provision. `TXR_APP_DATA_DIR` is LOAD-BEARING, and its absence
       // destroyed real data.
       //
       // The e2e backend gets its own DATABASE (dropped + recreated above) but used to inherit
@@ -290,7 +290,7 @@ export default defineConfig({
       //
       // Per RUN, not a fixed path — and now genuinely per-run, because the name is keyed on
       // the RESOLVED port rather than on a literal every worktree shared.
-      command: `bash -c 'cargo build --bin cytoanalyst && rm -f "${E2E_DB_FILE}" "${E2E_DB_FILE}-wal" "${E2E_DB_FILE}-shm" && CYTO_APP_DATA_DIR="${E2E_DATA_DIR}" CONFIG_FILE="${DERIVED_CONFIG}" "${bin}"'`,
+      command: `bash -c 'cargo build --bin txresbench && rm -f "${E2E_DB_FILE}" "${E2E_DB_FILE}-wal" "${E2E_DB_FILE}-shm" && TXR_APP_DATA_DIR="${E2E_DATA_DIR}" CONFIG_FILE="${DERIVED_CONFIG}" "${bin}"'`,
       cwd: serverDir,
       // The worktree sentinel (`harness_sentinel.rs`, debug builds) — the same
       // identity proof the resolver's adoption check uses; the removed
@@ -317,7 +317,7 @@ export default defineConfig({
       timeout: 180_000,
       reuseExistingServer: PORTS.appE2ePreview.reused,
       // VITE_ENABLE_TEST_SEAMS: expose the read-only workstore data-plane test seams
-      // (`window.__cyto_read`/`__cyto_ds`) in THIS preview build so the e2e can drive the
+      // (`window.__txr_read`/`__txr_ds`) in THIS preview build so the e2e can drive the
       // real catalog→select flow; a real release build never sets it (→ seam absent).
       env: { VITE_API_PROXY_TARGET: BACKEND_URL, VITE_ENABLE_TEST_SEAMS: '1' },
     },

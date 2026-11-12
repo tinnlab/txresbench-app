@@ -63,7 +63,7 @@
     }
   ],
   "attributes": {
-    "cyto": {
+    "txr": {
       "kind": "numeric",
       "name": "levels__group__1"
     }

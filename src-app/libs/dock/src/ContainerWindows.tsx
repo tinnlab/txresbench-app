@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { PortalContainerProvider } from '@ziee/kit'
+import { PortalContainerProvider } from '@txresbench/kit'
 import type { ContainerId } from './containers'
 import { getPopupWindow, closePopupWindow, unregisterPopupWindow } from './popupWindowRegistry'
 
@@ -187,7 +187,7 @@ function PopupContainer({ containerId, render, onWindowClosed, title }: PopupCon
   // kit overlay inside it (tooltip / select / menu / popover / dialog / …) portal into THAT
   // document instead of the opener's — Base UI's portal otherwise defaults to the ambient
   // `document.body`, which is the opener's. Installed HERE, at the boundary, so no pane and no
-  // overlay call site has to know a second window exists. See `@ziee/kit`'s kit/portal-container.
+  // overlay call site has to know a second window exists. See `@txresbench/kit`'s kit/portal-container.
   return createPortal(
     <PortalContainerProvider container={mount}>{render(containerId)}</PortalContainerProvider>,
     mount,

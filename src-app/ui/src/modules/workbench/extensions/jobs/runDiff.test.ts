@@ -12,7 +12,7 @@ import type { Artifact } from '@/api-client/types'
 import { artifactDims, buildRunDiff, runObservables } from './runDiff'
 
 /** A `zarr_v3` table over `n` entries of one axis, with TWO members — no single member
- *  shape describes it, so its extent is the shared axis (`cyto_zarr.Table.close()`). */
+ *  shape describes it, so its extent is the shared axis (`txr_zarr.Table.close()`). */
 function table(n: number): unknown {
   return {
     encoding: 'zarr_v3',
@@ -27,7 +27,7 @@ function table(n: number): unknown {
 }
 
 /** A single-member table holding one `(n × dims)` array — the form a 2-D layout takes
- *  (`cyto_zarr.Table` with one N-D member). */
+ *  (`txr_zarr.Table` with one N-D member). */
 function layout(n: number, dims: number): unknown {
   return {
     encoding: 'zarr_v3',
@@ -38,7 +38,7 @@ function layout(n: number, dims: number): unknown {
   }
 }
 
-/** A `zarr_v3` CSC matrix declaring its logical extent (`cyto_csc.write_csc_zarr`). */
+/** A `zarr_v3` CSC matrix declaring its logical extent (`txr_csc.write_csc_zarr`). */
 function csc(shape: number[]): unknown {
   return {
     encoding: 'zarr_v3',

@@ -5,7 +5,7 @@ re-anchored by ITEM-27).
 These tests are the scientific-accuracy gate for the anndata-import extension.
 They enforce the § Output-specification invariants (INV-1..9) from
 ``.lifecycle/anndata-h5ad/PLAN.md`` by RUNNING the real converter off-sandbox
-(via its ``CYTO_INPUTS_DIR`` / ``CYTO_OUTPUTS_DIR`` seam) and reading its outputs
+(via its ``TXR_INPUTS_DIR`` / ``TXR_OUTPUTS_DIR`` seam) and reading its outputs
 back.
 
 **What ITEM-27 changed here, precisely.** The read-back used to go through
@@ -58,7 +58,7 @@ _HERE = Path(__file__).resolve().parent
 # stages it alongside the entry script; off-sandbox the harness must put it on the
 # subprocess PYTHONPATH (the entry script self-inserts only its OWN co-located dir).
 _SCRIPTS_DIR = _HERE.parents[1] / "_helpers"
-# The shared OUTPUT-FORMAT library (`_lib`: `cyto_zarr` / `cyto_columns`, DEC-7). The
+# The shared OUTPUT-FORMAT library (`_lib`: `txr_zarr` / `txr_columns`, DEC-7). The
 # sandbox runner stages it into `/code` next to the `_helpers` modules, so the
 # subprocess needs it on PYTHONPATH or the converter dies at import.
 _LIB_DIR = _HERE.parents[1] / "_lib"
@@ -73,9 +73,9 @@ SCRIPT = next((p for p in _SCRIPT_CANDIDATES if p.exists()), _SCRIPT_CANDIDATES[
 EXPRESSION_REL = "expression"   # the converter's CSC Zarr matrix output path
 
 sys.path.insert(0, str(_LIB_DIR))
-import cyto_csc            # noqa: E402  — the `_lib` CSC reader (producer-side only)
-import cyto_zarr           # noqa: E402  — the writer, for the misalignment fixture below
-import cyto_zarr_read      # noqa: E402
+import txr_csc            # noqa: E402  — the `_lib` CSC reader (producer-side only)
+import txr_zarr           # noqa: E402  — the writer, for the misalignment fixture below
+import txr_zarr_read      # noqa: E402
 
 
 # ─────────────────────────────── run harness ─────────────────────────────────
@@ -85,8 +85,8 @@ def run_converter(tmp_path):
     """Return a callable ``run(adata) -> (manifest, outputs_dir)`` that drives the
     REAL converter script off-sandbox.
 
-    It writes ``adata`` to ``inputs/data.h5ad``, points ``CYTO_INPUTS_DIR`` /
-    ``CYTO_OUTPUTS_DIR`` at temp dirs (the ONLY seam that runs the real script
+    It writes ``adata`` to ``inputs/data.h5ad``, points ``TXR_INPUTS_DIR`` /
+    ``TXR_OUTPUTS_DIR`` at temp dirs (the ONLY seam that runs the real script
     outside bwrap), runs ``python h5ad_import.py`` as a subprocess, asserts a
     clean exit 0, and returns the parsed ``outputs/manifest.json`` plus the
     outputs directory Path.
@@ -107,9 +107,9 @@ def run_converter(tmp_path):
         env["PYTHONPATH"] = os.pathsep.join(
             [str(_SCRIPTS_DIR), str(_LIB_DIR), *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])]
         )
-        env["CYTO_INPUTS_DIR"] = str(inputs_dir)
-        env["CYTO_OUTPUTS_DIR"] = str(outputs_dir)
-        env.pop("CYTO_PROGRESS_FIFO", None)  # no FIFO reader off-sandbox
+        env["TXR_INPUTS_DIR"] = str(inputs_dir)
+        env["TXR_OUTPUTS_DIR"] = str(outputs_dir)
+        env.pop("TXR_PROGRESS_FIFO", None)  # no FIFO reader off-sandbox
 
         proc = subprocess.run(
             [sys.executable, str(SCRIPT)],
@@ -137,8 +137,8 @@ def read_expression_csc(outputs_dir: Path, rel: str = EXPRESSION_REL):
     assert not stray, f"a SOMA store survives in the outputs: {stray}"
     base = outputs_dir / rel
     assert (base / "zarr.json").exists(), f"no CSC Zarr store at {base}"
-    indptr, indices, data = cyto_csc.read_csc(base)
-    structure = json.loads((base / "zarr.json").read_text())["attributes"]["cyto"]
+    indptr, indices, data = txr_csc.read_csc(base)
+    structure = json.loads((base / "zarr.json").read_text())["attributes"]["txr"]
     return sp.csc_matrix(
         (data, indices.astype(np.int64), indptr),
         shape=(int(structure["shape"][0]), len(indptr) - 1),
@@ -150,7 +150,7 @@ def read_column_artifact(outputs_dir: Path, rel: str):
     the numeric array otherwise)."""
     path = outputs_dir / rel
     assert path.exists(), f"no metadata-column artifact at {path}"
-    return list(cyto_zarr_read.read_column(path))
+    return list(txr_zarr_read.read_column(path))
 
 
 def read_labels(outputs_dir: Path, axis: str):
@@ -520,7 +520,7 @@ def test_the_alignment_check_runs_across_a_real_run_and_bites(run_converter):
     victim = next(e for e in pair if e["id"] != "cells_index")
     keys = read_labels(outputs_dir, "cells")
     scrambled = outputs_dir / "scrambled.zarr"
-    with cyto_zarr.Table(scrambled, axis="cells", n=len(keys), key="values") as t:
+    with txr_zarr.Table(scrambled, axis="cells", n=len(keys), key="values") as t:
         t.string("values", keys[::-1])
         t.close()
     target = outputs_dir / victim["path"] / victim["structure"]["key"]

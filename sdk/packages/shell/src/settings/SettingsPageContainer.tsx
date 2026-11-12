@@ -1,4 +1,4 @@
-import { Text, Title } from '@ziee/kit'
+import { Text, Title } from '@txresbench/kit'
 import { ReactNode, useId } from 'react'
 import { DivScrollY } from '../components/DivScrollY'
 import { appLayoutChrome } from '../app-store-seams'

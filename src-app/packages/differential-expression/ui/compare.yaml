@@ -389,7 +389,7 @@ widgets:
   # The mockup shows a regime callout with a chip per criterion column marking external vs derived
   # (any derived ⇒ R2). The chips name WHICH columns constrain each group (one chip per criterion
   # column, live from the criteria lists); the external/derived resolution + the final regime are
-  # AUTHORITATIVE in the compute (`_regime.classify_contrast` over each column's `attributes.cyto`)
+  # AUTHORITATIVE in the compute (`_regime.classify_contrast` over each column's `attributes.txr`)
   # and stamped into the `de-report`, because the form's column frame carries only {kind, levels,
   # n} — NOT provenance — and surfacing it would need a `src-app/ui` change the zero-diff cut
   # forbids (same class as DRIFT-1.2/1.3; see DRIFT-1.5). The callout states the conservative rule.

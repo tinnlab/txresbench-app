@@ -1,12 +1,12 @@
 //! Cross-branch integration seams: realtime sync + notifications.
 //!
 //! Both are owned by live8's `feat/project-management` (the concrete `SyncEntity`
-//! enum + `publish`, and the `ziee_notification` kind registry) and are NOT in
+//! enum + `publish`, and the `txresbench_notification` kind registry) and are NOT in
 //! this branch's base. So the jobs module emits through these trait seams with
 //! **no-op defaults** this round; at merge the defaults are swapped for the real
 //! implementations (add `SyncEntity::Job` + `publish(...)`; register
 //! `job_completed`/`job_failed` `NOTIFICATION_KINDS` + insert a `NewNotification`).
-//! Mirrors ziee-auth's `AuthSyncSink` / `NoopAuthSyncSink` seam idiom.
+//! Mirrors txresbench-auth's `AuthSyncSink` / `NoopAuthSyncSink` seam idiom.
 
 use std::path::Path;
 use std::sync::{Arc, OnceLock};

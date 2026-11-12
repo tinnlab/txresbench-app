@@ -20,14 +20,14 @@ SCRIPT="$REPO_ROOT/scripts/env-lock-of.sh"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT INT TERM
 # The declared search order, asserted rather than assumed by the case below.
-LOCK_PATHS_EXPECTED_FIRST=/opt/venv/.cyto-env-lock.txt
+LOCK_PATHS_EXPECTED_FIRST=/opt/venv/.txresbench-env-lock.txt
 fails=0
 ok()  { echo "  ok   $1"; }
 bad() { fails=$((fails + 1)); echo "  FAIL $1"; echo "         $2"; }
 
 # ── a root that carries an R lock ─────────────────────────────────────────────────
 mkdir -p "$WORK/withlock/usr/local/lib/R"
-cat > "$WORK/withlock/usr/local/lib/R/.cyto-env-lock.txt" <<'EOF'
+cat > "$WORK/withlock/usr/local/lib/R/.txresbench-env-lock.txt" <<'EOF'
 # R 4.6.1
 # bioconductor 3.23
 Matrix==1.7-6  # source=CRAN
@@ -53,8 +53,8 @@ fi
 # so only MEMBERSHIP was exercised and reversing the order left every case green. A root
 # carrying both is the only fixture that can see the order.
 mkdir -p "$WORK/bothlocks/usr/local/lib/R" "$WORK/bothlocks/opt/venv"
-printf '# R\nRonly==1.0  # source=CRAN\n' > "$WORK/bothlocks/usr/local/lib/R/.cyto-env-lock.txt"
-printf 'PyOnly==2.0\n' > "$WORK/bothlocks/opt/venv/.cyto-env-lock.txt"
+printf '# R\nRonly==1.0  # source=CRAN\n' > "$WORK/bothlocks/usr/local/lib/R/.txresbench-env-lock.txt"
+printf 'PyOnly==2.0\n' > "$WORK/bothlocks/opt/venv/.txresbench-env-lock.txt"
 out=$(sh "$SCRIPT" "$WORK/bothlocks" 2>/dev/null) || out=""
 first=$(printf '%s' "$LOCK_PATHS_EXPECTED_FIRST")
 case "$out" in
@@ -73,7 +73,7 @@ fi
 # and every assertion here stayed green.
 if paths=$(sh "$SCRIPT" "$WORK/bothlocks" --path 2>/dev/null); then
     case "$paths" in
-        *"/opt/venv/.cyto-env-lock.txt"*"/usr/local/lib/R/.cyto-env-lock.txt"*)
+        *"/opt/venv/.txresbench-env-lock.txt"*"/usr/local/lib/R/.txresbench-env-lock.txt"*)
             ok "--path prints the searched paths, in the order they are searched" ;;
         *) bad "--path prints the searched paths" "got: $paths" ;;
     esac
@@ -88,7 +88,7 @@ fi
 if command -v mksquashfs >/dev/null 2>&1 && command -v unsquashfs >/dev/null 2>&1; then
     mkdir -p "$WORK/sqsrc/usr/local/lib/R"
     printf '# R 4.6.1\nMatrix==1.7-6  # source=CRAN\n' \
-        > "$WORK/sqsrc/usr/local/lib/R/.cyto-env-lock.txt"
+        > "$WORK/sqsrc/usr/local/lib/R/.txresbench-env-lock.txt"
     if mksquashfs "$WORK/sqsrc" "$WORK/t.squashfs" -quiet -no-progress >/dev/null 2>&1; then
         if sh "$SCRIPT" "$WORK/t.squashfs" 2>/dev/null | grep -q 'Matrix==1.7-6  # source=CRAN'; then
             ok "a .squashfs subject is read from INSIDE the archive"
@@ -101,7 +101,7 @@ if command -v mksquashfs >/dev/null 2>&1 && command -v unsquashfs >/dev/null 2>&
         # separate guards.
         mkdir -p "$WORK/sqhdr/usr/local/lib/R"
         printf '# R 4.6.1\n# bioconductor 3.23\n' \
-            > "$WORK/sqhdr/usr/local/lib/R/.cyto-env-lock.txt"
+            > "$WORK/sqhdr/usr/local/lib/R/.txresbench-env-lock.txt"
         if mksquashfs "$WORK/sqhdr" "$WORK/h.squashfs" -quiet -no-progress >/dev/null 2>&1; then
             if err=$(sh "$SCRIPT" "$WORK/h.squashfs" 2>&1 >/dev/null); then
                 bad "a header-only .squashfs is refused" "it exited 0"
@@ -118,7 +118,7 @@ if command -v mksquashfs >/dev/null 2>&1 && command -v unsquashfs >/dev/null 2>&
         # documented modes gave OPPOSITE verdicts on the same image.
         mkdir -p "$WORK/sqlink/usr/local/lib/R" "$WORK/sqlink/decoy"
         printf 'GHOST==9.9.9  # source=CRAN\n' > "$WORK/sqlink/decoy/other.txt"
-        ln -s ../../../../decoy/other.txt "$WORK/sqlink/usr/local/lib/R/.cyto-env-lock.txt"
+        ln -s ../../../../decoy/other.txt "$WORK/sqlink/usr/local/lib/R/.txresbench-env-lock.txt"
         if mksquashfs "$WORK/sqlink" "$WORK/l.squashfs" -quiet -no-progress >/dev/null 2>&1; then
             out=$(sh "$SCRIPT" "$WORK/l.squashfs" 2>&1) && rc=0 || rc=$?
             if [ "$rc" -eq 0 ] || printf '%s' "$out" | grep -q 'GHOST'; then
@@ -153,7 +153,7 @@ if err=$(sh "$SCRIPT" "$WORK/nolock" 2>&1 >/dev/null); then
     bad "a root with no lock is REFUSED" "it exited 0 — verifying nothing is not a pass"
 else
     case "$err" in
-        *"no dependency-closure lock found"*"/usr/local/lib/R/.cyto-env-lock.txt"*)
+        *"no dependency-closure lock found"*"/usr/local/lib/R/.txresbench-env-lock.txt"*)
             ok "a root with no lock is refused, naming the paths it looked for" ;;
         *) bad "a root with no lock is REFUSED" "the refusal did not name the paths: $err" ;;
     esac
@@ -168,7 +168,7 @@ fi
 # removed the `-s` guard AND the package-line count independently and this case stayed
 # green through both.
 mkdir -p "$WORK/emptylock/opt/venv"
-: > "$WORK/emptylock/opt/venv/.cyto-env-lock.txt"
+: > "$WORK/emptylock/opt/venv/.txresbench-env-lock.txt"
 if err=$(sh "$SCRIPT" "$WORK/emptylock" 2>&1 >/dev/null); then
     bad "an EMPTY lock is refused" "it exited 0 for a zero-byte lock"
 else
@@ -185,7 +185,7 @@ fi
 # an arbitrary HOST file labelled as the image's provenance record.
 printf 'SECRET_TOKEN==hunter2\n' > "$WORK/host_only_file"
 mkdir -p "$WORK/symlink/usr/local/lib/R"
-ln -s "$WORK/host_only_file" "$WORK/symlink/usr/local/lib/R/.cyto-env-lock.txt"
+ln -s "$WORK/host_only_file" "$WORK/symlink/usr/local/lib/R/.txresbench-env-lock.txt"
 out=$(sh "$SCRIPT" "$WORK/symlink" 2>&1) && rc=0 || rc=$?
 if [ "$rc" -eq 0 ]; then
     bad "a SYMLINKED lock is refused" "it exited 0 — it followed the link"
@@ -203,7 +203,7 @@ fi
 # non-empty FILE. Every emptiness test passes and the reader prints four comments as if
 # they were an answer. This is the case the byte-length check could not see.
 mkdir -p "$WORK/headeronly/usr/local/lib/R"
-cat > "$WORK/headeronly/usr/local/lib/R/.cyto-env-lock.txt" <<'EOF'
+cat > "$WORK/headeronly/usr/local/lib/R/.txresbench-env-lock.txt" <<'EOF'
 # R 4.6.1
 # bioconductor 3.23
 # cran-snapshot https://example/2026-09-01
@@ -226,7 +226,7 @@ fi
 # as an installed package -- and the writer emits exactly such comments for shadowed
 # copies. A lock whose only `==` is inside a comment records ZERO packages.
 mkdir -p "$WORK/onlyshadow/usr/local/lib/R"
-cat > "$WORK/onlyshadow/usr/local/lib/R/.cyto-env-lock.txt" <<'EOF'
+cat > "$WORK/onlyshadow/usr/local/lib/R/.txresbench-env-lock.txt" <<'EOF'
 # R 4.6.1
 # shadowed Matrix==1.7-5 in /usr/local/lib/R/library (not the copy R loads)
 EOF
@@ -242,7 +242,7 @@ fi
 
 # ...and the converse: a real package line ALONGSIDE a shadowed comment counts ONE.
 mkdir -p "$WORK/oneandshadow/usr/local/lib/R"
-cat > "$WORK/oneandshadow/usr/local/lib/R/.cyto-env-lock.txt" <<'EOF'
+cat > "$WORK/oneandshadow/usr/local/lib/R/.txresbench-env-lock.txt" <<'EOF'
 # R 4.6.1
 Matrix==1.7-6  # source=CRAN
 # shadowed Matrix==1.7-5 in /usr/local/lib/R/library (not the copy R loads)
@@ -259,7 +259,7 @@ esac
 # audit escaped the extracted root that way with no file symlink anywhere.
 mkdir -p "$WORK/ancestor/usr/local/lib" "$WORK/ancestor_outside"
 printf 'HOSTFILE==1.0  # source=NOT-FROM-THE-IMAGE\n' \
-    > "$WORK/ancestor_outside/.cyto-env-lock.txt"
+    > "$WORK/ancestor_outside/.txresbench-env-lock.txt"
 ln -s ../../../ancestor_outside "$WORK/ancestor/usr/local/lib/R"
 out=$(sh "$SCRIPT" "$WORK/ancestor" 2>&1) && rc=0 || rc=$?
 if [ "$rc" -eq 0 ] || printf '%s' "$out" | grep -q 'HOSTFILE'; then
@@ -289,7 +289,7 @@ fi
 
 # ── the python lane is covered by the same reader ────────────────────────────────
 mkdir -p "$WORK/pylock/opt/venv"
-printf 'numpy==2.4.6\n' > "$WORK/pylock/opt/venv/.cyto-env-lock.txt"
+printf 'numpy==2.4.6\n' > "$WORK/pylock/opt/venv/.txresbench-env-lock.txt"
 if sh "$SCRIPT" "$WORK/pylock" 2>/dev/null | grep -q 'numpy==2.4.6'; then
     ok "the python recipe's lock path is read by the same script"
 else

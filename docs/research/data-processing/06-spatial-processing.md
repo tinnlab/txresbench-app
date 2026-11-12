@@ -332,7 +332,7 @@ and robust, but systematically **misses cytoplasmic transcripts** for large cell
 ### 4b. Image-based deep-learning segmenters
 
 - **Cellpose** — generalist flow-based U-Net; predicts spatial gradients toward each
-  object center and groups pixels; pretrained `nuclei` and `cyto` models, retrainable.
+  object center and groups pixels; pretrained `nuclei` and `txr` models, retrainable.
   The default in Vizgen VPT and a common Xenium/PhenoCycler choice
   (<https://vizgen.github.io/vizgen-postprocessing/>).
 - **StarDist** — represents each nucleus as a **star-convex polygon** (radial

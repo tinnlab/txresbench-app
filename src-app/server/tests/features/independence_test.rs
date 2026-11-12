@@ -2,7 +2,7 @@
 //! change the global default, and setting the global default does not change a
 //! per-account override. Driven through the admin PUT API + the guard.
 
-use cytoanalyst::modules::features::is_feature_enabled;
+use txresbench::modules::features::is_feature_enabled;
 use uuid::Uuid;
 
 use super::{account_body, features_put, global_body, DEMO_FLAG};

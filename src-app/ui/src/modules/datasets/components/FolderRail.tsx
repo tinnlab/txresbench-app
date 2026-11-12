@@ -10,7 +10,7 @@ import {
   message,
   useForm,
   zodResolver,
-} from '@ziee/kit'
+} from '@txresbench/kit'
 import { Datasets } from '@/modules/datasets/stores/Datasets.store'
 import { Folder, FolderPlus, Layers, Trash2 } from 'lucide-react'
 

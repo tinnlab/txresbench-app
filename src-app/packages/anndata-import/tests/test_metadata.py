@@ -35,13 +35,13 @@ _HERE = Path(__file__).resolve().parent
 # Shared sandbox scripts dir (`colsummary.py`); off-sandbox the harness must put it on
 # the subprocess PYTHONPATH (the entry script self-inserts only its own co-located dir).
 _SCRIPTS_DIR = _HERE.parents[1] / "_helpers"
-# The shared OUTPUT-FORMAT library (`_lib`: `cyto_zarr` / `cyto_columns`, DEC-7). The
+# The shared OUTPUT-FORMAT library (`_lib`: `txr_zarr` / `txr_columns`, DEC-7). The
 # sandbox runner stages it into `/code` next to the `_helpers` modules, so the
 # subprocess needs it on PYTHONPATH or the converter dies at import.
 _LIB_DIR = _HERE.parents[1] / "_lib"
 if str(_LIB_DIR) not in sys.path:
     sys.path.insert(0, str(_LIB_DIR))
-import cyto_zarr_read  # noqa: E402  (the `_lib` reference reader for the emitted Zarr)
+import txr_zarr_read  # noqa: E402  (the `_lib` reference reader for the emitted Zarr)
 
 _SCRIPT_CANDIDATES = [
     _HERE.parent / "compute" / "h5ad_import.py",
@@ -71,9 +71,9 @@ def run_converter(tmp_path):
         env["PYTHONPATH"] = os.pathsep.join(
             [str(_SCRIPTS_DIR), str(_LIB_DIR), *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])]
         )
-        env["CYTO_INPUTS_DIR"] = str(inputs_dir)
-        env["CYTO_OUTPUTS_DIR"] = str(outputs_dir)
-        env.pop("CYTO_PROGRESS_FIFO", None)
+        env["TXR_INPUTS_DIR"] = str(inputs_dir)
+        env["TXR_OUTPUTS_DIR"] = str(outputs_dir)
+        env.pop("TXR_PROGRESS_FIFO", None)
 
         proc = subprocess.run(
             [sys.executable, str(SCRIPT)],
@@ -108,7 +108,7 @@ def metadata_column_payloads(manifest: dict, outputs_dir: Path) -> dict:
     for e in manifest["outputs"]:
         if e.get("datatype") == "metadata-column":
             payload = dict(e.get("meta") or {})
-            payload["values"] = cyto_zarr_read.read_column(outputs_dir / e["path"])
+            payload["values"] = txr_zarr_read.read_column(outputs_dir / e["path"])
             payload["structure"] = e["structure"]
             out[e["label"]] = payload
     return out

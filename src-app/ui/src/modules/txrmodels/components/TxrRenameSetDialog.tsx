@@ -20,7 +20,7 @@
  */
 import { useEffect, useState, type CSSProperties } from 'react'
 import { ApiClient } from '@/api-client'
-import { Button, Dialog, Input } from '@ziee/kit'
+import { Button, Dialog, Input } from '@txresbench/kit'
 
 /** The one failure line (the engine's message, else this constant). */
 const RENAME_FAILED_LINE = 'The set could not be renamed.'

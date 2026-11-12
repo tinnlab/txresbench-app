@@ -9,7 +9,7 @@
 //! set against the shipped `bundled-models.json` (sha256 + size_bytes — the
 //! bytes stay opaque, INV-7) and copies the verified set to
 //! `<app-data-dir>/pretrained-bundled/` — the host-side layout PROV-PC-12
-//! binds — then points `CYTO_TXR_BUNDLED_MODELS_DIR` at it BEFORE the
+//! binds — then points `TXR_BUNDLED_MODELS_DIR` at it BEFORE the
 //! embedded server boots (the `pretrained_catalogue` module resolves its
 //! bundled dir from that env var).
 //!
@@ -35,7 +35,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use cytoanalyst::modules::pretrained_catalogue::bundled::sha256_file;
+use txresbench::modules::pretrained_catalogue::bundled::sha256_file;
 use serde::Deserialize;
 use tauri::Manager;
 
@@ -51,23 +51,23 @@ pub const BUNDLED_MANIFEST_FILE: &str = "bundled-models.json";
 /// The env var this module sets before the server boots — the
 /// `pretrained_catalogue` module's bundled-dir resolution reads it
 /// (PROV-PC-12 / CONS-IR-5).
-pub const BUNDLED_MODELS_DIR_ENV: &str = "CYTO_TXR_BUNDLED_MODELS_DIR";
+pub const BUNDLED_MODELS_DIR_ENV: &str = "TXR_BUNDLED_MODELS_DIR";
 
 /// The isolation env var the integration harness uses; resolved FIRST so a
 /// test never touches the real app-data dir (the server's `rootfs::data_root`
 /// uses the same order).
-const DATA_DIR_ENV: &str = "CYTO_APP_DATA_DIR";
+const DATA_DIR_ENV: &str = "TXR_APP_DATA_DIR";
 
 /// The manifest `schema_version` accepted (PROV-PC-1).
 const SCHEMA_VERSION: u64 = 1;
 
-/// The app-data root: `CYTO_APP_DATA_DIR` (test isolation / harness), else
+/// The app-data root: `TXR_APP_DATA_DIR` (test isolation / harness), else
 /// the SDK's app-data getter (CONS-IR-7 — the single data root the whole
 /// app binds; the desktop boot sets the app name in `config::init_app_name`).
 pub fn bundled_data_dir() -> PathBuf {
     std::env::var_os(DATA_DIR_ENV)
         .map(PathBuf::from)
-        .unwrap_or_else(ziee_core::app_state::get_app_data_dir)
+        .unwrap_or_else(txresbench_core::app_state::get_app_data_dir)
 }
 
 /// Resolve the embedded resource dir and run the provision (PROV-IR-5).
@@ -705,7 +705,7 @@ mod tests {
         assert_eq!(
             bundled_data_dir(),
             data_root,
-            "CYTO_APP_DATA_DIR wins over the SDK default — the same order the \
+            "TXR_APP_DATA_DIR wins over the SDK default — the same order the \
              server's rootfs::data_root uses"
         );
     }

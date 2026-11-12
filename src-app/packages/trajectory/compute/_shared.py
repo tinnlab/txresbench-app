@@ -311,8 +311,8 @@ def fail(message, code=2):
 
 # ── io + wire contract (mirrors clustering / embedding's _shared) ──────────────────
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -372,7 +372,7 @@ def progress(phase, pct=None, message=None):
             parts.append("")
         parts.append(str(message))
     line = "|".join(parts)
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if fifo:
         if _PROGRESS_FD[0] < 0:
             try:
@@ -407,7 +407,7 @@ def output_entry(id, datatype_layout, path, role, *, structure, meta=None):
 # ── reading a staged artifact (format from the DECLARATION, never a filename) ──────
 def artifact_structure(path):
     """The producer-DECLARED `structure` of a staged artifact, or ``None`` when the path is
-    not a `cyto_zarr` store."""
+    not a `txr_zarr` store."""
     meta = Path(path) / "zarr.json"
     if not meta.is_file():
         return None
@@ -415,8 +415,8 @@ def artifact_structure(path):
         doc = json.loads(meta.read_text())
     except (OSError, ValueError):
         return None
-    cyto = (doc.get("attributes") or {}).get("cyto")
-    return cyto if isinstance(cyto, dict) else None
+    txr = (doc.get("attributes") or {}).get("txr")
+    return txr if isinstance(txr, dict) else None
 
 
 def read_embedding_structure(path, slot):
@@ -429,7 +429,7 @@ def read_embedding_structure(path, slot):
     if structure is None:
         fail(
             f"input on slot {slot!r} at {path.name!r} carries no `structure` declaration in "
-            "a group `zarr.json` — an `embedding` artifact is a dense 2-D cyto_zarr store"
+            "a group `zarr.json` — an `embedding` artifact is a dense 2-D txr_zarr store"
         )
     arrays = structure.get("arrays") or []
     dense = [a for a in arrays if isinstance(a, dict) and len(a.get("shape") or []) == 2]
@@ -459,19 +459,19 @@ def read_embedding_structure(path, slot):
 
 def read_embedding_matrix(path, member):
     """Read the dense `(n_cells × n_dims)` embedding member as a float32 numpy array."""
-    import cyto_zarr_read
+    import txr_zarr_read
 
-    return np.asarray(cyto_zarr_read.read_array(Path(path), member), dtype=np.float32)
+    return np.asarray(txr_zarr_read.read_array(Path(path), member), dtype=np.float32)
 
 
 # ── reading a `metadata-column` input ──────────────────────────────────────────────
 #
 # Categorical-ness is a per-ARTIFACT property, not a datatype one: `metadata-column`
 # declares no dtype and no categorical/continuous split at all, and the producer stamps the
-# member's own `attributes.cyto.kind`. So the applicability check keys on the datatype (the
+# member's own `attributes.txr.kind`. So the applicability check keys on the datatype (the
 # platform's job) and the CATEGORICAL check is a compute-side named refusal (ours).
 def column_member_meta(path, member="values"):
-    """The member-level `attributes.cyto` of a column artifact (`kind`, `levels`, …)."""
+    """The member-level `attributes.txr` of a column artifact (`kind`, `levels`, …)."""
     p = Path(path) / member / "zarr.json"
     if not p.is_file():
         return None
@@ -479,8 +479,8 @@ def column_member_meta(path, member="values"):
         doc = json.loads(p.read_text())
     except (OSError, ValueError):
         return None
-    cyto = (doc.get("attributes") or {}).get("cyto")
-    return cyto if isinstance(cyto, dict) else None
+    txr = (doc.get("attributes") or {}).get("txr")
+    return txr if isinstance(txr, dict) else None
 
 
 def read_categorical_column(path, slot):
@@ -489,7 +489,7 @@ def read_categorical_column(path, slot):
     Returns `(labels, levels)`. Refuses BY NAME when the bound column is continuous — the
     partition a graph's nodes are drawn from must be a factor, and a continuous column would
     otherwise be silently binned by whatever read it next."""
-    import cyto_zarr_read
+    import txr_zarr_read
 
     meta = column_member_meta(path)
     if meta is None:
@@ -536,7 +536,7 @@ def read_categorical_column(path, slot):
     # code, which is the failure class every refusal in this package exists to replace. Found
     # while building a fixture for the refusal below, which could not be reached until this
     # one existed.
-    codes = np.asarray(cyto_zarr_read.read_array(Path(path), "values"))
+    codes = np.asarray(txr_zarr_read.read_array(Path(path), "values"))
     if codes.size and int(codes.max()) >= len(levels):
         fail(
             f"the column bound on slot {slot!r} holds a category code "
@@ -544,7 +544,7 @@ def read_categorical_column(path, slot):
             "cell refers to a group its own declaration does not define. The artifact is "
             "internally inconsistent; re-emit it from its producer."
         )
-    labels = [str(v) for v in cyto_zarr_read.read_column(Path(path), "values")]
+    labels = [str(v) for v in txr_zarr_read.read_column(Path(path), "values")]
     return labels, levels
 
 
@@ -602,12 +602,12 @@ def read_axis_keys(path, slot):
 
     Used only to resolve/report a root by barcode. Returns `None` when nothing is bound —
     absence is a real state the report states honestly, never a fabricated key list."""
-    import cyto_zarr_read
+    import txr_zarr_read
 
     if path is None:
         return None
     try:
-        return [str(v) for v in cyto_zarr_read.read_column(Path(path), "values")]
+        return [str(v) for v in txr_zarr_read.read_column(Path(path), "values")]
     except Exception:
         fail(
             f"the artifact bound on slot {slot!r} could not be read as a column of axis "
@@ -705,10 +705,10 @@ def library_versions(modules=("scanpy", "igraph", "scipy", "numpy", "anndata", "
 
 def opaque_report_entry(id, rel, meta):
     """The `report/qc` output entry — one JSON blob per run, declared opaque."""
-    import cyto_columns
+    import txr_columns
 
     return output_entry(id, DT_REPORT_QC, rel, "artifact",
-                        structure=cyto_columns.opaque("application/json"), meta=meta)
+                        structure=txr_columns.opaque("application/json"), meta=meta)
 
 
 # ── the disclosures every trajectory run carries ───────────────────────────────────

@@ -7,10 +7,10 @@ single-cell science. **DO NOT jump to one plan or to code.** Research + design
 first, present candidates for the user to choose, THEN implement the chosen one.
 
 ## 0. Where to work
-- **Worktree (ready):** `/data/pbya/ziee/tmp/analysis-workflow-wt` branch
+- **Worktree (ready):** `/data/pbya/txresbench/tmp/analysis-workflow-wt` branch
   **`feat/analysis-workflow`** (off current `origin/main` `587ca91` — has study +
   study-extensions + sandbox + rootfs + jobs; sdk `95acb82`; env greened).
-- Launched in `/data/pbya/ziee/ziee` for memory. **`/clear` FIRST** (you just
+- Launched in `/data/pbya/txresbench/txresbench` for memory. **`/clear` FIRST** (you just
   finished study-extensions; you need fresh capacity for deep research + design).
 - Gate: `node .../analysis-workflow-wt/.claude/lifecycle/lifecycle-check.mjs --repo <wt> --phase <N>`.
 
@@ -31,7 +31,7 @@ orchestration** (via the jobs scheduler + sandbox), the **step sequencing**
 / QC / clustering / embedding modules plug into a study via the extension system you
 built). Ground every candidate in THREE inputs:
 
-1. **Digest the CURRENT CytoAnalyst code CAREFULLY — but as a SUGGESTION ONLY, not a
+1. **Digest the CURRENT TxResBench code CAREFULLY — but as a SUGGESTION ONLY, not a
    constraint.** Read: `modules/study` (+ the `STUDY_EXTENSIONS` registry / `STUDY_SLOTS`
    / recent-studies sidebar you just built — the workflow modules will plug in HERE),
    `modules/dataset`, `modules/sandbox` + `modules/rootfs` (the R/Python execution
@@ -68,7 +68,7 @@ a hybrid), each with explicit tradeoffs against the research + the JTBD, and a
   `DATA_STORAGE_REDESIGN`; viz via deck.gl.
 
 ## 4. Process
-Iteration /feature-lifecycle, cyto gate. sqlx compile-time macros. New perms → A9+A10.
+Iteration /feature-lifecycle, txr gate. sqlx compile-time macros. New perms → A9+A10.
 UI → e2e + gate:ui. Clean commits. `SDK_GAPS.md` APPEND-ONLY. **Do NOT push to main** —
 report READY; the orchestrator merges. Report in `.lifecycle/analysis-workflow/LIVE5_STATUS.md`
 / `LIVE5_QUESTIONS.md` / `LIVE5_PHASELOG.md`. This is a big one — take the research

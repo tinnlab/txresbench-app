@@ -1,4 +1,4 @@
-// @ziee/framework/api-client — the ApiClient transport RUNTIME.
+// @txresbench/framework/api-client — the ApiClient transport RUNTIME.
 //
 // The generated per-endpoint types (`ApiEndpoints`, `ApiEndpointParameters`,
 // `ApiEndpointResponses`) stay per-app OUTPUT (each app's generated

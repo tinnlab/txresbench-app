@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { leafIds } from '@ziee/dock'
+import { leafIds } from '@txresbench/dock'
 import {
   defaultLayout,
   defaultMainSlice,

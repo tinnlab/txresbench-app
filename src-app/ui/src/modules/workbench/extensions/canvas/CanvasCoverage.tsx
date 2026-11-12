@@ -12,7 +12,7 @@
 //    each grid pane — a viz file this round does not have and does not want.
 // 2. **It cannot appear below ~8k rows, and that is correct rather than a gap.** The producer
 //    writes row-chunked columns with an INNER CHUNK of 8,192 rows
-//    (`src-app/packages/_lib/cyto_columns.py:75`, applied at `:358`), so a 3,460-row layout — the
+//    (`src-app/packages/_lib/txr_columns.py:75`, applied at `:358`), so a 3,460-row layout — the
 //    live shape — arrives as ONE chunk and can NEVER fill progressively no matter what the read
 //    does. An indicator that appeared for it would be an
 //    affordance lying about the system: a bar that flashes 0→100 in one frame implies incremental

@@ -31,12 +31,12 @@ import { PANE_SCOPE_KEYS } from '@/modules/workbench/core/runtime/paneScopeKeys'
 // Measured by ablation (rebuild with `installBuiltins()` restored, diff the modulepreload set
 // in `dist/index.html`): that one swap is worth **339.7 kB gzip** off the preloaded path.
 //
-// The SPECIFIER is deliberately the plain `@ziee/viz` barrel. A render-free `@ziee/viz/option`
+// The SPECIFIER is deliberately the plain `@txresbench/viz` barrel. A render-free `@txresbench/viz/option`
 // subpath was built and measured for this import and made ZERO difference (723.05 vs 723.03 kB
 // critical path) — rolldown tree-shakes the barrel's unused re-exports perfectly well. What
 // costs bytes here is not the import PATH, it is whether a RETAINED value transitively needs
 // the Views. So the subpath was reverted rather than kept as decorative indirection.
-import { parseOption, installBuiltinSchemas, type VizOption, type DatasetCatalog } from '@ziee/viz'
+import { parseOption, installBuiltinSchemas, type VizOption, type DatasetCatalog } from '@txresbench/viz'
 
 export interface ViewSpecError {
   path: string
@@ -1041,8 +1041,8 @@ export function parseViewSpec(
     }
   }
 
-  // canvas (ITEM-1) — a `@ziee/viz` VizOption, LOUD-validated AT PARSE via `validateCanvasOption`
-  // (reuses `@ziee/viz` parseOption). A structural gate first (object + `series` array), then the
+  // canvas (ITEM-1) — a `@txresbench/viz` VizOption, LOUD-validated AT PARSE via `validateCanvasOption`
+  // (reuses `@txresbench/viz` parseOption). A structural gate first (object + `series` array), then the
   // per-field validation: with the analysis' resolved `canvasCatalog` → full (unknown series.type /
   // coordId / datasetId / column); catalog-free (the register path) → a permissive catalog so the
   // structural/registry errors still fail LOUD here rather than being swallowed at drive-time
@@ -1136,8 +1136,8 @@ export function isKnownWidgetKind(w: WidgetSpec | { kind?: unknown }): boolean {
 }
 
 /**
- * LOUD validation of a `view_spec` `canvas` block (ITEM-1) — the `@ziee/viz` `VizOption` a
- * processor declares. Reuses `@ziee/viz` `parseOption`, so an unknown `series.type` (unregistered
+ * LOUD validation of a `view_spec` `canvas` block (ITEM-1) — the `@txresbench/viz` `VizOption` a
+ * processor declares. Reuses `@txresbench/viz` `parseOption`, so an unknown `series.type` (unregistered
  * chart), an unknown `coordId` (no matching `grid` entry), an unknown `datasetId` (not in
  * `datasets[]`), or an `encode` column absent from the dataset all fail LOUD — the SAME validation
  * the runtime `setOption` enforces, surfaced at parse. `catalogs` is the resolved

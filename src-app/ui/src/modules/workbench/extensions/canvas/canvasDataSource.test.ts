@@ -14,7 +14,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('@ziee/kit', () => ({
+vi.mock('@txresbench/kit', () => ({
   message: { info: () => {}, success: () => {}, error: () => {} },
 }))
 

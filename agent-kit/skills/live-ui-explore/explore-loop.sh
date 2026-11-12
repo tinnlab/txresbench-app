@@ -24,15 +24,15 @@
 # State lives in $STATE so the loop survives restarts.
 set -u
 
-RIG=${RIG:-/data/pbya/ziee/tmp/live-rig-wt}
+RIG=${RIG:-/data/pbya/txresbench/tmp/live-rig-wt}
 BASE=${EXPLORE_URL:-http://127.0.0.1:1520}
 BACKEND_PORT=${BACKEND_PORT:-29500}
-CONFIG=${RIG_CONFIG:-/data/pbya/ziee/tmp/live-rig-config.yaml}
-STATE=${STATE:-/data/pbya/ziee/tmp/live-ui-explore}
+CONFIG=${RIG_CONFIG:-/data/pbya/txresbench/tmp/live-rig-config.yaml}
+STATE=${STATE:-/data/pbya/txresbench/tmp/live-ui-explore}
 SKILL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/explore.mjs"
 STEPS=${STEPS:-45}
 INTERVAL=${INTERVAL:-45}
-PG=${PG_CONTAINER:-ziee-showcase-pg}
+PG=${PG_CONTAINER:-txresbench-showcase-pg}
 # Read the database name FROM THE CONFIG the backend is actually started with.
 # Hardcoding a guess here meant every "restore" for 150+ cycles dropped and
 # recreated a database the app never opened — a no-op that read as a safety net.
@@ -45,7 +45,7 @@ b=m.group(1) if m else ''
 d=re.search(r'database:\s*\"([^\"]+)\"', b)
 print(d.group(1) if d else 'postgres')
 " 2>/dev/null || echo postgres)}
-PRISTINE=${PRISTINE_DB:-ziee_live_pristine}
+PRISTINE=${PRISTINE_DB:-txresbench_live_pristine}
 USER_=${RIG_USER:-admin}
 PASS=${RIG_PASS:-password123}
 
@@ -88,7 +88,7 @@ restore_db() {
 # The identity comes from a snapshot captured while login was VERIFIED working,
 # not from a pristine database — the pristine here is a clone of a database this
 # deployment never opened (see the DB= note above).
-IDENTITY=${IDENTITY_FILE:-/data/pbya/ziee/tmp/live-ui-explore/admin-identity.txt}
+IDENTITY=${IDENTITY_FILE:-/data/pbya/txresbench/tmp/live-ui-explore/admin-identity.txt}
 recover_credentials() {
   [ -f "$IDENTITY" ] || return 1
   local uid uname hash
@@ -102,7 +102,7 @@ recover_credentials() {
 
 start_backend() {
   # Kill ONLY the process holding our backend port. A pattern-based pkill on
-  # "target/debug/ziee" would take down any other ziee binary on the box — and a
+  # "target/debug/txresbench" would take down any other txresbench binary on the box — and a
   # `-f` pattern can also match the killer's own command line (that self-match
   # bit this session four separate times).
   #
@@ -123,8 +123,8 @@ start_backend() {
     kill -KILL "$pid" 2>/dev/null
   done
   sleep 3
-  ( cd "$RIG/src-app/server" && CONFIG_FILE="$CONFIG" setsid nohup ../target/debug/ziee \
-      > /data/pbya/ziee/tmp/rig-server.log 2>&1 < /dev/null & )
+  ( cd "$RIG/src-app/server" && CONFIG_FILE="$CONFIG" setsid nohup ../target/debug/txresbench \
+      > /data/pbya/txresbench/tmp/rig-server.log 2>&1 < /dev/null & )
   for _ in $(seq 1 30); do
     [ "$(curl -s -o /dev/null -w '%{http_code}' -m 5 "http://127.0.0.1:$BACKEND_PORT/api/health")" = "200" ] && return 0
     sleep 4

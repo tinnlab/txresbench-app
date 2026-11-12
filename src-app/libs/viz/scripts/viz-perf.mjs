@@ -1,4 +1,4 @@
-// viz-perf.mjs — reproducible CPU-vs-GPU fps benchmark harness for @ziee/viz.
+// viz-perf.mjs — reproducible CPU-vs-GPU fps benchmark harness for @txresbench/viz.
 //
 // WHAT IT DOES
 //   Drives the `benchmark` showcase story (which publishes window.__BENCH__) through a real

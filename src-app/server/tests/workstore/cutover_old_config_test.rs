@@ -13,8 +13,8 @@
 
 #![cfg(feature = "saas")]
 
-use cytoanalyst::modules::workstore::cutover::PreservedStoreConfig;
-use cytoanalyst::modules::workstore::migration_repo as repo;
+use txresbench::modules::workstore::cutover::PreservedStoreConfig;
+use txresbench::modules::workstore::migration_repo as repo;
 use uuid::Uuid;
 
 use crate::account::pool_for;
@@ -50,7 +50,7 @@ async fn preserved_cloud_config_is_ciphertext_and_recovers_byte_identically() {
             .await;
     // The in-process resolver leg reads the PROCESS storage key (the harness sets it on the
     // spawned server subprocess; this sets it for the test process's own encrypt/decrypt calls).
-    ziee_framework::secrets::init_storage_key(Some(STORAGE_KEY.to_string()));
+    txresbench_framework::secrets::init_storage_key(Some(STORAGE_KEY.to_string()));
     let pool = pool_for(&server).await;
 
     let cloud = PreservedStoreConfig {

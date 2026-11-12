@@ -46,7 +46,7 @@ export interface ThemeProviderProps {
 }
 
 export function ThemeProvider({
-  children, value, onThemeChange, defaultTheme = 'system', storageKey = 'ziee-theme',
+  children, value, onThemeChange, defaultTheme = 'system', storageKey = 'txresbench-theme',
 }: ThemeProviderProps) {
   const controlled = value !== undefined
   const [internal, setInternal] = React.useState<ThemePreference>(() => {

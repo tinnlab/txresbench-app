@@ -2,9 +2,9 @@
 // split-tree `popOutPane`). `window.open` needs a live user gesture (the pop-out click), so this opens
 // + registers the window synchronously and records the pane in `workbenchRegionsStore.poppedOut`
 // (which excludes it from its region). `RegionPopoutWindows` then portals the pane's content into the
-// window; closing the window un-pops it (back to its region). Reuses `@ziee/dock`'s popup registry.
+// window; closing the window un-pops it (back to its region). Reuses `@txresbench/dock`'s popup registry.
 
-import { registerPopupWindow, nextPopupContainerId } from '@ziee/dock'
+import { registerPopupWindow, nextPopupContainerId } from '@txresbench/dock'
 import { buildPopupFeatures, centeredGeometry } from '@/modules/workbench/core/shell/dock/popout'
 import { workbenchRegionsStore } from './WorkbenchRegions.store'
 

@@ -294,8 +294,8 @@ async fn an_executes_row_is_not_an_analysis_row() {
 /// statuses must be left alone rather than flipped to `failed`.
 #[tokio::test]
 async fn the_conformance_gate_gives_up_when_the_pool_stays_full() {
-    use cytoanalyst::modules::jobs::admission::ADMISSION_WAIT;
-    use cytoanalyst::modules::jobs::conformance::{run_gate, GateTarget};
+    use txresbench::modules::jobs::admission::ADMISSION_WAIT;
+    use txresbench::modules::jobs::conformance::{run_gate, GateTarget};
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
@@ -355,7 +355,7 @@ async fn the_conformance_gate_gives_up_when_the_pool_stays_full() {
 /// minted and closed.
 #[tokio::test]
 async fn the_conformance_gate_is_admitted_on_an_idle_box() {
-    use cytoanalyst::modules::jobs::conformance::{run_gate, GateTarget};
+    use txresbench::modules::jobs::conformance::{run_gate, GateTarget};
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;

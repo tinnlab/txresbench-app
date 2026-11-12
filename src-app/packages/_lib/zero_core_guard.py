@@ -213,8 +213,8 @@ def package_of(test_file: str | Path) -> str:
     parts = Path(test_file).resolve().parts
     # Scan from the RIGHT. An audit found the left-to-right form silently mis-scoped every
     # guard when the CHECKOUT ITSELF lives under a path containing these two segments
-    # (`/home/dev/src-app/packages/cytoanalyst/src-app/packages/embedding/...` resolved to
-    # `cytoanalyst`), producing a permanent silent skip — the "wrong answer" outcome the
+    # (`/home/dev/src-app/packages/txresbench/src-app/packages/embedding/...` resolved to
+    # `txresbench`), producing a permanent silent skip — the "wrong answer" outcome the
     # docstring promises to raise on rather than guess at. The rightmost match is the one
     # inside the repository.
     for i in range(len(parts) - len(_PACKAGES_SEGMENTS) - 1, -1, -1):

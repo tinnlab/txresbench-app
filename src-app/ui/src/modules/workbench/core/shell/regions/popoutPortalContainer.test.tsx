@@ -5,7 +5,7 @@
 // that anything actually PROVIDES one at the boundary where a second document is created.
 //
 // A fix nobody installs is indistinguishable from no fix, so this test drives the REAL boundary —
-// `@ziee/dock`'s `<ContainerWindows>`, the component `RegionPopoutWindows` renders for every
+// `@txresbench/dock`'s `<ContainerWindows>`, the component `RegionPopoutWindows` renders for every
 // popped-out pane — against a REAL second document, and asserts:
 //
 //   1. an overlay opened by content inside a popped-out window lands in THAT window's document;
@@ -27,15 +27,15 @@ import {
   registerPopupWindow,
   unregisterPopupWindow,
   type ContainerId,
-} from '@ziee/dock'
-import { Select, SelectContent, SelectItem, SelectTrigger } from '@ziee/kit/shadcn/select'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@ziee/kit/shadcn/tooltip'
+} from '@txresbench/dock'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@txresbench/kit/shadcn/select'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@txresbench/kit/shadcn/tooltip'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from '@ziee/kit/shadcn/dropdown-menu'
+} from '@txresbench/kit/shadcn/dropdown-menu'
 import {
   Combobox, ComboboxContent, ComboboxInput, ComboboxItem, ComboboxList,
-} from '@ziee/kit/shadcn/combobox'
+} from '@txresbench/kit/shadcn/combobox'
 
 function polyfill(scope: Window & typeof globalThis): void {
   const g = scope as unknown as Record<string, unknown>

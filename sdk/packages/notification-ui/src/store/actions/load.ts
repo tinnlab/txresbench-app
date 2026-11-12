@@ -1,4 +1,4 @@
-import { hasPermissionNow } from '@ziee/framework/permissions'
+import { hasPermissionNow } from '@txresbench/framework/permissions'
 import { notificationDeps } from '../_deps'
 import type { NotificationsGet, NotificationsSet } from '../state'
 
@@ -18,7 +18,7 @@ export default (set: NotificationsSet, get: NotificationsGet) => async () => {
   // The duplicate that motivated a guard here (the bell widget, the toast
   // listener and the inbox page each triggering an IDENTICAL
   // `GET /api/notifications` on the same boot) is removed at the transport
-  // instead (`@ziee/framework/api-client/inflight`), which coalesces only
+  // instead (`@txresbench/framework/api-client/inflight`), which coalesces only
   // requests that are literally identical AND concurrent — so a differing-intent
   // reload still gets its own round-trip.
   set(draft => {

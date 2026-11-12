@@ -1,5 +1,5 @@
 import { ListChecks } from 'lucide-react'
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 import { Permissions } from '@/api-client/permissions'
 import { SettingsLayoutDef } from '@/modules/settings/SettingsLayout'
 import { lazyWithPreload } from '@/utils/lazyWithPreload'

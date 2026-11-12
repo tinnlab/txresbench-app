@@ -1,8 +1,8 @@
 # Selection provenance — design
 
 **Status:** design, approved in principle by the owner 2026-07-27.
-**Scope:** `@ziee/viz` (`viz-core/selection`, `viz-core/option`, `adapter`) +
-`@cyto/workbench-api` (`dsl/`, `interaction/vizBridge.ts`). **No server change.**
+**Scope:** `@txresbench/viz` (`viz-core/selection`, `viz-core/option`, `adapter`) +
+`@txresbench/workbench-api` (`dsl/`, `interaction/vizBridge.ts`). **No server change.**
 **Evidence base:** [`selection-visibility-findings.md`](./selection-visibility-findings.md)
 (measured 2026-07-27 on `#plot-editing`, `seed:7, pointCount:20000`).
 
@@ -181,7 +181,7 @@ export interface VizSelection {
   readonly spaces?: Record<string, readonly number[]>          // UNCHANGED — now documented as a CACHE
   readonly ops?: readonly VizSelectionOp[]                     // NEW — ordered provenance
   readonly context?: VizSelectionContext                       // NEW — state at selection time
-  readonly provenance?: 'ziee-viz-selection/1'                 // NEW — schema tag
+  readonly provenance?: 'txresbench-viz-selection/1'                 // NEW — schema tag
 }
 ```
 

@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::dataset::models::{DECL_MAX_ARRAY_ITEMS, DECL_MAX_KEYS, GROUP_CAP};
+use txresbench::modules::dataset::models::{DECL_MAX_ARRAY_ITEMS, DECL_MAX_KEYS, GROUP_CAP};
 
 use super::hardening_common::{admin_user_id, pool_for};
 use super::{create_dataset, create_user, login, setup_admin};
@@ -406,7 +406,7 @@ async fn artifact_summaries_are_scoped_to_what_the_caller_can_see() {
         .await;
     }
 
-    let bob_id = create_user(&server, &admin, "sum_bob", "sum_bob@cyto.test").await;
+    let bob_id = create_user(&server, &admin, "sum_bob", "sum_bob@txresbench.test").await;
     let resp = server
         .client
         .post(server.api_url(&format!("/datasets/{shared}/shares")))

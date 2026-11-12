@@ -5,16 +5,16 @@
 ## Why this file exists, and why the existing coverage did not discharge it
 
 `_lib/test_conformance_alignment.py` proves the WRITER works: a fixture calls
-`cyto_zarr.Table.aux`, the real conformance gate conforms the result, and both refusal
+`txr_zarr.Table.aux`, the real conformance gate conforms the result, and both refusal
 directions fire. That is necessary and it is not sufficient, and the distinction is the one
 this feature has already paid for once: **a fixture proves the writer works; only a real run
 proves the PRODUCER calls it correctly.** The prior round's defect survived precisely because
 each side's unit fixture agreed with itself.
 
 So this suite runs `compute/embedding_integrate.py` **as a subprocess**, exactly as the
-sandbox runner invokes it — `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR`, `/inputs/inputs.json`,
+sandbox runner invokes it — `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR`, `/inputs/inputs.json`,
 `/inputs/params.json` in, `/outputs/manifest.json` out — over source artifacts written by
-the real `cyto_zarr.Table`. Nothing here imports the producer's functions and calls them
+the real `txr_zarr.Table`. Nothing here imports the producer's functions and calls them
 directly: that would be a third fixture agreeing with itself.
 
 The emitted alignment is then conformed by the REAL framework gate, and every vector is
@@ -35,9 +35,9 @@ import pandas as pd
 import pytest
 
 import conformance
-import cyto_columns
-import cyto_zarr as cz
-import cyto_zarr_read
+import txr_columns
+import txr_zarr as cz
+import txr_zarr_read
 
 HERE = Path(__file__).resolve().parent
 PRODUCER = HERE.parent / "compute" / "embedding_integrate.py"
@@ -83,7 +83,7 @@ def unique_mount_name(name, used):
 def write_column_artifact(dest, name, series, *, axis, holds_axis_keys=False, aligned_to=None):
     """ONE `metadata-column` artifact, through the REAL ingest writer.
 
-    `cyto_columns.write_metadata_column` — not a hand-rolled `cz.Table` — because the shape
+    `txr_columns.write_metadata_column` — not a hand-rolled `cz.Table` — because the shape
     this fixture has to be faithful to is the one INGEST emits, and that is the function
     that emits it. Measured against the live catalog: a real `metadata-column` store has one
     member, always called `values`, and carries the column's display name NOWHERE. A fixture
@@ -91,7 +91,7 @@ def write_column_artifact(dest, name, series, *, axis, holds_axis_keys=False, al
     which is the exact defect the `entities.zarr`/`rows.zarr` shape was.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    structure, _meta = cyto_columns.write_metadata_column(
+    structure, _meta = txr_columns.write_metadata_column(
         dest.parent, dest.name, name, pd.Series(series), axis=axis,
         holds_axis_keys=holds_axis_keys, aligned_to=aligned_to)
     return structure
@@ -181,7 +181,7 @@ def stage_run(tmp_path, *, params, sources, slot_for=None, hashes_for=None):
         row_keys = spec["row_keys"]
         # The two axes' digests, taken the way ingest takes them, so the entity columns can
         # declare `aligned_to` and the row index can declare `key_sequence_digest`.
-        entity_digest = cyto_columns.axis_key_digest(pd.Series(entity_keys))
+        entity_digest = txr_columns.axis_key_digest(pd.Series(entity_keys))
         slot = (slot_for or (lambda kind, i, col: None))
 
         # ── the ENTITY grid: `entity:<i>:<column>` ────────────────────────────────
@@ -213,7 +213,7 @@ def stage_run(tmp_path, *, params, sources, slot_for=None, hashes_for=None):
 
         # ── the LEVEL grid: `level:<i>:<column>` ─────────────────────────────────
         if spec.get("celltypes") is not None:
-            row_digest = cyto_columns.axis_key_digest(pd.Series(row_keys))
+            row_digest = txr_columns.axis_key_digest(pd.Series(row_keys))
             bind(slot("level", position, "celltype") or f"level:{position}:celltype",
                  lambda d, c=spec["celltypes"], a=row_digest: write_column_artifact(
                      d, "celltype", pd.Series(c, dtype="category"), axis="rows",
@@ -272,8 +272,8 @@ def run_producer(inputs, outputs, *, expect_ok=True):
     """
     code = stage_code_dir(Path(inputs).parent, PRODUCER)
     env = dict(os.environ)
-    env["CYTO_INPUTS_DIR"] = str(inputs)
-    env["CYTO_OUTPUTS_DIR"] = str(outputs)
+    env["TXR_INPUTS_DIR"] = str(inputs)
+    env["TXR_OUTPUTS_DIR"] = str(outputs)
     env["PYTHONPATH"] = ""
     proc = subprocess.run(
         [sys.executable, str(code / PRODUCER.name)], cwd=str(code),
@@ -330,7 +330,7 @@ def test_a_real_run_emits_an_alignment_the_real_gate_CONFORMS(produced):
     assert root.is_dir(), entry
 
     violations = conformance.conform_artifact(
-        root, cyto_zarr_read.structure(root), full=True, meta=entry.get("meta")
+        root, txr_zarr_read.structure(root), full=True, meta=entry.get("meta")
     )
     assert violations == [], (
         "the producer emitted an artifact its own framework gate refuses — which is exactly "
@@ -344,13 +344,13 @@ def test_the_declared_structure_matches_what_the_gate_reads_off_disk(produced):
     outputs, manifest = produced
     entry = entry_for(manifest, "dataset-alignment")
     root = outputs / entry["path"]
-    assert entry["structure"] == cyto_zarr_read.structure(root)
+    assert entry["structure"] == txr_zarr_read.structure(root)
 
 
 def test_every_aux_vector_RESOLVES_off_disk_with_the_declared_extent(produced):
     outputs, manifest = produced
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    structure = cyto_zarr_read.structure(root)
+    structure = txr_zarr_read.structure(root)
     extents = structure["extents"]
     # No `alignment_rows` extent since D18 — the per-output-row vectors are gone and the row
     # count (3 from ds-a + 2 from ds-b) is reconstructed from the segment ranges, not stored.
@@ -360,7 +360,7 @@ def test_every_aux_vector_RESOLVES_off_disk_with_the_declared_extent(produced):
     assert extents["unified_entities"] == 3, extents  # A, B, C — the INTERSECTION
 
     for member in structure["aux"]:
-        values = cyto_zarr_read.read_array(root, member["path"])
+        values = txr_zarr_read.read_array(root, member["path"])
         for axis_i, extent_name in enumerate(member["extent"]):
             assert values.shape[axis_i] == extents[extent_name], (member, values.shape)
 
@@ -369,7 +369,7 @@ def test_the_entity_axis_is_the_INTERSECTION_in_a_REAL_run(produced):
     """INV-2, reached through the producer rather than through the engine's own test."""
     outputs, manifest = produced
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    keys = cyto_zarr_read.read_strings(root, "unified_key")
+    keys = txr_zarr_read.read_strings(root, "unified_key")
     assert keys == ["A", "B", "C"], keys
     assert "A_ONLY" not in keys and "B_ONLY" not in keys
 
@@ -379,11 +379,11 @@ def test_the_entity_index_addresses_the_RIGHT_entity_in_each_SOURCE_STORE(produc
     plausible-but-wrong indices cannot pass."""
     outputs, manifest = produced
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    keys = cyto_zarr_read.read_strings(root, "unified_key")
-    index = cyto_zarr_read.read_array(root, "entity_index")
+    keys = txr_zarr_read.read_strings(root, "unified_key")
+    index = txr_zarr_read.read_array(root, "entity_index")
 
     source_symbols = [
-        cyto_zarr_read.read_strings(mount_for(tmp_path / "inputs", f"entity:{i}:symbol"),
+        txr_zarr_read.read_strings(mount_for(tmp_path / "inputs", f"entity:{i}:symbol"),
                                     "values")
         for i, _ in enumerate(TWO_SOURCES)
     ]
@@ -398,10 +398,10 @@ def test_the_segments_tile_the_output_in_DECLARED_order(produced):
     search (segment containing `i`; row = `i - start`)."""
     outputs, manifest = produced
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    order = cyto_zarr_read.read_array(root, "segment_order")
-    start = cyto_zarr_read.read_array(root, "segment_start")
-    end = cyto_zarr_read.read_array(root, "segment_end")
-    dataset = cyto_zarr_read.read_array(root, "segment_dataset")
+    order = txr_zarr_read.read_array(root, "segment_order")
+    start = txr_zarr_read.read_array(root, "segment_start")
+    end = txr_zarr_read.read_array(root, "segment_end")
+    dataset = txr_zarr_read.read_array(root, "segment_dataset")
 
     by_declared = sorted(range(len(order)), key=lambda i: int(order[i]))
     cursor = 0
@@ -443,10 +443,10 @@ def test_a_REVERSED_declaration_reverses_the_row_layout_through_a_REAL_run(tmp_p
     manifest = json.loads((outputs / "manifest.json").read_text())
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
 
-    order = cyto_zarr_read.read_array(root, "segment_order")
-    dataset = cyto_zarr_read.read_array(root, "segment_dataset")
-    start = cyto_zarr_read.read_array(root, "segment_start")
-    end = cyto_zarr_read.read_array(root, "segment_end")
+    order = txr_zarr_read.read_array(root, "segment_order")
+    dataset = txr_zarr_read.read_array(root, "segment_dataset")
+    start = txr_zarr_read.read_array(root, "segment_start")
+    end = txr_zarr_read.read_array(root, "segment_end")
 
     first = min(range(len(order)), key=lambda i: int(order[i]))
     assert int(start[first]) == 0, "the DECLARED-first segment must start at row 0"
@@ -496,18 +496,18 @@ def test_the_key_sequence_digests_MATCH_the_source_stores_on_disk(produced, tmp_
             f"the recorded id {record['dataset_id']!r} is the MOUNT name — the producer is "
             "reading identity off the directory again"
         )
-        stored = cyto_zarr_read.read_strings(mount, "values")
+        stored = txr_zarr_read.read_strings(mount, "values")
         assert record["key_sequence_digest"] == cz.key_sequence_digest(stored), dataset_id
 
 
 def test_the_level_lookups_round_trip_every_source_level(produced):
     outputs, manifest = produced
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    structure = cyto_zarr_read.structure(root)
+    structure = txr_zarr_read.structure(root)
     lookups = [m for m in structure["aux"] if m["role"] == "alignment_level_lookup"]
     assert len(lookups) == 2, [m["path"] for m in lookups]  # one per source, one column
     for member in lookups:
-        codes = cyto_zarr_read.read_array(root, member["path"])
+        codes = txr_zarr_read.read_array(root, member["path"])
         # `strict` unions, so nothing is dropped and no -1 appears.
         assert (codes >= 0).all(), (member["path"], codes)
 
@@ -550,7 +550,7 @@ def test_authority_mode_drops_a_level_and_records_it_ONLY_on_the_sidecar(tmp_pat
     manifest = json.loads((outputs / "manifest.json").read_text())
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
     assert conformance.conform_artifact(
-        root, cyto_zarr_read.structure(root), full=True
+        root, txr_zarr_read.structure(root), full=True
     ) == []
 
     side = json.loads(
@@ -562,11 +562,11 @@ def test_authority_mode_drops_a_level_and_records_it_ONLY_on_the_sidecar(tmp_pat
     # THE STORED ENCODING OF THE DROP (C4) — a DECLARED absence level, never `-1`.
     #
     # This block asserted `(codes < 0).any()`. That encoding is retired: `-1` is pandas'
-    # IN-MEMORY missing code, and storing it is what `cyto_columns` refuses ("rather than
+    # IN-MEMORY missing code, and storing it is what `txr_columns` refuses ("rather than
     # storing an out-of-range code"). The read side rejects a negative code with a 400 for
     # the ENTIRE column, so `authority` — the only mode that drops — emitted conforming
     # artifacts it could never serve.
-    attrs = json.loads((root / "zarr.json").read_text())["attributes"]["cyto_alignment"]
+    attrs = json.loads((root / "zarr.json").read_text())["attributes"]["txr_alignment"]
     label = attrs["missing_levels"]["celltype"]
     assert label, attrs["missing_levels"]
     vocab = attrs["unified_levels"]["celltype"]
@@ -576,12 +576,12 @@ def test_authority_mode_drops_a_level_and_records_it_ONLY_on_the_sidecar(tmp_pat
     # ds-a's DECLARED order (pandas sorts categories), not observation order.
     assert vocab[:absent_code] == ["B", "T"], vocab
 
-    structure = cyto_zarr_read.structure(root)
+    structure = txr_zarr_read.structure(root)
     dropped_seen = False
     for member in structure["aux"]:
         if member["role"] != "alignment_level_lookup":
             continue
-        codes = cyto_zarr_read.read_array(root, member["path"])
+        codes = txr_zarr_read.read_array(root, member["path"])
         assert not (codes < 0).any(), (
             f"{member['path']} stores a negative code {codes.tolist()} — the serve path "
             "refuses that with a 400 for the whole column")
@@ -650,8 +650,8 @@ def run_preflight(inputs, outputs, *, expect_ok=True):
     code = stage_code_dir(Path(inputs).parent, PREFLIGHT,
                           helpers=["compute/embedding_integrate.py"])
     env = dict(os.environ)
-    env["CYTO_INPUTS_DIR"] = str(inputs)
-    env["CYTO_OUTPUTS_DIR"] = str(outputs)
+    env["TXR_INPUTS_DIR"] = str(inputs)
+    env["TXR_OUTPUTS_DIR"] = str(outputs)
     env["PYTHONPATH"] = ""
     proc = subprocess.run(
         [sys.executable, str(code / PREFLIGHT.name)], cwd=str(code),
@@ -929,13 +929,13 @@ def test_STRICT_drops_the_conflicting_entity_through_a_real_run(tmp_path):
     """ITEM-3, end to end. `strict` is the default, so this is the default path."""
     outputs, manifest = produce(tmp_path)
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    keys = cyto_zarr_read.read_strings(root, "unified_key")
+    keys = txr_zarr_read.read_strings(root, "unified_key")
     assert keys == ["A", "B"], f"strict must DROP the conflicting entity C; got {keys}"
 
     side = json.loads((outputs / entry_for(manifest, "data/opaque")["path"]).read_text())
     assert side["entities_dropped_conflicting"] == ["C"], side
     assert conformance.conform_artifact(
-        root, cyto_zarr_read.structure(root), full=True
+        root, txr_zarr_read.structure(root), full=True
     ) == []
 
 
@@ -945,7 +945,7 @@ def test_AUTHORITY_keeps_the_conflicting_entity_and_labels_it_from_the_NAMED_dat
     first-arriving annotation would pass a keep-only test."""
     outputs, manifest = produce(tmp_path, mode="authority", authority="ds-b")
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    keys = cyto_zarr_read.read_strings(root, "unified_key")
+    keys = txr_zarr_read.read_strings(root, "unified_key")
     assert keys == ["A", "B", "C"], f"authority must KEEP C; got {keys}"
 
     meta = entry_for(manifest, "dataset-alignment")["meta"]
@@ -953,7 +953,7 @@ def test_AUTHORITY_keeps_the_conflicting_entity_and_labels_it_from_the_NAMED_dat
 
     # THE LABEL — which is what `authority` actually means, and what was unobservable.
     # ds-b is the authority, so C's unified ensembl_id must be ds-b's E7, not ds-a's E3.
-    unified = cyto_zarr_read.read_strings(root, "unified_ensembl_id")
+    unified = txr_zarr_read.read_strings(root, "unified_ensembl_id")
     assert dict(zip(keys, unified))["C"] == "E7", dict(zip(keys, unified))
 
     # …and naming the OTHER dataset selects the OTHER annotation. Without this the
@@ -962,8 +962,8 @@ def test_AUTHORITY_keeps_the_conflicting_entity_and_labels_it_from_the_NAMED_dat
     outputs2, manifest2 = produce(tmp_path / "b", mode="authority", authority="ds-a")
     root2 = outputs2 / entry_for(manifest2, "dataset-alignment")["path"]
     assert entry_for(manifest2, "dataset-alignment")["meta"]["authority"] == "ds-a"
-    keys2 = cyto_zarr_read.read_strings(root2, "unified_key")
-    unified2 = cyto_zarr_read.read_strings(root2, "unified_ensembl_id")
+    keys2 = txr_zarr_read.read_strings(root2, "unified_key")
+    unified2 = txr_zarr_read.read_strings(root2, "unified_ensembl_id")
     assert dict(zip(keys2, unified2))["C"] == "E3", dict(zip(keys2, unified2))
 
 
@@ -973,8 +973,8 @@ def test_the_entity_evidence_VECTOR_records_which_entity_disagreed(tmp_path):
     the fixture makes exactly one entity disagree so an all-ones constant cannot pass."""
     outputs, manifest = produce(tmp_path, mode="authority", authority="ds-b")
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    keys = cyto_zarr_read.read_strings(root, "unified_key")
-    agreed = cyto_zarr_read.read_array(root, "entity_secondaries_agreed").tolist()
+    keys = txr_zarr_read.read_strings(root, "unified_key")
+    agreed = txr_zarr_read.read_array(root, "entity_secondaries_agreed").tolist()
 
     assert len(agreed) == len(keys) == 3, (keys, agreed)
     by_entity = dict(zip(keys, agreed))
@@ -1017,9 +1017,9 @@ def test_segment_dataset_is_asserted_for_EVERY_segment_not_just_the_first(tmp_pa
     manifest = json.loads((outputs / "manifest.json").read_text())
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
 
-    order = cyto_zarr_read.read_array(root, "segment_order").tolist()
-    dataset = cyto_zarr_read.read_array(root, "segment_dataset").tolist()
-    start = cyto_zarr_read.read_array(root, "segment_start").tolist()
+    order = txr_zarr_read.read_array(root, "segment_order").tolist()
+    dataset = txr_zarr_read.read_array(root, "segment_dataset").tolist()
+    start = txr_zarr_read.read_array(root, "segment_start").tolist()
 
     # EVERY segment, resolved through declared_order — not just the first.
     by_declared = {int(order[i]): (int(dataset[i]), int(start[i])) for i in range(len(order))}
@@ -1162,7 +1162,7 @@ def test_the_dataset_alignment_DECLARATION_matches_a_freshly_emitted_artifact(pr
     """
     outputs, manifest = produced
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    structure = cyto_zarr_read.structure(root)
+    structure = txr_zarr_read.structure(root)
     datatype = _declared_alignment_datatype()
 
     emitted_roles = {m["role"] for m in structure["aux"]}
@@ -1198,7 +1198,7 @@ def test_the_declaration_binds_each_role_to_the_DIMENSIONALITY_the_producer_writ
     axis) is a contract a reader cannot satisfy."""
     outputs, manifest = produced
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    structure = cyto_zarr_read.structure(root)
+    structure = txr_zarr_read.structure(root)
     by_role = {}
     for member in structure["aux"]:
         by_role.setdefault(member["role"], member["extent"])
@@ -1257,7 +1257,7 @@ def test_the_fixture_STORES_levels_out_of_observation_order_on_disk(tmp_path):
 
     The test above reasons about the `celltypes` lists. That is one step removed from what
     matters: the property has to hold in what the WRITER stored, because the producer reads
-    `attributes.cyto.levels` off the member, not the list a test declared. Since the sort now
+    `attributes.txr.levels` off the member, not the list a test declared. Since the sort now
     comes from pandas rather than from an explicit `sorted()` in the fixture, "the writer
     still does this" is exactly the kind of assumption that goes stale silently.
 
@@ -1266,9 +1266,9 @@ def test_the_fixture_STORES_levels_out_of_observation_order_on_disk(tmp_path):
     inputs, _outputs = stage_run(tmp_path, params={"key": "symbol"}, sources=TWO_SOURCES)
     differing = []
     for i, (dataset_id, spec) in enumerate(TWO_SOURCES):
-        stamped = cyto_zarr_read.read_meta(
+        stamped = txr_zarr_read.read_meta(
             mount_for(inputs, f"level:{i}:celltype"), "values")
-        stored = list(stamped["attributes"]["cyto"]["levels"])
+        stored = list(stamped["attributes"]["txr"]["levels"])
         observed = list(dict.fromkeys(spec["celltypes"]))
         assert sorted(stored) == sorted(set(spec["celltypes"])), (dataset_id, stored)
         if stored != observed:
@@ -1283,7 +1283,7 @@ def test_the_fixture_STORES_levels_out_of_observation_order_on_disk(tmp_path):
 def test_the_level_lookups_are_indexed_by_each_source_STORED_code_space(produced, tmp_path):
     """The end-to-end proof that the producer honours each source's DECLARED level order.
 
-    Stored codes are positions into the member's own `attributes.cyto.levels`. If the
+    Stored codes are positions into the member's own `attributes.txr.levels`. If the
     producer inferred the code space from observed labels instead, the lookup would be a
     permutation and every fused value of that source silently relabelled.
 
@@ -1295,23 +1295,23 @@ def test_the_level_lookups_are_indexed_by_each_source_STORED_code_space(produced
     """
     outputs, manifest = produced
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    structure = cyto_zarr_read.structure(root)
+    structure = txr_zarr_read.structure(root)
 
     lookups = {}
     for member in structure["aux"]:
         if member["role"] != "alignment_level_lookup":
             continue
         source_index = int(member["path"].rsplit("__", 1)[1])
-        lookups[source_index] = cyto_zarr_read.read_array(root, member["path"]).tolist()
+        lookups[source_index] = txr_zarr_read.read_array(root, member["path"]).tolist()
     assert len(lookups) == 2, sorted(lookups)
 
     # Each source's STORED level list, off its own member stamp — the code space itself.
     unified_of_level = {}
     for source_index, (dataset_id, _spec) in enumerate(TWO_SOURCES):
-        stamp = cyto_zarr_read.read_meta(
+        stamp = txr_zarr_read.read_meta(
             mount_for(tmp_path / "inputs", f"level:{source_index}:celltype"), "values"
         )
-        stored_levels = stamp["attributes"]["cyto"]["levels"]
+        stored_levels = stamp["attributes"]["txr"]["levels"]
         assert stored_levels == sorted(stored_levels), (
             f"{dataset_id} must store levels out of observation order for this to test "
             f"anything; got {stored_levels}"
@@ -1354,8 +1354,8 @@ def test_the_reference_EMITTER_runs_and_its_default_fixture_DISAGREES_on_order(t
     assert proc.returncode == 0, f"{proc.stdout}\n{proc.stderr}"
 
     root = out / "outputs" / "alignment.zarr"
-    order = cyto_zarr_read.read_array(root, "segment_order").tolist()
-    start = cyto_zarr_read.read_array(root, "segment_start").tolist()
+    order = txr_zarr_read.read_array(root, "segment_order").tolist()
+    start = txr_zarr_read.read_array(root, "segment_start").tolist()
     assert order != sorted(order), (
         f"the reference artifact's segment_order={order} is ascending across the array, so "
         "array order and declared_order agree and a consumer that ignores declared_order "
@@ -1367,7 +1367,7 @@ def test_the_reference_EMITTER_runs_and_its_default_fixture_DISAGREES_on_order(t
     )
     # …and it is a REAL artifact: the framework gate conforms it.
     assert conformance.conform_artifact(
-        root, cyto_zarr_read.structure(root), full=True
+        root, txr_zarr_read.structure(root), full=True
     ) == []
 
 
@@ -1377,14 +1377,14 @@ def test_the_reference_EMITTER_runs_and_its_default_fixture_DISAGREES_on_order(t
 
 
 def _unified_levels(root):
-    attributes = cyto_zarr_read.read_meta(root).get("attributes") or {}
-    return (attributes.get("cyto_alignment") or {}).get("unified_levels")
+    attributes = txr_zarr_read.read_meta(root).get("attributes") or {}
+    return (attributes.get("txr_alignment") or {}).get("unified_levels")
 
 
 def test_the_unified_VOCABULARY_travels_with_the_artifact(produced):
     """Without it a fused categorical is uninterpretable — and a browser renders integers.
 
-    The client reads a categorical's labels from `attributes.cyto.levels`. A gathered column
+    The client reads a categorical's labels from `attributes.txr.levels`. A gathered column
     has no stored member to read them from, so the vocabulary has to come from the
     alignment. It was being computed and discarded, which made every `alignment_level_lookup`
     a mapping into a list that existed nowhere.
@@ -1408,7 +1408,7 @@ def test_every_lookup_code_RESOLVES_to_the_label_its_source_code_denotes(produce
     outputs, manifest = produced
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
     levels = _unified_levels(root)["celltype"]
-    structure = cyto_zarr_read.structure(root)
+    structure = txr_zarr_read.structure(root)
 
     checked = 0
     for member in structure["aux"]:
@@ -1416,11 +1416,11 @@ def test_every_lookup_code_RESOLVES_to_the_label_its_source_code_denotes(produce
             continue
         source_index = int(member["path"].rsplit("__", 1)[1])
         dataset_id = TWO_SOURCES[source_index][0]
-        stamp = cyto_zarr_read.read_meta(
+        stamp = txr_zarr_read.read_meta(
             mount_for(tmp_path / "inputs", f"level:{source_index}:celltype"), "values"
         )
-        stored_levels = stamp["attributes"]["cyto"]["levels"]
-        codes = cyto_zarr_read.read_array(root, member["path"]).tolist()
+        stored_levels = stamp["attributes"]["txr"]["levels"]
+        codes = txr_zarr_read.read_array(root, member["path"]).tolist()
         assert len(codes) == len(stored_levels), (member["path"], codes, stored_levels)
         for stored_code, label in enumerate(stored_levels):
             unified = codes[stored_code]
@@ -1474,7 +1474,7 @@ def test_the_vocabulary_SURVIVES_above_the_manifest_truncation_threshold(tmp_pat
         f"{order_evidence}"
     )
     assert conformance.conform_artifact(
-        root, cyto_zarr_read.structure(root), full=True
+        root, txr_zarr_read.structure(root), full=True
     ) == []
 
 
@@ -1537,11 +1537,11 @@ def test_the_ABSENCE_code_is_reachable_from_a_REFERENCE_artifact_under_either_au
         )
         assert proc.returncode == 0, f"{authority}: {proc.stdout}\n{proc.stderr}"
         root = out / "outputs" / "alignment.zarr"
-        structure = cyto_zarr_read.structure(root)
+        structure = txr_zarr_read.structure(root)
         # SINCE C4 the absence code is the DECLARED absence level's index, not `-1`. The
         # test kept its purpose — the reference artifact must EXERCISE the absence path —
         # and changed what that path is encoded as.
-        attrs = json.loads((root / "zarr.json").read_text())["attributes"]["cyto_alignment"]
+        attrs = json.loads((root / "zarr.json").read_text())["attributes"]["txr_alignment"]
         missing = {c: lv for c, lv in attrs["missing_levels"].items() if lv is not None}
         assert missing, (
             f"--authority {authority} declares no missing level, so nothing was dropped and "
@@ -1551,7 +1551,7 @@ def test_the_ABSENCE_code_is_reachable_from_a_REFERENCE_artifact_under_either_au
             code
             for member in structure["aux"]
             if member["role"] == "alignment_level_lookup"
-            for code in cyto_zarr_read.read_array(root, member["path"]).tolist()
+            for code in txr_zarr_read.read_array(root, member["path"]).tolist()
         ]
         assert absent & set(codes), (
             f"--authority {authority} declares {missing} but no stored lookup maps a source "
@@ -1573,9 +1573,9 @@ def test_strict_mode_emits_NO_absence_code(tmp_path):
     root = out / "outputs" / "alignment.zarr"
     negatives = [
         code
-        for member in cyto_zarr_read.structure(root)["aux"]
+        for member in txr_zarr_read.structure(root)["aux"]
         if member["role"] == "alignment_level_lookup"
-        for code in cyto_zarr_read.read_array(root, member["path"]).tolist()
+        for code in txr_zarr_read.read_array(root, member["path"]).tolist()
         if code < 0
     ]
     assert not negatives, f"strict unions, so nothing is dropped; got {negatives}"
@@ -1676,7 +1676,7 @@ def test_the_unified_entity_ORDER_follows_SOURCE_0_not_the_AUTHORITY(tmp_path, a
     run_producer(inputs, outputs)
     manifest = json.loads((outputs / "manifest.json").read_text())
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    emitted = cyto_zarr_read.read_strings(root, "unified_key")
+    emitted = txr_zarr_read.read_strings(root, "unified_key")
 
     source_0_order = [k for k in AUTHORITY_ORDER_SOURCES[0][1]["entity_keys"] if k in emitted]
     source_1_order = [k for k in AUTHORITY_ORDER_SOURCES[1][1]["entity_keys"] if k in emitted]
@@ -1690,7 +1690,7 @@ def test_the_unified_entity_ORDER_follows_SOURCE_0_not_the_AUTHORITY(tmp_path, a
     )
     # …and the ANNOTATION still follows the authority — the thing the mode DOES control,
     # asserted alongside so a change that swapped the two is caught by one of the pair.
-    labels = cyto_zarr_read.read_strings(root, "unified_ensembl_id")
+    labels = txr_zarr_read.read_strings(root, "unified_ensembl_id")
     assert labels[emitted.index("C")] == ("E3" if authority == "ds-a" else "E7"), labels
 
 
@@ -1710,7 +1710,7 @@ def test_the_unified_order_TRACKS_source_0_rather_than_being_constant(tmp_path):
     run_producer(inputs, outputs)
     manifest = json.loads((outputs / "manifest.json").read_text())
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    emitted = cyto_zarr_read.read_strings(root, "unified_key")
+    emitted = txr_zarr_read.read_strings(root, "unified_key")
 
     now_source_0 = [k for k in AUTHORITY_ORDER_SOURCES[1][1]["entity_keys"] if k in emitted]
     assert emitted == now_source_0, (
@@ -1747,7 +1747,7 @@ def test_a_NON_CATEGORICAL_level_binding_is_REFUSED_not_fabricated(tmp_path, val
     mount = mount_for(inputs, "level:0:celltype")
     shutil.rmtree(mount)
     write_column_artifact(mount, "celltype", values, axis="rows")
-    stamped = cyto_zarr_read.read_meta(mount, "values")["attributes"]["cyto"]
+    stamped = txr_zarr_read.read_meta(mount, "values")["attributes"]["txr"]
     # THE FIXTURE PROPERTY, asserted before the behaviour that depends on it: this member
     # really is the kind the test claims, and really carries no declared level set.
     assert stamped.get("kind") == kind, stamped
@@ -1777,13 +1777,13 @@ def test_a_CATEGORICAL_level_binding_is_the_positive_control(tmp_path):
     `level:` binding", which would disable level fusion entirely while looking like a fix.
     """
     inputs, outputs = stage_run(tmp_path, params={"key": "symbol"}, sources=TWO_SOURCES)
-    stamped = cyto_zarr_read.read_meta(
-        mount_for(inputs, "level:0:celltype"), "values")["attributes"]["cyto"]
+    stamped = txr_zarr_read.read_meta(
+        mount_for(inputs, "level:0:celltype"), "values")["attributes"]["txr"]
     assert stamped.get("kind") == "categorical" and "levels" in stamped, stamped
     run_producer(inputs, outputs)
     manifest = json.loads((outputs / "manifest.json").read_text())
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    lookups = [m for m in cyto_zarr_read.structure(root)["aux"]
+    lookups = [m for m in txr_zarr_read.structure(root)["aux"]
                if m["role"] == "alignment_level_lookup"]
     assert len(lookups) == len(TWO_SOURCES), [m["path"] for m in lookups]
 
@@ -1863,8 +1863,8 @@ def test_two_slots_that_SANITIZE_ALIKE_still_read_their_OWN_values(tmp_path):
     a, b = mount_for(inputs, "entity:0:g:1"), mount_for(inputs, "entity:0:g_1")
     assert a != b, f"the two alike-sanitizing slots share one mount ({a}) — the runner "\
                    "stopped disambiguating, and the later binding now overwrites the earlier"
-    assert cyto_zarr_read.read_strings(a, "values") == ["X", "Y"]
-    assert cyto_zarr_read.read_strings(b, "values") == ["P", "Q"]
+    assert txr_zarr_read.read_strings(a, "values") == ["X", "Y"]
+    assert txr_zarr_read.read_strings(b, "values") == ["P", "Q"]
     # …and the run still succeeds, reading each cell of the grid from its own slot.
     run_producer(inputs, outputs)
     assert (outputs / "manifest.json").exists()
@@ -2066,7 +2066,7 @@ def test_the_THREE_SOURCE_reference_fixture_has_a_NON_INVOLUTIVE_permutation(tmp
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
     root = out / "outputs" / "alignment.zarr"
-    perm = [int(x) for x in cyto_zarr_read.read_array(root, "segment_dataset").tolist()]
+    perm = [int(x) for x in txr_zarr_read.read_array(root, "segment_dataset").tolist()]
     assert len(perm) >= 3, f"two sources cannot express this property; got {perm}"
     assert sorted(perm) == list(range(len(perm))), perm
     inverse = [perm.index(i) for i in range(len(perm))]
@@ -2076,8 +2076,8 @@ def test_the_THREE_SOURCE_reference_fixture_has_a_NON_INVOLUTIVE_permutation(tmp
     )
     # …and the ARRAY order still disagrees with the declared order (the exit-2 property),
     # so the new fixture does not quietly lose what the other three protect.
-    assert cyto_zarr_read.read_array(root, "segment_start").tolist() != sorted(
-        cyto_zarr_read.read_array(root, "segment_start").tolist()
+    assert txr_zarr_read.read_array(root, "segment_start").tolist() != sorted(
+        txr_zarr_read.read_array(root, "segment_start").tolist()
     ), "segment_start is ascending across the array — array order and declared order agree"
 
 
@@ -2159,9 +2159,9 @@ def test_an_UNDECLARED_entity_axis_reads_as_CANNOT_BE_CHECKED_not_as_matching(tm
     for column in ("symbol", "ensembl_id"):
         store = mount_for(inputs, f"entity:0:{column}")
         node = json.loads((store / "zarr.json").read_text())
-        cyto = node["attributes"]["cyto"]
-        cyto.pop("aligned_to", None)
-        cyto.pop("key_sequence_digest", None)
+        txr = node["attributes"]["txr"]
+        txr.pop("aligned_to", None)
+        txr.pop("key_sequence_digest", None)
         (store / "zarr.json").write_text(json.dumps(node, indent=2))
 
     run_producer(inputs, outputs)
@@ -2219,8 +2219,8 @@ def test_meta_sources_is_in_DECLARED_order_not_sorted(tmp_path):
     # which. Asserted here because a fix that reordered one and not the other would satisfy
     # the assertion above while breaking the thing it protects.
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    seg_dataset = cyto_zarr_read.read_array(root, "segment_dataset").tolist()
-    seg_order = cyto_zarr_read.read_array(root, "segment_order").tolist()
+    seg_dataset = txr_zarr_read.read_array(root, "segment_dataset").tolist()
+    seg_order = txr_zarr_read.read_array(root, "segment_order").tolist()
     for source_index, declared_order in zip(seg_dataset, seg_order):
         assert emitted[int(source_index)] == ids[int(declared_order)], (
             emitted, ids, seg_dataset, seg_order)
@@ -2243,7 +2243,7 @@ def test_the_LEVEL_LOOKUP_member_names_carry_column_and_source_index_verbatim(tm
     run_producer(inputs, outputs)
     manifest = json.loads((outputs / "manifest.json").read_text())
     root = outputs / entry_for(manifest, "dataset-alignment")["path"]
-    structure = cyto_zarr_read.structure(root)
+    structure = txr_zarr_read.structure(root)
 
     lookups = {m["path"] for m in structure["aux"] if m["role"] == "alignment_level_lookup"}
     # SPELLED OUT. `celltype` is the fixture's fused column; one lookup per source.
@@ -2324,9 +2324,9 @@ def test_source_declared_orders_records_the_ORDER_THE_SOURCE_STORED(tmp_path):
     assert "celltype" in recorded, recorded
 
     for i, (dataset_id, _spec) in enumerate(TWO_SOURCES):
-        stored = list(cyto_zarr_read.read_meta(
+        stored = list(txr_zarr_read.read_meta(
             mount_for(inputs, f"level:{i}:celltype"), "values"
-        )["attributes"]["cyto"]["levels"])
+        )["attributes"]["txr"]["levels"])
         assert recorded["celltype"][dataset_id] == stored, (
             f"{dataset_id}: recorded {recorded['celltype'][dataset_id]} but the source store "
             f"declares {stored} — the evidence record is describing something else")
@@ -2350,8 +2350,8 @@ def test_a_source_whose_DECLARATION_and_BYTES_disagree_is_REFUSED(tmp_path):
     inputs, outputs = stage_run(tmp_path, params={"key": "symbol"}, sources=TWO_SOURCES)
     store = mount_for(inputs, "rows", 0)
     node = json.loads((store / "zarr.json").read_text())
-    real = node["attributes"]["cyto"]["key_sequence_digest"]
-    node["attributes"]["cyto"]["key_sequence_digest"] = "sha256:" + "0" * 64
+    real = node["attributes"]["txr"]["key_sequence_digest"]
+    node["attributes"]["txr"]["key_sequence_digest"] = "sha256:" + "0" * 64
     (store / "zarr.json").write_text(json.dumps(node, indent=2))
     assert real != "sha256:" + "0" * 64
 
@@ -2374,10 +2374,10 @@ def test_entity_columns_declaring_DIFFERENT_row_spaces_are_REFUSED(tmp_path):
     victim = mount_for(inputs, "entity:0:ensembl_id")
     other = mount_for(inputs, "entity:1:symbol")
     other_digest = json.loads((other / "zarr.json").read_text()
-                              )["attributes"]["cyto"]["key_sequence_digest"]
+                              )["attributes"]["txr"]["key_sequence_digest"]
     node = json.loads((victim / "zarr.json").read_text())
-    assert node["attributes"]["cyto"].get("aligned_to") != other_digest
-    node["attributes"]["cyto"]["aligned_to"] = other_digest
+    assert node["attributes"]["txr"].get("aligned_to") != other_digest
+    node["attributes"]["txr"]["aligned_to"] = other_digest
     (victim / "zarr.json").write_text(json.dumps(node, indent=2))
 
     proc = run_producer(inputs, outputs, expect_ok=False)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ruff: noqa
-"""annotation_integrate — CytoAnalyst supporting-file KIND-PROCESSOR (ITEM-13).
+"""annotation_integrate — TxResBench supporting-file KIND-PROCESSOR (ITEM-13).
 
 The SINGLE, generic, axis-AGNOSTIC integrator for the ``annotation_table`` supporting
 kind (DEC-8/DEC-16/DEC-23). It folds a keyed CSV/TSV annotation table onto an existing
@@ -21,10 +21,10 @@ TWO inputs (the coordinator's Rust wires both into ``/inputs`` and records them 
     column is the join key (auto-detected against the axis index, or ``params.key_column``).
   * slot ``axis_index``       — the target axis's entity-INDEX ``metadata-column``
     artifact the primary import emitted (DEC-7). Since artifact-model ITEM-26 that
-    artifact is a **Zarr STORE DIRECTORY** (`cyto_columns.write_metadata_column`), not a
+    artifact is a **Zarr STORE DIRECTORY** (`txr_columns.write_metadata_column`), not a
     single-file JSON: the ordered axis keys live in the member the producer DECLARED via
     ``structure.key``, and the axis NAME in ``structure.axis``. Read through the
-    reference reader (``cyto_zarr_read``), never by re-deriving the container by hand.
+    reference reader (``txr_zarr_read``), never by re-deriving the container by hand.
     The artifact's own identity is its ``content_hash`` + ``structure.key_sequence_digest``
     (INV-3) — its label (``cells_index`` / ``genes_index``) is a name, not a contract, and
     nothing here keys off it.
@@ -35,10 +35,10 @@ declares in ``structure.axis``, never to a name-derived or hardcoded one),
 ``key_column`` (override the auto-detect), ``normalize`` (override the default pipeline).
 
 The run contract mirrors ``h5ad_import.py``: read ``/inputs/<slot>`` + ``inputs.json`` +
-``params.json``; write ``/outputs/<file>`` + ``/outputs/manifest.json``. ``CYTO_INPUTS_DIR``
-/ ``CYTO_OUTPUTS_DIR`` override the roots for the off-sandbox harness.
+``params.json``; write ``/outputs/<file>`` + ``/outputs/manifest.json``. ``TXR_INPUTS_DIR``
+/ ``TXR_OUTPUTS_DIR`` override the roots for the off-sandbox harness.
 """
-import cyto_deps
+import txr_deps
 import json
 import os
 import sys
@@ -55,13 +55,13 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 import align  # noqa: E402
-import cyto_columns  # noqa: E402  (the shared `_lib` output-format adapter)
-# The `_lib` reference READER for what `cyto_zarr` writes. Its module header names this
+import txr_columns  # noqa: E402  (the shared `_lib` output-format adapter)
+# The `_lib` reference READER for what `txr_zarr` writes. Its module header names this
 # exact case as one of its two reasons to exist ("a processor that consumes another
 # processor's output"), so the shard container is decoded once, in the library that owns
 # the format, instead of a second time here. Globally staged into every Python entry's
-# `/code` alongside `cyto_columns` (`sandbox/processors/mod.rs::PY_HELPER_FILES`).
-import cyto_zarr_read  # noqa: E402
+# `/code` alongside `txr_columns` (`sandbox/processors/mod.rs::PY_HELPER_FILES`).
+import txr_zarr_read  # noqa: E402
 from colsummary import summarize_column  # noqa: E402
 
 # The legacy combined key-normalization pipeline (DEC-18). Retained as a documented
@@ -100,8 +100,8 @@ def default_normalize_for_axis(axis_name):
 # ─────────────────────────────── I/O idioms (inlined per-script, mirrors h5ad_import) ─
 
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -164,7 +164,7 @@ _PROGRESS_FD = [-1]
 
 
 def _fifo_write(line):
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if not fifo:
         return
     if _PROGRESS_FD[0] < 0:
@@ -226,9 +226,9 @@ def write_manifest(outputs_dir, entries):
     # environment does not satisfy the declaration. Placed here, on the one path every
     # successful run takes, so recording is structural rather than remembered: a compute
     # cannot emit its outputs without also emitting what produced them.
-    # The datatype is THIS package's, passed in: `cyto_deps` is app-core and may not
+    # The datatype is THIS package's, passed in: `txr_deps` is app-core and may not
     # name a contributed domain's vocabulary, so the caller supplies the pair.
-    cyto_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
+    txr_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
     (outputs_dir / "manifest.json").write_text(json.dumps({"outputs": entries}, indent=2))
 
 
@@ -276,13 +276,13 @@ def load_axis_index(path):
     ``(ordered axis keys, declared axis name)``.
 
     Since artifact-model ITEM-26 that artifact is a **Zarr store DIRECTORY** written by
-    `cyto_columns.write_metadata_column(..., holds_axis_keys=True)`, so this reads it the
+    `txr_columns.write_metadata_column(..., holds_axis_keys=True)`, so this reads it the
     way every other migrated consumer in the tree does — through the `_lib` reference
     reader — and takes BOTH facts from the producer's own declaration in the store's group
     attributes rather than from the artifact's name or its file extension:
 
       * ``structure.key`` names the member holding the axis's ordered keys. Which member
-        that is "cannot be derived from bytes" (`cyto_zarr.Table`), so it is read, not
+        that is "cannot be derived from bytes" (`txr_zarr.Table`), so it is read, not
         assumed; `"values"` is the fallback only for a column artifact that declares no
         key member at all.
       * ``structure.axis`` is the axis NAME. This replaces deriving it from the artifact's
@@ -305,19 +305,19 @@ def load_axis_index(path):
         raise ValueError(
             f"axis index {str(root)!r} is not a Zarr store directory — since ITEM-26 the "
             "`<axis>` entity-index metadata-column artifact is a Zarr store written by "
-            "`cyto_columns.write_metadata_column` (note the staged name may still carry a "
+            "`txr_columns.write_metadata_column` (note the staged name may still carry a "
             "`.json` extension; the extension is not the format)"
         )
     try:
-        structure = cyto_zarr_read.structure(root)
+        structure = txr_zarr_read.structure(root)
     except (OSError, ValueError, KeyError) as exc:
         raise ValueError(
             f"axis index {str(root)!r} carries no readable `structure` declaration in its "
-            f"group `zarr.json` ({type(exc).__name__}: {exc}) — it is not a `cyto_zarr` store"
+            f"group `zarr.json` ({type(exc).__name__}: {exc}) — it is not a `txr_zarr` store"
         ) from exc
 
     member = structure.get("key") or "values"
-    values = cyto_zarr_read.read_column(root, member)
+    values = txr_zarr_read.read_column(root, member)
     if hasattr(values, "tolist"):  # a numeric member decodes to a numpy array
         values = values.tolist()
     keys = [None if v is None else str(v) for v in values]
@@ -641,7 +641,7 @@ def main():
         # array. `col["summary"]` (the colsummary descriptor the UI reads for a legend
         # / colormap range) stays the entry's `meta`, merged with what the writer
         # observed about how the bytes were actually stored.
-        structure, stored = cyto_columns.write_metadata_column(
+        structure, stored = txr_columns.write_metadata_column(
             outputs_dir, rel, str(name), pd.Series(col["values"]), axis=axis_name)
         meta = dict(col["summary"])
         meta["stored"] = stored
@@ -682,7 +682,7 @@ def main():
             # successful alignment.
             "integration_summary", "data/opaque", "opaque", summ_rel, "intermediate",
             meta=integration_summary, hidden=True,
-            structure=cyto_columns.opaque("application/json"),
+            structure=txr_columns.opaque("application/json"),
         )
     )
 

@@ -1,8 +1,8 @@
-//! CytoAnalyst integration-test harness — the app side of the SDK's
-//! `ziee-test-harness` `HarnessApp` seam.
+//! TxResBench integration-test harness — the app side of the SDK's
+//! `txresbench-test-harness` `HarnessApp` seam.
 //!
 //! The SDK crate owns the generic engine (per-worktree template, per-test
-//! database, spawn + readiness + teardown). CytoAnalyst supplies ONE `HarnessApp`
+//! database, spawn + readiness + teardown). TxResBench supplies ONE `HarnessApp`
 //! impl (binary name, template-DB base, migration dirs, rendered config) plus a
 //! thin `TestServer` wrapper that re-exposes `base_url`/`api_url` + HTTP helpers.
 //!
@@ -13,7 +13,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ziee_test_harness::{HarnessApp, SpawnFacts, SpawnPlan, SpawnedServer, TestHarness, Variant};
+use txresbench_test_harness::{HarnessApp, SpawnFacts, SpawnPlan, SpawnedServer, TestHarness, Variant};
 
 /// The suite's reader for what a processor emitted. Here rather than beside one
 /// caller because two test modules in different trees need it, and a second copy of a
@@ -37,7 +37,7 @@ pub mod stripe_sim;
 /// failure this prevents.
 pub mod object_store;
 
-/// CytoAnalyst's `HarnessApp`. Server-only (no desktop test crate yet).
+/// TxResBench's `HarnessApp`. Server-only (no desktop test crate yet).
 pub struct CytoHarnessApp;
 
 /// The fixed bytes of every pre-staged method-env squashfs
@@ -48,7 +48,7 @@ pub struct CytoHarnessApp;
 /// boot/test path mounts it.
 pub const PRESTAGED_METHOD_ENV_SQUASHFS: &[u8] = b"txr-prestaged-method-env-squashfs-bytes";
 
-/// Per-spawn knobs. Grow as tests need config overrides (mirrors ziee's
+/// Per-spawn knobs. Grow as tests need config overrides (mirrors txresbench's
 /// `TestServerOptions`).
 #[derive(Default, Clone)]
 pub struct TestOptions {
@@ -72,7 +72,7 @@ pub struct TestOptions {
     pub sync_recheck_tick_ms: Option<u64>,
 
     /// Override the billing rollup loop's tick period, in milliseconds
-    /// (`CYTO_BILLING_ROLLUP_TICK_MS`, a debug-only seam compiled out of release
+    /// (`TXR_BILLING_ROLLUP_TICK_MS`, a debug-only seam compiled out of release
     /// builds — mirrors `SYNC_RECHECK_TICK_MS`). Production ticks every
     /// `rollup_interval_hours` (≥1h); a test that must observe a fold+emit after
     /// seeding meter rows sets this to a few hundred ms instead of waiting an hour.
@@ -80,13 +80,13 @@ pub struct TestOptions {
     pub billing_rollup_tick_ms: Option<u64>,
 
     /// Override the billing usage-alert ladder loop's tick period, in milliseconds
-    /// (`CYTO_BILLING_ALERT_TICK_MS`, a debug-only seam compiled out of release builds —
+    /// (`TXR_BILLING_ALERT_TICK_MS`, a debug-only seam compiled out of release builds —
     /// mirrors `billing_rollup_tick_ms`). A test that must observe an alert emit after
     /// seeding a rollup row sets this to a few hundred ms. `saas`-only.
     pub billing_alert_tick_ms: Option<u64>,
 
     /// Gate the spawned server's job scheduler loop (T3 / G2 / PROV-T3-2). `None` (default)
-    /// leaves `CYTO_SCHEDULER_ENABLED` unset → the loop runs (single-box default). `Some(false)`
+    /// leaves `TXR_SCHEDULER_ENABLED` unset → the loop runs (single-box default). `Some(false)`
     /// spawns an ENQUEUE-ONLY `serve` pod that never claims (the SaaS API-pod posture);
     /// `Some(true)` sets it explicitly on (positive control).
     pub scheduler_enabled: Option<bool>,
@@ -116,7 +116,7 @@ pub struct TestOptions {
     /// arm without network and without oras (a real `ensure` would pull).
     pub prestage_method_envs: Vec<(String, String)>,
 
-    /// Set the at-rest secret storage key (`CYTO_SECRET_STORAGE_KEY`, #60) for the
+    /// Set the at-rest secret storage key (`TXR_SECRET_STORAGE_KEY`, #60) for the
     /// spawned server, enabling ENCRYPTED billing-integration storage. `None` (default)
     /// leaves it unset → compat mode (no DB secret storage; env fallback). A test that
     /// must exercise encrypt-at-rest / masked-read sets a ≥32-char key here. Mirrors the
@@ -124,7 +124,7 @@ pub struct TestOptions {
     pub secret_storage_key: Option<String>,
 
     /// Point the spawned server's pretrained-catalogue boot refresh at this
-    /// catalogue URL (`CYTO_TXR_CATALOGUE_URL` — the module's documented
+    /// catalogue URL (`TXR_CATALOGUE_URL` — the module's documented
     /// default-resolution seam). `None` (default) defaults to a CLOSED
     /// loopback port: the boot refresh fails instantly without network, so
     /// every spawned server boots offline-fast and no test suite dials the
@@ -133,7 +133,7 @@ pub struct TestOptions {
     pub catalogue_url: Option<String>,
 
     /// Point the spawned server's pretrained bundled-models dir at this
-    /// directory (`CYTO_TXR_BUNDLED_MODELS_DIR` — the module's documented
+    /// directory (`TXR_BUNDLED_MODELS_DIR` — the module's documented
     /// bundle-layout resolution). `None` (default) leaves the env unset →
     /// `<data_dir>/pretrained-bundled`. A test that must exercise the
     /// bundled install source (TEST-PC-07/23) writes its fixture `.txr` here
@@ -147,11 +147,11 @@ impl HarnessApp for CytoHarnessApp {
     fn template_db_base(&self, _variant: Variant) -> String {
         // The engine appends the per-worktree suffix so concurrent worktrees
         // never clobber each other's template.
-        "cytoanalyst_test_template".to_string()
+        "txresbench_test_template".to_string()
     }
 
     fn migration_dirs(&self, _variant: Variant, manifest_dir: &Path) -> Vec<PathBuf> {
-        // build.rs composes the app + ziee-auth migrations here.
+        // build.rs composes the app + txresbench-auth migrations here.
         vec![manifest_dir.join("migrations-merged")]
     }
 
@@ -181,8 +181,8 @@ logging:
 
 jwt:
   secret: "test-secret-key-for-jwt-tokens-min-32-chars-long"
-  issuer: "cytoanalyst"
-  audience: "cytoanalyst-api"
+  issuer: "txresbench"
+  audience: "txresbench-api"
   access_token_expiry_hours: 24
   refresh_token_expiry_days: 30
 "#,
@@ -198,9 +198,9 @@ jwt:
         SpawnPlan {
             config_yaml,
             binary_name: if opts.break_binary_name {
-                "cytoanalyst-no-such-binary".to_string()
+                "txresbench-no-such-binary".to_string()
             } else {
-                "cytoanalyst".to_string()
+                "txresbench".to_string()
             },
             extra_argv: vec![],
             // Isolate each test's sandbox/rootfs writes to its own data dir.
@@ -234,7 +234,7 @@ jwt:
                     )
                     .expect("prestage method-env squashfs");
                     for (env_id, kind) in &opts.prestage_method_envs {
-                        if !cytoanalyst::modules::sandbox::env_id::is_valid_env_id(env_id) {
+                        if !txresbench::modules::sandbox::env_id::is_valid_env_id(env_id) {
                             panic!("prestage_method_envs: {env_id:?} is not a valid env id");
                         }
                         if !matches!(kind.as_str(), "base" | "layer") {
@@ -255,7 +255,7 @@ jwt:
                     }
                 }
                 let mut env = vec![(
-                    "CYTO_APP_DATA_DIR".to_string(),
+                    "TXR_APP_DATA_DIR".to_string(),
                     facts.data_dir.display().to_string(),
                 )];
                 if let Some(ms) = opts.sync_recheck_tick_ms {
@@ -263,25 +263,25 @@ jwt:
                 }
                 if let Some(on) = opts.scheduler_enabled {
                     env.push((
-                        "CYTO_SCHEDULER_ENABLED".to_string(),
+                        "TXR_SCHEDULER_ENABLED".to_string(),
                         if on { "1" } else { "0" }.to_string(),
                     ));
                 }
                 if let Some(ms) = opts.billing_rollup_tick_ms {
-                    env.push(("CYTO_BILLING_ROLLUP_TICK_MS".to_string(), ms.to_string()));
+                    env.push(("TXR_BILLING_ROLLUP_TICK_MS".to_string(), ms.to_string()));
                 }
                 if let Some(ms) = opts.billing_alert_tick_ms {
-                    env.push(("CYTO_BILLING_ALERT_TICK_MS".to_string(), ms.to_string()));
+                    env.push(("TXR_BILLING_ALERT_TICK_MS".to_string(), ms.to_string()));
                 }
                 if let Some(key) = &opts.secret_storage_key {
-                    env.push(("CYTO_SECRET_STORAGE_KEY".to_string(), key.clone()));
+                    env.push(("TXR_SECRET_STORAGE_KEY".to_string(), key.clone()));
                 }
                 // The pretrained-catalogue boot refresh (a detached task) must
                 // never dial the production catalogue host from a test suite:
                 // the default is a CLOSED loopback port (instant refusal), a
                 // test that needs a live catalogue passes its own URL.
                 env.push((
-                    "CYTO_TXR_CATALOGUE_URL".to_string(),
+                    "TXR_CATALOGUE_URL".to_string(),
                     opts.catalogue_url
                         .clone()
                         .unwrap_or_else(|| "http://127.0.0.1:9/catalogue.json".to_string()),
@@ -291,7 +291,7 @@ jwt:
                 // layout (the module's documented env seam).
                 if let Some(dir) = &opts.pretrained_bundled_dir {
                     env.push((
-                        "CYTO_TXR_BUNDLED_MODELS_DIR".to_string(),
+                        "TXR_BUNDLED_MODELS_DIR".to_string(),
                         dir.display().to_string(),
                     ));
                 }
@@ -381,7 +381,7 @@ pub fn ensure_extension_registry() {
     use std::sync::OnceLock;
     static ONCE: OnceLock<()> = OnceLock::new();
     ONCE.get_or_init(|| {
-        use cytoanalyst::modules::extensions::{loader, ExtensionRegistry};
+        use txresbench::modules::extensions::{loader, ExtensionRegistry};
         if loader::try_registry().is_some() {
             return;
         }
@@ -397,7 +397,7 @@ pub fn ensure_extension_registry() {
 }
 /// The SSE sync probe, imported FROM THE SDK.
 ///
-/// This was a 258-line hand-rolled mirror of `ziee_test_harness`'s own
+/// This was a 258-line hand-rolled mirror of `txresbench_test_harness`'s own
 /// `fixtures::sync_probe`, written only because that fixture sat behind the
 /// all-or-nothing `fixtures` cargo flag, whose other members (`testcontainers`,
 /// `wiremock`, `rsa`) are not otherwise in this workspace. The SDK now ships a narrow
@@ -408,12 +408,12 @@ pub fn ensure_extension_registry() {
 /// `expect_event_for` and the frame-decoding tests the mirror had grown went UPSTREAM
 /// with it rather than being dropped — see the SDK commit.
 pub mod sync_probe {
-    pub use ziee_test_harness::fixtures::sync_probe::SyncProbe;
+    pub use txresbench_test_harness::fixtures::sync_probe::SyncProbe;
 }
 
 /// The seam `SyncProbe::open` needs: it builds the `/sync/subscribe` URL without the
 /// fixture naming any app-side type.
-impl ziee_test_harness::ApiUrlTarget for TestServer {
+impl txresbench_test_harness::ApiUrlTarget for TestServer {
     fn api_url(&self, path: &str) -> String {
         TestServer::api_url(self, path)
     }
@@ -497,7 +497,7 @@ pub async fn group_create(
     name: &str,
     permissions: Vec<String>,
 ) -> uuid::Uuid {
-    let groups = ziee_auth::user::GroupRepository::new(pool.clone());
+    let groups = txresbench_auth::user::GroupRepository::new(pool.clone());
     let group = groups
         .create(name, Some(String::new()), permissions)
         .await
@@ -506,7 +506,7 @@ pub async fn group_create(
 }
 
 pub async fn group_assign(pool: &sqlx::SqlitePool, user_id: uuid::Uuid, group_id: uuid::Uuid) {
-    let users = ziee_auth::user::UserRepository::new(pool.clone());
+    let users = txresbench_auth::user::UserRepository::new(pool.clone());
     users
         .assign_to_group(user_id, group_id, None)
         .await
@@ -514,7 +514,7 @@ pub async fn group_assign(pool: &sqlx::SqlitePool, user_id: uuid::Uuid, group_id
 }
 
 pub async fn group_deactivate(pool: &sqlx::SqlitePool, group_id: uuid::Uuid) {
-    let groups = ziee_auth::user::GroupRepository::new(pool.clone());
+    let groups = txresbench_auth::user::GroupRepository::new(pool.clone());
     groups
         .update(group_id, None, None, None, Some(false))
         .await
@@ -524,13 +524,13 @@ pub async fn group_deactivate(pool: &sqlx::SqlitePool, group_id: uuid::Uuid) {
 /// Remove a user from the seeded `Users` group (the group every registered user
 /// joins) — the repo substitute for `DELETE /groups/{user}/{group}/remove`.
 pub async fn group_remove_from_users(pool: &sqlx::SqlitePool, user_id: uuid::Uuid) {
-    let groups = ziee_auth::user::GroupRepository::new(pool.clone());
+    let groups = txresbench_auth::user::GroupRepository::new(pool.clone());
     let users_group = groups
         .get_by_name("Users")
         .await
         .expect("look up the Users group")
         .expect("the seeded Users group exists");
-    let users = ziee_auth::user::UserRepository::new(pool.clone());
+    let users = txresbench_auth::user::UserRepository::new(pool.clone());
     users
         .remove_from_group(user_id, users_group.id)
         .await

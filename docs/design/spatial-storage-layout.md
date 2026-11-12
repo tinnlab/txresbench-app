@@ -1,7 +1,7 @@
 # Spatial storage layout + import processor
 
-**Status:** RESTORED TO `main` BY [#315](https://github.com/phibya/cytoanalyst/issues/315).
-**Issue:** [#315](https://github.com/phibya/cytoanalyst/issues/315) — this file is cited by name,
+**Status:** RESTORED TO `main` BY [#315](https://github.com/phibya/txresbench/issues/315).
+**Issue:** [#315](https://github.com/phibya/txresbench/issues/315) — this file is cited by name,
 and by section number, throughout the shipped spatial arm, and it was not in `main`.
 
 > **HOW TO READ THIS DOCUMENT**
@@ -33,7 +33,7 @@ and by section number, throughout the shipped spatial arm, and it was not in `ma
 > `§12.<n>` means the <n>th weakness in §12. §16.1 records the one citation in the tree where
 > that reading and the citing sentence disagree.
 
-> **Scope.** How spatial transcriptomics data is **REPRESENTED AS CYTOANALYST ARTIFACTS**, and
+> **Scope.** How spatial transcriptomics data is **REPRESENTED AS TXRESBENCH ARTIFACTS**, and
 > the **import processor** that converts vendor output into them. This is the *foundation*
 > layer: a storage layout + an importer. Deconvolution, spatial QC, SVG detection, domain
 > detection and cell–cell communication are **downstream analyses** that consume these
@@ -81,8 +81,8 @@ an escape that does not cost a Rust change.
    geotiff.js range requests, and it passes the anti-bypass check.** This is the single
    sharpest constraint in the design and it decides the image format for us.
 4. **Coordinates are an `embedding`-shaped artifact, not a metadata-column pair.**
-   `cyto_columns.write_embedding` already writes a dense `(n × 2)` float32 member with
-   `aligned_to` + `membership` (`_lib/cyto_columns.py:372-416`), and the shipped
+   `txr_columns.write_embedding` already writes a dense `(n × 2)` float32 member with
+   `aligned_to` + `membership` (`_lib/txr_columns.py:372-416`), and the shipped
    `sc.viz.coordinates` section binds on the **`plottable-xy` capability alone**
    (`single-cell-viz/manifest.yaml:58`). A tissue map *is* a 2-D layout. Declaring
    `spatial/coordinates` with `plottable-xy` lights up the existing Coordinates section and the
@@ -126,7 +126,7 @@ An analysis-ready spatial object (`06-spatial-processing.md` §11) must hold:
 | **transcript points** | 10^8 rows × (gene, x, y, z, qv) | `transcripts.parquet` |
 | (spot) deconvolution / mapped labels | entities × celltypes | *downstream — out of scope* |
 
-CytoAnalyst implements **exactly three structures** — `opaque`, `table`, `sparse_csc`
+TxResBench implements **exactly three structures** — `opaque`, `table`, `sparse_csc`
 (`_lib/conformance.py:1515-1543`) — and shipped consumers refuse anything else **by name**:
 
 ```python
@@ -144,15 +144,15 @@ So the question is: **which of the six rows above can be expressed inside
 ### 1.1 The writer's real ceiling
 
 This is where a generic answer goes wrong. The constraint is not "three structures", it is
-what `cyto_zarr` can actually *write*:
+what `txr_zarr` can actually *write*:
 
 ```python
-# src-app/packages/_lib/cyto_zarr.py:494-495
+# src-app/packages/_lib/txr_zarr.py:494-495
 if arr.ndim not in (1, 2):
     raise ValueError(f"{name!r}: write_array takes 1-D or 2-D arrays, got {arr.ndim}-D")
 ```
 
-and, for the 2-D case (`cyto_zarr.py:239-242`):
+and, for the 2-D case (`txr_zarr.py:239-242`):
 
 ```python
 shard_rows  = inner_chunk * chunks_per_shard
@@ -165,18 +165,18 @@ Three consequences, all fatal for a raster and all harmless for a table:
 * **Rank ≤ 2.** There is no way to write an `(H, W, C)` image, let alone OME-NGFF's `czyx`.
 * **The second dimension is never chunked.** A 2-D chunk is `[shard_rows, width]` — *full
   width per chunk*. There is no 2-D tiling, so there is no tile a viewer could range-fetch.
-* **Numeric dtypes only** (`cyto_zarr.py:322`, `_NUMERIC_DTYPES`), and members are `numeric |
+* **Numeric dtypes only** (`txr_zarr.py:322`, `_NUMERIC_DTYPES`), and members are `numeric |
   categorical | string` (`conformance.py:416`).
 
 `write_array`'s own docstring is explicit that the 2-D case exists for embeddings: *"A 2-D
 array is chunked along the ROWS only — each chunk carries the full width — so the shard index
 is the same flat sequence a 1-D array produces and a consumer that wants one row fetches
-exactly one chunk"* (`cyto_zarr.py:480-483`). It is a *columnar* writer wearing a 2-D hat. It
+exactly one chunk"* (`txr_zarr.py:480-483`). It is a *columnar* writer wearing a 2-D hat. It
 is not, and was never meant to be, a raster writer.
 
 ### 1.2 The `aux` channel — the mechanism that *looks* like the answer, and why we do not need it
 
-`Table.aux()` (`cyto_zarr.py:1477-1566`) exists precisely for "a member whose length is
+`Table.aux()` (`txr_zarr.py:1477-1566`) exists precisely for "a member whose length is
 deliberately NOT the axis's `n`": it takes an N-D numeric array, and its length rule is a
 **named extent** resolved through `structure.extents`, so two members claiming `output_rows`
 are checked against one number. `conformance._conform_aux` (`conformance.py:2776-2942`)
@@ -354,11 +354,11 @@ not a Zarr `table`).
    branch must satisfy the same discipline, including `_conform_node_coverage` in both
    directions, `_chunk_grid` derivation, and `_chunk_key_place`. This is the largest single
    piece of work in the whole option.
-2. `_lib/cyto_zarr.py` — a real N-D, **tiled** writer (`_array_meta` currently emits
+2. `_lib/txr_zarr.py` — a real N-D, **tiled** writer (`_array_meta` currently emits
    `chunk_shape = [shard_rows, width]`; a raster needs `[1, tile_h, tile_w]`-style grids), with
    byte-stability preserved because `zarr.json` is part of the artifact's merkle identity
-   (`cyto_zarr.py:235-237`).
-3. `_lib/cyto_zarr_read.py` + the TS `zarrReader.ts` — both are held to parity by fixtures
+   (`txr_zarr.py:235-237`).
+3. `_lib/txr_zarr_read.py` + the TS `zarrReader.ts` — both are held to parity by fixtures
    (`conformance.py:1018-1020` cites `zarrReader.ts`'s `#assertRowChunked` as the reference the
    gate must not diverge from).
 4. Every shipped consumer's refusal-by-name is unaffected (they check for `sparse_csc`), but
@@ -456,7 +456,7 @@ container is not a design choice here; it is unavailable.
 Three distinct bindings, and it matters that they are distinct:
 
 1. **Row identity (obs axis)** — `aligned_to`, the `key_sequence_digest` of the row space, which
-   `write_metadata_column` and `write_embedding` already carry (`cyto_columns.py:388-393`:
+   `write_metadata_column` and `write_embedding` already carry (`txr_columns.py:388-393`:
    *"an embedding is the case that makes the declaration load-bearing rather than tidy: its
    whole job is to be painted, so 'may these values be painted on these points' is asked of it
    every time"*). This binds **expression ↔ coordinates ↔ per-entity metadata ↔ per-entity
@@ -524,7 +524,7 @@ That axiom maps onto our model with almost no loss:
    our artifacts through `zarrReader.ts` and Viv; neither speaks SpatialData.
 
 **Net:** we adopt the *schema* — element names, the coordinate-system axiom, the transform
-concept — and serialize it as **sibling CytoAnalyst artifacts**. A future
+concept — and serialize it as **sibling TxResBench artifacts**. A future
 `spatial.export-spatialdata` analysis can reassemble a real `.zarr` for users who want to leave;
 that is an export concern, not a storage one.
 
@@ -570,8 +570,8 @@ already delivers the data in that shape.
 ```
 
 * **Structure**: `{"encoding":"zarr_v3","kind":"table","axis":"cells","n":N,...}` with one 2-D
-  numeric member — i.e. **exactly what `cyto_columns.write_embedding` emits today**
-  (`cyto_columns.py:372-416`), carrying `aligned_to` and `membership`. Zero new code.
+  numeric member — i.e. **exactly what `txr_columns.write_embedding` emits today**
+  (`txr_columns.py:372-416`), carrying `aligned_to` and `membership`. Zero new code.
 * **`extends: embedding`** is safe: **no shipped manifest selects `subtypes_of: embedding`**
   (verified — every `subtypes_of` in the tree targets `single-cell/expression`,
   `metadata-column` or `geneset/collection`). So this cannot cause an analysis to offer to
@@ -627,8 +627,8 @@ because the two decisions look identical and are not.
   capabilities: [spatial-labels]
 ```
 
-* **`structure` = `cyto_columns.opaque("image/tiff; application=ome")`** — the existing helper
-  (`cyto_columns.py:83-93`), and the media type is a real RFC 6838 `type/subtype` with a
+* **`structure` = `txr_columns.opaque("image/tiff; application=ome")`** — the existing helper
+  (`txr_columns.py:83-93`), and the media type is a real RFC 6838 `type/subtype` with a
   parameter, which `_MEDIA_TYPE_RE` accepts (`conformance.py:379-382`).
 * **Why OME-TIFF and not PNG.** Viv reads pyramidal OME-TIFF via geotiff.js over HTTP range
   requests ([Viv](https://github.com/hms-dbmi/viv)), which is the *only* way a multi-GB image is
@@ -682,7 +682,7 @@ vertices). The two candidate encodings:
 | offsets as **sibling `metadata-column`s** on the `cells` axis | **zero** |
 
 Take the second. Emit `boundary_vertex_start` and `boundary_vertex_count` as ordinary
-`metadata-column` artifacts (`write_metadata_column`, `cyto_columns.py:125`), which are 1-D over
+`metadata-column` artifacts (`write_metadata_column`, `txr_columns.py:125`), which are 1-D over
 `cells`, carry `aligned_to`, and are conformance-checked like every other column. A consumer
 reads `[start, start+count)` out of the vertex table. **The ragged structure becomes two dense
 per-entity vectors plus a sorted long table** — which is what CSR does, and it is exactly the
@@ -727,13 +727,13 @@ Three details that are not cosmetic:
   over 10^8 transcripts; as a categorical it is a `uint16` code array plus a level set, i.e. 2
   bytes/row instead of ~10. `Table.categorical` requires `levels_digest` + `n_levels` +
   `ordered` on the row (`conformance.py:445-450`) and stamps `levels` into the member's
-  `attributes.cyto` — a level set of 5,000 short strings is fine there (the *row* carries only
+  `attributes.txr` — a level set of 5,000 short strings is fine there (the *row* carries only
   the digest, which is precisely why `levels` was replaced by `levels_digest`:
   `conformance.py:438-444`, *"Restating the list here made one member's row entry 450 KB for a
   9 KB array and blew MAX_MANIFEST_BYTES"*).
 * **Unassigned transcripts.** Xenium writes `cell_id = 'UNASSIGNED'` / `-1`. **Do not store -1.**
   The tree refuses out-of-range sentinel codes explicitly (`conformance.py:747-755`: *"`-1` is
-  pandas' in-memory missing code, and storing it is exactly what `cyto_columns` refuses ... the
+  pandas' in-memory missing code, and storing it is exactly what `txr_columns` refuses ... the
   read side rejects a negative code with a 400 for the whole column"*). Encode assignment as a
   **separate `assigned` categorical column** with a declared level for the unassigned state, or
   as a boolean-coded column, and keep `entity_index` valid-only. This is the "absence is
@@ -1010,7 +1010,7 @@ Three concrete design consequences:
    input slot. This is a *stated contract*, and it is why "image as `opaque`" is not the h5ad
    trap: the consumer was never going to be a sandbox.
 2. **`RLIMIT_FSIZE = 2 GiB` is a per-FILE cap, not a per-artifact cap — and sharding saves us.**
-   `cyto_zarr` writes shards sized by `shard_chunks` (`cyto_zarr.py:125`), capped at
+   `txr_zarr` writes shards sized by `shard_chunks` (`txr_zarr.py:125`), capped at
    `SHARD_CAP_CHUNKS` ≈ 16.8M elements per shard. So a 10^8-row transcript table lands as many
    shard files, each far under 2 GiB. **The transcript table is writable.** *(A raster written as
    one OME-TIFF is not — which is the second, independent reason the importer must not
@@ -1084,7 +1084,7 @@ A Visium spot matrix satisfies both. **Nothing needs to know it is spatial.**
    dispatch on. Filing it as a child item.
 4. **Filtering must carry the spatial siblings.** `cell.filter` emits a filtered matrix and a
    keep-mask; the coordinates artifact is `obs-aligned` with `aligned_to` + `membership`
-   (`cyto_columns.py:395-398` — *"a coordinate set computed over a selected population is
+   (`txr_columns.py:395-398` — *"a coordinate set computed over a selected population is
    exactly the artifact whose `aligned_to` matches the parent's while its rows are a subset"*).
    So the mechanism exists and is the one already used for embeddings. **Verify, don't assume:**
    whether `cell.filter` re-emits or merely invalidates obs-aligned siblings is a behaviour I
@@ -1323,8 +1323,8 @@ EPIC #151: Spatial storage layout + import processor
 
 **Platform (read in-tree):**
 `src-app/packages/_lib/conformance.py` (:404, :416, :427-459, :701-765, :1515-1543, :1547-1584,
-:1705-1712, :2776-2942) · `_lib/cyto_zarr.py` (:125, :231-267, :475-511, :1477-1566, :1581-1596) ·
-`_lib/cyto_columns.py` (:83-93, :125, :372-416) · `_lib/verify_conformance.py` ·
+:1705-1712, :2776-2942) · `_lib/txr_zarr.py` (:125, :231-267, :475-511, :1477-1566, :1581-1596) ·
+`_lib/txr_columns.py` (:83-93, :125, :372-416) · `_lib/verify_conformance.py` ·
 `packages/open-kinds/manifest.yaml` · `packages/single-cell-types/manifest.yaml` ·
 `packages/single-cell-viz/manifest.yaml:44-58` · `packages/import-h5ad/manifest.yaml` ·
 `packages/anndata-import/compute/h5ad_import.py` (:690-708, :1155-1169, :1436-1457) ·
@@ -1544,7 +1544,7 @@ caveat:
    as where §6.4's declaration half landed. `spatial/boundaries` is now at
    `manifest.yaml:446-482`. A drifted line range, not a missing section (#356).
 3. **The caveat: `file:line` citations inside §0–§15 are as of the spike and most have moved.**
-   Spot-checked at `4b63a482`: `cyto_zarr.py:495`'s rank rule still lands; `conformance.py:946`'s
+   Spot-checked at `4b63a482`: `txr_zarr.py:495`'s rank rule still lands; `conformance.py:946`'s
    `_NODE_META = "zarr.json"` (§15.5) still lands exactly; `sandbox/outputs.rs:198,201`'s
    `MAX_OUTPUTS = 512` / `MAX_MANIFEST_BYTES = 1 MiB` (§6.6) still land. `conformance.py:1705-1712`
    (§0.3, §3, §12.1) is now `_bytes_are_not_a_store` at `conformance.py:1623`;
@@ -1582,12 +1582,12 @@ import processor** — that residue is #313.
 `meta`. It ships in **two** channels, because `meta` is invisible inside a sandbox:
 
 * **Zarr kinds** (`spatial/coordinates`, `spatial/boundaries`) — `mirror_declarations_into_store`
-  stamps the block into `<store>/zarr.json` → `attributes.cyto.cyto_spatial`, tagged
-  `declares: "cyto-spatial/1"`. `conformance._conform_group_attributes` then re-reads it off the
+  stamps the block into `<store>/zarr.json` → `attributes.txr.txr_spatial`, tagged
+  `declares: "txr-spatial/1"`. `conformance._conform_group_attributes` then re-reads it off the
   store and condemns the artifact unless it equals the manifest row's `structure`, so the two
   copies cannot drift.
 * **`opaque` kinds** (`spatial/image`) — `encode_placement` writes
-  `"cyto-spatial/1 " + <compact JSON>` into the OME `Image/Description`; `decode_placement`
+  `"txr-spatial/1 " + <compact JSON>` into the OME `Image/Description`; `decode_placement`
   returns a typed unknown-version marker rather than guessing at a foreign token.
 
 The block's key set is also wider than §6.6's four keys. It is closed, and it is:
@@ -1604,7 +1604,7 @@ arbitrary unit. It is **refused** on a `micrometre` space rather than defaulted.
 explicit bool; `section` refuses `affine`/`transform`/`to_section`/`to_volume`/`registration`/`warp`
 **by name**, which is §15.4's "deliberately NOT designed now" made executable. §15.2's always-2-D
 rule is enforced in the writer: `write_spatial_coordinates` refuses `ndim != 2` and
-`shape[1] != 2` before calling `cyto_columns.write_embedding`.
+`shape[1] != 2` before calling `txr_columns.write_embedding`.
 
 **Coordinate-space identity is literal, never hashed** — §12.3 predicted this and it is what
 shipped. Visium: `f"visium:{library_id}"`, falling back to the bundle directory name. Xenium: a
@@ -1633,7 +1633,7 @@ manifest.json                              manifest.json
 expression.zarr/            counts         expression.zarr/            counts
 axis/{barcode,gene_id,gene_symbol}.zarr/   axis/{cell_id,gene_id,gene_symbol,feature_type}.zarr/
 spatial/coordinates.zarr/   coordinates    spatial/coordinates.zarr/   coordinates
-  zarr.json  (cyto_spatial)                  zarr.json  (cyto_spatial)
+  zarr.json  (txr_spatial)                  zarr.json  (txr_spatial)
   coordinates/  f32 (n,2) px                  coordinates/  f32 (n,2) µm
                                            spatial/boundaries.zarr/    boundaries (axis: vertex)
                                              entity_index/ i64, x/ f32, y/ f32
@@ -1706,7 +1706,7 @@ out of `spatial-types/compute/ome_writer.py` and confirmed against the committed
 * **BigTIFF above 2 GiB** of total pixel payload — 2 rather than 4 as headroom, because classic
   TIFF overflow writes corrupt offsets rather than erroring.
 * **OME-XML** carries only what tifffile derives plus two things the writer sets:
-  `Image/Description` = the `cyto-spatial/1` placement payload, and `PhysicalSizeX/Y` in µm,
+  `Image/Description` = the `txr-spatial/1` placement payload, and `PhysicalSizeX/Y` in µm,
   which must equal the display derivative's `applied_resolution_um`. `DimensionOrder` is
   tifffile's `XYCZT`; `SizeZ` and `SizeT` are 1; there is no `PhysicalSizeZ`.
 * **The image is a display derivative** (#176): downsampled by an integer box mean to a 0.5 µm/px

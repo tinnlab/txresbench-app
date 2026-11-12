@@ -1,11 +1,11 @@
 /**
- * Shared syncpack policy for ziee-SDK monorepos: keep every shared dependency on a
+ * Shared syncpack policy for txresbench-SDK monorepos: keep every shared dependency on a
  * single version across all workspaces, pin `typescript` to `~` (its minors can break),
  * and `^` everything else. An app composes it with `defineSyncpack`, supplying its own
  * `source` globs and any app-specific `versionGroups` (e.g. desktop-only plugins).
  *
  *   // .syncpackrc.mjs
- *   import { defineSyncpack } from '@ziee/config/syncpack'
+ *   import { defineSyncpack } from '@txresbench/config/syncpack'
  *   export default defineSyncpack({
  *     source: ['package.json', 'apps/* /package.json'],
  *     versionGroups: [ ... app-specific exceptions ... ],

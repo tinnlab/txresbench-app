@@ -1,9 +1,9 @@
 // MarksControl.tsx — plot-editing (ITEM-5): the in-cell MARKS control for a dense scatter cell — point
-// SIZE (radius, px) + OPACITY (0..1) — built on the @ziee/kit `Slider` (design-system component). A
+// SIZE (radius, px) + OPACITY (0..1) — built on the @txresbench/kit `Slider` (design-system component). A
 // change fires `onChange({ radius?, opacity? })`; the host writes it to the cell's `style` (persisted →
 // series.style). When `editable` is false the values render as read-only text (no sliders).
 
-import { Slider } from '@ziee/kit'
+import { Slider } from '@txresbench/kit'
 
 export interface MarksControlProps {
   /** current point radius (px). */

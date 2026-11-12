@@ -10,7 +10,7 @@ import {
   Switch,
   Tag,
   message,
-} from '@ziee/kit'
+} from '@txresbench/kit'
 import { DatasetDetail } from '@/modules/datasets/stores/DatasetDetail.store'
 import { CircleDot, Database, Play, Lock } from 'lucide-react'
 import { JobMilestoneSteps } from '@/modules/jobs/components/JobMilestoneSteps'

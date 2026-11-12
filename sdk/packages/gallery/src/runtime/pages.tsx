@@ -18,7 +18,7 @@ import {
   useState,
 } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { Text, Title } from '@ziee/kit'
+import { Text, Title } from '@txresbench/kit'
 import { type RouteLike, getGalleryConfig } from './config'
 import type { PreloadableComponent } from './lazy'
 import {

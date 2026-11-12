@@ -26,7 +26,7 @@
 # ── The paths below are ones the producer actually writes ───────────────────────
 #
 # Verified against `packages/anndata-import/compute/h5ad_import.py` + the shared
-# `packages/_lib/cyto_csc.py` writer it calls — the on-ingest converter
+# `packages/_lib/txr_csc.py` writer it calls — the on-ingest converter
 # (`contributes.converters[].trigger: on-ingest`) that emits these artifacts:
 #
 #   single-cell/expression  `write_csc_zarr` returns, and `output_entry(…,

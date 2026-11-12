@@ -1,4 +1,4 @@
-//! CytoAnalyst build script.
+//! TxResBench build script.
 //!
 //! 1. Composes `migrations-merged/` (SDK `compose_merged_migrations_from`) for
 //!    the runtime `sqlx::migrate!`. The source is UNCONDITIONAL (ITEM-26: the
@@ -8,7 +8,7 @@
 //!    `migrations/` dirs, passed explicitly.
 //! 2. Provisions a per-worktree BUILD DATABASE (`sqlx::` macros verify SQL at
 //!    compile time): the build FILE under `target/sqlx-build/` derived from
-//!    the committed `sqlite:` sentinel (see `ziee_build_support::
+//!    the committed `sqlite:` sentinel (see `txresbench_build_support::
 //!    provision_build_db`; that helper keeps its postgres leg for the SDK's
 //!    own standalone builds, but THIS crate's compose is sqlite-only).
 //!    `cargo:rustc-env=DATABASE_URL` then holds the resolved URL (scoped to
@@ -17,13 +17,13 @@
 //!    embed (fail-soft), and the `rootfs_version` freshness single-sourcing
 //!    (lib + build script path-include).
 //!
-//! The build DB is the per-worktree file `cytoanalyst_build_<key>.sqlite` the
+//! The build DB is the per-worktree file `txresbench_build_<key>.sqlite` the
 //! one-call `provision_build_db` derives from the committed sqlite sentinel
 //! (wiped + re-migrated on every build).
 
 use std::path::PathBuf;
 
-use ziee_build_support::{compose_merged_migrations_from, provision_build_db};
+use txresbench_build_support::{compose_merged_migrations_from, provision_build_db};
 
 // The rootfs schema/freshness logic is single-sourced in the lib
 // (`src/modules/rootfs/version.rs`) and `#[path]`-included here so the build
@@ -41,11 +41,11 @@ fn main() {
     // Single-chain composition (ITEM-26): the ONE sqlite migration set is the
     // module-owned `src/modules/*/migrations/` dirs (globbed by the composer)
     // plus the three schema-bound SDK crates' `migrations/` dirs (explicit —
-    // their names are the crates the app schema-binds; ziee-onboarding/seed
+    // their names are the crates the app schema-binds; txresbench-onboarding/seed
     // are not bound). There is no driver branch: the PG chains were deleted
     // with the engine swap and the merged dir always holds the sqlite chain.
     let module_roots = vec![manifest.join("src/modules")];
-    let sdk_migration_dirs: Vec<PathBuf> = ["ziee-auth", "ziee-file", "ziee-notification"]
+    let sdk_migration_dirs: Vec<PathBuf> = ["txresbench-auth", "txresbench-file", "txresbench-notification"]
         .iter()
         .map(|c| manifest.join("../../sdk/crates").join(c).join("migrations"))
         .collect();
@@ -86,7 +86,7 @@ fn main() {
     // the second unconditional route to the canonical-bytes precondition (INV-3): the
     // generator refuses a non-canonical pin file before it parses a byte of it.
     //
-    // Under CYTO_REGEN_ENV_PINS=1 (`just env-pins-regen`) it WRITES instead of comparing —
+    // Under TXR_REGEN_ENV_PINS=1 (`just env-pins-regen`) it WRITES instead of comparing —
     // otherwise a stale artefact would fail the build that is the only thing able to
     // refresh it.
     println!(
@@ -124,7 +124,7 @@ fn main() {
 
     // NOTE (artifact-model ITEM-13): a `#[cfg(feature = "tiledb_serve")]` block used to
     // sit here and point the linker at a prebuilt core `libtiledb` given by the
-    // `CYTO_TILEDB_LIB` env var. Both the feature and the module it served are gone.
+    // `TXR_TILEDB_LIB` env var. Both the feature and the module it served are gone.
     // INV-1: the server never opens a byte for meaning, so this build script emits NO
     // `rustc-link-lib` for any format-parsing library — there is deliberately no link
     // path to a format reader for a future change to re-enable.

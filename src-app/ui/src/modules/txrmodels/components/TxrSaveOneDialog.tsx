@@ -36,7 +36,7 @@
  * the kit Dialog's `onOpenChange`. Test-ids: `txr-models-saveone-*`.
  */
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Button, Checkbox, Dialog, Input, Select, Skeleton } from '@ziee/kit'
+import { Button, Checkbox, Dialog, Input, Select, Skeleton } from '@txresbench/kit'
 import type { ModelSaveResponse, SetSummary, TxrRunDetail } from '@/api-client/types'
 import { ApiClient } from '@/api-client'
 import {

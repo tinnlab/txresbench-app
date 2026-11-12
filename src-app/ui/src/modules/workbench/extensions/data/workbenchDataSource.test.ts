@@ -18,12 +18,12 @@
 // production wiring since ITEM-9 deleted `createRealSelectionRuntime`.
 //
 // Only the octet/catalog BOUNDARY is faked (injected deps); every decode path runs for
-// real. `@ziee/kit` (a browser UI boundary irrelevant to data logic) is neutralized so
+// real. `@txresbench/kit` (a browser UI boundary irrelevant to data logic) is neutralized so
 // the host module imports under the node runner.
 
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('@ziee/kit', () => ({
+vi.mock('@txresbench/kit', () => ({
   message: { info: () => {}, success: () => {}, error: () => {} },
 }))
 
@@ -276,7 +276,7 @@ describe('WorkbenchDataSource.catalog / continuous / honest gaps (ITEM-66)', () 
   const lay = art({ id: 'lay', datatype: 'demo/layout' })
   const meta = art({ id: 'meta', datatype: 'demo/column' })
   // ITEM-7: a categorical artifact is enumerated from its DECLARED members. This is what
-  // `cyto_columns`' whole-artifact column writer emits for a pandas Categorical — a
+  // `txr_columns`' whole-artifact column writer emits for a pandas Categorical — a
   // one-member table whose member declares its level set.
   const grp = art({
     id: 'grp',
@@ -383,7 +383,7 @@ describe('WorkbenchDataSource.catalog / continuous / honest gaps (ITEM-66)', () 
         encoding: 'zarr_v3',
         kind: 'table',
         // The producer's own spelling for a pandas Categorical column
-        // (`cyto_columns`' column writer → `cyto_zarr.Table.categorical`).
+        // (`txr_columns`' column writer → `txr_zarr.Table.categorical`).
         columns: [{ path: 'values', kind: 'categorical', levels: ['a', 'b'], n: 3 }],
       },
     }
@@ -1383,9 +1383,9 @@ describe('WorkbenchDataSource.rowAxisFor — the datatype`s DECLARED entity axis
 //
 // The axis is a PRODUCER DECLARATION, read off `structure` (never inferred):
 //   `table`      → the SINGULAR `axis`. A table's members share ONE axis by construction
-//                  (`cyto_zarr.Table(root, axis=…)` writes the group's `axis` and each
+//                  (`txr_zarr.Table(root, axis=…)` writes the group's `axis` and each
 //                  member entry's from the same `self.axis`).
-//   `sparse_csc` → `axes[0]`, the ROW axis (`cyto_csc.write_csc_zarr(axes=(row, col))`).
+//   `sparse_csc` → `axes[0]`, the ROW axis (`txr_csc.write_csc_zarr(axes=(row, col))`).
 //                  A value column is ONE column's values across the ROW entries — column
 //                  `j`'s non-zeros are ROW indices spanned by `indptr` — so an `(A, B)`
 //                  matrix serves value columns on A. `axes[1]` names the set the columns
@@ -1582,7 +1582,7 @@ describe('WorkbenchDataSource.annotationsForAxis — the label override is keyed
   const MINTED = '7f3c1a92-0b1e-4a77-9d2f-5c8e1b0a4d63'
 
   /** A whole-artifact continuous column whose producer DECLARED its name in `meta`
-   *  (`cyto_columns`' column writer returns exactly this pair). */
+   *  (`txr_columns`' column writer returns exactly this pair). */
   const metric = art({
     id: MINTED,
     datatype: 'demo/column',

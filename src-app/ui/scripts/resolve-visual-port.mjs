@@ -16,7 +16,7 @@
  * reported 132 `ERR_CONNECTION_REFUSED` over 10.6 minutes). Without the hand-over,
  * an occupied port is stepped over, even when the sentinel proves it is this tree's.
  */
-import { PORT_FLOORS } from '@ziee/gallery/scripts/lib/run-key.mjs'
+import { PORT_FLOORS } from '@txresbench/gallery/scripts/lib/run-key.mjs'
 
 import { reuseRequested } from './harness-origin.mjs'
 import { resolveHarnessPort } from './resolve-harness-port.mjs'

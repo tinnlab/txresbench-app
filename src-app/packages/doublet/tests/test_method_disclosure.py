@@ -853,8 +853,8 @@ def test_the_library_versions_are_in_the_emitted_bytes(scdblfinder_report):
     artifact are the WHOLE traceability record for any number this method publishes.
 
     That is not an oversight and it is not recoverable elsewhere: `every_dependency_declaring_
-    entry_reaches_the_recorder` requires a dependency-declaring entry to reach a `cyto_deps.*`
-    call in its own entry or a declared helper, with no language exemption, and `cyto_deps.py`
+    entry_reaches_the_recorder` requires a dependency-declaring entry to reach a `txr_deps.*`
+    call in its own entry or a declared helper, with no language exemption, and `txr_deps.py`
     is a python helper `stages_app_helpers(Rscript)` never stages. So a declared contract here
     would claim an enforcement that does not exist. What replaces it is recording the RESOLVED
     version by value, in the artifact — and a value nobody checks is a value that can quietly

@@ -6,10 +6,10 @@
 //! the safety net that reclaims blobs after a crash or an orphaned staging temp.
 //!
 //! **Separate physical stores.** The workstore has its OWN blob store
-//! (`<root>/workstore/blobs`), distinct from ziee-file's (`<root>/files`), so the
+//! (`<root>/workstore/blobs`), distinct from txresbench-file's (`<root>/files`), so the
 //! workstore GC union is the workstore's own referencing tables. `blob_refs()`
 //! is the ONE enumeration point (so adding P4's run-artifact link table can't be
-//! forgotten); ziee-file `files.checksum` is documented as an additional source
+//! forgotten); txresbench-file `files.checksum` is documented as an additional source
 //! for the day a physical store is shared.
 
 use std::collections::{HashMap, HashSet};
@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::catalog::repository::{BlobRefRow, CatalogRepository};
 use super::object_store::{decode_manifest, ContentKey, GcReport, ObjectStore};
@@ -76,7 +76,7 @@ pub fn keep_set(
         }
     }
     // (Future referencing tables enumerated HERE — the single registry point:
-    //  ziee-file `files.checksum` (if a shared store), P4 run-artifact links.)
+    //  txresbench-file `files.checksum` (if a shared store), P4 run-artifact links.)
     Ok(keep)
 }
 
@@ -420,7 +420,7 @@ impl GcSweeper {
     /// marked blob ONLY when its hash has no surviving storage-ref in the live
     /// keep-set — so a blob shared by another project's artifact SURVIVES (the
     /// dedup-corruption guard, P10 R1). Only workstore-sourced refs (`source ==
-    /// "catalog"`) are freed here; other sources (e.g. ziee-file dataset matrix
+    /// "catalog"`) are freed here; other sources (e.g. txresbench-file dataset matrix
     /// blobs) are the concern of their own store's sweep.
     pub async fn sweep_marked(
         &self,
@@ -626,7 +626,7 @@ mod tests {
     // not re-prove the settings_cache→sweep wiring, which TEST-3 covers.)
     #[tokio::test]
     async fn sweep_refs_honors_grace_window() {
-        let dir = std::env::temp_dir().join(format!("cyto-gc-grace-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("txr-gc-grace-{}", uuid::Uuid::new_v4()));
         let store = LocalFsStore::new(dir.clone());
         store.put(b"orphan-bytes").await.expect("put orphan");
 
@@ -713,7 +713,7 @@ mod tests {
     // ---- the store-backed half -------------------------------------------------
 
     fn tmp_store() -> (PathBuf, LocalFsStore) {
-        let dir = std::env::temp_dir().join(format!("cyto-gc-test-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("txr-gc-test-{}", uuid::Uuid::new_v4()));
         (dir.clone(), LocalFsStore::new(dir))
     }
 
@@ -1254,7 +1254,7 @@ mod tests {
             // Short, so the CONTROL (which is meant to reach the pool and fail
             // there) costs a fraction of a second rather than the 30s default.
             .acquire_timeout(Duration::from_millis(250))
-            .connect_lazy("sqlite:///nonexistent-cyto-item20/unreachable.sqlite")
+            .connect_lazy("sqlite:///nonexistent-txr-item20/unreachable.sqlite")
             .expect("a lazy pool never connects")
     }
 
@@ -1268,7 +1268,7 @@ mod tests {
     /// re-claimed by another catalog. The sweep must abandon and free nothing.
     #[tokio::test]
     async fn a_root_reclaimed_by_another_catalog_stops_the_sweep() {
-        let data_root = std::env::temp_dir().join(format!("cyto-own-{}", uuid::Uuid::new_v4()));
+        let data_root = std::env::temp_dir().join(format!("txr-own-{}", uuid::Uuid::new_v4()));
         let claim = resolve_owned_root(&data_root, "aaaa1111");
         let (store, orphan) = store_with_one_orphan(claim.root()).await;
 
@@ -1297,7 +1297,7 @@ mod tests {
     /// catalog's live blob, so "I marked it" is not attribution.
     #[tokio::test]
     async fn the_marked_sweep_is_gated_by_ownership_too() {
-        let data_root = std::env::temp_dir().join(format!("cyto-ownm-{}", uuid::Uuid::new_v4()));
+        let data_root = std::env::temp_dir().join(format!("txr-ownm-{}", uuid::Uuid::new_v4()));
         let claim = resolve_owned_root(&data_root, "aaaa1111");
         let (store, orphan) = store_with_one_orphan(claim.root()).await;
         std::fs::write(claim.root().join(CLAIM_FILE), "bbbb2222").unwrap();
@@ -1331,7 +1331,7 @@ mod tests {
     /// store will WALK must be the root the claim attributed.
     #[tokio::test]
     async fn a_claim_over_a_different_root_stops_the_sweep() {
-        let data_root = std::env::temp_dir().join(format!("cyto-ownx-{}", uuid::Uuid::new_v4()));
+        let data_root = std::env::temp_dir().join(format!("txr-ownx-{}", uuid::Uuid::new_v4()));
         let claim = resolve_owned_root(&data_root, "aaaa1111");
         // A perfectly valid claim — but the store points somewhere else entirely.
         let elsewhere = data_root.join("some-other-store");
@@ -1357,7 +1357,7 @@ mod tests {
     /// rather than about `sweep()` failing for any reason at all.
     #[tokio::test]
     async fn control_an_owned_store_passes_the_guard_and_reaches_the_catalog() {
-        let data_root = std::env::temp_dir().join(format!("cyto-ownok-{}", uuid::Uuid::new_v4()));
+        let data_root = std::env::temp_dir().join(format!("txr-ownok-{}", uuid::Uuid::new_v4()));
         let claim = resolve_owned_root(&data_root, "aaaa1111");
         let (store, _orphan) = store_with_one_orphan(claim.root()).await;
 
@@ -1374,7 +1374,7 @@ mod tests {
     /// `adopt_existing` joins an owner; it cannot invent one.
     #[test]
     fn adopt_existing_refuses_an_unclaimed_root() {
-        let root = std::env::temp_dir().join(format!("cyto-adopt-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("txr-adopt-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         StoreClaim::adopt_existing(&root).expect_err("an unclaimed root has no owner to adopt");
         std::fs::write(root.join(CLAIM_FILE), "aaaa1111").unwrap();

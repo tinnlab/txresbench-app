@@ -1,6 +1,6 @@
 //! bwrap invocation + always-on hardening for the analysis sandbox.
 //!
-//! Ported from ziee `code_sandbox/sandbox.rs` (the security core is KEPT
+//! Ported from txresbench `code_sandbox/sandbox.rs` (the security core is KEPT
 //! verbatim where it matters), collapsed to Linux-only + single-rootfs +
 //! companion-driven (no lit/progress/workflow/MCP/attachment coupling — DEC-3).
 //! The argv BUILDER is OS-independent (so it compiles + unit-tests everywhere);
@@ -24,7 +24,7 @@ use tokio::process::Command;
 #[cfg(target_os = "linux")]
 use tokio::time::timeout;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::settings::SandboxResourceLimits;
 use super::types::{HardeningCapabilities, MountMode, PidNsMode, SandboxContext, ExtraMount};
@@ -72,14 +72,14 @@ const SANDBOX_HOME: &str = "/home/analyst";
 // ─────────────────────────── argv builder (OS-independent) ───────────────────
 
 /// The fixed in-sandbox path a host progress FIFO binds at, exported to the
-/// analysis script as `$CYTO_PROGRESS_FIFO` (ITEM-5). Under `/tmp` (a tmpfs the
+/// analysis script as `$TXR_PROGRESS_FIFO` (ITEM-5). Under `/tmp` (a tmpfs the
 /// bind is applied over, in argv order).
-pub const PROGRESS_FIFO_SANDBOX_PATH: &str = "/tmp/.cyto_progress";
+pub const PROGRESS_FIFO_SANDBOX_PATH: &str = "/tmp/.txr_progress";
 
 /// Build the full bwrap argv: hardening prefix + prlimit tail + `/bin/bash -lc
 /// <cmd>`. `rootfs_dir` is the squashfuse mount dir (contains `usr/`).
 /// `progress_fifo_src` (when `Some`) binds a host FIFO at
-/// [`PROGRESS_FIFO_SANDBOX_PATH`] + exports `$CYTO_PROGRESS_FIFO`; `None` yields
+/// [`PROGRESS_FIFO_SANDBOX_PATH`] + exports `$TXR_PROGRESS_FIFO`; `None` yields
 /// a byte-identical argv to the no-FIFO case.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build_bwrap_argv(
@@ -270,7 +270,7 @@ pub(crate) fn build_bwrap_argv(
         argv.push(fifo.to_string());
         argv.push(PROGRESS_FIFO_SANDBOX_PATH.into());
         argv.push("--setenv".into());
-        argv.push("CYTO_PROGRESS_FIFO".into());
+        argv.push("TXR_PROGRESS_FIFO".into());
         argv.push(PROGRESS_FIFO_SANDBOX_PATH.into());
     }
 
@@ -805,7 +805,7 @@ mod tests {
     }
 
     // TEST-3: progress FIFO — None is byte-identical; Some adds exactly one
-    // `--bind <fifo> <path>` + the `CYTO_PROGRESS_FIFO` setenv, before the `--`.
+    // `--bind <fifo> <path>` + the `TXR_PROGRESS_FIFO` setenv, before the `--`.
     #[test]
     fn progress_fifo_none_is_byte_identical_some_adds_bind() {
         let none = argv_fifo(&[], None, None);
@@ -821,7 +821,7 @@ mod tests {
         assert_eq!(with[p - 1], "/host/run/fifo");
         assert_eq!(with[p - 2], "--bind");
         // The env is exported to the fixed path.
-        let e = pos(&with, "CYTO_PROGRESS_FIFO").expect("progress env present");
+        let e = pos(&with, "TXR_PROGRESS_FIFO").expect("progress env present");
         assert_eq!(with[e + 1], PROGRESS_FIFO_SANDBOX_PATH);
         // All of it precedes the first `--` terminator (part of the prefix).
         let first_term = pos(&with, "--").unwrap();

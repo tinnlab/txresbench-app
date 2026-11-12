@@ -31,7 +31,7 @@ async function createUserWithoutAccountRead(
   // 1) the user (auto-joined to Users).
   const u = await request.post(`${BACKEND}/api/users`, {
     headers: auth,
-    data: { username, email: `${username}@cyto.test`, password: MEMBER_PASSWORD },
+    data: { username, email: `${username}@txresbench.test`, password: MEMBER_PASSWORD },
   })
   expect(u.ok()).toBeTruthy()
   const userId = (await u.json()).id

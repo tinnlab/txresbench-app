@@ -26,7 +26,7 @@ test('share → recipient bell badge + inbox renderer + accept', async ({ page, 
   await page.getByTestId('project-name-input').fill(name)
   await page.getByTestId('project-form-submit').click()
   await runProjectCardAction(page, name, /^share$/i)
-  await page.getByTestId('project-share-email').fill(`${carol}@cyto.test`)
+  await page.getByTestId('project-share-email').fill(`${carol}@txresbench.test`)
   await page.getByTestId('project-share-submit').click()
 
   // Carol sees an unread notification badge + the kind-dispatched renderer.

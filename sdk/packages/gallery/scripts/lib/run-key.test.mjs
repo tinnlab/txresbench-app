@@ -21,16 +21,16 @@ import { createServer } from 'node:net'
 // TEST-3: CROSS-LANGUAGE parity — the SAME literals the Rust #[cfg(test)]
 // `cross_language_parity_fixture` pins. A drift in either language fails one.
 test('TEST-3 cross-language FNV parity fixture', () => {
-  assert.equal(fnv1a8('/data/pbya/ziee/tmp/xwt-a'), '12080097')
-  assert.equal(fnv1a8('/data/pbya/ziee/tmp/xwt-b'), '1208014a')
+  assert.equal(fnv1a8('/data/pbya/txresbench/tmp/xwt-a'), '12080097')
+  assert.equal(fnv1a8('/data/pbya/txresbench/tmp/xwt-b'), '1208014a')
   // worktreeKey strips /src-app → same key from a manifest-style path.
-  assert.equal(worktreeKey('/data/pbya/ziee/tmp/xwt-a/src-app/server'), '12080097')
-  assert.equal(worktreeKey('/data/pbya/ziee/tmp/xwt-a'), '12080097')
+  assert.equal(worktreeKey('/data/pbya/txresbench/tmp/xwt-a/src-app/server'), '12080097')
+  assert.equal(worktreeKey('/data/pbya/txresbench/tmp/xwt-a'), '12080097')
 })
 
 // TEST-2: key shape + portBase math + pickBindablePort.
 test('TEST-2 worktreeKey is 8 hex, portBase deterministic + in range', () => {
-  const k = worktreeKey('/data/pbya/ziee/tmp/xwt-a')
+  const k = worktreeKey('/data/pbya/txresbench/tmp/xwt-a')
   assert.match(k, /^[0-9a-f]{8}$/)
   const a = portBase(k, 20000, 200)
   const b = portBase(k, 20000, 200)

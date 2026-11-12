@@ -54,7 +54,7 @@ async fn create_project_with_account(
 async fn no_header_defaults_to_personal_account() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    let alice_id = create_user(&server, &admin, "aa_alice", "aa_alice@cyto.test").await;
+    let alice_id = create_user(&server, &admin, "aa_alice", "aa_alice@txresbench.test").await;
     let alice = login(&server, "aa_alice").await;
     let pool = pool_for(&server).await;
 
@@ -76,7 +76,7 @@ async fn no_header_defaults_to_personal_account() {
 async fn member_acts_under_org_or_personal() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    let alice_id = create_user(&server, &admin, "aa_m_alice", "aa_m_alice@cyto.test").await;
+    let alice_id = create_user(&server, &admin, "aa_m_alice", "aa_m_alice@txresbench.test").await;
     let alice = login(&server, "aa_m_alice").await;
     let pool = pool_for(&server).await;
 
@@ -126,7 +126,7 @@ async fn dataset_account(pool: &sqlx::SqlitePool, dataset_id: Uuid) -> Uuid {
 async fn dataset_create_stamps_active_account() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    let alice_id = create_user(&server, &admin, "aa_ds_alice", "aa_ds_alice@cyto.test").await;
+    let alice_id = create_user(&server, &admin, "aa_ds_alice", "aa_ds_alice@txresbench.test").await;
     let alice = login(&server, "aa_ds_alice").await;
     let pool = pool_for(&server).await;
     let org = make_org_account(&pool, "ds-org", alice_id).await;
@@ -178,9 +178,9 @@ async fn dataset_create_stamps_active_account() {
 async fn non_member_header_is_refused_with_404() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    create_user(&server, &admin, "aa_x_alice", "aa_x_alice@cyto.test").await;
+    create_user(&server, &admin, "aa_x_alice", "aa_x_alice@txresbench.test").await;
     let alice = login(&server, "aa_x_alice").await;
-    let bob_id = create_user(&server, &admin, "aa_x_bob", "aa_x_bob@cyto.test").await;
+    let bob_id = create_user(&server, &admin, "aa_x_bob", "aa_x_bob@txresbench.test").await;
     let pool = pool_for(&server).await;
 
     // An org alice is NOT a member of.

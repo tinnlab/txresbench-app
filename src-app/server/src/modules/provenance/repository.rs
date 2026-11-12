@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// A content-addressed code blob row (ITEM-2).
 #[derive(Debug, Clone)]
@@ -148,7 +148,7 @@ pub struct ProvenanceRepository {
 /// a JSON array of 32-char lowercase hex strings, compared against a 16-byte
 /// BLOB column through `unhex()` —
 /// `col IN (SELECT unhex(j.value) FROM json_each($1) AS j)`. This is the
-/// ITEM-15 `ziee-file` / ITEM-21 `dataset` convention (their
+/// ITEM-15 `txresbench-file` / ITEM-21 `dataset` convention (their
 /// `uuid_list_json`), kept local because the app's modules are single-driver
 /// (DEC-1) and beside the ONE `= ANY` site in this module it serves no other
 /// surface.
@@ -528,7 +528,7 @@ impl ProvenanceRepository {
         Ok(row.map(|r| r.run_id))
     }
 
-    /// Resolve a ziee-file `files.id` to the dataset it belongs to + that dataset's
+    /// Resolve a txresbench-file `files.id` to the dataset it belongs to + that dataset's
     /// merkle `content_hash` (the provenance link key for a `dataset` used-edge,
     /// ITEM-20). A file linked to no dataset yields `None`.
     pub async fn dataset_scope_for_file(

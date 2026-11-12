@@ -17,7 +17,7 @@ Four properties, all mechanical:
    the folder-scan registry skips `_`-prefixed dirs entirely.
 2. **A processor cannot call it, and cannot NOT call it.** It runs OUTSIDE the processor's
    process — over the emitted `/outputs` directory, after the job exits. It is deliberately
-   NOT imported by `cyto_zarr` / `cyto_csc`: those are staged into the sandbox `/code` dir
+   NOT imported by `txr_zarr` / `txr_csc`: those are staged into the sandbox `/code` dir
    and run as the processor, so a gate living there would be a gate the processor's own
    process executes, which is the arrangement DEC-8 rules out ("invoked by the ingest path,
    not by the processor").
@@ -103,19 +103,19 @@ knob, and inventing an inference for it would be the guessing this module refuse
 
 ### The SECOND copy of a member's declaration is cross-checked too
 
-`_conform_group_attributes` compares the GROUP's stamped `attributes.cyto` against the
+`_conform_group_attributes` compares the GROUP's stamped `attributes.txr` against the
 `structure` the row carries, on the stated grounds that "two copies that can drift is
 exactly the class of bug this suite exists for". `write_array` writes a second copy per
-MEMBER (`attributes.cyto.{kind, name, levels, ordered, layout, n, role}`) and nothing
-compared it. Oracle: corrupt ONLY `<member>/zarr.json`'s `attributes.cyto.{kind, levels}`
+MEMBER (`attributes.txr.{kind, name, levels, ordered, layout, n, role}`) and nothing
+compared it. Oracle: corrupt ONLY `<member>/zarr.json`'s `attributes.txr.{kind, levels}`
 — leave the row, the group stamp and every byte untouched — and the gate reported `[]`
 while a consumer holding nothing but the store URL (`§0.3`'s first-class client;
-`cyto_zarr_read.read_column` is the reference implementation) decoded a categorical
+`txr_zarr_read.read_column` is the reference implementation) decoded a categorical
 member's raw codes `[0, 1, 0, 1]` where `structure` says `['x', 'y']`. Latent only because
 the browser reader happens to prefer the row's `levels`.
 
 [`_conform_member_attributes`] compares them. It also makes the stamp REQUIRED: a member
-node with no `attributes.cyto` is a member a store-URL consumer learns nothing about, which
+node with no `attributes.txr` is a member a store-URL consumer learns nothing about, which
 is the same absence-as-opt-out shape one level down.
 
 ### …and the class had moved one level down WITH it
@@ -129,8 +129,8 @@ code as it stood:
   `continue`d when the stamp did not carry it, so an absent stamped key skipped its
   comparison instead of failing it. `levels` and `ordered` had a bespoke `if` — which is what
   closing a class for the instances somebody thought of looks like — and the load-bearing one
-  did not: popping ONLY `attributes.cyto.kind` out of a categorical member's `zarr.json` left
-  the gate silent while `cyto_zarr_read.read_column` handed back raw `uint8` codes in place of
+  did not: popping ONLY `attributes.txr.kind` out of a categorical member's `zarr.json` left
+  the gate silent while `txr_zarr_read.read_column` handed back raw `uint8` codes in place of
   labels. Measured over `a_table`'s three kinds, **8 of 10** stamp-key absences were silent.
   Now: [`_REQUIRED_STAMPED_KEYS`] (per kind, each key mapped to what a store-URL consumer
   decodes with it) + [`_OPTIONAL_STAMPED_KEYS`] (each with the reason its absence cannot
@@ -181,7 +181,7 @@ code as it stood:
   place.** The tables above made a key's ABSENCE a violation and left its TYPE to the
   producer, so every use of `shape` still sat behind an `isinstance(…, list)` guard: a
   SCALAR switched those uses off exactly the way omitting the key once did, including the
-  ONLY check pinning a string group's stamped `attributes.cyto.n`. Measured through the real
+  ONLY check pinning a string group's stamped `attributes.txr.n`. Measured through the real
   `conform_outputs` entry: a table declaring `shape: 200` against a `label/zarr.json`
   stamping `n=999` over 200 real strings returned `[]`, while the same wrong value written
   as `[999]` returned two violations — and the identical malformation on a NUMERIC member
@@ -267,10 +267,10 @@ gate). A `full=False` default anywhere in this module now fails the suite.
 
 **That sentence used to be false, and it was false in the DANGEROUS direction.** The two
 depths did not share the container reader: `full=True` went through
-`cyto_zarr_read.read_array` and the bounded depth through this module's own
+`txr_zarr_read.read_array` and the bounded depth through this module's own
 `_decode_shards`. The convenience reader implements the Zarr rule that an EMPTY shard-index
 slot means "chunk absent, fill it with `fill_value`" — legitimate for a reader, and exactly
-wrong for a gate, because `cyto_zarr`'s writer never leaves a slot empty inside the logical
+wrong for a gate, because `txr_zarr`'s writer never leaves a slot empty inside the logical
 range. So a member whose shard index had one slot blanked was reported as a violation by
 `full=False` and **passed** under `full=True`, while a consumer silently read a run of
 zeroes in the middle of the array — the weaker arm being the only arm production takes
@@ -280,14 +280,14 @@ The claim is now structurally true rather than documented:
 
 * there is ONE container reader in this module (`_decode_shards`, via `_shard_plan`), and
   the gate never calls `read_array` for member bytes. That second clause was FALSE for one
-  live path: `key_sequence_digest_of_member` went through `cyto_zarr_read.read_column`,
+  live path: `key_sequence_digest_of_member` went through `txr_zarr_read.read_column`,
   which is `read_array` plus a level-set resolution, and it is on the production path twice
   (`_conform_key` and `axis_alignment_violations`). Harmless in effect — the key must be a
   declared member, so its bytes were already walked strictly elsewhere — but a false
   invariant in a header is worse than none, because the next edit is checked against it.
   It now reads through `_read_whole`, and
   `test_the_gate_never_reads_member_bytes_through_the_convenience_reader` fails if any path
-  reaches `read_array` again. `cyto_zarr_read` is still used, for METADATA (`read_meta`,
+  reaches `read_array` again. `txr_zarr_read` is still used, for METADATA (`read_meta`,
   `structure`), the `EMPTY` sentinel and `unshuffle` — none of which decodes a chunk;
 * `_shard_plan` returns `range(n_shards)` for `full=True` and a SUBSET of it
   (`[0, n_shards-1]`) otherwise, so the bounded depth's shard set ⊆ the full depth's;
@@ -317,7 +317,7 @@ runs.
 
 ### The shard-index crc32c is now verified (it was not, at either depth)
 
-`cyto_zarr` writes `crc32c` over each shard's chunk index precisely because that index is
+`txr_zarr` writes `crc32c` over each shard's chunk index precisely because that index is
 the one part of a shard whose corruption is otherwise INVISIBLE: a flipped byte inside a
 compressed chunk fails to gunzip loudly, but a flipped byte in an offset yields a
 successful decode of the wrong bytes. Neither depth checked it, so swapping two index slots
@@ -351,7 +351,7 @@ from pathlib import Path
 
 import numpy as np
 
-import cyto_zarr_read
+import txr_zarr_read
 # ITEM-19's digest primitive, owned by the WRITER. This module recomputes the digest from
 # the stored bytes and compares it to what the producer declared, so both sides have to
 # digest identically — hence one definition, imported. See the ITEM-19 section below for
@@ -360,7 +360,7 @@ import cyto_zarr_read
 # `crc32c` is imported for the same reason: the writer computes the shard index's checksum
 # with it, so verifying that checksum has to use the SAME implementation or the comparison
 # is between two different functions rather than between intent and bytes.
-from cyto_zarr import crc32c, key_sequence_digest, vocab_declaration
+from txr_zarr import crc32c, key_sequence_digest, vocab_declaration
 
 #: How many SHARDS of each member the BOUNDED check decodes. The first and the last
 #: are the two that catch the overwhelming majority of container faults — a wrong codec
@@ -411,7 +411,7 @@ _UTF8_CHARSETS = frozenset({"utf-8", "utf8", "us-ascii", "ascii"})
 #: The member kinds this suite implements. A member declaring anything else is refused by
 #: NAME rather than silently checked as if it were numeric — which is what used to happen,
 #: and is how `kind` could be downgraded (`categorical` → `numeric`) to shed the level-set
-#: check. Exhaustive against the writers: `cyto_zarr.write_array` emits `numeric`,
+#: check. Exhaustive against the writers: `txr_zarr.write_array` emits `numeric`,
 #: `Table.categorical` overrides it to `categorical`, `Table.string` to `string`.
 _MEMBER_KINDS = ("numeric", "categorical", "string")
 
@@ -436,7 +436,7 @@ _REQUIRED_MEMBER_KEYS = {
         # range; here it is refused on the face of the declaration.
         #
         # The ROW declares the set by DIGEST (`_conform_levels_digest` recomputes it from
-        # the member's stamped `attributes.cyto.levels`, which is where every reader gets
+        # the member's stamped `attributes.txr.levels`, which is where every reader gets
         # the set itself). Restating the list here made one member's row entry 450 KB for
         # a 9 KB array and blew `MAX_MANIFEST_BYTES`; the digest pins the same fact at 64
         # bytes, the way `values_digest` already pins a string member's value sequence.
@@ -523,7 +523,7 @@ def _is_extents(value):
 #: place. `shape: 200` is PRESENT, so the presence loop above passes it, and every use of it
 #: then sat behind an `isinstance(declared_shape, list)` guard written to survive a value it
 #: could not read — so a SCALAR switched those uses off exactly the way omitting the key once
-#: did, including the ONLY check pinning a string group's stamped `attributes.cyto.n`.
+#: did, including the ONLY check pinning a string group's stamped `attributes.txr.n`.
 #: Measured through the production entry (`conform_outputs`, real `manifest.json`,
 #: `full=True`): a table declaring `shape: 200` against a `label/zarr.json` stamping `n=999`
 #: over 200 real strings returned `[]`, while the same wrong value written as `[999]`
@@ -573,12 +573,12 @@ _OPTIONAL_MEMBER_KEYS = {
     "kind": "required for every kind, checked before this table (it selects the set)",
     "name": (
         "a display LABEL. INV-3: the name is a label, never a key — `path` is the address, "
-        "and every check in this suite resolves members by `path`. `cyto_csc`'s trio "
+        "and every check in this suite resolves members by `path`. `txr_csc`'s trio "
         "carries no `name` at all, so requiring it would refuse a conforming artifact."
     ),
     "axis": (
         "a RESTATEMENT of `structure.axis`, which is required at the artifact level and is "
-        "where `expect_rows` comes from. `cyto_csc`'s members carry none."
+        "where `expect_rows` comes from. `txr_csc`'s members carry none."
     ),
     "stored_bytes": (
         "an accounting value (the COMPRESSED size). Nothing decodes with it, and checking "
@@ -602,7 +602,7 @@ _OPTIONAL_MEMBER_KEYS = {
         "high-cardinality column. Its absence cannot weaken this gate: nothing here decodes "
         "with it, and it is a catalog-side OFFER filter rather than part of the read "
         "contract. When it IS present `_conform_vocab_declaration` recomputes it from the "
-        "member's own stamped `attributes.cyto.levels`, so presence buys a check rather "
+        "member's own stamped `attributes.txr.levels`, so presence buys a check rather "
         "than a free pass."
     ),
     "vocab_sketch": (
@@ -640,7 +640,7 @@ _OPTIONAL_MEMBER_KEYS = {
         "the ORDER-INDEPENDENT set hash over the normalised level set (ITEM-34). Absent on "
         "every categorical written before the field existed, which the consumer reads as "
         "`undecidable` — a state, not a gap. When PRESENT it is recomputed from the "
-        "member's own stamped `attributes.cyto.levels` by `_conform_vocab_declaration`."
+        "member's own stamped `attributes.txr.levels` by `_conform_vocab_declaration`."
     ),
     "vocab_sketch": (
         "the sorted per-level short hashes, which is what makes SUBSET decidable where the "
@@ -655,8 +655,8 @@ _OPTIONAL_MEMBER_KEYS = {
     ),
     "role": (
         "REQUIRED on an `aux` member and checked by [`_conform_aux`] against [`_AUX_ROLES`], "
-        "which refuses a role this gate has no opinion about. Optional elsewhere: `cyto_csc` "
-        "stamps a member's ROLE (`indptr`/`indices`/`data`) into its `attributes.cyto` and "
+        "which refuses a role this gate has no opinion about. Optional elsewhere: `txr_csc` "
+        "stamps a member's ROLE (`indptr`/`indices`/`data`) into its `attributes.txr` and "
         "the row declares the same fact by which KEY of `structure` the member sits under, "
         "so there a row-side `role` adds nothing. An `aux` member has no such key to sit "
         "under — every one of them sits under the same `aux` list — which is why the role is "
@@ -744,9 +744,9 @@ _AUX_ROLES = {
         "is member-named rather than shared. "
         "\n\n"
         "**Every code in it is IN RANGE.** A level this mode dropped maps to the vocabulary's "
-        "DECLARED absence label (`attributes.cyto_alignment.missing_levels[<column>]`), not "
+        "DECLARED absence label (`attributes.txr_alignment.missing_levels[<column>]`), not "
         "to a `-1` sentinel. That was the C4 correction: `-1` is pandas' in-memory missing "
-        "code, and storing it is exactly what `cyto_columns` refuses (*\"rather than storing "
+        "code, and storing it is exactly what `txr_columns` refuses (*\"rather than storing "
         "an out-of-range code\"*) — the read side rejects a negative code with a 400 for the "
         "whole column, so the only mode that drops emitted artifacts it could never serve. "
         "The read-side guard still stands and is now unreachable by construction. "
@@ -764,7 +764,7 @@ _AUX_ROLES = {
     ),
 }
 
-#: The per-member `attributes.cyto` keys that restate a key of the member's ROW declaration,
+#: The per-member `attributes.txr` keys that restate a key of the member's ROW declaration,
 #: as `stamped_key -> row_key`. Compared by [`_conform_member_attributes`] — two copies of
 #: one fact that can drift is the class of bug this suite exists for, and the group-level
 #: copy was the only one being checked.
@@ -808,7 +808,7 @@ class _Absent:
 
 _ABSENT = _Absent()
 
-#: The `attributes.cyto` keys a member's OWN `zarr.json` must stamp, per kind, each mapped
+#: The `attributes.txr` keys a member's OWN `zarr.json` must stamp, per kind, each mapped
 #: to WHAT a store-URL consumer does with it — which is the only admissible reason to
 #: require it (a required key nothing decodes with would be a presence ritual).
 #:
@@ -816,8 +816,8 @@ _ABSENT = _Absent()
 #: the wrong altitude by exactly one level: the ROW's keys became required, while the
 #: member's own stamp was still read key-by-key with `in`, so a key ABSENT from the stamp
 #: skipped its comparison instead of failing it. Measured: popping ONLY
-#: `attributes.cyto.kind` out of a categorical member's `zarr.json` left the gate silent
-#: while `cyto_zarr_read.read_column` — §0.3's first-class store-URL client — handed back
+#: `attributes.txr.kind` out of a categorical member's `zarr.json` left the gate silent
+#: while `txr_zarr_read.read_column` — §0.3's first-class store-URL client — handed back
 #: raw `uint8` codes in place of labels. The `levels`/`ordered` pair was already required by
 #: a bespoke `if`, which is precisely how a class gets closed for the instances somebody
 #: happened to think of.
@@ -868,10 +868,10 @@ _STAMP_FLOOR = {"kind": _REQUIRED_STAMPED_KEYS["numeric"]["kind"]}
 #: Stamped keys that are EXPLICITLY optional, each with the reason its absence cannot make
 #: the gate look less hard — the same auditable distinction [`_OPTIONAL_MEMBER_KEYS`] draws
 #: for the row. A stamped key in NEITHER table is one the gate has no opinion about, and is
-#: reported, so a key added to `cyto_zarr._member_meta` cannot ride along unclassified.
+#: reported, so a key added to `txr_zarr._member_meta` cannot ride along unclassified.
 _OPTIONAL_STAMPED_KEYS = {
     "name": (
-        "a display LABEL (INV-3: the name is a label, never a key). `cyto_csc`'s trio "
+        "a display LABEL (INV-3: the name is a label, never a key). `txr_csc`'s trio "
         "stamps one that its ROW does not carry, so the two copies are compared only when "
         "both exist — and nothing decodes with it either way"
     ),
@@ -891,7 +891,7 @@ _OPTIONAL_STAMPED_KEYS = {
         "the ORDER-INDEPENDENT set hash over the normalised level set (ITEM-34). Absent on "
         "every categorical written before the field existed, which the consumer reads as "
         "`undecidable` — a state, not a gap. When PRESENT it is recomputed from the "
-        "member's own stamped `attributes.cyto.levels` by `_conform_vocab_declaration`."
+        "member's own stamped `attributes.txr.levels` by `_conform_vocab_declaration`."
     ),
     "vocab_sketch": (
         "the sorted per-level short hashes, which is what makes SUBSET decidable where the "
@@ -905,7 +905,7 @@ _OPTIONAL_STAMPED_KEYS = {
         "exclusion. Absent whenever the column had no missing values."
     ),
     "role": (
-        "`cyto_csc` stamps a member's ROLE (`indptr`/`indices`/`data`); the row declares "
+        "`txr_csc` stamps a member's ROLE (`indptr`/`indices`/`data`); the row declares "
         "the same fact by which KEY of `structure` the member sits under, so there is "
         "nothing a stamped `role` adds and nothing its absence removes"
     ),
@@ -945,7 +945,7 @@ _CHUNK_DIR = "c"
 #: under that node's `c/`, and there is no third kind.
 _NODE_META = "zarr.json"
 
-#: A chunk key component, per the v3 `default` chunk-key encoding `cyto_zarr` writes: the
+#: A chunk key component, per the v3 `default` chunk-key encoding `txr_zarr` writes: the
 #: chunk's index along one dimension, so `c/3` (1-D) and `c/3/0` (2-D). Anything else under
 #: a `c/` dir is not a chunk of this member.
 #:
@@ -1039,7 +1039,7 @@ class _UnderivableGrid:
 
 #: Bound on the CHUNK walk, separate from [`_NODE_WALK_LIMIT`] and far larger because it
 #: counts shard files rather than nodes. Headroom: a shard spans `inner_chunk *
-#: chunks_per_shard` ≤ 4096 * 4096 ≈ 16.8M elements (`cyto_zarr.SHARD_CAP_CHUNKS`), so
+#: chunks_per_shard` ≤ 4096 * 4096 ≈ 16.8M elements (`txr_zarr.SHARD_CAP_CHUNKS`), so
 #: 200k entries is ~10^12 elements — while still bounding the walk over a store that is
 #: pathological or hostile. Exceeding it is REPORTED, never passed.
 _CHUNK_WALK_LIMIT = 200000
@@ -1852,7 +1852,7 @@ def _conform_group_attributes(root, structure):
     kept deliberately: see the RECORDED LIMITATION block above `ManifestReport`.
     """
     try:
-        stamped = cyto_zarr_read.structure(root)
+        stamped = txr_zarr_read.structure(root)
     except FileNotFoundError:
         return [f"no group zarr.json at {root} — an artifact is a Zarr store"]
     except OSError as exc:
@@ -1861,7 +1861,7 @@ def _conform_group_attributes(root, structure):
             " — a `zarr_v3` artifact is a DIRECTORY of Zarr nodes"
         ]
     except (KeyError, TypeError, ValueError):
-        return [f"group zarr.json at {root} carries no `attributes.cyto` declaration"]
+        return [f"group zarr.json at {root} carries no `attributes.txr` declaration"]
     if stamped != structure:
         return [
             "the declaration stamped into the group's zarr.json differs from the returned "
@@ -1983,8 +1983,8 @@ def _stamped_key_violations(path, kind, stamped_key, row_key, stamped_value, row
     not in member: continue`. So a key ABSENT from the stored stamp skipped its comparison,
     which is the same "absence selects a shallower check" the row-level tables were built to
     retire — moved one level down, into the copy of the declaration the store itself carries.
-    The oracle: pop ONLY `attributes.cyto.kind` from a categorical member's `zarr.json` and
-    the gate reported `[]` while `cyto_zarr_read.read_column` returned raw `uint8` codes
+    The oracle: pop ONLY `attributes.txr.kind` from a categorical member's `zarr.json` and
+    the gate reported `[]` while `txr_zarr_read.read_column` returned raw `uint8` codes
     where the declaration says labels.
 
     Absence is a VALUE here ([`_ABSENT`]), the four combinations are enumerated, and
@@ -1994,7 +1994,7 @@ def _stamped_key_violations(path, kind, stamped_key, row_key, stamped_value, row
 
     Row-side absence is deliberately NOT this function's finding: a required row key that is
     missing is [`_required_member_key_violations`]' violation (naming one fault twice makes
-    an author fix it twice), and a row key that is explicitly optional is legal — `cyto_csc`'s
+    an author fix it twice), and a row key that is explicitly optional is legal — `txr_csc`'s
     members stamp a `name` their row does not carry.
     """
     if stamped_value is _ABSENT:
@@ -2031,26 +2031,26 @@ def _stamped_key_violations(path, kind, stamped_key, row_key, stamped_value, row
 
 
 def _conform_member_attributes(path, kind, member, node):
-    """The member's OWN stamped `attributes.cyto` against the row's member declaration.
+    """The member's OWN stamped `attributes.txr` against the row's member declaration.
 
     ## The second copy nobody was comparing
 
     `_conform_group_attributes` checks the GROUP's stamped declaration against the row's
     `structure`, because "two copies that can drift is exactly the class of bug this suite
     exists for". `write_array` stamps a THIRD copy of the same facts onto each MEMBER
-    (`cyto_zarr._member_meta` → `attributes.cyto.{kind, name}`, plus `levels`/`ordered` for a
+    (`txr_zarr._member_meta` → `attributes.txr.{kind, name}`, plus `levels`/`ordered` for a
     categorical, `layout`/`n` for a string group, `role` for a CSC member) and nothing
     compared it.
 
     Oracle for why that matters: edit ONLY `<member>/zarr.json`'s
-    `attributes.cyto.{kind, levels}` — leave the row, the group stamp and every byte alone —
+    `attributes.txr.{kind, levels}` — leave the row, the group stamp and every byte alone —
     and the whole gate reported `[]`, while a consumer holding nothing but the store URL
     decoded a categorical member's raw codes where `structure` declares labels. §0.3 names
-    the store-URL client as first-class and `cyto_zarr_read.read_column` is its reference
+    the store-URL client as first-class and `txr_zarr_read.read_column` is its reference
     implementation: it reads `kind`/`levels` from exactly this stamp. The fault is latent
     today only because the browser reader happens to prefer the row's copy.
 
-    The stamp is REQUIRED, not merely compared: a member node carrying no `attributes.cyto`
+    The stamp is REQUIRED, not merely compared: a member node carrying no `attributes.txr`
     is one a store-URL consumer learns nothing about, which is the same
     absence-selects-a-shallower-check shape one level down.
 
@@ -2075,10 +2075,10 @@ def _conform_member_attributes(path, kind, member, node):
     own `zarr.json` was DELETED produced no violation from anywhere. One read, in the caller,
     for every kind — so there is no arm in which nobody reports it.
     """
-    stamped = (node.get("attributes") or {}).get("cyto")
+    stamped = (node.get("attributes") or {}).get("txr")
     if not isinstance(stamped, dict):
         return [
-            f'member "{path}" carries no `attributes.cyto` declaration in its own zarr.json '
+            f'member "{path}" carries no `attributes.txr` declaration in its own zarr.json '
             "— the store is the only thing a consumer given just the `/data` URL can read, "
             "so a member with no stamped declaration is a member that consumer cannot "
             "decode (INV-2)"
@@ -2188,8 +2188,8 @@ def _chunk_grid(meta):
     This is the half the chunk plane was missing. [`_CHUNK_KEY_RE`] asks whether an entry is
     SHAPED like a chunk key; this asks which chunk keys the declared array actually HAS, and
     only the second bounds a set. Per dimension the count is `ceil(shape[d] / chunk_shape[d])`
-    over the OUTER (`chunk_grid`) shape — the shard grid, since `cyto_zarr` writes one file
-    per shard — which is the identical arithmetic `cyto_zarr_read.read_array` uses to decide
+    over the OUTER (`chunk_grid`) shape — the shard grid, since `txr_zarr` writes one file
+    per shard — which is the identical arithmetic `txr_zarr_read.read_array` uses to decide
     which keys to fetch and [`_shard_count`] uses to count them. A reader and this rule
     therefore cannot disagree about which files exist by construction rather than by review.
 
@@ -2310,8 +2310,8 @@ def _chunk_key_place(parts, grid, is_dir):
     has dimensions, and a NON-CANONICAL spelling.
 
     Canonical decimal (`name == str(int(name))`) because the key space is the set of strings
-    a reader BUILDS, not the set of integers it could parse: `cyto_zarr` writes `f"{s}"` and
-    `cyto_zarr_read` fetches `f"{s}"`, so `c/007` is a file that exists beside the real `c/7`
+    a reader BUILDS, not the set of integers it could parse: `txr_zarr` writes `f"{s}"` and
+    `txr_zarr_read` fetches `f"{s}"`, so `c/007` is a file that exists beside the real `c/7`
     and that no reader will ever open. `c/00000000123456789` was one of the measured silent
     probes, and it is this arm that catches it.
     """
@@ -2947,7 +2947,7 @@ def _conform_alignment_vocabulary(root, aux, *, evidence=None):
 
     `alignment_level_lookup` maps a source's stored code to a UNIFIED code, and a unified
     code means nothing without the list it indexes. The producer stamps that list into the
-    store's group attributes as `cyto_alignment.unified_levels` — with the BYTES, so it is
+    store's group attributes as `txr_alignment.unified_levels` — with the BYTES, so it is
     uncapped and survives at any cardinality, unlike anything that rides the manifest row.
 
     Unverified it would be the shape this module refuses everywhere else: a declaration
@@ -2967,14 +2967,14 @@ def _conform_alignment_vocabulary(root, aux, *, evidence=None):
         return []
 
     try:
-        attributes = cyto_zarr_read.read_meta(root).get("attributes") or {}
+        attributes = txr_zarr_read.read_meta(root).get("attributes") or {}
     except OSError as exc:
         return [f"the alignment's group node is not readable: {exc}"]
-    vocabulary = (attributes.get("cyto_alignment") or {}).get("unified_levels")
+    vocabulary = (attributes.get("txr_alignment") or {}).get("unified_levels")
     if not isinstance(vocabulary, dict):
         return [
             "the alignment emits `alignment_level_lookup` member(s) but stamps no "
-            "`cyto_alignment.unified_levels` in its group attributes — a unified code "
+            "`txr_alignment.unified_levels` in its group attributes — a unified code "
             "indexes a list, and without it every lookup is uninterpretable and a consumer "
             "renders integers where labels belong"
         ]
@@ -3087,7 +3087,7 @@ def _read_member_node(root, path):
     `ManifestReport`.
     """
     try:
-        node = cyto_zarr_read.read_meta(root, path)
+        node = txr_zarr_read.read_meta(root, path)
     except FileNotFoundError:
         return None, [f'declared member "{path}" has no zarr.json on disk']
     except OSError as exc:
@@ -3308,7 +3308,7 @@ def _conform_string_member(root, member, *, expect_rows, full, evidence=None):
        `["é","x"]` at offsets `[0,1,3]`, which this gate passed. Decoding each value is
        exactly equivalent to "no offset splits a codepoint" and produces a better message.
     3. **`values_digest`** — the producer's declaration of what the offsets split the
-       payload INTO, written by `cyto_zarr.Table.string` for every string member and
+       payload INTO, written by `txr_zarr.Table.string` for every string member and
        recomputed here from the bytes that landed. This is the only thing that can catch an
        all-ASCII re-split, because such a re-split is genuinely indistinguishable from the
        real split by any property of the bytes alone. Its ABSENCE is a violation: a
@@ -3325,7 +3325,7 @@ def _conform_string_member(root, member, *, expect_rows, full, evidence=None):
     legs = {}
     for leg in ("offsets", "values"):
         try:
-            leg_meta = cyto_zarr_read.read_meta(root, f"{path}/{leg}")
+            leg_meta = txr_zarr_read.read_meta(root, f"{path}/{leg}")
         except FileNotFoundError:
             return [f'string member "{path}" is missing its offsets/values pair']
         except OSError as exc:
@@ -3436,7 +3436,7 @@ def _conform_levels_digest(path, member, node):
     two copies of the list. The row now declares a digest instead — the list itself was
     450 KB for a 35,477-level member, 87% of a real import's manifest, and it blew
     `MAX_MANIFEST_BYTES` — so the comparison recomputes rather than equates. Detection is
-    unchanged: the oracle that edits ONLY `<member>/zarr.json`'s `attributes.cyto.levels`
+    unchanged: the oracle that edits ONLY `<member>/zarr.json`'s `attributes.txr.levels`
     still lands here, because that stamp is the input being hashed.
 
     `key_sequence_digest` is the same function `values_digest` uses, and its
@@ -3449,7 +3449,7 @@ def _conform_levels_digest(path, member, node):
     `_stamped_key_violations`' — so the `is None` guards below can only skip a fault that
     is already named elsewhere, never one named nowhere.
     """
-    stamped = (node.get("attributes") or {}).get("cyto")
+    stamped = (node.get("attributes") or {}).get("txr")
     if not isinstance(stamped, dict):
         return []  # reported by `_conform_member_attributes`
     levels = stamped.get("levels")
@@ -3458,7 +3458,7 @@ def _conform_levels_digest(path, member, node):
         return []
     if not isinstance(levels, list):
         return [
-            f'categorical member "{path}" stamps a non-list `attributes.cyto.levels` '
+            f'categorical member "{path}" stamps a non-list `attributes.txr.levels` '
             f"({type(levels).__name__}) — the level set is an ORDERED sequence that the "
             "codes index into"
         ]
@@ -3487,14 +3487,14 @@ def _conform_vocab_declaration(path, member, node):
     Two refusals, and they are different claims:
 
     1. **Exactly one present.** The writer emits both or neither from one normalised level
-       list in one pass (`cyto_zarr.vocab_declaration`), so a tree carrying one alone is a
+       list in one pass (`txr_zarr.vocab_declaration`), so a tree carrying one alone is a
        state this design cannot produce — which means something rewrote one of them, which
        means neither can be trusted. The consumer's rule is "exactly one present ⇒
        undecidable", and that rule is only SOUND if the writer genuinely cannot emit one
        alone. A read-side refusal guarding a state the writer can reach is a refusal that
        fires on healthy data; this is the write-side half that keeps it honest.
     2. **Drift.** When both are present they are RECOMPUTED from the member's own stamped
-       `attributes.cyto.levels`, minus the row's declared `missing_level`. This is the same
+       `attributes.txr.levels`, minus the row's declared `missing_level`. This is the same
        shape as `_conform_levels_digest` and it is why the pair is not a free opt-out: an
        oracle that edits only the member's `zarr.json` lands here.
 
@@ -3508,7 +3508,7 @@ def _conform_vocab_declaration(path, member, node):
     whenever one of them happened to have missing values — the exact false mismatch this
     declaration exists to remove.
     """
-    stamped = (node.get("attributes") or {}).get("cyto")
+    stamped = (node.get("attributes") or {}).get("txr")
     if not isinstance(stamped, dict):
         return []  # reported by `_conform_member_attributes`
     declared_digest = member.get("vocab_digest")
@@ -3687,13 +3687,13 @@ def _conform_sparse_csc(root, structure, *, full, evidence=None):
 def _read_whole(root, path, *, evidence=None):
     """`(values | None, violations)` for a member read EXHAUSTIVELY, meta included.
 
-    The gate's replacement for `cyto_zarr_read.read_array` wherever it needs a whole member
+    The gate's replacement for `txr_zarr_read.read_array` wherever it needs a whole member
     (a string member's offsets/payload, the CSC trio's `indptr`/`indices`). The convenience
     reader implements the Zarr fill-value rule for an absent chunk, which is right for a
     reader and wrong for a gate — see the module header.
     """
     try:
-        meta = cyto_zarr_read.read_meta(root, path)
+        meta = txr_zarr_read.read_meta(root, path)
     except FileNotFoundError:
         return None, [f'member "{path}" has no zarr.json on disk']
     except (OSError, ValueError) as exc:
@@ -3737,7 +3737,7 @@ def _shard_plan(meta, *, full):
 
     ## WHEN THE SUBSET BRANCH ACTUALLY ENGAGES
 
-    `cyto_zarr.shard_chunks` derives `chunks_per_shard` from the array's own length (capped),
+    `txr_zarr.shard_chunks` derives `chunks_per_shard` from the array's own length (capped),
     so an array up to `SHARD_CAP_CHUNKS * INNER_CHUNK` ≈ 16.8M elements lands in ONE shard and
     this returns all of it — bounded and full then decode the same bytes. The subset branch
     engages for a member ABOVE that size, or one whose producer declared an explicit small
@@ -3794,7 +3794,7 @@ def _shard_index(body, per_shard, *, path, shard):
 
     ## Why the checksum is not optional
 
-    `cyto_zarr` writes `crc32c` over the index bytes (`index_codecs: [bytes, crc32c]`)
+    `txr_zarr` writes `crc32c` over the index bytes (`index_codecs: [bytes, crc32c]`)
     because the index is the one part of a shard whose corruption is otherwise SILENT. A
     flipped byte inside a compressed chunk fails to gunzip, loudly; a flipped byte in an
     offset yields a completely successful decode of the WRONG bytes. Neither depth of this
@@ -3829,7 +3829,7 @@ def _decode_shards(root, path, meta, shards, *, evidence=None):
 
     THE gate's container reader, at every depth (`_shard_plan` chooses `shards`). The
     trailing inner chunk of an array is PADDED to `chunk_shape` with `fill_value`
-    (`cyto_zarr.ArrayWriter._emit`), and `shape` is what bounds a reader. So each decoded
+    (`txr_zarr.ArrayWriter._emit`), and `shape` is what bounds a reader. So each decoded
     chunk is trimmed to the logical rows it actually covers — without that, the subset read
     carries fill values the array does not contain and a value-range check (a
     categorical's codes) would be judging padding.
@@ -3884,8 +3884,8 @@ def _decode_shards(root, path, meta, shards, *, evidence=None):
             if lo >= n:
                 continue  # a slot past the end of the array is legitimately EMPTY
             rows = min(inner_rows, n - lo)
-            if int(off) == cyto_zarr_read.EMPTY:
-                # THE CASE THE FULL DEPTH USED TO PASS. `cyto_zarr` emits every chunk that
+            if int(off) == txr_zarr_read.EMPTY:
+                # THE CASE THE FULL DEPTH USED TO PASS. `txr_zarr` emits every chunk that
                 # covers logical rows, so an EMPTY slot inside `shape` is a corrupt store —
                 # but the Zarr rule a READER implements is "absent chunk ⇒ fill_value", so
                 # `read_array` (which `full=True` used to call) silently substituted zeroes
@@ -3903,7 +3903,7 @@ def _decode_shards(root, path, meta, shards, *, evidence=None):
             plain = gzip.decompress(bytes(body[int(off) : int(off) + int(nb)]))
             _note(evidence, "decoded", len(plain))
             if shuffled:
-                plain = cyto_zarr_read.unshuffle(plain, dtype.itemsize)
+                plain = txr_zarr_read.unshuffle(plain, dtype.itemsize)
             block = np.frombuffer(plain, dtype=dtype)
             if int(block.size) != per_chunk:
                 raise ValueError(
@@ -3932,7 +3932,7 @@ def _decode_shards(root, path, meta, shards, *, evidence=None):
 # server to do. So the check lives here, on the producer's side of the boundary, where the
 # alignment was created and where getting it wrong is a bug that can still be fixed.
 #
-# The digest FUNCTION itself is `cyto_zarr`'s (see the section comment there): the producer
+# The digest FUNCTION itself is `txr_zarr`'s (see the section comment there): the producer
 # DECLARES `structure.key_sequence_digest` over the values it stores, and this module
 # RECOMPUTES the same digest from the bytes that landed. A comparison between the two is
 # only meaningful if both sides digest identically, so there is exactly one implementation
@@ -3947,7 +3947,7 @@ def _decode_shards(root, path, meta, shards, *, evidence=None):
 def _member_values(root, member):
     """A member's values as a READER gets them — through the GATE's own strict walker.
 
-    What `cyto_zarr_read.read_column` returns (labels for a categorical, `str`s for a string
+    What `txr_zarr_read.read_column` returns (labels for a categorical, `str`s for a string
     member, the array otherwise), decoded via `_read_whole` instead. The difference is not
     cosmetic and it is why this exists rather than calling the convenience reader:
     `read_array` implements the Zarr rule that an absent chunk is `fill_value`, which for a
@@ -3961,8 +3961,8 @@ def _member_values(root, member):
     fault here can never be reported as a digest that merely happens not to match.
     """
     root = Path(root)
-    meta = cyto_zarr_read.read_meta(root, member)  # metadata, not bytes
-    kind = ((meta.get("attributes") or {}).get("cyto") or {}).get("kind")
+    meta = txr_zarr_read.read_meta(root, member)  # metadata, not bytes
+    kind = ((meta.get("attributes") or {}).get("txr") or {}).get("kind")
     if kind == "string" or (root / member / "offsets").is_dir():
         offsets, errors = _read_whole(root, f"{member}/offsets")
         if errors:
@@ -3979,7 +3979,7 @@ def _member_values(root, member):
     if errors:
         raise ValueError("; ".join(errors))
     if kind == "categorical":
-        levels = ((meta.get("attributes") or {})["cyto"])["levels"]
+        levels = ((meta.get("attributes") or {})["txr"])["levels"]
         return [levels[int(c)] for c in values]
     return values.tolist()
 
@@ -4164,7 +4164,7 @@ def _conform_aligned_to(structure):
     artifact's own key declaration (ITEM-15).
 
     The shape half catches the one slip the writer's own guard exists for, on the path where
-    a structure did NOT come through `cyto_zarr.Table` (a hand-built manifest entry, a
+    a structure did NOT come through `txr_zarr.Table` (a hand-built manifest entry, a
     re-encoder): `aligned_to` holding a label, or the key sequence itself, would sail past
     every other check in this suite and surface only as a picker that quietly offers nothing.
 
@@ -4235,7 +4235,7 @@ def _conform_key(root, structure, *, meta=None, member_paths=None):
 
     What is deliberately NOT symmetric: `key` WITHOUT `is_axis_index` is fine. A `cell_id`
     column legitimately carries the cells axis's keys without being the artifact the axis
-    resolves to (`cyto_columns.write_metadata_column` documents exactly that case), and it
+    resolves to (`txr_columns.write_metadata_column` documents exactly that case), and it
     is a strictly stronger declaration than staying silent.
     """
     key = structure.get("key")

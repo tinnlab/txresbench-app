@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * help-r2.md measured "[actions] agent stream ended; reconnecting" on 30 of
  * 56 page loads — the same teardown-noise class as the sync stream: the
  * SSE is cut when the page navigates or closes. The engine answers the ONE
- * unload signal the SDK sync module owns (`@ziee/framework/sync`'s
+ * unload signal the SDK sync module owns (`@txresbench/framework/sync`'s
  * `isDocumentUnloading`, driven by pagehide/pageshow): an unloading page
  * logs at debug, a genuine drop on a live page stays a warn. The reconnect
  * loop itself is untouched.
@@ -16,14 +16,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * the engine's per-tab session id (node has no DOM session storage).
  */
 
-vi.mock('@ziee/framework/api-client', () => ({
+vi.mock('@txresbench/framework/api-client', () => ({
   getAuthToken: () => 'test-token',
   getBaseUrl: async () => 'http://agent.test',
   callAsync: vi.fn(),
 }))
 
 const unloading = { current: false }
-vi.mock('@ziee/framework/sync', () => ({
+vi.mock('@txresbench/framework/sync', () => ({
   isDocumentUnloading: () => unloading.current,
 }))
 

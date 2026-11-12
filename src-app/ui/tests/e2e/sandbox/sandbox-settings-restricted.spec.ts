@@ -8,7 +8,7 @@ import { createRestrictedUser, loginAs, loginAsOwner, logout } from './helpers'
 
 const RESTRICTED = {
   username: 'e2e-restricted',
-  email: 'restricted@cyto.test',
+  email: 'restricted@txresbench.test',
   password: 'restrictedP0!x',
 }
 

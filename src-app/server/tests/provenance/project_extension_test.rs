@@ -4,7 +4,7 @@
 
 use super::*;
 
-use cytoanalyst::modules::provenance::repository::{NewReference, ProvenanceRepository};
+use txresbench::modules::provenance::repository::{NewReference, ProvenanceRepository};
 
 #[tokio::test]
 async fn deleting_a_project_cascades_provenance_rows() {

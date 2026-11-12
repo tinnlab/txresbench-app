@@ -99,9 +99,9 @@ fn the_manual_path_encodes_the_same_publish_sequence_as_the_workflow() {
     // agrees with the workflow", not "the script contains a string someone typed here".
     for token in [
         // the OCI artifact media type a published rootfs carries
-        "application/vnd.cyto.env-rootfs.squashfs.v1",
+        "application/vnd.txresbench.env-rootfs.squashfs.v1",
         // the per-env GHCR repository shape
-        "cyto-env",
+        "txresbench-env",
         // the publish + retag + sign verbs
         "oras push",
         "oras tag",
@@ -500,7 +500,7 @@ fn neither_publisher_can_republish_an_env_whose_recipe_did_not_change() {
     );
     // …naming every candidate, so the operator is told what to choose between.
     let recipe_root = repo_root().join("src-app/env-rootfs");
-    let ids = cytoanalyst::modules::rootfs::version::discover_env_recipes(&recipe_root);
+    let ids = txresbench::modules::rootfs::version::discover_env_recipes(&recipe_root);
     assert!(ids.len() >= 2, "this assertion needs an ambiguous tree; found {ids:?}");
     for id in &ids {
         assert!(
@@ -568,7 +568,7 @@ const FIXTURE_ENV_B: &str = "env-beta";
 fn run_gate_script(gate_run: &str) -> Option<(String, String)> {
     use std::io::Write;
     let ids = [FIXTURE_ENV_A, FIXTURE_ENV_B];
-    let tmp = std::env::temp_dir().join(format!("cyto-gate-{}", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("txr-gate-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     for id in ids {
         std::fs::create_dir_all(tmp.join("src-app/env-rootfs").join(id)).ok()?;
@@ -588,14 +588,14 @@ fn run_gate_script(gate_run: &str) -> Option<(String, String)> {
     // fixture's changed-file list; everything else in the script runs unmodified.
     // The NUL that `git diff -z` emits is produced BY THE SHIM: an environment variable
     // cannot contain a NUL byte, so passing it through the env silently fails the spawn.
-    writeln!(f, "git() {{ printf '%s\\0' \"$CYTO_CHANGED\"; }}").ok()?;
+    writeln!(f, "git() {{ printf '%s\\0' \"$TXR_CHANGED\"; }}").ok()?;
     writeln!(f, "{script}").ok()?;
     drop(f);
     let out = std::process::Command::new("bash")
         .arg(&path)
         .current_dir(&tmp)
         .env("GITHUB_OUTPUT", tmp.join("out.txt"))
-        .env("CYTO_CHANGED", &changed)
+        .env("TXR_CHANGED", &changed)
         .output()
         .expect("the extracted gate script must be runnable under bash");
     let written = std::fs::read_to_string(tmp.join("out.txt")).unwrap_or_default();
@@ -692,7 +692,7 @@ fn the_runbook_documents_the_pin_upgrade_procedure_and_its_escalation() {
     for section in [
         "Upgrading a pin",
         // the step that catches "the recipe moved out from under a shipped analysis"
-        "cargo check -p cytoanalyst",
+        "cargo check -p txresbench",
         // the documented next position beyond direct pins, with its trigger
         "hash-pinned lockfile",
     ] {
@@ -810,7 +810,7 @@ fn the_pinned_recipe_builds_and_its_smoke_line_passes() {
     // number BUILT against the number DISCOVERABLE by the shipped resolver, which is an
     // independent reader of the same tree.
     let discovered =
-        cytoanalyst::modules::rootfs::version::discover_env_recipes(&env_root).len();
+        txresbench::modules::rootfs::version::discover_env_recipes(&env_root).len();
     assert!(
         discovered >= 2,
         "expected the shipped tree to hold at least two env recipes, found {discovered} \
@@ -893,7 +893,7 @@ fn the_runbook_states_the_local_loops_verification_difference() {
         ("the identity constant the published path pins", identity_const),
         ("that seam 1 carries no signature", "no signature in"),
         ("the cosign verification the published path performs", "cosign-verif"),
-        ("that widening a deployment's identity policy is NOT the fix", "CYTO_ENV_IMAGE_IDENTITY_REGEXP"),
+        ("that widening a deployment's identity policy is NOT the fix", "TXR_ENV_IMAGE_IDENTITY_REGEXP"),
         ("that publishing stays gated", "#80"),
     ] {
         assert!(

@@ -6,7 +6,7 @@
  * filter that matches nothing renders the same state — the sentence still
  * holds, and no fabricated count is shown (INV-6).
  */
-import { Empty } from '@ziee/kit'
+import { Empty } from '@txresbench/kit'
 
 export const HISTORY_EMPTY_TITLE = 'Nothing here yet'
 

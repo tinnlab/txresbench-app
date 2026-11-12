@@ -1,7 +1,7 @@
 //! TEST-2 [acceptance] [invariant: INV-2] — a flag with NO row returns the compiled
 //! default (never an error); an UNKNOWN flag fails closed (false).
 
-use cytoanalyst::modules::features::is_feature_enabled;
+use txresbench::modules::features::is_feature_enabled;
 
 use super::DEMO_FLAG;
 use crate::account::pool_for;

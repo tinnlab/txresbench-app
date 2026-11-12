@@ -11,7 +11,7 @@ import type { ScatterWidget } from '@/modules/workbench/core/manifest/viewSpec'
 // source; only a real data arrival (a new slice ref) rebuilds it.
 
 const captured: unknown[] = []
-vi.mock('@ziee/viz', () => ({
+vi.mock('@txresbench/viz', () => ({
   Viz: (props: { source?: unknown }) => {
     captured.push(props.source)
     return React.createElement('div', { 'data-testid': 'viz-mock' })

@@ -40,7 +40,7 @@ function spec(id = 'view.alpha/interactive', title = 'Filter items'): ViewSpec {
 }
 
 const WHEN = { has: 'single-cell/expression' } as const
-const OPTS = { extensionId: 'cyto.view-alpha', title: 'Alpha analysis', when: WHEN }
+const OPTS = { extensionId: 'txr.view-alpha', title: 'Alpha analysis', when: WHEN }
 const view = (s: ViewSpec) => ({ view_spec: s, view_id: s.id })
 
 describe('view_spec contribution seam (INV-3)', () => {

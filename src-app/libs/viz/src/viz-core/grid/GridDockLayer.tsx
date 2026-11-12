@@ -99,8 +99,8 @@ import type { ColumnColorOverride } from '../../adapter/colorOverride.store'
 import { defaultCellSeed } from '../rng'
 import { useGridWorkspaceSeam, type CellDataResolved } from './GridWorkspaceContext'
 
-/** ITEM-6: the @ziee/viz version stamped into a figure's provenance manifest. */
-const VIZ_VERSION = 'ziee-viz/1'
+/** ITEM-6: the @txresbench/viz version stamped into a figure's provenance manifest. */
+const VIZ_VERSION = 'txresbench-viz/1'
 
 /** Slug a plot title into a safe filename stem (lowercase, hyphenated); empty ⇒ 'export'. */
 function slugifyFilename(title: string): string {

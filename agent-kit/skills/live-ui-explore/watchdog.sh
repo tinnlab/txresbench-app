@@ -23,8 +23,8 @@
 #   bash watchdog.sh --loop 20    # re-check every 20 minutes
 set -u
 
-STATE=${STATE:-/data/pbya/ziee/tmp/live-ui-explore}
-RIG=${RIG:-/data/pbya/ziee/tmp/live-rig-wt}
+STATE=${STATE:-/data/pbya/txresbench/tmp/live-ui-explore}
+RIG=${RIG:-/data/pbya/txresbench/tmp/live-rig-wt}
 BASE=${EXPLORE_URL:-http://127.0.0.1:1520}
 REPORT="$STATE/WATCHDOG.md"
 EVERY=0

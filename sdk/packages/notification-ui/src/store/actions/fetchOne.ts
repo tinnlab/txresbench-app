@@ -1,4 +1,4 @@
-import { hasPermissionNow } from '@ziee/framework/permissions'
+import { hasPermissionNow } from '@txresbench/framework/permissions'
 import { notificationDeps } from '../_deps'
 import type { NotificationRow } from '../../types'
 import type { NotificationsGet, NotificationsSet } from '../state'

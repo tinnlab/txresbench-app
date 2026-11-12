@@ -21,7 +21,7 @@
 // an implementation that gets the other exactly backwards.
 
 import { describe, expect, it } from 'vitest'
-import { createVizStores, installBuiltinSchemas, VizController, type DatasetResolver } from '@ziee/viz'
+import { createVizStores, installBuiltinSchemas, VizController, type DatasetResolver } from '@txresbench/viz'
 import type { ViewSpec } from '@/modules/workbench/core/manifest/viewSpec'
 import { resolveDeclarativeCanvas } from './canvasFeed'
 

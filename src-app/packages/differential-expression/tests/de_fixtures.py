@@ -3,7 +3,7 @@
 """Off-sandbox run harness for the DE compute (mirrors clustering_fixtures.py / DEC-11).
 
 Drives the REAL `compute/markers.py` / `compute/compare.py` as a SUBPROCESS through the
-`CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR` seam, with `_lib` on `PYTHONPATH` exactly as the sandbox
+`TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR` seam, with `_lib` on `PYTHONPATH` exactly as the sandbox
 stages `/code`. Every input is declared in `/inputs/inputs.json` with a MEANINGLESS `in0`/…
 mount name, so a compute that resolves by filename suffix cannot pass.
 """
@@ -64,44 +64,44 @@ def import_own(name):
 
 
 sys.path.insert(0, str(_LIB_DIR))
-import cyto_columns  # noqa: E402
-import cyto_csc  # noqa: E402
-import cyto_zarr  # noqa: E402
-import cyto_zarr_read  # noqa: E402
+import txr_columns  # noqa: E402
+import txr_csc  # noqa: E402
+import txr_zarr  # noqa: E402
+import txr_zarr_read  # noqa: E402
 
 
 def cells_digest(n: int) -> str:
-    return cyto_zarr.key_sequence_digest([f"cell-{i}" for i in range(n)])
+    return txr_zarr.key_sequence_digest([f"cell-{i}" for i in range(n)])
 
 
 def write_expression_store(dest: Path, matrix, *, datatype=None) -> dict:
-    """A fixture `single-cell/expression` CSC store. `datatype` stamps `attributes.cyto.datatype`
+    """A fixture `single-cell/expression` CSC store. `datatype` stamps `attributes.txr.datatype`
     so the INV-13 raw-counts refusal can be exercised with a normalized layer."""
     import scipy.sparse as sp
     m = sp.csr_matrix(np.asarray(matrix, dtype=np.float32))
-    structure = cyto_csc.write_csc_zarr(cyto_csc.ArraySource(m), dest, axes=("cells", "genes"))
+    structure = txr_csc.write_csc_zarr(txr_csc.ArraySource(m), dest, axes=("cells", "genes"))
     if datatype is not None:
         zj = dest / "zarr.json"
         doc = json.loads(zj.read_text())
-        cyto = doc.setdefault("attributes", {}).setdefault("cyto", {})
-        cyto["datatype"] = datatype
+        txr = doc.setdefault("attributes", {}).setdefault("txr", {})
+        txr["datatype"] = datatype
         zj.write_text(json.dumps(doc, indent=2))
     return structure
 
 
 def write_column_store(dest: Path, values, *, name="col", provenance=None) -> dict:
     """A fixture categorical `metadata-column`. `provenance` (a dict) is stamped into the store's
-    group `attributes.cyto` — e.g. `{"clustering": {...}}` (matrix-derived ⇒ R2) or
+    group `attributes.txr` — e.g. `{"clustering": {...}}` (matrix-derived ⇒ R2) or
     `{"external": True}` (external ⇒ R1/R3)."""
     import pandas as pd
     series = pd.Categorical([str(v) for v in values])
-    structure, meta = cyto_columns.write_metadata_column(
+    structure, meta = txr_columns.write_metadata_column(
         dest.parent, dest.name, name, pd.Series(series), axis="cells")
     if provenance:
         zj = dest / "zarr.json"
         doc = json.loads(zj.read_text())
-        cyto = doc.setdefault("attributes", {}).setdefault("cyto", {})
-        cyto.update(provenance)
+        txr = doc.setdefault("attributes", {}).setdefault("txr", {})
+        txr.update(provenance)
         zj.write_text(json.dumps(doc, indent=2))
     return structure
 
@@ -153,9 +153,9 @@ class DeRun:
         env["PYTHONPATH"] = os.pathsep.join(
             [str(_HELPERS_DIR), str(_LIB_DIR),
              *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])])
-        env["CYTO_INPUTS_DIR"] = str(self.inputs_dir)
-        env["CYTO_OUTPUTS_DIR"] = str(self.outputs_dir)
-        env.pop("CYTO_PROGRESS_FIFO", None)
+        env["TXR_INPUTS_DIR"] = str(self.inputs_dir)
+        env["TXR_OUTPUTS_DIR"] = str(self.outputs_dir)
+        env.pop("TXR_PROGRESS_FIFO", None)
         for k, v in (env_extra or {}).items():
             if v is None:
                 env.pop(str(k), None)
@@ -184,18 +184,18 @@ class DeRun:
     def de_store(self, entry) -> Path:
         return self.outputs_dir / entry["path"]
 
-    def de_cyto(self, entry) -> dict:
+    def de_txr(self, entry) -> dict:
         doc = json.loads((self.de_store(entry) / "zarr.json").read_text())
-        return (doc.get("attributes") or {}).get("cyto") or {}
+        return (doc.get("attributes") or {}).get("txr") or {}
 
     def de_members(self, entry) -> set:
         """The MEMBERS actually written into a de/result store (the columns present on disk)."""
-        st = self.de_cyto(entry)
+        st = self.de_txr(entry)
         cols = st.get("columns") or []
         return {c.get("name") or c.get("path") for c in cols if isinstance(c, dict)}
 
     def de_column(self, entry, member) -> list:
-        return list(cyto_zarr_read.read_column(self.de_store(entry), member))
+        return list(txr_zarr_read.read_column(self.de_store(entry), member))
 
     def progress_phases(self, proc) -> list:
         return [l.split(":", 1)[1].strip().split("|")[0]

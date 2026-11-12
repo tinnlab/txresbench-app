@@ -4,8 +4,8 @@ import {
   registerNotificationKind,
   type AppNotification,
   type NotificationRendererCtx,
-} from '@ziee/framework/notification'
-import { Button, message } from '@ziee/kit'
+} from '@txresbench/framework/notification'
+import { Button, message } from '@txresbench/kit'
 
 // The project module's notification kinds (must match the backend
 // NOTIFICATION_KINDS strings + payload shapes).

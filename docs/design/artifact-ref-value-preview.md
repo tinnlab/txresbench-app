@@ -31,13 +31,13 @@ beneath the control:
 ## Where the values come from — two paths, very different costs
 
 The producer stamps a dictionary-encoded column's level set into the store's own group
-metadata (`_lib/cyto_zarr.py:860`, `attrs["levels"]`), while the outputs manifest carries
+metadata (`_lib/txr_zarr.py:860`, `attrs["levels"]`), while the outputs manifest carries
 only `levels_digest` + `n_levels` — the split that took the manifest from 2.1 MB to 55 KB.
 So:
 
 | column encoding | preview source | cost |
 |---|---|---|
-| `categorical` (dictionary-encoded) | `attributes.cyto.levels` in the group `zarr.json` | ONE small metadata read; no data array |
+| `categorical` (dictionary-encoded) | `attributes.txr.levels` in the group `zarr.json` | ONE small metadata read; no data array |
 | `string` (inline utf8) | first chunk of the array via `GET /api/artifacts/{id}/data/{member}` | one bounded byte-range read |
 | `numeric` | out of scope — see DEC-3 | — |
 

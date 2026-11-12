@@ -107,7 +107,7 @@ def test_TEST_1_no_emitted_coordinate_is_a_SCALED_one(tmp_path):
 def test_TEST_1_the_coordinates_declare_the_IDENTITY_affine_in_PIXELS(tmp_path):
     """TEST-1 [acceptance, INV-1] — §7.3 rule 2: the coordinates map into their own space by identity.
 
-    Read out of the STORE's own `attributes.cyto` — the declaration that crosses into a
+    Read out of the STORE's own `attributes.txr` — the declaration that crosses into a
     sandbox (#211) — and not off the `meta` dict the writer was handed, because it is the
     stored copy a consumer reads.
     """

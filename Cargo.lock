@@ -1172,89 +1172,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cytoanalyst"
-version = "0.0.0"
-dependencies = [
- "aide",
- "arc-swap",
- "async-stream",
- "async-trait",
- "axum",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "clap",
- "flate2",
- "futures-util",
- "hex",
- "hmac",
- "http-body-util",
- "include_dir",
- "libc",
- "libsqlite3-sys",
- "linkme",
- "memchr",
- "mime_guess",
- "multer",
- "notify",
- "notify-debouncer-full",
- "once_cell",
- "rand 0.9.5",
- "regex",
- "reqwest 0.12.28",
- "sandbox-seccomp",
- "schemars 0.9.0",
- "serde",
- "serde_json",
- "serde_norway",
- "sha2",
- "sqlx",
- "sysinfo",
- "tokio",
- "tokio-util",
- "tower",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "ziee-auth",
- "ziee-build-support",
- "ziee-control-mcp",
- "ziee-core",
- "ziee-file",
- "ziee-framework",
- "ziee-health",
- "ziee-identity",
- "ziee-notification",
- "ziee-test-harness",
- "zip 6.0.0",
-]
-
-[[package]]
-name = "cytoanalyst-desktop"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "cytoanalyst",
- "serde",
- "serde_json",
- "sqlx",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-process",
- "tauri-plugin-updater",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "ziee-auth",
- "ziee-core",
- "ziee-desktop-harness",
-]
-
-[[package]]
 name = "darling"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7037,6 +6954,292 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "txresbench"
+version = "0.0.0"
+dependencies = [
+ "aide",
+ "arc-swap",
+ "async-stream",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "clap",
+ "flate2",
+ "futures-util",
+ "hex",
+ "hmac",
+ "http-body-util",
+ "include_dir",
+ "libc",
+ "libsqlite3-sys",
+ "linkme",
+ "memchr",
+ "mime_guess",
+ "multer",
+ "notify",
+ "notify-debouncer-full",
+ "once_cell",
+ "rand 0.9.5",
+ "regex",
+ "reqwest 0.12.28",
+ "sandbox-seccomp",
+ "schemars 0.9.0",
+ "serde",
+ "serde_json",
+ "serde_norway",
+ "sha2",
+ "sqlx",
+ "sysinfo",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "txresbench-auth",
+ "txresbench-build-support",
+ "txresbench-control-mcp",
+ "txresbench-core",
+ "txresbench-file",
+ "txresbench-framework",
+ "txresbench-health",
+ "txresbench-identity",
+ "txresbench-notification",
+ "txresbench-test-harness",
+ "uuid",
+ "zip 6.0.0",
+]
+
+[[package]]
+name = "txresbench-auth"
+version = "0.0.0"
+dependencies = [
+ "aide",
+ "async-trait",
+ "axum",
+ "axum-login",
+ "base64 0.22.1",
+ "bcrypt",
+ "chrono",
+ "http",
+ "jsonwebtoken",
+ "ldap3",
+ "linkme",
+ "oauth2",
+ "openidconnect",
+ "rand 0.9.5",
+ "reqwest 0.12.28",
+ "schemars 0.9.0",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tracing",
+ "txresbench-build-support",
+ "txresbench-core",
+ "txresbench-framework",
+ "txresbench-identity",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "txresbench-build-support"
+version = "0.0.0"
+dependencies = [
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
+name = "txresbench-control-mcp"
+version = "0.0.0"
+dependencies = [
+ "aide",
+ "serde_json",
+ "tracing",
+ "txresbench-framework",
+ "txresbench-identity",
+]
+
+[[package]]
+name = "txresbench-core"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "dirs",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "serde_norway",
+ "sqlx",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "txresbench-desktop"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-process",
+ "tauri-plugin-updater",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "txresbench",
+ "txresbench-auth",
+ "txresbench-core",
+ "txresbench-desktop-harness",
+ "uuid",
+]
+
+[[package]]
+name = "txresbench-desktop-harness"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "serde",
+ "sqlx",
+ "tauri",
+ "tauri-plugin-decorum",
+ "tracing",
+ "txresbench-auth",
+ "txresbench-core",
+ "txresbench-identity",
+ "uuid",
+ "webkit2gtk",
+]
+
+[[package]]
+name = "txresbench-file"
+version = "0.0.0"
+dependencies = [
+ "aide",
+ "async-trait",
+ "axum",
+ "chrono",
+ "hex",
+ "jsonwebtoken",
+ "mime_guess",
+ "schemars 0.9.0",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "txresbench-auth",
+ "txresbench-build-support",
+ "txresbench-core",
+ "txresbench-framework",
+ "txresbench-identity",
+ "uuid",
+ "zip 6.0.0",
+]
+
+[[package]]
+name = "txresbench-framework"
+version = "0.0.0"
+dependencies = [
+ "aide",
+ "async-stream",
+ "async-trait",
+ "axum",
+ "chrono",
+ "futures-util",
+ "indexmap 2.14.0",
+ "linkme",
+ "once_cell",
+ "reqwest 0.12.28",
+ "schemars 0.9.0",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower-http",
+ "tower_governor",
+ "tracing",
+ "txresbench-build-support",
+ "txresbench-core",
+ "txresbench-identity",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "txresbench-health"
+version = "0.0.0"
+dependencies = [
+ "aide",
+ "axum",
+ "schemars 0.9.0",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "txresbench-identity"
+version = "0.0.0"
+dependencies = [
+ "schemars 0.9.0",
+ "serde",
+ "txresbench-core",
+]
+
+[[package]]
+name = "txresbench-notification"
+version = "0.0.0"
+dependencies = [
+ "aide",
+ "async-trait",
+ "axum",
+ "chrono",
+ "linkme",
+ "schemars 0.9.0",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "txresbench-auth",
+ "txresbench-build-support",
+ "txresbench-core",
+ "txresbench-framework",
+ "txresbench-identity",
+ "uuid",
+]
+
+[[package]]
+name = "txresbench-test-harness"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "portpicker",
+ "reqwest 0.12.28",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "txresbench-build-support",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "typeid"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8365,209 +8568,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.118",
-]
-
-[[package]]
-name = "ziee-auth"
-version = "0.0.0"
-dependencies = [
- "aide",
- "async-trait",
- "axum",
- "axum-login",
- "base64 0.22.1",
- "bcrypt",
- "chrono",
- "http",
- "jsonwebtoken",
- "ldap3",
- "linkme",
- "oauth2",
- "openidconnect",
- "rand 0.9.5",
- "reqwest 0.12.28",
- "schemars 0.9.0",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 2.0.18",
- "time",
- "tokio",
- "tracing",
- "url",
- "uuid",
- "ziee-build-support",
- "ziee-core",
- "ziee-framework",
- "ziee-identity",
-]
-
-[[package]]
-name = "ziee-build-support"
-version = "0.0.0"
-dependencies = [
- "sqlx",
- "tokio",
-]
-
-[[package]]
-name = "ziee-control-mcp"
-version = "0.0.0"
-dependencies = [
- "aide",
- "serde_json",
- "tracing",
- "ziee-framework",
- "ziee-identity",
-]
-
-[[package]]
-name = "ziee-core"
-version = "0.0.0"
-dependencies = [
- "axum",
- "dirs",
- "once_cell",
- "serde",
- "serde_json",
- "serde_norway",
- "sqlx",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "ziee-desktop-harness"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "serde",
- "sqlx",
- "tauri",
- "tauri-plugin-decorum",
- "tracing",
- "uuid",
- "webkit2gtk",
- "ziee-auth",
- "ziee-core",
- "ziee-identity",
-]
-
-[[package]]
-name = "ziee-file"
-version = "0.0.0"
-dependencies = [
- "aide",
- "async-trait",
- "axum",
- "chrono",
- "hex",
- "jsonwebtoken",
- "mime_guess",
- "schemars 0.9.0",
- "serde",
- "serde_json",
- "sha2",
- "sqlx",
- "tokio",
- "tracing",
- "uuid",
- "ziee-auth",
- "ziee-build-support",
- "ziee-core",
- "ziee-framework",
- "ziee-identity",
- "zip 6.0.0",
-]
-
-[[package]]
-name = "ziee-framework"
-version = "0.0.0"
-dependencies = [
- "aide",
- "async-stream",
- "async-trait",
- "axum",
- "chrono",
- "futures-util",
- "indexmap 2.14.0",
- "linkme",
- "once_cell",
- "reqwest 0.12.28",
- "schemars 0.9.0",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 2.0.18",
- "tokio",
- "tower-http",
- "tower_governor",
- "tracing",
- "url",
- "uuid",
- "ziee-build-support",
- "ziee-core",
- "ziee-identity",
-]
-
-[[package]]
-name = "ziee-health"
-version = "0.0.0"
-dependencies = [
- "aide",
- "axum",
- "schemars 0.9.0",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "ziee-identity"
-version = "0.0.0"
-dependencies = [
- "schemars 0.9.0",
- "serde",
- "ziee-core",
-]
-
-[[package]]
-name = "ziee-notification"
-version = "0.0.0"
-dependencies = [
- "aide",
- "async-trait",
- "axum",
- "chrono",
- "linkme",
- "schemars 0.9.0",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
- "uuid",
- "ziee-auth",
- "ziee-build-support",
- "ziee-core",
- "ziee-framework",
- "ziee-identity",
-]
-
-[[package]]
-name = "ziee-test-harness"
-version = "0.0.0"
-dependencies = [
- "libc",
- "portpicker",
- "reqwest 0.12.28",
- "serde_json",
- "sqlx",
- "tempfile",
- "tokio",
- "tokio-stream",
- "url",
- "uuid",
- "ziee-build-support",
 ]
 
 [[package]]

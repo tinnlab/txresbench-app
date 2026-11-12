@@ -10,7 +10,7 @@
 // and colors are still in JS memory, so restore is a cheap GPU RE-UPLOAD, never a
 // data reload).
 //
-// viz-core rule: framework-agnostic — React + DOM only, no @ziee/*.
+// viz-core rule: framework-agnostic — React + DOM only, no @txresbench/*.
 
 import { useEffect, useReducer } from 'react'
 

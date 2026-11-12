@@ -60,5 +60,5 @@ def test_recorded_method_matches_what_actually_ran(markers_run):
     # the provenance names the banded tie-corrected Mann-Whitney it ran — NOT "wilcoxon"/a scanpy
     # call it never made.
     assert run.report()["method_ran"] == "mann-whitney-u (tie-corrected, banded)"
-    de = run.de_cyto(run.de_entries()[0])["de"]
+    de = run.de_txr(run.de_entries()[0])["de"]
     assert de["method_ran"] == "mann-whitney-u (tie-corrected, banded)"

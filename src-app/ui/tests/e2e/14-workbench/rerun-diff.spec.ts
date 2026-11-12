@@ -43,7 +43,7 @@ import { seedRunnableMatrix } from './_seed'
 // INV-4 guarantee at the browser tier — the only tier where all four hosts of
 // `AnalysisRunPanel` are actually mounted — and it is asserted below.
 //
-// HOST-CAPABILITY-gated on CYTO_E2E_REAL_COMPUTE (bwrap + CYTO_ENV_ROOTFS_DIR): it needs one
+// HOST-CAPABILITY-gated on TXR_E2E_REAL_COMPUTE (bwrap + TXR_ENV_ROOTFS_DIR): it needs one
 // run to genuinely complete. Gated by a describe-level `test.skip`, so a capability-less run
 // COLLECTS this spec and REPORTS it as skipped with the env var to set (see `./_analysis.ts`).
 

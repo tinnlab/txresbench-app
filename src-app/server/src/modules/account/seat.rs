@@ -136,7 +136,7 @@
 use libsqlite3_sys::sqlite3_get_autocommit;
 use sqlx::SqliteConnection;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// Refusal code: the seat check was reached with **no open transaction** (autocommit), so
 /// the write lock cannot persist across the count and the INSERT it guards.

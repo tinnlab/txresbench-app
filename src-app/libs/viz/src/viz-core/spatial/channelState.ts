@@ -4,7 +4,7 @@
 // These lived in `grid/gridModel.ts`, and `buildRasterImageLayers` — which is the one function
 // that consumes them — had to value-import the GRID MODEL to reach them. That contradicted
 // `rasterImageLayers.ts`'s own header ("depends ONLY on @deck.gl/core + @math.gl +
-// @hms-dbmi/viv") and dragged `@ziee/dock`, the chart registry and the coordination layer into
+// @hms-dbmi/viv") and dragged `@txresbench/dock`, the chart registry and the coordination layer into
 // the layer builder.
 //
 // Moving them the other way — into `rasterImageLayers.ts` — fixed that and created the mirror

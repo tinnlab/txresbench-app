@@ -1,6 +1,6 @@
 import { useLayoutEffect } from 'react'
 import { useAppLayoutStore } from '@/modules/layouts/app-layout/AppLayout.store'
-import { useWindowMinSize } from '@ziee/shell'
+import { useWindowMinSize } from '@txresbench/shell'
 
 /** html class the CSS overrides key off (relaxes #root/body height + overflow). */
 const NATIVE_SCROLL_CLASS = 'scroll-native'

@@ -10,7 +10,7 @@
 //! dataset with 3 `dataset_files` — one logical thing. A lone `.mtx` + an
 //! unrelated file stay SEPARATE (DEC-2 confirm-not-guess), and `split` still
 //! breaks the auto-grouped trio back into per-file datasets. Full production path
-//! (real spawned server + Postgres + ziee-file store), mirroring `upload_test.rs`.
+//! (real spawned server + Postgres + txresbench-file store), mirroring `upload_test.rs`.
 
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Value};

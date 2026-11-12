@@ -1,7 +1,7 @@
 // declarativeCanvasFeed.store — the GENERAL bridge between a declarative view's `canvas`
 // block and the center CanvasView (declarative-processor-ui Slice 3/4 / ITEM-10/17). It is the
 // analysis-AGNOSTIC feed: ANY declarative processor that declares a `canvas:` block drives the
-// ONE `@ziee/viz` canvas grid through this singleton. (Slice 4 RETIRED the cell-filter-specific
+// ONE `@txresbench/viz` canvas grid through this singleton. (Slice 4 RETIRED the cell-filter-specific
 // `cellFilterCanvas.store`/`criteriaCanvas` — cell-filter's dynamic before/after now rides THIS
 // general feed as declared DATA, and controlled cell-close routes through `onCellClose`.)
 //
@@ -19,7 +19,7 @@
 
 import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
-import type { DatasetResolver, VizOption } from '@ziee/viz'
+import type { DatasetResolver, VizOption } from '@txresbench/viz'
 import {
   composeCanvas,
   EMPTY_CANVAS,

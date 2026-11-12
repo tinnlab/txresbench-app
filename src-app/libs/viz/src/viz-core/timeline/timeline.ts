@@ -4,7 +4,7 @@
 // dimension, which the GPU turns into a `DataFilterExtension` filterRange (no CPU
 // per-point loop on scrub — only the tiny filterRange uniform changes). GENERIC,
 // domain-agnostic (DEC-28): a frame is a position along an ordered axis; nothing here is
-// bio-specific. No React, no deck.gl, no @ziee/* — unit-testable in node.
+// bio-specific. No React, no deck.gl, no @txresbench/* — unit-testable in node.
 
 /** A timeline over an ordered dimension `[min,max]`, sampled into `frameCount` frames. */
 export interface TimelineModel {

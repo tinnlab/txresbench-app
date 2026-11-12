@@ -250,7 +250,7 @@ struct View {
     view_spec: Option<String>,
 }
 
-/// The FE analysis contribution as DATA — mirrors `@cyto/workbench-api`
+/// The FE analysis contribution as DATA — mirrors `@txresbench/workbench-api`
 /// `ProcessorAnalysisData` (the authoritative FE schema). `deny_unknown_fields`
 /// catches a typo'd analysis key; a real manifest can only use keys the TS
 /// interface declares, so denial here never false-fails the build.
@@ -1728,7 +1728,7 @@ pub struct EnvPin {
 ///
 /// This is the PYTHON rule specifically — it is one arm of
 /// [`normalize_dist_name_in`], which is what the gate calls. It keeps its name, its
-/// signature and its behaviour because `_lib/cyto_deps.py::normalize_name` mirrors it at
+/// signature and its behaviour because `_lib/txr_deps.py::normalize_name` mirrors it at
 /// run time (#192 / DEC-3). *Not byte-for-byte, and an audit was right to say so:* this
 /// uses `to_ascii_lowercase` and the python mirror uses `str.lower()`, which is Unicode
 /// aware, so python folds strictly MORE (`U+212A KELVIN SIGN` → `k`). The direction is
@@ -1739,7 +1739,7 @@ pub struct EnvPin {
 /// not just this gate. (Which contribution is deliberately NOT named here: this file is
 /// app-core surface, and `lint-no-domain-in-builtin.mjs` correctly refuses a
 /// contributed package's name in it, prose included. Ask the tree — the callers of
-/// `cyto_deps.normalize_name` are derivable and this comment would only go stale.)
+/// `txr_deps.normalize_name` are derivable and this comment would only go stale.)
 pub fn normalize_dist_name(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     let mut last_sep = false;
@@ -1761,7 +1761,7 @@ pub fn normalize_dist_name(raw: &str) -> String {
 ///
 /// ## One declaration, two derived facets
 ///
-/// A pin file declares this once, as `# cyto:ecosystem=<python|r>`, and BOTH facets the
+/// A pin file declares this once, as `# txr:ecosystem=<python|r>`, and BOTH facets the
 /// gate needs follow from it:
 ///
 ///   * the DISTRIBUTION-NAME rule — [`normalize_dist_name_in`] — PEP 503 folding for
@@ -1782,7 +1782,7 @@ pub fn normalize_dist_name(raw: &str) -> String {
 /// ## Why ONE declaration and not two
 ///
 /// The shipped predecessor declared only the version grammar
-/// (`# cyto:version-grammar=`) — correct for the problem it was written for, and half of
+/// (`# txr:version-grammar=`) — correct for the problem it was written for, and half of
 /// the problem the R lane actually has. Keeping both directives would let a file say
 /// "R versions, PEP 503 names", a combination with no coherent meaning, in the one file
 /// whose entire job is to be unambiguous. A recipe belongs to exactly one packaging
@@ -1854,7 +1854,7 @@ pub fn normalize_dist_name_in(raw: &str, ecosystem: EnvEcosystem) -> String {
 /// is rather than have it inferred from a `-`.** `1.0-1` is legal in both: R reads it as
 /// release `1.0.1`, PEP 440 reads it as the non-canonical spelling of `1.0.post1`, and
 /// `1.0.post1 < 1.0.1`. So a reader that accepted `-` for everything would, for that one
-/// string, ACCEPT a declaration the python run time (`_lib/cyto_deps.py`, which uses the
+/// string, ACCEPT a declaration the python run time (`_lib/txr_deps.py`, which uses the
 /// reference implementation) REJECTS — the exact direction [`version_satisfies`]'s
 /// fail-closed contract forbids.
 ///
@@ -1866,7 +1866,7 @@ pub fn normalize_dist_name_in(raw: &str, ecosystem: EnvEcosystem) -> String {
 /// be mistaken for "this is a python recipe".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VersionGrammar {
-    /// PEP 440 dotted-numeric releases. Selected by `cyto:ecosystem=python`; NOT a
+    /// PEP 440 dotted-numeric releases. Selected by `txr:ecosystem=python`; NOT a
     /// default — a recipe that declares nothing is refused (see [`EnvEcosystem`]).
     Pep440,
     /// R `DESCRIPTION` versions: integers separated by `.` or `-`, equivalently.
@@ -1876,7 +1876,7 @@ pub enum VersionGrammar {
 /// The directive a pin file uses to declare its [`EnvEcosystem`], written as a comment
 /// so the file stays a valid requirements-style list for every other reader of it (the
 /// recipe's own installer, the python guard, a human).
-const ENV_ECOSYSTEM_DIRECTIVE: &str = "cyto:ecosystem";
+const ENV_ECOSYSTEM_DIRECTIVE: &str = "txr:ecosystem";
 
 /// The RETIRED predecessor of [`ENV_ECOSYSTEM_DIRECTIVE`] (#192 / DEC-1).
 ///
@@ -1886,12 +1886,12 @@ const ENV_ECOSYSTEM_DIRECTIVE: &str = "cyto:ecosystem";
 /// thing the old directive existed to prevent) and PEP 503 name lowercasing (the thing
 /// the new one exists to prevent). A silent migration of a directive whose absence means
 /// "python" is a migration that reads an R recipe as python.
-const RETIRED_GRAMMAR_DIRECTIVE: &str = "cyto:version-grammar";
+const RETIRED_GRAMMAR_DIRECTIVE: &str = "txr:version-grammar";
 
 /// The directive a pin file uses to declare where its pins were RESOLVED AGAINST.
 ///
 /// Repeatable — see [`parse_env_pin_sources`].
-const ENV_PIN_SOURCE_DIRECTIVE: &str = "cyto:pin-source";
+const ENV_PIN_SOURCE_DIRECTIVE: &str = "txr:pin-source";
 
 /// Normalise a pin-file line to its comment BODY: leading whitespace and every leading
 /// `#` removed, then trimmed. `#`, `# `, `##  ` and a tab-indented variant all reach the
@@ -1902,7 +1902,7 @@ fn directive_body(raw: &str) -> &str {
     //
     // `str::trim` is Unicode White_Space; the recipe's own R reader normalises with the
     // POSIX class `[[:space:]]`, which is ASCII. They differ at U+00A0 (NBSP) and U+0085
-    // (NEL) — so `#<NBSP>cyto:pin-source=…` was a DIRECTIVE to this gate and INVISIBLE to
+    // (NEL) — so `#<NBSP>txr:pin-source=…` was a DIRECTIVE to this gate and INVISIBLE to
     // the reader that actually installs. A blind audit built the attack out of that: one
     // invisible byte in front of the real coordinate hides it from R, an added line
     // supplies another, `cargo check` sees the legitimate URL still present and passes,
@@ -1951,7 +1951,7 @@ fn clamp_for_message(raw: &str) -> String {
 /// Does this comment body NAME `key` as a directive?
 ///
 /// A bare `starts_with` is not enough, and the failure it produces is the one this
-/// repository keeps re-learning in the other direction. `cyto:ecosystemXYZ=r` is not this
+/// repository keeps re-learning in the other direction. `txr:ecosystemXYZ=r` is not this
 /// directive but begins with its name, so a prefix test made it a hard build error; worse,
 /// a pin file's own PROSE about a directive — and these files document their directives at
 /// length — is refused as a malformed declaration of it. The next character after the key
@@ -1959,7 +1959,7 @@ fn clamp_for_message(raw: &str) -> String {
 fn names_directive(body: &str, key: &str) -> bool {
     // ASCII whitespace, matching `directive_body` and the recipe's POSIX class. An audit
     // found this function and `directive_value` still on Unicode `is_whitespace` after
-    // `directive_body` was narrowed — so `# cyto:pin-source<NBSP>=…` was still a live
+    // `directive_body` was narrowed — so `# txr:pin-source<NBSP>=…` was still a live
     // directive here and invisible to the installer, which is the whole of the original
     // finding, one function over. Narrowing a normalisation in one of three places is not
     // narrowing it. (The canonical-bytes precondition now refuses such a file outright;
@@ -2028,10 +2028,10 @@ fn directive_value<'a>(
 /// to one and invisible to the other — in both directions.
 ///
 ///   * `str::lines()` splits only on LF; R's `readLines` also splits on a lone CR. So
-///     `…# see the runbook<CR># cyto:pin-source=dated-snapshot:<attacker>` is a comment
+///     `…# see the runbook<CR># txr:pin-source=dated-snapshot:<attacker>` is a comment
 ///     fragment here and a whole directive line there.
 ///   * POSIX `[[:space:]]` includes U+000B; `char::is_ascii_whitespace` does not. So
-///     `#<VT>cyto:pin-source=…` is invisible HERE and live there — the gate blind, the
+///     `#<VT>txr:pin-source=…` is invisible HERE and live there — the gate blind, the
 ///     installer obeying.
 ///   * Unicode `is_whitespace` includes U+00A0/U+0085; POSIX does not. The reverse.
 ///
@@ -2066,7 +2066,7 @@ pub fn assert_canonical_pin_bytes(text: &str) -> Result<(), String> {
         // blind audit of #214 walked straight through the next door: `char::is_control()`
         // is category `Cc` only, so the whole `Cf` FORMAT class passed — U+FEFF, U+200B,
         // U+00AD, U+2060, and the bidi controls of Trojan Source (CVE-2021-42574). A
-        // zero-width space in `#<ZWSP>cyto:pin-source=…` makes `names_directive` return
+        // zero-width space in `#<ZWSP>txr:pin-source=…` makes `names_directive` return
         // FALSE rather than error, so a declared coordinate becomes inert while remaining
         // visibly present, and the per-class uniqueness check then does not fire against a
         // second, live one. It is invisible to a reviewer in the pin file AND in the
@@ -2192,7 +2192,7 @@ pub fn parse_env_pin_ecosystem(text: &str) -> Result<EnvEcosystem, String> {
             ENV_ECOSYSTEM_DIRECTIVE,
             lineno,
             raw,
-            "cyto:ecosystem=<python|r>",
+            "txr:ecosystem=<python|r>",
         )?;
         let eco = match value {
             "python" => EnvEcosystem::Python,
@@ -2368,7 +2368,7 @@ pub fn parse_env_pin_sources(text: &str) -> Result<Vec<PinSource>, String> {
             ENV_PIN_SOURCE_DIRECTIVE,
             lineno,
             raw,
-            "cyto:pin-source=<class>:<coordinate>",
+            "txr:pin-source=<class>:<coordinate>",
         )?;
         // `split_once`, not `split`: a coordinate is routinely a URL and contains `:`.
         let Some((class_tok, coordinate)) = value.split_once(':') else {
@@ -2443,7 +2443,7 @@ pub fn parse_env_pin_sources(text: &str) -> Result<Vec<PinSource>, String> {
         // ONE COORDINATE PER CLASS. Not merely "no exact repeat": two DIFFERENT
         // `dated-snapshot` lines make "which snapshot were these pins resolved at"
         // unanswerable, which is the one fact this directive exists to record — and the
-        // recipe's own reader already refuses that state (`cyto_source_coordinate` demands
+        // recipe's own reader already refuses that state (`txr_source_coordinate` demands
         // exactly one), so accepting it here was a gate that disagreed with the thing it
         // gates. A blind audit showed that asymmetry is what turns an invisible-whitespace
         // line into a silent origin swap: this side stays green because the legitimate
@@ -2848,7 +2848,7 @@ const ENV_PIN_ARTEFACT_SCHEMA: u32 = 1;
 
 /// The environment variable that switches [`env_pin_artefact_check_or_write`] from
 /// COMPARING to WRITING. Set only by `just env-pins-regen`.
-pub const ENV_PIN_REGEN_VAR: &str = "CYTO_REGEN_ENV_PINS";
+pub const ENV_PIN_REGEN_VAR: &str = "TXR_REGEN_ENV_PINS";
 
 /// Lowercase hex SHA-256 — how a consumer checks the artefact is fresh for the file it
 /// describes WITHOUT parsing that file (DEC-5).
@@ -3306,7 +3306,7 @@ pub fn read_env_pin_artefact(env_root: &Path) -> Result<EnvPinArtefact, String> 
 /// version by PEP 440's rules is the wrong answer, not the safe one.
 ///
 /// It is LATENT rather than live for a concrete reason: the run-time half
-/// (`packages/_lib/cyto_deps.py`) resolves versions through `importlib.metadata`, i.e. it
+/// (`packages/_lib/txr_deps.py`) resolves versions through `importlib.metadata`, i.e. it
 /// only ever sees PYTHON distributions. There is no R-side contract checker yet, so no
 /// declaration written against an R recipe reaches the reference implementation at all.
 /// **When one is built it must compare R versions with R's own rule** (`numeric_version` /
@@ -3513,7 +3513,7 @@ fn read_env_recipes(env_root: &Path) -> Result<Vec<EnvRecipePins>, String> {
 /// report PASS for a declaration checked against nothing.
 ///
 /// A contribution declaring NO env is still resolved against **every** recipe. A
-/// deployment picks its env at run time (`CYTO_SANDBOX_ENV_ID`), so an undeclared
+/// deployment picks its env at run time (`TXR_SANDBOX_ENV_ID`), so an undeclared
 /// contribution can be scheduled into any of them, and a declaration satisfiable in only
 /// some is a latent run-time failure in the others — precisely the failure class this
 /// moves to build time. Requiring every recipe remains the fail-closed reading for that
@@ -4354,7 +4354,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         let text = format!(
-            "id: probe\nname: Probe\npublisher: cyto\nversion: 0.1.0\napiVersion: \"1.0\"\n\
+            "id: probe\nname: Probe\npublisher: txr\nversion: 0.1.0\napiVersion: \"1.0\"\n\
              contributes:\n  analyses:\n    - id: probe.run\n      category: demo\n      \
              title: Probe\n      appliesTo: []\n      methods:\n{indented}\n"
         );
@@ -4814,7 +4814,7 @@ mod tests {
         fn new(tag: &str) -> Self {
             let seq = DEP_SEQ.fetch_add(1, Ordering::Relaxed);
             let root = std::env::temp_dir()
-                .join(format!("cyto-dep-gate-{tag}-{}-{seq}", std::process::id()));
+                .join(format!("txr-dep-gate-{tag}-{}-{seq}", std::process::id()));
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(root.join("packages")).unwrap();
             std::fs::create_dir_all(root.join("env-rootfs")).unwrap();
@@ -4849,10 +4849,10 @@ mod tests {
         fn recipe(&self, id: &str, pins: &str) -> &Self {
             let mut text = String::new();
             if !pins.contains(ENV_ECOSYSTEM_DIRECTIVE) {
-                text.push_str("# cyto:ecosystem=python\n");
+                text.push_str("# txr:ecosystem=python\n");
             }
             if !pins.contains(ENV_PIN_SOURCE_DIRECTIVE) {
-                text.push_str("# cyto:pin-source=immutable-index:https://pypi.org/simple\n");
+                text.push_str("# txr:pin-source=immutable-index:https://pypi.org/simple\n");
             }
             text.push_str(pins);
             self.recipe_raw(id, &text)
@@ -5021,7 +5021,7 @@ mod tests {
         let ok = DepFixture::new("r-grammar-ok");
         ok.recipe(
             "renv",
-            "# cyto:ecosystem=r\nMatrix==1.7-6  # import=Matrix\n",
+            "# txr:ecosystem=r\nMatrix==1.7-6  # import=Matrix\n",
         );
         ok.env_package("rpkg", "renv", "          - library: Matrix\n            version: \">=1.7,<2.0\"\n");
         ok.lint().expect("an R range over an R-shaped pin must resolve");
@@ -5031,7 +5031,7 @@ mod tests {
         let missing = DepFixture::new("r-grammar-missing");
         missing.recipe(
             "renv",
-            "# cyto:ecosystem=python\nMatrix==1.7-6  # import=Matrix\n",
+            "# txr:ecosystem=python\nMatrix==1.7-6  # import=Matrix\n",
         );
         missing.env_package(
             "rpkg",
@@ -5050,7 +5050,7 @@ mod tests {
         let out = DepFixture::new("r-grammar-out-of-range");
         out.recipe(
             "renv",
-            "# cyto:ecosystem=r\nMatrix==1.7-6  # import=Matrix\n",
+            "# txr:ecosystem=r\nMatrix==1.7-6  # import=Matrix\n",
         );
         out.env_package(
             "rpkg",
@@ -5080,7 +5080,7 @@ mod tests {
         let exact = DepFixture::new("r-case-exact");
         exact.recipe(
             "renv",
-            "# cyto:ecosystem=r\nscDblFinder==1.26.7  # import=scDblFinder\n",
+            "# txr:ecosystem=r\nscDblFinder==1.26.7  # import=scDblFinder\n",
         );
         exact.env_package(
             "rpkg",
@@ -5096,7 +5096,7 @@ mod tests {
             let f = DepFixture::new("r-case-wrong");
             f.recipe(
                 "renv",
-                "# cyto:ecosystem=r\nscDblFinder==1.26.7  # import=scDblFinder\n",
+                "# txr:ecosystem=r\nscDblFinder==1.26.7  # import=scDblFinder\n",
             );
             f.env_package(
                 "rpkg",
@@ -5119,7 +5119,7 @@ mod tests {
         let absent = DepFixture::new("r-case-absent");
         absent.recipe(
             "renv",
-            "# cyto:ecosystem=r\nscDblFinder==1.26.7  # import=scDblFinder\n",
+            "# txr:ecosystem=r\nscDblFinder==1.26.7  # import=scDblFinder\n",
         );
         absent.env_package(
             "rpkg",
@@ -5142,7 +5142,7 @@ mod tests {
             let f = DepFixture::new("py-fold");
             f.recipe(
                 "pyenv",
-                "# cyto:ecosystem=python\nscikit-learn==1.9.0  # import=sklearn\n",
+                "# txr:ecosystem=python\nscikit-learn==1.9.0  # import=sklearn\n",
             );
             f.env_package(
                 "pypkg",
@@ -5166,7 +5166,7 @@ mod tests {
         let f = DepFixture::new("r-nearmiss");
         f.recipe(
             "renv",
-            "# cyto:ecosystem=r\nscDblFinder==1.26.7  # import=scDblFinder\n",
+            "# txr:ecosystem=r\nscDblFinder==1.26.7  # import=scDblFinder\n",
         );
         f.env_package(
             "rpkg",
@@ -5192,7 +5192,7 @@ mod tests {
         let py = DepFixture::new("py-nonearmiss");
         py.recipe(
             "pyenv",
-            "# cyto:ecosystem=python\nscikit-learn==1.9.0  # import=sklearn\n",
+            "# txr:ecosystem=python\nscikit-learn==1.9.0  # import=sklearn\n",
         );
         py.env_package(
             "pypkg",
@@ -5230,7 +5230,7 @@ mod tests {
         // caught there and only there. Recorded so the next reader does not take this
         // loop for a completeness check.
         for c in PIN_SOURCE_CLASSES {
-            let text = format!("# cyto:pin-source={}:x\n", c.token());
+            let text = format!("# txr:pin-source={}:x\n", c.token());
             match parse_env_pin_sources(&text) {
                 Ok(v) => assert_eq!(v[0].class, c, "`{}` must round-trip", c.token()),
                 Err(e) => assert!(
@@ -5250,7 +5250,7 @@ mod tests {
             ("release-channel", false),
         ] {
             let parsed =
-                parse_env_pin_sources(&format!("# cyto:pin-source={tok}:coord\n")).unwrap();
+                parse_env_pin_sources(&format!("# txr:pin-source={tok}:coord\n")).unwrap();
             assert_eq!(parsed.len(), 1);
             assert_eq!(parsed[0].class.token(), tok);
             assert_eq!(parsed[0].coordinate, "coord");
@@ -5260,7 +5260,7 @@ mod tests {
         // A coordinate is routinely a URL, so the class/coordinate split must be on the
         // FIRST colon and nothing else.
         let parsed = parse_env_pin_sources(
-            "# cyto:pin-source=dated-snapshot:https://packagemanager.posit.co/cran/x/2026-09-01\n",
+            "# txr:pin-source=dated-snapshot:https://packagemanager.posit.co/cran/x/2026-09-01\n",
         )
         .unwrap();
         assert_eq!(
@@ -5270,7 +5270,7 @@ mod tests {
 
         // THE #209 REFUSAL.
         assert!(!PinSourceClass::VcsHead.identifies_one_tree());
-        let err = parse_env_pin_sources("# cyto:pin-source=vcs-head:https://github.com/x/y\n")
+        let err = parse_env_pin_sources("# txr:pin-source=vcs-head:https://github.com/x/y\n")
             .expect_err("a source that cannot identify a tree must be refused");
         assert!(
             err.contains("#209") && err.contains("DIFFERENT code") && err.contains("source hash"),
@@ -5289,19 +5289,19 @@ mod tests {
         // REPEATABLE, because the R recipe has two coordinates — but not the SAME one
         // twice, which says nothing twice and is what a bad merge leaves behind.
         let two = parse_env_pin_sources(
-            "# cyto:pin-source=dated-snapshot:a\n# cyto:pin-source=release-channel:b\n",
+            "# txr:pin-source=dated-snapshot:a\n# txr:pin-source=release-channel:b\n",
         )
         .unwrap();
         assert_eq!(two.len(), 2);
         assert!(parse_env_pin_sources(
-            "# cyto:pin-source=dated-snapshot:a\n# cyto:pin-source=dated-snapshot:a\n"
+            "# txr:pin-source=dated-snapshot:a\n# txr:pin-source=dated-snapshot:a\n"
         )
         .is_err());
 
         // Unknown class, empty coordinate, near-miss spelling: refused, never defaulted.
-        assert!(parse_env_pin_sources("# cyto:pin-source=whatever:x\n").is_err());
-        assert!(parse_env_pin_sources("# cyto:pin-source=dated-snapshot:\n").is_err());
-        assert!(parse_env_pin_sources("# cyto:pin-source dated-snapshot:a\n").is_err());
+        assert!(parse_env_pin_sources("# txr:pin-source=whatever:x\n").is_err());
+        assert!(parse_env_pin_sources("# txr:pin-source=dated-snapshot:\n").is_err());
+        assert!(parse_env_pin_sources("# txr:pin-source dated-snapshot:a\n").is_err());
 
         // THE WHITESPACE DIVERGENCE CLASS, tested as a CLASS rather than enumerated.
         //
@@ -5324,7 +5324,7 @@ mod tests {
                 continue;
             }
             checked_ws += 1;
-            let text = format!("#{c}cyto:pin-source=dated-snapshot:https://evil/x\n");
+            let text = format!("#{c}txr:pin-source=dated-snapshot:https://evil/x\n");
             // `expect_err`, not `unwrap_or_else` — the latter runs its closure on Err,
             // which is the case being asserted, so it would have passed only when the
             // character was ACCEPTED. That inversion has now been written twice on this
@@ -5343,7 +5343,7 @@ mod tests {
         );
         // …and the refusal names the character, so a person can find it in a file where it
         // is by definition invisible.
-        let err = assert_canonical_pin_bytes("# cyto:pin-source\u{a0}=dated-snapshot:x\n")
+        let err = assert_canonical_pin_bytes("# txr:pin-source\u{a0}=dated-snapshot:x\n")
             .expect_err("U+00A0 must be refused");
         assert!(
             err.contains("U+00A0") && err.contains("line 1"),
@@ -5371,7 +5371,7 @@ mod tests {
         // A LONE CR is the same class: `str::lines()` splits only on LF while the
         // installer's `readLines` also splits on CR, so a mid-line fragment is a whole
         // directive line to it. Refused.
-        let err = assert_canonical_pin_bytes("# see the runbook\r# cyto:pin-source=x:y\n")
+        let err = assert_canonical_pin_bytes("# see the runbook\r# txr:pin-source=x:y\n")
             .expect_err("a lone CR must be refused");
         assert!(err.contains("U+000D"), "{err}");
         // The SHIPPED files pass it. Without this the precondition could be arbitrarily
@@ -5397,8 +5397,8 @@ mod tests {
         // snapshot were these pins resolved at" unanswerable, and accepting that while the
         // recipe's own reader refuses it is what let the attack above stay green here.
         let err = parse_env_pin_sources(
-            "# cyto:pin-source=dated-snapshot:https://good/x\n\
-             # cyto:pin-source=dated-snapshot:https://evil/x\n",
+            "# txr:pin-source=dated-snapshot:https://good/x\n\
+             # txr:pin-source=dated-snapshot:https://evil/x\n",
         )
         .expect_err("two coordinates of one class must be refused");
         assert!(
@@ -5408,7 +5408,7 @@ mod tests {
 
         // A refusal must not carry unbounded or terminal-controlling bytes into a build
         // log: `build.rs` panics with this message straight onto cargo's stderr.
-        let nasty = format!("# cyto:pin-source \u{1b}[2K\rforged{}\n", "A".repeat(5000));
+        let nasty = format!("# txr:pin-source \u{1b}[2K\rforged{}\n", "A".repeat(5000));
         let err = parse_env_pin_sources(&nasty).expect_err("a near-miss is refused");
         assert!(
             !err.contains('\u{1b}') && !err.contains('\r'),
@@ -5424,7 +5424,7 @@ mod tests {
         // result comes to rest on a version that appears in no diff in this repository.
         let err = parse_env_pin_sources("alpha==1.0.0  # import=alpha\n")
             .expect_err("a recipe with no declared pin source must be refused");
-        assert!(err.contains("no `cyto:pin-source="), "{err}");
+        assert!(err.contains("no `txr:pin-source="), "{err}");
 
         // THE SHIPPED TREE. Every recipe that ships declares at least one source, and
         // every one of them identifies a tree — read off disk, so a recipe that dropped
@@ -5519,22 +5519,22 @@ mod tests {
             .join("../env-rootfs/single-cell-r/Dockerfile");
         let src = std::fs::read_to_string(&recipe).expect("the R recipe is readable");
         // START AFTER THE `(`. The first cut sliced from the start of the assignment, so the
-        // first token of the split was `cyto_allowed_non_ascii <- c(0xa7` — which does not
+        // first token of the split was `txr_allowed_non_ascii <- c(0xa7` — which does not
         // `strip_prefix("0x")` and was silently DROPPED. The Rust side then saw three
         // characters where R declares four and this test went red, which is exactly what it
         // is for: the python twin extracts the same vector with a paren-anchored regex, got
         // all four, and passed. Two implementations of one extraction disagreeing is the
         // miniature of the whole issue.
-        let marker = "cyto_allowed_non_ascii <- c(";
+        let marker = "txr_allowed_non_ascii <- c(";
         // EXACTLY ONCE. Both extractors read only the FIRST occurrence, so a shadowing
-        // second assignment — `cyto_allowed_non_ascii <- c(cyto_allowed_non_ascii, 0x2000)`
+        // second assignment — `txr_allowed_non_ascii <- c(txr_allowed_non_ascii, 0x2000)`
         // — widened R's allowlist past all three guards while every one stayed green, and
         // the R reader then ACCEPTED U+2000. Demonstrated by a blind audit. This is the same
         // uniqueness discipline the python floor's `frozen` assignment has.
         assert_eq!(
             src.matches(marker).count(),
             1,
-            "the marker text `cyto_allowed_non_ascii <- c(` appears more than once in the \
+            "the marker text `txr_allowed_non_ascii <- c(` appears more than once in the \
              recipe. Both this extractor and its python twin read only the FIRST, so a \
              later assignment widens what the installer allows while every cross-check \
              stays green. (This counts the MARKER, not assignments: a differently-spaced \
@@ -5568,7 +5568,7 @@ mod tests {
                     .and_then(|h| u32::from_str_radix(h, 16).ok())
                     .unwrap_or_else(|| {
                         panic!(
-                            "the recipe's `cyto_allowed_non_ascii` contains the token \
+                            "the recipe's `txr_allowed_non_ascii` contains the token \
                              `{tok}`, which this extractor cannot read as `0x<hex>`. It \
                              would have been DROPPED, and the comparison below would then \
                              pass while R allowed a character the gate does not. Write it \
@@ -5590,7 +5590,7 @@ mod tests {
         // trivially true in the direction that matters.
         assert!(
             !enumerated.is_empty(),
-            "extracted NO codepoints from the recipe's `cyto_allowed_non_ascii` — the \
+            "extracted NO codepoints from the recipe's `txr_allowed_non_ascii` — the \
              extraction has broken and this comparison was about to certify nothing"
         );
 
@@ -5600,7 +5600,7 @@ mod tests {
             .collect();
         assert_eq!(
             enumerated, ours,
-            "the recipe's `cyto_allowed_non_ascii` and the gate's \
+            "the recipe's `txr_allowed_non_ascii` and the gate's \
              `PIN_FILE_ALLOWED_NON_ASCII` disagree.\n  only in the recipe: {:04X?}\n  only \
              in the gate: {:04X?}\nBoth programs read the same file; a character one \
              allows and the other refuses is a build that fails in only one of them. \
@@ -5652,7 +5652,7 @@ mod tests {
             ("BOM", '\u{feff}'),
             ("RTL OVERRIDE", '\u{202e}'),
         ] {
-            let err = assert_canonical_pin_bytes(&format!("#{c}cyto:pin-source=x:y\n"))
+            let err = assert_canonical_pin_bytes(&format!("#{c}txr:pin-source=x:y\n"))
                 .expect_err("must be refused");
             assert!(
                 err.contains(&format!("U+{:04X}", c as u32)),
@@ -5663,7 +5663,7 @@ mod tests {
         // CONTROL — everything the shipped files legitimately contain is ALLOWED, so the
         // rule above is not merely "refuse everything".
         assert_canonical_pin_bytes(
-            "# cyto:ecosystem=python — a note, §4, an arrow → and a rule ─\n\talpha==1.0\n",
+            "# txr:ecosystem=python — a note, §4, an arrow → and a rule ─\n\talpha==1.0\n",
         )
         .expect("printable ASCII, SPACE, TAB, LF and the four allowed characters must pass");
         for c in PIN_FILE_ALLOWED_NON_ASCII {
@@ -5821,7 +5821,7 @@ mod tests {
         let exact = DepFixture::new("inv-r-exact");
         exact.recipe(
             "renv",
-            "# cyto:ecosystem=r\nZqxWidget==1.26.7  # import=ZqxWidget\n",
+            "# txr:ecosystem=r\nZqxWidget==1.26.7  # import=ZqxWidget\n",
         );
         exact.env_package(
             "rpkg",
@@ -5833,7 +5833,7 @@ mod tests {
         let wrong = DepFixture::new("inv-r-wrong");
         wrong.recipe(
             "renv",
-            "# cyto:ecosystem=r\nZqxWidget==1.26.7  # import=ZqxWidget\n",
+            "# txr:ecosystem=r\nZqxWidget==1.26.7  # import=ZqxWidget\n",
         );
         wrong.env_package(
             "rpkg",
@@ -5853,7 +5853,7 @@ mod tests {
             let f = DepFixture::new("inv-py-fold");
             f.recipe(
                 "pyenv",
-                "# cyto:ecosystem=python\nqq-rr-tool==1.9.0  # import=qqrr\n",
+                "# txr:ecosystem=python\nqq-rr-tool==1.9.0  # import=qqrr\n",
             );
             f.env_package(
                 "pypkg",
@@ -5879,7 +5879,7 @@ mod tests {
         // Worth knowing: no shipped R pin name contains `-`, `_` or `.`, so no shipped-tree
         // assertion can cover this either. This fixture is the only thing that does.
         let punct = DepFixture::new("inv-r-punct");
-        punct.recipe("renv", "# cyto:ecosystem=r\nzz_64==1.0\n");
+        punct.recipe("renv", "# txr:ecosystem=r\nzz_64==1.0\n");
         punct.env_package(
             "rpkg",
             "renv",
@@ -5896,7 +5896,7 @@ mod tests {
         // The CONTROL: the same pair under the python rule DOES fold, so the pair is
         // genuinely discriminating rather than simply unmatched everywhere.
         let punct_py = DepFixture::new("inv-py-punct");
-        punct_py.recipe("pyenv", "# cyto:ecosystem=python\nzz_64==1.0\n");
+        punct_py.recipe("pyenv", "# txr:ecosystem=python\nzz_64==1.0\n");
         punct_py.env_package(
             "pypkg",
             "pyenv",
@@ -5938,7 +5938,7 @@ mod tests {
             .lint()
             .expect_err("a recipe whose ecosystem declaration was deleted must be refused");
         assert!(
-            err.contains("no `cyto:ecosystem=<python|r>` declaration")
+            err.contains("no `txr:ecosystem=<python|r>` declaration")
                 && err.contains("do not reintroduce a default"),
             "the refusal must name the deletion and forbid the easy fix: {err}"
         );
@@ -5960,7 +5960,7 @@ mod tests {
             .lint()
             .expect_err("a recipe whose pin-source declarations were deleted must be refused");
         assert!(
-            err.contains("no `cyto:pin-source=") && err.contains("do not relax"),
+            err.contains("no `txr:pin-source=") && err.contains("do not relax"),
             "the refusal must name the deletion and forbid the easy fix: {err}"
         );
 
@@ -6016,11 +6016,11 @@ mod tests {
     #[test]
     fn the_pin_file_declares_its_ecosystem_and_a_typo_or_an_absence_is_refused() {
         assert_eq!(
-            parse_env_pin_ecosystem("# cyto:ecosystem=python\nalpha==1.0.0\n").unwrap(),
+            parse_env_pin_ecosystem("# txr:ecosystem=python\nalpha==1.0.0\n").unwrap(),
             EnvEcosystem::Python
         );
         assert_eq!(
-            parse_env_pin_ecosystem("# cyto:ecosystem=r\nalpha==1.0-1\n").unwrap(),
+            parse_env_pin_ecosystem("# txr:ecosystem=r\nalpha==1.0-1\n").unwrap(),
             EnvEcosystem::R
         );
         // The two derived facets, asserted at the type so nothing can select one and not
@@ -6043,20 +6043,20 @@ mod tests {
         let err = parse_env_pin_ecosystem("alpha==1.0.0  # import=alpha\n")
             .expect_err("a recipe that declares no ecosystem must be refused");
         assert!(
-            err.contains("no `cyto:ecosystem=<python|r>` declaration"),
+            err.contains("no `txr:ecosystem=<python|r>` declaration"),
             "{err}"
         );
 
-        let err = parse_env_pin_ecosystem("# cyto:ecosystem=R\nalpha==1.0-1\n")
+        let err = parse_env_pin_ecosystem("# txr:ecosystem=R\nalpha==1.0-1\n")
             .expect_err("an unknown ecosystem must be refused, not defaulted");
         assert!(err.contains("names no known packaging ecosystem"), "{err}");
 
         // THE RETIRED KEY. Ignoring it would restore BOTH halves of the failure #192
         // removes, so it is a hard error that names its replacement.
-        let err = parse_env_pin_ecosystem("# cyto:version-grammar=r-description\nalpha==1.0-1\n")
+        let err = parse_env_pin_ecosystem("# txr:version-grammar=r-description\nalpha==1.0-1\n")
             .expect_err("the retired directive must be refused, not ignored");
         assert!(
-            err.contains("is RETIRED") && err.contains("cyto:ecosystem=<python|r>"),
+            err.contains("is RETIRED") && err.contains("txr:ecosystem=<python|r>"),
             "the refusal must name the replacement: {err}"
         );
 
@@ -6064,13 +6064,13 @@ mod tests {
         // default under the predecessor's first cut — which, for an R recipe, is the
         // failure the directive exists to remove, arriving with no message at all.
         for spelling in [
-            "#cyto:ecosystem=r\n",
-            "#  cyto:ecosystem=r\n",
-            "## cyto:ecosystem=r\n",
-            "# cyto:ecosystem = r\n",
+            "#txr:ecosystem=r\n",
+            "#  txr:ecosystem=r\n",
+            "## txr:ecosystem=r\n",
+            "# txr:ecosystem = r\n",
             "#\tcyto:ecosystem=r\n",
-            "   # cyto:ecosystem=r\n",
-            "# cyto:ecosystem=r  # because R\n",
+            "   # txr:ecosystem=r\n",
+            "# txr:ecosystem=r  # because R\n",
         ] {
             assert_eq!(
                 parse_env_pin_ecosystem(spelling).unwrap_or_else(|e| panic!("{spelling:?}: {e}")),
@@ -6079,18 +6079,18 @@ mod tests {
             );
         }
         // A line that NAMES the directive and does not parse is an error, never a default.
-        let err = parse_env_pin_ecosystem("# cyto:ecosystem r\n")
+        let err = parse_env_pin_ecosystem("# txr:ecosystem r\n")
             .expect_err("a near-miss must be refused, not read as absent");
         assert!(err.contains("is not"), "{err}");
 
         // TWO declarations are refused whether or not they agree — two lines that match
         // today are two lines that can disagree tomorrow.
         assert!(
-            parse_env_pin_ecosystem("# cyto:ecosystem=python\n# cyto:ecosystem=r\n").is_err(),
+            parse_env_pin_ecosystem("# txr:ecosystem=python\n# txr:ecosystem=r\n").is_err(),
             "two conflicting declarations must be refused"
         );
         assert!(
-            parse_env_pin_ecosystem("# cyto:ecosystem=python\n# cyto:ecosystem=python\n").is_err(),
+            parse_env_pin_ecosystem("# txr:ecosystem=python\n# txr:ecosystem=python\n").is_err(),
             "two IDENTICAL declarations must also be refused — the error message says the \
              file may declare exactly one, and it must mean it"
         );
@@ -6844,7 +6844,7 @@ mod tests {
                 .expect("clock")
                 .as_nanos();
             let p = std::env::temp_dir()
-                .join(format!("cyto-pinfix-{tag}-{}-{nanos}", std::process::id()));
+                .join(format!("txr-pinfix-{tag}-{}-{nanos}", std::process::id()));
             std::fs::create_dir_all(&p).expect("mkdir fixture");
             Self(p)
         }
@@ -6881,7 +6881,7 @@ mod tests {
     const NO_DECL_MANIFEST: &str = concat!(
         "id: plain\n",
         "name: Plain Package\n",
-        "publisher: cyto\n",
+        "publisher: txr\n",
         "version: 0.1.0\n",
         "apiVersion: \"1.0\"\n",
         "contributes:\n",
@@ -6895,8 +6895,8 @@ mod tests {
     );
 
     /// A well-formed pin file: both required directives and three pins with import tokens.
-    const FIX_PINS: &str = "# cyto:ecosystem=python\n\
-         # cyto:pin-source=immutable-index:https://example.invalid/simple\n\
+    const FIX_PINS: &str = "# txr:ecosystem=python\n\
+         # txr:pin-source=immutable-index:https://example.invalid/simple\n\
          alpha==1.0  # import=alpha\n\
          beta==2.0   # import=beta\n\
          gamma==3.0  # import=gamma\n";
@@ -7401,12 +7401,12 @@ mod tests {
         // The exact placements, from FIX_ROUND-2/3/4.
         let cases: [(&str, &str, String); 4] = [
             (
-                "NBSP in a cyto:pin-source directive (round 2, SEC-1)",
+                "NBSP in a txr:pin-source directive (round 2, SEC-1)",
                 "U+00A0",
                 format!(
-                    "# cyto:ecosystem=python\n\
-                     # cyto:pin-source=immutable-index:https://example.invalid/simple\n\
-                     #\u{a0}cyto:pin-source=dated-snapshot:https://attacker.invalid/cran\n\
+                    "# txr:ecosystem=python\n\
+                     # txr:pin-source=immutable-index:https://example.invalid/simple\n\
+                     #\u{a0}txr:pin-source=dated-snapshot:https://attacker.invalid/cran\n\
                      alpha==1.0  # import=alpha\n"
                 ),
             ),
@@ -7414,9 +7414,9 @@ mod tests {
                 "a lone CR smuggling a directive line (round 3)",
                 "U+000D",
                 format!(
-                    "# cyto:ecosystem=python\n\
-                     # cyto:pin-source=immutable-index:https://example.invalid/simple\n\
-                     # see the runbook\r# cyto:pin-source=dated-snapshot:https://attacker.invalid/cran\n\
+                    "# txr:ecosystem=python\n\
+                     # txr:pin-source=immutable-index:https://example.invalid/simple\n\
+                     # see the runbook\r# txr:pin-source=dated-snapshot:https://attacker.invalid/cran\n\
                      alpha==1.0  # import=alpha\n"
                 ),
             ),
@@ -7424,9 +7424,9 @@ mod tests {
                 "U+000B before a directive (round 3)",
                 "U+000B",
                 format!(
-                    "# cyto:ecosystem=python\n\
-                     # cyto:pin-source=immutable-index:https://example.invalid/simple\n\
-                     #\u{b}cyto:pin-source=dated-snapshot:https://attacker.invalid/cran\n\
+                    "# txr:ecosystem=python\n\
+                     # txr:pin-source=immutable-index:https://example.invalid/simple\n\
+                     #\u{b}txr:pin-source=dated-snapshot:https://attacker.invalid/cran\n\
                      alpha==1.0  # import=alpha\n"
                 ),
             ),
@@ -7435,8 +7435,8 @@ mod tests {
                  guard-widening approach)",
                 "U+001C",
                 format!(
-                    "# cyto:ecosystem=python\n\
-                     # cyto:pin-source=immutable-index:https://example.invalid/simple\n\
+                    "# txr:ecosystem=python\n\
+                     # txr:pin-source=immutable-index:https://example.invalid/simple\n\
                      alpha==1.0  # import=alpha\n\
                      beta==2.0   # import=beta\n\
                      \u{1c}gamma==3.0  # import=gamma\n"
@@ -7602,8 +7602,8 @@ mod tests {
         // implementations of the precondition.
         fx.recipe(
             "envx",
-            "# cyto:ecosystem=python\n\
-             # cyto:pin-source=immutable-index:https://example.invalid/simple\n\
+            "# txr:ecosystem=python\n\
+             # txr:pin-source=immutable-index:https://example.invalid/simple\n\
              alpha==1.0  # import=alpha\n\
              \u{1c}beta==2.0  # import=beta\n",
         );
@@ -7856,8 +7856,8 @@ mod tests {
         let fx = PinFixture::new("noimport");
         fx.recipe(
             "envx",
-            "# cyto:ecosystem=python\n\
-             # cyto:pin-source=immutable-index:https://example.invalid/simple\n\
+            "# txr:ecosystem=python\n\
+             # txr:pin-source=immutable-index:https://example.invalid/simple\n\
              alpha==1.0\n",
         );
         let err = fx
@@ -7951,7 +7951,7 @@ mod tests {
         );
     }
 
-    /// Serialises the tests that touch `CYTO_REGEN_ENV_PINS`, and restores it.
+    /// Serialises the tests that touch `TXR_REGEN_ENV_PINS`, and restores it.
     ///
     /// `std::env::set_var` is process-global, so two tests toggling it concurrently would
     /// make each other flaky — and a flaky guard is a guard people re-run until it is

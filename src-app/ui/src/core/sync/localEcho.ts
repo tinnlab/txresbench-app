@@ -62,7 +62,7 @@
 // with `origin: None` (including everything in `project/admin_handlers.rs`) already
 // arrive, and echoing those WOULD double-fetch. Read the handler; don't guess.
 
-import { EventBus } from '@ziee/framework/stores'
+import { EventBus } from '@txresbench/framework/stores'
 import type { SyncAction, SyncEntity } from '@/api-client/types'
 
 /** One suppressed realtime frame, in the wire's own `{entity, action, id}` shape. */

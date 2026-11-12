@@ -21,7 +21,7 @@
 // zero bindings and closed nothing. Reading the store answers for EVERY pane, on screen or not.
 
 import { useEffect } from 'react'
-import { EventBus } from '@ziee/framework/stores'
+import { EventBus } from '@txresbench/framework/stores'
 import { useStore } from 'zustand'
 import { resolveOrThrow, type WorkbenchAPI } from '@/modules/workbench/core'
 // The capability CONTRACTS are TYPE-ONLY imports (erased at build), and the ids are plain

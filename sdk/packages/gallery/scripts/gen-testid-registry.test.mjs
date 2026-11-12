@@ -253,8 +253,8 @@ test('collectSourceFiles skips gallery seeds, generated output, tests + src/dev'
 
 test('collectSourceFiles skips CO-LOCATED test suites, wherever they sit', () => {
   // The class the `tests`-directory skip above does NOT cover, and the one that was
-  // actually live: a suite beside the component it exercises. `@ziee/kit` co-locates
-  // its component tests under `src/kit/`, ziee scans that tree via `kitTestIds`, and
+  // actually live: a suite beside the component it exercises. `@txresbench/kit` co-locates
+  // its component tests under `src/kit/`, txresbench scans that tree via `kitTestIds`, and
   // `sheet-bottom-track.test.tsx`'s `data-testid="body-child"` fixture was harvested
   // straight into the production `KnownTestId` union.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'testid-colocated-'))
@@ -348,9 +348,9 @@ test('TEST-21 [golden] the collector reproduces the committed registry exactly',
 })
 
 // ---------------------------------------------------------------------------
-// TEST-25 — ts-morph resolves from @ziee/gallery's own declared dependencies.
+// TEST-25 — ts-morph resolves from @txresbench/gallery's own declared dependencies.
 // ---------------------------------------------------------------------------
-test('TEST-25 ts-morph is a DECLARED dependency of @ziee/gallery', () => {
+test('TEST-25 ts-morph is a DECLARED dependency of @txresbench/gallery', () => {
   const pkg = JSON.parse(
     fs.readFileSync(path.resolve(HERE, '../package.json'), 'utf-8'),
   )

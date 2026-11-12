@@ -1,4 +1,4 @@
-# CytoAnalyst Analysis Workbench — Extension Platform Architecture
+# TxResBench Analysis Workbench — Extension Platform Architecture
 
 Status: **design spec** (target architecture). Grounds the analysis workbench as an IDE-style **contributable
 platform** — internal today, third-party-contributable over time — so "tens of analyses + views plug in,"
@@ -19,7 +19,7 @@ API and never touches shell internals.** If our own built-in analyses can only b
 an outsider can build anything we can. (VS Code dogfoods its API exactly this way.)
 
 Three pillars make it real:
-1. **A versioned Extension API** (`@cyto/workbench-api`) — the only surface extensions touch.
+1. **A versioned Extension API** (`@txresbench/workbench-api`) — the only surface extensions touch.
 2. **Manifest-declared contributions** — everything is declared statically so the host indexes/renders it
    without executing extension code; code loads lazily on activation.
 3. **A typed data contract** — a shared AnnData-like kind-typed model (the platform's "DOM"), so an
@@ -274,7 +274,7 @@ The shell defines these registries. A contribution is a typed entry; the shell r
 registered. This is the VS Code `contributes` set, specialized for a data workbench.
 
 ```ts
-// @cyto/workbench-api — the contribution surface
+// @txresbench/workbench-api — the contribution surface
 interface Contributions {
   analyses:         Registry<AnalysisContribution>        // an analysis (params + run + outputs)
   plotTypes:        Registry<PlotTypeContribution>         // a center-canvas renderer (scatter/violin/…)
@@ -317,7 +317,7 @@ interface AnalysisContribution<P=Json> {
 
 ---
 
-## 2. The Extension API surface (`@cyto/workbench-api`)
+## 2. The Extension API surface (`@txresbench/workbench-api`)
 
 What the host provides *to* extensions. Semver'd; extensions declare a compatible range.
 
@@ -374,7 +374,7 @@ Every extension ships a manifest the host indexes **without executing it**. Cont
 
 ```yaml
 # extension.yaml
-id: cyto.trajectory-monocle
+id: txr.trajectory-monocle
 name: Monocle Trajectory
 publisher: some-lab
 version: 0.3.1
@@ -583,7 +583,7 @@ package's **view-kind registry**; linked small-multiples == its grid + Coordinat
 **Reconciliation TODO (both branches are unmerged):** `feat/visualization` is generic + standalone; this
 analysis workbench must adopt it as the center-canvas engine and expose its view-kind registry as the
 platform `plotTypes` contribution point. Its **conformance battery** should be published as part of
-`@cyto/workbench-api` so third-party view-kinds are validated by the same gate the built-ins pass.
+`@txresbench/workbench-api` so third-party view-kinds are validated by the same gate the built-ins pass.
 
 ---
 
@@ -591,7 +591,7 @@ platform `plotTypes` contribution point. Its **conformance battery** should be p
 
 Two SEPARATE things, don't conflate: the **compute** (what runs) is *always* a sandboxed script (Python/R);
 the **form** (how you configure it) is **declarative-first with a code escape hatch.** Grounded in the legacy
-CytoAnalyst forms (param inventory across all `New*Form.tsx`: **71 Select · 23 InputNumber · 12 Input · 8
+TxResBench forms (param inventory across all `New*Form.tsx`: **71 Select · 23 InputNumber · 12 Input · 8
 Switch · 3 TreeSelect** → ~90% simple typed fields), four tiers cover every situation observed:
 
 **Tier 1 — Declarative params form (JSON-schema; the ~90%).** Scalar params render from a schema (host-rendered,
@@ -629,7 +629,7 @@ selection-builder case **without every extension re-coding it** (and selections 
 §0.6).
 
 **Tier 4 — Code form (the escape hatch, rare).** For a genuinely bespoke UI, the extension ships a **React
-`ParamsForm` component** built against `@cyto/workbench-api` — which exposes `api.artifacts.query({type})`, the
+`ParamsForm` component** built against `@txresbench/workbench-api` — which exposes `api.artifacts.query({type})`, the
 current `api.selection`, the study context. This is the VS Code *webview* escape hatch: declarative by default,
 code only when a form truly can't be expressed as schema + widgets. (Untrusted third-party code forms run in a
 sandboxed iframe, §6; first-party/reviewed run in-tree.)
@@ -671,7 +671,7 @@ An interactive module is therefore **thin code over shared primitives + contribu
    trajectory path, cell labels. These are **view/overlay contributions** (the view-kind registry, §4.2), so
    they render *on the shared embedding* and link with everything else.
 3. **Ships a code panel for its stateful loop** — a React panel (`ViewContribution` with a `component`, built
-   against `@cyto/workbench-api`) for the controls + state, and writes results via the data API
+   against `@txresbench/workbench-api`) for the controls + state, and writes results via the data API
    (`api.data.writeAnnotation`, `writeResult`).
 
 **Worked example — the annotation module** (your case):
@@ -731,7 +731,7 @@ gating, §4.4). Net: ~90% of panels are host-standard and consistent; injection 
 
 **2. The chrome is host-owned; the module fills a content slot — built from the shared kit.** The dock, the
 tab, the header/collapse/resize, the IA layout (`WORKBENCH_IA`) are **workbench-owned**. A module contributes
-*content* into a host-provided frame, and code panels are built from `@cyto/kit` (the design system) — so a
+*content* into a host-provided frame, and code panels are built from `@txresbench/kit` (the design system) — so a
 contributed panel looks native, not like a foreign widget. The module never draws a dock or a tab; it adds a
 tab/section the host places and styles.
 
@@ -944,7 +944,7 @@ feature, all through the versioned API, with the server never loading untrusted 
   assets). Discovered from a per-deployment extensions dir (or the hub). Manifest validated; contributions
   indexed; compute assets staged for the sandbox.
 - **External code + marketplace (later):** a signed, versioned package resolved from a registry (the
-  `ziee-ai/hub` pattern already used for models/rootfs is the natural home) with install / enable-disable /
+  `tinnlab/hub` pattern already used for models/rootfs is the natural home) with install / enable-disable /
   update / compatibility-range resolution + activation events.
 
 ---
@@ -958,10 +958,10 @@ feature, all through the versioned API, with the server never loading untrusted 
 | Data contract | `docs/DATA_STORAGE_REDESIGN.md` (kind-typed artifacts + Postgres catalog + typed-binary streaming) |
 | Contribution/discovery seam | `STUDY_EXTENSIONS` + FE `STUDY_SLOTS` + `import.meta.glob` |
 | Analysis descriptor | the `analysisRegistry` (interface round) — generalizes to `AnalysisContribution` |
-| Package registry (future marketplace) | `ziee-ai/hub` (models/rootfs already flow through it) |
+| Package registry (future marketplace) | `tinnlab/hub` (models/rootfs already flow through it) |
 | Binary/typed streaming to views | SDK gap **FE-10** (design-only) — the viz data plane |
 
-The work is: **extract `@cyto/workbench-api` as a published, versioned package; make the docks/canvas/left-rail
+The work is: **extract `@txresbench/workbench-api` as a published, versioned package; make the docks/canvas/left-rail
 render from its registries; rebuild our own analyses on it; then add the manifest loader (compute → views).**
 
 ---
@@ -976,7 +976,7 @@ so first — what MUST live in the host:
 
 ### The kernel (compiled Rust — fixed; identical whether there are 3 modules or 30)
 - **Identity + study + permissions + sync** (exists: auth/study/user modules).
-- **File store** — raw upload/blob (`ziee-file`).
+- **File store** — raw upload/blob (`txresbench-file`).
 - **Jobs queue** + **sandbox** — the compute executor (exists: jobs/sandbox modules).
 - **Working store** — the kind-typed HDF5 artifacts + Postgres catalog (`DATA_STORAGE_REDESIGN`) + the
   **typed-binary data API** (read a kind → typed array; write a result). *This is the data contract impl.*
@@ -984,7 +984,7 @@ so first — what MUST live in the host:
   **declarative provisioners** (schema→table+CRUD+sync+gate · job→scheduler · settings→admin card ·
   result-kind→catalog+stream) + the **sidecar gateway** (`/api/ext/<id>/*`, §6.5-B).
 - **Workbench shell (frontend)** — docks, the **viz framework as the canvas host** (`feat/visualization`
-  view-kind registry), the contribution registries, and the `@cyto/workbench-api` runtime.
+  view-kind registry), the contribution registries, and the `@txresbench/workbench-api` runtime.
 
 Everything else — data-process, embedding, clustering, DE, trajectory… — is an **extension**. None add Rust.
 
@@ -998,14 +998,14 @@ src-app/
   ui/      (FRONTEND HOST — the shell)
     src/core/workbench/       ← docks · canvas(viz view-kind host) · registries · workbench-api runtime
   packages/
-    workbench-api/            ← @cyto/workbench-api (versioned; extensions build against this ONLY)
+    workbench-api/            ← @txresbench/workbench-api (versioned; extensions build against this ONLY)
 
 extensions/                   ← THE MODULES — no Rust, self-contained, drop-in
   data-io/
     extension.yaml
     compute/  process.py  save.py            # run in the sandbox
     schema/   process.params.json  qc.settings.json
-    ui/       UploadPanel.tsx  QcReviewPanel.tsx   # built against @cyto/workbench-api
+    ui/       UploadPanel.tsx  QcReviewPanel.tsx   # built against @txresbench/workbench-api
   embedding/
     extension.yaml
     compute/  umap.py  pca.py
@@ -1034,7 +1034,7 @@ adds only a settings row, declaratively).
 
 ### One manifest, concretely (module 1)
 ```yaml
-id: cyto.data-io
+id: txr.data-io
 apiVersion: "^1.0"
 activation: [ onView:samples, onAnalysis:data.process ]
 contributes:
@@ -1076,7 +1076,7 @@ by code coupling.
 
 ## 9. Phased rollout (each phase usable on its own)
 
-1. **API extraction + dogfood.** Publish `@cyto/workbench-api` (contribution registries + `data`/`selection`/
+1. **API extraction + dogfood.** Publish `@txresbench/workbench-api` (contribution registries + `data`/`selection`/
    `compute`/`commands`/`ui`). Rebuild the workbench shell to render from registries and the built-in
    analyses/views to consume the API. *Deliverable: the workbench, now registry-driven — internal
    modularity.* (This is the real work; everything else depends on it.)
@@ -1091,16 +1091,16 @@ by code coupling.
 ---
 
 ## 10. Decisions to make (surface to the human before building phase 1)
-- **API package boundary:** ship `@cyto/workbench-api` as an app package now, or design it as a *future SDK*
-  package (`@ziee/…`) so other ziee apps can host workbenches? (Affects namespacing + who owns it.)
+- **API package boundary:** ship `@txresbench/workbench-api` as an app package now, or design it as a *future SDK*
+  package (`@txresbench/…`) so other txresbench apps can host workbenches? (Affects namespacing + who owns it.)
 - **Declarative view engine:** commit to **Vega-Lite** as the plot-spec language (mature, safe, huge
   vocabulary) vs a bespoke spec. Recommendation: Vega-Lite for declarative, deck.gl for the built-in
   high-perf embedding canvas.
 - **Params form engine:** **JSON-schema → form** (RJSF-style) as the params contract. Recommendation: yes —
   it's the manifest-declarable, safe path and matches the "typed field per input" rule.
 - **Manifest format:** YAML vs JSON (VS Code uses JSON `package.json#contributes`; napari uses YAML). Minor.
-- **Marketplace host:** `ziee-ai/hub` vs a dedicated registry. Recommendation: reuse the hub pattern.
+- **Marketplace host:** `tinnlab/hub` vs a dedicated registry. Recommendation: reuse the hub pattern.
 
-**One-line target:** *a versioned `@cyto/workbench-api`; docks/canvas/rail render from its registries; analyses
+**One-line target:** *a versioned `@txresbench/workbench-api`; docks/canvas/rail render from its registries; analyses
 = sandboxed manifest wrappers (Galaxy model, isolation already built); views = Vega-Lite/JSON-schema specs
 (safe, declarative); data flows through the kind-typed store; marketplace via the hub — built in that order.*

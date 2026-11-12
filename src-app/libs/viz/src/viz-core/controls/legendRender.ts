@@ -72,7 +72,7 @@ export interface LegendLayout {
    * by construction rather than by a second implementation agreeing with this one.
    *
    * The legend renders whatever string it is handed and knows nothing about what the mark
-   * MEANS — deciding that is the host's (in ziee: an artifact whose producer declared no
+   * MEANS — deciding that is the host's (in txresbench: an artifact whose producer declared no
    * alignment to the row space the points are drawn in).
    */
   readonly note?: { readonly x: number; readonly y: number; readonly text: string }

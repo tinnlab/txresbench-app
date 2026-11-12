@@ -41,7 +41,7 @@ exactly what we need for *scripts*:
   → `oras pull` the `.squashfs` → atomic rename into a **content‑digest cache** → squashfuse mount;
 - the resolved **digest is recorded in provenance** (provenance‑by‑reference: a reproduce
   pulls the exact image);
-- operator escape hatches: `CYTO_ENV_ROOTFS_DIR` (air‑gap pre‑mount), registry/identity overrides.
+- operator escape hatches: `TXR_ENV_ROOTFS_DIR` (air‑gap pre‑mount), registry/identity overrides.
 
 **This is a complete lazy‑fetch + cryptographic‑verify + content‑addressed‑cache +
 provenance‑by‑reference + air‑gap‑override pattern.** `rootfs::cache`,
@@ -154,7 +154,7 @@ seam where a runtime‑loaded view list would plug in.
 ## 6. Community contribution model — curated first, decentralized later
 
 - **Curated central repo** (nf‑core / Galaxy Tool Shed / Grafana catalog model): PRs to a
-  `ziee-ai/processors` repo; **CI validates schema + reproducibly re‑tars + signs + publishes**
+  `tinnlab/processors` repo; **CI validates schema + reproducibly re‑tars + signs + publishes**
   to the Pages catalog. Single trusted signer, quality‑gated. **Start here.**
 - **Decentralized publisher namespaces** (Snakemake Workflow Catalog / hub `io.github.X`):
   anyone publishes from **their own** GitHub repo/release under their namespace; **keyless
@@ -204,7 +204,7 @@ moved `resolve()` from the baked binary to the runtime cache.
 4. **Runtime UI loading** — a genuinely new FE mechanism (declarative renderer → import‑maps → iframe).
 5. **Community‑contributed *envs*** — heavy signed OCI images; the env‑image system fetches them,
    but community envs are a bigger trust/size ask — keep **envs curated‑only** initially.
-6. **`apiVersion` / `min_ziee_version` compat gates** — a processor built for a newer schema must
+6. **`apiVersion` / `min_txresbench_version` compat gates** — a processor built for a newer schema must
    be refused with a clear message (the hub's `ensure_installable` already models this).
 
 ---
@@ -286,8 +286,8 @@ pressure-tested against the old `sc-website` reference before any plan is writte
 
 ## 11. Pressure-test: the old `sc-website` QC/filtering page → an exact `view_spec` (2026-07-22)
 
-Pressure-tested §10 against the **richest real data-processing UI** in the old CytoAnalyst
-reference (`/data/pbya/ziee/tmp/cytoanalyst-ref/sc-website`), the **DataUpload QC/filtering**
+Pressure-tested §10 against the **richest real data-processing UI** in the old TxResBench
+reference (`/data/pbya/txresbench/tmp/txresbench-ref/sc-website`), the **DataUpload QC/filtering**
 page: `imports/ui/pages/DataUpload/{index,FilteringBoard,PlotAndFilter,FilteringSlider,
 SaveButtonAndModal}.tsx`.
 

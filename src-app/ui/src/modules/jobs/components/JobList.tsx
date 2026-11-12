@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Empty, Input, Spin, message } from '@ziee/kit'
+import { Button, Empty, Input, Spin, message } from '@txresbench/kit'
 import { Jobs } from '@/modules/jobs/Jobs.store'
 import { ListPagination } from '@/components/common/ListPagination'
 import { JobStatusBadge } from './JobStatusBadge'

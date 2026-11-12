@@ -9,8 +9,8 @@
 // one edge put `@deck.gl/core` behind anything touching the grid MODEL or the grid STORE.
 //
 // The cost is conditional, which is why it is easy to miss: measured by ablation in the
-// CytoAnalyst app, restoring this edge alone changes nothing (723.03 kB critical path), and
-// pointing `modules/visualization/module.tsx` at the `@ziee/viz/core` barrel instead of a
+// TxResBench app, restoring this edge alone changes nothing (723.03 kB critical path), and
+// pointing `modules/visualization/module.tsx` at the `@txresbench/viz/core` barrel instead of a
 // narrower store import also changes nothing (723.06 kB) — but doing BOTH costs **+29.1 kB
 // gzip** on the preloaded critical path (752.17 kB), because the store import then has a live
 // path to deck. Keeping this split is what lets a consumer register the viz stores at module

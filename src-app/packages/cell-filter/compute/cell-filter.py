@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ruff: noqa
-"""cell-filter — CytoAnalyst sandbox compute processor (declarative-canvas-plots ITEM-25/27/33).
+"""cell-filter — TxResBench sandbox compute processor (declarative-canvas-plots ITEM-25/27/33).
 
 Reads the ``expression`` count-matrix ARTIFACT + a **criteria/threshold recipe** (min/max per
 per-cell metric, or categorical keep-sets) and/or a **cell-set** (an explicit barcode
@@ -21,7 +21,7 @@ collision and the FORM refuses it against the columns already on the axis.
 Every input is resolved by **SLOT** out of ``/inputs/inputs.json``. There is no
 filename glob and no reader-by-suffix: the runner names each mount from the artifact
 it is mounting (ITEM-23), and the FORMAT comes from the artifact's own ``structure``
-declaration (a Zarr group's ``attributes.cyto``).
+declaration (a Zarr group's ``attributes.txr``).
 
   * ``expression``     — REQUIRED. The count matrix: a multifile **CSC Zarr store**
                          (``kind: sparse_csc``), NOT an ``.h5ad``. It declares the
@@ -56,7 +56,7 @@ those positions to barcodes), ``max_cells`` (optional seeded down-sample),
 ``mito_regex`` / ``ribo_regex`` (for on-the-fly metric computation when the input
 lacks a metric column), ``seed``. Optional ``cells`` input slot = a cell-set (JSON
 array / newline barcodes / metadata-column JSON). Roots overridable via
-``CYTO_INPUTS_DIR`` / ``CYTO_OUTPUTS_DIR``. Progress → ``$CYTO_PROGRESS_FIFO``.
+``TXR_INPUTS_DIR`` / ``TXR_OUTPUTS_DIR``. Progress → ``$TXR_PROGRESS_FIFO``.
 """
 import json
 import math
@@ -78,9 +78,9 @@ for _v in (
 import numpy as np
 
 # The shared output-format library (`_lib`, DEC-7) — staged into `/code` alongside every
-# Python entry, same as `align` / `colsummary`. `cyto_columns` imports pandas lazily.
-import cyto_deps
-import cyto_columns
+# Python entry, same as `align` / `colsummary`. `txr_columns` imports pandas lazily.
+import txr_deps
+import txr_columns
 
 # NOTE: scipy is imported LAZILY (inside `main`), not at module top, so the pure
 # recipe helpers (`thresholds_from_params` / `resolve_gate` / `_gate_to_ids`) import
@@ -95,8 +95,8 @@ DT_EMBEDDING = ("embedding", "chunked-dense")
 
 
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -115,7 +115,7 @@ def load_inputs_index(inputs_dir):
     single path — keying a plain dict by slot silently kept only the last binding.
 
     ``sandbox_path`` is the IN-SANDBOX bind target (`/inputs/<sub>`); only the subpath is
-    used, so the same index resolves off-sandbox where `CYTO_INPUTS_DIR` points elsewhere.
+    used, so the same index resolves off-sandbox where `TXR_INPUTS_DIR` points elsewhere.
     """
     idx = read_json(inputs_dir / "inputs.json", {"inputs": []})
     slots = {}
@@ -188,7 +188,7 @@ def progress(phase, pct=None, message=None):
             parts.append("")
         parts.append(str(message))
     line = "|".join(parts)
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if fifo:
         # Persistent write fd: opened once, reused, closed at process exit — one
         # continuous stream to the runner's FIFO drain (streaming.rs), no per-frame
@@ -222,9 +222,9 @@ def write_manifest(outputs_dir, entries):
     # environment does not satisfy the declaration. Placed here, on the one path every
     # successful run takes, so recording is structural rather than remembered: a compute
     # cannot emit its outputs without also emitting what produced them.
-    # The datatype is THIS package's, passed in: `cyto_deps` is app-core and may not
+    # The datatype is THIS package's, passed in: `txr_deps` is app-core and may not
     # name a contributed domain's vocabulary, so the caller supplies the pair.
-    cyto_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
+    txr_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
     (outputs_dir / "manifest.json").write_text(json.dumps({"outputs": entries}, indent=2))
 
 
@@ -630,7 +630,7 @@ def write_keep_mask(outputs_dir, rel_dir, name, mask):
     gzipped byte array it fetches by chunk. Returns `(structure, meta)`."""
     import pandas as pd
 
-    return cyto_columns.write_metadata_column(
+    return txr_columns.write_metadata_column(
         outputs_dir, rel_dir, name, pd.Series(np.asarray(mask, dtype=bool)), axis="cells")
 
 
@@ -645,14 +645,14 @@ def output_entry(id, datatype_layout, path, role, *, structure, meta=None):
 
 # ─────────────── reading the ARTIFACTS (format from the declaration) ──────────
 #
-# A staged artifact says what it is: a `cyto_zarr` store stamps the producer-declared
-# `structure` into its group `zarr.json` under `attributes.cyto`. That declaration is the
+# A staged artifact says what it is: a `txr_zarr` store stamps the producer-declared
+# `structure` into its group `zarr.json` under `attributes.txr`. That declaration is the
 # format contract; a filename is not.
 
 
 def artifact_structure(path):
     """The producer-DECLARED `structure` of a staged artifact, or ``None`` when the path
-    is not a `cyto_zarr` store."""
+    is not a `txr_zarr` store."""
     meta = Path(path) / "zarr.json"
     if not meta.is_file():
         return None
@@ -660,8 +660,8 @@ def artifact_structure(path):
         doc = json.loads(meta.read_text())
     except (OSError, ValueError):
         return None
-    cyto = (doc.get("attributes") or {}).get("cyto")
-    return cyto if isinstance(cyto, dict) else None
+    txr = (doc.get("attributes") or {}).get("txr")
+    return txr if isinstance(txr, dict) else None
 
 
 def read_column_values(path, slot):
@@ -669,20 +669,20 @@ def read_column_values(path, slot):
 
     Which member holds them is the producer's declaration (`structure.key`, else the
     single declared column, else the conventional `values`)."""
-    import cyto_zarr_read
+    import txr_zarr_read
 
     structure = artifact_structure(path)
     if structure is None:
         fail(
             f"input on slot {slot!r} at {Path(path).name!r} carries no `structure` "
-            "declaration in a group `zarr.json` — it is not a cyto_zarr column artifact"
+            "declaration in a group `zarr.json` — it is not a txr_zarr column artifact"
         )
     member = structure.get("key")
     if not member:
         columns = structure.get("columns") or []
         if len(columns) == 1 and isinstance(columns[0], dict):
             member = columns[0].get("path")
-    values = cyto_zarr_read.read_column(path, member or "values")
+    values = txr_zarr_read.read_column(path, member or "values")
     return np.asarray(values.tolist() if hasattr(values, "tolist") else list(values))
 
 
@@ -748,14 +748,14 @@ def read_matrix(path, slot, gene_names=None):
     CSC Zarr store. `kind` comes from the store's OWN declaration — never from the mount
     name — and anything else is refused BY NAME rather than guessed at.
     """
-    import cyto_csc
+    import txr_csc
 
     path = Path(path)
     structure = artifact_structure(path)
     if structure is None:
         fail(
             f"input on slot {slot!r} at {path.name!r} carries no `structure` declaration "
-            "in a group `zarr.json` — it is not a cyto_zarr artifact. A "
+            "in a group `zarr.json` — it is not a txr_zarr artifact. A "
             "`single-cell/expression` artifact is a multifile CSC Zarr store"
         )
     kind = structure.get("kind")
@@ -767,7 +767,7 @@ def read_matrix(path, slot, gene_names=None):
     shape = structure.get("shape") or []
     if len(shape) != 2:
         fail(f"input on slot {slot!r} declares no 2-D shape (got {shape!r})")
-    indptr, indices, data = cyto_csc.read_csc(path)
+    indptr, indices, data = txr_csc.read_csc(path)
     n_cells = int(shape[0])
     if np.asarray(indices).size and int(np.asarray(indices).max()) >= n_cells:
         fail(
@@ -1509,7 +1509,7 @@ def main():
         output_entry(f"metadata-column:{col_name}", DT_METADATA_COLUMN, mask_rel, "artifact",
                      structure=mask_structure, meta=mask_meta),
         output_entry("filter-report", DT_REPORT_QC, "filter-report.json", "artifact",
-                     structure=cyto_columns.opaque("application/json"),
+                     structure=txr_columns.opaque("application/json"),
                      meta={"kind": "filter-report", "n_cells_in": n_in, "n_cells_out": n_out}),
     ]
     write_manifest(outputs_dir, entries)

@@ -29,7 +29,7 @@
  * (`src/dev/gallery/main.tsx`) and is never in a production bundle path.
  */
 import { lazy, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import type { ModuleGallery } from '@ziee/gallery'
+import type { ModuleGallery } from '@txresbench/gallery'
 import type { TxrListRow, TxrFilterChip, TxrSortControl } from './types'
 import { TxrSelectList } from './components/TxrSelectList'
 import { TxrListBottomBar, TXRLIST_DEFAULT_AT_A_TIME } from './components/TxrListBottomBar'

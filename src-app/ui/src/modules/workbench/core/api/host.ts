@@ -2,7 +2,7 @@
 // PER-EXTENSION, capability-scoped, from a bundle of host services the shell
 // provides. Keeping these as INTERFACES (not hard imports of ApiClient / the
 // framework EventBus) is what makes the package acyclic + unit-testable: the
-// CytoAnalyst host implements them against `@ziee/framework` ApiClient + P2
+// TxResBench host implements them against `@txresbench/framework` ApiClient + P2
 // `datatypeRegistry`; a test injects fakes.
 //
 // ITEM-7/10/11 — the `data` and `compute` PLANES are gone from this bundle. They

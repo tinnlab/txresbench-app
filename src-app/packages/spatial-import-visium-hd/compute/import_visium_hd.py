@@ -4,8 +4,8 @@
 
 Reads `/inputs` (the auto-grouped `spatial/visium-hd-bundle` dataset), writes
 `/outputs/<file>` plus `/outputs/manifest.json` = `{"outputs":[{id,datatype,path,layout,
-role,structure,meta}]}`. Progress lines `phase|pct|message` go to `$CYTO_PROGRESS_FIFO`.
-`/inputs` and `/outputs` are overridable via `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR` — the
+role,structure,meta}]}`. Progress lines `phase|pct|message` go to `$TXR_PROGRESS_FIFO`.
+`/inputs` and `/outputs` are overridable via `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR` — the
 ONLY seam that lets a test drive the REAL script off-sandbox, which is what
 `tests/test_producer_end_to_end.py` does.
 
@@ -89,9 +89,9 @@ for _v in (
 import numpy as np
 
 # `_lib` is staged into `/code` alongside every Python entry.
-import cyto_columns
-import cyto_csc
-import cyto_deps
+import txr_columns
+import txr_csc
+import txr_deps
 
 # The VENDORED write-time contract (#152). Staged beside this entry by `run.helpers`.
 # Byte-identical to `spatial-types/compute/spatial_declarations.py`; never edited here.
@@ -297,8 +297,8 @@ class VisiumImportError(RuntimeError):
 
 
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -350,7 +350,7 @@ def progress(phase, pct=None, message=None):
             parts.append("")
         parts.append(str(message))
     line = "|".join(parts)
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if fifo:
         try:
             if _PROGRESS_FD[0] < 0:
@@ -364,10 +364,10 @@ def progress(phase, pct=None, message=None):
 def write_manifest(outputs_dir, entries):
     """`/outputs/manifest.json`, the LAST thing written -- and the RUN-ENVIRONMENT record.
 
-    `cyto_deps.augment` appends this run's environment record and REFUSES the run if the
+    `txr_deps.augment` appends this run's environment record and REFUSES the run if the
     environment does not satisfy the manifest's declared `run.dependencies`. It is called
     HERE, not in `run_import`, because this is the one point every successful run passes
-    through -- `_lib/cyto_deps.py` states the invariant it buys: "a compute cannot emit its
+    through -- `_lib/txr_deps.py` states the invariant it buys: "a compute cannot emit its
     outputs without also emitting the record of the environment that produced them, and there
     is no path where an entry 'forgot' to record."
 
@@ -381,7 +381,7 @@ def write_manifest(outputs_dir, entries):
     `ensure_ascii=True` (the default) is deliberate too: a non-ASCII vendor string that
     survived every guard above is written as an escape rather than as raw bytes.
     """
-    cyto_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
+    txr_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
     (Path(outputs_dir) / "manifest.json").write_text(
         json.dumps({"outputs": entries}), encoding="utf-8"
     )
@@ -1304,7 +1304,7 @@ def locate_bins(root, slot_ordinals=None):
 
 #: Where `read_scalefactors` records the key paths whose numbers it had to replace. A
 #: dunder-ish spelling no vendor writes, so it cannot collide with a real scale key.
-UNREPRESENTABLE_KEYS = "__cyto_unrepresentable_numbers__"
+UNREPRESENTABLE_KEYS = "__txr_unrepresentable_numbers__"
 
 
 def read_scalefactors(path):
@@ -2333,7 +2333,7 @@ def emit_images(images, outputs_dir, *, space_id, microns_per_pixel,
       # `entries`, on disk, AND in `images_not_emitted` at once.
       entries.append(output_entry(
           spec["output_id"], DT_SPATIAL_IMAGE, rel, "artifact",
-          structure=cyto_columns.opaque(IMAGE_MEDIA_TYPE),
+          structure=txr_columns.opaque(IMAGE_MEDIA_TYPE),
           meta=meta,
           label=f"Tissue image ({spec['role']})",
       ))
@@ -2615,7 +2615,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
         # (0) rather than an error. MEASURED through the shipped entrypoint on the 8 um bin:
         # a virtual `/matrix/indices` with a missing source imported at rc 0 with every count
         # attributed to feature 0; a virtual `/matrix/data` imported at rc 0 with `data` all
-        # zero; an external-storage `indices`/`data` died inside `_lib/cyto_csc.py` with a raw
+        # zero; an external-storage `indices`/`data` died inside `_lib/txr_csc.py` with a raw
         # traceback and (for `data`) a five-path partial store. `ds.is_virtual` is False for
         # external storage, so BOTH predicates are needed. A member that is PRESENT but not a
         # dataset is the same refusal class, and is named here too. The loop also refuses a
@@ -3077,7 +3077,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
         # refusal about the customer's bundle. And it is NARROW in MEMBERSHIP:
         # `refuse_unencodable_vendor_text` (the parse boundary immediately below) is
         # NOT wrapped, and its semantics do not change. The read is before the first
-        # writer (`cyto_csc.write_csc_zarr`), so a refusal here leaves no store, no
+        # writer (`txr_csc.write_csc_zarr`), so a refusal here leaves no store, no
         # partial store and nothing for a later reader to find (INV-2).
         # **ValueError/OverflowError ARE IN THE TUPLE ON PURPOSE:** materialising an
         # attribute allocates `numpy.zeros(shape, dtype)` from the FILE-DECLARED
@@ -3375,7 +3375,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
         space_id, space_id_source = coordinate_space_id(provenance, attrs)
 
         # THE MATRIX'S OWN INTERNAL CONSISTENCY, checked before it is handed to the writer.
-        # `cyto_csc.write_csc_zarr` streams `indptr`/`indices` and raises out of `_lib` on a
+        # `txr_csc.write_csc_zarr` streams `indptr`/`indices` and raises out of `_lib` on a
         # malformed one -- MEASURED, a non-monotonic `indptr` gives `ValueError: repeats may
         # not contain negative values` from inside the framework, which `main()` does not
         # catch: exit 1, a raw traceback, and paths already on disk. `_lib` is shared
@@ -3433,7 +3433,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
         #                out of the `astype(np.int64)` on the line below -- inside this very
         #                guard block, which is the shape a value-only check always has
         #   `data`    -> exit 1 and FIVE PATHS ON DISK, `ValueError: could not convert string
-        #                to float` from `_lib/cyto_csc.py::_scatter_band` -- past the first
+        #                to float` from `_lib/txr_csc.py::_scatter_band` -- past the first
         #                writer, so INV-8 as well as INV-9
         #   `indices` -> exit 1, `_UFuncNoLoopError: ufunc 'minimum' did not contain a loop
         #                with signature matching types (dtype('S1'), dtype('S1'))` out of the
@@ -3470,7 +3470,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
         # `(np.diff(indptr) < 0).any()` is unconditionally False and the guard passes
         # everything. MEASURED at uint32 through the shipped entrypoint: the failure this
         # guard exists to prevent arrives verbatim -- `ValueError: repeats may not contain
-        # negative values` out of `_lib/cyto_csc.py`, exit 1, five paths on disk. The suite
+        # negative values` out of `_lib/txr_csc.py`, exit 1, five paths on disk. The suite
         # could not see it because the hostile builder writes back through
         # `h5["matrix/indptr"][:] = ...`, which PRESERVES the fixture's int64.
         indptr = indptr.astype(np.int64, copy=False)
@@ -3493,7 +3493,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
         # at all, so `AttributeError` escaped `main()` entirely -- exit 1 with a raw traceback,
         # which INV-9 forbids by name. And a SCALAR dataset has `shape == ()`, so `shape[0]`
         # raised `IndexError`, which WAS caught: the cross-check was silently skipped, the run
-        # sailed past the first writer, and it died inside `_lib/cyto_csc.py` with
+        # sailed past the first writer, and it died inside `_lib/txr_csc.py` with
         # `ValueError: Illegal slicing argument for scalar dataspace` -- exit 1 and FIVE PATHS
         # ON DISK. INV-8 and INV-9 broken together, by the exact mechanism this guard's own
         # refusal text says it exists to prevent.
@@ -3524,11 +3524,11 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
         # `/matrix/indices` GETS THE SAME THREE CHECKS `data` DOES, and it had none.
         #
         # The guard above hardened `data` and `indptr` and stopped there, so the THIRD member
-        # of the same CSC triple was handed to `cyto_csc.H5CsrSource` unexamined. MEASURED
+        # of the same CSC triple was handed to `txr_csc.H5CsrSource` unexamined. MEASURED
         # through the shipped entrypoint, each on the committed fixture:
         #
         #   `indices` a GROUP    -> exit 1, `TypeError: Accessing a group is done with bytes
-        #                           or str, not <class 'slice'>` out of `_lib/cyto_csc.py`
+        #                           or str, not <class 'slice'>` out of `_lib/txr_csc.py`
         #   `indices` a SCALAR   -> exit 1, `ValueError: Illegal slicing argument for scalar
         #                           dataspace`, same file
         #   a feature id >= n    -> exit 1, `ValueError: operands could not be broadcast
@@ -3579,7 +3579,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
             ind_ds = group["indices"]
             # The SAME block size the writer itself streams at, read off `_lib` rather than
             # re-declared here: a second constant would drift from the one that matters.
-            step = max(1, int(cyto_csc.READ_NNZ))
+            step = max(1, int(txr_csc.READ_NNZ))
             id_lo, id_hi = None, None
             for lo in range(0, nnz, step):
                 # THE BLOCK SCAN IS GUARDED (#650) -- the twin of the `/matrix/data` scan
@@ -3783,7 +3783,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
         # (nothing above this line has written a byte), and it is a NAMED refusal —
         # `VisiumImportError` — never a traceback and never an exit-1.
         data_ds = group["data"]
-        step = max(1, int(cyto_csc.READ_NNZ))
+        step = max(1, int(txr_csc.READ_NNZ))
         any_usable = False
         saw_nonfinite = False
         saw_zero = False
@@ -3901,9 +3901,9 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
         # DECLARED from the file's own shape dataset rather than sniffed, and the whole import
         # stays out-of-core, which matters more here than on Visium: the 2 um bin is millions
         # of rows.
-        source = cyto_csc.H5CsrSource(group, shape=(n_barcodes, n_features))
+        source = txr_csc.H5CsrSource(group, shape=(n_barcodes, n_features))
         progress("matrix", 35, f"{n_barcodes} bins x {n_features} genes")
-        counts_structure = cyto_csc.write_csc_zarr(
+        counts_structure = txr_csc.write_csc_zarr(
             source, outputs_dir / "expression.zarr", axes=("cells", "genes"),
         )
 
@@ -3920,12 +3920,12 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
     cells_keys = pd.Series([str(b) for b in barcodes])
     genes_keys = pd.Series([str(g) for g in gene_ids])
     aligned_to = {
-        "cells": cyto_columns.axis_key_digest(cells_keys),
-        "genes": cyto_columns.axis_key_digest(genes_keys),
+        "cells": txr_columns.axis_key_digest(cells_keys),
+        "genes": txr_columns.axis_key_digest(genes_keys),
     }
     membership_of = {
         axis: {"aligned_to": aligned_to[axis],
-               "derived_from": cyto_columns.axis_key_sequence(keys),
+               "derived_from": txr_columns.axis_key_sequence(keys),
                "members": None}
         for axis, keys in (("cells", cells_keys), ("genes", genes_keys))
     }
@@ -3977,7 +3977,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
     # something else would make every alignment on this dataset silently wrong.
     for axis, name, keys in (("cells", "barcode", cells_keys),
                              ("genes", "gene_id", genes_keys)):
-        structure, meta = cyto_columns.write_metadata_column(
+        structure, meta = txr_columns.write_metadata_column(
             outputs_dir, f"axis/{name}.zarr", name, keys, axis=axis,
             holds_axis_keys=True,
         )
@@ -3996,7 +3996,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
             "artifact", label=name, axis=axis, structure=structure, meta=meta,
         ))
 
-    structure, meta = cyto_columns.write_metadata_column(
+    structure, meta = txr_columns.write_metadata_column(
         outputs_dir, "axis/gene_symbol.zarr", "gene_symbol",
         pd.Series([str(g) for g in gene_names]), axis="genes",
         aligned_to=aligned_to["genes"], membership=membership_of["genes"],
@@ -4095,7 +4095,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
     ]
     for name, values in per_bin:
         rel = f"metadata/{name}.zarr"
-        structure, meta = cyto_columns.write_metadata_column(
+        structure, meta = txr_columns.write_metadata_column(
             outputs_dir, rel, name, values, axis="cells",
             aligned_to=aligned_to["cells"], membership=membership_of["cells"],
         )
@@ -4401,7 +4401,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
         "images_not_emitted": image_skipped,
         "image_warnings": image_warnings,
         "registration_qc": qc,
-        "library_versions": cyto_deps.resolve_and_check()["libraries"],
+        "library_versions": txr_deps.resolve_and_check()["libraries"],
     }
     # SAID OUT LOUD when the vendor's scale document carried a number this platform could not
     # write. Silently substituting would leave a reader believing they had the vendor's file.
@@ -4436,7 +4436,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
     )
     entries.append(output_entry(
         "visium-hd-import-report", DT_REPORT_QC, "visium-hd-import-report.json", "artifact",
-        structure=cyto_columns.opaque("application/json"),
+        structure=txr_columns.opaque("application/json"),
         meta={"kind": "visium-hd-import-report", "n_bins": n_barcodes,
               "coordinate_space": space_id,
               "bin_um": int(bin_um),
@@ -4458,7 +4458,7 @@ def run_import(bundle_root, outputs_dir, *, requested_bin=None, slot_ordinals=No
     entries.append(output_entry(
         "visium-hd-import-summary", DT_REPORT_HTML, "visium-hd-import-summary.html",
         "intermediate",
-        structure=cyto_columns.opaque("text/html"),
+        structure=txr_columns.opaque("text/html"),
         meta=dict(
             {"kind": "visium-hd-import-summary",
              "diagnostics_embedded": sorted(diagnostics),

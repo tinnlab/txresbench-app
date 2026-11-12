@@ -11,7 +11,7 @@
 //     here now).
 // Core hands over the spec + data + scope and learns nothing back.
 
-import { cellSpaceKey, defaultVizStores, resolvedPaneBindings } from '@ziee/viz'
+import { cellSpaceKey, defaultVizStores, resolvedPaneBindings } from '@txresbench/viz'
 import { namespaceActionId, type DeclarativeCanvasHost, type DeclarativeCanvasPublish } from '@/modules/workbench/core'
 import { runAction } from '@/core/actions/defineAction'
 import { resolveCanvasCoords, type CanvasTemplate } from './canvasBinding'

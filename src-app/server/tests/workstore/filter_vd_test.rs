@@ -31,12 +31,12 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::gather_exec::{resolve, ResolvedGather};
-use cytoanalyst::modules::workstore::mask::{mask_source_dataset_ids, MASK_ROLE};
-use cytoanalyst::modules::workstore::object_store::{LocalFsStore, ObjectStore};
-use cytoanalyst::modules::workstore::virtual_dataset::{
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::gather_exec::{resolve, ResolvedGather};
+use txresbench::modules::workstore::mask::{mask_source_dataset_ids, MASK_ROLE};
+use txresbench::modules::workstore::object_store::{LocalFsStore, ObjectStore};
+use txresbench::modules::workstore::virtual_dataset::{
     create_filter_vd_for_run, resolve_vd_compute_inputs, FilterOutcome, DATASET_SOURCE_FILTER,
 };
 
@@ -161,7 +161,7 @@ async fn scene(
     server: &TestServer,
 ) -> (
     sqlx::SqlitePool,
-    cytoanalyst::modules::jobs::models::Job,
+    txresbench::modules::jobs::models::Job,
     Uuid,
     Uuid,
     [Uuid; 3],
@@ -216,7 +216,7 @@ async fn scene(
 
     let mask = put_produced_mask(&repo, source, job_id).await;
 
-    let job = cytoanalyst::modules::jobs::repository::JobRepository::new(pool.clone())
+    let job = txresbench::modules::jobs::repository::JobRepository::new(pool.clone())
         .get_any(job_id)
         .await
         .expect("fetch job")
@@ -710,7 +710,7 @@ async fn a_row_mask_does_not_ride_a_col_column_when_dims_coincide() {
         .expect("set job params");
     put_produced_mask_n(&repo, source, job_id, N).await;
 
-    let job = cytoanalyst::modules::jobs::repository::JobRepository::new(pool.clone())
+    let job = txresbench::modules::jobs::repository::JobRepository::new(pool.clone())
         .get_any(job_id)
         .await
         .expect("fetch job")
@@ -788,7 +788,7 @@ async fn a_row_mask_does_not_ride_a_col_column_when_dims_coincide() {
 
 /// One 1-D zarr-v3 array in the container the gather is permitted to decode: `sharding_indexed`
 /// over `bytes`+`gzip`, one shard covering the whole array, optionally carrying
-/// `attributes.cyto.levels`. Lifted from `masked_serve_test::zarr_array` /
+/// `attributes.txr.levels`. Lifted from `masked_serve_test::zarr_array` /
 /// `masked_categorical_test::zarr_array` (which lifted it from `gather_scale_test`).
 fn zarr_array(
     prefix: &str,
@@ -800,13 +800,13 @@ fn zarr_array(
     let n = elems.len() / item;
     let mut meta = zarr_meta(dtype, json!([n]), json!([n.max(1)]));
     if let Some(levels) = levels {
-        meta["attributes"] = json!({ "cyto": { "kind": "categorical", "levels": levels } });
+        meta["attributes"] = json!({ "txr": { "kind": "categorical", "levels": levels } });
     }
     zarr_member(prefix, meta, elems)
 }
 
 /// One **2-D** zarr-v3 array — `shape: [n, width]`, with the width riding the second dimension of
-/// BOTH chunk shapes. This is exactly what `cyto_zarr._array_meta` writes for a member of rank 2
+/// BOTH chunk shapes. This is exactly what `txr_zarr._array_meta` writes for a member of rank 2
 /// (`shape = [n] if width is None else [n, width]`), i.e. what the shared column writer produces
 /// for any `(n_entities × k)` dense member.
 fn zarr_array_2d(
@@ -882,7 +882,7 @@ fn zarr_member(prefix: &str, meta: Value, elems: Vec<u8>) -> Vec<(String, Vec<u8
 /// part of why this shape had no coverage at all.
 ///
 /// `columns` is EMPTY and the single member is filed under `arrays` with a 2-D `shape`, because
-/// `cyto_zarr.Table._record` files a member by rank (`self._arrays if len(entry["shape"]) > 1`).
+/// `txr_zarr.Table._record` files a member by rank (`self._arrays if len(entry["shape"]) > 1`).
 /// The member's `name`/`path` is the CALLER's — a producer of a dense 2-D member names it
 /// whatever it likes and is under no obligation to call it `values`. That is the whole of the
 /// mismatch below: the gather assumes the constant.
@@ -1137,8 +1137,8 @@ async fn byte_scene(
     (pool, store, repo, source, job_id)
 }
 
-async fn fetch_job(pool: &sqlx::SqlitePool, job_id: Uuid) -> cytoanalyst::modules::jobs::models::Job {
-    cytoanalyst::modules::jobs::repository::JobRepository::new(pool.clone())
+async fn fetch_job(pool: &sqlx::SqlitePool, job_id: Uuid) -> txresbench::modules::jobs::models::Job {
+    txresbench::modules::jobs::repository::JobRepository::new(pool.clone())
         .get_any(job_id)
         .await
         .expect("fetch job")
@@ -1190,11 +1190,11 @@ fn decode_u8(resolved: &ResolvedGather) -> Vec<u8> {
     bytes
 }
 
-/// The `levels` array on the served member's `zarr.json` (`attributes.cyto.levels`).
+/// The `levels` array on the served member's `zarr.json` (`attributes.txr.levels`).
 fn served_levels(resolved: &ResolvedGather) -> Value {
     let arr: Value =
         serde_json::from_slice(&resolved.member("values/zarr.json").unwrap().unwrap()).unwrap();
-    arr["attributes"]["cyto"]["levels"].clone()
+    arr["attributes"]["txr"]["levels"].clone()
 }
 
 // ── the byte-level scene's fixed row set ────────────────────────────────────────────────────

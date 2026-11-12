@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-use cytoanalyst::modules::file_validator::rules::{
+use txresbench::modules::file_validator::rules::{
     rule_declarations, validate_model, CanonicalModel, RuleApplicability, RuleKind,
     DAY_SOURCE_FILE,
 };

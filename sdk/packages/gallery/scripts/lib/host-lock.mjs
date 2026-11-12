@@ -28,7 +28,7 @@
  * holder is gone. That mirrors the "prove it is OURS before reusing" discipline
  * `run-key.mjs` already applies to a dev-server port.
  *
- * Scoped per-USER (`ziee-gate-ui-<uid>.lock`) because `os.tmpdir()` is shared:
+ * Scoped per-USER (`txresbench-gate-ui-<uid>.lock`) because `os.tmpdir()` is shared:
  * a lock file owned by another user could not be unlinked, which would wedge the
  * host for everyone — a worse failure than the one being fixed.
  */
@@ -59,7 +59,7 @@ export function lockPath() {
   } catch {
     who = 'unknown'
   }
-  return path.join(os.tmpdir(), `ziee-gate-ui-${String(who).replace(/[^\w.-]/g, '_')}.lock`)
+  return path.join(os.tmpdir(), `txresbench-gate-ui-${String(who).replace(/[^\w.-]/g, '_')}.lock`)
 }
 
 const alive = pid => {

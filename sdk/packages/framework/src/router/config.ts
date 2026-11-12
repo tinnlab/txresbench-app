@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-// @ziee/framework/router — injectable router configuration.
+// @txresbench/framework/router — injectable router configuration.
 //
 // The router component is a lazy, self-mounting component (it reads routes from
 // the `Routes` store), so its app-specific knobs are injected through a

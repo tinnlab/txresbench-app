@@ -649,7 +649,7 @@ def test_the_ome_xml_placement_matches_the_manifest_meta(imaged):
         SD = sys.modules["spatial_declarations"]
         with tifffile.TiffFile(imaged["out"] / entry["path"]) as tf:
             payload = SD.decode_placement(tf.ome_metadata)
-        assert payload is not None, f"{entry['id']} carries no cyto placement payload"
+        assert payload is not None, f"{entry['id']} carries no txr placement payload"
         # DERIVED FROM `_PLACEMENT_KEYS`, not restated. This list used to be a literal,
         # and its own comment recorded the consequence: #176 added `display_derivative` to
         # `_PLACEMENT_KEYS` and did NOT extend the literal, so the new payload key was the

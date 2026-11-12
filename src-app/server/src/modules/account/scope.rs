@@ -20,7 +20,7 @@ pub use super::repository::AccountRepository;
 
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 // ---------------------------------------------------------------------------
 // A2 — the project/dataset → account BRIDGE (DEC-3: A1 owns the account graph;

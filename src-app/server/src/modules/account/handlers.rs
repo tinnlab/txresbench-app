@@ -21,7 +21,7 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_core::{ApiResult, AppError};
+use txresbench_core::{ApiResult, AppError};
 
 use crate::modules::permissions::RequirePermissions;
 

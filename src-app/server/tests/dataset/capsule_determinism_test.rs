@@ -1,6 +1,6 @@
 //! TEST-69 [ITEM-25, ITEM-22] — determinism. Running the exported capsule twice
 //! yields BYTE-IDENTICAL output hashes (seed + thread pinning: `PYTHONHASHSEED=0`,
-//! `OMP/OPENBLAS/MKL/NUMEXPR_NUM_THREADS=1`, `ZIEE_PROVENANCE_SEED`), proving the
+//! `OMP/OPENBLAS/MKL/NUMEXPR_NUM_THREADS=1`, `TXR_PROVENANCE_SEED`), proving the
 //! reproduction is deterministic, not merely close.
 //!
 //! ROOTFS-GATED: self-skips when no analysis rootfs is mounted.

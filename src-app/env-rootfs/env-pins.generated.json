@@ -9,16 +9,16 @@
   "recipes": {
     "single-cell": {
       "ecosystem": "python",
-      "pin_file_sha256": "16e9cd81a8088027e589fb7fa807f750f09204ca2dad0da39f89cedc8cce6379",
+      "pin_file_sha256": "155f9b774d4efb20e6329d19c4f84f88cf8e5fa026cbd73bf87b5908a20f3bea",
       "pin_sources": [
       {
         "class": "immutable-index",
         "coordinate": "https://pypi.org/simple",
         "line": 70,
-        "byte_offset": 5254,
-        "byte_len": 57,
-        "line_sha256": "61b9807ab3b3d087ffeb813a1c822583505023169235de28f98ae4564bd4325c",
-        "coordinate_span": [5288, 23]
+        "byte_offset": 5258,
+        "byte_len": 56,
+        "line_sha256": "22629a3cfcbd2c1c737122a3fdabec448281063f64f22175c3757e6405314232",
+        "coordinate_span": [5291, 23]
       }
       ],
       "pins": [
@@ -28,12 +28,12 @@
         "version": "2.4.6",
         "import": "numpy",
         "line": 73,
-        "byte_offset": 5529,
+        "byte_offset": 5532,
         "byte_len": 91,
         "line_sha256": "34969e7b1de156bb4ea20c2156e84f384734e2968818e0e97639795b2eb56c31",
-        "raw_name_span": [5529, 5],
-        "version_span": [5536, 5],
-        "import_span": [5566, 5]
+        "raw_name_span": [5532, 5],
+        "version_span": [5539, 5],
+        "import_span": [5569, 5]
       },
       {
         "name": "scipy",
@@ -41,12 +41,12 @@
         "version": "1.17.1",
         "import": "scipy",
         "line": 74,
-        "byte_offset": 5621,
+        "byte_offset": 5624,
         "byte_len": 61,
         "line_sha256": "a0015f889b0626171e3d3ec0a8b594e4d62a40c78a9faca707530ccc9b6e1db5",
-        "raw_name_span": [5621, 5],
-        "version_span": [5628, 6],
-        "import_span": [5658, 5]
+        "raw_name_span": [5624, 5],
+        "version_span": [5631, 6],
+        "import_span": [5661, 5]
       },
       {
         "name": "pandas",
@@ -54,12 +54,12 @@
         "version": "2.3.3",
         "import": "pandas",
         "line": 75,
-        "byte_offset": 5683,
+        "byte_offset": 5686,
         "byte_len": 90,
         "line_sha256": "e0ee2cda6cf6965eddd8f3f357db36e3a2fc83fb9cb65d1e0474291dc664ace3",
-        "raw_name_span": [5683, 6],
-        "version_span": [5691, 5],
-        "import_span": [5720, 6]
+        "raw_name_span": [5686, 6],
+        "version_span": [5694, 5],
+        "import_span": [5723, 6]
       },
       {
         "name": "scikit-learn",
@@ -67,12 +67,12 @@
         "version": "1.9.0",
         "import": "sklearn",
         "line": 76,
-        "byte_offset": 5774,
+        "byte_offset": 5777,
         "byte_len": 84,
         "line_sha256": "0eb286e9999aa93700734ae01b7f0d7a6cc5ff83ad10171bfedd6a5b5e6139dc",
-        "raw_name_span": [5774, 12],
-        "version_span": [5788, 5],
-        "import_span": [5811, 7]
+        "raw_name_span": [5777, 12],
+        "version_span": [5791, 5],
+        "import_span": [5814, 7]
       },
       {
         "name": "scanpy",
@@ -80,12 +80,12 @@
         "version": "1.11.5",
         "import": "scanpy",
         "line": 79,
-        "byte_offset": 6062,
+        "byte_offset": 6065,
         "byte_len": 99,
         "line_sha256": "e2b34fce5aad22f7e299feab899a508c1817aebb68c1b7e7d7cea3e83a125120",
-        "raw_name_span": [6062, 6],
-        "version_span": [6070, 6],
-        "import_span": [6099, 6]
+        "raw_name_span": [6065, 6],
+        "version_span": [6073, 6],
+        "import_span": [6102, 6]
       },
       {
         "name": "anndata",
@@ -93,12 +93,12 @@
         "version": "0.12.19",
         "import": "anndata",
         "line": 80,
-        "byte_offset": 6162,
+        "byte_offset": 6165,
         "byte_len": 89,
         "line_sha256": "3c3635ee37b2eb728ffd9b0fc0241f791ed3fa9203e64cbe2c4e7654f8a0298d",
-        "raw_name_span": [6162, 7],
-        "version_span": [6171, 7],
-        "import_span": [6199, 7]
+        "raw_name_span": [6165, 7],
+        "version_span": [6174, 7],
+        "import_span": [6202, 7]
       },
       {
         "name": "leidenalg",
@@ -106,12 +106,12 @@
         "version": "0.12.0",
         "import": "leidenalg",
         "line": 81,
-        "byte_offset": 6252,
+        "byte_offset": 6255,
         "byte_len": 70,
         "line_sha256": "a54ae752df58685a9492964d5b25e5980db54c036ec73cd0e32f8df8d72bcb59",
-        "raw_name_span": [6252, 9],
-        "version_span": [6263, 6],
-        "import_span": [6289, 9]
+        "raw_name_span": [6255, 9],
+        "version_span": [6266, 6],
+        "import_span": [6292, 9]
       },
       {
         "name": "igraph",
@@ -119,12 +119,12 @@
         "version": "1.0.0",
         "import": "igraph",
         "line": 82,
-        "byte_offset": 6323,
+        "byte_offset": 6326,
         "byte_len": 83,
         "line_sha256": "8d3aec6915087ea5c9f5fcf16485ff9a19fb68a8a5fbd72e49d0e82615ef24ed",
-        "raw_name_span": [6323, 6],
-        "version_span": [6331, 5],
-        "import_span": [6360, 6]
+        "raw_name_span": [6326, 6],
+        "version_span": [6334, 5],
+        "import_span": [6363, 6]
       },
       {
         "name": "umap-learn",
@@ -132,12 +132,12 @@
         "version": "0.5.12",
         "import": "umap",
         "line": 83,
-        "byte_offset": 6407,
+        "byte_offset": 6410,
         "byte_len": 56,
         "line_sha256": "e991d9dcf43b034c99e3df22ef625e0cb4328a1a2d00433a9a037c3b7a40fa82",
-        "raw_name_span": [6407, 10],
-        "version_span": [6419, 6],
-        "import_span": [6444, 4]
+        "raw_name_span": [6410, 10],
+        "version_span": [6422, 6],
+        "import_span": [6447, 4]
       },
       {
         "name": "numba",
@@ -145,12 +145,12 @@
         "version": "0.67.0",
         "import": "numba",
         "line": 84,
-        "byte_offset": 6464,
+        "byte_offset": 6467,
         "byte_len": 81,
         "line_sha256": "476d68670507b3f0b27d41c6c5d5b83f437d3df9ec7d83945accc151caa8ccaf",
-        "raw_name_span": [6464, 5],
-        "version_span": [6471, 6],
-        "import_span": [6501, 5]
+        "raw_name_span": [6467, 5],
+        "version_span": [6474, 6],
+        "import_span": [6504, 5]
       },
       {
         "name": "llvmlite",
@@ -158,12 +158,12 @@
         "version": "0.49.0",
         "import": "llvmlite",
         "line": 85,
-        "byte_offset": 6546,
+        "byte_offset": 6549,
         "byte_len": 102,
         "line_sha256": "c72bc3828ecfbe122e7584b42191ac27b5f7ac70b6d56b101a97793456709fab",
-        "raw_name_span": [6546, 8],
-        "version_span": [6556, 6],
-        "import_span": [6583, 8]
+        "raw_name_span": [6549, 8],
+        "version_span": [6559, 6],
+        "import_span": [6586, 8]
       },
       {
         "name": "zarr",
@@ -171,12 +171,12 @@
         "version": "3.1.6",
         "import": "zarr",
         "line": 86,
-        "byte_offset": 6649,
+        "byte_offset": 6652,
         "byte_len": 98,
         "line_sha256": "584a784987984933404842e8845ae1e2a5bdbb25974657b9224205123ee203ed",
-        "raw_name_span": [6649, 4],
-        "version_span": [6655, 5],
-        "import_span": [6686, 4]
+        "raw_name_span": [6652, 4],
+        "version_span": [6658, 5],
+        "import_span": [6689, 4]
       },
       {
         "name": "h5py",
@@ -184,12 +184,12 @@
         "version": "3.16.0",
         "import": "h5py",
         "line": 87,
-        "byte_offset": 6748,
+        "byte_offset": 6751,
         "byte_len": 75,
         "line_sha256": "5645f451cda273325e85081d3b52c2450c9d5ee96e3583be3e4ca574ee874e66",
-        "raw_name_span": [6748, 4],
-        "version_span": [6754, 6],
-        "import_span": [6785, 4]
+        "raw_name_span": [6751, 4],
+        "version_span": [6757, 6],
+        "import_span": [6788, 4]
       },
       {
         "name": "harmonypy",
@@ -197,12 +197,12 @@
         "version": "2.0.0",
         "import": "harmonypy",
         "line": 90,
-        "byte_offset": 6971,
+        "byte_offset": 6974,
         "byte_len": 104,
         "line_sha256": "6730ec326f67f7b8ccd7db4f8b1d3734e8f333060b20c6e62718c2e368dfe3fb",
-        "raw_name_span": [6971, 9],
-        "version_span": [6982, 5],
-        "import_span": [7008, 9]
+        "raw_name_span": [6974, 9],
+        "version_span": [6985, 5],
+        "import_span": [7011, 9]
       },
       {
         "name": "scikit-misc",
@@ -210,12 +210,12 @@
         "version": "0.5.2",
         "import": "skmisc",
         "line": 91,
-        "byte_offset": 7076,
+        "byte_offset": 7079,
         "byte_len": 102,
         "line_sha256": "989c63195822130f7100eaf226b8252c4cdbabefc3eb0205215cb398845331e8",
-        "raw_name_span": [7076, 11],
-        "version_span": [7089, 5],
-        "import_span": [7113, 6]
+        "raw_name_span": [7079, 11],
+        "version_span": [7092, 5],
+        "import_span": [7116, 6]
       },
       {
         "name": "pydeseq2",
@@ -223,12 +223,12 @@
         "version": "0.5.4",
         "import": "pydeseq2",
         "line": 94,
-        "byte_offset": 7368,
+        "byte_offset": 7371,
         "byte_len": 88,
         "line_sha256": "2b5e63d556283a41cd59c4db2a664421bfdf950a16a37c2ee4db824f95a34f0b",
-        "raw_name_span": [7368, 8],
-        "version_span": [7378, 5],
-        "import_span": [7405, 8]
+        "raw_name_span": [7371, 8],
+        "version_span": [7381, 5],
+        "import_span": [7408, 8]
       },
       {
         "name": "decoupler",
@@ -236,12 +236,12 @@
         "version": "2.2.0",
         "import": "decoupler",
         "line": 95,
-        "byte_offset": 7457,
+        "byte_offset": 7460,
         "byte_len": 69,
         "line_sha256": "bb6594bd59a98828daae7133f3fde5186e4673a5137630bba7ceda5c62e8cf25",
-        "raw_name_span": [7457, 9],
-        "version_span": [7468, 5],
-        "import_span": [7494, 9]
+        "raw_name_span": [7460, 9],
+        "version_span": [7471, 5],
+        "import_span": [7497, 9]
       },
       {
         "name": "statsmodels",
@@ -249,12 +249,12 @@
         "version": "0.15.0",
         "import": "statsmodels",
         "line": 96,
-        "byte_offset": 7527,
+        "byte_offset": 7530,
         "byte_len": 86,
         "line_sha256": "bdb4ff5ddffa800f0ac5b8c5b0c84cc6d11f4b56cff7f3821ad490cf69621ddc",
-        "raw_name_span": [7527, 11],
-        "version_span": [7540, 6],
-        "import_span": [7564, 11]
+        "raw_name_span": [7530, 11],
+        "version_span": [7543, 6],
+        "import_span": [7567, 11]
       },
       {
         "name": "squidpy",
@@ -262,12 +262,12 @@
         "version": "1.8.2",
         "import": "squidpy",
         "line": 99,
-        "byte_offset": 7855,
+        "byte_offset": 7858,
         "byte_len": 81,
         "line_sha256": "496efcbbcb9a6da03004601464fba4051742bfdbf5c320c63beb0e4635bd7076",
-        "raw_name_span": [7855, 7],
-        "version_span": [7864, 5],
-        "import_span": [7892, 7]
+        "raw_name_span": [7858, 7],
+        "version_span": [7867, 5],
+        "import_span": [7895, 7]
       },
       {
         "name": "spatialdata",
@@ -275,12 +275,12 @@
         "version": "0.7.3",
         "import": "spatialdata",
         "line": 100,
-        "byte_offset": 7937,
+        "byte_offset": 7940,
         "byte_len": 74,
         "line_sha256": "24a62fc216da3248c7734b84a0611cb4de26f9a4476797e084fe94f33d1b8ace",
-        "raw_name_span": [7937, 11],
-        "version_span": [7950, 5],
-        "import_span": [7974, 11]
+        "raw_name_span": [7940, 11],
+        "version_span": [7953, 5],
+        "import_span": [7977, 11]
       },
       {
         "name": "celltypist",
@@ -288,12 +288,12 @@
         "version": "1.7.1",
         "import": "celltypist",
         "line": 109,
-        "byte_offset": 8648,
+        "byte_offset": 8651,
         "byte_len": 104,
         "line_sha256": "1e5f6fe1db6d56ac3375c52eda390ea52fbe47879ecfe7d1b0c808718de3961b",
-        "raw_name_span": [8648, 10],
-        "version_span": [8660, 5],
-        "import_span": [8685, 10]
+        "raw_name_span": [8651, 10],
+        "version_span": [8663, 5],
+        "import_span": [8688, 10]
       },
       {
         "name": "liana",
@@ -301,12 +301,12 @@
         "version": "1.10.0",
         "import": "liana",
         "line": 110,
-        "byte_offset": 8753,
+        "byte_offset": 8756,
         "byte_len": 131,
         "line_sha256": "68a7b8296f2736f9f52f040e2c9aaebe2253ec27942435fda7e37079ebe8002e",
-        "raw_name_span": [8753, 5],
-        "version_span": [8760, 6],
-        "import_span": [8790, 5]
+        "raw_name_span": [8756, 5],
+        "version_span": [8763, 6],
+        "import_span": [8793, 5]
       },
       {
         "name": "tifffile",
@@ -314,12 +314,12 @@
         "version": "2026.3.3",
         "import": "tifffile",
         "line": 132,
-        "byte_offset": 10384,
+        "byte_offset": 10386,
         "byte_len": 106,
         "line_sha256": "8fedddc6ab298aac0e3b842b4a76691ec20810ea7a4674bedd133997eae7d87b",
-        "raw_name_span": [10384, 8],
-        "version_span": [10394, 8],
-        "import_span": [10421, 8]
+        "raw_name_span": [10386, 8],
+        "version_span": [10396, 8],
+        "import_span": [10423, 8]
       },
       {
         "name": "imagecodecs",
@@ -327,12 +327,12 @@
         "version": "2025.11.11",
         "import": "imagecodecs",
         "line": 133,
-        "byte_offset": 10491,
+        "byte_offset": 10493,
         "byte_len": 104,
         "line_sha256": "0d88160689c471d365a54423a29629463c49aaca51db1b08629f176be5eee435",
-        "raw_name_span": [10491, 11],
-        "version_span": [10504, 10],
-        "import_span": [10528, 11]
+        "raw_name_span": [10493, 11],
+        "version_span": [10506, 10],
+        "import_span": [10530, 11]
       },
       {
         "name": "pillow",
@@ -340,12 +340,12 @@
         "version": "12.3.0",
         "import": "PIL",
         "line": 151,
-        "byte_offset": 11846,
+        "byte_offset": 11848,
         "byte_len": 90,
         "line_sha256": "9f2ff2e6a3230f53bc1963b2c4ad9ab80bebbbd6b43842183af58f280c507549",
-        "raw_name_span": [11846, 6],
-        "version_span": [11854, 6],
-        "import_span": [11883, 3]
+        "raw_name_span": [11848, 6],
+        "version_span": [11856, 6],
+        "import_span": [11885, 3]
       },
       {
         "name": "pyarrow",
@@ -353,12 +353,12 @@
         "version": "25.0.0",
         "import": "pyarrow",
         "line": 174,
-        "byte_offset": 13507,
+        "byte_offset": 13508,
         "byte_len": 101,
         "line_sha256": "bfe752b14eddc16a6ab1b530b07694e3577f3ef27b4a3778a59947b866090302",
-        "raw_name_span": [13507, 7],
-        "version_span": [13516, 6],
-        "import_span": [13544, 7]
+        "raw_name_span": [13508, 7],
+        "version_span": [13517, 6],
+        "import_span": [13545, 7]
       },
       {
         "name": "packaging",
@@ -377,25 +377,25 @@
     },
     "single-cell-r": {
       "ecosystem": "r",
-      "pin_file_sha256": "4059149f3b4b926f7f7e50c6149f8014d0178fda2f845c3f61e2754885827697",
+      "pin_file_sha256": "510cf13fb56301314c4f8699389ca96ff6b09f2acdcac38c427b85d7a7ee94bf",
       "pin_sources": [
       {
         "class": "dated-snapshot",
         "coordinate": "https://packagemanager.posit.co/cran/__linux__/noble/2026-09-01",
         "line": 62,
-        "byte_offset": 4227,
-        "byte_len": 96,
-        "line_sha256": "90ab1e7d487303ef5a63431594c32d373cc106736be99b6a6fcd75c8c5453421",
-        "coordinate_span": [4260, 63]
+        "byte_offset": 4226,
+        "byte_len": 95,
+        "line_sha256": "96655ec7a6a0f91feff358dfe8da2a47784002a67e667e159e1c0cacd375f281",
+        "coordinate_span": [4258, 63]
       },
       {
         "class": "release-channel",
         "coordinate": "bioconductor-3.23",
         "line": 63,
-        "byte_offset": 4324,
-        "byte_len": 51,
-        "line_sha256": "a2e00195dd85d520b90d7da8f92df9c147d8d833a456a43a6963906970e271c1",
-        "coordinate_span": [4358, 17]
+        "byte_offset": 4322,
+        "byte_len": 50,
+        "line_sha256": "57cc2cf70af7656869692243b573f5f7c591f670a8d28c3a9a72ec9e908f9738",
+        "coordinate_span": [4355, 17]
       }
       ],
       "pins": [
@@ -405,12 +405,12 @@
         "version": "1.30.27",
         "import": "BiocManager",
         "line": 160,
-        "byte_offset": 11948,
+        "byte_offset": 11949,
         "byte_len": 110,
         "line_sha256": "a326947c7743f6b6d65854b2e079d762c096850e0041b58c9500d72c504f5da1",
-        "raw_name_span": [11948, 11],
-        "version_span": [11961, 7],
-        "import_span": [11985, 11]
+        "raw_name_span": [11949, 11],
+        "version_span": [11962, 7],
+        "import_span": [11986, 11]
       },
       {
         "name": "scDblFinder",
@@ -418,12 +418,12 @@
         "version": "1.26.7",
         "import": "scDblFinder",
         "line": 168,
-        "byte_offset": 12449,
+        "byte_offset": 12450,
         "byte_len": 122,
         "line_sha256": "0f0528c70c959919ee16590db9638f27f2ec0f8835205a049bc6d8196db7251b",
-        "raw_name_span": [12449, 11],
-        "version_span": [12462, 6],
-        "import_span": [12486, 11]
+        "raw_name_span": [12450, 11],
+        "version_span": [12463, 6],
+        "import_span": [12487, 11]
       },
       {
         "name": "BiocParallel",
@@ -431,12 +431,12 @@
         "version": "1.46.0",
         "import": "BiocParallel",
         "line": 169,
-        "byte_offset": 12572,
+        "byte_offset": 12573,
         "byte_len": 153,
         "line_sha256": "3ef68daa5c7164488c3a5ea80049d34b4d53e1c9204c43bca7ddd9359f6147cd",
-        "raw_name_span": [12572, 12],
-        "version_span": [12586, 6],
-        "import_span": [12609, 12]
+        "raw_name_span": [12573, 12],
+        "version_span": [12587, 6],
+        "import_span": [12610, 12]
       },
       {
         "name": "SingleCellExperiment",
@@ -444,12 +444,12 @@
         "version": "1.34.0",
         "import": "SingleCellExperiment",
         "line": 170,
-        "byte_offset": 12726,
+        "byte_offset": 12727,
         "byte_len": 154,
         "line_sha256": "b72fdbeb34fc73987b9ea383172a7caa8047f25c8eb0bbaffbf37aab55867e2d",
-        "raw_name_span": [12726, 20],
-        "version_span": [12748, 6],
-        "import_span": [12764, 20]
+        "raw_name_span": [12727, 20],
+        "version_span": [12749, 6],
+        "import_span": [12765, 20]
       },
       {
         "name": "Matrix",
@@ -497,8 +497,8 @@
         "import": "digest",
         "line": 184,
         "byte_offset": 14068,
-        "byte_len": 188,
-        "line_sha256": "485c6977727ba749d593ccc4354686e5074dfdd745b0f4c7cef21ba879ee7c4b",
+        "byte_len": 187,
+        "line_sha256": "460cb893c732a76d184b82ea0a4dc369379686b293244bd9498d3232669c54a8",
         "raw_name_span": [14068, 6],
         "version_span": [14076, 6],
         "import_span": [14105, 6]
@@ -509,12 +509,12 @@
         "version": "1.22.0",
         "import": "SpatialExperiment",
         "line": 192,
-        "byte_offset": 14722,
+        "byte_offset": 14721,
         "byte_len": 119,
         "line_sha256": "bf378d4e0535a9115146a5ac5e7247bd4c23c02472e0c6b717b7e74a2511e17c",
-        "raw_name_span": [14722, 17],
-        "version_span": [14741, 6],
-        "import_span": [14759, 17]
+        "raw_name_span": [14721, 17],
+        "version_span": [14740, 6],
+        "import_span": [14758, 17]
       },
       {
         "name": "spacexr",
@@ -522,12 +522,12 @@
         "version": "1.4.0",
         "import": "spacexr",
         "line": 193,
-        "byte_offset": 14842,
+        "byte_offset": 14841,
         "byte_len": 162,
         "line_sha256": "3da64f88467b1a86296aa109226f2a1f87858e550c885ebe842a6b4920a3d953",
-        "raw_name_span": [14842, 7],
-        "version_span": [14851, 5],
-        "import_span": [14879, 7]
+        "raw_name_span": [14841, 7],
+        "version_span": [14850, 5],
+        "import_span": [14878, 7]
       },
       {
         "name": "DESpace",
@@ -535,12 +535,12 @@
         "version": "2.4.0",
         "import": "DESpace",
         "line": 194,
-        "byte_offset": 15005,
+        "byte_offset": 15004,
         "byte_len": 140,
         "line_sha256": "9f4486f28cdd7b28b02923de134e6501110750a79c72946b26d278e90021a278",
-        "raw_name_span": [15005, 7],
-        "version_span": [15014, 5],
-        "import_span": [15042, 7]
+        "raw_name_span": [15004, 7],
+        "version_span": [15013, 5],
+        "import_span": [15041, 7]
       },
       {
         "name": "edgeR",
@@ -548,12 +548,12 @@
         "version": "4.10.4",
         "import": "edgeR",
         "line": 195,
-        "byte_offset": 15146,
+        "byte_offset": 15145,
         "byte_len": 171,
         "line_sha256": "ba31108a6f6739d76b80d9aef98d9fc56c578eb4380c02aba68194ca7ad2f823",
-        "raw_name_span": [15146, 5],
-        "version_span": [15153, 6],
-        "import_span": [15183, 5]
+        "raw_name_span": [15145, 5],
+        "version_span": [15152, 6],
+        "import_span": [15182, 5]
       },
       {
         "name": "spicyR",
@@ -561,12 +561,12 @@
         "version": "1.24.0",
         "import": "spicyR",
         "line": 196,
-        "byte_offset": 15318,
+        "byte_offset": 15317,
         "byte_len": 118,
         "line_sha256": "9d245d68d4d5765d272bea920270d4d999d5130453a0966d071ac67c2ade79fd",
-        "raw_name_span": [15318, 6],
-        "version_span": [15326, 6],
-        "import_span": [15355, 6]
+        "raw_name_span": [15317, 6],
+        "version_span": [15325, 6],
+        "import_span": [15354, 6]
       },
       {
         "name": "Statial",
@@ -574,12 +574,12 @@
         "version": "1.14.0",
         "import": "Statial",
         "line": 197,
-        "byte_offset": 15437,
+        "byte_offset": 15436,
         "byte_len": 118,
         "line_sha256": "6efc7043c2cb8e3e6b87e6c49abca50d41f874187a6a4296798500e34fc10387",
-        "raw_name_span": [15437, 7],
-        "version_span": [15446, 6],
-        "import_span": [15474, 7]
+        "raw_name_span": [15436, 7],
+        "version_span": [15445, 6],
+        "import_span": [15473, 7]
       },
       {
         "name": "spatialFDA",
@@ -587,12 +587,12 @@
         "version": "1.4.0",
         "import": "spatialFDA",
         "line": 198,
-        "byte_offset": 15556,
+        "byte_offset": 15555,
         "byte_len": 195,
         "line_sha256": "51cb7d201607d084d72a3ab2ae4200b5941c20a95205b2c6a00e688c297a4b32",
-        "raw_name_span": [15556, 10],
-        "version_span": [15568, 5],
-        "import_span": [15593, 10]
+        "raw_name_span": [15555, 10],
+        "version_span": [15567, 5],
+        "import_span": [15592, 10]
       },
       {
         "name": "spatstat",
@@ -600,12 +600,12 @@
         "version": "3.6-2",
         "import": "spatstat",
         "line": 199,
-        "byte_offset": 15752,
+        "byte_offset": 15751,
         "byte_len": 162,
         "line_sha256": "84a4007090ea8c4faf5244cf3508c6b5a72843eee0938a01aec35aa4b07f65f5",
-        "raw_name_span": [15752, 8],
-        "version_span": [15762, 5],
-        "import_span": [15789, 8]
+        "raw_name_span": [15751, 8],
+        "version_span": [15761, 5],
+        "import_span": [15788, 8]
       },
       {
         "name": "lme4",
@@ -613,12 +613,12 @@
         "version": "2.0-6",
         "import": "lme4",
         "line": 200,
-        "byte_offset": 15915,
+        "byte_offset": 15914,
         "byte_len": 92,
         "line_sha256": "47d224b547dea510e515de63a8dd38d793708b82fe81ed260c053235277d682b",
-        "raw_name_span": [15915, 4],
-        "version_span": [15921, 5],
-        "import_span": [15952, 4]
+        "raw_name_span": [15914, 4],
+        "version_span": [15920, 5],
+        "import_span": [15951, 4]
       },
       {
         "name": "refund",
@@ -626,12 +626,12 @@
         "version": "0.1-40",
         "import": "refund",
         "line": 201,
-        "byte_offset": 16008,
+        "byte_offset": 16007,
         "byte_len": 99,
         "line_sha256": "1d08e03978fe0b4cbc82a2deb16e04465dfc26855582f70b2cebef6ed5b20b85",
-        "raw_name_span": [16008, 6],
-        "version_span": [16016, 6],
-        "import_span": [16045, 6]
+        "raw_name_span": [16007, 6],
+        "version_span": [16015, 6],
+        "import_span": [16044, 6]
       }
       ]
     }

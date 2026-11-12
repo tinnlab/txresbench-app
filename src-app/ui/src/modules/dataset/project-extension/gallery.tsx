@@ -1,6 +1,6 @@
 import { lazy } from 'react'
 import { parse as parseYaml } from 'yaml'
-import type { ModuleGallery } from '@ziee/gallery'
+import type { ModuleGallery } from '@txresbench/gallery'
 import type { Dataset, DatasetArtifactSummary, DatasetListItem, ProjectDto } from '@/api-client/types'
 import { ProjectScopeProvider } from '@/modules/project/context/ProjectScope'
 import { useProjectDetailStore } from '@/modules/project/stores/ProjectDetail.store'

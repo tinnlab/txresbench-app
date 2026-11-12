@@ -69,7 +69,7 @@ pub(crate) const MATRIX_DATATYPE: &str = "single-cell/expression";
 /// base id here instead would hardcode a contributed datatype for a lookup the app
 /// already knows how to do without one (INV-5).
 fn axis_index_datatype_allow() -> Vec<String> {
-    use cytoanalyst::modules::datatype::DatatypeRegistry;
+    use txresbench::modules::datatype::DatatypeRegistry;
     let reg = DatatypeRegistry::build_from_embedded().expect("merged registry builds");
     let mut allow: Vec<String> = reg
         .types_with_capability("metadata-column-family")
@@ -215,7 +215,7 @@ async fn h5ad_converts_to_zarr_expression_and_embeddings() {
     // terminal, `jobs/runner.rs`'s `RunDirs::Reclaim` arm (taken on a cataloged exit-0
     // run — the only arm compatible with the assertions above passing) has already
     // `remove_dir_all`'d `workspace_root` and discarded the staging dir, and BOTH live
-    // under this same data root (`CYTO_APP_DATA_DIR`, set by the harness, is what
+    // under this same data root (`TXR_APP_DATA_DIR`, set by the harness, is what
     // `rootfs::data_root()` reads). Everything that survives in the object store is a
     // content-addressed blob named by its hash — `local_fs::put_prefix` turns each member
     // into its own blob and keeps member PATHS inside a manifest blob, never as directory
@@ -352,7 +352,7 @@ fn test51_the_env_recipe_neither_installs_nor_imports_the_store_library() {
     // the env-id is declared by a contributed manifest, so hardcoding one here would put a
     // domain name back into the app's test tree to assert something the name is irrelevant
     // to. Same resolution the build helper and `rootfs::version`'s own test use.
-    use cytoanalyst::modules::rootfs::version::{
+    use txresbench::modules::rootfs::version::{
         discover_env_recipes, select_env_recipe_in, ENV_RECIPE_FILE,
     };
     let env_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -436,7 +436,7 @@ fn assert_one_recipe(recipe: &std::path::Path, src: &str) {
         .and_then(|d| d.file_name())
         .and_then(|s| s.to_str())
         .expect("control: a recipe directory has a name");
-    let artefact = cytoanalyst::processor_manifest_lint::read_env_pin_artefact(env_root)
+    let artefact = txresbench::processor_manifest_lint::read_env_pin_artefact(env_root)
         .unwrap_or_else(|e| panic!("control: {e}"));
     let recipe_pins = artefact
         .get(env_id)

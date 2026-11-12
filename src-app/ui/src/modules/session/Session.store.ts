@@ -1,6 +1,6 @@
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
-import { setAuthView } from '@ziee/framework/permissions'
-import { setAuthToken } from '@ziee/framework/api-client/core'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
+import { setAuthView } from '@txresbench/framework/permissions'
+import { setAuthToken } from '@txresbench/framework/api-client/core'
 import { ApiClient } from '@/api-client'
 import type { User } from '@/api-client/types'
 

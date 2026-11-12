@@ -2,7 +2,7 @@ import { ApiClient } from '@/api-client'
 import { type SandboxStatus as SandboxStatusDTO } from '@/api-client/types'
 import { Permissions } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /**
  * Read-only sandbox availability + embedded-rootfs status for the admin

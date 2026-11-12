@@ -33,9 +33,9 @@ cd "$(git rev-parse --show-toplevel)" || exit 2
 # not the whole file, and it is honoured only because this file is PINNED in
 # `scripts/guard-hashes.txt`. Widening the block to cover anything that is not the hunted
 # vocabulary is the relaxation `docs/design/derived-guards.md` §5 refuses.
-# cyto:guard-vocabulary
+# txr:guard-vocabulary
 KINDS='geneset/collection|graph/attributed|de/result'
-# cyto:end-guard-vocabulary
+# txr:end-guard-vocabulary
 
 # ── WHAT ITEM-12/ITEM-13 CHANGED HERE (a REPAIR, not a relaxation) ──────────────────
 # This list used to name `workstore/serve_core.rs` and the whole `modules/tiledb_serve/`

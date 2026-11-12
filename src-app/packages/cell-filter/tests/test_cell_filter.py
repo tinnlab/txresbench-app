@@ -27,7 +27,7 @@ _LIB_DIR = os.path.abspath(
 )
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-import cyto_zarr_read  # noqa: E402
+import txr_zarr_read  # noqa: E402
 
 # Slice 5 physically re-homed the compute script into this package's `compute/` sibling
 # (`packages/cell-filter/compute/cell-filter.py`) — co-located with the manifest.
@@ -606,7 +606,7 @@ def test_a_unicode_digit_CELL_is_not_a_number():
 # because both are about how main WIRES the kernels together.
 #
 # So these two drive the REAL entry point over a synthetic run directory: a genuine
-# `.h5ad` + `inputs.json` + `params.json` under `CYTO_INPUTS_DIR`/`CYTO_OUTPUTS_DIR` (the
+# `.h5ad` + `inputs.json` + `params.json` under `TXR_INPUTS_DIR`/`TXR_OUTPUTS_DIR` (the
 # documented roots), and they read back the two artifacts a real run commits — the
 # mask column (read back through the manifest's `path`) and `filter-report.json`.
 # Deliberately tiny (4 cells,
@@ -633,8 +633,8 @@ def _make_run_dir(root, obs, criteria, label="strict", extra_params=None):
     import pandas as pd
     import scipy.sparse as _sp
 
-    import cyto_columns
-    import cyto_csc
+    import txr_columns
+    import txr_csc
 
     inputs, outputs = root / "inputs", root / "outputs"
     inputs.mkdir(parents=True, exist_ok=True)
@@ -648,17 +648,17 @@ def _make_run_dir(root, obs, criteria, label="strict", extra_params=None):
                         "sandbox_path": f"/inputs/{mount}"})
 
     matrix = _sp.csr_matrix(np.arange(n * 3, dtype="float32").reshape(n, 3))
-    cyto_csc.write_csc_zarr(cyto_csc.ArraySource(matrix), inputs / "in0",
+    txr_csc.write_csc_zarr(txr_csc.ArraySource(matrix), inputs / "in0",
                             axes=("cells", "genes"))
     _declare("expression", "in0")
 
     for i, (name, values) in enumerate(obs.items()):
         mount = f"in{i + 1}"
-        cyto_columns.write_metadata_column(
+        txr_columns.write_metadata_column(
             inputs, mount, name, pd.Series(list(values)), axis="cells")
         _declare(f"column:{name}", mount)
 
-    cyto_columns.write_metadata_column(
+    txr_columns.write_metadata_column(
         inputs, "cells", "cells_index",
         pd.Series([f"cell{i}" for i in range(n)]), axis="cells", holds_axis_keys=True)
     _declare("cells_index", "cells")
@@ -686,9 +686,9 @@ def _drive_main(obs, criteria, label="strict", extra_params=None):
 
     with tempfile.TemporaryDirectory() as td:
         inputs, outputs = _make_run_dir(Path(td), obs, criteria, label, extra_params)
-        saved = {k: os.environ.get(k) for k in ("CYTO_INPUTS_DIR", "CYTO_OUTPUTS_DIR")}
-        os.environ["CYTO_INPUTS_DIR"] = str(inputs)
-        os.environ["CYTO_OUTPUTS_DIR"] = str(outputs)
+        saved = {k: os.environ.get(k) for k in ("TXR_INPUTS_DIR", "TXR_OUTPUTS_DIR")}
+        os.environ["TXR_INPUTS_DIR"] = str(inputs)
+        os.environ["TXR_OUTPUTS_DIR"] = str(outputs)
         try:
             cf.main()
         finally:
@@ -720,7 +720,7 @@ def _run_main(obs, criteria, label="strict", extra_params=None):
     try:
         # ITEM-26: the keep-mask is a Zarr artifact DIRECTORY (one byte per cell) rather
         # than a JSON array of `true`/`false` tokens. Decode it from the bytes.
-        mask = cyto_zarr_read.read_column(outputs / _mask_entry(manifest)["path"])
+        mask = txr_zarr_read.read_column(outputs / _mask_entry(manifest)["path"])
         return [bool(v) for v in mask], report
     finally:
         shutil.rmtree(outputs, ignore_errors=True)

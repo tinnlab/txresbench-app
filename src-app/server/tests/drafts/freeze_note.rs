@@ -112,7 +112,7 @@ async fn ready_env(server: &TestServer, test: &str) -> Result<(String, String, S
         record_skip(
             test,
             "the analysis sandbox rootfs is not runnable here — the freeze transition runs a \
-             producer through the sandbox. Point CYTO_ENV_ROOTFS_SQUASHFS at a rootfs (and \
+             producer through the sandbox. Point TXR_ENV_ROOTFS_SQUASHFS at a rootfs (and \
              ensure unprivileged userns + bwrap + squashfuse) to run it.",
         );
         return Err(());

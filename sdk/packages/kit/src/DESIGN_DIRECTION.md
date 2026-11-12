@@ -1,4 +1,4 @@
-# ziee — design direction ("bench notebook")
+# txresbench — design direction ("bench notebook")
 
 The enforceable identity for the kit. Refined & precise; differentiation rests on typography
 and the provenance margin, not a loud color. Subject: a research workbench for life scientists;

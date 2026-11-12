@@ -9,7 +9,7 @@
 // Gated by the existing `jobs::use` (granted to Users — no new permission).
 
 import { useEffect, type ReactNode } from 'react'
-import { Button, Empty, ErrorState, Pagination, ScrollArea, SectionHeader, Spinner, message } from '@ziee/kit'
+import { Button, Empty, ErrorState, Pagination, ScrollArea, SectionHeader, Spinner, message } from '@txresbench/kit'
 import { ArrowLeft, Square } from 'lucide-react'
 import type { JobDetail, JobListItem } from '@/api-client/types'
 import { JobStatusBadge } from '@/modules/jobs/components/JobStatusBadge'

@@ -3,7 +3,7 @@
 # (extends the `data` root → resolves) AND an FE `analyses` entry. Must lint clean.
 id: goodpkg
 name: Good Package
-publisher: cyto
+publisher: txr
 version: 0.1.0
 apiVersion: "1.0"
 contributes:

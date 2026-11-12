@@ -1,5 +1,5 @@
 {
-  "name": "@ziee/shell",
+  "name": "@txresbench/shell",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -14,8 +14,8 @@
     "test": "node ../../scripts/run-node-tests.mjs --min 1"
   },
   "peerDependencies": {
-    "@ziee/framework": "*",
-    "@ziee/kit": "*",
+    "@txresbench/framework": "*",
+    "@txresbench/kit": "*",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },

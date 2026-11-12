@@ -48,7 +48,7 @@ export function OverlapDialog({
     // inside a cell that may have been POPPED OUT into another window, where `document` is the
     // opener's — Escape and the Tab trap would listen on a document this panel is not in, and
     // `document.activeElement` would report the opener's focus. Same reasoning as
-    // `@ziee/dock`'s useGripDrag, which resolves its window via `ownerDocument.defaultView`.
+    // `@txresbench/dock`'s useGripDrag, which resolves its window via `ownerDocument.defaultView`.
     const doc = panelRef.current?.ownerDocument ?? document
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {

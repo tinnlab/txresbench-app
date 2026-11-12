@@ -416,7 +416,7 @@ def test_under_authority_a_dropped_level_maps_to_a_DECLARED_MISSING_LEVEL():
     a negative code with a 400 for the ENTIRE column — so `authority`, the only mode that
     drops, emitted a conforming artifact that could never be served.
 
-    The tree had already settled the encoding. `cyto_columns` invents a real, declared level
+    The tree had already settled the encoding. `txr_columns` invents a real, declared level
     rather than *"storing an out-of-range code"*, and that is what a dropped level maps to
     now: an in-range index into a vocabulary that CARRIES a label for absence.
 
@@ -466,16 +466,16 @@ def test_a_level_column_a_source_lacks_is_refused_by_name():
 # ── TEST-23 (ITEM-9): the per-source key-sequence digests ────────────────────────
 
 
-def test_one_digest_per_source_equal_to_cyto_zarrs_own_recomputation():
+def test_one_digest_per_source_equal_to_txr_zarrs_own_recomputation():
     """The digest is the framework's, recomputed here from the same key sequence — not a
     second implementation that could drift from what the gate checks."""
-    import cyto_zarr
+    import txr_zarr
 
     sources = two_sources()
     digests = source_key_digests(sources)
     assert len(digests) == len(sources)
     for source, digest in zip(sources, digests):
-        assert digest == cyto_zarr.key_sequence_digest(source.row_keys)
+        assert digest == txr_zarr.key_sequence_digest(source.row_keys)
 
 
 def test_REORDERING_the_keys_CHANGES_the_digest():
@@ -491,22 +491,22 @@ def test_REORDERING_the_keys_CHANGES_the_digest():
 def test_an_ORDER_INDEPENDENT_set_hash_would_NOT_catch_a_reorder():
     """TEST-23's declared negative control, RUN against the real alternative.
 
-    `cyto_zarr` ships BOTH — `key_sequence_digest` (ordered) and `vocab_declaration`'s
+    `txr_zarr` ships BOTH — `key_sequence_digest` (ordered) and `vocab_declaration`'s
     `vocab_digest` (an order-independent set hash) — so choosing the wrong one is a real and
     easy mistake rather than a hypothetical. This demonstrates the set hash is blind to the
     reorder that the ordered digest catches.
     """
-    import cyto_zarr
+    import txr_zarr
 
     keys = ["c0", "c1", "c2"]
-    set_hash_forward = cyto_zarr.vocab_declaration(keys)["vocab_digest"]
-    set_hash_backward = cyto_zarr.vocab_declaration(list(reversed(keys)))["vocab_digest"]
+    set_hash_forward = txr_zarr.vocab_declaration(keys)["vocab_digest"]
+    set_hash_backward = txr_zarr.vocab_declaration(list(reversed(keys)))["vocab_digest"]
     assert set_hash_forward == set_hash_backward, (
         "the set hash is supposed to be order-independent; if it is not, this control "
         "proves nothing about the ordered digest"
     )
-    ordered_forward = cyto_zarr.key_sequence_digest(keys)
-    ordered_backward = cyto_zarr.key_sequence_digest(list(reversed(keys)))
+    ordered_forward = txr_zarr.key_sequence_digest(keys)
+    ordered_backward = txr_zarr.key_sequence_digest(list(reversed(keys)))
     assert ordered_forward != ordered_backward, (
         "the ORDERED digest failed to notice a reorder — this is the silent-wrong-rows "
         "defect ITEM-9 exists to prevent"

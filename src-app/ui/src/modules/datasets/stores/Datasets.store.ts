@@ -12,7 +12,7 @@ import {
 } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
 import { echoLocalSync } from '@/core/sync/localEcho'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /** Which library tab is active (owner-scoped ∪ shared-with-me). */
 export type DatasetTab = 'mine' | 'shared'

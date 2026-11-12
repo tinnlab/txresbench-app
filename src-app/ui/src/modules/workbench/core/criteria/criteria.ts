@@ -375,9 +375,9 @@ export const CATEGORY_DERIVATION_VERSION = 1
  *
  * The producer declares a column's level set as strings. For most kinds those strings ARE the
  * comparison spelling — a categorical's levels are the values themselves, and `pyStr('T') === 'T'`.
- * A BOOLEAN is the exception, and it is a silent one: `cyto_columns.py` writes
+ * A BOOLEAN is the exception, and it is a silent one: `txr_columns.py` writes
  * `levels: ["false", "true"]` (lowercase, and for a bool that is the ONLY copy — it is stored as
- * a plain bool array, so there is no `attributes.cyto.levels` to fall back on), while the values
+ * a plain bool array, so there is no `attributes.txr.levels` to fall back on), while the values
  * themselves decode to JS booleans that `pyStr` spells `"False"`/`"True"`.
  *
  * Offer a raw declared level and `categoricalMatches` finds nothing: `"true" !== "True"`, and the

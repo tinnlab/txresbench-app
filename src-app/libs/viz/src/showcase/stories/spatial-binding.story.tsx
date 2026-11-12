@@ -152,8 +152,8 @@ function SpatialBindingStory() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }} data-testid="viz-spatial-binding">
       <div style={{ padding: 8, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        {/* native-control-ok: @ziee/viz is framework-agnostic by rule (deck.gl + math.gl + viv,
-            no @ziee/kit), so a story here has no kit Button to reach for. */}
+        {/* native-control-ok: @txresbench/viz is framework-agnostic by rule (deck.gl + math.gl + viv,
+            no @txresbench/kit), so a story here has no kit Button to reach for. */}
         <button
           type="button"
           data-testid="viz-spatial-binding-toggle"

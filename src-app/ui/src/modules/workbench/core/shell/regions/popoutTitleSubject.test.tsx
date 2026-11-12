@@ -18,7 +18,7 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { registerPopupWindow, unregisterPopupWindow, type ContainerId } from '@ziee/dock'
+import { registerPopupWindow, unregisterPopupWindow, type ContainerId } from '@txresbench/dock'
 import { RegionPopoutWindows } from './RegionPopoutWindows'
 import { workbenchRegionsStore } from './WorkbenchRegions.store'
 import { workbenchDockStore } from '@/modules/workbench/core/shell/dock/WorkbenchDock.store'

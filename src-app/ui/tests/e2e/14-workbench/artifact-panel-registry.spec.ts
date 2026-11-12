@@ -10,7 +10,7 @@ import { seedRunnableMatrix } from './_seed'
 // production contributors), so this now proves the "always renders something" guarantee:
 // whatever the produced datatype, the panel mounts a renderer.
 //
-// HOST-CAPABILITY-gated on CYTO_E2E_REAL_COMPUTE (bwrap + CYTO_ENV_ROOTFS_DIR).
+// HOST-CAPABILITY-gated on TXR_E2E_REAL_COMPUTE (bwrap + TXR_ENV_ROOTFS_DIR).
 
 test.describe('ArtifactPanel = pure classifier (ITEM-58 / ITEM-35)', () => {
   test.skip(!REAL_COMPUTE, REAL_COMPUTE_SKIP)

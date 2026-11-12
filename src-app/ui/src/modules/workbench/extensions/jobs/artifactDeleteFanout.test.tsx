@@ -32,7 +32,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
-import { EventBus } from '@ziee/framework/stores'
+import { EventBus } from '@txresbench/framework/stores'
 import { createCapabilityBroker, type WorkbenchAPI } from '@/modules/workbench/core'
 import { workbenchDockStore } from '@/modules/workbench/core/shell/dock/WorkbenchDock.store'
 import {

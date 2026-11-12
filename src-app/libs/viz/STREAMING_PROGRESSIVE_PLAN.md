@@ -156,9 +156,9 @@ in-tree (NOT `isolation:worktree`). Reuses today's `density/cpuRaster.worker.ts`
 > **Why there is no backend Arrow dependency.** DEC-4 chose **byte-shuffle + gzip, not blosc and not
 > Arrow IPC**, precisely so the browser decodes natively: it measures at **97.4% of blosc's ratio**
 > while staying readable with `DecompressionStream('gzip')` plus a ~10-line transpose
-> (`src-app/packages/_lib/cyto_zarr.py:26-32`). The producer contract is explicit that *"There is no
+> (`src-app/packages/_lib/txr_zarr.py:26-32`). The producer contract is explicit that *"There is no
 > Parquet, no TileDB, no SOMA and no Arrow IPC on the wire … zero dependencies on either side"*
-> (`cyto_zarr.py:5-8`). An Arrow endpoint would add a SECOND wire format the design refuses, and a
+> (`txr_zarr.py:5-8`). An Arrow endpoint would add a SECOND wire format the design refuses, and a
 > WASM codec on the client. **Nobody should wait on that phantom blocker again.** Item 9's COOP/COEP
 > dependency is unaffected and stands.
 

@@ -21,7 +21,7 @@
  */
 import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Dialog } from '@ziee/kit'
+import { Dialog } from '@txresbench/kit'
 import { useStore } from 'zustand'
 import type { FileTableKind } from '@/api-client/types'
 import type { IntakeSnapshot } from '@/modules/txrintake'

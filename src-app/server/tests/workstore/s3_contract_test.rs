@@ -35,7 +35,7 @@
 //! environment, and `cloud-sim-guard.sh` — which this file shells out to — FAILS on a present
 //! `AWS_ROLE_ARN` / `AWS_WEB_IDENTITY_TOKEN_FILE`.
 //!
-//! Env-gated on the substrate contract (`CYTO_WORKSTORE_S3_BUCKET` + `S3_ENDPOINT`/`STORAGE_EMULATOR_HOST`,
+//! Env-gated on the substrate contract (`TXR_WORKSTORE_S3_BUCKET` + `S3_ENDPOINT`/`STORAGE_EMULATOR_HOST`,
 //! written by `just cloud-sim-floci-up` / `just cloud-sim-floci-gcp-up`). With the sim down the
 //! test loud-skips (it cannot observe the product) rather than passing vacuously — it is not
 //! marked ignore-to-skip.
@@ -47,9 +47,9 @@ use std::sync::Arc;
 use futures_util::StreamExt;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::config::{CloudProvider, S3ConnConfig};
-use cytoanalyst::modules::workstore::object_store::s3::S3Store;
-use cytoanalyst::modules::workstore::object_store::{
+use txresbench::modules::workstore::config::{CloudProvider, S3ConnConfig};
+use txresbench::modules::workstore::object_store::s3::S3Store;
+use txresbench::modules::workstore::object_store::{
     content_hash_of_path, sha256_hex, ByteStream, ContentKey, ObjectStore,
 };
 
@@ -81,7 +81,7 @@ fn env_nonempty(k: &str) -> Option<String> {
 
 /// The canonical, pre-created bucket (PROV-T1-4 / CONS-T2-5).
 fn sim_bucket() -> Option<String> {
-    env_nonempty("CYTO_WORKSTORE_S3_BUCKET")
+    env_nonempty("TXR_WORKSTORE_S3_BUCKET")
 }
 
 /// An `S3ConnConfig` for floci's S3, from the sim env contract (PROV-T1-4). `None` ⇒ sim down.
@@ -123,7 +123,7 @@ fn gcs_conn(multipart_threshold: usize, part_size: usize) -> Option<S3ConnConfig
 /// XML single PUT) IS served by floci-gcp, so the full write CONTRACT
 /// (`objectstore_write_contract_floci_gcp`, small blobs) now runs against the emulator.
 fn real_gcs_enabled() -> bool {
-    std::env::var("CYTO_TEST_REAL_GCS").as_deref() == Ok("1")
+    std::env::var("TXR_TEST_REAL_GCS").as_deref() == Ok("1")
 }
 
 /// Seed a blob DIRECTLY into floci-gcp via its NATIVE JSON media-upload API at the
@@ -378,7 +378,7 @@ async fn objectstore_read_contract_floci_gcp() {
 /// is the GCS write proof the RETIRED-SUBSTRATE fake-gcs-server structurally blocked (it served no
 /// writes object_store could use). floci-gcp implements the single-blob GCS write path
 /// (resumable/JSON media + XML single PUT), so `put`/`put_prefix`/`gc`/`delete` all run for real.
-/// Runs against the emulator when `STORAGE_EMULATOR_HOST` is set — no `CYTO_TEST_REAL_GCS` needed
+/// Runs against the emulator when `STORAGE_EMULATOR_HOST` is set — no `TXR_TEST_REAL_GCS` needed
 /// — under the no-cloud-credentials guard (INV-2). Contract bodies are ~4 KiB (below the multipart
 /// threshold), so this leg never takes the GCS XML-multipart path floci-gcp lacks; that path is
 /// covered separately by `multi_gb_put_prefix_roundtrips_gcs` (real-GCS-only).
@@ -432,7 +432,7 @@ async fn multipart_roundtrip(conn: S3ConnConfig, label: &str) {
     );
 
     // The merkle content_hash equals content_hash_of_path over the SAME tree on disk (INV-5).
-    let dir = std::env::temp_dir().join(format!("cyto-mp-{tag}"));
+    let dir = std::env::temp_dir().join(format!("txr-mp-{tag}"));
     tokio::fs::create_dir_all(dir.join("data")).await.unwrap();
     tokio::fs::write(dir.join("data/0"), &big).await.unwrap();
     tokio::fs::write(dir.join(".meta"), &small).await.unwrap();
@@ -478,7 +478,7 @@ async fn multi_gb_put_prefix_roundtrips_gcs() {
              object_store's own suite documents this, fsouza #852 [RETIRED-SUBSTRATE]). The multipart WRITE path (G1) \
              is proven on a REAL S3 server by multi_gb_put_prefix_roundtrips_s3 (the SAME \
              write_blob body); the single-blob GCS write path is proven on floci-gcp by \
-             objectstore_write_contract_floci_gcp. Set CYTO_TEST_REAL_GCS=1 with real ADC + \
+             objectstore_write_contract_floci_gcp. Set TXR_TEST_REAL_GCS=1 with real ADC + \
              bucket to run this leg against real GCS."
         );
         return;

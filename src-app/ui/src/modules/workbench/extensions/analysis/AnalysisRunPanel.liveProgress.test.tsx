@@ -25,7 +25,7 @@
 //   • the SSE TRANSPORT itself (`jobsHost.streamJob`'s EventSource wiring) — the frame
 //     MAPPER is pinned by `jobsHost.streamJob.test.ts` (TEST-305); the transport and the
 //     backend actually EMITTING these frames during a run are covered by the gated
-//     `run-pane.spec.ts` "live SSE frames" case (CYTO_E2E_REAL_COMPUTE=1).
+//     `run-pane.spec.ts` "live SSE frames" case (TXR_E2E_REAL_COMPUTE=1).
 //   • the terminal (`status`) path — `finishTerminal` reaches for `ApiClient.Jobs.*`; the
 //     completion surface is `artifact-review.spec.ts`'s subject, also compute-gated.
 //

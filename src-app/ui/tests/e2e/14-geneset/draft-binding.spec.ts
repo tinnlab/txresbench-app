@@ -13,7 +13,7 @@ import { BACKEND, loginAsOwner, ownerApiToken } from '../_owner'
 //
 // The "Gene sets" section + the editor availability key on a `geneset/collection` artifact
 // existing in the project (its `applies_to`), so the spec first FREEZES one via the real producer
-// (needs `CYTO_ENV_ROOTFS_SQUASHFS` staged — the box's single-cell schema5 squashfs). Without the
+// (needs `TXR_ENV_ROOTFS_SQUASHFS` staged — the box's single-cell schema5 squashfs). Without the
 // rootfs the seed freeze cannot complete and the spec fails LOUD at the seed step (never hollow).
 
 const KIND = 'geneset/collection'

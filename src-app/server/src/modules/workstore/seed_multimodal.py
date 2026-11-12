@@ -131,7 +131,7 @@ def main():
     # correction the SIBLING single-file import driver beside this one already carries, for
     # the same reason and in the same shape: the seed engine catalogs a driver FILE and a Zarr
     # artifact is a DIRECTORY, so the bytes are re-framed as a one-column JSON table while
-    # `structure` names the axis and member a real `cyto_columns.write_metadata_column`
+    # `structure` names the axis and member a real `txr_columns.write_metadata_column`
     # declares.
     #
     # They all name `SHARED_AXIS`, which is the whole claim of this fixture: every modality's

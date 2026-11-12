@@ -49,7 +49,7 @@ def test_one_sample_per_side_is_R3_and_the_p_family_is_not_on_disk(clusters_run)
         assert member in members, f"{member!r} should be written in every regime"
     assert run.report()["regime"] == "R3"
     assert run.report()["pvalues_written"] is False
-    assert run.da_cyto(entry)["da"]["pvalues_written"] is False
+    assert run.da_txr(entry)["da"]["pvalues_written"] is False
 
 
 def test_a_no_provenance_condition_is_R2_and_the_p_family_is_not_on_disk(clusters_run):
@@ -160,7 +160,7 @@ def test_neighbourhoods_one_sample_per_side_is_R3_and_omits_the_whole_p_family(n
     for member in ALWAYS:
         assert member in members
     assert run.report()["regime"] == "R3"
-    assert run.da_cyto(entry)["da"]["spatial_fdr_written"] is False
+    assert run.da_txr(entry)["da"]["spatial_fdr_written"] is False
 
 
 def test_neighbourhoods_a_no_provenance_condition_is_R2_and_omits_the_whole_p_family(neighbourhoods_run):
@@ -330,8 +330,8 @@ def test_a_NaN_survives_the_da_result_writer_to_disk_and_back():
             out, "columns/t.zarr", "t", ["p0", "p1", "p2"],
             {"padj": values, "neglog10_significance": K.neglog10(values)},
             regime="R1", multiplicity_family="BH within comparison")
-        import cyto_zarr_read
-        read_back = np.asarray(cyto_zarr_read.read_column(out / "columns/t.zarr", "padj"),
+        import txr_zarr_read
+        read_back = np.asarray(txr_zarr_read.read_column(out / "columns/t.zarr", "padj"),
                                dtype=float)
     assert np.isnan(read_back[1]), "the writer coerced a masked value into a number"
     assert np.allclose(read_back[[0, 2]], values[[0, 2]])
@@ -718,7 +718,7 @@ def test_correct_preserving_mask_is_the_identity_on_absence():
 #: environment before numpy loads, and that ordering must not be perturbed by the harness.
 _SITECUSTOMIZE = '''
 import os, sys
-_d = os.environ.get("CYTO_TEST_ENGINE_DIR")
+_d = os.environ.get("TXR_TEST_ENGINE_DIR")
 if _d:
     sys.path.insert(0, _d)
     import _shared  # noqa: F401  — determinism pin, before numpy
@@ -727,7 +727,7 @@ if _d:
     def _stub(counts_df, design_df, contrast, *, condition_col, covariates, normalization,
               reference_name, fail, small_sample_correction, **_kw):
         out = {}
-        want = os.environ["CYTO_TEST_MASKED_POP"]
+        want = os.environ["TXR_TEST_MASKED_POP"]
         for j, pop in enumerate(str(c) for c in counts_df.columns):
             # `#<i>` masks by COLUMN INDEX. Neighbourhood ids (`nhood7`) are discovered from the
             # embedding at run time, so a test cannot name one in advance the way it can name a
@@ -762,8 +762,8 @@ def _run_with_masking_engine(run, masked_pop, params):
     return run.run_ok({**params, "method": "stub_masked"}, env_extra={
         "PYTHONPATH": os.pathsep.join(
             [str(stub_dir), str(_HELPERS_DIR), str(_LIB_DIR), *inherited]),
-        "CYTO_TEST_ENGINE_DIR": str(_COMPUTE),
-        "CYTO_TEST_MASKED_POP": masked_pop,
+        "TXR_TEST_ENGINE_DIR": str(_COMPUTE),
+        "TXR_TEST_MASKED_POP": masked_pop,
     })
 
 

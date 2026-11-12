@@ -4,7 +4,7 @@
 //! copy is written byte-exact, a dead live source degrades to the disk layer
 //! and never fails boot, and a malformed live payload degrades the same way.
 //! The spawned server resolves the catalogue URL through the
-//! `CYTO_TXR_CATALOGUE_URL` seam (the documented env default resolution —
+//! `TXR_CATALOGUE_URL` seam (the documented env default resolution —
 //! the only way a spawned process receives the constructor seams); the
 //! fixture catalogue is served by the suite's loopback server.
 //!

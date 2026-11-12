@@ -20,12 +20,12 @@ use super::{
     cohort_run_request, pool, register_user, scratch_dir, wait_terminal, FakeEnv, FakeStackRunSeam,
 };
 use crate::common::TestServer;
-use cytoanalyst::modules::execution_engine::orchestrator::{self, StackMethodExecutor};
-use cytoanalyst::modules::execution_engine::repository::TxrRepository;
-use cytoanalyst::modules::execution_engine::runtime::RunRuntime;
-use cytoanalyst::modules::execution_engine::types::TxrRunStatus;
-use cytoanalyst::modules::rootfs;
-use cytoanalyst::modules::sandbox::stack::MethodRunMode;
+use txresbench::modules::execution_engine::orchestrator::{self, StackMethodExecutor};
+use txresbench::modules::execution_engine::repository::TxrRepository;
+use txresbench::modules::execution_engine::runtime::RunRuntime;
+use txresbench::modules::execution_engine::types::TxrRunStatus;
+use txresbench::modules::rootfs;
+use txresbench::modules::sandbox::stack::MethodRunMode;
 
 /// TEST-EE-14 (scripted half): a risk-only method (the catalogue declares no
 /// native probability) is run through the executor's conversion band — the

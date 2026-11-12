@@ -49,7 +49,7 @@ rendering systems, two different sets of behaviour.
 
 ## The change is mostly REUSE, not a new control
 
-`@ziee/kit`'s `Select` already carries the whole vocabulary:
+`@txresbench/kit`'s `Select` already carries the whole vocabulary:
 
 | need | kit `Select` | kit `MultiSelect` |
 |---|---|---|

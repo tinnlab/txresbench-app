@@ -3,7 +3,7 @@
 //
 // This is the ONE property that was silently false. `cell-filter.py` resolves every obs
 // column by SLOT — `column:<name>`, the slot carrying the name because the STORE cannot
-// (`_lib/cyto_columns.py::write_metadata_column` writes one artifact per column whose sole
+// (`_lib/txr_columns.py::write_metadata_column` writes one artifact per column whose sole
 // member path is the constant `"values"`). The `expression` input is a CSC matrix store and
 // carries no obs at all. So a view that binds only `{expression}` gives the compute zero
 // columns; `criteria_keep_mask` skips a criterion on an absent column ("an unresolved column

@@ -12,7 +12,7 @@
 // byte-identical; the store home engages exactly when a unique id is threaded (the showcase story,
 // and the union-time per-cell wiring).
 //
-// Plain-zustand (no @ziee SDK, no immer), matching `GridWorkspace.store.ts`:
+// Plain-zustand (no @txresbench SDK, no immer), matching `GridWorkspace.store.ts`:
 // `create()(subscribeWithSelector(builder))` — so a consumer (e.g. `<Viz onStateChange>`) can
 // `store.subscribe(cb)` the whole slice and re-capture on any interaction.
 //

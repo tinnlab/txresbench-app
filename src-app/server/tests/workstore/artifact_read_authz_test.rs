@@ -48,8 +48,8 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::object_store::ObjectStore;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::object_store::ObjectStore;
 
 use super::{
     create_member_token, create_project, new_artifact, new_dataset_artifact, pool_for,
@@ -274,7 +274,7 @@ async fn project_scoped_artifact_bytes_are_gated_by_project_role() {
         .client
         .post(server.api_url(&format!("/projects/{sid}/shares")))
         .bearer_auth(&admin)
-        .json(&json!({ "email": "byteviewer@cyto.test", "permission_level": "viewer" }))
+        .json(&json!({ "email": "byteviewer@txresbench.test", "permission_level": "viewer" }))
         .send()
         .await
         .expect("share project");

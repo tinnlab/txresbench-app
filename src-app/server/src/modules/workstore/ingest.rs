@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::catalog::models::{Artifact, NewArtifact};
 use super::catalog::repository::CatalogRepository;
@@ -588,7 +588,7 @@ mod tests {
     use crate::modules::workstore::object_store::local_fs::LocalFsStore;
 
     fn tmp_store() -> (PathBuf, LocalFsStore) {
-        let dir = std::env::temp_dir().join(format!("cyto-ingest-store-{}", Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("txr-ingest-store-{}", Uuid::new_v4()));
         (dir.clone(), LocalFsStore::new(dir))
     }
 
@@ -598,7 +598,7 @@ mod tests {
     #[tokio::test]
     async fn store_output_stores_small_file_and_refuses_oversize() {
         let (dir, store) = tmp_store();
-        let work = std::env::temp_dir().join(format!("cyto-ingest-src-{}", Uuid::new_v4()));
+        let work = std::env::temp_dir().join(format!("txr-ingest-src-{}", Uuid::new_v4()));
         tokio::fs::create_dir_all(&work).await.unwrap();
 
         // The default ingest ceilings (== the old consts, INV-1) drive the guard.
@@ -637,7 +637,7 @@ mod tests {
     #[tokio::test]
     async fn store_output_refuses_named_pipe() {
         let (dir, store) = tmp_store();
-        let work = std::env::temp_dir().join(format!("cyto-ingest-fifo-{}", Uuid::new_v4()));
+        let work = std::env::temp_dir().join(format!("txr-ingest-fifo-{}", Uuid::new_v4()));
         tokio::fs::create_dir_all(&work).await.unwrap();
         let fifo = work.join("pipe");
         let c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();

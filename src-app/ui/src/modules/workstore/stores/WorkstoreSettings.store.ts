@@ -2,7 +2,7 @@ import { ApiClient } from '@/api-client'
 import { type WorkstoreSettings as WorkstoreSettingsRow, type UpdateWorkstoreSettings } from '@/api-client/types'
 import { Permissions } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /**
  * Workstore admin settings singleton (issue #54: GC policy + ingest size caps) for

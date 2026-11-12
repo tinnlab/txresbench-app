@@ -1,11 +1,11 @@
-// defaultLayout (ITEM-9) — today's workbench IA expressed as an initial `@ziee/dock`
+// defaultLayout (ITEM-9) — today's workbench IA expressed as an initial `@txresbench/dock`
 // `LayoutNode`, plus a VERSIONED migration of the persisted main-layout blob. The default
 // reproduces the P6 shell: a left "Visualize" pane · the center canvas hero · a bottom
 // "Analyses" launcher — as MOVABLE panes in one split-tree (no pinned fixtures; `main` may
 // become empty). The right "Selection"/"Inspector" pane that used to close the row is
 // RETIRED (see `RETIRED_PANE_KINDS`).
 
-import { leafIds, removeLeaf, type LayoutNode } from '@ziee/dock'
+import { leafIds, removeLeaf, type LayoutNode } from '@txresbench/dock'
 import type { PaneKind, WorkbenchPane } from './paneModel'
 
 /** The default pane ids (stable, named — generated panes are `pane-<n>`). */
@@ -76,7 +76,7 @@ function pane(id: string, kind: PaneKind): WorkbenchPane {
  *
  *  The row used to end in a third leaf, the `selection` "Inspector" pane, at `0.2`. Retiring it
  *  hands that share to the two survivors IN PROPORTION — `0.18/0.8` and `0.62/0.8` — which is
- *  exactly what `@ziee/dock`'s `removeLeaf` (and therefore `dropRetiredPanes`) computes for an
+ *  exactly what `@txresbench/dock`'s `removeLeaf` (and therefore `dropRetiredPanes`) computes for an
  *  already-persisted layout. Same rule for a fresh workspace and a migrated one, so the two are
  *  indistinguishable rather than subtly different. */
 export function defaultLayout(): LayoutNode {
@@ -157,7 +157,7 @@ export function isRetiredPaneKind(kind: string): boolean {
 /**
  * Drop every retired-kind pane from a persisted MAIN slice — its entry AND its leaf, so the
  * split-tree reflows and the freed space goes to the surviving siblings in proportion
- * (`@ziee/dock`'s `removeLeaf` renormalizes the `sizes` vector). Returns the SAME slice when
+ * (`@txresbench/dock`'s `removeLeaf` renormalizes the `sizes` vector). Returns the SAME slice when
  * nothing needed dropping, so the common path allocates nothing.
  *
  * If the drop would leave the project with no panes at all, the DEFAULT IA is returned instead:

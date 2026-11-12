@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { methodResultsPath, resultsPath } from '@/modules/txrresults/routes'
-import { Alert, Button, Result, Skeleton } from '@ziee/kit'
+import { Alert, Button, Result, Skeleton } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import type { TxrRunBucket } from '../types'
 import {

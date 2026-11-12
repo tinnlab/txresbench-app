@@ -1,12 +1,12 @@
 @import "tailwindcss";
 /* The `animate-in` / `slide-in-from-*` / `fade-in-0` enter/exit utilities the kit + shell
    components (Drawer, Dialog, Dropdown, Sheet) rely on. The kit's tokens.css does NOT ship
-   them, so the APP must import them (ziee's index.css does the same). Without this the
+   them, so the APP must import them (txresbench's index.css does the same). Without this the
    Drawer/Dialog open+close with NO animation. */
 @import "tw-animate-css";
 /* The kit ships a self-contained shadcn token layer — import it directly
    (SDK_GAPS FE-3: app#1 inlines its own copy instead of consuming this). */
-@import "@ziee/kit/styles/tokens.css";
+@import "@txresbench/kit/styles/tokens.css";
 /* TxResBench's OWN palette (the design boards' cream/navy bytes + the app's
    dark inversion). Every txr* component colors through these tokens — the one
    place the board hexes live; the app's theme.test.ts scans the modules for a
@@ -16,7 +16,7 @@
 @import "./assets/fonts.css";
 
 /* Tailwind v4 only auto-scans THIS app's tree; the SDK's component classes live
-   under the workspace-linked @ziee/* packages, so scan them explicitly or those
+   under the workspace-linked @txresbench/* packages, so scan them explicitly or those
    components render with MISSING classes (SDK_GAPS FE-3). Only `kit` was scanned,
    so the `shell` Drawer's floating-card margin (`m-2 ml-3`) + slide classes were
    never generated → the drawer sat FLUSH to the window edge with no animation.
@@ -28,7 +28,7 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* SDK-consume gap (mirrors ziee's index.css @layer base): the shell's fixed app-shell relies on a
+/* SDK-consume gap (mirrors txresbench's index.css @layer base): the shell's fixed app-shell relies on a
    viewport-height ROOT anchor — the kit tokens.css does NOT supply it. Without `#root { height: 100dvh }`
    the `#root → #app-root(h-full) → shell(h-full)` chain has no definite height, so every full-height page
    collapses to CONTENT height — most visibly the workbench IDE (a fixed multi-pane surface), which then
@@ -60,7 +60,7 @@
 
 /* OverlayScrollbars (the kit `ScrollArea`, now used in the workbench panes) applies its `os-theme-dark`
    handle by default — near-opaque black, designed for LIGHT surfaces, so it vanishes in dark mode.
-   Rebind the handle vars to white when `html.dark` (set by ThemeProvider). Mirrors ziee's index.css. */
+   Rebind the handle vars to white when `html.dark` (set by ThemeProvider). Mirrors txresbench's index.css. */
 html.dark .os-theme-dark {
   --os-handle-bg: rgba(255, 255, 255, 0.22);
   --os-handle-bg-hover: rgba(255, 255, 255, 0.35);

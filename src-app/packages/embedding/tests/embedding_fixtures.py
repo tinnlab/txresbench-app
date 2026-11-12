@@ -3,7 +3,7 @@
 """Off-sandbox run harness for the `embedding` computes (ITEM-28).
 
 Drives the REAL `compute/reduce.py` / `compute/visualize.py` as a SUBPROCESS through the
-only seam that runs them outside bwrap (`CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR`), with
+only seam that runs them outside bwrap (`TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR`), with
 `_lib` on `PYTHONPATH` exactly as the sandbox stages `/code`. Every input is declared in
 `/inputs/inputs.json` (the `render_inputs_json` wire shape) with a MEANINGLESS `in0`/`in1`
 mount name, so a compute that resolves by filename suffix cannot pass (mirrors
@@ -72,9 +72,9 @@ def import_own(name):
 
 
 sys.path.insert(0, str(_LIB_DIR))
-import cyto_columns  # noqa: E402
-import cyto_csc  # noqa: E402
-import cyto_zarr_read  # noqa: E402
+import txr_columns  # noqa: E402
+import txr_csc  # noqa: E402
+import txr_zarr_read  # noqa: E402
 
 
 # ── the env-rootfs SEAM (ITEM-20a / DEC-14) ─────────────────────────────────────────
@@ -84,13 +84,13 @@ import cyto_zarr_read  # noqa: E402
 # bwrap, exactly as the production sandbox does (mirrors `scripts/e2e-processors-preflight`
 # check 7 + `modules/sandbox/sandbox.rs build_bwrap_argv`): /usr + /opt bound RO from the
 # mounted image, a staged /code, --clearenv, the venv python on PATH. The image is provided
-# by `CYTO_ENV_ROOTFS_SQUASHFS` (the documented air-gap seam).
-SEAM_SQUASHFS = os.environ.get("CYTO_ENV_ROOTFS_SQUASHFS")
+# by `TXR_ENV_ROOTFS_SQUASHFS` (the documented air-gap seam).
+SEAM_SQUASHFS = os.environ.get("TXR_ENV_ROOTFS_SQUASHFS")
 
 
 def seam_available() -> bool:
     """True when the harmonypy seam can actually run: the squashfs exists and bwrap +
-    squashfuse are on PATH. TEST-33 gates on this — set `CYTO_ENV_ROOTFS_SQUASHFS` to a
+    squashfuse are on PATH. TEST-33 gates on this — set `TXR_ENV_ROOTFS_SQUASHFS` to a
     rebuilt single-cell rootfs (with harmonypy + scikit-misc) to run it for real."""
     if not SEAM_SQUASHFS or not Path(SEAM_SQUASHFS).is_file():
         return False
@@ -105,18 +105,18 @@ def write_csc_store(dest: Path, dense) -> dict:
     mat = dense if sp.issparse(dense) else sp.csr_matrix(np.asarray(dense, dtype=np.float32))
     mat = mat.tocsr()
     mat.eliminate_zeros()
-    return cyto_csc.write_csc_zarr(cyto_csc.ArraySource(mat), dest, axes=("cells", "genes"))
+    return txr_csc.write_csc_zarr(txr_csc.ArraySource(mat), dest, axes=("cells", "genes"))
 
 
 def write_column_store(dest: Path, name: str, values, *, axis: str, holds_axis_keys=False):
     import pandas as pd
-    return cyto_columns.write_metadata_column(
+    return txr_columns.write_metadata_column(
         dest.parent, dest.name, name, pd.Series(list(values)), axis=axis,
         holds_axis_keys=holds_axis_keys)
 
 
 def write_embedding_store(dest: Path, arr, *, name="X_pca", method="pca") -> dict:
-    return cyto_columns.write_embedding(
+    return txr_columns.write_embedding(
         dest.parent, dest.name, np.asarray(arr, dtype=np.float32),
         axis="cells", name=name, kind="embedding", method=method)
 
@@ -168,8 +168,8 @@ class _Run:
         return dest
 
     def add_existing_store(self, store_path, *, slot, mount=None) -> Path:
-        """Mount an ALREADY-WRITTEN cyto_zarr store (e.g. a prior run's OUTPUT embedding) as an
-        input, copying its whole group dir so its `attributes.cyto` (incl. the F2 correction
+        """Mount an ALREADY-WRITTEN txr_zarr store (e.g. a prior run's OUTPUT embedding) as an
+        input, copying its whole group dir so its `attributes.txr` (incl. the F2 correction
         stamp) rides along. Used to chain reduce→visualize for the provenance-hop test (TEST-30)
         and the producer→consumer e2e (TEST-32)."""
         mount = self._mount(mount)
@@ -196,9 +196,9 @@ class _Run:
         env["PYTHONPATH"] = os.pathsep.join(
             [str(_HELPERS_DIR), str(_LIB_DIR),
              *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])])
-        env["CYTO_INPUTS_DIR"] = str(self.inputs_dir)
-        env["CYTO_OUTPUTS_DIR"] = str(self.outputs_dir)
-        env.pop("CYTO_PROGRESS_FIFO", None)
+        env["TXR_INPUTS_DIR"] = str(self.inputs_dir)
+        env["TXR_OUTPUTS_DIR"] = str(self.outputs_dir)
+        env.pop("TXR_PROGRESS_FIFO", None)
         for k, v in (env_extra or {}).items():
             if v is None:
                 env.pop(str(k), None)  # UNSET (absent), not empty-string
@@ -210,7 +210,7 @@ class _Run:
     # ── seam (in-sandbox) execution ─────────────────────────────────────────────────
     def _stage_code(self, code_dir: Path):
         """Flatten the entry + shared substrate + `_lib`/`_helpers` into ONE /code dir,
-        exactly as the sandbox runner stages a job (so `import _shared`/`import cyto_columns`
+        exactly as the sandbox runner stages a job (so `import _shared`/`import txr_columns`
         resolve off `sys.path[0]`). Only non-test modules are staged."""
         code_dir.mkdir(parents=True, exist_ok=True)
         for src in (_COMPUTE.glob("*.py")):
@@ -224,7 +224,7 @@ class _Run:
     def _run_in_seam(self, *, env_extra=None):
         if not seam_available():
             raise RuntimeError(
-                "seam run requested but CYTO_ENV_ROOTFS_SQUASHFS / bwrap / squashfuse are "
+                "seam run requested but TXR_ENV_ROOTFS_SQUASHFS / bwrap / squashfuse are "
                 "not available")
         squashfuse = shutil.which("squashfuse") or shutil.which("squashfuse3")
         fusermount = shutil.which("fusermount") or shutil.which("fusermount3")
@@ -265,8 +265,8 @@ class _Run:
                 "--setenv", "PATH", "/opt/venv/bin:/usr/local/bin:/usr/bin:/bin",
                 "--setenv", "LANG", "C.UTF-8",
                 "--setenv", "PYTHONPATH", "/code",
-                "--setenv", "CYTO_INPUTS_DIR", "/inputs",
-                "--setenv", "CYTO_OUTPUTS_DIR", "/outputs",
+                "--setenv", "TXR_INPUTS_DIR", "/inputs",
+                "--setenv", "TXR_OUTPUTS_DIR", "/outputs",
             ]
             for k, v in (env_extra or {}).items():
                 if v is None:
@@ -304,7 +304,7 @@ class _Run:
         entry = self.embedding_entry()
         root = self.outputs_dir / entry["path"]
         member = entry["meta"]["name"]
-        return np.asarray(cyto_zarr_read.read_array(root, member))
+        return np.asarray(txr_zarr_read.read_array(root, member))
 
     def progress_phases(self, proc) -> list[str]:
         return [l.split(":", 1)[1].strip().split("|")[0]

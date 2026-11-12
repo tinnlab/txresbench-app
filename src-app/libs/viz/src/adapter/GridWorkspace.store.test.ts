@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createGridWorkspaceStore, INITIAL_CELL_ID, EMPTY_GRID_ID } from './GridWorkspace.store'
-import { leafIds } from '@ziee/dock'
+import { leafIds } from '@txresbench/dock'
 
 const sorted = (xs: string[]) => [...xs].sort()
 /** ids docked in the grid container (`layout`). */

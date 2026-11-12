@@ -2,19 +2,19 @@
 
 ## Frontend static + canary gates (workspace: ui)
 - `npm run check (ui): PASS` — `tsc --noEmit` clean.
-- `gate:ui (ui): PASS` — via `npm run gate:ui -- --skip-visual` (**cyto's supported mode** — see the
+- `gate:ui (ui): PASS` — via `npm run gate:ui -- --skip-visual` (**txr's supported mode** — see the
   visual-harness note below): tsc ✓ · lint (guardrails + colors) ✓ · **runtime-health 15/15 surfaces clean,
   0 gating HIGH findings** (no console error / pageerror / failed request / crash / WCAG-AA contrast failure
-  on any analysis surface × state × theme). Log: `/data/pbya/ziee/tmp/lifecycle-logs/analysis-gateui.log`.
+  on any analysis surface × state × theme). Log: `/data/pbya/txresbench/tmp/lifecycle-logs/analysis-gateui.log`.
 
-> **Visual-layer note (pre-existing cyto gap, not this diff):** the full `npm run gate:ui` (Layer A layout
+> **Visual-layer note (pre-existing txr gap, not this diff):** the full `npm run gate:ui` (Layer A layout
 > invariants + axe + Layer B pixel regression) requires `src-app/ui/playwright.visual.config.ts` +
-> `tests/e2e/visual/`, which **do not exist in cyto** (absent on `origin/main`; my diff touches no playwright
-> config). So `--skip-visual` is the mode cyto supports today; runtime-health carries the automated
+> `tests/e2e/visual/`, which **do not exist in txr** (absent on `origin/main`; my diff touches no playwright
+> config). So `--skip-visual` is the mode txr supports today; runtime-health carries the automated
 > a11y-contrast + runtime checks. Flagged as an SDK/app dogfooding gap (SDK_GAPS). The interactive design
 > mockup + the e2e specs are the visual evidence this round.
 
-## E2E specs (Playwright, --workers=1; real backend + fresh cytoanalyst_e2e DB)
+## E2E specs (Playwright, --workers=1; real backend + fresh txresbench_e2e DB)
 Full logs: `analysis-e2e.log` (13/14 first pass) + `analysis-e2e-rerun.log` (the 1 selector fix → PASS).
 All 14 enumerated tier:e2e tests PASS:
 

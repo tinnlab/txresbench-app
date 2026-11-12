@@ -15,7 +15,7 @@
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::models::FeatureFlagRow;
 

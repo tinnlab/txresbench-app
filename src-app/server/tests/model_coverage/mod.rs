@@ -53,7 +53,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use cytoanalyst::modules::extensions::types::{DatatypeContribution, ExtensionManifest};
+use txresbench::modules::extensions::types::{DatatypeContribution, ExtensionManifest};
 
 /// `src-app/`, the parent of this crate.
 fn src_app() -> PathBuf {
@@ -214,7 +214,7 @@ fn anchored_axis_keys() -> BTreeSet<String> {
 fn anchored_from(
     manifests: &[(
         String,
-        cytoanalyst::modules::extensions::types::ExtensionManifest,
+        txresbench::modules::extensions::types::ExtensionManifest,
     )],
 ) -> BTreeSet<String> {
     // Seed: the directly-anchored keys.
@@ -668,7 +668,7 @@ fn every_producer_output_with_a_row_space_is_registered() {
 // still refuse. Asserting only against the live tree would prove the rule accepts what is
 // there today, which is the weaker half and the one that cannot fail.
 
-fn manifest_from(yaml: &str) -> cytoanalyst::modules::extensions::types::ExtensionManifest {
+fn manifest_from(yaml: &str) -> txresbench::modules::extensions::types::ExtensionManifest {
     serde_norway::from_str(yaml).expect("synthetic manifest parses")
 }
 

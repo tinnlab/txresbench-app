@@ -1,7 +1,7 @@
 ---
 name: feature-lifecycle
 description: >
-  Binding 8-phase state machine for ALL feature work in the ziee repo. Enforces
+  Binding 8-phase state machine for ALL feature work in the txresbench repo. Enforces
   plan → plan-audit → explicit test enumeration → up-front decisions → implement
   + drift-convergence loop → blind multi-angle audit with full diff coverage →
   fix/re-audit loop → gated test run. Every phase writes machine-checkable
@@ -51,8 +51,8 @@ a flag), so a typo can no longer be dropped in favour of auto-discovery.
 Work in a dedicated worktree off `origin/main`:
 
 ```bash
-git worktree add -b feat/<slug> /data/pbya/ziee/tmp/<slug>-wt origin/main
-mkdir -p /data/pbya/ziee/tmp/<slug>-wt/.lifecycle/<feature>
+git worktree add -b feat/<slug> /data/pbya/txresbench/tmp/<slug>-wt origin/main
+mkdir -p /data/pbya/txresbench/tmp/<slug>-wt/.lifecycle/<feature>
 ```
 
 > The validator is **deterministic** — it enforces *structure and completeness*,
@@ -965,7 +965,7 @@ chains.
 # integration (source the env file first — real LLM keys live there)
 source src-app/server/tests/.env.test
 cargo test --test integration_tests <module>:: -- --test-threads=1 \
-  2>&1 | tee /data/pbya/ziee/tmp/lifecycle-logs/<feature>-int.log
+  2>&1 | tee /data/pbya/txresbench/tmp/lifecycle-logs/<feature>-int.log
 ```
 
 **If the diff touches a frontend workspace** (`src-app/ui/**` and/or
@@ -1153,7 +1153,7 @@ so budget for them — they are not optional polish:
   false-greens the spec.
 
 **P4 — full-output capture.** Save the FULL test log as an artifact
-(`| tee /data/pbya/ziee/tmp/lifecycle-logs/<feature>-{int,e2e}.log`), never just
+(`| tee /data/pbya/txresbench/tmp/lifecycle-logs/<feature>-{int,e2e}.log`), never just
 an inline tail — the failing test's assertion/panic is in the body, and a
 re-run to recover it wastes minutes ([[feedback_periodic_check_stuck]]).
 

@@ -103,7 +103,7 @@ const num = (v: unknown): number | undefined => (typeof v === 'number' && Number
  * Read a candidate's vocabulary declaration.
  *
  * The digest fields come off the STRUCTURE member, because that is where the producer writes them
- * (`cyto_zarr.Table.categorical` puts them on the member entry beside `levels_digest`/`n_levels`/
+ * (`txr_zarr.Table.categorical` puts them on the member entry beside `levels_digest`/`n_levels`/
  * `ordered`). The preview and the semantic `kind` come off `meta`, because that is where
  * `colsummary.summarize_column`'s dict is stamped. Neither is guessed from the other.
  */

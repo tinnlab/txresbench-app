@@ -1,6 +1,6 @@
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 // Side-effect import: `AppLayout.store` self-registers via `registerLazyStore`
-// AND sets the `@ziee/shell` AppLayout seam at module scope.
+// AND sets the `@txresbench/shell` AppLayout seam at module scope.
 import '@/modules/layouts/app-layout/AppLayout.store'
 import '@/modules/layouts/app-layout/types'
 

@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
 import { useUpdate } from 'react-use'
 import { configClientSeam } from '../app-store-seams'
-import type { StoreProxy } from '@ziee/framework/stores'
-import { Toaster, DialogHost } from '@ziee/kit'
+import type { StoreProxy } from '@txresbench/framework/stores'
+import { Toaster, DialogHost } from '@txresbench/kit'
 import { ThemeContext, type ThemePreference } from './useTheme'
 import { resolveSystemTheme } from './resolveTheme'
 import { applyAccent, type AccentPreset } from './accentPresets'
@@ -13,7 +13,7 @@ interface ThemeProviderProps {
 
 /**
  * SEAM: the theme preference + accent live in the app-registered `ConfigClient`
- * store. `@ziee/shell` reads them through this typed view rather than importing
+ * store. `@txresbench/shell` reads them through this typed view rather than importing
  * the app's config store — the runtime read is byte-identical to reading
  * `Stores.ConfigClient` directly. A consuming app registers a store named
  * `ConfigClient` exposing at least these three fields.

@@ -71,7 +71,7 @@ pub use vocab::{
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 /// The module instance (no state — the boot check's `OnceLock` is the only
 /// runtime fact, installed by `init`).
@@ -133,7 +133,7 @@ static FILE_VALIDATOR: ModuleEntry = ModuleEntry {
 // framework tie stays an epic-level finding (recorded in DRIFT-1).
 #[cfg(test)]
 mod tests {
-    use ziee_framework::MODULE_ENTRIES;
+    use txresbench_framework::MODULE_ENTRIES;
 
     /// TEST-FV-19 (node half): `file_validator` is registered under
     /// `MODULE_ENTRIES` exactly once, with the declared order 48, and no OTHER

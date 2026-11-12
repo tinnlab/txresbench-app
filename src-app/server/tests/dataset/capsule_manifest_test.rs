@@ -1,7 +1,7 @@
 //! TEST-64 [ITEM-25, ITEM-22] — the exported capsule's EXACT file manifest. The
 //! `.zip` contains `run.sh`, `scripts/step_NN_<sha>.<ext>` (each byte-equal to its
 //! `provenance_code_blobs` source), `data/<hash>` (each byte-equal to the dataset's
-//! ziee-file bytes / the run's output blob), `inputs.json`, `manifest.json` (WRROC),
+//! txresbench-file bytes / the run's output blob), `inputs.json`, `manifest.json` (WRROC),
 //! `environments.json`, methods + README + a manifest checksum — and NO undeclared
 //! files. (Export reads the DB + blob store only, so this runs with NO rootfs.)
 //!
@@ -11,10 +11,10 @@
 use chrono::Utc;
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::models::Job;
-use cytoanalyst::modules::jobs::seams::{PeakMetrics, RunRecorder};
-use cytoanalyst::modules::provenance::recorder::ProvenanceRunRecorder;
-use cytoanalyst::modules::provenance::repository::ProvenanceRepository;
+use txresbench::modules::jobs::models::Job;
+use txresbench::modules::jobs::seams::{PeakMetrics, RunRecorder};
+use txresbench::modules::provenance::recorder::ProvenanceRunRecorder;
+use txresbench::modules::provenance::repository::ProvenanceRepository;
 
 use super::hardening_common::*;
 use super::setup_admin;
@@ -161,7 +161,7 @@ async fn exported_capsule_has_exact_manifest_byte_equal() {
         "the capsule script is byte-equal to its code blob source"
     );
 
-    // data/<D-hash> — byte-equal to the dataset's ziee-file bytes.
+    // data/<D-hash> — byte-equal to the dataset's txresbench-file bytes.
     let d_member = format!("data/{}", h_d.strip_prefix("sha256:").unwrap());
     assert_eq!(
         member(&d_member).expect("dataset data member"),

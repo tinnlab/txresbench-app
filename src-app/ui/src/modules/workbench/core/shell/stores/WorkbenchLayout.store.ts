@@ -1,5 +1,5 @@
 import { createJSONStorage } from 'zustand/middleware'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 import { type DockArea, type ProjectLayout, defaultProjectLayout } from '../types'
 
 // Guarded persistence storage (mirrors AppLayout.store / ConfigClient.store):
@@ -8,7 +8,7 @@ import { type DockArea, type ProjectLayout, defaultProjectLayout } from '../type
 // the layout just won't survive a reload there.
 const safeStorage = createJSONStorage(() => {
   try {
-    const probe = '__cyto_wb_ls_probe__'
+    const probe = '__txr_wb_ls_probe__'
     window.localStorage.setItem(probe, probe)
     window.localStorage.removeItem(probe)
     return window.localStorage
@@ -35,7 +35,7 @@ const safeStorage = createJSONStorage(() => {
  */
 const WorkbenchLayoutDef = defineStore('WorkbenchLayout', {
   persist: {
-    name: 'cyto.wb.layout',
+    name: 'txr.wb.layout',
     storage: safeStorage,
     // Persist ONLY the per-project dock layout; `activeProjectId`/`resetToken` are
     // ephemeral (recomputed on mount).

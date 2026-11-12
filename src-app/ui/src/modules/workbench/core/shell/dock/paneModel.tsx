@@ -1,5 +1,5 @@
 // paneModel (ITEM-7) — the workbench's OWN pane-content model over the content-agnostic
-// `@ziee/dock` layer. `@ziee/dock` treats panes as opaque ids; the workbench owns a
+// `@txresbench/dock` layer. `@txresbench/dock` treats panes as opaque ids; the workbench owns a
 // `WorkbenchPane { id, kind, ref? }` map + a `paneRenderers` lookup (kind → component)
 // with a VISIBLE fallback for an unknown kind (never a crash). Mirrors viz's `GridCell`
 // ownership (viz `gridModel.ts`), but the content is dock PANES (canvas / analysis / …),
@@ -12,7 +12,7 @@
 // (no dock/plot imports) and the lookup is always defined for every kind.
 
 import { useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
-import { ScrollArea, type ScrollAreaProps } from '@ziee/kit'
+import { ScrollArea, type ScrollAreaProps } from '@txresbench/kit'
 import { workbenchRegistry } from '@/modules/workbench/core'
 import { getPaneState, type PaneEntity } from './paneState'
 // The reserved WHOLE-GRID export subject id. Imported (not re-spelled) so the identity and its
@@ -81,7 +81,7 @@ export const PANE_KINDS: readonly PaneKind[] = [
   'export',
 ] as const
 
-/** A workbench pane: an opaque-to-`@ziee/dock` id, its content `kind`, and an optional
+/** A workbench pane: an opaque-to-`@txresbench/dock` id, its content `kind`, and an optional
  *  `ref` binding (the analysis id for a `run` pane, the view id for a `view` pane, the
  *  artifact id for an `artifact` pane, …). */
 export interface WorkbenchPane {

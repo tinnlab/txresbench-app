@@ -1,6 +1,6 @@
 // artifactByteRangeSource.ts — the storage half of the client OME-TIFF pyramid reader (#158).
 //
-// `@ziee/viz`'s `loadOmeTiffPyramid` opens a pyramidal OME-TIFF over byte ranges and knows
+// `@txresbench/viz`'s `loadOmeTiffPyramid` opens a pyramidal OME-TIFF over byte ranges and knows
 // NOTHING about where the bytes live: its whole seam to storage is a `ByteRangeSource` — a
 // byte length and `read(start, endInclusive)`. This module is the one implementation of that
 // seam over the artifact byte plane, and it is deliberately the thinnest thing that can be.
@@ -37,7 +37,7 @@ import { fetchArtifactRange } from './binaryClient'
  *
  * Declared here rather than imported so this module compiles against the SHAPE the reader
  * needs and not against a specific version of it; it is structurally identical to
- * `@ziee/viz`'s `ByteRangeSource` and is checked against it where the two meet.
+ * `@txresbench/viz`'s `ByteRangeSource` and is checked against it where the two meet.
  */
 export interface ArtifactByteRangeSource {
   readonly byteLength: number

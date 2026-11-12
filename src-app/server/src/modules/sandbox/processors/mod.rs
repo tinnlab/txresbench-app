@@ -140,7 +140,7 @@ pub const PY_HELPER_FILES: &[(&str, &str, &str)] = &[
     // start, not a degraded import.
     //
     // It imports `align` (it reuses that engine's duplicate-key refusal rather than
-    // re-implementing it), which is staged immediately above — and `cyto_columns`, from
+    // re-implementing it), which is staged immediately above — and `txr_columns`, from
     // the `_lib` package below.
     //
     // ── `_helpers` MAY IMPORT `_lib`. THIS IS A SUPPORTED DIRECTION. ────────────────
@@ -148,11 +148,11 @@ pub const PY_HELPER_FILES: &[(&str, &str, &str)] = &[
     // Stated here because this table is what makes it true: staging is FLAT. Every entry
     // below lands side by side in one `/code` directory, so the source-tree split between
     // `_helpers` and `_lib` is a LIFECYCLE distinction (runtime glue vs the on-disk format
-    // contract), not an import boundary. At runtime `import cyto_columns` from
+    // contract), not an import boundary. At runtime `import txr_columns` from
     // `alignment.py` resolves for exactly the same reason `import align` does.
     //
     // The concrete case (C4): `alignment.py` needs the missing-level label rule that
-    // `cyto_columns` already owns for every categorical in the tree. Copying it would give
+    // `txr_columns` already owns for every categorical in the tree. Copying it would give
     // two implementations of a COLLISION rule, and if they diverged a source's own `NA` and
     // the unified `NA` would resolve differently and shadow a real level. One definition,
     // imported, is the smaller cost.
@@ -176,19 +176,19 @@ pub const PY_HELPER_FILES: &[(&str, &str, &str)] = &[
     // from these tables ONLY, so an unstaged module is not a degraded import — it
     // is `ModuleNotFoundError` at process start, surfacing to the server as an
     // opaque job failure with no hint of the cause.
-    ("cyto_zarr.py", RESERVED_LIB_PACKAGE, "cyto_zarr.py"),
-    ("cyto_columns.py", RESERVED_LIB_PACKAGE, "cyto_columns.py"),
+    ("txr_zarr.py", RESERVED_LIB_PACKAGE, "txr_zarr.py"),
+    ("txr_columns.py", RESERVED_LIB_PACKAGE, "txr_columns.py"),
     (
-        "cyto_zarr_read.py",
+        "txr_zarr_read.py",
         RESERVED_LIB_PACKAGE,
-        "cyto_zarr_read.py",
+        "txr_zarr_read.py",
     ),
     // artifact-model ITEM-27: the out-of-core CSR→CSC transpose that replaced the
     // lossless multi-file store the import converter used to write purely as a transpose
-    // BUFFER. It sits in `_lib` beside the writer it drives (`cyto_zarr.ArrayWriter`) and
+    // BUFFER. It sits in `_lib` beside the writer it drives (`txr_zarr.ArrayWriter`) and
     // holds the same numpy+stdlib floor — h5py is imported lazily, inside the HDF5
     // sources only.
-    ("cyto_csc.py", RESERVED_LIB_PACKAGE, "cyto_csc.py"),
+    ("txr_csc.py", RESERVED_LIB_PACKAGE, "txr_csc.py"),
     // #80: the RUN-TIME half of the declared dependency + version contract. It resolves
     // each library the entry DECLARES, refuses by name when the environment this job was
     // actually given does not satisfy that declaration, and returns the record the run
@@ -202,7 +202,7 @@ pub const PY_HELPER_FILES: &[(&str, &str, &str)] = &[
     // other contract-shaped modules: like them it encodes an agreement with something
     // outside the process (there, the on-disk artifact format; here, the environment
     // recipe's pin set), rather than being app runtime glue.
-    ("cyto_deps.py", RESERVED_LIB_PACKAGE, "cyto_deps.py"),
+    ("txr_deps.py", RESERVED_LIB_PACKAGE, "txr_deps.py"),
 ];
 
 /// The staged filename of an entry's serialized dependency contract (#80).
@@ -210,9 +210,9 @@ pub const PY_HELPER_FILES: &[(&str, &str, &str)] = &[
 /// Named here beside the staging tables because that is what makes it resolvable: the
 /// python reader looks for this name next to itself in `/code`, and the two names must
 /// agree or the reader silently sees "declares nothing". Kept in lockstep with
-/// `_lib/cyto_deps.py::CONTRACT_FILENAME` by
+/// `_lib/txr_deps.py::CONTRACT_FILENAME` by
 /// `dependency_contract_filename_matches_the_python_reader`.
-pub const DEPENDENCY_CONTRACT_FILE: &str = "cyto_dependencies.json";
+pub const DEPENDENCY_CONTRACT_FILE: &str = "txr_dependencies.json";
 
 /// The resolved processor: its language, the script bytes READ FROM THE FOLDER
 /// (owned), the DECLARED host resources + sibling helpers, and the owning package.
@@ -464,8 +464,8 @@ pub fn resolve_in_with(
 ///
 /// ## Why `false` for R, and what that costs
 ///
-/// [`PY_HELPER_FILES`] is a table of PYTHON MODULES (`cyto_zarr.py`, `cyto_csc.py`,
-/// `cyto_columns.py`, …). There is no R substrate in this tree to stage in their place,
+/// [`PY_HELPER_FILES`] is a table of PYTHON MODULES (`txr_zarr.py`, `txr_csc.py`,
+/// `txr_columns.py`, …). There is no R substrate in this tree to stage in their place,
 /// and writing one is a library-sized commitment — deliberately out of scope for the
 /// walking skeleton that first made this question answerable (E6/INV-5). So the honest
 /// answer is `false`, **recorded as a deliberate weakening rather than left to be
@@ -690,13 +690,13 @@ mod tests {
 
     /// A throwaway data dir with the REAL embedded seed extracted into it (via
     /// `embedded::reconcile`), so resolution runs over the SAME folder layout production
-    /// scans — WITHOUT mutating `CYTO_APP_DATA_DIR` (parallel-safe).
+    /// scans — WITHOUT mutating `TXR_APP_DATA_DIR` (parallel-safe).
     struct SeedDir(PathBuf);
     impl SeedDir {
         fn new(tag: &str) -> Self {
             let seq = SEQ.fetch_add(1, Ordering::Relaxed);
             let p = std::env::temp_dir()
-                .join(format!("cyto-proc-resolve-{tag}-{}-{seq}", std::process::id()));
+                .join(format!("txr-proc-resolve-{tag}-{}-{seq}", std::process::id()));
             let _ = std::fs::remove_dir_all(&p);
             std::fs::create_dir_all(&p).unwrap();
             embedded::reconcile(&p, &embedded::embedded_seed()).expect("extract seed");
@@ -785,16 +785,16 @@ mod tests {
                 // nobody reads.
                 "alignment.py",
                 // #80 — the run-time half of the declared dependency + version contract.
-                "cyto_deps.py",
+                "txr_deps.py",
                 "colsummary.py",
                 // From `_lib` — proving the second reserved package resolves. Without
                 // these four staged, every processor importing them dies at
                 // `ModuleNotFoundError` inside the sandbox, which reaches the server
                 // only as an opaque job failure.
-                "cyto_columns.py",
-                "cyto_csc.py",
-                "cyto_zarr.py",
-                "cyto_zarr_read.py",
+                "txr_columns.py",
+                "txr_csc.py",
+                "txr_zarr.py",
+                "txr_zarr_read.py",
             ]
             .into_iter()
             .collect::<std::collections::BTreeSet<_>>(),
@@ -866,7 +866,7 @@ mod tests {
             std::fs::read(dir.join("_lib/conformance.py")).unwrap()
         );
         // The gate imports the reader, so THAT has to be staged too (it is, globally).
-        assert!(staged.contains("cyto_zarr_read.py"), "{staged:?}");
+        assert!(staged.contains("txr_zarr_read.py"), "{staged:?}");
         assert!(
             verify.script.contains("conform_manifest"),
             "the entry actually drives the gate"
@@ -1197,7 +1197,7 @@ mod tests {
         assert!(
             !staged.contains(&DEPENDENCY_CONTRACT_FILE),
             "the serialized dependency contract was staged for an R entry. It is a python \
-             convention (`cyto_deps` reads it); DEC-2 says an R entry is self-contained"
+             convention (`txr_deps` reads it); DEC-2 says an R entry is self-contained"
         );
 
         // ── the control: the python path is UNCHANGED ──────────────────────────────
@@ -1474,7 +1474,7 @@ mod tests {
 
         // A secret host file OUTSIDE the processors folder entirely.
         let secret = seed.path().parent().unwrap().join(format!(
-            "cyto-secret-{}-{}.txt",
+            "txr-secret-{}-{}.txt",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
@@ -1519,7 +1519,7 @@ mod tests {
 
         // A host dir OUTSIDE the processors root, holding a file.
         let outside = seed.path().parent().unwrap().join(format!(
-            "cyto-outside-{}-{}",
+            "txr-outside-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
@@ -1846,7 +1846,7 @@ mod tests {
                 let staged: std::collections::HashMap<&str, &Vec<u8>> =
                     r.helpers.iter().map(|(n, b)| (n.as_str(), b)).collect();
                 assert!(
-                    staged.contains_key("cyto_deps.py"),
+                    staged.contains_key("txr_deps.py"),
                     "{}: the recorder module is not staged — an unstaged module is not a \
                      degraded check, it is ModuleNotFoundError at process start",
                     run.entry
@@ -1936,17 +1936,17 @@ mod tests {
                 // The ENTRY's own source is the subject, plus the helpers it declares —
                 // but the assertion is on an actual CALL, not a mention.
                 //
-                // The first cut of this test matched the bare substring `cyto_deps`
+                // The first cut of this test matched the bare substring `txr_deps`
                 // anywhere in the entry OR any declared helper. That was HOLLOW twice
-                // over: an `import cyto_deps` with no call satisfied it, and — the case
+                // over: an `import txr_deps` with no call satisfied it, and — the case
                 // that actually shipped — an entry could inherit a green result from a
                 // helper that calls the recorder in code the entry never reaches. One
                 // analysis passed exactly that way while recording nothing at run time.
                 // Matching a call expression is what closes both.
                 const RECORDING_CALLS: &[&str] = &[
-                    "cyto_deps.augment(",
-                    "cyto_deps.record_for_run(",
-                    "cyto_deps.resolve_and_check(",
+                    "txr_deps.augment(",
+                    "txr_deps.record_for_run(",
+                    "txr_deps.resolve_and_check(",
                 ];
                 let mut sources: Vec<(String, String)> = Vec::new();
                 for rel in std::iter::once(run.entry.clone()).chain(run.helpers.iter().cloned()) {
@@ -2036,7 +2036,7 @@ mod tests {
     #[test]
     fn dependency_contract_filename_matches_the_python_reader() {
         let seed = SeedDir::new("filename");
-        let src = std::fs::read_to_string(seed.path().join("_lib/cyto_deps.py"))
+        let src = std::fs::read_to_string(seed.path().join("_lib/txr_deps.py"))
             .expect("the recorder module ships in the reserved package");
         assert!(
             src.contains(&format!("CONTRACT_FILENAME = \"{DEPENDENCY_CONTRACT_FILE}\"")),

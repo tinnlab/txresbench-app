@@ -787,7 +787,7 @@ actions:
             label: "$state.label"
       - toast: { success: "Keep-mask committed" }
 
-# Declared CANVAS before/after, driven onto the SINGLE @ziee/viz canvas. Each active
+# Declared CANVAS before/after, driven onto the SINGLE @txresbench/viz canvas. Each active
 # criterion emits a `before` cell over `obs` + an adjacent `after` cell over `obs.kept`
 # (the derived keep-mask survivors). The plot KIND follows the column type (continuous →
 # violin, categorical → bar) via two `when`-gated series per role (a `$ref` `type` can't

@@ -80,7 +80,7 @@ use axum::http::StatusCode;
 use serde_json::Value as Json;
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::repository::{ModelRow, ModelStoreRepository};
 use super::store::{parse_endpoint, parse_task, requirements_unrecorded};

@@ -1,7 +1,7 @@
 //! TEST-63 [ITEM-25, ITEM-19] — job SSE. `GET /jobs/{id}/stream` delivers
 //! replay-then-live frames (`Status` + `Log` + `Metric`) for a running job, and
 //! `GET /jobs/{id}` (the poll fallback) returns the same terminal state with the
-//! replayed logs. (The `$CYTO_PROGRESS_FIFO` phase/pct `Progress` frame rides the
+//! replayed logs. (The `$TXR_PROGRESS_FIFO` phase/pct `Progress` frame rides the
 //! real sandbox path — exercised by the rootfs-gated capsule tests.)
 
 use std::time::Duration;

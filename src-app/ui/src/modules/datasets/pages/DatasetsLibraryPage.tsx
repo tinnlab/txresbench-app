@@ -16,9 +16,9 @@ import {
   Tooltip,
   message,
   type TableColumn,
-} from '@ziee/kit'
+} from '@txresbench/kit'
 import { Datasets } from '@/modules/datasets/stores/Datasets.store'
-import { DivScrollY, HeaderBarContainer, useElementMinSize } from '@ziee/shell'
+import { DivScrollY, HeaderBarContainer, useElementMinSize } from '@txresbench/shell'
 import { cn } from '@/lib/utils'
 import { type Dataset, type DatasetListItem } from '@/api-client/types'
 import { ProcessingStatusBadge } from '@/modules/datasets/components/ProcessingStatusBadge'
@@ -99,7 +99,7 @@ function RowFolderMenu({ dataset }: { dataset: Dataset }) {
 
 /**
  * The top-level dataset library (Variant A "instrument" — DEC-21). Composed like
- * the ziee `ProjectsPage` (the shared `HeaderBarContainer` top bar over a centered
+ * the txresbench `ProjectsPage` (the shared `HeaderBarContainer` top bar over a centered
  * max-width body, states) but scaled to a dense kit `Table` + `Pagination` with a
  * folder rail. Owned ∪ shared (two tabs); folders + search + pagination are applied
  * client-side (the list endpoints return the full owner-scoped set — no server paging).

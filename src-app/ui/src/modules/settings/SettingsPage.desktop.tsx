@@ -23,13 +23,13 @@
  * the filter list + flat menu logic.
  */
 
-import { Button, Dropdown, Flex, Menu, Title } from '@ziee/kit'
+import { Button, Dropdown, Flex, Menu, Title } from '@txresbench/kit'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { useElementMinSize } from '@ziee/shell'
-import { HeaderBarContainer } from '@ziee/shell'
+import { useElementMinSize } from '@txresbench/shell'
+import { HeaderBarContainer } from '@txresbench/shell'
 import { IoIosArrowDown, IoMdSettings } from 'react-icons/io'
 import { useEffect, useRef } from 'react'
-import { ModuleSystem } from '@ziee/framework/stores'
+import { ModuleSystem } from '@txresbench/framework/stores'
 import { AppMode } from '@/modules/app/AppMode.store'
 
 // Settings page entries that are specific to multi-user SaaS features

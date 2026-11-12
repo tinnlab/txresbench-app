@@ -31,7 +31,7 @@ use super::repository::{NewRun, ProvenanceRepository};
 /// The reserved output id a run uses to report the environment it actually executed
 /// against (#80).
 ///
-/// Kept in lockstep with `_lib/cyto_deps.py::OUTPUT_ID` — the python side writes it, this
+/// Kept in lockstep with `_lib/txr_deps.py::OUTPUT_ID` — the python side writes it, this
 /// side looks for it, and a divergence would silently mean every run records `None`. The
 /// well-known-id shape is the one already used to lift other per-run records off the
 /// outputs the recorder is handed.
@@ -119,7 +119,7 @@ impl ProvenanceRunRecorder {
         outputs: &[ProducedOutput],
         exit_code: i32,
         workspace_root: &std::path::Path,
-    ) -> Result<(), ziee_core::AppError> {
+    ) -> Result<(), txresbench_core::AppError> {
         // ITEM-68: a run is scoped to a project (workbench) OR a dataset (owner
         // processing) — a job carries no scope column, so resolve the scope from the
         // single-source-of-truth `job_scope` table. The run_repro schema carries a
@@ -264,7 +264,7 @@ impl ProvenanceRunRecorder {
         dataset_scope: Option<Uuid>,
         caller_id: Uuid,
         spec: &AnalysisSpec,
-    ) -> Result<Vec<UsedEdgeDto>, ziee_core::AppError> {
+    ) -> Result<Vec<UsedEdgeDto>, txresbench_core::AppError> {
         let catalog = CatalogRepository::new(self.pool.clone());
         // The datasets ATTACHED to the run's project (lazily, only if a candidate
         // artifact misses the direct scope match). A PROJECT-scoped (workbench) run over
@@ -389,7 +389,7 @@ impl ProvenanceRunRecorder {
                     }
                 }
             } else if let Some(file_id) = input.dataset_file_ref {
-                // ITEM-20 / DEC-20: a Dataset (ziee-file) input. Resolve the file to
+                // ITEM-20 / DEC-20: a Dataset (txresbench-file) input. Resolve the file to
                 // its dataset + the dataset's merkle content hash (the provenance
                 // link key), so the run pins its SOURCE dataset as a `dataset`
                 // used-edge and the backward walk terminates at (or crosses) it.
@@ -505,7 +505,7 @@ pub fn unresolved_edge(slot: &str) -> UsedEdgeDto {
     }
 }
 
-/// A used-edge for a Dataset (ziee-file) input — kind `dataset`, pinned by the
+/// A used-edge for a Dataset (txresbench-file) input — kind `dataset`, pinned by the
 /// dataset's merkle `content_hash` (the provenance link key, ITEM-20 / DEC-20).
 /// `ref_id` is the dataset id (not the file id), so the walk terminates at — or
 /// crosses (a promoted dataset) — the dataset node keyed by that same hash.

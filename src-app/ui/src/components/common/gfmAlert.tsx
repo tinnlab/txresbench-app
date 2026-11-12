@@ -1,6 +1,6 @@
 import { Children, cloneElement, isValidElement, type ReactNode } from 'react'
 import { Info, Lightbulb, MessageSquareWarning, OctagonAlert, TriangleAlert } from 'lucide-react'
-import { Alert, type AlertTone } from '@ziee/kit/kit/alert'
+import { Alert, type AlertTone } from '@txresbench/kit/kit/alert'
 
 /**
  * GitHub-Flavored-Markdown alerts (a.k.a. callouts / admonitions):

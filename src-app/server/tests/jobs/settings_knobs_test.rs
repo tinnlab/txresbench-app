@@ -18,10 +18,10 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::admission;
-use cytoanalyst::modules::jobs::models::CreateJobRequest;
-use cytoanalyst::modules::jobs::repository::JobRepository;
-use cytoanalyst::modules::jobs::settings::{
+use txresbench::modules::jobs::admission;
+use txresbench::modules::jobs::models::CreateJobRequest;
+use txresbench::modules::jobs::repository::JobRepository;
+use txresbench::modules::jobs::settings::{
     JobSettingsRepository, DEFAULT_ADMISSION_POLL_MS, DEFAULT_ADMISSION_WAIT_SECS,
     DEFAULT_SSE_KEEP_ALIVE_SECS, DEFAULT_SSE_MAX_CLIENTS,
 };
@@ -279,7 +279,7 @@ async fn partial_put_leaves_other_knobs_unchanged() {
 async fn settings_denied_without_jobs_settings_perm() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    let _uid = create_user_without_projects(&server, &admin, "jk_np", "jk_np@cyto.test").await;
+    let _uid = create_user_without_projects(&server, &admin, "jk_np", "jk_np@txresbench.test").await;
     let token = login(&server, "jk_np").await;
 
     let get = server

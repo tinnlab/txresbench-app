@@ -1,6 +1,6 @@
 // ContextLostOverlay.tsx — a small, NON-BLOCKING "GPU context lost — recovering…"
 // badge shown over the deck canvas while a WebGL context is down (ITEM-57). Kit-free
-// (raw DOM, no @ziee/*) so it stays inside viz-core. Purely informational: the
+// (raw DOM, no @txresbench/*) so it stays inside viz-core. Purely informational: the
 // workspace + data survive in JS memory; the badge disappears once the context
 // restores and buffers re-upload (no page reload).
 

@@ -37,7 +37,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
- * The `@ziee/viz` package root — this guard's `CLAIM_SCAN_ROOT`.
+ * The `@txresbench/viz` package root — this guard's `CLAIM_SCAN_ROOT`.
  *
  * Derived from THIS FILE's own location, not from `process.cwd()`. The package's `test` script
  * runs vitest from the package directory, so `cwd` happens to be right today; a run from the
@@ -173,7 +173,7 @@ function* walk(dir: string): Generator<string> {
  * its layout, and three of the sentences #259 retired lived in them, outside both existing
  * roots. The reasoning is this file's own, one level out again — "A guard rooted at one package
  * does not protect another; the second root is the fix, not a second opinion." A guard rooted at
- * `@ziee/viz` + `docs/design` could not see the specs that quote the corpus, so the correction
+ * `@txresbench/viz` + `docs/design` could not see the specs that quote the corpus, so the correction
  * there could rot back with nothing noticing, which is the entire failure class this file exists
  * for.
  */
@@ -913,7 +913,7 @@ describe('#346 TEST-4 no retired claim that the corpus lacks a foreign-AUTHORED 
   })
 })
 
-describe('TEST-5 [acceptance] [invariant: INV-4] no retired claim about the shipped Visium image survives in @ziee/viz', () => {
+describe('TEST-5 [acceptance] [invariant: INV-4] no retired claim about the shipped Visium image survives in @txresbench/viz', () => {
   it('scans the whole package and reports every offender by file and sentence', () => {
     const offenders: string[] = []
     const scanned: Record<string, number> = {}

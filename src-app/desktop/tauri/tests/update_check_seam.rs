@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cytoanalyst_desktop_lib::updates::{
+use txresbench_desktop_lib::updates::{
     UPDATER_FEED_URL, UpdateEvents, UpdateInfo, UpdateRuntime, UpdateState, available_prompt_text,
     boot_prompt, check_for_update, get_update_status, install_update, parse_feed,
     set_runtime_for_tests, updater_configured, CheckFn, InstallFn, RestartFn,
@@ -197,7 +197,7 @@ fn fake_install(ok: bool, invoked: Arc<AtomicUsize>) -> InstallFn {
         let invoked = invoked.clone();
         Box::pin(async move {
             invoked.fetch_add(1, Ordering::SeqCst);
-            events.emit(cytoanalyst_desktop_lib::updates::UpdateEvent::DownloadProgress {
+            events.emit(txresbench_desktop_lib::updates::UpdateEvent::DownloadProgress {
                 bytes_downloaded: 4,
                 bytes_total: 8,
             });

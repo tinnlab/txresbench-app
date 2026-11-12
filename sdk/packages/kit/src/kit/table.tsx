@@ -244,7 +244,7 @@ function ResizeHandle<T>({ col, view, testid, width }: { col: TableColumn<T>; vi
     const th = (e.currentTarget.closest('th') ?? e.currentTarget.parentElement) as HTMLElement | null
     // The drag must be tracked on the window this handle actually lives in — in a popped-out pane
     // that is NOT the ambient `window`, and listeners there would never fire. Mirrors
-    // `@ziee/dock`'s useGripDrag, which resolves its window the same way.
+    // `@txresbench/dock`'s useGripDrag, which resolves its window the same way.
     const win = e.currentTarget.ownerDocument?.defaultView ?? window
     const startX = e.clientX
     const startW = th ? th.getBoundingClientRect().width : 120

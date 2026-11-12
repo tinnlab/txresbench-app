@@ -1,12 +1,12 @@
 // VizToolRail.tsx — the GLOBAL left tool rail for a viz grid (Photoshop / VS-Code activity-bar style),
-// built on @ziee/kit + lucide to match the CytoAnalyst workbench chrome. ONE rail per grid, OCCUPYING
+// built on @txresbench/kit + lucide to match the TxResBench workbench chrome. ONE rail per grid, OCCUPYING
 // the grid's left edge (not overlaid). Holds the EXCLUSIVE active tool (Select / Zoom) + global
 // toggles (show cell toolbars, link-zoom) + the whole-grid export. When Select is active it EXPANDS,
 // revealing the selection SHAPE sub-tools (rectangle / polygon / move + finish / clear) directly beneath
 // it, separated from the rest of the rail by a divider. Presentational: every action is a callback prop.
 
 import type { ReactNode } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 // BLIND-AUDIT M12: this rail's export is the WHOLE GRID; the pane toolbar's registered
 // `pane.export` is ONE pane. Both are visible at once, so they are two different actions and must
 // not wear the same mark — `Download` is the registered pane-export glyph, so the grid-scope export

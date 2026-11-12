@@ -13,7 +13,7 @@
  * confirmation IS the mapping step.
  */
 import type { CSSProperties } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import type { ColumnRenameOffer } from '../types'
 
 /** The board's grey offer row (one question + two kit buttons). */

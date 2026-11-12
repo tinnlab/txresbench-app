@@ -1,6 +1,6 @@
 # Admin Console shell — design
 
-**Source of intent:** GitHub issue [#42](https://github.com/ziee-ai/cytoanalyst/issues/42)
+**Source of intent:** GitHub issue [#42](https://github.com/tinnlab/txresbench/issues/42)
 ("Admin Console shell: settingsAdminPages cluster + saas-gating seam + defineAction
 discipline") — the shell item of the Admin Console epic (blocks #43–48). This doc
 formalizes the shell's non-negotiables so the later admin pages have a stable seam to

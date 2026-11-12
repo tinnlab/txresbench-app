@@ -36,7 +36,7 @@ export const FRAME_BUDGET_MS = 8
 export const CAPACITY_SCHEMA_VERSION = 1
 
 /** localStorage key for the cached capacity record. */
-export const CAPACITY_STORAGE_KEY = 'ziee.viz.renderCapacity'
+export const CAPACITY_STORAGE_KEY = 'txresbench.viz.renderCapacity'
 
 /** Re-probe after this long even for the same renderer (driver/OS updates change perf). 30 days. */
 export const CAPACITY_TTL_MS = 30 * 24 * 60 * 60 * 1000

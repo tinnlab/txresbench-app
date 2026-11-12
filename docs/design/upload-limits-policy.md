@@ -1,7 +1,7 @@
 # Upload and file-size limit policy
 
 Status: accepted (owner ruling, 2026-09-02). Supersedes the deferred half of
-[#185](https://github.com/ziee-ai/cytoanalyst/issues/185) §1 and closes DEC-7 of the
+[#185](https://github.com/tinnlab/txresbench/issues/185) §1 and closes DEC-7 of the
 `streaming-upload` lifecycle (#182).
 
 ## The owner's position

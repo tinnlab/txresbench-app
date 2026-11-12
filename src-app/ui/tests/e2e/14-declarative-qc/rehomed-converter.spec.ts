@@ -12,7 +12,7 @@ import { REAL_COMPUTE, REAL_COMPUTE_SKIP } from '../14-workbench/_analysis'
 // ingested dataset. Confirms the live import path survives the `builtins/` deletion (DEC-22).
 //
 // The registration + launcher split is PURE (from DATA, no compute). The converter AUTO-RUN on a
-// real ingest is REAL-compute — gated on CYTO_E2E_REAL_COMPUTE. This describe mixes a PURE test
+// real ingest is REAL-compute — gated on TXR_E2E_REAL_COMPUTE. This describe mixes a PURE test
 // with a gated one, so the gate here is a BODY-level `test.skip` on the gated test alone (a
 // describe-level one would wrongly skip the pure sibling). Either way it is REPORTED as skipped
 // with its reason, never dropped from collection — see `../14-workbench/_analysis.ts`. The describe

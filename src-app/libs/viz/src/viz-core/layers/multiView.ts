@@ -130,7 +130,7 @@ export function buildViewStates(
  * declarations cannot collide on the shared surface. Recovering the owner by parsing to the
  * FIRST separator therefore answered `<viewId>` for such a pane: a string that is no viewport
  * at all, so `owner === viewport.id` was false for EVERY view and the layer was drawn in NONE.
- * The pane rendered its chrome and its plot painted nothing — the empty violin the CytoAnalyst
+ * The pane rendered its chrome and its plot painted nothing — the empty violin the TxResBench
  * cell-filter surface shipped, with the dataset resolved and every row present behind it.
  *
  * Asking the viewport instead removes the ambiguity rather than moving it: there is no boundary

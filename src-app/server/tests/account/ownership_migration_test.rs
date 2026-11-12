@@ -2,9 +2,9 @@
 //! the schema shape + backfill safety of `202608040013`/`202608040014` and the
 //! frozen PROV-A2-3 (`projects.account_id` / `datasets.account_id`).
 
-use cytoanalyst::modules::account::scope::{account_of_dataset, account_of_project};
-use cytoanalyst::modules::dataset::repository::DatasetRepository;
-use cytoanalyst::modules::project::ProjectRepository;
+use txresbench::modules::account::scope::{account_of_dataset, account_of_project};
+use txresbench::modules::dataset::repository::DatasetRepository;
+use txresbench::modules::project::ProjectRepository;
 use uuid::Uuid;
 
 use super::{create_user, pool_for, setup_admin};
@@ -273,7 +273,7 @@ async fn no_null_account_id_and_artifacts_have_no_owner_columns() {
     .expect("insert dataset-scoped artifact");
 
     let via_artifact =
-        cytoanalyst::modules::account::scope::account_of_artifact(&pool, artifact_id)
+        txresbench::modules::account::scope::account_of_artifact(&pool, artifact_id)
             .await
             .unwrap();
     let via_dataset = account_of_dataset(&pool, dataset.id).await.unwrap();

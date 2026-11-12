@@ -5,12 +5,12 @@
 // id, lock state, or ANY unmodeled property. QuPath is the portability target, so the
 // per-Feature `properties` mirror QuPath exactly — `objectType`, `name`,
 // `classification:{name,color:[r,g,b]}`, `isLocked`, `measurements`, namespaced
-// `ziee:{}` — and every OTHER `properties` key is passed through VERBATIM (the
+// `txresbench:{}` — and every OTHER `properties` key is passed through VERBATIM (the
 // foreign-property passthrough rule) via the model's `Annotation.properties` bag.
 //
 // Coordinates default to full-resolution pixels — the canonical stored space (INV-4) —
 // so no transform is needed for the common QuPath case. A file authored in physical /
-// world / level space declares it in a top-level `ziee:crs` member (or via `opts.space`),
+// world / level space declares it in a top-level `txresbench:crs` member (or via `opts.space`),
 // and every coordinate flows through the ITEM-14 coords facade — the ONE call surface,
 // never inline level math.
 //
@@ -54,8 +54,8 @@ export interface GeoJsonFeature {
 export interface GeoJsonFeatureCollection {
   type: 'FeatureCollection'
   features: GeoJsonFeature[]
-  /** ziee namespaced coordinate-space declaration (ITEM-7); absent ⇒ full-res pixels. */
-  'ziee:crs'?: string
+  /** txresbench namespaced coordinate-space declaration (ITEM-7); absent ⇒ full-res pixels. */
+  'txresbench:crs'?: string
 }
 
 /** The result of importing a FeatureCollection: the annotations + the class registry
@@ -66,7 +66,7 @@ export interface GeoJsonImportResult {
 }
 
 export interface GeoJsonIoOptions {
-  /** the on-disk coordinate space of the coordinates. Default: read `ziee:crs`, else
+  /** the on-disk coordinate space of the coordinates. Default: read `txresbench:crs`, else
    *  `'fullRes'`. Any non-fullRes space REQUIRES `coords`. */
   readonly space?: CoordSpace
   /** the ITEM-14 facade, required iff `space` (resolved) is not `'fullRes'`. */
@@ -84,7 +84,7 @@ export interface GeoJsonIoOptions {
 const PART_ID_SUFFIX = '::part'
 
 /** Reserved property key holding this module's out-of-band per-Feature metadata (stripped on export). */
-const GEOJSON_META_KEY = 'ziee:geojson'
+const GEOJSON_META_KEY = 'txresbench:geojson'
 
 /** Out-of-band round-trip metadata attached to an imported annotation's property bag. */
 interface GeoJsonMeta {
@@ -149,9 +149,9 @@ function openFlatToClosedRing(flat: number[]): Position[] {
 
 // ── coordinate-space plumbing ─────────────────────────────────────────────────
 
-function resolveSpace(fc: { 'ziee:crs'?: string } | undefined, opts?: GeoJsonIoOptions): CoordSpace {
+function resolveSpace(fc: { 'txresbench:crs'?: string } | undefined, opts?: GeoJsonIoOptions): CoordSpace {
   if (opts?.space) return opts.space
-  return coordSpaceFromString(fc?.['ziee:crs'])
+  return coordSpaceFromString(fc?.['txresbench:crs'])
 }
 
 /** Build the per-coordinate mapper `space → fullRes` (import) or `fullRes → space` (export). */
@@ -240,7 +240,7 @@ function splitProperties(
       // Drop it here so it can neither round-trip as trusted internal metadata nor reappear in
       // the passthrough bag — the editor's OWN meta is attached separately in `add()` on import.
     } else {
-      passthrough[k] = v // foreign — retained verbatim (measurements, objectType, other ziee:*, …)
+      passthrough[k] = v // foreign — retained verbatim (measurements, objectType, other txresbench:*, …)
     }
   }
   return { classId, label, locked, level, parentId, passthrough }
@@ -429,7 +429,7 @@ export function exportGeoJson(
   })
 
   const out: GeoJsonFeatureCollection = { type: 'FeatureCollection', features }
-  if (space !== 'fullRes') out['ziee:crs'] = coordSpaceToString(space)
+  if (space !== 'fullRes') out['txresbench:crs'] = coordSpaceToString(space)
   return out
 }
 

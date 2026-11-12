@@ -109,7 +109,7 @@ def test_the_resolution_sensitivity_disclosure_is_mandatory_on_cluster_results(c
         "the disclosure must point at the resolution-free complement, or it is a warning with no "
         "action attached")
     entry = run.da_entries()[0]
-    assert run.da_cyto(entry)["da"]["resolution_sensitivity"] == disclosure, (
+    assert run.da_txr(entry)["da"]["resolution_sensitivity"] == disclosure, (
         "the disclosure must ride the ARTIFACT too — a reader who opens the table without the "
         "report still has to see it")
     assert "RELATIVE" in report["relative_abundance_caveat"].upper()

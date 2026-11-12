@@ -99,7 +99,7 @@ pub struct PairExchangeRequest {
 
 /// `POST /api/mcp/pair/exchange` response — an access+refresh token pair for
 /// the pairing code's owner, minted the same way any other login-shaped flow
-/// mints one (`ziee-auth`'s `mint_session_tokens`).
+/// mints one (`txresbench-auth`'s `mint_session_tokens`).
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct PairExchangeResponse {
     pub access_token: String,

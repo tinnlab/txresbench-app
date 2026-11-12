@@ -12,14 +12,14 @@
 //! `strftime` clock, `GREATEST` is `MAX`, and the PG `is_unique_violation()`
 //! (23505) re-keys to the sqlite extended codes 2067/1555 (ITEM-18's map). The
 //! `encrypt_secret`/`decrypt_secret` calls keep their shape: the SDK
-//! `ziee_framework::secret` sqlite branch (owner decision D02 — the secret
+//! `txresbench_framework::secret` sqlite branch (owner decision D02 — the secret
 //! feature stays dormant and returns the explicit "secrets unavailable" error)
 //! takes the app's `&SqlitePool` through the `DbPool` alias.
 
 use serde::Serialize;
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// A migration row (non-secret descriptors + lifecycle + progress). Serialized (masked) to
 /// the admin status endpoint — it carries NO credential, only bucket/provider/backend labels.
@@ -203,7 +203,7 @@ pub async fn encrypt_preserved_old_config(
     }
     let json = serde_json::to_string(cfg)
         .map_err(|e| AppError::internal_error(format!("serialize preserved OLD config: {e}")))?;
-    ziee_framework::secret::encrypt_secret(pool, &json, ziee_framework::secrets::storage_key()).await
+    txresbench_framework::secret::encrypt_secret(pool, &json, txresbench_framework::secrets::storage_key()).await
 }
 
 /// Decrypt the preserved OLD-store config (#64 DEC-5) for a row, for boot-resume / the retire
@@ -224,8 +224,8 @@ pub async fn decrypt_preserved_old_config(
             }
         }
         Some(ct) => {
-            let key = ziee_framework::secrets::storage_key()?;
-            match ziee_framework::secret::decrypt_secret(pool, ct, key).await {
+            let key = txresbench_framework::secrets::storage_key()?;
+            match txresbench_framework::secret::decrypt_secret(pool, ct, key).await {
                 Ok(json) => serde_json::from_str(&json).ok(),
                 Err(e) => {
                     tracing::error!(error = ?e, "workstore: could not decrypt preserved OLD-store config (#64)");

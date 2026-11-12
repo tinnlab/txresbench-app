@@ -34,7 +34,7 @@ Underneath, `WorkbenchDataSource.positions()` (`workbenchDataSource.ts:921-925`)
 `ZarrArray.chunks()` (`zarrReader.ts:651`) and invokes `onChunk` per inner chunk.
 **`deps.onChunk` has no production consumer** — `canvasDataSource.buildCanvasDataSource`
 (`canvasDataSource.ts:16-49`) passes none, so the hook is wired end-to-end and unused. The only
-consumer is the dev-only e2e seam `__cyto_read.positionsProgressive`
+consumer is the dev-only e2e seam `__txr_read.positionsProgressive`
 (`core/workstore/index.ts:195-213`).
 
 **Arc B — colour / value columns (boxed, via the declarative data runtime).**
@@ -51,7 +51,7 @@ So the pane's colour data is materialized twice over — once out of typed zarr 
 
 ## 2. The library's two ingresses (only one is progressive)
 
-`@ziee/viz` accepts data two ways, and they are **parallel, not layered**:
+`@txresbench/viz` accepts data two ways, and they are **parallel, not layered**:
 
 - `<Viz source>` — a `StreamingSource` or a legacy pull `DataSource` (`react/Viz.tsx:180`,
   discriminated at `:71-77`). A streaming source is registered on the `DatasetStore`
@@ -113,10 +113,10 @@ generated code) is an open choice (§7 Q4).
 
 ## 5. Constraint — the streaming unit is ONE INNER CHUNK
 
-`byte_shuffle` transposes the WHOLE chunk (`cyto_zarr.py:167-179`) and each inner chunk is its own
+`byte_shuffle` transposes the WHOLE chunk (`txr_zarr.py:167-179`) and each inner chunk is its own
 gzip member (`:201-203`, emitted per chunk at `:403-417`). Nothing is readable until a whole chunk
-decompresses. Inner chunk = **8192 rows for embeddings** (`cyto_columns.py:75`, applied `:358`),
-**4096** for other numeric columns (`cyto_zarr.py:90`), 65536 bytes for string payloads (`:131`).
+decompresses. Inner chunk = **8192 rows for embeddings** (`txr_columns.py:75`, applied `:358`),
+**4096** for other numeric columns (`txr_zarr.py:90`), 65536 bytes for string payloads (`:131`).
 
 **So there is no incremental paint below ~8k cells.** A 3460-row UMAP is exactly one chunk and
 will render in one step no matter what this feature does. The win begins in the tens of thousands

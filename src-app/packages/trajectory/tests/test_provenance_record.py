@@ -293,7 +293,7 @@ def test_the_pseudotime_column_is_a_continuous_float32_1d_column(dpt):
 def test_the_diffusion_map_was_called_explicitly_with_a_recorded_size(dpt):
     """Never left to the library's silent fallback: it warns and then runs with ITS OWN
     defaults, so a run that relied on that would have a basis nobody recorded."""
-    provenance = dpt.group_cyto("metadata-column")["trajectory"]
+    provenance = dpt.group_txr("metadata-column")["trajectory"]
     assert provenance["n_comps"] == 15
     assert provenance["n_dcs"] == 10
     assert provenance["method"] == "dpt"

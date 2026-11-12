@@ -1,6 +1,6 @@
 //! Dataset module integration tests — the owner-corrected entity (ITEM-1..4, 24)
 //! through the full production path (real spawned server + real Postgres + real
-//! ziee-file blob store). Shared helpers live here; each concern is a submodule.
+//! txresbench-file blob store). Shared helpers live here; each concern is a submodule.
 
 use serde_json::{json, Value};
 
@@ -15,7 +15,7 @@ pub async fn setup_admin(server: &TestServer) -> String {
         .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
-            "email": "admin@cyto.test",
+            "email": "admin@txresbench.test",
             "password": "adminPassw0rd!",
             "display_name": "Admin"
         }))
@@ -191,8 +191,8 @@ fn is_zarr_store_member(path: &str) -> bool {
 
 #[tokio::test]
 async fn test33_an_import_emits_only_zarr_and_the_gate_passes_the_whole_set() {
-    use cytoanalyst::modules::jobs::conformance::{GATE_LOG_PREFIX, GATE_LOG_UNVERIFIED};
-    use cytoanalyst::modules::workstore::object_store::{ContentKey, ObjectStore};
+    use txresbench::modules::jobs::conformance::{GATE_LOG_PREFIX, GATE_LOG_UNVERIFIED};
+    use txresbench::modules::workstore::object_store::{ContentKey, ObjectStore};
     use hardening_common::{
         gate, poll_job_terminal_api, pool_for, server_store, upload_fixture, PBMC3K,
     };

@@ -7,7 +7,7 @@
  * load).
  */
 import type { CSSProperties } from 'react'
-import { Alert, Button } from '@ziee/kit'
+import { Alert, Button } from '@txresbench/kit'
 
 export const HISTORY_ERROR_TITLE = 'Could not load the history.'
 

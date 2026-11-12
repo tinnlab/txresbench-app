@@ -4,7 +4,7 @@ import { datatypeRegistry } from '@/core/datatypes'
 import { listArtifacts } from '@/core/workstore'
 import { datasetPreviewRegistry, type SummaryDeps } from '@/modules/dataset/project-extension/preview'
 import { ProjectDetail } from '@/modules/project/stores/ProjectDetail.store'
-import { Empty, Tag } from '@ziee/kit'
+import { Empty, Tag } from '@txresbench/kit'
 import { CircleHelp, Database, FileBox } from 'lucide-react'
 import { describeArtifactStatus, missingSourceNote } from '../artifactStatus'
 

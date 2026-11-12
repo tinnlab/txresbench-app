@@ -47,7 +47,7 @@ use chrono::{DateTime, Utc};
 use serde_json::Value as Json;
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// One `txr_model_sets` row, decoded with the SQLite type map (PROV-MS-11).
 #[derive(Debug, Clone, FromRow)]

@@ -9,8 +9,8 @@ import {
 } from './lazy-component'
 
 // The ONE implementation behind every "render whatever a module put in this
-// field" surface: `@ziee/framework/router`'s `LazyRouteRenderer` (routes) and
-// `@ziee/shell`'s `LazyComponentRenderer` (slots, banners, shell components).
+// field" surface: `@txresbench/framework/router`'s `LazyRouteRenderer` (routes) and
+// `@txresbench/shell`'s `LazyComponentRenderer` (slots, banners, shell components).
 // They had independent copies of the same classification heuristic and so had
 // the same bug twice; see `lazy-component.ts` for what the heuristic got wrong.
 

@@ -5,7 +5,7 @@ This file is the **`@import` target** for every consuming app's root
 working-dir ROOT, so a submodule's own docs are not picked up — the consumer
 imports THIS file, which in turn imports the shared framework docs below.
 
-These docs are the **universal** (app-agnostic) part of the ziee methodology.
+These docs are the **universal** (app-agnostic) part of the txresbench methodology.
 App-specific module docs (memory/sandbox/bio_mcp test tiers, per-feature
 sections, etc.) stay in each app's own `CLAUDE.md`, NOT here.
 
@@ -33,16 +33,16 @@ bootstrapped agent-kit. Every rule in them is anchored to real code with a
 |---|---|
 | `sdk:` | `sdk/packages/…` — the pinned SDK submodule in your app |
 | `sdk-crates:` | `sdk/crates/…` — the SDK's Rust crates |
-| `ziee:` | the reference consumer app (`ziee/src-app/…`). **Not in your checkout** — it is the provenance anchor for consumer conventions the SDK itself cannot express |
+| `txresbench:` | the reference consumer app (`txresbench/src-app/…`). **Not in your checkout** — it is the provenance anchor for consumer conventions the SDK itself cannot express |
 
-**Rule of authority: the SDK supplies the mechanism; ziee is the reference
-consumer for how to USE it; an older fork (cytoanalyst, or a scaffold copied from
-one) is a snapshot, not a standard.** When they disagree, ziee wins.
+**Rule of authority: the SDK supplies the mechanism; txresbench is the reference
+consumer for how to USE it; an older fork (txresbench, or a scaffold copied from
+one) is a snapshot, not a standard.** When they disagree, txresbench wins.
 
 | Doc | Status |
 |---|---|
 | DESIGN_SYSTEM.md | ✅ real (generated from the reference app's `index.css`) |
-| CODING_GUIDELINES.md | ✅ real (ziee-derived; see its header for the ziee-domain vs framework-general split). §7/§9/§12/§13 carry **CORRECTED** notes where earlier revisions taught removed APIs |
+| CODING_GUIDELINES.md | ✅ real (txresbench-derived; see its header for the txresbench-domain vs framework-general split). §7/§9/§12/§13 carry **CORRECTED** notes where earlier revisions taught removed APIs |
 | META_FRAMEWORK_ARCHITECTURE.md | ✅ written from source — module manifest + waves, store-kit + proxy paths, EventBus, sync, slots, router |
 | REACT_COMPONENT_PATTERNS.md | ✅ written from source |
 | BACKEND_ARCHITECTURE.md | ✅ written from source |

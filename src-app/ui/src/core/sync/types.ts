@@ -1,4 +1,4 @@
-import type { BaseEvent } from '@ziee/framework/events'
+import type { BaseEvent } from '@txresbench/framework/events'
 import type { SyncAction, SyncEntity } from '@/api-client/types'
 
 // Client-side sync event typing.
@@ -27,7 +27,7 @@ type SyncEntityEvents = {
   [E in SyncEntity as `sync:${E}`]: SyncEntityEvent<E>
 }
 
-declare module '@ziee/framework/events' {
+declare module '@txresbench/framework/events' {
   interface AppEvents extends SyncEntityEvents {
     // Broadcast by the SyncClient on every (re)connect so each store can reload
     // to cover events missed while the stream was down. `data` is an empty

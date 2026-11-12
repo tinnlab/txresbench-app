@@ -1,4 +1,4 @@
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 // Side-effect import: `AppMode.store` self-registers via `registerLazyStore`.
 import '@/modules/app/AppMode.store'
 

@@ -6,7 +6,7 @@
  * import `./config` (extensionless) and `./module-system` (a directory holding an
  * `index.ts`). `node --test` has no bundler, so without this hook those specifiers throw
  * `ERR_MODULE_NOT_FOUND` / `ERR_UNSUPPORTED_DIR_IMPORT` and the suite dies at import time
- * — which is precisely how 3 of `@ziee/framework`'s 7 `node:test` files behaved the first
+ * — which is precisely how 3 of `@txresbench/framework`'s 7 `node:test` files behaved the first
  * time anything ran them.
  *
  * Mirrors `src-app/ui/scripts/ts-resolve-hooks.mjs` in the consuming apps, minus their

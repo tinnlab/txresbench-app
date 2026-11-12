@@ -83,7 +83,7 @@ let project = ''
 let seq = 0
 
 function mountShell() {
-  const api = createWorkbenchApi(makeFakeHost({ projectId: project }), `cyto.workbench.tabkeys-${seq}`)
+  const api = createWorkbenchApi(makeFakeHost({ projectId: project }), `txr.workbench.tabkeys-${seq}`)
   return render(
     <WorkbenchProvider api={api} projectId={project} viewId={`test-${project}`} canEdit>
       <RegionShell />

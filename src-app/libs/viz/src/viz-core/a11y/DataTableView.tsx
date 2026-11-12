@@ -2,7 +2,7 @@
 // TEST-77). A GPU canvas is opaque to assistive tech, so a chart offers a "view as table":
 // this renders a REAL semantic `<table>` (caption + `<th scope>` headers + `<tbody>`) from a
 // `TableModel`, so a screen reader reads the chart's actual aggregated numbers. No canvas, no
-// SVG, no kit/@ziee imports (the viz-core framework-agnostic rule) — plain DOM + a `VizTheme`
+// SVG, no kit/@txresbench imports (the viz-core framework-agnostic rule) — plain DOM + a `VizTheme`
 // prop for light/dark chrome. Keyboard-focusable; an optional "Copy CSV" button exports it.
 
 import { useCallback, useState } from 'react'

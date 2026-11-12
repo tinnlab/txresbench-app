@@ -79,13 +79,13 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-use cytoanalyst::modules::sandbox::inputs::materialize_inputs;
-use cytoanalyst::modules::sandbox::spec::AnalysisSpec;
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::gather_exec::{resolve, ResolvedGather};
-use cytoanalyst::modules::workstore::object_store::{LocalFsStore, ObjectStore};
-use cytoanalyst::modules::workstore::virtual_dataset::{create_filter_vd_for_run, FilterOutcome};
+use txresbench::modules::sandbox::inputs::materialize_inputs;
+use txresbench::modules::sandbox::spec::AnalysisSpec;
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::gather_exec::{resolve, ResolvedGather};
+use txresbench::modules::workstore::object_store::{LocalFsStore, ObjectStore};
+use txresbench::modules::workstore::virtual_dataset::{create_filter_vd_for_run, FilterOutcome};
 
 use crate::common::TestServer;
 use crate::dataset::create_dataset;
@@ -187,7 +187,7 @@ fn zarr_array_1d(
     let n = elems.len() / item;
     let mut meta = zarr_meta(dtype, json!([n]), json!([n.max(1)]));
     if let Some(levels) = levels {
-        meta["attributes"] = json!({ "cyto": { "kind": "categorical", "levels": levels } });
+        meta["attributes"] = json!({ "txr": { "kind": "categorical", "levels": levels } });
     }
     zarr_member(prefix, meta, elems)
 }
@@ -200,7 +200,7 @@ fn zarr_array_2d(prefix: &str, width: usize, elems: Vec<u8>) -> Vec<(String, Vec
 /// **The `structure` the SHIPPED importer declares on its tissue-map artifact.**
 ///
 /// Taken from a real importer run, not invented: the shared column writer files the
-/// `(n × 2)` member under `arrays` (because `cyto_zarr.Table._record` files by rank) with
+/// `(n × 2)` member under `arrays` (because `txr_zarr.Table._record` files by rank) with
 /// `columns` EMPTY, carries the top-level `n`, and stamps `aligned_to` + `memberships` because
 /// the artifact is row-aligned. Those last two are the ones §9 says the carrying mechanism
 /// rests on.
@@ -284,7 +284,7 @@ struct SpatialScene {
 }
 
 /// The `aligned_to` digest every row-aligned artifact on this dataset is stamped with — a bare
-/// 64-hex string, the shape `cyto_columns.axis_key_digest` produces.
+/// 64-hex string, the shape `txr_columns.axis_key_digest` produces.
 const ROWS_DIGEST: &str = "acccbf49d40fe2e264f9b194136a8f12b6c2bdf58154ed279262abf97c3d80e0";
 
 async fn spatial_scene(server: &TestServer, name: &str) -> SpatialScene {
@@ -420,8 +420,8 @@ async fn spatial_scene_named(server: &TestServer, name: &str, member: &str) -> S
     }
 }
 
-async fn fetch_job(pool: &sqlx::SqlitePool, job_id: Uuid) -> cytoanalyst::modules::jobs::models::Job {
-    cytoanalyst::modules::jobs::repository::JobRepository::new(pool.clone())
+async fn fetch_job(pool: &sqlx::SqlitePool, job_id: Uuid) -> txresbench::modules::jobs::models::Job {
+    txresbench::modules::jobs::repository::JobRepository::new(pool.clone())
         .get_any(job_id)
         .await
         .expect("fetch job")
@@ -465,7 +465,7 @@ async fn row_of(repo: &CatalogRepository, id: Uuid) -> (Value, Value) {
 /// `AppError { status_code: 404, error_code: "RESOURCE_NOT_FOUND", message: "Artifact member
 /// not found" }`. Matched on the message text rather than the status because the staging path
 /// wraps the error (`describe_artifact_staging_failure`) and only the message survives.
-fn member_not_found(err: &ziee_core::AppError) -> bool {
+fn member_not_found(err: &txresbench_core::AppError) -> bool {
     // The measured phrase, not the bare word `member`: `contains("member")` also matches
     // "members" and "remember", so it would stay green through a different gather failure —
     // and this predicate is the ATTRIBUTION step for the whole diagnosis below.
@@ -487,7 +487,7 @@ fn member_not_found(err: &ziee_core::AppError) -> bool {
 /// The tests below therefore assert the rewrite AND separately prove the underlying cause by
 /// calling `gather_exec::resolve` directly, where the error is still legible. Asserting only
 /// the rewrite would stay green through any other 404 in the staging path.
-fn staging_blob_absent_rewrite(err: &ziee_core::AppError) -> bool {
+fn staging_blob_absent_rewrite(err: &txresbench_core::AppError) -> bool {
     format!("{err:?}").contains("stored bytes are MISSING")
 }
 
@@ -713,7 +713,7 @@ async fn a_post_filter_colour_column_serves_kept_codes_with_its_levels() {
     let levels: Value = serde_json::from_slice(
         &resolved.member("values/zarr.json").unwrap().unwrap(),
     )
-    .map(|v: Value| v["attributes"]["cyto"]["levels"].clone())
+    .map(|v: Value| v["attributes"]["txr"]["levels"].clone())
     .expect("the served member's zarr.json");
     assert_eq!(
         levels, json!(["gl", "mcl", "gcl"]),
@@ -850,13 +850,13 @@ async fn a_filtered_sibling_materialises_into_the_sandbox_and_the_tissue_map_doe
     )
     .expect("parse the materialised root");
     assert_eq!(
-        root["attributes"]["cyto"]["n"], json!(KEPT_ROWS.len()),
+        root["attributes"]["txr"]["n"], json!(KEPT_ROWS.len()),
         "the materialised store declares {N} rows, not the {} kept — a sandboxed analysis \
          would read the UNFILTERED column",
         KEPT_ROWS.len()
     );
     assert!(
-        root["attributes"]["cyto"]["aligned_to"].is_null(),
+        root["attributes"]["txr"]["aligned_to"].is_null(),
         "#211 + the Unpinned filter identity: what a sandboxed consumer can see of a filtered \
          sibling is the RE-MINTED structure, which carries no alignment digest. If that changes, \
          `a_gathered_sibling_declares_no_alignment_identity_at_all` must change with it"
@@ -1010,7 +1010,7 @@ fn csc_member(prefix: &str, dtype: &str, item: usize, elems: Vec<u8>) -> Vec<(St
 /// A REAL `sparse_csc` counts store — the shape the importer emits, with bytes.
 ///
 /// Compressed along the SECOND axis (so `indptr` spans second-axis + 1 and `indices` holds
-/// row positions). That is the LAYOUT `cyto_csc.write_csc_zarr` produces — whatever axis
+/// row positions). That is the LAYOUT `txr_csc.write_csc_zarr` produces — whatever axis
 /// names its caller passes; the shipped importers pass their own domain axes, and the names
 /// here are this file's shape-named stand-ins. What every consumer in the chain narrows on is
 /// `structure.kind == "sparse_csc"`, which is reproduced exactly.
@@ -1047,10 +1047,10 @@ async fn put_stored_counts(
                      "shape": [nnz] },
     });
 
-    // The ROOT GROUP NODE. Not optional and not decoration: `_lib/cyto_csc.py`'s
+    // The ROOT GROUP NODE. Not optional and not decoration: `_lib/txr_csc.py`'s
     // `write_csc_zarr` ends by writing this same node — abridged here, since the per-member
     // geometry keys a real writer adds (`inner_chunk`, `chunks_per_shard`, `shards`,
-    // `stored_bytes`) are read by nothing in this path — and `attributes.cyto` in it IS the
+    // `stored_bytes`) are read by nothing in this path — and `attributes.txr` in it IS the
     // structure every shipped reader deserializes. A fixture with the three member arrays and
     // no group node is not a store any consumer can open — which would make the POSITIVE
     // CONTROL below ("the unfiltered matrix stages fine, so the fixture is real") a weaker
@@ -1060,7 +1060,7 @@ async fn put_stored_counts(
         serde_json::to_vec(&json!({
             "zarr_format": 3,
             "node_type": "group",
-            "attributes": { "cyto": structure.clone() },
+            "attributes": { "txr": structure.clone() },
         }))
         .expect("root group meta"),
     )];
@@ -1181,17 +1181,17 @@ async fn what_a_downstream_analysis_receives_for_the_filtered_matrix() {
                     .expect("the materialised store must have a root zarr.json"),
             )
             .expect("parse the materialised root");
-            let cyto = &root["attributes"]["cyto"];
-            assert_eq!(cyto["kind"], json!("sparse_csc"));
+            let txr = &root["attributes"]["txr"];
+            assert_eq!(txr["kind"], json!("sparse_csc"));
             assert_eq!(
-                cyto["shape"][0], json!(n_kept),
+                txr["shape"][0], json!(n_kept),
                 "the materialised matrix declares {} rows, not the {n_kept} kept — a downstream \
                  analysis would run on the UNFILTERED population",
-                cyto["shape"][0]
+                txr["shape"][0]
             );
-            assert_eq!(cyto["axes"], json!(["rows", "cols"]));
+            assert_eq!(txr["axes"], json!(["rows", "cols"]));
             assert!(
-                !cyto["nnz"].is_null(),
+                !txr["nnz"].is_null(),
                 "the materialised store declares no `nnz`; the reducer and both inference \
                  entries refuse BY NAME on a missing nnz before reading a byte, so the chain \
                  would stop here with a valid-looking matrix"

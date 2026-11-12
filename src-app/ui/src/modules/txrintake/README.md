@@ -88,7 +88,7 @@ generated files.
 ## Guard scope record — the study-literal guard
 
 `scripts/check-no-study-domain-literals.sh` enforces the completeness of
-the cytoanalyst `study`→`project` rename: it scans `src-app/**` (tracked
+the txresbench `study`→`project` rename: it scans `src-app/**` (tracked
 files) for `stud(y|ies)` literals and fails on any hit. The TxResBench
 product's board spec names screen B "Your study" and this module's own
 vocabulary is `study` (the `/study` route, `mode: 'study'`,

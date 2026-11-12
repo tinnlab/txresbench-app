@@ -1,7 +1,7 @@
 //! TEST-1 [acceptance] [invariant: INV-1] — the guard resolves per-account override →
 //! global default → compiled default, in that precedence order, with one fixture.
 
-use cytoanalyst::modules::features::is_feature_enabled;
+use txresbench::modules::features::is_feature_enabled;
 use uuid::Uuid;
 
 use super::DEMO_FLAG;

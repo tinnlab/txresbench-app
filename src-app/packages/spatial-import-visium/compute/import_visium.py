@@ -4,8 +4,8 @@
 
 Reads `/inputs/<slot>` (the auto-grouped `spatial/visium-bundle` dataset), writes
 `/outputs/<file>` plus `/outputs/manifest.json` = `{"outputs":[{id,datatype,path,layout,
-role,structure,meta}]}`. Progress lines `phase|pct|message` go to `$CYTO_PROGRESS_FIFO`.
-`/inputs` and `/outputs` are overridable via `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR` — the
+role,structure,meta}]}`. Progress lines `phase|pct|message` go to `$TXR_PROGRESS_FIFO`.
+`/inputs` and `/outputs` are overridable via `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR` — the
 ONLY seam that lets a test drive the REAL script off-sandbox, which is what
 `tests/test_producer_end_to_end.py` does.
 
@@ -30,7 +30,7 @@ headered-`tissue_positions.csv` (>= 2.0) split, the same six columns in the same
 and deliberately does not import it. `squidpy` is in the rootfs but NOT on the
 `just check-py` host, so importing it would put this reader behind the one gate that has
 to run it; and `read_visium` returns an `AnnData` we would immediately decompose, forcing
-a full in-memory materialisation that `cyto_csc`'s streaming transpose exists to avoid.
+a full in-memory materialisation that `txr_csc`'s streaming transpose exists to avoid.
 
 ## The #183 Option A siblings
 
@@ -66,9 +66,9 @@ for _v in (
 import numpy as np
 
 # `_lib` is staged into `/code` alongside every Python entry.
-import cyto_columns
-import cyto_csc
-import cyto_deps
+import txr_columns
+import txr_csc
+import txr_deps
 
 # The VENDORED write-time contract (#152). Staged beside this entry by `run.helpers`.
 # Byte-identical to `spatial-types/compute/spatial_declarations.py`; never edited here.
@@ -454,8 +454,8 @@ class VisiumImportError(RuntimeError):
 
 
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -497,7 +497,7 @@ def progress(phase, pct=None, message=None):
             parts.append("")
         parts.append(str(message))
     line = "|".join(parts)
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if fifo:
         if _PROGRESS_FD[0] < 0:
             try:
@@ -520,7 +520,7 @@ def write_manifest(outputs_dir, entries):
     # #80 — append this run's ENVIRONMENT RECORD before the manifest is written, and
     # refuse the run if the environment does not satisfy `run.dependencies`. On the one
     # path every successful run takes, so recording is structural rather than remembered.
-    cyto_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
+    txr_deps.augment(outputs_dir, entries, DT_RUN_ENVIRONMENT)
     # Compact, not `indent=2`: only the server reads this, and pretty-printing doubles it
     # against `outputs.rs::MAX_MANIFEST_BYTES` (1 MiB, a hard failure past it).
     # `encoding="utf-8"`, not the LOCALE default (#330). This one and the report below are
@@ -986,7 +986,7 @@ def refuse_unencodable_vendor_text(node, *, source, remedy):
     ## BOTH CALLERS FIRE BEFORE THE FIRST WRITER, and one of them had to MOVE for that
 
     Measured on this base: the first artifact write is
-    `cyto_csc.write_csc_zarr(..., "expression.zarr")` — the first writer, called from
+    `txr_csc.write_csc_zarr(..., "expression.zarr")` — the first writer, called from
     `run_import` after every refusal this design adds. The root-attribute read (the
     `refuse_unencodable_vendor_text` call on `h5.attrs`) sits before it — free. But
     `read_scalefactors` was CALLED in the coordinate-space block, after the expression
@@ -1193,7 +1193,7 @@ def refuse_malformed_counts(group, n_barcodes, n_features):
     r"""The `/matrix` CSC triple's INTERNAL CONSISTENCY, checked before it is handed to the writer.
 
     `run_import` reads the 10x `/matrix` group and hands it straight to
-    `cyto_csc.H5CsrSource` and then `cyto_csc.write_csc_zarr` — the FIRST WRITER. The content
+    `txr_csc.H5CsrSource` and then `txr_csc.write_csc_zarr` — the FIRST WRITER. The content
     and shape of `/matrix/data`, `/matrix/indices` and `/matrix/indptr` were never validated;
     they were first touched INSIDE the writer, i.e. AFTER artifact bytes already existed on
     disk. MEASURED through the shipped entrypoint:
@@ -1201,11 +1201,11 @@ def refuse_malformed_counts(group, n_barcodes, n_features):
       * `/matrix/indices` truncated to 100 entries while `indptr[-1]` still says 17677
         -> exit 0, a manifest, and a WRONG matrix (every count attributed to feature 0);
       * `/matrix/indptr` = 121 entries all `999999999` (length correct)
-        -> exit 1, a raw traceback out of `_lib/cyto_csc.py`, and a PARTIAL STORE on
+        -> exit 1, a raw traceback out of `_lib/txr_csc.py`, and a PARTIAL STORE on
         disk (`RuntimeError: transpose scatter did not fill the band exactly -- the
         counting pass and the scatter pass disagree about the matrix (did the source
-        change under us?)` at `_lib/cyto_csc.py:626` in `_scatter_band`);
-      * a non-monotonic `indptr` -> exit 1, a raw traceback out of `_lib/cyto_csc.py`, and
+        change under us?)` at `_lib/txr_csc.py:626` in `_scatter_band`);
+      * a non-monotonic `indptr` -> exit 1, a raw traceback out of `_lib/txr_csc.py`, and
         a PARTIAL STORE on disk.
 
     `_lib` is shared framework and its raise is not this package's to change; validating the
@@ -1249,7 +1249,7 @@ def refuse_malformed_counts(group, n_barcodes, n_features):
     #
     # This ALSO fixes a real ordering defect. The Visium importer's only empty-barcodes
     # refusal lives in `unverified_space_id` (reached from `coordinate_space_id`) — AFTER
-    # the first writer (`cyto_csc.write_csc_zarr`). For
+    # the first writer (`txr_csc.write_csc_zarr`). For
     # `n_barcodes == 0` the importer today writes an empty `expression.zarr` and then
     # refuses (when it refuses at all — with an identifying `library_ids` present it does
     # not even reach that rung), leaving paths on disk: INV-2 broken. This check moves the
@@ -1372,7 +1372,7 @@ def refuse_malformed_counts(group, n_barcodes, n_features):
         # between two importers doing the same check is itself a defect. `data` is NOT
         # restricted to integers: real Space Ranger matrices can hold floats, and a
         # float32 `data` must still import. Without this, a string (`|S1`) or compound
-        # `data` dies inside `_lib/cyto_csc.py` with a raw traceback and a five-path
+        # `data` dies inside `_lib/txr_csc.py` with a raw traceback and a five-path
         # partial store — and a compound dtype echoes the vendor's own field names onto
         # stderr unbounded.
         if member == "data" and ds.dtype.kind not in "iufb":
@@ -1424,7 +1424,7 @@ def refuse_malformed_counts(group, n_barcodes, n_features):
     try:
         indptr_arr = np.asarray(group["indptr"][:], dtype=np.int64)
         data_ds = group["data"]
-        step = max(1, int(cyto_csc.READ_NNZ))
+        step = max(1, int(txr_csc.READ_NNZ))
         for lo in range(0, len(data_ds), step):
             np.asarray(data_ds[lo:min(lo + step, len(data_ds))])
     except VisiumImportError:
@@ -1519,7 +1519,7 @@ def refuse_malformed_counts(group, n_barcodes, n_features):
     #    report byte-identical to a real import (the Refusal B message says so, measured).
     #    The "DESIGNED" qualification and the named exit-1 path are
     #    #503's correction: MEASURED through the shipped entrypoint, an uncaught exception
-    #    (e.g. `FileExistsError` from `io_dirs()`'s `out.mkdir` when `CYTO_OUTPUTS_DIR` is
+    #    (e.g. `FileExistsError` from `io_dirs()`'s `out.mkdir` when `TXR_OUTPUTS_DIR` is
     #    an existing regular file, raised OUTSIDE `main()`'s `except VisiumImportError`)
     #    exits 1 with a raw traceback and no `spatial.import-visium:` prefix — INV-1's
     #    prohibited outcome, named rather than hidden.
@@ -1675,7 +1675,7 @@ def refuse_malformed_counts(group, n_barcodes, n_features):
     # stored values unusable, mirroring #474's "every one of them exactly 0"). The
     # all-zero, the non-finite and the mixed diagnoses are stated in SEPARATE messages, and the
     # sibling importer applies the same predicate, so the #533 agreement is preserved.
-    step = max(1, int(cyto_csc.READ_NNZ))
+    step = max(1, int(txr_csc.READ_NNZ))
     any_usable = False
     saw_nonfinite = False
     saw_zero = False
@@ -1771,7 +1771,7 @@ def refuse_malformed_counts(group, n_barcodes, n_features):
     # comment above shows ("this costs nothing extra") is owed here too: the range check
     # is blockwise and out-of-core, but it is not free.
     indices_ds = group["indices"]
-    step = max(1, int(cyto_csc.READ_NNZ))
+    step = max(1, int(txr_csc.READ_NNZ))
     for lo in range(0, len(indices), step):
         try:
             blk = np.asarray(indices_ds[lo:min(lo + step, len(indices))])
@@ -4486,7 +4486,7 @@ def emit_images(members, outputs_dir, *, space_id, microns_per_pixel,
               #
               # `emitted_um_per_px`, NOT `image_um_per_px`: after a downsample a pixel in
               # this image is `factor` times larger, and a generic OME reader — one that
-              # knows nothing about the `cyto` payload — measures with this number alone.
+              # knows nothing about the `txr` payload — measures with this number alone.
               # `write_ome_tiff` refuses if this disagrees with the recorded
               # `applied_resolution_um` or with the affine.
               image_microns_per_pixel=emitted_um_per_px,
@@ -4548,7 +4548,7 @@ def emit_images(members, outputs_dir, *, space_id, microns_per_pixel,
       # before the write.
       entries.append(output_entry(
           spec["output_id"], DT_SPATIAL_IMAGE, rel, "artifact",
-          structure=cyto_columns.opaque(IMAGE_MEDIA_TYPE),
+          structure=txr_columns.opaque(IMAGE_MEDIA_TYPE),
           meta=meta,
           label=f"Tissue image ({spec['role']})",
       ))
@@ -4580,7 +4580,7 @@ def run_import(bundle_root, outputs_dir):
 
     # BOTH VENDOR TEXT DOCUMENTS ARE READ HERE AND CONSUMED FAR BELOW (#330 / DEC-4), for one
     # reason: every refusal THIS DESIGN ADDS must precede the first writer, which is
-    # `cyto_csc.write_csc_zarr`.
+    # `txr_csc.write_csc_zarr`.
     #
     # `read_scalefactors` was called in the coordinate-space block, after the
     # expression store, both axis stores and every metadata column were on disk — MEASURED by
@@ -4616,7 +4616,7 @@ def run_import(bundle_root, outputs_dir):
         # transparently, so a bare `group[member]` would return an ordinary dataset IN
         # ANOTHER FILE and every predicate below would pass — the counts would come
         # from a file OUTSIDE this bundle's matrix file. This walk fires BEFORE ANY MEMBER READ and
-        # before the first writer (`cyto_csc.write_csc_zarr`), so a refused bundle
+        # before the first writer (`txr_csc.write_csc_zarr`), so a refused bundle
         # leaves no store, no partial store and nothing for a later reader to find
         # (INV-2).
         refuse_outside_matrix_objects(group, members["matrix"])
@@ -4642,7 +4642,7 @@ def run_import(bundle_root, outputs_dir):
         # laundered into a refusal about the customer's bundle. And it is NARROW in
         # MEMBERSHIP: `refuse_unencodable_vendor_text` (the parse boundary immediately
         # below) is NOT wrapped, and its semantics do not change. The read is before
-        # the first writer (`cyto_csc.write_csc_zarr`), so a refusal here leaves no
+        # the first writer (`txr_csc.write_csc_zarr`), so a refusal here leaves no
         # store, no partial store and nothing for a later reader to find (INV-2).
         # **ValueError/OverflowError ARE IN THE TUPLE ON PURPOSE:** materialising an
         # attribute allocates `numpy.zeros(shape, dtype)` from the FILE-DECLARED
@@ -4788,7 +4788,7 @@ def run_import(bundle_root, outputs_dir):
         # and 10x writes it as a DATASET, so the generic sniffer cannot read this file.
         # Constructing the source directly also keeps the whole import out-of-core; the
         # alternative (scanpy's `read_10x_h5` -> AnnData -> re-serialise) materialises the
-        # entire matrix, which is what `cyto_csc` exists to avoid.
+        # entire matrix, which is what `txr_csc` exists to avoid.
         # THE MATRIX'S OWN INTERNAL CONSISTENCY, checked before it is handed to the
         # writer (INV-1 / INV-2): `_lib`'s writer raises out of shared framework on a
         # malformed `indptr`/`indices`, and a truncated `indices` imports SILENTLY with
@@ -4797,9 +4797,9 @@ def run_import(bundle_root, outputs_dir):
         # Validating the vendor's file before handing it over is this package's job,
         # not `_lib`'s.
         refuse_malformed_counts(group, n_barcodes, n_features)
-        source = cyto_csc.H5CsrSource(group, shape=(n_barcodes, n_features))
+        source = txr_csc.H5CsrSource(group, shape=(n_barcodes, n_features))
         progress("matrix", 15, f"{n_barcodes} spots x {n_features} genes")
-        counts_structure = cyto_csc.write_csc_zarr(
+        counts_structure = txr_csc.write_csc_zarr(
             source, outputs_dir / "expression.zarr", axes=("cells", "genes"),
         )
 
@@ -4827,12 +4827,12 @@ def run_import(bundle_root, outputs_dir):
     cells_keys = pd.Series([str(b) for b in barcodes])
     genes_keys = pd.Series([str(g) for g in gene_ids])
     aligned_to = {
-        "cells": cyto_columns.axis_key_digest(cells_keys),
-        "genes": cyto_columns.axis_key_digest(genes_keys),
+        "cells": txr_columns.axis_key_digest(cells_keys),
+        "genes": txr_columns.axis_key_digest(genes_keys),
     }
     membership_of = {
         axis: {"aligned_to": aligned_to[axis],
-               "derived_from": cyto_columns.axis_key_sequence(keys),
+               "derived_from": txr_columns.axis_key_sequence(keys),
                "members": None}
         for axis, keys in (("cells", cells_keys), ("genes", genes_keys))
     }
@@ -4862,7 +4862,7 @@ def run_import(bundle_root, outputs_dir):
     # with nothing saying why.
     for axis, name, keys in (("cells", "barcode", cells_keys),
                              ("genes", "gene_id", genes_keys)):
-        structure, meta = cyto_columns.write_metadata_column(
+        structure, meta = txr_columns.write_metadata_column(
             outputs_dir, f"axis/{name}.zarr", name, keys, axis=axis,
             holds_axis_keys=True,
         )
@@ -4883,7 +4883,7 @@ def run_import(bundle_root, outputs_dir):
 
     # The gene SYMBOL column, on the genes axis — the vendor ships it and it is what a
     # human reads. Not an axis index (the id is), so it carries `aligned_to`.
-    structure, meta = cyto_columns.write_metadata_column(
+    structure, meta = txr_columns.write_metadata_column(
         outputs_dir, "axis/gene_symbol.zarr", "gene_symbol",
         pd.Series([str(g) for g in gene_names]), axis="genes",
         aligned_to=aligned_to["genes"], membership=membership_of["genes"],
@@ -5082,7 +5082,7 @@ def run_import(bundle_root, outputs_dir):
     ]
     for name, values in per_spot:
         rel = f"metadata/{name}.zarr"
-        structure, meta = cyto_columns.write_metadata_column(
+        structure, meta = txr_columns.write_metadata_column(
             outputs_dir, rel, name, values, axis="cells",
             aligned_to=aligned_to["cells"], membership=membership_of["cells"],
         )
@@ -5264,7 +5264,7 @@ def run_import(bundle_root, outputs_dir):
         # is uncertain is worse than one that reports loudly, which is the same posture
         # `emit_images` takes for a damaged image.
         "registration_qc": qc,
-        "library_versions": cyto_deps.resolve_and_check()["libraries"],
+        "library_versions": txr_deps.resolve_and_check()["libraries"],
     }
     if microns_per_pixel is not None:
         report["microns_per_pixel"] = microns_per_pixel
@@ -5283,7 +5283,7 @@ def run_import(bundle_root, outputs_dir):
     )
     entries.append(output_entry(
         "visium-import-report", DT_REPORT_QC, "visium-import-report.json", "artifact",
-        structure=cyto_columns.opaque("application/json"),
+        structure=txr_columns.opaque("application/json"),
         meta={"kind": "visium-import-report", "n_spots": n_barcodes,
               "coordinate_space": space_id,
               # #156's verdict, in the ONE channel this app shows a human — see
@@ -5319,7 +5319,7 @@ def run_import(bundle_root, outputs_dir):
     entries.append(output_entry(
         "visium-import-summary", DT_REPORT_HTML, "visium-import-summary.html",
         "intermediate",
-        structure=cyto_columns.opaque("text/html"),
+        structure=txr_columns.opaque("text/html"),
         meta=dict(
             {"kind": "visium-import-summary",
              "diagnostics_embedded": sorted(diagnostics),

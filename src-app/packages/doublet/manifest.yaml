@@ -77,7 +77,7 @@
 # below; `AnalysisContributionData` carries every other key verbatim through `rest`.
 id: doublet
 name: Doublet detection
-publisher: cyto
+publisher: txr
 # 0.1.0 — the package + `doublet.detect`'s single-batch Scrublet engine: the raw-count gate,
 # the explicit-parameter call, the 10x-loading-derived expected-doublet-rate prior, the
 # continuous score column, the CATEGORICAL call column, the `report/qc`, and the INV-3
@@ -141,7 +141,7 @@ publisher: cyto
 # 0.6.0 — the SECOND declared method, `doublet.scdblfinder` (#195 / E7, epic #169): an R
 # entry (`runtime: rscript`, `env: single-cell-r`) running scDblFinder, plus `compute/_wire.R`
 # — the R side of this app's artifact wire format, which an R entry needs because
-# `stages_app_helpers(Rscript)` is false and none of the `cyto_*` python helpers reach it.
+# `stages_app_helpers(Rscript)` is false and none of the `txr_*` python helpers reach it.
 # `doublet.detect`'s BEHAVIOUR IS UNCHANGED — same scores, same calls, same threshold, same
 # provenance, proven by re-running the base commit's own compute and comparing the whole
 # result. What DID change in the python lane is exactly one claim, in two places, and
@@ -231,7 +231,7 @@ contributes:
 
       # The DATATYPES it emits, and nothing finer. `produces_annotations` is not a key here
       # and never will be: the type of each landed column is READ from the artifact, which
-      # stamps its own kind in `attributes.cyto` and is verified against it by the conformance
+      # stamps its own kind in `attributes.txr` and is verified against it by the conformance
       # gate. A forecast in the manifest would be a promise checked by nothing.
       produces: [metadata-column, report/qc]
 
@@ -407,9 +407,9 @@ contributes:
         # so declaring a contract for them looks obviously right — and the epic's own plan
         # asked for exactly that. It is wrong on this tree, and the reason is a test rather
         # than an opinion: `processors/mod.rs::every_dependency_declaring_entry_reaches_the_
-        # recorder` requires every dependency-DECLARING entry to reach a `cyto_deps.*` call
+        # recorder` requires every dependency-DECLARING entry to reach a `txr_deps.*` call
         # in its own entry or a declared helper, WITH NO LANGUAGE EXEMPTION — and
-        # `cyto_deps.py` is a python helper `stages_app_helpers(Rscript) == false` never
+        # `txr_deps.py` is a python helper `stages_app_helpers(Rscript) == false` never
         # stages. The BUILD gate would resolve the declaration happily; that test refuses
         # it. A contract nothing can enforce claims an enforcement that does not exist.
         #

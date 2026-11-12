@@ -8,7 +8,7 @@
 // contributors and a consumer that lived somewhere else entirely:
 //   · `selectionActions` (ITEM-9)   — went with the workbench selection feature.
 //   · `plotTypes`        (ITEM-34)  — canvas decides what plot types it supports, not an
-//     extension; the REAL registry is `@ziee/viz`'s `registerChartType`/`installBuiltins()`,
+//     extension; the REAL registry is `@txresbench/viz`'s `registerChartType`/`installBuiltins()`,
 //     which lives WITH the canvas. Its descriptor could not even type its own `render`
 //     payload (`unknown // deck.gl layer factory — P7-owned shape, opaque here`) — the
 //     tell that the owner was elsewhere. DEC-L took `core/conformance/` with it (that

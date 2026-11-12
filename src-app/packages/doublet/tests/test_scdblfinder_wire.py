@@ -3,7 +3,7 @@
 """TEST-W [acceptance] [invariant: INV-1] [covers: #195/E7] — `_wire.R` IS THIS APP'S WIRE FORMAT.
 
 `compute/_wire.R` is a SECOND implementation of a format whose first implementation is
-`_lib/cyto_zarr.py`, in a language with no compile-time link to it, staged into a sandbox
+`_lib/txr_zarr.py`, in a language with no compile-time link to it, staged into a sandbox
 that has neither the python module nor a way to import it. Nothing in the build catches a
 disagreement: R writes bytes, the run exits 0, the manifest is well-formed, and the
 disagreement surfaces days later as `member "values" does not decode` from the
@@ -14,13 +14,13 @@ Every claim is a ROUND TRIP through the PYTHON reference, never a re-reading of 
 `_wire.R`'s header says it ported `crc32c`, `key_sequence_digest`, `vocab_declaration`,
 `normalise_levels`, the gzip container and the sharded array container "EXACTLY". A test
 that re-derived the same constants in python would agree with the comment rather than with
-`cyto_zarr`, and would pass while both were wrong together. So:
+`txr_zarr`, and would pass while both were wrong together. So:
 
-  * R drives its own function, python drives `cyto_zarr`'s, and the two OUTPUTS are
+  * R drives its own function, python drives `txr_zarr`'s, and the two OUTPUTS are
     compared — no hard-coded expected value on either side except the one published
     known-answer (`crc32c("abc") == 0x364b3fb7`), which is there to catch the case where
     both implementations are the same wrong function;
-  * columns R wrote are decoded by `cyto_zarr_read.read_column`, the reference reader the
+  * columns R wrote are decoded by `txr_zarr_read.read_column`, the reference reader the
     rest of this suite uses on the python lane's output;
   * a CSC store python wrote is decoded by R, which is the direction that exercises the
     un-shuffle and the int64 `indptr`, neither of which the write path touches;
@@ -55,9 +55,9 @@ import numpy as np
 import pytest
 
 import conformance
-import cyto_csc
-import cyto_zarr
-import cyto_zarr_read
+import txr_csc
+import txr_zarr
+import txr_zarr_read
 
 from doublet_fixtures import WIRE_R, run_in_r_sandbox, write_csc_store
 
@@ -151,7 +151,7 @@ _CRC_CASES = [
 ]
 
 
-def test_wire_r_crc32c_equals_cyto_zarr_crc32c(tmp_path):
+def test_wire_r_crc32c_equals_txr_zarr_crc32c(tmp_path):
     """TEST-1 — DELETE THIS and a shard index trailer computed with the wrong polynomial — or one
     silently NA'd by R's signed-integer overflow — ships undetected, and every consumer
     that verifies the trailer refuses every shard this analysis writes.
@@ -173,13 +173,13 @@ emit(vapply(cases, function(h) format(crc32c(hex_to_raw(h)), scientific = FALSE)
 
     # The known answer FIRST, on both sides. Without it, an R port and a python port of the
     # same *wrong* function agree with each other perfectly and this test is vacuous.
-    assert cyto_zarr.crc32c(b"abc") == 0x364B3FB7
-    assert cyto_zarr.crc32c(b"") == 0
+    assert txr_zarr.crc32c(b"abc") == 0x364B3FB7
+    assert txr_zarr.crc32c(b"") == 0
 
     for buf, r_value in zip(cases, got):
-        assert int(r_value) == cyto_zarr.crc32c(buf), (
+        assert int(r_value) == txr_zarr.crc32c(buf), (
             f"crc32c disagrees on {len(buf)} byte(s) ({buf[:16].hex()}…): "
-            f"R said {r_value}, cyto_zarr said {cyto_zarr.crc32c(buf)}")
+            f"R said {r_value}, txr_zarr said {txr_zarr.crc32c(buf)}")
 
 
 # ── the gzip container ──────────────────────────────────────────────────────────────
@@ -235,9 +235,9 @@ emit(res)
         assert stream[:2] == b"\x1f\x8b"
         # THE ROUND TRIP: the stdlib reader, which is what `conformance.py` uses.
         assert gzip.decompress(stream) == blob, f"{name} did not survive the round trip"
-        # …and the fixed header `cyto_zarr.gzip_bytes` hand-builds, byte for byte, because a
+        # …and the fixed header `txr_zarr.gzip_bytes` hand-builds, byte for byte, because a
         # header byte that moves changes every artifact's `content_hash` for identical data.
-        assert stream[:10] == cyto_zarr.gzip_bytes(blob)[:10]
+        assert stream[:10] == txr_zarr.gzip_bytes(blob)[:10]
 
 
 # ── the two digests the conformance gate RECOMPUTES ─────────────────────────────────
@@ -265,7 +265,7 @@ _LEVEL_SETS = {
 }
 
 
-def test_key_sequence_digest_and_vocab_declaration_agree_with_cyto_zarr(tmp_path):
+def test_key_sequence_digest_and_vocab_declaration_agree_with_txr_zarr(tmp_path):
     """TEST-3 — DELETE THIS and the R lane can stamp a `levels_digest`/`vocab_digest` the gate
     recomputes differently, which marks the call column `failed` after a run that exited 0
     — the exact "green job, unusable artifact" shape TEST-10 exists for.
@@ -291,9 +291,9 @@ emit(res)
 """)
 
     for (label, levels), row in zip(_LEVEL_SETS.items(), got):
-        assert row["normalised"] == cyto_zarr.normalise_levels(levels), label
-        assert row["levels_digest"] == cyto_zarr.key_sequence_digest(levels), label
-        want = cyto_zarr.vocab_declaration(levels)
+        assert row["normalised"] == txr_zarr.normalise_levels(levels), label
+        assert row["levels_digest"] == txr_zarr.key_sequence_digest(levels), label
+        want = txr_zarr.vocab_declaration(levels)
         assert row["vocab_digest"] == want["vocab_digest"], label
         assert row["vocab_sketch"] == want["vocab_sketch"], label
 
@@ -399,7 +399,7 @@ def test_a_numeric_column_r_wrote_reads_back_bit_for_bit(written):
     outputs, structures, values = written
     root = outputs / "metadata" / "doublet_score.zarr"
 
-    got = cyto_zarr_read.read_column(root)
+    got = txr_zarr_read.read_column(root)
     assert isinstance(got, np.ndarray) and got.dtype == np.float64
     assert got.shape == (_N_NUMERIC,)
     assert np.array_equal(np.isnan(got), np.isnan(values)), (
@@ -411,22 +411,22 @@ def test_a_numeric_column_r_wrote_reads_back_bit_for_bit(written):
 
     # The container really is the multi-chunk one this test claims to exercise. Read off
     # the node R wrote rather than assumed, so a change in `shard_chunks` is visible here.
-    meta = cyto_zarr_read.read_meta(root, "values")
+    meta = txr_zarr_read.read_meta(root, "values")
     cfg = meta["codecs"][0]["configuration"]
     assert meta["codecs"][0]["name"] == "sharding_indexed"
-    assert cfg["chunk_shape"] == [cyto_zarr.INNER_CHUNK]
+    assert cfg["chunk_shape"] == [txr_zarr.INNER_CHUNK]
     per_shard = meta["chunk_grid"]["configuration"]["chunk_shape"][0] // cfg["chunk_shape"][0]
-    assert per_shard == cyto_zarr.shard_chunks(_N_NUMERIC, cyto_zarr.INNER_CHUNK) == 3, (
+    assert per_shard == txr_zarr.shard_chunks(_N_NUMERIC, txr_zarr.INNER_CHUNK) == 3, (
         "the fixture no longer spans more than one inner chunk, so the tail-padding and "
         "multi-slot index paths are untested")
-    assert structures["numeric"]["columns"][0]["inner_chunk"] == cyto_zarr.INNER_CHUNK
+    assert structures["numeric"]["columns"][0]["inner_chunk"] == txr_zarr.INNER_CHUNK
     assert structures["numeric"]["columns"][0]["chunks_per_shard"] == 3
 
 
 def test_a_categorical_column_r_wrote_reads_back_as_labels(written):
     """TEST-5 — DELETE THIS and the call column can read back as raw uint8 codes, or as the wrong
     labels, in every consumer: `read_column` resolves codes through the STAMPED level set,
-    so a store whose `attributes.cyto.levels` is missing or reordered is "a different type
+    so a store whose `attributes.txr.levels` is missing or reordered is "a different type
     carrying different values" rather than a missing nicety.
 
     The declaration on the manifest row is checked with it, because `conformance.py`
@@ -436,12 +436,12 @@ def test_a_categorical_column_r_wrote_reads_back_as_labels(written):
     outputs, structures, _ = written
     root = outputs / "metadata" / "doublet_call.zarr"
 
-    labels = cyto_zarr_read.read_column(root)
+    labels = txr_zarr_read.read_column(root)
     assert labels == [_CALL_LEVELS[i % 3] for i in range(_N_CATEGORICAL)]
 
-    node = cyto_zarr_read.read_meta(root, "values")
+    node = txr_zarr_read.read_meta(root, "values")
     assert node["data_type"] == "uint8"
-    stamp = node["attributes"]["cyto"]
+    stamp = node["attributes"]["txr"]
     assert stamp["kind"] == "categorical"
     assert stamp["levels"] == _CALL_LEVELS
     assert stamp["ordered"] is False
@@ -452,13 +452,13 @@ def test_a_categorical_column_r_wrote_reads_back_as_labels(written):
     assert row["n_levels"] == 3
     assert row["ordered"] is False
     # The row's declarations must be the ones the gate will recompute off the stamp.
-    assert row["levels_digest"] == cyto_zarr.key_sequence_digest(_CALL_LEVELS)
-    want = cyto_zarr.vocab_declaration(_CALL_LEVELS)
+    assert row["levels_digest"] == txr_zarr.key_sequence_digest(_CALL_LEVELS)
+    want = txr_zarr.vocab_declaration(_CALL_LEVELS)
     assert row["vocab_digest"] == want["vocab_digest"]
     assert row["vocab_sketch"] == want["vocab_sketch"]
     # …and the group stamp equals the row's structure, which is what
     # `_conform_group_attributes` compares with `==`.
-    assert cyto_zarr_read.structure(root) == structures["categorical"]
+    assert txr_zarr_read.structure(root) == structures["categorical"]
 
 
 def test_the_conformance_gate_accepts_what_r_wrote(written):
@@ -494,7 +494,7 @@ def test_the_conformance_gate_accepts_what_r_wrote(written):
     # never fewer than the declared values. A gate that decoded one chunk of three would
     # satisfy the `> 0` above.
     assert (report.examined["metadata-column:doublet_score"]["decoded_bytes"]
-            == 3 * cyto_zarr.INNER_CHUNK * 8)
+            == 3 * txr_zarr.INNER_CHUNK * 8)
 
 
 # ── the direction that proves the READ path ─────────────────────────────────────────
@@ -519,12 +519,12 @@ def test_r_reads_a_python_written_csc_store_exactly(tmp_path):
     dense[:, 0] = rng.integers(1, 9, size=200)      # no empty column
     store = tmp_path / "matrix"
     structure = write_csc_store(store, dense)
-    want_indptr, want_indices, want_data = cyto_csc.read_csc(store)
-    assert int(want_indptr[-1]) > 3 * cyto_csc.VALUE_INNER_CHUNK, (
+    want_indptr, want_indices, want_data = txr_csc.read_csc(store)
+    assert int(want_indptr[-1]) > 3 * txr_csc.VALUE_INNER_CHUNK, (
         "the fixture stopped spanning several inner chunks; the offset arithmetic this "
         f"test exists for is no longer exercised (nnz={int(want_indptr[-1])})")
     # …and the store really is shuffled, or the un-shuffle path is not on trial.
-    node = cyto_zarr_read.read_meta(store, "indices")
+    node = txr_zarr_read.read_meta(store, "indices")
     assert any(c["name"] == "numcodecs.shuffle"
                for c in node["codecs"][0]["configuration"]["codecs"])
 

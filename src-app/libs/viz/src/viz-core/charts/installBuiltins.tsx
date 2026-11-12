@@ -174,7 +174,7 @@ function chartInstaller(desc: ChartTypeDescriptor): Extension {
   return { install: r => r.registerChartType(desc) }
 }
 
-// ── per-chart installers (STEP 7): `import { ScatterChart, ViolinChart } from '@ziee/viz/charts'`
+// ── per-chart installers (STEP 7): `import { ScatterChart, ViolinChart } from '@txresbench/viz/charts'`
 //    then `use([ScatterChart, ViolinChart])` to opt into only those. ───────────────────────────
 export const ScatterChart: Extension = chartInstaller(scatterDescriptor)
 export const ImageChart: Extension = chartInstaller(imageDescriptor)

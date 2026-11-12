@@ -1,13 +1,13 @@
 import { Bot, Copy, RefreshCw } from 'lucide-react'
-import { Alert, Button, Card, Input, Paragraph, Tag, message } from '@ziee/kit'
-import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@ziee/kit/shadcn/field'
-import { SettingsPageContainer } from '@ziee/shell'
+import { Alert, Button, Card, Input, Paragraph, Tag, message } from '@txresbench/kit'
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@txresbench/kit/shadcn/field'
+import { SettingsPageContainer } from '@txresbench/shell'
 import { McpConnect } from '@/modules/mcp/stores/McpConnect.store'
 import { isDesktop } from '@/core/platform'
 import { type ConnectionStatus, useConnectionStatus } from '@/core/actions/engine'
 
 const SUBTITLE =
-  'Connect an external AI assistant (e.g. ziee chat) to operate TxResBench on your behalf — ' +
+  'Connect an external AI assistant (e.g. txresbench chat) to operate TxResBench on your behalf — ' +
   'open projects, run analyses, and drive the app while you watch.'
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -48,11 +48,11 @@ async function copyToClipboard(value: string, label: string) {
   }
 }
 
-/** Best-effort OS-level deep link into ziee (desktop only). The manual
+/** Best-effort OS-level deep link into txresbench (desktop only). The manual
  *  code/URL copy below is the always-available fallback — this is purely
  *  a convenience shortcut when it works. */
 function attemptDeepLink(code: string, mcpUrl: string) {
-  const deepLink = `ziee://connect-mcp?code=${encodeURIComponent(code)}&url=${encodeURIComponent(mcpUrl)}&name=TxResBench`
+  const deepLink = `txresbench://connect-mcp?code=${encodeURIComponent(code)}&url=${encodeURIComponent(mcpUrl)}&name=TxResBench`
   try {
     window.location.href = deepLink
   } catch {
@@ -63,9 +63,9 @@ function attemptDeepLink(code: string, mcpUrl: string) {
 /**
  * "AI Assistant Access" settings page (PLAN.md ITEM-17; mirrors
  * `SandboxSettingsPage`). Mints a one-time pairing code + MCP server URL
- * (`POST /api/mcp/pair/start`) that the user hands to ziee — either via a
+ * (`POST /api/mcp/pair/start`) that the user hands to txresbench — either via a
  * best-effort desktop deep link or by copying the code/URL manually. The
- * code is exchanged by ziee itself (`pair/exchange`), never by this page.
+ * code is exchanged by txresbench itself (`pair/exchange`), never by this page.
  * Live connection status comes from the frontend agent engine
  * (`@/core/actions/engine`), started/stopped by `modules/actions` based on
  * auth + `mcp::use`.
@@ -81,11 +81,11 @@ export default function AiAccessPage() {
       <div data-testid="ai-access-page" className="flex flex-col gap-4">
         <Card
           data-testid="ai-access-connect-card"
-          title="Connect to ziee"
+          title="Connect to txresbench"
           extra={<ConnectionStatusTag status={status} />}
         >
           <Paragraph className="mb-3 text-sm text-muted-foreground">
-            Click connect to mint a one-time pairing code, then add it in ziee as an MCP server. Once
+            Click connect to mint a one-time pairing code, then add it in txresbench as an MCP server. Once
             paired, your assistant can drive TxResBench as you — every change it makes shows up live
             in this app.
           </Paragraph>
@@ -107,22 +107,22 @@ export default function AiAccessPage() {
               loading={starting}
             >
               <Bot className="mr-1 size-4" />
-              Connect to ziee
+              Connect to txresbench
             </Button>
           ) : (
             <div className="flex flex-col gap-4">
               <Alert
                 data-testid="ai-access-instructions"
                 tone="info"
-                title="Finish the connection in ziee"
-                description="In ziee, add an MCP server with the URL below, then enter the pairing code when prompted. The code is single-use and expires shortly."
+                title="Finish the connection in txresbench"
+                description="In txresbench, add an MCP server with the URL below, then enter the pairing code when prompted. The code is single-use and expires shortly."
               />
 
               <FieldGroup>
                 <Field orientation="responsive">
                   <FieldContent>
                     <FieldLabel htmlFor="ai-access-mcp-url">Server URL</FieldLabel>
-                    <FieldDescription>The MCP server address to add in ziee.</FieldDescription>
+                    <FieldDescription>The MCP server address to add in txresbench.</FieldDescription>
                   </FieldContent>
                   <div className="flex items-center gap-2">
                     <Input
@@ -147,7 +147,7 @@ export default function AiAccessPage() {
                 <Field orientation="responsive">
                   <FieldContent>
                     <FieldLabel htmlFor="ai-access-mcp-code">Pairing code</FieldLabel>
-                    <FieldDescription>Enter this code in ziee when prompted.</FieldDescription>
+                    <FieldDescription>Enter this code in txresbench when prompted.</FieldDescription>
                   </FieldContent>
                   <div className="flex items-center gap-2">
                     <Input
@@ -175,10 +175,10 @@ export default function AiAccessPage() {
                 {isDesktop() && (
                   <Button
                     variant="outline"
-                    data-testid="ai-access-open-ziee"
+                    data-testid="ai-access-open-txresbench"
                     onClick={() => attemptDeepLink(code ?? '', mcpUrl ?? '')}
                   >
-                    Open in ziee
+                    Open in txresbench
                   </Button>
                 )}
                 <Button

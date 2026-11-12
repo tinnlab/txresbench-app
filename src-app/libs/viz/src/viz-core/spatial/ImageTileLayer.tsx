@@ -18,7 +18,7 @@
 //     pose in React state (mirrors how RasterUnderlayScatterView composes BitmapLayers).
 //
 // Framework-agnostic (viz-core): depends only on @deck.gl/* + the pure `imageTiles` math —
-// no @ziee/*, no React state, no DOM. Generic naming (image / tile / level — DEC-28), no SVG.
+// no @txresbench/*, no React state, no DOM. Generic naming (image / tile / level — DEC-28), no SVG.
 
 import { CompositeLayer, type Layer, type LayersList } from '@deck.gl/core'
 import { BitmapLayer } from '@deck.gl/layers'

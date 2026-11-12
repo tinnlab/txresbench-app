@@ -8,7 +8,7 @@
 // `window.open` is made to work by the desktop Tauri Rust config (on_new_window + window_features +
 // the popup setting — see reference-tauri-window-open-portal). No platform branching here.
 //
-// DESIGN NOTE (why no realm/instanceof hack): the CytoAnalyst original mutated `globalThis.HTMLElement`
+// DESIGN NOTE (why no realm/instanceof hack): the TxResBench original mutated `globalThis.HTMLElement`
 // to the popup's realm so antd's `findDOMNode`/`instanceof` checks passed across documents. That
 // corrupts the WHOLE main app while a popup is open (and permanently if unmounted mid-open). We do
 // NOT do that — viz-core chrome is inline-styled + deck operates on the canvas it's handed, neither
@@ -24,7 +24,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { PortalContainerProvider } from '@ziee/kit'
+import { PortalContainerProvider } from '@txresbench/kit'
 import { buildPopupFeatures, centeredGeometry, popoutWindowName } from './windowPortalCore'
 
 export interface UseWindowPortalOptions {

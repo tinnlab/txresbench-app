@@ -45,7 +45,7 @@
 import { lazy, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
-import { extendCassette, type ModuleGallery, type MockRequestContext } from '@ziee/gallery'
+import { extendCassette, type ModuleGallery, type MockRequestContext } from '@txresbench/gallery'
 import { parseCsvText } from '@/lib/txr-files/csv'
 import { AppShell } from '../txrshell/components/AppShell'
 import { StudyPage } from './pages/StudyPage'

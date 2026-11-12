@@ -35,7 +35,7 @@ import numpy as np
 import pytest
 
 import conformance
-import cyto_zarr as cz
+import txr_zarr as cz
 import verify_conformance
 
 
@@ -232,7 +232,7 @@ def test_the_violation_report_is_capped_but_the_COUNT_is_not(sandbox):
     for column in structure["columns"]:
         column["dtype"] = "float64"
     node = json.loads((root / "zarr.json").read_text())
-    node["attributes"]["cyto"] = structure
+    node["attributes"]["txr"] = structure
     (root / "zarr.json").write_text(json.dumps(node))
 
     code, verdict = run(sandbox, {"outputs": [entry(aid, structure)]})
@@ -361,18 +361,18 @@ def test_the_entry_reads_only_the_manifest_it_is_handed(sandbox):
     a_table(root)
     (root / "value" / "c" / "0").unlink()
     manifest = {"outputs": [entry(aid, json.loads(json.dumps(
-        conformance.cyto_zarr_read.structure(root))))]}
+        conformance.txr_zarr_read.structure(root))))]}
 
     code, baseline = run(sandbox, manifest)
     assert code == 1 and baseline["violations"][aid]
 
     (inputs / "manifest.yaml").write_text("id: sneaky\nskip_conformance: true\n")
-    for key in ("CYTO_SKIP_CONFORMANCE", "SKIP_CONFORMANCE", "CONFORMANCE"):
+    for key in ("TXR_SKIP_CONFORMANCE", "SKIP_CONFORMANCE", "CONFORMANCE"):
         os.environ[key] = "0"
     try:
         code2, again = run(sandbox, manifest)
     finally:
-        for key in ("CYTO_SKIP_CONFORMANCE", "SKIP_CONFORMANCE", "CONFORMANCE"):
+        for key in ("TXR_SKIP_CONFORMANCE", "SKIP_CONFORMANCE", "CONFORMANCE"):
             os.environ.pop(key, None)
     assert (code2, again["violations"]) == (code, baseline["violations"]), (
         "a declared opt-out changed the production gate's verdict"
@@ -575,7 +575,7 @@ def restamp(root, structure):
     """Rewrite the group's stamped declaration so a test that edits the RETURNED structure
     is testing the check it means to, not tripping the group/row drift check first."""
     node = json.loads((Path(root) / "zarr.json").read_text())
-    node["attributes"]["cyto"] = structure
+    node["attributes"]["txr"] = structure
     (Path(root) / "zarr.json").write_text(json.dumps(node, indent=2, ensure_ascii=False))
 
 

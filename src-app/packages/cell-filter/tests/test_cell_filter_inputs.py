@@ -48,9 +48,9 @@ _LIB_DIR = _PROCESSORS / "_lib"
 SCRIPT = _PKG / "compute" / "cell-filter.py"
 
 sys.path.insert(0, str(_LIB_DIR))
-import cyto_columns  # noqa: E402
-import cyto_csc  # noqa: E402
-import cyto_zarr_read  # noqa: E402
+import txr_columns  # noqa: E402
+import txr_csc  # noqa: E402
+import txr_zarr_read  # noqa: E402
 
 
 class FilterRun:
@@ -83,8 +83,8 @@ class FilterRun:
         mount = self._mount(mount)
         mat = sp.csr_matrix(np.asarray(dense, dtype=np.float32))
         mat.eliminate_zeros()
-        cyto_csc.write_csc_zarr(
-            cyto_csc.ArraySource(mat), self.inputs_dir / mount, axes=("cells", "genes")
+        txr_csc.write_csc_zarr(
+            txr_csc.ArraySource(mat), self.inputs_dir / mount, axes=("cells", "genes")
         )
         self._declare(slot, mount)
         return self.inputs_dir / mount
@@ -98,7 +98,7 @@ class FilterRun:
 
     def _add_column(self, slot, name, values, axis, mount) -> Path:
         mount = self._mount(mount)
-        cyto_columns.write_metadata_column(
+        txr_columns.write_metadata_column(
             self.inputs_dir, mount, name, pd.Series(list(values)), axis=axis
         )
         self._declare(slot, mount)
@@ -131,9 +131,9 @@ class FilterRun:
         env["PYTHONPATH"] = os.pathsep.join(
             [str(_HELPERS_DIR), str(_LIB_DIR),
              *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])])
-        env["CYTO_INPUTS_DIR"] = str(self.inputs_dir)
-        env["CYTO_OUTPUTS_DIR"] = str(self.outputs_dir)
-        env.pop("CYTO_PROGRESS_FIFO", None)
+        env["TXR_INPUTS_DIR"] = str(self.inputs_dir)
+        env["TXR_OUTPUTS_DIR"] = str(self.outputs_dir)
+        env.pop("TXR_PROGRESS_FIFO", None)
         return subprocess.run(
             [sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True)
 
@@ -165,7 +165,7 @@ class FilterRun:
                    if e["datatype"] == "metadata-column"]
         assert len(entries) == 1, entries
         return [bool(v) for v in
-                cyto_zarr_read.read_column(self.outputs_dir / entries[0]["path"])]
+                txr_zarr_read.read_column(self.outputs_dir / entries[0]["path"])]
 
 
 @pytest.fixture

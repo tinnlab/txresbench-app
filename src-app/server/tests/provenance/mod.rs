@@ -13,8 +13,8 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
 
 use crate::common::TestServer;
 
@@ -28,7 +28,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
-            "email": "admin@cyto.test",
+            "email": "admin@txresbench.test",
             "password": "adminPassw0rd!",
             "display_name": "Admin"
         }))
@@ -211,7 +211,7 @@ async fn shared_collaborator(
     username: &str,
     level: &str,
 ) -> String {
-    let email = format!("{username}@cyto.test");
+    let email = format!("{username}@txresbench.test");
     create_user(server, admin, username, &email).await;
     let token = login(server, username).await;
     let share = server
@@ -296,9 +296,9 @@ async fn admin_user_id(pool: &SqlitePool) -> Uuid {
 /// promoted `params` + the stashed `rerun_spec_json` are written by the very code
 /// the app runs, not by a fixture row. Returns the run id.
 async fn record_filter_run(pool: &SqlitePool, project_id: Uuid, root_artifact_id: Uuid) -> Uuid {
-    use cytoanalyst::modules::jobs::models::Job;
-    use cytoanalyst::modules::jobs::seams::{PeakMetrics, RunRecorder};
-    use cytoanalyst::modules::provenance::recorder::ProvenanceRunRecorder;
+    use txresbench::modules::jobs::models::Job;
+    use txresbench::modules::jobs::seams::{PeakMetrics, RunRecorder};
+    use txresbench::modules::provenance::recorder::ProvenanceRunRecorder;
 
     let owner = admin_user_id(pool).await;
     let job = Job {

@@ -42,7 +42,7 @@ import {
 } from './omeTiffPyramid'
 import { buildRasterImageLayers } from './rasterImageLayers'
 // From the LEAF, not through `grid/gridModel` — the reader's own suite has no business
-// reaching its channel helpers through the grid model, the chart registry and `@ziee/dock`.
+// reaching its channel helpers through the grid model, the chart registry and `@txresbench/dock`.
 import { reconcileChannelsToLoader, seedChannelsForLoader } from './channelState'
 import type { RasterChannelState } from './channelState'
 import type { GridCell } from '../grid/gridModel'

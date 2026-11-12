@@ -1,5 +1,5 @@
 import { ProjectDetail } from '@/modules/project/stores/ProjectDetail.store'
-import { Button, Card, Confirm, Empty, Tag } from '@ziee/kit'
+import { Button, Card, Confirm, Empty, Tag } from '@txresbench/kit'
 import { useState } from 'react'
 
 const STATUS_TONE: Record<string, 'success' | 'warning' | undefined> = {

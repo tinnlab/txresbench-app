@@ -50,7 +50,7 @@
 // ── THE MISMATCH CHECK RUNS ALWAYS ─────────────────────────────────────────────────
 //
 // After the member's declared `kind` is read (from the `structure`, else the array's own
-// `attributes.cyto.kind`), the declared `expect` is compared against it and a mismatch
+// `attributes.txr.kind`), the declared `expect` is compared against it and a mismatch
 // THROWS, naming both. Unconditionally: not behind a dev flag, not behind an env var.
 //
 // Two reasons, both decisive. It is one string comparison against metadata that has
@@ -332,9 +332,9 @@ export async function readColumn<K extends ColumnKind>(
  *
  * TWO encodings are a table, because two producers write one, and `readTable` (the
  * function this arm delegates to) dispatches on exactly that pair:
- *   `zarr_v3` + `kind: "table"` — `cyto_zarr.Table`, *n* arrays sharing an axis (ITEM-4).
+ *   `zarr_v3` + `kind: "table"` — `txr_zarr.Table`, *n* arrays sharing an axis (ITEM-4).
  *   `opaque` + a JSON media type — a per-entity column table written as a JSON document
- *       (`cyto_columns.opaque("application/json")`), which is what several of the shipping
+ *       (`txr_columns.opaque("application/json")`), which is what several of the shipping
  *       processors emit today for exactly that. Reporting `"opaque"` as the actual kind
  *       here made `expect: "table"` REFUSE that encoding outright — the typed surface
  *       rejecting a table the reader beneath it decodes, on every processor that writes
@@ -385,7 +385,7 @@ function notADocument(structure: ArtifactStructure): string | undefined {
 
 /**
  * The member's DECLARED kind: the structure's `kind` when the producer put one there,
- * else the array's own `attributes.cyto.kind` — the two places the design says the
+ * else the array's own `attributes.txr.kind` — the two places the design says the
  * declaration lives. `undefined` when neither carries it, which `requireMatch` reports
  * as `(undeclared)` rather than guessing from the dtype.
  *
@@ -406,7 +406,7 @@ async function declaredKind(
   }
   // Through the shared opened-array cache: this reads the SAME `zarr.json` the read that
   // follows it needs, so a second open here would double every declaration-checked read.
-  return (await openArtifactArray(id, member.path, options)).cyto?.kind
+  return (await openArtifactArray(id, member.path, options)).txr?.kind
 }
 
 // ── the shape the api-client binding splices in ─────────────────────────────────

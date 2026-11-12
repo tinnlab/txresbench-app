@@ -2,11 +2,11 @@
 # ruff: noqa
 r"""An EMPTY `/matrix` is a REFUSAL, and it fires BEFORE the first writer (#445).
 
-`run_import` reads the 10x `/matrix` group and hands it straight to `cyto_csc.H5CsrSource`
-and then `cyto_csc.write_csc_zarr` — the FIRST WRITER, which creates
+`run_import` reads the 10x `/matrix` group and hands it straight to `txr_csc.H5CsrSource`
+and then `txr_csc.write_csc_zarr` — the FIRST WRITER, which creates
 `outputs/expression.zarr`. #445 adds two refusals to `refuse_malformed_counts`, which is
 called inside `run_import`, inside the `with h5py.File(...) as h5:` block, immediately
-BEFORE `cyto_csc.H5CsrSource(...)` — strictly before the first writer:
+BEFORE `txr_csc.H5CsrSource(...)` — strictly before the first writer:
 
   * **Refusal A — `n_barcodes == 0`.** The matrix carries no barcodes at all. This is the
     documented "empty" case — a capture area with no tissue detected, a blank capture, a

@@ -5,7 +5,7 @@
 # `doublet.scdblfinder` runs under `runtime: rscript`. An R entry receives its own
 # package's declared `run.helpers` and NOTHING ELSE — `stages_app_helpers(Rscript)` is
 # `false` in `sandbox/processors/mod.rs`, and the app's cross-cutting helper table
-# (`PY_HELPER_FILES`: `cyto_zarr.py`, `cyto_csc.py`, `cyto_columns.py`, …) is a table of
+# (`PY_HELPER_FILES`: `txr_zarr.py`, `txr_csc.py`, `txr_columns.py`, …) is a table of
 # PYTHON modules. So this analysis reads its input artifact and writes its output
 # artifacts itself. That is E7/DEC-3, decided at epic-plan time:
 #
@@ -26,12 +26,12 @@
 # fourth shape has to add it deliberately instead of discovering the gap in a sandbox.
 #
 # ── THE FORMAT IS A CROSS-LANGUAGE CONTRACT, NOT A CHOICE ───────────────────────────
-# `_lib/cyto_zarr.py`'s own header says it: "`attributes.cyto.{kind, levels, n, layout}`
+# `_lib/txr_zarr.py`'s own header says it: "`attributes.txr.{kind, levels, n, layout}`
 # and the `offsets`/`values` member names are read verbatim by the browser's
 # zero-dependency reader … renaming one here breaks a consumer in another language that
 # this module has no compile-time link to." This file is now that other language. Every
 # constant below is READ OFF that module, and the round-trip is proven by decoding what
-# R wrote with the PYTHON reader (`_lib/cyto_zarr_read.read_column`) rather than by
+# R wrote with the PYTHON reader (`_lib/txr_zarr_read.read_column`) rather than by
 # reading the spec twice.
 #
 # THREE CONSUMERS have to agree with what this writes, and only one of them is lenient:
@@ -64,7 +64,7 @@
 # from inside a sandbox, naming nothing useful. `gzip_bytes()` below rewraps: strip
 # zlib's 2-byte header and 4-byte adler32, prepend the fixed 10-byte gzip header, append
 # `crc32(raw)` and `len(raw)` as little-endian u32. The header is the SAME fixed one
-# `cyto_zarr.gzip_bytes` hand-builds (MTIME 0, XFL 0, OS 255) and for the same reason:
+# `txr_zarr.gzip_bytes` hand-builds (MTIME 0, XFL 0, OS 255) and for the same reason:
 # a header byte that moves changes every artifact's `content_hash` for identical data.
 #
 # ── R's 32-BIT SIGNED INTEGER IS THE OTHER TRAP ─────────────────────────────────────
@@ -80,7 +80,7 @@
 #     recombined as a double — exact below 2^53, which every offset and every `indptr`
 #     entry this app can produce is, by several orders of magnitude.
 #
-# Nothing here defaults anything (INV-2 of `cyto_columns`): a caller names its `axis`,
+# Nothing here defaults anything (INV-2 of `txr_columns`): a caller names its `axis`,
 # its levels and its dtype, or it gets an error.
 
 # ── u32 arithmetic, carried in doubles ──────────────────────────────────────────────
@@ -126,7 +126,7 @@ as_i32 <- function(x) as.integer(ifelse(x >= 2147483648, x - 4294967296, x))
 
 # ── crc32c (Castagnoli), the shard index's trailer codec ────────────────────────────
 #
-# Ported from `_lib/cyto_zarr.py::crc32c` and its table, and CHECKED against it: the
+# Ported from `_lib/txr_zarr.py::crc32c` and its table, and CHECKED against it: the
 # same 1,000 random bytes, `crc32c("abc") == 0x364b3fb7` and `crc32c("") == 0`.
 # `digest` gives sha256 and crc32 but not crc32c — crc32c is the Castagnoli polynomial,
 # a different function, and using crc32 here would produce a shard the reader rejects.
@@ -159,7 +159,7 @@ ZARR_FORMAT <- 3L
 #' The v3 sentinel for an index slot holding no chunk: (2^64-1, 2^64-1).
 SHARD_INDEX_EMPTY <- 4294967295  # per 32-bit half
 
-#' A DETERMINISTIC RFC-1952 gzip stream, byte-compatible with `cyto_zarr.gzip_bytes`.
+#' A DETERMINISTIC RFC-1952 gzip stream, byte-compatible with `txr_zarr.gzip_bytes`.
 #' See the header note: R's own gzip type is zlib-framed and is rewrapped here.
 gzip_bytes <- function(payload) {
   z <- memCompress(payload, type = "gzip")
@@ -188,7 +188,7 @@ unshuffle <- function(v, itemsize) {
   as.raw(t(matrix(as.integer(v), nrow = count, ncol = itemsize)))
 }
 
-#' Inner chunks per shard for `n` elements — `cyto_zarr.shard_chunks`, verbatim.
+#' Inner chunks per shard for `n` elements — `txr_zarr.shard_chunks`, verbatim.
 shard_chunks <- function(n, inner_chunk = INNER_CHUNK, cap = SHARD_CAP_CHUNKS) {
   max(1L, min(as.integer(ceiling(n / inner_chunk)), as.integer(cap)))
 }
@@ -219,7 +219,7 @@ read_json_file <- function(path) {
 # row. A disagreement marks the artifact failed, so these two are ported EXACTLY rather
 # than approximately, and a test compares them to the python functions' own output.
 
-#' `cyto_zarr.key_sequence_digest` for string keys: for each value, its utf-8 byte
+#' `txr_zarr.key_sequence_digest` for string keys: for each value, its utf-8 byte
 #' length as a little-endian u64, then the bytes; then `0xff` and the count as u64.
 key_sequence_digest <- function(values) {
   parts <- list()
@@ -234,7 +234,7 @@ key_sequence_digest <- function(values) {
 #' A u64 as 8 little-endian bytes (exact below 2^53, which every length here is).
 u64_raw <- function(v) c(u32_raw(v %% 4294967296), u32_raw(v %/% 4294967296))
 
-#' `cyto_zarr.normalise_levels` — NFC-normalize, drop the declared missing level, and
+#' `txr_zarr.normalise_levels` — NFC-normalize, drop the declared missing level, and
 #' lowercase a two-element set that is exactly {false, true} in some casing.
 normalise_levels <- function(levels, missing_level = NULL) {
   out <- vapply(levels, function(x) {
@@ -247,7 +247,7 @@ normalise_levels <- function(levels, missing_level = NULL) {
   out
 }
 
-#' `cyto_zarr.vocab_declaration` — the order-INDEPENDENT vocabulary digest and its
+#' `txr_zarr.vocab_declaration` — the order-INDEPENDENT vocabulary digest and its
 #' sketch. Both, or NEITHER: `conformance.py` refuses exactly one of the pair.
 VOCAB_SKETCH_HASH_BYTES <- 8L
 MAX_VOCAB_SKETCH_BYTES <- 65536L
@@ -279,7 +279,7 @@ vocab_declaration <- function(levels, missing_level = NULL) {
 # ── the array writer ────────────────────────────────────────────────────────────────
 
 #' Write ONE 1-D member array as a Zarr v3 sharded store, and return its `structure`
-#' fragment. Mirrors `cyto_zarr.ArrayWriter`: a chunk is ALWAYS `inner_chunk` elements
+#' fragment. Mirrors `txr_zarr.ArrayWriter`: a chunk is ALWAYS `inner_chunk` elements
 #' (a short tail is padded with `fill_value`, and `shape` is what bounds a reader), a
 #' shard is `[chunks…][index][crc32c]` with `index_location: "end"`, and a partial
 #' shard's unused index slots stay at the EMPTY sentinel.
@@ -359,7 +359,7 @@ write_member_array <- function(root, name, values, dtype, itemsize, encode,
         index_location = "end"
       )
     )),
-    attributes = list(cyto = attributes),
+    attributes = list(txr = attributes),
     dimension_names = I(as.character(dimension_names))
   ))
 
@@ -369,14 +369,14 @@ write_member_array <- function(root, name, values, dtype, itemsize, encode,
        shards = as.integer(written_shards), stored_bytes = as.integer(stored))
 }
 
-#' The artifact ROOT group node. Its `attributes.cyto` must equal the manifest entry's
+#' The artifact ROOT group node. Its `attributes.txr` must equal the manifest entry's
 #' `structure` — `conformance.py` compares them with `==` and reports
 #' "the declaration stamped into the group's zarr.json differs from the returned
 #' `structure`" otherwise. So both come from the SAME R list, never from two builders.
 write_group_node <- function(root, structure) {
   write_json_file(file.path(root, "zarr.json"), list(
     zarr_format = ZARR_FORMAT, node_type = "group",
-    attributes = list(cyto = structure)
+    attributes = list(txr = structure)
   ))
 }
 
@@ -409,7 +409,7 @@ write_numeric_column <- function(outputs_dir, rel_dir, name, values, axis,
 #' A categorical `metadata-column`: uint8 codes plus the DECLARED level set.
 #'
 #' The code WIDTH comes from the declaration, never from the observed codes — that is
-#' `cyto_zarr`'s DEC-6, and the reason is that observed-width selection silently
+#' `txr_zarr`'s DEC-6, and the reason is that observed-width selection silently
 #' re-encodes when a level goes unused, changing the bytes and therefore the artifact's
 #' `content_hash` for identical meaning. This analysis declares at most three levels, so
 #' `uint8` is always correct; anything wider is a refusal rather than a silent widening,
@@ -500,7 +500,7 @@ read_inputs_index <- function(inputs_dir) {
   for (e in doc$inputs) {
     sandbox_path <- e$sandbox_path
     # The host writes an ABSOLUTE `/inputs/<mount>`; off-sandbox harnesses point
-    # CYTO_INPUTS_DIR elsewhere, so the mount NAME is what is portable.
+    # TXR_INPUTS_DIR elsewhere, so the mount NAME is what is portable.
     out[[e$slot]] <- file.path(inputs_dir, basename(sandbox_path))
   }
   out
@@ -519,7 +519,7 @@ read_params <- function(inputs_dir) {
 #' do. `as` selects how the packed little-endian bytes are reinterpreted.
 #' `as` is a DEFAULT, not an override: the member's own `data_type` wins whenever it names
 #' a width this reader knows. That order matters and it is the fix for a real defect —
-#' `cyto_zarr.code_dtype` writes `uint16` codes as soon as a categorical declares more than
+#' `txr_zarr.code_dtype` writes `uint16` codes as soon as a categorical declares more than
 #' 256 levels, and a caller that asked for `uint8` used to get every code TRUNCATED TO ITS
 #' LOW BYTE with the right shape and no error. Two demonstrated consequences, both silent:
 #' two sample levels 256 apart merged into ONE population (so artificial doublets crossed a
@@ -631,7 +631,7 @@ read_member_array <- function(root, name, as = c("double", "int32", "uint32", "i
 #' once, explicitly, rather than this reader guessing an orientation.
 read_csc_matrix <- function(root) {
   group <- read_json_file(file.path(root, "zarr.json"))
-  st <- group$attributes$cyto
+  st <- group$attributes$txr
   shape <- as.numeric(unlist(st$shape))
   indptr <- read_member_array(root, "indptr", as = "int64")
   indices <- read_member_array(root, "indices", as = "uint32")
@@ -647,5 +647,5 @@ read_csc_matrix <- function(root) {
 #' The declared `structure` of an input artifact, read from its own group node — the
 #' shape/axes a caller must check BEFORE decoding megabytes.
 read_store_structure <- function(root) {
-  read_json_file(file.path(root, "zarr.json"))$attributes$cyto
+  read_json_file(file.path(root, "zarr.json"))$attributes$txr
 }

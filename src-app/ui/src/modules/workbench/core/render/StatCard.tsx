@@ -5,7 +5,7 @@
 // `metric`/`stat` kind that carries no numbers degrades to a graceful Empty rather
 // than a fabricated figure.
 
-import { Card, Empty, ErrorState, Spinner, Statistic, Tag } from '@ziee/kit'
+import { Card, Empty, ErrorState, Spinner, Statistic, Tag } from '@txresbench/kit'
 import { declaredDimsForDisplay } from '@/core/workstore'
 import { useArtifact } from './useArtifact'
 

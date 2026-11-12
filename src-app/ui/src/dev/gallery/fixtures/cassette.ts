@@ -1,16 +1,16 @@
-// CytoAnalyst gallery mock-API cassette + auth seed.
+// TxResBench gallery mock-API cassette + auth seed.
 //
-// Keys are ApiEndpoint keys ("NS.method"); the @ziee/gallery mock engine matches
+// Keys are ApiEndpoint keys ("NS.method"); the @txresbench/gallery mock engine matches
 // a request path back to its key and serves this. Dev-only — `as any` casts are
 // fine here (the cassette is not the type source of truth). `empty`/`error`
 // states are derived by the engine, so we only supply the LOADED response.
 
-import type { Cassette } from '@ziee/gallery'
+import type { Cassette } from '@txresbench/gallery'
 
 const adminUser = {
   id: '00000000-0000-0000-0000-000000000001',
   username: 'admin',
-  email: 'admin@cyto.test',
+  email: 'admin@txresbench.test',
   email_verified: true,
   display_name: 'Admin',
   avatar_url: null,
@@ -25,7 +25,7 @@ const researcher = {
   ...adminUser,
   id: '00000000-0000-0000-0000-000000000002',
   username: 'researcher',
-  email: 'researcher@cyto.test',
+  email: 'researcher@txresbench.test',
   display_name: 'Researcher',
   is_admin: false,
   permissions: [],
@@ -195,7 +195,7 @@ export const galleryCassette: Cassette = {
         project_id: '00000000-0000-0000-0000-0000000000s1',
         recipient_id: researcher.id,
         recipient_username: 'researcher',
-        recipient_email: 'researcher@cyto.test',
+        recipient_email: 'researcher@txresbench.test',
         permission_level: 'editor',
         status: 'accepted',
         created_at: '2026-01-02T00:00:00Z',
@@ -214,7 +214,7 @@ export const galleryCassette: Cassette = {
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-05T00:00:00Z',
         owner_username: adminUser.username,
-        owner_email: 'admin@cyto.test',
+        owner_email: 'admin@txresbench.test',
         owner_display_name: 'Admin User',
         owner_is_active: true,
         dataset_count: 3,
@@ -231,7 +231,7 @@ export const galleryCassette: Cassette = {
         created_at: '2026-01-03T00:00:00Z',
         updated_at: '2026-01-03T00:00:00Z',
         owner_username: researcher.username,
-        owner_email: 'researcher@cyto.test',
+        owner_email: 'researcher@txresbench.test',
         owner_display_name: null,
         owner_is_active: true,
         dataset_count: 0,
@@ -248,7 +248,7 @@ export const galleryCassette: Cassette = {
         created_at: '2025-06-01T00:00:00Z',
         updated_at: '2025-09-01T00:00:00Z',
         owner_username: 'dgone',
-        owner_email: 'dgone@cyto.test',
+        owner_email: 'dgone@txresbench.test',
         owner_display_name: 'Dr. Gone',
         owner_is_active: false,
         dataset_count: 5,
@@ -273,7 +273,7 @@ export const galleryCassette: Cassette = {
       updated_at: '2026-01-05T00:00:00Z',
     },
     owner_username: adminUser.username,
-    owner_email: 'admin@cyto.test',
+    owner_email: 'admin@txresbench.test',
     owner_display_name: 'Admin User',
     owner_is_active: true,
     shares: [
@@ -282,7 +282,7 @@ export const galleryCassette: Cassette = {
         project_id: '00000000-0000-0000-0000-0000000000s1',
         recipient_id: researcher.id,
         recipient_username: 'researcher',
-        recipient_email: 'researcher@cyto.test',
+        recipient_email: 'researcher@txresbench.test',
         permission_level: 'editor',
         status: 'accepted',
         created_at: '2026-01-02T00:00:00Z',
@@ -304,8 +304,8 @@ export const galleryCassette: Cassette = {
   } as any,
   'ProjectAdmin.searchUsers': {
     users: [
-      { id: researcher.id, username: 'researcher', email: 'researcher@cyto.test', display_name: null, is_active: true },
-      { id: '00000000-0000-0000-0000-0000000000u9', username: 'dgone', email: 'dgone@cyto.test', display_name: 'Dr. Gone', is_active: false },
+      { id: researcher.id, username: 'researcher', email: 'researcher@txresbench.test', display_name: null, is_active: true },
+      { id: '00000000-0000-0000-0000-0000000000u9', username: 'dgone', email: 'dgone@txresbench.test', display_name: 'Dr. Gone', is_active: false },
     ],
   } as any,
   'Dataset.list': [

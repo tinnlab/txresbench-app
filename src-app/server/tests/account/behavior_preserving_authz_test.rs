@@ -6,10 +6,10 @@
 //! "`owner_id == user_id`". A3 is observably a no-op wherever no org exists; the
 //! existing cross-user-404 behaviour is unchanged.
 
-use cytoanalyst::modules::dataset::repository::{DatasetAccess, DatasetRepository};
-use cytoanalyst::modules::project::scope::ProjectScope;
-use cytoanalyst::modules::project::{EffectivePermission, ProjectRepository};
-use cytoanalyst::modules::workstore::authz::{require_dataset_read, require_project_read};
+use txresbench::modules::dataset::repository::{DatasetAccess, DatasetRepository};
+use txresbench::modules::project::scope::ProjectScope;
+use txresbench::modules::project::{EffectivePermission, ProjectRepository};
+use txresbench::modules::workstore::authz::{require_dataset_read, require_project_read};
 
 use super::{create_user, pool_for, setup_admin};
 use crate::common::TestServer;

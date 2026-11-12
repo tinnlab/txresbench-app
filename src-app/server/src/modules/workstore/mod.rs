@@ -12,8 +12,8 @@ use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 use once_cell::sync::OnceCell;
 
-use ziee_core::AppError;
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_core::AppError;
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 /// The server's reading of the `dataset-alignment` artifact the producer WRITES — members
 /// addressed by ROLE, per-source digests out of `meta.sources[]`. See its module doc for the
@@ -147,7 +147,7 @@ use partition::StoreClaim;
 /// Process-wide content-addressed store handle — **swappable at runtime** (#64).
 ///
 /// Set at boot by [`init_working_store`]; a LIVE config cutover then atomically REPLACES it via
-/// [`swap_object_store`] with no restart (mirrors `ziee_file::init_file_storage` /
+/// [`swap_object_store`] with no restart (mirrors `txresbench_file::init_file_storage` /
 /// `get_file_storage` for the boot half, and the swappable-singleton shape of
 /// `settings_cache.rs` for the swap half — an `OnceLock` lazy slot holding a swappable Arc).
 ///
@@ -186,7 +186,7 @@ pub fn get_limits() -> WorkstoreLimits {
 }
 
 /// Initialize the content-addressed store under the resolved root (honors
-/// `CYTO_APP_DATA_DIR` for per-worktree test isolation). Called once at boot from
+/// `TXR_APP_DATA_DIR` for per-worktree test isolation). Called once at boot from
 /// `lib.rs::build_app`. Returns the store so the caller can spawn the GC loop.
 pub fn init_working_store(cfg: &WorkstoreConfig) -> Result<Arc<dyn ObjectStore>, AppError> {
     let store = build_store(cfg)?;
@@ -230,7 +230,7 @@ pub(crate) fn build_store(cfg: &WorkstoreConfig) -> Result<Arc<dyn ObjectStore>,
         crate::modules::workstore::config::ObjectStoreKind::S3 => {
             let _ = cfg;
             Err(AppError::internal_error(
-                "workstore: CYTO_WORKSTORE_BACKEND=s3 requires a build with the `saas` \
+                "workstore: TXR_WORKSTORE_BACKEND=s3 requires a build with the `saas` \
                  cargo feature; the desktop/default build ships only the local-fs backend",
             ))
         }
@@ -314,7 +314,7 @@ impl AppModule for WorkstoreModule {
 // `order: 24` — deliberately DISTINCT from `project` (25), and deliberately
 // BEFORE it. Two reasons:
 //
-//  1. Determinism (the bug this value fixes). `ziee_framework::create_modules`
+//  1. Determinism (the bug this value fixes). `txresbench_framework::create_modules`
 //     sorts `MODULE_ENTRIES` with a *stable* `sort_by_key(|e| e.order)`, so two
 //     modules sharing an `order` resolve to whatever sequence linkme's distributed
 //     slice happens to emit — i.e. link order, which shifts with unrelated code

@@ -8,7 +8,7 @@
 # and the hosted leg proves the whole `#[cfg(feature = "saas")]` billing tier still
 # compiles + runs against the local Stripe sim.
 #
-# ENFORCEMENT IS EXTERNALLY BLOCKED (GRAPH external-blocker #1): ziee-ai Actions
+# ENFORCEMENT IS EXTERNALLY BLOCKED (GRAPH external-blocker #1): tinnlab Actions
 # billing is dark org-wide, so this workflow does not execute in CI yet. The binding
 # gate until it is restored is LOCAL: `just check-saas-both` (+ the pre-push hook).
 # This file is authored now so the gate turns on the moment CI is back — a recorded

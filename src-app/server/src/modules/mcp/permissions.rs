@@ -10,7 +10,7 @@
 //! real route (the target route's own `RequirePermissions` is the actual
 //! gate); a frontend-kind `invoke_capability` is checked against the
 //! manifest's declared `permission` via `principal_holds` BEFORE relay
-//! (`mcp::handlers`) — CytoAnalyst is backend-authoritative for frontend
+//! (`mcp::handlers`) — TxResBench is backend-authoritative for frontend
 //! actions, never the browser engine.
 
 use crate::modules::permissions::PermissionCheck;
@@ -20,7 +20,7 @@ impl PermissionCheck for McpUse {
     const NAME: &'static str = "McpUse";
     const PERMISSION: &'static str = "mcp::use";
     const DESCRIPTION: &'static str =
-        "Let an external AI assistant (e.g. ziee chat) operate TxResBench on your behalf.";
+        "Let an external AI assistant (e.g. txresbench chat) operate TxResBench on your behalf.";
     const MODULE: &'static str = "mcp";
 }
 

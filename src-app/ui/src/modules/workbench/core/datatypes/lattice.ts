@@ -1,6 +1,6 @@
 // The subtyping-lattice SEAM (DEC-3). workbench-api owns the availability logic
 // but delegates the actual subtype/selector matching to a host-INJECTED lattice
-// — in the CytoAnalyst host that is P2's `datatypeRegistry` (`isA`/`matches`),
+// — in the TxResBench host that is P2's `datatypeRegistry` (`isA`/`matches`),
 // adapted to this interface at wiring time. Keeping it an interface (not a hard
 // import) is what makes the package acyclic + unit-testable with a fake.
 

@@ -53,7 +53,7 @@ import type {
   TxrRunLogLine,
   TxrRunSummary,
 } from '@/api-client/types'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 import { PAGE_SIZE, type TxrHistoryFilter } from '../types'
 
 /** The search debounce (the ui-intake precedent: a typed query in flight is

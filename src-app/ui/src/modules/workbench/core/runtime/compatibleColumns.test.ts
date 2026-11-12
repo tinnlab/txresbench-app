@@ -11,7 +11,7 @@ import type { ArtifactRow } from '@/modules/workbench/core/artifacts/catalog'
 // The cross-dataset column OFFER (ITEM-35), decided from catalog rows alone.
 //
 // The declarations below are the shape the RUNNING writer emits — read off
-// `cyto_columns.write_metadata_column` rather than from a format note (a real return is
+// `txr_columns.write_metadata_column` rather than from a format note (a real return is
 // pinned by the cross-seam suite; these are the unit-level cases around it).
 
 const b64 = (hashes: string[]): string => {
@@ -335,7 +335,7 @@ describe('the offer filter refuses what the producer refuses', () => {
   })
 
   it('an object-dtype label pair (stored `string`) is STILL offered — it is the primary case', () => {
-    // `cyto_columns.write_metadata_column` routes object-dtype series through `t.string(...)`,
+    // `txr_columns.write_metadata_column` routes object-dtype series through `t.string(...)`,
     // so the commonest real label column declares `string` and classifies `undecidable`. It is
     // a LABEL and must stay offerable; hiding it would remove most of what a user came to
     // align. (Whether the PRODUCER accepts a string-stored label is its own question and is

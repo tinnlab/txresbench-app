@@ -5,7 +5,7 @@ for anyone implementing or auditing `viz-core/annotate/**` or the image/mask spa
 surfaces — the one-line invariants only summarize it; the findings and their sources
 carry the WHY and the gotchas. Synthesized from six parallel research streams
 (JTBD ×5 communities, web-tool prior-art, segmentation-model ecosystem + licensing,
-image formats + web-GPU rendering, and a grounding pass over `@ziee/viz`).
+image formats + web-GPU rendering, and a grounding pass over `@txresbench/viz`).
 
 Companion long-form: the published research artifact (frontend re-scope). This doc
 is the durable, citable version.
@@ -118,7 +118,7 @@ Sources: [Viv README (PixelSource, 4096² single-texture cap)](https://github.co
 [SpatialData (annotation model)](https://spatialdata.scverse.org/) ·
 [NGFF RFC-5 (transforms, in review)](https://ngff.openmicroscopy.org/rfc/5/).
 
-## 5. Codebase inventory — what `@ziee/viz` already has (the reuse basis)
+## 5. Codebase inventory — what `@txresbench/viz` already has (the reuse basis)
 
 - **F-CODE-1 · Gigapixel multichannel viewer** — `spatial/RasterImageView.tsx`
   (Viv `MultiscaleImageLayer` + XRLayer channel model, driven by a `PixelSource[]`

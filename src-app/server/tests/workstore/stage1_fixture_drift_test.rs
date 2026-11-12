@@ -101,7 +101,7 @@ fn emit(dest: &Path, flags: &[&str]) {
 /// Regenerate one fixture and compare, or write it under the env flag.
 fn check(name: &str, flags: &[&str], min_files: usize) {
     let tmp = std::env::temp_dir().join(format!(
-        "cyto-s1fx-{}-{}-{name}",
+        "txr-s1fx-{}-{}-{name}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -217,11 +217,11 @@ fn the_absence_fixture_actually_contains_absence_codes() {
     let attrs: serde_json::Value =
         serde_json::from_slice(&std::fs::read(root.join("zarr.json")).expect("read zarr.json"))
             .expect("parse zarr.json");
-    let cyto = &attrs["attributes"]["cyto_alignment"];
-    let missing_label = cyto["missing_levels"]["group"]
+    let txr = &attrs["attributes"]["txr_alignment"];
+    let missing_label = txr["missing_levels"]["group"]
         .as_str()
         .expect("the absence fixture must DECLARE a missing level for `group`");
-    let vocabulary: Vec<String> = cyto["unified_levels"]["group"]
+    let vocabulary: Vec<String> = txr["unified_levels"]["group"]
         .as_array()
         .expect("unified_levels.group")
         .iter()

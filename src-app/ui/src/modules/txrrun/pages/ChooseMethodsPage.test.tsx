@@ -1110,7 +1110,7 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
             : method,
         ),
       })
-    const { Toaster } = await import('@ziee/kit')
+    const { Toaster } = await import('@txresbench/kit')
     seedStore()
     render(
       <MemoryRouter initialEntries={['/choose-methods']}>

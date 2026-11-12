@@ -33,7 +33,7 @@ localized and fixable without re-architecting.
 
 - **[MED] Registry→MCP tool generator double-owned by P5 and P9.** P5 ITEM-30:
   "P5 owns the generator + safety-mapping." P9 ITEM-5: `build_workbench_catalog(...)`
-  is P9's "generator core." P5 puts it in TS (`@cyto/workbench-api/mcp/project.ts`);
+  is P9's "generator core." P5 puts it in TS (`@txresbench/workbench-api/mcp/project.ts`);
   P9 puts it in Rust (`workbench_mcp/generator.rs`) sourcing a P5 *backend*
   `ContributionCatalog` (P9 ITEM-4). The runtime MCP tools/list must be served
   Rust-side, so a TS package generator cannot be the emitter. Both literally say
@@ -83,9 +83,9 @@ localized and fixable without re-architecting.
   Pick one entity name.
 
 - **[LOW-MED] Conformance-battery move direction conflict (package-cycle risk).**
-  P7 ITEM-8: "**move** conformance/invariants into `@cyto/workbench-api` and
+  P7 ITEM-8: "**move** conformance/invariants into `@txresbench/workbench-api` and
   re-export." P5 ITEM-31: "**re-export, not re-implement**" (source stays in
-  viz-core). P7 DEC-P7-4 also insists viz-core stays `@ziee/*`-free/standalone and
+  viz-core). P7 DEC-P7-4 also insists viz-core stays `@txresbench/*`-free/standalone and
   runs conformance at register time. If the source truly *moves* to workbench-api,
   viz-core must import P5 to self-validate → the exact package cycle P5's own risk
   list warns against. Resolution both accept: invariants **source stays in viz-core**;
@@ -193,7 +193,7 @@ build-order direction**, so the actual *code-import + land-order* graph is a DAG
 ```
 This is acyclic. The **one genuine residual cycle risk** is the conformance-battery
 move (P7 ITEM-8 "move into workbench-api" vs viz-core-stays-P5-free) — if built as
-P7 ITEM-8 literally reads, it creates a real `viz-core → @cyto/workbench-api →
+P7 ITEM-8 literally reads, it creates a real `viz-core → @txresbench/workbench-api →
 viz-core` package cycle. Resolve per the seam-mismatch note above.
 
 Separately: P9's blocking dependency on the **MCP/chat/approval substrate** (P9

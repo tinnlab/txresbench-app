@@ -10,10 +10,10 @@ Pinned cross-part audit decisions baked into this plan:
   the manifest via the **P3-owned struct** and uses the field name **`id`** for the output slot; the
   set-valued output signature is `{(entry.id, content_hash)}`. The old P4 field name `output_slot` is
   retired in favor of the canonical `id` (kept only as a descriptive alias for the edge's slot label).
-- **A7 — re-grounded vs merged main (tip `63520fb`).** Main ALREADY adopted `ziee-file` as a real server
+- **A7 — re-grounded vs merged main (tip `63520fb`).** Main ALREADY adopted `txresbench-file` as a real server
   dependency with dataset multipart upload (P2/P10/P11 assume it exists). ITEM-5's "upload is a
   checksum-less stub → greenfield" grounding was true only on the stale analysis-workflow tree. P4 now
-  treats the ziee-file content-addressed store + dataset upload path as **ALREADY EXISTING on main**;
+  treats the txresbench-file content-addressed store + dataset upload path as **ALREADY EXISTING on main**;
   ITEM-5 only **adds the provenance fields** (sha256 checksum + uploader + accession/DOI) onto that
   already-wired upload path — it does NOT build the upload/multipart path.
 
@@ -65,7 +65,7 @@ gone. **Adopt live8's node/edge MODEL but REALIZE it in P1's catalog tables.**
   P4 code (capture/export/verify) is decoupled from P1's column names. **NO new graph tables.**
 - **ITEM-2**: **`provenance_code_blobs` table** — content-addressed Postgres code store:
   `sha256 PK, language, source TEXT, byte_len, created_at`. Deduped by hash (a step ≈ 1–10 KB; hundreds of
-  runs × few KB deduped < a few MB/study → Postgres, NOT `ziee-file`, NOT the results-store). Referenced by
+  runs × few KB deduped < a few MB/study → Postgres, NOT `txresbench-file`, NOT the results-store). Referenced by
   `code_sha256` on the run's repro sidecar.
 - **ITEM-3**: **`provenance_run_repro` sidecar** (1:1 with a catalog run):
   `run_id PK FK, code_sha256 FK, generator_id, generator_version, env_rootfs_sha256, lockfile_json
@@ -77,8 +77,8 @@ gone. **Adopt live8's node/edge MODEL but REALIZE it in P1's catalog tables.**
   `source_kind=reference`, or a thin `provenance_reference_resources(id, kind, name, version,
   accession/doi, content_hash, created_at)` if P1 doesn't model `source_kind`.
 - **ITEM-5**: **Root nodes carry provenance at ingest** — add sha256 + uploader + timestamp + original
-  filename + optional external accession/DOI to the `dataset`/`ziee-file` upload path. **A7: the
-  ziee-file dataset multipart upload path ALREADY EXISTS on merged main (`63520fb`)** — it is NOT a
+  filename + optional external accession/DOI to the `dataset`/`txresbench-file` upload path. **A7: the
+  txresbench-file dataset multipart upload path ALREADY EXISTS on merged main (`63520fb`)** — it is NOT a
   greenfield stub (that was true only on the stale analysis-workflow tree). P4 therefore only **adds the
   provenance fields** onto the existing upload path (a checksum + uploader + accession stamp), it does
   NOT build the upload/multipart receiver. Ensures every backward walk terminates at a hashed root.
@@ -162,7 +162,7 @@ gone. **Adopt live8's node/edge MODEL but REALIZE it in P1's catalog tables.**
   + env spec (rootfs sha256 + lockfile / `requirements.txt` / `renv.lock`) + `methods.md` + `manifest.json`
   (ITEM-20) + `REPRODUCING.md` + `manifest-sha256.txt`. The annotated `.h5ad`/`.rds` object ships via P1's
   AnnData/Zarr export codec (provenance references it, never re-invents). Ingest of `/outputs/*` into the
-  file store reuses `mcp/resource_link.rs` `persist_links` + `ziee://` host-path guards + `confine_under_roots`.
+  file store reuses `mcp/resource_link.rs` `persist_links` + `txresbench://` host-path guards + `confine_under_roots`.
 - **ITEM-20**: **RO-Crate manifest** — phase-1 = RO-Crate-*shaped* bespoke `manifest.json` (fields chosen to
   map 1:1 onto WRROC `CreateAction`/`FormalParameter`); phase-2 = upgrade **in place** to a valid
   `ro-crate-metadata.json` at the Provenance-Run-Crate profile (schema.org `CreateAction` per step,
@@ -243,7 +243,7 @@ gone. **Adopt live8's node/edge MODEL but REALIZE it in P1's catalog tables.**
 - `modules/jobs/runner.rs` + `modules/sandbox/service.rs` — install/call the capture hook around
   `run_analysis` (reads its `SandboxRunResult` + `/outputs/manifest.json`; the fn itself is unchanged).
 - `modules/rootfs/version.rs` + `modules/sandbox` status — surface full rootfs sha256 (ITEM-6).
-- `dataset`/`ziee-file` ingest — checksum roots (ITEM-5).
+- `dataset`/`txresbench-file` ingest — checksum roots (ITEM-5).
 - P1 catalog — coordinate the artifact content-hash at ingest that P4 reads (ownership: P1 hashes; P4 reads).
 - `modules/mod.rs` — register `ProvenanceModule`.
 
@@ -263,7 +263,7 @@ stores (`Provenance`, `Export`, `Verification` via `defineStore` + `sync:provena
   path-agnostic inputs.json + selection-as-recipe, export scoping, Candidate-D phasing. **No code to git-adopt.**
 - **P1 catalog** — run/artifact/edge tables + `WITH RECURSIVE` backward walk (the graph; DEC-OWN — do not
   duplicate) + content-hashed artifacts as node backing.
-- **`sandbox::service::run_analysis` + `ExtraMount`/`MountMode`** (cyto `modules/sandbox`) — the exec seam for
+- **`sandbox::service::run_analysis` + `ExtraMount`/`MountMode`** (txr `modules/sandbox`) — the exec seam for
   both capture AND verify re-run (already `--clearenv`/`--unshare-net`/RO-rootfs; linux + non-linux cfg'd).
   Don't reimplement bwrap.
 - **`jobs` module** (`Job`, `job_logs`, `job_metrics`, `seams.rs` sync/notify seam idiom) + `JobRunner` — the
@@ -271,7 +271,7 @@ stores (`Provenance`, `Export`, `Verification` via `defineStore` + `sync:provena
 - **`study/core/extension/registry.rs`** (`STUDY_EXTENSIONS`, `StudyExtension::on_study_deleted`,
   `delete_study_with_extensions`) — registration + lifecycle cascade (live8 substrate, merged).
 - **`rootfs::version` sha256 / `content_version()` / `.sqfs-sha`** — env-pin substrate (ITEM-6 surfaces full).
-- **`mcp/resource_link.rs` `persist_links` + `ziee://` host-path guards + `confine_under_roots`** — the
+- **`mcp/resource_link.rs` `persist_links` + `txresbench://` host-path guards + `confine_under_roots`** — the
   trusted-emitter/confine model for ingesting `/outputs/*` sandbox artifacts into the file store.
 - **`workflow_runs` + `set_workflow_run_id`** run→artifact linking — the run-owns-artifacts cascade pattern
   for `on_study_deleted`.
@@ -282,7 +282,7 @@ stores (`Provenance`, `Export`, `Verification` via `defineStore` + `sync:provena
 - **pandoc** (embedded, vendored for `citations`) + `citations`/`lit_search` CSL — methods/KRT/BibTeX emit.
 - **P1's AnnData/Zarr export codec** — the bundle's annotated object export (ITEM-19).
 - **P8 predicate DSL + host evaluator** — selection-recipe wire format + code emit.
-- **ziee `sigstore`/`sha2` patterns** — content-addressing.
+- **txresbench `sigstore`/`sha2` patterns** — content-addressing.
 
 ---
 
@@ -340,7 +340,7 @@ stores (`Provenance`, `Export`, `Verification` via `defineStore` + `sync:provena
 - **DEC-CAPTURE:** passive auto-capture at the two chokepoints (compute + interaction), NEVER an explicit
   checkpoint — "provenance for free" is the entire wedge; an effort tax kills adoption.
 - **DEC-CODE-BLOB:** code → content-addressed Postgres text blobs (sha256 PK, deduped); data artifacts → P1
-  object store; graph → P1 catalog. Code is graph metadata, not a `ziee-file` upload.
+  object store; graph → P1 catalog. Code is graph metadata, not a `txresbench-file` upload.
 - **DEC-CODE-SOURCE (correction to live8):** captured code = the extension's staged sandbox-entry bytes +
   generated `inputs.json` + harness preamble (live8 predates the extension-platform model), hashed →
   `code_sha256`; `generator_id/version` = extension id+version. The byte-faithful-export property holds.
@@ -357,7 +357,7 @@ stores (`Provenance`, `Export`, `Verification` via `defineStore` + `sync:provena
 - **DEC-RECIPE:** selection = recipe (predicate + pinned input hash), size-independent of cell count; §3.9
   bitmask runtime-only; freehand-only = a small id-list.
 - **DEC-CLOSURE:** enforce the 3-source-kind invariant at the chokepoint (reject inputs not a known
-  upload/artifact/reference); roots MUST carry a content hash — the ziee-file dataset upload path already
+  upload/artifact/reference); roots MUST carry a content hash — the txresbench-file dataset upload path already
   exists on main (A7), so P4 only ADDS the checksum/provenance stamp, not the upload path.
 - **DEC-VERIFY:** env-pinning (phase 1) → in-sandbox re-run + tolerance-diff certificate (phase 3). Target =
   **statistical equivalence under a pinned environment**, NOT bit-exact (honest framing mandatory in

@@ -46,7 +46,7 @@ import {
   type FixtureVariant,
 } from './fixtureSpecs'
 
-const GALLERY_EXTENSION_ID = 'cyto.workbench.declarative-gallery'
+const GALLERY_EXTENSION_ID = 'txr.workbench.declarative-gallery'
 
 /** Frame sizing per variant. The wide frame is deliberately far wider than `RegionBody`'s
  *  `max-w-lg` (512px) cap, so the Layer-A spec can prove the cap actually holds — that is
@@ -246,7 +246,7 @@ export const declarativeFixtureSurfaces: DeclarativeFixtureSurface[] = DECLARATI
 // widget — the invariant `tests/gallery-e2e/entry-list-collapse.spec.ts` guards.
 
 const ENTRY_LIST_COLLAPSE_SLUG = 'entry-list-collapse-repro'
-const ENTRY_LIST_COLLAPSE_EXT = 'cyto.workbench.entry-list-collapse-gallery'
+const ENTRY_LIST_COLLAPSE_EXT = 'txr.workbench.entry-list-collapse-gallery'
 const ENTRY_LIST_COLLAPSE_PANE = 'visualize'
 const ENTRY_LIST_COLLAPSE_VIEW = 'gallery-entry-list-collapse'
 

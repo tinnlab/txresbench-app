@@ -27,11 +27,11 @@ use async_trait::async_trait;
 use serde_json::json;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::gather_exec::ResolvedGather;
-use cytoanalyst::modules::workstore::gathered::{ResolutionCache, CHUNK_ELEMENTS};
-use cytoanalyst::modules::workstore::object_store::{
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::gather_exec::ResolvedGather;
+use txresbench::modules::workstore::gathered::{ResolutionCache, CHUNK_ELEMENTS};
+use txresbench::modules::workstore::object_store::{
     BlobLink, ByteStream, ContentKey, GcReport, MultiFilePut, ObjectStat, ObjectStore,
 };
 
@@ -88,16 +88,16 @@ impl<S: ObjectStore> CountingStore<S> {
 
 #[async_trait]
 impl<S: ObjectStore> ObjectStore for CountingStore<S> {
-    async fn put(&self, bytes: &[u8]) -> Result<ContentKey, ziee_core::AppError> {
+    async fn put(&self, bytes: &[u8]) -> Result<ContentKey, txresbench_core::AppError> {
         self.inner.put(bytes).await
     }
     async fn put_prefix(
         &self,
         members: &[(String, Vec<u8>)],
-    ) -> Result<MultiFilePut, ziee_core::AppError> {
+    ) -> Result<MultiFilePut, txresbench_core::AppError> {
         self.inner.put_prefix(members).await
     }
-    async fn get(&self, key: &ContentKey) -> Result<Vec<u8>, ziee_core::AppError> {
+    async fn get(&self, key: &ContentKey) -> Result<Vec<u8>, txresbench_core::AppError> {
         let out = self.inner.get(key).await?;
         self.gets.fetch_add(1, Ordering::SeqCst);
         self.bytes.fetch_add(out.len() as u64, Ordering::SeqCst);
@@ -108,7 +108,7 @@ impl<S: ObjectStore> ObjectStore for CountingStore<S> {
         key: &ContentKey,
         start: u64,
         len: u64,
-    ) -> Result<Vec<u8>, ziee_core::AppError> {
+    ) -> Result<Vec<u8>, txresbench_core::AppError> {
         let out = self.inner.get_range(key, start, len).await?;
         self.gets.fetch_add(1, Ordering::SeqCst);
         self.bytes.fetch_add(out.len() as u64, Ordering::SeqCst);
@@ -119,16 +119,16 @@ impl<S: ObjectStore> ObjectStore for CountingStore<S> {
         key: &ContentKey,
         offset: u64,
         length: u64,
-    ) -> Result<ByteStream, ziee_core::AppError> {
+    ) -> Result<ByteStream, txresbench_core::AppError> {
         self.inner.get_stream(key, offset, length).await
     }
-    async fn stat(&self, key: &ContentKey) -> Result<ObjectStat, ziee_core::AppError> {
+    async fn stat(&self, key: &ContentKey) -> Result<ObjectStat, txresbench_core::AppError> {
         self.inner.stat(key).await
     }
-    async fn exists(&self, key: &ContentKey) -> Result<bool, ziee_core::AppError> {
+    async fn exists(&self, key: &ContentKey) -> Result<bool, txresbench_core::AppError> {
         self.inner.exists(key).await
     }
-    async fn delete(&self, key: &ContentKey) -> Result<(), ziee_core::AppError> {
+    async fn delete(&self, key: &ContentKey) -> Result<(), txresbench_core::AppError> {
         self.inner.delete(key).await
     }
     async fn link_blob(&self, key: &ContentKey, dest: &std::path::Path) -> BlobLink {
@@ -138,14 +138,14 @@ impl<S: ObjectStore> ObjectStore for CountingStore<S> {
         &self,
         manifest_key: &ContentKey,
         member_path: &str,
-    ) -> Result<ContentKey, ziee_core::AppError> {
+    ) -> Result<ContentKey, txresbench_core::AppError> {
         self.inner.resolve_member(manifest_key, member_path).await
     }
     async fn gc(
         &self,
         keep: &std::collections::HashSet<String>,
         min_age_secs: u64,
-    ) -> Result<GcReport, ziee_core::AppError> {
+    ) -> Result<GcReport, txresbench_core::AppError> {
         self.inner.gc(keep, min_age_secs).await
     }
 }
@@ -374,7 +374,7 @@ async fn scale_scene(
     }
 
     // ── the gathered column ──────────────────────────────────────────────────────────
-    let structure = cytoanalyst::modules::workstore::virtual_dataset::gathered_structure(
+    let structure = txresbench::modules::workstore::virtual_dataset::gathered_structure(
         "float32",
         None,
         SCENE_SOURCE_AXIS,
@@ -387,11 +387,11 @@ async fn scale_scene(
         //
         // Provenance: commit `21585970` made this parameter required and updated the three
         // siblings but not this one. The fix was made during the #149/#150 merge, verified
-        // locally, and then LEFT UNSTAGED — so `cargo check -p cytoanalyst --tests` failed
+        // locally, and then LEFT UNSTAGED — so `cargo check -p txresbench --tests` failed
         // at `c6688a32` while every local run was green. Committed properly in `f6c98ce6`
         // after the #154 agent, unable to build the suite at all, reported it instead of
         // working around it.
-        cytoanalyst::modules::workstore::virtual_dataset::KeyIdentity::Unpinned,
+        txresbench::modules::workstore::virtual_dataset::KeyIdentity::Unpinned,
         json!({
             "alignment_artifact_id": align,
             "column_selector": "values",
@@ -415,7 +415,7 @@ async fn scale_scene(
         meta: json!({}),
         role: "artifact".to_string(),
         stored_bytes: 0,
-        logical_bytes: cytoanalyst::modules::workstore::virtual_dataset::gathered_logical_bytes(
+        logical_bytes: txresbench::modules::workstore::virtual_dataset::gathered_logical_bytes(
             "float32", n_rows,
         ),
         created_by: None,
@@ -461,7 +461,7 @@ async fn a_whole_column_scan_reports_its_read_amplification() {
     // ONE chunk, cold — the floor a single request cannot go below.
     counting.reset();
     let t0 = std::time::Instant::now();
-    let resolved = cytoanalyst::modules::workstore::gather_exec::resolve(
+    let resolved = txresbench::modules::workstore::gather_exec::resolve(
         &pool,
         counting.as_ref(),
         g,
@@ -482,7 +482,7 @@ async fn a_whole_column_scan_reports_its_read_amplification() {
     counting.reset();
     let t1 = std::time::Instant::now();
     for c in 0..chunks {
-        let r = cytoanalyst::modules::workstore::gather_exec::resolve(
+        let r = txresbench::modules::workstore::gather_exec::resolve(
             &pool,
             counting.as_ref(),
             g,
@@ -525,7 +525,7 @@ async fn a_whole_column_scan_reports_its_read_amplification() {
     counting.reset();
     let t2 = std::time::Instant::now();
     for c in 0..chunks {
-        let r = cytoanalyst::modules::workstore::gather_exec::resolve_shared(
+        let r = txresbench::modules::workstore::gather_exec::resolve_shared(
             &pool,
             counting.as_ref(),
             g,
@@ -669,7 +669,7 @@ async fn concurrent_resolution_reports_its_resident_set_growth() {
     for _ in 0..CONCURRENCY {
         let (p, s, st) = (pool.clone(), Arc::clone(&store), structure.clone());
         tasks.push(tokio::spawn(async move {
-            cytoanalyst::modules::workstore::gather_exec::resolve(&p, s.as_ref(), g, &st)
+            txresbench::modules::workstore::gather_exec::resolve(&p, s.as_ref(), g, &st)
                 .await
                 .expect("resolve")
         }));

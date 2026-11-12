@@ -10,7 +10,7 @@ import {
 // silent-unauthenticated foot-gun: an app that doesn't use a zustand-persist
 // store named `auth-storage` can inject its token and requests authenticate,
 // while the DEFAULT (no provider) still reads `localStorage['auth-storage']`
-// so ziee is unaffected.
+// so txresbench is unaffected.
 
 // Minimal localStorage stub for the default path.
 function stubLocalStorage(store: Record<string, string>) {

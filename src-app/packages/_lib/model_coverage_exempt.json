@@ -32,7 +32,7 @@
     "",
     "Most entries are `rows-undeclared`. The exceptions are the anndata-import producers",
     "(anndata.import / h5ad-import, embedding + metadata-column), whose compute now PASSES a",
-    "full membership to the writer (dimension-membership ITEM-4, via cyto_zarr membership=),",
+    "full membership to the writer (dimension-membership ITEM-4, via txr_zarr membership=),",
     "and embedding.integrate's dataset-alignment, which declares its own row space through its",
     "extents — those are `rows-declared`. The guard cannot verify a disposition (the evidence",
     "lives in Python compute, and reading it mechanically means a source-text scan, the guard",
@@ -43,19 +43,19 @@
       "producer": "anndata.import",
       "datatype": "embedding",
       "disposition": "rows-declared",
-      "reason": "Emits one value per entry of the whole axis it declares, and the anndata-import compute PASSES that membership to the writer (kind=full, with n_members via cyto_zarr membership=), so the consumer has a denominator to measure \"describes N of M rows\" against — which the scalar aligned_to alone never supplied. rows-declared: the whole axis is the declared row space."
+      "reason": "Emits one value per entry of the whole axis it declares, and the anndata-import compute PASSES that membership to the writer (kind=full, with n_members via txr_zarr membership=), so the consumer has a denominator to measure \"describes N of M rows\" against — which the scalar aligned_to alone never supplied. rows-declared: the whole axis is the declared row space."
     },
     {
       "producer": "anndata.import",
       "datatype": "metadata-column",
       "disposition": "rows-declared",
-      "reason": "Emits one value per entry of the whole axis it declares, and the anndata-import compute PASSES that membership to the writer (kind=full, with n_members via cyto_zarr membership=), so the consumer has a denominator to measure \"describes N of M rows\" against — which the scalar aligned_to alone never supplied. rows-declared: the whole axis is the declared row space."
+      "reason": "Emits one value per entry of the whole axis it declares, and the anndata-import compute PASSES that membership to the writer (kind=full, with n_members via txr_zarr membership=), so the consumer has a denominator to measure \"describes N of M rows\" against — which the scalar aligned_to alone never supplied. rows-declared: the whole axis is the declared row space."
     },
     {
       "producer": "anndata.import",
       "datatype": "single-cell/expression",
       "disposition": "rows-undeclared",
-      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space. Undeclared, and harder than the others: the CSC store is not written through cyto_zarr.Table, so stating its rows would mean hand-writing the entry into structure_extra, bypassing the writer refusals that make a declaration checked rather than claimed."
+      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space. Undeclared, and harder than the others: the CSC store is not written through txr_zarr.Table, so stating its rows would mean hand-writing the entry into structure_extra, bypassing the writer refusals that make a declaration checked rather than claimed."
     },
     {
       "producer": "annotation-integrate",
@@ -115,19 +115,19 @@
       "producer": "h5ad-import",
       "datatype": "embedding",
       "disposition": "rows-declared",
-      "reason": "Emits one value per entry of the whole axis it declares, and the anndata-import compute PASSES that membership to the writer (kind=full, with n_members via cyto_zarr membership=), so the consumer has a denominator to measure \"describes N of M rows\" against — which the scalar aligned_to alone never supplied. rows-declared: the whole axis is the declared row space."
+      "reason": "Emits one value per entry of the whole axis it declares, and the anndata-import compute PASSES that membership to the writer (kind=full, with n_members via txr_zarr membership=), so the consumer has a denominator to measure \"describes N of M rows\" against — which the scalar aligned_to alone never supplied. rows-declared: the whole axis is the declared row space."
     },
     {
       "producer": "h5ad-import",
       "datatype": "metadata-column",
       "disposition": "rows-declared",
-      "reason": "Emits one value per entry of the whole axis it declares, and the anndata-import compute PASSES that membership to the writer (kind=full, with n_members via cyto_zarr membership=), so the consumer has a denominator to measure \"describes N of M rows\" against — which the scalar aligned_to alone never supplied. rows-declared: the whole axis is the declared row space."
+      "reason": "Emits one value per entry of the whole axis it declares, and the anndata-import compute PASSES that membership to the writer (kind=full, with n_members via txr_zarr membership=), so the consumer has a denominator to measure \"describes N of M rows\" against — which the scalar aligned_to alone never supplied. rows-declared: the whole axis is the declared row space."
     },
     {
       "producer": "h5ad-import",
       "datatype": "single-cell/expression",
       "disposition": "rows-undeclared",
-      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space. Undeclared, and harder than the others: the CSC store is not written through cyto_zarr.Table, so stating its rows would mean hand-writing the entry into structure_extra, bypassing the writer refusals that make a declaration checked rather than claimed."
+      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space. Undeclared, and harder than the others: the CSC store is not written through txr_zarr.Table, so stating its rows would mean hand-writing the entry into structure_extra, bypassing the writer refusals that make a declaration checked rather than claimed."
     },
     {
       "producer": "import.h5ad",
@@ -157,13 +157,13 @@
       "producer": "spatial.import-visium",
       "datatype": "single-cell/counts",
       "disposition": "rows-undeclared",
-      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space. Undeclared for exactly the reason anndata.import's expression output is: the CSC store is not written through cyto_zarr.Table, so stating its rows would mean hand-writing the entry into structure_extra, bypassing the writer refusals that make a declaration checked rather than claimed. It covers every cell of the filtered matrix, which is every entry of the axis this import declares."
+      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space. Undeclared for exactly the reason anndata.import's expression output is: the CSC store is not written through txr_zarr.Table, so stating its rows would mean hand-writing the entry into structure_extra, bypassing the writer refusals that make a declaration checked rather than claimed. It covers every cell of the filtered matrix, which is every entry of the axis this import declares."
     },
     {
       "producer": "spatial.import-visium",
       "datatype": "spatial/coordinates",
       "disposition": "rows-declared",
-      "reason": "One position per entry of the cells axis it declares, and the compute PASSES that membership to the writer (kind=full, via cyto_columns membership=) — it has the whole barcode sequence in hand because it is writing the key artifact from it in the same pass, so declaring the row space costs nothing and is checked by the writer rather than claimed. The import additionally REFUSES a bundle in which any matrix barcode has no position, so \"the whole axis\" is a verified claim and not an assumption about the vendor's file."
+      "reason": "One position per entry of the cells axis it declares, and the compute PASSES that membership to the writer (kind=full, via txr_columns membership=) — it has the whole barcode sequence in hand because it is writing the key artifact from it in the same pass, so declaring the row space costs nothing and is checked by the writer rather than claimed. The import additionally REFUSES a bundle in which any matrix barcode has no position, so \"the whole axis\" is a verified claim and not an assumption about the vendor's file."
     },
     {
       "producer": "spatial.import-xenium",
@@ -175,7 +175,7 @@
       "producer": "spatial.import-xenium",
       "datatype": "single-cell/counts",
       "disposition": "rows-undeclared",
-      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space. Undeclared for exactly the reason spatial.import-visium's and anndata.import's expression outputs are: the CSC store is not written through cyto_zarr.Table, so stating its rows would mean hand-writing the entry into structure_extra, bypassing the writer refusals that make a declaration checked rather than claimed. Every emitted feature-class store covers every cell of the matrix, which is every entry of the axis this import declares."
+      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space. Undeclared for exactly the reason spatial.import-visium's and anndata.import's expression outputs are: the CSC store is not written through txr_zarr.Table, so stating its rows would mean hand-writing the entry into structure_extra, bypassing the writer refusals that make a declaration checked rather than claimed. Every emitted feature-class store covers every cell of the matrix, which is every entry of the axis this import declares."
     },
     {
       "producer": "spatial.import-xenium",
@@ -187,7 +187,7 @@
       "producer": "spatial.import-xenium",
       "datatype": "spatial/coordinates",
       "disposition": "rows-declared",
-      "reason": "One position per entry of the cells axis it declares, and the compute PASSES that membership to the writer (kind=full, via cyto_columns membership=) — it has the whole cell_id sequence in hand because it is writing the key artifact from it in the same pass, so declaring the row space costs nothing and is checked by the writer rather than claimed. The import additionally REFUSES a bundle in which any matrix cell has no row in cells.csv.gz, so \"the whole axis\" is a verified claim and not an assumption about the vendor's file."
+      "reason": "One position per entry of the cells axis it declares, and the compute PASSES that membership to the writer (kind=full, via txr_columns membership=) — it has the whole cell_id sequence in hand because it is writing the key artifact from it in the same pass, so declaring the row space costs nothing and is checked by the writer rather than claimed. The import additionally REFUSES a bundle in which any matrix cell has no row in cells.csv.gz, so \"the whole axis\" is a verified claim and not an assumption about the vendor's file."
     },
     {
       "producer": "trajectory.dpt",

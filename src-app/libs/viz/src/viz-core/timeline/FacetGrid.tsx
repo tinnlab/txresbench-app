@@ -1,7 +1,7 @@
 // FacetGrid.tsx — small-multiples of a base GPU scatter (ITEM-46). Renders a row/grid of
 // mini-views, one per `Facet`, each showing ONLY that facet's points and all SHARING one
 // view domain (common scales). Framework-agnostic viz-core: depends only on @deck.gl/* +
-// react (no @ziee/*).
+// react (no @txresbench/*).
 //
 // The per-facet filtering is done ENTIRELY ON THE GPU via `DataFilterExtension`: every
 // mini-view is fed the SAME shared `positions` + `facetValue` (per-point categorical code

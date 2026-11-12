@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
-import { routesSeam } from '@ziee/framework'
-import { authStoreProxy, hasPermissionNow } from '@ziee/framework/permissions'
-import type { PermissionExpr } from '@ziee/framework/permissions'
+import { routesSeam } from '@txresbench/framework'
+import { authStoreProxy, hasPermissionNow } from '@txresbench/framework/permissions'
+import type { PermissionExpr } from '@txresbench/framework/permissions'
 import { selectPrefetchRoutes, type PrefetchRoute } from './prefetch-selection'
 
 /**
@@ -21,7 +21,7 @@ import { selectPrefetchRoutes, type PrefetchRoute } from './prefetch-selection'
  * at TRUE idle and never preempts the boot data fetches.
  *
  * SEAM: reads the app-registered `Routes` store (populated by
- * `@ziee/framework/router` or an app-local router module) through a typed view,
+ * `@txresbench/framework/router` or an app-local router module) through a typed view,
  * so the shell doesn't depend on the router being present at type-check time.
  */
 export function usePrefetchModules() {

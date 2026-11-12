@@ -300,7 +300,7 @@ def test_a_scale_of_zero_or_a_string_is_refused_rather_than_believed(tmp_path):
 #: `component_columns`, the methods narrator reads `provenance` — so the assertion that
 #: matters is equality.
 EXPECTED_COORDINATES_META_KEYS = {
-    # from `cyto_columns.write_embedding`
+    # from `txr_columns.write_embedding`
     "name", "kind", "axis", "n", "n_dims",
     # from `coordinate_space()` — the two `*_source` keys moved INTO this block (#211)
     "coordinate_space", "unit", "to_space", "microns_per_pixel",
@@ -352,7 +352,7 @@ def test_no_declaration_key_is_in_the_catalog_row_and_missing_from_the_store_blo
     _module, entries = VF.run_over(VF.FIXTURE, out)
     entry = VF.entry_by_id(entries, "spatial-coordinates")
     block = _json.loads((out / entry["path"] / "zarr.json").read_text()
-                        )["attributes"]["cyto"]["cyto_spatial"]
+                        )["attributes"]["txr"]["txr_spatial"]
     shared = {k for k in block if k != "declares"}
 
     #: Producer-only, and each for a stated reason. `platform` duplicates
@@ -394,7 +394,7 @@ def test_the_real_importer_gets_the_declarations_into_the_stores_bytes(tmp_path_
     entry = VF.entry_by_id(entries, "spatial-coordinates")
     store = out / entry["path"]
 
-    stamped = _json.loads((store / "zarr.json").read_text())["attributes"]["cyto"]
+    stamped = _json.loads((store / "zarr.json").read_text())["attributes"]["txr"]
     assert stamped == entry["structure"], "the store copy and the row copy disagree"
 
     SD = VF.load_compute().SD

@@ -2,7 +2,7 @@
 #
 # Like `_helpers` it is NOT a domain processor: it contributes NO datatype, converter
 # or view. Its sole job is to be a home ON DISK for the shared FORMAT code every
-# processor writes its outputs through — the Zarr v3 sharded writer (`cyto_zarr.py`)
+# processor writes its outputs through — the Zarr v3 sharded writer (`txr_zarr.py`)
 # — so it resolves FROM THE EXTRACTED FOLDER (`<data_root>/processors/_lib/…`) at run
 # time like every other package.
 #
@@ -12,11 +12,11 @@
 # conformance suite gates against and the thing the browser reader must agree with
 # byte-for-byte. Keeping them apart means a change to the format is visible as a change
 # to `_lib` alone, and it keeps the format module free of the pandas/scipy imports the
-# compute helpers carry — `cyto_zarr` is numpy + stdlib, which is what lets it be
+# compute helpers carry — `txr_zarr` is numpy + stdlib, which is what lets it be
 # vendored anywhere without dragging a dependency graph along (DEC-7).
 #
 # ## Two kinds of file live here, and the split is load-bearing
-# `cyto_zarr.py` / `cyto_columns.py` / `cyto_csc.py` / `cyto_zarr_read.py` are STAGED into
+# `txr_zarr.py` / `txr_columns.py` / `txr_csc.py` / `txr_zarr_read.py` are STAGED into
 # the sandbox `/code` dir (see `PY_HELPER_FILES` in the server's sandbox processor
 # resolver) — a processor imports them and they run in the processor's own process.
 #
@@ -28,11 +28,11 @@
 # `test_conformance.py::test_the_gate_is_not_reachable_from_the_processors_own_process`
 # fails if a staged module ever imports it.
 #
-# The dependency is one-way, not absent: `conformance.py` DOES import `cyto_zarr` (for
+# The dependency is one-way, not absent: `conformance.py` DOES import `txr_zarr` (for
 # ITEM-19's `key_sequence_digest`, which the producer declares and the gate recomputes —
 # a comparison that is only meaningful if both sides digest identically). Gate→writer is
 # fine; writer→gate is the arrangement DEC-8 forbids, and is what the test above pins.
-# `conformance.py` is entry-scoped-staged for the verification entry, and `cyto_zarr.py`
+# `conformance.py` is entry-scoped-staged for the verification entry, and `txr_zarr.py`
 # is globally staged, so the import resolves in that job's `/code` dir.
 #
 # ## The `_` prefix
@@ -43,7 +43,7 @@
 # must NOT use a `_`-prefixed id for a real (contributing) package.
 id: _lib
 name: Shared output-format library
-publisher: cyto
+publisher: txr
 # 0.3.2 — adds `zero_core_guard.py`, the derived self-limiting scope shared by the
 # package zero-src-app-diff guards (fix/zero-core-derived, docs/design/derived-guards.md
 # §3). NOT staged into any sandbox `/code` (absent from `PY_HELPER_FILES` and

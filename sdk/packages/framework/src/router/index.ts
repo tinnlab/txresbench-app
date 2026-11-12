@@ -1,6 +1,6 @@
-// @ziee/framework/router — OPTIONAL routing layer (opt-in subpath export).
+// @txresbench/framework/router — OPTIONAL routing layer (opt-in subpath export).
 //
-// NOT re-exported from `@ziee/framework`'s main barrel — an app opts in by
+// NOT re-exported from `@txresbench/framework`'s main barrel — an app opts in by
 // importing this subpath, keeping react-router out of apps that don't route.
 // Ships: a `Routes` store, the `CreateModuleOptions.routes` declaration-merge,
 // the `routerEffects` / `routeGuards` slots, and `createRouterModule(options)`
@@ -11,7 +11,7 @@
 //
 // @example
 //   // app CSS/boot:
-//   import { createRouterModule } from '@ziee/framework/router'
+//   import { createRouterModule } from '@txresbench/framework/router'
 //   registerModules([createRouterModule({ loginPath: '/login' }), ...features])
 //
 //   // any feature module declares routes (declaration-merged onto

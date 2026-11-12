@@ -1,5 +1,5 @@
 // Per-kind widget RENDERERS (PLAN.md ITEM-7) for the NON-VIZ kinds. Each wraps a
-// `@ziee/kit` primitive, reads its value(s) via `$`-ref bindings (`evalExpr` over
+// `@txresbench/kit` primitive, reads its value(s) via `$`-ref bindings (`evalExpr` over
 // the render scope), and dispatches its onChange/onCommit/onClick through
 // `ctx.dispatch` (→ `runAction` of the bound declared action, view_id injected).
 // A renderer is pure config-over-kit: it never ships a plot compiler or a JS
@@ -20,8 +20,8 @@ import {
   Table,
   type SelectOption,
   type SelectOptionGroup,
-} from '@ziee/kit'
-import { FieldLabel } from '@ziee/kit/shadcn/field'
+} from '@txresbench/kit'
+import { FieldLabel } from '@txresbench/kit/shadcn/field'
 import { Play, Trash2, type LucideIcon } from 'lucide-react'
 import type {
   AlertWidget,

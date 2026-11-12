@@ -14,7 +14,7 @@ these are correct omissions, not dropped scope.
 
 | # | Design capability | Source | Part(s) | Coverage |
 |---|---|---|---|---|
-| 1 | Contribution points / 7–8 registries + versioned `@cyto/workbench-api` | PA §1, §2 | **P5** | FULL |
+| 1 | Contribution points / 7–8 registries + versioned `@txresbench/workbench-api` | PA §1, §2 | **P5** | FULL |
 | 2 | Manifest (declarative, indexed-without-executing, lazy activation, semver gate) | PA §3 | **P5** (14/15) | FULL |
 | 3 | Open datatype registry + subtyping lattice + `accepts`/`produces` type-match gating | DATA_MODEL, PA §1/§5 | **P2** | FULL |
 | 4 | Capabilities vocab + viewers-keyed-by-datatype dispatch | DATA_MODEL, PA §4.2 | **P2** (5/19) + **P7** (11/12) | FULL |
@@ -58,9 +58,9 @@ these are correct omissions, not dropped scope.
 
 1. **AI/MCP host substrate (gap A — the one material gap).** The design treats "one declaration →
    three surfaces" as a *headline* property (PA §0.4). The registry→MCP **generator** is fully
-   planned (P9 G-stratum + P5 ITEM-30). BUT P9 grounds that CytoAnalyst has **no chat / LLM / MCP-host
+   planned (P9 G-stratum + P5 ITEM-30). BUT P9 grounds that TxResBench has **no chat / LLM / MCP-host
    / tool-approval substrate at all** — only `{app,dataset,file,health,jobs,rootfs,sandbox,study,sync,
-   user}`. The substrate (`ziee-mcp` + `ziee-ai-providers` + a minimal `chat` module + approval flow)
+   user}`. The substrate (`txresbench-mcp` + `tinnlab-providers` + a minimal `chat` module + approval flow)
    is P9 ITEM-1/2, explicitly **"owned jointly with the platform bootstrap / live1 — P9 depends on it,
    does not own it."** So the largest AI dependency is assigned *outside* the 11 parts. The design
    capability is planned; its foundation is a co-owned, unbuilt, XL prerequisite. Flag to the human

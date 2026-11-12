@@ -1,7 +1,7 @@
 //! Sandbox + rootfs integration tests over the SDK harness (real spawned server
 //! + Postgres). Rootfs/bwrap-needing assertions are gated on
 //! `SandboxAvailability::Ready` (Linux + bwrap + squashfuse + a real, non-stub
-//! embedded rootfs) — a legit environment gate, mirroring ziee's rootfs tier.
+//! embedded rootfs) — a legit environment gate, mirroring txresbench's rootfs tier.
 
 use serde_json::{json, Value};
 
@@ -33,7 +33,7 @@ mod settings_test;
 // via record_skip when no kind cluster is reachable). The file is `#![cfg(feature = "saas")]`
 // so it compiles to empty in the desktop/default build.
 mod kubernetes_backend_test;
-// #66 / k8s-jobrun-dataplane: the in-pod one-shot executor (`cytoanalyst run-job`) the
+// #66 / k8s-jobrun-dataplane: the in-pod one-shot executor (`txresbench run-job`) the
 // job-per-run KubernetesBackend pod runs — stage inputs from the object store → bwrap →
 // finalize outputs back. Not saas-gated (the executor core is location-agnostic); the real-run
 // legs self-skip when no rootfs is usable.
@@ -63,7 +63,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "sbxadmin",
-            "email": "sbx@cyto.test",
+            "email": "sbx@txresbench.test",
             "password": "sbxPassw0rd!",
             "display_name": "Sandbox Admin"
         }))
@@ -88,7 +88,7 @@ async fn restricted_user_token(server: &TestServer, admin: &str) -> String {
         .bearer_auth(admin)
         .json(&json!({
             "username": "sbxuser",
-            "email": "sbxuser@cyto.test",
+            "email": "sbxuser@txresbench.test",
             "password": "sbxUserP0!",
             "permissions": []
         }))
@@ -805,7 +805,7 @@ json.dump({'outputs': []}, open('/outputs/manifest.json','w'))\n",
 // PATH inside the built rootfs. Rootfs-gated the same way the other real-execute
 // sandbox tests are: it drives the REAL production path (execute → bwrap →
 // command) and branches on the OUTCOME. Cell Ranger is present only when the
-// rootfs was built with `CYTO_CELLRANGER_URL` (the 10x signed URL) supplied
+// rootfs was built with `TXR_CELLRANGER_URL` (the 10x signed URL) supplied
 // (DEC-12) — so on a stub / no-URL build this asserts a clean, reasoned failure
 // (503 unavailable, or a non-zero exit naming `cellranger`/`not found`), never a
 // silent pass. When present it asserts `--version` actually ran (exit 0 + a
@@ -840,7 +840,7 @@ async fn cellranger_version_on_path_when_built_else_clean_fail() {
             "cellranger --version printed a version banner: {body}"
         );
     } else if status == 200 {
-        // Ready sandbox but Cell Ranger absent (no CYTO_CELLRANGER_URL at build):
+        // Ready sandbox but Cell Ranger absent (no TXR_CELLRANGER_URL at build):
         // a clean non-zero exit — command not found — never a hang.
         assert_ne!(
             body["exit_code"],
@@ -982,14 +982,14 @@ use async_trait::async_trait;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
-use cytoanalyst::modules::sandbox::inputs::{input_mounts, materialize_inputs};
-use cytoanalyst::modules::sandbox::spec::AnalysisSpec;
-use cytoanalyst::modules::sandbox::types::MountMode;
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::object_store::{
+use txresbench::modules::sandbox::inputs::{input_mounts, materialize_inputs};
+use txresbench::modules::sandbox::spec::AnalysisSpec;
+use txresbench::modules::sandbox::types::MountMode;
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::object_store::{
     BlobLink, ByteStream, ContentKey, GcReport, LocalFsStore, MultiFilePut, ObjectStat, ObjectStore,
 };
 
@@ -1562,7 +1562,7 @@ async fn repeated_slot_bindings_stage_to_distinct_mounts_in_binding_order() {
         assignment_per_leg.push(assignment);
 
         // ── the RECORD the compute reads carries the same, distinctly ──────────
-        let rendered = cytoanalyst::modules::sandbox::inputs::render_inputs_json(&staged);
+        let rendered = txresbench::modules::sandbox::inputs::render_inputs_json(&staged);
         let doc: Value = serde_json::from_slice(&rendered).expect("inputs.json parses");
         let paths: Vec<&str> = doc["inputs"]
             .as_array()
@@ -1747,11 +1747,11 @@ async fn a_dangling_artifact_blob_fails_naming_the_slot_and_the_artifact() {
 /// The relative component of each is taken from the production derivation
 /// (`sandbox::outputs::staging_root()` under `rootfs::data_root()`) and re-rooted at
 /// the spawned server's own data dir, because the server is a subprocess with its
-/// own `CYTO_APP_DATA_DIR`. Renaming the staging root in production therefore moves
+/// own `TXR_APP_DATA_DIR`. Renaming the staging root in production therefore moves
 /// this test with it instead of leaving it watching a dir nothing writes to.
 fn run_roots(server: &TestServer) -> (std::path::PathBuf, std::path::PathBuf) {
-    let data_root = cytoanalyst::modules::rootfs::data_root();
-    let staging_rel = cytoanalyst::modules::sandbox::outputs::staging_root()
+    let data_root = txresbench::modules::rootfs::data_root();
+    let staging_rel = txresbench::modules::sandbox::outputs::staging_root()
         .strip_prefix(&data_root)
         .expect("the staging root is derived under the app data root")
         .to_path_buf();
@@ -1795,11 +1795,11 @@ async fn wait_exists(p: &Path, timeout: Duration) -> bool {
 ///    self-skip passes, so the `eprintln!` is discarded unless someone thought to
 ///    pass `--nocapture`. The ledger line is written to a file and survives, so a
 ///    run's skips can be COUNTED after the fact.
-///  * `CYTO_TEST_NO_SKIP=1` turns the skip into a hard failure. This is an
+///  * `TXR_TEST_NO_SKIP=1` turns the skip into a hard failure. This is an
 ///    **operator-invoked** defence only: nothing in the repo sets that variable
 ///    (see the R6-D1 note in the `justfile`), so it defends nothing on its own.
 ///
-/// Point `CYTO_ENV_ROOTFS_SQUASHFS` at a rootfs.squashfs (or `CYTO_ENV_ROOTFS_DIR`
+/// Point `TXR_ENV_ROOTFS_SQUASHFS` at a rootfs.squashfs (or `TXR_ENV_ROOTFS_DIR`
 /// at a pre-mounted rootfs) to make these actually run.
 async fn sandbox_executes(server: &TestServer, admin: &str, test: &str) -> bool {
     let probe: Value = match server
@@ -1817,12 +1817,12 @@ async fn sandbox_executes(server: &TestServer, admin: &str, test: &str) -> bool 
         return true;
     }
     // `record_skip` owns BOTH channels (stderr + the ledger) and the
-    // `CYTO_TEST_NO_SKIP=1` hard failure — never hand-roll a partial one here.
+    // `TXR_TEST_NO_SKIP=1` hard failure — never hand-roll a partial one here.
     record_skip(
         test,
         "the sandbox cannot execute here (GET /sandbox/status not ready, or the `echo probe` \
-         execute failed). Point CYTO_ENV_ROOTFS_SQUASHFS at a rootfs.squashfs, or \
-         CYTO_ENV_ROOTFS_DIR at a pre-mounted rootfs",
+         execute failed). Point TXR_ENV_ROOTFS_SQUASHFS at a rootfs.squashfs, or \
+         TXR_ENV_ROOTFS_DIR at a pre-mounted rootfs",
     );
     false
 }
@@ -1897,8 +1897,8 @@ time.sleep(8)\n\
 print('analysis done')\n";
     let job = create_scoped_analysis(&server, &admin, project, "item17-ok", script).await;
 
-    let staging = cytoanalyst::modules::sandbox::outputs::staging_dir(&staging_root, job);
-    let outputs = cytoanalyst::modules::sandbox::outputs::outputs_dir(&staging);
+    let staging = txresbench::modules::sandbox::outputs::staging_dir(&staging_root, job);
+    let outputs = txresbench::modules::sandbox::outputs::outputs_dir(&staging);
     let workspace = ws_root.join(job.to_string());
 
     // MID-RUN: the outputs are in the staging tree, and NOT in the workspace.
@@ -1986,8 +1986,8 @@ time.sleep(8)\n\
 sys.exit(3)\n";
     let job = create_scoped_analysis(&server, &admin, project, "item17-err", script).await;
 
-    let staging = cytoanalyst::modules::sandbox::outputs::staging_dir(&staging_root, job);
-    let outputs = cytoanalyst::modules::sandbox::outputs::outputs_dir(&staging);
+    let staging = txresbench::modules::sandbox::outputs::staging_dir(&staging_root, job);
+    let outputs = txresbench::modules::sandbox::outputs::outputs_dir(&staging);
     let workspace = ws_root.join(job.to_string());
 
     assert!(
@@ -2048,10 +2048,10 @@ sys.exit(3)\n";
 ///    did not leave one of them unreclaimed.
 #[tokio::test]
 async fn boot_sweep_reclaims_a_crashed_runs_staging_dir() {
-    use cytoanalyst::modules::jobs::scheduler::{hold_live_workspace, sweep_stale_run_dirs};
-    use cytoanalyst::modules::sandbox::outputs::{outputs_dir, staging_dir};
+    use txresbench::modules::jobs::scheduler::{hold_live_workspace, sweep_stale_run_dirs};
+    use txresbench::modules::sandbox::outputs::{outputs_dir, staging_dir};
 
-    let base = std::env::temp_dir().join(format!("cyto-item17-sweep-{}", Uuid::new_v4()));
+    let base = std::env::temp_dir().join(format!("txr-item17-sweep-{}", Uuid::new_v4()));
     let ws_root = base.join("sandboxes");
     let staging_root = base.join("run-staging");
     assert!(

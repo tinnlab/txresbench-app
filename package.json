@@ -1,5 +1,5 @@
 {
-  "name": "cytoanalyst-root",
+  "name": "txresbench-root",
   "private": true,
   "workspaces": [
     "sdk/packages/*",

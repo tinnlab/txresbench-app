@@ -19,17 +19,17 @@ palette) *and* by an AI (via MCP), with:
 The MCP server is just **one consumer** of the action registry — not the point. The point
 is the registry + engine + gate.
 
-CytoAnalyst is the **exposer**; **ziee chat** (separate app) is the AI host (owns the LLM,
-chat loop, approval UX). Cyto never runs an LLM/chat/approval panel — it answers tool calls
+TxResBench is the **exposer**; **txresbench chat** (separate app) is the AI host (owns the LLM,
+chat loop, approval UX). TxResBench never runs an LLM/chat/approval panel — it answers tool calls
 and lets the AI drive its live UI.
 
 ## Two catalogs, one uniform MCP surface
 
 ```
-  ziee LLM
+  txresbench LLM
      │  MCP: list_capabilities / describe_capability / invoke_capability  (POST /api/mcp)
      ▼
-┌──────────────────────── CYTO BACKEND ────────────────────────┐
+┌──────────────────────── TXRESBENCH BACKEND ────────────────────────┐
 │  MCP handler                                                  │
 │    merged catalog = OpenAPI catalog  ⊕  Frontend-action cat.  │
 │    per-user permission filter (principal_holds) on BOTH       │
@@ -43,7 +43,7 @@ and lets the AI drive its live UI.
 └───────────────────────────────────────────────────────────────┘
      ▲ progress*/result{request_id,…,logs}    │ agent_invoke{request_id,action_id,params,expected_token}
      │                                          ▼
-┌──────────────────────── CYTO FRONTEND (controlled session) ──┐
+┌──────────────────────── TXRESBENCH FRONTEND (controlled session) ──┐
 │  ENGINE (subscribes agent stream, runs action, streams back) │
 │    action registry:   action_id → run(params, ctx)  (global) │
 │    ctx: read/subscribe/waitFor ANY store · call methods ·    │
@@ -132,7 +132,7 @@ ephemeral UI-only handler to skip AI exposure — a recorded exception, not a si
 ## Layer 2 — manifest → backend catalog
 
 The backend embeds `frontend-actions.json` (`include_str!`) and builds a
-`FrontendActionCatalog` — the exact parallel of `ziee_control_mcp::catalog::init_from_openapi`,
+`FrontendActionCatalog` — the exact parallel of `txresbench_control_mcp::catalog::init_from_openapi`,
 just `init_from_manifest`. `list_capabilities` merges BOTH catalogs and filters BOTH by the
 caller's permissions; `invoke_capability` routes by `kind`.
 
@@ -156,13 +156,13 @@ is dropped fail-closed rather than advertised ungated.
 
 ## Layer 3 — the duplex channel (backend controls frontend)
 
-A frontend action is an **RPC over a split transport** (SSE is one-way; cyto's `sync` is
+A frontend action is an **RPC over a split transport** (SSE is one-way; txr's `sync` is
 deliberately payload-free and must NOT be polluted):
 
 - **Down:** a *dedicated* SSE `GET /api/mcp/agent/stream` (gated `mcp::use`). The controlled
   frontend session subscribes; the backend pushes an `agent_invoke` frame to that specific
   connection via a `user → control-conn-id` registry (bound at pairing — "this window is the
-  one ziee drives").
+  one txresbench drives").
 - **Up:** the engine POSTs progress + the final result (actions are NON-ATOMIC — `ctx.progress`
   streams intermediate frames): `POST /api/mcp/agent/progress` (0..n, relayed to the LLM as MCP
   progress) then `POST /api/mcp/agent/result` (once, resolves the call).
@@ -298,7 +298,7 @@ window" (user → current conn), set via `hello{session_id}` on connect, dropped
 close, rebound on reload. Persisted in **`sessionStorage`** (per-tab, survives reload), gated to a
 real reload via `navigation.type === 'reload'` so a `window.open`'d tab (inherits a COPY of
 sessionStorage) gets a fresh id, not a hijacked binding (split-chat pop-out lesson). Reload does
-NOT require re-clicking Connect (the ziee↔cyto MCP pairing/token is untouched).
+NOT require re-clicking Connect (the txresbench↔txr MCP pairing/token is untouched).
 - Dispatch when there is **no live connection** for the session → fail fast `FRONTEND_NOT_CONNECTED`
   (nothing to ping); frontend tools also drop from `tools/list`. Backend/REST actions STILL work
   (graceful degradation; AI tells the user to reopen the window).
@@ -367,7 +367,7 @@ Design for the multi-user server; desktop falls out as one user, one window, loc
 actions/channel/liveness/staleness model is byte-identical — only scoping + a few transport/UX/ops
 concerns change.
 
-**Isolation (structural, keyed by user — same guarantee cyto's `sync` proves):**
+**Isolation (structural, keyed by user — same guarantee txr's `sync` proves):**
 - MCP connection = per-user bearer; every invoke re-authorizes as that user (forwarded JWT for
   backend, `principal_holds` for frontend).
 - Agent channel = **per-user-keyed** SSE registry; an `agent_invoke` routes to THAT user's control
@@ -381,10 +381,10 @@ concerns change.
 So the three primitives (per-user token · per-user SSE audience · per-user permission filter)
 generalize unchanged; desktop is N=1 on localhost.
 
-**Pairing — same one-time-code handshake, different transport:** desktop = `ziee://` deep-link;
+**Pairing — same one-time-code handshake, different transport:** desktop = `txresbench://` deep-link;
 server/web = cross-origin **browser redirect** (both are web apps the user is logged into — an
-OAuth-style "connect your X" flow). Identity binds ziee-user-U ↔ cyto-user-U via U's token;
-revocation propagates through cyto's refresh-token whitelist (logout/admin-revoke → ziee refresh
+OAuth-style "connect your X" flow). Identity binds txresbench-user-U ↔ txr-user-U via U's token;
+revocation propagates through txr's refresh-token whitelist (logout/admin-revoke → txresbench refresh
 fails → connection dies).
 
 **Multi-window control (mandatory on server):** a user has many tabs → exactly ONE is the
@@ -399,42 +399,42 @@ global` shape) so a runaway AI can't exhaust the server; the `mcp::use` grant IS
 accountability.
 
 **Transport-agnostic (protocol) — but reachability picks the pipe:** MCP=HTTP, agent channel=
-SSE-down+POST-up. When cyto is reachable (server deploy) ziee dials it directly. When cyto is
-**desktop-behind-NAT and ziee is REMOTE**, ziee CANNOT dial `127.0.0.1` → invert the transport
+SSE-down+POST-up. When txr is reachable (server deploy) txresbench dials it directly. When txr is
+**desktop-behind-NAT and txresbench is REMOTE**, txresbench CANNOT dial `127.0.0.1` → invert the transport
 (next section). Build for multi-user server; desktop is the degenerate instance.
 
-### Desktop cyto + REMOTE ziee — reverse-tunnel transport
+### Desktop txr + REMOTE txresbench — reverse-tunnel transport
 
-Remote ziee cannot dial a desktop's localhost MCP (NAT/firewall/no public IP). Same move as the
-browser agent channel: **the un-dialable side dials OUT.** Cyto stays the MCP *server* semantically;
+Remote txresbench cannot dial a desktop's localhost MCP (NAT/firewall/no public IP). Same move as the
+browser agent channel: **the un-dialable side dials OUT.** TxResBench stays the MCP *server* semantically;
 the transport is reversed.
 
-- At pairing, desktop cyto opens ONE persistent **outbound** connection (WebSocket/HTTP2) to
-  **ziee's MCP-relay endpoint** and registers "cyto's MCP server for user U." Outbound is what
+- At pairing, desktop txr opens ONE persistent **outbound** connection (WebSocket/HTTP2) to
+  **txresbench's MCP-relay endpoint** and registers "txr's MCP server for user U." Outbound is what
   NAT/firewalls allow → no inbound hole, nothing exposed publicly.
-- MCP flows `U's ziee conversation → ziee relay → [U's outbound tunnel] → desktop cyto MCP → back up`.
+- MCP flows `U's txresbench conversation → txresbench relay → [U's outbound tunnel] → desktop txr MCP → back up`.
 - **Layers with the agent channel:** a frontend invoke traverses TWO reverse channels —
-  `remote ziee ─tunnel(internet)─▶ desktop cyto backend ─local SSE agent channel─▶ cyto webview`.
+  `remote txresbench ─tunnel(internet)─▶ desktop txr backend ─local SSE agent channel─▶ txr webview`.
   On desktop the inner hop is localhost; the tunnel only spans the internet gap. Same NAT reason,
   composed.
 - **Security:** outbound-only (no inbound holes / public exposure); per-user authenticated tunnel
   (relay keys by user → isolation holds); permission model UNCHANGED (tunnel is just transport —
   every request still hits `mcp::use` + forwarded-JWT re-auth). **Data stays local** — only MCP
-  protocol I/O (tool calls/results/screenshots) crosses to ziee; datasets never leave the desktop
+  protocol I/O (tool calls/results/screenshots) crosses to txresbench; datasets never leave the desktop
   unless a result includes them (compute+data local, AI orchestration remote — a privacy win).
-  The relay sees that I/O = same trust as using ziee at all.
-- **Who builds it:** ziee hosts the **relay/broker** (accept outbound tunnels + route MCP through
-  them) — a HANDOFF-SPEC item. Cyto builds the outbound tunnel client + serving MCP over the reverse
+  The relay sees that I/O = same trust as using txresbench at all.
+- **Who builds it:** txresbench hosts the **relay/broker** (accept outbound tunnels + route MCP through
+  them) — a HANDOFF-SPEC item. TxResBench builds the outbound tunnel client + serving MCP over the reverse
   transport; the pairing flow picks transport by reachability (direct HTTP vs reverse tunnel).
-- **Fallbacks (no ziee relay):** a generic tunnel (Cloudflare Tunnel/ngrok/Tailscale Funnel) → an
-  authenticated public cyto URL a vanilla MCP client dials (works w/o ziee cooperation, but exposes
-  cyto → auth must be airtight); or same-LAN/Tailscale → ziee reaches cyto's private IP directly.
+- **Fallbacks (no txresbench relay):** a generic tunnel (Cloudflare Tunnel/ngrok/Tailscale Funnel) → an
+  authenticated public txr URL a vanilla MCP client dials (works w/o txresbench cooperation, but exposes
+  txr → auth must be airtight); or same-LAN/Tailscale → txresbench reaches txr's private IP directly.
 
 **Tunnel transport — WS vs HTTP/2 vs SSE+POST.** The requirement is that the RELAY initiates
-requests TOWARD the dialer (cyto). **HTTP/2 alone does NOT solve this** — its model is
+requests TOWARD the dialer (txr). **HTTP/2 alone does NOT solve this** — its model is
 client-initiates-streams, and Server Push is deprecated + only primes responses, never arbitrary
 server→client requests. So HTTP/2 needs a bidi pattern on top. Options:
-- **WebSocket (`wss://`)** — purpose-built full-duplex; relay pushes requests, cyto sends responses/
+- **WebSocket (`wss://`)** — purpose-built full-duplex; relay pushes requests, txr sends responses/
   progress/pongs, multiplexed by `request_id`; binary frames (screenshots, no base64). `tokio-
   tungstenite`. Best efficiency; rare proxy blocks the Upgrade.
 - **HTTP/2 gRPC-style bidi single stream** — true duplex but PATH-FRAGILE (a buffering proxy breaks
@@ -451,43 +451,43 @@ WS is an HTTP/1.1 Upgrade — RFC 8441 WS-over-HTTP/2 support is uneven, don't r
 
 ## Pairing / one-click connect (desktop-first)
 
-Both apps are local Tauri desktop apps. One button in Cyto ("Connect to ziee assistant"):
-1. Cyto mints a **one-time authorization code** (short-lived, single-use) — NO token in the URL.
-2. Cyto opens `ziee://connect-mcp?code=…&name=CytoAnalyst&url=http://127.0.0.1:<port>/api/mcp`
+Both apps are local Tauri desktop apps. One button in TxResBench ("Connect to txresbench assistant"):
+1. TxResBench mints a **one-time authorization code** (short-lived, single-use) — NO token in the URL.
+2. TxResBench opens `txresbench://connect-mcp?code=…&name=TxResBench&url=http://127.0.0.1:<port>/api/mcp`
    (desktop: shell-opener; web: scheme-navigate; manual-copy fallback via a `__TAURI__` predicate).
-3. Ziee exchanges the code at a Cyto endpoint (`POST /api/mcp/pair/exchange`) for the
-   access+refresh pair (reuses `ziee-auth` `generate_tokens_with_jti_expiry` + refresh rotation
-   so ziee keeps the connection alive long-term), registers Cyto's MCP server, and prompts the
-   user to pick/create a conversation to control Cyto. Also establishes the **control-session
-   binding** (which Cyto window the AI drives).
+3. TxResBench exchanges the code at a TxResBench endpoint (`POST /api/mcp/pair/exchange`) for the
+   access+refresh pair (reuses `txresbench-auth` `generate_tokens_with_jti_expiry` + refresh rotation
+   so txresbench keeps the connection alive long-term), registers TxResBench's MCP server, and prompts the
+   user to pick/create a conversation to control TxResBench. Also establishes the **control-session
+   binding** (which TxResBench window the AI drives).
 
 Secrets never ride an OS-logged deep-link URL (one-time-code exchange, not token-in-URL).
 
-**The ziee side is a SEPARATE repo** (main `ziee`) — handled via a precise handoff SPEC
+**The txresbench side is a SEPARATE repo** (main `txresbench`) — handled via a precise handoff SPEC
 (deep-link scheme + payload, the exchange call, the add-MCP-server payload, the conversation-bind
-UX). Cyto side is built here.
+UX). TxResBench side is built here.
 
 ## Co-drive via sync (already real today)
 
-Cyto's domain stores already `on('sync:<entity>', reload)` (Studies/StudyDetail/Jobs/Users).
+TxResBench's domain stores already `on('sync:<entity>', reload)` (Studies/StudyDetail/Jobs/Users).
 The MCP invoke deliberately does NOT forward `X-Sync-Connection-Id`, so AI-driven REST mutations
-(a different connection) are NOT self-suppressed → they fan out to the user's open Cyto UI →
+(a different connection) are NOT self-suppressed → they fan out to the user's open TxResBench UI →
 it refetches and updates LIVE. The scientist watches the AI's changes land. As the workbench
 adds persisted plot/selection state with sync + frontend actions, the AI drives those the same way.
 
 ## Backend MCP exposure — SDK-provided (confirmed true)
 
-`ziee-control-mcp` (SDK) turns the backend OpenAPI into MCP capability: `init_from_openapi`
+`txresbench-control-mcp` (SDK) turns the backend OpenAPI into MCP capability: `init_from_openapi`
 builds the op catalog (route + request schema + required permission); `tools::tool_list()`
 exposes `list/describe/invoke_capability`; invoke dispatches to the real route over loopback
 with the forwarded JWT. Apps add only a thin JSON-RPC handler. So `create study`, `update user`,
 etc. are drivable the moment they're a route — no per-endpoint tool authoring. This half is a
-solved capability; the cyto exposure module (the thin handler) is small glue.
+solved capability; the txr exposure module (the thin handler) is small glue.
 
 ## Decisions locked so far
 
-- Home: **cyto-first, promote to SDK later** (human choice). Foundation is framework-shaped
-  (`defineAction`/engine/collector/gate) but proven in cyto first.
+- Home: **txr-first, promote to SDK later** (human choice). Foundation is framework-shaped
+  (`defineAction`/engine/collector/gate) but proven in txr first.
 - Handshake: **one-time-code exchange** (not token-in-URL).
 - Channel: **dedicated agent SSE (down) + POST progress/result (up)**, request_id correlated;
   do NOT reuse the payload-free `sync`. Channel STREAMS progress (non-atomic actions).
@@ -504,14 +504,14 @@ solved capability; the cyto exposure module (the thin handler) is small glue.
 - Staleness: **version-stamped entities + state token + read-before-write**, engine-enforced (FE)
   / REST-OCC (backend).
 - Permission: **mandatory on every action, backend-authoritative for FE actions, gate-checked**.
-- Ziee side: **handoff spec**, not built here.
+- TxResBench side: **handoff spec**, not built here.
 
 ## Phasing (each its own feature-lifecycle; sequencing TBD with orchestrator)
 
 - **Slice 1 — `feat/ai-mcp` (current, paused at Phase 4):** backend MCP exposure + one-click
-  pairing (cyto side) + co-drive-via-sync proof + the ziee-side handoff spec. The connectivity spine.
+  pairing (txr side) + co-drive-via-sync proof + the txresbench-side handoff spec. The connectivity spine.
 - **Slice 2 — command/action registry:** `defineAction` + collector + manifest + backend
-  `FrontendActionCatalog` + the human command palette + register cyto's existing actions.
+  `FrontendActionCatalog` + the human command palette + register txr's existing actions.
 - **Slice 3 — puppet engine + channel:** the duplex agent channel + frontend engine + instance
   registry/directory + `useAction` + world-model reads + the stale-state guard + MCP projection
   of frontend actions.
@@ -522,9 +522,9 @@ solved capability; the cyto exposure module (the thin handler) is small glue.
 
 ## Open questions for the human / orchestrator
 
-- Exact slice sequencing + whether slices 2–5 stay on `feat/ai-mcp` (cyto-first, "we can do it
+- Exact slice sequencing + whether slices 2–5 stay on `feat/ai-mcp` (txr-first, "we can do it
   here") or fan to their own branches; likely needs orchestrator (live6) allocation since this
   outgrows a single lane.
 - Whether the Claude skill lands in this branch or as slice 5.
-- Multi-window: which Cyto window is "the controlled session" when several are open (pairing
+- Multi-window: which TxResBench window is "the controlled session" when several are open (pairing
   binds one; UX for switching).

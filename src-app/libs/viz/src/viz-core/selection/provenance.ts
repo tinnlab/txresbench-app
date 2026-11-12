@@ -1,6 +1,6 @@
 // provenance.ts — the PURE engine behind selection provenance (ITEM-2).
 //
-// A `@ziee/viz` selection is a PREDICATE WITH A CACHE, not a bag of integers: an ordered op list
+// A `@txresbench/viz` selection is a PREDICATE WITH A CACHE, not a bag of integers: an ordered op list
 // (`VizSelectionOp[]`) plus the display state that explains it (`VizSelectionContext`), from which
 // the cached `ids` are re-derivable. This module is the whole of that logic.
 //

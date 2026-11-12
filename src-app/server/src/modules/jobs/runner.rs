@@ -158,14 +158,14 @@ impl SandboxJobRunner {
 }
 
 /// The deployment allowlist of host-path ROOTS a reference `ExtraMount` may bind
-/// from (ITEM-5c / DEC-11). Admin-controlled via `CYTO_SANDBOX_REFERENCE_MOUNTS`
-/// (colon-separated absolute roots, mirroring `CYTO_SANDBOX_CGROUP_PARENT`).
+/// from (ITEM-5c / DEC-11). Admin-controlled via `TXR_SANDBOX_REFERENCE_MOUNTS`
+/// (colon-separated absolute roots, mirroring `TXR_SANDBOX_CGROUP_PARENT`).
 /// **Empty by default** — a reference mount is refused until an operator
 /// allowlists its root, so the wiring is safe-by-default: a job with no
 /// `extra_mounts` is unaffected (the allow-check over an empty set is a no-op),
 /// and an un-allowlisted mount fails the job rather than binding an unvetted path.
 pub fn reference_mount_allowlist() -> Vec<PathBuf> {
-    std::env::var("CYTO_SANDBOX_REFERENCE_MOUNTS")
+    std::env::var("TXR_SANDBOX_REFERENCE_MOUNTS")
         .ok()
         .map(|s| {
             s.split(':')
@@ -209,7 +209,7 @@ pub fn build_reference_mounts(
 }
 
 /// The env var an operator sets to point a DECLARED host-resource NAME at a host
-/// path (S7): `reference` → `CYTO_SANDBOX_RESOURCE_REFERENCE`. `-` becomes `_` and
+/// path (S7): `reference` → `TXR_SANDBOX_RESOURCE_REFERENCE`. `-` becomes `_` and
 /// the name is uppercased; anything outside `[a-z0-9_-]` is refused so a declared
 /// name can never reach outside the env namespace.
 pub fn host_resource_env_var(name: &str) -> Result<String, String> {
@@ -226,7 +226,7 @@ pub fn host_resource_env_var(name: &str) -> Result<String, String> {
         ));
     }
     Ok(format!(
-        "CYTO_SANDBOX_RESOURCE_{}",
+        "TXR_SANDBOX_RESOURCE_{}",
         n.to_ascii_uppercase().replace('-', "_")
     ))
 }
@@ -236,7 +236,7 @@ pub fn host_resource_env_var(name: &str) -> Result<String, String> {
 /// ## What this replaced
 ///
 /// `reference_root_mount` hardcoded the reference-genome CONCEPT into the server:
-/// the fixed env var `CYTO_SANDBOX_REFERENCE_ROOT`, the fixed in-sandbox mount
+/// the fixed env var `TXR_SANDBOX_REFERENCE_ROOT`, the fixed in-sandbox mount
 /// `/refdata`, and an error message reading "this processor requires a
 /// reference-genome mount". A processor now DECLARES `{name, mount_path}` in its
 /// manifest `run.host_resources`, and the operator maps the NAME to a host path —
@@ -244,12 +244,12 @@ pub fn host_resource_env_var(name: &str) -> Result<String, String> {
 /// asked for the resource called X".
 ///
 /// The host path is still BACKEND-controlled (env, never the model-/FE-supplied
-/// spec) and MUST resolve under the `CYTO_SANDBOX_REFERENCE_MOUNTS` allowlist — else
+/// spec) and MUST resolve under the `TXR_SANDBOX_REFERENCE_MOUNTS` allowlist — else
 /// the job fails with a clear reason (it never binds an unvetted path and never
 /// emulates a missing resource). `mount_path` is validated absolute + escape-free
 /// because it comes from a package manifest, which a contributor writes.
 ///
-/// **Back-compat:** the legacy `CYTO_SANDBOX_REFERENCE_ROOT` is still honored, as a
+/// **Back-compat:** the legacy `TXR_SANDBOX_REFERENCE_ROOT` is still honored, as a
 /// documented ALIAS for the resource named `reference`, so an existing deployment
 /// keeps working without an operator edit.
 pub fn host_resource_mount(
@@ -264,14 +264,14 @@ pub fn host_resource_mount(
         // Documented back-compat alias (see the doc above).
         .or_else(|| {
             (req.name.trim().eq_ignore_ascii_case("reference"))
-                .then(|| std::env::var("CYTO_SANDBOX_REFERENCE_ROOT").ok())
+                .then(|| std::env::var("TXR_SANDBOX_REFERENCE_ROOT").ok())
                 .flatten()
         })
         .ok_or_else(|| {
             format!(
                 "this processor declares the host resource {:?} (mounted at {}), which this \
                  deployment does not provide; set {var} to the host path and allowlist its \
-                 root via CYTO_SANDBOX_REFERENCE_MOUNTS",
+                 root via TXR_SANDBOX_REFERENCE_MOUNTS",
                 req.name, req.mount_path
             )
         })?;
@@ -352,7 +352,7 @@ impl JobRunner for SandboxJobRunner {
         // REMOTE data-plane fork (ITEM-2 / #66): a backend that stages inputs + collects
         // outputs IN THE POD (the `KubernetesBackend` job-per-run fallback) must NOT be handed
         // control-plane-materialized inputs — the pod re-fetches them from the object store and
-        // pushes outputs back itself (via `cytoanalyst run-job`, reusing the SAME
+        // pushes outputs back itself (via `txresbench run-job`, reusing the SAME
         // materialize_inputs + finalize_analysis). So we skip local materialization + local
         // workspace/output staging entirely and return a `SpawnedJob` with NO local dirs, so the
         // executor's finalize block is skipped (the pod owns finalize; the executor reflects the
@@ -427,7 +427,7 @@ impl SandboxJobRunner {
 
     /// Launch a REMOTE (job-per-run) analysis (ITEM-2 / #66). The control plane does NO local
     /// input materialization + NO local output staging: the pod re-fetches inputs from the object
-    /// store and pushes outputs back itself (`cytoanalyst run-job`). We build a MINIMAL,
+    /// store and pushes outputs back itself (`txresbench run-job`). We build a MINIMAL,
     /// path-agnostic `ComputeSpec` (the `KubernetesBackend` uses only `job_id` +
     /// `resource_class` from it — it re-derives everything else from the DB job row in-pod), then
     /// hand back a `SpawnedJob` with NO local workspace/staging so the executor's local finalize
@@ -457,7 +457,7 @@ impl SandboxJobRunner {
         //
         // `env_id` is NOT in that "unused" set (#189): the pod re-enters via
         // `run-job --job-id` and resolves its env from the process environment, so the
-        // env-id the K8s backend stamps into the pod's `CYTO_SANDBOX_ENV_ID` is the only
+        // env-id the K8s backend stamps into the pod's `TXR_SANDBOX_ENV_ID` is the only
         // channel by which this job's declared env reaches the run.
         let compute = ComputeSpec {
             job_id: job.id,
@@ -962,7 +962,7 @@ pub async fn finalize_analysis_with(
 
 // ───────────────────────────── in-pod one-shot execution ────────────────────
 
-/// The IN-POD one-shot job executor (ITEM-3/5 / #66) — the body of `cytoanalyst run-job`.
+/// The IN-POD one-shot job executor (ITEM-3/5 / #66) — the body of `txresbench run-job`.
 ///
 /// Runs the COMPLETE data-plane pipeline for a single, already-claimed job, IN THE POD, by
 /// reusing the unchanged local path: stage (materialize inputs from the object store into the
@@ -1265,7 +1265,7 @@ mod tests {
                 &self,
                 _s: ComputeSpec,
                 _k: Arc<dyn ProgressSink>,
-            ) -> Result<LaunchedCompute, ziee_core::AppError> {
+            ) -> Result<LaunchedCompute, txresbench_core::AppError> {
                 unreachable!()
             }
             fn probe(&self) -> BackendAvailability {
@@ -1300,7 +1300,7 @@ mod tests {
 
         // A real allowlisted root with a real reference dir under it, and a secret
         // dir OUTSIDE the allowlist that a symlink will try to reach.
-        let base = std::env::temp_dir().join(format!("cyto-refmnt-{}", uuid::Uuid::new_v4()));
+        let base = std::env::temp_dir().join(format!("txr-refmnt-{}", uuid::Uuid::new_v4()));
         let refs_root = base.join("refs");
         let secret = base.join("secret");
         std::fs::create_dir_all(refs_root.join("GRCh38")).unwrap();
@@ -1423,11 +1423,11 @@ mod tests {
             mount_path: "/refdata".to_string(),
         };
         // Unconfigured → a clear refusal naming the resource AND its config var.
-        std::env::remove_var("CYTO_SANDBOX_REFERENCE_ROOT");
-        std::env::remove_var("CYTO_SANDBOX_RESOURCE_REFERENCE");
+        std::env::remove_var("TXR_SANDBOX_REFERENCE_ROOT");
+        std::env::remove_var("TXR_SANDBOX_RESOURCE_REFERENCE");
         let err = host_resource_mount(&req, &[]).expect_err("refused without a host path");
         assert!(
-            err.contains("CYTO_SANDBOX_RESOURCE_REFERENCE"),
+            err.contains("TXR_SANDBOX_RESOURCE_REFERENCE"),
             "names the config: {err}"
         );
         assert!(
@@ -1437,9 +1437,9 @@ mod tests {
 
         // Configured + allowlisted → an RO bind of the canonical host path at the
         // DECLARED mount path.
-        let tmp = std::env::temp_dir().join(format!("cyto-res-{}", uuid::Uuid::new_v4()));
+        let tmp = std::env::temp_dir().join(format!("txr-res-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&tmp).unwrap();
-        std::env::set_var("CYTO_SANDBOX_RESOURCE_REFERENCE", &tmp);
+        std::env::set_var("TXR_SANDBOX_RESOURCE_REFERENCE", &tmp);
         let mount =
             host_resource_mount(&req, std::slice::from_ref(&tmp)).expect("resource mount built");
         assert_eq!(mount.sandbox_path, "/refdata", "bound at the DECLARED path");
@@ -1450,7 +1450,7 @@ mod tests {
             host_resource_mount(&req, &[]).is_err(),
             "unallowlisted root refused"
         );
-        std::env::remove_var("CYTO_SANDBOX_RESOURCE_REFERENCE");
+        std::env::remove_var("TXR_SANDBOX_RESOURCE_REFERENCE");
 
         // A resource with ANOTHER name mounts somewhere else entirely — the point of
         // the finding: the server understands no specific resource.
@@ -1460,24 +1460,24 @@ mod tests {
         };
         assert_eq!(
             host_resource_env_var(&other.name).unwrap(),
-            "CYTO_SANDBOX_RESOURCE_PLATE_LAYOUTS",
+            "TXR_SANDBOX_RESOURCE_PLATE_LAYOUTS",
             "`-` becomes `_`, uppercased"
         );
-        std::env::set_var("CYTO_SANDBOX_RESOURCE_PLATE_LAYOUTS", &tmp);
+        std::env::set_var("TXR_SANDBOX_RESOURCE_PLATE_LAYOUTS", &tmp);
         let m2 = host_resource_mount(&other, std::slice::from_ref(&tmp)).expect("built");
         assert_eq!(m2.sandbox_path, "/layouts");
-        std::env::remove_var("CYTO_SANDBOX_RESOURCE_PLATE_LAYOUTS");
+        std::env::remove_var("TXR_SANDBOX_RESOURCE_PLATE_LAYOUTS");
 
         // BACK-COMPAT: the legacy env var still serves the resource named `reference`,
         // so an existing deployment keeps working with no operator edit.
-        std::env::set_var("CYTO_SANDBOX_REFERENCE_ROOT", &tmp);
+        std::env::set_var("TXR_SANDBOX_REFERENCE_ROOT", &tmp);
         assert!(
             host_resource_mount(&req, std::slice::from_ref(&tmp)).is_ok(),
-            "the legacy CYTO_SANDBOX_REFERENCE_ROOT is honored as an alias"
+            "the legacy TXR_SANDBOX_REFERENCE_ROOT is honored as an alias"
         );
         // …and ONLY for that name.
         assert!(host_resource_mount(&other, std::slice::from_ref(&tmp)).is_err());
-        std::env::remove_var("CYTO_SANDBOX_REFERENCE_ROOT");
+        std::env::remove_var("TXR_SANDBOX_REFERENCE_ROOT");
 
         std::fs::remove_dir_all(&tmp).ok();
     }

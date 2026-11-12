@@ -1,4 +1,4 @@
-// The widget-renderer REGISTRY (PLAN.md ITEM-7). Mirrors `@ziee/viz`'s
+// The widget-renderer REGISTRY (PLAN.md ITEM-7). Mirrors `@txresbench/viz`'s
 // `registerChartType`/`installBuiltins`: a `kind` → renderer map the `WidgetHost`
 // resolves against.
 //

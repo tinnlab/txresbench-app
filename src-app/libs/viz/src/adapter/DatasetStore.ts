@@ -35,7 +35,7 @@ const POSITIONS_BYTES_PER_ROW = 8
  * `reframeBytes`' 65536-row default, which is the trap DRIFT-1.33 records: at the default, any
  * layout below 65536 rows coalesces into ONE batch and paints in a single step while LOOKING like a
  * working progressive path. 8192 matches the producer's `EMBEDDING_INNER_CHUNK`
- * (`src-app/packages/_lib/cyto_columns.py:75`), so one published prefix ≙ one arrived inner chunk
+ * (`src-app/packages/_lib/txr_columns.py:75`), so one published prefix ≙ one arrived inner chunk
  * and no batch waits on bytes from the next one.
  */
 const POSITIONS_ROWS_PER_BATCH = 8192

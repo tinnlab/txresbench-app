@@ -32,7 +32,7 @@ import { resolvedOnce } from './scripts/resolved-once.mjs'
 // ERR_NETWORK_CHANGED findings and a gate reporting a SIBLING worktree's console
 // errors as 216 failures of this tree). Two worktrees running the viz tier raced
 // for :1421 and the loser silently adopted the winner's server — i.e. audited the
-// wrong @ziee/viz build while reporting on this one, which is exactly the failure
+// wrong @txresbench/viz build while reporting on this one, which is exactly the failure
 // the `reuseExistingServer` comment below says it prevents. `!CI` guards only the
 // CI half; locally it is what makes the collision SILENT instead of loud.
 //
@@ -172,7 +172,7 @@ export default defineConfig({
   // never opened. `webServer` cannot be declared per-project, so the second entry is filtered here.
   webServer: [
     {
-      // The viz Showcase was extracted into the standalone @ziee/viz package
+      // The viz Showcase was extracted into the standalone @txresbench/viz package
       // (src-app/libs/viz), which now owns viz-showcase.html + its vite. Serve THAT
       // package's showcase (cwd here is src-app/ui → ../libs/viz).
       command: `npx vite --port ${VIZ_PORT} --strictPort`,

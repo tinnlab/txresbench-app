@@ -7,15 +7,15 @@
 # file (see `database:` below) — created on first boot, migrated by the server,
 # deleted to reset. The only thing to copy is this file + the JWT secret.
 #
-# Ports are chosen distinct from ziee (app #1) so both apps can run side-by-side:
-#   - HTTP server       :3100    (ziee dev uses :3000)
+# Ports are chosen distinct from txresbench (app #1) so both apps can run side-by-side:
+#   - HTTP server       :3100    (txresbench dev uses :3000)
 
 # SQLite database — the app's embedded store: one local file, no server process,
 # no network access, no binary download. The default location is
-# <app-data-dir>/txresbench.db (app data dir: CYTO_APP_DATA_DIR when set, else
+# <app-data-dir>/txresbench.db (app data dir: TXR_APP_DATA_DIR when set, else
 # the app data dir — the desktop's ~/.txresbench). To relocate it, set `path`
 # (a plain filesystem path) or `url` (a `sqlite://` URL — wins over `path` when
-# both are set); the CYTO_DATABASE_URL env var wins over both. The pool knobs
+# both are set); the TXR_DATABASE_URL env var wins over both. The pool knobs
 # default to the framework profile (10 connections / 1 minimum / 5 s acquire
 # timeout / 5000 ms busy timeout); WAL, synchronous=NORMAL and foreign_keys=ON
 # are engine correctness properties, not knobs.
@@ -46,20 +46,20 @@ logging:
 
 jwt:
   secret: "CHANGE_ME_run_openssl_rand_base64_48"
-  issuer: "cytoanalyst"
-  audience: "cytoanalyst-api"
+  issuer: "txresbench"
+  audience: "txresbench-api"
   access_token_expiry_hours: 24
   refresh_token_expiry_days: 30
 
 # At-rest secret encryption (#60). `storage_key` is the symmetric key for the
-# framework's secret-encryption layer (SDK `ziee_framework::secret`). The
+# framework's secret-encryption layer (SDK `txresbench_framework::secret`). The
 # desktop build's shipped surfaces do not use it and no key is configured by
 # default (`null`). It is a DEPLOYMENT secret like `jwt.secret` — set it to a
 # random >=32-char string (`openssl rand -base64 48`) and keep it stable
 # (rotating it makes previously-encrypted secrets undecryptable).
 #
 # UNSET (this block absent, or storage_key blank) => NO at-rest secret storage.
-# An override env var `CYTO_SECRET_STORAGE_KEY` takes precedence over this
+# An override env var `TXR_SECRET_STORAGE_KEY` takes precedence over this
 # value.
 secrets:
   storage_key: null   # e.g. "CHANGE_ME_run_openssl_rand_base64_48"

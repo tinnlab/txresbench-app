@@ -36,7 +36,7 @@
 #     available, not unavailable (`availability.ts` — `[].every(...)` is vacuously true).
 id: r-skeleton
 name: R walking skeleton
-publisher: cyto
+publisher: txr
 # 0.1.0 — the package's introducing version. `scripts/check-processor-seed-versions.sh`
 # requires this to move FORWARD whenever any file under `src-app/packages/r-skeleton/`
 # changes on a later branch (a provisioned deployment skips re-extraction at an unchanged
@@ -94,7 +94,7 @@ contributes:
         # This entry loads `jsonlite`, which the env recipe pins, so declaring a contract
         # for it looks obviously right — and a cut of this manifest did. The BUILD gate
         # resolved it happily; the tree's RUN-TIME guard then refused it, because the
-        # thing that would enforce such a contract (`_lib/cyto_deps.py`) is a python
+        # thing that would enforce such a contract (`_lib/txr_deps.py`) is a python
         # helper an R entry does not receive (E6/DEC-2). A contract nothing can enforce
         # claims an enforcement that does not exist.
         #

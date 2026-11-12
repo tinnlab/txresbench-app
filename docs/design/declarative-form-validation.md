@@ -580,7 +580,7 @@ displays.
   sets — the identical multi-reader trap DEC-7 is avoiding, and `compile_gene_pattern`
   already handles compile/ReDoS/length as a *recorded warning* rather than a fatal.
 - **Validating `reference`.** Which transcriptomes exist is an operator fact (whatever they
-  mounted at `CYTO_SANDBOX_RESOURCE_REFERENCE`) that no API exposes. A closed list would be
+  mounted at `TXR_SANDBOX_RESOURCE_REFERENCE`) that no API exposes. A closed list would be
   a hardcoded spelling list that drops the third spelling — the argument `cellranger.yaml`
   already makes.
 - **A `warning` severity tier.** cell-filter's `unlabeledAlert` (*"this mask has no label,

@@ -16,7 +16,7 @@
 //!
 //! All three run the real freeze producer through the sandbox, so they self-skip (via
 //! `record_skip`, never a compile-time ignore attribute) when the fixture producer or the analysis rootfs is
-//! absent, naming the blocker. Point `CYTO_ENV_ROOTFS_SQUASHFS` at a rootfs to execute.
+//! absent, naming the blocker. Point `TXR_ENV_ROOTFS_SQUASHFS` at a rootfs to execute.
 
 use std::collections::HashSet;
 use std::time::Duration;
@@ -25,8 +25,8 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::models::CreateJobRequest;
-use cytoanalyst::modules::jobs::repository::JobRepository;
+use txresbench::modules::jobs::models::CreateJobRequest;
+use txresbench::modules::jobs::repository::JobRepository;
 
 use super::*;
 use crate::common::TestServer;
@@ -39,7 +39,7 @@ const WIDGET_KIND: &str = "test/frozen-widget";
 /// that it dispatches PINNED). Never reached by the assertions here — they read the
 /// consumer's PERSISTED params, not its outputs.
 const CONSUMER_SCRIPT: &str = "import json, os\n\
-d = os.environ.get('CYTO_OUTPUTS_DIR', '/outputs')\n\
+d = os.environ.get('TXR_OUTPUTS_DIR', '/outputs')\n\
 os.makedirs(d, exist_ok=True)\n\
 open(os.path.join(d, 'manifest.json'), 'w').write(json.dumps({'outputs': []}))\n\
 print('consume: wrote empty manifest', flush=True)\n";
@@ -139,7 +139,7 @@ async fn ready(server: &TestServer, test: &str) -> Result<(String, String, Strin
             test,
             "the analysis sandbox rootfs is not runnable here — the round-3 concurrency-edge \
              tests run the real freeze producer through the sandbox. Point \
-             CYTO_ENV_ROOTFS_SQUASHFS at a rootfs (and ensure unprivileged userns + bwrap + \
+             TXR_ENV_ROOTFS_SQUASHFS at a rootfs (and ensure unprivileged userns + bwrap + \
              squashfuse).",
         );
         return Err(());
@@ -255,8 +255,8 @@ async fn consumer_born_on_a_completed_freeze_is_pinned() {
     // `DraftsModule::init`); this test drives `create_with_deps` directly IN THE TEST
     // PROCESS, which has its own empty seam slot, so install the real hook here (pointed at
     // the same DB) — otherwise the no-op default would substitute nothing and mask the fix.
-    cytoanalyst::modules::jobs::seams::install_freeze_completion_sink(std::sync::Arc::new(
-        cytoanalyst::modules::drafts::FreezeCompletion::new(pool.clone()),
+    txresbench::modules::jobs::seams::install_freeze_completion_sink(std::sync::Arc::new(
+        txresbench::modules::drafts::FreezeCompletion::new(pool.clone()),
     ));
 
     // Create a consumer whose input references the (still-referenced) draft AND whose

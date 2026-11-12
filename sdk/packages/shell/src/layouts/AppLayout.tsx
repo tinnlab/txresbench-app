@@ -7,13 +7,13 @@ import React, {
 } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useWindowMinSize } from '../hooks/useWindowMinSize'
-import { cn } from '@ziee/kit/lib/utils'
+import { cn } from '@txresbench/kit/lib/utils'
 // shadcn primitives (not the kit wrapper, which forces a visible title header +
 // padded scroll body) so the raw LeftSidebar can fill the panel edge-to-edge.
-import { Sheet, SheetContent, SheetTitle } from '@ziee/kit/shadcn/sheet'
+import { Sheet, SheetContent, SheetTitle } from '@txresbench/kit/shadcn/sheet'
 import { useMetaThemeColor } from '../theme/themeColor'
 import 'overlayscrollbars/overlayscrollbars.css'
-import { ModuleSystem } from '@ziee/framework/stores'
+import { ModuleSystem } from '@txresbench/framework/stores'
 import { appLayoutSeam } from '../app-store-seams'
 import { LazyComponentRenderer } from '../components/LazyComponentRenderer'
 

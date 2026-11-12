@@ -54,7 +54,7 @@ use axum::http::StatusCode;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::env_id::is_valid_env_id;
 use super::sandbox::build_bwrap_argv;

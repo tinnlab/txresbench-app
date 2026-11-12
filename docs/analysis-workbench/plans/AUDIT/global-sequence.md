@@ -81,7 +81,7 @@ Each wave depends only on earlier waves. "‖" = buildable in parallel within th
 **Chicken-and-egg pairs (resolved by design, watch at integration):**
 - **P5 API ↔ P11/built-in analyses (dogfood).** P5's ITEM-32 dogfood + BUILD_PLAN Phase-1b ("rebuild
   built-ins on ONLY the public API") need real analyses to generalize from, but analyses are authored
-  against P5. Resolution = BUILD_PLAN §Re-sequencing: *extract `@cyto/workbench-api` FROM 2–3 real
+  against P5. Resolution = BUILD_PLAN §Re-sequencing: *extract `@txresbench/workbench-api` FROM 2–3 real
   modules*, don't design it top-down. So a thin real analysis must precede P5 hardening — sequence a
   vertical slice (P1 + one analysis) inside/adjacent to Wave 2–3, not after.
 - **P5 ↔ P8.** P8 imports P5's AST; P5 needs P8's evaluator for `api.selection`. One-way declared
@@ -97,8 +97,8 @@ Each wave depends only on earlier waves. "‖" = buildable in parallel within th
 ## Substrate gaps
 
 - **The P9 gap is real and confirmed.** P9's ITEM-1/2/3 (host MCP + chat + ai-providers + approval flow)
-  are flagged HARD/BLOCKING and **absent from the CytoAnalyst app** — CytoAnalyst is app #2 on the ziee
-  SDK and, unlike the parent ziee app, does not ship chat/MCP/approval. P9 explicitly surfaces this to
+  are flagged HARD/BLOCKING and **absent from the TxResBench app** — TxResBench is app #2 on the txresbench
+  SDK and, unlike the parent txresbench app, does not ship chat/MCP/approval. P9 explicitly surfaces this to
   the human (DEC-1) and assigns it to "platform bootstrap / live1," i.e. **outside** the P1–P11 plan.
 - **Where it must be resolved:** it gates only P9 (Wave 5), but because it is external and independent
   of the kernel, it should be **bootstrapped in parallel from Wave 1** so it is not the thing that

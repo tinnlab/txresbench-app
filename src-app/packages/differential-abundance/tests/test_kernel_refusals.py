@@ -238,7 +238,7 @@ def test_an_engine_exposing_size_factors_NOWHERE_is_refused_by_name():
 
 def test_the_declared_pydeseq2_range_excludes_the_releases_the_reader_had_to_be_taught():
     """The other half of the fix, and the half a code change alone would not give: the ENVIRONMENT
-    contract must not certify a version the code is not tested against. `cyto_deps` resolves the
+    contract must not certify a version the code is not tested against. `txr_deps` resolves the
     declared range at run time and passes anything inside it."""
     import pathlib
 

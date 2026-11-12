@@ -48,7 +48,7 @@ import {
 //
 // The drop writes the SERVER's `<data_root>/processors/`. That root defaults to a
 // machine-shared directory several worktrees' servers read at once, so these run ONLY when
-// the harness has isolated it via `CYTO_APP_DATA_DIR` — the same env the backend reads, and
+// the harness has isolated it via `TXR_APP_DATA_DIR` — the same env the backend reads, and
 // the same gate `packages/runtime-dropin-registers.spec.ts` uses. The skip is
 // describe-level, so it is COLLECTED unconditionally and REPORTED with its reason; it is
 // never counted as passed.
@@ -71,7 +71,7 @@ import {
 // registered" from "registered but never painted". If the paint half proves flaky, the fix
 // is a registry-change subscription in the shell — NOT a longer timeout here.
 
-const DATA_ROOT = process.env.CYTO_APP_DATA_DIR
+const DATA_ROOT = process.env.TXR_APP_DATA_DIR
 
 /** How long to wait for a runtime-dropped pane to reach the DOM — see the note above. */
 const PAINT_TIMEOUT = 30_000
@@ -212,7 +212,7 @@ async function seedCandidates(
 test.describe('a NEW processor renders + launches from its own declarations', () => {
   test.skip(
     !DATA_ROOT,
-    'needs CYTO_APP_DATA_DIR (an isolated server data root) — the fixture processor is DROPPED into the server folder',
+    'needs TXR_APP_DATA_DIR (an isolated server data root) — the fixture processor is DROPPED into the server folder',
   )
 
   // ── TEST-2 · INV-2 ────────────────────────────────────────────────────────────────

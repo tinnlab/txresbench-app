@@ -13,10 +13,10 @@ import {
   Tooltip,
   message,
   type TableColumn,
-} from '@ziee/kit'
+} from '@txresbench/kit'
 import { DatasetDetail } from '@/modules/datasets/stores/DatasetDetail.store'
 import { Datasets } from '@/modules/datasets/stores/Datasets.store'
-import { DivScrollY, HeaderBarContainer, useElementMinSize } from '@ziee/shell'
+import { DivScrollY, HeaderBarContainer, useElementMinSize } from '@txresbench/shell'
 import { type DatasetFile } from '@/api-client/types'
 import { ArrowLeft, Check, FolderInput, Pencil, Share2, X } from 'lucide-react'
 import { LineageView } from '@/modules/datasets/components/LineageView'
@@ -38,7 +38,7 @@ const fileColumns: TableColumn<DatasetFile>[] = [
  * The dataset-detail workspace: a back-topped header + Contents · Lineage tabs.
  * Contents inspects the dataset's files + metadata; Lineage shows the forward
  * provenance graph with Promote. (Processing lives in the workbench/analysis flow,
- * not here — the inline "Pipeline" tab was removed.) Mirrors the ziee
+ * not here — the inline "Pipeline" tab was removed.) Mirrors the txresbench
  * `ProjectDetailPage` shell composition.
  */
 export function DatasetDetailPage() {

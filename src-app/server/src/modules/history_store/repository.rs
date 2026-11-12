@@ -71,7 +71,7 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use crate::modules::execution_engine::repository::{produced_models, MethodRow, RunRow, TxrRepository};
 use crate::modules::execution_engine::types::{TxrRunFileNames, TxrRunStatus};
@@ -317,7 +317,7 @@ pub struct RetentionRow {
 /// Serialize a `uuid[]` batch into the JSON-hex form the SQLite membership
 /// predicates consume: a JSON array of 32-char lowercase hex strings (the
 /// `uuid::Uuid::simple()` form), compared against a 16-byte BLOB column
-/// through `unhex()` — the shared `ziee-file`/jobs/engine convention, kept
+/// through `unhex()` — the shared `txresbench-file`/jobs/engine convention, kept
 /// local per the single-driver rule (the jobs + engine precedent).
 fn uuid_list_json(ids: &[Uuid]) -> String {
     serde_json::to_string(

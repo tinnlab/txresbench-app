@@ -55,7 +55,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import xenium_fixtures as XF  # noqa: E402
 
-import cyto_zarr_read as CZR  # noqa: E402
+import txr_zarr_read as CZR  # noqa: E402
 
 
 def _bundle_copy(tmp_path, name, src=None):

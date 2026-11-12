@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-# `embedding_fixtures` puts `_lib` on sys.path (cell-filter.py imports `cyto_columns`).
+# `embedding_fixtures` puts `_lib` on sys.path (cell-filter.py imports `txr_columns`).
 from embedding_fixtures import counts_matrix, import_own
 
 _HERE = Path(__file__).resolve().parent          # …/packages/embedding/tests

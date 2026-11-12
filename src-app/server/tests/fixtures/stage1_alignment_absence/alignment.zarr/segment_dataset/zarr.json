@@ -63,7 +63,7 @@
     }
   ],
   "attributes": {
-    "cyto": {
+    "txr": {
       "kind": "numeric",
       "name": "segment_dataset"
     }

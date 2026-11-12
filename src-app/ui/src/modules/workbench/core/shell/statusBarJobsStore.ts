@@ -13,8 +13,8 @@
 // backend emits `SyncEntity::Job` on every list-status transition, so a `sync:job` (and
 // `sync:reconnect`) refetch drives the running count + the completion toast — no poll.
 
-import { defineLocalStore } from '@ziee/framework/store-kit'
-import { toast } from '@ziee/kit'
+import { defineLocalStore } from '@txresbench/framework/store-kit'
+import { toast } from '@txresbench/kit'
 import { ApiClient } from '@/api-client'
 import { type Job, type JobListItem } from '@/api-client/types'
 import { Permissions } from '@/api-client/permissions'

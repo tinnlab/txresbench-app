@@ -10,7 +10,7 @@
 // `onLayoutChanged` re-measure each pane's pixel rect → the deck views follow.
 //
 // viz-core rule: depends only on @deck.gl/* + react + react-resizable-panels
-// (no @ziee/*), so it extracts with the package. The store lives in adapter/.
+// (no @txresbench/*), so it extracts with the package. The store lives in adapter/.
 
 import {
   useCallback,
@@ -42,14 +42,14 @@ import type { GeoFeature } from '../annotate/processorPort'
 import { keepRectsIfUnchanged } from './rectEquality'
 import { cellRendersOnSharedDeck, regionSpaceKey, isMigratedChart } from './multiView'
 import { createChartLayerSink } from './chartLayerSink'
-import type { ContainerId } from '@ziee/dock'
+import type { ContainerId } from '@txresbench/dock'
 import { EMPTY_GRID_LAYOUT } from '../../adapter/GridWorkspace.store'
 import { PANE_TOOLBAR_H } from './CellView'
 import { cellPlotId } from '../charts/plotCellId'
 // SPLIT M (ITEM-29): `startGripPlacement` / `isPlacementActive` / `abortGripPlacement` / `DragRect` /
 // `DropTarget` / the four popup-window registry fns / `buildPopupFeatures` / `centeredGeometry` are
 // imported by `useGridWindows.ts` now — the windows plane was their only consumer here.
-import { ContainerWindows, PRIMARY_CONTAINER, useGripDragState } from '@ziee/dock'
+import { ContainerWindows, PRIMARY_CONTAINER, useGripDragState } from '@txresbench/dock'
 import { RestoreChoiceDialog } from './RestoreChoiceDialog'
 import { installBuiltins } from '../charts/installBuiltins'
 import { messageOf } from '../charts/useAsyncChartData'

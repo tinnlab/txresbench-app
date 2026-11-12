@@ -12,7 +12,7 @@ TEST-13 [acceptance] [invariant: INV-9] [covers: ITEM-13] — the vendored `_cri
 
 ── Why an inline filter at all ──────────────────────────────────────────────────────────
 Best practice is to score the QC-FILTERED matrix — junk cells skew the simulated-doublet
-population and the kNN density. CytoAnalyst cannot express that directly, and the reason is
+population and the kNN density. TxResBench cannot express that directly, and the reason is
 architectural rather than an oversight: `cell.filter` is NON-DESTRUCTIVE. It commits a
 per-cell keep-mask COLUMN and never writes a filtered matrix, so there is no
 "QC-filtered matrix artifact" for `doublet.detect` to consume. `embedding.reduce` hit exactly

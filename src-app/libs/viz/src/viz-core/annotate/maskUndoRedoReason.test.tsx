@@ -13,7 +13,7 @@
 // `maskCorrectController`, which is what mounts the pair at all (the showcase story omits them,
 // so the block does not render there — checked, not assumed).
 //
-// DEC-6 keeps this panel on raw elements rather than `@ziee/kit`, so the remedy is hand-built to
+// DEC-6 keeps this panel on raw elements rather than `@txresbench/kit`, so the remedy is hand-built to
 // the same contract the kit's `unavailableReason` provides: `aria-disabled` + a dropped handler
 // (hoverable AND focusable), the reason in `aria-describedby`, and the NAME left intact so a
 // screen-reader user can still tell WHICH control refused them.

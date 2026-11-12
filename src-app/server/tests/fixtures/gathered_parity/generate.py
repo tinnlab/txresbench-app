@@ -10,7 +10,7 @@ hand in Rust. That was recorded as a test-scope limitation — "not the shuffle+
 form the Python writer emits" — and passed over, and it hid a design defect for rounds: the
 gather only ever worked on the one encoding no producer writes.
 
-So both stores here are written by `cyto_zarr`, the same writer production uses, in the same
+So both stores here are written by `txr_zarr`, the same writer production uses, in the same
 chain: `sharding_indexed[ bytes, (numcodecs.shuffle,) gzip ]`.
 
   * `stored/`      — the control column, values in order, at the writer's DEFAULT geometry
@@ -33,7 +33,7 @@ SHUFFLE = [7, 1, 5, 3, 6, 0, 4, 2, 9, 8]
 
 
 def write(root: Path, name: str, values, **kw):
-    import cyto_zarr as cz
+    import txr_zarr as cz
     d = root / name
     if d.exists():
         shutil.rmtree(d)

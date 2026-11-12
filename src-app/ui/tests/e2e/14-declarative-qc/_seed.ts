@@ -31,7 +31,7 @@ const UPLOAD_FIXTURE = resolve(HERE, 'fixtures/tiny_counts.h5ad')
 // DATA-driven surfaces the rewrite ships (declarative-processor-ui Slice 7): the QC + Cell-filter
 // UIs are `packages/<name>/ui/*.yaml` `view_spec` DATA, rendered through the general
 // `DeclarativeRegion` interpreter (widget testids are `widget-<id>` — renderers.tsx `testid()`) and
-// driven onto the ONE `@ziee/viz` canvas (`workbench-canvas-host`, `data-viz-framework`,
+// driven onto the ONE `@txresbench/viz` canvas (`workbench-canvas-host`, `data-viz-framework`,
 // `workbench-canvas-empty` — CanvasView.tsx). The bespoke `CellFilterCriteriaWidget` /
 // `MetricListWidget` React (and their `schemaform-field-*` surfaces) are DELETED — no
 // `openCellFilterForm`, no `schemaform-field-criteria`; the declarative view AUTO-MOUNTS as a pane
@@ -48,12 +48,12 @@ const UPLOAD_FIXTURE = resolve(HERE, 'fixtures/tiny_counts.h5ad')
 //    seeded bytes are served by the same `GET /api/artifacts/{id}/data` byte-range path the FE
 //    `readOpaque` reads, so the FULL FE paint + client-side keep-mask loop run for real; only the
 //    Python compute is bypassed.
-//  • REAL specs (gated on `CYTO_E2E_REAL_COMPUTE`) drive a real completed `qc.10x`/`cell.filter`
+//  • REAL specs (gated on `TXR_E2E_REAL_COMPUTE`) drive a real completed `qc.10x`/`cell.filter`
 //    compute job over a genuinely IMPORTED matrix — `seedRunnableExpression` uploads the
 //    committed `.h5ad` through the deployment's own on-ingest converter, so the artifact under
 //    test is the one the real producer writes (a CSC Zarr store declaring `kind: sparse_csc`),
 //    not a fixture's idea of one. See that function's header for why a fixture cannot serve.
-//    They need a sandbox-executable backend (bwrap + `CYTO_ENV_ROOTFS_DIR`). See TESTS.md
+//    They need a sandbox-executable backend (bwrap + `TXR_ENV_ROOTFS_DIR`). See TESTS.md
 //    "Phase-8 env matrix".
 
 // The backend base for API-request helpers. Imported from `_owner`, which derives it from
@@ -472,7 +472,7 @@ export interface SeedPlottableResult {
  *  dispatches on since ITEM-12 deleted `/read`. All three — embedding, clustering AND the
  *  matrix — are seeded as real (raw, unsharded) ZARR member trees, so the app reads them the
  *  way it reads a processor's output. The matrix declares `kind: "sparse_csc"`, which is the
- *  single vocabulary `cyto_csc.write_csc_zarr` emits; there is no second, non-Zarr spelling
+ *  single vocabulary `txr_csc.write_csc_zarr` emits; there is no second, non-Zarr spelling
  *  of a CSC for a fixture to reach for. */
 export async function seedPlottableProject(
   request: APIRequestContext,
@@ -556,7 +556,7 @@ const IMPORT_BUDGET_MS = 240_000
  * production scripts on exactly that input exits 2:
  *
  *     cell-filter: input on slot 'expression' at 'expression' carries no `structure`
- *     declaration in a group `zarr.json` — it is not a cyto_zarr artifact.
+ *     declaration in a group `zarr.json` — it is not a txr_zarr artifact.
  *     qc-10x:      input on slot 'matrices[0]' at 'expression' carries no `structure` …
  *
  * ── WHY THE STORE CANNOT COME FROM A FIXTURE (committed OR generated) ────────────────
@@ -572,8 +572,8 @@ const IMPORT_BUDGET_MS = 240_000
  *     `u32`-expressible without padding that would move the shard index.
  *   • The raw, UNSHARDED Zarr the seed engine CAN express (`_fixtures.ts::cscArtifact`,
  *     which the FE reader decodes happily) is not readable by the PYTHON side at all:
- *     `cyto_zarr_read.read_array` reads `codecs[0].configuration.chunk_shape` and
- *     `gzip.decompress`es unconditionally, so `cyto_csc.read_csc` on such a store raises
+ *     `txr_zarr_read.read_array` reads `codecs[0].configuration.chunk_shape` and
+ *     `gzip.decompress`es unconditionally, so `txr_csc.read_csc` on such a store raises
  *     `KeyError: 'chunk_shape'`. Verified directly.
  *
  * So the bytes have to come from the REAL producer. That is strictly the better answer
@@ -581,7 +581,7 @@ const IMPORT_BUDGET_MS = 240_000
  * anywhere in the test tree. If `write_csc_zarr` changes its container tomorrow, the
  * importer changes with it and this seed follows for free — where a committed fixture
  * would keep deserializing into a shape nothing produces any more, and would do it
- * QUIETLY, since the specs that consume it are the ones behind `CYTO_E2E_REAL_COMPUTE`.
+ * QUIETLY, since the specs that consume it are the ones behind `TXR_E2E_REAL_COMPUTE`.
  *
  * ── WHAT THE IMPORT PRODUCES ────────────────────────────────────────────────────────
  *
@@ -981,7 +981,7 @@ export const CFRow = {
  * THE METRIC ROWS, and only them.
  *
  * A row whose control has something to say renders a SECOND `<tr>` directly under itself — the
- * full-width band the sentence lives in (`@ziee/kit`'s `renderRowDetail`, stamped
+ * full-width band the sentence lives in (`@txresbench/kit`'s `renderRowDetail`, stamped
  * `…-row-<key>-detail`), because a column of a ~284px grid is the wrong box for a sentence: the
  * message measured 44px wide and 480px tall in one. So a bare `tbody tr` counts "metrics plus
  * however many of them are currently invalid" — a number that changes as the user types, and that
@@ -1270,7 +1270,7 @@ export const RUN_ANALYSIS_ID = 'qc.10x'
 /**
  * REAL-compute helper: run the analysis from its OWN contributed pane and wait for the declared
  * completion. Used by the REAL-compute guidance/toast/job-details specs + `runToReview`. The run
- * must genuinely COMPLETE (needs a privileged sandbox host + CYTO_ENV_ROOTFS_DIR). On run failure
+ * must genuinely COMPLETE (needs a privileged sandbox host + TXR_ENV_ROOTFS_DIR). On run failure
  * it raises a CLEAR error — a skip is NOT a pass. Assumes the workbench is already open (the
  * caller runs `openWorkbench` first). Returns the analysis id it drove.
  *
@@ -1343,8 +1343,8 @@ export async function runQcToCompletion(page: Page, timeout = 120_000): Promise<
   if (outcome === 'failure') {
     throw new Error(
       `the run FAILED — the compute sandbox could not complete ("${failureText}"). ` +
-        'Needs a privileged host + a mounted rootfs / CYTO_ENV_ROOTFS_DIR under ' +
-        'CYTO_E2E_REAL_COMPUTE. A skip is not a pass.',
+        'Needs a privileged host + a mounted rootfs / TXR_ENV_ROOTFS_DIR under ' +
+        'TXR_E2E_REAL_COMPUTE. A skip is not a pass.',
     )
   }
   if (outcome !== 'success') {
@@ -1433,7 +1433,7 @@ export async function commitFilter(
   await expect(
     page.getByText('Keep-mask committed', { exact: false }),
     'the filter commit run never completed — its finalize sink is what mints the filter VD. ' +
-      'A timeout here is the RUN failing, not the UI (check the CYTO_ENV_ROOTFS_SQUASHFS seam).',
+      'A timeout here is the RUN failing, not the UI (check the TXR_ENV_ROOTFS_SQUASHFS seam).',
   ).toBeVisible({ timeout: 180_000 })
   return label
 }

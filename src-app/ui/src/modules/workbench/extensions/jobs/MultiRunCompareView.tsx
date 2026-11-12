@@ -13,7 +13,7 @@
 // renderer needs a renderer-side prop it doesn't expose yet (follow-on).
 
 import { useState } from 'react'
-import { Button, Empty, SectionHeader, Table, Tag, type TableColumn } from '@ziee/kit'
+import { Button, Empty, SectionHeader, Table, Tag, type TableColumn } from '@txresbench/kit'
 import { ArtifactCompareView } from './ArtifactCompareView'
 import { buildMultiRunCompare, type CompareCell, type CompareRow, type RunObservablesEntry } from './multiRunCompare'
 

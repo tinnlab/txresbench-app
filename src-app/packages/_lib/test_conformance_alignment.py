@@ -41,7 +41,7 @@ import numpy as np
 import pytest
 
 import conformance
-import cyto_zarr as cz
+import txr_zarr as cz
 
 
 # ── fixtures ─────────────────────────────────────────────────────────────────────
@@ -114,7 +114,7 @@ def restamp(root, structure):
     """Rewrite the group stamp so a test editing the RETURNED structure is testing the
     check it means to, rather than tripping the group/row drift check first."""
     node = json.loads((Path(root) / "zarr.json").read_text())
-    node["attributes"]["cyto"] = structure
+    node["attributes"]["txr"] = structure
     (Path(root) / "zarr.json").write_text(json.dumps(node, indent=2, ensure_ascii=False))
 
 
@@ -146,7 +146,7 @@ def test_every_aux_vector_resolves_by_path_from_the_declaration_alone(tmp_path):
     """
     root = tmp_path / "alignment.zarr"
     structure = an_alignment(root)
-    import cyto_zarr_read
+    import txr_zarr_read
 
     roles = {m["role"]: m for m in structure["aux"]}
     assert set(roles) == {
@@ -156,9 +156,9 @@ def test_every_aux_vector_resolves_by_path_from_the_declaration_alone(tmp_path):
         "alignment_segment_end",
         "alignment_segment_dataset",
     }, roles
-    values = cyto_zarr_read.read_array(root, roles["alignment_segment_start"]["path"])
+    values = txr_zarr_read.read_array(root, roles["alignment_segment_start"]["path"])
     assert values.tolist() == [0, 3]
-    feat = cyto_zarr_read.read_array(root, roles["alignment_entity_index"]["path"])
+    feat = txr_zarr_read.read_array(root, roles["alignment_entity_index"]["path"])
     assert list(feat.shape) == [_FEATURES, _SOURCES]
 
 
@@ -602,7 +602,7 @@ def _alignment_with_levels(root, *, vocabulary, lookup_codes):
     COHERENT pair — and the point is to check what the gate does with an incoherent one.
     """
     with cz.Table(root, axis=ALIGN_AXIS, n=2, key="unified_key",
-                  attributes={"cyto_alignment": {"unified_levels": vocabulary}}
+                  attributes={"txr_alignment": {"unified_levels": vocabulary}}
                   if vocabulary is not None else None) as t:
         t.string("unified_key", ["A", "B"])
         t.aux("entity_index", np.zeros((2, 2), dtype=np.int64), dtype="int64",
@@ -619,7 +619,7 @@ def test_an_alignment_with_lookups_and_NO_vocabulary_is_refused(tmp_path):
     root = tmp_path / "novocab.zarr"
     structure = _alignment_with_levels(root, vocabulary=None, lookup_codes=[0, 1])
     violations = conformance.conform_artifact(root, structure, full=True)
-    assert any("stamps no `cyto_alignment.unified_levels`" in v for v in violations), violations
+    assert any("stamps no `txr_alignment.unified_levels`" in v for v in violations), violations
 
 
 def test_a_unified_code_PAST_THE_END_of_the_vocabulary_is_refused(tmp_path):

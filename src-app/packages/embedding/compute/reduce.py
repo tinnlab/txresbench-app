@@ -57,8 +57,8 @@ absent (rootfs not yet republished) the run is refused BY NAME (ITEM-20b), never
     in Stage B, Harmony) latent is emitted as an `embedding`, and its `meta.correction`
     records provenance (`none` here; DEC-5).
 
-Roots overridable via `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR`. Progress →
-`$CYTO_PROGRESS_FIFO`.
+Roots overridable via `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR`. Progress →
+`$TXR_PROGRESS_FIFO`.
 """
 import _shared as S  # FIRST — pins the six thread vars before numpy/scanpy load (INV-11)
 
@@ -66,8 +66,8 @@ import json
 
 import numpy as np
 
-import cyto_deps
-import cyto_columns
+import txr_deps
+import txr_columns
 import _criteria as CR  # the cell-filter predicate kernel, VENDORED VERBATIM (DEC-11)
 
 
@@ -351,12 +351,12 @@ def main():
         if len(keys) == n_cells_in:
             if filter_applied:
                 keys = [keys[i] for i in keep_idx.tolist()]
-            aligned_to = cyto_columns.axis_key_digest(pd.Series([str(k) for k in keys]))
+            aligned_to = txr_columns.axis_key_digest(pd.Series([str(k) for k in keys]))
 
     # ── write the PCA embedding artifact (INV-1 — an `embedding`, never a matrix) ─────
     progress("write", 82, "writing the PCA embedding")
     rel = "embeddings/X_pca.zarr"
-    emb_structure, emb_meta = cyto_columns.write_embedding(
+    emb_structure, emb_meta = txr_columns.write_embedding(
         outputs_dir, rel, x_pca, axis="cells", name=emb_name, kind="embedding",
         method="pca", aligned_to=aligned_to)
     # DEC-5 provenance: our PCA latent is NOT batch-corrected.
@@ -366,10 +366,10 @@ def main():
         "n_pcs": n_pcs_eff,
         "sign_convention": sign_convention,
     })
-    # ITEM-25 / F2: stamp the correction + method into the ARTIFACT's `attributes.cyto` (not
+    # ITEM-25 / F2: stamp the correction + method into the ARTIFACT's `attributes.txr` (not
     # only the manifest meta) so the bit survives the hop into analysis 2 and the clustering
-    # package, both of which read it back off the embedding's `attributes.cyto`.
-    S.stamp_cyto_attributes(outputs_dir / rel, emb_structure, correction="none", method="pca")
+    # package, both of which read it back off the embedding's `attributes.txr`.
+    S.stamp_txr_attributes(outputs_dir / rel, emb_structure, correction="none", method="pca")
     entries = [S.output_entry("embedding:X_pca", S.DT_EMBEDDING, rel, "artifact",
                               structure=emb_structure, meta=emb_meta)]
 
@@ -394,7 +394,7 @@ def main():
         z_harmony, harmony_params, harmonypy_version = S.run_harmony(
             harmony_mod, x_pca, batch_values, seed)
         rel_h = f"embeddings/{harmony_name}.zarr"
-        h_structure, h_meta = cyto_columns.write_embedding(
+        h_structure, h_meta = txr_columns.write_embedding(
             outputs_dir, rel_h, z_harmony, axis="cells", name=harmony_name,
             kind="embedding", method="harmony", aligned_to=aligned_to)
         h_meta.update({
@@ -411,7 +411,7 @@ def main():
         # ITEM-25 / F2: the batch-correction bit must survive onto the ARTIFACT, not just the
         # manifest meta — so a Harmony embedding read downstream reports `harmony`, never
         # `unattested`.
-        S.stamp_cyto_attributes(outputs_dir / rel_h, h_structure, correction="harmony", method="harmony")
+        S.stamp_txr_attributes(outputs_dir / rel_h, h_structure, correction="harmony", method="harmony")
         entries.append(S.output_entry(
             f"embedding:{harmony_name}", S.DT_EMBEDDING, rel_h, "artifact",
             structure=h_structure, meta=h_meta))
@@ -505,7 +505,7 @@ def main():
     (outputs_dir / "embedding-report.json").write_text(json.dumps(report, indent=2))
     entries.append(S.output_entry(
         "embedding-report", S.DT_REPORT_QC, "embedding-report.json", "artifact",
-        structure=cyto_columns.opaque("application/json"),
+        structure=txr_columns.opaque("application/json"),
         meta={"kind": "embedding-report", "n_cells": n_cells,
               "correction": "harmony" if integration == "harmony" else "none"}))
 
@@ -531,10 +531,10 @@ def _library_versions():
       supported against, so recording it changes an outcome instead of only decorating
       the report.
 
-    Memoized in `cyto_deps`, so this and the manifest-write hook resolve once and cannot
+    Memoized in `txr_deps`, so this and the manifest-write hook resolve once and cannot
     disagree about what ran.
     """
-    return cyto_deps.resolve_and_check()["libraries"]
+    return txr_deps.resolve_and_check()["libraries"]
 
 
 if __name__ == "__main__":

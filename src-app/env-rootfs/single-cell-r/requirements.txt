@@ -43,7 +43,7 @@
 # There is NO DEFAULT. A recipe that declares nothing fails the build, because a default
 # would make a DELETED declaration indistinguishable from a python recipe — and for this
 # file that mistake silently restores both failures above.
-# cyto:ecosystem=r
+# txr:ecosystem=r
 #
 # ── WHERE THESE PINS WERE RESOLVED, AND WHAT THAT SOURCE GUARANTEES ─────────────────
 # The two coordinates below are the ONLY place the resolution sources are written down;
@@ -59,8 +59,8 @@
 #   vcs-head         — NEITHER. REFUSED by the build; see the exclusions at the foot of
 #                      this file and #209.
 #
-# cyto:pin-source=dated-snapshot:https://packagemanager.posit.co/cran/__linux__/noble/2026-09-01
-# cyto:pin-source=release-channel:bioconductor-3.23
+# txr:pin-source=dated-snapshot:https://packagemanager.posit.co/cran/__linux__/noble/2026-09-01
+# txr:pin-source=release-channel:bioconductor-3.23
 #
 # ── HOW EXACTNESS IS ACHIEVED WITHOUT A WHEEL INDEX ──────────────────────────────────
 # R has no PyPI. Exactness comes from the two coordinates declared above plus one
@@ -84,13 +84,13 @@
 #             names the package instead of silently shipping a different version into a
 #             published result's provenance.
 # The full TRANSITIVE closure is not pinned here — it is frozen INTO the image at
-# `/usr/local/lib/R/.cyto-env-lock.txt`, one line per package as
+# `/usr/local/lib/R/.txresbench-env-lock.txt`, one line per package as
 # `<name>==<version>  # source=<repository>`, so transitive drift is RECOVERABLE for the
 # run it affected instead of being lost.
 #
 # SAID EXACTLY, because the python sibling's wording does not transfer and copying it
 # would make this paragraph false. The python recipe says its lock "is recorded per run",
-# and it is: `_lib/cyto_deps.py` is staged into the sandbox and writes the resolved
+# and it is: `_lib/txr_deps.py` is staged into the sandbox and writes the resolved
 # versions into the run's `run-environment` record, which the server lifts into
 # `provenance_run_repro.lockfile_json`. **Helper staging is Python-gated**
 # (`sandbox/processors/mod.rs`), so an R run records its image's content DIGEST and
@@ -105,7 +105,7 @@
 # normalize PEP 503-style, i.e. to LOWERCASE, so two R packages differing only in case
 # would collide into one pin and a declaration could match the WRONG one and report
 # green — strictly worse than no pin, because an absent pin is visible and a false one is
-# not. **#192 fixed that at the mechanism:** the `cyto:ecosystem=r` declaration above
+# not. **#192 fixed that at the mechanism:** the `txr:ecosystem=r` declaration above
 # selects an EXACT, case-preserving name rule, applied to BOTH sides of every comparison
 # (the pin side and the `run.dependencies[]` side alike, because both are folded from
 # this one recipe). A declaration differing only in case is now REFUSED, with a message
@@ -173,7 +173,7 @@ SingleCellExperiment==1.34.0 # import=SingleCellExperiment — the container scD
 #
 # Chosen against the tree, not against a generic single-cell recipe. Every artifact a
 # processor reads or writes here is a Zarr v3 SHARDED store, not `.h5ad`
-# (`packages/_lib/cyto_zarr.py`: "There is no Parquet, no TileDB, no SOMA and no Arrow IPC
+# (`packages/_lib/txr_zarr.py`: "There is no Parquet, no TileDB, no SOMA and no Arrow IPC
 # on the wire"; `qc/manifest.yaml`: "a `single-cell/expression` artifact in a real project
 # is a MULTIFILE ZARR store, not an `.h5ad` blob"). HDF5 appears ONLY in the two import
 # converters. So the substrate is JSON + sparse matrices + int64 + sha256 — and NOT an
@@ -181,7 +181,7 @@ SingleCellExperiment==1.34.0 # import=SingleCellExperiment — the container scD
 Matrix==1.7-6               # import=Matrix — the sparse container the store's CSC trio (indptr/indices/data) decodes into
 jsonlite==2.0.0             # import=jsonlite — the entire control plane: /inputs/inputs.json, /inputs/params.json, every zarr.json, and the REQUIRED /outputs/manifest.json
 bit64==4.8.4                # import=bit64 — the store's shard offsets and `indptr` are int64; base R has no 64-bit integer type, so reading them without this silently loses precision
-digest==0.6.39              # import=digest — sha256 for the `key_sequence_digest` the conformance job RECOMPUTES and compares (`_lib/cyto_zarr.py`); a mismatch marks the artifact failed
+digest==0.6.39              # import=digest — sha256 for the `key_sequence_digest` the conformance job RECOMPUTES and compares (`_lib/txr_zarr.py`); a mismatch marks the artifact failed
 
 # ── TIER B — the spatial set (#191 PROV-E3-3; the forward contract for #151) ─────────
 #
@@ -211,7 +211,7 @@ refund==0.1-40              # import=refund — functional regression, spatialFD
 #     day it has a release channel, or behind a pinned commit + a source-hash check
 #     recorded as its own decision — not silently.
 #     SINCE #192 THIS IS ENFORCED RATHER THAN REMEMBERED: adding
-#     `# cyto:pin-source=vcs-head:<url>` to this file FAILS the build, naming #209 and the
+#     `# txr:pin-source=vcs-head:<url>` to this file FAILS the build, naming #209 and the
 #     reason. The regime cannot express an identity that does not distinguish two trees,
 #     so nobody can add one by forgetting this paragraph.
 #   * PANORAMIC — same finding, same reason: absent from CRAN and from Bioconductor 3.23.

@@ -87,11 +87,11 @@ static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 // ---------------------------------------------------------------------------------
 
 /// `<data_root>/processors` — the extracted runtime source of truth. Honors
-/// `CYTO_APP_DATA_DIR` via [`rootfs::data_root`](crate::modules::rootfs::data_root)
+/// `TXR_APP_DATA_DIR` via [`rootfs::data_root`](crate::modules::rootfs::data_root)
 /// (how the integration harness isolates each test's data dir).
 ///
 /// ## Why the in-process unit-test build gets its own root
-/// The integration harness sets `CYTO_APP_DATA_DIR` per test (`tests/common/mod.rs`),
+/// The integration harness sets `TXR_APP_DATA_DIR` per test (`tests/common/mod.rs`),
 /// so every integration test already extracts into a private folder. The in-process
 /// UNIT tests (`cargo test --lib`) have no such harness: `data_root()` falls back to
 /// the SDK default `~/.<app_name>`, and `app_name()` reads an `APP_NAME` `OnceCell`
@@ -111,7 +111,7 @@ static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 /// in-tree manifest edit is never masked by a stale extracted copy — the other half of
 /// the version-keyed staleness trap). `#[cfg(test)]` means this exists ONLY in the
 /// `--lib` test build: the server binary and the integration-test crates are unchanged.
-/// An explicit `CYTO_APP_DATA_DIR` still wins, so a test can still aim at a chosen dir.
+/// An explicit `TXR_APP_DATA_DIR` still wins, so a test can still aim at a chosen dir.
 ///
 /// ## Why this is still called `processors` when the SOURCE tree is `packages` (DEC-8b)
 /// The in-tree source directory was renamed `src-app/processors/` → `src-app/packages/`
@@ -134,7 +134,7 @@ static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 pub fn processors_data_dir() -> PathBuf {
     #[cfg(test)]
     {
-        if std::env::var_os("CYTO_APP_DATA_DIR").is_none() {
+        if std::env::var_os("TXR_APP_DATA_DIR").is_none() {
             return unit_test_processors_dir();
         }
     }
@@ -155,7 +155,7 @@ fn unit_test_processors_dir() -> PathBuf {
     UNIT_TEST_DIR
         .get_or_init(|| {
             let prefix = format!(
-                "cyto-libtest-appdata-{:016x}",
+                "txr-libtest-appdata-{:016x}",
                 fnv1a64(env!("CARGO_MANIFEST_DIR"))
             );
             let base = std::env::temp_dir();
@@ -539,7 +539,7 @@ pub(crate) struct ReconcileOutcome {
 /// worktree/build), so a binary built at one commit writes `_lib@0.1.0` with ITS file set
 /// and a binary built at another commit then sees "recorded 0.1.0, folder present" and
 /// skips. Any file only the second binary ships never lands. That surfaced as
-/// `ModuleNotFoundError: No module named 'cyto_columns'` raised from inside a sandboxed
+/// `ModuleNotFoundError: No module named 'txr_columns'` raised from inside a sandboxed
 /// run — about as far from the cause as a symptom can travel.
 ///
 /// Existence alone is NOT sufficient, which is what [`plan_repair`] adds: a file that is
@@ -1172,14 +1172,14 @@ fn parse_semver(v: &str) -> Option<[u64; 3]> {
 mod tests {
     use super::*;
 
-    /// A throwaway data dir under the system temp dir (no `CYTO_APP_DATA_DIR` env
+    /// A throwaway data dir under the system temp dir (no `TXR_APP_DATA_DIR` env
     /// mutation, so tests stay parallel-safe and never pollute the real data dir).
     struct TmpDir(PathBuf);
     impl TmpDir {
         fn new(tag: &str) -> Self {
             let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
             let p = std::env::temp_dir()
-                .join(format!("cyto-seed-test-{tag}-{}-{seq}", std::process::id()));
+                .join(format!("txr-seed-test-{tag}-{}-{seq}", std::process::id()));
             let _ = std::fs::remove_dir_all(&p);
             std::fs::create_dir_all(&p).unwrap();
             TmpDir(p)
@@ -1574,7 +1574,7 @@ mod tests {
     // ---- TEST: the REPORTED symptom, on the REAL seed ----
     //
     // The literal failure: a run died with `ModuleNotFoundError: No module named
-    // 'cyto_columns'` while the boot log read `extracted=0 … skipped=N`. `_lib` is a
+    // 'txr_columns'` while the boot log read `extracted=0 … skipped=N`. `_lib` is a
     // shared library package this branch introduced, imported by other packages, and its
     // `version:` has not moved since — so on a SHARED processors dir a copy written by a
     // binary that did not ship one of its modules was preferred over the embedded one,
@@ -2525,7 +2525,7 @@ mod tests {
         // NEGATIVE CONTROL: the filter did not simply empty the seed.
         assert!(s.packages.contains_key("_lib"));
         let lib = &s.packages["_lib"];
-        for want in ["manifest.yaml", "conformance.py", "cyto_zarr.py"] {
+        for want in ["manifest.yaml", "conformance.py", "txr_zarr.py"] {
             assert!(
                 lib.files.iter().any(|(rel, _)| rel == Path::new(want)),
                 "`_lib` still ships {want}"

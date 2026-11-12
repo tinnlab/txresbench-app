@@ -2,8 +2,8 @@
 #
 # The sandbox runner assembles ONE `/code` dir per job: the entry script, the package's
 # own declared siblings, and the app's cross-cutting modules — the `_helpers` compute
-# helpers and the `_lib` OUTPUT-FORMAT library (`cyto_zarr` / `cyto_columns`, DEC-7).
-# A compute script therefore says `import cyto_columns` at module scope, and a suite
+# helpers and the `_lib` OUTPUT-FORMAT library (`txr_zarr` / `txr_columns`, DEC-7).
+# A compute script therefore says `import txr_columns` at module scope, and a suite
 # that loads that script by path (importlib) has to resolve the same names or it dies
 # with `ModuleNotFoundError` before the first assertion.
 #
@@ -24,7 +24,7 @@ for _name in ("_helpers", "_lib", "annotation-integrate"):
 # ── #80: stage a DEPENDENCY CONTRACT for the suites, the way the sandbox does ─────────
 #
 # In production the server serializes the entry's declared `run.dependencies[]` into the
-# same `/code` dir it stages this module into, and `cyto_deps` reads it from beside
+# same `/code` dir it stages this module into, and `txr_deps` reads it from beside
 # itself. A pytest process is not a staged `/code` dir — it imports these modules straight
 # out of the source tree — so without this, every suite would run with NO contract and the
 # reports they assert over would carry an empty `library_versions`. That is not a smaller
@@ -50,7 +50,7 @@ import tempfile as _tempfile
 
 def _stage_dependency_contract():
     try:
-        import cyto_deps as _deps
+        import txr_deps as _deps
         from packaging.specifiers import SpecifierSet as _Spec
         from packaging.version import Version as _Ver
         from importlib.metadata import PackageNotFoundError as _NotFound
@@ -110,7 +110,7 @@ def _stage_dependency_contract():
         except Exception:
             continue
 
-    _dir = _tempfile.mkdtemp(prefix="cyto-test-contract-")
+    _dir = _tempfile.mkdtemp(prefix="txr-test-contract-")
     # Removed at interpreter exit: this runs once per pytest invocation, and an unremoved
     # temp dir per run is a slow leak on a machine that runs these suites often.
     import atexit as _atexit

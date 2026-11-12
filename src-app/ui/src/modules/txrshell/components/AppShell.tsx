@@ -1,7 +1,7 @@
 import { useLayoutEffect } from 'react'
 import type { ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
-import { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarTrigger } from '@ziee/kit'
+import { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarTrigger } from '@txresbench/kit'
 import { FiMenu } from 'react-icons/fi'
 import { TxrThemeToggle } from '../TxrThemeToggle'
 import { shellModeClass, useShellMode } from '../lib/shellMode'

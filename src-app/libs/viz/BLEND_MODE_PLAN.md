@@ -2,7 +2,7 @@
 
 Co-visualize more than one data channel in a single mark — the headline case being a
 **categorical annotation + a continuous value at once** ("which cluster **and** how much"). The
-legacy CytoAnalyst app did this on the CPU (chroma-js + one ECharts `visualMap` **per cluster**);
+legacy TxResBench app did this on the CPU (chroma-js + one ECharts `visualMap` **per cluster**);
 we do it **GPU-native** as an extension of the existing in-shader color LUT.
 
 ## The model: two stages — REDUCE → ENCODE
@@ -66,7 +66,7 @@ genuinely new UI surface is a **2D legend** (hue rows × value ramp).
 Key files — ours: `gpu/ColormapScatterLayer.ts` (shader seam), `gpu/colormapLut.ts`, `data/color.ts`,
 `data/engine.ts` (`ColorBy`), `DeckScatterCanvas.tsx` (attribute wiring), `coordination/colorScale.ts`,
 a new 2D-legend component, `option/{types,parse}.ts`. Legacy reference:
-`~/…/cytoanalyst-ref/sc-website/imports/ui/pages/Analysis/CentralVisualization/echartsOptions.ts`
+`~/…/txresbench-ref/sc-website/imports/ui/pages/Analysis/CentralVisualization/echartsOptions.ts`
 (`aggregateScatterPlots`, the cat×continuous alpha-ramp) for parity.
 
 ## Phasing

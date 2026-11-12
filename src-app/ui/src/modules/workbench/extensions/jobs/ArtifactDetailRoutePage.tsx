@@ -16,7 +16,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
-import { Button, ErrorState, Spinner } from '@ziee/kit'
+import { Button, ErrorState, Spinner } from '@txresbench/kit'
 import { ApiClient } from '@/api-client'
 import { useWorkbenchApi } from '../../core/host/createHost'
 import { WorkbenchProvider } from '../../core/shell/WorkbenchContext'

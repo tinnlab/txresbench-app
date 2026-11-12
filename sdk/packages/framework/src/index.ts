@@ -1,15 +1,15 @@
-// @ziee/framework — domain-agnostic UI runtime barrel.
+// @txresbench/framework — domain-agnostic UI runtime barrel.
 //
-// The core meta-framework moved out of ziee's `ui/src/core/*`: the module
+// The core meta-framework moved out of txresbench's `ui/src/core/*`: the module
 // system, the `createModule` authoring surface, the EventBus, the Stores proxy
 // + store-kit, and the desktop UI-override seam. The realtime sync client and
-// the ApiClient transport runtime live under the `@ziee/framework/sync` and
-// `@ziee/framework/api-client` subpaths respectively.
+// the ApiClient transport runtime live under the `@txresbench/framework/sync` and
+// `@txresbench/framework/api-client` subpaths respectively.
 //
 // The augmentable declaration-merge interfaces apps extend — `RegisteredStores`
-// (`@ziee/framework/stores`), `AppEvents` (`@ziee/framework/events`), `Slots`
-// (`@ziee/framework/module-system/types`), `CreateModuleOptions`
-// (`@ziee/framework/module`), and `UIOverrides` (`@ziee/framework/overrides`) —
+// (`@txresbench/framework/stores`), `AppEvents` (`@txresbench/framework/events`), `Slots`
+// (`@txresbench/framework/module-system/types`), `CreateModuleOptions`
+// (`@txresbench/framework/module`), and `UIOverrides` (`@txresbench/framework/overrides`) —
 // are re-exported here and augmented per-app via `declare module` against those
 // stable subpath specifiers.
 export * from './module-system'

@@ -10,7 +10,7 @@ row IS.
 
 The fix is the one the OTHER spatial kind already uses: put the declarations in the
 artifact's OWN FILE FORMAT. For an `opaque` OME-TIFF that is the OME-XML
-(`encode_placement`). For a Zarr store it is the store's group `attributes.cyto`, which
+(`encode_placement`). For a Zarr store it is the store's group `attributes.txr`, which
 `stage_prefix_members` copies into the sandbox byte-verbatim. This module is the contract
 for that second channel.
 
@@ -87,12 +87,12 @@ def _write(tmp_path, *, space=None, n=6, z=True):
 
 
 def _stamped(store):
-    return json.loads((store / "zarr.json").read_text())["attributes"]["cyto"]
+    return json.loads((store / "zarr.json").read_text())["attributes"]["txr"]
 
 
 def _restamp(store, structure):
     doc = json.loads((store / "zarr.json").read_text())
-    doc["attributes"]["cyto"] = structure
+    doc["attributes"]["txr"] = structure
     (store / "zarr.json").write_text(json.dumps(doc, indent=2))
 
 
@@ -111,7 +111,7 @@ def test_every_shape_a_sandboxed_consumer_can_hold_refuses_rather_than_answering
     # (a) a directory that is not a store at all
     empty = tmp_path / "not-a-store"
     empty.mkdir()
-    # (b) a zarr.json with no attributes.cyto
+    # (b) a zarr.json with no attributes.txr
     no_attrs = tmp_path / "no-attrs.zarr"
     no_attrs.mkdir()
     (no_attrs / "zarr.json").write_text(json.dumps({"zarr_format": 3, "node_type": "group"}))
@@ -122,10 +122,10 @@ def test_every_shape_a_sandboxed_consumer_can_hold_refuses_rather_than_answering
     _restamp(pre_mirror, structure)
     # (e) a block that is not a mapping
     corrupt, structure_c, _ = _write(tmp_path / "corrupt")
-    structure_c[sd.STRUCTURE_DECLARATION_KEY] = "cyto-spatial/1"
+    structure_c[sd.STRUCTURE_DECLARATION_KEY] = "txr-spatial/1"
     _restamp(corrupt, structure_c)
 
-    for label, store in [("no store", empty), ("no attributes.cyto", no_attrs),
+    for label, store in [("no store", empty), ("no attributes.txr", no_attrs),
                          ("no spatial block", pre_mirror), ("block is not a mapping", corrupt)]:
         assert sd.read_spatial_declarations(store) is None, label
         with pytest.raises(sd.SpatialDeclarationError) as exc:
@@ -165,7 +165,7 @@ def test_a_block_that_is_PRESENT_but_malformed_is_refused_on_read(tmp_path):
 
     def with_block(block):
         doc = json.loads((store / "zarr.json").read_text())
-        doc["attributes"]["cyto"][sd.STRUCTURE_DECLARATION_KEY] = block
+        doc["attributes"]["txr"][sd.STRUCTURE_DECLARATION_KEY] = block
         (store / "zarr.json").write_text(json.dumps(doc, indent=2))
 
     # Each row names a DISTINGUISHING substring of the refusal it must produce. Asserting
@@ -268,7 +268,7 @@ def test_a_producer_cannot_desynchronise_the_store_by_mutating_the_row(tmp_path)
 def test_producer_free_text_survives_the_store_stamp_whatever_the_locale(tmp_path):
     """TEST-4 (cont.) — the mirror is the first thing to put NON-ASCII into the group stamp.
 
-    Until now `attributes.cyto` held only ASCII framework vocabulary. The mirror puts
+    Until now `attributes.txr` held only ASCII framework vocabulary. The mirror puts
     producer free text in it — `section.sample_id`, `coordinate_space`,
     `measured_entity_label` — and `json.dumps(..., ensure_ascii=False)` emits those
     characters raw. Written with the LOCALE DEFAULT encoding that aborts the writer under
@@ -354,7 +354,7 @@ def test_the_consumers_answer_moves_with_the_declared_scale(tmp_path):
 
     # ── the mutation: EXACTLY double the scale, on disk ───────────────────────────────
     doc = json.loads((store / "zarr.json").read_text())
-    doc["attributes"]["cyto"][sd.STRUCTURE_DECLARATION_KEY]["microns_per_pixel"] = SCALE * 2
+    doc["attributes"]["txr"][sd.STRUCTURE_DECLARATION_KEY]["microns_per_pixel"] = SCALE * 2
     (store / "zarr.json").write_text(json.dumps(doc, indent=2))
 
     after = radius_in_pixels()
@@ -374,7 +374,7 @@ def test_the_consumers_answer_moves_with_the_declared_scale(tmp_path):
     # purpose is that no 1.0 is ever fabricated, reachable only because #211 promoted the
     # store copy to the read path.
     for bad in (True, "0.65", 0.0, -3, float("nan"), float("inf"), None, [0.5]):
-        doc["attributes"]["cyto"][sd.STRUCTURE_DECLARATION_KEY]["microns_per_pixel"] = bad
+        doc["attributes"]["txr"][sd.STRUCTURE_DECLARATION_KEY]["microns_per_pixel"] = bad
         (store / "zarr.json").write_text(json.dumps(doc, indent=2))
         with pytest.raises(sd.SpatialDeclarationError):
             block = sd.require_spatial_declarations(store, consumer="a neighbourhood analysis")
@@ -382,7 +382,7 @@ def test_the_consumers_answer_moves_with_the_declared_scale(tmp_path):
 
     # and the CONTROL: a legitimate value still passes through the same path, so the loop
     # above is refusing these values rather than refusing everything.
-    doc["attributes"]["cyto"][sd.STRUCTURE_DECLARATION_KEY]["microns_per_pixel"] = SCALE
+    doc["attributes"]["txr"][sd.STRUCTURE_DECLARATION_KEY]["microns_per_pixel"] = SCALE
     (store / "zarr.json").write_text(json.dumps(doc, indent=2))
     assert radius_in_pixels() == pytest.approx(RADIUS_UM / SCALE)
 
@@ -408,7 +408,7 @@ def test_the_scale_guard_holds_on_the_RAW_read_not_only_through_the_validator(tm
     doc = json.loads((store / "zarr.json").read_text())
 
     def raw_scale(value):
-        doc["attributes"]["cyto"][sd.STRUCTURE_DECLARATION_KEY]["microns_per_pixel"] = value
+        doc["attributes"]["txr"][sd.STRUCTURE_DECLARATION_KEY]["microns_per_pixel"] = value
         (store / "zarr.json").write_text(json.dumps(doc, indent=2))
         block = sd.read_spatial_declarations(store)
         assert block is not None, "the raw read did not even return the block"
@@ -432,7 +432,7 @@ def test_the_scale_guard_holds_on_the_RAW_read_not_only_through_the_validator(tm
 def test_the_store_copy_and_the_row_copy_are_equal_and_the_check_can_fail(tmp_path):
     """TEST-4 [acceptance] [invariant: INV-3] — disk == row, and the assertion is not vacuous.
 
-    `_conform_group_attributes` condemns an artifact whose stamped `attributes.cyto`
+    `_conform_group_attributes` condemns an artifact whose stamped `attributes.txr`
     differs from the `structure` the manifest row carries — "a consumer reading the store
     URL and a consumer reading the artifact row would decode differently". The mirror must
     therefore leave the two EQUAL, including the block it just added.
@@ -460,14 +460,14 @@ def test_the_store_copy_and_the_row_copy_are_equal_and_the_check_can_fail(tmp_pa
 
     # ── the control: drift is DETECTABLE ─────────────────────────────────────────────
     doc = json.loads((store / "zarr.json").read_text())
-    doc["attributes"]["cyto"][sd.STRUCTURE_DECLARATION_KEY]["unit"] = "micrometre"
+    doc["attributes"]["txr"][sd.STRUCTURE_DECLARATION_KEY]["unit"] = "micrometre"
     (store / "zarr.json").write_text(json.dumps(doc, indent=2))
     assert _stamped(store) != structure
 
     # ── and the mirror re-stamps the FULL structure, not merely its own key ──────────
     #
-    # Added because a mutation that patched ONLY `cyto_spatial` into the existing on-disk
-    # `attributes.cyto` SURVIVED the rest of this file: in the ordinary flow `Table.close()`
+    # Added because a mutation that patched ONLY `txr_spatial` into the existing on-disk
+    # `attributes.txr` SURVIVED the rest of this file: in the ordinary flow `Table.close()`
     # has already stamped everything else, so the two writes produce byte-identical files
     # and nothing could tell them apart. They are not equivalent in general — a producer key
     # added to `structure` after close would then reach the catalog row and NOT the store,
@@ -484,7 +484,7 @@ def test_the_store_copy_and_the_row_copy_are_equal_and_the_check_can_fail(tmp_pa
         fresh, structure=fresh_structure, declarations=stored,
     )
     assert _stamped(fresh)["producer_key_added_after_close"] == 7, (
-        "the mirror patched only its own key into `attributes.cyto`, so a producer key "
+        "the mirror patched only its own key into `attributes.txr`, so a producer key "
         "added to `structure` after the writer closed reaches the catalog row and not the "
         "store — the drift the conformance gate condemns"
     )
@@ -514,7 +514,7 @@ def test_the_real_conformance_gate_accepts_the_added_structure_key(tmp_path):
     assert findings == [], findings
 
     doc = json.loads((store / "zarr.json").read_text())
-    doc["attributes"]["cyto"][sd.STRUCTURE_DECLARATION_KEY]["coordinate_space"] = "other"
+    doc["attributes"]["txr"][sd.STRUCTURE_DECLARATION_KEY]["coordinate_space"] = "other"
     (store / "zarr.json").write_text(json.dumps(doc, indent=2))
     assert conformance._conform_group_attributes(store, structure) != []
 
@@ -582,12 +582,12 @@ def test_one_version_token_serves_both_channels_and_the_ome_literal_is_unchanged
     `decode_placement` returns `None` for a payload whose prefix it does not recognise. So
     the literal is asserted directly, not merely its relationship to the token.
     """
-    assert sd.SPATIAL_DECLARATION_TOKEN == "cyto-spatial/1"
-    assert sd.OME_PLACEMENT_PREFIX == "cyto-spatial/1 "
+    assert sd.SPATIAL_DECLARATION_TOKEN == "txr-spatial/1"
+    assert sd.OME_PLACEMENT_PREFIX == "txr-spatial/1 "
     assert sd.OME_PLACEMENT_PREFIX == sd.SPATIAL_DECLARATION_TOKEN + " "
 
     # an OME payload written against the pre-change LITERAL still decodes
-    legacy = ('<OME><Image><Description>cyto-spatial/1 '
+    legacy = ('<OME><Image><Description>txr-spatial/1 '
               '{"coordinate_space": "slide-A1", "unit": "pixel", '
               '"to_space": [5.0, 0, 0, 0, 5.0, 0]}</Description></Image></OME>')
     assert sd.decode_placement(legacy)["to_space"][0] == 5.0
@@ -610,12 +610,12 @@ def test_an_ome_payload_of_an_UNKNOWN_version_is_refused_as_such_not_as_absent()
                 '"to_space": [5.0, 0, 0, 0, 5.0, 0]}</Description></Image></OME>')
 
     # a FUTURE version of ours: recognised as ours, refused BY VERSION
-    future = sd.decode_placement(ome("cyto-spatial/2"))
+    future = sd.decode_placement(ome("txr-spatial/2"))
     assert future is not None, "a future version read as 'no declaration at all'"
     assert not future, "the sentinel must be FALSY so an untaught caller still fails closed"
     with pytest.raises(sd.SpatialDeclarationError) as exc:
-        sd.require_placement(ome("cyto-spatial/2"), consumer="a spatial analysis")
-    assert "cyto-spatial/2" in str(exc.value)
+        sd.require_placement(ome("txr-spatial/2"), consumer="a spatial analysis")
+    assert "txr-spatial/2" in str(exc.value)
     assert "no coordinate-space declaration" not in str(exc.value)
 
     # somebody ELSE's Description is still not ours, and still reads as absent
@@ -684,12 +684,12 @@ def test_the_raw_read_returns_none_and_only_the_require_wrapper_refuses(tmp_path
 
     # a block stamped with a token this reader does not understand REFUSES DISTINCTLY,
     # rather than being read as though it were the shape this code knows.
-    structure[sd.STRUCTURE_DECLARATION_KEY] = {"declares": "cyto-spatial/2", "unit": "furlong"}
+    structure[sd.STRUCTURE_DECLARATION_KEY] = {"declares": "txr-spatial/2", "unit": "furlong"}
     _restamp(store, structure)
     assert sd.read_spatial_declarations(store) is None
     with pytest.raises(sd.SpatialDeclarationError) as exc:
         sd.require_spatial_declarations(store, consumer="da.neighbourhoods")
-    assert "cyto-spatial/2" in str(exc.value)
+    assert "txr-spatial/2" in str(exc.value)
 
 
 # ── the writer's own refusals ────────────────────────────────────────────────────────
@@ -717,7 +717,7 @@ def test_the_mirror_refuses_an_empty_block_and_a_store_that_does_not_exist(tmp_p
         "a bool where a measurement belongs": {**good, "microns_per_pixel": True},
         "a typo'd key": {**{k: v for k, v in good.items() if k != "section"},
                          "sections": good["section"]},
-        "a caller-supplied version token": {**good, "declares": "cyto-spatial/9"},
+        "a caller-supplied version token": {**good, "declares": "txr-spatial/9"},
     }.items():
         with pytest.raises(sd.SpatialDeclarationError, match=r".") as exc:
             sd.mirror_declarations_into_store(store, structure=dict(structure),
@@ -893,8 +893,8 @@ def test_the_framework_gate_has_no_opinion_about_the_spatial_declaration_block()
     gets re-argued rather than absorbed.
     """
     source = _DECLARATIONS.read_text()
-    token = "cyto-spatial/1"
-    key = "cyto_spatial"
+    token = "txr-spatial/1"
+    key = "txr_spatial"
     assert token in source and key in source, (
         "the tokens this test searches for are not in the module that defines them, so "
         "the search below would be vacuously satisfied by any tree at all"
@@ -927,7 +927,7 @@ def test_the_mirror_is_implemented_with_stdlib_and_needs_no_framework_module():
     does not need the gate. `mirror_declarations_into_store` and the reader must resolve
     with nothing but the standard library, so a consumer package that vendors
     `spatial_declarations.py` gets a working channel whatever else is or is not staged
-    beside it. `cyto_columns` remains the module's ONE cross-package import, and it is
+    beside it. `txr_columns` remains the module's ONE cross-package import, and it is
     confined to the writer that always needed it.
     """
     import ast

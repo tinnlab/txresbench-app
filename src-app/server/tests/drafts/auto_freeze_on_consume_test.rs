@@ -37,7 +37,7 @@ const WIDGET_KIND: &str = "test/frozen-widget";
 /// that it dispatches PINNED). Reached only after the draft is frozen + pinned; the refusal
 /// tests never execute it (they are refused at create).
 const CONSUMER_SCRIPT: &str = "import json, os\n\
-d = os.environ.get('CYTO_OUTPUTS_DIR', '/outputs')\n\
+d = os.environ.get('TXR_OUTPUTS_DIR', '/outputs')\n\
 os.makedirs(d, exist_ok=True)\n\
 open(os.path.join(d, 'manifest.json'), 'w').write(json.dumps({'outputs': []}))\n\
 print('consume: wrote empty manifest', flush=True)\n";
@@ -229,7 +229,7 @@ async fn consume_freezes_pins_and_rerun_replays_the_artifact() {
         record_skip(
             "TEST-4 (pin half)",
             "the analysis sandbox rootfs is not runnable here — the auto-freeze consume path \
-             runs a producer + a consumer through the sandbox. Point CYTO_ENV_ROOTFS_SQUASHFS \
+             runs a producer + a consumer through the sandbox. Point TXR_ENV_ROOTFS_SQUASHFS \
              at a rootfs (and ensure unprivileged userns + bwrap + squashfuse).",
         );
         return;

@@ -59,7 +59,7 @@ that a single word ("frozen") hides:
 
 The generator is built around exactly that split. It re-emits each fixture THROUGH the shipped
 writer while carrying three things forward out of the artifact verbatim — its level-0 raster,
-its decoded `cyto` placement, and its OME `PhysicalSizeX`, handed back as
+its decoded `txr` placement, and its OME `PhysicalSizeX`, handed back as
 `image_microns_per_pixel`. Everything the writer's CODE decides is re-derived; nothing the
 CALLER supplies moves. So a regeneration cannot move a producer magnitude, whatever the
 importer does later, and `check-viz-producer-magnitudes.mjs` stays green across one by
@@ -74,7 +74,7 @@ claim.
 What differs is the OME-XML, in three ways worth separating because only one of them has a
 size:
 
-* the producer magnitudes — `PhysicalSizeX/Y` and the `cyto` payload's `microns_per_pixel`,
+* the producer magnitudes — `PhysicalSizeX/Y` and the `txr` payload's `microns_per_pixel`,
   `original_resolution_um` and `applied_resolution_um` — all of which #222 moved and all of
   which happen to be **length-neutral** (18 characters before and after);
 * the `urn:uuid` `tifffile` stamps per write, also length-neutral;
@@ -303,7 +303,7 @@ split is exact:
   of it and passed through unchanged — and the TEXT of the OME-XML string. Pillow will not author
   OME-XML, so the `<OME>` document is **hand-written** for this fixture and handed to Pillow as
   tag 270; Pillow then writes that tag as it writes every other. The document carries no
-  `urn:uuid`, no `Creator="tifffile…"` and no `cyto-spatial/1` placement payload, and its
+  `urn:uuid`, no `Creator="tifffile…"` and no `txr-spatial/1` placement payload, and its
   `Creator` names both halves of this split so the artifact carries its own story even separated
   from this file.
 * **Nothing in it was produced by `ome_writer.write_ome_tiff`.**

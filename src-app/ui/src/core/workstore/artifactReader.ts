@@ -10,7 +10,7 @@
 // ── DISPATCH IS ON THE DECLARATION, NEVER ON THE BYTES ──────────────────────────────
 //
 // `structure.encoding` + `structure.kind` are what the producer said it wrote
-// (`cyto_zarr.Table.close()` / `cyto_csc.write_csc_zarr()` / `cyto_columns.opaque()`).
+// (`txr_zarr.Table.close()` / `txr_csc.write_csc_zarr()` / `txr_columns.opaque()`).
 // This module reads those and nothing else — no extension sniffing, no "if it looks like
 // a Zarr group", no default branch. An unrecognized encoding or kind THROWS with the value
 // in the message (INV-2: absence and novelty are errors, not silently-handled cases). That
@@ -91,7 +91,7 @@ import {
 export const TEXT_VALUE_KINDS: readonly string[] = ['string', 'categorical']
 
 /** One member of a `zarr_v3` artifact — a column (1-D) or an array (N-D). Mirrors the
- *  fragment `cyto_zarr.write_array` returns; only the fields a reader consults are
+ *  fragment `txr_zarr.write_array` returns; only the fields a reader consults are
  *  named, the rest ride through untouched. */
 export interface ZarrMember {
   /** the member's ADDRESS inside the artifact directory — also its Zarr array path, and
@@ -102,7 +102,7 @@ export interface ZarrMember {
   dtype?: string
   shape?: number[]
   /**
-   * A display LABEL — **never an address**, and OPTIONAL (`cyto_csc`'s trio carries none).
+   * A display LABEL — **never an address**, and OPTIONAL (`txr_csc`'s trio carries none).
    *
    * The framework conformance gate states the same rule from the other side, verbatim:
    * *"a display LABEL. INV-3: the name is a label, never a key — `path` is the address,
@@ -114,11 +114,11 @@ export interface ZarrMember {
    */
   name?: string
   /** categorical: the DECLARED level set, in code order. Absent on artifacts written
-   *  since the row moved to `levels_digest`; resolve via `attributes.cyto.levels`. */
+   *  since the row moved to `levels_digest`; resolve via `attributes.txr.levels`. */
   levels?: string[]
-  /** categorical: how many levels the DECLARED set holds (`cyto_zarr.Table.categorical`
+  /** categorical: how many levels the DECLARED set holds (`txr_zarr.Table.categorical`
    *  writes it beside `levels_digest`). It is the COUNT that stayed on the row when the
-   *  set itself moved into `attributes.cyto.levels` — so it is free to read and needs no
+   *  set itself moved into `attributes.txr.levels` — so it is free to read and needs no
    *  request, which is the whole reason a surface may show it. It is a cardinality, not a
    *  excerpt: it separates an annotation-like column from an identifier-like one and can
    *  never separate two identifier-like columns from each other. */
@@ -155,7 +155,7 @@ export interface ZarrTableStructure {
 
 /**
  * A `zarr_v3` CSC matrix: three Zarr array members that only mean anything together
- * (`cyto_csc.write_csc_zarr`). Column `j`'s non-zeros are `indices[indptr[j]..indptr[j+1]]`
+ * (`txr_csc.write_csc_zarr`). Column `j`'s non-zeros are `indices[indptr[j]..indptr[j+1]]`
  * paired with `data` over the same span.
  *
  * The three are named FIELDS rather than a `members[]` list because their roles are not
@@ -209,7 +209,7 @@ function summarize(value: unknown): string {
 const KNOWN_ENCODINGS = ['zarr_v3', 'opaque'] as const
 
 /** The `kind`s a `zarr_v3` artifact may declare — one per producer entry point.
- *  `cyto_zarr.Table.close()` → `table`; `cyto_csc.write_csc_zarr()` → `sparse_csc`. */
+ *  `txr_zarr.Table.close()` → `table`; `txr_csc.write_csc_zarr()` → `sparse_csc`. */
 const KNOWN_ZARR_KINDS = ['table', 'sparse_csc'] as const
 
 /**
@@ -227,7 +227,7 @@ export function parseStructure(artifactId: string, declared: unknown): ArtifactS
   // ── A LIVE VOCABULARY DRIFT, reconciled here and NOT hidden ──────────────────
   //
   // The processors declare `{"encoding": "opaque", "media_type": …}`
-  // (`cyto_columns.opaque()`), but the SERVER-AUTHORED paths — provenance run output,
+  // (`txr_columns.opaque()`), but the SERVER-AUTHORED paths — provenance run output,
   // the selection recipe, upload, the datatype registry's fixture — write
   // `{"kind": "opaque"}`. That is not merely a different spelling: in the producer
   // vocabulary `kind` is already taken (`structure.kind == "table"`, and a MEMBER's
@@ -320,7 +320,7 @@ export function tableMembers(structure: ZarrTableStructure): ZarrMember[] {
  * else), so every reader guessed. There is no such column now: an artifact's extent is
  * whatever its PRODUCER declared in `structure`, and this is the one place that reads it.
  *
- *   `sparse_csc`  the declared `[rows, columns]` of the logical matrix (`cyto_csc`).
+ *   `sparse_csc`  the declared `[rows, columns]` of the logical matrix (`txr_csc`).
  *   `table`       a SINGLE-member table is that member's OWN declared `shape` — a 2-D
  *                 layout is one `(n × dims)` array and `[5000, 2]` is what it is. With
  *                 two or more members no such tuple exists, so it is `[n]`: the entries
@@ -444,11 +444,11 @@ export function declaredDimsForDisplay(artifactId: string, declared: unknown): n
  * `path` is the address"* (`conformance.py::_OPTIONAL_MEMBER_KEYS["name"]`).
  *
  * It never resolved to the WRONG member, and could not have: every producer in this repo
- * writes the two identical — `cyto_zarr.Table.{numeric,categorical}` pass one `name`
+ * writes the two identical — `txr_zarr.Table.{numeric,categorical}` pass one `name`
  * argument to `write_array` (which returns it as `path`) and then stamp `entry["name"]`
  * from that same argument, `Table.string` writes `{"name": name, "path": name}` literally,
  * `Table._claim` rejects a name containing `/` so a path is always one flat segment equal
- * to its name, and `cyto_csc`'s trio declares no `name` at all. The label was therefore
+ * to its name, and `txr_csc`'s trio declares no `name` at all. The label was therefore
  * never ambiguous in practice; the defect was that the invariant held by COINCIDENCE of
  * the producers rather than by construction of the reader, and the type's own doc — plus
  * the gate's explicit permission for a `name` that is a label — invited the divergence
@@ -513,7 +513,7 @@ function storeFor(artifactId: string, options: ArtifactReadOptions): ZarrStore {
  *
  * That matters because a member is routinely read by SEVERAL INDEPENDENT consumers, none
  * of which can see the others. One project layout is read by the canvas grid's positions
- * handoff (`GridWorkspace`, inside `@ziee/viz`) AND by the declarative-canvas host's
+ * handoff (`GridWorkspace`, inside `@txresbench/viz`) AND by the declarative-canvas host's
  * plottable-XY resolve (`canvasHostProvider`) — different packages, different lifecycles,
  * each already memoizing its OWN single read. Without this cache each one re-fetched
  * `zarr.json` and every chunk of the same immutable bytes; concurrently, so no consumer-
@@ -712,7 +712,7 @@ export async function readSparseColumn(
   return { row: asRowIds(rawRow), value: asValues(rawValue) }
 }
 
-/** Row ids as `Uint32Array`. `uint32` is what `cyto_csc` declares, and that arm is
+/** Row ids as `Uint32Array`. `uint32` is what `txr_csc` declares, and that arm is
  *  zero-copy; the conversion exists so a producer declaring another integer width reads
  *  correctly instead of being reinterpreted at the wrong stride. */
 function asRowIds(values: ZarrTypedArray): Uint32Array {
@@ -722,7 +722,7 @@ function asRowIds(values: ZarrTypedArray): Uint32Array {
   return out
 }
 
-/** Values as `Float32Array` — `cyto_csc` casts to f32 on write, so that arm is zero-copy. */
+/** Values as `Float32Array` — `txr_csc` casts to f32 on write, so that arm is zero-copy. */
 function asValues(values: ZarrTypedArray): Float32Array {
   if (values instanceof Float32Array) return values
   return Float32Array.from(values as ArrayLike<number>, Number)
@@ -767,7 +767,7 @@ export async function openStringColumn(
     throw new UnsupportedArtifactStructure(
       artifactId,
       structure,
-      `string member "${member.path}" declares layout ${member.layout === undefined ? '(none)' : `"${member.layout}"`} — the only string layout this reader decodes is "split" (a uint32 \`offsets\` member and a uint8 \`values\` member under a group), which is the only one \`cyto_zarr.Table.string\` writes`,
+      `string member "${member.path}" declares layout ${member.layout === undefined ? '(none)' : `"${member.layout}"`} — the only string layout this reader decodes is "split" (a uint32 \`offsets\` member and a uint8 \`values\` member under a group), which is the only one \`txr_zarr.Table.string\` writes`,
     )
   }
   const store = storeFor(artifactId, options)
@@ -793,7 +793,7 @@ export interface CategoricalColumnData {
  *
  * Three storage shapes, all declared, none inferred:
  *   `categorical` — `uint8`/`uint16` codes; the levels live in the array's
- *                   `attributes.cyto.levels` (D10: ONE artifact). The member DECLARATION
+ *                   `attributes.txr.levels` (D10: ONE artifact). The member DECLARATION
  *                   no longer restates them — it carries `levels_digest` + `n_levels`,
  *                   because inlining a 35k-level set made one manifest entry 450 KB and
  *                   blew the server's 1 MiB manifest cap. `member.levels` is still read
@@ -809,7 +809,7 @@ export interface CategoricalColumnData {
  *
  * The string arm is the one that costs: it materializes every value. That is inherent —
  * a column whose producer declared no level set has no compact encoding — and it is why
- * `cyto_columns` writes a pandas Categorical as `categorical` rather than as strings.
+ * `txr_columns` writes a pandas Categorical as `categorical` rather than as strings.
  */
 export async function readCategoricalColumn(
   artifactId: string,
@@ -830,7 +830,7 @@ export async function readCategoricalColumn(
 
   const array = await openMember(artifactId, member, options)
   const raw = await readWhole(array, options)
-  const levels = member.levels ?? array.cyto?.levels
+  const levels = member.levels ?? array.txr?.levels
 
   if (member.kind === 'categorical') {
     if (!levels) {
@@ -846,7 +846,7 @@ export async function readCategoricalColumn(
   // A numeric member coloured categorically (a bool flag, an integer cluster id). The
   // declared levels win when present — and "present" means the two sources resolved
   // above: the member row's `levels` in `structure`, or the array's own
-  // `attributes.cyto.levels`. It does NOT mean `cyto_columns`' bool `["false","true"]`:
+  // `attributes.txr.levels`. It does NOT mean `txr_columns`' bool `["false","true"]`:
   // that pair rides on the per-column `meta` document `write_metadata_column` returns
   // ALONGSIDE `structure`, and this function is handed `structure` only, so a bool column
   // reaches here with no levels and is labelled by the branch below. Otherwise the labels
@@ -870,8 +870,8 @@ function toCodes(values: ZarrTypedArray): Uint32Array {
 
 /** Code a decoded string column: first-seen order, so the codes are stable for a given
  *  column. `null`/absent cannot occur, and the reason is on the WRITING side: the layout
- *  carries no null bitmap, so `cyto_zarr.Table.string` REFUSES a missing value outright
- *  unless the caller declares the string it stands for (`missing=`), and `cyto_columns`
+ *  carries no null bitmap, so `txr_zarr.Table.string` REFUSES a missing value outright
+ *  unless the caller declares the string it stands for (`missing=`), and `txr_columns`
  *  substitutes `''` for it BEFORE calling, counting the substitutions in `meta.missing`.
  *  Neither can put a hole in the payload, so every decoded span is a `string`. */
 function codeStrings(values: string[]): CategoricalColumnData {
@@ -957,7 +957,7 @@ export function previewableColumn(declared: unknown): ZarrMember | undefined {
  *
  *   `categorical` — dictionary-encoded, so the values ARE the level set, and the level set
  *                   lives in the member array's own `zarr.json`
- *                   (`attributes.cyto.levels`). ONE metadata request; **not one byte of
+ *                   (`attributes.txr.levels`). ONE metadata request; **not one byte of
  *                   the data array is fetched**. An older artifact that still inlines
  *                   `levels` on the member row costs no request at all.
  *   `string`      — inline utf8, so there is no vocabulary to read and the excerpt is the
@@ -986,7 +986,7 @@ export async function previewColumnValues(
   if (!member) return undefined
 
   if (member.kind === 'categorical') {
-    const levels = member.levels ?? (await openArtifactArray(artifactId, member.path, options)).cyto?.levels
+    const levels = member.levels ?? (await openArtifactArray(artifactId, member.path, options)).txr?.levels
     if (!levels || levels.length === 0) return undefined
     // `String(...)`, not a cast: a producer's level set is JSON and a bool/int column's
     // levels arrive as bools/numbers on some writers. A preview renders text.
@@ -1193,7 +1193,7 @@ function membershipIndexMember(structure: ArtifactStructure, member: string): Za
  *   *"its length is the member COUNT, its values are positions into a DIFFERENT sequence (the
  *    axis), and offering it in the column picker would offer the row numbers as a thing to
  *    colour by … `columns` keeps meaning 'one value per row of this table'"*
- *   — `cyto_zarr.Table.close()`
+ *   — `txr_zarr.Table.close()`
  *
  * So {@link resolveMember} — which searches exactly `columns` + `arrays` — cannot find it on a
  * real producer's artifact, and this read failed with *"has no member"* on every artifact the
@@ -1237,7 +1237,7 @@ export async function readMemberIndex(
  * axis Y gathers the right COUNT of the wrong rows. Nothing downstream can detect it: both
  * declarations are well-formed, every byte is present, and the picture is complete and
  * plausible. It is the read-side half of the writer's own `derived_from` comparison
- * (`cyto_zarr._membership_entries`) — the same check at the other end of the wire — and it is
+ * (`txr_zarr._membership_entries`) — the same check at the other end of the wire — and it is
  * LOUD because the alternative is an off-by-thousands paint with a clean console.
  */
 export function assertMembershipOnParentAxis(
@@ -1947,7 +1947,7 @@ export { WorkstoreHttpError }
  *
  * This is what lets the criteria picker offer a column's categories without downloading the
  * column. Opening a member costs one `zarr.json` fetch and no chunks (`openArtifactArray`), and
- * the levels are declared right there in `attributes.cyto.levels` — the producer writes them as
+ * the levels are declared right there in `attributes.txr.levels` — the producer writes them as
  * the authoritative set (D10: declared, never inferred from the observed codes), so reading the
  * bodies to re-derive them was always redundant as well as expensive.
  *
@@ -1962,7 +1962,7 @@ export { WorkstoreHttpError }
  * ── A SPLIT-STRING MEMBER IS AN ABSENCE, NOT A FAILURE ──────────────────────────────────────────
  * A `kind: "string"` column is written as a GROUP (`node_type: "group"`) holding `offsets`/`values`,
  * so opening it as an array throws — and the producer stamps such a column's catalog `meta.kind` as
- * `categorical` (`cyto_columns.py` routes every object-dtype pandas Series through
+ * `categorical` (`txr_columns.py` routes every object-dtype pandas Series through
  * `Table.string()`), so the categorical path genuinely arrives here at a group path. The docstring
  * above already promised "absence is an answer, not an error"; it was not true, and the cost was
  * severe: the rejection escaped `Promise.all` in the streaming source's `#buildCatalog`, whose
@@ -1979,7 +1979,7 @@ export async function readDeclaredLevels(
 ): Promise<readonly string[] | undefined> {
   try {
     const array = await openArtifactArray(artifactId, memberPath, options)
-    return array.cyto?.levels
+    return array.txr?.levels
   } catch (error) {
     if (error instanceof ZarrNotAnArrayError) return undefined
     throw error

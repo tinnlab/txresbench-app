@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 
-use cytoanalyst::modules::sync::SyncEntity;
+use txresbench::modules::sync::SyncEntity;
 
 fn read(rel: &str) -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(rel);

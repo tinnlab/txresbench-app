@@ -1,10 +1,10 @@
 /**
  * Resolve the app's `gallery.config.json` (from cwd) into the parameters the
- * generic gallery scripts anchor on. Every field defaults to ziee's historical
+ * generic gallery scripts anchor on. Every field defaults to txresbench's historical
  * hardcode, so an app that ships no config file behaves exactly as before.
  *
- * The scripts are shipped under `@ziee/gallery/scripts/*` and run with the app's
- * `ui/` as cwd (`node node_modules/@ziee/gallery/scripts/<x>.mjs`), so relative
+ * The scripts are shipped under `@txresbench/gallery/scripts/*` and run with the app's
+ * `ui/` as cwd (`node node_modules/@txresbench/gallery/scripts/<x>.mjs`), so relative
  * paths (galleryDir, surfaceRoots, runtimeBaselineModule) resolve against it.
  */
 import fs from 'node:fs'
@@ -18,7 +18,7 @@ const DEFAULTS = {
   /** Roots the registry generators (testid/state-matrix/overlay) walk. */
   surfaceRoots: ['src/modules', 'src/components/ui'],
   /** Kit import specifier (overlay-registry `isKit()`). */
-  kitImport: '@ziee/kit',
+  kitImport: '@txresbench/kit',
   /** Import specifiers an overlay primitive is legitimately imported from
    *  (gen-overlay-registry). A binding from elsewhere sharing a primitive name
    *  is NOT counted. Each entry P matches `source === P || source.startsWith(P + '/')`. */
@@ -39,7 +39,7 @@ const DEFAULTS = {
   /**
    * Output path (relative to cwd) for the generated testid registry. When the kit
    * is a package this is its `testIds.generated.ts` (the shared import surface
-   * `@ziee/kit/testIds.generated`); `null` = the historical in-app default
+   * `@txresbench/kit/testIds.generated`); `null` = the historical in-app default
    * `<srcDir>/components/ui/testIds.generated.ts`. */
   testidOut: null,
   /** Dev-server port for the gate + runtime passes. `null` = derive a
@@ -53,8 +53,8 @@ const DEFAULTS = {
   portWhich: 'webGallery',
   /** Standalone gallery URL. */
   galleryUrl: '/gallery.html',
-  /** Prod-exclusion marker (must equal the marker `@ziee/gallery` emits). */
-  prodMarker: 'ZIEE_GALLERY_SEED_MARKER',
+  /** Prod-exclusion marker (must equal the marker `@txresbench/gallery` emits). */
+  prodMarker: 'TXR_GALLERY_SEED_MARKER',
   /** Prod bundle dir (prod-exclusion check). */
   distDir: '../../dist/ui',
   /** Prod build command (prod-exclusion check). */

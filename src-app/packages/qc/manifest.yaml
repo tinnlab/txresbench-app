@@ -13,7 +13,7 @@
 # converter/view.
 id: qc
 name: Compute QC metrics
-publisher: cyto
+publisher: txr
 # 0.3.0 — the manifest/UI separation: `accepts`+`when`+`params`+`defaults`+
 # `produces_annotations`+`run.inputs`+`schedule.resources`+`inStandardRecipe`/
 # `recipeOrder` are GONE (each is now a LOAD ERROR, DEC-3), `appliesTo` + `ui:` are
@@ -108,7 +108,7 @@ contributes:
       # annotation types — `pct_mito`, `continuous`, `cells` — i.e. the manifest
       # describing data that does not exist yet. It was a PROMISE checked by nothing:
       # every other type claim in the system is verified (the produced artifact stamps
-      # its own kind in `attributes.cyto` and the conformance gate REFUSES a
+      # its own kind in `attributes.txr` and the conformance gate REFUSES a
       # disagreeing stamp), and this one had no counterpart to be checked against. It
       # is also undeclarable in the general case — `annotation-integrate` emits one
       # column per column of a user-supplied table. The type of each actual column is

@@ -18,11 +18,11 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::cutover::{self, PreservedStoreConfig};
-use cytoanalyst::modules::workstore::migration_engine::copy_and_verify;
-use cytoanalyst::modules::workstore::object_store::s3::S3Store;
-use cytoanalyst::modules::workstore::config::{CloudProvider, S3ConnConfig};
-use cytoanalyst::modules::workstore::object_store::{ContentKey, LocalFsStore, ObjectStore};
+use txresbench::modules::workstore::cutover::{self, PreservedStoreConfig};
+use txresbench::modules::workstore::migration_engine::copy_and_verify;
+use txresbench::modules::workstore::object_store::s3::S3Store;
+use txresbench::modules::workstore::config::{CloudProvider, S3ConnConfig};
+use txresbench::modules::workstore::object_store::{ContentKey, LocalFsStore, ObjectStore};
 
 use crate::infra::record_skip;
 
@@ -47,7 +47,7 @@ fn env_nonempty(k: &str) -> Option<String> {
 fn floci_conn() -> Option<S3ConnConfig> {
     Some(S3ConnConfig {
         provider: CloudProvider::S3,
-        bucket: env_nonempty("CYTO_WORKSTORE_S3_BUCKET")?,
+        bucket: env_nonempty("TXR_WORKSTORE_S3_BUCKET")?,
         region: env_nonempty("AWS_REGION").unwrap_or_else(|| "us-east-1".to_string()),
         endpoint: Some(env_nonempty("S3_ENDPOINT")?),
         access_key_id: env_nonempty("AWS_ACCESS_KEY_ID"),
@@ -73,7 +73,7 @@ fn floci_preserved(conn: &S3ConnConfig) -> PreservedStoreConfig {
 }
 
 fn local_store() -> (std::path::PathBuf, Arc<dyn ObjectStore>) {
-    let dir = std::env::temp_dir().join(format!("cyto-cutover-floci-{}", Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("txr-cutover-floci-{}", Uuid::new_v4()));
     (dir.clone(), Arc::new(LocalFsStore::new(dir)))
 }
 

@@ -110,4 +110,4 @@ def test_e2e_non_euclidean_over_4096_records_the_approximate_path_scanpy_ran(clu
     assert report["parameters"]["neighbour_path"] == "approximate"
     # the recorded switch point is the metric-appropriate one (4096, not 8192).
     assert report["parameters"]["neighbour_path_switch_cells"] == 4096
-    assert run.label_group_cyto()["clustering"]["neighbour_path"] == "approximate"
+    assert run.label_group_txr()["clustering"]["neighbour_path"] == "approximate"

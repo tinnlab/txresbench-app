@@ -32,7 +32,7 @@ test('TEST-1: the published manifest schema is importable JSON', () => {
 
 // TEST-1's second + third clauses (ITEM-1 / ITEM-22), which the spot-checks above do not
 // carry: SET EQUALITY of this barrel against a captured baseline, and ZERO remaining
-// `@cyto/workbench-api` importers.
+// `@txresbench/workbench-api` importers.
 //
 // Neither is re-implemented here — both are already enforced, and pointing at the
 // enforcement is more honest than a second, weaker copy of it:

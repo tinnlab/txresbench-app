@@ -4,7 +4,7 @@ import { Jobs } from '@/modules/jobs/Jobs.store'
 import { JobSettings } from '@/modules/jobs/JobSettings.store'
 import { defineAction } from '../defineAction'
 
-// Slice 2 (PLAN.md ITEM-2) — registers cyto's top-level JOB actions,
+// Slice 2 (PLAN.md ITEM-2) — registers txr's top-level JOB actions,
 // delegating to the existing `Jobs` store
 // (`src/modules/jobs/Jobs.store.ts`). `job.create` mirrors `JobList.tsx`'s
 // "New job" affordance (a name-only stub enqueue — real analysis jobs are

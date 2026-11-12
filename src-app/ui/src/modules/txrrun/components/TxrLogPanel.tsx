@@ -42,7 +42,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Button, message, Select, Switch } from '@ziee/kit'
+import { Button, message, Select, Switch } from '@txresbench/kit'
 import type { TxrRunLogLine } from '@/api-client/types'
 import {
   filterLogLines,

@@ -35,7 +35,7 @@ import { seedPlottableProject, type SeedPlottableResult } from '../14-declarativ
 // is pinned in `workbenchDataSource.test.ts`
 // ("forwards chunk arrival to the injected onChunk").
 //
-// The OTHER progressive path — `@ziee/viz`'s `<Viz data={stream}>` raster
+// The OTHER progressive path — `@txresbench/viz`'s `<Viz data={stream}>` raster
 // (`data-progressive.spec.ts`) — is untouched by this change: it is fed by viz's own
 // `StreamingSource` and never spoke to `/read`. It stays green as the control.
 
@@ -71,7 +71,7 @@ test('content arrives IN STAGES as chunks land, not in one blocking fetch — TE
 
   await openWorkbench(page, proj.id)
   await expect(page.getByTestId('workbench-canvas-host').first()).toBeAttached({ timeout: 20_000 })
-  await page.waitForFunction(() => !!(window as unknown as { __cyto_read?: unknown }).__cyto_read, undefined, {
+  await page.waitForFunction(() => !!(window as unknown as { __txr_read?: unknown }).__txr_read, undefined, {
     timeout: 20_000,
   })
 
@@ -90,7 +90,7 @@ test('content arrives IN STAGES as chunks land, not in one blocking fetch — TE
     async ([id, structure]) => {
       const api = (
         window as unknown as {
-          __cyto_read: {
+          __txr_read: {
             positionsProgressive: (
               id: string,
               structure: unknown,
@@ -101,7 +101,7 @@ test('content arrives IN STAGES as chunks land, not in one blocking fetch — TE
             }>
           }
         }
-      ).__cyto_read
+      ).__txr_read
       return api.positionsProgressive(id as string, structure)
     },
     [seed.embedding_artifact_id, artifact.structure] as const,

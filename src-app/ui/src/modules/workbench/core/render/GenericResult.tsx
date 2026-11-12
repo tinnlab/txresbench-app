@@ -5,7 +5,7 @@
 // blank panel.
 
 import { FileQuestion } from 'lucide-react'
-import { Descriptions, Empty, ErrorState, ScrollArea, Spinner, type DescriptionsItem } from '@ziee/kit'
+import { Descriptions, Empty, ErrorState, ScrollArea, Spinner, type DescriptionsItem } from '@txresbench/kit'
 import { useArtifact } from './useArtifact'
 
 /** Pretty-print an opaque value for the raw read (never throws). */

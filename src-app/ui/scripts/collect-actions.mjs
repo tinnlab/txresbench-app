@@ -182,7 +182,7 @@ const externalBareImportsPlugin = {
     pluginBuild.onResolve({ filter: /.*/ }, args => {
       if (args.kind === 'entry-point') return null
       const p = args.path
-      if (p.startsWith('.') || p.startsWith('/') || p.startsWith('@/') || p.startsWith('@ziee/')) {
+      if (p.startsWith('.') || p.startsWith('/') || p.startsWith('@/') || p.startsWith('@txresbench/')) {
         return null
       }
       return { path: p, external: true }
@@ -196,7 +196,7 @@ async function collectRegisteredActions(actionFiles) {
   const entryLines = actionFiles.map(file => `import ${JSON.stringify(file)};`)
   entryLines.push(`import { getActionRegistry } from ${JSON.stringify(DEFINE_ACTION_PATH)};`)
   entryLines.push(
-    'globalThis.__ZIEE_COLLECTED_ACTIONS__ = Array.from(getActionRegistry().values());',
+    'globalThis.__TXR_COLLECTED_ACTIONS__ = Array.from(getActionRegistry().values());',
   )
   const entryContents = entryLines.join('\n')
 
@@ -215,13 +215,13 @@ async function collectRegisteredActions(actionFiles) {
     tsconfig: TSCONFIG_PATH,
     // `import.meta.env` is injected by VITE and is UNDEFINED under the plain
     // Node runtime this bundle executes in, so any app/SDK module that reads it
-    // at module scope (e.g. `@ziee/framework/store-kit`'s
+    // at module scope (e.g. `@txresbench/framework/store-kit`'s
     // `import.meta.env.VITE_STORE_PREFETCH` prefetch flag) throws
     // `Cannot read properties of undefined` the instant it is evaluated.
     //
     // It became reachable here when the action modules were repointed from the
     // old global `Stores` registry shim onto each store's DIRECT
-    // `registerLazyStore` handle: the shim only pulled in `@ziee/framework`'s
+    // `registerLazyStore` handle: the shim only pulled in `@txresbench/framework`'s
     // module-system barrel, which does NOT re-export `store-kit`; a store module
     // does. Vite supplies this define for the real app, so the collector — which
     // deliberately runs the SAME sources on `platform: 'node'` — has to supply
@@ -245,8 +245,8 @@ async function collectRegisteredActions(actionFiles) {
     unlinkSync(tmpFile)
   }
 
-  const collected = globalThis.__ZIEE_COLLECTED_ACTIONS__
-  delete globalThis.__ZIEE_COLLECTED_ACTIONS__
+  const collected = globalThis.__TXR_COLLECTED_ACTIONS__
+  delete globalThis.__TXR_COLLECTED_ACTIONS__
   if (!Array.isArray(collected)) {
     throw new Error('[collect-actions] bundle did not populate the collected-actions global')
   }

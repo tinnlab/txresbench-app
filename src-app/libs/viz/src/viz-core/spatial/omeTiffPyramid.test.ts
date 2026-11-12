@@ -888,7 +888,7 @@ describe('TEST-7 an undecodable codec is refused at OPEN, naming it', () => {
 describe('TEST-11 the fixtures are genuinely emitted artifacts, not hand-made TIFFs', () => {
   it('carries the producer’s own OME-XML placement, agreeing with the run’s manifest', () => {
     const raw = readFileSync(HIRES).toString('latin1')
-    const marker = 'cyto-spatial/1 '
+    const marker = 'txr-spatial/1 '
     const at = raw.indexOf(marker)
     expect(at).toBeGreaterThan(-1)
     const json = raw.slice(at + marker.length, raw.indexOf('</Description>', at))
@@ -1328,7 +1328,7 @@ describe('TEST-14 the TIFF reader is a DECLARED dependency', () => {
     const manifest = JSON.parse(
       readFileSync(fileURLToPath(new URL('../../../package.json', import.meta.url)), 'utf8'),
     ) as { name: string; dependencies: Record<string, string> }
-    expect(manifest.name).toBe('@ziee/viz')
+    expect(manifest.name).toBe('@txresbench/viz')
     // a real semver range, not merely "defined" — `toBeDefined()` passes for `''`
     expect(manifest.dependencies.geotiff).toMatch(/^[~^]?\d+\.\d+\.\d+/)
     // BASE.md's counting rule, made executable — but as a SET DIFFERENCE against the base,
@@ -1337,8 +1337,8 @@ describe('TEST-14 the TIFF reader is a DECLARED dependency', () => {
     const BASE_DEPENDENCIES = [
       '@deck.gl/aggregation-layers', '@deck.gl/core', '@deck.gl/extensions', '@deck.gl/layers',
       '@deck.gl/react', '@hms-dbmi/viv', '@luma.gl/core', '@luma.gl/engine',
-      '@luma.gl/shadertools', '@luma.gl/webgl', '@math.gl/core', '@vivjs/types', '@ziee/dock',
-      '@ziee/kit', 'd3-array', 'd3-polygon', 'd3-scale-chromatic', 'flatbush', 'jspdf',
+      '@luma.gl/shadertools', '@luma.gl/webgl', '@math.gl/core', '@vivjs/types', '@txresbench/dock',
+      '@txresbench/kit', 'd3-array', 'd3-polygon', 'd3-scale-chromatic', 'flatbush', 'jspdf',
       'lucide-react', 'react-resizable-panels', 'zustand',
     ]
     const added = Object.keys(manifest.dependencies).filter(name => !BASE_DEPENDENCIES.includes(name))
@@ -1385,10 +1385,10 @@ describe('TEST-15 [acceptance] [invariant: INV-6] the loader imports no backend 
     const spec = (name: string) => `${q}${name}${q}`
     const synthetic = [
       `import { fetchArtifactRange } from ${spec('@/core/workstore')}`,
-      `export { readOpaque } from ${spec('@ziee/app/core/workstore')}`,
+      `export { readOpaque } from ${spec('@txresbench/app/core/workstore')}`,
       `const m = await import(${spec('@/core/workstore/binaryClient')})`,
       `const r = require(${spec('react')})`,
-      `import ${spec('@ziee/kit/side-effect')}`,
+      `import ${spec('@txresbench/kit/side-effect')}`,
     ].join('\n')
     // as a SET: the scan runs one pattern per form, so the order is the patterns' order, not
     // the source's, and asserting a sequence would be asserting the scanner's internals.
@@ -1396,8 +1396,8 @@ describe('TEST-15 [acceptance] [invariant: INV-6] the loader imports no backend 
     expect(leaked).toEqual([
       '@/core/workstore',
       '@/core/workstore/binaryClient',
-      '@ziee/app/core/workstore',
-      '@ziee/kit/side-effect',
+      '@txresbench/app/core/workstore',
+      '@txresbench/kit/side-effect',
       'react',
     ])
     // …and the negative control: a legitimate specifier is NOT flagged.
@@ -1411,7 +1411,7 @@ describe('TEST-15 [acceptance] [invariant: INV-6] the loader imports no backend 
 
     // the forbidden families named explicitly, so a future edit that adds one fails with a
     // legible cause rather than a silently widened allowlist
-    for (const forbidden of ['@ziee/', '@/', 'core/workstore', 'api-client']) {
+    for (const forbidden of ['@txresbench/', '@/', 'core/workstore', 'api-client']) {
       expect(specifiers.some(specifier => specifier.includes(forbidden))).toBe(false)
     }
     expect(specifiers).not.toContain('react')
@@ -1942,10 +1942,10 @@ describe('#322 TEST-2 [acceptance] [invariant: INV-322-2] the fixture is from a 
     expect(oursTags).not.toContain('SampleFormat')
 
     // …and it carries none of the payload our own producer puts in an emitted image.
-    expect(bytes.includes(Buffer.from('cyto-spatial/1'))).toBe(false)
-    // The `cyto-spatial/1` control, so the line above is discriminating rather than true of any
+    expect(bytes.includes(Buffer.from('txr-spatial/1'))).toBe(false)
+    // The `txr-spatial/1` control, so the line above is discriminating rather than true of any
     // file: our own emitted images DO carry it.
-    expect(readFileSync(HIRES).includes(Buffer.from('cyto-spatial/1'))).toBe(true)
+    expect(readFileSync(HIRES).includes(Buffer.from('txr-spatial/1'))).toBe(true)
   })
 })
 
@@ -2264,10 +2264,10 @@ describe('#346 TEST-2 [acceptance] [invariant: INV-346-2] the OME-XML is a docum
       )
       expect(carrying, `${shared} is written by tifffile too`).toEqual(corpus)
     }
-    // …and none of OUR producer's payload is in it. The `cyto-spatial/1` control makes the line
+    // …and none of OUR producer's payload is in it. The `txr-spatial/1` control makes the line
     // discriminating rather than true of any file: our own emitted images DO carry it.
-    expect(bytes.includes(Buffer.from('cyto-spatial/1'))).toBe(false)
-    expect(readFileSync(HIRES).includes(Buffer.from('cyto-spatial/1'))).toBe(true)
+    expect(bytes.includes(Buffer.from('txr-spatial/1'))).toBe(false)
+    expect(readFileSync(HIRES).includes(Buffer.from('txr-spatial/1'))).toBe(true)
 
     // ── THE WRITER STAMP: a third family, not merely "not ours" ─────────────────────────
     // `#322 TEST-2`'s `Software` predicate only asks whether the tag names `tifffile`. Absence is

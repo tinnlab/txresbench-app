@@ -14,7 +14,7 @@
 import { globalSingleton } from '../internal/globalSingleton.ts'
 import type { CapabilityBroker, CapabilityFactory, CapabilityProvider } from './types.ts'
 
-const PROVIDERS = globalSingleton<CapabilityProvider<never>[]>('__cyto_wb_capability_providers__', () => [])
+const PROVIDERS = globalSingleton<CapabilityProvider<never>[]>('__txr_wb_capability_providers__', () => [])
 
 /**
  * Declare that `id` (at `version`) is created by `create` once a host bundle

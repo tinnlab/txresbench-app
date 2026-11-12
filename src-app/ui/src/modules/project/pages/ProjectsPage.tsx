@@ -4,8 +4,8 @@ import { Can } from '@/core/permissions'
 import { AppLayout } from '@/modules/layouts/app-layout/AppLayout.store'
 import { Projects } from '@/modules/project/stores/Projects.store'
 import { ProjectDrawer } from '@/modules/project/stores/ProjectDrawer.store'
-import { Button, Empty, ErrorState, Input, Spinner, Title, Tooltip } from '@ziee/kit'
-import { DivScrollY, HeaderBarContainer, useElementMinSize } from '@ziee/shell'
+import { Button, Empty, ErrorState, Input, Spinner, Title, Tooltip } from '@txresbench/kit'
+import { DivScrollY, HeaderBarContainer, useElementMinSize } from '@txresbench/shell'
 import { FolderPlus, Plus, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useNativeScroll } from '@/modules/layouts/app-layout/hooks/useNativeScroll'
@@ -20,7 +20,7 @@ export function ProjectsPage() {
   const hasMore = projects.length < total
 
   // Responsive is PAGE-WIDTH-aware (not viewport): the page is narrow when the sidebar is open
-  // on a medium window too, so track the page element, mirroring the ziee Chats page + Settings.
+  // on a medium window too, so track the page element, mirroring the txresbench Chats page + Settings.
   const pageRef = useRef<HTMLDivElement>(null)
   const minSize = useElementMinSize(pageRef)
   const isNarrow = minSize.sm

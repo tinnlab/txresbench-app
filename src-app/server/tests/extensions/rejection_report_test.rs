@@ -1,5 +1,5 @@
 //! **TEST-4** [acceptance] [invariant: INV-2] [covers: ITEM-5, ITEM-2] — the load
-//! rejection report on the REAL runtime path (ziee-ai/cytoanalyst#190, #197).
+//! rejection report on the REAL runtime path (tinnlab/txresbench#190, #197).
 //!
 //! ## What this proves that a unit test cannot
 //!
@@ -56,7 +56,7 @@ const DROPIN_PKG: &str = "zzz-broken-dropin";
 /// `deny_unknown_fields` schema refuses — the shape a bad hand-edit actually takes.
 fn broken_manifest(id: &str) -> String {
     format!(
-        "id: {id}\nname: Broken\npublisher: cyto\nversion: 0.1.0\napiVersion: \"1.0\"\n\
+        "id: {id}\nname: Broken\npublisher: txr\nversion: 0.1.0\napiVersion: \"1.0\"\n\
          bogus_unknown_key: true\ncontributes: {{}}\n"
     )
 }
@@ -341,7 +341,7 @@ async fn a_failed_package_load_is_loud_and_its_posture_is_scoped_by_origin() {
         "…and names the scanned root, so an operator knows WHERE to look: {msg}"
     );
     assert!(
-        msg.contains("CYTO_PROCESSOR_SEED_ONLY") && msg.contains("data root"),
+        msg.contains("TXR_PROCESSOR_SEED_ONLY") && msg.contains("data root"),
         "…and diagnoses the likely causes rather than only stating the symptom: {msg}"
     );
 

@@ -1,5 +1,5 @@
-import { ErrorState, Spin } from '@ziee/kit'
-import { SettingsPageContainer } from '@ziee/shell'
+import { ErrorState, Spin } from '@txresbench/kit'
+import { SettingsPageContainer } from '@txresbench/shell'
 import { WorkstoreSettings } from '@/modules/workstore/stores/WorkstoreSettings.store'
 import { WorkstoreLimitsCard } from '@/modules/workstore/components/WorkstoreLimitsCard'
 

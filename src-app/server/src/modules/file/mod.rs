@@ -1,11 +1,11 @@
-//! `file` module — adopts the SDK's `ziee-file` blob STORE + its mountable
+//! `file` module — adopts the SDK's `txresbench-file` blob STORE + its mountable
 //! `file_routes` HTTP surface.
 //!
-//! CytoAnalyst uses the store for INPUT uploads only (dataset matrix blobs — see
+//! TxResBench uses the store for INPUT uploads only (dataset matrix blobs — see
 //! `docs/DATA_STORAGE_REDESIGN.md`; result partial-reads / HDF5 do NOT flow
 //! through it). Scientific blobs need no pdf/text/thumbnail derivatives, so the
-//! injected [`ziee_file::seams::FileProcessor`] is a no-op that stores the
-//! original only, and the [`ziee_file::seams::FileEvents`] seam is a no-op (no
+//! injected [`txresbench_file::seams::FileProcessor`] is a no-op that stores the
+//! original only, and the [`txresbench_file::seams::FileEvents`] seam is a no-op (no
 //! cross-device File sync entity today — kept minimal).
 //!
 //! Wiring split (mirrors auth/notification):
@@ -38,11 +38,11 @@ use async_trait::async_trait;
 use linkme::distributed_slice;
 use uuid::Uuid;
 
-use ziee_auth::auth::DefaultIdentityResolver;
-use ziee_core::AppError;
-use ziee_file::models::ProcessingResult;
-use ziee_file::seams::{FileEvents, FileProcessor};
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_auth::auth::DefaultIdentityResolver;
+use txresbench_core::AppError;
+use txresbench_file::models::ProcessingResult;
+use txresbench_file::seams::{FileEvents, FileProcessor};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 /// No-op processor: single-cell matrix blobs are opaque binary (no pdf/text/
 /// thumbnail/preview derivatives), so we store the original bytes only.
@@ -56,7 +56,7 @@ impl FileProcessor for NoopFileProcessor {
     }
 }
 
-/// No-op events seam: CytoAnalyst has no `SyncEntity::File` (files are surfaced
+/// No-op events seam: TxResBench has no `SyncEntity::File` (files are surfaced
 /// through their owning dataset), so post-persist change/delete/commit
 /// notifications are dropped. Kept minimal; wire to `sync::publish` if a
 /// device-level file stream is ever needed.
@@ -75,7 +75,7 @@ impl AppModule for FileModule {
     }
 
     fn description(&self) -> &'static str {
-        "Generic blob store (ziee-file) — dataset upload backing."
+        "Generic blob store (txresbench-file) — dataset upload backing."
     }
 
     fn init(&mut self, _ctx: &ModuleContext) -> Result<(), Box<dyn std::error::Error>> {
@@ -83,7 +83,7 @@ impl AppModule for FileModule {
     }
 
     fn register_routes(&self, router: ApiRouter) -> ApiRouter {
-        // Fix the store-generic handlers' resolver to CytoAnalyst's
+        // Fix the store-generic handlers' resolver to TxResBench's
         // `DefaultIdentityResolver` (same resolver `modules::permissions`
         // fixes `RequirePermissions` to). Every file response is owner-scoped
         // by `user.id` AND authorized by the `FileAccessPolicy` carried on the
@@ -91,7 +91,7 @@ impl AppModule for FileModule {
         // globally at boot (`lib.rs::build_app`). Owner scope alone was the whole
         // authorization until that seam existed, which let a removed member keep
         // listing, downloading and deleting the org's files — see `access`.
-        router.merge(ziee_file::http::file_routes::<DefaultIdentityResolver>())
+        router.merge(txresbench_file::http::file_routes::<DefaultIdentityResolver>())
     }
 }
 
@@ -99,6 +99,6 @@ impl AppModule for FileModule {
 static FILE: ModuleEntry = ModuleEntry {
     name: "file",
     order: 16,
-    description: "Generic blob store (ziee-file) — dataset upload backing.",
+    description: "Generic blob store (txresbench-file) — dataset upload backing.",
     constructor: || Box::new(FileModule),
 };

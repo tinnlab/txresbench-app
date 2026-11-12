@@ -3,7 +3,7 @@
 // same named-component resolver the P6 dock tabs used). The reconciliation (mount on availability,
 // self-close on loss) lives in `dock/paneReconcile`.
 
-import { Empty } from '@ziee/kit'
+import { Empty } from '@txresbench/kit'
 import { useWorkbench } from '../../core/shell/WorkbenchContext'
 import { ViewHost } from '../../core/shell/ViewHost'
 import type { WorkbenchPane } from '../../core/shell/dock/paneModel'

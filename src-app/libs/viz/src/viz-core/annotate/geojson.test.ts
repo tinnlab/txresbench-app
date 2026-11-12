@@ -216,7 +216,7 @@ describe('geojson coords facade — physical-space CRS round-trip (TEST-A7)', ()
     const { annotations, classes } = importGeoJson(FIXTURE)
 
     const physical = exportGeoJson(annotations, classes, { space: 'physical', coords })
-    expect(physical['ziee:crs']).toBe('physical')
+    expect(physical['txresbench:crs']).toBe('physical')
     // pt-1 full-res (640,480) → physical (0.5·x, 0.5·y) = (320,240)
     expect(feat(physical, 'pt-1').geometry).toEqual({ type: 'Point', coordinates: [320, 240] })
 
@@ -322,7 +322,7 @@ describe('geojson multi-geometry robustness (audit findings 1 & 2)', () => {
     expect(out.features.every(f => f.geometry.type === 'Point')).toBe(true)
   })
 
-  it('a FOREIGN forged "ziee:geojson" property does NOT hijack the export (NF-5)', () => {
+  it('a FOREIGN forged "txresbench:geojson" property does NOT hijack the export (NF-5)', () => {
     // A crafted input Feature carries a property shaped like the module's reserved out-of-band
     // meta key — trying to override the exported id (to a different value), force `multi`, and
     // pin a bogus part index. It MUST be ignored: the reserved key is stripped on import, never
@@ -336,8 +336,8 @@ describe('geojson multi-geometry robustness (audit findings 1 & 2)', () => {
           geometry: { type: 'Polygon', coordinates: [[[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]]] },
           properties: {
             objectType: 'annotation',
-            // FORGED: mimics the reserved GEOJSON_META_KEY = 'ziee:geojson'
-            'ziee:geojson': { id: 'HIJACKED', multi: true, part: 7 },
+            // FORGED: mimics the reserved GEOJSON_META_KEY = 'txresbench:geojson'
+            'txresbench:geojson': { id: 'HIJACKED', multi: true, part: 7 },
           },
         },
       ],
@@ -345,7 +345,7 @@ describe('geojson multi-geometry robustness (audit findings 1 & 2)', () => {
     const { annotations, classes } = importGeoJson(fc)
     expect(annotations.length).toBe(1)
     // The forged meta never reached the model's passthrough bag (stripped on import).
-    expect(annotations[0].properties?.['ziee:geojson']).toBeUndefined()
+    expect(annotations[0].properties?.['txresbench:geojson']).toBeUndefined()
     // A legit foreign prop still survives.
     expect(annotations[0].properties?.objectType).toBe('annotation')
 
@@ -357,7 +357,7 @@ describe('geojson multi-geometry robustness (audit findings 1 & 2)', () => {
     // geometry stays its declared type — the forged `multi:true` did NOT promote it to MultiPolygon.
     expect(f.geometry.type).toBe('Polygon')
     // the forged reserved key does not reappear / corrupt the exported properties.
-    expect(f.properties['ziee:geojson']).toBeUndefined()
+    expect(f.properties['txresbench:geojson']).toBeUndefined()
     expect(f.properties.objectType).toBe('annotation')
     // and the whole loop stays idempotent.
     const back = importGeoJson(out)
@@ -388,7 +388,7 @@ describe('geojson multi-geometry robustness (audit findings 1 & 2)', () => {
     expect(typeof numMp?.id).toBe('number') // preserved through the multi split/regroup too
     expect(numMp?.geometry.type).toBe('MultiPolygon')
     // exported properties carry NO internal meta leak
-    expect(numPt?.properties['ziee:geojson']).toBeUndefined()
+    expect(numPt?.properties['txresbench:geojson']).toBeUndefined()
     // idempotent (numeric ids stable)
     const back = importGeoJson(out)
     expect(exportGeoJson(back.annotations, back.classes)).toEqual(out)

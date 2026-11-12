@@ -15,7 +15,7 @@
  * store, the re-validation derives the remaining ones).
  */
 import type { CSSProperties } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import type { JoinOffer } from '../types'
 
 /** The board's grey offer row (one question + two kit buttons). */

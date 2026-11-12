@@ -1,6 +1,6 @@
 // Legend.tsx — the interactive categorical legend (DEC-30 / ELEMENT_VOCABULARY legend).
 // A swatch list with per-category show/hide toggle (click) + solo/isolate (double-click),
-// emitting the hidden-set of category codes. Pure list DOM (no library, no @ziee/*). The
+// emitting the hidden-set of category codes. Pure list DOM (no library, no @txresbench/*). The
 // consumer feeds the hidden set into `categoricalColors({hidden})` (attribute swap) or a
 // deck.gl `filterCategories` — the legend itself only owns the hidden set.
 
@@ -56,7 +56,7 @@ export interface LegendProps {
   readonly overrides?: CategoricalOverrides
   /**
    * OPTIONAL per-swatch COLOR editor. When set, each swatch renders a native `<input type="color">`
-   * (kit-free DOM — viz-core takes no @ziee dep) bound to the swatch's EFFECTIVE color; on change it
+   * (kit-free DOM — viz-core takes no @txresbench dep) bound to the swatch's EFFECTIVE color; on change it
    * fires `onEditColor(code, '#rrggbb')`. The host maps `code → column.categories[code]` (the raw
    * category NAME) and writes the by-name override (e.g. into `colorOverride.store`), then feeds the
    * store's overrides back through `overrides` so the plot + legend re-render. Omitted ⇒ the swatch

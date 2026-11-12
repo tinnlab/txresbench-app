@@ -137,9 +137,9 @@ report() { # <label> <file> <needle-regex> <files...>
 # not the whole file, and it is honoured only because this file is PINNED in
 # `scripts/guard-hashes.txt`. Adding a line to the block that is not the hunted vocabulary
 # is the relaxation `docs/design/derived-guards.md` §5 refuses.
-# cyto:guard-vocabulary
+# txr:guard-vocabulary
 DOMAIN_REGEX='single-cell/|geneset/collection|graph/attributed|de/result|embedding|trajectory|expression'
-# cyto:end-guard-vocabulary
+# txr:end-guard-vocabulary
 # The serve DECISION path, post-ITEM-12/13. `serve_core.rs` (the Selection→Arrow core,
 # `resolve_backend`, the tier fallback) and the generic `tiledb_serve` reader were the
 # scan targets because they were where a decode DECISION lived. Both are DELETED, so the

@@ -3,7 +3,7 @@
 // contains the legend swatch <rect>/label <text>; then toggles the legend OFF and asserts they're
 // gone. Proves the legend is baked into the exported artifact end-to-end (the JTBD).
 //
-// Runnable script (the @ziee/viz package has no playwright test runner — matches the prior
+// Runnable script (the @txresbench/viz package has no playwright test runner — matches the prior
 // lifecycle's e2e-script convention). Usage:
 //   node tests/e2e/legend-export.e2e.mjs [baseUrl]   (default http://localhost:1480)
 // Run `npx vite --port 1480 --strictPort` in the package first.

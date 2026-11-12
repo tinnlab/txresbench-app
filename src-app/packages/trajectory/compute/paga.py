@@ -44,7 +44,7 @@ partition with no inter-group edges contracts to an EDGELESS graph and
 un-integrated data with a disconnected neighbour graph does, and it also fires for a
 single-group partition. We detect the exact condition BEFORE the call and refuse by name.
 
-Roots overridable via `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR`. Progress → `$CYTO_PROGRESS_FIFO`.
+Roots overridable via `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR`. Progress → `$TXR_PROGRESS_FIFO`.
 """
 import _shared as S  # FIRST — pins the determinism env before numpy/scanpy load
 
@@ -52,8 +52,8 @@ import json
 
 import numpy as np
 
-import cyto_columns
-import cyto_csc
+import txr_columns
+import txr_csc
 
 
 # The PAGA statistic identity. `model="v1.0"` is a DIFFERENT statistic (an undirected fuzzy
@@ -330,8 +330,8 @@ def main():
     # `axes=("node","node")` — both dims name ONE axis, which is what the declared kind says
     # an adjacency is. float32 is the declared weight dtype; the float64→float32 narrowing is
     # the one deliberate lossy step, and the parity test's tolerance is sized for it.
-    graph_structure = cyto_csc.write_csc_zarr(
-        cyto_csc.ArraySource(conn.tocsr().astype(np.float32)),
+    graph_structure = txr_csc.write_csc_zarr(
+        txr_csc.ArraySource(conn.tocsr().astype(np.float32)),
         outputs_dir / rel,
         axes=("node", "node"),
         # Keys chosen OUTSIDE `_WRITER_OWNED_STRUCTURE_KEYS` — the writer refuses a caller

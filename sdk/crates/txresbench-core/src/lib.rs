@@ -1,0 +1,23 @@
+//! `txresbench-core` — foundation crate (build-DB-free).
+//!
+//! Holds the platform foundation moved out of the txresbench server crate in Chunk
+//! B1: the `AppError`/`ApiResult` error surface, the core `#[macro_export]`
+//! macros (incl. `sse_event_enum!`), the base app-state globals (with a
+//! configurable app-name), and a placeholder `ServerConfig`.
+//!
+//! txresbench consumes these via equivalence-preserving re-export shims (decision
+//! N2), so its ~323 `crate::common::AppError` call sites stay unchanged.
+
+pub mod app_state;
+pub mod config;
+pub mod db_pool;
+pub mod error;
+pub mod macros;
+
+pub use config::{
+    CorsConfig, DatabaseConfig, DatabasePoolConfig, EmbeddedPostgreSqlConfig,
+    ExternalPostgreSqlConfig, HttpServerConfig, JwtConfig, LoggingConfig, LoggingConfigPostgres,
+    PoolConfig, PostgreSqlConfig, RateLimitConfig, ServerConfig,
+};
+pub use db_pool::{Db, DbConnection, DbPool};
+pub use error::{ApiError, ApiResult, AppError};

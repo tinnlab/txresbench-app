@@ -115,7 +115,7 @@ export async function createMember(
 ): Promise<string> {
   const r = await request.post(`${BACKEND}/api/users`, {
     headers: { authorization: `Bearer ${admin}` },
-    data: { username, email: `${username}@cyto.test`, password: 'memberPassw0rd!' },
+    data: { username, email: `${username}@txresbench.test`, password: 'memberPassw0rd!' },
   })
   expect(r.ok()).toBeTruthy()
   return (await r.json()).id

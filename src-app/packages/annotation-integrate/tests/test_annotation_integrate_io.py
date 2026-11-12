@@ -18,7 +18,7 @@ failed on every run, and no suite in the tree could observe it.
 So this suite asserts the things the pure core structurally cannot:
 
   * `load_axis_index` decodes a REAL Zarr axis index — written here by the branch's OWN
-    writer, `cyto_columns.write_metadata_column(..., holds_axis_keys=True)`, the same call
+    writer, `txr_columns.write_metadata_column(..., holds_axis_keys=True)`, the same call
     `anndata-import/compute/h5ad_import.py` emits `<axis>_index` through. A hand-rolled
     `zarr.json` fixture would only pin this suite's guess at the format; going through the
     writer means the format is whatever the producer actually writes.
@@ -55,8 +55,8 @@ for _p in (_PROCESSORS / "_lib", _PROCESSORS / "_helpers", _HERE.parent):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-import cyto_columns  # noqa: E402  (the BRANCH'S OWN writer — the format's producer)
-import cyto_zarr_read  # noqa: E402  (the `_lib` reference reader)
+import txr_columns  # noqa: E402  (the BRANCH'S OWN writer — the format's producer)
+import txr_zarr_read  # noqa: E402  (the `_lib` reference reader)
 import annotation_integrate as ai  # noqa: E402
 
 
@@ -94,7 +94,7 @@ def write_axis_index(inputs_dir, subpath, keys=BARCODES, axis="cells", name=None
 
     inputs_dir = Path(inputs_dir)
     inputs_dir.mkdir(parents=True, exist_ok=True)
-    structure, meta = cyto_columns.write_metadata_column(
+    structure, meta = txr_columns.write_metadata_column(
         inputs_dir, subpath, name or f"{axis}_index", pd.Series(keys),
         axis=axis, holds_axis_keys=True)
     return inputs_dir / subpath, structure, meta
@@ -148,9 +148,9 @@ def write_run_dir(root, *, axis_subpath=PRODUCTION_SUBPATH, table_rows=None,
 
 def run_main(inputs, outputs):
     """Execute the REAL entry over a run dir, restoring the env afterwards."""
-    saved = {k: os.environ.get(k) for k in ("CYTO_INPUTS_DIR", "CYTO_OUTPUTS_DIR")}
-    os.environ["CYTO_INPUTS_DIR"] = str(inputs)
-    os.environ["CYTO_OUTPUTS_DIR"] = str(outputs)
+    saved = {k: os.environ.get(k) for k in ("TXR_INPUTS_DIR", "TXR_OUTPUTS_DIR")}
+    os.environ["TXR_INPUTS_DIR"] = str(inputs)
+    os.environ["TXR_OUTPUTS_DIR"] = str(outputs)
     try:
         ai.main()
     finally:
@@ -221,7 +221,7 @@ def test_load_axis_index_stringifies_a_numeric_key_member():
 
         inputs = Path(td) / "inputs"
         inputs.mkdir(parents=True)
-        cyto_columns.write_metadata_column(
+        txr_columns.write_metadata_column(
             inputs, "samples_index.zarr", "samples_index",
             pd.Series([11, 22, 33], dtype="int64"), axis="samples",
             holds_axis_keys=True)
@@ -359,7 +359,7 @@ def test_main_integrates_over_a_real_zarr_axis_index(subpath):
             assert entry["structure"]["encoding"] == "zarr_v3"
             store = outputs / entry["path"]
             assert store.is_dir(), f"{out_id} is a Zarr store directory"
-            got = cyto_zarr_read.read_column(store)
+            got = txr_zarr_read.read_column(store)
             got = got.tolist() if hasattr(got, "tolist") else list(got)
             assert got == expected, out_id
 

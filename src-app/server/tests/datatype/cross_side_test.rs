@@ -34,8 +34,8 @@
 
 use std::path::{Path, PathBuf};
 
-use cytoanalyst::modules::datatype::registry::DatatypeRegistry;
-use cytoanalyst::modules::datatype::sniff::sniff;
+use txresbench::modules::datatype::registry::DatatypeRegistry;
+use txresbench::modules::datatype::sniff::sniff;
 
 /// The repo's `src-app/` — this crate's manifest dir is `src-app/server`.
 fn src_app() -> PathBuf {

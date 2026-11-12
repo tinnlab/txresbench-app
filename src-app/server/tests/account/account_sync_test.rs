@@ -11,7 +11,7 @@
 //! The emit IS wired on the runtime path (`ensure_personal_account_for` →
 //! `publish_account_created`); this test pins the audience it fans to.
 
-use cytoanalyst::modules::account::sync::account_audience;
+use txresbench::modules::account::sync::account_audience;
 
 use crate::account::{add_member, create_user, make_org_account, pool_for, setup_admin};
 use crate::common::TestServer;
@@ -20,9 +20,9 @@ use crate::common::TestServer;
 async fn account_audience_is_owner_union_other_members() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    let owner_id = create_user(&server, &admin, "aud_owner", "aud_owner@cyto.test").await;
-    let m1 = create_user(&server, &admin, "aud_m1", "aud_m1@cyto.test").await;
-    let m2 = create_user(&server, &admin, "aud_m2", "aud_m2@cyto.test").await;
+    let owner_id = create_user(&server, &admin, "aud_owner", "aud_owner@txresbench.test").await;
+    let m1 = create_user(&server, &admin, "aud_m1", "aud_m1@txresbench.test").await;
+    let m2 = create_user(&server, &admin, "aud_m2", "aud_m2@txresbench.test").await;
     let pool = pool_for(&server).await;
 
     let org = make_org_account(&pool, "aud-org", owner_id).await; // owner = Owner member
@@ -41,7 +41,7 @@ async fn account_audience_is_owner_union_other_members() {
     assert_eq!(got, want, "every OTHER member is fanned to (per-recipient)");
 
     // A personal account fans to just its owner (the empty-recipient fan-to-self).
-    let personal_owner = create_user(&server, &admin, "aud_solo", "aud_solo@cyto.test").await;
+    let personal_owner = create_user(&server, &admin, "aud_solo", "aud_solo@txresbench.test").await;
     let personal = sqlx::query_scalar::<_, uuid::Uuid>(
         "SELECT id FROM accounts WHERE kind='personal' AND personal_user_id=$1",
     )

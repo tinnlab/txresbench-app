@@ -1,5 +1,5 @@
-import type { AppModule } from '@ziee/framework/module-system/types'
-import { useModuleSystemStore } from '@ziee/framework'
+import type { AppModule } from '@txresbench/framework/module-system/types'
+import { useModuleSystemStore } from '@txresbench/framework'
 
 /**
  * Auto-discovers and registers all modules from the modules directory.

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ArtifactNodeDto } from '@/api-client/types'
-import { Button, Empty, ErrorState, Spinner, Tag, message } from '@ziee/kit'
+import { Button, Empty, ErrorState, Spinner, Tag, message } from '@txresbench/kit'
 import { DatasetDetail } from '@/modules/datasets/stores/DatasetDetail.store'
 import { useNavigate } from 'react-router-dom'
 import { ArrowUpFromLine, Database, GitCommitVertical, Package } from 'lucide-react'

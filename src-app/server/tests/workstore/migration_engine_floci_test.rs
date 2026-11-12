@@ -14,12 +14,12 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::config::{CloudProvider, S3ConnConfig};
-use cytoanalyst::modules::workstore::migration_engine::{
+use txresbench::modules::workstore::config::{CloudProvider, S3ConnConfig};
+use txresbench::modules::workstore::migration_engine::{
     copy_and_verify, verify_all, MigrationError,
 };
-use cytoanalyst::modules::workstore::object_store::s3::S3Store;
-use cytoanalyst::modules::workstore::object_store::{
+use txresbench::modules::workstore::object_store::s3::S3Store;
+use txresbench::modules::workstore::object_store::{
     ByteStream, ContentKey, DualReadStore, GcReport, LocalFsStore, MultiFilePut, ObjectStat,
     ObjectStore,
 };
@@ -54,7 +54,7 @@ fn floci_store(prefix: &str) -> Option<(Arc<dyn ObjectStore>, String)> {
     let _ = prefix;
     let cfg = S3ConnConfig {
         provider: CloudProvider::S3,
-        bucket: env_nonempty("CYTO_WORKSTORE_S3_BUCKET")?,
+        bucket: env_nonempty("TXR_WORKSTORE_S3_BUCKET")?,
         region: env_nonempty("AWS_REGION").unwrap_or_else(|| "us-east-1".to_string()),
         endpoint: Some(env_nonempty("S3_ENDPOINT")?),
         access_key_id: env_nonempty("AWS_ACCESS_KEY_ID"),
@@ -68,7 +68,7 @@ fn floci_store(prefix: &str) -> Option<(Arc<dyn ObjectStore>, String)> {
 }
 
 fn local_store() -> (std::path::PathBuf, Arc<dyn ObjectStore>) {
-    let dir = std::env::temp_dir().join(format!("cyto-mig-floci-{}", Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("txr-mig-floci-{}", Uuid::new_v4()));
     (dir.clone(), Arc::new(LocalFsStore::new(dir)))
 }
 
@@ -195,39 +195,39 @@ struct TamperReadStore {
 }
 #[async_trait::async_trait]
 impl ObjectStore for TamperReadStore {
-    async fn put(&self, bytes: &[u8]) -> Result<ContentKey, ziee_core::AppError> {
+    async fn put(&self, bytes: &[u8]) -> Result<ContentKey, txresbench_core::AppError> {
         self.inner.put(bytes).await
     }
-    async fn put_prefix(&self, m: &[(String, Vec<u8>)]) -> Result<MultiFilePut, ziee_core::AppError> {
+    async fn put_prefix(&self, m: &[(String, Vec<u8>)]) -> Result<MultiFilePut, txresbench_core::AppError> {
         self.inner.put_prefix(m).await
     }
-    async fn get(&self, key: &ContentKey) -> Result<Vec<u8>, ziee_core::AppError> {
+    async fn get(&self, key: &ContentKey) -> Result<Vec<u8>, txresbench_core::AppError> {
         let mut b = self.inner.get(key).await?;
         b.push(0xFF); // one extra byte ⇒ a different sha256
         Ok(b)
     }
-    async fn get_range(&self, key: &ContentKey, o: u64, l: u64) -> Result<Vec<u8>, ziee_core::AppError> {
+    async fn get_range(&self, key: &ContentKey, o: u64, l: u64) -> Result<Vec<u8>, txresbench_core::AppError> {
         self.inner.get_range(key, o, l).await
     }
-    async fn get_stream(&self, key: &ContentKey, o: u64, l: u64) -> Result<ByteStream, ziee_core::AppError> {
+    async fn get_stream(&self, key: &ContentKey, o: u64, l: u64) -> Result<ByteStream, txresbench_core::AppError> {
         self.inner.get_stream(key, o, l).await
     }
-    async fn stat(&self, key: &ContentKey) -> Result<ObjectStat, ziee_core::AppError> {
+    async fn stat(&self, key: &ContentKey) -> Result<ObjectStat, txresbench_core::AppError> {
         self.inner.stat(key).await
     }
-    async fn exists(&self, key: &ContentKey) -> Result<bool, ziee_core::AppError> {
+    async fn exists(&self, key: &ContentKey) -> Result<bool, txresbench_core::AppError> {
         self.inner.exists(key).await
     }
-    async fn delete(&self, key: &ContentKey) -> Result<(), ziee_core::AppError> {
+    async fn delete(&self, key: &ContentKey) -> Result<(), txresbench_core::AppError> {
         self.inner.delete(key).await
     }
-    async fn resolve_member(&self, m: &ContentKey, p: &str) -> Result<ContentKey, ziee_core::AppError> {
+    async fn resolve_member(&self, m: &ContentKey, p: &str) -> Result<ContentKey, txresbench_core::AppError> {
         self.inner.resolve_member(m, p).await
     }
-    async fn gc(&self, keep: &HashSet<String>, age: u64) -> Result<GcReport, ziee_core::AppError> {
+    async fn gc(&self, keep: &HashSet<String>, age: u64) -> Result<GcReport, txresbench_core::AppError> {
         self.inner.gc(keep, age).await
     }
-    async fn list_keys(&self) -> Result<Vec<ContentKey>, ziee_core::AppError> {
+    async fn list_keys(&self) -> Result<Vec<ContentKey>, txresbench_core::AppError> {
         self.inner.list_keys().await
     }
 }

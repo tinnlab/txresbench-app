@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { ViewSpec } from '@/modules/workbench/core/manifest/viewSpec'
-import type { DatasetCatalog } from '@ziee/viz'
+import type { DatasetCatalog } from '@txresbench/viz'
 import { parseViewSpec, validateCanvasOption, ROW_PART_KEY, AXIS_ENTRY_VALUES_SOURCE_NAME } from './schema'
 import { AXIS_ENTRY_VALUES_SOURCE } from '@/modules/workbench/core/runtime/axisEntries'
 
@@ -175,7 +175,7 @@ describe('parseViewSpec (ITEM-1)', () => {
 })
 
 // TEST-1 (ITEM-1) — LOUD per-field validation of the `canvas` VizOption against a resolved
-// catalog, reusing `@ziee/viz` `parseOption`: an unknown series.type / coordId / datasetId /
+// catalog, reusing `@txresbench/viz` `parseOption`: an unknown series.type / coordId / datasetId /
 // column each fails LOUD (the same validation the runtime `setOption` enforces).
 describe('validateCanvasOption (ITEM-1)', () => {
   const catalog: DatasetCatalog = {

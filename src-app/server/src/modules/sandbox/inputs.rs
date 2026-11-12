@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use sqlx::SqlitePool;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::backend::ComputeSpec;
 use super::spec::AnalysisSpec;
@@ -41,7 +41,7 @@ pub struct MaterializedInput {
     pub slot: String,
     /// The SOURCE kind of this input — the `inputs.json` `kind` field: one of
     /// `artifact` (single-blob workstore), `artifact-prefix` (multi-file workstore
-    /// dir), `dataset-file` (a ziee-file Dataset file), or `host` (a trusted host
+    /// dir), `dataset-file` (a txresbench-file Dataset file), or `host` (a trusted host
     /// path). Path-agnostic (ITEM-5).
     pub kind: String,
     /// Absolute host path under `<workspace>/inputs` (a file, or — for a multi-file
@@ -219,7 +219,7 @@ pub fn params_json_value(params: &serde_json::Value, seed: Option<i64>) -> serde
 /// pool — see [`Stager`]. Two other input kinds still copy, deliberately, and it
 /// is worth saying why so the next reader does not read it as an oversight:
 ///
-/// * `dataset_file_ref` reads through ziee-file's storage seam, which is a
+/// * `dataset_file_ref` reads through txresbench-file's storage seam, which is a
 ///   different store with no content address and no local-path capability. Giving
 ///   it one is that module's change, not this one's.
 /// * `host_path` copies BECAUSE it hashes: an admin-allowlisted reference path has
@@ -295,7 +295,7 @@ pub async fn materialize_inputs(
                 .await
                 .map_err(|e| describe_artifact_staging_failure(&decl.slot, a, e))?
         } else if let Some(file_id) = decl.dataset_file_ref {
-            // A Dataset file in ziee-file (one file; a one-or-many dataset is
+            // A Dataset file in txresbench-file (one file; a one-or-many dataset is
             // declared as one `dataset_file_ref` input per file). Authorized against
             // the job owner (owns it ∪ visible via a dataset).
             (
@@ -899,7 +899,7 @@ fn guard_member_path(rel: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Whether `owner_id` may read ziee-file `file_id` as a sandbox input.
+/// Whether `owner_id` may read txresbench-file `file_id` as a sandbox input.
 ///
 /// **The rule itself now lives in [`crate::modules::file::access::readable_file_ids`]**,
 /// which carries the single SQL literal and the whole design record for it (FIX-1,
@@ -907,7 +907,7 @@ fn guard_member_path(rel: &str) -> Result<(), AppError> {
 /// over that predicate, kept at its original path and signature so the sandbox
 /// call site and its three integration pins are untouched.
 ///
-/// It was promoted because a SECOND caller appeared: `ziee-file`'s mounted HTTP
+/// It was promoted because a SECOND caller appeared: `txresbench-file`'s mounted HTTP
 /// surface, whose injected `FileAccessPolicy` asks exactly this question about
 /// exactly these files. Two hand-copies of an authorization predicate is how the
 /// next hole gets made — the group-`is_active` defect that `841e6111` fixed here
@@ -928,7 +928,7 @@ pub async fn file_readable_by(
     )
 }
 
-/// Stage one Dataset file (ziee-file) into `dest`, returning its `sha256:<hex>`.
+/// Stage one Dataset file (txresbench-file) into `dest`, returning its `sha256:<hex>`.
 ///
 /// #182: this used to be `load_original` → `Vec<u8>` → hash → `fs::write`, i.e. the
 /// SECOND place a whole uploaded file was materialized in the API process (the first
@@ -960,7 +960,7 @@ pub async fn stage_dataset_file(
             "input file {file_id} is not accessible to the job owner"
         )));
     }
-    let file = ziee_file::FileRepository::new(pool.clone())
+    let file = txresbench_file::FileRepository::new(pool.clone())
         .get_by_id(file_id)
         .await?
         .ok_or_else(|| AppError::not_found("dataset input file"))?;
@@ -1176,7 +1176,7 @@ mod tests {
     // EVERY live run).
     #[test]
     fn derived_inputs_and_params_json_are_bound_read_only() {
-        let root = std::env::temp_dir().join(format!("cyto-derived-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("txr-derived-{}", uuid::Uuid::new_v4()));
         let dir = root.join("inputs");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("inputs.json"), b"{}").unwrap();
@@ -1231,7 +1231,7 @@ mod tests {
             CgroupMode, HardeningCapabilities, PidNsMode, SandboxContext, SeccompMode,
         };
 
-        let root = std::env::temp_dir().join(format!("cyto-argv-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("txr-argv-{}", uuid::Uuid::new_v4()));
         let dir = root.join("inputs");
         std::fs::create_dir_all(&dir).unwrap();
         // The REAL body the runtime writes — the criteria a processor must see.
@@ -1412,7 +1412,7 @@ mod tests {
     async fn stage_prefix_members_writes_all_members() {
         use crate::modules::workstore::object_store::LocalFsStore;
 
-        let root = std::env::temp_dir().join(format!("cyto-prefix-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("txr-prefix-{}", uuid::Uuid::new_v4()));
         let store = LocalFsStore::new(root.join("store"));
         let members = vec![
             (".zattrs".to_string(), b"{\"kind\":\"zarr\"}".to_vec()),
@@ -1479,7 +1479,7 @@ mod tests {
     // is faithful. Uses data larger than one 128 KiB chunk to exercise the loop.
     #[tokio::test]
     async fn copy_and_hash_matches_buffered_and_copies() {
-        let dir = std::env::temp_dir().join(format!("cyto-inp-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("txr-inp-{}", std::process::id()));
         tokio::fs::create_dir_all(&dir).await.unwrap();
         let src = dir.join("src.bin");
         let dest = dir.join("dest.bin");
@@ -1538,7 +1538,7 @@ mod tests {
     fn a_missing_blob_names_the_slot_the_artifact_and_the_remedy() {
         let a = consumable(true);
         let msg =
-            describe_artifact_staging_failure("matrix", &a, ziee_core::AppError::not_found("Blob"))
+            describe_artifact_staging_failure("matrix", &a, txresbench_core::AppError::not_found("Blob"))
                 .to_string();
 
         assert!(msg.contains("matrix"), "names the input SLOT: {msg}");
@@ -1583,7 +1583,7 @@ mod tests {
         let msg = describe_artifact_staging_failure(
             "labels",
             &consumable(false),
-            ziee_core::AppError::not_found("Blob"),
+            txresbench_core::AppError::not_found("Blob"),
         )
         .to_string();
         assert!(msg.contains("single-file artifact"), "{msg}");
@@ -1604,7 +1604,7 @@ mod tests {
         let msg = describe_artifact_staging_failure(
             "matrix",
             &a,
-            ziee_core::AppError::internal_error("workstore: blob read failed: too many open files"),
+            txresbench_core::AppError::internal_error("workstore: blob read failed: too many open files"),
         )
         .to_string();
 

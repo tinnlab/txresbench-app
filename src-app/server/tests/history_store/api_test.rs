@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 use super::{history_operations, owner_token, read_committed_openapi};
 use crate::common::TestServer;
-use cytoanalyst::modules::history_store::types::ROUTE_DOC_IDS;
+use txresbench::modules::history_store::types::ROUTE_DOC_IDS;
 
 /// TEST-HS-15 — the route matrix: the six history routes answer 401 to an
 /// unauthenticated caller (the `JobsUse` extractor's gate), the minted local

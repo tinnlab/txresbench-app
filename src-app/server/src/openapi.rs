@@ -11,9 +11,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use sqlx::sqlite::SqlitePoolOptions;
-use ziee_framework::app_builder::{build_api_router, create_modules};
-use ziee_framework::openapi::finish_and_emit;
-use ziee_framework::ModuleContext;
+use txresbench_framework::app_builder::{build_api_router, create_modules};
+use txresbench_framework::openapi::finish_and_emit;
+use txresbench_framework::ModuleContext;
 
 use crate::config;
 

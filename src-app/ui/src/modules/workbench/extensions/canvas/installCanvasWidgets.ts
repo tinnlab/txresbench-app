@@ -48,7 +48,7 @@ let installed = false
  * `dist/index.html`): this deferral is worth **583.7 kB gzip** off the preloaded critical path.
  *
  * The `installBuiltins()` call that used to live here moved with them: it populates the
- * `@ziee/viz` CHART registry so a `<Viz option>` resolves `series.type`, which is a RENDER
+ * `@txresbench/viz` CHART registry so a `<Viz option>` resolves `series.type`, which is a RENDER
  * requirement, not a registration one. `./viz`'s own module load performs it (and
  * `GridWorkspace` does the same at its module load), so it is satisfied strictly before any
  * chart can paint. Parse-time chart-type resolution is served by the render-free

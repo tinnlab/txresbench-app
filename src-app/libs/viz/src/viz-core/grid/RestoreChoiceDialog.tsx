@@ -2,7 +2,7 @@
 // panes docked in popup windows, those windows can't reopen automatically (a browser `window.open`
 // needs a user GESTURE). So the main grid shows this dialog: MERGE the popup panes back into the main
 // grid, or REOPEN their windows (the button click supplies the gesture). Modeled on `OverlapDialog`
-// (role="dialog" + aria-modal, a backdrop, testids); viz-core inline-style convention (no @ziee/*).
+// (role="dialog" + aria-modal, a backdrop, testids); viz-core inline-style convention (no @txresbench/*).
 
 import { useEffect, useRef, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 

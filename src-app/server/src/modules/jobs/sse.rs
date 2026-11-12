@@ -1,10 +1,10 @@
-//! The per-job SSE event vocabulary. `sse_event_enum!` (ziee-core) generates
+//! The per-job SSE event vocabulary. `sse_event_enum!` (txresbench-core) generates
 //! `event_name()` / `data()` / `Into<Event>` and keeps the JsonSchema derive so
 //! the enum lands in `types.ts` as the stream's 200-response schema.
 
 use schemars::JsonSchema;
 use serde::Serialize;
-use ziee_core::sse_event_enum;
+use txresbench_core::sse_event_enum;
 
 use super::models::{JobLog, JobMetric};
 use crate::modules::sandbox::backend::{MilestoneFrame, ProgressFrame};

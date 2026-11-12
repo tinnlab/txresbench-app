@@ -8,7 +8,7 @@
 // Extracted from `datazoom/DataZoom.tsx` (Phase 1) so the Phase-2 hover/filter bridges reuse the
 // SAME throttle rather than each inventing its own. Behaviour is byte-identical to the original.
 //
-// viz-core rule: react only — no @ziee/*, no store, no DOM beyond requestAnimationFrame.
+// viz-core rule: react only — no @txresbench/*, no store, no DOM beyond requestAnimationFrame.
 
 import { useEffect, useRef } from 'react'
 

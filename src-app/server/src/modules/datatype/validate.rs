@@ -4,7 +4,7 @@
 //! and its `shape` must pass the per-type shape validator. Every failure is a typed
 //! 422 (a producer bug). READS stay fail-soft (DEC-2) — this is only the write path.
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::registry::DatatypeRegistry;
 

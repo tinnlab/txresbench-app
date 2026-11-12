@@ -5,7 +5,7 @@
  * ## The hole this closes
  *
  * `dead_code` never fires on a `pub` item in a LIBRARY crate: from rustc's side, the
- * consumer is outside the crate and cannot be seen. `cytoanalyst` is a lib + a thin binary,
+ * consumer is outside the crate and cannot be seen. `txresbench` is a lib + a thin binary,
  * so EVERY `pub fn` in `src/` is invisible to that lint by construction. The result is not
  * hypothetical:
  *

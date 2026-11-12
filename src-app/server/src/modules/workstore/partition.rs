@@ -8,7 +8,7 @@
 //! does not cover. That is correct exactly as long as the store and the catalog
 //! are a matched pair. They were not: the store root is
 //! `rootfs::data_root().join("workstore")`, and `data_root()` falls back to the
-//! SDK's single `~/.app` whenever `CYTO_APP_DATA_DIR` is unset — which is the
+//! SDK's single `~/.app` whenever `TXR_APP_DATA_DIR` is unset — which is the
 //! case for every dev server. Each git worktree, meanwhile, ran its own
 //! embedded Postgres cluster, so N worktrees shared ONE blob store while
 //! holding N different catalogs, and booting worktree B unlinked every blob
@@ -43,7 +43,7 @@
 //! One server, one database, one data root — production and the e2e harness
 //! alike — finds an unclaimed default root, claims it, and keeps using
 //! `<data_root>/workstore` forever. The path does not change, no data is
-//! stranded, and no operator action is required on upgrade. `CYTO_APP_DATA_DIR`
+//! stranded, and no operator action is required on upgrade. `TXR_APP_DATA_DIR`
 //! is honoured exactly as before, because this module only ever partitions
 //! BELOW whatever [`crate::modules::rootfs::data_root`] returns.
 //!
@@ -59,7 +59,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use ziee_core::{AppError, ServerConfig};
+use txresbench_core::{AppError, ServerConfig};
 
 /// The claim file written into a blob-store root, naming the catalog that owns
 /// it. One line, no trailing newline: the catalog key.
@@ -73,7 +73,7 @@ pub const DEFAULT_DIR: &str = "workstore";
 ///
 /// The engine is SQLite (ITEM-26 — the postgres chain is gone), so the
 /// catalog's physical identity is the DB FILE: the resolved `database:`
-/// target (`CYTO_DATABASE_URL` > `database.url` > `database.path` >
+/// target (`TXR_DATABASE_URL` > `database.url` > `database.path` >
 /// `<app-data-dir>/txresbench.db`), canonicalized exactly the way the runtime
 /// opens it. The property the blob-store guard needs is the one the old
 /// PGDATA identity had: two worktrees both copy `dev.example.yaml`, so the
@@ -89,9 +89,9 @@ pub fn catalog_identity(config: &ServerConfig) -> String {
         // identity can never disagree with the file the runtime actually opens
         // (it is the caller's already-validated target — a parse failure here
         // is the boot failure, just earlier).
-        ziee_framework::embedded_db::connect_options(
+        txresbench_framework::embedded_db::connect_options(
             &target,
-            &ziee_core::config::DatabasePoolConfig::default(),
+            &txresbench_core::config::DatabasePoolConfig::default(),
         )
         .expect("resolved database target must be a valid sqlite URL")
         .get_filename()
@@ -118,7 +118,7 @@ pub fn catalog_key(config: &ServerConfig) -> String {
 /// unrepresentable and `worktree_root` the identity function on the input. The
 /// FNV itself — the part worth sharing — is reused unchanged.
 fn stable_key(identity: &str) -> String {
-    ziee_framework::build_support::worktree_db::worktree_key(&encode_identity(identity))
+    txresbench_framework::build_support::worktree_db::worktree_key(&encode_identity(identity))
 }
 
 /// Replace every path separator so the encoded form can contain no `/src-app`
@@ -374,7 +374,7 @@ mod tests {
     use crate::modules::workstore::object_store::{LocalFsStore, ObjectStore};
 
     fn tmp() -> PathBuf {
-        let d = std::env::temp_dir().join(format!("cyto-part-{}", uuid::Uuid::new_v4()));
+        let d = std::env::temp_dir().join(format!("txr-part-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -390,8 +390,8 @@ server:
   api_prefix: "/api"
 jwt:
   secret: "test-secret-key-for-jwt-tokens-min-32-chars-long"
-  issuer: "cytoanalyst"
-  audience: "cytoanalyst-api"
+  issuer: "txresbench"
+  audience: "txresbench-api"
   access_token_expiry_hours: 24
   refresh_token_expiry_days: 30
 "#
@@ -410,7 +410,7 @@ jwt:
     /// live blob.
     ///
     /// This is the bug as it actually happened. Two git worktrees both fall
-    /// back to `~/.app` (neither sets `CYTO_APP_DATA_DIR`) while each runs its
+    /// back to `~/.app` (neither sets `TXR_APP_DATA_DIR`) while each runs its
     /// own database — the pre-SQLite shape ran its own embedded cluster, the
     /// SQLite shape resolves its own DB file (`database.path` per worktree) —
     /// so B's boot-time sweep saw A's blobs as orphans — they are, to B's
@@ -475,7 +475,7 @@ jwt:
         // Two "worktrees": identical config (no database block — the copied
         // dev shape), per-worktree app-data dirs.
         let cfg: ServerConfig = serde_norway::from_str(
-            "server:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-key-for-jwt-tokens-min-32-chars-long\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
+            "server:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-key-for-jwt-tokens-min-32-chars-long\"\n  issuer: \"txresbench\"\n  audience: \"txresbench-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
         )
         .expect("identical mixed config parses");
         let key_a = {
@@ -501,7 +501,7 @@ jwt:
     #[test]
     fn one_file_two_spellings_yields_one_key() {
         let url_cfg: ServerConfig = serde_norway::from_str(&format!(
-            "database:\n  url: \"sqlite:///srv/txr/app.db\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-key-for-jwt-tokens-min-32-chars-long\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n"
+            "database:\n  url: \"sqlite:///srv/txr/app.db\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-key-for-jwt-tokens-min-32-chars-long\"\n  issuer: \"txresbench\"\n  audience: \"txresbench-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n"
         ))
         .expect("url config parses");
         let path_cfg = config_with_db_file("/srv/txr/app.db");
@@ -544,7 +544,7 @@ jwt:
 
     /// A single-root deployment keeps `<data_root>/workstore`, on a fresh
     /// install and on the upgrade of an existing store alike. This is the
-    /// production + `CYTO_APP_DATA_DIR` (e2e) contract: whatever
+    /// production + `TXR_APP_DATA_DIR` (e2e) contract: whatever
     /// `rootfs::data_root()` returns, the store sits at `<that>/workstore` and
     /// nothing is relocated.
     #[test]
@@ -589,7 +589,7 @@ jwt:
     #[test]
     fn a_relative_db_path_is_absolutized() {
         let _guard = crate::modules::rootfs::scoped_data_root(&tmp());
-        let id = catalog_identity(&config_with_db_file("../../cytoanalyst-data/dev/app.db"));
+        let id = catalog_identity(&config_with_db_file("../../txresbench-data/dev/app.db"));
         let cwd = std::env::current_dir().unwrap();
         assert!(
             id.starts_with("sqlite:/"),
@@ -604,7 +604,7 @@ jwt:
                     .as_os_str()
                     .to_str()
                     .unwrap()
-            ) || id.contains("cytoanalyst-data"),
+            ) || id.contains("txresbench-data"),
             "and stay anchored to the cwd: {id}"
         );
     }

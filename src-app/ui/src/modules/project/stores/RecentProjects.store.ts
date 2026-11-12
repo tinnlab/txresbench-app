@@ -2,17 +2,17 @@ import { ApiClient } from '@/api-client'
 import { type ProjectDto } from '@/api-client/types'
 import { Permissions } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /** Bounded page size for the sidebar recent-projects feed (DEC-11: a fixed UI
- * pagination default, not an operational tunable — mirrors ziee's recent-chats). */
+ * pagination default, not an operational tunable — mirrors txresbench's recent-chats). */
 const RECENT_PROJECTS_PAGE_SIZE = 20
 
 /**
  * The recent-projects cursor backing the expandable left-sidebar widget. A
  * DEDICATED cursor, decoupled from the searchable `/projects` feed (`Projects`
  * store) so a search/sort on the list page never resets the accumulated sidebar
- * (mirrors ziee's `ChatHistory` recent cursor). Load-More paginated, self-gated
+ * (mirrors txresbench's `ChatHistory` recent cursor). Load-More paginated, self-gated
  * on `projects::use`, refreshed live by `sync:project` / `sync:reconnect`.
  */
 const RecentProjectsDef = defineStore('RecentProjects', {

@@ -68,7 +68,7 @@ use axum::Json;
 use serde::de::DeserializeOwned;
 use tokio::task::spawn_blocking;
 
-use ziee_core::{ApiResult, AppError};
+use txresbench_core::{ApiResult, AppError};
 
 use crate::modules::permissions::{with_permission, RequirePermissions};
 use crate::modules::project::ProjectsUse;

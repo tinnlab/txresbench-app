@@ -27,7 +27,7 @@
 use chrono::Utc;
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::repository::{append_log_in_tx, method_counts_on};
 use super::types::TxrLogStream;

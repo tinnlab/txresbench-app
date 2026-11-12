@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
 import { useStore } from 'zustand'

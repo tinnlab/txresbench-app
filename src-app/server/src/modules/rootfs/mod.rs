@@ -1,11 +1,11 @@
 //! `rootfs` module — the EMBEDDED analysis-rootfs slot (`include_bytes!`), extracted +
 //! squashfuse-mounted on first sandbox use WHEN a non-empty asset was staged.
 //!
-//! CURRENT STATE: docker is no longer a build dependency of CytoAnalyst, so the embedded
+//! CURRENT STATE: docker is no longer a build dependency of TxResBench, so the embedded
 //! slot is an INTENTIONAL, PERMANENT 0-byte stub in normal builds. That is NOT a broken
 //! or degraded build and the sandbox does NOT self-disable because of it — the analysis
 //! rootfs is lazy-fetched at RUNTIME by [`crate::modules::sandbox::env_image::OciEnvImageProvider`]
-//! from `ghcr.io/ziee-ai/cyto-env/<env>:schema<N>-latest-<arch>`, cosign-verified and
+//! from `ghcr.io/tinnlab/txresbench-env/<env>:schema<N>-latest-<arch>`, cosign-verified and
 //! squashfuse-mounted on the first `run_analysis`. This module's embedded path is the
 //! legacy/optional route (and the digest-keyed cache it shares with the OCI provider).
 //!
@@ -33,8 +33,8 @@ use once_cell::sync::OnceCell;
 use schemars::JsonSchema;
 use serde::Serialize;
 
-use ziee_core::AppError;
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_core::AppError;
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 pub use version::ROOTFS_SCHEMA_VERSION;
 
@@ -42,7 +42,7 @@ pub use version::ROOTFS_SCHEMA_VERSION;
 /// squashfuse mount, per-job workspaces). Resolution order:
 ///
 /// 1. a THREAD-scoped override installed by [`scoped_data_root`] (in-process tests);
-/// 2. `CYTO_APP_DATA_DIR` — how the integration harness isolates each test's SERVER
+/// 2. `TXR_APP_DATA_DIR` — how the integration harness isolates each test's SERVER
 ///    SUBPROCESS to its own data dir (`ServerConfig` drops the `app.data_dir` key, so
 ///    `get_app_data_dir()` alone would collapse every test onto the shared `~/.app`;
 ///    see SDK_GAPS + DEC-8);
@@ -55,9 +55,9 @@ pub fn data_root() -> PathBuf {
     if let Ok(Some(dir)) = DATA_ROOT_OVERRIDE.try_with(|m| lock_override(m).clone()) {
         return dir;
     }
-    std::env::var_os("CYTO_APP_DATA_DIR")
+    std::env::var_os("TXR_APP_DATA_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(ziee_core::app_state::get_app_data_dir)
+        .unwrap_or_else(txresbench_core::app_state::get_app_data_dir)
 }
 
 thread_local! {
@@ -76,7 +76,7 @@ thread_local! {
 
 /// Point [`data_root`] at `dir` FOR THE CURRENT THREAD until the returned guard drops.
 ///
-/// The in-process counterpart of the harness's `cmd.env("CYTO_APP_DATA_DIR", …)`, and
+/// The in-process counterpart of the harness's `cmd.env("TXR_APP_DATA_DIR", …)`, and
 /// the reason it exists: a test that drives production code IN THIS PROCESS (the OCI
 /// env-image end-to-end drives `OciEnvImageProvider::provide` directly) needs an
 /// isolated app-data dir, and `set_var` is the wrong tool for it. `set_var` is
@@ -292,7 +292,7 @@ impl AppModule for RootfsModule {
                 "rootfs: no embedded analysis rootfs — the embedded slot is a 0-byte stub by \
                  design (docker is not a build dependency). The sandbox is NOT disabled: the \
                  analysis rootfs is lazy-fetched at runtime from \
-                 ghcr.io/ziee-ai/cyto-env/<env>:schema<N>-latest-<arch>, cosign-verified and \
+                 ghcr.io/tinnlab/txresbench-env/<env>:schema<N>-latest-<arch>, cosign-verified and \
                  squashfuse-mounted on the first run_analysis"
             );
         }

@@ -47,7 +47,7 @@ a submodule's own `CLAUDE.md`/`.claude/` is NOT picked up. So each app:
 3. opens its root `CLAUDE.md` with `@agent-kit/docs/FRAMEWORK.md`, then adds its
    own app-specific module sections;
 4. supplies a **`.claude/app.config`** (see `app.config.example`) with its own
-   paths — the de-ziee-ified `preflight.sh`/`merge-gate.mjs` read it; any key left
+   paths — the de-txresbench-ified `preflight.sh`/`merge-gate.mjs` read it; any key left
    unset makes that check/gate SKIP, so the shared scripts run unchanged across
    apps;
 5. runs a one-command post-clone setup (`just dev-init`, which does
@@ -63,12 +63,12 @@ unless symlink support is on — enable Developer Mode (or run as admin) and
 `git config core.symlinks true`; `dev-init` detects a non-symlink checkout and
 tells you how to fix it.
 
-ziee is the reference consumer (branch `feat/agent-kit-consume`).
+txresbench is the reference consumer (branch `feat/agent-kit-consume`).
 
-## De-ziee-ify contract
+## De-txresbench-ify contract
 
 `preflight.sh`, `merge-gate.mjs`, AND `lifecycle-check.mjs` carry NO baked-in
-ziee paths. Everything app-specific is read from the consumer's
+txresbench paths. Everything app-specific is read from the consumer's
 `.claude/app.config`:
 
 - **preflight.sh / merge-gate.mjs** — build seed, vendored submodule, node
@@ -80,8 +80,8 @@ ziee paths. Everything app-specific is read from the consumer's
 - **lifecycle-check.mjs** — the frontend-workspace prefix→label map
   (`LIFECYCLE_FRONTEND_WORKSPACES`), the openapi-spec route registry the R2-5
   gate checks against (`LIFECYCLE_OPENAPI_SPECS`), and the A2 clean-tree noise
-  filter (`LIFECYCLE_CLEAN_TREE_IGNORE`). These DEFAULT to ziee's historical
-  hard-coded values, so ziee behaves byte-identically whether it sets them or
+  filter (`LIFECYCLE_CLEAN_TREE_IGNORE`). These DEFAULT to txresbench's historical
+  hard-coded values, so txresbench behaves byte-identically whether it sets them or
   not, while a differently-laid-out app (e.g. a single `webapp/` workspace)
   overrides only what differs. An app that configures none of them still runs
   every app-agnostic phase gate; the FE/route gates simply activate on the
@@ -93,5 +93,5 @@ See `app.config.example` for the full key list.
 
 ```bash
 bash lifecycle/selftest.sh            # lifecycle-check phase gates (9 scenarios)
-bash lifecycle/selftest-hardening.sh  # A1-A10 + merge-gate + preflight + de-ziee-ify (46 scenarios)
+bash lifecycle/selftest-hardening.sh  # A1-A10 + merge-gate + preflight + de-txresbench-ify (46 scenarios)
 ```

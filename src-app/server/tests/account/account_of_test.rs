@@ -1,11 +1,11 @@
 //! A2 `account_of_*` resolver acceptance tests (TEST-3, TEST-8) — the frozen
 //! seams PROV-A2-1/-2/-4 against a real per-test DB.
 
-use cytoanalyst::modules::account::scope::{
+use txresbench::modules::account::scope::{
     account_of_artifact, account_of_dataset, account_of_project, ensure_personal_account_for,
 };
-use cytoanalyst::modules::dataset::repository::DatasetRepository;
-use cytoanalyst::modules::project::ProjectRepository;
+use txresbench::modules::dataset::repository::DatasetRepository;
+use txresbench::modules::project::ProjectRepository;
 use uuid::Uuid;
 
 use super::{create_user, pool_for, setup_admin};

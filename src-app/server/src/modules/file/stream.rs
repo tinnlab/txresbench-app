@@ -3,7 +3,7 @@
 //! ## Why this module exists at all
 //!
 //! The blob STORE's write seam is `FileStorage::save_original(&self, .., data: &[u8])`
-//! (`sdk/crates/ziee-file/src/storage/mod.rs`), and its read seam is
+//! (`sdk/crates/txresbench-file/src/storage/mod.rs`), and its read seam is
 //! `load_original(..) -> Vec<u8>`. Both are `&[u8]`/`Vec<u8>`, both live in the
 //! PINNED `sdk/` submodule, and neither has a streaming variant. So the upload path
 //! held every uploaded file whole in server RAM (twice — `Bytes` from the multipart
@@ -14,18 +14,18 @@
 //! The SDK cannot be edited, so this module streams **around** the seam using only
 //! the parts of it that are already public:
 //!
-//! * [`ziee_file::FileStorage::get_original_path`] is a trait method that returns the
+//! * [`txresbench_file::FileStorage::get_original_path`] is a trait method that returns the
 //!   DETERMINISTIC destination path for a blob. That is the whole trick: the app can
 //!   compute where the bytes belong and put them there itself.
 //! * `FileRepository::create`, `FileCreateData`, `FileStorage::delete_all` and
-//!   `ziee_file::utils::extension_of` are all `pub`.
+//!   `txresbench_file::utils::extension_of` are all `pub`.
 //!
 //! ## Why re-implementing the store half is FAITHFUL, not a divergent second path
 //!
-//! `ziee_file::ingest::store_processed` does five things: `save_original`, then a
+//! `txresbench_file::ingest::store_processed` does five things: `save_original`, then a
 //! loop per derivative kind (text pages, geometry pages, thumbnail, preview images),
 //! then `repo.create`, then `delete_all` on a DB failure, then
-//! `events.on_file_changed`. CytoAnalyst injects [`crate::modules::file::NoopFileProcessor`],
+//! `events.on_file_changed`. TxResBench injects [`crate::modules::file::NoopFileProcessor`],
 //! whose `process()` returns `ProcessingResult::default()` — so on THIS path every
 //! derivative loop iterates an empty collection, by construction. What is left is
 //! exactly what [`ingest_staged`] does, in the same order, with the same values:
@@ -33,7 +33,7 @@
 //! same `sha256` hex checksum, the same `FileCreateData` field-for-field, the same
 //! rollback. `ingest_bytes` is left in the tree, untouched, for every other caller.
 //!
-//! Read this module side-by-side with `sdk/crates/ziee-file/src/ingest.rs` — it is
+//! Read this module side-by-side with `sdk/crates/txresbench-file/src/ingest.rs` — it is
 //! deliberately a transcription of it with `&[u8]` replaced by a path, so that
 //! "uploads keep working byte-identically" is auditable rather than hoped for.
 //!
@@ -52,7 +52,7 @@
 //!    [`ingest_staged`] cannot run a `FileProcessor`: that seam takes `&[u8]`, and
 //!    handing it the bytes is the buffer being removed. It therefore writes
 //!    `ProcessingResult::default()`. That is EQUIVALENT — not merely
-//!    similar — only because CytoAnalyst injects `NoopFileProcessor`, which returns
+//!    similar — only because TxResBench injects `NoopFileProcessor`, which returns
 //!    exactly that. `noop_file_processor_is_still_a_no_op` in this module's tests is
 //!    the tripwire on that premise.
 //!
@@ -87,11 +87,11 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
 
-use ziee_core::AppError;
-use ziee_file::models::{File, FileCreateData, ProcessingResult};
-use ziee_file::seams::FileEvents;
-use ziee_file::utils::extension_of;
-use ziee_file::{get_file_storage, FileRepository};
+use txresbench_core::AppError;
+use txresbench_file::models::{File, FileCreateData, ProcessingResult};
+use txresbench_file::seams::FileEvents;
+use txresbench_file::utils::extension_of;
+use txresbench_file::{get_file_storage, FileRepository};
 
 use crate::modules::rootfs::data_root;
 
@@ -639,7 +639,7 @@ pub async fn copy_file_hashing(src: &Path, dest: &Path) -> std::io::Result<Strin
 /// Persist an already-streamed part as a durable `File`, without ever materializing
 /// its bytes.
 ///
-/// The streaming counterpart of `ziee_file::ingest::ingest_bytes` +
+/// The streaming counterpart of `txresbench_file::ingest::ingest_bytes` +
 /// `store_processed` for the no-derivative (`NoopFileProcessor`) path — see the
 /// module doc for why that reduction is exact. Every observable it writes is
 /// unchanged: the blob key (`extension_of`), the `mime_type` fallback, the
@@ -915,7 +915,7 @@ mod tests {
 
     impl TestRoot {
         fn new() -> Self {
-            let dir = std::env::temp_dir().join(format!("cyto-upload-stream-{}", Uuid::new_v4()));
+            let dir = std::env::temp_dir().join(format!("txr-upload-stream-{}", Uuid::new_v4()));
             std::fs::create_dir_all(&dir).unwrap();
             let guard = crate::modules::rootfs::scoped_data_root(dir.clone());
             Self { dir, _guard: guard }
@@ -1250,7 +1250,7 @@ mod tests {
     /// two it can rather than claiming to cover "any staging-write failure".
     #[tokio::test]
     async fn an_unwritable_staging_dir_is_a_named_507() {
-        let dir = std::env::temp_dir().join(format!("cyto-upload-noroom-{}", Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("txr-upload-noroom-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
 
         // Leg 1 — `create_dir_all` fails: the staging ROOT is a file.
@@ -1365,7 +1365,7 @@ mod tests {
     /// silently stop producing derivatives the store would otherwise have written.
     #[tokio::test]
     async fn noop_file_processor_is_still_a_no_op() {
-        use ziee_file::seams::FileProcessor as _;
+        use txresbench_file::seams::FileProcessor as _;
         let processed = crate::modules::file::NoopFileProcessor
             .process(b"anything at all", "application/octet-stream")
             .await
@@ -1385,7 +1385,7 @@ mod tests {
         // non-default metadata would silently change every uploaded row.
         assert_eq!(
             serde_json::to_value(&processed.metadata).unwrap(),
-            serde_json::to_value(ziee_file::models::ProcessingResult::default().metadata).unwrap(),
+            serde_json::to_value(txresbench_file::models::ProcessingResult::default().metadata).unwrap(),
             "the injected processor's metadata must still be the default that \
              `ingest_staged` writes"
         );

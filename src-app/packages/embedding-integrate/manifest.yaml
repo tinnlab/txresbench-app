@@ -6,7 +6,7 @@
 # │ `compute/embedding_integrate.py` runs: it reads the staged source artifacts, calls │
 # │ the `_helpers/alignment.py` engine, and writes a real `dataset-alignment` artifact │
 # │ plus its coverage sidecar. Proven by a suite that invokes it AS A SUBPROCESS over  │
-# │ artifacts written by the real `cyto_zarr.Table`, then conforms the output with the │
+# │ artifacts written by the real `txr_zarr.Table`, then conforms the output with the │
 # │ real framework gate (`tests/test_producer_end_to_end.py`).                          │
 # │                                                                                    │
 # │ `ui/embedding-integrate.yaml` is the real form (stage 3's ITEM-34…ITEM-37): the key │
@@ -35,7 +35,7 @@
 # (user-launched over several datasets) rather than an `on-integrate` converter.
 id: embedding-integrate
 name: Embedding Integrate
-publisher: cyto
+publisher: txr
 # 0.2.0 — the compute landed (0.1.0 was the declaration, whose entry point raised). The
 # bump is required, not tidiness: an already-provisioned deployment skips re-extraction
 # at an unchanged version and would keep running the raising stub

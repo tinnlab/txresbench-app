@@ -19,7 +19,7 @@ positional relay — which a caller can omit, mis-order, or truncate with no way
 compute to notice, because the artifacts themselves said nothing.
 
 `structure` DOES cross: it is stamped into the store's own `zarr.json` as
-`attributes.cyto`, which is exactly what `qc-10x.py::artifact_structure` reads off the
+`attributes.txr`, which is exactly what `qc-10x.py::artifact_structure` reads off the
 STAGED bytes. So stamping the modality there costs one key and closes the gap with no
 view change, no new param, and no new plumbing.
 
@@ -75,9 +75,9 @@ def _invoke_converter(inputs_dir: Path, outputs_dir: Path):
     env["PYTHONPATH"] = os.pathsep.join(
         [str(_SCRIPTS_DIR), str(_LIB_DIR), *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])]
     )
-    env["CYTO_INPUTS_DIR"] = str(inputs_dir)
-    env["CYTO_OUTPUTS_DIR"] = str(outputs_dir)
-    env.pop("CYTO_PROGRESS_FIFO", None)
+    env["TXR_INPUTS_DIR"] = str(inputs_dir)
+    env["TXR_OUTPUTS_DIR"] = str(outputs_dir)
+    env.pop("TXR_PROGRESS_FIFO", None)
 
     proc = subprocess.run([sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True)
     assert proc.returncode == 0, (
@@ -128,11 +128,11 @@ def _expression_outputs(manifest):
 
 def _stamped_structure(outputs_dir: Path, rel: str):
     """The store's OWN declaration, read EXACTLY as `qc-10x.py::artifact_structure` reads it
-    off the staged bytes — `<store>/zarr.json` → `attributes.cyto`. Deliberately not the
+    off the staged bytes — `<store>/zarr.json` → `attributes.txr`. Deliberately not the
     manifest row: the row is the copy the sandbox does NOT get."""
     doc = json.loads((outputs_dir / rel / "zarr.json").read_text())
-    cyto = (doc.get("attributes") or {}).get("cyto")
-    return cyto if isinstance(cyto, dict) else None
+    txr = (doc.get("attributes") or {}).get("txr")
+    return txr if isinstance(txr, dict) else None
 
 
 # ───────────────────────────────────── tests ─────────────────────────────────────
@@ -153,7 +153,7 @@ def test_each_matrix_declares_its_own_modality_in_the_channel_the_sandbox_gets(r
     outs = _expression_outputs(manifest)
     for out_id, entry in outs.items():
         stamped = _stamped_structure(outputs_dir, entry["path"])
-        assert stamped is not None, f"{out_id}: no `attributes.cyto` in the store's zarr.json"
+        assert stamped is not None, f"{out_id}: no `attributes.txr` in the store's zarr.json"
         assert stamped.get("modality") == entry["meta"]["modality"], (
             f"{out_id}: the staged store declares modality {stamped.get('modality')!r} but the "
             f"catalog row says {entry['meta']['modality']!r} — a compute reading the bytes and "
@@ -163,7 +163,7 @@ def test_each_matrix_declares_its_own_modality_in_the_channel_the_sandbox_gets(r
 
 def test_the_row_and_the_group_stamp_carry_the_SAME_declaration(run_converter):
     """The conformance gate (`_lib/conformance._conform_group_attributes`) requires the
-    returned `structure` and the group's stamped `attributes.cyto` to be EQUAL. A stamp
+    returned `structure` and the group's stamped `attributes.txr` to be EQUAL. A stamp
     bolted on after the writer returned would satisfy the test above and still make every
     artifact unshippable, so the equality is pinned here rather than assumed."""
     manifest, outputs_dir = run_converter(_combined(CITESEQ))

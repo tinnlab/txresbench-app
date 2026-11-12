@@ -222,7 +222,7 @@ test('TEST-46: the surface-baseline gate is wired and its baseline exists', () =
 // `scripts/check-package-suites.mjs`).
 //
 // Same class as everything above: `npm run check` roots vitest at `src-app/ui`, so
-// `@ziee/viz` (207 files / 2555 tests) and `@ziee/dock` (4 / 84) were run by NOTHING —
+// `@txresbench/viz` (207 files / 2555 tests) and `@txresbench/dock` (4 / 84) were run by NOTHING —
 // and a merge broke `VizController.events.test.ts` on `main` with every gate green.
 // These tests assert the WIRING cannot rot back to that, and — because a gate that
 // cannot fail is not a gate — that the script itself fails closed on the two ways its
@@ -272,8 +272,8 @@ test('the package-suite gate DEFINITION is preserved (CI workflows are disabled 
   assert.ok(existsSync(wf), 'domain-guard.yml.disabled is gone — the preserved CI wiring was lost')
   const yml = readFileSync(wf, 'utf8')
   assert.match(yml, /check-package-suites\.mjs/, 'the preserved workflow no longer wires the workspace-package suites')
-  // `@ziee/viz` imports `@ziee/kit` from the `sdk` SUBMODULE: without a recursive
-  // checkout, 6 of its 207 files fail with `Cannot find package '@ziee/kit'` and the step
+  // `@txresbench/viz` imports `@txresbench/kit` from the `sdk` SUBMODULE: without a recursive
+  // checkout, 6 of its 207 files fail with `Cannot find package '@txresbench/kit'` and the step
   // is a meaningless RED. Verified locally — that was the first observed run.
   assert.match(yml, /submodules:\s*recursive/, 'the CI checkout stopped fetching submodules')
 })

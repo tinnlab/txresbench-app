@@ -1,7 +1,7 @@
 ---
 name: ai-controllable-actions
 description: >
-  Binding rule for ALL user-facing actions in CytoAnalyst: every action a human
+  Binding rule for ALL user-facing actions in TxResBench: every action a human
   can trigger must be registered as a permissioned `defineAction` so it is
   ALSO drivable by the AI agent (command palette + MCP `list_capabilities`/
   `describe_capability`/`invoke_capability`) — never a one-off inline
@@ -14,7 +14,7 @@ description: >
 
 # AI-Controllable Actions
 
-CytoAnalyst's north star (`docs/ai-controllable-actions/ARCHITECTURE.md`): **every
+TxResBench's north star (`docs/ai-controllable-actions/ARCHITECTURE.md`): **every
 user action in the app is AI-controllable through the same definition a human
 uses.** An action is declared ONCE via `defineAction` and is drivable by a human
 (a button, the command palette) AND by the AI agent (MCP `invoke_capability`) —

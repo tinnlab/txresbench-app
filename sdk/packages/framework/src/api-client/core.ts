@@ -32,7 +32,7 @@ export const getBaseUrl = (): Promise<string> => baseUrlResolver()
 // `setBaseUrlResolver` / `setUnauthorizedHandler` above).
 //
 // DEFAULT (unchanged): read `localStorage['auth-storage']` with the
-// `{ state: { token } }` zustand-persist shape — so ziee (and any app already
+// `{ state: { token } }` zustand-persist shape — so txresbench (and any app already
 // relying on that contract) keeps working with NO code change. An app that
 // stores its token elsewhere registers a provider via `setAuthTokenProvider`
 // (or the `setAuthToken` convenience) and its requests then authenticate; this

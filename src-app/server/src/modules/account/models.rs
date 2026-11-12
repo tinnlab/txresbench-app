@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// What KIND of account this is (the personal/org discriminator, DEC-1). A text
 /// `kind` (not a boolean) so a third kind can be added without a schema change and

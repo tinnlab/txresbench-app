@@ -1,4 +1,4 @@
-//! CytoAnalyst server CLI — a thin binary over the `cytoanalyst` library.
+//! TxResBench server CLI — a thin binary over the `txresbench` library.
 //!
 //! Boot logic lives in `lib.rs` (`boot_in_background` / `serve_blocking`) so the
 //! desktop harness can embed the identical server assembly.
@@ -26,8 +26,8 @@ enum Mode {
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "cytoanalyst",
-    about = "TxResBench server — treatment response from blood markers (ziee SDK)"
+    name = "txresbench",
+    about = "TxResBench server — treatment response from blood markers (txresbench SDK)"
 )]
 struct Cli {
     /// Run mode. Omit for `serve` (default). `worker` runs the job scheduler loop only.
@@ -61,12 +61,12 @@ struct Cli {
 
 #[tokio::main]
 async fn main() {
-    cytoanalyst::init_tracing();
+    txresbench::init_tracing();
     let cli = Cli::parse();
 
     if let Some(dir) = cli.generate_openapi {
         let subdir = "api-client";
-        match cytoanalyst::openapi::generate_openapi_spec(&dir, subdir, cli.config_file).await {
+        match txresbench::openapi::generate_openapi_spec(&dir, subdir, cli.config_file).await {
             Ok(()) => std::process::exit(0),
             Err(e) => {
                 eprintln!("OpenAPI generation failed: {e}");
@@ -97,7 +97,7 @@ async fn main() {
                 std::process::exit(2);
             }
         };
-        match cytoanalyst::modules::workstore::ownership_backfill::run_backfill(
+        match txresbench::modules::workstore::ownership_backfill::run_backfill(
             &pool,
             cli.backfill_write,
         )
@@ -114,7 +114,7 @@ async fn main() {
         }
     }
 
-    let config = match cytoanalyst::config::load_config(cli.config_file.as_deref()) {
+    let config = match txresbench::config::load_config(cli.config_file.as_deref()) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("fatal: {e}");
@@ -128,20 +128,20 @@ async fn main() {
     // NOT silently compat mode. `init_storage_key` is a first-wins OnceCell, so this
     // authoritative call precedes (and no-ops) the discovery-based fallback in `build_app`
     // that still covers the desktop `boot_in_background` entrypoint.
-    ziee_framework::secrets::init_storage_key(cytoanalyst::config::resolve_storage_key(
+    txresbench_framework::secrets::init_storage_key(txresbench::config::resolve_storage_key(
         cli.config_file.as_deref(),
     ));
 
     // Dispatch on the run mode. No subcommand ⇒ `serve` (default, unchanged); `worker`
     // boots the same assembly minus the public router and runs the scheduler loop (ITEM-2).
     let result = match cli.mode {
-        Some(Mode::Worker) => cytoanalyst::run_worker(config).await,
-        Some(Mode::RunJob { job_id }) => cytoanalyst::run_job_once(config, job_id).await,
-        Some(Mode::Serve) | None => cytoanalyst::serve_blocking(config).await,
+        Some(Mode::Worker) => txresbench::run_worker(config).await,
+        Some(Mode::RunJob { job_id }) => txresbench::run_job_once(config, job_id).await,
+        Some(Mode::Serve) | None => txresbench::serve_blocking(config).await,
     };
     if let Err(e) = result {
         eprintln!("fatal: {e}");
-        cytoanalyst::cleanup().await;
+        txresbench::cleanup().await;
         std::process::exit(1);
     }
 }

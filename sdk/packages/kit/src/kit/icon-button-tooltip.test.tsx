@@ -3,7 +3,7 @@
 // AN ICON-ONLY CONTROL MUST SAY WHAT IT DOES — asserted by OPENING the tooltip, never by
 // reading a prop.
 //
-// The consuming app (CytoAnalyst, commit 265397a8) swept 94 rendered gallery surfaces and found
+// The consuming app (TxResBench, commit 265397a8) swept 94 rendered gallery surfaces and found
 // 279 visible icon-only controls, 127 of them mute. Three of the causes live in THIS package and
 // are invisible to any static check, which is precisely why they survived review:
 //
@@ -405,7 +405,7 @@ describe('B(kit Tooltip) — an outer <Tooltip> composes onto a foreign trigger 
  * an ERROR on every render.
  *
  * Nothing else saw it: typecheck, lints, 2232 unit tests, the 94-surface tooltip sweep and 41 e2e
- * tests were all green on the tree that logged it. It was CytoAnalyst's runtime-health pass —
+ * tests were all green on the tree that logged it. It was TxResBench's runtime-health pass —
  * 6 gating HIGH findings on each of 5 workbench surfaces — that said so. Hence this test, which
  * makes the same statement in milliseconds.
  */

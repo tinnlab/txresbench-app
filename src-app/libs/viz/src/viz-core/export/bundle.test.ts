@@ -43,7 +43,7 @@ describe('buildFigureBundle (ITEM-8)', () => {
     const zip = buildFigureBundle({
       image: { name: 'figure.png', bytes: new Uint8Array([137, 80, 78, 71]) },
       sourceCsv: 'group,value\nA,1\n',
-      manifestJson: '{"schema":"ziee-viz-figure/1"}',
+      manifestJson: '{"schema":"txresbench-viz-figure/1"}',
     })
     expect(readZipNames(zip)).toEqual(['figure.png', 'source-data.csv', 'manifest.json'])
   })

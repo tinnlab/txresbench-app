@@ -23,7 +23,7 @@
  * no dialog channel, and the component/e2e courts need selectors.
  */
 import type { CSSProperties } from 'react'
-import { Alert, Button, Dialog } from '@ziee/kit'
+import { Alert, Button, Dialog } from '@txresbench/kit'
 import type { TxrHistoryState } from '../stores/TxrHistory.store'
 
 /** The copies-off body (the plan's words, verbatim). */

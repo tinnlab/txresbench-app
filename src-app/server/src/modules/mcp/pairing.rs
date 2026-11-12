@@ -2,7 +2,7 @@
 //! short-lived, single-use code for the calling user; `POST
 //! /api/mcp/pair/exchange` (code-authenticated, NO permission gate — the code
 //! IS the credential) atomically claims it and mints an access+refresh token
-//! pair for that user via `ziee-auth`'s `mint_session_tokens` — the SAME mint
+//! pair for that user via `txresbench-auth`'s `mint_session_tokens` — the SAME mint
 //! path every other login-shaped flow uses (jti-whitelisted, revocable on
 //! logout). Secrets never ride a URL: `pair/start` returns an opaque code, not
 //! a token.
@@ -15,9 +15,9 @@ use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_auth::auth::JwtService;
-use ziee_auth::user::UserRepository;
-use ziee_core::{ApiResult, AppError};
+use txresbench_auth::auth::JwtService;
+use txresbench_auth::user::UserRepository;
+use txresbench_core::{ApiResult, AppError};
 
 use crate::modules::permissions::RequirePermissions;
 
@@ -29,7 +29,7 @@ use super::permissions::McpUse;
 // `PAIRING_TTL_MINUTES = 5`. It is now the admin setting `pairing_ttl_secs`
 // (issue #54), read-at-use in `pair_start` via `settings_cache::get`. The setting
 // default EQUALS the old const (300s, byte-preserving, INV-1). Short by design —
-// the handshake is a synchronous "click connect, ziee exchanges it" flow.
+// the handshake is a synchronous "click connect, txresbench exchanges it" flow.
 
 /// Pure single-use + TTL predicate, extracted so it's unit-testable without a
 /// DB. The real claim path (`PairingRepository::claim`) encodes the EXACT
@@ -84,7 +84,7 @@ impl PairingRepository {
         // canonical clock writes millisecond precision, so the BOUND value is
         // formatted to the SAME canonical 3-digit form (`%Y-%m-%dT%H:%M:%S%.3fZ`)
         // — a lexicographic comparison between a stored and a generated instant is
-        // then chronological, exactly the ziee-auth sqlite convention
+        // then chronological, exactly the txresbench-auth sqlite convention
         // (`refresh_tokens::register`'s ExpiryTz bind).
         let expires_at_str = expires_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
         sqlx::query!(
@@ -148,7 +148,7 @@ impl PairingRepository {
 }
 
 /// `POST /api/mcp/pair/start` — gated `mcp::use`. Mints a code + returns the
-/// MCP URL ziee dials to exchange it (the loopback base pinned at module
+/// MCP URL txresbench dials to exchange it (the loopback base pinned at module
 /// init; direct-HTTP transport only this slice — ITEM-23 reverse-tunnel is
 /// descoped).
 pub async fn pair_start(
@@ -179,7 +179,7 @@ pub async fn pair_start(
 /// NOT restricted to the MCP surface. This is intentional for slice 1: the
 /// AI host is trusted to act AS the user, the same trust boundary as the
 /// user logging into the AI host itself. The practical consequence is that a
-/// leaked AI-host credential (e.g. an exfiltrated ziee-chat MCP connection
+/// leaked AI-host credential (e.g. an exfiltrated txresbench-chat MCP connection
 /// secret) is a FULL account takeover, not merely MCP-scoped access —
 /// operators should treat pairing a new AI host with the same caution as
 /// sharing a password. Permission-scoped / audience-restricted MCP tokens
@@ -217,7 +217,7 @@ pub async fn pair_exchange(
             .to_api_error()
         })?;
 
-    let minted = ziee_auth::auth::refresh_tokens::mint_session_tokens(
+    let minted = txresbench_auth::auth::refresh_tokens::mint_session_tokens(
         &pool,
         &jwt,
         user.id,

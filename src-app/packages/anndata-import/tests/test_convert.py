@@ -3,8 +3,8 @@
 ITEM-7 / ITEM-8; read-back re-anchored by ITEM-27).
 
 Sibling of ``test_fidelity.py`` — same import mechanism (load the real script from
-the server scripts path), same off-sandbox run seam (``CYTO_INPUTS_DIR`` /
-``CYTO_OUTPUTS_DIR``), same read-back path. Where ``test_fidelity`` pins the
+the server scripts path), same off-sandbox run seam (``TXR_INPUTS_DIR`` /
+``TXR_OUTPUTS_DIR``), same read-back path. Where ``test_fidelity`` pins the
 § Output-spec invariants on ONE canonical fixture, this file sweeps the converter's
 INPUT SHAPES: dense / CSR / CSC X, X=None-with-layer promotion, a log-normalized
 (never-force-cast) matrix, the 0-embedding and 2-embedding obsm cardinalities, and a
@@ -47,7 +47,7 @@ _HERE = Path(__file__).resolve().parent
 # Shared sandbox scripts dir (`colsummary.py`); off-sandbox the harness must put it on
 # the subprocess PYTHONPATH (the entry script self-inserts only its own co-located dir).
 _SCRIPTS_DIR = _HERE.parents[1] / "_helpers"
-# The shared OUTPUT-FORMAT library (`_lib`: `cyto_zarr` / `cyto_columns`, DEC-7). The
+# The shared OUTPUT-FORMAT library (`_lib`: `txr_zarr` / `txr_columns`, DEC-7). The
 # sandbox runner stages it into `/code` next to the `_helpers` modules, so the
 # subprocess needs it on PYTHONPATH or the converter dies at import.
 _LIB_DIR = _HERE.parents[1] / "_lib"
@@ -60,8 +60,8 @@ SCRIPT = next((p for p in _SCRIPT_CANDIDATES if p.exists()), _SCRIPT_CANDIDATES[
 EXPRESSION_REL = "expression"   # the converter's CSC Zarr matrix output path
 
 sys.path.insert(0, str(_LIB_DIR))
-import cyto_csc            # noqa: E402  — the `_lib` CSC reader (producer-side only)
-import cyto_zarr_read      # noqa: E402
+import txr_csc            # noqa: E402  — the `_lib` CSC reader (producer-side only)
+import txr_zarr_read      # noqa: E402
 
 
 # ─────────────────────────────── run harness ─────────────────────────────────
@@ -73,9 +73,9 @@ def _invoke_converter(inputs_dir: Path, outputs_dir: Path):
     env["PYTHONPATH"] = os.pathsep.join(
         [str(_SCRIPTS_DIR), str(_LIB_DIR), *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])]
     )
-    env["CYTO_INPUTS_DIR"] = str(inputs_dir)
-    env["CYTO_OUTPUTS_DIR"] = str(outputs_dir)
-    env.pop("CYTO_PROGRESS_FIFO", None)  # no FIFO reader off-sandbox
+    env["TXR_INPUTS_DIR"] = str(inputs_dir)
+    env["TXR_OUTPUTS_DIR"] = str(outputs_dir)
+    env.pop("TXR_PROGRESS_FIFO", None)  # no FIFO reader off-sandbox
 
     proc = subprocess.run(
         [sys.executable, str(SCRIPT)],
@@ -144,13 +144,13 @@ def assert_no_soma_store(outputs_dir: Path):
 def read_expression_csc(outputs_dir: Path, rel: str = EXPRESSION_REL, n_rows: int = None):
     """The converter's CSC matrix, decoded from its Zarr store into a scipy CSC.
 
-    Goes through `cyto_csc.read_csc`, i.e. the same shard container a client decodes.
+    Goes through `txr_csc.read_csc`, i.e. the same shard container a client decodes.
     """
     assert_no_soma_store(outputs_dir)
     base = outputs_dir / rel
     assert (base / "zarr.json").exists(), f"no CSC Zarr store at {base}"
-    indptr, indices, data = cyto_csc.read_csc(base)
-    structure = json.loads((base / "zarr.json").read_text())["attributes"]["cyto"]
+    indptr, indices, data = txr_csc.read_csc(base)
+    structure = json.loads((base / "zarr.json").read_text())["attributes"]["txr"]
     rows = structure["shape"][0] if n_rows is None else n_rows
     return sp.csc_matrix(
         (data, indices.astype(np.int64), indptr), shape=(int(rows), len(indptr) - 1)
@@ -160,7 +160,7 @@ def read_expression_csc(outputs_dir: Path, rel: str = EXPRESSION_REL, n_rows: in
 def read_axis_index(outputs_dir: Path, axis: str):
     """The per-axis entity keys (`cells` → barcodes, `genes` → gene labels) from the
     `<axis>_index` metadata-column artifact."""
-    return list(cyto_zarr_read.read_column(outputs_dir / "metadata" / f"{axis}_index.zarr"))
+    return list(txr_zarr_read.read_column(outputs_dir / "metadata" / f"{axis}_index.zarr"))
 
 
 def read_var_column(outputs_dir: Path, name: str):
@@ -168,7 +168,7 @@ def read_var_column(outputs_dir: Path, name: str):
     converter emits under `metadata/var/`."""
     rel = outputs_dir / "metadata" / "var" / f"{name}.zarr"
     assert rel.exists(), f"no var column artifact for {name!r} at {rel}"
-    return list(cyto_zarr_read.read_column(rel))
+    return list(txr_zarr_read.read_column(rel))
 
 
 def reconstruct(outputs_dir: Path, rel: str = EXPRESSION_REL):

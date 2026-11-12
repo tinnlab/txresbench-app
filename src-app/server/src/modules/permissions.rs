@@ -1,25 +1,25 @@
 //! Permission enforcement wiring — fixes the framework's generic
-//! `RequirePermissions` to CytoAnalyst's concrete `CytoIdentityResolver`, and a
+//! `RequirePermissions` to TxResBench's concrete `CytoIdentityResolver`, and a
 //! small wildcard-aware self-escalation guard.
 
-pub use ziee_framework::permissions::with_permission;
-pub use ziee_identity::{PermissionCheck, PermissionList};
+pub use txresbench_framework::permissions::with_permission;
+pub use txresbench_identity::{PermissionCheck, PermissionList};
 
-use ziee_auth::auth::DefaultIdentityResolver;
-use ziee_auth::user::{Group, User};
+use txresbench_auth::auth::DefaultIdentityResolver;
+use txresbench_auth::user::{Group, User};
 
 /// Permission extractor fixed to the SDK's `DefaultIdentityResolver` (was a
 /// hand-written `CytoIdentityResolver` — SDK_GAPS G1, now SDK-provided). Use in
 /// handler signatures as `RequirePermissions<(UsersRead,)>` (single or tuple,
 /// AND logic). Exposes `.user: User` + `.groups: Vec<Group>`.
 pub type RequirePermissions<Perms> =
-    ziee_framework::permissions::RequirePermissions<DefaultIdentityResolver, Perms>;
+    txresbench_framework::permissions::RequirePermissions<DefaultIdentityResolver, Perms>;
 
 /// Root-admin-only extractor fixed to the SDK's `DefaultIdentityResolver` (mirrors
 /// [`RequirePermissions`]). Use in a handler signature as `_auth: RequireAdmin` to
 /// gate an operation to the root administrator only (401 unauthenticated, 403 for a
 /// non-admin). Exposes `.user: User`.
-pub type RequireAdmin = ziee_framework::permissions::RequireAdmin<DefaultIdentityResolver>;
+pub type RequireAdmin = txresbench_framework::permissions::RequireAdmin<DefaultIdentityResolver>;
 
 /// The acting user's ACTIVE group ids — the `group_ids` argument every
 /// share/visibility resolver takes (`DatasetRepository::{access, is_visible_to,

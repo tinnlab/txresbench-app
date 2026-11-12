@@ -1,6 +1,6 @@
 # The Visium micron scale is a property of the SLIDE DESIGN, not of the assay
 
-**Issue:** [#257](https://github.com/phibya/cytoanalyst/issues/257), split out of #222.
+**Issue:** [#257](https://github.com/phibya/txresbench/issues/257), split out of #222.
 **Status:** implemented on `feat/cytassist-calibration`.
 
 ## 1. The question

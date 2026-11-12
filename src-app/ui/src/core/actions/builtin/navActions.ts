@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { Permissions } from '@/api-client/permissions'
 import { defineAction } from '../defineAction'
 
-// Slice 2 (PLAN.md ITEM-2) — registers navigation to cyto's key SETTINGS
+// Slice 2 (PLAN.md ITEM-2) — registers navigation to txr's key SETTINGS
 // pages as global `defineAction`s, delegating to `ctx.navigate` (the same
 // primitive `app.navigate` uses, see `./appActions.ts`). Each action's
 // `permission` is the EXACT permission the target route itself requires

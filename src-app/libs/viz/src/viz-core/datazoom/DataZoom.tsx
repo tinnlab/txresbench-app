@@ -1,5 +1,5 @@
 // DataZoom.tsx — the core DATAZOOM component (EXTENSIBILITY_STUDY §5.2 / Part 6 STEP 4). This is
-// the ECharts "dataZoom component" for `@ziee/viz`: it OWNS a chart's dataZoom window as core
+// the ECharts "dataZoom component" for `@txresbench/viz`: it OWNS a chart's dataZoom window as core
 // state (the `useState` + the reset-on-domain-change effect that USED to live inside each View),
 // renders the control surface (`ValueAxisZoom` / `MatrixDataZoom`) for the axes a descriptor
 // declares, and feeds the CURRENT window back to the passive View via a render-prop. The View no
@@ -17,7 +17,7 @@
 // render-prop hands the View the SAME "active window" value the View previously computed inline
 // (`zoomWindow ?? fullWindow` / `valueWindow ?? fullValueWindow`), so behavior is byte-identical.
 //
-// viz-core rule: react + sibling viz-core modules only (no @ziee/*).
+// viz-core rule: react + sibling viz-core modules only (no @txresbench/*).
 
 import { useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ValueAxisZoom } from '../charts/ValueAxisZoom'

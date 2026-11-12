@@ -9,7 +9,7 @@ import { workbenchRegistry } from '../contributions/workbenchRegistry.ts'
 import { WORKBENCH_API_VERSION } from '../version.ts'
 import type { AnalysisContribution, ViewContribution } from '../contributions/types.ts'
 
-export const DEMO_EXTENSION_ID = 'cyto.demo'
+export const DEMO_EXTENSION_ID = 'txr.demo'
 
 /** Register the demo analysis + a result view through the public registry. */
 export function registerDemoExtension(): void {

@@ -46,7 +46,7 @@ export function computeAvailability(
 
 // ─────────────────────────── the arch lens (ITEM-26 / DEC-29) ────────────────
 
-/** The two CPU arches ziee/cytoanalyst supports. `computeAvailabilityWithArch`
+/** The two CPU arches txresbench/txresbench supports. `computeAvailabilityWithArch`
  *  accepts any string for forward-compat, so an unrecognized backend arch simply
  *  matches nothing in a non-empty `arch` list. */
 export type BackendArch = 'x86_64' | 'aarch64'

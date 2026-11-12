@@ -79,7 +79,7 @@ def test_pytest_ini_registers_this_suite():
 
 def test_manifest_has_the_shape_the_processor_lint_accepts(manifest, analysis):
     assert manifest["id"] == "spatial-import-xenium"
-    assert manifest["publisher"] == "cyto"
+    assert manifest["publisher"] == "txr"
     assert manifest["apiVersion"] == "1.0"
     assert str(manifest["version"]).strip()
 

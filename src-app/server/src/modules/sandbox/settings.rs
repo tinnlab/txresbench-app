@@ -1,14 +1,14 @@
 //! Sandbox resource-limits singleton settings.
 //!
-//! Mirrors ziee `code_sandbox/resource_limits.rs` (minus the VM-only fields —
-//! DEC-3) + the SDK-native singleton idiom (`ziee-auth session_settings.rs`).
+//! Mirrors txresbench `code_sandbox/resource_limits.rs` (minus the VM-only fields —
+//! DEC-3) + the SDK-native singleton idiom (`txresbench-auth session_settings.rs`).
 //! Repository uses runtime `query_as` (NOT the `query!` macro) — the app stands
 //! up no build DB (SDK_GAPS G4).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// The singleton resource-limits row. `cpu_max` is bwrap/cgroup's
 /// `"<quota> <period>"` form (e.g. `"200000 100000"` = 2 cores).
@@ -48,7 +48,7 @@ pub struct SandboxResourceLimits {
     pub batch_mem_bytes: i64,
 
     /// #54: the deployment-wide default env-id the sandbox resolves its rootfs for
-    /// when neither the per-job converter nor `CYTO_SANDBOX_ENV_ID` names one. `None`
+    /// when neither the per-job converter nor `TXR_SANDBOX_ENV_ID` names one. `None`
     /// (or empty) = auto-detect from the installed processors' declared `env`, exactly
     /// as before this row existed. DATA (a manifest-declared env name), not the
     /// registry security boundary — the registry base stays a compiled read-only const.

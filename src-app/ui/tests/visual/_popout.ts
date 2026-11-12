@@ -1,7 +1,7 @@
 // Driving a REAL popped-out OS window from a gallery spec.
 //
 // A pane popped out of the workbench renders into a second window's document (`window.open` →
-// `@ziee/dock`'s `ContainerWindows` portals the pane's React subtree into it), and every kit
+// `@txresbench/dock`'s `ContainerWindows` portals the pane's React subtree into it), and every kit
 // overlay opened from inside it must portal into — and be laid out against — THAT window.
 //
 // Extracted here because two suites under two different Playwright configs need it:

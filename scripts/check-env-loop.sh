@@ -103,7 +103,7 @@ if [ "${#ENV_IDS[@]}" -lt 2 ]; then
   exit 1
 fi
 FIRST_ENV="${ENV_IDS[0]}"
-# The loop's image tag is `cyto-env-local-<id>:schema<N>-<arch>`; both components are
+# The loop's image tag is `txresbench-env-local-<id>:schema<N>-<arch>`; both components are
 # derived here the same way it derives them, so this file types neither.
 SCHEMA_V="$(grep -E 'const ROOTFS_SCHEMA_VERSION' \
   "$ROOT/src-app/server/src/modules/rootfs/version.rs" | grep -oE '[0-9]+' | tail -1)"
@@ -112,7 +112,7 @@ case "$(uname -m)" in
   aarch64|arm64) ARCH_V=arm64 ;;
   *)             ARCH_V="$(uname -m)" ;;
 esac
-ARCH_V="${CYTO_ENV_ARCH:-$ARCH_V}"
+ARCH_V="${TXR_ENV_ARCH:-$ARCH_V}"
 [ -n "$SCHEMA_V" ] || { echo "FAIL: cannot read ROOTFS_SCHEMA_VERSION" >&2; exit 1; }
 printf 'derived %d env recipe(s): %s\n' "${#ENV_IDS[@]}" "${ENV_IDS[*]}"
 
@@ -127,7 +127,7 @@ printf 'derived %d env recipe(s): %s\n' "${#ENV_IDS[@]}" "${ENV_IDS[*]}"
 # last three (the loop's own emitted line: its key, its path, and that executing it sets
 # that key to that path).
 tcase "TEST-9 — the per-env seam key is not a shell identifier"
-SEAM_KEY_BASE=CYTO_ENV_ROOTFS_SQUASHFS
+SEAM_KEY_BASE=TXR_ENV_ROOTFS_SQUASHFS
 SEAM_KEY="${SEAM_KEY_BASE}__$FIRST_ENV"
 # A PRECONDITION, not an assertion. It exercises nothing — it is a property of a string —
 # so counting it as a PASS inflated every mode's total by one and let a banner report it
@@ -256,7 +256,7 @@ for id in "${ENV_IDS[@]}"; do
   if [ "$rc" -ne 0 ]; then bad "publish --env $id --dry-run exited $rc"; continue; fi
   # It must plan a PER-ENV repo and BOTH tags — a plan that moved one shared tag would
   # publish one env over another.
-  if printf '%s' "$out" | grep -q "cyto-env/$id" \
+  if printf '%s' "$out" | grep -q "txresbench-env/$id" \
      && printf '%s' "$out" | grep -q 'moving    : schema' \
      && printf '%s' "$out" | grep -q 'immutable : schema'; then
     ok "publish --env $id --dry-run exits 0 and plans a per-env repo with both tags"
@@ -303,7 +303,7 @@ loop_out="$WORK/loop.out"
 env -u GITHUB_TOKEN -u GH_TOKEN -u GHCR_TOKEN -u GHCR_USER -u GITHUB_ACTOR \
     HOME="$WORK/home" \
     PATH="$STUBS:$PATH" \
-    CYTO_ENV_ROOTFS_CACHE="$WORK/cache" \
+    TXR_ENV_ROOTFS_CACHE="$WORK/cache" \
     sh "$LOOP" --env "$FIRST_ENV" > "$loop_out" 2>&1
 rc=$?
 if [ "$rc" -eq 0 ]; then ok "the full loop completed (exit 0) with every credential channel unset"
@@ -345,16 +345,16 @@ fi
 # `docker image inspect` and two refusals.
 tcase "TEST-12 — --reuse-image refuses a cross-env image, and accepts its own"
 SECOND_ENV="${ENV_IDS[1]}"
-built_tag="cyto-env-local-$FIRST_ENV:schema$SCHEMA_V-$ARCH_V"
+built_tag="txresbench-env-local-$FIRST_ENV:schema$SCHEMA_V-$ARCH_V"
 if ! docker image inspect "$built_tag" >/dev/null 2>&1; then
   bad "the loop's own build tag '$built_tag' is absent, so this section could not run.
         Stage first: $LOOP --all"
 else
-  lbl="$(docker image inspect --format '{{index .Config.Labels "com.cytoanalyst.env"}}' "$built_tag" 2>/dev/null)"
+  lbl="$(docker image inspect --format '{{index .Config.Labels "com.txresbench.env"}}' "$built_tag" 2>/dev/null)"
   if [ "$lbl" = "$FIRST_ENV" ]; then
-    ok "the loop labels what it builds (com.cytoanalyst.env=$lbl on $built_tag)"
+    ok "the loop labels what it builds (com.txresbench.env=$lbl on $built_tag)"
   else
-    bad "the image the loop built carries com.cytoanalyst.env='$lbl', not '$FIRST_ENV' —
+    bad "the image the loop built carries com.txresbench.env='$lbl', not '$FIRST_ENV' —
         the ONLY artifact-side evidence binding bytes to an env is absent or wrong"
   fi
 
@@ -367,7 +367,7 @@ else
   # notice is the Rust acceptance test failing with two identical digests — which is
   # exactly what happened while this test was being written. A test that can damage the
   # thing it is testing must run against its own copy.
-  sub_out="$(CYTO_ENV_ROOTFS_CACHE="$WORK/subcache" \
+  sub_out="$(TXR_ENV_ROOTFS_CACHE="$WORK/subcache" \
     sh "$LOOP" --env "$SECOND_ENV" --reuse-image "$built_tag" 2>&1)"
   sub_rc=$?
   # ── THE PREFIX HAZARD, and why this is not two `grep -qF` calls ────────────────
@@ -391,7 +391,7 @@ else
   refusal_line="$(printf '%s\n' "$sub_out" | sed -n '/FAIL: --reuse-image/,$p')"
   # TWO confounders removed, not one. The Rust twin removes the requested id because one
   # shipped id is a PREFIX of the other; the shell tier has a second source of the same
-  # substring that the Rust tier does not — the IMAGE TAG (`cyto-env-local-<id>:…`),
+  # substring that the Rust tier does not — the IMAGE TAG (`txresbench-env-local-<id>:…`),
   # which the refusal quotes back and which embeds FIRST_ENV verbatim. A mutation that
   # deleted the staged env from the message still passed with only the first removal,
   # because the tag supplied it. Both are stripped, and what must SURVIVE is the staged
@@ -426,12 +426,12 @@ else
   # label serves as the probe; one is derived from what docker already has locally rather
   # than named here.
   unlabelled="$(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
-    | grep -v '^cyto-env-local-' | grep -v '<none>' | head -1)"
+    | grep -v '^txresbench-env-local-' | grep -v '<none>' | head -1)"
   if [ -z "$unlabelled" ]; then
     bad "no unlabelled image available locally to probe the empty-label refusal with —
         this assertion could not run, which is a gap, not a pass"
   else
-    ul_out="$(CYTO_ENV_ROOTFS_CACHE="$WORK/ulcache" \
+    ul_out="$(TXR_ENV_ROOTFS_CACHE="$WORK/ulcache" \
       sh "$LOOP" --env "$FIRST_ENV" --reuse-image "$unlabelled" 2>&1)"; ul_rc=$?
     if [ "$ul_rc" -ne 0 ] && printf '%s' "$ul_out" | grep -qF "carries no"; then
       ok "an UNLABELLED image ($unlabelled) is refused for '$FIRST_ENV' (exit $ul_rc)"
@@ -444,7 +444,7 @@ else
   # CONTROL. Without it, "the cross-env case failed" is indistinguishable from
   # "--reuse-image is broken", and the assertion above would pass with the label
   # comparison deleted and replaced by an unconditional refusal.
-  ctl_out="$(CYTO_ENV_ROOTFS_CACHE="$WORK/ctlcache" sh "$LOOP" --env "$FIRST_ENV" --reuse-image "$built_tag" 2>&1)"
+  ctl_out="$(TXR_ENV_ROOTFS_CACHE="$WORK/ctlcache" sh "$LOOP" --env "$FIRST_ENV" --reuse-image "$built_tag" 2>&1)"
   ctl_rc=$?
   if [ "$ctl_rc" -eq 0 ]; then
     ok "control: the SAME env's own labelled image is still accepted (exit 0)"
@@ -464,12 +464,12 @@ fi
 # section exists.
 tcase "TEST-13 — a substituted cache slot is refused, and an honest one is not"
 cv_cache="$WORK/cvcache"; mkdir -p "$cv_cache"
-if ! CYTO_ENV_ROOTFS_CACHE="$cv_cache" sh "$LOOP" --all >/dev/null 2>&1; then
+if ! TXR_ENV_ROOTFS_CACHE="$cv_cache" sh "$LOOP" --all >/dev/null 2>&1; then
   bad "could not stage into an isolated cache; TEST-13 could not run"
 else
   # CONTROL FIRST: an honest cache must emit one line per env. Without it, "the
   # substituted cache was refused" is indistinguishable from "--print-seam always fails".
-  honest="$(CYTO_ENV_ROOTFS_CACHE="$cv_cache" sh "$LOOP" --print-seam 2>/dev/null)"; h_rc=$?
+  honest="$(TXR_ENV_ROOTFS_CACHE="$cv_cache" sh "$LOOP" --print-seam 2>/dev/null)"; h_rc=$?
   h_n="$(printf '%s' "$honest" | grep -c "$SEAM_KEY_BASE" || true)"
   if [ "$h_rc" -eq 0 ] && [ "$h_n" -eq "${#ENV_IDS[@]}" ]; then
     ok "control: an honest cache emits one verified seam per env (${#ENV_IDS[@]})"
@@ -480,7 +480,7 @@ else
   # THE SUBSTITUTION: env B's bytes into env A's slot, leaving A's sidecar intact.
   cp "$cv_cache/${ENV_IDS[1]}-schema$SCHEMA_V-$ARCH_V.squashfs" \
      "$cv_cache/${ENV_IDS[0]}-schema$SCHEMA_V-$ARCH_V.squashfs"
-  sub="$(CYTO_ENV_ROOTFS_CACHE="$cv_cache" sh "$LOOP" --print-seam 2>&1)"; s_rc=$?
+  sub="$(TXR_ENV_ROOTFS_CACHE="$cv_cache" sh "$LOOP" --print-seam 2>&1)"; s_rc=$?
   if [ "$s_rc" -ne 0 ] && printf '%s' "$sub" | grep -qF "does NOT match"; then
     ok "a cache slot holding another env's bytes is REFUSED by --print-seam (exit $s_rc)"
   else
@@ -500,10 +500,10 @@ else
   # one that discriminates.
   # Restore the first env, which the assertion above deliberately corrupted, so that the
   # ONLY failing env below is the last one.
-  CYTO_ENV_ROOTFS_CACHE="$cv_cache" sh "$LOOP" --env "${ENV_IDS[0]}" >/dev/null 2>&1 || true
+  TXR_ENV_ROOTFS_CACHE="$cv_cache" sh "$LOOP" --env "${ENV_IDS[0]}" >/dev/null 2>&1 || true
   cp "$cv_cache/${ENV_IDS[0]}-schema$SCHEMA_V-$ARCH_V.squashfs" \
      "$cv_cache/${ENV_IDS[$(( ${#ENV_IDS[@]} - 1 ))]}-schema$SCHEMA_V-$ARCH_V.squashfs"
-  sub_stdout="$(CYTO_ENV_ROOTFS_CACHE="$cv_cache" sh "$LOOP" --print-seam 2>/dev/null || true)"
+  sub_stdout="$(TXR_ENV_ROOTFS_CACHE="$cv_cache" sh "$LOOP" --print-seam 2>/dev/null || true)"
   if [ -z "$sub_stdout" ]; then
     ok "a --print-seam failing on the LAST env emits NO partial prefix for the earlier ones"
   else
@@ -516,7 +516,7 @@ else
   # check that an HONEST artifact is accepted, which is a different (and already covered)
   # claim; the harness caught the mix-up by failing, which is what it is for.
   last_env="${ENV_IDS[$(( ${#ENV_IDS[@]} - 1 ))]}"
-  CYTO_ENV_ROOTFS_CACHE="$cv_cache" bash "$PREFLIGHT" --env "$last_env" >/dev/null 2>&1
+  TXR_ENV_ROOTFS_CACHE="$cv_cache" bash "$PREFLIGHT" --env "$last_env" >/dev/null 2>&1
   pf_sub_rc=$?
   if [ "$pf_sub_rc" -ne 0 ]; then
     ok "the preflight's --env path inherits the refusal (it no longer resolves around it)"
@@ -533,7 +533,7 @@ bash "$PREFLIGHT" > "$pf_out" 2>/dev/null
 rc=$?
 if [ "$rc" -eq 0 ]; then
   last="$(tail -1 "$pf_out")"
-  # `justfile` assigns this straight to CYTO_ENV_ROOTFS_SQUASHFS in three places, so a
+  # `justfile` assigns this straight to TXR_ENV_ROOTFS_SQUASHFS in three places, so a
   # diagnostic printed last would be consumed as a path.
   if [ -s "$last" ]; then ok "default mode's last line is an existing artifact: $last"
   else bad "default mode's last line '$last' is not an existing file — the three
@@ -548,7 +548,7 @@ bash "$PREFLIGHT" --seams > "$seams_out" 2>/dev/null
 rc=$?
 if [ "$rc" -eq 0 ]; then
   prefix="$(tail -1 "$seams_out")"
-  n_assign="$(printf '%s' "$prefix" | grep -o "CYTO_ENV_ROOTFS_SQUASHFS__" | wc -l)"
+  n_assign="$(printf '%s' "$prefix" | grep -o "TXR_ENV_ROOTFS_SQUASHFS__" | wc -l)"
   # COMPARED TO THE DERIVED TREE, not to itself. The first version counted assignments
   # out of the emitted prefix and then compared the arrived count back to that same
   # number, so a --seams that emitted ONE of two envs reported "emitted 1" and "sets all
@@ -590,7 +590,7 @@ if [ "$rc" -eq 0 ]; then
   else bad "--seams --env was accepted; one of the two flags is being silently ignored"; fi
 
   # And it must WORK: execute the emitted prefix and count the variables that arrive.
-  arrived="$(eval "$prefix printenv" 2>/dev/null | grep -c '^CYTO_ENV_ROOTFS_SQUASHFS__')"
+  arrived="$(eval "$prefix printenv" 2>/dev/null | grep -c '^TXR_ENV_ROOTFS_SQUASHFS__')"
   if [ "$arrived" -eq "${#ENV_IDS[@]}" ]; then
     ok "executing the emitted prefix sets all ${#ENV_IDS[@]} seam variable(s)"
   else

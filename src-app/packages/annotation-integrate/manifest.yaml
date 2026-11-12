@@ -15,7 +15,7 @@
 # (chained after import) and Phase B (add-later).
 id: annotation-integrate
 name: Annotation Table Integrate
-publisher: cyto
+publisher: txr
 version: 0.2.1
 apiVersion: "1.0"
 contributes:

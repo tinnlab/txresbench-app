@@ -552,7 +552,7 @@ def test_no_sample_statement_reaches_the_artifact_the_mirror_and_the_page(tmp_pa
     (see the `section_sample_id` docstring and DEC-1). The branch makes the failure honest;
     that is the whole claim.
 
-    The consumer that matters is SANDBOXED and reads the store's `attributes.cyto`, not the
+    The consumer that matters is SANDBOXED and reads the store's `attributes.txr`, not the
     catalog row — so an assertion against the manifest alone would leave the channel that
     actually matters unchecked. All three copies are read here, plus the boundaries store,
     which is handed the same `series` object.

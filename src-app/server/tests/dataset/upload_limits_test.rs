@@ -30,14 +30,14 @@
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Value};
 
-use cytoanalyst::modules::file::upload_guard::MAX_PART_HEADER_BYTES;
+use txresbench::modules::file::upload_guard::MAX_PART_HEADER_BYTES;
 
 // Only TEST-2's in-process control constructs a guard directly, and TEST-2 is the
 // DESKTOP arm — so under `--features saas` these three are genuinely unused and an
 // ungated import warns. Gated to match the test that uses them rather than silenced
 // with an allow, so the pairing stays visible.
 #[cfg(not(feature = "saas"))]
-use cytoanalyst::modules::file::upload_guard::{GuardRefusal, UploadGuard, UploadLimits};
+use txresbench::modules::file::upload_guard::{GuardRefusal, UploadGuard, UploadLimits};
 
 use super::rss_probe::{peak_and_current_rss_kib, peak_rss_kib, server_child_pid, RssPoller, MIB};
 use super::upload_streaming_test::rss_measurement_guard;
@@ -213,7 +213,7 @@ async fn test9_raising_the_part_setting_accepts_an_upload_the_default_refuses() 
         "the seeded default equals the retired MAX_UPLOAD_PARTS const"
     );
 
-    let boundary = "cyto-test-parts-boundary";
+    let boundary = "txr-test-parts-boundary";
     let over = many_parts_body(boundary, 1025);
 
     // Leg 1 — 1025 parts against the 1024 default: the refusal `main` produces today.
@@ -313,8 +313,8 @@ async fn test1_saas_ceiling_is_read_at_use_from_the_configured_value() {
 #[cfg(not(feature = "saas"))]
 #[tokio::test]
 async fn test2_desktop_has_no_upload_size_ceiling() {
-    use cytoanalyst::modules::dataset::upload_body_ceiling;
-    use cytoanalyst::modules::workstore::settings::WorkstoreSettings;
+    use txresbench::modules::dataset::upload_body_ceiling;
+    use txresbench::modules::workstore::settings::WorkstoreSettings;
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
@@ -353,7 +353,7 @@ async fn test2_desktop_has_no_upload_size_ceiling() {
 
     // THE CONTROL: the same body IS refused when a ceiling exists, so the leg above
     // is evidence of policy and not of a guard that stopped working.
-    let boundary = "cyto-test-nocap-boundary";
+    let boundary = "txr-test-nocap-boundary";
     let mut same_body = Vec::new();
     same_body.extend_from_slice(
         format!(
@@ -416,7 +416,7 @@ async fn test4_a_multipart_header_block_is_bounded_and_not_buffered() {
     // same way `upload_streaming_test`'s wire test takes it.
     let _rss_lock = rss_measurement_guard().await;
 
-    let boundary = "cyto-test-hdr-boundary";
+    let boundary = "txr-test-hdr-boundary";
 
     // --- leg 1: the named refusal ------------------------------------------------
     // 4x the cap: over it by a wide margin, small enough that the whole request is

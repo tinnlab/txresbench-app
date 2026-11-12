@@ -25,7 +25,7 @@ implementation — they are seam/naming defects, not architectural holes.
   chat + mcp-host + tool-approval + ai-providers is an XL prerequisite for the
   headline AI-assisted capability; P9 owns only the registry→tools GENERATOR
   that sits on top of it. Both the completeness and sequence audits flag it.
-  **Resolution:** add an explicit **P0 platform-bootstrap** owner (port ziee's
+  **Resolution:** add an explicit **P0 platform-bootstrap** owner (port txresbench's
   `chat`/`mcp` or land the SDK Tier-1 `mcp` registry) and schedule it in Wave 1
   in parallel, or it silently becomes the Wave-5 critical path.
 
@@ -41,12 +41,12 @@ implementation — they are seam/naming defects, not architectural holes.
   `::AnalysisResult` for the same row. Resolution: one name — `::Artifact`
   (matches the P1-owned `artifacts` table).
 - **A6 — conformance-battery package-cycle risk:** P7 ITEM-8 (publish the
-  view-kind conformance battery) vs P5 ITEM-31 (it lives in `@cyto/workbench-api`).
-  Resolution: the battery's TYPES live in `@cyto/workbench-api` (P5); P7 provides
+  view-kind conformance battery) vs P5 ITEM-31 (it lives in `@txresbench/workbench-api`).
+  Resolution: the battery's TYPES live in `@txresbench/workbench-api` (P5); P7 provides
   the concrete test-suite that imports them — no cycle.
-- **A7 — P1/P4 stale-base reuse claim:** both ground "ziee-file is not a server
+- **A7 — P1/P4 stale-base reuse claim:** both ground "txresbench-file is not a server
   dep / raw upload is greenfield" on the analysis-workflow tree, which is BEHIND
-  main. Main tip `63520fb` already adopted ziee-file as a real server dep with
+  main. Main tip `63520fb` already adopted txresbench-file as a real server dep with
   dataset multipart upload (P2/P10/P11 correctly assume it exists). Re-ground P1
   ITEM-* + P4 ITEM-5 against main so the upload wiring isn't rebuilt.
 

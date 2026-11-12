@@ -185,12 +185,12 @@ Suggested shape:
 
 ### SUPERSEDED — closed by #80, not by this change
 
-This branch did build the helper above (`_lib/cyto_versions.py`). It is **not what
+This branch did build the helper above (`_lib/txr_versions.py`). It is **not what
 ships**, and the file is gone: while this branch was in review, `#80`
-(*feat/analysis-dep-contract*) landed `_lib/cyto_deps.py` on `main`, which closes
+(*feat/analysis-dep-contract*) landed `_lib/txr_deps.py` on `main`, which closes
 Defect E and two defects this section did not identify.
 
-| | this section's helper (#132) | what ships (`cyto_deps`, #80) |
+| | this section's helper (#132) | what ships (`txr_deps`, #80) |
 |---|---|---|
 | subject set | a tuple of module names hand-typed at each call site | the entry's `run.dependencies[]` **declaration**, the same source the build gate reads |
 | unresolvable version | a loud non-`None` sentinel, run continues | a named `DependencyRefusal` — the run is **refused** |
@@ -204,7 +204,7 @@ that cannot be resolved now stops the run instead of being written down.
 One decision this reverses is worth stating plainly, because this document argued the
 other way. §6 chose to **degrade** the report rather than refuse the run (the branch's
 `DEC-11`). `#80` **refuses**, deliberately and with its reasoning recorded in
-`cyto_deps.py`'s module docstring: a published result that came from an environment
+`txr_deps.py`'s module docstring: a published result that came from an environment
 contradicting its own declaration is worse than no result. `#80`'s choice is the newer
 one and is what stands.
 

@@ -100,8 +100,8 @@ def test_harmony_runs_pins_version_and_passes_theta_explicitly(reduce_run, requi
 
     # the corrected latent read back is (n_cells × n_pcs) — a real correction, same shape.
     root = run.outputs_dir / harmony[0]["path"]
-    import cyto_zarr_read
-    z = cyto_zarr_read.read_array(root, "X_harmony")
+    import txr_zarr_read
+    z = txr_zarr_read.read_array(root, "X_harmony")
     assert z.shape == (n_cells, hm["n_pcs"])
 
 

@@ -1,4 +1,4 @@
-// @ziee/gallery — the render-every-surface × states × themes visual-testing
+// @txresbench/gallery — the render-every-surface × states × themes visual-testing
 // FRAMEWORK. The app supplies its own surfaces (per-module `gallery.tsx`),
 // cassettes, and coverage maps; this package supplies the runner, the four gates
 // (gate:ui + runtime-health + coverage + prod-exclusion, under `scripts/`), and

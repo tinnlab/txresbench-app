@@ -22,7 +22,7 @@
  *   board's `var(--txr-danger)`, the default tone the board's link blue.
  */
 import type { CSSProperties } from 'react'
-import { Button, Checkbox } from '@ziee/kit'
+import { Button, Checkbox } from '@txresbench/kit'
 import type { TxrListRow, TxrListSection } from '../types'
 
 /** The section action link colours (board literals; DEC-8). */

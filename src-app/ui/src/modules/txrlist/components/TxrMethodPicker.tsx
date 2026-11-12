@@ -43,7 +43,7 @@
  * gallery and the D/I screens keep the old composition).
  */
 import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
-import { Button, Input, Select, Skeleton } from '@ziee/kit'
+import { Button, Input, Select, Skeleton } from '@txresbench/kit'
 import type { TxrMethodCard } from '../types'
 import {
   filterMethodCards,

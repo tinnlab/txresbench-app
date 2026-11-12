@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
-import { callAsync, getAuthToken, getBaseUrl } from '@ziee/framework/api-client'
-import { isDocumentUnloading } from '@ziee/framework/sync'
+import { callAsync, getAuthToken, getBaseUrl } from '@txresbench/framework/api-client'
+import { isDocumentUnloading } from '@txresbench/framework/sync'
 import { onAgentConnected, onAgentDisconnected } from './capabilityReport'
 import { createActionContext } from './ctx'
 import { getActionMeta, runAction } from './defineAction'
@@ -15,7 +15,7 @@ import { runSerialized } from './instanceLock'
 // `POST /api/mcp/agent/progress`, posts the final `POST /api/mcp/agent/result`,
 // and answers `ping` frames via `POST /api/mcp/agent/pong` using a per-request
 // EXECUTION RECORD (ARCHITECTURE.md Layer 7). Reconnects on drop (mirrors
-// `@ziee/framework/sync`'s `SyncClient` backoff/epoch shape — see
+// `@txresbench/framework/sync`'s `SyncClient` backoff/epoch shape — see
 // `sdk/packages/framework/src/sync/SyncClient.ts`).
 //
 // The agent stream is a plain (non-`api_route`) SSE endpoint, so — like
@@ -26,7 +26,7 @@ import { runSerialized } from './instanceLock'
 // CONTRACT.md — `ApiClient.Mcp.*` doesn't exist yet (the OpenAPI regen for
 // the backend's `modules/mcp` routes is a later step owned by another agent).
 
-const SESSION_STORAGE_KEY = 'ziee-actions-session-id'
+const SESSION_STORAGE_KEY = 'txresbench-actions-session-id'
 const INITIAL_BACKOFF_MS = 1_000
 const MAX_BACKOFF_MS = 30_000
 // A connection must stay alive this long before we trust it as "stable" and

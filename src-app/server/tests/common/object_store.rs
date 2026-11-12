@@ -23,7 +23,7 @@
 //!
 //! ```text
 //! project::scope::gc_manifest_threading_and_sweep ... FAILED
-//!   workstore.gc: refusing to sweep /tmp/cyto-ingest-store-<uuid>/workstore
+//!   workstore.gc: refusing to sweep /tmp/txr-ingest-store-<uuid>/workstore
 //!   — its .catalog-owner claim could not be read (No such file or directory)
 //! ```
 //!
@@ -52,9 +52,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use cytoanalyst::modules::workstore::config::{ObjectStoreKind, WorkstoreConfig, WorkstoreLimits};
-use cytoanalyst::modules::workstore::partition::resolve_owned_root;
-use cytoanalyst::modules::workstore::{init_working_store, try_get_store_claim};
+use txresbench::modules::workstore::config::{ObjectStoreKind, WorkstoreConfig, WorkstoreLimits};
+use txresbench::modules::workstore::partition::resolve_owned_root;
+use txresbench::modules::workstore::{init_working_store, try_get_store_claim};
 
 static SHARED: OnceLock<PathBuf> = OnceLock::new();
 
@@ -71,7 +71,7 @@ static SHARED: OnceLock<PathBuf> = OnceLock::new();
 pub fn shared_object_store_root() -> &'static Path {
     SHARED.get_or_init(|| {
         reap_stale_roots();
-        let root = std::env::temp_dir().join(format!("cyto-testbin-store-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("txr-testbin-store-{}", std::process::id()));
         let key = format!("testbin-{}", std::process::id());
         let claim = resolve_owned_root(&root, &key);
         init_working_store(&WorkstoreConfig {
@@ -125,7 +125,7 @@ fn reap_stale_roots() {
     for e in entries.flatten() {
         let name = e.file_name();
         let Some(name) = name.to_str() else { continue };
-        if !name.starts_with("cyto-testbin-store-") {
+        if !name.starts_with("txr-testbin-store-") {
             continue;
         }
         let stale = e

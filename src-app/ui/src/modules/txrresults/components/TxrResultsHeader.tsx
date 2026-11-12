@@ -24,7 +24,7 @@
  */
 import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import type { TxrPredictionsResponse, TxrRunDetail } from '@/api-client/types'
 import { emitSaveModels, emitSaveOneModel } from '../events'
 import { formatSubtitle } from '../lib/format'

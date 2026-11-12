@@ -23,7 +23,7 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::object_store::{sha256_hex, ContentKey, ObjectStore};
+use txresbench::modules::workstore::object_store::{sha256_hex, ContentKey, ObjectStore};
 
 use super::{create_member_token, create_project, setup_admin};
 use crate::common::TestServer;

@@ -9,7 +9,7 @@ import { seedRunnableMatrix } from './_seed'
 // by `ArtifactPanel.test.ts`; here we assert the review renders. (The former per-analysis
 // run-history LIST was folded into the graph-centric Provenance pane.)
 //
-// HOST-CAPABILITY-gated on CYTO_E2E_REAL_COMPUTE (bwrap + CYTO_ENV_ROOTFS_DIR).
+// HOST-CAPABILITY-gated on TXR_E2E_REAL_COMPUTE (bwrap + TXR_ENV_ROOTFS_DIR).
 
 test.describe('artifact compare (ITEM-39)', () => {
   test.skip(!REAL_COMPUTE, REAL_COMPUTE_SKIP)

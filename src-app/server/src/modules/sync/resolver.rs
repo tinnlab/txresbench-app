@@ -11,9 +11,9 @@
 //! gate". Wiring the gate without also supplying the epoch would compile, pass
 //! its tests, and never fire.
 //!
-//! CytoAnalyst's access tokens DO carry the epoch: they are minted by the SDK's
+//! TxResBench's access tokens DO carry the epoch: they are minted by the SDK's
 //! `JwtService::generate_access_token`, which stamps `ver: Some(token_version)`
-//! (`sdk/crates/ziee-auth/src/auth/jwt.rs`). Nothing was reading it. This
+//! (`sdk/crates/txresbench-auth/src/auth/jwt.rs`). Nothing was reading it. This
 //! resolver reads it.
 //!
 //! Scope: deliberately used ONLY by the sync module's routes, so the app-wide
@@ -26,11 +26,11 @@ use std::sync::Arc;
 
 use axum::http::{request::Parts, StatusCode};
 
-use ziee_auth::auth::jwt::Claims;
-use ziee_auth::auth::{DefaultIdentityResolver, JwtService};
-use ziee_auth::user::{Group, User};
-use ziee_core::AppError;
-use ziee_framework::permissions::IdentityResolver;
+use txresbench_auth::auth::jwt::Claims;
+use txresbench_auth::auth::{DefaultIdentityResolver, JwtService};
+use txresbench_auth::user::{Group, User};
+use txresbench_core::AppError;
+use txresbench_framework::permissions::IdentityResolver;
 
 /// `DefaultIdentityResolver` + the access-token epoch seam.
 pub struct SyncIdentityResolver {

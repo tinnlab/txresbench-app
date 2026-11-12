@@ -12,8 +12,8 @@ use chrono::Utc;
 use sqlx::Row;
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::models::Job;
-use cytoanalyst::modules::jobs::seams::{ComputeMeter, ComputeUsage, NoopComputeMeter};
+use txresbench::modules::jobs::models::Job;
+use txresbench::modules::jobs::seams::{ComputeMeter, ComputeUsage, NoopComputeMeter};
 
 use crate::common::TestServer;
 

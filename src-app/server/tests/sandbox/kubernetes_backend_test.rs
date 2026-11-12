@@ -10,7 +10,7 @@
 //! green. Run it against a cluster:
 //!   just cloud-sim-test-floci-k8s
 //!   export KUBECONFIG=src-app/cloud-sim/.floci-kube-config
-//!   CYTO_WORKER_IMAGE=busybox:latest cargo test -p cytoanalyst --features saas \
+//!   TXR_WORKER_IMAGE=busybox:latest cargo test -p txresbench --features saas \
 //!     --test integration_tests sandbox::kubernetes_backend -- --test-threads=1
 
 #![cfg(feature = "saas")]
@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 
 use uuid::Uuid;
 
-use cytoanalyst::modules::sandbox::backend::{
+use txresbench::modules::sandbox::backend::{
     ComputeSpec, PriorityClass, ProgressFrame, ProgressSink, ResourceClass, ResourceProfile,
 };
 
@@ -95,8 +95,8 @@ async fn cluster_reachable() -> bool {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn kubernetes_backend_mints_job_streams_logs_surfaces_exit() {
-    use cytoanalyst::modules::sandbox::backend::kubernetes::KubernetesBackend;
-    use cytoanalyst::modules::sandbox::backend::ComputeBackend;
+    use txresbench::modules::sandbox::backend::kubernetes::KubernetesBackend;
+    use txresbench::modules::sandbox::backend::ComputeBackend;
 
     let backend = KubernetesBackend::new();
     // `supports` = exactly the three remote classes; NOT cpu-sandbox (that is the pool's). This
@@ -115,7 +115,7 @@ async fn kubernetes_backend_mints_job_streams_logs_surfaces_exit() {
         return;
     }
 
-    // The ClusterBatch nodeSelector is `cyto.io/pool=batch` (per-class node pools, DE-INV-7).
+    // The ClusterBatch nodeSelector is `txr.io/pool=batch` (per-class node pools, DE-INV-7).
     // The single-node kind cluster has no labeled pools, so label the node(s) — this proves the
     // real nodeSelector path (the pod schedules onto the matching node), not a bypass.
     let labeled = std::process::Command::new("kubectl")
@@ -123,13 +123,13 @@ async fn kubernetes_backend_mints_job_streams_logs_surfaces_exit() {
             "label",
             "node",
             "--all",
-            "cyto.io/pool=batch",
+            "txr.io/pool=batch",
             "--overwrite",
         ])
         .output();
     assert!(
         labeled.map(|o| o.status.success()).unwrap_or(false),
-        "labeled the kind node cyto.io/pool=batch so the ClusterBatch nodeSelector matches"
+        "labeled the kind node txr.io/pool=batch so the ClusterBatch nodeSelector matches"
     );
 
     // The job-per-run backend now requires a configured object store (INV-4 / #66): the pod
@@ -139,20 +139,20 @@ async fn kubernetes_backend_mints_job_streams_logs_surfaces_exit() {
     let _store = crate::common::object_store::shared_object_store_root();
 
     let sink = Arc::new(CapturingSink::default());
-    // The manifest now runs `cytoanalyst run-job --job-id <id>` (NOT an arbitrary command — the
-    // data-plane #66 change). On the plain `busybox` test image there is no `cytoanalyst` binary,
+    // The manifest now runs `txresbench run-job --job-id <id>` (NOT an arbitrary command — the
+    // data-plane #66 change). On the plain `busybox` test image there is no `txresbench` binary,
     // so the container exec fails and the pod goes Failed — which is exactly what exercises the
     // launch → watch → exit-surface → Drop-delete MECHANICS this test asserts (INV-6/INV-7). The
     // command that RUNS is asserted structurally by the unit test `test_2_build_job_wires_...`.
     let spec = cluster_batch_spec("unused-by-the-data-plane-manifest");
-    let name = format!("cyto-{}", spec.job_id.simple());
+    let name = format!("txr-{}", spec.job_id.simple());
     let mut launched = backend
         .launch(spec, sink.clone())
         .await
         .expect("launch mints a k8s Job and returns a shepherd child");
 
     // The shepherd surfaces the pod's exit (INV-7 trait-unchanged: a pod is not a local child,
-    // yet `wait()` works). The busybox pod fails to exec `cytoanalyst`, so the code is non-zero —
+    // yet `wait()` works). The busybox pod fails to exec `txresbench`, so the code is non-zero —
     // the point is that an exit is surfaced at all, on a real cluster, via the watcher.
     let status = launched.child.wait().await.expect("shepherd exits");
     assert!(
@@ -185,12 +185,12 @@ mod remote_skip {
 
     use async_trait::async_trait;
     use uuid::Uuid;
-    use ziee_core::AppError;
+    use txresbench_core::AppError;
 
-    use cytoanalyst::modules::jobs::repository::JobRepository;
-    use cytoanalyst::modules::jobs::runner::{JobRunner, SandboxJobRunner};
-    use cytoanalyst::modules::sandbox::backend::local_bwrap::BackendRegistry;
-    use cytoanalyst::modules::sandbox::backend::{
+    use txresbench::modules::jobs::repository::JobRepository;
+    use txresbench::modules::jobs::runner::{JobRunner, SandboxJobRunner};
+    use txresbench::modules::sandbox::backend::local_bwrap::BackendRegistry;
+    use txresbench::modules::sandbox::backend::{
         BackendAvailability, ComputeBackend, ComputeSpec, LaunchedCompute, ProgressSink,
         ResourceClass,
     };

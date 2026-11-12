@@ -41,7 +41,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use cytoanalyst::modules::workstore::alignment::{extent, role, AlignmentPlan, AlignmentVectors};
+use txresbench::modules::workstore::alignment::{extent, role, AlignmentPlan, AlignmentVectors};
 
 use crate::common::zarr;
 
@@ -446,7 +446,7 @@ fn a_gathered_chunk_straddles_sources_so_nothing_can_be_passed_through() {
         let plan = AlignmentPlan::parse(&entry["structure"], &entry["meta"]).expect("plan");
         let v = decode_vectors(&dir, &plan);
 
-        let chunk = cytoanalyst::modules::workstore::gathered::CHUNK_ELEMENTS;
+        let chunk = txresbench::modules::workstore::gathered::CHUNK_ELEMENTS;
         let hi = usize::min(chunk, plan.n_rows);
         let sources: std::collections::BTreeSet<usize> = (0..hi)
             .map(|i| v.resolve_row(i).expect("row resolves").0)

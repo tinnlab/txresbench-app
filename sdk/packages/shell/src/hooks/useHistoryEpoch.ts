@@ -29,7 +29,7 @@
  * both ONCE, call-through-then-notify (never swallowing or altering the call), and
  * exposes the result through `useSyncExternalStore`. Patching is install-once per
  * MODULE INSTANCE (a single `installed` flag), so repeated mounts cannot stack
- * wrappers; two copies of `@ziee/shell` in one bundle would each install one,
+ * wrappers; two copies of `@txresbench/shell` in one bundle would each install one,
  * which is harmless (each call-through still forwards) but would double-notify.
  * The patch is deliberately never uninstalled — the shell lives for the life of
  * the document, and restoring it would race any other holder of the wrapper.

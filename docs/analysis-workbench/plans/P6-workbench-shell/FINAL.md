@@ -17,7 +17,7 @@ per-plugin UI code; a `component` injection is the escape hatch only for interac
 supersedes the interface-round V2 (`components/WorkspacePanel.tsx` + `ContextPanel`/`AnalysesDock`/
 `ExplorerCanvas`), a single constrained `max-w-5xl` study-section panel.
 
-**Scope:** desktop + single-box server; on-system `@ziee/kit`; render from P5 registries with a
+**Scope:** desktop + single-box server; on-system `@txresbench/kit`; render from P5 registries with a
 fallback adapter over the existing `analysisRegistry`/`AnalysisWorkspace` mock so the shell lands +
 demos before P5/P7/P8 merge. No multi-topology / free-docking concerns.
 
@@ -35,7 +35,7 @@ demos before P5/P7/P8 merge. No multi-topology / free-docking concerns.
   `{ left,right,bottom: { collapsed:boolean, size:number }, activeTab: Record<area,string>,
   plotLayout:'single'|'split', colorBy, resetToken }`. Actions: `toggleDock(area)`, `setSize(area,px)`,
   `setActiveTab(area,id)`, `setPlotLayout(m)`, `resetLayout()`. Persist per-user×study to
-  `localStorage` (key `cyto.wb.layout.<studyId>`, mirroring split-chat's `splitWorkspace.persist`);
+  `localStorage` (key `txr.wb.layout.<studyId>`, mirroring split-chat's `splitWorkspace.persist`);
   `ensureStudy(id)` resets on study switch; server-side persistence DEFERRED (open seam).
   `resetLayout()`/`workbench.resetLayout` command restores IA defaults (left+bottom open, right open,
   canvas maximal). Reads reactively in the shell; key persisted sizes by stable `area`, not per-tab id.
@@ -82,7 +82,7 @@ demos before P5/P7/P8 merge. No multi-topology / free-docking concerns.
   `ViewContribution.render` (IA §1.1): `{schema}`→`SchemaForm` (ITEM-8), `{table}`/result-kind→
   `ResultPanelHost` (ITEM-9), `{plot}`→a P7 view-kind cell, `{component}`→a built-in code panel
   (interactive tools §4.4), `{iframe}` DEFERRED. Host-owned chrome (header/collapse/resize); the module
-  fills only the content slot, built from `@ziee/kit` so contributed panels look native (IA §4.5.2).
+  fills only the content slot, built from `@txresbench/kit` so contributed panels look native (IA §4.5.2).
 
 - **ITEM-8 — Host form-from-JSON-schema (`SchemaForm`) — P6 OWNS this renderer (A3).**
   **Reconciliation A3: P6 is the sole owner of the `SchemaForm` / form-from-JSON-schema renderer** (a host/shell
@@ -159,7 +159,7 @@ demos before P5/P7/P8 merge. No multi-topology / free-docking concerns.
   chrome nearly invisible so data is the only color. Force-dark the canvas region minimum (a
   `data-workbench-canvas` dark scope) regardless of app theme; docks theme-aware but low-chroma. Reuse
   existing tokens (`bg-card`, `border-border`, `muted`); add a small workbench dark surface token set if
-  needed (coordinate with `@ziee/kit` DESIGN_DIRECTION — "research workbench" is its stated subject);
+  needed (coordinate with `@txresbench/kit` DESIGN_DIRECTION — "research workbench" is its stated subject);
   design-system tokens only, no raw colors. Resolves FB-1 (plain/templated) + FB-2 (restrained dark
   chrome); supersedes the earlier glowy-glass direction.
 
@@ -199,7 +199,7 @@ Modify:
 - `analysis/module.tsx` — register `WorkbenchLayout` store.
 - `analysis/gallery.tsx` — workbench shell stories, remove V2 stories (ITEM-17).
 
-Consumes (do not author here): P5 `@cyto/workbench-api` (registries `{views,fieldProviders,
+Consumes (do not author here): P5 `@txresbench/workbench-api` (registries `{views,fieldProviders,
 resultRenderers,selectionActions,commands}` + `WorkbenchAPI.{data,selection,commands,compute,ui}`);
 P7 viz engine grid from `modules/visualization/viz-core`; P10 `studyExtensionRegistry` +
 `Stores.StudyDetail`.
@@ -222,13 +222,13 @@ bottom-dock tabs), `ResultCard.tsx`+`MarkerTable.tsx` (→ ResultPanelHost), `Ex
   `SplitChatView`) — the pane-layout + per-study persistence + reconcile precedent for ITEM-2/3.
 - **Study-extension slot seam** (`study/core/extensions/*`) — the workbench mounts through `study_nav`
   + `detail_panels` (already wired); add `fullBleed` only.
-- **`@ziee/kit`** — `Tabs`, `ScrollArea`, `Table`, `Segmented`, `Select`, `Slider`, `Button`, `Dropdown`,
+- **`@txresbench/kit`** — `Tabs`, `ScrollArea`, `Table`, `Segmented`, `Select`, `Slider`, `Button`, `Dropdown`,
   `Tooltip`, `Separator`, `Sheet`, `Empty`, `Spinner`/`Progress`, `InputNumber`, `Switch`, `MultiSelect`,
   `Statistic`, `useIsMobile`; plus the newly-exported `Resizable*` (ITEM-1) + `shadcn/collapsible`. All
   docks/tabs/forms built from kit per §4.5.2 (native, not foreign).
-- **`SettingsPageContainer` / card patterns** (ziee host) for panel chrome consistency.
+- **`SettingsPageContainer` / card patterns** (txresbench host) for panel chrome consistency.
 - **P5 registries** (`views`/`analyses`/`resultRenderers`/`fieldProviders`/`selectionActions`/`commands`
-  from `@cyto/workbench-api`, PLATFORM_ARCH §1/§2) — the source the shell renders from.
+  from `@txresbench/workbench-api`, PLATFORM_ARCH §1/§2) — the source the shell renders from.
 - **P7 viz** (view-kind registry + grid + Coordination store) — hosted by CenterCanvasHost.
 - **P8 selection** (`api.selection`/`brush`/`pick`) — drives the right inspector + left click-to-color.
 
@@ -285,7 +285,7 @@ bottom-dock tabs), `ResultCard.tsx`+`MarkerTable.tsx` (→ ResultPanelHost), `Ex
   small-multiples are a P7 canvas LAYOUT MODE driven by the P6 toolbar control (IA decision 1/7).
 - **DEC-P6-6 Panels host-rendered by default; injection only for interactive tools.** ~90% of docks are
   host-standard (SchemaForm + ResultPanelHost); a `component` ViewContribution is the only injection,
-  built from `@ziee/kit` into a semantic slot the host composes (IA §4.5). `iframe` code-views DEFERRED.
+  built from `@txresbench/kit` into a semantic slot the host composes (IA §4.5). `iframe` code-views DEFERRED.
 - **DEC-P6-7 Toolbar exposes a `commands`-registry injection region.** Built-in controls PLUS
   contribution toolbar-targeted `CommandContribution`s render as buttons, overflow menu on narrow width.
   (r2-distinct — compatible with and additive to the built-in controls; adopted alongside DEC-P6-5.)
@@ -324,7 +324,7 @@ bottom-dock tabs), `ResultCard.tsx`+`MarkerTable.tsx` (→ ResultPanelHost), `Ex
   fight; may need the stripe rendered OUTSIDE the panel group (overlay rail). Plus the handle-focus +
   stripe-button `aria-expanded`/roles must pass axe in the runtime-health gate. Prototype ITEM-4 early.
 - **Dark-chrome vs app theme.** Forcing a dark canvas region while docks follow theme can create a
-  seam/contrast mismatch; needs a token decision with `@ziee/kit`.
+  seam/contrast mismatch; needs a token decision with `@txresbench/kit`.
 - **Layout key stability.** Dock ids change as contributions register; persisted sizes must key by a
   stable `area`, not per-tab id, or a reset is forced on contribution churn.
 - **Mobile fallback fidelity.** 3 edge docks → sheets can bury the selection loop; verify

@@ -47,7 +47,7 @@
 #     read   <inputs>/inputs.json, <inputs>/params.json, and the staged artifacts
 #     write  <outputs>/metadata/<label>_{score,call}.zarr, <outputs>/scdblfinder-report.json
 #     write  <outputs>/manifest.json  LAST, and only after the artifacts exist
-# Roots are `/inputs` and `/outputs`, overridable via CYTO_INPUTS_DIR / CYTO_OUTPUTS_DIR
+# Roots are `/inputs` and `/outputs`, overridable via TXR_INPUTS_DIR / TXR_OUTPUTS_DIR
 # exactly as the python entries are, which is what lets the off-sandbox harness drive the
 # REAL entry rather than a stand-in.
 
@@ -303,8 +303,8 @@ score_population <- function(counts_cg, opts, seed) {
 # ── main ────────────────────────────────────────────────────────────────────────────
 
 main <- function() {
-  inputs_dir <- Sys.getenv("CYTO_INPUTS_DIR", unset = "/inputs")
-  outputs_dir <- Sys.getenv("CYTO_OUTPUTS_DIR", unset = "/outputs")
+  inputs_dir <- Sys.getenv("TXR_INPUTS_DIR", unset = "/inputs")
+  outputs_dir <- Sys.getenv("TXR_OUTPUTS_DIR", unset = "/outputs")
   dir.create(outputs_dir, recursive = TRUE, showWarnings = FALSE)
 
   PARAMS <<- read_params(inputs_dir)
@@ -408,7 +408,7 @@ main <- function() {
                           "independently."), BATCH_SLOT, format(col$kind)))
     }
     node <- read_json_file(file.path(batch_path, "values", "zarr.json"))
-    levels_ <- as.character(unlist(node$attributes$cyto$levels))
+    levels_ <- as.character(unlist(node$attributes$txr$levels))
     codes <- read_member_array(batch_path, "values", as = "uint8")
     if (length(codes) != n_cells) {
       fail(sprintf(paste0("the `%s` artifact holds %d values but the matrix declares %d ",
@@ -426,9 +426,9 @@ main <- function() {
   ci_path <- slots[[CELLS_INDEX_SLOT]]
   if (!is.null(ci_path) && dir.exists(ci_path)) {
     node <- read_json_file(file.path(ci_path, "values", "zarr.json"))
-    kind <- node$attributes$cyto$kind
+    kind <- node$attributes$txr$kind
     keys <- if (identical(kind, "categorical")) {
-      lv <- as.character(unlist(node$attributes$cyto$levels))
+      lv <- as.character(unlist(node$attributes$txr$levels))
       lv[as.integer(read_member_array(ci_path, "values", as = "uint8")) + 1L]
     } else {
       fail(sprintf(paste0("the `%s` artifact is a %s column; this entry can only read a ",

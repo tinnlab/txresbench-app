@@ -67,7 +67,7 @@
 
 use std::ops::Deref;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::catalog::models::Artifact;
 

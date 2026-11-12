@@ -5,7 +5,7 @@
 
 use super::*;
 
-use cytoanalyst::modules::provenance::repository::{NewRun, ProvenanceRepository};
+use txresbench::modules::provenance::repository::{NewRun, ProvenanceRepository};
 
 /// A minimal `NewArtifact` for the walk (only scope + run linkage matter here).
 fn art(

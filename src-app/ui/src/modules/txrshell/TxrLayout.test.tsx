@@ -18,7 +18,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { ThemeContext, type ThemeContextValue } from '@ziee/shell'
+import { ThemeContext, type ThemeContextValue } from '@txresbench/shell'
 import { TxrShell } from './TxrLayout'
 
 const HERE = dirname(fileURLToPath(import.meta.url))

@@ -10,7 +10,7 @@ import { singleSlotFormBackedAnalysis } from './_analysis'
 //
 // The obvious shape for "a run launched on an unreviewed binding is observably different" is
 // to launch two runs and read the provenance rows back. That needs a sandbox-executable host
-// (bwrap + a rootfs), which this suite gates behind `CYTO_E2E_REAL_COMPUTE`, and a gated spec
+// (bwrap + a rootfs), which this suite gates behind `TXR_E2E_REAL_COMPUTE`, and a gated spec
 // that self-skips is a SKIP — not a pass, and not a proof of anything.
 //
 // So the invariant is proven where it is reachable without one: the request the browser
@@ -90,7 +90,7 @@ test.describe('binding origin travels the whole chain (TEST-28)', () => {
     // `runGate` reported the form READY — so a run launched on a binding nobody looked at.
     // One input slot, one seeded artifact of its datatype: the auto-pick fires and Run enables
     // with no sandbox, which is what makes this an OBSERVED end-to-end pass rather than a
-    // `CYTO_E2E_REAL_COMPUTE` self-skip dressed up as one.
+    // `TXR_E2E_REAL_COMPUTE` self-skip dressed up as one.
     await loginAsOwner(page)
     const projectId = await createProject(request, `Origin Chain ${Date.now()}`)
     await openWorkbench(page, projectId)

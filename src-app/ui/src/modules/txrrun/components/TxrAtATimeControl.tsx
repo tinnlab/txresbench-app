@@ -22,8 +22,8 @@
  * pick's words, never a silent stale value (DRIFT-1 ITEM-5 #1 class).
  */
 import type { CSSProperties } from 'react'
-import { Segmented } from '@ziee/kit'
-import type { SegmentedOption } from '@ziee/kit'
+import { Segmented } from '@txresbench/kit'
+import type { SegmentedOption } from '@txresbench/kit'
 import { SETTING_OPTIONS } from '../lib/settings'
 
 const ROW: CSSProperties = {

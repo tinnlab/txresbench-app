@@ -17,8 +17,8 @@ import {
   Spinner,
   Tag,
   message,
-} from '@ziee/kit'
-import { SettingsPageContainer } from '@ziee/shell'
+} from '@txresbench/kit'
+import { SettingsPageContainer } from '@txresbench/shell'
 import { useState } from 'react'
 
 /** Compact date for the last-activity column. */

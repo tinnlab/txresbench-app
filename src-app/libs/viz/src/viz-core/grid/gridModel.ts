@@ -4,8 +4,8 @@
 // the whole file is unit-testable in node. Generic, domain-agnostic naming
 // (DEC-28): a "cell" is a logical view bound to a pane; nothing here knows biology.
 
-import type { LayoutNode } from '@ziee/dock'
-import { leafIds } from '@ziee/dock'
+import type { LayoutNode } from '@txresbench/dock'
+import { leafIds } from '@txresbench/dock'
 import type { PixelSource } from '@vivjs/types'
 // From the deck-FREE `layerIds` module, NOT `multiView` (which imports `@deck.gl/core`).
 // This file is pure data read by the option parser and the grid STORE; taking a value from

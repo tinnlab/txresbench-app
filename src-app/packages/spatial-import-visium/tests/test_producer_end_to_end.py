@@ -296,7 +296,7 @@ def test_the_vendor_pipeline_is_recorded_into_the_existing_channels(imported):
 
     Also asserts the NEGATIVE half of the design's instruction ("do not invent a second
     provenance channel"): the only outputs carrying provenance are the artifact `meta`,
-    the report, and `cyto_deps`' run-environment record. A new file or a new output id
+    the report, and `txr_deps`' run-environment record. A new file or a new output id
     would be the second channel.
     """
     out, entries = imported["out"], imported["entries"]

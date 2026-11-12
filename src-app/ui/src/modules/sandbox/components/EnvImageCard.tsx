@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
-import { Alert, Card, Form, FormField, Input, message, useForm } from '@ziee/kit'
-import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from '@ziee/kit/shadcn/field'
+import { Alert, Card, Form, FormField, Input, message, useForm } from '@txresbench/kit'
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from '@txresbench/kit/shadcn/field'
 import { Permissions } from '@/api-client/permissions'
 import { usePermission } from '@/core/permissions'
 import { SandboxSettings } from '@/modules/sandbox/stores/SandboxSettings.store'

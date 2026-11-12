@@ -49,8 +49,8 @@ for _p in (_PROCESSORS / "_lib", _PROCESSORS / "_helpers", _HERE.parent):
 pd = pytest.importorskip("pandas")
 
 import align  # noqa: E402
-import cyto_columns  # noqa: E402
-import cyto_zarr_read  # noqa: E402
+import txr_columns  # noqa: E402
+import txr_zarr_read  # noqa: E402
 import annotation_integrate as ai  # noqa: E402
 
 BARCODES = ["AAACCTGAGAAACCAT-1", "AAACCTGAGAAAGTGG-1", "AAACCTGAGAACAATC-1"]
@@ -228,7 +228,7 @@ def _run_dir(root: Path, *, table_rows, axis_keys=BARCODES, params=None,
     )
     (inputs / table_name).write_text(body + "\n")
 
-    cyto_columns.write_metadata_column(
+    txr_columns.write_metadata_column(
         inputs, axis_subpath, "cells_index", pd.Series(list(axis_keys)),
         axis="cells", holds_axis_keys=True,
     )
@@ -245,9 +245,9 @@ def _run_dir(root: Path, *, table_rows, axis_keys=BARCODES, params=None,
 
 
 def _run_main(inputs: Path, outputs: Path):
-    saved = {k: os.environ.get(k) for k in ("CYTO_INPUTS_DIR", "CYTO_OUTPUTS_DIR")}
-    os.environ["CYTO_INPUTS_DIR"] = str(inputs)
-    os.environ["CYTO_OUTPUTS_DIR"] = str(outputs)
+    saved = {k: os.environ.get(k) for k in ("TXR_INPUTS_DIR", "TXR_OUTPUTS_DIR")}
+    os.environ["TXR_INPUTS_DIR"] = str(inputs)
+    os.environ["TXR_OUTPUTS_DIR"] = str(outputs)
     try:
         ai.main()
     finally:
@@ -277,7 +277,7 @@ def test_a_real_run_still_auto_detects_the_key_by_value_overlap():
 
         cols = {e["label"]: e for e in entries if e.get("datatype") == "metadata-column"}
         assert "cell_type" in cols, sorted(cols)
-        values = cyto_zarr_read.read_column(outputs / cols["cell_type"]["path"])
+        values = txr_zarr_read.read_column(outputs / cols["cell_type"]["path"])
         assert [str(v) for v in values] == ["T", "B", "NK"]
 
 

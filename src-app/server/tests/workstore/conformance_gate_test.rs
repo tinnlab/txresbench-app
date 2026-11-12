@@ -45,7 +45,7 @@
 //! executable analysis sandbox and self-skips without one — through
 //! [`hardening_common::record_skip`], NEVER a bare `eprintln!`. libtest CAPTURES stdout
 //! for a passing test, so an `eprintln!` skip is byte-for-byte indistinguishable from a
-//! real pass in a default run, AND it ignores `CYTO_TEST_NO_SKIP=1`. That was not a
+//! real pass in a default run, AND it ignores `TXR_TEST_NO_SKIP=1`. That was not a
 //! cosmetic gap: this is the ONLY test exercising `dispatch_after_ingest` → the
 //! verification job → `conformance.py` → `apply_verdict`, and the gate itself fails OPEN
 //! when the sandbox is missing — so one absent rootfs silenced the enforcement AND every
@@ -72,11 +72,11 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::conformance::{
+use txresbench::modules::jobs::conformance::{
     apply_verdict, conclude, gate_now, verdict_from_run, GateOutcome, GateTarget, GateVerdict,
     GATE_LOG_PREFIX, GATE_LOG_UNVERIFIED,
 };
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
 
 use super::{create_project, pool_for, setup_admin};
 use crate::common::TestServer;
@@ -87,7 +87,7 @@ use crate::dataset::hardening_common::{
 /// The producing run. Three outputs whose only differences are declared, not written.
 ///
 /// `relabelled/` is a genuine Zarr v3 group node written by hand rather than through
-/// `cyto_zarr`: an inline-`script` analysis gets no staged helper modules
+/// `txr_zarr`: an inline-`script` analysis gets no staged helper modules
 /// (`AnalysisSpec::resolve_entry` returns `helpers: []` for a script), and a hand-written
 /// group node is what the gate's store-detection actually keys on anyway.
 const EMIT_SCRIPT: &str = "import os, json\n\
@@ -110,7 +110,7 @@ json.dump({'outputs':[\n\
 ///
 /// Deliberately NOT `dataset::hardening_common::rootfs_gate`, which additionally demands
 /// a pinned env-image DIGEST because it gates *reproducible capsule* tests. A host with a
-/// bare pre-mounted rootfs (`CYTO_ENV_ROOTFS_DIR`) executes perfectly but pins no digest,
+/// bare pre-mounted rootfs (`TXR_ENV_ROOTFS_DIR`) executes perfectly but pins no digest,
 /// so that gate self-skips — and a suite that silently skips where it could have run is a
 /// suite that proves nothing while looking green. This drives the real
 /// `POST /sandbox/execute` (the same probe, minus the digest clause), so the answer is
@@ -183,13 +183,13 @@ async fn a_non_conforming_artifact_is_marked_failed_and_a_conforming_one_is_not(
     let token = setup_admin(&server).await;
     if !sandbox_executable(&server, &token).await {
         // A SKIP, recorded in the machine-readable skip ledger and a HARD FAILURE under
-        // `CYTO_TEST_NO_SKIP=1`. The bare `eprintln!` this replaces did neither, so the
+        // `TXR_TEST_NO_SKIP=1`. The bare `eprintln!` this replaces did neither, so the
         // one test covering the whole gate chain reported `1 passed` having run nothing.
         record_skip(
             "a_non_conforming_artifact_is_marked_failed_and_a_conforming_one_is_not",
             "the analysis sandbox is not executable on this host (the conformance gate \
-             runs IN the sandbox by design — DEC-12). Point CYTO_ENV_ROOTFS_SQUASHFS at a \
-             rootfs.squashfs (or CYTO_ENV_ROOTFS_DIR at a pre-mounted rootfs), or make the \
+             runs IN the sandbox by design — DEC-12). Point TXR_ENV_ROOTFS_SQUASHFS at a \
+             rootfs.squashfs (or TXR_ENV_ROOTFS_DIR at a pre-mounted rootfs), or make the \
              live OCI env-image path reachable (`oras` + registry)",
         );
         return;
@@ -314,7 +314,7 @@ async fn a_non_conforming_artifact_is_marked_failed_and_a_conforming_one_is_not(
         let v: serde_json::Value = r.json().await.expect("error body");
         assert_eq!(
             v["error_code"],
-            cytoanalyst::modules::workstore::consume::ERR_NOT_CONFORMING,
+            txresbench::modules::workstore::consume::ERR_NOT_CONFORMING,
             "{label}: refused by the conformance read half, not by some other gate"
         );
     }
@@ -503,7 +503,7 @@ async fn the_gate_records_an_unverified_outcome_when_it_cannot_reach_a_verdict()
 /// and cross-referenced by name rather than left to inspection.
 #[tokio::test]
 async fn an_encodingless_structure_is_refused_at_ingest_the_way_the_gate_condemns_it() {
-    use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
+    use txresbench::modules::workstore::ingest::ingest_run_outputs;
 
     let server = TestServer::spawn().await;
     let token = setup_admin(&server).await;
@@ -567,7 +567,7 @@ async fn an_encodingless_structure_is_refused_at_ingest_the_way_the_gate_condemn
              the code EVERY manifest defect answers with, so it discriminates nothing. \
              Got: {message}"
         );
-        let listed = cytoanalyst::modules::workstore::catalog::repository::CatalogRepository::new(
+        let listed = txresbench::modules::workstore::catalog::repository::CatalogRepository::new(
             pool.clone(),
         )
         .list_by_run(project, run)
@@ -603,7 +603,7 @@ async fn stage_gate_run_dirs(
         "the run's output staging is a separate tree, not a subdir of its workspace"
     );
     let inputs = ws.join("inputs");
-    let outputs = cytoanalyst::modules::sandbox::outputs::outputs_dir(&staging);
+    let outputs = txresbench::modules::sandbox::outputs::outputs_dir(&staging);
     tokio::fs::create_dir_all(&inputs).await.expect("inputs");
     tokio::fs::create_dir_all(&outputs).await.expect("outputs");
     tokio::fs::write(inputs.join("params.json"), b"{}")
@@ -1061,7 +1061,7 @@ fn gate_lib_dir() -> std::path::PathBuf {
 ///
 /// The only thing redirected is where `/inputs` and `/outputs` are mounted — the same and
 /// only deviation the Python suite makes — so `main()` is production's `main()`, reading
-/// bytes `cyto_zarr` actually wrote and writing the `verdict.json` this server then reads.
+/// bytes `txr_zarr` actually wrote and writing the `verdict.json` this server then reads.
 /// `spec` is `[{id, path, n, delete_shard?}]`; the DECLARATION each artifact is checked
 /// against is whatever the writer stamped, never anything this test composes.
 ///
@@ -1075,7 +1075,7 @@ const FIXTURE_AND_GATE: &str = r#"
 import json, os, sys
 sys.path.insert(0, sys.argv[1])
 import numpy as np
-import cyto_zarr as cz
+import txr_zarr as cz
 import verify_conformance as v
 inputs, outputs, spec = sys.argv[2], sys.argv[3], json.loads(sys.argv[4])
 entries = []
@@ -1118,7 +1118,7 @@ fn run_real_gate(
     let ws = root.join("sandboxes").join(format!("real-gate-{run}"));
     let staging = root.join("run-staging").join(format!("real-gate-{run}"));
     let inputs = ws.join("inputs");
-    let outputs = cytoanalyst::modules::sandbox::outputs::outputs_dir(&staging);
+    let outputs = txresbench::modules::sandbox::outputs::outputs_dir(&staging);
     std::fs::create_dir_all(&inputs).expect("inputs");
     std::fs::create_dir_all(&outputs).expect("outputs");
     let out = std::process::Command::new("python3")
@@ -1227,7 +1227,7 @@ async fn the_real_gates_own_verdict_drives_the_real_outcome() {
 
         let verdict_doc: Value = serde_json::from_slice(
             &std::fs::read(
-                cytoanalyst::modules::sandbox::outputs::outputs_dir(&staging).join("verdict.json"),
+                txresbench::modules::sandbox::outputs::outputs_dir(&staging).join("verdict.json"),
             )
             .expect("the gate wrote a verdict"),
         )

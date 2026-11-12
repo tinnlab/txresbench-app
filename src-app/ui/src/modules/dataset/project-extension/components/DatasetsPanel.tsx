@@ -23,7 +23,7 @@ import {
   Tag,
   Text,
   message,
-} from '@ziee/kit'
+} from '@txresbench/kit'
 import { Database, Plus } from 'lucide-react'
 import { isReady, mergeAttachCandidates, notReadyNote, type AttachCandidate } from './attachOptions'
 import { buildAttachOption } from './attachOptionRow'

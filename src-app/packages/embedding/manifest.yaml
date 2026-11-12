@@ -18,7 +18,7 @@
 # an `ExtensionManifest` at boot and reads only `id` + `run` + `methods`.
 id: embedding
 name: Embedding
-publisher: cyto
+publisher: txr
 # 0.1.0 — Stage-0 Stage-A: the package skeleton + `embedding.reduce`'s CORE compute
 # pipeline (raw-count gate, skip-scaling, seurat_v3 HVG, arpack PCA, float64 gene
 # statistics, six-var thread pin, ceiling gate, provenance) and `embedding.visualize`'s
@@ -38,7 +38,7 @@ publisher: cyto
 # `cell-filter`'s SHIPPED `criteria_keep_mask` VERBATIM (DEC-11), staged via `compute/_criteria.py`.
 # 0.4.1 — Stage-0 conformance: the single-value input slots (`matrices` on reduce,
 # `embedding` on visualize) opt in to `auto_bind_sole_candidate` (DEC-15). Declaration
-# only — no compute behaviour, output or attributes.cyto change.
+# only — no compute behaviour, output or attributes.txr change.
 # 0.4.7 — #567: test-only fix for the cross-package bare-module-name collision — the
 # `_shared`/`_criteria` compute modules are now loaded under namespaced `sys.modules` keys
 # via `embedding_fixtures.import_own` instead of the flat name, so a sibling package's

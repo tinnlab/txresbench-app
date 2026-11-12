@@ -1,4 +1,4 @@
-//! `ziee-sandbox-agent` — the in-VM init + control agent for the microVM
+//! `txresbench-sandbox-agent` — the in-VM init + control agent for the microVM
 //! sandbox backend (macOS libkrun; later WSL2).
 //!
 //! libkrun runs this as the guest entrypoint (`krun_set_exec`). Its job:
@@ -76,7 +76,7 @@ const ARTIFACT_TOTAL_CAP_BYTES: u64 = 100 * 1024 * 1024;
 // from a Mac/Windows host. Cross-compile to Linux for the real build.
 #[cfg(not(target_os = "linux"))]
 fn main() {
-    eprintln!("ziee-sandbox-agent is built for Linux guest VMs only");
+    eprintln!("txresbench-sandbox-agent is built for Linux guest VMs only");
     std::process::exit(1);
 }
 
@@ -160,7 +160,7 @@ async fn serve_vsock(port: u32, bpf: Option<Arc<Vec<u8>>>) {
             std::process::exit(1);
         }
     };
-    tracing::info!("ziee-sandbox-agent: listening on vsock port {port}");
+    tracing::info!("txresbench-sandbox-agent: listening on vsock port {port}");
     loop {
         match listener.accept().await {
             Ok((stream, peer)) => {
@@ -203,7 +203,7 @@ async fn serve_tcp(addr: &str, bpf: Option<Arc<Vec<u8>>>) {
             std::process::exit(1);
         }
     };
-    tracing::info!("ziee-sandbox-agent: listening on tcp {addr}");
+    tracing::info!("txresbench-sandbox-agent: listening on tcp {addr}");
     loop {
         match listener.accept().await {
             Ok((stream, peer)) => spawn_conn(stream, &bpf, format!("{peer}")),
@@ -300,11 +300,11 @@ fn init_mounts() {
 
     // Host-folder mounts (feature #3): the launcher shared N folders as
     // read-only virtio-fs devices (tags host-mount-0..N-1) and told us N via
-    // the ZIEE_EXTRA_MOUNTS env. The guest root is RO, so mount a tmpfs at
+    // the TXR_EXTRA_MOUNTS env. The guest root is RO, so mount a tmpfs at
     // /host-mounts to hold the mountpoints, then mount each share at
     // /host-mounts/<i>. bwrap (argv built by the server) binds these to
     // /mnt/<full host path>. No-op when N == 0.
-    if let Ok(n) = std::env::var("ZIEE_EXTRA_MOUNTS")
+    if let Ok(n) = std::env::var("TXR_EXTRA_MOUNTS")
         .unwrap_or_default()
         .parse::<usize>()
     {
@@ -496,7 +496,7 @@ where
     // Live-progress FIFO (workflow sandbox step). When the host set
     // `req.progress`, create the named pipe at the guest-local path (NOT
     // virtio-fs — libkrun's virtio-fs has an mkfifo EPERM bug) BEFORE spawning
-    // bwrap, because the host-built argv `--bind`s it onto `/ziee/progress`. The
+    // bwrap, because the host-built argv `--bind`s it onto `/txresbench/progress`. The
     // reader forwards each newline-trimmed line as a `Frame::ProcessProgress`
     // (using `request_id` as the handle); it ends when the bwrap child exits
     // (the guard's drop unlinks the FIFO + aborts the reader).
@@ -585,7 +585,7 @@ where
         let _ = h.await;
     }
     // Stop the progress reader + unlink the FIFO BEFORE dropping `tx`: the
-    // bwrap child has exited so no further `$ZIEE_PROGRESS` writes arrive, and
+    // bwrap child has exited so no further `$TXR_PROGRESS` writes arrive, and
     // we don't want an orphaned reader holding the writer half of `tx`.
     drop(progress);
 

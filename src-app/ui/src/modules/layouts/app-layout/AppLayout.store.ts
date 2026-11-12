@@ -1,6 +1,6 @@
 import { createJSONStorage } from 'zustand/middleware'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
-import { appLayoutSeam } from '@ziee/shell'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
+import { appLayoutSeam } from '@txresbench/shell'
 
 // Guarded persistence storage (mirrors ConfigClient.store): accessing
 // localStorage throws in locked-down contexts (private mode, sandboxed iframe).
@@ -8,7 +8,7 @@ import { appLayoutSeam } from '@ziee/shell'
 // down; the preference just won't survive a reload there.
 const safeStorage = createJSONStorage(() => {
   try {
-    const probe = '__ziee_ls_probe__'
+    const probe = '__txresbench_ls_probe__'
     window.localStorage.setItem(probe, probe)
     window.localStorage.removeItem(probe)
     return window.localStorage
@@ -86,7 +86,7 @@ const AppLayoutDef = defineStore('AppLayout', {
  */
 export const AppLayout = registerLazyStore(AppLayoutDef)
 
-// SEAM: inject into the SDK shell's `AppLayout` (`@ziee/shell`
+// SEAM: inject into the SDK shell's `AppLayout` (`@txresbench/shell`
 // layouts/AppLayout.tsx reads `appLayoutSeam.get()`; the optional chrome —
 // DivScrollY / SettingsPageContainer / HeaderBarContainer / useHeaderLeftInset —
 // reads `.peek()`), replacing the old global registry lookup. Runs at

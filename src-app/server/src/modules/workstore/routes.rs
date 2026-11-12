@@ -26,7 +26,7 @@ use axum::routing::post;
 use axum::{Extension, Json};
 use sqlx::SqlitePool;
 
-use ziee_core::ApiResult;
+use txresbench_core::ApiResult;
 
 use crate::modules::permissions::{with_permission, RequirePermissions};
 use crate::modules::project::ProjectsUse;

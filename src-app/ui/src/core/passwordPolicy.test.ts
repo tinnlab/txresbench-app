@@ -1,6 +1,6 @@
 // THE CLIENT'S BAND MUST BE THE SERVER'S BAND, IN THE SERVER'S UNIT.
 //
-// `validate_password_strength` (ziee-auth) and `check_password` (server user/app handlers)
+// `validate_password_strength` (txresbench-auth) and `check_password` (server user/app handlers)
 // compare `password.len()` — UTF-8 BYTES — against 8 and 72, and REJECT outside that band.
 // Every case below is stated as a byte count so a future edit to either side shows up as a
 // disagreement rather than as a passing test with a different meaning.

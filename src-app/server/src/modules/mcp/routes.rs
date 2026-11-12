@@ -1,8 +1,8 @@
 //! `mcp` module HTTP routes.
 //!
 //! `POST /api/mcp` (JSON-RPC) and `GET /api/mcp/agent/stream` (SSE) are plain
-//! axum `route()`s — NOT aide-documented, mirroring ziee `modules/control_mcp`
-//! (the MCP client is ziee, not the FE, so these have no place in
+//! axum `route()`s — NOT aide-documented, mirroring txresbench `modules/control_mcp`
+//! (the MCP client is txresbench, not the FE, so these have no place in
 //! `ApiClient`/`types.ts`). The agent up-endpoints + pairing endpoints ARE
 //! aide-documented (`.id("Mcp.*")`) so `just openapi-regen` emits
 //! `Permissions.McpUse` + `ApiClient.Mcp.*` for the FE connect surface
@@ -16,7 +16,7 @@ use axum::routing::{get, post};
 use axum::{Extension, Json};
 use sqlx::SqlitePool;
 
-use ziee_core::ApiResult;
+use txresbench_core::ApiResult;
 
 use crate::modules::permissions::{with_permission, RequirePermissions};
 
@@ -149,7 +149,7 @@ fn pair_start_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(McpUse,)>(op)
         .id("Mcp.pairStart")
         .tag("mcp")
-        .description("Mint a short-lived, single-use pairing code an AI assistant (e.g. ziee chat) exchanges for access to this account's MCP surface.")
+        .description("Mint a short-lived, single-use pairing code an AI assistant (e.g. txresbench chat) exchanges for access to this account's MCP surface.")
         .response::<200, Json<PairStartResponse>>()
 }
 

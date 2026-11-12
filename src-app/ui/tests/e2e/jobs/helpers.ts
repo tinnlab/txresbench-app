@@ -51,7 +51,7 @@ export async function createRestrictedUser(
   const hdr = { Authorization: `Bearer ${adminToken}` }
 
   const reg = await request.post('/api/auth/register', {
-    data: { username, email: `${username}@cyto.test`, password, display_name: username },
+    data: { username, email: `${username}@txresbench.test`, password, display_name: username },
   })
   expect(reg.ok(), `register ${username}`).toBeTruthy()
   const userToken = (await reg.json()).access_token

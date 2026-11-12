@@ -8,7 +8,7 @@
 // nobody. See `unavailableReason` in the kit Button.
 
 import { useMemo } from 'react'
-import { Alert, Button, Empty, Input, Tag } from '@ziee/kit'
+import { Alert, Button, Empty, Input, Tag } from '@txresbench/kit'
 import { SlidersHorizontal } from 'lucide-react'
 import { usePaneStateValue, type AnalysisContribution } from '@/modules/workbench/core'
 import { runAction } from '@/core/actions/defineAction'

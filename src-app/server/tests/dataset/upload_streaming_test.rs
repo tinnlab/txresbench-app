@@ -383,9 +383,9 @@ async fn upload_peak_rss_is_bounded_by_a_constant_not_by_file_size() {
 #[tokio::test]
 async fn staging_a_stored_blob_does_not_rebuffer_it() {
     let _rss_lock = rss_measurement_guard().await;
-    let dir = std::env::temp_dir().join(format!("cyto-182-stage-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("txr-182-stage-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
-    let storage = ziee_file::init_file_storage(&dir);
+    let storage = txresbench_file::init_file_storage(&dir);
 
     let user = uuid::Uuid::new_v4();
     let blob = uuid::Uuid::new_v4();
@@ -415,7 +415,7 @@ async fn staging_a_stored_blob_does_not_rebuffer_it() {
     // --- the invariant: the streaming stage ----------------------------------
     let streamed_dest = dir.join("staged-streaming.bin");
     let poller = RssPoller::start();
-    let streamed_hash = cytoanalyst::modules::file::stream::copy_original_streaming(
+    let streamed_hash = txresbench::modules::file::stream::copy_original_streaming(
         user,
         blob,
         ext,
@@ -645,9 +645,9 @@ async fn over_ceiling_upload_is_a_named_413_and_the_service_survives() {
     // `<the developer's real app-data dir>/tmp-uploads` and write parts into it.
     // `scoped_data_root` is thread-scoped and `#[tokio::test]` is single-threaded,
     // so the override covers everything this test drives and nothing else.
-    let scratch = std::env::temp_dir().join(format!("cyto-182-limit-{}", uuid::Uuid::new_v4()));
+    let scratch = std::env::temp_dir().join(format!("txr-182-limit-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&scratch).unwrap();
-    let _root = cytoanalyst::modules::rootfs::scoped_data_root(scratch.clone());
+    let _root = txresbench::modules::rootfs::scoped_data_root(scratch.clone());
 
     const LIMIT: usize = 32 * 1024;
 
@@ -656,7 +656,7 @@ async fn over_ceiling_upload_is_a_named_413_and_the_service_survives() {
         loop {
             match multipart.next_field().await {
                 Ok(Some(mut field)) => {
-                    match cytoanalyst::modules::file::stream::stage_multipart_field(&mut field)
+                    match txresbench::modules::file::stream::stage_multipart_field(&mut field)
                         .await
                     {
                         Ok(part) => {
@@ -672,7 +672,7 @@ async fn over_ceiling_upload_is_a_named_413_and_the_service_survives() {
                 }
                 Ok(None) => return (axum::http::StatusCode::OK, "ok").into_response(),
                 Err(err) => {
-                    let (status, err) = cytoanalyst::modules::file::stream::multipart_error(
+                    let (status, err) = txresbench::modules::file::stream::multipart_error(
                         "INVALID_MULTIPART",
                         "Malformed multipart body",
                         &err,
@@ -806,7 +806,7 @@ async fn over_ceiling_field_on_the_real_route_is_a_named_413() {
     );
 }
 
-const TEST_BOUNDARY: &str = "----cyto182bound";
+const TEST_BOUNDARY: &str = "----txr182bound";
 
 fn multipart_body(payload: &[u8]) -> Vec<u8> {
     let mut body: Vec<u8> = Vec::new();
@@ -845,7 +845,7 @@ fn multipart_request(body: Vec<u8>) -> axum::http::Request<axum::body::Body> {
 ///
 /// * the blob is uploaded through the real API, so it is a real `files` row with a
 ///   real owner and real bytes on the server's disk;
-/// * the test then points its own `ziee-file` storage at that same on-disk store
+/// * the test then points its own `txresbench-file` storage at that same on-disk store
 ///   (it is a local filesystem store, so the test can read what the server wrote)
 ///   and calls `stage_dataset_file` with the real pool and the real owner — which
 ///   also exercises the `file_readable_by` authorization gate that guards it;
@@ -871,19 +871,19 @@ async fn the_production_staging_function_does_not_rebuffer() {
 
     // The server's blob store is a local filesystem tree under its per-test data
     // dir, so the test process can open the very same store.
-    let storage = ziee_file::init_file_storage(server.data_dir().join("files"));
+    let storage = txresbench_file::init_file_storage(server.data_dir().join("files"));
     let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect to the test database");
 
-    let scratch = std::env::temp_dir().join(format!("cyto-182-prodstage-{}", uuid::Uuid::new_v4()));
+    let scratch = std::env::temp_dir().join(format!("txr-182-prodstage-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&scratch).unwrap();
     let dest = scratch.join("staged-input.bin");
 
     // --- the invariant: the production function -------------------------------
     let poller = RssPoller::start();
     let hash =
-        cytoanalyst::modules::sandbox::inputs::stage_dataset_file(&pool, file_id, owner, &dest)
+        txresbench::modules::sandbox::inputs::stage_dataset_file(&pool, file_id, owner, &dest)
             .await
             .expect("the production staging path succeeds");
     let streaming_growth = poller.growth_kib();
@@ -961,9 +961,9 @@ async fn sniffing_a_large_part_reads_a_bounded_head() {
     use tower::ServiceExt;
 
     let _rss_lock = rss_measurement_guard().await;
-    let scratch = std::env::temp_dir().join(format!("cyto-182-head-{}", uuid::Uuid::new_v4()));
+    let scratch = std::env::temp_dir().join(format!("txr-182-head-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&scratch).unwrap();
-    let _root = cytoanalyst::modules::rootfs::scoped_data_root(scratch.clone());
+    let _root = txresbench::modules::rootfs::scoped_data_root(scratch.clone());
 
     // Driven through a real router because `Multipart` applies axum's 2 MiB default
     // body limit unless a route declares otherwise — the production upload routes
@@ -982,7 +982,7 @@ async fn sniffing_a_large_part_reads_a_bounded_head() {
                 async move {
                     let mut field = mp.next_field().await.unwrap().unwrap();
                     let staged =
-                        cytoanalyst::modules::file::stream::stage_multipart_field(&mut field)
+                        txresbench::modules::file::stream::stage_multipart_field(&mut field)
                             .await
                             .expect("staging a large part succeeds");
                     assert_eq!(staged.size(), BIG_BYTES, "the whole part was staged");
@@ -1018,7 +1018,7 @@ async fn sniffing_a_large_part_reads_a_bounded_head() {
         )
         .layer(DefaultBodyLimit::disable());
 
-    const BOUNDARY: &str = "----cyto182head";
+    const BOUNDARY: &str = "----txr182head";
     let mut prologue: Vec<u8> = Vec::new();
     prologue.extend_from_slice(format!("--{BOUNDARY}\r\n").as_bytes());
     prologue.extend_from_slice(
@@ -1120,17 +1120,17 @@ async fn double_ingest_is_a_typed_error_not_a_panic() {
 
     // Point this process at the server's own blob store + database, so the ingest is
     // the real one against real rows.
-    ziee_file::init_file_storage(server.data_dir().join("files"));
+    txresbench_file::init_file_storage(server.data_dir().join("files"));
     let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect to the test database");
-    let repo = ziee_file::FileRepository::new(pool.clone());
+    let repo = txresbench_file::FileRepository::new(pool.clone());
 
-    let scratch = std::env::temp_dir().join(format!("cyto-182-twice-{}", uuid::Uuid::new_v4()));
+    let scratch = std::env::temp_dir().join(format!("txr-182-twice-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&scratch).unwrap();
-    let _root = cytoanalyst::modules::rootfs::scoped_data_root(scratch.clone());
+    let _root = txresbench::modules::rootfs::scoped_data_root(scratch.clone());
 
-    const BOUNDARY: &str = "----cyto182twice";
+    const BOUNDARY: &str = "----txr182twice";
     let mut body: Vec<u8> = Vec::new();
     body.extend_from_slice(format!("--{BOUNDARY}\r\n").as_bytes());
     body.extend_from_slice(
@@ -1149,13 +1149,13 @@ async fn double_ingest_is_a_typed_error_not_a_panic() {
         .unwrap();
     let mut mp = Multipart::from_request(req, &()).await.expect("multipart");
     let mut field = mp.next_field().await.unwrap().unwrap();
-    let mut staged = cytoanalyst::modules::file::stream::stage_multipart_field(&mut field)
+    let mut staged = txresbench::modules::file::stream::stage_multipart_field(&mut field)
         .await
         .expect("staging succeeds");
 
-    let first = cytoanalyst::modules::file::stream::ingest_staged(
+    let first = txresbench::modules::file::stream::ingest_staged(
         &repo,
-        &cytoanalyst::modules::file::NoopFileEvents,
+        &txresbench::modules::file::NoopFileEvents,
         owner,
         &mut staged,
         "twice.bin",
@@ -1167,9 +1167,9 @@ async fn double_ingest_is_a_typed_error_not_a_panic() {
     .expect("the first ingest stores the part");
     assert_eq!(first.file_size, 21, "the part was stored");
 
-    let second = cytoanalyst::modules::file::stream::ingest_staged(
+    let second = txresbench::modules::file::stream::ingest_staged(
         &repo,
-        &cytoanalyst::modules::file::NoopFileEvents,
+        &txresbench::modules::file::NoopFileEvents,
         owner,
         &mut staged,
         "twice.bin",
@@ -1229,11 +1229,11 @@ async fn too_many_parts_is_a_named_413_and_the_service_survives() {
     // solely through the refusal's message body. That is a reason to pin it here, not
     // a reason to think a client already depends on it.)
     assert_eq!(
-        cytoanalyst::modules::file::stream::MAX_UPLOAD_PARTS,
+        txresbench::modules::file::stream::MAX_UPLOAD_PARTS,
         1024,
         "the declared part ceiling is part of the API contract"
     );
-    let over = cytoanalyst::modules::file::stream::MAX_UPLOAD_PARTS + 1;
+    let over = txresbench::modules::file::stream::MAX_UPLOAD_PARTS + 1;
     let mut form = Form::new();
     for i in 0..over {
         form = form.part(
@@ -1264,7 +1264,7 @@ async fn too_many_parts_is_a_named_413_and_the_service_survives() {
     // Exactly at the cap must still work, or the ceiling would be off by one in the
     // direction that breaks a legitimate bundle.
     let mut ok_form = Form::new();
-    for i in 0..cytoanalyst::modules::file::stream::MAX_UPLOAD_PARTS {
+    for i in 0..txresbench::modules::file::stream::MAX_UPLOAD_PARTS {
         ok_form = ok_form.part(
             "file",
             Part::bytes(b"x".to_vec()).file_name(format!("q{i}.bin")),
@@ -1288,7 +1288,7 @@ async fn too_many_parts_is_a_named_413_and_the_service_survives() {
     // PLUS `groups`/`datatype`/`supporting` control fields in the same body, so a cap
     // hoisted above the field-name match would refuse a legitimate at-cap bundle —
     // and both legs above, which send only `file` parts, would stay green.
-    let at_cap = cytoanalyst::modules::file::stream::MAX_UPLOAD_PARTS;
+    let at_cap = txresbench::modules::file::stream::MAX_UPLOAD_PARTS;
     let mut mixed = Form::new();
     for i in 0..at_cap {
         mixed = mixed.part(
@@ -1333,12 +1333,12 @@ async fn staging_a_missing_blob_takes_the_fallback_and_fails_typed() {
     // Calls `init_file_storage`, which overwrites the process-global store the two
     // INV-2 measurements resolve their blobs through.
     let _rss_lock = rss_measurement_guard().await;
-    let dir = std::env::temp_dir().join(format!("cyto-182-missing-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("txr-182-missing-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
-    ziee_file::init_file_storage(&dir);
+    txresbench_file::init_file_storage(&dir);
 
     let dest = dir.join("staged.bin");
-    let err = cytoanalyst::modules::file::stream::copy_original_streaming(
+    let err = txresbench::modules::file::stream::copy_original_streaming(
         uuid::Uuid::new_v4(),
         uuid::Uuid::new_v4(),
         "bin",

@@ -1,10 +1,10 @@
 // ColormapPicker.tsx — plot-editing (ITEM-3): a compact continuous-COLORMAP picker for the in-cell
-// visual-map, built on the @ziee/kit `Select` (design-system component; the dropdown portals to body,
+// visual-map, built on the @txresbench/kit `Select` (design-system component; the dropdown portals to body,
 // so it lands above the deck canvas). A gradient-preview swatch renders in the trigger + each row.
 // `editable:false` renders a read-only label (no Select). The gradient swatch stays an inline style
 // (a genuine data-driven color, exempt from the token rule).
 
-import { Select } from '@ziee/kit'
+import { Select } from '@txresbench/kit'
 import { colorbarDescriptor, CONTINUOUS_COLORMAPS, type ContinuousColormap } from '../data/color'
 import { BANNED_SEQUENTIAL } from '../data/pubreadyColor'
 

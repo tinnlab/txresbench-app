@@ -30,9 +30,9 @@
 //!
 //! There is **no reusable per-principal rate limiter in this tree**, and that was verified
 //! rather than assumed. The only per-time limiter is `tower_governor`, applied whole-router
-//! and keyed on PEER IP (`ziee-framework::app_builder::apply_rate_limit_layer`) — and this
+//! and keyed on PEER IP (`txresbench-framework::app_builder::apply_rate_limit_layer`) — and this
 //! app passes `None` as its absent-default, so on desktop there is no request limiter at
-//! all. The only DB-backed counter is `ziee-auth`'s single-purpose
+//! all. The only DB-backed counter is `txresbench-auth`'s single-purpose
 //! `bump_pending_link_attempts`.
 //!
 //! So one is built here, and it counts **mint records** — one row in

@@ -1,5 +1,5 @@
 import { Permissions } from '@/api-client/permissions'
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 import { NotificationBell } from './NotificationBell'
 
 /**

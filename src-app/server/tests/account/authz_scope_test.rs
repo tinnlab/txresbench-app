@@ -3,14 +3,14 @@
 //! non-member. Exercised at the repository/resolver layer (the exact functions A3
 //! flipped) against a real per-test DB, with a synthetic two-member ORG account.
 
-use cytoanalyst::modules::dataset::repository::{DatasetAccess, DatasetRepository};
-use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
-use cytoanalyst::modules::jobs::models::Job;
-use cytoanalyst::modules::project::{EffectivePermission, ProjectRepository};
-use cytoanalyst::modules::workstore::authz::{
+use txresbench::modules::dataset::repository::{DatasetAccess, DatasetRepository};
+use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
+use txresbench::modules::jobs::models::Job;
+use txresbench::modules::project::{EffectivePermission, ProjectRepository};
+use txresbench::modules::workstore::authz::{
     require_artifact_read, require_dataset_read, require_project_read,
 };
-use cytoanalyst::modules::workstore::catalog::{Artifact, CatalogRepository, NewArtifact};
+use txresbench::modules::workstore::catalog::{Artifact, CatalogRepository, NewArtifact};
 
 use super::{
     add_member, create_user, make_org_account, move_dataset_to_account, move_project_to_account,

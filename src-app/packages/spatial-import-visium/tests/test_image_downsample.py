@@ -22,7 +22,7 @@ The fourth is the one that ships green if nobody looks. A downsampled image whos
 scale still describes the original passes every shape, type and conformance check this
 system has, and every downstream micron measurement silently scales wrong by exactly the
 factor. TEST-3 measures it FROM THE EMITTED FILE — reopening the OME-TIFF and reading level
-0's real shape, the `cyto` payload and the OME header — rather than from the producer's own
+0's real shape, the `txr` payload and the OME header — rather than from the producer's own
 variables, because a test that reads the producer's variables cannot fail on "the producer
 wrote the wrong ones".
 
@@ -339,7 +339,7 @@ def test_the_declared_scale_describes_the_emitted_pixels_not_the_original(fine):
     scales wrong."*
 
     **Every number here comes out of the EMITTED FILE**, never out of the producer's
-    variables: level 0's real shape, the `cyto` placement parsed from the file's own
+    variables: level 0's real shape, the `txr` placement parsed from the file's own
     OME-XML, and `PhysicalSizeX` read from the OME header. A test that read the producer's
     variables could not fail on "the producer wrote the wrong ones", which is the entire
     defect this pins.
@@ -362,7 +362,7 @@ def test_the_declared_scale_describes_the_emitted_pixels_not_the_original(fine):
         pixels = tf.series[0].levels[0].asarray()
         ome_xml = tf.ome_metadata
     # `PhysicalSizeX` STRAIGHT OUT OF THE OME-XML, which is what a generic OME reader — one
-    # that knows nothing about the `cyto` payload — reads. Parsed here rather than taken
+    # that knows nothing about the `txr` payload — reads. Parsed here rather than taken
     # from tifffile's own convenience accessor so this leg is an independent read of the
     # bytes the producer wrote.
     import xml.etree.ElementTree as ET
@@ -404,7 +404,7 @@ def test_the_declared_scale_describes_the_emitted_pixels_not_the_original(fine):
     assert implied_x != pytest.approx(prov["original_resolution_um"], rel=1e-6)
 
     # ROUTE 4 — the OME header, which is what a generic OME reader (one that knows nothing
-    # about the `cyto` payload) measures with.
+    # about the `txr` payload) measures with.
     assert ome_scale is not None, "no OME PhysicalSize was written"
     assert ome_scale == pytest.approx(prov["applied_resolution_um"], rel=1e-9)
     assert ome_scale_y == pytest.approx(prov["applied_resolution_um"], rel=1e-9)
@@ -755,7 +755,7 @@ def test_the_writer_refuses_every_way_the_scale_can_be_left_behind(fine, tmp_pat
                 dict(meta, display_derivative=dict(prov, downsample_factor=bad)))
 
     # (d) THE OME HEADER KEPT THE PRE-DOWNSAMPLE PITCH. A generic OME reader — one that
-    # knows nothing about the `cyto` payload — would measure everything wrong by `factor`.
+    # knows nothing about the `txr` payload — would measure everything wrong by `factor`.
     assert "outside this system" in refuses(
         "stale-ome-scale", meta, ome_scale=prov["original_resolution_um"]
     )

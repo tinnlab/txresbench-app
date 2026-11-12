@@ -3,7 +3,7 @@ import {
   type LayoutNode,
   computeRects,
   leafIds,
-} from '@ziee/dock'
+} from '@txresbench/dock'
 import { cellLayerId, makeLayerFilter } from '../layers/multiView'
 import {
   buildLayerCellMap,

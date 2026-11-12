@@ -66,7 +66,7 @@ import type {
   TxrRunStatus,
   TxrRunStatusFrame,
 } from '@/api-client/types'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 import type { TxrRunBucket } from '../types'
 
 /** `liveLogs` keeps the last 200 lines by `seq` (the server's replay tail is the same bound). */

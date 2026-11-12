@@ -139,9 +139,9 @@ jobs:
       # price of a second checkout + `npm ci`.
       #
       # SUBMODULES ARE LOAD-BEARING HERE TOO, and more sharply than for the steps above:
-      # `@ziee/viz` imports `@ziee/kit`, which IS `sdk/packages/kit`. With the `sdk`
+      # `@txresbench/viz` imports `@txresbench/kit`, which IS `sdk/packages/kit`. With the `sdk`
       # submodule uninitialised, 6 of viz's 207 test files fail with
-      # `Cannot find package '@ziee/kit'` — a RED that says nothing about the code. The
+      # `Cannot find package '@txresbench/kit'` — a RED that says nothing about the code. The
       # `submodules: recursive` on the checkout above is what keeps this step honest.
       #
       # Runs BEFORE `npm run check` for the same reason step 1 does: it is fast (~15s

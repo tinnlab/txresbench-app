@@ -26,7 +26,7 @@
  * never a blank fact column; unknown fields are omitted (never "—").
  */
 import { useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from 'react'
-import { Button, Checkbox, Skeleton, Tooltip } from '@ziee/kit'
+import { Button, Checkbox, Skeleton, Tooltip } from '@txresbench/kit'
 import type { TxrMethodCard } from '../types'
 import { TXRMETHOD_GROUP_EXPLAINER, type TxrMethodGroupId } from '../lib/methodPicker'
 import {

@@ -26,7 +26,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use sqlx::SqlitePool;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::env_obtain::normalize_digest;
 use super::repository::ProvenanceRepository;
@@ -45,7 +45,7 @@ pub const GC_INTERVAL_SECS: u64 = 6 * 3600;
 /// The eviction cap this pass should honor, resolved read-at-use (#54) from the
 /// admin-configured `rootfs_cache_max_digests`. The DB setting is AUTHORITATIVE at read
 /// time so an admin PUT actually takes effect (DEC-2 correction); the legacy
-/// `CYTO_ROOTFS_CACHE_MAX_DIGESTS` env var is folded into this row ONCE at boot (a SEED, via
+/// `TXR_ROOTFS_CACHE_MAX_DIGESTS` env var is folded into this row ONCE at boot (a SEED, via
 /// `seed_rootfs_cap_from_env_if_unmodified`) rather than winning here — otherwise an admin
 /// change to the cap would be silently inert on an env-pinned deployment. Floored at 1 (a 0
 /// would ask the GC to evict the digest a run is executing on).
@@ -153,14 +153,14 @@ mod tests {
     // the resolved cap still follows the settings row, not the env.
     #[test]
     fn resolve_max_digests_reads_settings_not_env() {
-        std::env::set_var("CYTO_ROOTFS_CACHE_MAX_DIGESTS", "99");
+        std::env::set_var("TXR_ROOTFS_CACHE_MAX_DIGESTS", "99");
         let mut s = ProvenanceSettings::defaults();
         assert_eq!(resolve_max_digests(&s), 4, "default settings cap, env is NOT consulted at read");
         s.rootfs_cache_max_digests = 7;
         assert_eq!(resolve_max_digests(&s), 7, "an admin-set cap is honored despite the env var");
         s.rootfs_cache_max_digests = 0; // degenerate → floored to 1
         assert_eq!(resolve_max_digests(&s), 1, "a 0 setting floors to 1");
-        std::env::remove_var("CYTO_ROOTFS_CACHE_MAX_DIGESTS");
+        std::env::remove_var("TXR_ROOTFS_CACHE_MAX_DIGESTS");
     }
 
     // DEC-2 correction: the env override is parsed as a BOOT SEED value, positive-only and

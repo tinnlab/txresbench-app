@@ -98,7 +98,7 @@ export const STRUCTURE_COLLECTIONS = ['columns', 'levels']
 
 /**
  * Collections of the viz DATASET CATALOG. Not derivable for the same reason
- * `STRUCTURE_COLLECTIONS` is not: `DatasetCatalog` is a `@ziee/viz` PACKAGE type, so it has no
+ * `STRUCTURE_COLLECTIONS` is not: `DatasetCatalog` is a `@txresbench/viz` PACKAGE type, so it has no
  * wire schema in `openapi.json` to read properties off. Named here, from
  * `libs/viz/src/viz-core/data/wire.ts`, with this sentence as the reason.
  *

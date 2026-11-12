@@ -24,7 +24,7 @@
  * seam at ITEM-10).
  */
 import type { CSSProperties } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import { isDesktop } from '@/core/platform'
 import type { TxrHeatmapColumn } from '../types'
 import { formatCoverage, formatProbSourceLine, formatSavedIn } from '../lib/format'

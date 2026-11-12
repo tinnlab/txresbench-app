@@ -68,7 +68,7 @@
 # The compression line above is the one that needs stating carefully, because this branch's
 # writer stamps a codec CHAIN into every array's `zarr.json`: `sharding_indexed` over the
 # inner chain `[ bytes, numcodecs.shuffle, gzip ]` plus `index_codecs [ bytes, crc32c ]`
-# (`cyto_zarr._array_meta` + `_codec_chain`; the shuffle is omitted for 1-byte dtypes,
+# (`txr_zarr._array_meta` + `_codec_chain`; the shuffle is omitted for 1-byte dtypes,
 # where it is the identity).
 # `flate2` decodes that chain's gzip member and is nonetheless LEGAL — it is a general
 # byte-stream codec that half the ecosystem pulls in transitively, and decompressing a
@@ -92,7 +92,7 @@
 # Hits from both are reported. A crate has to be absent from BOTH to pass.
 #
 # ── SEAM ────────────────────────────────────────────────────────────────────────
-# `CYTO_DEPGUARD_EXTRA_DENY="foo bar"` ADDS families to the list. It can only ever make
+# `TXR_DEPGUARD_EXTRA_DENY="foo bar"` ADDS families to the list. It can only ever make
 # the guard STRICTER — there is deliberately no way to remove one — and exists so a
 # test can prove the matcher actually matches (a guard that reports PASS because its
 # regex never fires is the failure mode this seam rules out).
@@ -143,7 +143,7 @@ nifti dicom bam htslib noodles bcf hts
 # rather than codec/compressor ones, so adding them is its own reviewable decision rather
 # than a tidy-up folded into this one.
 # Anything the caller adds (ADD-only; see the SEAM note above).
-DENY_FAMILIES="$DENY_FAMILIES ${CYTO_DEPGUARD_EXTRA_DENY:-}"
+DENY_FAMILIES="$DENY_FAMILIES ${TXR_DEPGUARD_EXTRA_DENY:-}"
 
 # A resolved graph smaller than this is a BROKEN READ, not a clean one.
 MIN_PACKAGES_METADATA=300   # measured 2026-07-28: 602 distinct crate names
@@ -176,7 +176,7 @@ if ! cargo metadata --format-version 1 --filter-platform "$HOST" \
 fi
 
 # Package ids look like `registry+https://…#arrow-ipc@59.0.0` or
-# `path+file:///…#cytoanalyst@0.0.0`. Take the fragment, drop the version. Pure
+# `path+file:///…#txresbench@0.0.0`. Take the fragment, drop the version. Pure
 # grep/sed on purpose: a gate that needs `jq` installed is a gate that silently
 # does not run on the machine that lacks it.
 tr ',' '\n' < "$TMP/metadata.json" |
@@ -343,11 +343,11 @@ scan_decode_scope() { # <root-to-scan> <label>
 }
 
 # The REAL tree is always scanned, so pointing the seam elsewhere can never hide a live
-# violation; the seam ADDS a tree (the same add-only shape as CYTO_DEPGUARD_EXTRA_DENY).
+# violation; the seam ADDS a tree (the same add-only shape as TXR_DEPGUARD_EXTRA_DENY).
 scope_fail=0
 scan_decode_scope "$PWD" 'repo' || scope_fail=1
-if [ -n "${CYTO_DEPGUARD_SCAN_ROOT:-}" ]; then
-  scan_decode_scope "$CYTO_DEPGUARD_SCAN_ROOT" 'seam' || scope_fail=1
+if [ -n "${TXR_DEPGUARD_SCAN_ROOT:-}" ]; then
+  scan_decode_scope "$TXR_DEPGUARD_SCAN_ROOT" 'seam' || scope_fail=1
 fi
 [ "$scope_fail" -eq 0 ] || exit 1
 

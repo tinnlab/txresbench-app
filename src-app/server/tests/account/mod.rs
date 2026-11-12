@@ -29,8 +29,8 @@ use crate::common::TestServer;
 /// threading a real admin through every call. The ledger's `actor_user_id` column carries no
 /// FK by design (an audit row must outlive a deleted actor), so this id is storable, and it is
 /// distinctive enough to grep for if it ever shows up somewhere it should not.
-pub fn staff_ceiling() -> cytoanalyst::modules::account::ActorCeiling {
-    cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+pub fn staff_ceiling() -> txresbench::modules::account::ActorCeiling {
+    txresbench::modules::account::ActorCeiling::PlatformStaff {
         staff_user_id: uuid::Uuid::parse_str("00000000-0000-4000-8000-00000000f148")
             .expect("static staff uuid"),
     }
@@ -228,7 +228,7 @@ pub async fn setup_admin(server: &TestServer) -> String {
         .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
-            "email": "admin@cyto.test",
+            "email": "admin@txresbench.test",
             "password": "adminPassw0rd!",
             "display_name": "Admin"
         }))

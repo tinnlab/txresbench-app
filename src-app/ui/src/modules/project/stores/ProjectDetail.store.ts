@@ -11,7 +11,7 @@ import {
 import { hasPermissionNow } from '@/core/permissions'
 import { echoLocalSync } from '@/core/sync/localEcho'
 import { isOwnerRole } from '@/modules/project/context/ProjectScope'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 const PAGE_SIZE = 20
 

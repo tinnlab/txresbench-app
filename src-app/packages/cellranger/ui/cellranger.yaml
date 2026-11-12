@@ -66,7 +66,7 @@ state:
   # "Include introns: no" would silently mean yes.
 
   # The pre-built reference transcriptome, named as a DIRECTORY under the admin-allowlisted
-  # read-only reference mount (`compute/cellranger.sh` reads `$CYTO_REFERENCE_ROOT/<this>`).
+  # read-only reference mount (`compute/cellranger.sh` reads `$TXR_REFERENCE_ROOT/<this>`).
   reference: { type: string, default: "refdata-gex-GRCh38-2024-A" }
   chemistry: { type: string, default: "auto" }
   expected_cells: { type: string, default: "3000" }
@@ -139,7 +139,7 @@ widgets:
   # `reference` is a TEXT field, not a select, and that is the one place this view refuses to
   # copy the removed schema. The old field was `type: enum` over exactly two names
   # (`refdata-gex-GRCh38-2024-A`, `refdata-gex-GRCm39-2024-A`). Which references EXIST is an
-  # operator fact — whatever directories they mounted at `CYTO_SANDBOX_RESOURCE_REFERENCE` —
+  # operator fact — whatever directories they mounted at `TXR_SANDBOX_RESOURCE_REFERENCE` —
   # and no API exposes that set, so the view cannot enumerate it. A two-entry list is a
   # hardcoded spelling list that drops the third spelling: an operator who mounted
   # `refdata-gex-GRCh38-2020-A` or a custom build would find it unreachable, with the only

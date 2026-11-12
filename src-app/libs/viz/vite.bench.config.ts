@@ -1,4 +1,4 @@
-// Prod-mode benchmark build of the @ziee/viz showcase (measure warm interaction latency
+// Prod-mode benchmark build of the @txresbench/viz showcase (measure warm interaction latency
 // against a REAL production React build — the dev server's perf instrumentation inflates
 // million-element typed-array prop diffs ~1000x). Manual: `vite build --config vite.bench.config.ts`.
 import base from './vite.config'

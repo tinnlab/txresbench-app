@@ -2,7 +2,7 @@
 
 > Component-level rules. The *mechanism* behind them (store-kit, proxy paths,
 > slots, module waves) is `META_FRAMEWORK_ARCHITECTURE.md`; the gating layers are
-> `PERMISSION_GATING.md`. `sdk:` = `sdk/packages/…`; `ziee:` = the reference app.
+> `PERMISSION_GATING.md`. `sdk:` = `sdk/packages/…`; `txresbench:` = the reference app.
 >
 > Enforcement tags follow `CODING_GUIDELINES.md`: 🔧 lint · 🧪 test · 🔬 ci ·
 > 🏛 type · 📐 convention.
@@ -64,7 +64,7 @@ goes through the **slot system**, never a direct component import.
 
 > ⚠️ **This one has NO mechanical gate today.** The reference app's
 > `noRestrictedImports` blocks `antd` / `@ant-design/icons` / `antd/es/form` and
-> nothing else (`ziee:biome.json:14-23`); its two Grit plugins ban `.__state` and
+> nothing else (`txresbench:biome.json:14-23`); its two Grit plugins ban `.__state` and
 > raw interactive DOM elements. A cross-module import is caught by review only —
 > which is exactly why the slot motto has to be a habit rather than a lint.
 
@@ -72,19 +72,19 @@ goes through the **slot system**, never a direct component import.
 
 ## 3. State branches: loading, empty, error — all three, always
 
-🔬 Rendering only the happy path is a defect. From `@ziee/kit`:
+🔬 Rendering only the happy path is a defect. From `@txresbench/kit`:
 
 | branch | component | rule |
 |---|---|---|
 | initial fetch | `Spin` / `Spinner` | always show something on first load |
 | no rows | `Empty` | distinct from loading; never an blank div |
 | fetch failed | `ErrorState` / `Alert` / `Result` | **always render `store.error`** — never `return null` on error |
-| mutation outcome | `message.success(...)` / `message.error(...)` from `@ziee/kit` | every mutation gives feedback |
+| mutation outcome | `message.success(...)` / `message.error(...)` from `@txresbench/kit` | every mutation gives feedback |
 
 A page that already has rows and then hits an error surfaces it as a toast rather
-than replacing the content (`ziee:src/modules/knowledge-base/pages/KnowledgeBasesListPage.tsx:32-36`).
+than replacing the content (`txresbench:src/modules/knowledge-base/pages/KnowledgeBasesListPage.tsx:32-36`).
 
-🔧 `message`/`toast`/`Toaster` come from `@ziee/kit`
+🔧 `message`/`toast`/`Toaster` come from `@txresbench/kit`
 (`sdk:kit/src/index.ts:156-157`); mount `<Toaster/>` + `<DialogHost/>` once at the
 root.
 
@@ -117,13 +117,13 @@ any conditional store-proxy read (path 4 is a hook).
 
 - **Never import `antd`.** It is gone — the reference app has **zero** `antd`
   imports and no `antd` dependency (verified). Any guidance about antd tokens,
-  `antd doctor`, or antd v6 deprecations is stale. (`ziee:biome.json:17-21`)
-- **Never use raw `<button>/<input>/<select>/<textarea>`.** Use `@ziee/kit` — the
+  `antd doctor`, or antd v6 deprecations is stale. (`txresbench:biome.json:17-21`)
+- **Never use raw `<button>/<input>/<select>/<textarea>`.** Use `@txresbench/kit` — the
   kit enforces the accessible name + testid
-  (`ziee:biome-plugins/no-raw-interactive-elements.grit`).
+  (`txresbench:biome-plugins/no-raw-interactive-elements.grit`).
 - **Never edit `kit/` or `shadcn/` to restyle app UI** — those DEFINE the tokens.
 - `.__state` is banned by a second Grit plugin
-  (`ziee:biome-plugins/no-store-internal-state.grit`) on top of `tsc`.
+  (`txresbench:biome-plugins/no-store-internal-state.grit`) on top of `tsc`.
 
 🔧 **`data-testid` is REQUIRED** on all functional/container/value/action kit
 components and must be **globally unique** (a Vite plugin fails the build on

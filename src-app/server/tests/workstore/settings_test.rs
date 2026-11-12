@@ -15,11 +15,11 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
-use cytoanalyst::modules::workstore::settings::{
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::workstore::settings::{
     UpdateWorkstoreSettings, WorkstoreSettings, WorkstoreSettingsRepository,
 };
-use cytoanalyst::modules::workstore::settings_cache;
+use txresbench::modules::workstore::settings_cache;
 
 use crate::account::{create_user_without_projects, login};
 use crate::common::TestServer;
@@ -125,7 +125,7 @@ async fn deny_path_401_unauth_and_403_without_permission() {
 
     // A user without the admin `*` (and thus without workstore::settings::*) → 403.
     let _uid =
-        create_user_without_projects(&server, &admin, "ws_set_np", "ws_set_np@cyto.test").await;
+        create_user_without_projects(&server, &admin, "ws_set_np", "ws_set_np@txresbench.test").await;
     let token = login(&server, "ws_set_np").await;
 
     let resp = server

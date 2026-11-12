@@ -80,7 +80,7 @@ const BASE = arg('url', 'http://127.0.0.1:1520').replace(/\/$/, '')
 const USER = arg('user', 'admin')
 const PASS = arg('password', 'password123')
 const STEPS = Number(arg('steps', 40))
-const OUT = arg('out', `/data/pbya/ziee/tmp/live-ui-explore/run-${Date.now()}`)
+const OUT = arg('out', `/data/pbya/txresbench/tmp/live-ui-explore/run-${Date.now()}`)
 const MODEL = arg('model', process.env.EXPLORE_MODEL || 'qwen3.6-35b-a3b')
 const LLM = (process.env.EXPLORE_LLM_URL || 'http://localhost:4000/v1') + '/chat/completions'
 const HEADED = process.argv.includes('--headed')
@@ -89,13 +89,13 @@ const HEADED = process.argv.includes('--headed')
 // and /chat 132, against /scheduled-tasks 22 and /settings/assistants 14. The
 // file is written by this script and read by the next run; the routes in it are
 // ones the app itself offered, never a hardcoded list.
-const COVERAGE = arg('coverage', '/data/pbya/ziee/tmp/live-ui-explore/coverage.json')
+const COVERAGE = arg('coverage', '/data/pbya/txresbench/tmp/live-ui-explore/coverage.json')
 // Is this URL part of the app we are auditing, or somewhere else entirely?
 //
 // This check was missing, and it saturated the whole rig. The explorer follows
 // links like a user does, so it eventually clicked an outbound one (a GitHub
 // readme link, an IANA reference) and landed on a third-party site. routeOf()
-// strips the origin, so EVERY link on that foreign page was recorded as a ziee
+// strips the origin, so EVERY link on that foreign page was recorded as a txresbench
 // route: 132 of 167 ledger entries turned out to be iana.org paths.
 //
 // The damage is not the junk itself, it is that leastVisited() sorts ASCENDING,
@@ -240,7 +240,7 @@ const neverFailed = (url, limit = 6) => {
 // hunted for and could not trigger through any control is either a dead API with
 // no UI behind it, or a UI path so buried a determined user would not find it.
 // Both are real findings, and neither is visible from a coverage percentage.
-const MISSIONS = arg('missions', '/data/pbya/ziee/tmp/live-ui-explore/missions.json')
+const MISSIONS = arg('missions', '/data/pbya/txresbench/tmp/live-ui-explore/missions.json')
 let missionLog = {}
 try { missionLog = JSON.parse(readFileSync(MISSIONS, 'utf8')) } catch {}
 const pickMission = () => {
@@ -287,7 +287,7 @@ const discoveredRoutes = new Set()
 // operated and marks the untouched ones, which is a signal it can act on. The
 // signature is the app's own accessible description of the control, never a
 // badge index (reassigned every step) or a position (moves on reflow).
-const AFFORDANCES = arg('affordances', '/data/pbya/ziee/tmp/live-ui-explore/affordances.json')
+const AFFORDANCES = arg('affordances', '/data/pbya/txresbench/tmp/live-ui-explore/affordances.json')
 let tried = {}
 try { tried = JSON.parse(readFileSync(AFFORDANCES, 'utf8')) } catch { tried = {} }
 // Only THIS run's increments, so the merge below adds rather than overwrites.
@@ -316,7 +316,7 @@ const sigOf = (url, el) =>
 // OWN history, it updates itself as coverage moves, and it names only WHAT is
 // untouched — never how to reach it. The explorer still has to find the path by
 // looking, which is the property worth protecting.
-const OPENAPI = arg('openapi', '/data/pbya/ziee/tmp/live-rig-wt/src-app/ui/openapi/openapi.json')
+const OPENAPI = arg('openapi', '/data/pbya/txresbench/tmp/live-rig-wt/src-app/ui/openapi/openapi.json')
 // 'paths' names the specific untouched calls for the current page; 'off' reverts
 // to area-level hints only. Kept as a switch because naming endpoints is the most
 // app-knowledge this rig has ever been given, and the whole premise is that a
@@ -336,7 +336,7 @@ try {
   }
 } catch { /* no spec → the hint degrades to nothing, the rig still explores */ }
 
-const SINKS = arg('sinks', '/data/pbya/ziee/tmp/live-ui-explore/sinks.json')
+const SINKS = arg('sinks', '/data/pbya/txresbench/tmp/live-ui-explore/sinks.json')
 let sinks = {}
 try { sinks = JSON.parse(readFileSync(SINKS, 'utf8')) } catch { sinks = {} }
 const SINK_MIN_STEPS = 40      // enough evidence to judge
@@ -371,13 +371,13 @@ let missionHit = false
 // is easy to discover and using is one affordance deeper.
 //
 // So count what it makes versus what it then does with it, and say so. This is a
-// statement about its own behaviour, not about ziee: "you keep making things and
+// statement about its own behaviour, not about txresbench: "you keep making things and
 // never using them" needs no knowledge of what the things are.
 const created = []          // {kind, at} — successful creating POSTs this cycle
 const usedExisting = []     // successful writes against an EXISTING entity
 const apiHits = new Map()   // "METHOD /api/x/{id}" -> count (attempted)
 const apiOutcomes = new Map() // "METHOD /api/x/{id}" -> {ok, c4, c5} (what came back)
-const API_COVERAGE = arg('api-coverage', '/data/pbya/ziee/tmp/live-ui-explore/api-coverage.json')
+const API_COVERAGE = arg('api-coverage', '/data/pbya/txresbench/tmp/live-ui-explore/api-coverage.json')
 // Cumulative endpoint history, loaded at START (it was previously only read at
 // the end, to merge). The explorer needs to know what PRIOR cycles reached, or
 // every cycle re-derives the same gradient from an empty set.
@@ -385,7 +385,7 @@ const API_COVERAGE = arg('api-coverage', '/data/pbya/ziee/tmp/live-ui-explore/ap
 // what EVERY prior cycle observed, not just this one.
 let apiOutcomesCum = new Map()
 try {
-  const f = arg('api-coverage', '/data/pbya/ziee/tmp/live-ui-explore/api-coverage.json')
+  const f = arg('api-coverage', '/data/pbya/txresbench/tmp/live-ui-explore/api-coverage.json')
     .replace(/\.json$/, '') + '-outcomes.json'
   for (const [k, v] of Object.entries(JSON.parse(readFileSync(f, 'utf8')))) apiOutcomesCum.set(k, v)
 } catch { /* first run */ }
@@ -991,7 +991,7 @@ try {
     }
     // Wandered off the app? Come back. Following an outbound link is realistic
     // user behaviour, but every step spent on a third-party site is a step not
-    // spent auditing ziee — and it was how the route ledger got poisoned in the
+    // spent auditing txresbench — and it was how the route ledger got poisoned in the
     // first place.
     if (!sameOrigin(page.url())) {
       log(`off-site at ${page.url().slice(0, 60)} — returning to the app`)

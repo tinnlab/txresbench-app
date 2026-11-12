@@ -1,4 +1,4 @@
-//! Auto-register discovered project extensions in `order`. Mirrors ziee's
+//! Auto-register discovered project extensions in `order`. Mirrors txresbench's
 //! `project/extension_registration.rs`.
 
 use sqlx::SqlitePool;

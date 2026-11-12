@@ -14,7 +14,7 @@
 //     zero call sites in the entire backend.
 //   • `sync:user` / `sync:group` — `Users.store` / `UserGroups.store` subscribed; neither
 //     entity was published in ANY layer (the app's user handlers emitted nothing, and
-//     ziee-auth has no `AuthSyncEntity::User`/`::Group` call site).
+//     txresbench-auth has no `AuthSyncEntity::User`/`::Group` call site).
 //   • `sync:provenance_verification` — published on every verification's terminal state,
 //     with zero subscribers anywhere.
 //
@@ -27,7 +27,7 @@
 // `publish`. That is deliberate and load-bearing, and the reason is worth keeping even
 // though the specific case that motivated it is now fixed:
 //
-//   `sdk/crates/ziee-auth` calls `ctx.sync.publish(...)` for `Profile` / `SessionSettings`
+//   `sdk/crates/txresbench-auth` calls `ctx.sync.publish(...)` for `Profile` / `SessionSettings`
 //   / `Session` / `AuthProvider`, and for a long time every one of those was DROPPED —
 //   `AuthModule::init` hard-coded `NoopAuthSyncSink` and offered no injection point.
 //   Counting an SDK call site as "published" would have been exactly the lie this file
@@ -72,9 +72,9 @@ const ALLOW_LIST: { entity: string; side: 'published' | 'subscribed'; reason: st
     entity: 'auth_provider',
     side: 'published',
     reason:
-      'PUBLISH-ONLY, and app-side-fixable. `ziee-auth`\'s admin provider routes publish ' +
+      'PUBLISH-ONLY, and app-side-fixable. `txresbench-auth`\'s admin provider routes publish ' +
       '`AuthSyncEntity::AuthProvider` on create/update/delete/test ' +
-      '(sdk/crates/ziee-auth/src/auth/http/handlers.rs:2055/2140/2208/2266) to ' +
+      '(sdk/crates/txresbench-auth/src/auth/http/handlers.rs:2055/2140/2208/2266) to ' +
       '`perm::<AuthProvidersRead>()`, and `modules/sync/auth_sink.rs` maps it to ' +
       '`SyncEntity::AuthProvider`. The CLIENT half does not exist: this app mounts the ' +
       'admin provider ENDPOINTS (they come with `auth_admin_routes`) but ships no admin ' +
@@ -94,7 +94,7 @@ const ALLOW_LIST: { entity: string; side: 'published' | 'subscribed'; reason: st
     side: 'published' as const,
     reason:
       'PUBLISH-ONLY after the TxResBench strip: `modules/sync/auth_sink.rs` maps ' +
-      '`ziee-auth`\'s `AuthSyncEntity` for this channel onto the app wire, but the ' +
+      '`txresbench-auth`\'s `AuthSyncEntity` for this channel onto the app wire, but the ' +
       'client stores that subscribed (`Auth.store`, `Profile.store`, `Users.store`, ' +
       '`UserGroups.store`, `SessionSettings.store`) were removed with the auth/account ' +
       'UI modules. The desktop build has one local session and no multi-device sync; ' +

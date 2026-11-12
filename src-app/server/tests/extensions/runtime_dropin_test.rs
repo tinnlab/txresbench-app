@@ -126,7 +126,7 @@ async fn a_separate_repo_package_dropped_at_runtime_is_discovered_with_no_rebuil
     let compute_path = pkg.join(DROPIN_COMPUTE);
     assert!(compute_path.is_file(), "the co-located compute file is on disk");
     let on_disk = std::fs::read_to_string(&compute_path).expect("read the dropped compute");
-    let resolved = cytoanalyst::modules::sandbox::processors::resolve_in(&processors_dir, DROPIN_COMPUTE)
+    let resolved = txresbench::modules::sandbox::processors::resolve_in(&processors_dir, DROPIN_COMPUTE)
         .expect("the dropped-in compute resolves THROUGH the runner's resolver, from the folder");
     assert_eq!(resolved.package, DROPIN_PKG, "resolves in the dropped package");
     assert_eq!(
@@ -135,7 +135,7 @@ async fn a_separate_repo_package_dropped_at_runtime_is_discovered_with_no_rebuil
         "the resolver reads the DROPPED bytes from the folder (INV-7), not a fixture"
     );
     assert!(
-        matches!(resolved.language, cytoanalyst::modules::sandbox::spec::Language::Python),
+        matches!(resolved.language, txresbench::modules::sandbox::spec::Language::Python),
         "the language is inferred from the folder-discovered compute"
     );
 

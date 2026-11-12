@@ -6,7 +6,7 @@
 //! materialized inputs into the path-agnostic `backend::ComputeSpec`.
 
 use serde::{Deserialize, Serialize};
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::backend::{PriorityClass, ResourceClass};
 use super::types::ExtraMountDecl;
@@ -175,7 +175,7 @@ pub struct InputDecl {
     /// BAM+bai) stages its whole prefix as a directory (ITEM-5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_ref: Option<uuid::Uuid>,
-    /// A ziee-file `files.id` — one file of a Dataset. A dataset's one-or-many
+    /// A txresbench-file `files.id` — one file of a Dataset. A dataset's one-or-many
     /// files are declared as one `dataset_file_ref` input each (with distinct
     /// `sandbox_subpath`s). Its `inputs.json` kind is `dataset-file` (ITEM-5 /
     /// DEC-13).
@@ -498,7 +498,7 @@ impl AnalysisSpec {
         }
         for input in &self.inputs {
             // Exactly one source per input: an artifact ref (single or multi-file),
-            // a dataset (ziee-file) file ref, a dataset axis-index ref, or a trusted
+            // a dataset (txresbench-file) file ref, a dataset axis-index ref, or a trusted
             // host path.
             let n_sources = [
                 input.artifact_ref.is_some(),
@@ -1037,7 +1037,7 @@ mod tests {
     // / host_path. A `dataset_file_ref` input parses; declaring two sources rejects.
     #[test]
     fn input_source_exactly_one() {
-        // A dataset-file input (ziee-file) is a valid single source.
+        // A dataset-file input (txresbench-file) is a valid single source.
         let mut p = valid_params();
         p["inputs"][0] = json!({
             "slot": "expression",
@@ -1104,7 +1104,7 @@ mod tests {
     #[cfg(unix)]
     fn canonicalize_under_allowlist_blocks_symlink_escape() {
         use std::path::PathBuf;
-        let base = std::env::temp_dir().join(format!("cyto-canon-{}", uuid::Uuid::new_v4()));
+        let base = std::env::temp_dir().join(format!("txr-canon-{}", uuid::Uuid::new_v4()));
         let allowed = base.join("refs"); // the allowlisted root
         let secret = base.join("secret"); // OUTSIDE the allowlist
         std::fs::create_dir_all(allowed.join("GRCh38")).unwrap();

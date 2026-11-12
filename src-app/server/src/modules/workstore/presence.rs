@@ -272,10 +272,10 @@ mod tests {
     use chrono::Utc;
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
-    use ziee_core::AppError;
+    use txresbench_core::AppError;
 
     fn tmp_store() -> (PathBuf, LocalFsStore) {
-        let dir = std::env::temp_dir().join(format!("cyto-presence-{}", Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("txr-presence-{}", Uuid::new_v4()));
         (dir.clone(), LocalFsStore::new(dir))
     }
 

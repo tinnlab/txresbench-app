@@ -9,7 +9,7 @@
 *.log
 .lifecycle
 # Runtime/generated data + local caches (never inputs to the image build).
-cytoanalyst-data
+txresbench-data
 **/.cloud-sim.env
 **/.floci-sim.env
 **/.kube-config

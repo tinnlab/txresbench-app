@@ -24,12 +24,12 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::gather_exec::{resolve, resolve_shared, ResolvedGather};
-use cytoanalyst::modules::workstore::gathered::ResolutionCache;
-use cytoanalyst::modules::workstore::object_store::ObjectStore;
-use cytoanalyst::modules::workstore::virtual_dataset::{gathered_structure, KeyIdentity};
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::gather_exec::{resolve, resolve_shared, ResolvedGather};
+use txresbench::modules::workstore::gathered::ResolutionCache;
+use txresbench::modules::workstore::object_store::ObjectStore;
+use txresbench::modules::workstore::virtual_dataset::{gathered_structure, KeyIdentity};
 
 use super::{create_project, pool_for, server_store, setup_admin};
 use crate::common::TestServer;
@@ -163,7 +163,7 @@ async fn put_mask(
         content_hash: put.content_hash.clone(),
         // A real mask store's member is `values` (a metadata-column's single member).
         structure: json!({ "columns": [{ "name": "values", "path": "values" }] }),
-        meta: cytoanalyst::modules::workstore::mask::mask_meta("ds-source"),
+        meta: txresbench::modules::workstore::mask::mask_meta("ds-source"),
         // Role is irrelevant to the serve path (it reads the mask by id); the one-per-VD
         // storage constraint is `mask_storage_test`'s concern, so keep this fixture minimal.
         role: "artifact".to_string(),
@@ -336,7 +336,7 @@ async fn an_all_keep_mask_is_byte_equivalent_to_no_mask_and_to_the_source() {
 /// **A gathered masked column's `zarr.json` is RESOLVED to `N_kept` (ITEM-9, INV-17).**
 ///
 /// Both the array node (`values/zarr.json`) and the group node (`zarr.json`
-/// `attributes.cyto`) declare the kept-row count, not the source count — from the same
+/// `attributes.txr`) declare the kept-row count, not the source count — from the same
 /// resolution that produced the chunks.
 ///
 /// nc: serve the structure-only `zarr.json` (source `n`) and the shape reads 5 not 3.
@@ -366,12 +366,12 @@ async fn a_masked_columns_zarr_json_shape_is_the_kept_count() {
     let grp: Value =
         serde_json::from_slice(&resolved.member("zarr.json").unwrap().unwrap()).unwrap();
     assert_eq!(
-        grp["attributes"]["cyto"]["n"],
+        grp["attributes"]["txr"]["n"],
         json!(3),
         "group node's resolved declaration also carries N_kept, not the source count"
     );
     assert_eq!(
-        grp["attributes"]["cyto"]["columns"][0]["shape"],
+        grp["attributes"]["txr"]["columns"][0]["shape"],
         json!([3]),
         "the column entry's shape is resolved too — no drift between array and group nodes"
     );

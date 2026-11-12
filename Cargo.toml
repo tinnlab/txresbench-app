@@ -1,4 +1,4 @@
-# CytoAnalyst Rust workspace (app #2 on the ziee SDK).
+# TxResBench Rust workspace (app #2 on the txresbench SDK).
 #
 # The SDK is a nested workspace at `sdk/` (its own `[workspace]` root acts as a
 # boundary); we reference its crates as path-deps from `src-app/server`, and

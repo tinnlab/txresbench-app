@@ -34,7 +34,7 @@
  * `txr-models-card-<id>` (opened state).
  */
 import type { CSSProperties, ReactNode } from 'react'
-import { Button, Descriptions, Dialog, Skeleton, type DescriptionsItem } from '@ziee/kit'
+import { Button, Descriptions, Dialog, Skeleton, type DescriptionsItem } from '@txresbench/kit'
 import type { PretrainedModel, PretrainedNeeds } from '@/api-client/types'
 import { usePretrainedCard } from '../data/usePretrained'
 import { RESEARCH_NOTICE, UNRECORDED, formatBytes, formatPredicts } from '../lib/format'

@@ -24,7 +24,7 @@
  */
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import { SLOT_KIND_LABEL, type TxrSlotSummarySlot } from '../lib/slotSummary'
 import { useNarrow } from '../lib/useNarrow'
 

@@ -28,7 +28,7 @@
  * input is absent is worse than none: it reports "checked" in every log while
  * checking nothing, which is how a guard survives the refactor that disconnects it.
  */
-import { resolveWorktreeRoot } from '@ziee/gallery/scripts/lib/run-key.mjs'
+import { resolveWorktreeRoot } from '@txresbench/gallery/scripts/lib/run-key.mjs'
 
 import { assertOriginIsOurs } from './harness-origin.mjs'
 

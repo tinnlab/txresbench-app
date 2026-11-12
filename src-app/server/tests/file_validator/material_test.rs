@@ -244,19 +244,19 @@ fn generator_fixture_parity_and_committed_example_are_synthetic_only() {
         "mapping": [],
         "parameters": {"decision_day": 56.0, "baseline_max_day": 0.0},
     });
-    let request: cytoanalyst::modules::file_validator::ValidationRequest =
+    let request: txresbench::modules::file_validator::ValidationRequest =
         serde_json::from_value(request).expect("the example is a valid request");
-    let response = cytoanalyst::modules::file_validator::validate(&request)
+    let response = txresbench::modules::file_validator::validate(&request)
         .expect("the example validates");
     let warnings: Vec<_> = response
         .problems
         .iter()
-        .filter(|p| p.severity == cytoanalyst::modules::file_validator::ProblemSeverity::Warning)
+        .filter(|p| p.severity == txresbench::modules::file_validator::ProblemSeverity::Warning)
         .collect();
     let errors: Vec<_> = response
         .problems
         .iter()
-        .filter(|p| p.severity == cytoanalyst::modules::file_validator::ProblemSeverity::Error)
+        .filter(|p| p.severity == txresbench::modules::file_validator::ProblemSeverity::Error)
         .collect();
     assert!(errors.is_empty(), "the example has no errors: {errors:?}");
     assert_eq!(
@@ -276,19 +276,19 @@ fn generator_fixture_parity_and_committed_example_are_synthetic_only() {
         "mapping": [],
         "parameters": {"decision_day": 56.0, "baseline_max_day": 0.0},
     });
-    let predict_request: cytoanalyst::modules::file_validator::ValidationRequest =
+    let predict_request: txresbench::modules::file_validator::ValidationRequest =
         serde_json::from_value(predict_request).expect("the predict example is a valid request");
-    let predict_response = cytoanalyst::modules::file_validator::validate(&predict_request)
+    let predict_response = txresbench::modules::file_validator::validate(&predict_request)
         .expect("the predict example validates");
     let predict_warnings: Vec<_> = predict_response
         .problems
         .iter()
-        .filter(|p| p.severity == cytoanalyst::modules::file_validator::ProblemSeverity::Warning)
+        .filter(|p| p.severity == txresbench::modules::file_validator::ProblemSeverity::Warning)
         .collect();
     let predict_errors: Vec<_> = predict_response
         .problems
         .iter()
-        .filter(|p| p.severity == cytoanalyst::modules::file_validator::ProblemSeverity::Error)
+        .filter(|p| p.severity == txresbench::modules::file_validator::ProblemSeverity::Error)
         .collect();
     assert!(predict_errors.is_empty(), "the predict example has no errors: {predict_errors:?}");
     assert_eq!(

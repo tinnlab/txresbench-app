@@ -4,7 +4,7 @@
 
 Every store this run emits must pass the SAME gate the platform runs out-of-process after
 ingest (`_lib/conformance.py`, driven by the `jobs::conformance` verification processor):
-the group's `attributes.cyto` must equal the producer's declared `structure`, and every
+the group's `attributes.txr` must equal the producer's declared `structure`, and every
 member node must stamp its own.
 
 ── Why this is not ceremony (#73) ──────────────────────────────────────────────────────
@@ -32,9 +32,9 @@ from doublet_fixtures import require_skimage, structured_counts
 PARAMS = {"n_prin_comps": 10}
 
 
-def _cyto(store_dir):
+def _txr(store_dir):
     doc = json.loads((Path(store_dir) / "zarr.json").read_text())
-    return (doc.get("attributes") or {}).get("cyto")
+    return (doc.get("attributes") or {}).get("txr")
 
 
 def _run(detect_run, *, filtered=False, batched=False):
@@ -74,13 +74,13 @@ def test_the_categorical_call_stamps_kind_levels_and_ordered(detect_run):
     entry = run.entry("doublet_call")
     assert entry is not None
 
-    stamp = _cyto(run.outputs_dir / entry["path"])
-    assert stamp is not None, "the call store carries no attributes.cyto stamp"
+    stamp = _txr(run.outputs_dir / entry["path"])
+    assert stamp is not None, "the call store carries no attributes.txr stamp"
     # the group stamp must EQUAL the producer's declared structure — two copies of one
     # declaration, which is what the gate compares
     assert stamp == entry["structure"]
 
-    member = _cyto(run.outputs_dir / entry["path"] / "values")
+    member = _txr(run.outputs_dir / entry["path"] / "values")
     assert member is not None, "the `values` member node stamps nothing"
     for key in ("kind", "levels", "ordered"):
         assert key in member, (key, member)
@@ -92,7 +92,7 @@ def test_the_categorical_call_stamps_kind_levels_and_ordered(detect_run):
 def test_a_bool_call_column_could_not_have_carried_the_third_state(detect_run):
     """The decision made executable. `write_metadata_column`'s BOOL branch hard-codes
     `meta["levels"] = ["false","true"]` and writes a plain bool array with no
-    `attributes.cyto.levels` to fall back to — so it cannot express `not_evaluated`, and
+    `attributes.txr.levels` to fall back to — so it cannot express `not_evaluated`, and
     `False` would mean both "singlet" and "we never looked".
 
     This reads the shipped writer's own source rather than asserting the claim, so the day
@@ -100,9 +100,9 @@ def test_a_bool_call_column_could_not_have_carried_the_third_state(detect_run):
     """
     import inspect
 
-    import cyto_columns
+    import txr_columns
 
-    source = inspect.getsource(cyto_columns.write_metadata_column)
+    source = inspect.getsource(txr_columns.write_metadata_column)
     assert '"levels": ["false", "true"]' in source or "'levels': ['false', 'true']" in source \
         or '["false","true"]' in source.replace(" ", ""), (
         "the bool branch's hard-coded two-level display set has moved; re-check whether a "
@@ -111,7 +111,7 @@ def test_a_bool_call_column_could_not_have_carried_the_third_state(detect_run):
     require_skimage()
     run = _run(detect_run, filtered=True)
     entry = run.entry("doublet_call")
-    member = _cyto(run.outputs_dir / entry["path"] / "values")
+    member = _txr(run.outputs_dir / entry["path"] / "values")
     assert member["levels"] == ["singlet", "doublet", "not_evaluated"]
     assert entry["meta"]["n_levels"] == 3
 
@@ -143,7 +143,7 @@ def test_the_score_column_declares_aligned_to_and_not_a_key_sequence(detect_run)
     assert "key" not in structure
 
     # the stamp on disk agrees with the declaration (the gate's own comparison)
-    assert _cyto(run.outputs_dir / entry["path"]) == structure
+    assert _txr(run.outputs_dir / entry["path"]) == structure
 
 
 def test_the_report_is_a_declared_opaque_artifact(detect_run):
@@ -184,7 +184,7 @@ def test_the_declared_nnz_is_verified_against_what_was_actually_read(detect_run)
     store = run.add_matrix(structured_counts(40, 90, n_groups=3, seed=0))
     meta = store / "zarr.json"
     doc = json.loads(meta.read_text())
-    doc["attributes"]["cyto"]["nnz"] = 1
+    doc["attributes"]["txr"]["nnz"] = 1
     meta.write_text(json.dumps(doc))
 
     proc = run.run(PARAMS)
@@ -201,7 +201,7 @@ def test_a_malformed_nnz_fails_closed_by_name(detect_run):
     store = run.add_matrix(structured_counts(40, 90, n_groups=3, seed=0))
     meta = store / "zarr.json"
     doc = json.loads(meta.read_text())
-    doc["attributes"]["cyto"]["nnz"] = "lots"
+    doc["attributes"]["txr"]["nnz"] = "lots"
     meta.write_text(json.dumps(doc))
 
     proc = run.run(PARAMS)
@@ -277,7 +277,7 @@ def test_a_row_index_outside_the_declared_cell_count_is_refused(detect_run):
     # shrink the DECLARED cell count so the (unchanged) stored row indices now overrun it
     meta = store / "zarr.json"
     doc = json.loads(meta.read_text())
-    doc["attributes"]["cyto"]["shape"] = [10, 90]
+    doc["attributes"]["txr"]["shape"] = [10, 90]
     meta.write_text(json.dumps(doc))
 
     proc = run.run(PARAMS)

@@ -70,7 +70,7 @@
 #   and the compute follows it, but importing it would put the reader behind a library
 #   that is in the rootfs and NOT on the `just check-py` host, i.e. behind the one gate
 #   that has to run this code. It would also return an `AnnData` we would immediately
-#   decompose, forcing a full in-memory materialisation that `cyto_csc`'s streaming
+#   decompose, forcing a full in-memory materialisation that `txr_csc`'s streaming
 #   transpose exists to avoid.
 #
 # ── EVERY DECLARED DEPENDENCY IS ALREADY PINNED ──────────────────────────────────────
@@ -82,7 +82,7 @@
 # pandas 2.3.3, h5py 3.16.0, tifffile 2026.3.3, pillow 12.3.0.
 id: spatial-import-visium
 name: Import Visium (Space Ranger)
-publisher: cyto
+publisher: txr
 # Bump on ANY file change in this package — the seed reconciliation keys on it.
 # A VERSION COLLISION, resolved UPWARD rather than by taking a side — twice now, against two
 # different mainline bumps (#214's 0.3.1 and #162's 0.3.2). This branch bumped 0.3.0 -> 0.4.0
@@ -91,7 +91,7 @@ publisher: cyto
 # that does not move against this branch's own base, and the seed reconciliation keys on
 # `version` — so a stale one keeps executing the pre-#156 kernel while the files have changed.
 #  0.5.0 — #211: the spatial declarations are MIRRORED into the coordinates store's own
-#          `attributes.cyto` (`structure['cyto_spatial']`), so a SANDBOXED consumer can
+#          `attributes.txr` (`structure['txr_spatial']`), so a SANDBOXED consumer can
 #          read the coordinate space, the micron scale (and its provenance), the
 #          measured entity, the positioning and the section. `meta` never crossed into
 #          the sandbox; the store's own bytes do. Reader side: `require_spatial_declarations`,
@@ -419,7 +419,7 @@ publisher: cyto
 # 0.14.0 — #349: the `/matrix` counts arrays — `data`, `indices`, `indptr` — are validated
 #          BEFORE the first writer, by `refuse_malformed_counts` in `compute/import_visium.py`.
 #          Previously their content and shape were first touched INSIDE
-#          `cyto_csc.write_csc_zarr`, i.e. after artifact bytes already existed on disk. The
+#          `txr_csc.write_csc_zarr`, i.e. after artifact bytes already existed on disk. The
 #          consequence that made this P1: a bundle with `/matrix/indices` truncated below what
 #          `indptr[-1]` declares imported at exit 0, wrote a manifest, and produced a store
 #          holding 100 of 17,677 stored values with every count attributed to feature 0 — the
@@ -910,7 +910,7 @@ publisher: cyto
 #          `RuntimeError`, so the order is what stops this package's own named refusals
 #          being re-wrapped as a different one.
 #          WHAT DOES NOT MOVE. The read is already BEFORE the first writer
-#          (`cyto_csc.write_csc_zarr`), so no bundle that imports today changes rc or
+#          (`txr_csc.write_csc_zarr`), so no bundle that imports today changes rc or
 #          bytes: the three committed vendor fixtures still import at rc 0 (the new
 #          TEST-139 positive control runs the UNMUTATED fixture through the same
 #          entrypoint). This is the diagnostics half INV-1 cares about — INV-2 held by

@@ -1,11 +1,11 @@
-// @ziee/viz/core — the tree-shakeable CORE subpath (EXTENSIBILITY_STUDY Part 6 STEP 7): the
+// @txresbench/viz/core — the tree-shakeable CORE subpath (EXTENSIBILITY_STUDY Part 6 STEP 7): the
 // pipeline + registry, the coordinate-system registry, the Coordination / DataZoom components +
 // handle, the plain-zustand stores, the declarative option pipeline (parser + controller), and
 // the pure data/coordination helpers. It renders NOTHING on its own — it imports NO chart Views
-// and NO `installBuiltins` (charts arrive via `@ziee/viz/charts`), so an app that only needs the
+// and NO `installBuiltins` (charts arrive via `@txresbench/viz/charts`), so an app that only needs the
 // engine + a subset of charts never pulls all ten in (ECharts `echarts/core` shape).
 //
-// The main `@ziee/viz` barrel re-exports everything (back-compat); this subpath is the opt-in
+// The main `@txresbench/viz` barrel re-exports everything (back-compat); this subpath is the opt-in
 // minimal surface.
 
 // ── registry + extension surface ─────────────────────────────────────────────────────

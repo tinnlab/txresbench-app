@@ -1,0 +1,99 @@
+[package]
+name = "txresbench-framework"
+version = "0.0.0"
+edition.workspace = true
+
+[dependencies]
+txresbench-core = { path = "../txresbench-core" }
+txresbench-identity = { path = "../txresbench-identity" }
+# Chunk sdk-batteries: re-exported as `txresbench_framework::build_support`. Lean +
+# build-DB-free (sqlx runtime + tokio, no `query!` macros).
+txresbench-build-support = { path = "../txresbench-build-support" }
+
+# Versions match the txresbench server crate's [workspace.dependencies] catalog
+# (src-app/Cargo.toml) so the single src-app/Cargo.lock unifies them without a
+# duplicate build when txresbench consumes txresbench-framework by path. These crates are
+# TYPES + machinery only (module system + app_builder); build-DB-free (plan §7).
+aide = { version = "0.15", features = ["axum", "axum-json", "macros"] }
+axum = { version = "0.8.4", features = ["macros", "multipart"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "sqlite", "runtime-tokio-rustls", "migrate"] }
+tower-http = { version = "0.6.2", features = ["cors"] }
+tower_governor = "0.7"
+linkme = "0.3"
+async-trait = "0.1"
+tracing = "0.1"
+# Chunk B3: the permission-enforcement layer (RequirePermissions / with_permission)
+# derives JsonSchema/serde on the 403 `PermissionError` body and constructs it as
+# an OpenAPI example. Versions match txresbench-identity + the txresbench server catalog so
+# the single src-app/Cargo.lock unifies them.
+serde = { version = "1.0.219", features = ["derive"] }
+schemars = { version = "0.9.0", features = ["chrono04", "uuid1"] }
+# Chunk B5: the realtime-sync core (per-user SSE connection registry + caps +
+# audience routing + self-echo). The registry holds `tokio::sync::mpsc` senders
+# and keys connections by `uuid`. Versions match the txresbench server catalog so the
+# single src-app/Cargo.lock unifies them.
+tokio = { version = "1.47.1", features = ["sync", "rt", "rt-multi-thread", "time", "macros", "signal", "net"] }
+uuid = { version = "1.18", features = ["serde", "v4", "v5"] }
+# Chunk sdk-surfaces: the mountable `sync_routes()` SSE subscribe handler (moved
+# from txresbench's `modules/sync/handlers.rs`) drives its per-connection stream with
+# `async_stream::stream!`, boxes the resulting `Stream` behind `futures_util`, and
+# bounds the stream deadline against the access token's unix `exp` via `chrono`.
+# Versions match the txresbench server catalog (src-app/Cargo.toml) so the single
+# src-app/Cargo.lock unifies them.
+async-stream = "0.3"
+futures-util = "0.3"
+chrono = { version = "0.4", features = ["serde"] }
+# Chunk B6: the emit_ts generator deserializes the OpenAPI spec into an
+# insertion-order-preserving value (indexmap, NOT serde_json::Value which would
+# alphabetize) and the driver tail serializes the finished doc + reads the JSON
+# back. Versions match the txresbench server catalog so the single src-app/Cargo.lock
+# unifies them.
+indexmap = { version = "2", features = ["serde"] }
+serde_json = "1.0.141"
+# Chunk BG-2: shared-infra move of the SSRF outbound-URL validator
+# (`url_validator`) + at-rest secret crypto (`secret`) + the storage-key
+# process-global (`secrets`). Build-DB-free (runtime `query_as`, never a
+# compile-time `query!`). Versions match the txresbench server catalog
+# (src-app/Cargo.toml) so the single src-app/Cargo.lock unifies them. reqwest
+# mirrors the server base decl (`default-features = false` + rustls-tls) so
+# feature-unification doesn't flip default features on in the server build; the
+# DNS-resolver / redirect surface url_validator uses is in reqwest core (no extra
+# feature). tokio gains `rt` (spawn_blocking) + `macros` (the `#[tokio::test]`s).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2"] }
+url = "2.5"
+thiserror = "2.0.12"
+once_cell = "1.21.3"
+# Chunk BG-3: the generic embedded/external Postgres bootstrap (embedded_pg).
+# Runtime-only (no compile-time `query!`), so txresbench-framework stays build-DB-free.
+# Version + features mirror the txresbench server's [workspace.dependencies] catalog so
+# the single src-app/Cargo.lock unifies them (no duplicate build when txresbench
+# consumes the framework by path).
+#
+# OPTIONAL: enabled by the crate's default `embedded-pg` feature (the PG
+# variant). A driver-switched consumer declares
+# `default-features = false, features = ["sqlite-backend"]` and the downloader
+# (the theseus-rs Postgres binaries) is NOT linked at all — it is absent from
+# the dependency graph rather than merely unused.
+postgresql_embedded = { version = "0.20.0", default-features = false, features = ["bundled", "theseus", "rustls"], optional = true }
+
+# Dual-driver selection — see `txresbench_core::db_pool` for the rationale.
+# - `embedded-pg` (default): the PG variant, byte-identical to the pre-seam
+#   build (`DbPool` = `PgPool`, `embedded_pg` linked).
+# - `sqlite-backend`: the SQLite variant (`DbPool` = `SqlitePool`). A consumer
+#   that wants it turns the PG side off by disabling default features.
+[features]
+default = ["embedded-pg"]
+embedded-pg = ["dep:postgresql_embedded"]
+sqlite-backend = ["txresbench-core/sqlite-backend"]
+
+[dev-dependencies]
+tempfile = "3.15"
+# Crate-scoped router tests (tests/permission_extractors.rs,
+# tests/sync_origin_extractor.rs) drive the real extractors in-process via
+# `tower::ServiceExt::oneshot`. axum/tokio/uuid/txresbench-core/txresbench-identity/
+# async-trait/serde_json are already regular deps and available to the tests.
+tower = { version = "0.5.3", features = ["util"] }
+# tests/sync_routes.rs reads the SSE response body frame-by-frame (the stream
+# stays open, so `to_bytes` would hang) to assert the `connected` handshake +
+# exp-deadline teardown. Version matches the txresbench-auth dev-dep.
+http-body-util = "0.1.4"

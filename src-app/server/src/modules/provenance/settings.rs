@@ -10,7 +10,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// The singleton provenance settings row (matches migration
 /// `202608030005_provenance_baseline.sql`).
@@ -144,7 +144,7 @@ pub struct UpdateProvenanceSettings {
     // authenticated admin in the handler.
 }
 
-/// The LEGACY rootfs-cache-cap env override (`CYTO_ROOTFS_CACHE_MAX_DIGESTS`) as a seed
+/// The LEGACY rootfs-cache-cap env override (`TXR_ROOTFS_CACHE_MAX_DIGESTS`) as a seed
 /// value — `Some(n)` only when the operator actually set it to a valid positive int,
 /// clamped to the DB/validate bounds so a bad env can never seed an out-of-range row.
 /// `None` when unset/malformed. Used at boot (DEC-2 correction) to seed the settings row so
@@ -153,7 +153,7 @@ pub struct UpdateProvenanceSettings {
 /// env for good). The interval has no env twin.
 pub fn rootfs_cache_max_digests_env_seed() -> Option<i64> {
     rootfs_cache_max_digests_env_seed_from(
-        std::env::var("CYTO_ROOTFS_CACHE_MAX_DIGESTS").ok().as_deref(),
+        std::env::var("TXR_ROOTFS_CACHE_MAX_DIGESTS").ok().as_deref(),
     )
 }
 
@@ -161,7 +161,7 @@ pub fn rootfs_cache_max_digests_env_seed() -> Option<i64> {
 /// unit-testable without touching (global, racy) process env.
 ///
 /// CAVEAT: the legacy `max_cached_digests()` env path had NO upper bound, so a deployment
-/// that set `CYTO_ROOTFS_CACHE_MAX_DIGESTS` above 1000 kept more digests than the new ceiling
+/// that set `TXR_ROOTFS_CACHE_MAX_DIGESTS` above 1000 kept more digests than the new ceiling
 /// allows. The seed clamps to the DB/validate ceiling (1000) — otherwise it would violate the
 /// CHECK and warn-fall-back to the default 4, a far larger behavior change. So "byte-identical
 /// to before" holds for any env value in 1..=1000 (the realistic range: 1000 digests is ≈300
@@ -244,7 +244,7 @@ impl ProvenanceSettingsRepository {
     }
 
     /// Seed the singleton's `rootfs_cache_max_digests` from the legacy
-    /// `CYTO_ROOTFS_CACHE_MAX_DIGESTS` env override, but ONLY while the row has never been
+    /// `TXR_ROOTFS_CACHE_MAX_DIGESTS` env override, but ONLY while the row has never been
     /// admin-modified (`updated_by IS NULL`). Idempotent per boot (it does NOT stamp
     /// `updated_by`, so env re-applies every boot until an admin PUTs, which then supersedes
     /// env for good). This keeps an env-configured deployment that never PUTs byte-identical
@@ -255,7 +255,7 @@ impl ProvenanceSettingsRepository {
     /// NOTE (intentional coupling): the gate is `updated_by IS NULL`, and `update()` stamps
     /// `updated_by` on ANY provenance-settings PUT. So an admin who edits any knob (even an
     /// unrelated one) closes the env-seed gate for good — thereafter the DB row is
-    /// authoritative and `CYTO_ROOTFS_CACHE_MAX_DIGESTS` no longer re-seeds on reboot. This
+    /// authoritative and `TXR_ROOTFS_CACHE_MAX_DIGESTS` no longer re-seeds on reboot. This
     /// matches the workstore precedent: once an operator manages settings from the admin
     /// surface, the deployment env stops silently steering them.
     pub async fn seed_rootfs_cap_from_env_if_unmodified(

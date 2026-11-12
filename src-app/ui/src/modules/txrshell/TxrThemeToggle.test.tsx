@@ -20,7 +20,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { ThemeContext, type ThemeContextValue } from '@ziee/shell'
+import { ThemeContext, type ThemeContextValue } from '@txresbench/shell'
 import { useConfigClientStore } from '@/modules/config-client/ConfigClient.store'
 import { TxrThemeToggle, nextThemePreference } from './TxrThemeToggle'
 

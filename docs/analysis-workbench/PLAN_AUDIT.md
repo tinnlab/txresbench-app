@@ -31,7 +31,7 @@ identified + mitigations:
 - Module → `createModule` like `study/module.tsx` (stores + dependencies + extension import). ✔
 - Gallery → `export const gallery: ModuleGallery` seeding store state per surface×state like
   `study/gallery.tsx`. ✔
-- Kit + tokens → `@ziee/kit` primitives + shadcn tokens only; no hex/antd. The mockup is the visual source,
+- Kit + tokens → `@txresbench/kit` primitives + shadcn tokens only; no hex/antd. The mockup is the visual source,
   translated to kit. ✔
 - `analysisRegistry` → mirrors the study-extension registry shape (register + glob + pure selectors). ✔
 

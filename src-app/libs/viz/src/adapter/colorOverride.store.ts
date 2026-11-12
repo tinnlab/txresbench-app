@@ -12,7 +12,7 @@
 // coloring by that column — mirroring `resolveSharedDomain`'s continuous-domain coordination, but
 // for the categorical axis.
 //
-// Plain-zustand (no @ziee SDK), matching `Coordination.store.ts`:
+// Plain-zustand (no @txresbench SDK), matching `Coordination.store.ts`:
 // `create()(subscribeWithSelector(immer(...)))` — flat state + immer draft setters, so the app's
 // autosave can `store.subscribe(selector, cb)` the overrides and persist them exactly like the
 // coordination view state.

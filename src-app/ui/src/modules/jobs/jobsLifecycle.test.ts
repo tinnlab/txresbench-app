@@ -14,7 +14,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiClient } from '@/api-client'
 import type { JobListResponse } from '@/api-client/types'
-import type { StoreSet } from '@ziee/framework/store-kit'
+import type { StoreSet } from '@txresbench/framework/store-kit'
 import { hasPermissionNow } from '@/core/permissions'
 import { createJobsLifecycle, type JobsLifecycleState, type JobsSyncOn } from './jobsLifecycle'
 

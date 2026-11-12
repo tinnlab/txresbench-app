@@ -1,13 +1,13 @@
-# Area selection vs. invisible points in `@ziee/viz` — empirical findings
+# Area selection vs. invisible points in `@txresbench/viz` — empirical findings
 
 Investigated 2026-07-27 against the running dev server on **:1478** serving
-`/data/pbya/ziee/tmp/annotate-tooling-ux-wt/src-app/libs/viz` (module content verified to match
+`/data/pbya/txresbench/tmp/annotate-tooling-ux-wt/src-app/libs/viz` (module content verified to match
 that worktree). **No product source was modified.** Instrumentation was done entirely by Playwright
 route-interception of the *transformed* story modules plus the existing dev seams
 `window.__VIZ_INCELL__` (per-cell `setRange` / `toggleCategory` / `hidden` / `domains`) and
 `window.__VIZ_TEST__`.
 
-Probe scripts: `/data/pbya/ziee/tmp/selvis/probe{1,2,3,4,5,6,7}.mjs`.
+Probe scripts: `/data/pbya/txresbench/tmp/selvis/probe{1,2,3,4,5,6,7}.mjs`.
 
 ## Bench
 
@@ -283,7 +283,7 @@ policy per mechanism (legend hide → keep, value filter → exclude, is my prio
 
 # 8. Not determined / inferred (flagged, not asserted)
 
-- **The ziee workbench app surfaces** (`SelectionInspector`, `vizBrushBridge`) were code-traced only;
+- **The txresbench workbench app surfaces** (`SelectionInspector`, `vizBrushBridge`) were code-traced only;
   I did not boot the app and drive them. The trace says raw ids, but that is a read, not a
   measurement.
 - **`filteredSource` identity mismatch** — `data/filteredSource.ts:55` re-indexes surviving points

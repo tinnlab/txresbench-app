@@ -1440,8 +1440,8 @@ describe('the four row-space states (ITEM-18)', () => {
 // the same reason A2 is, and it is a different fact from A2, which is why it is not spelled as
 // one.
 //
-// The member sets below are GOLDEN BLOBS produced by `cyto_zarr.encode_member_set` itself
-// (`python3 -c "from cyto_zarr import encode_member_set; ..."`), not by a second encoder
+// The member sets below are GOLDEN BLOBS produced by `txr_zarr.encode_member_set` itself
+// (`python3 -c "from txr_zarr import encode_member_set; ..."`), not by a second encoder
 // written here. The format has to be understood in TWO languages and the whole hazard is the
 // two drifting apart; a test that encoded with its own helper and decoded with the shipped one
 // would agree with itself while disagreeing with every artifact a producer writes.

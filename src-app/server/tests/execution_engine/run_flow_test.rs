@@ -19,7 +19,7 @@
 //! (the engine's manifest pins real `ghcr.io` refs + digest pins, so the
 //! loopback-registry + scratch-squashfs fixtures of the sandbox suite
 //! cannot feed this seam — see DRIFT-1 ITEM-11). They self-skip via
-//! `record_skip` with the concrete missing pieces named; `CYTO_TEST_NO_SKIP
+//! `record_skip` with the concrete missing pieces named; `TXR_TEST_NO_SKIP
 //! =1` turns each skip into a hard failure.
 
 use std::path::{Path, PathBuf};
@@ -33,13 +33,13 @@ use super::{
 };
 use crate::common::TestServer;
 use crate::dataset::hardening_common::record_skip;
-use cytoanalyst::modules::execution_engine::envmanifest;
-use cytoanalyst::modules::execution_engine::orchestrator::{self, StackMethodExecutor};
-use cytoanalyst::modules::execution_engine::repository::{produced_models, TxrRepository};
-use cytoanalyst::modules::execution_engine::runtime::RunRuntime;
-use cytoanalyst::modules::execution_engine::types::{TxrLimits, TxrRunStatus};
-use cytoanalyst::modules::jobs::repository::JobRepository;
-use cytoanalyst::modules::rootfs;
+use txresbench::modules::execution_engine::envmanifest;
+use txresbench::modules::execution_engine::orchestrator::{self, StackMethodExecutor};
+use txresbench::modules::execution_engine::repository::{produced_models, TxrRepository};
+use txresbench::modules::execution_engine::runtime::RunRuntime;
+use txresbench::modules::execution_engine::types::{TxrLimits, TxrRunStatus};
+use txresbench::modules::jobs::repository::JobRepository;
+use txresbench::modules::rootfs;
 
 /// The three catalogue methods the drive fixtures classify `can_run` on the
 /// 30-patient cohort (one marker, three draws) AND carry a manifest entry —

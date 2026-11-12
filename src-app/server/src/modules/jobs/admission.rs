@@ -55,7 +55,7 @@ use axum::http::StatusCode;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::models::Job;
 use super::repository::JobRepository;

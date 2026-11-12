@@ -1,8 +1,8 @@
-//! CytoAnalyst's concrete realtime-sync surface — everything the SDK's mountable
+//! TxResBench's concrete realtime-sync surface — everything the SDK's mountable
 //! `sync_routes` handler needs that the framework will not name: the
 //! per-connection permission snapshot, the process-wide registry singleton, the
 //! SSE wire schema, the baseline subscribe permission, the handshake event, and
-//! the periodic re-check. CytoAnalyst is the FIRST `SyncSurface` consumer in the
+//! the periodic re-check. TxResBench is the FIRST `SyncSurface` consumer in the
 //! ecosystem (SDK dogfooding — no prior example existed).
 
 use std::sync::OnceLock;
@@ -11,12 +11,12 @@ use axum::response::sse::Event;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_auth::auth::http::jwt_extractor::verify_token_version;
-use ziee_auth::user::permissions::ProfileRead;
-use ziee_auth::user::UserRepository;
-use ziee_auth::{Group, User};
-use ziee_framework::sync::{RecheckOutcome, SyncEntityKind, SyncRegistry, SyncSurface};
-use ziee_identity::{PermissionCheck, Principal};
+use txresbench_auth::auth::http::jwt_extractor::verify_token_version;
+use txresbench_auth::user::permissions::ProfileRead;
+use txresbench_auth::user::UserRepository;
+use txresbench_auth::{Group, User};
+use txresbench_framework::sync::{RecheckOutcome, SyncEntityKind, SyncRegistry, SyncSurface};
+use txresbench_identity::{PermissionCheck, Principal};
 
 use super::event::{connected_event, SyncSseEvent};
 
@@ -50,7 +50,7 @@ impl From<(User, Vec<Group>)> for SyncConnPrincipal {
     }
 }
 
-/// The process-wide sync connection registry, keyed to CytoAnalyst's principal.
+/// The process-wide sync connection registry, keyed to TxResBench's principal.
 static REGISTRY: OnceLock<SyncRegistry<SyncConnPrincipal>> = OnceLock::new();
 
 pub fn registry() -> &'static SyncRegistry<SyncConnPrincipal> {

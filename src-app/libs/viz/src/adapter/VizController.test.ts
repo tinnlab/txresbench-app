@@ -303,7 +303,7 @@ describe('VizController — ops-only restore re-derives a live selection (TEST-1
     const c = mkController()
     await c.setOption(
       { dataset: { id: 'demo' }, grid: [{ id: PANE }], series: [{ id: PANE, type: 'scatter', coordId: PANE }],
-        selection: { mode: 'multi', link: [], ops: opsIn, provenance: 'ziee-viz-selection/1' } } as unknown as VizOption,
+        selection: { mode: 'multi', link: [], ops: opsIn, provenance: 'txresbench-viz-selection/1' } } as unknown as VizOption,
       { replace: true },
     )
     // Before a resolver exists the restore is deliberately DEFERRED, not derived-to-empty.
@@ -318,7 +318,7 @@ describe('VizController — ops-only restore re-derives a live selection (TEST-1
     const offData = [{ ...opsIn[0], region: [900, 900, 950, 950] as [number, number, number, number] }]
     await c.setOption(
       { dataset: { id: 'demo' }, grid: [{ id: PANE }], series: [{ id: PANE, type: 'scatter', coordId: PANE }],
-        selection: { mode: 'multi', link: [], ops: offData, provenance: 'ziee-viz-selection/1' } } as unknown as VizOption,
+        selection: { mode: 'multi', link: [], ops: offData, provenance: 'txresbench-viz-selection/1' } } as unknown as VizOption,
       { replace: true },
     )
     c.registerSelectionPanes(resolve, liveContext)
@@ -351,7 +351,7 @@ describe('VizController — removePane prunes selection.ops (TEST-26 / H4)', () 
         { tool: 'rect', op: 'add', pane: 'cell-1', space: 'default', region: [0, 0, 5, 5] },
         { tool: 'rect', op: 'add', pane: 'cell-2', space: 'default', region: [0, 0, 5, 5] },
       ],
-      provenance: 'ziee-viz-selection/1',
+      provenance: 'txresbench-viz-selection/1',
     },
   } as unknown as VizOption
 
@@ -376,7 +376,7 @@ describe('VizController — removePane prunes selection.ops (TEST-26 / H4)', () 
     await c.setOption(
       { ...twoCells, selection: { mode: 'multi', link: [], ops: [
         { tool: 'rect', op: 'add', pane: 'cell-2', space: 'default', region: [0, 0, 5, 5] },
-      ], provenance: 'ziee-viz-selection/1' } } as unknown as VizOption,
+      ], provenance: 'txresbench-viz-selection/1' } } as unknown as VizOption,
       { replace: true },
     )
     c.dispatch({ type: 'removePane', id: 'cell-2' })
@@ -403,7 +403,7 @@ describe('VizController — an ops-only merge patch drops the stale ids cache (T
     selection: {
       mode: 'multi', link: [], ids: [1, 2, 3],
       ops: [{ tool: 'rect', op: 'add', pane: 'cell-1', space: 'default', region: [2, 2, 5, 5] }],
-      provenance: 'ziee-viz-selection/1',
+      provenance: 'txresbench-viz-selection/1',
     },
   } as unknown as VizOption
 

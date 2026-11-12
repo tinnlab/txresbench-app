@@ -19,7 +19,7 @@
 // This lives in `adapter/` (NOT viz-core) — like `coordinationHandle.ts` — because it depends on the
 // concrete zustand stores; the pure `parseOption` + `VizOption` types live in viz-core. The registry
 // must be populated first (`installBuiltins()` / `use([...])`); the controller does NOT import the
-// charts module, so `@ziee/viz/core` stays chart-free (tree-shakeable) — an unregistered `series[].type`
+// charts module, so `@txresbench/viz/core` stays chart-free (tree-shakeable) — an unregistered `series[].type`
 // throws from `parseOption` (the ECharts "used but not imported" contract).
 
 import {
@@ -42,7 +42,7 @@ import {
   type VizEventType,
 } from '../viz-core/events/emitter'
 import { cellSpaceKey, type CellKind, type GridCell } from '../viz-core/grid/gridModel'
-import { leafIds, type SplitDir } from '@ziee/dock'
+import { leafIds, type SplitDir } from '@txresbench/dock'
 import { getChartType } from '../viz-core/registry/registry'
 import type { ColorBy } from '../viz-core/data/engine'
 import type { DataSource } from '../viz-core/data/wire'
@@ -611,7 +611,7 @@ export class VizController implements VizEventBus {
           ? {
               ops: prov.ops,
               ...(prov.context ? { context: prov.context } : {}),
-              provenance: 'ziee-viz-selection/1' as const,
+              provenance: 'txresbench-viz-selection/1' as const,
             }
           : {}),
       }
@@ -884,7 +884,7 @@ function valueBand(win: DataZoomWindow | undefined): readonly [number, number] |
 }
 
 /** Deep-clone a `LayoutNode` (pure JSON data) so an emitted option never aliases the live tree. */
-function cloneLayout(n: import('@ziee/dock').LayoutNode): import('@ziee/dock').LayoutNode {
+function cloneLayout(n: import('@txresbench/dock').LayoutNode): import('@txresbench/dock').LayoutNode {
   return n.kind === 'leaf'
     ? { kind: 'leaf', id: n.id }
     : { kind: 'split', dir: n.dir, sizes: [...n.sizes], children: n.children.map(cloneLayout) }

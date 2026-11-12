@@ -55,14 +55,14 @@
  */
 import { lazy, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import {
   extendCassette,
   makeBinaryResponse,
   type MockRequestContext,
   type ModuleGallery,
   type SpecialRoute,
-} from '@ziee/gallery'
+} from '@txresbench/gallery'
 import { useTxrIntakeStore } from '@/modules/txrintake'
 import { AppShell } from '@/modules/txrshell/components/AppShell'
 import { emitSaveModels, emitSaveOneModel } from '@/modules/txrresults/events'

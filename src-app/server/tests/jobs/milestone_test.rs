@@ -16,9 +16,9 @@
 use serde_json::json;
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::repository::JobRepository;
-use cytoanalyst::modules::sandbox::backend::MilestoneFrame;
-use cytoanalyst::modules::sandbox::streaming::parse_milestone_line;
+use txresbench::modules::jobs::repository::JobRepository;
+use txresbench::modules::sandbox::backend::MilestoneFrame;
+use txresbench::modules::sandbox::streaming::parse_milestone_line;
 
 use super::{pool_for, setup_admin};
 use crate::common::TestServer;

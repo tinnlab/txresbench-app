@@ -1,7 +1,7 @@
 // Unit coverage for the legacy viz-state migration (ITEM-59). Replaces the removed
 // `layout-migration` e2e, which drove the same logic through the now-removed TopToolbar's
 // plot-type controls. `migrateLegacyVizState` lifts a saved plotType/plotLayout
-// out of the legacy `cyto.wb.layout` persist blob so it survives the relocation into the viz store.
+// out of the legacy `txr.wb.layout` persist blob so it survives the relocation into the viz store.
 // Runs under the app's node:test idiom (`npm run test:unit:node` globs `builtins/**`), like the
 // sibling `builtins/*/extension.test.ts`.
 

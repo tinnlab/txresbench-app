@@ -30,7 +30,7 @@
  *   part of `IntakeSnapshot` (the type contract stays the plan's).
  */
 import { createJSONStorage } from 'zustand/middleware'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 import type {
   MarkerMapping,
   ParsedTable as EngineParsedTable,

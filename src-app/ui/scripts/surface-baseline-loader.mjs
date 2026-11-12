@@ -50,7 +50,7 @@ export async function resolve(spec, ctx, next) {
     return await next(spec, ctx)
   } catch (e) {
     // A package that publishes TS SOURCE with extensionless internal specifiers
-    // (`@ziee/kit/src/shadcn/native-select`) resolves to a real path with no file at
+    // (`@txresbench/kit/src/shadcn/native-select`) resolves to a real path with no file at
     // it. Node reports that path on the error; retry it with our extension candidates.
     if (e?.code === 'ERR_MODULE_NOT_FOUND' && typeof e.url === 'string' && e.url.startsWith('file:')) {
       const base = fileURLToPath(e.url)

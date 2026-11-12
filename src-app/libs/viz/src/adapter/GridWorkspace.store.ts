@@ -19,7 +19,7 @@ import {
   removeLeaf,
   resizeDivider as resizeDividerTree,
   leafIds,
-} from '@ziee/dock'
+} from '@txresbench/dock'
 import {
   movePane as pureMovePane,
   returnToPrimary as pureReturnToGrid,
@@ -30,7 +30,7 @@ import {
   type ContainerId,
   type ContainerModel,
   type DropTarget,
-} from '@ziee/dock'
+} from '@txresbench/dock'
 import { swapCellContent, type CellKind, type GridCell } from '../viz-core/grid/gridModel'
 import type { CellDisplayPatch } from '../viz-core/grid/propagateToLinked'
 import type { ColorBy } from '../viz-core/data/engine'
@@ -428,7 +428,7 @@ function fromContainerModel(
   return { layout: primary ?? EMPTY_GRID_LAYOUT, containerLayouts: rest, paneContainer: model.paneContainer }
 }
 
-// Plain-zustand store (no @ziee SDK): `create()(subscribeWithSelector(builder))` with
+// Plain-zustand store (no @txresbench SDK): `create()(subscribeWithSelector(builder))` with
 // NO immer — reproduces exactly what `defineStore()` (immer omitted → plain shallow-merge)
 // composed. The builder spreads `initialState()` + the actions into one flat state object;
 // every mutation returns a partial (`set(prev => ({...}))`) and rebuilds the tree from plain

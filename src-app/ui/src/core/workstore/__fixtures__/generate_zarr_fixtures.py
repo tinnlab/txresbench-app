@@ -8,11 +8,11 @@ reader happens to do. A shuffle applied in the wrong direction on both sides, or
 misread offset convention, round-trips perfectly and stays invisible.
 
 So the bytes here are written by **the real producer**: `src-app/packages/_lib`'s
-`cyto_zarr` (ITEM-1..4, DEC-4/5/6/7), the module a processor actually emits artifacts
+`txr_zarr` (ITEM-1..4, DEC-4/5/6/7), the module a processor actually emits artifacts
 with. Not a reimplementation of it, not a sketch of it — the shipping writer, imported
 and called. The TS reader then has to agree with bytes it did not produce, written by
 the code that will produce them in production, in another language, with no shared
-compile-time link. `cyto_zarr`'s own docstring names
+compile-time link. `txr_zarr`'s own docstring names
 `ui/src/core/workstore/zarrReader.ts` as the consumer of its on-disk vocabulary; this
 file is what makes that claim checkable instead of aspirational.
 
@@ -21,21 +21,21 @@ so the thing under test never gets to define what "correct" means.
 
 SOME FIXTURES ARE NOT FROM THE REAL WRITER, AND SAY SO
 ------------------------------------------------------
-The reader supports shapes `cyto_zarr` does not currently emit, all of which it must
+The reader supports shapes `txr_zarr` does not currently emit, all of which it must
 keep handling:
 
   * `i32_plain`  — an UNSHARDED array (one file per chunk, no shard index). Plain v3;
-                   `cyto_zarr` always sharded. A reader that only handles shards would
+                   `txr_zarr` always sharded. A reader that only handles shards would
                    fail on any array written by another Zarr writer.
   * the four EXOTIC dtypes (`f16_*`, `c64`, `c128`, `r24`) — `float16`, `complex64`,
                    `complex128` and raw-bits `r<N>` are Zarr v3 CORE data types, so any
-                   store the reader is pointed at may contain them, but `cyto_zarr`'s
+                   store the reader is pointed at may contain them, but `txr_zarr`'s
                    dtype allowlist is deliberately the numeric set a processor emits.
                    They are written here rather than by widening that allowlist, because
                    the writer's job is what a processor produces and the reader's job is
                    what the SPEC allows (ITEM-31).
 
-Those are written by the small local helpers at the bottom, which reuse `cyto_zarr`'s
+Those are written by the small local helpers at the bottom, which reuse `txr_zarr`'s
 OWN `encode_chunk` so even they are not a second codec implementation — only a second
 file layout.
 
@@ -47,7 +47,7 @@ DETERMINISM IS A CHECKED PROPERTY, NOT A CLAIM
 ----------------------------------------------
 "byte-identical on re-run" is what makes the committed bytes evidence rather than a
 snapshot of whatever the writer happened to do the day someone ran this. It went FALSE
-once already: `cyto_zarr.Table.string()` began stamping a `values_digest` and the two
+once already: `txr_zarr.Table.string()` began stamping a `values_digest` and the two
 string-bearing nodes (`table/zarr.json`, `str_large/zarr.json`) drifted from the writer
 with nothing noticing, so the reader's "written by the real producer" contract test was
 resting on a stale artefact. `fixtureDrift.test.ts` now regenerates into a temp dir on
@@ -86,12 +86,12 @@ def _out_dir() -> Path:
 OUT = _out_dir()
 # …/src-app/ui/src/core/workstore/__fixtures__ → …/src-app/packages/_lib
 LIB = HERE.parents[4] / "packages" / "_lib"
-if not (LIB / "cyto_zarr.py").exists():  # pragma: no cover - a tree-layout guard
+if not (LIB / "txr_zarr.py").exists():  # pragma: no cover - a tree-layout guard
     raise SystemExit(f"cannot find the real writer at {LIB}")
 sys.path.insert(0, str(LIB))
 
-import cyto_csc  # noqa: E402  — the path insert above has to come first
-from cyto_zarr import (  # noqa: E402
+import txr_csc  # noqa: E402  — the path insert above has to come first
+from txr_zarr import (  # noqa: E402
     ZARR_FORMAT,
     Table,
     byte_shuffle,
@@ -113,7 +113,7 @@ def write_unsharded(
     attributes: dict | None = None,
 ) -> None:
     """A plain (unsharded) v3 array: `c/0`, `c/1`, … with no shard index. Uses
-    `cyto_zarr.encode_chunk` for the bytes — only the FILE layout differs.
+    `txr_zarr.encode_chunk` for the bytes — only the FILE layout differs.
 
     `data_type` overrides the numpy dtype NAME for the dtypes whose numpy spelling is
     not the Zarr v3 spelling: `r<N>` raw bits are `V<N/8>` in numpy (`void24`), which is
@@ -170,7 +170,7 @@ def jsonable(v: float) -> float | str:
 
 # A `write_single_buffer_strings` helper used to live here, emitting a `str_arrow` fixture
 # for the SINGLE-BUFFER arrow layout (`[u32 offsets × (n+1)][concatenated UTF-8]` in one
-# array). Both are gone with the reader's decoder for that layout: `cyto_zarr.Table.string`
+# array). Both are gone with the reader's decoder for that layout: `txr_zarr.Table.string`
 # writes the SPLIT form and stamps `layout: "split"`, and `conformance.py` reads
 # `<path>/offsets` + `<path>/values` unconditionally — so a single-buffer member fails the
 # framework gate before any reader reaches it, and the fixture was feeding a decoder
@@ -243,7 +243,7 @@ def main() -> None:
     }
 
     # 6. A real TABLE artifact — *n* arrays sharing one axis under ONE directory, built
-    #    through `cyto_zarr.Table`, i.e. the exact call a processor makes (ITEM-4).
+    #    through `txr_zarr.Table`, i.e. the exact call a processor makes (ITEM-4).
     #    This is the fixture that matters most: everything above exercises the byte
     #    layer, this exercises the artifact shape the client will actually open.
     rows = 500
@@ -282,7 +282,7 @@ def main() -> None:
         "str": {"n": rows, "values": strings},
     }
 
-    # 7. UNSHARDED int32 — plain per-chunk files, no index. NOT written by `cyto_zarr`
+    # 7. UNSHARDED int32 — plain per-chunk files, no index. NOT written by `txr_zarr`
     #    (see the module docstring); the reader must still handle it.
     i32 = (np.arange(70, dtype=np.int32) * -3 + 5).astype(np.int32)
     write_unsharded("i32_plain", i32, chunk=32)
@@ -395,7 +395,7 @@ def main() -> None:
         "last": big[big_n - 1],
     }
 
-    # 16. A real CSC MATRIX artifact, written by `cyto_csc.write_csc_zarr` — the ONLY
+    # 16. A real CSC MATRIX artifact, written by `txr_csc.write_csc_zarr` — the ONLY
     #     producer of a sparse artifact in the tree, and the one whose output the client's
     #     column read has to decode. This fixture is the reason the vocabulary drift that
     #     shipped could not survive: the reader is now tested against bytes the shipping
@@ -414,8 +414,8 @@ def main() -> None:
     dense = np.zeros((csc_rows, csc_cols), dtype=np.float32)
     for r in range(csc_rows):
         dense[r, r % (csc_cols - 1)] = float(r + 1)
-    csc_structure = cyto_csc.write_csc_zarr(
-        cyto_csc.ArraySource(dense), OUT / "csc", axes=("rows", "columns")
+    csc_structure = txr_csc.write_csc_zarr(
+        txr_csc.ArraySource(dense), OUT / "csc", axes=("rows", "columns")
     )
     indptr_col = np.zeros(csc_cols + 1, dtype=np.int64)
     per_column = []

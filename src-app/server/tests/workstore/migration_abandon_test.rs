@@ -16,11 +16,11 @@
 
 use std::sync::Arc;
 
-use cytoanalyst::modules::workstore::cutover;
-use cytoanalyst::modules::workstore::migration_api;
-use cytoanalyst::modules::workstore::migration_repo::{self as repo, phase, NewMigration};
-use cytoanalyst::modules::workstore::object_store::{LocalFsStore, ObjectStore};
-use cytoanalyst::modules::workstore::{get_object_store, swap_object_store};
+use txresbench::modules::workstore::cutover;
+use txresbench::modules::workstore::migration_api;
+use txresbench::modules::workstore::migration_repo::{self as repo, phase, NewMigration};
+use txresbench::modules::workstore::object_store::{LocalFsStore, ObjectStore};
+use txresbench::modules::workstore::{get_object_store, swap_object_store};
 use uuid::Uuid;
 
 use crate::account::pool_for;

@@ -1,6 +1,6 @@
 ---
 name: live-ui-audit
-description: Drive the LIVE running app like a human and produce an EVIDENCE-BASED audit of functional bugs, UI/visual correctness, responsive behavior, color/theme conformance, design-system consistency, network hygiene, and RBAC permission/resource-scoping. Objective, measurable signals ONLY — no subjective UX opinion. Use when asked to audit/QA/smoke-test a running instance, find real UI/responsive/theme/perf/permission bugs across viewports and themes, verify a deploy, or check whether a build "actually works" in the real app (not just gallery/tests). Takes a base URL + credentials, works against any running ziee-stack instance. Runs Playwright across 3 viewports × 2 themes × JTBD flows × personas and emits a ranked, deduped finding report with screenshots.
+description: Drive the LIVE running app like a human and produce an EVIDENCE-BASED audit of functional bugs, UI/visual correctness, responsive behavior, color/theme conformance, design-system consistency, network hygiene, and RBAC permission/resource-scoping. Objective, measurable signals ONLY — no subjective UX opinion. Use when asked to audit/QA/smoke-test a running instance, find real UI/responsive/theme/perf/permission bugs across viewports and themes, verify a deploy, or check whether a build "actually works" in the real app (not just gallery/tests). Takes a base URL + credentials, works against any running txresbench-stack instance. Runs Playwright across 3 viewports × 2 themes × JTBD flows × personas and emits a ranked, deduped finding report with screenshots.
 ---
 
 > **SUPERSEDED by `live-ui-explore`.** Kept for reference only.
@@ -45,7 +45,7 @@ Layer-B pixel diff), or subjective redesign work (`design-taste-frontend`,
 ## How to invoke
 
 The battery is a self-contained Playwright script in this skill dir. It takes a
-base URL + credentials, so it works against **any** running ziee instance.
+base URL + credentials, so it works against **any** running txresbench instance.
 
 ```bash
 # Full audit: 4 JTBD flows + permission personas × 3 viewports × 2 themes
@@ -119,7 +119,7 @@ re-dedups globally, and rewrites the full report into `--out` (screenshot paths
 are rewritten shard-relative, so keep the shard dirs next to the merged report).
 
 **Playwright resolution:** the script imports `@playwright/test`, falling back to
-the ziee repo-root `node_modules` (or `PLAYWRIGHT_DIR=<path>`). Chromium must be
+the txresbench repo-root `node_modules` (or `PLAYWRIGHT_DIR=<path>`). Chromium must be
 installed (`npx playwright install chromium`). **OpenAPI:** the network relevance
 check reads `src-app/ui/openapi/openapi.json` (or `OPENAPI_JSON=<path>`) to map
 each endpoint → its purpose; it degrades gracefully if absent.
@@ -331,7 +331,7 @@ sweep flow reports the entire chat home as `irrelevant` — the dominant FP once
 sweep flows were added.)
 
 **Prove whether a saturated shared instance is env noise or an app bug.**
-Per-user SSE connection caps (ziee: 12/user) make `/api/sync/subscribe` → 429
+Per-user SSE connection caps (txresbench: 12/user) make `/api/sync/subscribe` → 429
 look like an app defect, and a parallel audit can self-induce it. Distinguish
 before reporting: probe the endpoint **sequentially with zero concurrency**, and
 probe as a **freshly created user**. Fresh-user 200 + incumbent-user 429 under no
@@ -348,6 +348,6 @@ shards run = self-induced, report as noise. Never report either without the prob
 - **Grounds** network relevance in `src-app/ui/openapi/openapi.json`.
 - **Mirrors** the auth/seed patterns in `tests/common/auth-helpers.ts`.
 
-Porting to another ziee-stack app: keep this SKILL, drop in that app's
+Porting to another txresbench-stack app: keep this SKILL, drop in that app's
 `openapi.json` path (`OPENAPI_JSON`), and adjust `ADMIN_MATRIX` /
 `FLOW_RELEVANT_DOMAINS` / `FLOWS` to its routes.

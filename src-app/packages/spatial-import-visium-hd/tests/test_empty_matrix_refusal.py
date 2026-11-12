@@ -3,10 +3,10 @@
 r"""An EMPTY `/matrix` is a REFUSAL, and it fires BEFORE the first writer (#470).
 
 `run_import` reads the 10x `/matrix` group and hands it straight to
-`cyto_csc.H5CsrSource` and then `cyto_csc.write_csc_zarr` — the FIRST WRITER, which
+`txr_csc.H5CsrSource` and then `txr_csc.write_csc_zarr` — the FIRST WRITER, which
 creates `outputs/expression.zarr`. #470 adds one refusal to the matrix's own internal
 consistency block, inside the `with h5py.File(...) as h5:` context, immediately BEFORE
-`cyto_csc.H5CsrSource(...)` — strictly before the first writer:
+`txr_csc.H5CsrSource(...)` — strictly before the first writer:
 
   * **The `n_barcodes == 0` refusal** (already present, the OTHER end of the ladder). The
     matrix carries no barcodes at all — the documented "empty" case, a capture area with

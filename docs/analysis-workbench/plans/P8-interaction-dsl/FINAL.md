@@ -11,7 +11,7 @@ the human lasso, the AI's `selection.setByPredicate`, the cell-set-selector widg
 (contribution-api) only *surfaces* them via its `api.*` façade + command registry; it does not define
 the schema or evaluate.
 
-Grounded in verified live3 code (`feat/visualization`, `/data/pbya/ziee/tmp/visualization-wt/.../modules/visualization/`):
+Grounded in verified live3 code (`feat/visualization`, `/data/pbya/txresbench/tmp/visualization-wt/.../modules/visualization/`):
 - `viz-core/data/selection.ts` — packed-`Uint32` `IndexMask` (`union`/`intersect`/`difference`/`count`/
   `has`/`toIndices`, `popcount32`) + pure hit-tests `selectInBox`/`selectInPolygon`/`bboxCandidates`/
   `polygonBoundingBox` (d3 `polygonContains` + `PointIndex` KD-tree). The cell-set + set-ops + lasso engine.
@@ -37,7 +37,7 @@ design-only (recipe = `{predicate}+{content-hash}`, gesture→captured-params ta
 
 ## Items
 
-- **ITEM-1**: Canonical `CellSet` contract in `@cyto/workbench-api`. Promote live3 `IndexMask`/`Uint32Array`
+- **ITEM-1**: Canonical `CellSet` contract in `@txresbench/workbench-api`. Promote live3 `IndexMask`/`Uint32Array`
   duality as the workbench-wide selection type (do **not** invent a third representation) over the dense
   study view-index axis (§5 `system_cell_id`); keep `union/intersect/difference/count/has`; add
   `toDurableIds()`/`fromDurableIds()` `(sample,local_index)` round-trip so a mask survives axis
@@ -188,7 +188,7 @@ design-only (recipe = `{predicate}+{content-hash}`, gesture→captured-params ta
 
 ## Files/modules
 
-**`@cyto/workbench-api` (new package, extracted in P5 — the versioned public surface):**
+**`@txresbench/workbench-api` (new package, extracted in P5 — the versioned public surface):**
 - `src/interaction/cellset.ts` — `CellSet` (promote `IndexMask`) + durable-id round-trip (ITEM-1).
 - `src/interaction/api.ts` + `selection.ts` — `selection`/`brush`/`pick` façade + interface types on
   `WorkbenchAPI` (ITEM-15/16/17).
@@ -198,7 +198,7 @@ design-only (recipe = `{predicate}+{content-hash}`, gesture→captured-params ta
 - `src/dsl/vocabulary.ts` — operator/reduction descriptor + extension hooks (ITEM-5).
 - `src/interaction/recipe.ts` — `SelectionRecipe` type (ITEM-13).
 
-**Client / viz framework (`@ziee/framework` viz-core, tree `/data/pbya/ziee/tmp/visualization-wt`):**
+**Client / viz framework (`@txresbench/framework` viz-core, tree `/data/pbya/txresbench/tmp/visualization-wt`):**
 - `viz-core/predicate/dsl.ts`, `evalPredicate.ts` (ITEM-8), `inPolygon.ts` + lasso→predicate compiler
   (ITEM-11), `columns.ts` (ITEM-6), `reductions.ts` (ITEM-7), `categorical.ts` (ITEM-12), `errors.ts`
   (ITEM-24), `validate.ts` (ITEM-4), `recipe.ts` (client hash-resolution, ITEM-13), `methodsText.ts`
@@ -211,7 +211,7 @@ design-only (recipe = `{predicate}+{content-hash}`, gesture→captured-params ta
   `GridWorkspace.tsx` (ITEM-17). `switch(cell.kind)`→`registerViewKind` refactor is a SEPARATE
   viz-adoption workstream P8 depends on for view-kind exposure but does not own.
 
-**Server (host, current worktree / ziee):**
+**Server (host, current worktree / txresbench):**
 - `src-app/server/src/modules/predicate/{mod,ast,eval,reduce,geometry}.rs` — Rust evaluator + geometry
   (ITEM-9/11).
 - `.../modules/predicate/recipe.rs` — recipe payload + hash pinning (ITEM-13).
@@ -242,9 +242,9 @@ auto-attach + is-builtin edits (P9).
   live-count semantics the categorical encoder (ITEM-12) reproduces as DSL.
 - **P1 data API** (`geneColumn`/`obs`/`clustering`/`embedding`, catalog artifact content-hashes) — the
   evaluators' read side + the recipe's pinning source.
-- **ziee host SDK:** `emit_ts.rs` golden-parity discipline (ITEM-3/10); built-in MCP server pattern
+- **txresbench host SDK:** `emit_ts.rs` golden-parity discipline (ITEM-3/10); built-in MCP server pattern
   (loopback JSON-RPC + JWT/permission gate + tool-call approval); sync (`SyncEntity`+`publish`,
-  notify-and-refetch); JSON-schema→form; content-addressed file store (`ziee-file`, checksum-indexed) for
+  notify-and-refetch); JSON-schema→form; content-addressed file store (`txresbench-file`, checksum-indexed) for
   hash pinning; manifest-schema-validation pattern (§3).
 - **live8 `feat/provenance`** recipe model (§B1 gesture table, DEC-GRAPH predicate+hash) + `ProvenanceCapture`
   seam (design-only — P8 defines the recipe payload; the run-node table is a shared build).
@@ -317,7 +317,7 @@ against fixtures + the parity corpus before the server foundation lands; ITEM-9/
   implementations of one bounded spec is a closed, tractable duplication — a serializer-with-a-golden-test,
   not an open-ended reimplementation. A shared JSON golden corpus (predicate × fixture columns → expected
   bitmask words, ITEM-10) is loaded by BOTH suites and asserted byte-identical; any drift fails both. Same
-  discipline as the ziee host's `emit_ts.rs` `types_ts_parity`.
+  discipline as the txresbench host's `emit_ts.rs` `types_ts_parity`.
 - **DEC-1a — Polygon-boundary determinism (concrete item ITEM-11, mandatory *because* there are two
   evaluators).** `inPolygon` must resolve identically in both: (a) the lasso→predicate compiler stores
   **embedding-space f32 vertices** (never screen coords); (b) port live3 `d3-polygon.polygonContains`
@@ -382,7 +382,7 @@ against fixtures + the parity corpus before the server foundation lands; ITEM-9/
   build; coordinate before migrating.
 - **R6 — Coordination store selection form is `Uint32Array` (materialized), not recipe-aware.** ITEM-15 must
   extend it (keep the mask on the render hot path; add the recipe alongside) without regressing live3.
-  Coordination also lives inside the viz package, not yet in `@cyto/workbench-api` — ITEM-1/15 depend on the
+  Coordination also lives inside the viz package, not yet in `@txresbench/workbench-api` — ITEM-1/15 depend on the
   Phase-1/2 extraction+adoption landing first.
 - **R7 — Reduction correctness at scale (median of 10⁶, selection-restricted over a sparse gene column).**
   Which cells count as 0 vs NA is the subtlest surface — covered by DEC-8 + parity/oracle tests.

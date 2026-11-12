@@ -3,7 +3,7 @@
  *
  * Prefer `data-testid` over `getByText` / `getByRole({ name })`: visible text and
  * accessible names change under translation; a testid does not. The app owns its
- * typed testid UNION (a generated registry, e.g. `@ziee/kit/testIds.generated`);
+ * typed testid UNION (a generated registry, e.g. `@txresbench/kit/testIds.generated`);
  * this package supplies the selector HELPERS, generic over any id string, plus a
  * typed factory an app binds to its own union for compile-time typo-checking.
  */
@@ -25,7 +25,7 @@ export const byTestId = (scope: Page | Locator, id: TestIdLike): Locator =>
  * Bind a typed `byTestId` to the app's generated testid union so an unknown id is
  * a COMPILE error (derived/template strings still accepted via `TestIdLike`).
  *
- *   import type { KnownTestId } from '@ziee/kit/testIds.generated'
+ *   import type { KnownTestId } from '@txresbench/kit/testIds.generated'
  *   export const byTestId = makeByTestId<KnownTestId>()
  */
 export const makeByTestId =

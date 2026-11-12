@@ -22,7 +22,7 @@ test('admin opens a project detail drawer (owner + shares + datasets + actions)'
 
   // Owner identity.
   await expect(page.getByTestId('detail-owner-name')).toContainText(s.owner.username)
-  await expect(page.getByTestId('detail-owner-email')).toContainText(`${s.owner.username}@cyto.test`)
+  await expect(page.getByTestId('detail-owner-email')).toContainText(`${s.owner.username}@txresbench.test`)
 
   // Shares + datasets sections (this freshly-seeded project has neither yet).
   await expect(page.getByTestId('detail-shares-empty')).toBeVisible()

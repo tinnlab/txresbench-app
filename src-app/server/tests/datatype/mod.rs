@@ -16,12 +16,12 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::datatype::registry::{set_global_registry, DatatypeRegistry};
-use cytoanalyst::modules::datatype::types::TypeSelector;
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
-use cytoanalyst::modules::workstore::object_store::LocalFsStore;
+use txresbench::modules::datatype::registry::{set_global_registry, DatatypeRegistry};
+use txresbench::modules::datatype::types::TypeSelector;
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::workstore::object_store::LocalFsStore;
 
 use crate::common::TestServer;
 
@@ -32,7 +32,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .client
         .post(server.api_url("/session/local"))
         .json(&json!({
-            "username": "admin", "email": "admin@cyto.test",
+            "username": "admin", "email": "admin@txresbench.test",
             "password": "adminPassw0rd!", "display_name": "Admin"
         }))
         .send()
@@ -71,7 +71,7 @@ async fn create_member_token(server: &TestServer, admin: &str, username: &str) -
         .client
         .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
-        .json(&json!({ "username": username, "email": format!("{username}@cyto.test"), "password": "memberPassw0rd!" }))
+        .json(&json!({ "username": username, "email": format!("{username}@txresbench.test"), "password": "memberPassw0rd!" }))
         .send()
         .await
         .expect("create user");
@@ -945,16 +945,16 @@ fn test22_merged_registry_reproduces_the_domain_lattice_no_regression() {
 
     // The collision guard is still fail-loud: a manifest datatype colliding with a
     // core root aborts the merge (a manifest may extend the lattice, never shadow it).
-    let collide = cytoanalyst::modules::datatype::types::Datatype {
+    let collide = txresbench::modules::datatype::types::Datatype {
         id: "matrix".into(),
         extends: Some("data".into()),
         title: "collide".into(),
         description: String::new(),
         schema: serde_json::json!({}),
-        storage: cytoanalyst::modules::datatype::types::StorageSpec {
-            layout: cytoanalyst::modules::datatype::types::LayoutKind::OpaqueAsIs,
+        storage: txresbench::modules::datatype::types::StorageSpec {
+            layout: txresbench::modules::datatype::types::LayoutKind::OpaqueAsIs,
             format: "any".into(),
-            file_layout: cytoanalyst::modules::datatype::types::FileLayout::Single,
+            file_layout: txresbench::modules::datatype::types::FileLayout::Single,
         },
         capabilities: vec![],
         axes: vec![],

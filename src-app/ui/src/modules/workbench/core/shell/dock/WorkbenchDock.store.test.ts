@@ -5,7 +5,7 @@ import {
   registerPopupWindow,
   getPopupWindow,
   __resetPopupWindowRegistry,
-} from '@ziee/dock'
+} from '@txresbench/dock'
 import { createWorkbenchDockStore } from './WorkbenchDock.store'
 import { memoryStorage, savePopups, type PopupSlice } from './dockPersistence'
 import { DEFAULT_PANE_IDS } from './defaultLayout'
@@ -22,8 +22,8 @@ function mk(local = memoryStorage(), session = memoryStorage()) {
 
 beforeEach(() => __resetPopupWindowRegistry())
 
-// TEST-202 (ITEM-8) — container-aware actions delegate to @ziee/dock movePane/resizeDivider.
-describe('WorkbenchDock.store — moves delegate to @ziee/dock (ITEM-8)', () => {
+// TEST-202 (ITEM-8) — container-aware actions delegate to @txresbench/dock movePane/resizeDivider.
+describe('WorkbenchDock.store — moves delegate to @txresbench/dock (ITEM-8)', () => {
   it('moving a pane main→popup:1 reflows main, roots the popup tree, sets paneContainer, honors emptied', () => {
     const { store } = mk()
     store.getState().ensureProject('p1')
@@ -40,7 +40,7 @@ describe('WorkbenchDock.store — moves delegate to @ziee/dock (ITEM-8)', () => 
     expect(leafIds(store.getState().layout)).toContain(visualize)
   })
 
-  it('resizeDivider delegates to @ziee/dock resizeDivider (main split sizes change)', () => {
+  it('resizeDivider delegates to @txresbench/dock resizeDivider (main split sizes change)', () => {
     const { store } = mk()
     store.getState().ensureProject('p1')
     const before = [...(store.getState().layout as { sizes: number[] }).sizes]
@@ -77,13 +77,13 @@ describe('WorkbenchDock.store — split persistence local vs. session (ITEM-8)',
     store.getState().ensureProject('p1')
     store.getState().splitPane(canvas, 'col') // a MAIN change
 
-    expect(local.map.has('cyto.wb.dock.main')).toBe(true)
-    const mainBlob = JSON.parse(local.map.get('cyto.wb.dock.main') as string)
+    expect(local.map.has('txr.wb.dock.main')).toBe(true)
+    const mainBlob = JSON.parse(local.map.get('txr.wb.dock.main') as string)
     expect(mainBlob.byProject.p1).toBeTruthy()
 
     store.getState().movePane(visualize, 'popup:1', { kind: 'root' }) // a POPUP change
-    expect(session.map.has('cyto.wb.dock.popups')).toBe(true)
-    const popupBlob = JSON.parse(session.map.get('cyto.wb.dock.popups') as string)
+    expect(session.map.has('txr.wb.dock.popups')).toBe(true)
+    const popupBlob = JSON.parse(session.map.get('txr.wb.dock.popups') as string)
     expect(popupBlob.p1.paneContainer[visualize]).toBe('popup:1')
     // the MAIN blob carries no popup keys (they live only in sessionStorage).
     expect(mainBlob.byProject.p1.paneContainer).toBeUndefined()
@@ -275,7 +275,7 @@ describe('WorkbenchDock.store — a pre-rename persisted layout survives (ITEM-2
     const session = memoryStorage()
     // A main blob exactly as the pre-rename build wrote it (v1, `kind: 'result'`).
     local.map.set(
-      'cyto.wb.dock.main',
+      'txr.wb.dock.main',
       JSON.stringify({
         v: 1,
         byProject: {
@@ -323,7 +323,7 @@ describe('WorkbenchDock.store — a pre-rename persisted layout survives (ITEM-2
     // The popup slice persists popped-out panes' cells VERBATIM (no transient pruning), so this is
     // the surface a pre-rename `result` pane actually survives in.
     session.map.set(
-      'cyto.wb.dock.popups',
+      'txr.wb.dock.popups',
       JSON.stringify({
         p1: {
           containerLayouts: { 'popup:1': { kind: 'leaf', id: 'pane-8' } },

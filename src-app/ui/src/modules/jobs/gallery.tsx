@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import type { ModuleGallery } from '@ziee/gallery'
+import type { ModuleGallery } from '@txresbench/gallery'
 import type { Job, JobDetail as JobDetailWire, JobListItem, JobMilestone } from '@/api-client/types'
 import { useJobsStore } from '@/modules/jobs/Jobs.store'
 import { JobList } from '@/modules/jobs/components/JobList'

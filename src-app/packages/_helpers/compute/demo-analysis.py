@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ruff: noqa
-"""demo-analysis — CytoAnalyst synthetic-demo sandbox compute processor.
+"""demo-analysis — TxResBench synthetic-demo sandbox compute processor.
 
 A deterministic, INPUT-FREE analysis for driving the workbench launch → run →
 review e2e flow on a FRESH project (NO seeded input artifacts). It generates
@@ -9,7 +9,7 @@ artifact so the run finalize ingests a real catalog row into the workstore and
 the result-review surfaces it.
 
   * ``demo_table`` — a two-column Zarr table (role=artifact) written by
-    ``cyto_zarr.Table``: a string entity id and a categorical group label sharing
+    ``txr_zarr.Table``: a string entity id and a categorical group label sharing
     one axis, one row per synthetic entity (ITEM-4/26; it was a JSON
     ``{columns, rows}`` blob the client had to parse whole before painting).
     Typed as a UNIVERSAL ROOT rather than a contributed datatype — see
@@ -24,8 +24,8 @@ Reads OPTIONAL ``/inputs/params.json``:
   * ``seed`` (int, optional) — makes the synthetic assignment reproducible.
 An absent file / absent / oddly-typed params degrade to the defaults (no error).
 
-Roots overridable via ``CYTO_INPUTS_DIR`` / ``CYTO_OUTPUTS_DIR``. Progress →
-``$CYTO_PROGRESS_FIFO``. Completes in well under 15s (pure stdlib + numpy on 500
+Roots overridable via ``TXR_INPUTS_DIR`` / ``TXR_OUTPUTS_DIR``. Progress →
+``$TXR_PROGRESS_FIFO``. Completes in well under 15s (pure stdlib + numpy on 500
 rows).
 """
 import json
@@ -46,7 +46,7 @@ import numpy as np
 
 # The shared output-format library (`_lib`, DEC-7) — staged into `/code` alongside
 # every Python entry, same as `align` / `colsummary`.
-import cyto_zarr
+import txr_zarr
 
 # ─────────────────────────── shared compute runtime ───────────────────────────
 # (datatype id, storage_layout string) — it must resolve in the registry, must not
@@ -88,8 +88,8 @@ MAX_CLUSTERS = 20
 
 
 def io_dirs():
-    inp = Path(os.environ.get("CYTO_INPUTS_DIR", "/inputs"))
-    out = Path(os.environ.get("CYTO_OUTPUTS_DIR", "/outputs"))
+    inp = Path(os.environ.get("TXR_INPUTS_DIR", "/inputs"))
+    out = Path(os.environ.get("TXR_OUTPUTS_DIR", "/outputs"))
     out.mkdir(parents=True, exist_ok=True)
     return inp, out
 
@@ -129,7 +129,7 @@ def progress(phase, pct=None, message=None):
             parts.append("")
         parts.append(str(message))
     line = "|".join(parts)
-    fifo = os.environ.get("CYTO_PROGRESS_FIFO")
+    fifo = os.environ.get("TXR_PROGRESS_FIFO")
     if fifo:
         # Persistent write fd: opened once, reused, closed at process exit — one
         # continuous stream to the runner's FIFO drain (streaming.rs), no per-frame
@@ -199,7 +199,7 @@ def main():
     # `{columns, rows}` blob the client had to parse whole before painting anything.
     cluster_levels = [str(i) for i in range(n_clusters)]
     rel = f"{OUTPUT_ID}.zarr"
-    with cyto_zarr.Table(outputs_dir / rel, axis="cells", n=n_cells) as t:
+    with txr_zarr.Table(outputs_dir / rel, axis="cells", n=n_cells) as t:
         t.string("cell", [f"cell_{i}" for i in range(n_cells)])
         t.categorical("cluster", codes=labels, levels=cluster_levels)
         structure = t.close()
@@ -208,7 +208,7 @@ def main():
         OUTPUT_ID, DT_DEMO_TABLE, rel, "artifact",
         structure=structure,
         # No `kind`: the display vocabulary `kind` belongs to (`colsummary` /
-        # `cyto_columns.KIND_*` — a legend or a colormap) describes ONE COLUMN, and this
+        # `txr_columns.KIND_*` — a legend or a colormap) describes ONE COLUMN, and this
         # artifact is a two-column table, so no value of it would be true here. It used
         # to hold a contributed datatype id, which was neither that vocabulary nor
         # anything a consumer reads (nothing resolves `meta.kind`; `meta.is_axis_index`

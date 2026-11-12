@@ -2,7 +2,7 @@ import { Bell } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import type { NotificationRendererCtx } from '@ziee/framework/notification'
+import type { NotificationRendererCtx } from '@txresbench/framework/notification'
 import {
   Badge,
   Button,
@@ -12,7 +12,7 @@ import {
   ScrollArea,
   Separator,
   Text,
-} from '@ziee/kit'
+} from '@txresbench/kit'
 
 import { NotificationItem } from './NotificationItem'
 import { notificationsStore } from './storeView'
@@ -22,7 +22,7 @@ import { notificationsStore } from './storeView'
  * bell icon, opening a popover with the most recent notifications. Generic +
  * app-agnostic — reads the app-registered `Stores.Notifications` through a
  * typed-view seam, dispatches each row per-kind through the
- * `@ziee/framework/notification` renderer registry, and navigates via the
+ * `@txresbench/framework/notification` renderer registry, and navigates via the
  * app-supplied `onNavigate` seam (the SDK hardcodes ZERO routes). Live via that
  * store's `sync:notification` subscription.
  */

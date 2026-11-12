@@ -11,7 +11,7 @@
 // analysis title). No match → no guidance (never a fabricated next step).
 
 import { RotateCcw } from 'lucide-react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import type { AnalysisContribution } from '@/modules/workbench/core'
 import type { Job } from '@/api-client/types'
 import { runAction } from '@/core/actions/defineAction'

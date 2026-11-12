@@ -31,7 +31,7 @@ import base64
 
 import pytest
 
-import cyto_zarr as z
+import txr_zarr as z
 
 
 def digest(levels, **kw):
@@ -198,7 +198,7 @@ def test_boolean_spellings_canonicalise():
     # dimension-membership TEST-36 (ITEM-34): boolean canonicalisation on the PRODUCER levels.
     """A bool column writes lowercase levels; a pandas CATEGORICAL of booleans writes `True`.
 
-    The divergence is already in this codebase (`cyto_columns.write_metadata_column`'s bool
+    The divergence is already in this codebase (`txr_columns.write_metadata_column`'s bool
     branch vs a categorical dtype), so the same logical vocabulary has two spellings.
 
     nc: skip rule 2. The same logical column imported two ways digests differently and is
@@ -316,7 +316,7 @@ def _member(**kw):
 
 
 def _node(levels):
-    return {"attributes": {"cyto": {"levels": levels}}}
+    return {"attributes": {"txr": {"levels": levels}}}
 
 
 def test_the_gate_recomputes_the_pair_from_the_stamped_levels():
@@ -405,14 +405,14 @@ def test_the_MISSING_LEVEL_is_excluded_from_a_REAL_written_column(tmp_path):
 
     import pandas as pd
 
-    import cyto_columns
+    import txr_columns
 
     clean = pd.Series(["b", "a", "b"], dtype="category")
     withna = pd.Series(["b", "a", None, "b"], dtype="category")
 
-    s_clean, m_clean = cyto_columns.write_metadata_column(
+    s_clean, m_clean = txr_columns.write_metadata_column(
         tmp_path, "clean.zarr", "col", clean, axis="rows")
-    s_na, m_na = cyto_columns.write_metadata_column(
+    s_na, m_na = txr_columns.write_metadata_column(
         tmp_path, "withna.zarr", "col", withna, axis="rows")
 
     # FIXTURE PROPERTY, asserted before the behaviour that depends on it: the NaN column
@@ -421,9 +421,9 @@ def test_the_MISSING_LEVEL_is_excluded_from_a_REAL_written_column(tmp_path):
     assert "missing_level" not in m_clean, m_clean
 
     clean_levels = json.loads((tmp_path / "clean.zarr" / "values" / "zarr.json").read_text()
-                              )["attributes"]["cyto"]["levels"]
+                              )["attributes"]["txr"]["levels"]
     na_levels = json.loads((tmp_path / "withna.zarr" / "values" / "zarr.json").read_text()
-                           )["attributes"]["cyto"]["levels"]
+                           )["attributes"]["txr"]["levels"]
     assert na_levels == clean_levels + [m_na["missing_level"]], (clean_levels, na_levels)
 
     # THE ASSERTION: the two vocabularies are the same vocabulary, so they digest the same.

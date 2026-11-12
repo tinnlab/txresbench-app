@@ -1,4 +1,4 @@
-//! Health liveness surface (adopted `ziee-health`) — the DB-free `GET /health`
+//! Health liveness surface (adopted `txresbench-health`) — the DB-free `GET /health`
 //! must answer 200 `{ "status": "ok" }` WITHOUT authentication.
 
 use serde_json::Value;

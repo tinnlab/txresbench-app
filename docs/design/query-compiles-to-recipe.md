@@ -600,7 +600,7 @@ is what guards positional addressing either way.
 
 ## 3.7 Corrections from the shape inventory (2026-08-20)
 
-A full read-only inventory (`/data/pbya/cytoanalyst/tmp/data-shape-inventory.md`, 534 lines)
+A full read-only inventory (`/data/pbya/txresbench/tmp/data-shape-inventory.md`, 534 lines)
 corrected several things asserted earlier in this document.
 
 - **There are exactly TWO artifact `structure.kind` values: `table` and `sparse_csc`.** A list I
@@ -619,7 +619,7 @@ corrected several things asserted earlier in this document.
   but emits `kind:"table"`. The manifest layout is a gating hint, not the read dispatch.
 - **`embedding` is not a shape** — it is a `table` with one 2-D member, and that member lands in
   `structure["arrays"]`, not `columns`.
-- **A fourth member bucket exists: `aux` + `extents`** (`cyto_zarr.py:1288-1300`) — members
+- **A fourth member bucket exists: `aux` + `extents`** (`txr_zarr.py:1288-1300`) — members
   explicitly NOT on the table's axis. **A mask must never touch them.**
 - **CSC axis resolved:** `axes=("cells","genes")` (`h5ad_import.py:376-378`) — rows are cells,
   columns are genes, `indptr` is `n_genes+1`. **Gene = contiguous slice; cell = scatter.**
@@ -1018,7 +1018,7 @@ tool the filter should be part of what is recorded, not a URL parameter.
 
 ## 8. Evidence: why not an external engine
 
-From the landscape survey (`/data/pbya/cytoanalyst/tmp/query-engine-landscape.md`, 448
+From the landscape survey (`/data/pbya/txresbench/tmp/query-engine-landscape.md`, 448
 lines, 2026-08-19). Survey-sourced unless marked.
 
 - **DataFusion** — feasible, wrong shape. Zarr carries **no statistics**, so
@@ -1032,7 +1032,7 @@ lines, 2026-08-19). Survey-sourced unless marked.
   HDF5's 18 GB on single-cell genomics**. No N-D arrays, no sparse representation, and
   versioning that duplicates the content-addressed catalog.
 - **TileDB-SOMA** — already measured *here* and removed: SOMA cost **73 s of an 85 s import
-  (86%)**; the replacement is 9.5 s / 0.72 GB vs 14.8 s / 1.76 GB (`cyto_csc.py`).
+  (86%)**; the replacement is 9.5 s / 0.72 GB vs 14.8 s / 1.76 GB (`txr_csc.py`).
 - **Array-DBMS lineage** — SciDB is dead; Rasdaman is GPL with virtual coverages
   enterprise-only. Stonebraker & Pavlo (SIGMOD 2024) describe the hybrid as the normal
   outcome: *"most applications maintain both array and non-array data together."*
@@ -1294,7 +1294,7 @@ come free" (§3.7) is only half right: the MASK is free; the INTEGRATION costs o
 pass per element regardless of the mask.
 
 - **INV-S16**: A categorical read is NOT two requests. Levels ride on the member's `zarr.json`
-  (`attributes.cyto.levels`), which every column read fetches anyway for dtype/shape/chunks — the
+  (`attributes.txr.levels`), which every column read fetches anyway for dtype/shape/chunks — the
   same metadata+data count as a numeric column (D10: *"ONE artifact, not a codes artifact and a
   levels artifact"*). The obligation this puts on the integrated path: the OUTPUT column's
   `zarr.json` must carry the UNIFIED vocabulary, not any source's — else the single metadata fetch
@@ -1383,7 +1383,7 @@ A virtual dataset is also a MIX of member kinds, both identical to the client:
 
 A string column is not one array. It is a GROUP with two members (Arrow variable-length):
 `offsets` (`uint32`, `n+1` cumulative byte positions) and `values` (`uint8` bytes). Row `r` is
-`values[offsets[r]:offsets[r+1]]` (`cyto_zarr.py:43-47`; `gather_split_strings`,
+`values[offsets[r]:offsets[r+1]]` (`txr_zarr.py:43-47`; `gather_split_strings`,
 `gathered.rs:934`).
 
 **String is the one dtype that is genuinely more than one data member.** A categorical folds its
@@ -1419,7 +1419,7 @@ an implementer.
 ### Terminology fix (owner, 2026-08-20): the index is a ROW POSITION, not a "cell id"
 
 Earlier drafts of this section said "cell id". **That is wrong — the CSC `indices` are ROW
-POSITIONS** (`cyto_csc.py:76`: *"row ids, ascending within a column"* = positions `0..n-1`), and
+POSITIONS** (`txr_csc.py:76`: *"row ids, ascending within a column"* = positions `0..n-1`), and
 everything below should read "row position". The barcode is a SEPARATE sequence — the `row_keys`
 (`alignment.py:110`: *"the cell barcodes, not the join key"*) — whose ONLY job is to be digested
 (`key_sequence_digest`, INV-S5). **A barcode never indexes the matrix.**

@@ -30,8 +30,8 @@ env:
   # tag, and the R image had no publish path at all. ENV_ID is now per-job, from a matrix
   # DISCOVERED off the recipe tree (see the `gate` job's `envs` output).
   REGISTRY: ghcr.io
-  # per-env repo: ghcr.io/<owner>/cyto-env/<env>
-  REPO_PREFIX: cyto-env
+  # per-env repo: ghcr.io/<owner>/txresbench-env/<env>
+  REPO_PREFIX: txresbench-env
 
 jobs:
   # Decide whether to build. Tags + manual dispatch ALWAYS build (the pre-merge /
@@ -198,14 +198,14 @@ jobs:
         run: |
           # immutable (provenance pins this) + moving 'newest for this schema+arch' (runtime resolves this)
           oras push \
-            --artifact-type application/vnd.cyto.env-rootfs.squashfs.v1 \
+            --artifact-type application/vnd.txresbench.env-rootfs.squashfs.v1 \
             --annotation "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
             --annotation "org.opencontainers.image.revision=${{ github.sha }}" \
-            --annotation "com.cytoanalyst.rootfs.schema=${S}" \
-            --annotation "com.cytoanalyst.env=${ENV_ID}" \
-            --annotation "com.cytoanalyst.arch=${{ matrix.arch }}" \
+            --annotation "com.txresbench.rootfs.schema=${S}" \
+            --annotation "com.txresbench.env=${ENV_ID}" \
+            --annotation "com.txresbench.arch=${{ matrix.arch }}" \
             "${REPO}:schema${S}-${SHA}-${{ matrix.arch }}" \
-            ${ENV_ID}.squashfs:application/vnd.cyto.env-rootfs.squashfs.v1
+            ${ENV_ID}.squashfs:application/vnd.txresbench.env-rootfs.squashfs.v1
           oras tag "${REPO}:schema${S}-${SHA}-${{ matrix.arch }}" "schema${S}-latest-${{ matrix.arch }}"
           digest=$(oras resolve "${REPO}:schema${S}-${SHA}-${{ matrix.arch }}")
           echo "published ${REPO}@${digest} (schema${S}, ${{ matrix.arch }})"

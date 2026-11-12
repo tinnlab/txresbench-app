@@ -15,8 +15,8 @@ import { seedRunnableMatrix } from './_seed'
 // TEST-313 (ITEM-27) — light chaining (the TOP validated pain-point fix). From a completed
 // artifact, "Start next analysis" opens the downstream analysis' config surface.
 //
-// HOST-CAPABILITY-gated on CYTO_E2E_REAL_COMPUTE (a sandbox-executable backend: bwrap +
-// CYTO_ENV_ROOTFS_DIR): it needs a run to genuinely COMPLETE and produce an artifact
+// HOST-CAPABILITY-gated on TXR_E2E_REAL_COMPUTE (a sandbox-executable backend: bwrap +
+// TXR_ENV_ROOTFS_DIR): it needs a run to genuinely COMPLETE and produce an artifact
 // whose datatype another analysis accepts.
 //
 // Gated by a describe-level `test.skip`, so a capability-less run COLLECTS this spec and

@@ -15,34 +15,34 @@ use uuid::Uuid;
 
 use super::{owner_token, pool};
 use crate::common::TestServer;
-use cytoanalyst::modules::execution_engine::orchestrator::{
+use txresbench::modules::execution_engine::orchestrator::{
     self, EnvProvider, MethodExecutor, MethodRunContext, MethodOutcome, ProducedModelFacts,
 };
-use cytoanalyst::modules::execution_engine::repository::TxrRepository;
-use cytoanalyst::modules::execution_engine::runtime::RunRuntime;
-use cytoanalyst::modules::execution_engine::types::{
+use txresbench::modules::execution_engine::repository::TxrRepository;
+use txresbench::modules::execution_engine::runtime::RunRuntime;
+use txresbench::modules::execution_engine::types::{
     TxrCoverage, TxrMethodState, TxrProbSource, TxrTask,
 };
-use cytoanalyst::modules::file_validator::assets::ASSETS;
-use cytoanalyst::modules::file_validator::types::{
+use txresbench::modules::file_validator::assets::ASSETS;
+use txresbench::modules::file_validator::types::{
     ParsedTable, ParsedTableSource, ProblemSeverity, TableFormat, ValidationMode, ValidationRequest,
 };
-use cytoanalyst::modules::method_catalogue::catalogue::catalogue;
-use cytoanalyst::modules::method_catalogue::eligibility::{
+use txresbench::modules::method_catalogue::catalogue::catalogue;
+use txresbench::modules::method_catalogue::eligibility::{
     eligibility_for, estimate_seconds_for, runtime_env_available, REFERENCE_CPUS,
 };
-use cytoanalyst::modules::method_catalogue::types::{EligibilityRequest, EligibilityStatus};
-use cytoanalyst::modules::model_store::example::{
+use txresbench::modules::method_catalogue::types::{EligibilityRequest, EligibilityStatus};
+use txresbench::modules::model_store::example::{
     self, pick_fast_methods, ExampleRunSeams, EXAMPLE_METHOD_CAP, EXAMPLE_METHOD_SECONDS_MAX,
     EXAMPLE_SET_NAME,
 };
-use cytoanalyst::modules::model_store::repository::ModelStoreRepository;
-use cytoanalyst::modules::model_store::types::ExampleSetResponse;
-use cytoanalyst::modules::model_store::types::ExampleSetState;
-use cytoanalyst::modules::rootfs;
-use cytoanalyst::modules::sandbox::method_env::{EnvKind, MethodEnvState, MethodEnvStatus, ProvidedMount};
-use cytoanalyst::modules::sandbox::stack::{tree_sha256, EnvRef};
-use ziee_core::AppError;
+use txresbench::modules::model_store::repository::ModelStoreRepository;
+use txresbench::modules::model_store::types::ExampleSetResponse;
+use txresbench::modules::model_store::types::ExampleSetState;
+use txresbench::modules::rootfs;
+use txresbench::modules::sandbox::method_env::{EnvKind, MethodEnvState, MethodEnvStatus, ProvidedMount};
+use txresbench::modules::sandbox::stack::{tree_sha256, EnvRef};
+use txresbench_core::AppError;
 
 fn id8() -> String {
     static SEQ: AtomicUsize = AtomicUsize::new(1);
@@ -245,7 +245,7 @@ fn example_family_is_deterministic_and_passes_the_validator() {
         mapping: Vec::new(),
         parameters: Default::default(),
     };
-    let predict = cytoanalyst::modules::file_validator::validate(&predict_request)
+    let predict = txresbench::modules::file_validator::validate(&predict_request)
         .expect("the predict example validates");
     let errors: Vec<_> = predict
         .problems
@@ -439,10 +439,10 @@ async fn example_set_is_created_once_and_recreated_after_deletion() {
         .map(|m| m.tree_sha256.clone())
         .collect();
     repo.delete_set(set_id).await.expect("delete set");
-    cytoanalyst::modules::model_store::store::prune_unreferenced_trees(&pool, &digests)
+    txresbench::modules::model_store::store::prune_unreferenced_trees(&pool, &digests)
         .await
         .expect("prune");
-    let _ = cytoanalyst::modules::model_store::store::remove_training_dir(set_id)
+    let _ = txresbench::modules::model_store::store::remove_training_dir(set_id)
         .expect("training dir removal");
     let recreated = example::ensure_example_set(&pool, &seams, owner)
         .await

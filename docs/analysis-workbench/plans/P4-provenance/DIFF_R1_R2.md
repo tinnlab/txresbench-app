@@ -24,7 +24,7 @@
   the templated `methodsText(params)` assembly only.
 - **`fetch.txt` hole for large `.h5ad` + AnnData export-codec reuse** in the bundle (ITEM-11), plus
   `REPRODUCING.md` / `manifest-sha256.txt`. r1's bundle omits the large-object escape hatch.
-- **Reuse of `mcp/resource_link.rs` `persist_links` + `ziee://` guards + `confine_under_roots`** for ingesting
+- **Reuse of `mcp/resource_link.rs` `persist_links` + `txresbench://` guards + `confine_under_roots`** for ingesting
   `/outputs/*` into the file store. r1 does not cite this ingest primitive.
 
 ## Substantively new in r1 (not in r2)

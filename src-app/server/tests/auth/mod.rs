@@ -14,7 +14,7 @@ async fn setup_admin(server: &TestServer, username: &str) -> String {
         .post(server.api_url("/session/local"))
         .json(&json!({
             "username": username,
-            "email": format!("{username}@cyto.test"),
+            "email": format!("{username}@txresbench.test"),
             "password": "adminPassw0rd!"
         }))
         .send()
@@ -37,7 +37,7 @@ async fn make_user(server: &TestServer, admin: &str, name: &str) -> String {
         .bearer_auth(admin)
         .json(&json!({
             "username": name,
-            "email": format!("{name}@cyto.test"),
+            "email": format!("{name}@txresbench.test"),
             "password": "userPassw0rd!"
         }))
         .send()

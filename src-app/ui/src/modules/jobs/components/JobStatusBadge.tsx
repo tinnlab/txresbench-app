@@ -1,4 +1,4 @@
-import { Tag } from '@ziee/kit'
+import { Tag } from '@txresbench/kit'
 
 // Semantic tone + HUMAN label per lifecycle state (dark-aware status tokens; no raw
 // hues). The label is title-cased ("Completed", not the raw enum "completed") the

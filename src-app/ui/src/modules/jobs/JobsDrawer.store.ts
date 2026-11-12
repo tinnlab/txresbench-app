@@ -1,4 +1,4 @@
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /**
  * Open/close state for the Jobs drawer. A tiny global store so the sidebar

@@ -28,7 +28,7 @@ import {
   type DatasetCatalog,
   type DatasetResolver,
   type VizOption,
-} from '@ziee/viz'
+} from '@txresbench/viz'
 import type { ViewSpec } from '@/modules/workbench/core/manifest/viewSpec'
 import { parseViewSpec } from '@/modules/workbench/core/spec/schema'
 import { resolveDeclarativeCanvas } from './canvasFeed'

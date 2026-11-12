@@ -1,10 +1,10 @@
-// @ziee/shell — the reusable, slot-driven application SHELL.
+// @txresbench/shell — the reusable, slot-driven application SHELL.
 //
 // Ships the generic, app-agnostic shell infrastructure an app fills instead of
 // copying verbatim: the theme provider + tokens, the app-bootstrap body
 // (`AppShell`), the error boundary, the universal lazy-component renderer, and
 // the chromeless blank layout. Hard-codes NO pages or modules — an app supplies
-// those through the module system (@ziee/framework) + its slots, and supplies
+// those through the module system (@txresbench/framework) + its slots, and supplies
 // its branding/nav.
 //
 // SEAMS (app-registered stores the shell reads through typed views, never the
@@ -15,8 +15,8 @@
 //   - `Stores.Auth` — the sync lifecycle (via `initSync`, passed to AppShell).
 //
 // Permission-gating primitives (`Can` / `usePermission` / `evaluatePermission`)
-// live in `@ziee/framework/permissions`; routing lives in
-// `@ziee/framework/router`. `@ziee/shell` composes on top of both.
+// live in `@txresbench/framework/permissions`; routing lives in
+// `@txresbench/framework/router`. `@txresbench/shell` composes on top of both.
 
 // Theme
 export { ThemeProvider } from './theme/ThemeProvider'

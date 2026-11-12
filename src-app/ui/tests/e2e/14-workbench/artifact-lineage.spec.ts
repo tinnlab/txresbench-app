@@ -8,7 +8,7 @@ import { seedRunnableMatrix } from './_seed'
 // inputs → run → outputs chain from `Provenance.run` (reusing `ProvenanceView` +
 // methods), matching the run's real artifact ids.
 //
-// HOST-CAPABILITY-gated on CYTO_E2E_REAL_COMPUTE (bwrap + CYTO_ENV_ROOTFS_DIR).
+// HOST-CAPABILITY-gated on TXR_E2E_REAL_COMPUTE (bwrap + TXR_ENV_ROOTFS_DIR).
 
 test.describe('artifact lineage — inputs → run → outputs (ITEM-25)', () => {
   test.skip(!REAL_COMPUTE, REAL_COMPUTE_SKIP)

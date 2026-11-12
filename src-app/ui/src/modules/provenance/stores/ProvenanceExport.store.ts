@@ -1,7 +1,7 @@
 import { ApiClient, getAuthToken } from '@/api-client'
 import { getBaseUrl } from '@/api-client/getBaseURL'
 import { type ExportScope, defaultExportScope, exportScopeToWire } from '@/modules/provenance/types'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 type Phase = 'idle' | 'building' | 'ready' | 'error'
 

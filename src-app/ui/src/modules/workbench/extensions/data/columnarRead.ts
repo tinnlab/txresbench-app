@@ -41,7 +41,7 @@ import {
   type ColumnarTableData,
   type ZarrTableStructure,
 } from '@/core/workstore'
-import { collectStream, type Channel } from '@ziee/viz'
+import { collectStream, type Channel } from '@txresbench/viz'
 import type { ColumnarFrameOnChunk, ColumnarFrameRead } from './contract.ts'
 import type { ProjectSources } from './projectSources.ts'
 

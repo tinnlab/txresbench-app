@@ -141,8 +141,8 @@ async fn manifest_datatype_merges_into_registry_with_role_not_primary_semantics(
 // `build_from_embedded()` reproduces production's boot merge.
 #[test]
 fn test7_contributed_domain_types_reproduce_f56299d_field_for_field() {
-    use cytoanalyst::modules::datatype::registry::DatatypeRegistry;
-    use cytoanalyst::modules::extensions::types::DatatypeContribution;
+    use txresbench::modules::datatype::registry::DatatypeRegistry;
+    use txresbench::modules::extensions::types::DatatypeContribution;
 
     let reg = DatatypeRegistry::build_from_embedded().expect("merged registry builds");
 
@@ -446,15 +446,15 @@ fn test7_contributed_domain_types_reproduce_f56299d_field_for_field() {
 // hardcoded to make it work).
 #[test]
 fn test13_out_of_tree_package_registers_a_brand_new_datatype_with_zero_builtin_edit() {
-    use cytoanalyst::modules::datatype::registry::DatatypeRegistry;
-    use cytoanalyst::modules::extensions::loader::ExtensionRegistry;
-    use cytoanalyst::modules::extensions::types::ExtensionManifest;
+    use txresbench::modules::datatype::registry::DatatypeRegistry;
+    use txresbench::modules::extensions::loader::ExtensionRegistry;
+    use txresbench::modules::extensions::types::ExtensionManifest;
     use std::io::Write;
 
     // A real out-of-tree package on the filesystem, under a temp dir that is NOT
     // `src-app/packages` — the "separate repo / drop-in folder" scenario.
     let root = std::env::temp_dir().join(format!(
-        "cyto-separability-{}-{}",
+        "txr-separability-{}-{}",
         std::process::id(),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
     ));
@@ -631,13 +631,13 @@ fn collect_source_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
 // through the GENERATED client type — so a stale regen breaks the chain one layer past L5.
 #[test]
 fn test36_column_labels_travel_from_manifest_to_the_served_datatype_wire() {
-    use cytoanalyst::modules::datatype::registry::DatatypeRegistry;
-    use cytoanalyst::modules::extensions::loader::ExtensionRegistry;
-    use cytoanalyst::modules::extensions::types::ExtensionManifest;
+    use txresbench::modules::datatype::registry::DatatypeRegistry;
+    use txresbench::modules::extensions::loader::ExtensionRegistry;
+    use txresbench::modules::extensions::types::ExtensionManifest;
     use std::io::Write;
 
     let root = std::env::temp_dir().join(format!(
-        "cyto-labels-{}-{}",
+        "txr-labels-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -683,7 +683,7 @@ contributes:
     drop(f);
 
     // ── L1 BUILD GATE — the same lint `build.rs` panics on, over a real package dir. ──
-    cytoanalyst::processor_manifest_lint::lint_processor_package(&pkg_dir).unwrap_or_else(|e| {
+    txresbench::processor_manifest_lint::lint_processor_package(&pkg_dir).unwrap_or_else(|e| {
         panic!(
             "L1 BUILD GATE: a manifest declaring `labels` must pass the build lint, but it \
              was rejected — {e}"

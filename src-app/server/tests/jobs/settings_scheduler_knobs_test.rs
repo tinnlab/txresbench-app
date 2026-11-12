@@ -20,8 +20,8 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::repository::JobRepository;
-use cytoanalyst::modules::jobs::settings::{
+use txresbench::modules::jobs::repository::JobRepository;
+use txresbench::modules::jobs::settings::{
     JobSettingsRepository, DEFAULT_DISPATCH_TICK_MS, DEFAULT_HEARTBEAT_SECS, DEFAULT_MAX_RECLAIMS,
     DEFAULT_METRIC_TICK_SECS, DEFAULT_REAPER_TICK_SECS, DEFAULT_RECLAIM_BATCH,
     DEFAULT_STALE_THRESHOLD_SECS,
@@ -284,7 +284,7 @@ async fn partial_scheduler_put_coalesces() {
 async fn scheduler_settings_denied_without_perm() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    let _uid = create_user_without_projects(&server, &admin, "sk_np", "sk_np@cyto.test").await;
+    let _uid = create_user_without_projects(&server, &admin, "sk_np", "sk_np@txresbench.test").await;
     let token = login(&server, "sk_np").await;
 
     let get = server

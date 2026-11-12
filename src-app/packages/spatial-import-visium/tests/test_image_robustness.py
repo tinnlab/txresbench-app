@@ -379,13 +379,13 @@ def test_the_reader_refuses_a_tiff_whose_axes_are_not_a_plain_plane(tmp_path):
         assert OW.read_image(path).shape == data.shape
 
 
-def test_a_damaged_cyto_payload_refuses_rather_than_returning_a_neighbours_placement():
+def test_a_damaged_txr_payload_refuses_rather_than_returning_a_neighbours_placement():
     """Kills: turning the damaged-payload branch back into `continue`.
 
     `decode_placement` cannot tell which `<Image>` a `Description` belongs to, so skipping a
     damaged payload and returning the next one hands the caller SOME OTHER image's affine —
     fail-open, in the module whose entire job is to refuse rather than misplace. A node that
-    is not a cyto payload at all is still skipped; that is somebody else's metadata, not a
+    is not a txr payload at all is still skipped; that is somebody else's metadata, not a
     damaged declaration.
     """
     _module, _OW, SD = _compute()
@@ -401,7 +401,7 @@ def test_a_damaged_cyto_payload_refuses_rather_than_returning_a_neighbours_place
         f"<Image><Description>{good}</Description></Image></OME>"
     ) is None, "a damaged payload returned a different Image's placement"
 
-    # A NON-cyto description is not a damaged declaration and must not block the real one.
+    # A NON-txr description is not a damaged declaration and must not block the real one.
     assert SD.decode_placement(
         f"{ns}<Image><Description>acquired on a microscope</Description></Image>"
         f"<Image><Description>{good}</Description></Image></OME>"
@@ -446,7 +446,7 @@ def test_a_large_image_is_written_as_bigtiff(tmp_path, monkeypatch):
 def test_the_ome_physical_size_is_the_images_own_pitch_not_the_spaces(tmp_path):
     """TEST-5 [covers: ITEM-5, ITEM-7] — the two scales in one file, asserted apart.
 
-    OME `PhysicalSizeX` means "the physical size of a pixel in THIS image"; the `cyto`
+    OME `PhysicalSizeX` means "the physical size of a pixel in THIS image"; the `txr`
     payload's `microns_per_pixel` is the scale of the COORDINATE SPACE, shared by every
     artifact in it. On the hires image they differ by 5x and on the lowres image by 16.7x.
     Nothing asserted either value before, so a consumer reading `PhysicalSizeX` and applying
@@ -484,7 +484,7 @@ def test_the_ome_physical_size_is_the_images_own_pitch_not_the_spaces(tmp_path):
             f"{output_id}: OME PhysicalSizeX is not this image's own pixel pitch"
         )
         assert placement["microns_per_pixel"] == pytest.approx(space_scale), (
-            f"{output_id}: the cyto payload does not carry the SPACE's scale"
+            f"{output_id}: the txr payload does not carry the SPACE's scale"
         )
         assert physical != pytest.approx(placement["microns_per_pixel"]), (
             "the two scales are equal, so this fixture cannot show they are distinct"

@@ -1,6 +1,6 @@
 import { RefreshCw } from 'lucide-react'
-import { Alert, Badge, Button, Card, Skeleton, message } from '@ziee/kit'
-import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from '@ziee/kit/shadcn/field'
+import { Alert, Badge, Button, Card, Skeleton, message } from '@txresbench/kit'
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from '@txresbench/kit/shadcn/field'
 import { ProcessorsAdmin } from '@/modules/processors/stores/ProcessorsAdmin.store'
 import { usePermission } from '@/core/permissions'
 import { type PackageLoadStatus } from '@/api-client/types'

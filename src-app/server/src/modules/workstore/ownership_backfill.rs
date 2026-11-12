@@ -39,7 +39,7 @@ use serde_json::Value;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// What the backfill decided for one row.
 #[derive(Debug, Clone, PartialEq, Eq)]

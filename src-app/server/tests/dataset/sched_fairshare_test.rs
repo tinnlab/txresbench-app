@@ -14,7 +14,7 @@ use crate::common::TestServer;
 async fn scheduler_interleaves_owners_and_claims_atomically() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    create_user(&server, &admin, "bob", "bob@cyto.test").await;
+    create_user(&server, &admin, "bob", "bob@txresbench.test").await;
     let bob = login(&server, "bob").await;
     let pool = pool_for(&server).await;
 

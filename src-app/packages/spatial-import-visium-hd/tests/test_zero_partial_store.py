@@ -114,7 +114,7 @@ def test_TEST_8_the_positive_control_a_GOOD_bundle_really_does_write(tmp_path):
     """TEST-8 [acceptance, INV-8] — without this, every assertion above passes vacuously.
 
     "The outputs tree is empty" is satisfied by an importer that writes nothing ever, by a
-    harness pointed at the wrong directory, and by a `run_entry` whose `CYTO_OUTPUTS_DIR`
+    harness pointed at the wrong directory, and by a `run_entry` whose `TXR_OUTPUTS_DIR`
     never reached the child. So the same driver, over the same fixture, must produce a full
     artifact set — and it must produce it in the directory this suite is looking at.
 

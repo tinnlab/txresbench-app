@@ -1,7 +1,7 @@
 # Permission Gating (CRITICAL)
 
 > `sdk:` = `sdk/packages/…`, `sdk-crates:` = `sdk/crates/…` (the pinned SDK
-> submodule); `ziee:` = the reference app.
+> submodule); `txresbench:` = the reference app.
 >
 > One rule above all: **the backend is the authority; every frontend layer is UX.**
 > A hidden button is not a protected endpoint. Gate the route on the server, then
@@ -60,7 +60,7 @@ pub async fn list_projects(
 ```
 
 `RequirePermissions<(A, B)>` is **AND** across the tuple. Its algorithm
-(`sdk-crates:ziee-framework/src/permissions/extractors.rs:73-129`):
+(`sdk-crates:txresbench-framework/src/permissions/extractors.rs:73-129`):
 
 1. pull the app-installed `IdentityResolver` out of request extensions
    (missing → 500);
@@ -88,11 +88,11 @@ pub async fn list_projects(
 
 The `_docs` fn wraps with `with_permission::<(ProjectsRead,)>(op)`. It writes the
 required permissions into the **`x-required-permissions` OpenAPI extension**
-(`sdk-crates:ziee-framework/src/permissions/openapi.rs:62`) as well as the
+(`sdk-crates:txresbench-framework/src/permissions/openapi.rs:62`) as well as the
 description and the 403 example — because the extension is *the only
 clobber-proof record*: a later `.description("…")` in the same builder REPLACES
 the human-readable copy, and a builder's own `.response_with::<403, …>` drops the
-403 example. On the shipped ziee spec those two losses once left 201 operations
+403 example. On the shipped txresbench spec those two losses once left 201 operations
 with no recoverable permission, which downstream tooling reads as *"no permission
 declared → anyone may run it"*.
 
@@ -104,7 +104,7 @@ Permission strings are seeded by the owning module's own
 **no domain permission strings**. 🧪 Assert in an in-source test that the
 `PermissionCheck::PERMISSION` constants match the grant migration — drift leaves
 the migration granting strings nobody checks for
-(`ziee:src/modules/project/permissions.rs:42-50`).
+(`txresbench:src/modules/project/permissions.rs:42-50`).
 
 ---
 
@@ -154,7 +154,7 @@ instead of declaring a slot-level `permission`.
 
 🔬 **A gated slot entry that links to a route sets `permission` in BOTH places.**
 The slot filter only hides the entry point; the route gate is what protects the
-URL against a typed address or a bookmark. `ziee:src/modules/auth/module.tsx`
+URL against a typed address or a bookmark. `txresbench:src/modules/auth/module.tsx`
 sets the same `Permissions.SessionSettingsRead` twice — on the route (`:61`) and
 on the `settingsAdminPages` entry that links to it (`:82`).
 

@@ -67,7 +67,7 @@
  */
 import type { CSSProperties } from 'react'
 import { useLayoutEffect, useRef, useState } from 'react'
-import { Button, Tooltip } from '@ziee/kit'
+import { Button, Tooltip } from '@txresbench/kit'
 import { useScrollRegionElement } from '@/modules/txrshell/components/ScrollRegionContext'
 import type { TxrHeatmapRow, TxrHeatmapView } from '../types'
 import { formatPct } from '../lib/format'

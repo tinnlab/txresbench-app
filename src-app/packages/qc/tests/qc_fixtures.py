@@ -30,9 +30,9 @@ _LIB_DIR = _PROCESSORS / "_lib"
 SCRIPT = _PKG / "compute" / "qc-10x.py"
 
 sys.path.insert(0, str(_LIB_DIR))
-import cyto_columns  # noqa: E402
-import cyto_csc  # noqa: E402
-import cyto_zarr_read  # noqa: E402
+import txr_columns  # noqa: E402
+import txr_csc  # noqa: E402
+import txr_zarr_read  # noqa: E402
 
 
 def write_csc_store(dest: Path, dense) -> dict:
@@ -44,8 +44,8 @@ def write_csc_store(dest: Path, dense) -> dict:
     mat = dense if sp.issparse(dense) else sp.csr_matrix(np.asarray(dense, dtype=np.float32))
     mat = mat.tocsr()
     mat.eliminate_zeros()
-    return cyto_csc.write_csc_zarr(
-        cyto_csc.ArraySource(mat), dest, axes=("cells", "genes")
+    return txr_csc.write_csc_zarr(
+        txr_csc.ArraySource(mat), dest, axes=("cells", "genes")
     )
 
 
@@ -53,7 +53,7 @@ def write_column_store(dest: Path, name: str, values, *, axis: str):
     """A `metadata-column` artifact (the shape a gene-names / axis-index input has)."""
     import pandas as pd
 
-    return cyto_columns.write_metadata_column(
+    return txr_columns.write_metadata_column(
         dest.parent, dest.name, name, pd.Series(list(values)), axis=axis
     )
 
@@ -146,9 +146,9 @@ class QcRun:
             [str(_HELPERS_DIR), str(_LIB_DIR),
              *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])]
         )
-        env["CYTO_INPUTS_DIR"] = str(self.inputs_dir)
-        env["CYTO_OUTPUTS_DIR"] = str(self.outputs_dir)
-        env.pop("CYTO_PROGRESS_FIFO", None)
+        env["TXR_INPUTS_DIR"] = str(self.inputs_dir)
+        env["TXR_OUTPUTS_DIR"] = str(self.outputs_dir)
+        env.pop("TXR_PROGRESS_FIFO", None)
         return subprocess.run(
             [sys.executable, str(SCRIPT)], env=env, capture_output=True, text=True
         )

@@ -1,11 +1,11 @@
 /*
- * @ziee/kit — one-line Tailwind v4 wiring for a consuming app.
+ * @txresbench/kit — one-line Tailwind v4 wiring for a consuming app.
  *
  * Tailwind v4 is CSS-first (no `tailwind.config.js` / JS preset) and only
  * auto-scans the APP's own source tree — it never scans `node_modules`. So a
  * fresh app that imports kit components gets them UNSTYLED, because Tailwind
  * never sees the kit's utility classes (they live in
- * `node_modules/@ziee/kit/src/**`).
+ * `node_modules/@txresbench/kit/src/**`).
  *
  * This file fixes that with the two things the kit needs to be styled:
  *   1. the design-token layer (`tokens.css` — the shadcn CSS variables the
@@ -19,14 +19,14 @@
  * USAGE — in your app's main CSS, after importing Tailwind itself:
  *
  *     @import "tailwindcss";
- *     @import "@ziee/kit/styles/kit.css";
+ *     @import "@txresbench/kit/styles/kit.css";
  *
  * That single kit import is the whole wiring. (Advanced: import
- * `@ziee/kit/styles/tokens.css` directly if you want ONLY the tokens and are
+ * `@txresbench/kit/styles/tokens.css` directly if you want ONLY the tokens and are
  * providing your own `@source` glob.)
  *
- * ziee's own app imports its `src/index.css` (its own token source of truth)
- * and does NOT use this file, so shipping it changes nothing for ziee.
+ * txresbench's own app imports its `src/index.css` (its own token source of truth)
+ * and does NOT use this file, so shipping it changes nothing for txresbench.
  */
 
 @import "./tokens.css";

@@ -15,7 +15,7 @@ import { seedRunnableMatrix } from './_seed'
 // artifact pane, the one the Provenance pane's run node opens), which renders the same
 // component with the same testids.
 //
-// HOST-CAPABILITY-gated on CYTO_E2E_REAL_COMPUTE (bwrap + CYTO_ENV_ROOTFS_DIR): the run
+// HOST-CAPABILITY-gated on TXR_E2E_REAL_COMPUTE (bwrap + TXR_ENV_ROOTFS_DIR): the run
 // must genuinely COMPLETE.
 //
 // Gated by a describe-level `test.skip`, so a capability-less run COLLECTS this spec and

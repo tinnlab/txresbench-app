@@ -35,7 +35,7 @@
  * report ids; the page binds the store + the builders (ITEM-5).
  */
 import type { CSSProperties } from 'react'
-import { Button, Skeleton } from '@ziee/kit'
+import { Button, Skeleton } from '@txresbench/kit'
 import type { TxrHistoryDetail, TxrHistoryItem } from '@/api-client/types'
 import { endpointLabel, displayBucketOf, formatDate, modeChip, reasonLine, statusLabel } from '../lib/format'
 import { titleFor } from '../lib/title'

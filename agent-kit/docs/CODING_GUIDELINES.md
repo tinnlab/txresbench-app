@@ -1,17 +1,17 @@
-# Ziee Coding Guidelines
+# TxResBench Coding Guidelines
 
-> **agent-kit provenance + split.** This doc is **ziee-derived** and vendored
+> **agent-kit provenance + split.** This doc is **txresbench-derived** and vendored
 > into agent-kit as shared reference. Its rules span two kinds:
 > - **Framework-general** (apply to any app on this stack): §5 resource
 >   lifecycle/cleanup, §6 error handling, §8 event emission, §9 module structure
 >   & coupling, §10 API/type contract, §12 frontend store/proxy discipline,
 >   §13 UI/UX & accessibility, §14 testing requirements, §15 dead-code,
 >   §16 config/kill-switch/cross-platform, §17 dependencies/docs/naming.
-> - **Ziee-domain** (reference for other apps, not binding): §1 authz &
+> - **TxResBench-domain** (reference for other apps, not binding): §1 authz &
 >   ownership, §2 outbound HTTP & SSRF, §3 secrets, §4 DB correctness, §7
 >   realtime sync (notify-and-refetch), §11 built-in MCP-server checklist.
 > A future app should treat the framework-general sections as its own and the
-> ziee-domain sections as informative precedent. The split was kept annotative
+> txresbench-domain sections as informative precedent. The split was kept annotative
 > (not a hard extraction) to avoid dropping content — see DEC-3 in the
 > agent-kit-consume lifecycle.
 
@@ -241,7 +241,7 @@ When adding/maintaining a built-in MCP server, **all** of:
 
 > **CORRECTED.** This section was written in the antd era. **antd is gone** —
 > the reference app has zero `antd` imports and no `antd` dependency, and a
-> Biome rule rejects the import. UI comes from the kit (`@ziee/kit` /
+> Biome rule rejects the import. UI comes from the kit (`@txresbench/kit` /
 > `@/components/ui`). Ignore any antd-token or antd-deprecation guidance.
 
 - 🔬 **Semantic interactive elements** (kit `Button`/`Link`, or `button`/`a`) for
@@ -250,7 +250,7 @@ When adding/maintaining a built-in MCP server, **all** of:
 - 🔬 **Always render `store.error`** (kit `ErrorState`/`Alert`/`Result`) — never
   `return null` on error. **Always show loading** (`Spin`/`Spinner`) on initial
   fetch, and an `Empty` for no rows. **Always show success/error feedback** after
-  a mutation (`message.*` from `@ziee/kit`).
+  a mutation (`message.*` from `@txresbench/kit`).
 - 🔬 **Accessible names**: every control has a label (kit `FormField label` /
   `<label htmlFor>` / `aria-label`); an icon-only `Button` needs `tooltip` or
   `aria-label`; every page a `role=main`; nav landmarks set.
@@ -323,8 +323,8 @@ When adding/maintaining a built-in MCP server, **all** of:
 - 🔬 **Docs reference only verified paths/symbols/migration numbers** (derive from
   `ls migrations/` at write time); counts are scriptable, not hardcoded; no stale
   TODO/FIXME without a tracking link; code is the source of truth, not status prose.
-- 🔧 **Never `ziee-chat`** (or `Ziee Chat`/`zieeChat`/…) in any user-facing
-  string, comment, error, or log — the app is **`ziee`**. (Only the external
+- 🔧 **Never `txresbench-chat`** (or `TxResBench Chat`/`txresbenchChat`/…) in any user-facing
+  string, comment, error, or log — the app is **`txresbench`**. (Only the external
   GitHub URL + rolling log artifacts are exempt.)
 
 ---
@@ -343,7 +343,7 @@ These convert the most-repeated findings into zero-effort gates:
 5. biome/eslint: `console.log`, hardcoded hex colors, `defaultValue` on a
    controlled kit control, raw `fetch(` in modules, cross-module store/component
    imports (**no gate exists for this one today** — see
-   `REACT_COMPONENT_PATTERNS.md` §2), `ziee-chat` strings (§12/13/9/17).
+   `REACT_COMPONENT_PATTERNS.md` §2), `txresbench-chat` strings (§12/13/9/17).
 6. CI-scoped diff check: new built-in MCP server → both `mcp.rs` edits present
    (§11); new mutation handler → `sync_publish` present (§7).
 

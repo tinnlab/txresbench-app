@@ -21,9 +21,9 @@
 //! longer exists. The assertions below carry the same expected VALUES — they are now
 //! decoded on the client side of the boundary, which is where every decode lives now.
 
-use cytoanalyst::modules::datatype::DatatypeRegistry;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::object_store::ObjectStore;
+use txresbench::modules::datatype::DatatypeRegistry;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::object_store::ObjectStore;
 
 use super::{create_project, new_artifact, pool_for, read_csc_column, server_store, setup_admin};
 use crate::common::TestServer;
@@ -218,8 +218,8 @@ async fn open_kinds_serve_through_unchanged_byte_plane() {
 // package's embedding is load-bearing (DEC-2 / PLAN out-of-tree fidelity, M8).
 #[tokio::test]
 async fn out_of_tree_fixture_kind_serves_through_unchanged_core() {
-    use cytoanalyst::modules::extensions::loader::ExtensionRegistry;
-    use cytoanalyst::modules::extensions::types::ExtensionManifest;
+    use txresbench::modules::extensions::loader::ExtensionRegistry;
+    use txresbench::modules::extensions::types::ExtensionManifest;
 
     // 1) The fixture manifest is a real file OUTSIDE the `include_dir!("../packages")`
     //    tree — `<server crate>/tests/fixtures/open-kinds-out-of-tree/manifest.yaml`.

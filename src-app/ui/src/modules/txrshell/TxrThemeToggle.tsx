@@ -1,6 +1,6 @@
 import { FiMoon, FiSun } from 'react-icons/fi'
-import { Button } from '@ziee/kit'
-import { useTheme } from '@ziee/shell'
+import { Button } from '@txresbench/kit'
+import { useTheme } from '@txresbench/shell'
 import { useConfigClientStore } from '@/modules/config-client/ConfigClient.store'
 
 /**

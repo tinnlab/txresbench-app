@@ -77,7 +77,7 @@ impl TmpRepo {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!("cyto-{tag}-{}-{nanos}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("txr-{tag}-{}-{nanos}", std::process::id()));
         fs::create_dir_all(&root).expect("create fixture root");
         let st = Command::new("git")
             .args(["init", "-q"])
@@ -193,7 +193,7 @@ fn fixture() -> TmpRepo {
     //    than dodge:
     //      * the guard script itself, and `scripts/guard-hashes.txt`, are now COUNTED. Being
     //        pinned no longer exempts a whole file from the scan — only the lines inside a
-    //        declared `cyto:guard-vocabulary` block are blanked — so a guard is scanned like
+    //        declared `txr:guard-vocabulary` block are blanked — so a guard is scanned like
     //        any build file and simply happens to be vocabulary-free unless it declares one;
     //      * the floor is 27, not 4.
     //
@@ -269,8 +269,8 @@ fn fixture() -> TmpRepo {
             "test_path_segment fixtures\n",
             "surface_root justfile\n",
             "surface_dir scripts\n",
-            "vocab_block_open cyto:guard-vocabulary\n",
-            "vocab_block_close cyto:end-guard-vocabulary\n",
+            "vocab_block_open txr:guard-vocabulary\n",
+            "vocab_block_close txr:end-guard-vocabulary\n",
             "vocab_block_pins scripts/guard-hashes.txt\n",
         ),
     );
@@ -1048,7 +1048,7 @@ fn deleting_the_last_declaration_of_a_shipped_recipe_fails_and_slack_cannot_mask
 /// An env-id is a bare-looking compound that is also a PREFIX of the datatype ids
 /// (the env id is a strict PREFIX of the datatype ids), and the compound matcher treats `/` as a
 /// boundary. Merging the env vocabulary into the app-core/framework scan would therefore
-/// newly flag prose in framework docstrings — 3 measured hits in `_lib/cyto_columns.py`,
+/// newly flag prose in framework docstrings — 3 measured hits in `_lib/txr_columns.py`,
 /// which describe the very defect they exist to warn about. The guard records that as a
 /// deliberate divergence; this pins it, in both directions at once.
 #[test]
@@ -1349,7 +1349,7 @@ fn a_malformed_derived_env_id_fails_the_guard_not_just_its_output() {
 /// mentioning that marker must not do it accidentally.
 ///
 /// `processor_manifest.rs` documents that a contribution declaring no env resolves against
-/// EVERY recipe and the deployment picks one via `CYTO_SANDBOX_ENV_ID`. So a recipe that no
+/// EVERY recipe and the deployment picks one via `TXR_SANDBOX_ENV_ID`. So a recipe that no
 /// manifest names is a SUPPORTED configuration, and failing it would be this guard failing
 /// correct input — the way a guard gets switched off. The escape hatch is declared in the
 /// recipe itself, which keeps the anti-deletion property: removing the last declaration
@@ -1367,7 +1367,7 @@ fn a_recipe_may_declare_itself_operator_selected_but_prose_must_not_do_it() {
     // Marked -> the documented operator-selected configuration passes.
     repo.write(
         "src-app/env-rootfs/env-lite/Dockerfile",
-        "FROM scratch\n# cyto:env-operator-selected\n",
+        "FROM scratch\n# txr:env-operator-selected\n",
     );
     let (ok2, out2) = run_guard(&repo);
     assert!(
@@ -1385,7 +1385,7 @@ fn a_recipe_may_declare_itself_operator_selected_but_prose_must_not_do_it() {
     // learned the hard way, applied to this marker from the start.
     repo.write(
         "src-app/env-rootfs/env-lite/Dockerfile",
-        "FROM scratch\n# see the cyto:env-operator-selected marker docs\n",
+        "FROM scratch\n# see the txr:env-operator-selected marker docs\n",
     );
     let (ok3, out3) = run_guard(&repo);
     assert!(
@@ -1458,7 +1458,7 @@ fn an_operator_selected_recipe_still_contributes_its_id_to_the_forbidden_vocabul
     repo_b.write("src-app/packages/pkg-env/manifest.yaml", ONLY_ALPHA);
     repo_b.write(
         "src-app/env-rootfs/env-beta/Dockerfile",
-        "FROM scratch\n# cyto:env-operator-selected\n",
+        "FROM scratch\n# txr:env-operator-selected\n",
     );
     repo_b.write(leak, literal);
     let (ok_b, out_b) = run_guard(&repo_b);
@@ -1480,7 +1480,7 @@ fn an_operator_selected_recipe_still_contributes_its_id_to_the_forbidden_vocabul
     repo_c.write("src-app/packages/pkg-env/manifest.yaml", ONLY_ALPHA);
     repo_c.write(
         "src-app/env-rootfs/env-beta/Dockerfile",
-        "FROM scratch\n# cyto:env-operator-selected\n",
+        "FROM scratch\n# txr:env-operator-selected\n",
     );
     let (ok_c, out_c) = run_guard(&repo_c);
     assert!(ok_c, "a marked recipe with no leak must PASS:\n{out_c}");

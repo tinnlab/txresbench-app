@@ -3,7 +3,7 @@
 //! ## Why this module exists
 //!
 //! The harness's sqlite leg copies a per-test DATABASE FILE from the worktree
-//! template (`cytoanalyst_test_template_<key>.sqlite`) for every
+//! template (`txresbench_test_template_<key>.sqlite`) for every
 //! `TestServer::spawn()`. Reaping it was once a fire-and-forget task that got
 //! cancelled at runtime teardown; the measured result on the shared build
 //! cluster was 8,753 orphaned `test_db_*` databases, and Postgres startup took
@@ -35,7 +35,7 @@ use crate::common::TestServer;
 
 /// The app-side template-DB base — the same literal `CytoHarnessApp::
 /// template_db_base` returns; the engine appends the per-worktree key.
-const TEMPLATE_BASE: &str = "cytoanalyst_test_template";
+const TEMPLATE_BASE: &str = "txresbench_test_template";
 
 /// The root of per-test db files: `TestHarness::start` puts the per-test copy
 /// and the template in the system temp dir (honoring `TMPDIR`).
@@ -46,7 +46,7 @@ fn file_for(stem: &str) -> PathBuf {
 /// The per-worktree shared FILE names this fix must NOT take with it. Derived
 /// the same way the harness derives them, from THIS crate's manifest dir.
 fn shared_file_names() -> (String, String) {
-    let key = ziee_test_harness::worktree_db::worktree_key(env!("CARGO_MANIFEST_DIR"));
+    let key = txresbench_test_harness::worktree_db::worktree_key(env!("CARGO_MANIFEST_DIR"));
     let build_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(|p| p.parent())
@@ -57,7 +57,7 @@ fn shared_file_names() -> (String, String) {
         // The build script's per-worktree file — present when this worktree has
         // been built (i.e. always, under the sqlite driver).
         build_root
-            .join(format!("cytoanalyst_build_{key}.sqlite"))
+            .join(format!("txresbench_build_{key}.sqlite"))
             .display()
             .to_string(),
     )
@@ -126,7 +126,7 @@ async fn per_test_db_is_dropped_when_the_body_returns_early() {
 /// is a v4 UUID that is printed nowhere, the server process is already killed,
 /// and the data dir is a `TempDir` that goes with it — a retained database is
 /// not a debugging artifact, it is thousands of them. Retention is available
-/// deliberately and per-run via `ZIEE_TEST_KEEP_DB=1`, which also prints the URL
+/// deliberately and per-run via `TXR_TEST_KEEP_DB=1`, which also prints the URL
 /// so it can be reached; the startup sweep reclaims those later, so opting in
 /// cannot re-open the leak.
 #[tokio::test]
@@ -210,10 +210,10 @@ async fn the_sweep_spares_a_test_db_that_has_a_live_connection() {
     std::fs::write(&path, b"fixture").expect("create fixture file");
 
     // Hold the same flock the harness holds for the life of a test.
-    let held = ziee_test_harness::OwnedTestFile::lock(path.clone())
+    let held = txresbench_test_harness::OwnedTestFile::lock(path.clone())
         .expect("lock the in-use fixture file");
 
-    let report = ziee_test_harness::sweep_stale_test_db_files(TEMPLATE_BASE, 0);
+    let report = txresbench_test_harness::sweep_stale_test_db_files(TEMPLATE_BASE, 0);
 
     assert!(
         path.exists(),
@@ -252,7 +252,7 @@ async fn the_sweep_spares_the_template_and_build_files() {
     );
     let build_existed = std::path::Path::new(&build).exists();
 
-    let report = ziee_test_harness::sweep_stale_test_db_files(TEMPLATE_BASE, 0);
+    let report = txresbench_test_harness::sweep_stale_test_db_files(TEMPLATE_BASE, 0);
 
     assert!(
         !report
@@ -287,7 +287,7 @@ async fn the_sweep_collects_an_idle_orphan() {
     std::fs::write(&path, b"orphan").expect("create the orphan fixture");
     // Nothing holds its flock — the state a SIGKILLed run leaves.
 
-    let report = ziee_test_harness::sweep_stale_test_db_files(TEMPLATE_BASE, 0);
+    let report = txresbench_test_harness::sweep_stale_test_db_files(TEMPLATE_BASE, 0);
 
     let gone = !path.exists();
     if !gone {
@@ -318,7 +318,7 @@ async fn the_sweep_spares_a_freshly_created_orphan_under_the_age_floor() {
     let path = file_for(&name);
     std::fs::write(&path, b"fresh").expect("create the fresh fixture");
 
-    let report = ziee_test_harness::sweep_stale_test_db_files(TEMPLATE_BASE, 3600);
+    let report = txresbench_test_harness::sweep_stale_test_db_files(TEMPLATE_BASE, 3600);
 
     let survived = path.exists();
 
@@ -345,7 +345,7 @@ async fn the_sweep_only_matches_the_anchored_test_db_prefix() {
     std::fs::write(&decoy_path, b"decoy").expect("create the decoy file");
     std::fs::write(&short_path, b"short").expect("create the short file");
 
-    let report = ziee_test_harness::sweep_stale_test_db_files(TEMPLATE_BASE, 0);
+    let report = txresbench_test_harness::sweep_stale_test_db_files(TEMPLATE_BASE, 0);
     let survived = decoy_path.exists() && short_path.exists();
 
     let _ = std::fs::remove_file(&decoy_path);
@@ -445,7 +445,7 @@ async fn the_startup_sweep_is_wired_into_harness_boot() {
     // first per-test database is copied.
     let _server = TestServer::spawn().await;
     assert!(
-        ziee_test_harness::startup_sweep_ran(),
+        txresbench_test_harness::startup_sweep_ran(),
         "the harness cloned a per-test database without ever running the startup \
          stale-file sweep — orphans from killed/aborted/timed-out runs are never \
          reclaimed and the leak regrows"

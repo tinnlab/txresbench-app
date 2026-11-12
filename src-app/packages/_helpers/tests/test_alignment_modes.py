@@ -346,7 +346,7 @@ def test_a_missing_ROW_and_a_missing_LEVEL_are_spelled_DIFFERENTLY_and_deliberat
 
     `align` fills a missing ROW with in-memory `None`, and that is unchanged. ITEM-5 reached
     for the same `None` for a missing LEVEL and then translated it to STORAGE as `-1` — the
-    out-of-range code `cyto_columns` explicitly refuses, and the one the read side rejects
+    out-of-range code `txr_columns` explicitly refuses, and the one the read side rejects
     with a 400 for the entire column.
 
     DEC-A already draws the line this test blurred: a missing row and a missing level are on

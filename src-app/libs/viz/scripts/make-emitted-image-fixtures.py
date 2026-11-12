@@ -17,7 +17,7 @@ three things out of it verbatim:
 
   * the level-0 pixel array (the writer is lossless, so this is the producer's own raster —
     asserted below to survive the round trip bit for bit);
-  * the `cyto` placement payload the file's OME `<Description>` carries, decoded with the
+  * the `txr` placement payload the file's OME `<Description>` carries, decoded with the
     producer's own `spatial_declarations.decode_placement`;
   * the OME `PhysicalSizeX` the file declares, handed back as `image_microns_per_pixel`.
 
@@ -129,7 +129,7 @@ def _read(path: Path):
         placement = SD.decode_placement(tf.ome_metadata)
         scale = _physical_size_x(tf.ome_metadata)
     if placement is None or not isinstance(placement, dict):
-        raise SystemExit(f"{path.name}: carries no readable `cyto` placement; refusing to guess one")
+        raise SystemExit(f"{path.name}: carries no readable `txr` placement; refusing to guess one")
     return arr, placement, scale
 
 

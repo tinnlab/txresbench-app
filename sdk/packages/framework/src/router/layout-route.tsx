@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { RenderComponentLike } from '../lazy-component-view'
 import type { LayoutDefinition } from './types'
 
-// @ziee/framework/router — how a LAYOUT becomes a route element.
+// @txresbench/framework/router — how a LAYOUT becomes a route element.
 //
 // Split out of `RouterComponent` because both halves of it were wrong in the
 // same way the slot/route renderers were (see `../lazy-component.ts`): they

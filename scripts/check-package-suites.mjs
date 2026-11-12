@@ -7,8 +7,8 @@
  * `just check` runs `cd src-app/ui && npm run check`, whose vitest is ROOTED AT
  * `src-app/ui`. The sibling workspace packages each ship their own `vitest run`, and
  * NO repo-wired runner invoked any of them — not the justfile, not `npm run check`,
- * not CI. Measured at the time this gate was written: `@ziee/viz` = 207 files / 2555
- * tests, `@ziee/dock` = 4 files / 84 tests. 2639 tests under no runner.
+ * not CI. Measured at the time this gate was written: `@txresbench/viz` = 207 files / 2555
+ * tests, `@txresbench/dock` = 4 files / 84 tests. 2639 tests under no runner.
  *
  * That is not hypothetical. A merge changed `libs/viz/src/adapter/VizController.ts`
  * (+230/-5) and broke `VizController.events.test.ts`; the merge-gate, the pre-push hook
@@ -50,7 +50,7 @@
  * ── SCOPE RULES (the only two exclusions; both are derived, not typed out) ──────
  *  - SUBMODULE **NOT IN PLAY**: workspaces under a path declared in `.gitmodules`
  *    (today: `sdk/**`), while this branch leaves that submodule alone. A submodule is
- *    a PIN to another repository — CytoAnalyst cannot fix a failure there, and gating
+ *    a PIN to another repository — TxResBench cannot fix a failure there, and gating
  *    this repo's `just check` on another repo's suite makes every unrelated change
  *    here hostage to it. Read from `.gitmodules`, so adding a submodule needs no edit
  *    here.
@@ -64,9 +64,9 @@
  *    proof had to grow with the claim rather than after it.
  *
  * ── S1/S2/S3: the submodule exclusion, and the hole it left ───────────────────
- * The blanket `sdk/**` exclusion had a measured cost. `@ziee/kit` — the component
- * kit EVERY cytoanalyst surface renders through — ships 6 files / 44 tests that ran
- * under NO cytoanalyst gate. Two mutations introduced in cytoanalyst work survived
+ * The blanket `sdk/**` exclusion had a measured cost. `@txresbench/kit` — the component
+ * kit EVERY txresbench surface renders through — ships 6 files / 44 tests that ran
+ * under NO txresbench gate. Two mutations introduced in txresbench work survived
  * the entire app suite and were caught only by running the kit suite by hand, and
  * three user-facing kit defects shipped through the hole in a single day
  * (MultiSelect unopenable when a value was bound; Input remounting on the first
@@ -101,15 +101,15 @@
  *                 would be for a first-party package: the remedy (adding a runner)
  *                 lives in the other repository, and failing here would only teach
  *                 people to bypass the gate. Naming it every run is the honest
- *                 middle: measured today, `@ziee/framework` (8 test files) and
- *                 `@ziee/gallery` (7) have suites with no runner in the SDK repo.
+ *                 middle: measured today, `@txresbench/framework` (8 test files) and
+ *                 `@txresbench/gallery` (7) have suites with no runner in the SDK repo.
  *
  * ── P6 — the TYPECHECK half (#276), and why it is here and not in `ui`'s check chain ──
  * `src-app/libs/viz` declares `"typecheck": "tsc --noEmit"` and NOTHING invoked it. On
  * `origin/main` it exited 2 with FIVE errors, four of them in `*.test.ts(x)` files, and
  * it had been red for an unknown length of time. The reason is the same one that made
  * this file necessary: `src-app/ui`'s `npm run check` runs `tsc` over the UI project, so
- * it reaches `@ziee/viz` only through the modules `ui` imports — a subset of viz's `src/`
+ * it reaches `@txresbench/viz` only through the modules `ui` imports — a subset of viz's `src/`
  * and NONE of its test files. vitest transpiles without typechecking, so the suites were
  * green while `omeTiffFallback.test.tsx` imported two names `../grid/gridModel` does not
  * export. A type-level API break was invisible to every gate in the repo.
@@ -118,7 +118,7 @@
  * repair is this file's own shape rather than a second mechanism: P6 rides the package set
  * P1 already DERIVES from the root `workspaces` globs. Adding viz's `typecheck` to `ui`'s
  * `check` chain — the other obvious repair — would have been the ENUMERATING one: it fixes
- * viz and leaves `@ziee/dock`'s `typecheck` (which also exists, and was also run by
+ * viz and leaves `@txresbench/dock`'s `typecheck` (which also exists, and was also run by
  * nothing) plus every future package to be hand-added again. `docs/design/derived-guards.md`
  * §2/§5 is explicit that a hand-list is the failure mode and not the fix.
  *
@@ -130,7 +130,7 @@
  * against the real tree where the number is true. P6's hard failure is what fails closed
  * everywhere else: a TS project cannot quietly stop being typechecked.
  *
- * DUPLICATE WORK, ACCEPTED. `@ziee/framework`, `@ziee/gallery` and `@ziee/kit` already
+ * DUPLICATE WORK, ACCEPTED. `@txresbench/framework`, `@txresbench/gallery` and `@txresbench/kit` already
  * chain `npm run typecheck` inside their own `test` script, so when `sdk` is IN PLAY their
  * typecheck runs twice (a few seconds). Deduping would mean PARSING another package's
  * `test` script and inferring the typecheck is "already covered" — an unverifiable
@@ -159,7 +159,7 @@
  * gate closes "the package has no runner", not "the runner's globs are complete". The
  * per-package analogue of that is `ui/scripts/node-test-files.mjs` (one criterion,
  * shared by the includer and the excluder), and it belongs inside each package.
- * Likewise `@ziee/viz`'s 20 `tests/e2e/*.e2e.mjs` browser specs are NOT run here —
+ * Likewise `@txresbench/viz`'s 20 `tests/e2e/*.e2e.mjs` browser specs are NOT run here —
  * they need a booted showcase and have their own recipe, `just e2e-viz-package`.
  *
  * Usage:
@@ -176,7 +176,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '..')
 
 /**
- * P4 — the committed floor. Today: `@ziee/viz` + `@ziee/dock`. Lowering it is an
+ * P4 — the committed floor. Today: `@txresbench/viz` + `@txresbench/dock`. Lowering it is an
  * explicit, reviewable edit; a rename that drops a package below it is a FAILURE.
  */
 const MIN_GATED_PACKAGES = 2
@@ -572,7 +572,7 @@ for (const r of rows) {
       continue
     }
     // P6 — the literal bug class, one property over: TypeScript that nothing typechecks.
-    // THIS is what let `@ziee/viz` sit red for an unknown length of time.
+    // THIS is what let `@txresbench/viz` sit red for an unknown length of time.
     fail(
       'P6',
       `\`${r.rel}\` (${r.name ?? 'unnamed'}) has ${r.tsEvidence} but NO \`typecheck\` script, so nothing ` +

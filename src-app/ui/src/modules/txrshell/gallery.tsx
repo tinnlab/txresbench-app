@@ -19,7 +19,7 @@
  */
 import { lazy, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import type { ModuleGallery } from '@ziee/gallery'
+import type { ModuleGallery } from '@txresbench/gallery'
 import { TxrShell } from './TxrLayout'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { PageFrame } from './components/PageFrame'

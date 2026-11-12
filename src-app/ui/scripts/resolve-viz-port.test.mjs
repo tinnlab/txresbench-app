@@ -17,7 +17,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 
-import { resolveWorktreeRoot } from '@ziee/gallery/scripts/lib/run-key.mjs'
+import { resolveWorktreeRoot } from '@txresbench/gallery/scripts/lib/run-key.mjs'
 
 import { classifyOrigin } from './harness-origin.mjs'
 import { VIZ_PORT_ENV, VIZ_PORT_FLOORS, resolveVizPort } from './resolve-viz-port.mjs'

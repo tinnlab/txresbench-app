@@ -194,7 +194,7 @@ async fn deny_path_401_unauth_and_403_without_permission() {
     // A regular Users-group member holds `mcp::use` but NOT `mcp::settings::*`
     // (admin-only). Even that caller is refused — proving settings is not on the
     // Users grant.
-    let _uid = create_user(&server, &admin, "mcp_set_np", "mcp_set_np@cyto.test").await;
+    let _uid = create_user(&server, &admin, "mcp_set_np", "mcp_set_np@txresbench.test").await;
     let token = login(&server, "mcp_set_np").await;
 
     let resp = server

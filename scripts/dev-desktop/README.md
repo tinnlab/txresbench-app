@@ -17,12 +17,12 @@ it from a browser.
 # one-time
 # 1. build the UI bundle (embedded into the binary at compile time)
 CAP_CPUS=2 TMPDIR_CAP=/data/pbya/txresbench-app-work/tmp-qa-hardening \
-  /data/share/pbya/sigtrans/ops/cap.sh npm run build --workspace=@cytoanalyst/ui
+  /data/share/pbya/sigtrans/ops/cap.sh npm run build --workspace=@txresbench/ui
 # 2. build the desktop binary (PRODUCTION shape — embeds the dist)
 TMPDIR_CAP=/data/pbya/txresbench-app-work/tmp-qa-hardening \
 CAP_CPUS=2 CARGO_TARGET_DIR=/data/pbya/txresbench-app-work/target/qa-hardening \
   /data/share/pbya/sigtrans/ops/cap.sh \
-  cargo build -p cytoanalyst-desktop --features tauri/custom-protocol
+  cargo build -p txresbench-desktop --features tauri/custom-protocol
 
 # run / look / capture / stop
 scripts/dev-desktop/run.sh                 # prints http://127.0.0.1:6080/vnc.html
@@ -36,7 +36,7 @@ scripts/dev-desktop/stop.sh
 |---|---|
 | Xvfb | `:99`, 1440x900x24, `-ac -nolisten tcp` (own session, pid file) |
 | window manager | detected from a host list; none exists on this box (the window maps without server-side decorations) |
-| `cytoanalyst-desktop` | through `dbus-run-session` with `HOME` + `CYTO_APP_DATA_DIR` pointing INSIDE the throwaway state dir (the user's `~/.txresbench` is never touched), `CYTO_TXR_METHOD_ENV_REGISTRY` + `CYTO_TXR_ENV_MANIFEST` set when the ITEM-2 dev manifest exists, and the `oras` dev shim staged at `<data>/bin/oras` so real runs can fetch method environments; writes `logs/app.log` |
+| `txresbench-desktop` | through `dbus-run-session` with `HOME` + `TXR_APP_DATA_DIR` pointing INSIDE the throwaway state dir (the user's `~/.txresbench` is never touched), `TXR_METHOD_ENV_REGISTRY` + `TXR_ENV_MANIFEST` set when the ITEM-2 dev manifest exists, and the `oras` dev shim staged at `<data>/bin/oras` so real runs can fetch method environments; writes `logs/app.log` |
 | x11vnc | `-localhost` only (`:5900`), no password, `-forever -shared` |
 | websockify | `--web /usr/share/novnc` on `0.0.0.0:6080` → `localhost:5900` |
 

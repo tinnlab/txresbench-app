@@ -98,7 +98,7 @@ committing?"* If no, this skill is the wrong tool.
    is the audience (life scientists — refined/precise, not flashy), what must this screen
    make obvious. This is the **rubric's north star** in Phase 3.
 2. Produce one **Design Read** line (per `design-taste-frontend` §0.B):
-   *"Reading this as: <surface kind> for <audience>, bench-notebook language, on the ziee
+   *"Reading this as: <surface kind> for <audience>, bench-notebook language, on the txresbench
    kit, leaning <constraint>."*
 3. List the **content inventory** (every real block the surface must contain) and the
    **hard constraints** (must fit mobile, AA contrast, reduced-motion, accent-driven).
@@ -173,7 +173,7 @@ Score **each screenshot** on this rubric (0–5 each; note the reason per axis):
 | **Alignment** | Shared edges; no ragged groups; controls in a row align; grid reads as intentional. |
 | **Spacing / density** | Consistent 2/4px rhythm; density matches the audience; no cramped or lopsided gaps; breathing room where it counts. |
 | **Taste / polish** | Reads as designed, not templated or AI-default; restrained, on-brand motion; empty/loading states handled. |
-| **System consistency** | On the ziee "bench-notebook" identity: single accent, tokenized color, kit components, AA contrast in the judged theme(s). |
+| **System consistency** | On the txresbench "bench-notebook" identity: single accent, tokenized color, kit components, AA contrast in the judged theme(s). |
 
 Then produce a **verdict**:
 
@@ -244,13 +244,13 @@ routing/state to be judged fairly), a **temporary `/dev/preview/<surface>` route
 
 ## Worked example
 
-**Brief:** "Design the new first-run onboarding wizard for ziee. It has to walk a new admin
+**Brief:** "Design the new first-run onboarding wizard for txresbench. It has to walk a new admin
 through: enable memory, pick an embedding model, enable web/lit search, invite users. Make
 it feel like a confident research tool, not a SaaS funnel. Give me three directions and
 pick the best."
 
 **Phase 0 — Design Read:** *"Reading this as: first-run admin onboarding for a
-life-science research workbench, bench-notebook language, on the ziee kit, leaning calm +
+life-science research workbench, bench-notebook language, on the txresbench kit, leaning calm +
 confidence-building over funnel-y."* Content inventory: 4 setup steps + a welcome + a
 finish. Constraints: mobile, AA, reduced-motion, accent-driven, resumable.
 

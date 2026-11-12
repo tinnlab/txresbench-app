@@ -1,5 +1,5 @@
 # The env-id this recipe tree DECLARES as its default — the env THE BUILD targets when no
-# `CYTO_ENV_ROOTFS_ID` override is given. Read by `rootfs::version::declared_default_recipe`,
+# `TXR_ENV_ROOTFS_ID` override is given. Read by `rootfs::version::declared_default_recipe`,
 # through `select_env_recipe_in`, from `build_helper/sandbox_rootfs.rs`.
 #
 # ── WHAT THIS FILE DOES *NOT* DO ─────────────────────────────────────────────────────

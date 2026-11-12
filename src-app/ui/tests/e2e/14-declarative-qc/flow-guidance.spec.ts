@@ -26,8 +26,8 @@ import { REAL_COMPUTE, REAL_COMPUTE_SKIP } from '../14-workbench/_analysis'
 // surface that still exists. `job-details-guidance.spec.ts` asserts that this surface is REACHED
 // at all; this spec is the one that asserts what it CONTAINS.
 //
-// HOST-CAPABILITY-gated on CYTO_E2E_REAL_COMPUTE (a sandbox-executable backend: bwrap +
-// CYTO_ENV_ROOTFS_DIR). The gate is a describe-level `test.skip`, so a container-only run still
+// HOST-CAPABILITY-gated on TXR_E2E_REAL_COMPUTE (a sandbox-executable backend: bwrap +
+// TXR_ENV_ROOTFS_DIR). The gate is a describe-level `test.skip`, so a container-only run still
 // COLLECTS this spec and REPORTS it as skipped with the env var to set — see
 // `../14-workbench/_analysis.ts` for why it is not an `if (REAL) { … }` wrapper.
 

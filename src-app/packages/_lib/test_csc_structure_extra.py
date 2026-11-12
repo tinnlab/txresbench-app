@@ -7,7 +7,7 @@ thing it may NOT do.
 
 A `structure` key is the only producer declaration that travels with the BYTES. The
 manifest row's `meta` is a catalog column; a sandboxed consumer holding nothing but a
-staged store reads `<store>/zarr.json` → `attributes.cyto`. So a producer with a fact a
+staged store reads `<store>/zarr.json` → `attributes.txr`. So a producer with a fact a
 downstream job must read has exactly one place to put it, and this is the parameter that
 puts it there.
 
@@ -31,20 +31,20 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import cyto_csc
+import txr_csc
 
 
 def _write(tmp_path, **kw):
     """A real write through the module's OWN source adapter — no re-implementation of the
     source protocol here, so this suite cannot pass against a stub that has drifted."""
     out = Path(tmp_path) / "store"
-    src = cyto_csc.ArraySource(np.array([[1.0, 0.0, 2.0], [0.0, 3.0, 0.0]], dtype=np.float32))
-    return src, out, cyto_csc.write_csc_zarr(src, out, axes=("rows", "cols"), **kw)
+    src = txr_csc.ArraySource(np.array([[1.0, 0.0, 2.0], [0.0, 3.0, 0.0]], dtype=np.float32))
+    return src, out, txr_csc.write_csc_zarr(src, out, axes=("rows", "cols"), **kw)
 
 
 def _stamped(out: Path):
     doc = json.loads((out / "zarr.json").read_text())
-    return (doc.get("attributes") or {}).get("cyto")
+    return (doc.get("attributes") or {}).get("txr")
 
 
 def test_a_caller_named_key_reaches_BOTH_copies_of_the_declaration(tmp_path):

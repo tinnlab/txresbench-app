@@ -14,12 +14,12 @@ use uuid::Uuid;
 
 use super::{owner_token, pool, seed_run, SeedMethod, SeedRun};
 use crate::common::TestServer;
-use cytoanalyst::modules::execution_engine::repository::TxrRepository;
-use cytoanalyst::modules::execution_engine::types::{
+use txresbench::modules::execution_engine::repository::TxrRepository;
+use txresbench::modules::execution_engine::types::{
     TxrMethodState, TxrRunMode, TxrRunReason, TxrRunStatus,
 };
-use cytoanalyst::modules::method_catalogue::types::ReasonCode;
-use cytoanalyst::modules::model_store::repository::ModelStoreRepository;
+use txresbench::modules::method_catalogue::types::ReasonCode;
+use txresbench::modules::model_store::repository::ModelStoreRepository;
 
 /// The K fixture-time date (stable across the seeded runs; the engine suite's
 /// chrono convention).
@@ -93,12 +93,12 @@ async fn seed_fixture(
         &[
             (
                 None,
-                cytoanalyst::modules::execution_engine::types::TxrLogStream::Engine,
+                txresbench::modules::execution_engine::types::TxrLogStream::Engine,
                 "classified 2 methods".to_string(),
             ),
             (
                 None,
-                cytoanalyst::modules::execution_engine::types::TxrLogStream::Engine,
+                txresbench::modules::execution_engine::types::TxrLogStream::Engine,
                 "run finished".to_string(),
             ),
         ],
@@ -327,7 +327,7 @@ async fn seed_fixture(
 
 /// A minimal but valid model-store row (the history view reads only
 /// id/set_id/name/size_bytes + the joins).
-fn mock_model(set_id: Uuid, name: &str) -> cytoanalyst::modules::model_store::repository::NewModel {
+fn mock_model(set_id: Uuid, name: &str) -> txresbench::modules::model_store::repository::NewModel {
     // The (tree_sha256, method_id, set_id) uniqueness of the store's schema:
     // the fixture tree is a per-model opaque byte-blob (a real tree's digest
     // — here derived deterministically from the name). The store never opens
@@ -340,7 +340,7 @@ fn mock_model(set_id: Uuid, name: &str) -> cytoanalyst::modules::model_store::re
         tree_sha.push_str(&format!("{:02x}", (n + i) & 0xff));
     }
     assert_eq!(tree_sha.len(), 64, "a sha256 hex digest");
-    cytoanalyst::modules::model_store::repository::NewModel {
+    txresbench::modules::model_store::repository::NewModel {
         set_id: Some(set_id),
         name: name.to_string(),
         method_id: "cox-cutpoint-risk".to_string(),

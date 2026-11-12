@@ -255,7 +255,7 @@ def test_TEST_54_EXTERNAL_indices_are_refused_BY_NAME(tmp_path):
 def test_TEST_55_EXTERNAL_data_is_refused_BY_NAME(tmp_path):
     """TEST-55 [acceptance, INV-8 + INV-9] — E2: `/matrix/data` with EXTERNAL raw storage.
 
-    Pre-fix this was a raw `OSError` traceback out of `_lib/cyto_csc.py` at rc 1 with a
+    Pre-fix this was a raw `OSError` traceback out of `_lib/txr_csc.py` at rc 1 with a
     FIVE-PATH PARTIAL STORE on disk — INV-8 and INV-9 broken together. The refusal
     converts that into a named refusal with an empty outputs tree.
     """
@@ -1068,7 +1068,7 @@ def test_TEST_99_the_matrix_NOT_A_GROUP_refusal_MESSAGE_is_pinned(tmp_path):
 
 # TEST-100 is the good-bundle positive control for #585 (declared in the phase-3 plan);
 # a post-audit attempt to remove it as a byte-duplicate of TEST-93 was reverted because
-# the A5 shrink-guard has no recorded-removal channel — ziee-ai/agent-kit#15 (the
+# the A5 shrink-guard has no recorded-removal channel — tinnlab/agent-kit#15 (the
 # duplicate is harmless; DEC-9 records the reversal).
 def test_TEST_100_a_real_matrix_GROUP_still_imports(tmp_path):
     """TEST-100 [acceptance] — THE OVER-REFUSAL GUARD for #585: a legitimate `/matrix` GROUP is untouched.
@@ -1516,7 +1516,7 @@ def test_TEST_110_a_corrupt_ROOT_ATTRIBUTE_is_a_named_refusal_through_the_entryp
     (bytes differ from the committed fixture), (2) the raw read STILL RAISES through real
     h5py with `OSError` (`_assert_unmaterialisable_root_attributes` — the exact exception
     the unguarded module leaked as a raw traceback at rc 1), (3) the SHIPPED entrypoint
-    (`HF.run_entry_bytes`, the `CYTO_INPUTS_DIR`/`CYTO_OUTPUTS_DIR` seam, bundle-slot
+    (`HF.run_entry_bytes`, the `TXR_INPUTS_DIR`/`TXR_OUTPUTS_DIR` seam, bundle-slot
     staging as TEST-8 arm 2 does) turns it into the NAMED refusal at the refusal exit code
     2 — never 1, (4) stderr has NO `Traceback` and EXACTLY ONE non-progress row, starting
     `spatial.import-visium-hd: ` and carrying every needle: `root attributes`,
@@ -1566,7 +1566,7 @@ def test_TEST_111_the_unmutated_fixture_still_imports_through_the_same_run_path(
 
     The corrupted-bundle test proves the refusal; THIS proves the mutation is what the
     refusal is about. The UNMUTATED committed fixture is driven through the SAME shipped
-    entrypoint (`HF.run_entry_bytes`, the `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR` seam,
+    entrypoint (`HF.run_entry_bytes`, the `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR` seam,
     the same `HF.staged_tree` + bundle-slot staging as TEST-110) and must import at rc 0
     with a real manifest — the same import that the guard must NOT newly refuse. What
     this positive control reddens on is OVER-REFUSAL of a VALID bundle (an over-broad

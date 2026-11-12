@@ -406,8 +406,8 @@ def test_the_python_lane_produces_its_full_result_with_the_r_environment_unavail
     the only way to test that claim here is to take the image away.
 
     So both seams the harness and the platform resolve the R environment through are UNSET in
-    the child: `CYTO_ENV_ROOTFS_SQUASHFS__single-cell-r` (the per-env air-gap seam
-    `env_image.rs` reads) and `CYTO_R_ROOTFS_DIR` (the pre-extracted-rootfs override). They
+    the child: `TXR_ENV_ROOTFS_SQUASHFS__single-cell-r` (the per-env air-gap seam
+    `env_image.rs` reads) and `TXR_R_ROOTFS_DIR` (the pre-extracted-rootfs override). They
     are FORCED INTO the parent environment first, so this test still proves a removal on a
     host where they happened to be absent already — otherwise the strongest leg in the file
     would quietly degrade to a no-op on exactly the machines it is least needed on.
@@ -436,8 +436,8 @@ def test_the_python_lane_produces_its_full_result_with_the_r_environment_unavail
         f"{R_SEAM_ENV} still reached the subprocess; the deprivation this test depends on "
         f"did not happen and the run below would prove nothing")
     assert R_ROOTFS_DIR_ENV not in child_env, R_ROOTFS_DIR_ENV
-    assert not [k for k in child_env if "single-cell-r" in k or k.startswith("CYTO_R_")], (
-        sorted(k for k in child_env if "single-cell-r" in k or k.startswith("CYTO_R_")))
+    assert not [k for k in child_env if "single-cell-r" in k or k.startswith("TXR_R_")], (
+        sorted(k for k in child_env if "single-cell-r" in k or k.startswith("TXR_R_")))
 
     run = _run_with_script(tmp_path / "no-r-run", DETECT, env_extra=without_r)
 

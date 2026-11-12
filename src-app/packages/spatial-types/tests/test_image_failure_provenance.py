@@ -2195,7 +2195,7 @@ def test_the_source_grid_is_validated_by_the_constructors_own_rule(case, tmp_pat
     constructor uses — otherwise the advice is wrong. Calling `SD._extent` gets that, and it
     NORMALISES (`int(_number(...))`, i.e. truncates), so its result is compared back: a
     `{"width": 44.9}` block otherwise passed leg 2 on the truncated `44` and shipped `44.9`
-    into the artifact's `cyto` payload, where the rule it replaced had refused it.
+    into the artifact's `txr` payload, where the rule it replaced had refused it.
     """
     value, must_refuse = _ORIGINAL_EXTENTS[case]
     with _staged_writer(_SOURCE_PKG) as (OW, SD):

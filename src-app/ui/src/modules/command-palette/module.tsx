@@ -1,9 +1,9 @@
 import { useEffect } from 'react'
 import { Command as CommandIcon } from 'lucide-react'
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 import { CommandPalette } from './CommandPalette'
 import { closeCommandPalette, isCommandPaletteOpen, openCommandPalette } from './paletteState'
-// Side-effect imports: register cyto's real user actions (PLAN.md ITEM-2)
+// Side-effect imports: register txr's real user actions (PLAN.md ITEM-2)
 // into the global action registry (`@/core/actions/defineAction`). The
 // FOUNDATION action (`app.navigate`) + `project.openProject` are already
 // registered by `modules/actions/module.tsx` (slice 1); this module is the

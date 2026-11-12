@@ -18,7 +18,7 @@
 // committed entry in `scripts/layer-boundary-baseline.json`). See `core/sync/localEcho.ts`.
 
 import { useState } from 'react'
-import { Button, Confirm, message } from '@ziee/kit'
+import { Button, Confirm, message } from '@txresbench/kit'
 import { ApiClient } from '@/api-client'
 import { echoLocalSync } from '@/core/sync/localEcho'
 import { useWorkbench } from '../../core/shell/WorkbenchContext'

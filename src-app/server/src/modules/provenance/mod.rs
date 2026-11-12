@@ -37,7 +37,7 @@ use std::sync::Arc;
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 pub struct ProvenanceModule;
 
@@ -47,7 +47,7 @@ impl AppModule for ProvenanceModule {
     }
 
     fn description(&self) -> &'static str {
-        "Provenance capture + code-blob store + reproduce/RO-Crate export (CytoAnalyst P4)."
+        "Provenance capture + code-blob store + reproduce/RO-Crate export (TxResBench P4)."
     }
 
     fn init(&mut self, ctx: &ModuleContext) -> Result<(), Box<dyn std::error::Error>> {
@@ -94,6 +94,6 @@ impl AppModule for ProvenanceModule {
 static PROVENANCE: ModuleEntry = ModuleEntry {
     name: "provenance",
     order: 35,
-    description: "Provenance capture + reproduce/RO-Crate export (CytoAnalyst P4).",
+    description: "Provenance capture + reproduce/RO-Crate export (TxResBench P4).",
     constructor: || Box::new(ProvenanceModule),
 };

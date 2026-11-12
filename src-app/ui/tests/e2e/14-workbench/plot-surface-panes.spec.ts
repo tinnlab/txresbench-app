@@ -7,7 +7,7 @@ import { seedPlottableProject } from '../14-declarative-qc/_seed'
 // beside the canvas — not inside it.
 //
 // ── The reported symptom, and what makes it measurable ──────────────────────────────────────
-// `@ziee/viz`'s grid falls back to its OWN internal right panel (`viz-edit-panel`) whenever the
+// `@txresbench/viz`'s grid falls back to its OWN internal right panel (`viz-edit-panel`) whenever the
 // host provides no container for an open surface, and that panel is a ~300px column INSIDE the
 // workspace. So opening a plot's editor SHRANK the plot being edited. The workbench passed no
 // container resolver at all, so every surface took that path.

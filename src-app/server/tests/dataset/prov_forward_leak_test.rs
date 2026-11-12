@@ -18,7 +18,7 @@
 use serde_json::json;
 use uuid::Uuid;
 
-use cytoanalyst::modules::dataset::repository::DatasetRepository;
+use txresbench::modules::dataset::repository::DatasetRepository;
 
 use super::hardening_common::*;
 use super::{create_user, login, setup_admin};

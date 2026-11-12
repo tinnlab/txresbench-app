@@ -4,7 +4,7 @@
 -- The Postgres file carries the squash provenance (a VERBATIM `pg_dump
 -- --schema-only` rendering). This module's baseline carries NO tables — the
 -- `files`/`file_versions` store schema lives app-side in the SDK-owned
--- `ziee-file` crate (its SQLite twin: `sdk/crates/ziee-file/
+-- `txresbench-file` crate (its SQLite twin: `sdk/crates/txresbench-file/
 -- migrations-sqlite/202607140125_file_schema.sql`) — and this file's job is
 -- the PERMISSION GRANTS for the store.
 --
@@ -20,7 +20,7 @@
 -- the SQLite chain). CONSEQUENCE (unchanged from the Postgres file): a
 -- database created before the squash MUST BE RECREATED.
 
--- Grant the ziee-file store permissions to the default Users group so a regular
+-- Grant the txresbench-file store permissions to the default Users group so a regular
 -- user can upload a file and read/download it back (Administrators already hold
 -- `*`). Idempotent (skip if already present), one permission per UPDATE.
 UPDATE groups

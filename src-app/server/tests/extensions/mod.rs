@@ -15,7 +15,7 @@ pub async fn setup_admin(server: &TestServer) -> String {
         .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "extadmin",
-            "email": "ext@cyto.test",
+            "email": "ext@txresbench.test",
             "password": "extPassw0rd!",
             "display_name": "Ext Admin"
         }))

@@ -2,7 +2,7 @@ import { ApiClient } from '@/api-client'
 import { type PackageLoadStatus } from '@/api-client/types'
 import { Permissions } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /**
  * Discovered processor packages for the admin `/settings/processors` page — the

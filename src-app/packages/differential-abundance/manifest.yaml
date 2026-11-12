@@ -34,7 +34,7 @@
 # Fixing one does NOTHING for the other (INV-DA-1 / INV-DA-2).
 id: differential-abundance
 name: Differential abundance
-publisher: cyto
+publisher: txr
 # 0.1.0 — the package lands whole: the `da/result` kind, both analyses, the compositional kernel
 # (poscounts | reference-ALR), the refined-neighbourhood construction, connectivity-weighted
 # spatial FDR, both run forms, the Visualize volcano section, and the behavioural acceptance
@@ -92,7 +92,7 @@ publisher: cyto
 #          declared: the entries call no pyarrow API, both RUN to completion with it made
 #          unimportable — asserted on every run by TEST-3, not merely recorded — and
 #          `run.dependencies[]` is a runtime REFUSAL contract
-#          (`_lib/cyto_deps.py`) — declaring it would make an unused library a hard requirement
+#          (`_lib/txr_deps.py`) — declaring it would make an unused library a hard requirement
 #          and refuse runs on any image lacking it, which #263 says is a live risk. Three new
 #          tests EARN that classification instead of asserting it (each entry RUNS to completion
 #          with pyarrow unimportable, so no spelling of a hard direct import survives; the import

@@ -1,5 +1,5 @@
 // FE-3 functional proof: the documented one-line wiring
-// (`@import "@ziee/kit/styles/kit.css"`) makes Tailwind v4 scan the kit's own
+// (`@import "@txresbench/kit/styles/kit.css"`) makes Tailwind v4 scan the kit's own
 // component sources under node_modules and emit their utility classes — so kit
 // components render STYLED in a fresh app. Uses the same engine
 // (`@tailwindcss/node` compile + `@tailwindcss/oxide` Scanner) that
@@ -16,7 +16,7 @@ const KIT_STYLES = presolve(HERE, '../src/styles')
 // Simulate the app's main CSS: Tailwind itself + the kit's one-line wiring.
 // We inline kit.css's directives against the kit's real base dir so `@source`
 // and `@import "./tokens.css"` resolve exactly as they would from
-// node_modules/@ziee/kit/src/styles.
+// node_modules/@txresbench/kit/src/styles.
 const appCss = `@import "tailwindcss";\n${readFileSync(presolve(KIT_STYLES, 'kit.css'), 'utf8')}`
 
 const { build, sources } = await compile(appCss, {
@@ -25,7 +25,7 @@ const { build, sources } = await compile(appCss, {
 })
 
 // The @source directive in kit.css must register a source rooted at the kit's
-// own src tree (so Tailwind scans node_modules/@ziee/kit/src from a real app).
+// own src tree (so Tailwind scans node_modules/@txresbench/kit/src from a real app).
 const kitSrc = presolve(KIT_STYLES, '..')
 if (!sources.some(s => presolve(s.base, s.pattern).startsWith(kitSrc))) {
   console.error('FAIL: kit.css @source did not register the kit src glob:', sources)

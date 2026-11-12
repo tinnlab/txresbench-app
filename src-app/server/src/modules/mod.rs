@@ -1,4 +1,4 @@
-//! CytoAnalyst domain + platform modules.
+//! TxResBench domain + platform modules.
 //!
 //! Each module self-registers via `#[distributed_slice(MODULE_ENTRIES)]`
 //! (linkme). Declaring the module here is enough to link its registration.
@@ -63,7 +63,7 @@ pub mod sandbox;
 // NOTE (artifact-model ITEM-13): the `tiledb_serve` module — the native in-process
 // array reader (`ArraySource` trait + libtiledb FFI + the `NATIVE_ARRAY_BACKENDS`
 // registry) — was DELETED along with its `tiledb_serve` Cargo feature and the
-// `CYTO_TILEDB_LIB` env var. INV-1: the server never opens a byte for meaning, so it
+// `TXR_TILEDB_LIB` env var. INV-1: the server never opens a byte for meaning, so it
 // links no format-parsing library at all. Artifact bytes are served as bytes
 // (`GET /artifacts/{id}/data[/{*member}]`) and decoded in the browser.
 pub mod jobs;
@@ -76,11 +76,11 @@ pub mod workstore;
 mod tests {
     use std::collections::BTreeMap;
 
-    use ziee_framework::MODULE_ENTRIES;
+    use txresbench_framework::MODULE_ENTRIES;
 
     /// Every module's `order` must be UNIQUE across the whole linked set.
     ///
-    /// `ziee_framework::create_modules` sorts `MODULE_ENTRIES` with a *stable*
+    /// `txresbench_framework::create_modules` sorts `MODULE_ENTRIES` with a *stable*
     /// `sort_by_key(|e| e.order)`. A stable sort leaves tied elements in their
     /// input sequence — and the input is a linkme distributed slice, whose
     /// sequence is link order. Link order carries no source-level guarantee and

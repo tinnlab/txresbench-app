@@ -16,7 +16,7 @@
 import type { ColorBy, ColorMode, SingleChannelColorBy, BlendChannel, BlendAggregateOp } from '../data/engine'
 import type { ContinuousColormap, DomainScale } from '../data/color'
 import type { GridCell } from '../grid/gridModel'
-import type { LayoutNode, SplitDir } from '@ziee/dock'
+import type { LayoutNode, SplitDir } from '@txresbench/dock'
 import type { ChartModel, CoordSystemId } from '../registry/types'
 import type { TransitionConfig, TransitionProp } from '../charts/transitions'
 // DEC-15 (Part D, Agent 4's domain): the multi-container pop-out DOCKING snapshot rides in the
@@ -180,7 +180,7 @@ export interface VizSelection {
   /** PROVENANCE (optional, additive): the display state at selection time. */
   readonly context?: VizSelectionContext
   /** Schema tag for the provenance block, mirroring `FigureManifest.schema` (DEC-7). */
-  readonly provenance?: 'ziee-viz-selection/1'
+  readonly provenance?: 'txresbench-viz-selection/1'
 }
 
 /** The linked color-scale component: the series that share ONE color domain (ITEM-64). */
@@ -615,7 +615,7 @@ export interface ResolvedOption {
         /** RESOLVED provenance context (present only when the option carried it). */
         readonly context?: VizSelectionContext
         /** RESOLVED provenance schema tag (present only when the option carried it). */
-        readonly provenance?: 'ziee-viz-selection/1'
+        readonly provenance?: 'txresbench-viz-selection/1'
       }
     | null
   readonly colorScale:

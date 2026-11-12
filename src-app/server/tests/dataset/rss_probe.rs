@@ -8,7 +8,7 @@
 //! Two probes, because the two invariants observe different processes:
 //!
 //! * [`server_child_pid`] + [`peak_rss_kib`] read `VmHWM` — the kernel's **peak**
-//!   RSS since exec — for the **spawned server child**. `ziee_test_harness::SpawnedServer` runs the
+//!   RSS since exec — for the **spawned server child**. `txresbench_test_harness::SpawnedServer` runs the
 //!   API as a real subprocess, so this is the API process's own memory with nothing
 //!   from the test client mixed in. `VmHWM` is monotonic and exact, so there is no
 //!   polling race and no chance of missing the peak between two polls.
@@ -42,7 +42,7 @@ fn read_status_field(pid_path: &str, field: &str) -> Option<u64> {
 /// The SDK exposes no accessor for it (`SpawnedServer.process` is private) and the
 /// SDK is pinned, so the pid is recovered from `/proc`. The identification is by the
 /// child's **environment**, not by "our only child": the harness passes each spawned
-/// server its own `CYTO_APP_DATA_DIR` (a per-test temp dir, readable from the test
+/// server its own `TXR_APP_DATA_DIR` (a per-test temp dir, readable from the test
 /// as `TestServer::data_dir()`), and `/proc/<pid>/environ` is readable for our own
 /// children.
 ///
@@ -62,7 +62,7 @@ fn read_status_field(pid_path: &str, field: &str) -> Option<u64> {
 /// Fails loudly (never returns a guess) if the match is not unique.
 pub fn server_child_pid(data_dir: &std::path::Path) -> u32 {
     let me = std::process::id();
-    let needle = format!("CYTO_APP_DATA_DIR={}", data_dir.display());
+    let needle = format!("TXR_APP_DATA_DIR={}", data_dir.display());
     let mut matches: Vec<u32> = Vec::new();
     for entry in std::fs::read_dir("/proc").expect("/proc is readable") {
         let Ok(entry) = entry else { continue };
@@ -92,9 +92,9 @@ pub fn server_child_pid(data_dir: &std::path::Path) -> u32 {
         "expected EXACTLY ONE DIRECT CHILD whose environment carries {needle} (the \
          server for this TestServer) so the RSS measurement is unambiguous; found \
          {matches:?}. Zero means one of two things: the harness no longer passes \
-         CYTO_APP_DATA_DIR verbatim (the match is textual), or it no longer spawns \
+         TXR_APP_DATA_DIR verbatim (the match is textual), or it no longer spawns \
          the server as a DIRECT child (a wrapper/shell would make it a grandchild). \
-         Both are real coupling to `ziee_test_harness`; fix the probe, not the test."
+         Both are real coupling to `txresbench_test_harness`; fix the probe, not the test."
     );
     matches[0]
 }

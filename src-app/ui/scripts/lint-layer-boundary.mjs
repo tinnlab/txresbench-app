@@ -46,7 +46,7 @@
  *     — composing the extensions is precisely its job.
  *   • Only WORKBENCH-INTERNAL specifiers are considered (`@/modules/workbench/…`
  *     and relatives that resolve inside the workbench). An import of `@/core/…`,
- *     `@ziee/viz`, react, … is out of scope.
+ *     `@txresbench/viz`, react, … is out of scope.
  *
  * ## Usage
  *   node scripts/lint-layer-boundary.mjs           # check (exit 1 on drift)

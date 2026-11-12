@@ -1,6 +1,6 @@
 // Boot-time registration of the built-in field renderers (ITEM-54). Kept separate from
 // `registry.tsx` so that seam stays import-light (framework-free → node-unit-testable);
-// this file wires the real `@ziee/kit`-backed renderers + the artifact-ref / widget
+// this file wires the real `@txresbench/kit`-backed renderers + the artifact-ref / widget
 // adapters and registers each through the open field-renderer registry. Called once for
 // its side-effect at module load by `SchemaForm.tsx` (idempotent). Mirrors
 // `result/builtinRenderers.ts`.

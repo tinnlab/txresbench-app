@@ -119,13 +119,13 @@ export function createImageCoordinateSystem(
   }
 }
 
-/** Serialize a `CoordSpace` for the GeoJSON `ziee:crs` member (ITEM-7). */
+/** Serialize a `CoordSpace` for the GeoJSON `txresbench:crs` member (ITEM-7). */
 export function coordSpaceToString(space: CoordSpace): string {
   if (isLevel(space)) return `level:${space.level}`
   return space
 }
 
-/** Parse a `ziee:crs` string back into a `CoordSpace` (permissive; defaults to fullRes). */
+/** Parse a `txresbench:crs` string back into a `CoordSpace` (permissive; defaults to fullRes). */
 export function coordSpaceFromString(s: string | undefined): CoordSpace {
   if (!s) return 'fullRes'
   if (s === 'physical' || s === 'world' || s === 'fullRes') return s

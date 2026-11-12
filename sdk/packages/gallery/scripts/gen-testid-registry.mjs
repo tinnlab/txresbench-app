@@ -10,7 +10,7 @@
  * statically, so the helper also accepts an arbitrary string (autocompleting the
  * known ones).
  *
- * Config-driven (moved into `@ziee/gallery/scripts` from the app). The walked
+ * Config-driven (moved into `@txresbench/gallery/scripts` from the app). The walked
  * roots + the output path all come from `resolveGalleryConfig(cwd)`:
  *   - app trees   = `srcDir` + `extraTrees`   (ui/src, desktop/ui/src);
  *   - package trees = `kitTestIds`             (kit/src, shell/src — the kit
@@ -18,7 +18,7 @@
  *                     source of truth for kit-component testids);
  *   - output      = `testidOut`                (the kit package's committed
  *                     `testIds.generated.ts`, imported app-side as
- *                     `@ziee/kit/testIds.generated`).
+ *                     `@txresbench/kit/testIds.generated`).
  * Every default reproduces the pre-package in-app behavior (walk `srcDir`, write
  * `<srcDir>/components/ui/testIds.generated.ts`), so a config-less app is
  * unchanged. Run from BOTH the ui and desktop workspace cwds (each supplies the
@@ -56,11 +56,11 @@ const MENTIONS_TESTID = 'data-testid'
  * The `tests` DIRECTORY skip below is not sufficient for this: it only covers a tree
  * that keeps its tests in one place (both apps' e2e specs), and misses the far more
  * common unit-test layout where the suite sits beside the component it exercises.
- * That gap was live and load-bearing: `@ziee/kit` co-locates its component suites
- * under `src/kit/`, and ziee's `gallery.config.json` scans that tree via
+ * That gap was live and load-bearing: `@txresbench/kit` co-locates its component suites
+ * under `src/kit/`, and txresbench's `gallery.config.json` scans that tree via
  * `kitTestIds`, so `kit/src/kit/sheet-bottom-track.test.tsx`'s `data-testid=
  * "body-child"` — a bare `<div/>` the sheet test mounts to observe layout — was
- * harvested into `KnownTestId` and made `check:testid-registry` fail. CytoAnalyst
+ * harvested into `KnownTestId` and made `check:testid-registry` fail. TxResBench
  * never saw it only because it does not configure `kitTestIds` at all.
  *
  * Anchored to the extension boundary (`.test.`/`.spec.` immediately before the final

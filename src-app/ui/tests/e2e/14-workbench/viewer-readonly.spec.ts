@@ -60,7 +60,7 @@ test('a VIEWER sees the workbench but NONE of the data-mutation affordances — 
   const admin = await ownerToken(request)
   const viewer = `wbview${Date.now()}`
   await createMember(request, admin, viewer)
-  const id = await seedSharedProject(request, admin, `${viewer}@cyto.test`, 'viewer')
+  const id = await seedSharedProject(request, admin, `${viewer}@txresbench.test`, 'viewer')
 
   const ctx = await browser.newContext()
   const vp = await ctx.newPage()
@@ -151,7 +151,7 @@ test('an EDITOR (positive control) DOES see Run + enabled launch — TEST-321', 
   const admin = await ownerToken(request)
   const editor = `wbedit${Date.now()}`
   await createMember(request, admin, editor)
-  const id = await seedSharedProject(request, admin, `${editor}@cyto.test`, 'editor')
+  const id = await seedSharedProject(request, admin, `${editor}@txresbench.test`, 'editor')
 
   const ctx = await browser.newContext()
   const ep = await ctx.newPage()

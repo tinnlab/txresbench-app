@@ -353,7 +353,7 @@ describe('criteria vocabulary: what counts as a categorical criterion (totality)
 // difference at the edge of a filter — it is the whole criterion, gone, with a clean console.
 describe('spellDeclaredLevel — declared levels enter the comparator dialect (ITEM-36)', () => {
   it('bridges a BOOL level from the producer spelling to the comparator spelling', () => {
-    // `cyto_columns.py:225` writes lowercase; `pyStr` spells a JS boolean capitalised.
+    // `txr_columns.py:225` writes lowercase; `pyStr` spells a JS boolean capitalised.
     assert.equal(spellDeclaredLevel('true', 'bool'), 'True')
     assert.equal(spellDeclaredLevel('false', 'bool'), 'False')
   })

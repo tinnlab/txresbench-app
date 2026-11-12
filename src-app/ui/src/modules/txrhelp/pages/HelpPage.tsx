@@ -37,7 +37,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Button, Input, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@ziee/kit'
+import { Button, Input, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@txresbench/kit'
 import { FiAlertTriangle, FiArrowUp, FiCheckCircle, FiInfo } from 'react-icons/fi'
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'

@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::types::ExtraMount;
 
@@ -261,7 +261,7 @@ pub trait ComputeBackend: Send + Sync {
     ///
     /// `true` (the `KubernetesBackend` job-per-run fallback) means the DATA plane lives in the
     /// pod: the pod re-fetches the inputs from the object store and pushes the outputs back
-    /// itself (via the in-pod `cytoanalyst run-job` entrypoint, which reuses the SAME
+    /// itself (via the in-pod `txresbench run-job` entrypoint, which reuses the SAME
     /// `materialize_inputs` + `finalize_analysis`). The control-plane runner must therefore NOT
     /// waste-materialize inputs locally for such a job, and must return a `SpawnedJob` with no
     /// local workspace/staging so the executor skips its local finalize (the pod owns it).

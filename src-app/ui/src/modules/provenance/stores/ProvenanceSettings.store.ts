@@ -7,7 +7,7 @@ import {
   Permissions,
 } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /**
  * Deployment-wide provenance settings singleton for the admin page. Loads on

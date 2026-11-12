@@ -47,7 +47,7 @@
 # `section`. They are stamped into an artifact's output-entry `meta` at write time, so
 # their contract is EXECUTABLE and lives in `compute/spatial_declarations.py` beside this
 # file — NOT in `_lib`, which is framework code that must hold no domain vocabulary
-# (`cyto_columns.py`'s own INV-5, and the reason #80's merge was blocked once). The
+# (`txr_columns.py`'s own INV-5, and the reason #80's merge was blocked once). The
 # importer (#154) VENDORS that module verbatim, the way `embedding` vendors
 # `cell-filter`'s predicate kernel, because `run.helpers` is confined to a package's own
 # tree.
@@ -78,7 +78,7 @@
 #
 id: spatial-types
 name: Spatial Types
-publisher: cyto
+publisher: txr
 # 0.4.0 — #160 adds `spatial/visium-hd-bundle`, the third vendor upload container and the
 # first whose members carry a path segment (the core now matches a member on as many
 # trailing segments as it declares).
@@ -88,7 +88,7 @@ publisher: cyto
 # this number, so a provisioned deployment re-extracts onto the new lattice instead of
 # keeping a stale one.
 #  0.5.0 — #211: the spatial declarations are MIRRORED into the coordinates store's own
-#          `attributes.cyto` (`structure['cyto_spatial']`), so a SANDBOXED consumer can
+#          `attributes.txr` (`structure['txr_spatial']`), so a SANDBOXED consumer can
 #          read the coordinate space, the micron scale (and its provenance), the
 #          measured entity, the positioning and the section. `meta` never crossed into
 #          the sandbox; the store's own bytes do. Reader side: `require_spatial_declarations`,
@@ -245,7 +245,7 @@ contributes:
     # exist.
     #
     # Structure: one 2-D numeric member over the entity axis — i.e. precisely what
-    # `_lib/cyto_columns.py::write_embedding` already emits, carrying `aligned_to` and
+    # `_lib/txr_columns.py::write_embedding` already emits, carrying `aligned_to` and
     # `membership`. Zero new writer code; the domain wrapper adds the declarations, not a
     # format.
     # ── `extends: matrix`, NOT `extends: embedding` — a FORCED amendment to §6.2 ───────

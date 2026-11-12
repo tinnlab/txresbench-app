@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { parseOption, resolveLayout } from './parse'
 import { installBuiltins } from '../charts/installBuiltins'
 import type { DatasetCatalog } from '../data/wire'
-import type { LayoutNode } from '@ziee/dock'
+import type { LayoutNode } from '@txresbench/dock'
 import type { VizOption } from './types'
 
 const CATALOG: DatasetCatalog = {

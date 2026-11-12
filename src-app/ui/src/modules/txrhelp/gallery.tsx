@@ -21,7 +21,7 @@
  */
 import { lazy, type CSSProperties } from 'react'
 import { Route, Routes } from 'react-router-dom'
-import type { ModuleGallery } from '@ziee/gallery'
+import type { ModuleGallery } from '@txresbench/gallery'
 import { AppShell } from '@/modules/txrshell/components/AppShell'
 import { HelpPage } from './pages/HelpPage'
 

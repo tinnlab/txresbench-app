@@ -1,5 +1,5 @@
 {
-  "name": "@ziee/gallery",
+  "name": "@txresbench/gallery",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -18,11 +18,11 @@
     "./*": "./src/*"
   },
   "bin": {
-    "ziee-gallery": "scripts/cli.mjs"
+    "txresbench-gallery": "scripts/cli.mjs"
   },
   "peerDependencies": {
-    "@ziee/framework": "*",
-    "@ziee/kit": "*",
+    "@txresbench/framework": "*",
+    "@txresbench/kit": "*",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.15.1"

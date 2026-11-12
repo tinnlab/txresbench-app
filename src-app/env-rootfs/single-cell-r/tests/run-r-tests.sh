@@ -4,7 +4,7 @@
 # ── WHY THIS RUNS THE SHIPPED BYTES INSTEAD OF ASSERTING ABOUT THEM ─────────────────
 # The regime's load-bearing R logic — the pin parser, the resolution-coordinate reader
 # and the closure-lock writer — lives INSIDE `../Dockerfile`, in a heredoc delimited by
-# `CYTO_REGIME_R`. It lives there rather than in a sibling `.R` file because the recipe
+# `TXR_REGIME_R`. It lives there rather than in a sibling `.R` file because the recipe
 # is deliberately two files: `watched_env_pin_files` watches exactly `Dockerfile` +
 # `requirements.txt` for cargo's `rerun-if-changed`, so a third file would change without
 # re-triggering the build gate. (The rootfs freshness key is a second reason often quoted
@@ -45,7 +45,7 @@ RECIPE=$(CDPATH='' cd -- "$HERE/.." && pwd)
 REPO_ROOT=$(CDPATH='' cd -- "$RECIPE/../../.." && pwd)
 DOCKERFILE="$RECIPE/Dockerfile"
 PINS="$RECIPE/requirements.txt"
-DELIM=CYTO_REGIME_R
+DELIM=TXR_REGIME_R
 
 if ! command -v Rscript >/dev/null 2>&1; then
     echo "FAIL: Rscript is not on PATH. The R half of the pinning regime cannot be" >&2
@@ -63,7 +63,7 @@ trap 'rm -rf "$WORK"' EXIT INT TERM
 # This script EXECUTES what it extracts, under `Rscript`, on the developer's host, and
 # `just check` runs it. So the extraction rule decides what code runs.
 #
-# The first cut matched `$0 ~ "<<'CYTO_REGIME_R'"` — an UNANCHORED regex, anywhere on any
+# The first cut matched `$0 ~ "<<'TXR_REGIME_R'"` — an UNANCHORED regex, anywhere on any
 # line, with no requirement that it be the heredoc opener and no check that exactly one
 # block exists. A blind audit turned that into arbitrary code execution with a Dockerfile
 # COMMENT: any line merely CONTAINING the string starts a second capture, everything up to
@@ -73,7 +73,7 @@ trap 'rm -rf "$WORK"' EXIT INT TERM
 #
 # So: the opener must be the EXACT line the recipe writes, both markers must occur exactly
 # ONCE, and a mismatch is a refusal rather than a best-effort extraction.
-OPENER="cat > /tmp/cyto-regime.R <<'$DELIM'"
+OPENER="cat > /tmp/txr-regime.R <<'$DELIM'"
 n_open=$(grep -c -x -F -- "$OPENER" "$DOCKERFILE" || true)
 n_close=$(grep -c -x -F -- "$DELIM" "$DOCKERFILE" || true)
 if [ "${n_open:-0}" -ne 1 ] || [ "${n_close:-0}" -ne 1 ]; then
@@ -107,13 +107,13 @@ Rscript --vanilla "$HERE/regime_test.R" "$WORK/regime.R" "$PINS"
 # THIS REPLACES A PREDICATE THAT HAS NOW BEEN DEFEATED THREE TIMES.
 #
 # The claim is "regime_test.R has no line rule of its own — it reads the pin file through
-# the shipped `cyto_read_pin_lines`". Three attempts to assert that over the suite's SOURCE
+# the shipped `txr_read_pin_lines`". Three attempts to assert that over the suite's SOURCE
 # were each defeated by the next spelling:
 #
 #   round 2  `length(x) == length(x)`                      — a tautology
 #   round 3  grep for the call, needle in its own message   — always green
 #   round 4  parse-tree walk for the `pin_lines` assignment — defeated by a one-line ALIAS
-#            (`cyto_read_pin_lines <- function(p) readLines(p, warn = FALSE)`), and by `=`,
+#            (`txr_read_pin_lines <- function(p) readLines(p, warn = FALSE)`), and by `=`,
 #            `assign()` and a nested block
 #
 # A fourth predicate would be the fourth predicate. `docs/design/derived-guards.md` and the
@@ -121,7 +121,7 @@ Rscript --vanilla "$HERE/regime_test.R" "$WORK/regime.R" "$PINS"
 # one guard, the remedy is never another predicate — replace it with a test of the BEHAVIOUR
 # the predicate was standing in for.
 #
-# The behaviour: a suite that goes through `cyto_read_pin_lines` inherits the canonical-bytes
+# The behaviour: a suite that goes through `txr_read_pin_lines` inherits the canonical-bytes
 # precondition, so a POISONED pin file makes it FAIL. A suite with a private `readLines`
 # does not — that is the entire difference between the two, and it is observable from
 # outside without reading a line of the suite's source.
@@ -139,7 +139,7 @@ POISONED="$WORK/poisoned-requirements.txt"
 # runaway string constant on some awks — it failed loudly, which is the right direction
 # for a thing whose job is to build a test input, but it is worth not repeating.
 CR=$(printf '\r')
-{ printf '# see the runbook%s# cyto:note\n' "$CR"; cat "$PINS"; } > "$POISONED"
+{ printf '# see the runbook%s# txr:note\n' "$CR"; cat "$PINS"; } > "$POISONED"
 if ! grep -q "$CR" "$POISONED"; then
     echo "FAIL: the poisoned fixture carries no CR — this case would prove nothing." >&2
     exit 1
@@ -150,7 +150,7 @@ POISON_RC=$?
 set -e
 if [ "$POISON_RC" -eq 0 ]; then
     echo "FAIL: the suite ACCEPTED a pin file containing a lone CR." >&2
-    echo "      That means it is not reading through \`cyto_read_pin_lines\`, so it does not" >&2
+    echo "      That means it is not reading through \`txr_read_pin_lines\`, so it does not" >&2
     echo "      inherit the canonical-bytes precondition — it has a line rule of its own," >&2
     echo "      which is the fourth opinion about where a line ends that #214 removed." >&2
     exit 1

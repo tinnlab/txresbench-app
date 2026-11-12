@@ -2,13 +2,13 @@
 //! apart, because they have different contracts:
 //!
 //! * [`parse_range_param`] — the **`?range=` QUERY PARAM** (artifact-model
-//!   ITEM-36). This is the form every ziee client uses. The URL is the cache key,
+//!   ITEM-36). This is the form every txresbench client uses. The URL is the cache key,
 //!   so the answer is always a `200` and every chunk is an ordinary cacheable
 //!   `GET`. Validation is HARD: the only outcomes are a span, a `400` or a `416`.
 //!   There is no "serve the whole blob instead" outcome — see the type.
 //! * [`parse_range`] — the **`Range:` HEADER**, RFC 9110 §14 semantics
 //!   (`206`/`416`, and "ignore what you cannot parse"). Kept for generic HTTP
-//!   clients; no ziee client emits it. A subtly-wrong `206` breaks a range-aware
+//!   clients; no txresbench client emits it. A subtly-wrong `206` breaks a range-aware
 //!   reader silently, so it is unit-tested against the exact forms they emit:
 //!   `bytes=a-b`, `bytes=a-` (open-ended), `bytes=-n` (suffix).
 //!
@@ -191,7 +191,7 @@ impl RangeOutcome {
 /// surface advertises `Accept-Ranges: bytes`, so a generic HTTP client (a resumed
 /// download, `curl -r`, a third-party range-aware reader) must get the standard
 /// answer, and "reject what you cannot parse" is not the standard answer. The
-/// degradation that ITEM-36 names is killed where it mattered — the ziee read
+/// degradation that ITEM-36 names is killed where it mattered — the txresbench read
 /// path, which speaks [`parse_range_param`] and cannot reach this function.
 pub fn parse_range(header: Option<&str>, total: u64) -> RangeOutcome {
     let Some(raw) = header else {

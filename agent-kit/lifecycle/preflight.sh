@@ -14,7 +14,7 @@
 # submodule, node workspaces, build-DB isolation, dev-config seed) are driven by
 # an app-provided `.claude/app.config` (a plain KEY=value data file — NEVER
 # sourced). A check whose key is UNSET is SKIPPED, not failed, so this same
-# script runs unchanged across ziee, CytoAnalyst, and any future app. With no
+# script runs unchanged across txresbench, TxResBench, and any future app. With no
 # app.config at all, only the generic checks (stale-Vite) run and the gate exits
 # 0. See app.config.example for the full key list + the "unset ⇒ skip" contract.
 #
@@ -44,7 +44,7 @@ if [ -z "$REPO" ]; then
   REPO="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "preflight: FATAL: not in a git repo (pass --repo)"; exit 2; }
 fi
 
-# --- app.config (the de-ziee-ify seam) ------------------------------------
+# --- app.config (the de-txresbench-ify seam) ------------------------------------
 # A plain KEY=value data file at <repo>/.claude/app.config. Read it by hand
 # (grep, NOT `source`) — a committed config a gate consumes must never be able
 # to execute arbitrary shell.
@@ -75,7 +75,7 @@ if [ ! -f "$CONFIG" ]; then
 fi
 
 # 1. build seed present — else an app whose build embeds a fetched seed PANICS
-#    at build time (ziee: hub_seed is fail-hard).  32 sessions.
+#    at build time (txresbench: hub_seed is fail-hard).  32 sessions.
 SEED_REL="$(cfg PREFLIGHT_SEED_FILE)"
 if [ -n "$SEED_REL" ]; then
   SEED="$REPO/$SEED_REL"
@@ -91,7 +91,7 @@ else
 fi
 
 # 2. vendored submodule initialized — else migrations / native build that depend
-#    on it fail (ziee: pgvector → migration 46 CREATE EXTENSION + the memory build).
+#    on it fail (txresbench: pgvector → migration 46 CREATE EXTENSION + the memory build).
 SUBMOD="$(cfg PREFLIGHT_SUBMODULE)"
 if [ -n "$SUBMOD" ]; then
   P="$REPO/$SUBMOD"

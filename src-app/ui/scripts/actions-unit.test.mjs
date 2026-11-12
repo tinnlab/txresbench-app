@@ -3,7 +3,7 @@
 // helper (ITEM-7). Run directly:
 //   node scripts/actions-unit.test.mjs
 //
-// Cyto has no vitest/jsdom runner (see `.lifecycle/ai-actions/TESTS.md`'s
+// TxResBench has no vitest/jsdom runner (see `.lifecycle/ai-actions/TESTS.md`'s
 // header note), so — mirroring `collect-actions.test.mjs`'s technique —
 // each test bundles a small ESM entry (real project source, no fixture
 // stand-ins: `defineAction.ts`/`versioned.ts` are pure/DOM-free at import
@@ -39,7 +39,7 @@ const externalBareImportsPlugin = {
     pluginBuild.onResolve({ filter: /.*/ }, args => {
       if (args.kind === 'entry-point') return null
       const p = args.path
-      if (p.startsWith('.') || p.startsWith('/') || p.startsWith('@/') || p.startsWith('@ziee/')) {
+      if (p.startsWith('.') || p.startsWith('/') || p.startsWith('@/') || p.startsWith('@txresbench/')) {
         return null
       }
       return { path: p, external: true }
@@ -66,7 +66,7 @@ async function loadModule(entrySource) {
     tsconfig: TSCONFIG_PATH,
     // `import.meta.env` is injected by VITE and is UNDEFINED under the plain
     // Node runtime this bundle executes in, so any app/SDK module that reads it
-    // at module scope (e.g. `@ziee/framework/store-kit`'s
+    // at module scope (e.g. `@txresbench/framework/store-kit`'s
     // `import.meta.env.VITE_STORE_PREFETCH`) throws the instant it is evaluated.
     // Reachable here since the action modules were repointed off the global
     // `Stores` shim onto each store's direct `registerLazyStore` handle. See the

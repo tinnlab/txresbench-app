@@ -8,10 +8,10 @@
 # documents two air-gap seams for supplying that rootfs; seam 1 is the preferred
 # one:
 #
-#   1. CYTO_ENV_ROOTFS_SQUASHFS=<file>  — content-hashed, digest RECORDED, mounted
+#   1. TXR_ENV_ROOTFS_SQUASHFS=<file>  — content-hashed, digest RECORDED, mounted
 #      BY DIGEST. A run under it is fully reproducible and its export capsule
 #      EXECUTES.
-#   2. CYTO_ENV_ROOTFS_DIR=<mounted dir> — legacy. No content identity, so the run
+#   2. TXR_ENV_ROOTFS_DIR=<mounted dir> — legacy. No content identity, so the run
 #      is UNPINNED and its capsule is provenance-only.
 #
 # This script produces the seam-1 artifact: the `.squashfs` FILE. The published
@@ -26,8 +26,8 @@
 #
 # CACHE
 # -----
-#   .cyto-cache/env-rootfs/<env>-schema<N>-<arch>.squashfs   (the artifact)
-#   .cyto-cache/env-rootfs/<env>-schema<N>-<arch>.digest     (the OCI digest it came from)
+#   .txr-cache/env-rootfs/<env>-schema<N>-<arch>.squashfs   (the artifact)
+#   .txr-cache/env-rootfs/<env>-schema<N>-<arch>.digest     (the OCI digest it came from)
 #
 # Re-running is a no-op when the cached digest still matches the registry's
 # moving `schema<N>-latest-<arch>` tag. `--offline` skips the registry entirely
@@ -35,7 +35,7 @@
 #
 # AUTH
 # ----
-# `ghcr.io/ziee-ai/cyto-env/*` is NOT anonymously pullable — without a credential
+# `ghcr.io/tinnlab/txresbench-env/*` is NOT anonymously pullable — without a credential
 # the registry answers `unauthorized: authentication required`. The script tries,
 # in order:
 #   1. an existing `oras login` credential (docker/oras config)
@@ -55,7 +55,7 @@
 #
 # With no argument the resolution is, in order:
 #   1. an explicit `<env-id>` argument
-#   2. $CYTO_SANDBOX_ENV_ID          (the same operator override the binary honours first)
+#   2. $TXR_SANDBOX_ENV_ID          (the same operator override the binary honours first)
 #   3. the SOLE declared env-id      — when exactly one exists, using it CHOOSES nothing
 #   4. otherwise: REFUSE, and name the candidates
 # Step 4 is the point. A second declared env makes this recipe ASK instead of silently
@@ -71,7 +71,7 @@
 #   scripts/fetch-env-rootfs.sh --print-path    # print the cached path and exit
 #
 # Prints the artifact path on the last line, so a caller can do:
-#   export CYTO_ENV_ROOTFS_SQUASHFS=$(scripts/fetch-env-rootfs.sh --print-path)
+#   export TXR_ENV_ROOTFS_SQUASHFS=$(scripts/fetch-env-rootfs.sh --print-path)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -124,7 +124,7 @@ done
 # $2 names the CHANNEL the id came from, so the diagnosis sends the reader to the right
 # place: a manifest to edit, or the override they just typed.
 _refuse_malformed_env_id() {
-  cyto_is_valid_env_id "$1" && return 0
+  txr_is_valid_env_id "$1" && return 0
   echo "[env-rootfs] FAIL: malformed env id from ${2:-a processor manifest}: '$1'" >&2
   echo "  A legal env id is a non-empty OCI path component: lowercase a-z, 0-9, and . _ -" >&2
   echo "  (the grammar in src-app/server/src/modules/sandbox/env_id.rs)." >&2
@@ -177,7 +177,7 @@ declared_env_ids() {
 }
 
 if [ -z "$ENV_ID" ]; then
-  ENV_ID="${CYTO_SANDBOX_ENV_ID:-}"
+  ENV_ID="${TXR_SANDBOX_ENV_ID:-}"
 fi
 if [ -z "$ENV_ID" ]; then
   DECLARED="$(declared_env_ids)"
@@ -209,20 +209,20 @@ EOF
     echo "[env-rootfs] FAIL: $n_declared env images are declared, so the env to fetch is a" >&2
     echo "  CHOICE and this script will not make it for you. Name one:" >&2
     printf '%s\n' "$DECLARED" | sed 's/^/      scripts\/fetch-env-rootfs.sh /' >&2
-    echo "  (or set CYTO_SANDBOX_ENV_ID, the same override the server honours)." >&2
+    echo "  (or set TXR_SANDBOX_ENV_ID, the same override the server honours)." >&2
     exit 1
   fi
 fi
 # #196 R7 — validate the RESOLVED env id whatever channel supplied it. The validation
-# above runs only on DERIVED ids, so a positional argument or `CYTO_SANDBOX_ENV_ID` flowed
+# above runs only on DERIVED ids, so a positional argument or `TXR_SANDBOX_ENV_ID` flowed
 # straight into PULL_REF and the cache path unchecked: `single-cell:evil` smuggles a tag
 # into the reference, and `../../../other/repo` escapes the cache directory. `env_id.rs`
 # states that stopping exactly that is the grammar's purpose, and the operator channel is
 # the one that most needs it. Caught by a blind verifier.
-_refuse_malformed_env_id "$ENV_ID" "the env-id you supplied (argument or CYTO_SANDBOX_ENV_ID)"
+_refuse_malformed_env_id "$ENV_ID" "the env-id you supplied (argument or TXR_SANDBOX_ENV_ID)"
 
-REGISTRY="${CYTO_ENV_REGISTRY:-ghcr.io/ziee-ai/cyto-env}"
-CACHE="${CYTO_ENV_ROOTFS_CACHE:-$ROOT/.cyto-cache/env-rootfs}"
+REGISTRY="${TXR_ENV_REGISTRY:-ghcr.io/tinnlab/txresbench-env}"
+CACHE="${TXR_ENV_ROOTFS_CACHE:-$ROOT/.txr-cache/env-rootfs}"
 
 # The schema version is read from the RUST CONSTANT, not duplicated here — a
 # schema bump in the binary must not silently keep pulling the old image.
@@ -240,7 +240,7 @@ case "$(uname -m)" in
   aarch64|arm64)   ARCH="arm64" ;;
   *)               echo "fetch-env-rootfs: unsupported arch $(uname -m)" >&2; exit 1 ;;
 esac
-ARCH="${CYTO_ENV_ARCH:-$ARCH}"
+ARCH="${TXR_ENV_ARCH:-$ARCH}"
 
 TAG="schema${SCHEMA}-latest-${ARCH}"
 PULL_REF="${REGISTRY}/${ENV_ID}:${TAG}"
@@ -330,7 +330,7 @@ if [ -z "$digest" ]; then
     cat >&2 <<EOF
 [env-rootfs] FAIL: cannot pull $PULL_REF and no credential is available.
 
-  ghcr.io/ziee-ai/cyto-env/* is NOT anonymously pullable (registry answers: unauthorized).
+  ghcr.io/tinnlab/txresbench-env/* is NOT anonymously pullable (registry answers: unauthorized).
 
   Fix ONE of these, then re-run:
     * gh auth login                 # GitHub CLI, with the read:packages scope
@@ -386,7 +386,7 @@ fi
 if command -v squashfuse >/dev/null 2>&1; then
   probe="$staging/.probe"; mkdir -p "$probe"
   if squashfuse "$pulled" "$probe" 2>/dev/null; then
-    marker="$probe/.cytoanalyst-sandbox-rootfs-schema"
+    marker="$probe/.txresbench-sandbox-rootfs-schema"
     got="$(cat "$marker" 2>/dev/null | tr -d '[:space:]' || true)"
     # `/opt/venv/bin/python` is an ABSOLUTE symlink (-> /usr/local/bin/python3.11).
     # From outside the sandbox that target resolves against the HOST root, so `-e`/`-x`
@@ -400,7 +400,7 @@ if command -v squashfuse >/dev/null 2>&1; then
     # one predicate, which is the mirror-drift this branch's own parity test exists to
     # prevent one level up. A blind verifier caught the first version doing exactly that.
     have_jq=0
-    if cyto_verify_rootfs_has_jq "$probe" 2>/dev/null; then have_jq=1; fi
+    if txr_verify_rootfs_has_jq "$probe" 2>/dev/null; then have_jq=1; fi
     (fusermount -u "$probe" 2>/dev/null || fusermount3 -u "$probe" 2>/dev/null) || true
     if [ "$got" != "$SCHEMA" ]; then
       echo "[env-rootfs] FAIL: image schema marker is '${got:-<missing>}' but this binary expects $SCHEMA." >&2

@@ -36,7 +36,7 @@
  * `txr-models-details-<id>` (opened state).
  */
 import type { CSSProperties, ReactNode } from 'react'
-import { Button, Descriptions, Dialog, Skeleton, type DescriptionsItem } from '@ziee/kit'
+import { Button, Descriptions, Dialog, Skeleton, type DescriptionsItem } from '@txresbench/kit'
 import type { ModelDetail, RequiredMarkers } from '@/api-client/types'
 import { useModelDetail } from '../data/useModelDetail'
 import {

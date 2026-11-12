@@ -4,8 +4,8 @@
 //! framework with no app-specific code, proving the platform layer stays
 //! app-agnostic (plan §4, gate E11).
 //!
-//! It links ONLY `ziee-core` + `ziee-framework` (the SDK platform crates) plus
-//! third-party crates — and NO ziee domain crate (chat / memory / mcp / …). It
+//! It links ONLY `txresbench-core` + `txresbench-framework` (the SDK platform crates) plus
+//! third-party crates — and NO txresbench domain crate (chat / memory / mcp / …). It
 //! registers exactly one module (`skeleton`) exposing one route (`GET
 //! /api/ping` → `"pong"`) via the real framework machinery: a `ModuleEntry` in
 //! the `MODULE_ENTRIES` distributed slice, `create_modules()`,
@@ -26,10 +26,10 @@ use sqlx::postgres::PgPoolOptions;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use ziee_core::config::{
+use txresbench_core::config::{
     ExternalPostgreSqlConfig, HttpServerConfig, JwtConfig, PostgreSqlConfig, ServerConfig,
 };
-use ziee_framework::{
+use txresbench_framework::{
     app_builder::{build_api_router, create_modules, initialize_modules},
     AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES,
 };
@@ -65,7 +65,7 @@ async fn ping() -> &'static str {
 }
 
 // Register the module at link time via the framework's distributed slice —
-// exactly the same mechanism every real ziee module uses.
+// exactly the same mechanism every real txresbench module uses.
 #[distributed_slice(MODULE_ENTRIES)]
 static SKELETON: ModuleEntry = ModuleEntry {
     name: "skeleton",

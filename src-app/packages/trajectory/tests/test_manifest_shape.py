@@ -38,7 +38,7 @@ def test_the_package_declares_every_field_the_runtime_requires(manifest):
     assert manifest["apiVersion"] == "1.0"
     # `publisher` is optional to the build lint and REQUIRED by the runtime parser, so its
     # absence would pass the build and fail at boot.
-    assert manifest["publisher"] == "cyto"
+    assert manifest["publisher"] == "txr"
 
 
 def test_it_contributes_exactly_the_two_analyses_and_no_datatype(manifest, analyses):

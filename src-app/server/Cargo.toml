@@ -1,14 +1,14 @@
 [package]
-name = "cytoanalyst"
+name = "txresbench"
 version = "0.0.0"
 edition.workspace = true
 
 [lib]
-name = "cytoanalyst"
+name = "txresbench"
 path = "src/lib.rs"
 
 [[bin]]
-name = "cytoanalyst"
+name = "txresbench"
 path = "src/main.rs"
 
 [features]
@@ -23,7 +23,7 @@ sandbox_seccomp = ["dep:sandbox-seccomp"]
 # single-user local app with no cloud code in any build.
 #
 # NOTE (artifact-model ITEM-13): the opt-in `tiledb_serve` feature — which linked a
-# prebuilt core `libtiledb` from the `CYTO_TILEDB_LIB` env var to drive a native
+# prebuilt core `libtiledb` from the `TXR_TILEDB_LIB` env var to drive a native
 # in-process array reader — was DELETED with its module. INV-1: the server links no
 # format-parsing library at all, so there is no feature that could turn one on. Do
 # not reintroduce one here; `scripts/check-no-format-crates.sh` denies the whole
@@ -33,7 +33,7 @@ sandbox_seccomp = ["dep:sandbox-seccomp"]
 # SDK build.rs support: composes migrations-merged + provisions/migrates the
 # per-worktree build DB on :54321 and sets DATABASE_URL for sqlx compile-time
 # query!/query_as! verification (provision_build_db, SDK gap G4 resolved).
-ziee-build-support = { path = "../../sdk/crates/ziee-build-support" }
+txresbench-build-support = { path = "../../sdk/crates/txresbench-build-support" }
 # Hashing the docker-built rootfs squashfs for the `.version` sidecar (embed
 # skip-if-fresh). Docker itself is invoked via std::process::Command (no crate).
 sha2 = "0.10"
@@ -57,36 +57,36 @@ serde_norway = "0.9"
 # `embedded-pg` (the postgresql_embedded downloader) is absent from the
 # server's build graph — TEST-1(a)'s prune (DRIFT-1 ITEM-12 #3; the desktop
 # crate's own edges flip with ITEM-24).
-ziee-core = { path = "../../sdk/crates/ziee-core", default-features = false, features = ["sqlite-backend"] }
-ziee-framework = { path = "../../sdk/crates/ziee-framework", default-features = false, features = ["sqlite-backend"] }
+txresbench-core = { path = "../../sdk/crates/txresbench-core", default-features = false, features = ["sqlite-backend"] }
+txresbench-framework = { path = "../../sdk/crates/txresbench-framework", default-features = false, features = ["sqlite-backend"] }
 # AI-controllable-actions MCP surface: the DB-free OpenAPI→capability catalog +
 # deployment policy + static tool descriptors. `modules/mcp` is the thin
 # app-side glue (JSON-RPC handler, agent channel, pairing) built on top.
 # `default-features = false` + the driver feature: this was the LAST edge that
 # still default-featured the framework (the `embedded-pg` downloader activated
 # through it); flipped with the rest of the app graph (ITEM-16).
-ziee-control-mcp = { path = "../../sdk/crates/ziee-control-mcp", default-features = false, features = ["sqlite-backend"] }
+txresbench-control-mcp = { path = "../../sdk/crates/txresbench-control-mcp", default-features = false, features = ["sqlite-backend"] }
 # Auth: the default schema-bound auth module + its mountable routes bundle
 # (`module` implies `routes`) + the identity abstractions. `sqlite-backend`
 # selects the cfg-gated sqlite query sets + the sqlite `migrations/` chain
 # (ITEM-14; ITEM-26 moved the chain into the canonical name).
-ziee-auth = { path = "../../sdk/crates/ziee-auth", default-features = false, features = ["module", "sqlite-backend"] }
-ziee-identity = { path = "../../sdk/crates/ziee-identity" }
+txresbench-auth = { path = "../../sdk/crates/txresbench-auth", default-features = false, features = ["module", "sqlite-backend"] }
+txresbench-identity = { path = "../../sdk/crates/txresbench-identity" }
 # Notification inbox: the SDK notification feature promoted to a self-registering
 # module (generic `payload` schema + per-module kind registry + pluggable sync
 # emitter). PROPOSED SDK contribution — see SDK_GAPS. `sqlite-backend` selects the
 # cfg-gated sqlite query sets + the sqlite `migrations/` chain (ITEM-16) and — with
 # `embedded-pg` gone from the server graph — completes TEST-1(a)'s build-graph
 # prune: no `postgresql_embedded` downloader is linked by any edge anymore.
-ziee-notification = { path = "../../sdk/crates/ziee-notification", default-features = false, features = ["module", "sqlite-backend"] }
+txresbench-notification = { path = "../../sdk/crates/txresbench-notification", default-features = false, features = ["module", "sqlite-backend"] }
 # Liveness/readiness surface: the DB-free `GET /health` route (no auth, no DB).
-ziee-health = { path = "../../sdk/crates/ziee-health" }
+txresbench-health = { path = "../../sdk/crates/txresbench-health" }
 # File STORE: the generic, domain-agnostic multi-derivative blob store + its
 # mountable `file_routes` HTTP surface (`routes` feature default-on). Backs the
 # dataset upload path (INPUT uploads only — see docs/DATA_STORAGE_REDESIGN.md).
 # `sqlite-backend` selects the cfg-gated sqlite query sets + the sqlite
 # `migrations/` chain (ITEM-15/ITEM-26).
-ziee-file = { path = "../../sdk/crates/ziee-file", default-features = false, features = ["routes", "sqlite-backend"] }
+txresbench-file = { path = "../../sdk/crates/txresbench-file", default-features = false, features = ["routes", "sqlite-backend"] }
 
 # --- Third-party (versions matched to the SDK crates so the single Cargo.lock
 #     unifies them without a duplicate build) -------------------------------
@@ -137,7 +137,7 @@ bytes = "1"
 memchr = "2"
 tokio-util = { version = "0.7", features = ["io"] }
 # Per-process CPU% + RSS sampling for the per-job resource charts (cross-platform;
-# version matched to ziee-hardware so the single Cargo.lock unifies it).
+# version matched to txresbench-hardware so the single Cargo.lock unifies it).
 sysinfo = "0.37.2"
 # Per-job SSE stream (log/metric/status frames) — same primitives the SDK sync
 # stream uses; already in the workspace Cargo.lock.
@@ -147,7 +147,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive"] }
 # `mcp`'s REST-kind `invoke_capability` loopback dispatch (forwards the
-# caller's JWT to the real route, mirrors ziee `control_mcp`). Version matched
+# caller's JWT to the real route, mirrors txresbench `control_mcp`). Version matched
 # to the dev-dependency below so the single Cargo.lock unifies them.
 # `stream` (added by pretrained-catalogue ITEM-3, DEC-14): the downloader
 # streams response bytes into the staged file via `futures-util::StreamExt`
@@ -176,19 +176,19 @@ hex = "0.4"
 # token diverges from the tree's plaintext convention). The server crate had no CSPRNG
 # and no base64 of its own — its only random-token idiom was `Uuid::new_v4()` (122 bits),
 # which does not satisfy the ratified 256-bit requirement. Both are pinned to the SAME
-# versions `sdk/crates/ziee-auth/Cargo.toml` uses, so the single `Cargo.lock` unifies
+# versions `sdk/crates/txresbench-auth/Cargo.toml` uses, so the single `Cargo.lock` unifies
 # them onto entries that are ALREADY there (`rand 0.9.5`, `base64 0.22.1`) and the lock
 # gains only this crate's dependency edges. There is no `[workspace.dependencies]` table
 # in this repo, so the pin is direct — the convention the rest of this file follows.
 rand = "0.9.2"
 base64 = "0.22"
 # #182 streaming upload: `modules::file::stream::ingest_staged` must derive
-# `mime_type` with the IDENTICAL expression `ziee_file::ingest::ingest_bytes` uses
+# `mime_type` with the IDENTICAL expression `txresbench_file::ingest::ingest_bytes` uses
 # (`mime_guess::from_ext(&ext).first()`), because it REPLACES that function on the
 # upload path and the stored row has to stay byte-identical. This is a
 # correctness pin, not a convenience: a different mime derivation would silently
 # change every newly-uploaded file's `mime_type`. Already in `Cargo.lock` at 2.0.5
-# via `ziee-file`, so it resolves to the same entry with no lockfile churn. It maps
+# via `txresbench-file`, so it resolves to the same entry with no lockfile churn. It maps
 # extensions to MIME strings and parses no array/table format, so it is outside
 # `scripts/check-no-format-crates.sh`'s denylist.
 mime_guess = "2.0"
@@ -235,15 +235,15 @@ optional = true
 
 [dev-dependencies]
 # SDK integration-test harness (app-neutral `HarnessApp` seam) — per-worktree
-# template DBs cloned per test + a spawned-server-per-test. CytoAnalyst impls
+# template DBs cloned per test + a spawned-server-per-test. TxResBench impls
 # `HarnessApp` once in `tests/common`. The sqlite leg serves per-test FILE DBs
-# (the app's store; the harness keeps its postgres leg for ziee's own suites).
-ziee-test-harness = { path = "../../sdk/crates/ziee-test-harness", features = ["sync-probe"] }
+# (the app's store; the harness keeps its postgres leg for txresbench's own suites).
+txresbench-test-harness = { path = "../../sdk/crates/txresbench-test-harness", features = ["sync-probe"] }
 # TEST-14 (the SQLite chain-apply harness): composes the ported chain through
 # the REAL SDK composer `build.rs` uses (via the `#[path]`-included
 # `build_helper::migration_chain` driver lists). The crate already sits in this
 # package's build-dependency graph, so no new package enters `Cargo.lock`.
-ziee-build-support = { path = "../../sdk/crates/ziee-build-support" }
+txresbench-build-support = { path = "../../sdk/crates/txresbench-build-support" }
 # `stream` (#182, DEC-16): the measured-RSS upload tests send a 256 MiB body that
 # is GENERATED as it is sent, so the test process never buffers the payload either
 # (this box has ~3 GB of RAM). Dev-dependency only — Cargo unifies features per

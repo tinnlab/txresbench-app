@@ -188,7 +188,7 @@ node — so check `--dir` / `LIFECYCLE_SCOPE` before concluding anything else. S
 - **Provides** (`## Provides`): `- **PROV-<ITEM>-1**: <a named, stable, checkable
   contract this item exposes>` — a trait+methods, a DB table+key, a route+shape, an
   emitted artifact/type, an invariant. Concrete, not "the storage stuff":
-  `PROV-T2-1: ObjectStore::{get_range,put,get_stream} over S3+GCS, selected by CYTO_WORKSTORE_BACKEND`.
+  `PROV-T2-1: ObjectStore::{get_range,put,get_stream} over S3+GCS, selected by TXR_WORKSTORE_BACKEND`.
   Keep it at the level of *what a consumer needs*, NOT the provider's internal
   implementation shape (over-detailed contracts break on refactor — the Pact
   brittleness warning).

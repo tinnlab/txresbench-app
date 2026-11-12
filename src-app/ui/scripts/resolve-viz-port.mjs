@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Per-worktree port resolution for the `@ziee/viz` showcase origins — the SAME
+ * Per-worktree port resolution for the `@txresbench/viz` showcase origins — the SAME
  * mechanism `playwright.gallery.config.ts` / `gate-ui.mjs` already use, adopted
  * for the viz tier.
  *
@@ -15,7 +15,7 @@
  * produced 9,355 `ERR_NETWORK_CHANGED` findings and a gate attributing a sibling
  * worktree's console errors to this tree as 216 failures. The config's own
  * comment ("a stale :1421 vite from a prior run would silently validate the WRONG
- * @ziee/viz build and blind the merge gate") describes the bug precisely and then
+ * @txresbench/viz build and blind the merge gate") describes the bug precisely and then
  * only guards the CI half of it; `reuseExistingServer: !CI` is exactly the half
  * that makes a local collision SILENT rather than loud.
  *

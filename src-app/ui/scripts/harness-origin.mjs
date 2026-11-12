@@ -22,7 +22,7 @@
  *
  * `21000` and `21400` are the vizShowcase/vizBench FLOORS exactly — the ports a key
  * with `key % 200 === 0` derives. Exactly one worktree on this box does that:
- * `/data/pbya/cytoanalyst/tmp/viz-finish-wt`. Both destroyed runs therefore came
+ * `/data/pbya/txresbench/tmp/viz-finish-wt`. Both destroyed runs therefore came
  * from ONE worktree, i.e. from two agents running the tier CONCURRENTLY IN THE SAME
  * TREE.
  *
@@ -54,7 +54,7 @@
  * `harness-preflight.mjs` (the pre-run assertion), and
  * `harness-watchdog-reporter.mjs` (the mid-run one).
  */
-import { resolveWorktreeRoot } from '@ziee/gallery/scripts/lib/run-key.mjs'
+import { resolveWorktreeRoot } from '@txresbench/gallery/scripts/lib/run-key.mjs'
 
 /** The two localhost families a browser may resolve `localhost` to. Both are asked
  *  explicitly: `localhost` is ambiguous on a dual-stack box, and a port held by a
@@ -169,7 +169,7 @@ function explain(c) {
         meaning:
           'it answered, but not with a /__worktree sentinel — so it is an old server\n' +
           '          from before the sentinel existed, a vite whose config lacks\n' +
-          '          gallerySentinelPlugin(), a RELEASE cytoanalyst binary (the backend\n' +
+          '          gallerySentinelPlugin(), a RELEASE txresbench binary (the backend\n' +
           '          sentinel is #[cfg(debug_assertions)] — build with `cargo build`, not\n' +
           '          `--release`), or an unrelated process. It is NOT provably this\n' +
           '          worktree, so anything measured against it is measured against\n' +

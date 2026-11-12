@@ -13,8 +13,8 @@ use serde_json::Value;
 use super::{owner_token, pool, seed_run, SeedMethod, SeedRun};
 use crate::common::TestServer;
 use chrono::{DateTime, Utc};
-use cytoanalyst::modules::execution_engine::repository::TxrRepository;
-use cytoanalyst::modules::execution_engine::types::{TxrMethodState, TxrRunMode, TxrRunStatus};
+use txresbench::modules::execution_engine::repository::TxrRepository;
+use txresbench::modules::execution_engine::types::{TxrMethodState, TxrRunMode, TxrRunStatus};
 
 fn at(s: &str) -> DateTime<Utc> {
     s.parse().expect("fixture timestamp")
@@ -23,7 +23,7 @@ fn at(s: &str) -> DateTime<Utc> {
 /// TEST-HS-13 + TEST-HS-23 — the usage response: `run_count` is the DB's, the
 /// bytes are the walk's, grouped per segment (an env cache under `txr-envs/`
 /// lands in `other_bytes`), `data_dir` equals the configured data root (the
-/// test-isolated `CYTO_APP_DATA_DIR`), `computed_at` is fresh, and after the
+/// test-isolated `TXR_APP_DATA_DIR`), `computed_at` is fresh, and after the
 /// TTL expires a changed data root is reflected.
 #[tokio::test]
 async fn usage_walks_grouped_and_expires_after_the_ttl() {

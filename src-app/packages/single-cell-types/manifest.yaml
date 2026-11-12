@@ -17,7 +17,7 @@
 # `DatatypeRegistry::build_from_embedded()`.
 id: single-cell-types
 name: Single-cell Datatypes
-publisher: cyto
+publisher: txr
 # 0.8.0 — AN OPAQUE CONTAINER DECLARES NO INTERNAL STRUCTURE (INV-7), finishing 0.7.0(b).
 #
 # 0.7.0 re-parented `single-cell/anndata` + `single-cell/matrix-mtx` to `data/opaque` but

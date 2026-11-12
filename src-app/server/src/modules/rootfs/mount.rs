@@ -1,6 +1,6 @@
 //! Squashfuse mount of the extracted analysis rootfs + schema-version probe.
 //!
-//! Mirrors ziee `code_sandbox/runtime_mount.rs::mount_if_needed` (idempotency,
+//! Mirrors txresbench `code_sandbox/runtime_mount.rs::mount_if_needed` (idempotency,
 //! dead-FUSE clear, `PR_SET_PDEATHSIG` so the FUSE daemon dies with the server,
 //! bounded mount-visibility wait), collapsed to a SINGLE rootfs (no per-flavor
 //! map — DEC-2). Linux-only (the sandbox is Linux-first — DEC-3); other targets
@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::embedded::ExtractedRootfs;
 use super::version::{ROOTFS_SCHEMA_MARKER, ROOTFS_SCHEMA_VERSION};

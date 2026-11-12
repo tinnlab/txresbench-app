@@ -156,7 +156,7 @@ describe('declaredMemberships — INV-5, nothing composes', () => {
 // below is chosen so they produce DIFFERENT ones (6 of the anchor's 10 = 60%; the candidate's
 // own 20 members = 30%): a same-denominator fixture would pass either implementation.
 //
-// The member sets are GOLDEN BLOBS produced by `cyto_zarr.encode_member_set` itself. The
+// The member sets are GOLDEN BLOBS produced by `txr_zarr.encode_member_set` itself. The
 // format has to be understood in two languages and the hazard is the two drifting apart, so
 // nothing here encodes with a second implementation.
 
@@ -208,7 +208,7 @@ function membered(id: string, entries: Entry[]): ArtifactRow {
 describe('decodeMemberSet — the inline member set, across the language boundary', () => {
   it('decodes blobs the PRODUCER wrote, back to exactly its positions', () => {
     // Golden, not round-tripped through a local encoder: the property under test is that
-    // this decoder and `cyto_zarr.encode_member_set` agree, and a local encoder would only
+    // this decoder and `txr_zarr.encode_member_set` agree, and a local encoder would only
     // prove this file agrees with itself.
     expect(decodeMemberSet(MEMBERS_0_TO_9)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
     expect(decodeMemberSet(MEMBERS_100_TO_109)).toEqual([100, 101, 102, 103, 104, 105, 106, 107, 108, 109])

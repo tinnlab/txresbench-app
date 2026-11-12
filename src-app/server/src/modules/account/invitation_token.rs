@@ -41,7 +41,7 @@ use chrono::{DateTime, Utc};
 use rand::TryRngCore as _;
 use sha2::{Digest, Sha256};
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// Token entropy in bytes. 32 bytes = **256 bits**, the ratified requirement.
 ///
@@ -175,7 +175,7 @@ pub const MAX_EMAIL_BYTES: usize = 254;
 ///
 /// No provider-specific canonicalization (`a.b@gmail` vs `ab@gmail`, `+tag` suffixes) — and
 /// the reason matters more than the omission. **An email is not an identity here.**
-/// `users.email_verified` exists (`ziee-auth`'s `202607140050_auth_schema.sql`) and is set
+/// `users.email_verified` exists (`txresbench-auth`'s `202607140050_auth_schema.sql`) and is set
 /// by OAuth provisioning, but there is **no verification flow for password registration**,
 /// and `users_email_key` is a **case-sensitive** UNIQUE index — so two distinct principals
 /// can differ only by case and both satisfy the binding. It is therefore *containment

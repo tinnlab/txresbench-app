@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import type { ModuleGallery } from '@ziee/gallery'
+import type { ModuleGallery } from '@txresbench/gallery'
 import { useMcpConnectStore } from '@/modules/mcp/stores/McpConnect.store'
 
 /**
@@ -44,13 +44,13 @@ export const gallery: ModuleGallery = {
     {
       slug: 'ai-access-paired',
       title: 'AI Assistant Access — pairing code issued',
-      note: 'A one-time code + MCP server URL minted, ready to copy (or deep-link) into ziee.',
+      note: 'A one-time code + MCP server URL minted, ready to copy (or deep-link) into txresbench.',
       path: '/settings/ai-access',
       initialPath: '/settings/ai-access',
       component: AiAccessPage,
       setup: seed({
         code: 'AB12-CD34',
-        mcpUrl: 'https://cyto.example.com/api/mcp',
+        mcpUrl: 'https://txr.example.com/api/mcp',
       }),
     },
     {

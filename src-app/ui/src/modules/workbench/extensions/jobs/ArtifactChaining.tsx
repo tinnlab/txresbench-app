@@ -5,7 +5,7 @@
 // never see it. Nothing to chain → renders nothing (no dead affordance).
 
 import { ArrowRight } from 'lucide-react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import { runAction } from '@/core/actions/defineAction'
 import { useWorkbench } from '../../core/shell/WorkbenchContext'
 import { buildChainLaunch, nextAnalyses } from '../analysis/chaining'

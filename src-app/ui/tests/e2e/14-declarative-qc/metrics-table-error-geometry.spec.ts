@@ -15,7 +15,7 @@
 //
 // WHAT IS AND IS NOT CLAIMED. The grid is 305px in a 284px box even with nothing invalid, and that
 // residual is NOT this fix's: it is the kit's column HEADINGS, which do not shrink
-// (`@ziee/kit`'s `HeaderInner`; "Aggregation" alone has a 114px min-content, the row's controls
+// (`@txresbench/kit`'s `HeaderInner`; "Aggregation" alone has a 114px min-content, the row's controls
 // only 88px). The kit gives the grid an internal `overflow-x-auto` for exactly that, so the
 // residual is a ~20px scroll rather than a clip. This spec therefore asserts what the fix
 // actually establishes — that VALIDITY does not enter the grid's geometry at all — plus that the

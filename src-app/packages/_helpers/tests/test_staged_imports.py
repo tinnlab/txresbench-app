@@ -3,7 +3,7 @@
 
 ## Why this exists
 
-`_helpers/alignment.py` gained `import cyto_columns` (from `_lib`) with the C4 missing-level
+`_helpers/alignment.py` gained `import txr_columns` (from `_lib`) with the C4 missing-level
 mechanism. That is a SUPPORTED direction — `PY_HELPER_FILES` stages every helper FLAT into
 one `/code` directory, so the `_helpers`/`_lib` split is a source-tree lifecycle distinction
 and not an import boundary — and the sandbox resolved it correctly on the first real run.
@@ -104,13 +104,13 @@ def test_a_staged_helper_imports_only_STDLIB_or_other_STAGED_modules(module):
 def test_the_C4_cross_package_import_is_the_case_this_guards():
     """The specific import that motivated this, asserted so the guard is not vacuous.
 
-    `_helpers/alignment.py` importing `_lib/cyto_columns` is the supported direction — one
+    `_helpers/alignment.py` importing `_lib/txr_columns` is the supported direction — one
     definition of the missing-level collision rule rather than two that can diverge. If this
     ever stops being true the guard above still holds, but this says which case taught it.
     """
-    assert "cyto_columns" in top_level_imports(STAGED["alignment"]), (
-        "alignment.py no longer imports cyto_columns — if the collision rule was COPIED "
+    assert "txr_columns" in top_level_imports(STAGED["alignment"]), (
+        "alignment.py no longer imports txr_columns — if the collision rule was COPIED "
         "back, two implementations can diverge and a source's own NA and the unified NA "
         "resolve differently"
     )
-    assert "cyto_columns" in STAGED, "cyto_columns is not staged, so that import cannot work"
+    assert "txr_columns" in STAGED, "txr_columns is not staged, so that import cannot work"

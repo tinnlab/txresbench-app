@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { createGridWorkspaceStore, INITIAL_CELL_ID, type GridWorkspaceSlice } from './GridWorkspace.store'
-import { leafIds, type LayoutNode } from '@ziee/dock'
+import { leafIds, type LayoutNode } from '@txresbench/dock'
 
 const sorted = (xs: string[]) => [...xs].sort()
 const popupIds = (s: ReturnType<typeof createGridWorkspaceStore>, c: string) => {

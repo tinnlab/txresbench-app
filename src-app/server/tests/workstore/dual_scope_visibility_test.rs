@@ -11,10 +11,10 @@
 use serde_json::json;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::authz::{artifact_scope, ArtifactScope};
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::catalog::ArtifactFilter;
+use txresbench::modules::workstore::authz::{artifact_scope, ArtifactScope};
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::catalog::ArtifactFilter;
 
 use super::{create_project, pool_for, setup_admin};
 use crate::common::TestServer;

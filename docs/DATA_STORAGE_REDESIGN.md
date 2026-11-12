@@ -7,7 +7,7 @@
 > kept for history (the chunking/streaming rationale still informs Zarr chunk sizing).
 
 
-# CytoAnalyst — Data & Results Storage Redesign
+# TxResBench — Data & Results Storage Redesign
 
 Status: **proposal** · Author: research pass over the legacy repos (`sc-website` @ `release/0.0.1`,
 `sc-task-queue`, `sc-website-scripts`) + a survey of the modern single-cell storage ecosystem.
@@ -91,7 +91,7 @@ Yes — and the legacy design already does exactly that (server h5wasm slices �
 ### Q3 — "The file module is for user *uploads*, not partial reads of HDF5."
 Agreed — and the legacy layout confirms it: results live under `{DATA_DIR}/{studyId}/` and are read
 by the *job* endpoints, entirely separate from upload/file handling. So:
-- **`ziee-file` (the SDK blob store) = INPUT uploads only** (raw matrix / 10x / `.h5ad` the user
+- **`txresbench-file` (the SDK blob store) = INPUT uploads only** (raw matrix / 10x / `.h5ad` the user
   uploads). It is a dumb blob store; it does **not** do partial/random reads of result files.
 - **Results get their own home + their own streaming service** (below): the analysis compute writes
   result files to a **results store** the *server* reads; a dedicated **analysis-results streaming
@@ -104,10 +104,10 @@ by the *job* endpoints, entirely separate from upload/file handling. So:
 ```
  ┌── INPUT ────────────┐   ┌── COMPUTE (sandbox) ─────────┐   ┌── JOB-RESULT STORE ─────┐
  │ user uploads matrix │   │ each job (R/Python) writes   │   │ per-run dir on server   │
- │  → ziee-file (blob) │──▶│ its own element-encoded HDF5 │──▶│  {run_id}/{job}.h5      │
+ │  → txresbench-file (blob) │──▶│ its own element-encoded HDF5 │──▶│  {run_id}/{job}.h5      │
  │  (uploads ONLY)     │   │ (thin writeElem, per-job schema) │   │  {run_id}/de.parquet    │
  │                     │   │ AnnData .h5ad only on EXPORT │   │  (server-read, NOT      │
- └─────────────────────┘   └──────────────────────────────┘   │   ziee-file)            │
+ └─────────────────────┘   └──────────────────────────────┘   │   txresbench-file)            │
                                                                └───────────┬────────────┘
  ┌── FRONTEND ─────────────────────────┐   ┌── ANALYSIS-RESULTS SERVICE ──┐│
  │ deck.gl scatter · TypedArrays + small JSON │◀──│ Rust: open job .h5, read TYPED  ││
@@ -252,7 +252,7 @@ typed, so the shape is known and a self-describing framing format buys nothing b
 overhead. The Rust service reads the kind's HDF5 layout with the `hdf5` crate (chunked hyperslab —
 preserving the CSC gene-column random access, the same `indptr/indices/data` slice as the legacy,
 just as raw bytes). **Auth is enforced per endpoint** (results are per-user/study) — impossible with a
-static blob store, another reason not to route this through `ziee-file`.
+static blob store, another reason not to route this through `txresbench-file`.
 
 (A generic "read a raw element at path P" endpoint is fine as an **admin/debug** tool, gated — but not
 the client contract.)
@@ -287,7 +287,7 @@ plane** (JSON) and a **data plane** (binary):
 - **The clean long-term** (flag to live1): teach `emit_ts` to read each response's media type and emit
   a `responseType` (`json | arraybuffer | stream`), and `callAsync` to honor it — then the *one*
   generated `ApiClient` handles binary endpoints natively (`ApiClient.Study.expression(...) →
-  ArrayBuffer`), no separate client. That's the SDK enhancement CytoAnalyst's viz needs.
+  ArrayBuffer`), no separate client. That's the SDK enhancement TxResBench's viz needs.
 
 ### 3.5 The catalog (Postgres side-table)
 `analysis_results` rows (one per **analysis id**, not per job): a surrogate `id` (PK, system-assigned)
@@ -536,16 +536,16 @@ gene-column random-access layout, and server-mediated streaming with per-gene la
 
 ---
 
-## 5. SDK / ziee implications (dogfooding feedback)
-- **`ziee-file` stays uploads-only** — confirmed correct. Do NOT push result partial-reads through it.
-- **The results store + streaming is CytoAnalyst app-domain**, not SDK — but two pieces may be
+## 5. SDK / txresbench implications (dogfooding feedback)
+- **`txresbench-file` stays uploads-only** — confirmed correct. Do NOT push result partial-reads through it.
+- **The results store + streaming is TxResBench app-domain**, not SDK — but two pieces may be
   reusable SDK patterns worth flagging to live1:
   1. A generic **"large typed-array / binary" response** helper (octet/`ArrayBuffer` endpoints) — many data apps need server→client streaming of big numeric arrays; the SDK's
      current surface is JSON-only.
   2. A **sandbox→results handoff**: the compute writes result artifacts to a per-run location the
-     server reads. This is the `ziee-sandbox` (pending) + a results-store seam — worth designing
+     server reads. This is the `txresbench-sandbox` (pending) + a results-store seam — worth designing
      alongside the sandbox extraction so results aren't shoehorned into the blob store.
-- Needs from the (pending) `ziee-sandbox`: run R/Python with `anndataR`/`scanpy` available, and a
+- Needs from the (pending) `txresbench-sandbox`: run R/Python with `anndataR`/`scanpy` available, and a
   defined output location the server reads.
 
 ---

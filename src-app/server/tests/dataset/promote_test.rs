@@ -1,5 +1,5 @@
 //! TEST-15 (ITEM-7) — promote a `role='artifact'` workstore output to a new
-//! owner-scoped ziee-file Dataset, through the full production path (real spawned
+//! owner-scoped txresbench-file Dataset, through the full production path (real spawned
 //! server + real Postgres + a real content-addressed object store on disk).
 //!
 //! Asserts: byte-preserving copy (the new dataset's `content_hash` == the source
@@ -22,9 +22,9 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::object_store::{LocalFsStore, ObjectStore};
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::object_store::{LocalFsStore, ObjectStore};
 
 use super::{create_dataset, create_user, login, setup_admin};
 use crate::common::TestServer;
@@ -320,7 +320,7 @@ async fn promote_is_gated_by_artifact_read() {
 
     // A second user with NO access to the source dataset → the artifact is
     // invisible → 404 (no existence oracle).
-    create_user(&server, &admin, "mallory", "mallory@cyto.test").await;
+    create_user(&server, &admin, "mallory", "mallory@txresbench.test").await;
     let mallory = login(&server, "mallory").await;
     let resp = server
         .client
@@ -350,7 +350,7 @@ async fn promote_is_gated_by_artifact_read() {
 /// **ITEM-18 / DEC-12 — the READ half of the conformance gate, at the surface where
 /// forgetting it costs the most.**
 ///
-/// Promote is byte-preserving: it re-ingests the artifact's bytes into ziee-file as a new
+/// Promote is byte-preserving: it re-ingests the artifact's bytes into txresbench-file as a new
 /// owner-scoped Dataset. A `datasets` row carries no conformance status, so an artifact
 /// the gate condemned, once promoted, is LAUNDERED permanently — the flag stays behind on
 /// the artifact while the copy that outlives it (and that every later analysis reads)
@@ -389,7 +389,7 @@ async fn promote_refuses_a_condemned_artifact() {
     let flipped = CatalogRepository::new(pool_for(&server).await)
         .set_status(
             bad_id,
-            cytoanalyst::modules::jobs::conformance::STATUS_FAILED,
+            txresbench::modules::jobs::conformance::STATUS_FAILED,
         )
         .await
         .expect("set_status");
@@ -412,7 +412,7 @@ async fn promote_refuses_a_condemned_artifact() {
     let v: Value = resp.json().await.unwrap();
     assert_eq!(
         v["error_code"],
-        cytoanalyst::modules::workstore::consume::ERR_NOT_CONFORMING,
+        txresbench::modules::workstore::consume::ERR_NOT_CONFORMING,
         "refused BY THE CONFORMANCE GATE — another code means a different gate caught it \
          and this one is absent"
     );

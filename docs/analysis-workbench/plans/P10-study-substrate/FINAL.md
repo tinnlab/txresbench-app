@@ -119,7 +119,7 @@ The generic `EntityExtensionRegistry` (SDK G8) generalization is a flagged NOTE,
     content-addressed store, so it is a post-commit standing sweep: P1's blob-store delete primitive frees a
     blob only when its hash has **no surviving storage-ref** (dataset rows, catalog `analysis_results`
     storage-refs, provenance code-blobs, Layer-C collections). P10 hands P1 the manifest; P1 owns the
-    refcount query/view + the delete primitive + the periodic background orphan-reaper (mirrors ziee's mcp
+    refcount query/view + the delete primitive + the periodic background orphan-reaper (mirrors txresbench's mcp
     tool-call prune loop) that self-heals a crashed sweep by re-deriving orphans from the refcount query.
 
   Clean seam split (DEC): P10 decides WHAT to GC (collect in-tx); P1 decides HOW/WHEN to free (post-commit
@@ -290,9 +290,9 @@ The generic `EntityExtensionRegistry` (SDK G8) generalization is a flagged NOTE,
   share/revoke/delete/reassign + bulk; admin-delete already routes the shared chokepoint.
 - **First-consumer reference** — `dataset/study_extension/` (order 40): deletes datasets on delete,
   deep-copies on duplicate, owns a `/dataset-summary` route, contributes a summary tag. The exact shape
-  ITEM-7/8/17/20 mirror. `ziee project/core/extension` is the upstream precedent.
-- **ziee-file CAS blob store** (adopted on main, 8045d78) — the P1 content-addressed store the GC sweep
-  deletes from. **ziee mcp tool-call prune loop** — the pattern for the background orphan-blob reaper.
+  ITEM-7/8/17/20 mirror. `txresbench project/core/extension` is the upstream precedent.
+- **txresbench-file CAS blob store** (adopted on main, 8045d78) — the P1 content-addressed store the GC sweep
+  deletes from. **txresbench mcp tool-call prune loop** — the pattern for the background orphan-blob reaper.
 - **FE** — STUDY_SLOTS + `<StudyExtensionSlot>`, `StudyDetailPage` `/studies/:id/:section`,
   `RecentStudiesWidget`, `isDesktop` share/transfer gating.
 

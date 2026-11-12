@@ -16,7 +16,7 @@ use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 use std::sync::Arc;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 pub mod builtin;
 pub mod catalog_view;
@@ -50,7 +50,7 @@ impl AppModule for DatatypeModule {
     }
 
     fn description(&self) -> &'static str {
-        "Open datatype registry + subtyping lattice + type-match gating + viewer dispatch (CytoAnalyst P2)."
+        "Open datatype registry + subtyping lattice + type-match gating + viewer dispatch (TxResBench P2)."
     }
 
     fn init(&mut self, _ctx: &ModuleContext) -> Result<(), Box<dyn std::error::Error>> {
@@ -85,7 +85,7 @@ static DATATYPE: ModuleEntry = ModuleEntry {
     // Before dataset(20)/workstore(25)/project(25): the registry is up before any
     // ingest/list handler that consults it (17/18/19 are free; 15=user, 16=file).
     order: 17,
-    description: "Open datatype registry + subtyping lattice (CytoAnalyst P2).",
+    description: "Open datatype registry + subtyping lattice (TxResBench P2).",
     constructor: || Box::new(DatatypeModule),
 };
 

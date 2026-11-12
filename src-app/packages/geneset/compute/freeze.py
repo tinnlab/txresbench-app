@@ -17,7 +17,7 @@ The artifact is the `(gene x geneset)` MEMBERSHIP incidence, written as a CSC Za
 (`geneset/collection`'s top-level `chunked-sparse` layout — the only layout ingest types this
 datatype against). The per-set metadata (name/description/collection + kind/origin/data_driven,
 GS-INV-12) and the gene-axis ids ride in the artifact's producer-declared `structure` (the
-sanctioned `structure_extra`/`stamp_cyto_attributes` channel, same as DE's `de:` attrs) — a
+sanctioned `structure_extra`/`stamp_txr_attributes` channel, same as DE's `de:` attrs) — a
 single-store artifact carries everything the frozen view + a consumer reads without a second
 store (the platform routes each store on ONE `structure.kind`; a combined membership+table store
 is unsupported — see .lifecycle IMPL_NOTES). See doc 17 §E.1.
@@ -34,7 +34,7 @@ _shared.set_prefix("geneset.collection.freeze")
 
 import numpy as np
 
-import cyto_csc
+import txr_csc
 
 # The membership entry's (datatype, storage-layout). `geneset/collection`'s top-level layout is
 # `chunked-sparse`, so the membership CSC is the entry ingest types as `geneset/collection`.
@@ -138,8 +138,8 @@ def main():
     }
 
     _shared.progress("freeze", 80, "writing membership store")
-    structure = cyto_csc.write_csc_zarr(
-        cyto_csc.ArraySource(mat),
+    structure = txr_csc.write_csc_zarr(
+        txr_csc.ArraySource(mat),
         out / "membership.zarr",
         axes=("gene", "geneset"),
         structure_extra=structure_extra,

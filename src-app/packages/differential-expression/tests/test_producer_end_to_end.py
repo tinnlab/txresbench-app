@@ -2,7 +2,7 @@
 # ruff: noqa
 """TEST-24 [tier: e2e] [covers: ITEM-3, ITEM-4, ITEM-5, ITEM-9, ITEM-10] — the REAL-COMPUTE
 markers path AS A SUBPROCESS: a fixture matrix + a categorical grouping run through de.markers
-(spawn → banded read → Wilcoxon → write de/result with p ABSENT + attributes.cyto regime), and
+(spawn → banded read → Wilcoxon → write de/result with p ABSENT + attributes.txr regime), and
 the output CONFORMS via the real framework gate."""
 import conformance
 
@@ -30,8 +30,8 @@ def test_real_compute_markers_end_to_end_conforms(markers_run):
         # ranked effect + detection members land; p is ABSENT (descriptive, INV-3/INV-4).
         assert {"gene", "score", "logFC", "pct_1", "pct_2", "n_1", "n_2", "base_mean"} <= members
         assert "neglog10p" not in members and "padj" not in members
-        # attributes.cyto carries the regime provenance (G3).
-        assert run.de_cyto(e)["de"]["regime"] == "R2"
+        # attributes.txr carries the regime provenance (G3).
+        assert run.de_txr(e)["de"]["regime"] == "R2"
 
     # conforms against `produces: [de/result, report/qc]` via the real framework gate.
     assert conformance.conform_outputs(run.outputs_dir) == []

@@ -3,10 +3,10 @@
 //! reachable by member Y who does NOT own it; a job's reach is the account's members,
 //! not the launcher alone.
 
-use cytoanalyst::modules::jobs::authz::{resolve_job_reach, JobReach};
-use cytoanalyst::modules::jobs::models::Job;
-use cytoanalyst::modules::project::scope::ProjectScope;
-use cytoanalyst::modules::project::{EffectivePermission, ProjectRepository};
+use txresbench::modules::jobs::authz::{resolve_job_reach, JobReach};
+use txresbench::modules::jobs::models::Job;
+use txresbench::modules::project::scope::ProjectScope;
+use txresbench::modules::project::{EffectivePermission, ProjectRepository};
 
 use super::{
     add_member, create_user, make_org_account, move_project_to_account, pool_for, setup_admin,

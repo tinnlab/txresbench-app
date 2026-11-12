@@ -23,7 +23,7 @@
 export type DecodeKey = string
 
 /**
- * Recording can also be armed AT MODULE LOAD, by a page that set `window.__cyto_count_decodes`
+ * Recording can also be armed AT MODULE LOAD, by a page that set `window.__txr_count_decodes`
  * before any app script ran (an e2e `addInitScript`).
  *
  * That entry point exists because `enable()` is unusable for the invariant it was written for.
@@ -35,14 +35,14 @@ export type DecodeKey = string
  * Measured, not reasoned: TEST-8's first run recorded `{"|values/values": 2}` and no positions
  * decode at all, because the coordinate section had already read them.
  *
- * Gated exactly like `window.__cyto_read` — dev server or the e2e preview build
+ * Gated exactly like `window.__txr_read` — dev server or the e2e preview build
  * (`VITE_ENABLE_TEST_SEAMS=1`), absent from a release bundle, so a shipped app can never be talked
  * into growing this map by a page-set global.
  */
 let recording =
   (import.meta.env.DEV || import.meta.env.VITE_ENABLE_TEST_SEAMS) &&
   typeof window !== 'undefined' &&
-  (window as unknown as { __cyto_count_decodes?: unknown }).__cyto_count_decodes === true
+  (window as unknown as { __txr_count_decodes?: unknown }).__txr_count_decodes === true
 
 const counts = new Map<DecodeKey, number>()
 

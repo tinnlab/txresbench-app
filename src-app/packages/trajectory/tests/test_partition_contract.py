@@ -133,7 +133,7 @@ def test_a_label_absent_from_the_declaration_WITHOUT_a_sentinel_refuses_by_name(
     # missing. Exactly the shape the compute's second refusal exists for.
     member = dest / "values" / "zarr.json"
     doc = json.loads(member.read_text())
-    doc["attributes"]["cyto"]["levels"] = ["A", "B"]
+    doc["attributes"]["txr"]["levels"] = ["A", "B"]
     member.write_text(json.dumps(doc, indent=2))
 
     proc = run.run_fails({"n_neighbors": 15})
@@ -155,7 +155,7 @@ def test_a_partition_with_unlabelled_cells_refuses_by_name(paga_run, fixture):
     biological group."""
     import pandas as pd
 
-    import cyto_columns
+    import txr_columns
 
     emb, branch = fixture
     values = [str(v) for v in branch]
@@ -167,7 +167,7 @@ def test_a_partition_with_unlabelled_cells_refuses_by_name(paga_run, fixture):
     mount = run._mount(None)
     dest = run.inputs_dir / mount
     series = pd.Series(pd.Categorical(values, categories=["A", "B", "trunk"]))
-    cyto_columns.write_metadata_column(dest.parent, dest.name, "branch", series, axis="cells")
+    txr_columns.write_metadata_column(dest.parent, dest.name, "branch", series, axis="cells")
     run._declare("partition", mount)
     proc = run.run_fails({"n_neighbors": 15})
 

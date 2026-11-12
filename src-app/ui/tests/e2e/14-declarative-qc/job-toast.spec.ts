@@ -9,8 +9,8 @@ import { REAL_COMPUTE, REAL_COMPUTE_SKIP } from '../14-workbench/_analysis'
 // that job_id, and dismisses the toast. The toast fires on an observed non-terminal→terminal
 // transition, so it needs a REAL completed compute JOB (seeded runnable `.h5ad` → qc.10x run).
 //
-// HOST-CAPABILITY-gated on CYTO_E2E_REAL_COMPUTE (a sandbox-executable backend: bwrap +
-// CYTO_ENV_ROOTFS_DIR). WIRED (was DEFERRED) — see flow-guidance.spec.ts. The gate is a
+// HOST-CAPABILITY-gated on TXR_E2E_REAL_COMPUTE (a sandbox-executable backend: bwrap +
+// TXR_ENV_ROOTFS_DIR). WIRED (was DEFERRED) — see flow-guidance.spec.ts. The gate is a
 // describe-level `test.skip`, so a capability-less run reports it as skipped rather than
 // silently dropping it from collection (`../14-workbench/_analysis.ts`).
 

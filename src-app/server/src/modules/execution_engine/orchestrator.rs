@@ -52,7 +52,7 @@ use chrono::Utc;
 use tokio::sync::{watch, Notify};
 use uuid::Uuid;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::repository::{MethodPatch, NewMethod, NewRun, RunRow, TxrRepository};
 use super::runtime::RunRuntime;

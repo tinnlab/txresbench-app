@@ -1,4 +1,4 @@
-# P5 — contribution-api (`@cyto/workbench-api`) · FINAL (consolidated r1∪r2∪r3)
+# P5 — contribution-api (`@txresbench/workbench-api`) · FINAL (consolidated r1∪r2∪r3)
 
 ## Reconciliation applied
 Cross-part audit resolutions baked into this plan: **A3** (SchemaForm / form-from-JSON-schema
@@ -7,7 +7,7 @@ and delegates rendering to P6's host panel — see ITEM-16), **A4** (registry→
 generator — **P9 owns the generator**; P5 owns the contribution REGISTRY + per-contribution MCP
 metadata the generator reads, and does NOT generate MCP tools itself — see ITEM-30), **A6**
 (conformance battery — **P5 publishes the invariant TYPES / pure invariant predicates + the
-`runConformance` host-gate signature** in `@cyto/workbench-api`; P7 provides the concrete view-kind
+`runConformance` host-gate signature** in `@txresbench/workbench-api`; P7 provides the concrete view-kind
 test-suite that IMPORTS them, P7→P5 with no package cycle — see ITEM-31).
 
 **P5 is the CONTRACT layer.** It sits *above* the impls (P1 data, P2 datatypes, P3 compute, P8
@@ -17,9 +17,9 @@ P9 (MCP generated from registries), P11 (three modules built against it). P5 own
 data/compute/datatype/selection runtimes rather than owning them. Deployment scope: **desktop +
 single-box server only** — seams open, only the local arm implemented.
 
-Grounded in verified code (worktree `/data/pbya/ziee/tmp/analysis-workflow-wt`): interface-round
+Grounded in verified code (worktree `/data/pbya/txresbench/tmp/analysis-workflow-wt`): interface-round
 `src-app/ui/src/modules/analysis/{registry,types}.ts` (`analysisRegistry`, `AnalysisPlugin`,
-`availability`/`byCategory`/`standardRecipe`) + `analyses/shared.tsx` form primitives on `@ziee/kit`;
+`availability`/`byCategory`/`standardRecipe`) + `analyses/shared.tsx` form primitives on `@txresbench/kit`;
 FE seam `study/core/extensions/*` + `modules/projects/core/extensions/registry.tsx`
 (`ProjectExtensionRegistry`) + `ChatExtensionRegistry` (parallel typed Maps); BE seam
 `study/core/extension/registry.rs` (`linkme` `#[distributed_slice] STUDY_EXTENSIONS` + trait +
@@ -27,12 +27,12 @@ FE seam `study/core/extensions/*` + `modules/projects/core/extensions/registry.t
 `jobs/settings.rs` + `sandbox/settings.rs`/`SandboxSettings.store.ts` (settings vertical slice);
 `sync/event.rs` (closed `SyncEntity` enum + `publish`); `import.meta.glob('./*/plugin.tsx')` discovery;
 live3 `viz-core` (`switch(cell.kind)` in `grid/CellView.tsx`, `conformance/invariants.ts`);
-`modules/control_mcp/{catalog,tools,policy}.rs`; `@ziee/framework` (`createModule`, store-kit, EventBus);
+`modules/control_mcp/{catalog,tools,policy}.rs`; `@txresbench/framework` (`createModule`, store-kit, EventBus);
 `bio_mcp` sidecar/proxy. Confirmed NOT-yet-built upstream: no `analysis_results`/catalog/`writeResult`,
-no datatype registry, no `@cyto/workbench-api`, no `extensions/` dir, no manifest loader.
+no datatype registry, no `@txresbench/workbench-api`, no `extensions/` dir, no manifest loader.
 
 **Baked-in ownership resolutions (agreed across r3):**
-1. **Datatype registry lives in P2 core, NOT P5.** P5's `@cyto/workbench-api` re-exports/consumes the
+1. **Datatype registry lives in P2 core, NOT P5.** P5's `@txresbench/workbench-api` re-exports/consumes the
    P2 `Datatype`/`TypeSelector` types as the `datatypes` contribution point; `Registry.availability`
    calls P2's subtype check. P5 does not implement the lattice.
 2. **Cell-set predicate DSL lives in P8 interaction** (its schema + evaluators). P5 owns only the
@@ -40,11 +40,11 @@ no datatype registry, no `@cyto/workbench-api`, no `extensions/` dir, no manifes
    exposes it via the `selection`/`commands` API surface; P8 imports those types (P8→P5, never reverse)
    and implements the evaluator + brush/pick/selection runtime.
 
-**`@cyto/*` package namespace layout (explicit):** app #2's workbench is built ON the ziee SDK, not part
-of it. `@cyto/workbench-api` = the single public import surface an extension touches (this package, P5).
-Internal `@cyto/*` runtimes it re-exports *types only* from: `@cyto/datatypes` (=P2), `@cyto/viz` (=P7),
-`@cyto/kit` (=cyto design system). The ziee SDK stays `@ziee/*` (`@ziee/framework`, `@ziee/shell`,
-`@ziee/kit`), which `@cyto/*` depends on. Package graph is **acyclic**: workbench-api is the leaf public
+**`@txresbench/*` package namespace layout (explicit):** app #2's workbench is built ON the txresbench SDK, not part
+of it. `@txresbench/workbench-api` = the single public import surface an extension touches (this package, P5).
+Internal `@txresbench/*` runtimes it re-exports *types only* from: `@txresbench/datatypes` (=P2), `@txresbench/viz` (=P7),
+`@txresbench/kit` (=txr design system). The txresbench SDK stays `@txresbench/*` (`@txresbench/framework`, `@txresbench/shell`,
+`@txresbench/kit`), which `@txresbench/*` depends on. Package graph is **acyclic**: workbench-api is the leaf public
 surface — it re-exports P2/P7 *types*, never their runtimes; P7 registers into `plotTypes`, P8 imports
 the DSL AST, P6 renders from the registries.
 
@@ -53,13 +53,13 @@ the DSL AST, P6 renders from the registries.
 ## Items
 
 - **ITEM-1 — Package scaffold + namespace + version gate + wiring.** New workspace member
-  `sdk/packages/workbench-api/` (`@cyto/workbench-api`; auto-covered by the root `workspaces:
+  `sdk/packages/workbench-api/` (`@txresbench/workbench-api`; auto-covered by the root `workspaces:
   ["sdk/packages/*", …]` glob). `package.json` with `exports` subpaths (`.`, `./registry`, `./data`,
-  `./selection`, `./compute`, `./manifest`, `./conformance`, `./mcp`), peerDeps (react, `@ziee/framework`,
-  `@ziee/kit`), tsconfig, `src/index.ts` barrel. Export `WORKBENCH_API_VERSION = "1.0.0"` +
+  `./selection`, `./compute`, `./manifest`, `./conformance`, `./mcp`), peerDeps (react, `@txresbench/framework`,
+  `@txresbench/kit`), tsconfig, `src/index.ts` barrel. Export `WORKBENCH_API_VERSION = "1.0.0"` +
   `isApiVersionCompatible(range)` (semver gate an extension's declared `apiVersion` against the host —
   refuse on exclusion). Wire consumers: `src-app/ui/tsconfig.json` paths + vite alias (mirror
-  `@ziee/framework`), UI `package.json` dep + `.syncpackrc.json` entry. Enforce an **acyclic** package
+  `@txresbench/framework`), UI `package.json` dep + `.syncpackrc.json` entry. Enforce an **acyclic** package
   graph (dependency-cruiser/lint guard) per the namespace layout above.
 - **ITEM-2 — Generic `Registry<T>` primitive.** Generalize `analysisRegistry` into a reusable
   `class Registry<C extends Contribution>`: `register` (idempotent-by-id, HMR-safe last-wins + `console.warn`,
@@ -120,7 +120,7 @@ the DSL AST, P6 renders from the registries.
   P6 shell services).
 - **ITEM-13 — `storage` + `events` facades.** Per-extension `storage: KeyValue` namespaced by
   `extension_id`+scope-key (one extension can't read another's KV); `events: EventBus` bridged to the framework
-  EventBus (`on`/`watch` auto-cleanup) + `sync:<entity>` refetch — thin wrappers over `@ziee/framework`
+  EventBus (`on`/`watch` auto-cleanup) + `sync:<entity>` refetch — thin wrappers over `@txresbench/framework`
   store-kit/events.
 - **ITEM-14 — Manifest schema (§3).** The `extension.yaml` JSON-schema: `id`, `name`, `publisher`, `version`,
   `apiVersion` (semver range), `activation[]` (lazy events), `contributes: {analyses, plotTypes, views,
@@ -141,7 +141,7 @@ the DSL AST, P6 renders from the registries.
   rendering to P6's host panel (P6 ITEM-8). The schema vocabulary P5 fixes (number w/ min/max/step, enum,
   boolean, string, array; conditional `when`/`if-then`; templated defaults `name:"Cluster {embedding}"`;
   `repeat-per`) must cover the observed ~90% (71 Select · 23 InputNumber · 12 Input · 8 Switch) so P6's renderer
-  can map it onto `@ziee/kit` controls (reusing `analyses/shared.tsx`). **One `params` declaration serves the
+  can map it onto `@txresbench/kit` controls (reusing `analyses/shared.tsx`). **One `params` declaration serves the
   human form AND the MCP tool input schema.** (P5 may ship a thin desktop-stub renderer only if needed to compile
   built-ins before P6 lands; the real renderer is P6's — do not double-build it.)
 - **ITEM-17 — Tier-2 artifact-ref pickers.** `form/fields/ArtifactRefField.tsx`: a `type:artifact-ref,
@@ -153,7 +153,7 @@ the DSL AST, P6 renders from the registries.
   `threshold-on-histogram` (data-API-wired). **`cell-set-selector`** (DE group1/group2 builder + live count
   preview) is registered here but depends on P8's evaluator — stub + wire when P8 lands.
 - **ITEM-19 — Tier-4 code-form escape hatch.** Type + loader for an extension-shipped `ParamsForm` React
-  component built against `@cyto/workbench-api` (`api.data.query`, `api.selection`, study context). First-party
+  component built against `@txresbench/workbench-api` (`api.data.query`, `api.selection`, study context). First-party
   in-tree now; untrusted-iframe path DEFERRED (§6).
 - **ITEM-20 — FE built-in extension discovery (build-time glob).** `ui/src/core/workbench/discover.ts`:
   `import.meta.glob('/extensions/*/extension.{yaml,ts}')` (+ `ui/*`) — the exact `analyses/index.ts` +
@@ -228,9 +228,9 @@ the DSL AST, P6 renders from the registries.
   generator has a firm contract.
 - **ITEM-31 — Conformance invariant types + host-gate contract publish + view-kind registry refactor (A6).**
   **Reconciliation A6:** P5 **publishes the conformance invariant TYPES / pure invariant predicates + the
-  `runConformance` host-gate signature** in `@cyto/workbench-api/conformance` — the versioned contract a
+  `runConformance` host-gate signature** in `@txresbench/workbench-api/conformance` — the versioned contract a
   `plotTypes` contribution is validated against. The **concrete view-kind test-suite / battery IMPORTS these from
-  `@cyto/workbench-api`** and is provided by **P7** (P7 ITEM-8/9/10); the import direction is **P7 → P5** (P7
+  `@txresbench/workbench-api`** and is provided by **P7** (P7 ITEM-8/9/10); the import direction is **P7 → P5** (P7
   depends on P5, never the reverse — **no package cycle**). So P5 owns the invariant-predicate + host-gate
   *surface* (the acceptance gate for a `plotTypes` contribution); P7 owns the concrete per-view-kind conformance
   closures + the battery runner that drive it. In practice this means publishing (re-export, not re-implement)
@@ -251,7 +251,7 @@ the DSL AST, P6 renders from the registries.
   transitional adapter until P6/P11 flip the shell over. **Any built-in that needs a shell internal = an API gap
   to close before Phase-1 sign-off.**
 - **ITEM-33 — External loader / sidecar gateway (DEFERRED — seam only).** External manifest loader (per-deployment
-  extensions dir / `ziee-ai/hub`) + the sidecar gateway (`/api/ext/<id>/*`, the `bio_mcp` reverse-proxy +
+  extensions dir / `tinnlab/hub`) + the sidecar gateway (`/api/ext/<id>/*`, the `bio_mcp` reverse-proxy +
   `env_clear` + scoped-token model). **Not built now** (BUILD_PLAN Phase 5b/6); the manifest contract (ITEM-14) is
   authored forward-compatible + tested with a fixture so this drops in without changing it.
 
@@ -259,7 +259,7 @@ the DSL AST, P6 renders from the registries.
 
 ## Files/modules
 
-**New package `sdk/packages/workbench-api/` (`@cyto/workbench-api`):**
+**New package `sdk/packages/workbench-api/` (`@txresbench/workbench-api`):**
 - `package.json`, `tsconfig.json`, `src/index.ts` (single public surface: re-exports registries + APIs +
   manifest + P2 datatype *types* + P7 conformance battery), `src/version.ts`
 - `src/contributions/{registry.ts, types.ts, workbenchRegistry.ts}` — `Registry<T>` + `Contribution` base +
@@ -310,7 +310,7 @@ the DSL AST, P6 renders from the registries.
   `Registry<T>` + `AnalysisContribution` (near-verbatim; selectors already pure — the literal template).
 - **`ProjectExtensionRegistry`** (cleanest Map-keyed-by-id, HMR-idempotent, order-sorted, render-time-gated) +
   **`ChatExtensionRegistry`** (parallel-Maps-per-surface shape) → the registry substrate.
-- **`analyses/shared.tsx`** `Field/RangeField/SelectField/NumberField/SwitchField` (already `@ziee/kit`,
+- **`analyses/shared.tsx`** `Field/RangeField/SelectField/NumberField/SwitchField` (already `@txresbench/kit`,
   shadcn-token clean) → the `SchemaForm` primitive set.
 - **`study/core/extensions` (FE) + `study/core/extension/registry.rs` (BE)** (`linkme` slice + trait +
   `on_study_deleted`/`on_study_duplicated` + `OnceCell` + shared delete chokepoint) → the extension-host +
@@ -323,9 +323,9 @@ the DSL AST, P6 renders from the registries.
 - **hub-seed / pgvector `build_helper/*` + `include_dir!`/extract-on-first-use** → compute-asset staging.
 - **`build.rs compose_merged_migrations_from`** → module ships `ext_settings`/`ext_records` by dropping `.sql`;
   no central list edit.
-- **`@ziee/framework createModule` + store-kit `defineStore`/`defineExtensionStore` + EventBus `sync:<entity>`**
+- **`@txresbench/framework createModule` + store-kit `defineStore`/`defineExtensionStore` + EventBus `sync:<entity>`**
   → module registration + reactive registry-driven state.
-- **`@ziee/shell` slot registry** → view/panel semantic placement (P6 consumes).
+- **`@txresbench/shell` slot registry** → view/panel semantic placement (P6 consumes).
 - **`modules/control_mcp/{catalog,tools,policy}.rs`** (`Operation`: operation_id / required_permission /
   mutating / has_secret_field + `is_denied`/`is_mutating`) → the contribution→tool projection + safety hints.
 - **`bio_mcp` supervisor/proxy + `env_clear` + scoped-token** → the sidecar gateway (deferred ITEM-33).
@@ -354,7 +354,7 @@ The **pure items (1–8, 10-AST, 12–16, 20, 27, 30)** are foundation-independe
 stubs + a local `Kind`-union fallback. **Downstream of P5** (consume the seam): P6 workbench-shell (renders from
 `contributions` + `SchemaForm` + result-renderers), P7 (its view-kind registry backs `plotTypes`), P9 ai-mcp
 (consumes ITEM-30's projection + ITEM-4 metadata), P11 three-modules (authored as manifests against
-`@cyto/workbench-api`), Phase-4 repro export (reads the compute-contract provenance), Phase-5 external
+`@txresbench/workbench-api`), Phase-4 repro export (reads the compute-contract provenance), Phase-5 external
 extensions (ITEM-33 seam).
 
 ## Sequencing
@@ -382,10 +382,10 @@ Critical intra-P5 path: **1 → 2 → 3** (the type surface every downstream par
 
 ## Decisions
 
-- **Namespace: `@cyto/workbench-api` at `sdk/packages/workbench-api`** — app #2's workbench built ON the ziee SDK
-  (`@ziee/*`), not part of it. Single public extension import; internal `@cyto/*` runtimes (`@cyto/datatypes`=P2,
-  `@cyto/viz`=P7, `@cyto/kit`) re-exported as **types only** → acyclic leaf. (Documented promotion path to
-  `@ziee/*` if other ziee apps ever host workbenches.)
+- **Namespace: `@txresbench/workbench-api` at `sdk/packages/workbench-api`** — app #2's workbench built ON the txresbench SDK
+  (`@txresbench/*`), not part of it. Single public extension import; internal `@txresbench/*` runtimes (`@txresbench/datatypes`=P2,
+  `@txresbench/viz`=P7, `@txresbench/kit`) re-exported as **types only** → acyclic leaf. (Documented promotion path to
+  `@txresbench/*` if other txresbench apps ever host workbenches.)
 - **Datatype registry lives in P2, re-exported by P5** (baked resolution 1). `Registry.availability` calls P2's
   subtype check; P5 never implements the lattice.
 - **Cell-set DSL: ownership SPLIT** (baked resolution 2). P5 owns the `CellSetPredicate` AST + operator-registry
@@ -395,7 +395,7 @@ Critical intra-P5 path: **1 → 2 → 3** (the type surface every downstream par
   friendly) over the app-internal `Slots` declaration-merge seam. **Unify onto ONE FE contribution mechanism:**
   the richer registry flavor (`when`/`requires`/`availability`) generalizes the bespoke name-keyed registries;
   host settings/nav slots keep the framework `Slots` map. Document the boundary so the two don't fork further.
-- **Params contract = JSON-schema → host-rendered form (RJSF-style) on `@ziee/kit`**, reusing `shared.tsx`;
+- **Params contract = JSON-schema → host-rendered form (RJSF-style) on `@txresbench/kit`**, reusing `shared.tsx`;
   artifact-ref fields are a first-class schema `type` unified with `accepts` gating; Tier-3 host widgets;
   React `ParamsForm` is the Tier-4 escape hatch only. **One `params` serves the human form AND the MCP tool
   input schema.** **(A3: P5 owns the schema *type*; the `SchemaForm` renderer is P6's host panel — P5 does not
@@ -451,7 +451,7 @@ Critical intra-P5 path: **1 → 2 → 3** (the type surface every downstream par
   FE consumes the runtime `gate:` string. Small, isolated friction — document so no one expects generated consts.
 - **Closed `SyncEntity` + compile-time sqlx** force the generic-JSONB design; a future per-extension typed sync
   entity would re-touch the enum. Accept for built-ins; document the seam.
-- **`@cyto/workbench-api` vs `@ziee/framework` boundary** — workbench-api **depends on** framework (reuses
+- **`@txresbench/workbench-api` vs `@txresbench/framework` boundary** — workbench-api **depends on** framework (reuses
   EventBus/Slots), adds only the contribution registries + data/selection/compute API. Keep the split clean.
 - **RJSF renderer scope creep** — declarative covers `when`/`if-then`/`repeat-per`/templated defaults; beyond
   that is Tier-4 code-form (explicit boundary).
@@ -494,7 +494,7 @@ datatypes, MCP projection, conformance, facades, provisioners, dogfood all pre-e
 What r3 uniquely contributed is **conflict RESOLUTION**, which is exactly the convergence the DIFF_R1_R2 verdict
 ("DIVERGED — needs r3") demanded: it settled the three open ownership disputes the diff surfaced — datatype
 registry → P2 (was r1-P2 vs r2-P5-owned), cell-set DSL → types-P5/evaluator-P8 (was r1-P8 vs r2-P5-owned),
-namespace → `@cyto/*` on the `@ziee/*` SDK with an explicit acyclic-graph rule (was r1-`@ziee` vs r2-`@cyto`) —
+namespace → `@txresbench/*` on the `@txresbench/*` SDK with an explicit acyclic-graph rule (was r1-`@txresbench` vs r2-`@txresbench`) —
 and made the package-graph acyclicity + capability-scoped per-extension `WorkbenchAPI` construction explicit.
 Those are decisions, not net-new scope. With the ownership questions now resolved and no new work surface
 appearing, the union is complete. SATURATION: REACHED

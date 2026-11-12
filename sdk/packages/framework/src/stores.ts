@@ -327,7 +327,7 @@ export type StoreProxy<T> = Readonly<
 // This interface will be augmented by modules via declaration merging
 export interface RegisteredStores {
   // Modules will add their store types here via:
-  // declare module '@ziee/framework/stores' {
+  // declare module '@txresbench/framework/stores' {
   //   interface RegisteredStores {
   //     Auth: StoreProxy<{ user: User, isAuthenticated: boolean, ... }>
   //   }

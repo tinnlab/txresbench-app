@@ -12408,7 +12408,7 @@
                   "details": {
                     "required_permissions": [
                       {
-                        "description": "Let an external AI assistant (e.g. ziee chat) operate TxResBench on your behalf.",
+                        "description": "Let an external AI assistant (e.g. txresbench chat) operate TxResBench on your behalf.",
                         "name": "McpUse",
                         "value": "mcp::use"
                       }
@@ -12471,7 +12471,7 @@
                   "details": {
                     "required_permissions": [
                       {
-                        "description": "Let an external AI assistant (e.g. ziee chat) operate TxResBench on your behalf.",
+                        "description": "Let an external AI assistant (e.g. txresbench chat) operate TxResBench on your behalf.",
                         "name": "McpUse",
                         "value": "mcp::use"
                       }
@@ -12534,7 +12534,7 @@
                   "details": {
                     "required_permissions": [
                       {
-                        "description": "Let an external AI assistant (e.g. ziee chat) operate TxResBench on your behalf.",
+                        "description": "Let an external AI assistant (e.g. txresbench chat) operate TxResBench on your behalf.",
                         "name": "McpUse",
                         "value": "mcp::use"
                       }
@@ -12597,7 +12597,7 @@
                   "details": {
                     "required_permissions": [
                       {
-                        "description": "Let an external AI assistant (e.g. ziee chat) operate TxResBench on your behalf.",
+                        "description": "Let an external AI assistant (e.g. txresbench chat) operate TxResBench on your behalf.",
                         "name": "McpUse",
                         "value": "mcp::use"
                       }
@@ -12625,7 +12625,7 @@
         "tags": [
           "mcp"
         ],
-        "description": "Mint a short-lived, single-use pairing code an AI assistant (e.g. ziee chat) exchanges for access to this account's MCP surface.",
+        "description": "Mint a short-lived, single-use pairing code an AI assistant (e.g. txresbench chat) exchanges for access to this account's MCP surface.",
         "operationId": "Mcp.pairStart",
         "responses": {
           "403": {
@@ -12639,7 +12639,7 @@
                   "details": {
                     "required_permissions": [
                       {
-                        "description": "Let an external AI assistant (e.g. ziee chat) operate TxResBench on your behalf.",
+                        "description": "Let an external AI assistant (e.g. txresbench chat) operate TxResBench on your behalf.",
                         "name": "McpUse",
                         "value": "mcp::use"
                       }
@@ -12692,7 +12692,7 @@
         },
         "responses": {
           "200": {
-            "description": "`POST /api/mcp/pair/exchange` response — an access+refresh token pair for\n the pairing code's owner, minted the same way any other login-shaped flow\n mints one (`ziee-auth`'s `mint_session_tokens`).",
+            "description": "`POST /api/mcp/pair/exchange` response — an access+refresh token pair for\n the pairing code's owner, minted the same way any other login-shaped flow\n mints one (`txresbench-auth`'s `mint_session_tokens`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -12892,7 +12892,7 @@
         "tags": [
           "auth"
         ],
-        "description": "Refresh access token using a refresh token (JSON body, or the httpOnly ziee_refresh cookie when the body token is absent)",
+        "description": "Refresh access token using a refresh token (JSON body, or the httpOnly txresbench_refresh cookie when the body token is absent)",
         "operationId": "Auth.refresh",
         "requestBody": {
           "content": {
@@ -15495,7 +15495,7 @@
             }
           },
           "env": {
-            "description": "The analysis-domain ENV IMAGE this converter's compute runs inside\n (ITEM-23 / DEC-22/23). An env-id resolved by the sandbox `env_image`\n registry (`env-id → {oci_ref, digest}`), lazy-fetched on first use.\n The registry resolves ANY declared env-id to a per-env image repo — the set\n is deployment data, not a list this type knows.\n\n `None` ⇒ the DEPLOYMENT DEFAULT (`env_image::default_env_id`: the\n `CYTO_SANDBOX_ENV_ID` override, else the admin settings row, else the union of\n the envs the loaded registry declares). There is **no embedded-rootfs\n fallback** — this doc claimed one until #189, and the claim was false:\n the embedded rootfs was removed when DEC-24 was reversed (see the `env_image` module\n doc, \"nothing embedded\"), and a run that resolves NO env-id is a hard\n `SANDBOX_UNAVAILABLE` 503 at `local_bwrap.rs` / `service.rs`, not a silent\n fallback. The stale promise mattered: it described the exact\n substitute-and-continue behaviour that INV-2 forbids, so a reader could\n reasonably have built one.\n\n Parsed strictly — see [`de_checked_env`] for why a malformed env-id may not be\n warn-and-ignored.",
+            "description": "The analysis-domain ENV IMAGE this converter's compute runs inside\n (ITEM-23 / DEC-22/23). An env-id resolved by the sandbox `env_image`\n registry (`env-id → {oci_ref, digest}`), lazy-fetched on first use.\n The registry resolves ANY declared env-id to a per-env image repo — the set\n is deployment data, not a list this type knows.\n\n `None` ⇒ the DEPLOYMENT DEFAULT (`env_image::default_env_id`: the\n `TXR_SANDBOX_ENV_ID` override, else the admin settings row, else the union of\n the envs the loaded registry declares). There is **no embedded-rootfs\n fallback** — this doc claimed one until #189, and the claim was false:\n the embedded rootfs was removed when DEC-24 was reversed (see the `env_image` module\n doc, \"nothing embedded\"), and a run that resolves NO env-id is a hard\n `SANDBOX_UNAVAILABLE` 503 at `local_bwrap.rs` / `service.rs`, not a silent\n fallback. The stale promise mattered: it described the exact\n substitute-and-continue behaviour that INV-2 forbids, so a reader could\n reasonably have built one.\n\n Parsed strictly — see [`de_checked_env`] for why a malformed env-id may not be\n warn-and-ignored.",
             "type": [
               "string",
               "null"
@@ -15987,7 +15987,7 @@
             "type": "string"
           },
           "owner_id": {
-            "description": "The owning user (ziee-file-style ownership). Visibility = owner ∪ sharees.",
+            "description": "The owning user (txresbench-file-style ownership). Visibility = owner ∪ sharees.",
             "type": "string",
             "format": "uuid"
           },
@@ -16253,7 +16253,7 @@
             "type": "string"
           },
           "owner_id": {
-            "description": "The owning user (ziee-file-style ownership). Visibility = owner ∪ sharees.",
+            "description": "The owning user (txresbench-file-style ownership). Visibility = owner ∪ sharees.",
             "type": "string",
             "format": "uuid"
           },
@@ -16441,7 +16441,7 @@
             "type": "string"
           },
           "owner_id": {
-            "description": "The owning user (ziee-file-style ownership). Visibility = owner ∪ sharees.",
+            "description": "The owning user (txresbench-file-style ownership). Visibility = owner ∪ sharees.",
             "type": "string",
             "format": "uuid"
           },
@@ -16833,7 +16833,7 @@
             "type": "boolean"
           },
           "version": {
-            "description": "The supported version range, as a comma-ANDed specifier set\n (`==` / `!=` / `>=` / `>` / `<=` / `<` over dotted-numeric releases), e.g.\n `\">=1.11,<1.12\"`.\n\n The build gate FAILS CLOSED on any grammar outside that subset rather than\n guessing: a specifier it cannot interpret exactly is a build error naming it, so\n the subset the build enforces can never be looser than what the run time — which\n uses the reference implementation — enforces.\n\n ONE EXCEPTION, since #192: against a recipe that declares `cyto:ecosystem=r`, this\n is read under R `DESCRIPTION` rules, where `-` and `.` are the same separator. That\n is the correct reading for an R declaration and it is confined to R recipes.",
+            "description": "The supported version range, as a comma-ANDed specifier set\n (`==` / `!=` / `>=` / `>` / `<=` / `<` over dotted-numeric releases), e.g.\n `\">=1.11,<1.12\"`.\n\n The build gate FAILS CLOSED on any grammar outside that subset rather than\n guessing: a specifier it cannot interpret exactly is a build error naming it, so\n the subset the build enforces can never be looser than what the run time — which\n uses the reference implementation — enforces.\n\n ONE EXCEPTION, since #192: against a recipe that declares `txr:ecosystem=r`, this\n is read under R `DESCRIPTION` rules, where `-` and `.` are the same separator. That\n is the correct reading for an R declaration and it is confined to R recipes.",
             "type": "string"
           }
         },
@@ -18241,7 +18241,7 @@
         ]
       },
       "HostResourceRequirement": {
-        "description": "A named, operator-supplied host resource an entry needs mounted read-only (S7).\n\n The NAME is a deployment contract, not a concept the server understands: an\n operator points `CYTO_SANDBOX_RESOURCE_<NAME>` at a host path and allowlists its\n root via `CYTO_SANDBOX_REFERENCE_MOUNTS`. Nothing about WHAT the resource is — a\n reference index, a model, a lookup table — is encoded here; only \"this entry needs\n the resource called X at path Y\".",
+        "description": "A named, operator-supplied host resource an entry needs mounted read-only (S7).\n\n The NAME is a deployment contract, not a concept the server understands: an\n operator points `TXR_SANDBOX_RESOURCE_<NAME>` at a host path and allowlists its\n root via `TXR_SANDBOX_REFERENCE_MOUNTS`. Nothing about WHAT the resource is — a\n reference index, a model, a lookup table — is encoded here; only \"this entry needs\n the resource called X at path Y\".",
         "type": "object",
         "properties": {
           "mount_path": {
@@ -21787,7 +21787,7 @@
         ]
       },
       "PairExchangeResponse": {
-        "description": "`POST /api/mcp/pair/exchange` response — an access+refresh token pair for\n the pairing code's owner, minted the same way any other login-shaped flow\n mints one (`ziee-auth`'s `mint_session_tokens`).",
+        "description": "`POST /api/mcp/pair/exchange` response — an access+refresh token pair for\n the pairing code's owner, minted the same way any other login-shaped flow\n mints one (`txresbench-auth`'s `mint_session_tokens`).",
         "type": "object",
         "properties": {
           "access_token": {
@@ -23999,7 +23999,7 @@
         "type": "object",
         "properties": {
           "refresh_token": {
-            "description": "The refresh token. Optional: web clients omit it and the server\n reads the httpOnly `ziee_refresh` cookie instead; desktop/tunnel\n clients keep sending it in the body. An explicit body token wins\n over the cookie, and the response mirrors the source (body-in→\n body-out, cookie-in→cookie-out).",
+            "description": "The refresh token. Optional: web clients omit it and the server\n reads the httpOnly `txresbench_refresh` cookie instead; desktop/tunnel\n clients keep sending it in the body. An explicit body token wins\n over the cookie, and the response mirrors the source (body-in→\n body-out, cookie-in→cookie-out).",
             "type": [
               "string",
               "null"
@@ -24437,7 +24437,7 @@
             }
           },
           "host_resources": {
-            "description": "Named HOST RESOURCES this entry needs bind-mounted read-only (S7).\n\n The server formerly carried ONE named reference dataset as a CONCEPT directly:\n a `needs_reference: bool` column in a code table, a fixed\n `CYTO_SANDBOX_REFERENCE_ROOT` env var, a fixed `/refdata` mount path, and an\n error message naming that one resource. A processor now DECLARES what it\n needs and where; the operator maps the NAME to a host path.",
+            "description": "Named HOST RESOURCES this entry needs bind-mounted read-only (S7).\n\n The server formerly carried ONE named reference dataset as a CONCEPT directly:\n a `needs_reference: bool` column in a code table, a fixed\n `TXR_SANDBOX_REFERENCE_ROOT` env var, a fixed `/refdata` mount path, and an\n error message naming that one resource. A processor now DECLARES what it\n needs and where; the operator maps the NAME to a host path.",
             "type": "array",
             "default": [],
             "items": {
@@ -24635,7 +24635,7 @@
           },
           "default_env_id": {
             "title": "54: the deployment-wide default env-id the sandbox resolves its rootfs for",
-            "description": "when neither the per-job converter nor `CYTO_SANDBOX_ENV_ID` names one. `None`\n (or empty) = auto-detect from the installed processors' declared `env`, exactly\n as before this row existed. DATA (a manifest-declared env name), not the\n registry security boundary — the registry base stays a compiled read-only const.",
+            "description": "when neither the per-job converter nor `TXR_SANDBOX_ENV_ID` names one. `None`\n (or empty) = auto-detect from the installed processors' declared `env`, exactly\n as before this row existed. DATA (a manifest-declared env name), not the\n registry security boundary — the registry base stays a compiled read-only const.",
             "type": [
               "string",
               "null"
@@ -25297,7 +25297,7 @@
             "const": "group"
           },
           {
-            "description": "An auth provider (local / LDAP / OAuth2 row) was created, edited or\n deleted. Delivered to holders of `auth::providers::read` — published by\n `ziee-auth`'s admin provider routes through `AuthSyncEntity::AuthProvider`.\n See the `auth_provider` ALLOW_LIST entry in `syncChannelParity.test.ts`:\n this app mounts the admin provider ENDPOINTS but has no admin provider\n UI, so the client half does not exist yet.",
+            "description": "An auth provider (local / LDAP / OAuth2 row) was created, edited or\n deleted. Delivered to holders of `auth::providers::read` — published by\n `txresbench-auth`'s admin provider routes through `AuthSyncEntity::AuthProvider`.\n See the `auth_provider` ALLOW_LIST entry in `syncChannelParity.test.ts`:\n this app mounts the admin provider ENDPOINTS but has no admin provider\n UI, so the client half does not exist yet.",
             "type": "string",
             "const": "auth_provider"
           },

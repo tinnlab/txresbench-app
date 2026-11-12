@@ -23,7 +23,7 @@ import {
   writeAutosave,
   type VizController,
   type VizOption,
-} from '@ziee/viz'
+} from '@txresbench/viz'
 
 /** Coalesce a burst of `onChange` emits (drag-resize, rapid edits) into one localStorage write. */
 const AUTOSAVE_DEBOUNCE_MS = 400

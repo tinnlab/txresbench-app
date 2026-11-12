@@ -8,9 +8,9 @@ use axum::{Extension, Json};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_auth::auth::context::AuthContext;
-use ziee_core::{ApiResult, AppError};
-use ziee_notification::NewNotification;
+use txresbench_auth::auth::context::AuthContext;
+use txresbench_core::{ApiResult, AppError};
+use txresbench_notification::NewNotification;
 
 use crate::modules::permissions::RequirePermissions;
 use crate::modules::sync::{
@@ -51,7 +51,7 @@ async fn resolve_scope(
         .ok_or_else(|| e(AppError::not_found("Project")))
 }
 
-pub(crate) fn display_name(user: &ziee_auth::User) -> String {
+pub(crate) fn display_name(user: &txresbench_auth::User) -> String {
     user.display_name
         .clone()
         .unwrap_or_else(|| user.username.clone())
@@ -535,7 +535,7 @@ pub async fn create_share(
     // hiccup must not 500 the request (which would leave the share unnotified
     // and a retry hitting 409). Log and continue; the recipient still sees the
     // project via the sync publish below + their next list refetch.
-    if let Err(err) = ziee_notification::create_and_emit(
+    if let Err(err) = txresbench_notification::create_and_emit(
         &pool,
         NewNotification::new(
             recipient.id,
@@ -782,7 +782,7 @@ pub async fn create_transfer(
         .map_err(e)?;
 
     // NON-FATAL notification (the transfer row is already committed).
-    if let Err(err) = ziee_notification::create_and_emit(
+    if let Err(err) = txresbench_notification::create_and_emit(
         &pool,
         NewNotification::new(
             recipient.id,

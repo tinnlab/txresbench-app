@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import type { ModuleGallery } from '@ziee/gallery'
+import type { ModuleGallery } from '@txresbench/gallery'
 import type {
   Dataset,
   DatasetFolder,
@@ -166,7 +166,7 @@ const seedShares: DatasetShare[] = [
 //    shared workbench registry) ─────────────────────────────────────────────────
 function analysis(over: Partial<AnalysisContribution> & { id: string; title: string }): AnalysisContribution {
   return {
-    extensionId: 'cyto.demo',
+    extensionId: 'txr.demo',
     apiVersion: '1.0.0',
     category: 'qc',
     appliesTo: [],

@@ -4,11 +4,11 @@
 //! Needs TWO genuinely-distinct, obtainable rootfs digests — a resource a single-
 //! rootfs box does not have. ROOTFS-GATED, and additionally self-skips (never
 //! a compile-time ignore) unless a second rootfs digest is provided via
-//! `ZIEE_SANDBOX_ROOTFS_D2` and is servable by this deployment.
+//! `TXR_SANDBOX_ROOTFS_D2` and is servable by this deployment.
 
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::object_store::sha256_hex;
+use txresbench::modules::workstore::object_store::sha256_hex;
 
 use super::hardening_common::*;
 use super::setup_admin;
@@ -38,17 +38,17 @@ async fn heterogeneous_env_capsule_runs_each_step_in_its_own_rootfs() {
         return;
     };
     // A second, DISTINCT rootfs digest (the "before an app update" env). An
-    // explicit `ZIEE_SANDBOX_ROOTFS_D2` wins; otherwise obtain a REAL older
+    // explicit `TXR_SANDBOX_ROOTFS_D2` wins; otherwise obtain a REAL older
     // published env image (the immutable `schema<N>-<commit>-<arch>` build tag
     // alongside the moving `latest`) through the same oras+cosign chain the
     // runtime uses, and stage it so this deployment can serve it.
-    let d2 = match std::env::var("ZIEE_SANDBOX_ROOTFS_D2") {
+    let d2 = match std::env::var("TXR_SANDBOX_ROOTFS_D2") {
         Ok(v) if v.len() == 64 && v != d1 && servable(&server, &admin, &v).await => v,
         _ => match stage_second_env_image(&server, &d1).await {
             Ok(v) if servable(&server, &admin, &v).await => v,
             // R3-98: this was a bare `eprintln!`, which libtest CAPTURES — so the
             // run printed `ok` for a test that executed nothing, the skip never
-            // reached `target/test-skip-ledger.tsv`, and `CYTO_TEST_NO_SKIP=1`
+            // reached `target/test-skip-ledger.tsv`, and `TXR_TEST_NO_SKIP=1`
             // could not turn it into the hard failure an acceptance tier needs.
             // Every sibling gate goes through `record_skip`; so does this one now.
             //
@@ -73,7 +73,7 @@ async fn heterogeneous_env_capsule_runs_each_step_in_its_own_rootfs() {
                 record_skip(
                     "heterogeneous_env_capsule",
                     &format!(
-                        "no second obtainable rootfs digest: {why}. Set ZIEE_SANDBOX_ROOTFS_D2 to \
+                        "no second obtainable rootfs digest: {why}. Set TXR_SANDBOX_ROOTFS_D2 to \
                          a distinct servable digest to run this tier anyway"
                     ),
                 );

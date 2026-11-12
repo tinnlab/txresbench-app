@@ -70,8 +70,8 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
 
 use super::{create_project, pool_for, server_store, setup_admin, write_manifest};
 use crate::common::TestServer;
@@ -153,12 +153,12 @@ fn entry_keys() -> Vec<String> {
 async fn ingest_entry(
     server: &TestServer,
     pool: &SqlitePool,
-    store: &cytoanalyst::modules::workstore::object_store::LocalFsStore,
+    store: &txresbench::modules::workstore::object_store::LocalFsStore,
     project: Uuid,
     entry: Value,
 ) -> (
     Uuid,
-    Result<Vec<cytoanalyst::modules::workstore::catalog::models::Artifact>, ziee_core::AppError>,
+    Result<Vec<txresbench::modules::workstore::catalog::models::Artifact>, txresbench_core::AppError>,
 ) {
     let ws = server
         .data_dir()
@@ -174,10 +174,10 @@ async fn ingest_entry(
     (run_id, res)
 }
 
-/// The `message` an [`ziee_core::AppError`] carries. `AppError` exposes
+/// The `message` an [`txresbench_core::AppError`] carries. `AppError` exposes
 /// `error_code()` but not its message, and it derives `Serialize`, so the message is
 /// read off the serialized form rather than out of `Debug` text.
-fn message_of(err: &ziee_core::AppError) -> String {
+fn message_of(err: &txresbench_core::AppError) -> String {
     serde_json::to_value(err).expect("AppError serializes")["message"]
         .as_str()
         .unwrap_or_default()

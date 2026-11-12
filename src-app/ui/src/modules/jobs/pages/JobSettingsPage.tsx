@@ -1,5 +1,5 @@
-import { ErrorState, Spin } from '@ziee/kit'
-import { SettingsPageContainer } from '@ziee/shell'
+import { ErrorState, Spin } from '@txresbench/kit'
+import { SettingsPageContainer } from '@txresbench/shell'
 import { JobSettings } from '@/modules/jobs/JobSettings.store'
 import { JobConcurrencyCard } from '@/modules/jobs/components/JobConcurrencyCard'
 import { JobStreamingCard } from '@/modules/jobs/components/JobStreamingCard'

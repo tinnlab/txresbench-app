@@ -1,4 +1,4 @@
-// ExportDialog.tsx — the export panel (DEC-31), built on @ziee/kit to MATCH the pane EDIT FORM
+// ExportDialog.tsx — the export panel (DEC-31), built on @txresbench/kit to MATCH the pane EDIT FORM
 // (PaneEditForm): the same Section/close-button chrome + kit Select/Input/Switch/Button. Offers a SCOPE
 // selector (this pane / whole grid), a FORMAT selector (PNG / SVG / PDF / CSV / JSON), bake-in toggles
 // (gridlines / legend / slider), scale + size, a filename field, and an Export button that dispatches to
@@ -9,7 +9,7 @@
 // caller can hand it a deck.gl canvas that mounts after this dialog.
 
 import { useState } from 'react'
-import { Button, Input, Select, Switch } from '@ziee/kit'
+import { Button, Input, Select, Switch } from '@txresbench/kit'
 import { X } from 'lucide-react'
 import { exportCanvasPNG, downloadDataUrl, resizeCanvasToBox } from './raster'
 import { selectionToCSV, tableToCSV } from './data'

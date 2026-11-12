@@ -15,7 +15,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// The singleton MCP settings row — the six promoted knobs (agent caps + tool
 /// caps + pairing-TTL). All fields are `bigint`/`i64` (DEC-5), converted to

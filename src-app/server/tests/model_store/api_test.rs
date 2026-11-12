@@ -6,8 +6,8 @@ use uuid::Uuid;
 
 use crate::common::TestServer;
 use super::{error_code, owner_token, pool, seed_run_with_models};
-use cytoanalyst::modules::execution_engine::repository::TxrRepository;
-use cytoanalyst::modules::execution_engine::types::{TxrMethodState, TxrRunStatus};
+use txresbench::modules::execution_engine::repository::TxrRepository;
+use txresbench::modules::execution_engine::types::{TxrMethodState, TxrRunStatus};
 
 /// The seeded methods (both real catalogue + env-manifest entries, so the
 /// env digests recorded at save are the CURRENT ones — a happy-path save has
@@ -34,7 +34,7 @@ async fn save_flow_records_the_run_models_into_a_set() {
     // (PROV-MS-3: the stored value is the run's own finished_at, not an
     // invented date).
     let finished_at = {
-        let counts = cytoanalyst::modules::execution_engine::types::TxrRunCounts {
+        let counts = txresbench::modules::execution_engine::types::TxrRunCounts {
             finished: 2,
             failed: 0,
             stopped: 0,
@@ -85,7 +85,7 @@ async fn save_flow_records_the_run_models_into_a_set() {
     // The rows point at the store's content-addressed dirs with the engine's
     // digest; the recorded facts are the run's + the params.json's + the
     // catalogue's, never re-derived.
-    let produced = cytoanalyst::modules::execution_engine::repository::produced_models(
+    let produced = txresbench::modules::execution_engine::repository::produced_models(
         &pool(&server).await,
         run_id,
     )
@@ -110,7 +110,7 @@ async fn save_flow_records_the_run_models_into_a_set() {
         assert_eq!(m["task"], "pfs", "the run method row's task");
         assert_eq!(m["provenance"], "run");
     }
-    let detail_cat = cytoanalyst::modules::method_catalogue::catalogue::method(METHOD_A)
+    let detail_cat = txresbench::modules::method_catalogue::catalogue::method(METHOD_A)
         .expect("catalogue");
     assert_eq!(models[0]["method_version"], detail_cat.version);
     assert_eq!(models[0]["group_label"], detail_cat.group_label);
@@ -263,7 +263,7 @@ async fn save_flow_refusals_are_typed() {
     repo.patch_method(
         waiting_run,
         METHOD_A,
-        &cytoanalyst::modules::execution_engine::repository::MethodPatch {
+        &txresbench::modules::execution_engine::repository::MethodPatch {
             state: Some(TxrMethodState::Waiting),
             model_out_digest: None,
             ..Default::default()
@@ -462,7 +462,7 @@ async fn inventory_lists_filters_renames_and_deletes() {
         .expect("detail json");
     assert_eq!(detail["contract"], "2.0");
     assert_eq!(detail["features"][0], "M1");
-    let detail_cat = cytoanalyst::modules::method_catalogue::catalogue::method("landmark-cox-current")
+    let detail_cat = txresbench::modules::method_catalogue::catalogue::method("landmark-cox-current")
         .expect("catalogue");
     assert_eq!(
         detail["marker_facts"]["count"].as_u64(),
@@ -901,7 +901,7 @@ async fn resolve_returns_verified_engine_assets() {
     assert_eq!(asset["model_id"], json!(id));
     assert_eq!(asset["method_id"], json!(METHOD_A));
     let prod =
-        cytoanalyst::modules::execution_engine::repository::produced_models(&pool(&server).await, run_id)
+        txresbench::modules::execution_engine::repository::produced_models(&pool(&server).await, run_id)
             .await
             .expect("produced");
     assert_eq!(asset["tree_sha256"], json!(prod[0].tree_sha256));
@@ -924,7 +924,7 @@ async fn resolve_returns_verified_engine_assets() {
 
     // The engine's own element shape accepts the response verbatim (the
     // caller-side join; the engine never imports this module).
-    let engine_asset: cytoanalyst::modules::execution_engine::types::TxrModelAsset =
+    let engine_asset: txresbench::modules::execution_engine::types::TxrModelAsset =
         serde_json::from_value(asset.clone()).expect("byte-compatible with TxrModelAsset");
     assert_eq!(engine_asset.model_id, id);
     assert_eq!(engine_asset.method_id, METHOD_A);

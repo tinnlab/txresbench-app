@@ -18,14 +18,14 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::models::Job;
-use cytoanalyst::modules::jobs::seams::{ArtifactIngestSink, PeakMetrics};
-use cytoanalyst::modules::provenance::repository::{NewRun, ProvenanceRepository};
-use cytoanalyst::modules::sandbox::outputs::ProducedOutput;
-use cytoanalyst::modules::workstore::catalog::models::{Artifact, NewArtifact};
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
-use cytoanalyst::modules::workstore::object_store::{sha256_hex, LocalFsStore, ObjectStore};
+use txresbench::modules::jobs::models::Job;
+use txresbench::modules::jobs::seams::{ArtifactIngestSink, PeakMetrics};
+use txresbench::modules::provenance::repository::{NewRun, ProvenanceRepository};
+use txresbench::modules::sandbox::outputs::ProducedOutput;
+use txresbench::modules::workstore::catalog::models::{Artifact, NewArtifact};
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::workstore::object_store::{sha256_hex, LocalFsStore, ObjectStore};
 
 use crate::common::TestServer;
 
@@ -113,7 +113,7 @@ pub async fn new_dataset(server: &TestServer, token: &str, name: &str) -> Uuid {
     Uuid::parse_str(body["id"].as_str().expect("dataset id")).unwrap()
 }
 
-/// Upload one real file into a dataset (the ziee-file path). Returns
+/// Upload one real file into a dataset (the txresbench-file path). Returns
 /// `(dataset_id, file_id, content_hash)`. A single-file dataset's `content_hash`
 /// is `sha256:<blob-hex>` — the byte source a `data/<hash>` capsule member draws.
 pub async fn upload_dataset(
@@ -819,8 +819,8 @@ pub async fn stage_job_run_dirs(
     let job_dir = sandboxes_root(server).join(job_id.to_string());
     tokio::fs::create_dir_all(&job_dir).await.unwrap();
     let staging_dir =
-        cytoanalyst::modules::sandbox::outputs::staging_dir(&run_staging_root(server), job_id);
-    let outputs = cytoanalyst::modules::sandbox::outputs::outputs_dir(&staging_dir);
+        txresbench::modules::sandbox::outputs::staging_dir(&run_staging_root(server), job_id);
+    let outputs = txresbench::modules::sandbox::outputs::outputs_dir(&staging_dir);
     tokio::fs::create_dir_all(&outputs).await.unwrap();
     if outs.is_empty() {
         // What a killed child actually leaves behind: a partial write, no manifest.
@@ -863,7 +863,7 @@ pub async fn stage_job_run_dirs(
 /// Runtime rootfs availability for the executable-capsule tests. Returns
 /// `Some(env_digest)` when the analysis sandbox is READY (so a rootfs-gated test
 /// RUNS + asserts hash-for-hash) or `None` when absent (the test SELF-SKIPS with a
-/// clear log — never a compile-time ignore). Honors either the `ZIEE_SANDBOX_ROOTFS` seam
+/// clear log — never a compile-time ignore). Honors either the `TXR_SANDBOX_ROOTFS` seam
 /// (matching the existing suite) or the authoritative `GET /sandbox/status`
 /// (`availability == "ready"` / `rootfs.supported`).
 pub async fn rootfs_gate(server: &TestServer, admin: &str) -> Option<String> {
@@ -886,10 +886,10 @@ pub async fn rootfs_gate(server: &TestServer, admin: &str) -> Option<String> {
     // Under the OCI fetch-newest model nothing is embedded, so `content_sha256` is
     // empty until a lazy pull happens — the old `digest.is_empty()` early-return
     // would wrongly self-skip. Honor the pre-mounted-rootfs seam
-    // (`CYTO_ENV_ROOTFS_SQUASHFS` / `CYTO_ENV_ROOTFS_DIR`, the provider's air-gap
-    // overrides) OR the legacy `ZIEE_SANDBOX_ROOTFS`: when any is set, availability
+    // (`TXR_ENV_ROOTFS_SQUASHFS` / `TXR_ENV_ROOTFS_DIR`, the provider's air-gap
+    // overrides) OR the legacy `TXR_SANDBOX_ROOTFS`: when any is set, availability
     // is the mounted rootfs, and the real execute-probe below is the authoritative
-    // readiness gate. Only `CYTO_ENV_ROOTFS_SQUASHFS` (or a live OCI pull) PINS an
+    // readiness gate. Only `TXR_ENV_ROOTFS_SQUASHFS` (or a live OCI pull) PINS an
     // env digest, which is what an EXECUTABLE capsule additionally needs — see
     // `pinned_env_digest`.
     //
@@ -901,9 +901,9 @@ pub async fn rootfs_gate(server: &TestServer, admin: &str) -> Option<String> {
     // makes the probe fail fast and the test self-skips there instead — honest
     // either way, and zero-config on a capable host.
     let env_seam = [
-        "ZIEE_SANDBOX_ROOTFS",
-        "CYTO_ENV_ROOTFS_DIR",
-        "CYTO_ENV_ROOTFS_SQUASHFS",
+        "TXR_SANDBOX_ROOTFS",
+        "TXR_ENV_ROOTFS_DIR",
+        "TXR_ENV_ROOTFS_SQUASHFS",
     ]
     .iter()
     .any(|k| std::env::var(k).map(|v| !v.is_empty()).unwrap_or(false));
@@ -985,7 +985,7 @@ pub async fn stage_second_env_image(
     server: &TestServer,
     exclude_digest: &str,
 ) -> Result<String, String> {
-    use cytoanalyst::modules::sandbox::env_image;
+    use txresbench::modules::sandbox::env_image;
 
     // ── HARNESS FAULT, NOT AN ENVIRONMENT GATE ──────────────────────────────────
     // `default_env_id()` reads the process-global EXTENSION registry, which
@@ -999,7 +999,7 @@ pub async fn stage_second_env_image(
     // stops publishing, or the tree stops declaring a converter env, the honest
     // report is RED with the cause named — never a skip that reads like a
     // capability the box lacks.
-    if cytoanalyst::modules::extensions::try_registry().is_none() {
+    if txresbench::modules::extensions::try_registry().is_none() {
         panic!(
             "stage_second_env_image: the process-global EXTENSION registry is not published, so \
              `env_image::default_env_id()` cannot resolve an env-id. This is a HARNESS fault, not \
@@ -1106,7 +1106,7 @@ pub async fn stage_second_env_image(
 
     // Never stage an unverified image, even in a test: it must still be signed by
     // THIS repo's `env-images.yml` workflow. The identity is the repo's own
-    // documented STAGING regexp (`CYTO_ENV_IMAGE_IDENTITY_REGEXP`,
+    // documented STAGING regexp (`TXR_ENV_IMAGE_IDENTITY_REGEXP`,
     // `@refs/(heads|tags)/…`) rather than the production `@refs/heads/main`,
     // because the older builds this test needs were published pre-merge and carry
     // the tag identity. Widening it HERE does not touch the runtime provider,
@@ -1117,7 +1117,7 @@ pub async fn stage_second_env_image(
             "--certificate-oidc-issuer",
             "https://token.actions.githubusercontent.com",
             "--certificate-identity-regexp",
-            r"^https://github\.com/ziee-ai/cytoanalyst/\.github/workflows/env-images\.yml@refs/(heads|tags)/.+$",
+            r"^https://github\.com/tinnlab/txresbench/\.github/workflows/env-images\.yml@refs/(heads|tags)/.+$",
             &pinned,
         ])
         .stdout(std::process::Stdio::null())
@@ -1233,21 +1233,21 @@ pub fn mounted_env_digest(server: &TestServer) -> Option<String> {
 // which survives capture and can be counted without `--nocapture`:
 //
 //     : > target/test-skip-ledger.tsv                     # before the run
-//     cargo test -p cytoanalyst --test integration_tests -- …
+//     cargo test -p txresbench --test integration_tests -- …
 //     wc -l < target/test-skip-ledger.tsv                 # 0 ⇒ the tier really ran
 //     cat    target/test-skip-ledger.tsv                  # which test, and why
 //
-//   * `CYTO_TEST_SKIP_LEDGER=/abs/path.tsv` — write the ledger somewhere else
+//   * `TXR_TEST_SKIP_LEDGER=/abs/path.tsv` — write the ledger somewhere else
 //     (a fresh path per run gives per-run counts without truncating).
-//   * `CYTO_TEST_NO_SKIP=1` — turn every gate into a hard FAILURE instead of a
+//   * `TXR_TEST_NO_SKIP=1` — turn every gate into a hard FAILURE instead of a
 //     skip. This is what an acceptance / CI tier runs, so a tier that executed
 //     nothing CANNOT report green.
 
-/// Where the self-skip ledger is written: `CYTO_TEST_SKIP_LEDGER`, else
+/// Where the self-skip ledger is written: `TXR_TEST_SKIP_LEDGER`, else
 /// `<workspace>/target/test-skip-ledger.tsv`. Appended to, never truncated (the
 /// suite runs many tests across threads and binaries) — clear it before a run.
 pub fn skip_ledger_path() -> PathBuf {
-    match std::env::var_os("CYTO_TEST_SKIP_LEDGER") {
+    match std::env::var_os("TXR_TEST_SKIP_LEDGER") {
         Some(p) => PathBuf::from(p),
         // `CARGO_MANIFEST_DIR` = <workspace>/src-app/server.
         None => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-skip-ledger.tsv"),
@@ -1256,7 +1256,7 @@ pub fn skip_ledger_path() -> PathBuf {
 
 /// Announce a self-skip on BOTH channels: the human `eprintln!` (visible only
 /// under `--nocapture`) and the machine-readable ledger (survives libtest
-/// capture, so a run's skips can be COUNTED). With `CYTO_TEST_NO_SKIP=1` the gate
+/// capture, so a run's skips can be COUNTED). With `TXR_TEST_NO_SKIP=1` the gate
 /// becomes a hard failure instead — the mode an acceptance tier runs in.
 ///
 /// Call this from EVERY gate: a bare `eprintln!` skip is invisible by default and
@@ -1290,9 +1290,9 @@ pub fn record_skip(test: &str, reason: &str) {
             .collect();
         let _ = writeln!(f, "{test}\t{one_line}");
     }
-    if std::env::var("CYTO_TEST_NO_SKIP").is_ok_and(|v| v == "1") {
+    if std::env::var("TXR_TEST_NO_SKIP").is_ok_and(|v| v == "1") {
         panic!(
-            "SKIP {test}: {reason} — CYTO_TEST_NO_SKIP=1 demands this tier ACTUALLY RUN, \
+            "SKIP {test}: {reason} — TXR_TEST_NO_SKIP=1 demands this tier ACTUALLY RUN, \
              so the skip is a hard failure"
         );
     }
@@ -1304,8 +1304,8 @@ pub fn skip_no_rootfs(test: &str) {
     record_skip(
         test,
         "no analysis rootfs is usable here — `GET /sandbox/status` is not ready, or the \
-         `echo probe` execute failed. Point CYTO_ENV_ROOTFS_SQUASHFS at a rootfs.squashfs \
-         (or CYTO_ENV_ROOTFS_DIR at a pre-mounted rootfs), or make the live OCI env-image \
+         `echo probe` execute failed. Point TXR_ENV_ROOTFS_SQUASHFS at a rootfs.squashfs \
+         (or TXR_ENV_ROOTFS_DIR at a pre-mounted rootfs), or make the live OCI env-image \
          path reachable (`oras` + registry)",
     );
 }
@@ -1316,9 +1316,9 @@ pub fn skip_no_rootfs(test: &str) {
 /// "no pinned environment (not executed; provenance-only node)" for every step.
 ///
 /// A digest is pinned by the live OCI path (`oras resolve` + cosign + pull) or by
-/// the air-gap `CYTO_ENV_ROOTFS_SQUASHFS` seam, which content-hashes the operator's
+/// the air-gap `TXR_ENV_ROOTFS_SQUASHFS` seam, which content-hashes the operator's
 /// squashfs, stages it into the digest cache, and records that hash. It is NOT
-/// pinned by a bare `CYTO_ENV_ROOTFS_DIR` pre-mount (a mount dir has no content
+/// pinned by a bare `TXR_ENV_ROOTFS_DIR` pre-mount (a mount dir has no content
 /// identity) — on such a host the capsule tier genuinely cannot execute, so this
 /// self-skips with the actionable fix named, never a false PASS and never the
 /// compile-time ignore attribute. The skip is written to the SKIP LEDGER (see
@@ -1339,7 +1339,7 @@ pub async fn pinned_env_digest(pool: &SqlitePool, run_id: Uuid, test: &str) -> O
             record_skip(
                 test,
                 "the run recorded NO pinned env rootfs digest, so no capsule step can execute on \
-                 this host. Point CYTO_ENV_ROOTFS_SQUASHFS at a rootfs.squashfs (it is \
+                 this host. Point TXR_ENV_ROOTFS_SQUASHFS at a rootfs.squashfs (it is \
                  content-hashed, staged into the digest cache and PINNED), or let the live OCI \
                  env-image path run",
             );
@@ -1559,7 +1559,7 @@ pub fn capsule_regenerated_hashes(dir: &Path) -> std::collections::HashSet<Strin
 /// so nothing is invented on the producer's behalf. A capsule whose steps write no
 /// manifest yields an empty set and the per-file identities still apply.
 pub async fn capsule_output_identities(dir: &Path) -> std::collections::HashSet<String> {
-    use cytoanalyst::modules::workstore::object_store::content_hash_of_path;
+    use txresbench::modules::workstore::object_store::content_hash_of_path;
 
     let mut out = std::collections::HashSet::new();
     let work = dir.join("work");

@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import visium_fixtures as VF  # noqa: E402
 
 #: The COMPLETE emitted set, by output id. Every addition to this list is a deliberate
-#: act, and every deletion from it is caught. `cyto_deps`' run-environment record is
+#: act, and every deletion from it is caught. `txr_deps`' run-environment record is
 #: appended by `write_manifest`, not by `run_import`, so it is not in this set.
 EXPECTED_OUTPUTS = {
     "expression",

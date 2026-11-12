@@ -17,7 +17,7 @@
 //! `merge_backend`). The API refuses the invalid pairing with **422 `INCOMPATIBLE_BACKENDS`**;
 //! the FE blocks the save with the same message. There is no other source of the rule.
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::config::ObjectStoreKind;
 

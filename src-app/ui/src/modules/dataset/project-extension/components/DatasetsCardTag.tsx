@@ -1,5 +1,5 @@
 import type { ProjectDto } from '@/api-client/types'
-import { Tag } from '@ziee/kit'
+import { Tag } from '@txresbench/kit'
 import { Database } from 'lucide-react'
 
 /**

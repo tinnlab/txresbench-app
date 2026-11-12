@@ -3,7 +3,7 @@
 // running from the modulation floor (dim / faint) up to the full base hue, so a reader
 // decodes BOTH "which cluster" (row hue) and "how much" (position along the ramp) at once.
 //
-// Pure list DOM (react only, no library, no @ziee/*), domain-neutral, theme-aware, testid'd —
+// Pure list DOM (react only, no library, no @txresbench/*), domain-neutral, theme-aware, testid'd —
 // mirrors the categorical `Legend.tsx`. It only RENDERS a `Blend2DLegend` descriptor (built by
 // `data/blend.ts::buildBlend2DLegend`); it owns no state.
 

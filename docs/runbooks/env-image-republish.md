@@ -16,7 +16,7 @@ commit `3f6452b8`:
 > chore(ci): disable all GitHub workflows (Actions billing off, no credit)
 >
 > Rename every `.github/workflows/*.yml` → `*.yml.disabled` so GitHub no longer registers
-> or triggers them (they otherwise only accrue failed/queued runs while ziee-ai Actions
+> or triggers them (they otherwise only accrue failed/queued runs while tinnlab Actions
 > billing is disabled). … The gates run LOCALLY (just check + pre-push hook).
 > gate-wiring.test.mjs updated to read the .disabled path — the workflow WIRING is
 > preserved so re-enabling is a pure rename-back, not a rebuild.
@@ -43,7 +43,7 @@ Three things follow, and they are the whole reason this document exists:
 
 | condition | action |
 |---|---|
-| ziee-ai GitHub Actions billing restored | `git mv` the workflow back; the manual script becomes break-glass |
+| tinnlab GitHub Actions billing restored | `git mv` the workflow back; the manual script becomes break-glass |
 | billing still off | use §2 below for every recipe change |
 
 ---
@@ -54,11 +54,11 @@ Three things follow, and they are the whole reason this document exists:
 |---|---|---|
 | the pinned direct dependency set | `src-app/env-rootfs/<env>/requirements.txt` | what is installed, at exactly which versions |
 | the recipe | `src-app/env-rootfs/<env>/Dockerfile` | how the image is built, the build-time import smoke line, the baked closure lock |
-| the declared default recipe | `src-app/env-rootfs/DEFAULT_ENV` | which env **the build** stages when no `CYTO_ENV_ROOTFS_ID` is given. **A publish does NOT read it** — `publish-env-rootfs.sh` refuses and names the candidates unless you pass `--env` (see below) |
+| the declared default recipe | `src-app/env-rootfs/DEFAULT_ENV` | which env **the build** stages when no `TXR_ENV_ROOTFS_ID` is given. **A publish does NOT read it** — `publish-env-rootfs.sh` refuses and names the candidates unless you pass `--env` (see below) |
 | the schema version | `src-app/server/src/modules/rootfs/version.rs` | the tag family the runtime resolves — **do not bump it for a package change, and NOT for a second image** |
 | what each analysis requires | `src-app/packages/<pkg>/manifest.yaml` → `run.dependencies[]` | the build gate's left-hand side |
 | the build gate | `src-app/server/build_helper/processor_manifest.rs` | resolves declarations against the pin set at `cargo check` time |
-| the run-time check + record | `src-app/packages/_lib/cyto_deps.py` | refuses a run whose environment contradicts its declaration; records what it resolved |
+| the run-time check + record | `src-app/packages/_lib/txr_deps.py` | refuses a run whose environment contradicts its declaration; records what it resolved |
 | the manual publish | `scripts/publish-env-rootfs.sh` | build → push → re-point the moving tag → sign |
 | the automated publish (parked) | `.github/workflows/env-images.yml.disabled` | the same sequence, on CI |
 
@@ -98,7 +98,7 @@ scripts/publish-env-rootfs.sh --env single-cell-r --dry-run
 scripts/publish-env-rootfs.sh --env single-cell-r
 ```
 
-Each env is its own GHCR repository (`ghcr.io/ziee-ai/cyto-env/<env>`) with its own moving
+Each env is its own GHCR repository (`ghcr.io/tinnlab/txresbench-env/<env>`) with its own moving
 tag, so publishing one never touches the other. **Publishing the wrong one is not a
 recoverable mistake** — the moving tag is what every running deployment resolves — which
 is why nothing in this path defaults, and why the tree's default for a *build* is
@@ -168,14 +168,14 @@ numbers this product publishes. Work through all six steps.
    red test — `sandbox::env_image::every_env_recipe_smoke_verifies_every_pinned_import` —
    not a silent absence. That guard runs over **every** recipe
    `rootfs::version::discover_env_recipes` finds, so a second env image is covered the day
-   its directory lands. It finds each recipe's smoke line by the `# cyto:env-smoke` comment
+   its directory lands. It finds each recipe's smoke line by the `# txr:env-smoke` comment
    directly above it, because no syntactic rule tells "installs" from "loads" across
    package managers; a recipe that declares no such marker fails, naming what to add.
 
 4. **Ask the build gate who declared a range you just left.**
 
    ```sh
-   cd src-app/server && cargo check -p cytoanalyst
+   cd src-app/server && cargo check -p txresbench
    ```
 
    The gate resolves every `run.dependencies[]` in the tree against the new pin set and
@@ -255,8 +255,8 @@ source guarantees:
 
 | declared as | | |
 |---|---|---|
-| `# cyto:pin-source=dated-snapshot:<url>` | CRAN | a **dated** Posit Package Manager binary snapshot (`.../__linux__/noble/<date>`). A dated snapshot is a function from name to version, and it serves Ubuntu-noble BINARIES, so the CRAN half compiles nothing. |
-| `# cyto:pin-source=release-channel:bioconductor-<rel>` | Bioc | a **fixed** Bioconductor RELEASE CHANNEL — **not** a snapshot, and the difference is load-bearing (see the warning below). Bioconductor has no binary channel, so its half compiles from source — which is why the recipe installs a `-dev` toolchain and then purges it. |
+| `# txr:pin-source=dated-snapshot:<url>` | CRAN | a **dated** Posit Package Manager binary snapshot (`.../__linux__/noble/<date>`). A dated snapshot is a function from name to version, and it serves Ubuntu-noble BINARIES, so the CRAN half compiles nothing. |
+| `# txr:pin-source=release-channel:bioconductor-<rel>` | Bioc | a **fixed** Bioconductor RELEASE CHANNEL — **not** a snapshot, and the difference is load-bearing (see the warning below). Bioconductor has no binary channel, so its half compiles from source — which is why the recipe installs a `-dev` toolchain and then purges it. |
 | — | the assertion | after installing, the recipe compares **every** installed version against `requirements.txt` and FAILS the build on a mismatch, naming the package. |
 
 **Moving either coordinate is a pin upgrade, not a maintenance chore.** It will move
@@ -293,7 +293,7 @@ coordinate is an unrecorded input to a published number.
 case-sensitive (`Matrix`, `scDblFinder`). The build gate used to normalize PEP 503-style —
 i.e. to lowercase — so two R packages differing only in case would collide into one pin,
 and a declaration could match the wrong one and report green. **#192 fixed that at the
-mechanism**: the recipe declares `# cyto:ecosystem=r`, from which the gate takes an exact,
+mechanism**: the recipe declares `# txr:ecosystem=r`, from which the gate takes an exact,
 case-preserving name rule and applies it to BOTH sides of every comparison. A declaration
 spelled `scdblfinder` against a pin `scDblFinder` is now refused, naming both spellings.
 The interim guard that held the line before then
@@ -355,9 +355,9 @@ which is worse than a range. Adding either later is a pin-file edit plus a repub
 ### Verifying a locally built rootfs
 
 ```sh
-docker build -t cyto-env-r src-app/env-rootfs/single-cell-r
-docker create --name cyto-env-r-x cyto-env-r && docker cp cyto-env-r-x:/rootfs.squashfs .
-docker rm cyto-env-r-x
+docker build -t txresbench-env-r src-app/env-rootfs/single-cell-r
+docker create --name txresbench-env-r-x txresbench-env-r && docker cp txresbench-env-r-x:/rootfs.squashfs .
+docker rm txresbench-env-r-x
 scripts/verify-r-rootfs-local.sh ./rootfs.squashfs single-cell-r
 ```
 
@@ -380,7 +380,7 @@ guarantees that pair denotes exactly one source tree. Every recipe therefore dec
 where its pins were resolved, machine-readably, as one or more
 
 ```
-# cyto:pin-source=<class>:<coordinate>
+# txr:pin-source=<class>:<coordinate>
 ```
 
 lines, and the CLASS is what states the guarantee:
@@ -401,7 +401,7 @@ one of them is admissible.
 
 ### The refusal, and #209
 
-Adding `# cyto:pin-source=vcs-head:<url>` to any recipe FAILS the build — in the Rust gate
+Adding `# txr:pin-source=vcs-head:<url>` to any recipe FAILS the build — in the Rust gate
 (`cargo check`) and again in the recipe's own installer, so an operator who builds the
 image directly hits the same wall. The message names #209.
 
@@ -429,7 +429,7 @@ Everything in §3 applies. The R-specific differences:
    ```sh
    docker build -f src-app/env-rootfs/single-cell-r/Dockerfile src-app/env-rootfs/single-cell-r
    ```
-4. **Ask the build gate who declared a range you just left** — `cargo check -p cytoanalyst`,
+4. **Ask the build gate who declared a range you just left** — `cargo check -p txresbench`,
    exactly as in §3 step 4. R names are compared **case-sensitively**, so a declaration
    that differs only in case is refused with both spellings named.
 5. **Reconcile, then republish (§2).**
@@ -438,12 +438,12 @@ Everything in §3 applies. The R-specific differences:
 
 Same as §3's "Adding a new library", plus: the package must resolve on one of the declared
 coordinates. If it does not, you are adding a *source*, not a *pin* — declare it as a
-`cyto:pin-source` line with the class that honestly describes it, and read the table above
+`txr:pin-source` line with the class that honestly describes it, and read the table above
 before assuming it is admissible.
 
 ### Which versions did a run actually use?
 
-For the python lane this is recorded inline: `_lib/cyto_deps.py` is staged into the sandbox
+For the python lane this is recorded inline: `_lib/txr_deps.py` is staged into the sandbox
 and writes the resolved versions into the run's `run-environment` record, which the server
 lifts into `provenance_run_repro.lockfile_json` (§4).
 
@@ -463,7 +463,7 @@ every link exists today:
    the caller, which is what makes it run-scoped), so the by-digest pull is exact. The
    artifact IS the squashfs; there is no container to `docker cp` out of;
 3. the image carries the full resolved closure, frozen in at build time before the trim,
-   at `/usr/local/lib/R/.cyto-env-lock.txt` — one line per package as
+   at `/usr/local/lib/R/.txresbench-env-lock.txt` — one line per package as
    `<name>==<version>  # source=<repository>`, plus `# shadowed` comments for any second
    copy R does not load;
 4. read it:
@@ -536,7 +536,7 @@ answer is narrower than it looks.
 marker, not an *env* marker, and the three checks above are deliberately env-AGNOSTIC —
 `jq` was chosen precisely because it names no analysis domain, which is the same property
 that makes it unable to tell one env's rootfs from another's. The
-`com.cytoanalyst.env` label the loop stamps lives on the docker **image**, and it does not
+`com.txresbench.env` label the loop stamps lives on the docker **image**, and it does not
 survive `docker cp`.
 
 So two things carry the binding, and both are enforced:
@@ -561,14 +561,14 @@ the reason it is not optional.
 **A locally built image is not verified, and it is not signed by anything a deployment
 trusts.**
 
-- Seam 1 (`CYTO_ENV_ROOTFS_SQUASHFS…`), which this loop feeds, has **no signature in
+- Seam 1 (`TXR_ENV_ROOTFS_SQUASHFS…`), which this loop feeds, has **no signature in
   its path at all**. The provider content-hashes the file, stages it by digest and
   mounts it. The operator vouches for the bytes; cosign is never consulted.
 - The published path is different: the runtime resolves the moving tag, then
   **cosign-verifies against the CI workflow's keyless OIDC identity**
   (`DEFAULT_IDENTITY_RE` in `src-app/server/src/modules/sandbox/env_image.rs`) before
   mounting anything. A locally built image cannot satisfy that identity, and **widening
-  a deployment's `CYTO_ENV_IMAGE_IDENTITY_REGEXP` to accept a developer identity is not
+  a deployment's `TXR_ENV_IMAGE_IDENTITY_REGEXP` to accept a developer identity is not
   the fix** — that is a release security boundary, and moving it is out of scope for a
   development loop.
 - The middle path, for exercising resolve → cosign-verify → pull → cache → mount
@@ -590,13 +590,13 @@ which needs the workflow or a `write:packages` token, which needs Actions billin
 
 ### The seam variable cannot be `export`ed — use `env(1)`
 
-The per-env air-gap seam is `CYTO_ENV_ROOTFS_SQUASHFS__<env-id>`. **Every env id this
+The per-env air-gap seam is `TXR_ENV_ROOTFS_SQUASHFS__<env-id>`. **Every env id this
 tree ships contains `-`, and `-` is not legal in a shell identifier**, so:
 
 ```sh
-export CYTO_ENV_ROOTFS_SQUASHFS__single-cell-r=/path   # bash: not a valid identifier
-CYTO_ENV_ROOTFS_SQUASHFS__single-cell-r=/path cmd      # sh: ...: not found
-env 'CYTO_ENV_ROOTFS_SQUASHFS__single-cell-r=/path' cmd   # works, and is inherited
+export TXR_ENV_ROOTFS_SQUASHFS__single-cell-r=/path   # bash: not a valid identifier
+TXR_ENV_ROOTFS_SQUASHFS__single-cell-r=/path cmd      # sh: ...: not found
+env 'TXR_ENV_ROOTFS_SQUASHFS__single-cell-r=/path' cmd   # works, and is inherited
 ```
 
 Only the third form works — and it *is* inherited by grandchildren, so it is usable as a
@@ -619,7 +619,7 @@ eval "$prefix cargo test …"
 a preflight that FAILED — an env not staged, an artifact that will not mount, a rootfs
 that cannot execute — yields an empty `prefix`, and `eval " cargo test …"` then runs the
 whole tier with **no per-env seams at all**, silently falling back to whatever ambient
-`CYTO_ENV_ROOTFS_SQUASHFS` the shell happens to carry. That is exactly the substitution
+`TXR_ENV_ROOTFS_SQUASHFS` the shell happens to carry. That is exactly the substitution
 this loop exists to remove, reintroduced by the way you invoke it. The same hazard is why
 `scripts/check-env-loop.sh` captures every exit code directly and never reads one through
 a pipe.
@@ -643,7 +643,7 @@ grep -v '^\s*#' src-app/env-rootfs/single-cell/requirements.txt | grep .
 grep -rn 'library:' src-app/packages/*/manifest.yaml
 
 # does every declaration still hold against the pins?
-cd src-app/server && cargo check -p cytoanalyst
+cd src-app/server && cargo check -p txresbench
 
 # publish (dry run first)
 scripts/publish-env-rootfs.sh --dry-run

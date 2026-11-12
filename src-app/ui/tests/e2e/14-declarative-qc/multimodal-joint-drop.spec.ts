@@ -1,4 +1,4 @@
-// COVERAGE: this spec is env-gated on `CYTO_E2E_MULTIMODAL` and is therefore UNCOVERED in a
+// COVERAGE: this spec is env-gated on `TXR_E2E_MULTIMODAL` and is therefore UNCOVERED in a
 // default e2e run — see `tests/e2e/E2E_NEGATIVE_CONTROLS.md` for what must be seeded to run it.
 
 import { expect, test } from '@playwright/test'
@@ -25,7 +25,7 @@ import {
 //
 // REAL DATA + REAL READER. The dataset is a genuine 10x CITE-seq matrix (Gene Expression + Antibody
 // Capture) — `pbmc_1k_protein_v3` (10x Genomics, CC BY 4.0), subsampled to 200 cells. The
-// `CYTO_E2E_MULTIMODAL` seed harness (`/_debug/seed`, driver `modality-split`) runs the SAME `multimodal.py`
+// `TXR_E2E_MULTIMODAL` seed harness (`/_debug/seed`, driver `modality-split`) runs the SAME `multimodal.py`
 // reader the production `anndata-import` converter composes (`split_by_feature_types` +
 // `modality_prefixed` + `modality_datatype` + `align_barcodes` + `detect_isotype_controls`) over the
 // real matrix, deriving per-modality `total_counts` / `n_features` / `pct_mito` into the shared obs,
@@ -48,9 +48,9 @@ import {
 // `if (MULTIMODAL) { … }` wrapper): the spec is then COLLECTED unconditionally and a run without
 // the fixture REPORTS it as skipped, naming the env var — see `../14-workbench/_analysis.ts` for
 // the measurement that made the wrapper form untenable.
-const MULTIMODAL = !!process.env.CYTO_E2E_MULTIMODAL
+const MULTIMODAL = !!process.env.TXR_E2E_MULTIMODAL
 const MULTIMODAL_SKIP =
-  'needs the real CITE-seq multimodal seed fixture — set CYTO_E2E_MULTIMODAL=1 to run'
+  'needs the real CITE-seq multimodal seed fixture — set TXR_E2E_MULTIMODAL=1 to run'
 
 // THERE IS NO CANVAS-NOISE ALLOWANCE. See the header of the sibling `…-live.spec.ts` for why the
 // one that used to sit here was deleted rather than narrowed: every alternative in it either

@@ -15,5 +15,5 @@ interface ImportMeta {
   ): Record<string, () => Promise<unknown>>
 }
 
-// Side-effect CSS imports (followed transitively into @ziee/kit source).
+// Side-effect CSS imports (followed transitively into @txresbench/kit source).
 declare module '*.css'

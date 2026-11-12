@@ -23,8 +23,8 @@ Two rules this file exists to enforce:
 The whole `test.describe` is gated by
 
 ```ts
-const MULTIMODAL = !!process.env.CYTO_E2E_MULTIMODAL
-test.skip(!MULTIMODAL, 'needs the real CITE-seq multimodal seed fixture — set CYTO_E2E_MULTIMODAL=1 to run')
+const MULTIMODAL = !!process.env.TXR_E2E_MULTIMODAL
+test.skip(!MULTIMODAL, 'needs the real CITE-seq multimodal seed fixture — set TXR_E2E_MULTIMODAL=1 to run')
 ```
 
 so on a normal run the spec is COLLECTED and reported as **skipped**. Its four determinate
@@ -46,7 +46,7 @@ named for is unmeasured on every default run.**
 
 **What would have to be seeded to make it run:**
 
-- `CYTO_E2E_MULTIMODAL=1` in the environment (this is what tier 7 in the root `README.md` already
+- `TXR_E2E_MULTIMODAL=1` in the environment (this is what tier 7 in the root `README.md` already
   exports; outside tier 7 nothing sets it).
 - A backend reachable by the spec with the `/_debug/seed` debug seeding surface enabled (the tier
   runs a freshly spawned backend with `CI=1` so the seam is actually present).

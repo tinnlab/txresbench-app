@@ -1,7 +1,7 @@
 # LIVE5 STATUS — Study Analysis Workflow (design-candidates round)
 
 **Round type:** ITERATION /feature-lifecycle — **DESIGN CANDIDATES FIRST** (research + design, no code).
-**Branch:** `feat/analysis-workflow` @ worktree `/data/pbya/ziee/tmp/analysis-workflow-wt` (off `origin/main`, sdk `95acb82`).
+**Branch:** `feat/analysis-workflow` @ worktree `/data/pbya/txresbench/tmp/analysis-workflow-wt` (off `origin/main`, sdk `95acb82`).
 **Current phase:** Pre-Phase-1 **design + research**. Deliverable = `DESIGN_CANDIDATES.md` → then **PAUSE** for the user to pick a candidate → then Phase 1→9 implement.
 
 ---
@@ -37,10 +37,10 @@
 - **Base-ref corrected** (stale local origin/main `29b9b29` → real base `587ca91`) so the diff is accurate.
 - **Phase 5 (implementation) IN PROGRESS** — a fork builds all 12 ITEMs (analysis module: registry + 8
   plugins + mock engine/store + explorer canvas + dock + context-panel/disclosure + catalog + result
-  overlays + samples/QC + study-extension reg + export + gallery + e2e specs), tsc-green, on-system @ziee/kit.
+  overlays + samples/QC + study-extension reg + export + gallery + e2e specs), tsc-green, on-system @txresbench/kit.
 ## 🟢 8/9 — feature-lifecycle phases 1–8 COMPLETE + gated; Phase 9 PENDING (awaiting user review)
 
-**Built + audited + gated.** The V2 explorer-centric analysis interface is implemented on-system (`@ziee/kit`),
+**Built + audited + gated.** The V2 explorer-centric analysis interface is implemented on-system (`@txresbench/kit`),
 blind-audited (0 unresolved), and fully gated: `tsc` ✓ · `gate:ui` (runtime-health 15/15 surfaces clean, 0
 gating HIGH, WCAG-AA contrast ✓) ✓ · **14/14 e2e specs PASS** (real backend + fresh DB). Clean tree; **not
 pushed**. Phase 9 (HUMAN_FEEDBACK) is deliberately PENDING until the user reviews the running interface — then
@@ -56,7 +56,7 @@ deferred to a future round behind the descriptor `run()`/`ResultView` seam.
 
 **Notable finds fixed:** a11y labels (gate-critical), legend-count rendering, dock prereq-gating, gene
 validation, catalog empty-state, kit reuse (Table/Statistic/Upload), mobile chrome, responsive, copy honesty,
-+ test-reality strengthening. **SDK gap FE-11** logged (cyto lacks the `@ziee/gallery` visual-layer config;
++ test-reality strengthening. **SDK gap FE-11** logged (txr lacks the `@txresbench/gallery` visual-layer config;
 `--skip-visual` is the supported mode).
 
 ---
@@ -97,10 +97,10 @@ Phase-1-this-round**.
   - **Study extension registry** (backend `study/core/extension/registry.rs` = linkme slice + `StudyExtension` trait w/ `on_study_deleted`/`on_study_duplicated`/`collect_summary`/`register_routes`; frontend `STUDY_SLOTS = {study_nav, detail_panels, card_tags}`). Reference consumer = the **dataset** module.
   - **jobs** module: FCFS scheduler + concurrency cap + `JobRunner::spawn(job)->SpawnedJob` trait (currently a stub; sandbox `run_analysis` drops in behind it). Per-job SSE (logs + cpu/mem), cancel registry. `Job{job_type:String, params:JSONB, status}`.
   - **sandbox** module: `run_analysis(pool, AnalysisRequest{command,timeout}, extra_mounts)` → bwrap R/Python, per-job 0700 workspace, lazy rootfs mount, `ExtraMount` for input/output plumbing. Linux-only (503 else).
-  - **dataset** module: STUB (`Dataset{n_cells,n_genes,status: created→uploaded→analyzed}`; upload not yet wired — waits on ziee-file/ziee-sandbox maturity). Registers as a study extension.
+  - **dataset** module: STUB (`Dataset{n_cells,n_genes,status: created→uploaded→analyzed}`; upload not yet wired — waits on txresbench-file/txresbench-sandbox maturity). Registers as a study extension.
 
 ### In flight (4 parallel research agents)
-1. Deep digest of CytoAnalyst code (study/dataset/sandbox/rootfs/jobs + SDK).
+1. Deep digest of TxResBench code (study/dataset/sandbox/rootfs/jobs + SDK).
 2. Web research — INTERACTIVE SC platforms (Cellenics/Biomage, cellxgene, Galaxy, Loupe, BBrowser, Partek, Azimuth).
 3. Web research — PROGRAMMATIC pipelines (Scanpy, Seurat, OSCA, scverse, nf-core, doublets, integration).
 4. Web research — user JTBD + pain points (personas, QC agony, iteration, annotation, reproducibility, sharing).

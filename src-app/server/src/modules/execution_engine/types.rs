@@ -30,7 +30,7 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use ziee_core::sse_event_enum;
+use txresbench_core::sse_event_enum;
 
 use crate::modules::file_validator::types::ParsedTable;
 use crate::modules::method_catalogue::types::{ReasonCode, TimingQuality};

@@ -12,14 +12,14 @@ import {
   Switch,
   Text,
   message,
-} from '@ziee/kit'
+} from '@txresbench/kit'
 import { Permissions } from '@/api-client/permissions'
 import { usePermission } from '@/core/permissions'
 import { runAction } from '@/core/actions/defineAction'
 import { FeatureFlags } from '@/modules/features/FeatureFlags.store'
 import { ListPagination } from '@/components/common/ListPagination'
 import type { FeatureFlagView } from '@/api-client/types'
-import { SettingsPageContainer } from '@ziee/shell'
+import { SettingsPageContainer } from '@txresbench/shell'
 
 /**
  * Admin "Feature Flags" settings page — the runtime feature-flags subsystem

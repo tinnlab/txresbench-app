@@ -1,5 +1,5 @@
 {
-  "name": "@ziee/sdk-root",
+  "name": "@txresbench/sdk-root",
   "private": true,
   "workspaces": [
     "packages/*"

@@ -1,5 +1,5 @@
 // subpathExports.test.ts — the STEP-7 subpath-split smoke test (EXTENSIBILITY_STUDY Part 6
-// STEP 7). Verifies the three opt-in subpaths (`@ziee/viz/core` / `/charts` / `/react`) expose
+// STEP 7). Verifies the three opt-in subpaths (`@txresbench/viz/core` / `/charts` / `/react`) expose
 // their public surface AND — the tree-shakeability contract — that importing `/core` does NOT
 // force-register the built-in chart types (they arrive only via `/charts`'s installers). The
 // registry is module-global; vitest isolates module state per test FILE, so importing `./charts`
@@ -15,7 +15,7 @@ import {
   installBuiltins,
 } from './charts'
 
-describe('@ziee/viz subpath split (STEP 7)', () => {
+describe('@txresbench/viz subpath split (STEP 7)', () => {
   it('/core exports the engine + option pipeline (no charts)', () => {
     expect(typeof core.use).toBe('function')
     expect(typeof core.registerChartType).toBe('function')
@@ -55,7 +55,7 @@ describe('@ziee/viz subpath split (STEP 7)', () => {
     expect(core.chartTypes()).toHaveLength(10)
   })
 
-  it('the main `@ziee/viz` barrel is a runtime-value superset of `/core` (back-compat contract)', async () => {
+  it('the main `@txresbench/viz` barrel is a runtime-value superset of `/core` (back-compat contract)', async () => {
     // core.ts's header asserts the main barrel re-exports EVERYTHING in /core. This guards
     // against re-drift (the regression that dropped `cellSpaceKey` + `VizViewState`).
     // NOTE: type-only exports (e.g. `VizViewState`) do NOT appear on the runtime namespace

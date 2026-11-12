@@ -14,7 +14,7 @@
 # (= this analysis' `run.entry`), NOT a backend converter/view.
 id: cell-filter
 name: Cell filter
-publisher: cyto
+publisher: txr
 # 0.9.0 — MASK COLUMN NAMING. The committed column is the label VERBATIM (`keep_<label>`
 # and the `keep_all` blank fallback are gone), the run REFUSES a blank label, and the view
 # refuses a name already on the cells axis. Kernel + view move together, and seed
@@ -96,7 +96,7 @@ contributes:
       #
       # `produces_annotations: [{ name: "keep_<label>", type: categorical, axis: cells }]`
       # is GONE, for the same reason as QC's. The committed mask artifact stamps its own
-      # kind (a two-value categorical) in `attributes.cyto`, and the conformance gate
+      # kind (a two-value categorical) in `attributes.txr`, and the conformance gate
       # VERIFIES that stamp against the declaration. This key was an unverified forecast
       # of the same fact, written before the column existed — and its `name` was a
       # template (`keep_<label>`) no consumer could match literally anyway (INV-5).

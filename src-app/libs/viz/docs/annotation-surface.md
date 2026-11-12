@@ -1,8 +1,8 @@
-# Design — Tissue-Image View + Annotation Editor (`@ziee/viz`)
+# Design — Tissue-Image View + Annotation Editor (`@txresbench/viz`)
 
 Status: design source for the `annotation-surface` feature lifecycle.
 Scope: **a frontend EDITOR — the functions + API for image-view manipulation and
-annotation authoring/editing** inside `@ziee/viz`. Like an image/annotation editor
+annotation authoring/editing** inside `@txresbench/viz`. Like an image/annotation editor
 (think the canvas + selection tools + layers API), NOT the AI that produces masks.
 
 **The editor runs no model and bundles no AI.** Segmentation / promptable models
@@ -26,7 +26,7 @@ invariants here AND those findings.
 
 For tissue images the **viewer** is largely solved in our stack (Viv multiscale
 renderer, GPU label-mask layer, affine cell↔image alignment, lasso→region→cell
-selection all exist in `@ziee/viz`). What's missing is the **editor**: the functions
+selection all exist in `@txresbench/viz`). What's missing is the **editor**: the functions
 and API to manipulate the view (pan/zoom, channels, contrast, LOD) and to author and
 edit **annotations** — draw/reshape/brush geometry, label it, review and correct a
 mask, import/export — plus a clean **API seam** through which an external AI processor

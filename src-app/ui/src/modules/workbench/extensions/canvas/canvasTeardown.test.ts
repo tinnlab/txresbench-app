@@ -16,7 +16,7 @@
 // about whatever else a module singleton accumulated across the suite.
 
 import { describe, expect, it } from 'vitest'
-import { createVizStores, FixtureSource, installBuiltins, VizController, type VizOption } from '@ziee/viz'
+import { createVizStores, FixtureSource, installBuiltins, VizController, type VizOption } from '@txresbench/viz'
 import { teardownCanvas } from './canvasBinding'
 
 installBuiltins()

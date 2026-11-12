@@ -7,7 +7,7 @@ import {
   Permissions,
 } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 
 /**
  * Admin jobs settings (the concurrency cap). Singleton config store mirroring

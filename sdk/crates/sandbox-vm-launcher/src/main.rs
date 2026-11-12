@@ -1,4 +1,4 @@
-//! `ziee-sandbox-vm-launcher` — boots one libkrun microVM and *becomes* it.
+//! `txresbench-sandbox-vm-launcher` — boots one libkrun microVM and *becomes* it.
 //!
 //! The server spawns this as a child process (one per warm flavor VM), passing
 //! a JSON [`VmLaunchConfig`] file path as argv[1]. On macOS it configures a
@@ -8,7 +8,7 @@
 //! rather than a `fork()` inside the server's multithreaded tokio runtime
 //! (only async-signal-safe calls are legal post-fork; libkrun is far from it).
 //!
-//! The guest entrypoint is the `ziee-sandbox-agent` binary (see
+//! The guest entrypoint is the `txresbench-sandbox-agent` binary (see
 //! `sandbox-guest-agent`), which mounts the squashfs + workspace and serves
 //! exec requests over vsock. The server reaches the agent through the unix
 //! socket libkrun bridges to the guest vsock port.
@@ -55,7 +55,7 @@ const EXTRA_MOUNT_TAG_PREFIX: &str = "host-mount-";
 
 fn main() {
     let cfg_path = std::env::args().nth(1).unwrap_or_else(|| {
-        eprintln!("usage: ziee-sandbox-vm-launcher <config.json>");
+        eprintln!("usage: txresbench-sandbox-vm-launcher <config.json>");
         std::process::exit(2);
     });
     let cfg: VmLaunchConfig = {
@@ -251,7 +251,7 @@ fn run(cfg: VmLaunchConfig) -> ! {
         let argv: [*const c_char; 2] = [argv0.as_ptr(), std::ptr::null()];
         // Tell the agent how many host-folder shares to mount (host-mount-0..N-1).
         // Cleaner + safer than the agent probing tags until one fails.
-        let env_extra = cstr(&format!("ZIEE_EXTRA_MOUNTS={}", cfg.extra_mounts.len()));
+        let env_extra = cstr(&format!("TXR_EXTRA_MOUNTS={}", cfg.extra_mounts.len()));
         let envp: [*const c_char; 2] = [env_extra.as_ptr(), std::ptr::null()];
         check(
             "krun_set_exec",
@@ -320,7 +320,7 @@ fn preload_libkrunfw() {
 
 #[cfg(not(target_os = "macos"))]
 fn run(_cfg: VmLaunchConfig) -> ! {
-    eprintln!("ziee-sandbox-vm-launcher is only supported on macOS (libkrun)");
+    eprintln!("txresbench-sandbox-vm-launcher is only supported on macOS (libkrun)");
     std::process::exit(1);
 }
 
@@ -336,12 +336,12 @@ mod tests {
         let json = r#"{
             "num_vcpus": 2,
             "ram_mib": 2048,
-            "root_path": "/var/lib/ziee/vm/root",
-            "sandbox_disk_path": "/var/lib/ziee/vm/full.squashfs",
-            "workspace_host_path": "/var/lib/ziee/vm/ws",
-            "vsock_socket_path": "/tmp/ziee-vsock.sock",
+            "root_path": "/var/lib/txresbench/vm/root",
+            "sandbox_disk_path": "/var/lib/txresbench/vm/full.squashfs",
+            "workspace_host_path": "/var/lib/txresbench/vm/ws",
+            "vsock_socket_path": "/tmp/txresbench-vsock.sock",
             "vsock_port": 1024,
-            "agent_exec_path": "/opt/ziee/ziee-sandbox-agent",
+            "agent_exec_path": "/opt/txresbench/txresbench-sandbox-agent",
             "extra_mounts": ["/host/data", "/host/models"]
         }"#;
 
@@ -349,12 +349,12 @@ mod tests {
 
         assert_eq!(cfg.num_vcpus, 2);
         assert_eq!(cfg.ram_mib, 2048);
-        assert_eq!(cfg.root_path, "/var/lib/ziee/vm/root");
-        assert_eq!(cfg.sandbox_disk_path, "/var/lib/ziee/vm/full.squashfs");
-        assert_eq!(cfg.workspace_host_path, "/var/lib/ziee/vm/ws");
-        assert_eq!(cfg.vsock_socket_path, "/tmp/ziee-vsock.sock");
+        assert_eq!(cfg.root_path, "/var/lib/txresbench/vm/root");
+        assert_eq!(cfg.sandbox_disk_path, "/var/lib/txresbench/vm/full.squashfs");
+        assert_eq!(cfg.workspace_host_path, "/var/lib/txresbench/vm/ws");
+        assert_eq!(cfg.vsock_socket_path, "/tmp/txresbench-vsock.sock");
         assert_eq!(cfg.vsock_port, 1024);
-        assert_eq!(cfg.agent_exec_path, "/opt/ziee/ziee-sandbox-agent");
+        assert_eq!(cfg.agent_exec_path, "/opt/txresbench/txresbench-sandbox-agent");
         assert_eq!(cfg.extra_mounts, vec!["/host/data", "/host/models"]);
 
         // Full serialize→deserialize round-trip preserves every field.

@@ -1,4 +1,4 @@
-//! The `ziee-file` HTTP surface (`file_routes`, merged under `/api` by
+//! The `txresbench-file` HTTP surface (`file_routes`, merged under `/api` by
 //! `modules::file`) — the **authorization** suite.
 //!
 //! ## What this file is about
@@ -17,7 +17,7 @@
 //! - `GET /api/files/{id}`, `/versions`, `/head`, `/text`, `/preview`,
 //!   `/thumbnail`, `/text-rects` — the metadata and derivatives;
 //! - `POST /api/files/{id}/download-token` — a signed bearer capability for the
-//!   bytes. CytoAnalyst mounts no route that redeems one today (the redeemer is
+//!   bytes. TxResBench mounts no route that redeems one today (the redeemer is
 //!   another SDK host's), so gating the mint here is prophylactic rather than
 //!   load-bearing — but an ungated mint would hand a removed member a durable
 //!   key the moment such a route appeared, and the token, once minted, is not
@@ -29,7 +29,7 @@
 //! far more direct path: #170 closed the sandbox byte-staging gate, and its own
 //! comment records that this surface was left open only because `sdk` is a
 //! pinned submodule. It is now closed by an injected authorization seam
-//! (`ziee_file::seams::FileAccessPolicy`), implemented app-side by
+//! (`txresbench_file::seams::FileAccessPolicy`), implemented app-side by
 //! `modules::file::access::DatasetFileAccessPolicy`, which delegates to the ONE
 //! predicate that already decides this question — `file_readable_by`.
 //!
@@ -86,7 +86,7 @@ async fn user_with_token(
         .bearer_auth(admin)
         .json(&json!({
             "username": username,
-            "email": format!("{username}@cyto.test"),
+            "email": format!("{username}@txresbench.test"),
             "password": "userPassw0rd!",
         }))
         .send()
@@ -571,7 +571,7 @@ async fn removed_member_can_neither_delete_nor_restore_the_file() {
 /// TEST-5 [acceptance] [invariant: INV-1] — **the download token**. This route
 /// mints a signed bearer capability for the bytes.
 ///
-/// Scope of the claim, since it is easy to overstate: cytoanalyst mounts no route
+/// Scope of the claim, since it is easy to overstate: txresbench mounts no route
 /// that REDEEMS such a token (the redeemer belongs to another SDK host), so the
 /// gate is prophylactic here — it is not currently a path to bytes in this app.
 /// It is gated anyway because a minted token is not revocable: it stays
@@ -776,9 +776,9 @@ async fn a_solo_users_personal_account_is_unaffected() {
 /// is asserted.
 #[tokio::test]
 async fn the_seam_and_file_readable_by_never_disagree() {
-    use cytoanalyst::modules::file::access::DatasetFileAccessPolicy;
-    use cytoanalyst::modules::sandbox::inputs::file_readable_by;
-    use ziee_file::seams::{FileAccess, FileAccessPolicy};
+    use txresbench::modules::file::access::DatasetFileAccessPolicy;
+    use txresbench::modules::sandbox::inputs::file_readable_by;
+    use txresbench_file::seams::{FileAccess, FileAccessPolicy};
 
     let server = TestServer::spawn().await;
     let fx = Fx::build(&server).await;
@@ -905,7 +905,7 @@ async fn the_seam_and_file_readable_by_never_disagree() {
 /// policy is genuinely permissive, which is the case that matters.
 #[tokio::test]
 async fn a_co_member_with_full_dataset_standing_still_cannot_reach_anothers_file() {
-    use cytoanalyst::modules::file::access::readable_file_ids;
+    use txresbench::modules::file::access::readable_file_ids;
 
     let server = TestServer::spawn().await;
     let fx = Fx::build(&server).await;
@@ -963,7 +963,7 @@ async fn a_co_member_with_full_dataset_standing_still_cannot_reach_anothers_file
 // ===========================================================================
 // Parent-side proofs of properties the SDK suite also covers.
 //
-// `ziee-file` lives in a submodule, so its own tests are invisible to this
+// `txresbench-file` lives in a submodule, so its own tests are invisible to this
 // repo's diff — and an id whose evidence nothing here can see is exactly the
 // inherited PASS the lifecycle's A11 check exists to refuse. These assert the
 // same claims from the app side, where they can be seen and, in several cases,
@@ -1224,7 +1224,7 @@ async fn the_filtered_listing_pages_and_counts_over_the_filtered_set() {
 /// can pass by coincidence.
 #[tokio::test]
 async fn readable_file_ids_preserves_candidate_order() {
-    use cytoanalyst::modules::file::access::readable_file_ids;
+    use txresbench::modules::file::access::readable_file_ids;
 
     let server = TestServer::spawn().await;
     let fx = Fx::build(&server).await;
@@ -1286,8 +1286,8 @@ async fn readable_file_ids_preserves_candidate_order() {
 /// predicates that always say the same thing proves nothing.
 #[tokio::test]
 async fn the_dataset_branch_agrees_with_the_dataset_read_gate() {
-    use cytoanalyst::modules::file::access::readable_file_ids;
-    use cytoanalyst::modules::workstore::authz::require_dataset_read;
+    use txresbench::modules::file::access::readable_file_ids;
+    use txresbench::modules::workstore::authz::require_dataset_read;
 
     let server = TestServer::spawn().await;
     let fx = Fx::build(&server).await;
@@ -1385,9 +1385,9 @@ async fn the_dataset_branch_agrees_with_the_dataset_read_gate() {
 }
 
 /// TEST-19 [acceptance] [invariant: INV-5] — **the SDK store cannot reach a
-/// cytoanalyst concept, as a matter of what it is able to compile.**
+/// txresbench concept, as a matter of what it is able to compile.**
 ///
-/// The design's hard line is that `ziee-file` "has no concept of cytoanalyst's
+/// The design's hard line is that `txresbench-file` "has no concept of txresbench's
 /// datasets, accounts, projects or shares, and it must not gain one".
 ///
 /// An earlier version of this test asserted that the crate's sources contain no
@@ -1397,7 +1397,7 @@ async fn the_dataset_branch_agrees_with_the_dataset_read_gate() {
 /// the words I happened to think of. It is replaced here by the fact it was
 /// standing in for.
 ///
-/// `ziee-file` verifies every `sqlx::query!` at COMPILE TIME against a build
+/// `txresbench-file` verifies every `sqlx::query!` at COMPILE TIME against a build
 /// database built from its own `migrations/` directory and nothing else (see the
 /// crate's `build.rs`). So the set of tables that directory defines IS the crate's
 /// entire data universe: a query joining `datasets`, `dataset_files` or
@@ -1407,7 +1407,7 @@ async fn the_dataset_branch_agrees_with_the_dataset_read_gate() {
 /// which fails this test.
 #[test]
 fn the_sdk_file_crate_cannot_compile_a_query_against_a_host_table() {
-    let crate_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../sdk/crates/ziee-file");
+    let crate_root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../sdk/crates/txresbench-file");
     let migrations = std::path::Path::new(crate_root).join("migrations");
 
     let mut defined: Vec<String> = Vec::new();
@@ -1452,23 +1452,23 @@ fn the_sdk_file_crate_cannot_compile_a_query_against_a_host_table() {
         defined,
         vec!["file_versions".to_string(), "files".to_string()],
         "the crate's compile-time schema universe must be the blob store's own two \
-         tables and nothing else. Anything added here is a table `ziee-file` can \
+         tables and nothing else. Anything added here is a table `txresbench-file` can \
          then JOIN — which is precisely how it would gain a host concept."
     );
 
     // The other half of "cannot reach the host": no dependency on it.
     let manifest = std::fs::read_to_string(std::path::Path::new(crate_root).join("Cargo.toml"))
-        .expect("read ziee-file Cargo.toml");
+        .expect("read txresbench-file Cargo.toml");
     assert!(
-        !manifest.contains("cytoanalyst"),
-        "ziee-file must not depend on the host application"
+        !manifest.contains("txresbench"),
+        "txresbench-file must not depend on the host application"
     );
 }
 
 /// TEST-8 / TEST-10 — the SDK's shipped policy defaults, pinned from the repo
 /// that owns the pin.
 ///
-/// `DenyAllFileAccess` and `OwnerOnlyFileAccess` are the two impls `ziee-file`
+/// `DenyAllFileAccess` and `OwnerOnlyFileAccess` are the two impls `txresbench-file`
 /// ships, and the whole fail-closed argument rests on what they do: the first is
 /// what a host reaches for when it has not modelled file authorization yet, the
 /// second is the explicit, greppable opt-in back to "ownership is the whole
@@ -1478,7 +1478,7 @@ fn the_sdk_file_crate_cannot_compile_a_query_against_a_host_table() {
 /// made `DenyAllFileAccess` permissive, THIS repo fails.
 #[tokio::test]
 async fn the_sdk_ships_a_denying_default_and_a_named_permissive_opt_in() {
-    use ziee_file::seams::{DenyAllFileAccess, FileAccess, FileAccessPolicy, OwnerOnlyFileAccess};
+    use txresbench_file::seams::{DenyAllFileAccess, FileAccess, FileAccessPolicy, OwnerOnlyFileAccess};
 
     let principal = Uuid::new_v4();
     let a = Uuid::new_v4();
@@ -1661,8 +1661,8 @@ async fn a_view_only_sharee_can_read_but_cannot_delete_or_restore() {
 /// "may edit its dataset", across a role matrix containing BOTH verdicts.
 #[tokio::test]
 async fn the_write_branch_agrees_with_require_can_edit() {
-    use cytoanalyst::modules::dataset::repository::{DatasetAccess, DatasetRepository};
-    use cytoanalyst::modules::file::access::writable_file_ids;
+    use txresbench::modules::dataset::repository::{DatasetAccess, DatasetRepository};
+    use txresbench::modules::file::access::writable_file_ids;
 
     let server = TestServer::spawn().await;
     let fx = Fx::build(&server).await;
@@ -1743,6 +1743,6 @@ async fn readable_file_ids_pub(
     pool: &sqlx::SqlitePool,
     user: Uuid,
     ids: &[Uuid],
-) -> Result<Vec<Uuid>, ziee_core::AppError> {
-    cytoanalyst::modules::file::access::readable_file_ids(pool, user, ids).await
+) -> Result<Vec<Uuid>, txresbench_core::AppError> {
+    txresbench::modules::file::access::readable_file_ids(pool, user, ids).await
 }

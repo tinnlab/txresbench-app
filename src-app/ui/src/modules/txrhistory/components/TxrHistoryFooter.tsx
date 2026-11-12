@@ -22,7 +22,7 @@
  * singular.
  */
 import type { CSSProperties } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import type { TxrHistoryPreferences, TxrHistoryUsage } from '@/api-client/types'
 import { formatBytes, HISTORY_USAGE_TRAIL } from '../lib/format'
 

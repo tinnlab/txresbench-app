@@ -49,7 +49,7 @@ use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 use sqlx::SqlitePool;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 /// The module instance. It holds the process pool for the boot-time work this
 /// node owns (CONS-EE-1: `database::get_database_pool`'s single pool; the
@@ -199,7 +199,7 @@ static EXECUTION_ENGINE: ModuleEntry = ModuleEntry {
 mod tests {
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::SqlitePool;
-    use ziee_framework::MODULE_ENTRIES;
+    use txresbench_framework::MODULE_ENTRIES;
 
     use super::*;
 
@@ -269,8 +269,8 @@ mod tests {
         .await
         .expect("method");
 
-        let cfg: ziee_core::ServerConfig = serde_norway::from_str(
-            "database:\n  path: \"\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-for-the-engine-module-over-32-chars\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
+        let cfg: txresbench_core::ServerConfig = serde_norway::from_str(
+            "database:\n  path: \"\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-for-the-engine-module-over-32-chars\"\n  issuer: \"txresbench\"\n  audience: \"txresbench-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
         )
         .expect("test config parses");
         let ctx = ModuleContext::new(
@@ -342,8 +342,8 @@ mod tests {
         let pool = SqlitePool::connect("sqlite::memory:")
             .await
             .expect("in-memory pool connects");
-        let cfg: ziee_core::ServerConfig = serde_norway::from_str(
-            "database:\n  path: \"\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-for-the-engine-module-over-32-chars\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
+        let cfg: txresbench_core::ServerConfig = serde_norway::from_str(
+            "database:\n  path: \"\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-for-the-engine-module-over-32-chars\"\n  issuer: \"txresbench\"\n  audience: \"txresbench-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
         )
         .expect("test config parses");
         let ctx = ModuleContext::new(
@@ -365,8 +365,8 @@ mod tests {
             .max_connections(1)
             .connect_lazy("sqlite::memory:")
             .expect("lazy pool parses");
-        let cfg2: ziee_core::ServerConfig = serde_norway::from_str(
-            "database:\n  path: \"\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-for-the-engine-module-over-32-chars\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
+        let cfg2: txresbench_core::ServerConfig = serde_norway::from_str(
+            "database:\n  path: \"\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-for-the-engine-module-over-32-chars\"\n  issuer: \"txresbench\"\n  audience: \"txresbench-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
         )
         .expect("test config parses");
         let ctx2 = ModuleContext::new(
@@ -389,8 +389,8 @@ mod tests {
         let pool = SqlitePool::connect("sqlite::memory:")
             .await
             .expect("in-memory pool connects");
-        let cfg: ziee_core::ServerConfig = serde_norway::from_str(
-            "database:\n  path: \"\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-for-the-engine-module-over-32-chars\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
+        let cfg: txresbench_core::ServerConfig = serde_norway::from_str(
+            "database:\n  path: \"\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-for-the-engine-module-over-32-chars\"\n  issuer: \"txresbench\"\n  audience: \"txresbench-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
         )
         .expect("test config parses");
         let ctx = ModuleContext::new(

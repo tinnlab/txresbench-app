@@ -40,7 +40,7 @@ async fn deactivate(server: &TestServer, _admin: &str, user_id: &str) {
     let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect deactivate pool");
-    ziee_auth::user::UserRepository::new(pool.clone())
+    txresbench_auth::user::UserRepository::new(pool.clone())
         .set_active(uuid::Uuid::parse_str(user_id).expect("user id is a uuid"), false)
         .await
         .expect("deactivate user");

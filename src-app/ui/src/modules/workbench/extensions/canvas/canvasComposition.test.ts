@@ -23,7 +23,7 @@
 // what it merged, and the assertions below are on that stated fact rather than on a throw.
 
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
-import type { VizOption, VizSeries } from '@ziee/viz'
+import type { VizOption, VizSeries } from '@txresbench/viz'
 import { composeCanvas, __resetCompositionWarningForTests, type CanvasContribution } from './canvasComposition'
 
 /** One block's contribution: a plot per entry in ITS OWN list, exactly as a `for_each` resolves. */

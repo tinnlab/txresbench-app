@@ -101,7 +101,7 @@ pub fn payload() -> serde_json::Value {
         "worktreeRoot": WORKTREE_ROOT,
         "pid": std::process::id(),
         // Named so a human curling this endpoint knows what they are looking at.
-        "server": "cytoanalyst",
+        "server": "txresbench",
     })
 }
 
@@ -142,8 +142,8 @@ mod tests {
     fn sentinel_root_matches_js_strip_rule() {
         let cases = [
             (
-                "/data/pbya/cytoanalyst/wt/src-app/server",
-                "/data/pbya/cytoanalyst/wt",
+                "/data/pbya/txresbench/wt/src-app/server",
+                "/data/pbya/txresbench/wt",
             ),
             ("C:\\work\\tree\\src-app\\server", "C:\\work\\tree"),
             ("/no/marker/here", "/no/marker/here"),

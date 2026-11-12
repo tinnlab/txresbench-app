@@ -1,16 +1,16 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { gallerySentinelPlugin } from '@ziee/gallery/vite/vite-plugin-gallery-sentinel.js'
+import { gallerySentinelPlugin } from '@txresbench/gallery/vite/vite-plugin-gallery-sentinel.js'
 import { resolve } from 'node:path'
 
-// Dev/demo Vite config for the @ziee/viz showcase. Root = the package, so the
+// Dev/demo Vite config for the @txresbench/viz showcase. Root = the package, so the
 // viz-showcase.html entry sits at the package root and its `/src/...` module
 // scripts resolve under src/. Backend-free (fixture-seeded); served on :1421 for
 // the viz e2e + gallery-verify.
 export default defineConfig({
   root: __dirname,
-  // Tailwind (v4 vite plugin) powers the @ziee/kit-based in-cell controls in the standalone showcase;
+  // Tailwind (v4 vite plugin) powers the @txresbench/kit-based in-cell controls in the standalone showcase;
   // the CSS pipeline is dev/demo-only (viz-showcase.html), never a release build.
   //
   // `gallerySentinelPlugin` answers `/__worktree` with THIS server's worktree root
@@ -18,7 +18,7 @@ export default defineConfig({
   // lets the viz e2e runner PROVE that a showcase already listening on the port it wants
   // belongs to this worktree before reusing it. Without it every reuse is a guess, and on
   // this multi-worktree box the guess was wrong: two trees raced for the old fixed :1421
-  // and the loser audited the winner's @ziee/viz build. Do not remove it —
+  // and the loser audited the winner's @txresbench/viz build. Do not remove it —
   // `src-app/ui/scripts/resolve-viz-port.mjs` FAILS CLOSED (skips the port) when a server
   // does not answer `/__worktree`, so dropping this plugin does not silently degrade to
   // the old behaviour; it makes every run boot a fresh server on a fresh port.

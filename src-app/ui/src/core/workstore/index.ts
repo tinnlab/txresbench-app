@@ -25,7 +25,7 @@ export {
 } from './binaryClient'
 export type { ByteRange, SparseColumn } from './binaryClient'
 
-// The byte source a pyramidal-raster reader consumes. `@ziee/viz`'s `loadOmeTiffPyramid`
+// The byte source a pyramidal-raster reader consumes. `@txresbench/viz`'s `loadOmeTiffPyramid`
 // takes a byte length + an inclusive-span read and knows nothing else about storage; this
 // is the one implementation of that seam over the artifact byte plane. See
 // `artifactByteRangeSource.ts` for why the length is a parameter rather than a discovery.
@@ -189,7 +189,7 @@ export type {
   ZarrTypedArray,
 } from './zarrReader'
 
-// Expose the real data-plane readers on `window.__cyto_read` so an e2e can drive the
+// Expose the real data-plane readers on `window.__txr_read` so an e2e can drive the
 // ACTUAL shipped decode (byte ranges over `/data/{*member}` → the zero-dep decoders)
 // against the real backend in the browser, with NO route mocking. Read-only testability
 // seam, gated so it is tree-shaken OUT of a real release bundle (matching the backend's
@@ -213,7 +213,7 @@ import {
 } from './artifactReader'
 import { artifactByteRangeSource } from './artifactByteRangeSource'
 if ((import.meta.env.DEV || import.meta.env.VITE_ENABLE_TEST_SEAMS) && typeof window !== 'undefined') {
-  ;(window as unknown as { __cyto_read?: unknown }).__cyto_read = {
+  ;(window as unknown as { __txr_read?: unknown }).__txr_read = {
     parseStructure,
     /**
      * DECODE counting (ITEM-11). `enable()` starts recording and clears; `counts()` snapshots
@@ -251,7 +251,7 @@ if ((import.meta.env.DEV || import.meta.env.VITE_ENABLE_TEST_SEAMS) && typeof wi
      * source, and a passing e2e here must not be mistaken for coverage of it.
      */
     omeTiffPyramid: async (id: string, byteLength: number) => {
-      const { loadOmeTiffPyramid } = await import('@ziee/viz')
+      const { loadOmeTiffPyramid } = await import('@txresbench/viz')
       const result = await loadOmeTiffPyramid(artifactByteRangeSource(id, byteLength))
       const tile = await result.pyramid[0].getTile({ x: 0, y: 0, selection: { c: 0 } })
       return {

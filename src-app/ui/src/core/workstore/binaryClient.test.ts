@@ -21,12 +21,12 @@
 //
 // This used to scan `ui/src` + `ui/package.json` and nothing else — which left a hole the
 // exact shape of the invariant. `ui` is one workspace among several; it consumes
-// `@ziee/viz`, `@ziee/kit`, `@ziee/dock`, … as FIRST-PARTY SOURCE (their `main`/`exports`
+// `@txresbench/viz`, `@txresbench/kit`, `@txresbench/dock`, … as FIRST-PARTY SOURCE (their `main`/`exports`
 // point straight at `src/*.ts`, so they are compiled into the app, not consumed as a
 // prebuilt artifact). A format-library import in a workspace package is therefore in the
 // UI's bundle just as surely as one written in `ui/src` — and the planted probe proved it:
-// a `tableFromIPC` import added to `@ziee/viz`'s `src/charts.ts`, which `ui` imports as
-// `@ziee/viz/charts`, left all four assertions below GREEN.
+// a `tableFromIPC` import added to `@txresbench/viz`'s `src/charts.ts`, which `ui` imports as
+// `@txresbench/viz/charts`, left all four assertions below GREEN.
 //
 // So the scanned surface is DERIVED: the root `package.json`'s `workspaces` globs give
 // name → directory, and the closure walks `ui`'s workspace dependencies transitively. A

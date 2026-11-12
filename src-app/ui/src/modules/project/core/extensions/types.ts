@@ -7,7 +7,7 @@ import { ProjectDetail } from '@/modules/project/stores/ProjectDetail.store'
  * The project-extension slot registry — the FRONTEND seam by which future project
  * sub-modules (samples, upload, clustering, embedding, visualization, …) add
  * themselves to a project without the project module importing any of them. Mirrors
- * ziee's `projects/core/extensions` pattern; the slot NAMES are project-specific.
+ * txresbench's `projects/core/extensions` pattern; the slot NAMES are project-specific.
  */
 export const PROJECT_SLOTS = {
   /**
@@ -18,7 +18,7 @@ export const PROJECT_SLOTS = {
   project_nav: { description: 'Per-project navigation entry (sidebar + detail shell)' },
   /**
    * A section panel rendered on the project detail page, selected by the URL
-   * `:section`. Zero-prop — reads `ProjectDetail` like ziee project panels.
+   * `:section`. Zero-prop — reads `ProjectDetail` like txresbench project panels.
    */
   detail_panels: { description: 'A section panel on the project detail page' },
   /**

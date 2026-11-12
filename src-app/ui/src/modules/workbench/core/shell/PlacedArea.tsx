@@ -9,7 +9,7 @@
 // The `center` area is the HERO: its single view renders chrome-less + full-bleed (no tab
 // strip, no header) — canvas-hero discipline (IA §4.5.3).
 
-import { Empty, Tabs } from '@ziee/kit'
+import { Empty, Tabs } from '@txresbench/kit'
 import { WorkbenchLayout } from '@/modules/workbench/core/shell/stores/WorkbenchLayout.store'
 import type { DockArea } from './types'
 import { useCurrentLayout } from './stores/WorkbenchLayout.store'

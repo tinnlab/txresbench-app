@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
-import { Alert, Button, Checkbox, Confirm, Input, InputNumber } from '@ziee/kit'
+import { Alert, Button, Checkbox, Confirm, Input, InputNumber } from '@txresbench/kit'
 import {
   Command,
   CommandDialog,
@@ -9,8 +9,8 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from '@ziee/kit/shadcn/command'
-import { Field, FieldContent, FieldGroup, FieldLabel } from '@ziee/kit/shadcn/field'
+} from '@txresbench/kit/shadcn/command'
+import { Field, FieldContent, FieldGroup, FieldLabel } from '@txresbench/kit/shadcn/field'
 import {
   getActionMeta,
   getActionRegistry,
@@ -30,7 +30,7 @@ import { gatePaletteActions, type GatedAction } from './paletteGating'
 // field read during render subscribes) so the permission-filtered list
 // below also recomputes the instant a live permission change lands, not
 // only at the next palette-open transition.
-import { authStoreProxy } from '@ziee/framework/permissions'
+import { authStoreProxy } from '@txresbench/framework/permissions'
 import { closeCommandPalette, useCommandPaletteOpen } from './paletteState'
 import { defaultParamValue, paramSchemaToFields, type ParamField } from './paramForm'
 

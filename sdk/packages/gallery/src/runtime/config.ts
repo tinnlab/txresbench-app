@@ -4,8 +4,8 @@
  * The gallery FRAMEWORK is app-agnostic: everything it used to reach through the
  * app's `@/` alias (the api-client route table, the module loader / router store /
  * auth seed, the app `ThemeProvider` / error boundary / loading + lazy renderers,
- * the accent tokens + theme writers) is injected here. `@ziee/kit` +
- * `@ziee/framework/stores` stay hard package deps. Surface DISCOVERY stays app-side
+ * the accent tokens + theme writers) is injected here. `@txresbench/kit` +
+ * `@txresbench/framework/stores` stay hard package deps. Surface DISCOVERY stays app-side
  * (`import.meta.glob` is Vite-only and cannot cross the package boundary) and is
  * injected via `discoverGalleries`.
  */

@@ -1,6 +1,6 @@
-//! CytoAnalyst desktop — a Tauri shell over the SDK's `ziee-desktop-harness`.
+//! TxResBench desktop — a Tauri shell over the SDK's `txresbench-desktop-harness`.
 //!
-//! Single-user desktop deployment: embeds the CytoAnalyst server, auto-provisions
+//! Single-user desktop deployment: embeds the TxResBench server, auto-provisions
 //! + auto-logs-in the owner, and shows the web UI in a native window. Almost all
 //! of the shell (window construction, boot→window lifecycle, single-user mint) is
 //! inherited from the harness; this crate supplies only the `ServerBoot` impl,
@@ -17,8 +17,8 @@ pub mod updates;
 
 use std::sync::Arc;
 
-use ziee_desktop_harness::boot::ServerBoot;
-use ziee_desktop_harness::window::{spawn_boot_then_window, WindowConfig};
+use txresbench_desktop_harness::boot::ServerBoot;
+use txresbench_desktop_harness::window::{spawn_boot_then_window, WindowConfig};
 
 use crate::server_boot::CytoServerBoot;
 
@@ -40,7 +40,7 @@ pub fn register_invoke_handler<R: tauri::Runtime>(
     ])
 }
 
-/// The main-window parameters for the CytoAnalyst desktop shell.
+/// The main-window parameters for the TxResBench desktop shell.
 ///
 /// Extracted from `run()` so the pop-out enablement is a statically-testable
 /// value. `enable_popout_windows: true` is the load-bearing flag for ITEM-32:
@@ -94,7 +94,7 @@ pub fn run() {
 
             // ITEM-3 (PROV-IR-5/8): provision the bundled models from the
             // embedded resource dir BEFORE the server's boot task starts —
-            // `CYTO_TXR_BUNDLED_MODELS_DIR` must precede the
+            // `TXR_BUNDLED_MODELS_DIR` must precede the
             // pretrained_catalogue module's init (its bundled-dir resolution
             // reads the env var at module setup). A failed provision is
             // logged and boot continues: the catalogue module's install path
@@ -152,7 +152,7 @@ mod tests {
     fn desktop_opts_into_window_open_popout() {
         assert!(
             desktop_window_config().enable_popout_windows,
-            "cytoanalyst-desktop must set enable_popout_windows=true so the \
+            "txresbench-desktop must set enable_popout_windows=true so the \
              harness wires on_new_window→Create (+ Linux \
              javascript_can_open_windows_automatically) for the workbench pane \
              pop-out; without it window.open is denied on the desktop build",
@@ -237,7 +237,7 @@ mod tests {
     /// TEST-IR-16 (ITEM-3 half): the setup closure provisions the bundled
     /// models BEFORE the boot→window spawn — the env-var-before-server-boot
     /// order PROV-IR-8 pins (the pretrained_catalogue module reads
-    /// `CYTO_TXR_BUNDLED_MODELS_DIR` at module init, so the provision must
+    /// `TXR_BUNDLED_MODELS_DIR` at module init, so the provision must
     /// run first). Source-order assertion, same raw-string discipline as the
     /// capability tests; the post-window update-check half of TEST-IR-16 is
     /// ITEM-4's, with the boot-check start.

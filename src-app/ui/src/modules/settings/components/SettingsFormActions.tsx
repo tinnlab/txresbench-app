@@ -1,4 +1,4 @@
-import { Button, Flex } from '@ziee/kit'
+import { Button, Flex } from '@txresbench/kit'
 
 interface SettingsFormActionsProps {
   /** Primary submit handler — wire to `form.handleSubmit(onSubmit)`. */

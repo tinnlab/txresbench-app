@@ -30,11 +30,11 @@
 # cannot afford (the shipped image is ~287 MB and a build pulls a full scientific stack).
 # So the guarantee is tiered, and the tiers are stated rather than blurred:
 #
-#   AUTHORITATIVE (this file, `cyto_verify_image_runs_jq`) — runs in the IMAGE-BUILD path
+#   AUTHORITATIVE (this file, `txr_verify_image_runs_jq`) — runs in the IMAGE-BUILD path
 #     (`publish-env-rootfs.sh`, immediately after `docker build`). It EXECUTES `jq` inside
 #     the image. This is the assertion that actually holds the property.
 #
-#   CONSUMER (this file, `cyto_verify_rootfs_has_jq`) — runs in the FETCH path
+#   CONSUMER (this file, `txr_verify_rootfs_has_jq`) — runs in the FETCH path
 #     (`fetch-env-rootfs.sh`), inside the squashfuse probe that already verifies the
 #     schema marker and the interpreter. It asserts the binary is present in the artifact
 #     actually received. Presence rather than execution, because the mounted rootfs's
@@ -68,7 +68,7 @@
 
 # `jq` must EXECUTE inside the built image. $1 = a docker image reference.
 # Returns 0 on success; prints an actionable diagnosis and returns 1 otherwise.
-cyto_verify_image_runs_jq() {
+txr_verify_image_runs_jq() {
   _img="$1"
   if ! command -v docker >/dev/null 2>&1; then
     echo "[env-image] WARN: docker not on PATH — skipping the behavioural jq check" >&2
@@ -97,7 +97,7 @@ EOF
 # Presence, not execution: the image's loader is not the host's, so running it here would
 # fail on a perfectly good image (the same reason the sibling /opt/venv check tests the
 # symlink rather than executing python).
-cyto_verify_rootfs_has_jq() {
+txr_verify_rootfs_has_jq() {
   _root="$1"
   for _p in usr/bin/jq bin/jq usr/local/bin/jq; do
     if [ -x "$_root/$_p" ] || [ -f "$_root/$_p" ]; then

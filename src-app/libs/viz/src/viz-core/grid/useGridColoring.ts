@@ -665,7 +665,7 @@ export function useGridColoring({
   // ZERO new viz files: this is granted file #3.
   //
   // READ-ONLY and DEBUG-ONLY. It exposes a COPY (`Array.from`) so a spec cannot mutate the buffer
-  // the deck uploads, and it is gated exactly like the app's `__cyto_read` / `__cyto_count_decodes`
+  // the deck uploads, and it is gated exactly like the app's `__txr_read` / `__txr_count_decodes`
   // — the Vite dev server, or the e2e preview build's `VITE_ENABLE_TEST_SEAMS=1`. A release bundle
   // sets neither, so `import.meta.env.DEV` folds to `false` and the whole block is dropped.
   //

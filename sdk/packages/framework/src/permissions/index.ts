@@ -1,8 +1,8 @@
-// @ziee/framework/permissions — framework-level permission-gating primitives.
+// @txresbench/framework/permissions — framework-level permission-gating primitives.
 //
 // The four gating layers an app composes on top of these: slot `permission`
-// fields → route `permission` (via `@ziee/framework/router`'s RoutePermissionGate)
-// → `<Can>` → `usePermission`. See ziee's `.claude/PERMISSION_GATING.md`.
+// fields → route `permission` (via `@txresbench/framework/router`'s RoutePermissionGate)
+// → `<Can>` → `usePermission`. See txresbench's `.claude/PERMISSION_GATING.md`.
 //
 // SEAM: the reactive/snapshot hooks read the app-registered `Auth` store (a
 // store named `Auth` exposing `{ user, permissions }`) via `authStoreProxy`.

@@ -1,6 +1,6 @@
 //! Sandbox capability + context types.
 //!
-//! Ported from ziee `code_sandbox/types.rs`, collapsed to the Linux-only,
+//! Ported from txresbench `code_sandbox/types.rs`, collapsed to the Linux-only,
 //! single-rootfs, companion-driven shape (no JSON-RPC envelope, no per-flavor
 //! lock — DEC-2/DEC-3).
 
@@ -69,7 +69,7 @@ pub struct SandboxContext {
 
 /// A read-only / read-write mount plumbed into the sandbox — e.g. an input
 /// count matrix or BAM the analysis needs. Kept generic (the MCP/attachment
-/// coupling from ziee is dropped — DEC-3).
+/// coupling from txresbench is dropped — DEC-3).
 #[derive(Debug, Clone)]
 pub struct ExtraMount {
     pub host_path: PathBuf,

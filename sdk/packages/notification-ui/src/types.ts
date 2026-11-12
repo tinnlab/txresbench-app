@@ -1,13 +1,13 @@
-// @ziee/notification-ui — shared types for the reusable notification UI shell.
+// @txresbench/notification-ui — shared types for the reusable notification UI shell.
 //
 // This package ships the GENERIC bell + toast + inbox + store. It is
 // app-agnostic: it reads the app's notification REST surface through the
 // `NotificationApiPort` SEAM (the app injects its generated `ApiClient.Notification`)
 // and its live rows through the `Stores.Notifications` typed-view (`NotificationsStoreView`),
-// never a concrete app store type — mirroring how `@ziee/shell` reads
+// never a concrete app store type — mirroring how `@txresbench/shell` reads
 // `Stores.AppLayout` through a typed-view cast.
 
-import type { PermissionExpr } from '@ziee/framework/permissions'
+import type { PermissionExpr } from '@txresbench/framework/permissions'
 
 /**
  * A notification row as the inbox store holds it. Intentionally a loose,
@@ -105,7 +105,7 @@ export interface NotificationsStoreDeps {
 /**
  * The reactive shape the bell / toast / inbox read off `Stores.Notifications`
  * through a typed-view cast (the app registers the store under this name via
- * the factory). Mirrors `@ziee/shell`'s `Stores.AppLayout` typed-view seam.
+ * the factory). Mirrors `@txresbench/shell`'s `Stores.AppLayout` typed-view seam.
  */
 export interface NotificationsStoreView {
   items: NotificationRow[]

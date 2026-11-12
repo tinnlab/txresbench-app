@@ -23,7 +23,7 @@
 
 use std::sync::Arc;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::object_store::{sha256_hex, ContentKey, ObjectStore};
 

@@ -13,7 +13,7 @@
 //! blob is now decoded by the client like every other artifact. So a csv upload becomes a
 //! table artifact with no new codec dep and no sandbox.
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::registry::DatatypeRegistry;
 use super::types::{ConverterRef, ConverterRun};

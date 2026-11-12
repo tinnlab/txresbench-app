@@ -93,8 +93,8 @@ def test_the_produced_artifact_declares_the_same_entity_axis(clusters_run):
     entry = run.da_entries()[0]
     assert entry["datatype"] == "da/result"
     assert entry["layout"] == "columnar-table"
-    cyto = run.da_cyto(entry)
-    assert cyto["da"]["entity_axis"] == "population"
+    txr = run.da_txr(entry)
+    assert txr["da"]["entity_axis"] == "population"
     assert entry["meta"]["entity_axis"] == "population"
     assert entry["meta"]["axis"] == "populations"
     # the population key member is present and names the levels

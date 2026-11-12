@@ -89,7 +89,7 @@ test('admin sets default env-id; registry base is read-only', async ({ page }) =
 
   await expect(page.getByTestId('sandbox-env-image-card')).toBeVisible()
   // Registry base + tag are shown as read-only text, not editable inputs.
-  await expect(page.getByTestId('sandbox-env-registry-base')).toContainText('ghcr.io/ziee-ai/cyto-env')
+  await expect(page.getByTestId('sandbox-env-registry-base')).toContainText('ghcr.io/tinnlab/txresbench-env')
   await expect(page.getByTestId('sandbox-env-moving-tag')).toContainText('latest')
 
   const envInput = page.getByTestId('sandbox-default-env-id')

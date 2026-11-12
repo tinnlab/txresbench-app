@@ -39,7 +39,7 @@ import {
   Permissions,
 } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
-import type { StoreSet } from '@ziee/framework/store-kit'
+import type { StoreSet } from '@txresbench/framework/store-kit'
 import { rememberJobNames } from './jobNames'
 
 /**

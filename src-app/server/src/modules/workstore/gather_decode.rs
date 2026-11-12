@@ -48,7 +48,7 @@
 
 use std::io::Read;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// The codec chain this module is allowed to decode — **the entire allowance**.
 ///

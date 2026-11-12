@@ -69,7 +69,7 @@ import type {
   MembersRef,
   StreamOptions,
   StreamingSource,
-} from '@ziee/viz'
+} from '@txresbench/viz'
 
 /** One catalog row. Named off {@link DatasetCatalog} rather than imported, because viz's barrel
  *  publishes the catalog and not its element type — and reaching past the barrel into
@@ -101,12 +101,12 @@ const REPLAY_BUDGET_BYTES = 128 * 1024 * 1024
 // IS one, and the absence leg's control now genuinely exercises the threshold, because the
 // single-chunk read's one arrival gets its own commit before `done`.
 //
-// GATED exactly like `window.__cyto_read` / `window.__cyto_count_decodes`: the Vite dev server or
+// GATED exactly like `window.__txr_read` / `window.__txr_count_decodes`: the Vite dev server or
 // the e2e preview build's `VITE_ENABLE_TEST_SEAMS=1`. Both fold to constants at build time, so a
 // release bundle drops the read and `delayBetweenChunks` becomes an unconditional no-op.
 //
 // Read PER CHUNK from a plain window variable rather than through a setter, for the same reason
-// `__cyto_count_decodes` is: a spec sets it in `addInitScript`, before any app module has run, so
+// `__txr_count_decodes` is: a spec sets it in `addInitScript`, before any app module has run, so
 // there is no ordering race between arming the seam and the first read starting.
 const DELAY_SEAM_ENABLED = Boolean(import.meta.env.DEV || import.meta.env.VITE_ENABLE_TEST_SEAMS)
 
@@ -114,7 +114,7 @@ const DELAY_SEAM_ENABLED = Boolean(import.meta.env.DEV || import.meta.env.VITE_E
  *  nonsense gets the production behaviour rather than a hang. */
 function chunkArrivalDelayMs(): number {
   if (!DELAY_SEAM_ENABLED || typeof window === 'undefined') return 0
-  const raw = (window as unknown as { __cyto_stream_chunk_delay_ms?: unknown }).__cyto_stream_chunk_delay_ms
+  const raw = (window as unknown as { __txr_stream_chunk_delay_ms?: unknown }).__txr_stream_chunk_delay_ms
   const ms = typeof raw === 'number' ? raw : Number(raw)
   return Number.isFinite(ms) && ms > 0 ? Math.min(ms, 5_000) : 0
 }
@@ -260,7 +260,7 @@ function defaultStreamingDeps(): WorkbenchStreamingDeps {
     readSparse: (artifactId, col, structure) => readSparseColumn(artifactId, col, structure),
     declaredLevels: async (artifactId, memberPath, structure) => {
       // The member row's own `levels` first (free — the structure is already in hand); then the
-      // array's `attributes.cyto.levels`, which is where a producer that outgrew the manifest
+      // array's `attributes.txr.levels`, which is where a producer that outgrew the manifest
       // cap puts them. Absence is an answer, not an error: a `string` column legitimately has
       // no declared level set (see `categoriesFor`).
       const declared = declaredMemberLevels(structure, memberPath)
@@ -488,7 +488,7 @@ export class WorkbenchStreamingSource implements StreamingSource {
    * declared level set (a `string` column; a numeric column coloured categorically) has none to
    * read: its categories only exist once the values have been seen, so that entry is resolved by
    * reading the column — through this source's own cache, so the `stream()` that follows costs
-   * ZERO additional decodes. The declared path is the one every `cyto_columns` categorical takes.
+   * ZERO additional decodes. The declared path is the one every `txr_columns` categorical takes.
    */
   catalog(): Promise<DatasetCatalog> {
     if (!this.#catalogCache) {

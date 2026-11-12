@@ -87,7 +87,7 @@ MANIFEST='scripts/guard-hashes.txt'
 # a diff with no pin next to it, which is the exact laundering check 1 exists to stop.
 #
 # THE SECOND EFFECT, stated because "more files pinned" is only half of what this does. Being
-# pinned here is key 1 of the `cyto:guard-vocabulary` exemption in check-derived-vocabulary.sh,
+# pinned here is key 1 of the `txr:guard-vocabulary` exemption in check-derived-vocabulary.sh,
 # so this manifest doubles as that exemption's eligibility list — widening the glob makes any
 # file dropped into scripts/lib/ exemption-ELIGIBLE, not merely pinned. That is bounded the same
 # way everything else here is (the marker must still be declared IN the file, in a diff a human

@@ -13,11 +13,11 @@
 use serde_json::json;
 use uuid::Uuid;
 
-use cytoanalyst::modules::project::GcManifest;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::gc::GcSweeper;
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
-use cytoanalyst::modules::workstore::partition::StoreClaim;
+use txresbench::modules::project::GcManifest;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::gc::GcSweeper;
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::workstore::partition::StoreClaim;
 
 use super::{create_project, pool_for, server_store, setup_admin, write_manifest};
 use crate::common::TestServer;

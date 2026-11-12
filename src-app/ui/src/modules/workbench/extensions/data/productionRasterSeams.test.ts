@@ -27,7 +27,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('@ziee/kit', () => ({
+vi.mock('@txresbench/kit', () => ({
   message: { info: () => {}, success: () => {}, error: () => {} },
 }))
 
@@ -70,7 +70,7 @@ const RASTER_ROW: DataPlaneArtifact = {
 }
 
 async function realPyramid() {
-  const { loadOmeTiffPyramid } = await import('@ziee/viz/core')
+  const { loadOmeTiffPyramid } = await import('@txresbench/viz/core')
   return loadOmeTiffPyramid({
     byteLength: RASTER_BYTES.byteLength,
     async read(start: number, end: number) {
@@ -88,7 +88,7 @@ const pullDeps = (): Partial<WorkbenchDataSourceDeps> => ({
 
 /** The EXACT composition `projectSources.ts` performs, with only the transport injected. */
 async function productionChain() {
-  const { asDataSource } = await import('@ziee/viz/core')
+  const { asDataSource } = await import('@txresbench/viz/core')
   const pull = new WorkbenchDataSource('p1', pullDeps())
   return asDataSource(new WorkbenchStreamingSource('p1', { pull }))
 }
@@ -176,7 +176,7 @@ describe('TEST-5 [acceptance] INV-2 — the seams are on the object the GRID hol
   it('a source that DOES declare a mask gets one through the same chain — the forwarding half', async () => {
     // The mask has no producer, so this uses a hand-built streaming source. The subject is not
     // the mask's contents; it is that nothing between a source and a renderer drops the seam.
-    const { asDataSource } = await import('@ziee/viz/core')
+    const { asDataSource } = await import('@txresbench/viz/core')
     const pull = new WorkbenchDataSource('p1', pullDeps())
     const withMask = new WorkbenchStreamingSource('p1', { pull })
     const token = { labels: new Uint16Array([1, 2, 3]) }
@@ -190,7 +190,7 @@ describe('TEST-5 [acceptance] INV-2 — the seams are on the object the GRID hol
   it('and a source that declares NEITHER seam produces an object carrying NEITHER key', async () => {
     // The non-vacuity control for every `in`-check above. Absence has to be reachable, or
     // "present" asserts nothing.
-    const { asDataSource } = await import('@ziee/viz/core')
+    const { asDataSource } = await import('@txresbench/viz/core')
     const bare = {
       catalog: async () => ({
         datasetId: 'p1',
@@ -243,7 +243,7 @@ describe('TEST-11 the coordinate_space declaration survives the streaming adapte
         hasCapability: (dt: string, cap: string) =>
           dt === layoutRow.datatype && (cap === 'plottable-xy' || cap === 'spatial-coordinates'),
       }
-      const { asDataSource } = await import('@ziee/viz/core')
+      const { asDataSource } = await import('@txresbench/viz/core')
       const pull = new WorkbenchDataSource('p1', deps)
       const direct = await pull.catalog()
       const throughAdapter = await asDataSource(

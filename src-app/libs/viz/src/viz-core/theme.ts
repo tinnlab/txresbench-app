@@ -1,8 +1,8 @@
 // theme.ts — the framework-agnostic viz CHROME theme (DEC-39). viz-core NEVER reads the
 // app theme; every DOM control widget + chart chrome takes fg/line/grid/surface colors
-// from a `VizTheme` prop (the ziee adapter passes the app theme; the showcase passes a
+// from a `VizTheme` prop (the txresbench adapter passes the app theme; the showcase passes a
 // toggle). DATA marks (colormaps, categorical palette, heatmap texture) are unchanged by
-// this — they read on both themes on their own. No @ziee/* imports.
+// this — they read on both themes on their own. No @txresbench/* imports.
 
 /** The theme-aware CHROME colors a viz control/frame draws with (never the data ramp). */
 export interface VizTheme {

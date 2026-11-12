@@ -1,5 +1,5 @@
 // cropCanvas.ts — crop a single PANE out of a full workspace canvas (ITEM-47).
-// Framework-agnostic (viz-core): plain DOM only, no @ziee/*. A caller supplies a
+// Framework-agnostic (viz-core): plain DOM only, no @txresbench/*. A caller supplies a
 // pane's CSS rect (relative to the on-screen canvas); we blit the matching
 // sub-rectangle of the canvas's BACKING STORE into a fresh canvas so per-pane PNG
 // export is a REAL crop, not the whole grid.

@@ -21,7 +21,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import xenium_fixtures as XF  # noqa: E402
 
-import cyto_zarr_read as CZR  # noqa: E402
+import txr_zarr_read as CZR  # noqa: E402
 
 
 def _copy(tmp_path, name, src=None):
@@ -1305,7 +1305,7 @@ def test_TEST_14_an_ordinary_bundle_imports_under_an_ASCII_LOCALE(tmp_path):
         f"runpy.run_path({str(XF.PKG / 'compute' / 'import_xenium.py')!r}, "
         "run_name='__main__')\n",
         cwd=outputs,
-        extra_env={"CYTO_INPUTS_DIR": str(inputs), "CYTO_OUTPUTS_DIR": str(outputs)},
+        extra_env={"TXR_INPUTS_DIR": str(inputs), "TXR_OUTPUTS_DIR": str(outputs)},
     )
     err = run.stderr.decode("utf-8", "backslashreplace")
     assert "UnicodeEncodeError" not in err, err[-2500:]

@@ -5,8 +5,8 @@
  *
  * ── WHY THIS EXISTS ───────────────────────────────────────────────────────────
  *
- * ziee enforces this with a Biome `noRestrictedImports` + raw-element guardrail.
- * CytoAnalyst had the hardcoded-colour lint and the domain ratchet but NO such
+ * txresbench enforces this with a Biome `noRestrictedImports` + raw-element guardrail.
+ * TxResBench had the hardcoded-colour lint and the domain ratchet but NO such
  * guard, and the consequence is measurable: the last live native `<select>` and a
  * raw `<button>` in this tree were found by a human READING the code, not by any
  * gate. A raw control silently opts out of the whole design contract at once —
@@ -405,7 +405,7 @@ function main() {
   for (const s of stale)
     console.error(`  STALE ${s.key}  (ledger says ${s.allowed}, only ${s.count} remain)`)
   console.error(
-    `\n  Use the kit control (Button / Input / Select / Textarea from @ziee/kit): it carries the\n` +
+    `\n  Use the kit control (Button / Input / Select / Textarea from @txresbench/kit): it carries the\n` +
       `  tokens, the focus ring, the disabled+invalid states, the accessible-name props and the\n` +
       `  \`data-slot\` the e2e and visual tiers select on. If this ONE line genuinely needs the raw\n` +
       `  element, mark it: \`// ${OPT_OUT_MARKER}: <reason>\`. After removing a hit, re-derive the\n` +

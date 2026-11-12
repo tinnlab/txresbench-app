@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::jobs::repository::JobRepository;
+use txresbench::modules::jobs::repository::JobRepository;
 
 use super::hardening_common::pool_for;
 use super::setup_admin;

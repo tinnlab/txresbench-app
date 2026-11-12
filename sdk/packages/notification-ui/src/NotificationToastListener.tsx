@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 
-import { useEventBusStore } from '@ziee/framework/events'
-import { message } from '@ziee/kit'
+import { useEventBusStore } from '@txresbench/framework/events'
+import { message } from '@txresbench/kit'
 
 import { notificationsStore } from './storeView'
 
@@ -18,7 +18,7 @@ import { notificationsStore } from './storeView'
  * Toast severity is derived generically from the notification `kind`: a kind
  * ending in `_failed` / `_error` shows an error toast, everything else an info
  * toast. An app registers richer per-kind rendering via the
- * `@ziee/framework/notification` renderer registry (inbox), independent of this
+ * `@txresbench/framework/notification` renderer registry (inbox), independent of this
  * transient toast.
  */
 export function NotificationToastListener() {

@@ -5,11 +5,11 @@
 //   • a CLASS/LABEL panel — a class list with a colour swatch + inline rename + add-class,
 //     mirroring `PaneEditForm`'s `Categories` rows.
 // Every action routes to the store; no local editing state lives here (the drawing gesture is
-// owned by `useAnnotateEditor`). Built on @ziee/kit + lucide to match the workbench chrome.
+// owned by `useAnnotateEditor`). Built on @txresbench/kit + lucide to match the workbench chrome.
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type React from 'react'
-import { Button, Input } from '@ziee/kit'
+import { Button, Input } from '@txresbench/kit'
 // BLIND-AUDIT M12/M14: `Download` was ALSO the pane toolbar's registered "Export this pane" glyph
 // and the rail's "Export whole grid" — three verbs, one glyph, all reachable on one screen. Handing
 // counted points to a segmenter is not an export, so it gets its own mark. `CircleDot` distinguishes

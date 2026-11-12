@@ -23,7 +23,7 @@
 # `datatype/mod.rs::init` via `DatatypeRegistry::build_from_embedded()`.
 id: open-kinds
 name: Open Kinds (geneset / graph / DE)
-publisher: cyto
+publisher: txr
 # 0.2.0 — drops the RETIRED `storage.selector_map` / `storage.tiers` and
 # `arrays[].selector_map` keys (artifact-model ITEM-14; §0.3 Deleted). The core structs
 # that accepted-and-discarded them are gone and both are `deny_unknown_fields`, so an
@@ -61,7 +61,7 @@ contributes:
       # producer (`geneset/compute/freeze.py`) therefore emits ONLY the `membership` CSC and
       # rides the per-set metadata (name/description/collection + kind/origin/data_driven,
       # GS-INV-12) in the artifact's producer-declared `structure.sets` channel (the sanctioned
-      # `stamp_cyto_attributes` seam DE uses). That per-set metadata is read back END-TO-END
+      # `stamp_txr_attributes` seam DE uses). That per-set metadata is read back END-TO-END
       # through ingest→catalog by `server/tests/geneset/freeze_test.rs` (it asserts each set's
       # kind/origin/data_driven off the frozen artifact's catalog `structure`) — INV-4/5 proven
       # on the emitted artifact, not merely on this declaration. The `scores` +
@@ -173,7 +173,7 @@ contributes:
     # `padj` matrix could not represent without NaN-fill. Column names are DOMAIN-NEUTRAL
     # (strip-lint safe): `neglog10p` is stored, NOT raw `pval` (G1 — f32 p underflows to 0
     # below ~1e-45, destroying the ranking among the top hits). The per-artifact `regime`
-    # (G3) + `multiplicity_family` (G4) ride the artifact's `attributes.cyto.de`. R2/R3
+    # (G3) + `multiplicity_family` (G4) ride the artifact's `attributes.txr.de`. R2/R3
     # artifacts OMIT `neglog10p`/`padj`/`padj_across` entirely (absent, not 1 — INV-3).
     - id: de/result
       extends: tabular

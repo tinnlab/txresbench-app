@@ -1,4 +1,4 @@
-// events/emitter.ts — the typed PLOT-EVENT surface for `@ziee/viz` (EVENT_API_PLAN Phases 1+2).
+// events/emitter.ts — the typed PLOT-EVENT surface for `@txresbench/viz` (EVENT_API_PLAN Phases 1+2).
 // The equivalent of ECharts' `chart.on('selectchanged' | 'datazoom' | 'legendselectchanged',
 // handler)`: a small, pure, DOM/store/React-free emitter carrying a domain-neutral event union
 // (canonical point ids, axis windows, category codes, column names). Unlike the app-level
@@ -12,7 +12,7 @@
 // `VizController` (which bridges the coordination store's selection → `select`) without a
 // viz-core→adapter edge.
 //
-// viz-core rule: no @ziee/*, no store, no React — a plain listener registry.
+// viz-core rule: no @txresbench/*, no store, no React — a plain listener registry.
 
 import type { VizWindow } from '../option/types'
 

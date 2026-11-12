@@ -257,12 +257,12 @@ async fn pretrained_and_installed_rows_answer_identically() {
 
     // The estimate is PROV-MC-6's one formula, in-process (the provider's
     // estimator at the file's patient count with the default CPU pairing).
-    let method = cytoanalyst::modules::method_catalogue::catalogue::method(METHOD)
+    let method = txresbench::modules::method_catalogue::catalogue::method(METHOD)
         .expect("the method is in the committed catalogue");
-    let expect_seconds = cytoanalyst::modules::method_catalogue::eligibility::estimate_seconds_for(
+    let expect_seconds = txresbench::modules::method_catalogue::eligibility::estimate_seconds_for(
         method,
         2,
-        cytoanalyst::modules::method_catalogue::types::DEFAULT_ESTIMATE_CPUS,
+        txresbench::modules::method_catalogue::types::DEFAULT_ESTIMATE_CPUS,
     );
     assert_eq!(
         pr["estimated_seconds"].as_f64(),
@@ -276,7 +276,7 @@ async fn pretrained_and_installed_rows_answer_identically() {
     // re-verifies the tree digest over the imported tree — the bytes the
     // packer wrote are the bytes the engine would run.
     let p = pool(&server).await;
-    let assets = cytoanalyst::modules::model_store::store::resolve_assets(
+    let assets = txresbench::modules::model_store::store::resolve_assets(
         &p,
         &[model_id.clone()],
     )
@@ -285,7 +285,7 @@ async fn pretrained_and_installed_rows_answer_identically() {
     assert_eq!(assets.len(), 1);
     assert_eq!(assets[0].method_id, METHOD);
     assert_eq!(assets[0].method_version, "2.0.0");
-    let recomputed = cytoanalyst::modules::sandbox::stack::tree_sha256(
+    let recomputed = txresbench::modules::sandbox::stack::tree_sha256(
         std::path::Path::new(&assets[0].host_dir),
     )
     .expect("tree digest");
@@ -303,8 +303,8 @@ async fn pretrained_and_installed_rows_answer_identically() {
 /// contract.
 #[test]
 fn tampered_container_bytes_are_refused_by_the_store_reader() {
-    use cytoanalyst::modules::model_store::container::read_container_bytes;
-    use cytoanalyst::modules::model_store::types::ModelStoreLimits;
+    use txresbench::modules::model_store::container::read_container_bytes;
+    use txresbench::modules::model_store::types::ModelStoreLimits;
     let scratch = std::env::temp_dir().join(format!(
         "pc-parity-tamper-{}-{}",
         std::process::id(),
@@ -323,7 +323,7 @@ fn tampered_container_bytes_are_refused_by_the_store_reader() {
     // One flipped byte in the LAST entry's payload (the tree file bytes —
     // the header survives; the per-entry sha256 then fails). The framing:
     // ... entry bytes, 32-byte entry sha256, u64 training count, end magic.
-    use cytoanalyst::modules::model_store::container::END_MAGIC;
+    use txresbench::modules::model_store::container::END_MAGIC;
     let mut tampered = good.clone();
     let payload_at = tampered.len() - END_MAGIC.len() - 8 - 32 - 1;
     tampered[payload_at] ^= 0xFF;

@@ -243,7 +243,7 @@ async fn a_stranger_hears_nothing() {
 /// implementation returning "every user" would satisfy every positive assertion.
 #[tokio::test]
 async fn dataset_audience_resolves_owner_user_share_and_group_share() {
-    use cytoanalyst::modules::dataset::sync::dataset_audience;
+    use txresbench::modules::dataset::sync::dataset_audience;
     use uuid::Uuid;
 
     let server = TestServer::spawn().await;

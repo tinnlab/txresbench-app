@@ -1,6 +1,6 @@
 # Testing Guide
 
-> `sdk:` = `sdk/packages/…`; `ziee:` = the reference app. The binding *rules* are
+> `sdk:` = `sdk/packages/…`; `txresbench:` = the reference app. The binding *rules* are
 > `CODING_GUIDELINES.md` §14; this doc is the **shape** — the tiers, the harness,
 > the selector ladder, and where a feature's suites go.
 >
@@ -28,7 +28,7 @@ the UI first, and a stale `dist/` silently tests old code.
 `testIgnore`. A tier needing a *differently configured backend* or a *different
 server* gets its own sibling `tests/<tier>-e2e/` + `playwright.<tier>.config.ts` +
 npm script, driven from the same recipe — never a nested directory under the main
-`tests/e2e/`. (ziee's main config does carry a `testIgnore: '**/visual/**'` for a
+`tests/e2e/`. (txresbench's main config does carry a `testIgnore: '**/visual/**'` for a
 backend-free visual layer with its own config; a nested exception is the thing to
 avoid, not the sibling.)
 
@@ -61,7 +61,7 @@ defaults to 6.
 
 ## 3. E2E — drive the real app
 
-The scaffold is `@ziee/test-e2e` (`sdk:test-e2e`): a parameterized Playwright
+The scaffold is `@txresbench/test-e2e` (`sdk:test-e2e`): a parameterized Playwright
 preset, the per-run Postgres global-setup/teardown, a port allocator, and the
 selector helpers. The app supplies specs + fixtures through one `E2EConfig` seam.
 
@@ -154,7 +154,7 @@ the type system, which is the whole point of typed selectors.
 
 ## 5. The gallery — a real testing tier, not a storybook
 
-`@ziee/gallery` (`sdk:gallery`) is a framework; the app injects everything
+`@txresbench/gallery` (`sdk:gallery`) is a framework; the app injects everything
 app-specific through one `mountGallery(GalleryConfig)` call, from a **separate
 Vite entry** (`gallery.html`) that the app's `main.tsx` never imports — so it
 tree-shakes out of production, asserted by `check:gallery-prod-exclusion`.
@@ -169,7 +169,7 @@ Two authoring lanes:
   setup}`, where `setup` seeds store state no GET can produce.
 
 📐 Both lanes may live in `modules/<name>/gallery.tsx` (co-located, the newer
-convention) or in a central `dev/gallery/stories/` (ziee's historical shape).
+convention) or in a central `dev/gallery/stories/` (txresbench's historical shape).
 Pick one per app and keep it.
 
 The gates on top:

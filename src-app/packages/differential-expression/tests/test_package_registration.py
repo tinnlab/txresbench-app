@@ -22,7 +22,7 @@ def test_pytest_ini_registers_the_de_suite():
 def test_manifest_is_registrable():
     doc = yaml.safe_load(_MANIFEST.read_text())
     assert doc["id"] == "differential-expression"
-    assert doc["publisher"] == "cyto"
+    assert doc["publisher"] == "txr"
     assert doc["version"]
     assert {a["id"] for a in doc["contributes"]["analyses"]} == {"de.compare", "de.markers"}
     # the Visualize SECTION contribution is present (ITEM-13 / ITEM-65).

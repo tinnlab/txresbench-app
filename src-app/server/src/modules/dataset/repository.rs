@@ -21,7 +21,7 @@
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use crate::modules::datatype::types::FileLayout;
 use crate::modules::workstore::object_store::{merkle_root, ContentKey, MemberRef};
@@ -683,7 +683,7 @@ pub enum DatasetAccess {
 /// a JSON array of 32-char lowercase hex strings, compared against a 16-byte
 /// BLOB column through `unhex()` —
 /// `col IN (SELECT unhex(j.value) FROM json_each($1) AS j)`. This is the
-/// ITEM-15 `ziee-file` convention (its `uuid_list_json`), kept local because
+/// ITEM-15 `txresbench-file` convention (its `uuid_list_json`), kept local because
 /// the app's modules are single-driver (DEC-1) and beside the seven
 /// group-share + two `id = ANY(…)` sites in this module it serves no other
 /// surface.
@@ -1448,7 +1448,7 @@ impl DatasetRepository {
 
     // ------------------------------- files -------------------------------
 
-    /// Link one ziee-file file into a dataset at `ordinal` as a PRIMARY file
+    /// Link one txresbench-file file into a dataset at `ordinal` as a PRIMARY file
     /// (ITEM-9 back-compatible shim). Delegates to `link_file_with_role` with
     /// `role='primary'` + no `kind` — the pre-supporting-files behaviour.
     pub async fn link_file(
@@ -1461,7 +1461,7 @@ impl DatasetRepository {
             .await
     }
 
-    /// Link one ziee-file file into a dataset at `ordinal` with an explicit
+    /// Link one txresbench-file file into a dataset at `ordinal` with an explicit
     /// `role` (`primary`|`supporting`) + optional supporting `kind` (ITEM-9). A
     /// supporting file's `integration_status` starts NULL (the caller sets it to
     /// `pending` when it enqueues the kind-processor). An existing link is updated

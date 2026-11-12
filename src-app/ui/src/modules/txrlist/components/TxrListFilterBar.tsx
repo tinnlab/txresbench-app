@@ -27,7 +27,7 @@
  * - the search placeholder is the board's byte ("Find a model or run");
  *   the sort control is the board's "Sort by" label + select.
  */
-import { Button, Checkbox, Input, Select } from '@ziee/kit'
+import { Button, Checkbox, Input, Select } from '@txresbench/kit'
 import type { TxrFilterChip, TxrListRow, TxrSearchControl, TxrSortControl } from '../types'
 
 export interface TxrListFilterBarProps {

@@ -34,7 +34,7 @@
 // every frame inside the window is absorbed into it.
 
 import { useEffect, useState } from 'react'
-import { EventBus } from '@ziee/framework/stores'
+import { EventBus } from '@txresbench/framework/stores'
 import { Permissions } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
 

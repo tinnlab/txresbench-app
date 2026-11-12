@@ -34,7 +34,7 @@
 import { act } from 'react'
 import { render } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { createVizStores, defaultVizStores, installBuiltins, VizController, type DatasetResolver } from '@ziee/viz'
+import { createVizStores, defaultVizStores, installBuiltins, VizController, type DatasetResolver } from '@txresbench/viz'
 import { createWorkbenchApi } from '@/modules/workbench/core'
 import type { ViewSpec } from '@/modules/workbench/core/manifest/viewSpec'
 import { makeFakeHost } from '@/modules/workbench/core/host/createHost'

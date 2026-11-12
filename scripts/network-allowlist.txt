@@ -43,4 +43,4 @@ viz.local
 # JSON-Schema identifiers: the workbench manifest schema's $schema/$id
 # documents (never fetched by the app).
 json-schema.org
-cyto.ai
+txr.ai

@@ -33,7 +33,7 @@ import {
   type MultiSelectOption,
   type SelectOption,
   type SelectOptionGroup,
-} from '@ziee/kit'
+} from '@txresbench/kit'
 import { BINDING_ORIGIN_COPY, ORIGIN_AUTO } from '@/modules/workbench/core/runtime/bindingOrigin'
 import { DEFAULT_VALUE_PREVIEW, previewableColumn } from '@/core/workstore'
 import type { ArtifactRefWidget as ArtifactRefWidgetSpec } from '@/modules/workbench/core/manifest/viewSpec'

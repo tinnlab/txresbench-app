@@ -39,7 +39,7 @@ than implied:
     committed `spatial-image-lowres.ome.tif`, i.e. our own emitted artifact's raster, read back
     out of it — and the TEXT of the OME-XML string below. Pillow will not author OME-XML, so the
     `<OME>` document is HAND-WRITTEN for this fixture (see `_ome_xml`). It is not `ome_writer`'s
-    output and does not resemble it: no `urn:uuid`, no `Creator="tifffile…"`, no `cyto-spatial/1`
+    output and does not resemble it: no `urn:uuid`, no `Creator="tifffile…"`, no `txr-spatial/1`
     placement payload.
   * **Nothing in this file was produced by `ome_writer.write_ome_tiff`.**
 
@@ -178,7 +178,7 @@ def _ome_xml(width: int, height: int, samples: int) -> str:
     creator = (
         f"Pillow {PIL.__version__} / libtiff {_libtiff_version()} (TIFF bytes) "
         f"+ hand-authored OME-XML (make-third-party-stripped-fixture.py, #322) "
-        f"— NOT written by cytoanalyst's ome_writer.py"
+        f"— NOT written by txresbench's ome_writer.py"
     )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'

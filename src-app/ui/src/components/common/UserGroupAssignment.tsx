@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Pencil, ChevronDown, ChevronRight } from 'lucide-react'
-import { message, Button, Card, Flex, Space, Spin, Switch, Tag, Text, Title } from '@ziee/kit'
-import { Drawer } from '@ziee/shell'
+import { message, Button, Card, Flex, Space, Spin, Switch, Tag, Text, Title } from '@txresbench/kit'
+import { Drawer } from '@txresbench/shell'
 
 export interface UserGroupOption {
   id: string

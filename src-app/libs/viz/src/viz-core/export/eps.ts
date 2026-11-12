@@ -66,7 +66,7 @@ export function buildEPS(scene: VectorScene, raster?: EpsRaster): string {
   L.push('%!PS-Adobe-3.0 EPSF-3.0')
   L.push(`%%BoundingBox: 0 0 ${Math.ceil(W)} ${Math.ceil(H)}`)
   L.push(`%%HiResBoundingBox: 0 0 ${f(W)} ${f(H)}`)
-  L.push('%%Creator: ziee-viz')
+  L.push('%%Creator: txresbench-viz')
   L.push('%%EndComments')
   L.push('1 setlinejoin 1 setlinecap')
 

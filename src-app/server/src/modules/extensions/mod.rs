@@ -18,7 +18,7 @@ use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 use std::sync::Arc;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 pub mod embedded;
 pub mod loader;
@@ -441,16 +441,16 @@ pub fn contributed_datatypes_from_embedded_in(
 }
 
 /// Deploy-level SEED-ONLY kill-switch (M8, CODING_GUIDELINES §16). When ON
-/// (`CYTO_PROCESSOR_SEED_ONLY=1`), the app restricts itself to the trusted BAKED seed:
+/// (`TXR_PROCESSOR_SEED_ONLY=1`), the app restricts itself to the trusted BAKED seed:
 /// the folder scan IGNORES any unmanaged (user / attacker-dropped) package folder, the
 /// live watcher is NOT spawned, and a reload re-reads only the seed-managed set — so an
 /// operator can defend against a malicious drop-in by refusing to discover unmanaged
 /// folders. OFF by default (runtime discovery is the D2 feature). Read the same
-/// env-var way as the watcher kill-switch (`CYTO_PROCESSOR_WATCH_ENABLED`).
+/// env-var way as the watcher kill-switch (`TXR_PROCESSOR_WATCH_ENABLED`).
 pub fn seed_only_enabled() -> bool {
     // One shared predicate with the other deploy-level switches (`loader::truthy_env`), so
     // the accepted vocabulary cannot drift between them.
-    loader::truthy_env(std::env::var("CYTO_PROCESSOR_SEED_ONLY").ok().as_deref())
+    loader::truthy_env(std::env::var("TXR_PROCESSOR_SEED_ONLY").ok().as_deref())
 }
 
 /// The SINGLE rescan+republish path shared by the live filesystem watcher (S6,
@@ -564,7 +564,7 @@ impl AppModule for ExtensionsModule {
         // runtime discovery + watcher run as normal.
         if seed_only_enabled() {
             tracing::warn!(
-                "extensions: SEED-ONLY mode (CYTO_PROCESSOR_SEED_ONLY) — ignoring unmanaged \
+                "extensions: SEED-ONLY mode (TXR_PROCESSOR_SEED_ONLY) — ignoring unmanaged \
                  drop-in packages; live watcher NOT started"
             );
         } else {

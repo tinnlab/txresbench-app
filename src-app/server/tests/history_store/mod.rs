@@ -25,16 +25,16 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::common::TestServer;
-use cytoanalyst::modules::execution_engine::envmanifest;
-use cytoanalyst::modules::execution_engine::repository::{
+use txresbench::modules::execution_engine::envmanifest;
+use txresbench::modules::execution_engine::repository::{
     MethodPatch, NewMethod, NewRun, TxrRepository,
 };
-use cytoanalyst::modules::execution_engine::types::{
+use txresbench::modules::execution_engine::types::{
     RunConfig, TxrEndpoint, TxrMethodState, TxrRunCounts, TxrRunEstimate, TxrRunFileNames,
     TxrRunInputSummary, TxrRunMode, TxrRunReason, TxrRunStatus, TxrTask,
 };
-use cytoanalyst::modules::method_catalogue::types::TimingQuality;
-use cytoanalyst::modules::sandbox::stack::tree_sha256;
+use txresbench::modules::method_catalogue::types::TimingQuality;
+use txresbench::modules::sandbox::stack::tree_sha256;
 
 // ─────────────────────────────── shared helpers ──────────────────────────────
 
@@ -81,7 +81,7 @@ pub async fn pool(server: &TestServer) -> sqlx::SqlitePool {
 /// The catalogue-first facts of a seeded method row (label/version/group) —
 /// the engine's own record, never re-authored here.
 fn method_facts(method_id: &str) -> CatalogFacts {
-    let m = cytoanalyst::modules::method_catalogue::catalogue::method(method_id)
+    let m = txresbench::modules::method_catalogue::catalogue::method(method_id)
         .expect("the seeded method is a catalogue method");
     CatalogFacts {
         label: m.id.clone(),
@@ -157,7 +157,7 @@ impl SeedRun {
             elapsed_secs: Some(190),
             predictions_ready: true,
             config: RunConfig {
-                endpoint: cytoanalyst::modules::execution_engine::types::TxrEndpoint::Pfs,
+                endpoint: txresbench::modules::execution_engine::types::TxrEndpoint::Pfs,
                 decision_day: 56.0,
                 look_ahead_day: 238.0,
                 covariates: true,
@@ -345,7 +345,7 @@ fn counts_for(spec: &SeedRun) -> TxrRunCounts {
 /// own `TxrRunOutcomeSpec` rule mirrored: `survival` → Pfs at a pfs run, Os
 /// at an os run; `response` → Response; an unparsed combination → None).
 fn task_for(method_id: &str, endpoint: TxrEndpoint) -> Option<TxrTask> {
-    let m = cytoanalyst::modules::method_catalogue::catalogue::method(method_id)?;
+    let m = txresbench::modules::method_catalogue::catalogue::method(method_id)?;
     if m.tasks.iter().any(|t| t == "response") {
         return Some(TxrTask::Response);
     }
@@ -470,7 +470,7 @@ pub async fn seed_produced_method(
 /// worked example).
 pub fn config_pfs() -> RunConfig {
     RunConfig {
-        endpoint: cytoanalyst::modules::execution_engine::types::TxrEndpoint::Pfs,
+        endpoint: txresbench::modules::execution_engine::types::TxrEndpoint::Pfs,
         decision_day: 56.0,
         look_ahead_day: 238.0,
         covariates: true,
@@ -539,7 +539,7 @@ async fn the_module_boots_and_serves_the_seven_history_operations() {
     // test (`ALL` == `ROUTE_DOC_IDS`).
     let mut ids: Vec<&str> = ops.iter().map(|op| op.1.as_str()).collect();
     ids.sort_unstable();
-    let mut expected = cytoanalyst::modules::history_store::types::ROUTE_DOC_IDS.to_vec();
+    let mut expected = txresbench::modules::history_store::types::ROUTE_DOC_IDS.to_vec();
     expected.sort_unstable();
     assert_eq!(
         ids, expected,

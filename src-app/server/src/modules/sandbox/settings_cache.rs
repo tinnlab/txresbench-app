@@ -1,6 +1,6 @@
 //! In-process cache of the sandbox resource-limits singleton.
 //!
-//! Mirrors ziee `code_sandbox/resource_limits_cache.rs`: an `OnceLock<RwLock<
+//! Mirrors txresbench `code_sandbox/resource_limits_cache.rs`: an `OnceLock<RwLock<
 //! Arc<..>>>` loaded once from the DB, swapped on every PUT, read on the hot
 //! path (each sandbox run). Starts at the hardcoded defaults so a read before
 //! the first DB load (or after a DB error) is always safe.

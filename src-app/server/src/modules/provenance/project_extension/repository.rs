@@ -3,7 +3,7 @@
 
 use sqlx::{Sqlite, Transaction};
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use crate::modules::provenance::repository::ProvenanceRepository;
 

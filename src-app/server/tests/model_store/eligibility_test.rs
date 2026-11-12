@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::common::TestServer;
 use super::{error_code, owner_token, pool, seed_run_with_models};
-use cytoanalyst::modules::execution_engine::repository::TxrRepository;
+use txresbench::modules::execution_engine::repository::TxrRepository;
 
 /// The two seeded methods (real catalogue + env-manifest entries, so the save
 /// records the catalogue's marker facts — the eligibility engine's inputs).

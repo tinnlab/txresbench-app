@@ -14,14 +14,14 @@ built-in MCP server + chat integration + the frontend chat/approval panel.
 Ground: PLATFORM_ARCHITECTURE §0.4 / §0.4.1 / §0.4.2 / §0.5 / §0.6, §6.5-C.
 
 ## The one grounding fact both rounds converged on
-CytoAnalyst (`/data/pbya/ziee/tmp/cytoanalyst/src-app/server/src/modules/`) has **NO chat / LLM / MCP-host /
+TxResBench (`/data/pbya/txresbench/tmp/txresbench/src-app/server/src/modules/`) has **NO chat / LLM / MCP-host /
 tool-approval substrate** — only `{app, dataset, file, health, jobs, rootfs, sandbox, study, sync, user}`. The
 full substrate (`chat`, `mcp` client/session/handlers/tool_calls/sampling/user_policy, `ai-providers`,
-`control_mcp`, the built-in `*_mcp` servers) exists **only in the ziee reference**. The SDK has extracted only
-the DB-free core: `ziee-framework::mcp` (JSON-RPC 2.0 envelope + `loopback_host` pin) and `ziee-control-mcp`
+`control_mcp`, the built-in `*_mcp` servers) exists **only in the txresbench reference**. The SDK has extracted only
+the DB-free core: `txresbench-framework::mcp` (JSON-RPC 2.0 envelope + `loopback_host` pin) and `txresbench-control-mcp`
 (`catalog`/`policy`/`tools`), whose header states verbatim that a fresh app *"can't self-expose control until the
 Tier-1 `mcp` registry (v1.5)"* — the JWT-forwarding handlers/routes/`mcp_servers` repository/chat-extension
-deliberately stay in ziee. **So P9's headline net-new (a registry→MCP generator) is small and elegant, but it
+deliberately stay in txresbench. **So P9's headline net-new (a registry→MCP generator) is small and elegant, but it
 cannot run without a host chat+MCP+approval substrate this app does not yet have.** P9 therefore splits into a
 blocking **substrate stratum (S)** and the actual **workbench-generator deliverable (G)**; the generator IS
 `control_mcp` re-sourced from the P5 contribution registry instead of the OpenAPI spec.
@@ -35,14 +35,14 @@ blocking **substrate stratum (S)** and the actual **workbench-generator delivera
   loopback JSON-RPC dial carrying the caller's JWT), the **chat-extension** seam
   (`before_llm_call`/`after_llm_call`, `auto_attach_builtin_ids`/`is_builtin_server_id`), **tool-call approval**
   (`tool_use_approvals`, `ApprovalMode`), **tool-call history** (`mcp_tool_calls` + prune), and the
-  untrusted-content guard. Preferred landing: an SDK **Tier-1 `ziee-mcp`** crate (domain-stripped from ziee
+  untrusted-content guard. Preferred landing: an SDK **Tier-1 `txresbench-mcp`** crate (domain-stripped from txresbench
   `modules/mcp` — drop chat-project/workflow/scheduled-task coupling, cf. SDK_GAPS N-1). Reuse verbatim:
-  `ziee-framework::mcp`, `ziee-control-mcp`. **This is the substrate `ziee-control-mcp` calls "v1.5."** Owned
+  `txresbench-framework::mcp`, `txresbench-control-mcp`. **This is the substrate `txresbench-control-mcp` calls "v1.5."** Owned
   jointly with the platform bootstrap / live1 — P9 *depends on* it, does not *own* it.
-- **ITEM-2 (S · BLOCKING)**: Land the **LLM call-loop + provider** — `sdk/crates/ziee-ai-providers`
-  (OpenAI-compatible chat/tool-use client, or promote ziee's `ai-providers`) + a **minimal in-app `modules/chat`**
+- **ITEM-2 (S · BLOCKING)**: Land the **LLM call-loop + provider** — `sdk/crates/tinnlab-providers`
+  (OpenAI-compatible chat/tool-use client, or promote txresbench's `ai-providers`) + a **minimal in-app `modules/chat`**
   (conversation + message store + streaming, hosting the chat_extension chain that injects MCP tools + runs the
-  tool-approval loop). Scoped minimal per DEC-2: skip ziee's projects/loop-settings/title/export. Without a chat
+  tool-approval loop). Scoped minimal per DEC-2: skip txresbench's projects/loop-settings/title/export. Without a chat
   loop the generated tools have no driver.
 - **ITEM-3 (S)**: Define the workbench-AI **permission vocabulary** + outer authz — `workbench_mcp::use`
   (call read/run tools) granted to study members via migration, with the **study role**
@@ -57,8 +57,8 @@ blocking **substrate stratum (S)** and the actual **workbench-generator delivera
   function `build_workbench_catalog(registry, study_ctx) -> Vec<WorkbenchTool>` that walks the P5 catalog once and
   emits a
   typed MCP tool descriptor per exposed contribution. DB-free + unit-testable, mirroring control_mcp's pure
-  `build_catalog`. **Extract a generic shared `ToolGenerator`/projection** (a sibling `ziee-mcp-generator` or a
-  trait in the extended `ziee-control-mcp`) so control's OpenAPI generator and the workbench registry generator
+  `build_catalog`. **Extract a generic shared `ToolGenerator`/projection** (a sibling `txresbench-mcp-generator` or a
+  trait in the extended `txresbench-control-mcp`) so control's OpenAPI generator and the workbench registry generator
   share the projection code (not a fork).
 - **ITEM-6 (G)**: **Analysis → MCP tool projection.** For each `AnalysisContribution`: `name = id`,
   `description = description` (+ `when`/`examples` folded in as routing/few-shot text), `inputSchema = params`
@@ -97,7 +97,7 @@ blocking **substrate stratum (S)** and the actual **workbench-generator delivera
   requires explicit approval; `destructive` requires approval + a confirm surface + `destructiveHint`. (§0.4.)
 - **ITEM-14 (G)**: **Per-study built-in MCP server.** A study-scoped built-in `mcp_servers` row (deterministic
   UUID via `Uuid::new_v5` keyed on study_id, `is_built_in=true`), whose `url` is a host-owned loopback route
-  `POST/GET /api/studies/{study_id}/workbench/mcp`. JSON-RPC handler (reuse `ziee-framework::mcp` envelope +
+  `POST/GET /api/studies/{study_id}/workbench/mcp`. JSON-RPC handler (reuse `txresbench-framework::mcp` envelope +
   `loopback_host`) supporting `initialize`/`tools/list`/`tools/call`/`resources/list`/`resources/read`,
   dispatching via ITEM-11, gated by ITEM-12/13. Lifecycle tied to the study: registered when the study exists,
   torn down by the `on_study_deleted` hook (§0.5 cascade, live5/live8 study-extension registry).
@@ -120,10 +120,10 @@ blocking **substrate stratum (S)** and the actual **workbench-generator delivera
   Selection tools store the **predicate recipe + input hash**, never a materialized cell list.
 - **ITEM-19 (G · frontend)**: **`src-app/ui/src/modules/workbench-ai/`** — a chat/AI **panel** as a
   `ViewContribution` in a workbench dock (P6): streaming assistant output + a **tool-approval UI** (approve/deny
-  pending tool calls, showing tool + args + safety badge) + a "what the AI did" provenance link. Reuse ziee's
+  pending tool calls, showing tool + args + safety badge) + a "what the AI did" provenance link. Reuse txresbench's
   chat UI kit if the chat substrate ports its FE; else minimal.
 - **ITEM-20 (G · registration/kill-switch)**: `mod.rs` module registration (ordered after the mcp substrate so the
-  table/client exist), deterministic `workbench.cyto.internal` server id, deploy-level `workbench_mcp.enabled`
+  table/client exist), deterministic `workbench.txr.internal` server id, deploy-level `workbench_mcp.enabled`
   kill-switch gating init + routes + row upsert (control_mcp §16 pattern), loopback-pinned URL.
 - **ITEM-21 (G · acceptance)**: **Worked-example end-to-end** — "cells with gene ABC > its median → label XYZ"
   (§0.4.1): the AI emits `selection.set_by_predicate(gt(gene ABC, median(gene ABC)))` → host evaluator computes
@@ -140,22 +140,22 @@ blocking **substrate stratum (S)** and the actual **workbench-generator delivera
 ## Files / modules
 
 **SDK (coordinated with live1):**
-- `sdk/crates/ziee-mcp/` (new) — `mcp_servers` table + repository + client/session + chat_extension + tool-approval
+- `sdk/crates/txresbench-mcp/` (new) — `mcp_servers` table + repository + client/session + chat_extension + tool-approval
   + tool_calls + untrusted guard + built-in seam (ITEM-1).
-- `sdk/crates/ziee-ai-providers/` (new, or promote ziee's `ai-providers`) — OpenAI-compatible tool-use client (ITEM-2).
-- `sdk/crates/ziee-control-mcp/` (extend) or `ziee-mcp-generator/` (new) — factor a generic `ToolGenerator`
+- `sdk/crates/tinnlab-providers/` (new, or promote txresbench's `ai-providers`) — OpenAI-compatible tool-use client (ITEM-2).
+- `sdk/crates/txresbench-control-mcp/` (extend) or `txresbench-mcp-generator/` (new) — factor a generic `ToolGenerator`
   projection shared by control's OpenAPI catalog + the workbench registry catalog (ITEM-5).
 
-**CytoAnalyst app (backend):**
+**TxResBench app (backend):**
 - `src-app/server/src/modules/chat/` (new) — minimal chat: conversation/message store, streaming, chat_extension
   chain host (ITEM-2/17).
 - `src-app/server/src/modules/workbench_mcp/mod.rs` — module def + per-study built-in row registration + kill-switch (ITEM-14/20).
 - `.../workbench_mcp/generator.rs` (a.k.a. `catalog.rs`) — `build_workbench_catalog`, analysis/command/selection
-  projection, `ai:false` filter, availability gating (ITEM-5/6/7/10/15). Analog of `ziee-control-mcp/src/catalog.rs`.
-- `.../workbench_mcp/tools.rs` — fixed host-tool descriptors + handlers (ITEM-8). Analog of `ziee-control-mcp/src/tools.rs`.
+  projection, `ai:false` filter, availability gating (ITEM-5/6/7/10/15). Analog of `txresbench-control-mcp/src/catalog.rs`.
+- `.../workbench_mcp/tools.rs` — fixed host-tool descriptors + handlers (ITEM-8). Analog of `txresbench-control-mcp/src/tools.rs`.
 - `.../workbench_mcp/resources.rs` — catalog/selection/data-schema/DSL-vocab providers (ITEM-9).
-- `.../workbench_mcp/policy.rs` — safety→annotation + approval class + role/`gate:` filter (ITEM-12/13). Analog of `ziee-control-mcp/src/policy.rs` (reuse its `is_mutating`/deny primitives).
-- `.../workbench_mcp/handlers.rs` — JSON-RPC route + `invoke` dispatch (reuse `ziee_framework::mcp`) (ITEM-11/14).
+- `.../workbench_mcp/policy.rs` — safety→annotation + approval class + role/`gate:` filter (ITEM-12/13). Analog of `txresbench-control-mcp/src/policy.rs` (reuse its `is_mutating`/deny primitives).
+- `.../workbench_mcp/handlers.rs` — JSON-RPC route + `invoke` dispatch (reuse `txresbench_framework::mcp`) (ITEM-11/14).
 - `.../workbench_mcp/routes.rs` — the `/api/studies/{id}/workbench/mcp` mount + OpenAPI.
 - `.../workbench_mcp/chat_extension.rs` — attach flag + untrusted-content guard + system note (ITEM-16/17).
 - `.../workbench_mcp/provenance.rs` — thin wiring to P4 run nodes + P10 sync (ITEM-18).
@@ -165,7 +165,7 @@ blocking **substrate stratum (S)** and the actual **workbench-generator delivera
 - Migration `…_workbench_mcp.sql` — per-study workbench server rows + (from substrate) `mcp_servers` /
   `tool_use_approvals` / `mcp_tool_calls` tables; `workbench_mcp::use` grant.
 
-**CytoAnalyst app (frontend):**
+**TxResBench app (frontend):**
 - `src-app/ui/src/modules/workbench-ai/` (new) — chat panel `ViewContribution` + streaming + tool-approval UI +
   provenance link (ITEM-19).
 
@@ -177,24 +177,24 @@ blocking **substrate stratum (S)** and the actual **workbench-generator delivera
   `doc`) as first-class contribution fields (§0.4.2), consumed by both the human form and this generator.
 
 ## Reuse
-- **`ziee-framework::mcp`** — JSON-RPC 2.0 envelope (`JsonRpcRequest/Response/Error`, `from_app_error`) +
+- **`txresbench-framework::mcp`** — JSON-RPC 2.0 envelope (`JsonRpcRequest/Response/Error`, `from_app_error`) +
   `loopback_host` security pin. Use verbatim for ITEM-14.
-- **`ziee-control-mcp`** — the shape to copy AND share: `catalog` (registry→descriptor ingest), `policy`
+- **`txresbench-control-mcp`** — the shape to copy AND share: `catalog` (registry→descriptor ingest), `policy`
   (`is_mutating`/deny classification + per-user filter), `tools` (static descriptors + list/describe/invoke
   meta-tool idea). The workbench generator IS control_mcp's pattern re-sourced from the contribution registry;
   ITEM-5 extracts the shared `ToolGenerator`.
-- **ziee reference `modules/mcp` + `modules/chat` + `ai-providers`** (`/data/pbya/ziee/ziee/...`) — the port
+- **txresbench reference `modules/mcp` + `modules/chat` + `ai-providers`** (`/data/pbya/txresbench/txresbench/...`) — the port
   source for ITEM-1/2: `client/session.rs` (`McpCallContext` record chokepoint), `chat_extension` auto-attach
   pattern (bio_mcp/web_search/lit_search/knowledge_base all follow it), `tool_calls/` (history+record+prune),
   `user_policy` (approval bypass for built-ins), sampling. The built-in `*_mcp` servers are the concrete template
   for a study-scoped loopback JSON-RPC built-in server.
 - **live8 `feat/study-management`** — `EffectivePermission` (role gate, ITEM-12) + sync (ITEM-18); already in
-  CytoAnalyst `modules/study` + `modules/sync`.
+  TxResBench `modules/study` + `modules/sync`.
 - **P5 registry** (contribution source), **P8 predicate DSL + evaluator** (selection tools + DSL vocab resource),
   **P1 data API + catalog** (resources + artifact-ref enums), **P2 datatypes**, **P3 JobRunner** (analysis
   dispatch → sandboxed compute), **P4 provenance** (run nodes), **P6 dock/view slot** (chat panel),
   **P10 study substrate** (roles + sync + lifecycle cascade).
-- CytoAnalyst already uses **aide/OpenAPI** + `linkme` MODULE_ENTRIES + `ziee-framework::serve` — the
+- TxResBench already uses **aide/OpenAPI** + `linkme` MODULE_ENTRIES + `txresbench-framework::serve` — the
   registration/route seam is present.
 
 ## Dependencies
@@ -227,10 +227,10 @@ blocking **substrate stratum (S)** and the actual **workbench-generator delivera
     throughout; real-LLM/E2E last.
 
 ## Decisions
-- **DEC-1 (blocking, human):** host substrate = **promote to SDK Tier-1 (`ziee-mcp` + `ziee-ai-providers` +
-  minimal chat)** — the SDK's stated roadmap ("Tier-1 `mcp` registry v1.5"), CytoAnalyst is app #2 dogfooding the
-  SDK, and other apps will need it. **Fallback:** targeted port of ziee `modules/{mcp,chat}` + `ai-providers` into
-  CytoAnalyst app modules (domain-stripped) if live1 can't land it in time — file the extraction as an SDK gap.
+- **DEC-1 (blocking, human):** host substrate = **promote to SDK Tier-1 (`txresbench-mcp` + `tinnlab-providers` +
+  minimal chat)** — the SDK's stated roadmap ("Tier-1 `mcp` registry v1.5"), TxResBench is app #2 dogfooding the
+  SDK, and other apps will need it. **Fallback:** targeted port of txresbench `modules/{mcp,chat}` + `ai-providers` into
+  TxResBench app modules (domain-stripped) if live1 can't land it in time — file the extraction as an SDK gap.
 - **DEC-2:** the workbench MCP server is **backend loopback JSON-RPC** (like every other built-in), not a
   client-side tool host — even though `selection.set_by_predicate` evaluates "in-process," the *backend* evaluates
   against the P1 data plane and pushes the resulting selection to the live client via **sync** (§0.4 co-drive).
@@ -245,7 +245,7 @@ blocking **substrate stratum (S)** and the actual **workbench-generator delivera
 - **DEC-4:** the generator is **SHARED code with control_mcp** (a generic `ToolGenerator` projection), not a fork —
   control = OpenAPI-sourced, workbench = contribution-registry-sourced; both emit MCP tool descriptors + the same
   JWT-forward invoke discipline (ITEM-5).
-- **DEC-5:** chat is a **minimal in-app module**, not a full ziee `chat` port — conversation + message + streaming
+- **DEC-5:** chat is a **minimal in-app module**, not a full txresbench `chat` port — conversation + message + streaming
   + the chat_extension tool loop only; skip projects/loop-settings/title/export (add later if needed).
 - **DEC-6:** view-kinds are addressed by a **single `view.set(cell, kind)` tool**, NOT one tool per viewer
   (§0.4.2). Field-providers / result-renderers are internal, never tools.
@@ -274,16 +274,16 @@ blocking **substrate stratum (S)** and the actual **workbench-generator delivera
   contract being shared, not per-surface.
 - **R5:** study-scope leak — a generated tool must not reach another study's artifacts. Mitigate: study_id is
   server-derived (per-study server row, DEC-3) never a model arg, + owner/role filter at both list and dispatch
-  (control's per-user filter + CytoAnalyst's `get_by_id_and_user` 404-on-foreign discipline).
+  (control's per-user filter + TxResBench's `get_by_id_and_user` 404-on-foreign discipline).
 - **R6:** availability gating (ITEM-15) at `tools/list` time can produce a **stale** tool set if artifacts change
   mid-conversation — wire `notifications/tools/list_changed` or re-attach on sync, or the AI plans against a stale
   graph.
 - **R7:** approval UX for a **chained** AI plan (predicate-select auto-approved, then assign gated) — the human
   must approve the mutating step without re-approving the read step; a per-call approval storm harms UX. Confirm
-  the ported approval flow supports per-tool-call granularity (ziee's does, via `tool_use_approvals`); add a
+  the ported approval flow supports per-tool-call granularity (txresbench's does, via `tool_use_approvals`); add a
   batch/"approve this plan" affordance, destructive always explicit.
 - **R8:** async analysis dispatch is a sandboxed job (possibly minutes) — the MCP `tools/call` must return a **job
-  handle + stream progress**, not block. Reuse ziee's async-tool + `structuredContent` + `get_tool_result`
+  handle + stream progress**, not block. Reuse txresbench's async-tool + `structuredContent` + `get_tool_result`
   (tool_result_mcp) pattern so long analyses don't hang the LLM loop.
 - **R9:** provenance completeness — an AI call that bypasses the JobRunner path (an in-host builtin) must still
   record a run node; enforce via DEC-8 (single capability path).
@@ -294,8 +294,8 @@ blocking **substrate stratum (S)** and the actual **workbench-generator delivera
   hand-scope which SDK crate migrations merge.
 
 ## Effort
-- **Substrate (ITEM-1/2), NOT owned by P9:** L–XL — a multi-crate SDK extraction (`ziee-mcp` +
-  `ziee-ai-providers`) + a minimal chat module. Port ~2-4 weeks; SDK Tier-1 promotion comparable, shared with live1.
+- **Substrate (ITEM-1/2), NOT owned by P9:** L–XL — a multi-crate SDK extraction (`txresbench-mcp` +
+  `tinnlab-providers`) + a minimal chat module. Port ~2-4 weeks; SDK Tier-1 promotion comparable, shared with live1.
 - **Perm/P5 seam (ITEM-3/4):** S–M, co-owned by P5.
 - **Generator core (ITEM-5/6/7/10):** M, ~3-4 d — control_mcp's pattern re-sourced, mostly pure + unit-tested.
 - **Fixed tools + resources (ITEM-8/9):** M, ~3 d — mostly wiring to P8/P1.

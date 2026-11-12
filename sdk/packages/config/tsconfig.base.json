@@ -1,5 +1,5 @@
 {
-  // Base TS config for ziee-SDK apps. Extend it and add app-specific `paths`,
+  // Base TS config for txresbench-SDK apps. Extend it and add app-specific `paths`,
   // `include`, `exclude`, and `references`. Override any compilerOption (child
   // wins) — e.g. a narrower `lib` such as ["ES2020", "DOM", "DOM.Iterable"].
   "compilerOptions": {

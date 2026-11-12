@@ -53,8 +53,8 @@
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
 
 use super::{create_project, pool_for, server_store, setup_admin, write_manifest};
 use crate::common::TestServer;
@@ -90,7 +90,7 @@ const ZARR_JSON: &[u8] = br#"{
 /// same-layout pair, because a same-layout contrast is not the assertion this file
 /// makes.
 fn first_concrete_datatype_with_layout(layout: &str) -> String {
-    use cytoanalyst::modules::datatype::DatatypeRegistry;
+    use txresbench::modules::datatype::DatatypeRegistry;
     let reg = DatatypeRegistry::build_from_embedded().expect("merged registry builds");
     let mut ids: Vec<String> = reg
         .all()

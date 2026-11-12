@@ -22,7 +22,7 @@
 # a real (contributing) package.
 id: _helpers
 name: Shared compute helpers
-publisher: cyto
+publisher: txr
 version: 0.3.4
 apiVersion: "1.0"
 contributes: {}

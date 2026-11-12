@@ -5,7 +5,7 @@
 // the undo stack are STRICTLY per-instance and never leak between cells (§5 multi-instance;
 // INV-2). It mirrors the viz package's existing `Coordination.store` factory idiom
 // (`create<…>()(subscribeWithSelector(…))` + a `create*Store()` factory) rather than the
-// `@ziee/framework` store-kit (which the viz package does not depend on) — same isolation
+// `@txresbench/framework` store-kit (which the viz package does not depend on) — same isolation
 // guarantee, native to this package.
 //
 // State shape (ITEM-5):

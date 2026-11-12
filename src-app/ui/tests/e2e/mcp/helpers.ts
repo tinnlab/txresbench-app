@@ -17,7 +17,7 @@ export async function loginAs(page: Page, username: string, password: string): P
 }
 
 /** Wait for + return the persisted access token (the same token
- *  `@ziee/framework/api-client`'s `getAuthToken()` reads — see
+ *  `@txresbench/framework/api-client`'s `getAuthToken()` reads — see
  *  `Auth.store.ts` / `core/actions/engine.ts`). */
 export async function authToken(page: Page): Promise<string> {
   return waitForToken(page)
@@ -51,7 +51,7 @@ export async function createRestrictedUser(
   const hdr = { Authorization: `Bearer ${adminToken}` }
 
   const reg = await request.post('/api/auth/register', {
-    data: { username, email: `${username}@cyto.test`, password, display_name: username },
+    data: { username, email: `${username}@txresbench.test`, password, display_name: username },
   })
   expect(reg.ok(), `register ${username} -> ${reg.status()} ${await reg.text()}`).toBeTruthy()
   const userToken = (await reg.json()).access_token as string

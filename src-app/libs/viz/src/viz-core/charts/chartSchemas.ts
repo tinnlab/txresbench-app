@@ -11,7 +11,7 @@
 // deck-backed View, so that one requirement pulled the entire GPU render stack onto the
 // boot path.
 //
-// Measured by ABLATION in the CytoAnalyst app (revert this split, rebuild, read the
+// Measured by ABLATION in the TxResBench app (revert this split, rebuild, read the
 // modulepreload set out of `dist/index.html`): calling `installBuiltins()` from the
 // validator instead of `installBuiltinSchemas()` puts **+339.7 kB gzip** back onto the
 // preloaded critical path — bytes a login screen can never use. (Tree-shaking already

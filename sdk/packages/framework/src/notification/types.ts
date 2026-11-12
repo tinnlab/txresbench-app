@@ -1,5 +1,5 @@
 // SDK notification feature — shared FE types. The durable inbox row shape
-// (mirrors the `ziee-notification` crate's `Notification`), plus the per-module
+// (mirrors the `txresbench-notification` crate's `Notification`), plus the per-module
 // renderer-registry types. This is the frontend half of the per-module
 // notification contribution seam: a module registers a `kind` + how to render
 // it; the inbox dispatches on `kind`.

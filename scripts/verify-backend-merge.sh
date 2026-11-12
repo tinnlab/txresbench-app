@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# verify-backend-merge.sh — a CYTO-LOCAL backend merge gate.
+# verify-backend-merge.sh — a TXRESBENCH-LOCAL backend merge gate.
 #
-# The shared agent-kit `merge-gate.mjs` cannot fully validate a cyto backend merge:
+# The shared agent-kit `merge-gate.mjs` cannot fully validate a txr backend merge:
 # it stages the merge with `git worktree add --detach` but NEVER inits the `sdk`
-# submodule, so the staged tree has an EMPTY `sdk/` and every cyto crate (which
+# submodule, so the staged tree has an EMPTY `sdk/` and every txr crate (which
 # path-depends on `sdk/crates/*`) fails to build — C1 (cargo) + C3 (openapi-regen)
 # die on the missing path-deps. `merge-gate.mjs` is symlinked from the agent-kit
 # submodule (shared infra — not ours to edit); see AGENT_KIT_MERGE_GATE_GAP.md for
@@ -41,7 +41,7 @@ done
 # ---- locate the repo ------------------------------------------------------
 REPO="$(git rev-parse --show-toplevel)" || { echo "not in a git repo" >&2; exit 2; }
 CARGO_DIR="src-app/server"
-CARGO_PKG="cytoanalyst"
+CARGO_PKG="txresbench"
 GENERATED="src-app/ui/openapi/openapi.json src-app/ui/src/api-client/types.ts"
 
 FAILS=0
@@ -55,7 +55,7 @@ echo "== verify-backend-merge: $BRANCH onto $BASE (repo $REPO) =="
 git -C "$REPO" fetch origin --quiet 2>/dev/null || true
 
 # ---- staging worktree -----------------------------------------------------
-STAGING="$(mktemp -d "${TMPDIR:-/tmp}/cyto-merge-gate-XXXXXX")"
+STAGING="$(mktemp -d "${TMPDIR:-/tmp}/txr-merge-gate-XXXXXX")"
 cleanup() {
   if [ "$KEEP" = "1" ]; then
     echo "-- staging kept at $STAGING"
@@ -107,7 +107,7 @@ if [ -d "$STAGING/.lifecycle" ]; then fail "C5" "lifecycle-strip" ".lifecycle/ s
 else pass "C5" "lifecycle-strip" ".lifecycle/ stripped from the merge"; fi
 
 # ---- THE FIX: init the sdk submodule in staging (merge-gate.mjs omits this) -
-if git -C "$STAGING" submodule update --init sdk >/dev/null 2>&1 && [ -f "$STAGING/sdk/crates/ziee-framework/Cargo.toml" ]; then
+if git -C "$STAGING" submodule update --init sdk >/dev/null 2>&1 && [ -f "$STAGING/sdk/crates/txresbench-framework/Cargo.toml" ]; then
   pass "SUBMOD" "sdk-init" "sdk submodule checked out in staging (the merge-gate.mjs gap this script fills)"
 else
   fail "SUBMOD" "sdk-init" "could not init the sdk submodule in staging — cargo/regen cannot build"

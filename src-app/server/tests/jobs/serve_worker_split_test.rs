@@ -1,6 +1,6 @@
 //! TEST-2 [acceptance] [invariant: INV-4] — the G2 serve/worker role split (PROV-T3-2).
 //!
-//! An enqueue-only `serve` process (`CYTO_SCHEDULER_ENABLED=0`) accepts `POST /jobs`
+//! An enqueue-only `serve` process (`TXR_SCHEDULER_ENABLED=0`) accepts `POST /jobs`
 //! (status `queued`) but NEVER claims/executes it — the job stays queued. A `serve` process
 //! with the flag ON (single-box default) DOES claim + run it (the positive control that
 //! proves the flag is load-bearing, not vacuous). Workers being the ONLY claimer is the
@@ -34,7 +34,7 @@ async fn enqueue_only_serve_never_claims() {
     assert_eq!(status, 200, "job is visible to its owner");
     assert_eq!(
         body["job"]["status"], "queued",
-        "an enqueue-only serve pod (CYTO_SCHEDULER_ENABLED=0) NEVER claims — the job stays queued (G2 / PROV-T3-2). Got: {}",
+        "an enqueue-only serve pod (TXR_SCHEDULER_ENABLED=0) NEVER claims — the job stays queued (G2 / PROV-T3-2). Got: {}",
         body["job"]["status"]
     );
 }

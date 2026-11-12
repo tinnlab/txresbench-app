@@ -54,7 +54,7 @@ async fn integrate_aligns_annotation_and_summarizes_columns() {
     // Gate 2: the real h5ad fixture must be present + sha256-verified.
     // Gate 1 above already routes through `skip_no_rootfs` (a `record_skip` wrapper);
     // this second gate used a bare `eprintln!`, so a missing fixture reported a PASS and
-    // was invisible to both the skip ledger and `CYTO_TEST_NO_SKIP=1`.
+    // was invisible to both the skip ledger and `TXR_TEST_NO_SKIP=1`.
     let Some(fixture) = fixture_path(PBMC3K, PBMC3K_SHA256) else {
         record_skip(
             "integrate_aligns_annotation_and_summarizes_columns",

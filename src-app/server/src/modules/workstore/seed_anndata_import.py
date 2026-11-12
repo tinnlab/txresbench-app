@@ -19,7 +19,7 @@ byte forms the workbench FE reads:
 
   • one `column_<i>.json` per produced column, plus the `structure` + `meta` declaring each
     — the per-column artifacts the ENTITY AXIS carries, mirroring the one-artifact-per-column
-    set the real converter emits (`cyto_columns.write_metadata_column`). Without these the
+    set the real converter emits (`txr_columns.write_metadata_column`). Without these the
     seeded dataset's axis carries nothing and every axis-scoped resolver resolves empty.
 
 Writes `embedding.f32`, `obs.json`, `column_<i>.json` × N, and `manifest.json` (the
@@ -36,7 +36,7 @@ import json, os, struct, subprocess, sys, tempfile
 # consumes another processor's output, and a test suite asserting what a processor
 # emitted". This driver is the second of those, and re-deriving the container here would
 # be a third decoder to keep in step with the writer and the browser.
-import cyto_zarr_read
+import txr_zarr_read
 
 
 def _read_embedding(emb_path):
@@ -53,7 +53,7 @@ def _read_embedding(emb_path):
     import numpy as np
 
     return np.ascontiguousarray(
-        cyto_zarr_read.read_array(emb_path, "embedding"), dtype=np.float32
+        txr_zarr_read.read_array(emb_path, "embedding"), dtype=np.float32
     )
 
 
@@ -92,8 +92,8 @@ def main():
     json.dump({}, open(os.path.join(run_in, "params.json"), "w"))
 
     env = dict(os.environ)
-    env["CYTO_INPUTS_DIR"] = run_in
-    env["CYTO_OUTPUTS_DIR"] = run_out
+    env["TXR_INPUTS_DIR"] = run_in
+    env["TXR_OUTPUTS_DIR"] = run_out
     # `h5ad_import.py` + the whole `/code` dir it runs against — its DECLARED siblings plus
     # the globally-staged framework modules — are staged in `here` by the Rust route, through
     # the same resolver a real run uses. (This said "multimodal / colsummary / align", the
@@ -129,7 +129,7 @@ def main():
         f.write(struct.pack("<%df" % xy.size, *[float(v) for v in xy]))
 
     # ── the obs slice: the converter's produced metadata-column outputs (same cells/order) ─
-    # Each one is a Zarr artifact DIRECTORY now, read through `cyto_zarr_read.read_column`,
+    # Each one is a Zarr artifact DIRECTORY now, read through `txr_zarr_read.read_column`,
     # which resolves a column to what it MEANS — a categorical's labels, a string column's
     # strings, a numeric column's array — so this driver keeps no second opinion about
     # codes, level sets or arrow offsets. It used to `json.load` the path: the shared
@@ -150,7 +150,7 @@ def main():
     for o in outputs:
         if o.get("datatype") != "metadata-column":
             continue
-        values = _plain(cyto_zarr_read.read_column(os.path.join(run_out, o["path"])))
+        values = _plain(txr_zarr_read.read_column(os.path.join(run_out, o["path"])))
         name = o.get("label")
         if not name:
             raise SystemExit(
@@ -167,7 +167,7 @@ def main():
         # This is the half that makes the seeded dataset resolve like an imported one. The
         # real converter emits ONE `metadata-column` artifact per column, each declaring
         # `structure.axis` (which axis these values are aligned to) and `structure.columns`
-        # (the 1-D members it holds) — see `cyto_columns.write_metadata_column`. Every
+        # (the 1-D members it holds) — see `txr_columns.write_metadata_column`. Every
         # axis-scoped resolver in the workbench selects on exactly that pair, so a seed that
         # publishes them ONLY as one bundled report blob leaves the axis carrying no columns
         # at all: a criteria builder offers nothing and the surface renders empty with

@@ -50,14 +50,14 @@ def test_member_names_carry_no_single_cell_domain_vocabulary():
 
 def test_produced_artifact_records_regime_and_multiplicity_family(markers_run):
     # the per-comparison artifact stamps `regime` (G3) + `multiplicity_family` (G4) into
-    # attributes.cyto.de — the datatype's per-artifact validity fields.
+    # attributes.txr.de — the datatype's per-artifact validity fields.
     from de_fixtures import two_group_expression, group_labels, MATRIX_DERIVED
     run = markers_run()
     run.add_expression(two_group_expression())
     run.add_column(group_labels(), slot="grouping", name="leiden", provenance=MATRIX_DERIVED)
     run.run_ok({"method": "wilcoxon"})
     e = run.de_entries()[0]
-    de = run.de_cyto(e)["de"]
+    de = run.de_txr(e)["de"]
     assert de["regime"] == "R2"
-    assert "multiplicity_family" in run.de_cyto(e) or "multiplicity_family" in run.manifest()["outputs"][0]["meta"]
+    assert "multiplicity_family" in run.de_txr(e) or "multiplicity_family" in run.manifest()["outputs"][0]["meta"]
     assert de["entity_axis"] == "gene"

@@ -77,7 +77,7 @@ echo "== extracting $SQUASHFS"
 unsquashfs -no-progress -d "$ROOTFS" "$SQUASHFS" >/dev/null
 
 echo "== schema marker"
-MARKER="$ROOTFS/.cytoanalyst-sandbox-rootfs-schema"
+MARKER="$ROOTFS/.txresbench-sandbox-rootfs-schema"
 [ -f "$MARKER" ] || { echo "FAIL: no schema marker in the rootfs" >&2; exit 1; }
 GOT=$(tr -d ' \n' < "$MARKER")
 if [ "$GOT" != "$SCHEMA" ]; then
@@ -201,7 +201,7 @@ esac
 
 if [ -n "$ENV_ID" ]; then
     echo "== this rootfs is $ENV_ID's, and the runtime resolves it BY NAME"
-    echo "   (stage it with CYTO_ENV_ROOTFS_DIR__$ENV_ID=<dir>; asking for any OTHER env"
+    echo "   (stage it with TXR_ENV_ROOTFS_DIR__$ENV_ID=<dir>; asking for any OTHER env"
     echo "    must be refused, never served this one — see"
     echo "    env_image::each_shipped_env_id_resolves_to_its_own_staged_rootfs)"
 fi

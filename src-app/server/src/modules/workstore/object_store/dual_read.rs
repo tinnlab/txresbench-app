@@ -23,7 +23,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::{
     BlobLink, ByteStream, ContentKey, GcReport, MultiFilePut, ObjectStat, ObjectStore,

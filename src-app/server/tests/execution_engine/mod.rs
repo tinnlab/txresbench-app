@@ -22,7 +22,7 @@
 //!   + the container-fed leg of TEST-EE-14) are gated on the host
 //!   actually carrying the REAL layer artifacts at the manifest digests
 //!   and self-skip via `record_skip` otherwise (the `tests/sandbox`
-//!   discipline; `CYTO_TEST_NO_SKIP=1` turns a skip into a hard failure).
+//!   discipline; `TXR_TEST_NO_SKIP=1` turns a skip into a hard failure).
 //! * `bundle_test.rs` — the contract-2.0 bundle assembly from the REAL
 //!   embedded catalogue facts + the synthetic-fixture hygiene.
 
@@ -35,18 +35,18 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::common::TestServer;
-use cytoanalyst::modules::execution_engine::orchestrator;
-use cytoanalyst::modules::execution_engine::repository::TxrRepository;
-use cytoanalyst::modules::execution_engine::types::{
+use txresbench::modules::execution_engine::orchestrator;
+use txresbench::modules::execution_engine::repository::TxrRepository;
+use txresbench::modules::execution_engine::types::{
     RunConfig, TxrMethodState, TxrProbSource, TxrRunMode, TxrRunStatus, TxrTask,
 };
-use cytoanalyst::modules::file_validator::types::ParsedTable;
-use cytoanalyst::modules::sandbox::backend::{MilestoneFrame, ProgressFrame, ProgressSink};
-use cytoanalyst::modules::sandbox::method_env::{EnvKind, ProvidedMount};
-use cytoanalyst::modules::sandbox::stack::{
+use txresbench::modules::file_validator::types::ParsedTable;
+use txresbench::modules::sandbox::backend::{MilestoneFrame, ProgressFrame, ProgressSink};
+use txresbench::modules::sandbox::method_env::{EnvKind, ProvidedMount};
+use txresbench::modules::sandbox::stack::{
     EnvRef, MethodRunMode, MethodRunRequest, MethodRunResult,
 };
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 mod api_test;
 mod bundle_test;
@@ -153,9 +153,9 @@ pub fn table_strings(name: &str, columns: &[&str], rows: Vec<Vec<String>>) -> Va
 /// typed value; the wire body takes the JSON).
 pub fn parsed_table(name: &str, columns: &[&str], rows: &[Vec<String>]) -> ParsedTable {
     ParsedTable {
-        source: cytoanalyst::modules::file_validator::types::ParsedTableSource {
+        source: txresbench::modules::file_validator::types::ParsedTableSource {
             name: name.to_string(),
-            format: cytoanalyst::modules::file_validator::types::TableFormat::Csv,
+            format: txresbench::modules::file_validator::types::TableFormat::Csv,
         },
         header_row: 1,
         columns: columns.iter().map(|c| c.to_string()).collect(),
@@ -310,10 +310,10 @@ pub fn cohort_run_request(
     methods: &[&str],
     at_a_time: u32,
     save_models: bool,
-) -> cytoanalyst::modules::execution_engine::types::CreateRunRequest {
-    cytoanalyst::modules::execution_engine::types::CreateRunRequest {
+) -> txresbench::modules::execution_engine::types::CreateRunRequest {
+    txresbench::modules::execution_engine::types::CreateRunRequest {
         mode: TxrRunMode::Train,
-        input: cytoanalyst::modules::execution_engine::types::TxrRunInput {
+        input: txresbench::modules::execution_engine::types::TxrRunInput {
             patients: Some(cohort_patients_parsed()),
             measurements: cohort_measurements_parsed(),
             predict_measurements: None,
@@ -337,7 +337,7 @@ pub fn cohort_run_request(
 pub async fn wait_terminal(
     repo: &TxrRepository,
     run_id: Uuid,
-) -> cytoanalyst::modules::execution_engine::repository::RunRow {
+) -> txresbench::modules::execution_engine::repository::RunRow {
     for _ in 0..1000 {
         if let Some(r) = repo.get_run(run_id).await.expect("get_run") {
             let s = r.status().expect("status parses");
@@ -484,7 +484,7 @@ impl orchestrator::EnvProvider for FakeEnv {
         }
     }
 
-    fn status(&self, env_id: &str) -> cytoanalyst::modules::sandbox::method_env::MethodEnvStatus {
+    fn status(&self, env_id: &str) -> txresbench::modules::sandbox::method_env::MethodEnvStatus {
         let policy = self
             .inner
             .policy
@@ -504,9 +504,9 @@ impl orchestrator::EnvProvider for FakeEnv {
             .unwrap_or((std::time::Instant::now(), 0));
         let state = match policy {
             EnvPolicy::Fail { .. } => {
-                cytoanalyst::modules::sandbox::method_env::MethodEnvState::Failed
+                txresbench::modules::sandbox::method_env::MethodEnvState::Failed
             }
-            EnvPolicy::Ready => cytoanalyst::modules::sandbox::method_env::MethodEnvState::Ready,
+            EnvPolicy::Ready => txresbench::modules::sandbox::method_env::MethodEnvState::Ready,
             EnvPolicy::Downloading { total } => {
                 let mut now = bytes;
                 if now < total {
@@ -514,13 +514,13 @@ impl orchestrator::EnvProvider for FakeEnv {
                     progress.insert(env_id.to_string(), (started, now));
                 }
                 if now >= total {
-                    cytoanalyst::modules::sandbox::method_env::MethodEnvState::Ready
+                    txresbench::modules::sandbox::method_env::MethodEnvState::Ready
                 } else {
-                    cytoanalyst::modules::sandbox::method_env::MethodEnvState::Downloading
+                    txresbench::modules::sandbox::method_env::MethodEnvState::Downloading
                 }
             }
         };
-        cytoanalyst::modules::sandbox::method_env::MethodEnvStatus {
+        txresbench::modules::sandbox::method_env::MethodEnvStatus {
             env_id: env_id.to_string(),
             kind: EnvKind::Layer,
             state,
@@ -553,7 +553,7 @@ pub fn finish_outcome() -> orchestrator::MethodOutcome {
         exit_code: Some(0),
         duration_ms: Some(42),
         prob_source: Some(TxrProbSource::Native),
-        coverage: Some(cytoanalyst::modules::execution_engine::types::TxrCoverage {
+        coverage: Some(txresbench::modules::execution_engine::types::TxrCoverage {
             scored: 30,
             eligible: 30,
             fraction: 1.0,
@@ -762,7 +762,7 @@ impl orchestrator::StackRunSeam for FakeStackRunSeam {
             });
         // The mount is verified like the service's verify-before-bind.
         if let Some(m) = &req.model {
-            let digest = cytoanalyst::modules::sandbox::stack::tree_sha256(&m.host_path)?;
+            let digest = txresbench::modules::sandbox::stack::tree_sha256(&m.host_path)?;
             if digest != m.tree_sha256 {
                 return Err(AppError::new(
                     axum::http::StatusCode::BAD_REQUEST,
@@ -776,7 +776,7 @@ impl orchestrator::StackRunSeam for FakeStackRunSeam {
                 |e: std::io::Error| AppError::internal_error(format!("fixture model dir: {e}"));
             std::fs::create_dir_all(mdir).map_err(dir_err)?;
             std::fs::write(mdir.join("model.rds"), "fixture-model").map_err(dir_err)?;
-            Some(cytoanalyst::modules::sandbox::stack::tree_sha256(mdir)?)
+            Some(txresbench::modules::sandbox::stack::tree_sha256(mdir)?)
         } else {
             None
         };
@@ -784,7 +784,7 @@ impl orchestrator::StackRunSeam for FakeStackRunSeam {
         // wall-clock lag keeps the call in flight so the drive's drainer is
         // observed appending while the run is still active (TEST-EE-33).
         sink.progress(ProgressFrame {
-            phase: cytoanalyst::modules::sandbox::service::LOG_PHASE_STDOUT.to_string(),
+            phase: txresbench::modules::sandbox::service::LOG_PHASE_STDOUT.to_string(),
             pct: None,
             message: Some("fixture says hi".to_string()),
         });

@@ -16,7 +16,7 @@
 # `api.compute.run` → `code_ref` = `run.entry`, NOT a backend converter/view).
 id: cellranger
 name: Cell Ranger count
-publisher: cyto
+publisher: txr
 # 0.3.0 — the manifest/UI separation: `when`/`accepts`/`params`/`defaults`/
 # `schedule.resources`/`inStandardRecipe`/`recipeOrder` are GONE (each a LOAD ERROR now,
 # DEC-3) and `appliesTo` replaces the applicability half of them. Seed reconciliation is
@@ -95,14 +95,14 @@ contributes:
         entry: compute/cellranger.sh
         # S7 — the NAMED host resource this entry needs bind-mounted read-only. The
         # server formerly carried the reference-genome concept itself (a
-        # `needs_reference` boolean in a code table, a fixed `CYTO_SANDBOX_REFERENCE_ROOT`
+        # `needs_reference` boolean in a code table, a fixed `TXR_SANDBOX_REFERENCE_ROOT`
         # env var, a fixed `/refdata` mount and an error message naming a genome). It
         # now understands only "this entry asked for the resource called `reference`";
         # the operator maps the NAME to a host path via
-        # `CYTO_SANDBOX_RESOURCE_REFERENCE` (the legacy `CYTO_SANDBOX_REFERENCE_ROOT`
+        # `TXR_SANDBOX_RESOURCE_REFERENCE` (the legacy `TXR_SANDBOX_REFERENCE_ROOT`
         # is still honored as an alias) and allowlists its root via
-        # `CYTO_SANDBOX_SANDBOX_MOUNTS`' sibling `CYTO_SANDBOX_REFERENCE_MOUNTS`.
-        # `compute/cellranger.sh` reads `CYTO_REFERENCE_ROOT:-/refdata`.
+        # `TXR_SANDBOX_SANDBOX_MOUNTS`' sibling `TXR_SANDBOX_REFERENCE_MOUNTS`.
+        # `compute/cellranger.sh` reads `TXR_REFERENCE_ROOT:-/refdata`.
         host_resources:
           - { name: reference, mount_path: /refdata }
       # A long alignment job (heavy CPU/mem) → batch scheduling + long-job log paging.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ruff: noqa
-"""colsummary — CytoAnalyst COMPACT per-column viz summary (ITEM-21, DEC-25/DEC-26).
+"""colsummary — TxResBench COMPACT per-column viz summary (ITEM-21, DEC-25/DEC-26).
 
 Extends the h5ad_import ``INV-4`` column classifier into a COMPACT summary that
 rides the artifact CATALOG ``meta`` (not just the column-file body), so viz reads
@@ -20,7 +20,7 @@ Two shapes (a RECOMMENDED-but-open interop schema — DEC-25):
     manifest. Whichever trims it, ``high_cardinality=True`` and ``n_categories``
     keeps the TRUE count — so viz can show "N categories — not a color legend"
     instead of choking, and a consumer needing the FULL set reads it from the
-    artifact (``attributes.cyto.levels``), which is where labels resolve anyway.
+    artifact (``attributes.txr.levels``), which is where labels resolve anyway.
 
   * numeric / continuous ::
 
@@ -54,7 +54,7 @@ import pandas as pd
 # `MAX_MANIFEST_BYTES / MAX_OUTPUTS` = 2048 bytes per entry and this is what buys the
 # room. Nothing is lost: 50 swatches is already past what a legend can distinguish,
 # `n_categories` still reports the TRUE count, and the full set lives in the artifact
-# (`attributes.cyto.levels`) which is where every reader resolves labels anyway.
+# (`attributes.txr.levels`) which is where every reader resolves labels anyway.
 MAX_SUMMARY_CATEGORIES = 50
 
 # …and a BYTE budget on top of the count, because a count does not bound a size: 50

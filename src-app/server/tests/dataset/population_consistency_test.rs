@@ -27,7 +27,7 @@ use serde_json::{json, Value};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
 
 use super::hardening_common::{create_project, pool_for};
 use super::{create_dataset, setup_admin};

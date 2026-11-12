@@ -1,7 +1,7 @@
 //! Realtime cross-device sync module.
 //!
 //! Mounts the SDK's per-user SSE stream (`GET /api/sync/subscribe`,
-//! `ziee_framework::sync::sync_routes`) over CytoAnalyst's concrete wire
+//! `txresbench_framework::sync::sync_routes`) over TxResBench's concrete wire
 //! vocabulary (`event`) + registry/surface (`surface`). Mutating handlers call
 //! [`publish`] with an explicit `Audience`; the per-user keyed registry routes
 //! delivery + suppresses self-echo. Notify-and-refetch only — no row data
@@ -18,7 +18,7 @@ pub use event::publish_session_to_users;
 pub use event::{
     fan_out_owner_scoped, owner_scoped_audience, publish, Actor, SyncAction, SyncEntity,
 };
-pub use ziee_framework::sync::{Audience, SyncOrigin};
+pub use txresbench_framework::sync::{Audience, SyncOrigin};
 
 use std::sync::Arc;
 
@@ -26,9 +26,9 @@ use aide::axum::ApiRouter;
 use axum::Extension;
 use linkme::distributed_slice;
 
-use ziee_auth::auth::JwtService;
-use ziee_framework::sync::sync_routes;
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_auth::auth::JwtService;
+use txresbench_framework::sync::sync_routes;
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 use resolver::SyncIdentityResolver;
 

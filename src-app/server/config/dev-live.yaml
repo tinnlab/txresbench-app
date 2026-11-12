@@ -5,13 +5,13 @@
 # The store is ONE embedded SQLite file (`database:` below) — no cluster, no
 # docker compose.
 #
-# Ports are chosen distinct from ziee (app #1) so both apps can run side-by-side:
-#   - HTTP server       :3180    (ziee dev uses :3000)
+# Ports are chosen distinct from txresbench (app #1) so both apps can run side-by-side:
+#   - HTTP server       :3180    (txresbench dev uses :3000)
 
 # SQLite database — the app's embedded store: one local file, no server process,
 # no network access. Default location <app-data-dir>/txresbench.db; `path` (a
 # plain filesystem path) or `url` (a `sqlite://` URL, wins over `path`) relocate
-# it, and the CYTO_DATABASE_URL env var wins over both. Pool defaults: 10 / 1 /
+# it, and the TXR_DATABASE_URL env var wins over both. Pool defaults: 10 / 1 /
 # 5 s / 5000 ms.
 database:
   path: null
@@ -32,7 +32,7 @@ logging:
 
 jwt:
   secret: "vP5UY5eLa1AZenKcnL8rr4iX9o19W/rUyKkP7xXgHdAXaVG6X37+QYMdu5UcPrqY"
-  issuer: "cytoanalyst"
-  audience: "cytoanalyst-api"
+  issuer: "txresbench"
+  audience: "txresbench-api"
   access_token_expiry_hours: 24
   refresh_token_expiry_days: 30

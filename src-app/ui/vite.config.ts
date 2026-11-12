@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { gallerySentinelPlugin } from '@ziee/gallery/vite/vite-plugin-gallery-sentinel.js'
+import { gallerySentinelPlugin } from '@txresbench/gallery/vite/vite-plugin-gallery-sentinel.js'
 import path from 'node:path'
 import { txrBuiltCssUrlsCheck } from './vite-built-css-check'
 
@@ -19,7 +19,7 @@ const srcDir = path.resolve(__dirname, './src')
  */
 
 // Minimal SDK-consumer Vite config (SDK_GAPS FE-6: app#1's config is heavily
-// ziee-entangled — root:'src', 5 custom plugins, Tauri env — a fresh app needs
+// txresbench-entangled — root:'src', 5 custom plugins, Tauri env — a fresh app needs
 // only react + tailwind + the /api proxy).
 export default defineConfig({
   // `gallerySentinelPlugin` serves this server's WORKTREE ROOT at `/__worktree`
@@ -42,9 +42,9 @@ export default defineConfig({
     include: ['zod', 'react-hook-form', '@hookform/resolvers/zod', 'lucide-react'],
   },
   resolve: {
-    // `@ziee/*` resolve via npm-workspace symlinks in node_modules + each
-    // package's `exports` map (handles subpaths like @ziee/framework/store-kit
-    // + @ziee/kit/styles/tokens.css). Only the app-local '@' alias is set here.
+    // `@txresbench/*` resolve via npm-workspace symlinks in node_modules + each
+    // package's `exports` map (handles subpaths like @txresbench/framework/store-kit
+    // + @txresbench/kit/styles/tokens.css). Only the app-local '@' alias is set here.
     alias: [
       { find: '@', replacement: srcDir },
     ],
@@ -70,7 +70,7 @@ export default defineConfig({
         ? true
         : process.env.VITE_ALLOWED_HOSTS.split(',').map(h => h.trim()).filter(Boolean),
     proxy: {
-      // Everything under /api is forwarded to the embedded CytoAnalyst backend.
+      // Everything under /api is forwarded to the embedded TxResBench backend.
       '/api/': {
         target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:3100/',
         changeOrigin: true,

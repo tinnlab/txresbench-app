@@ -45,7 +45,7 @@ impl ScriptFixture {
             .expect("clock")
             .as_nanos();
         let root =
-            std::env::temp_dir().join(format!("cyto-envscript-{tag}-{}-{nanos}", std::process::id()));
+            std::env::temp_dir().join(format!("txr-envscript-{tag}-{}-{nanos}", std::process::id()));
         fs::create_dir_all(root.join("scripts")).expect("create fixture root");
         // The schema constant `fetch-env-rootfs.sh` reads rather than duplicating.
         Self::put(
@@ -122,8 +122,8 @@ impl ScriptFixture {
             .current_dir(&self.root)
             // A stray operator override in the ambient environment would make the
             // derivation moot — these cases are about what the MANIFESTS say.
-            .env_remove("CYTO_SANDBOX_ENV_ID")
-            .env_remove("CYTO_ENV_ROOTFS_CACHE")
+            .env_remove("TXR_SANDBOX_ENV_ID")
+            .env_remove("TXR_ENV_ROOTFS_CACHE")
             .output()
             .unwrap_or_else(|e| panic!("run scripts/{script}: {e}"));
         let text = format!(
@@ -328,7 +328,7 @@ fn the_shell_env_id_grammar_matches_the_rust_one() {
         let out: Output = Command::new("bash")
             .arg("-c")
             .arg(format!(
-                ". {} && cyto_is_valid_env_id \"$1\"",
+                ". {} && txr_is_valid_env_id \"$1\"",
                 lib.display()
             ))
             .arg("bash")
@@ -349,7 +349,7 @@ fn the_shell_env_id_grammar_matches_the_rust_one() {
 /// **TEST-20** [ITEM-12] — the env-id grammar gates the OPERATOR channel too.
 ///
 /// The first version validated only DERIVED ids, so a positional argument or
-/// `CYTO_SANDBOX_ENV_ID` flowed unvalidated into the pull reference and the cache path —
+/// `TXR_SANDBOX_ENV_ID` flowed unvalidated into the pull reference and the cache path —
 /// a value ending `:evil` smuggles a tag into the OCI reference, `../../../x` escapes the
 /// cache directory. `env_id.rs` states that stopping exactly that is the grammar's whole
 /// purpose, and the operator channel is the one that most needs it. A blind verifier found

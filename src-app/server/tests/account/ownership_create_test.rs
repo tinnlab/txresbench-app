@@ -2,11 +2,11 @@
 //! every write path stamps `account_id` behaviour-preservingly (the creating/new
 //! owner's personal account).
 
-use cytoanalyst::modules::account::scope::{
+use txresbench::modules::account::scope::{
     account_of_dataset, account_of_project, ensure_personal_account_for,
 };
-use cytoanalyst::modules::dataset::repository::DatasetRepository;
-use cytoanalyst::modules::project::ProjectRepository;
+use txresbench::modules::dataset::repository::DatasetRepository;
+use txresbench::modules::project::ProjectRepository;
 
 use super::{create_user, pool_for, setup_admin};
 use crate::common::TestServer;

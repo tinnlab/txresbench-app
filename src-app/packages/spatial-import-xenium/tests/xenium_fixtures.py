@@ -424,10 +424,10 @@ def run_entry_bytes(bundle_root, outputs_dir, *, slot="bundle", env=None, timeou
     A subprocess and not an in-process call, because `main()`'s refusal path is `sys.exit(2)`
     and because the sandbox runs it exactly this way. The invocation is the spelling
     `test_hostile_bundle.py` already uses — `runpy.run_path(<compute/import_xenium.py>,
-    run_name='__main__')` over the `CYTO_INPUTS_DIR`/`CYTO_OUTPUTS_DIR` seam — so there is ONE
+    run_name='__main__')` over the `TXR_INPUTS_DIR`/`TXR_OUTPUTS_DIR` seam — so there is ONE
     shape of the entrypoint in this package, not a second one that answers differently.
 
-    `env` is merged over the inherited environment (after the two `CYTO_*` variables and
+    `env` is merged over the inherited environment (after the two `TXR_*` variables and
     `PYTHONPATH` are set). `timeout=` matches this package's subprocess convention: a hung child
     should fail the suite, not hang it.
     """
@@ -458,8 +458,8 @@ def _entry_invocation(bundle_root, outputs_dir, slot, env):
         staged.symlink_to(Path(bundle_root).resolve(), target_is_directory=True)
 
     child = dict(os.environ)
-    child["CYTO_INPUTS_DIR"] = str(inputs)
-    child["CYTO_OUTPUTS_DIR"] = str(outputs_dir)
+    child["TXR_INPUTS_DIR"] = str(inputs)
+    child["TXR_OUTPUTS_DIR"] = str(outputs_dir)
     child["PYTHONPATH"] = os.pathsep.join([str(PKG / "compute"), str(PKG.parent / "_lib")])
     if env:
         child.update(env)

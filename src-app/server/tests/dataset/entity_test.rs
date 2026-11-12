@@ -167,7 +167,7 @@ async fn promote_source_columns_round_trip() {
     // A2: `datasets.account_id` is NOT NULL. This raw seed bypasses the repository
     // (the promote endpoint is ITEM-7), so ensure the owner's personal account and
     // stamp it — the same value the repository's `create_promoted` would stamp.
-    cytoanalyst::modules::account::scope::ensure_personal_account_for(
+    txresbench::modules::account::scope::ensure_personal_account_for(
         &pool,
         cid_uuid,
     )

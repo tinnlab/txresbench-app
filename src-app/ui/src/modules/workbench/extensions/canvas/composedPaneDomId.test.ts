@@ -24,7 +24,7 @@
 // duplicated; the same split `canvasCloseAffordance.test.ts` uses.
 
 import { describe, expect, it } from 'vitest'
-import type { VizOption } from '@ziee/viz'
+import type { VizOption } from '@txresbench/viz'
 import { composeCanvas, type CanvasContribution } from './canvasComposition'
 
 /** Two views that BOTH call their pane `emb` — the collision namespacing exists for. Neither is

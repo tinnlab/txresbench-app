@@ -13,7 +13,7 @@
  * (`runSetupMissing`), and the CTA is the plan's "Start a new analysis".
  */
 import type { CSSProperties } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import type { TxrSlotKind } from '../lib/slotSummary'
 
 /** The named-missing-input line per mode (DEC-16's "never half-broken"). */

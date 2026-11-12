@@ -44,7 +44,7 @@ Per-surface JTBD:
 - **ITEM-9**: `SamplesPanel` — an upload entry (a stubbed drop-zone: "upload wiring lands with the data round"; no real upload) + per-sample **QC review** cards (adaptive-threshold read-outs, before/after cell-count delta, per-sample advisory chips) + an "Apply & continue → Workspace" action.
 - **ITEM-10**: Study-extension registration (FE) — `modules/analysis/study-extension/extension.tsx` registering `study_nav` (`Samples`, `Workspace`) + `detail_panels` (mirrors `dataset`), and `modules/analysis/module.tsx` (`createModule` registering the store, `dependencies: ['study']`, importing the extension). Zero study-core edits.
 - **ITEM-11**: `ExportMenu` — a dropdown offering Figure / Table / AnnData object / Script + methods-text (actions are **stubbed** with a "prepared for the data round" toast; the affordance + generated methods-text preview are real) + a read-only-share note reusing the study share.
-- **ITEM-12**: `gallery.tsx` — seed every surface × state for `gate:ui`: Workspace (empty / running / clustered-result / gene-colored), Dock (empty / mid-run / complete), ContextPanel (simple-form / advanced-open / result), Catalog (open, with gated+ready cards), SamplesPanel (populated QC + warn advisory). **Narrow-viewport (390px) coverage note (amended, drift DRIFT-1.1 · impl-wins):** `@ziee/gallery`'s `SeededSurfaceEntry` has **no per-surface `viewport` field**, so 390px is not expressible as a gallery cell; narrow-viewport fidelity is covered by the responsive **e2e (TEST-13)** + the visual-regression layer instead.
+- **ITEM-12**: `gallery.tsx` — seed every surface × state for `gate:ui`: Workspace (empty / running / clustered-result / gene-colored), Dock (empty / mid-run / complete), ContextPanel (simple-form / advanced-open / result), Catalog (open, with gated+ready cards), SamplesPanel (populated QC + warn advisory). **Narrow-viewport (390px) coverage note (amended, drift DRIFT-1.1 · impl-wins):** `@txresbench/gallery`'s `SeededSurfaceEntry` has **no per-surface `viewport` field**, so 390px is not expressible as a gallery cell; narrow-viewport fidelity is covered by the responsive **e2e (TEST-13)** + the visual-regression layer instead.
 
 ## Files to touch
 
@@ -74,7 +74,7 @@ No backend / migration / permission / openapi files. (Study backend untouched.)
 - **Module registration** — mirror `src-app/ui/src/modules/study/module.tsx` (`createModule` with `stores`, `dependencies`, glob import of the extension).
 - **Store** — mirror `src-app/ui/src/modules/study/stores/StudyDetail.store.ts` (`defineStore('Name', {state, actions})`, read via `Stores.Name`); here actions mutate mock state instead of calling `ApiClient`.
 - **Gallery** — mirror `src-app/ui/src/modules/study/gallery.tsx` (`export const gallery: ModuleGallery`, seed store state per surface × state, lazy components).
-- **Kit components** — use `@ziee/kit` only (`Card`, `Button`, `Select`, `Segmented`, `Tabs`, `Sheet`/`Dialog`, `Popover`, `Badge`, `Tag`, `Empty`, `ScrollArea`, `Tooltip`, `Statistic`, `Progress`, `Table`, `SectionHeader`) + shadcn tokens (`bg-card`/`text-muted-foreground`/`border-border`/`border-primary`). No raw hex, no antd. The mockup is the visual reference; translate it to kit primitives.
+- **Kit components** — use `@txresbench/kit` only (`Card`, `Button`, `Select`, `Segmented`, `Tabs`, `Sheet`/`Dialog`, `Popover`, `Badge`, `Tag`, `Empty`, `ScrollArea`, `Tooltip`, `Statistic`, `Progress`, `Table`, `SectionHeader`) + shadcn tokens (`bg-card`/`text-muted-foreground`/`border-border`/`border-primary`). No raw hex, no antd. The mockup is the visual reference; translate it to kit primitives.
 - **Registry seam** — mirror the study-extension registry shape (register + auto-discovery glob + pure selectors) for `analysisRegistry`, and `docs`/`INTERFACE_DESIGN.md §2` for the descriptor.
 - **Canvas** — a self-contained DPR-aware Canvas component (like the mockup's scatter); no new dependency (deck.gl deferred to the data round).
 
@@ -91,6 +91,6 @@ No backend / migration / permission / openapi files. (Study backend untouched.)
 - **Platform affordances:** none platform-specific; no redundant chrome.
 
 ## Deferred (explicitly, this round) — see DECISIONS for dispositions
-Real upload/`ziee-file`, HDF5 working store + catalog, jobs↔sandbox execution, scientific rootfs, deck.gl +
+Real upload/`txresbench-file`, HDF5 working store + catalog, jobs↔sandbox execution, scientific rootfs, deck.gl +
 typed-binary streaming, real statistical methods, real export, new permissions/migrations. The descriptor
 `run()`/`ResultView` contract is the seam these land behind.

@@ -1,5 +1,5 @@
 /**
- * Smoke test for @ziee/config: the pure configs resolve, the syncpack helper
+ * Smoke test for @txresbench/config: the pure configs resolve, the syncpack helper
  * composes, and a parameterized lint runs against an arbitrary `--root` dir
  * (the parameterization proof) — pass on clean input, fail on a violation.
  */
@@ -40,7 +40,7 @@ test('defineSyncpack composes semver + version groups (catch-all last)', async (
 })
 
 test('a parameterized lint scans an arbitrary --root: clean passes, violation fails', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ziee-config-lint-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'txresbench-config-lint-'))
   const colors = path.join(PKG, 'src/lint/hardcoded-colors.mjs')
   // clean file — semantic token class only
   fs.writeFileSync(path.join(dir, 'ok.tsx'), `export const A = () => <div className="bg-primary" />\n`)
@@ -56,9 +56,9 @@ test('a parameterized lint scans an arbitrary --root: clean passes, violation fa
 
 // ── design-spec: an app that LAYERS its token sheet over a package's ───────────
 //
-// The gate assumed ziee's layout — ONE app CSS carrying `@theme inline` + `:root`
+// The gate assumed txresbench's layout — ONE app CSS carrying `@theme inline` + `:root`
 // + `.dark`. An app that imports a package token sheet and then overrides it
-// (COMIZY's `@ziee/kit/styles/tokens.css` + `src/styles/nocturne.css`, whose dark
+// (COMIZY's `@txresbench/kit/styles/tokens.css` + `src/styles/nocturne.css`, whose dark
 // block is the selector LIST `.dark, .nc-force-dark`) could not be pointed at its
 // own tokens at all: a single `--css` saw only half the palette, and the sheet
 // carrying the overrides has no `@theme inline`, so the script threw
@@ -188,7 +188,7 @@ test('the stamp names the layered sheets, and is unchanged for the single-sheet 
   assert.match(header, /`tokens\.css` \+ `app\.css`/)
   assert.doesNotMatch(header, /src-app\/ui\/src\/index\.css/)
 
-  // The ziee-shaped single-sheet run keeps the historical wording BYTE-for-byte:
+  // The txresbench-shaped single-sheet run keeps the historical wording BYTE-for-byte:
   // its consumers have that string in a committed spec, and a cosmetic change
   // there turns `check:design-spec` red for a doc nobody edited.
   const single =

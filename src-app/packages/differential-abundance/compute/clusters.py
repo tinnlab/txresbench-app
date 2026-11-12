@@ -47,7 +47,7 @@ import json
 
 import numpy as np
 
-import cyto_columns
+import txr_columns
 import _regime as R
 import _kernel as K
 
@@ -59,7 +59,7 @@ SAMPLE_SLOT = "sample"
 ANALYSIS_ID = "da.clusters"
 
 #: The resolution-sensitivity disclosure INV-DA-3 makes MANDATORY on this analysis. It rides the
-#: report, the artifact's `attributes.cyto.da`, and (as prose) the manifest's `methods.note`.
+#: report, the artifact's `attributes.txr.da`, and (as prose) the manifest's `methods.note`.
 RESOLUTION_DISCLOSURE = (
     "Cluster-level differential abundance is SENSITIVE TO THE CLUSTERING RESOLUTION at which "
     "these populations were defined: the populations are an arbitrary partition of a continuum, "
@@ -400,9 +400,9 @@ def main():
         per_cell = [eff_by_pop.get(str(pop), float("nan")) for pop in populations_per_cell]
         eff_name = f"{base_name}_logFC"
         eff_rel = f"columns/{eff_name}.zarr"
-        eff_structure, eff_meta = cyto_columns.write_metadata_column(
+        eff_structure, eff_meta = txr_columns.write_metadata_column(
             outputs_dir, eff_rel, eff_name, pd.Series(per_cell, dtype="float64"), axis="cells")
-        S.stamp_cyto_attributes(outputs_dir / eff_rel, eff_structure, da={
+        S.stamp_txr_attributes(outputs_dir / eff_rel, eff_structure, da={
             "analysis": ANALYSIS_ID, "kind": "population-effect", "regime": regime,
             "comparison": comparison_label, "normalization": normalization,
             "resolution_sensitivity": RESOLUTION_DISCLOSURE,
@@ -452,7 +452,7 @@ def main():
     }
     (outputs_dir / "da-report.json").write_text(json.dumps(report, indent=2))
     entries.append(S.output_entry("da-report", S.DT_REPORT_QC, "da-report.json", "artifact",
-                                  structure=cyto_columns.opaque("application/json"),
+                                  structure=txr_columns.opaque("application/json"),
                                   meta={"kind": "da-report", "analysis": ANALYSIS_ID,
                                         "n_comparisons": 1, "regime": regime}))
     S.write_manifest(outputs_dir, entries)

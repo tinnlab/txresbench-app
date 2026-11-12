@@ -2,7 +2,7 @@
 //! concurrency proof). Exercises the frozen resolver seams PROV-A1-3/-4/-5 against
 //! a real per-test DB.
 
-use cytoanalyst::modules::account::{AccountKind, AccountRepository, AccountRole};
+use txresbench::modules::account::{AccountKind, AccountRepository, AccountRole};
 
 use super::{create_user, pool_for, setup_admin};
 use crate::common::TestServer;

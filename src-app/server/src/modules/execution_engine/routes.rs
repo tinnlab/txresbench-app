@@ -71,7 +71,7 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::{ApiResult, AppError};
+use txresbench_core::{ApiResult, AppError};
 
 use crate::modules::jobs::JobsUse;
 use crate::modules::permissions::{with_permission, RequirePermissions};

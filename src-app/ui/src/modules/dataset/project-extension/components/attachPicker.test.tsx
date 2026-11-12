@@ -14,7 +14,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { Select, SELECT_SEARCH_THRESHOLD, type SelectOption } from '@ziee/kit'
+import { Select, SELECT_SEARCH_THRESHOLD, type SelectOption } from '@txresbench/kit'
 import { buildAttachOption } from './attachOptionRow'
 import type { AttachCandidate } from './attachOptions'
 

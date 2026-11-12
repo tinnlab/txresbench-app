@@ -5,7 +5,7 @@
 // scatter, the heatmap data-texture) are EMBEDDED as a raster `<image>` tile inside the
 // vector doc — the standard publication hybrid. The app stays GPU; this codec runs offline.
 //
-// Framework-agnostic (viz-core): plain string building + optional DOM/jspdf, no @ziee/*.
+// Framework-agnostic (viz-core): plain string building + optional DOM/jspdf, no @txresbench/*.
 // Node-safe: `buildSVG` / `canvasToVectorScene` need no DOM; `svgToPDF` degrades when
 // there is no `document` to rasterize against.
 

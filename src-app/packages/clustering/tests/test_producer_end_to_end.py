@@ -4,13 +4,13 @@
 
 TEST-2  [acceptance] [invariant: INV-2] [covers: ITEM-1, ITEM-3] — the produced label
         artifact's datatype is `metadata-column` with categorical kind (integer codes + a
-        declared sorted `levels` set) AND its group `attributes.cyto` carries the clustering
+        declared sorted `levels` set) AND its group `attributes.txr` carries the clustering
         provenance tag; the run CONFORMS against `produces: [metadata-column]`. A mutation
         emitting the exclusive, uncolour-able `clustering` datatype FAILS.
 TEST-15 [acceptance] [invariant: INV-15] [covers: ITEM-3] — the output categorical carries
         an explicit sorted `levels` set + codes; the record states ids are run-specific.
 TEST-26 [covers: ITEM-2, ITEM-3, ITEM-6] — the REAL-COMPUTE path: a fixture `embedding`
-        artifact (written via the real `cyto_zarr`) is clustered end-to-end AS A SUBPROCESS
+        artifact (written via the real `txr_zarr`) is clustered end-to-end AS A SUBPROCESS
         (spawn → read embedding → neighbours → Leiden → write the categorical
         `metadata-column` + provenance tag + report), and the output conforms via the real
         framework gate.
@@ -39,8 +39,8 @@ def test_produces_a_categorical_metadata_column_not_an_exclusive_clustering_type
         "a cluster label must be a categorical metadata-column (colourable for free), NOT "
         "an exclusive `clustering` datatype (owner DEC-9(c))")
 
-    # the group `attributes.cyto` carries the clustering provenance tag (method/flavor/…).
-    tag = run.label_group_cyto().get("clustering")
+    # the group `attributes.txr` carries the clustering provenance tag (method/flavor/…).
+    tag = run.label_group_txr().get("clustering")
     assert tag is not None
     assert tag["method"] == "leiden" and tag["flavor"] == "igraph"
     assert tag["objective"] == "modularity" and tag["resolution"] == 1.0

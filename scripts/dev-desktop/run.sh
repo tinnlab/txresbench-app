@@ -42,8 +42,8 @@ CAP_CPUS="${CAP_CPUS:-2}"
 REGISTRY_HOST="${TXR_REGISTRY_HOST:-127.0.0.1:5055}"
 ENV_MANIFEST="${TXR_ENV_MANIFEST:-/data/pbya/txresbench-app-work/qa-build-real/method-env-images.dev.json}"
 BIN="${TXR_DESKTOP_BIN:-}"
-[ -n "$BIN" ] || BIN="${CARGO_TARGET_DIR:-/data/pbya/txresbench-app-work/target/qa-hardening}/debug/cytoanalyst-desktop"
-[ -e "$BIN" ] || BIN="$REPO/src-app/desktop/tauri/target/debug/cytoanalyst-desktop"
+[ -n "$BIN" ] || BIN="${CARGO_TARGET_DIR:-/data/pbya/txresbench-app-work/target/qa-hardening}/debug/txresbench-desktop"
+[ -e "$BIN" ] || BIN="$REPO/src-app/desktop/tauri/target/debug/txresbench-desktop"
 [ -e "$BIN" ] || BIN="$REPO/src-app/desktop/tauri/target/debug/txresbench-desktop"
 
 APP_READY_TIMEOUT="${TXR_DESKTOP_APP_TIMEOUT:-180}"
@@ -66,7 +66,7 @@ for tool in Xvfb x11vnc websockify xdpyinfo curl; do
   command -v "$tool" >/dev/null 2>&1 || fail "missing prerequisite: $tool"
 done
 [ -d "$NOVNC_WEB" ] || fail "noVNC web root not found: $NOVNC_WEB"
-[ -x "$BIN" ] || fail "desktop binary not found: $BIN (build: cargo build -p cytoanalyst-desktop --features tauri/custom-protocol; env TXR_DESKTOP_BIN to override)"
+[ -x "$BIN" ] || fail "desktop binary not found: $BIN (build: cargo build -p txresbench-desktop --features tauri/custom-protocol; env TXR_DESKTOP_BIN to override)"
 [ -x "$CAP" ] || fail "ops/cap.sh not found: $CAP"
 [ "$NOVNC_BIND" = "127.0.0.1" ] || [ "$NOVNC_BIND" = "localhost" ] || \
   warn "noVNC bound to $NOVNC_BIND (the plan's 0.0.0.0; x11vnc itself stays localhost-only)"
@@ -154,7 +154,7 @@ fi
 # --- the desktop binary ------------------------------------------------------
 REG=""
 if [ -f "$ENV_MANIFEST" ]; then
-  REG="CYTO_TXR_METHOD_ENV_REGISTRY=$REGISTRY_HOST CYTO_TXR_ENV_MANIFEST=$ENV_MANIFEST"
+  REG="TXR_METHOD_ENV_REGISTRY=$REGISTRY_HOST TXR_ENV_MANIFEST=$ENV_MANIFEST"
   warn "dev-registry settings: registry=$REGISTRY_HOST manifest=$ENV_MANIFEST"
 else
   warn "dev environment manifest not found ($ENV_MANIFEST) — starting WITHOUT the dev-registry seams; method-env fetches would use the compiled ghcr.io host (and fail offline)"
@@ -162,7 +162,7 @@ fi
 start_one app "$STATE_DIR/logs/app.log" \
   env DISPLAY=":$DISPLAY_NUM" \
       HOME="$STATE_DIR/home" \
-      CYTO_APP_DATA_DIR="$STATE_DIR/data" \
+      TXR_APP_DATA_DIR="$STATE_DIR/data" \
       $REG \
       dbus-run-session -- "$BIN"
 

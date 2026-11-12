@@ -7,7 +7,7 @@
 use sha2::{Digest, Sha256};
 
 /// The rootfs schema version baked into the image marker
-/// (`/.cytoanalyst-sandbox-rootfs-schema`) by the docker build, and compared by
+/// (`/.txresbench-sandbox-rootfs-schema`) by the docker build, and compared by
 /// the runtime mount probe. Bump on any breaking rootfs layout change; the
 /// runtime refuses to mount a rootfs whose marker disagrees.
 ///
@@ -60,7 +60,7 @@ pub const ROOTFS_SCHEMA_VERSION: u32 = 5;
 /// (Unused in the build-script inclusion of this file — only the runtime mount
 /// module reads it — so silence dead_code there.)
 #[allow(dead_code)]
-pub const ROOTFS_SCHEMA_MARKER: &str = ".cytoanalyst-sandbox-rootfs-schema";
+pub const ROOTFS_SCHEMA_MARKER: &str = ".txresbench-sandbox-rootfs-schema";
 
 /// Format the `.version` sidecar string from a schema number + the Dockerfile
 /// bytes: `schema=<n> dockerfile=<sha8>`. A Dockerfile edit or a schema bump
@@ -128,7 +128,7 @@ pub struct BuildArgUrlVar {
     /// (the lowercased arg name minus its `_URL` suffix).
     pub key: String,
     /// The app-namespaced env var an operator sets to supply the URL
-    /// (`CYTO_<ARGNAME>`).
+    /// (`TXR_<ARGNAME>`).
     pub env: String,
     /// The docker `--build-arg` name — verbatim what the recipe declared.
     pub build_arg: String,
@@ -137,13 +137,13 @@ pub struct BuildArgUrlVar {
 /// The env-var prefix under which an operator supplies a recipe-declared URL.
 /// App-namespaced so a recipe's `ARG FOO_URL` can never read an arbitrary
 /// ambient env var of the same name.
-const BUILD_ARG_ENV_PREFIX: &str = "CYTO_";
+const BUILD_ARG_ENV_PREFIX: &str = "TXR_";
 
 /// Parse a rootfs recipe (Dockerfile bytes) for the operator-supplied build-arg
 /// URLs it DECLARES: every top-level `ARG <NAME>_URL[=default]` line.
 ///
 /// This helper understands none of the names — a recipe that declares
-/// `ARG ALIGNER_URL` gets `CYTO_ALIGNER_URL` folded into the freshness key and
+/// `ARG ALIGNER_URL` gets `TXR_ALIGNER_URL` folded into the freshness key and
 /// forwarded as `--build-arg ALIGNER_URL=…`, with no server-source edit. Entries
 /// are de-duplicated (a multi-stage Dockerfile re-declares an `ARG` per stage)
 /// and returned in first-declaration order.
@@ -188,15 +188,15 @@ pub fn build_arg_url_vars(dockerfile_bytes: &[u8]) -> Vec<BuildArgUrlVar> {
 // system, i.e. pinned into the binary before any data was loaded. The recipe tree
 // `env-rootfs/<env-id>/`
 // IS the data: each subdirectory holding a [`ENV_RECIPE_FILE`] is one selectable
-// env. Selection is an INPUT (`CYTO_ENV_ROOTFS_ID`), defaulting to the tree's
+// env. Selection is an INPUT (`TXR_ENV_ROOTFS_ID`), defaulting to the tree's
 // sole recipe — so a one-recipe tree resolves exactly as the hardcoded path did.
 
 /// The recipe filename inside `env-rootfs/<env-id>/`.
 pub const ENV_RECIPE_FILE: &str = "Dockerfile";
 
 /// The build-time env var selecting which env recipe to build. Mirrors the
-/// runtime's `CYTO_SANDBOX_ENV_ID` (which selects which env image to FETCH).
-pub const ENV_ROOTFS_ID_VAR: &str = "CYTO_ENV_ROOTFS_ID";
+/// runtime's `TXR_SANDBOX_ENV_ID` (which selects which env image to FETCH).
+pub const ENV_ROOTFS_ID_VAR: &str = "TXR_ENV_ROOTFS_ID";
 
 /// Discover every env recipe in `env_root` — each subdirectory containing a
 /// [`ENV_RECIPE_FILE`] — as sorted env-ids. Empty when the tree is missing.
@@ -590,7 +590,7 @@ mod tests {
 
     // W2/S8: the operator-supplied build-arg table is DECLARED BY THE RECIPE and
     // parsed out of it — the app names no tool. Every `ARG <NAME>_URL` becomes a
-    // `(key, CYTO_<NAME>, <NAME>)` pass-through entry; nothing else does.
+    // `(key, TXR_<NAME>, <NAME>)` pass-through entry; nothing else does.
     #[test]
     fn build_arg_url_vars_are_parsed_from_the_recipe() {
         let recipe = br#"
@@ -614,7 +614,7 @@ ARG ALIGNER_URL=""
              declaration order — `ARGUMENT_URL=` is not an ARG instruction"
         );
         assert_eq!(vars[0].key, "aligner", "the freshness key is the lowercased stem");
-        assert_eq!(vars[0].env, "CYTO_ALIGNER_URL", "the env var is app-namespaced");
+        assert_eq!(vars[0].env, "TXR_ALIGNER_URL", "the env var is app-namespaced");
         assert_eq!(vars[1].key, "basecaller");
 
         // A recipe declaring no URL args yields an empty table (no implicit tool).
@@ -623,7 +623,7 @@ ARG ALIGNER_URL=""
         // Adding a tool is a RECIPE edit with zero server-source change.
         let widened = build_arg_url_vars(b"FROM scratch\nARG ALIGNER_URL=\"\"\nARG NEWTOOL_URL\n");
         assert_eq!(widened.len(), 2, "a new recipe ARG appears with no code edit");
-        assert_eq!(widened[1].env, "CYTO_NEWTOOL_URL");
+        assert_eq!(widened[1].env, "TXR_NEWTOOL_URL");
 
         // No duplicate keys (a collision would make one tool's rotation invisible
         // in the cache key).
@@ -710,7 +710,7 @@ ARG ALIGNER_URL=""
         assert_eq!(
             select_env_recipe(&many, Some("alpha"), Some("beta")),
             Some("alpha".to_string()),
-            "CYTO_ENV_ROOTFS_ID is the operator's escape hatch and outranks the tree"
+            "TXR_ENV_ROOTFS_ID is the operator's escape hatch and outranks the tree"
         );
         // Blank declaration is treated as unset (and then the tree is ambiguous).
         assert_eq!(select_env_recipe(&many, None, Some("   ")), None);
@@ -723,7 +723,7 @@ ARG ALIGNER_URL=""
     #[test]
     fn declared_default_is_read_off_the_tree_and_drives_selection() {
         let tmp = std::env::temp_dir().join(format!(
-            "cyto-envdefault-{}-{:?}",
+            "txr-envdefault-{}-{:?}",
             std::process::id(),
             std::thread::current().id()
         ));
@@ -861,7 +861,7 @@ ARG ALIGNER_URL=""
         // Its declared build-args parse (may legitimately be empty).
         let bytes = std::fs::read(env_root.join(&selected).join(ENV_RECIPE_FILE)).unwrap();
         for v in build_arg_url_vars(&bytes) {
-            assert!(v.env.starts_with("CYTO_"), "app-namespaced: {}", v.env);
+            assert!(v.env.starts_with("TXR_"), "app-namespaced: {}", v.env);
             assert!(v.build_arg.ends_with("_URL"));
         }
         // Discovery is sorted ⇒ deterministic default.
@@ -877,7 +877,7 @@ ARG ALIGNER_URL=""
     #[test]
     fn discovery_plus_override_selects_a_different_recipe_on_a_real_tree() {
         let tmp = std::env::temp_dir()
-            .join(format!("cyto-envrootfs-{}-{:?}", std::process::id(), std::thread::current().id()));
+            .join(format!("txr-envrootfs-{}-{:?}", std::process::id(), std::thread::current().id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(tmp.join("alpha")).unwrap();
         std::fs::write(tmp.join("alpha").join(ENV_RECIPE_FILE), b"FROM scratch\n").unwrap();

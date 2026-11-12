@@ -1,4 +1,4 @@
-import { classifyComponentLike } from '@ziee/framework'
+import { classifyComponentLike } from '@txresbench/framework'
 
 /**
  * WHICH route chunks the idle prefetcher is allowed to warm.
@@ -87,7 +87,7 @@ export function selectPrefetchRoutes({
     // …and not every FUNCTION is a loader. Warming a route means CALLING its
     // element, so a plain component here is invoked outside a render and throws
     // React's *Invalid hook call* from inside an idle callback. The renderers
-    // already have to tell these apart (`@ziee/framework/lazy-component`), so
+    // already have to tell these apart (`@txresbench/framework/lazy-component`), so
     // ask them rather than guessing a second time. A props-taking function and a
     // class component are settled NOT-loaders and are skipped outright; the one
     // residual shape — a named 0-arg function with no `import(` in its source,

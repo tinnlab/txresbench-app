@@ -6,7 +6,7 @@ import * as React from 'react'
  * Base UI moves focus to the FIRST TABBABLE element in the popup. That is a DOM-ORDER rule, so
  * which control it picks is decided by layout rather than by intent, and any overlay that happens
  * to render a delete affordance above its form opens with a destructive control focused and one
- * Enter away. (Measured in cytoanalyst's `ShareDialog`: its share list precedes its form, so the
+ * Enter away. (Measured in txresbench's `ShareDialog`: its share list precedes its form, so the
  * first tabbable is a per-row "Remove access for …" bin. It reads as fine only because the shares
  * load asynchronously — at mount the list is a spinner. That is TIMING, not design.)
  *

@@ -21,16 +21,16 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::common::TestServer;
-use cytoanalyst::modules::execution_engine::envmanifest;
-use cytoanalyst::modules::execution_engine::repository::{
+use txresbench::modules::execution_engine::envmanifest;
+use txresbench::modules::execution_engine::repository::{
     MethodPatch, NewMethod, NewRun, TxrRepository,
 };
-use cytoanalyst::modules::execution_engine::types::{
+use txresbench::modules::execution_engine::types::{
     RunConfig, TxrMethodState, TxrRunCounts, TxrRunFileNames, TxrRunInputSummary, TxrRunMode,
     TxrRunStatus, TxrTask,
 };
-use cytoanalyst::modules::method_catalogue::catalogue;
-use cytoanalyst::modules::sandbox::stack::tree_sha256;
+use txresbench::modules::method_catalogue::catalogue;
+use txresbench::modules::sandbox::stack::tree_sha256;
 
 // ─────────────────────────────── shared helpers ──────────────────────────────
 
@@ -158,7 +158,7 @@ pub async fn seed_run_with_models(
         let (dir, digest, size) = fixture_tree(&model_dir, &format!("{mid}-{name}"));
         let _ = dir;
         let entry = envmanifest::env_for(mid).expect("a manifest entry for the seeded method");
-        let env = cytoanalyst::modules::execution_engine::types::TxrMethodEnv {
+        let env = txresbench::modules::execution_engine::types::TxrMethodEnv {
             base_digest: entry
                 .base_digest
                 .strip_prefix("sha256:")
@@ -181,7 +181,7 @@ pub async fn seed_run_with_models(
         status: TxrRunStatus::Finished,
         mode: TxrRunMode::Train,
         config: RunConfig {
-            endpoint: cytoanalyst::modules::execution_engine::types::TxrEndpoint::Pfs,
+            endpoint: txresbench::modules::execution_engine::types::TxrEndpoint::Pfs,
             decision_day: 56.0,
             look_ahead_day: 238.0,
             at_a_time: 2,

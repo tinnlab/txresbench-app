@@ -37,7 +37,7 @@ test('share to editor → accept → editor gating', async ({ page, browser, req
   // "the invite landed" from "the panel appeared for the first time"; and if the panel
   // ever stops rendering, this fails loudly rather than the suite going quiet.
   await expect(page.getByTestId('project-share-empty')).toBeVisible()
-  await page.getByTestId('project-share-email').fill(`${bob}@cyto.test`)
+  await page.getByTestId('project-share-email').fill(`${bob}@txresbench.test`)
   // Pick the "editor" option in the level select.
   await page.getByTestId('project-share-level').click()
   await page.getByRole('option', { name: /editor/i }).click()

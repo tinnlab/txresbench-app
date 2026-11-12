@@ -27,7 +27,7 @@
  */
 
 /** Where a host hands the incoming seed to the store layer. */
-export const STORE_SEED_GLOBAL = '__ZIEE_STORE_SEED__'
+export const STORE_SEED_GLOBAL = '__TXR_STORE_SEED__'
 
 /** The incoming envelope: store name → that store's serialized slice. */
 export type StoreSeedEnvelope = Record<string, unknown>
@@ -200,7 +200,7 @@ export function __resetStoreSeedForTests(): void {
  * the cross-request `Map` leak `createServerPersistStorage` exists to prevent.
  * A test helper that enters server-render mode must therefore set both.
  */
-export const SERVER_RENDER_GLOBAL = '__ZIEE_SERVER_RENDER__'
+export const SERVER_RENDER_GLOBAL = '__TXR_SERVER_RENDER__'
 
 interface ServerRenderGlobals {
   [SERVER_RENDER_GLOBAL]?: boolean

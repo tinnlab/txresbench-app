@@ -44,7 +44,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use crate::modules::jobs::models::CreateJobRequest;
 use crate::modules::jobs::repository::JobRepository;

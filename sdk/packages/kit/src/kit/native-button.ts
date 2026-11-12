@@ -16,7 +16,7 @@ import { Tooltip } from './tooltip'
  * which became the normal way to tooltip a trigger once the id hoist made that composition work —
  * turned `childType` from the string `'button'` into the `Tooltip` component, the heuristic said
  * "not a native button", and every render of the workbench tab strip logged a Base UI error.
- * Measured by CytoAnalyst's runtime-health pass: 6 gating HIGH findings on each of 5 workbench
+ * Measured by TxResBench's runtime-health pass: 6 gating HIGH findings on each of 5 workbench
  * surfaces, on a branch whose typecheck, lints, unit suites, gallery sweep and e2e were all green.
  *
  * So the answer is resolved THROUGH the transparent wrapper rather than at its surface.

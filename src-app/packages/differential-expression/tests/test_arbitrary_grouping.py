@@ -34,4 +34,4 @@ def test_markers_records_regime_r2_even_for_an_external_grouping(markers_run):
     run.run_ok({"method": "wilcoxon"})
     assert run.report()["regime"] == "R2"
     for e in run.de_entries():
-        assert run.de_cyto(e)["de"]["regime"] == "R2"
+        assert run.de_txr(e)["de"]["regime"] == "R2"

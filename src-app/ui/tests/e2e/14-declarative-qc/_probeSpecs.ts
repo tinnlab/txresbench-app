@@ -29,7 +29,7 @@ export interface AnalysisShape {
 export function manifestText(pkgId: string, a: AnalysisShape): string {
   return `id: ${pkgId}
 name: E2E probe package
-publisher: cyto-e2e
+publisher: txr-e2e
 version: 0.0.1
 apiVersion: "1.0"
 contributes:

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
-import { setAuthView, type PermissionAuthView } from '@ziee/framework/permissions'
-import type { StoreProxy } from '@ziee/framework/stores'
+import { setAuthView, type PermissionAuthView } from '@txresbench/framework/permissions'
+import type { StoreProxy } from '@txresbench/framework/stores'
 import { isKnownPermission, useHasPermission } from './saasGating'
 
 // TEST-1 / TEST-2 (#42 admin-console-shell, ITEM-3) — the saas-gating seam.

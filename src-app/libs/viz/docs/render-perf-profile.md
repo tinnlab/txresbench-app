@@ -1,15 +1,15 @@
 # `#plot-editing` zoom lag — measured attribution
 
 **Date** 2026-07-27 · **Branch under test** `annotate-tooling-ux` @ `9b94865f`
-(worktree `/data/pbya/ziee/tmp/annotate-tooling-ux-wt`, served on my own vite `:1791`)
+(worktree `/data/pbya/txresbench/tmp/annotate-tooling-ux-wt`, served on my own vite `:1791`)
 **Baseline** merge-base `origin/main` `c176c715` (throwaway worktree
-`/data/pbya/ziee/tmp/mainperf-wt`, served on `:1792`)
+`/data/pbya/txresbench/tmp/mainperf-wt`, served on `:1792`)
 
 > READ-ONLY on product source. Everything below was measured through Playwright +
 > CDP; the only code changes were **response rewrites via `page.route()`** of the
 > vite-transformed modules (never a file on disk).
-> Probe scripts: `/data/pbya/ziee/tmp/perfprobe/{measure2,count,commits,paths,getopt,whatif}.mjs`.
-> Raw output: `/data/pbya/ziee/tmp/perfprobe/o2-*.json`, `c-*.json`, `p2-*.cpuprofile`.
+> Probe scripts: `/data/pbya/txresbench/tmp/perfprobe/{measure2,count,commits,paths,getopt,whatif}.mjs`.
+> Raw output: `/data/pbya/txresbench/tmp/perfprobe/o2-*.json`, `c-*.json`, `p2-*.cpuprofile`.
 
 ---
 
@@ -243,9 +243,9 @@ per wheel**.
 ## 5. Reproduce
 
 ```bash
-cd /data/pbya/ziee/tmp/annotate-tooling-ux-wt/src-app/libs/viz
+cd /data/pbya/txresbench/tmp/annotate-tooling-ux-wt/src-app/libs/viz
 npx vite --port 1791 --strictPort --host 127.0.0.1
-cd /data/pbya/ziee/tmp/perfprobe
+cd /data/pbya/txresbench/tmp/perfprobe
 node measure2.mjs A '#plot-editing' 580 280                     # timings + profile
 node measure2.mjs B '?points=20000#data-progressive' 850 500 rasterOff
 node measure2.mjs D '#scatter-basic' 800 500                    # 200k control

@@ -4,7 +4,7 @@
 // ITEM-24/25). The run form is what the history pane reopens (ITEM-26). Empty when no
 // artifact is bound.
 
-import { Empty } from '@ziee/kit'
+import { Empty } from '@txresbench/kit'
 import { ArtifactPanel } from './ArtifactPanel'
 import { ArtifactReview } from './ArtifactReview'
 import {

@@ -223,7 +223,7 @@ export interface CoordinationSlice {
 
 const DEFAULT_VIEW: VizViewState = { target: [0, 0], zoom: 0 }
 
-// Plain-zustand store (no @ziee SDK): `create()(subscribeWithSelector(immer(...)))`
+// Plain-zustand store (no @txresbench SDK): `create()(subscribeWithSelector(immer(...)))`
 // reproduces exactly what `defineStore({ immer: true })` composed — state fields and
 // actions spread into one flat state object, immer draft setters innermost, and
 // subscribeWithSelector outermost so the 2-arg `store.subscribe(selector, cb)` overload

@@ -13,7 +13,7 @@
 //!
 //! ## What it is a port of
 //!
-//! `packages/_lib/cyto_zarr_read.py`, the reference reader that ships beside the
+//! `packages/_lib/txr_zarr_read.py`, the reference reader that ships beside the
 //! writer, transcribed one function at a time. It is deliberately the SMALL surface
 //! those tests need — whole-member reads of a 1-D array and of a split string member —
 //! and not a general implementation: a fuller one would be a third decoder to keep in
@@ -71,10 +71,10 @@ pub fn load_dir(root: &Path) -> Store {
 /// (`path` → member blob key), the same document `resolve_member` reads to serve
 /// `/data/{member}`.
 pub async fn load_artifact(
-    store: &dyn cytoanalyst::modules::workstore::object_store::ObjectStore,
+    store: &dyn txresbench::modules::workstore::object_store::ObjectStore,
     object_key: &str,
 ) -> Store {
-    use cytoanalyst::modules::workstore::object_store::ContentKey;
+    use txresbench::modules::workstore::object_store::ContentKey;
 
     let manifest_bytes = store
         .get(&ContentKey::parse(object_key))
@@ -112,7 +112,7 @@ fn doc(store: &Store, path: &str) -> Value {
 /// same document that rides the manifest entry into the artifact row. Reading it is
 /// how a test learns what the members MEAN without inferring anything from bytes.
 pub fn declaration(store: &Store) -> Value {
-    doc(store, "zarr.json")["attributes"]["cyto"].clone()
+    doc(store, "zarr.json")["attributes"]["txr"].clone()
 }
 
 /// The declared names of the 1-D members in this store, in declaration order.

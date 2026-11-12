@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_core::{ApiResult, AppError};
+use txresbench_core::{ApiResult, AppError};
 
 use super::authz::{require_artifact_read, require_project_edit, require_project_read};
 use super::catalog::models::{Artifact, ArtifactFilter};
@@ -1074,7 +1074,7 @@ fn unsatisfiable(total: u64) -> Response {
 /// resumed download, a third-party range-aware reader); it is not the cacheable
 /// path, so it cannot reintroduce the `206`-caching problem ITEM-36 solves; and
 /// the plan's own rule ("header AND param is a 400") presumes a header ALONE is
-/// answerable. What it does not get is the ziee read path — that speaks `?range=`
+/// answerable. What it does not get is the txresbench read path — that speaks `?range=`
 /// exclusively, where the whole-blob degradation is unrepresentable.
 async fn serve_bytes(
     store: &dyn ObjectStore,
@@ -1216,7 +1216,7 @@ fn parse_sparse_member(path: &str) -> Option<usize> {
 /// Produce one member of a GATHERED artifact's synthetic zarr store (ITEM-17/19).
 ///
 /// **The store is a GROUP with its array under `values/` (DEC-26)** — the same shape
-/// `cyto_zarr` emits, measured off `stage1_alignment/sources/level_0_group.zarr` rather than
+/// `txr_zarr` emits, measured off `stage1_alignment/sources/level_0_group.zarr` rather than
 /// designed. `zarr.json` is the group node carrying the artifact's declaration; the column
 /// lives at `values/zarr.json` + `values/c/<n>` (or, for a split string column,
 /// `values/{offsets,values}/…`). It used to serve the array AT the root, so a client
@@ -1381,7 +1381,7 @@ fn serve_inline_bytes(
     let slice = |off: u64, len: u64| bytes[off as usize..(off + len) as usize].to_vec();
 
     // The SAME shapes the stored path answers with, taken from the same parsers:
-    //   `?range=`  → 200 with a sliced body (ziee's own read path)
+    //   `?range=`  → 200 with a sliced body (txresbench's own read path)
     //   `Range:`   → 206 + `Content-Range` (a generic HTTP client)
     // Matching them is the whole point — a different status for the same request is exactly
     // the observable difference INV-3 forbids.
@@ -1541,9 +1541,9 @@ const SEED_DRIVER_ENTRY: &str = "driver.py";
 /// ## Why there is no file list here any more
 /// This used to carry a hand-written `include_str!` list of "the sibling modules the entry
 /// imports". A hand list mirrors something, and it falls one ring behind the thing it
-/// mirrors: the importer entry named below began `import cyto_columns` (and `cyto_csc`) at
+/// mirrors: the importer entry named below began `import txr_columns` (and `txr_csc`) at
 /// commit `2751dac5` and this table never learned, so the `single-file-import` driver died with
-/// `ModuleNotFoundError: No module named 'cyto_columns'`. It stayed invisible because its
+/// `ModuleNotFoundError: No module named 'txr_columns'`. It stayed invisible because its
 /// only caller was skipping for an unrelated reason. Adding four more `include_str!` lines
 /// reproduces the defect the next time a compute gains a sibling.
 ///
@@ -1733,7 +1733,7 @@ pub struct SeedManifestFiles {
     /// real per-entity columns without them produces a dataset whose axis carries nothing:
     /// the criteria builder offers no column, every `$data` slice reading the axis resolves
     /// empty, and the surface renders "No data yet" with nothing failing anywhere. That is
-    /// the shape a REAL import does not have — `cyto_columns.write_metadata_column` writes
+    /// the shape a REAL import does not have — `txr_columns.write_metadata_column` writes
     /// `structure.axis` + `structure.columns` on every column it emits — so without this
     /// key the seed cannot stand in for the producer it is imitating.
     ///
@@ -2485,7 +2485,7 @@ async fn seed_inner(
                 ),
             ));
         }
-        let work = std::env::temp_dir().join(format!("cyto-seed-{}", Uuid::new_v4()));
+        let work = std::env::temp_dir().join(format!("txr-seed-{}", Uuid::new_v4()));
         let out_dir = work.join("out");
         std::fs::create_dir_all(&out_dir)
             .map_err(|e| seed_internal(format!("seed: create scratch dir: {e}")))?;
@@ -2780,11 +2780,11 @@ mod seed_guard_tests {
             || script.contains(&format!("\"{module}.py\""))
     }
 
-    /// **The regression pin for `ModuleNotFoundError: No module named 'cyto_columns'`.**
+    /// **The regression pin for `ModuleNotFoundError: No module named 'txr_columns'`.**
     ///
     /// The driver table used to hand-list the sibling modules to stage beside each seed
     /// driver, and that list fell one ring behind `compute/h5ad_import.py`, which had begun
-    /// importing `cyto_columns` / `cyto_csc`. Nothing in THIS test names a module: the set of
+    /// importing `txr_columns` / `txr_csc`. Nothing in THIS test names a module: the set of
     /// modules that exist is walked off the extracted tree, and the set that gets staged is
     /// whatever [`super::SeedDriverFiles`] derives from
     /// [`crate::modules::sandbox::processors::resolve_with_package`] — the same resolver
@@ -2862,7 +2862,7 @@ mod seed_guard_tests {
     /// request to observe.
     #[test]
     fn seed_scratch_drop_removes_the_whole_driver_output_tree() {
-        let root = std::env::temp_dir().join(format!("cyto-seed-scratch-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("txr-seed-scratch-{}", uuid::Uuid::new_v4()));
         let out = root.join("out");
         std::fs::create_dir_all(out.join("nested")).expect("scratch");
         // Exactly the shape a real driver run leaves behind.
@@ -2926,7 +2926,7 @@ mod seed_guard_tests {
     /// out_dir is `Some`.)
     #[test]
     fn read_driver_file_confines_to_the_output_dir_even_when_a_driver_ran() {
-        let root = std::env::temp_dir().join(format!("cyto-seed-guard-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("txr-seed-guard-{}", uuid::Uuid::new_v4()));
         let out = root.join("out");
         std::fs::create_dir_all(&out).expect("scratch");
         std::fs::write(out.join("obs.json"), b"inside").expect("inside file");

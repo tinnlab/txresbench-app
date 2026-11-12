@@ -10,7 +10,7 @@ WHY THIS EXISTS (transparent, DEC-8):
   every object_store GCS op fails against vanilla floci-gcp 0.7.0 with
   "ETag Header missing" / "Last-Modified Header missing".
 
-  Those two headers are HTTP plumbing the CytoAnalyst workstore NEVER consults —
+  Those two headers are HTTP plumbing the TxResBench workstore NEVER consults —
   the workstore is CONTENT-ADDRESSED (sha256:<hex> of the bytes); it does not use
   etag/last-modified for correctness. So this shim is a faithful compatibility
   adapter, NOT a mock of storage: floci-gcp still stores and serves every real
@@ -34,16 +34,16 @@ import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 UPSTREAM = os.environ.get("FLOCI_GCP_UPSTREAM", "http://127.0.0.1:4588")
-LISTEN_PORT = int(os.environ.get("CYTO_FLOCI_GCP_COMPAT_PORT", "4599"))
+LISTEN_PORT = int(os.environ.get("TXR_FLOCI_GCP_COMPAT_PORT", "4599"))
 # Bind host — LOOPBACK-ONLY by default (DE-INV-13). A pod-facing deployment (a k8s
 # worker reaching the shim over the CNI bridge, not host loopback) may set
-# CYTO_FLOCI_GCP_COMPAT_BIND=0.0.0.0 to expose it on the bridge; keep the 127.0.0.1
+# TXR_FLOCI_GCP_COMPAT_BIND=0.0.0.0 to expose it on the bridge; keep the 127.0.0.1
 # default everywhere else so the loopback-only invariant holds for the test tiers.
-LISTEN_HOST = os.environ.get("CYTO_FLOCI_GCP_COMPAT_BIND", "127.0.0.1")
+LISTEN_HOST = os.environ.get("TXR_FLOCI_GCP_COMPAT_BIND", "127.0.0.1")
 # A fixed, valid HTTP-date + strong ETag. Values are irrelevant to the
 # content-addressed workstore; they exist only so object_store can PARSE.
 FIXED_LAST_MODIFIED = email.utils.formatdate(0, usegmt=True)
-FIXED_ETAG = '"cyto-floci-gcp-compat"'
+FIXED_ETAG = '"txr-floci-gcp-compat"'
 HOP_BY_HOP = {
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
     "te", "trailers", "transfer-encoding", "upgrade",
@@ -116,7 +116,7 @@ class Handler(BaseHTTPRequestHandler):
             clen = upstream_clen
             if clen is None and status == 200:
                 clen = self._object_size_via_json()
-            if os.environ.get("CYTO_FLOCI_GCP_COMPAT_DEBUG"):
+            if os.environ.get("TXR_FLOCI_GCP_COMPAT_DEBUG"):
                 print(f"[compat] HEAD {self.path} status={status} "
                       f"upstream_clen={upstream_clen} resolved_clen={clen}",
                       file=sys.stderr, flush=True)
@@ -149,7 +149,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             self.send_error(502, f"compat delete-translate upstream error: {e}")
             return True
-        if os.environ.get("CYTO_FLOCI_GCP_COMPAT_DEBUG"):
+        if os.environ.get("TXR_FLOCI_GCP_COMPAT_DEBUG"):
             print(f"[compat] DELETE {obj} → json status={status}", file=sys.stderr, flush=True)
         # object_store treats 204/200/404 as a successful (idempotent) delete.
         self.send_response(204 if status in (200, 204, 404) else status)
@@ -212,7 +212,7 @@ class Handler(BaseHTTPRequestHandler):
         if next_token:
             parts.append(f"<NextContinuationToken>{esc(next_token)}</NextContinuationToken>")
         for it in items:
-            etag = it.get("etag") or it.get("md5Hash") or "cyto-floci-gcp-compat"
+            etag = it.get("etag") or it.get("md5Hash") or "txr-floci-gcp-compat"
             parts.append(
                 "<Contents>"
                 f"<Key>{key_out(it.get('name',''))}</Key>"
@@ -223,7 +223,7 @@ class Handler(BaseHTTPRequestHandler):
                 "</Contents>")
         parts.append("</ListBucketResult>")
         payload = "".join(parts).encode("utf-8")
-        if os.environ.get("CYTO_FLOCI_GCP_COMPAT_DEBUG"):
+        if os.environ.get("TXR_FLOCI_GCP_COMPAT_DEBUG"):
             print(f"[compat] LIST bucket={bucket} prefix={prefix!r} items={len(items)} "
                   f"truncated={bool(next_token)}", file=sys.stderr, flush=True)
         self.send_response(200)

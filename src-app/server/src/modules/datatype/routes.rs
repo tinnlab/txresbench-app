@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_core::{ApiResult, AppError};
+use txresbench_core::{ApiResult, AppError};
 
 use crate::modules::permissions::{with_permission, RequirePermissions};
 use crate::modules::project::ProjectsUse;

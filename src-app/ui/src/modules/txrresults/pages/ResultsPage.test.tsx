@@ -22,8 +22,8 @@
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import type { AppEvents } from '@ziee/framework/events'
-import { useEventBusStore } from '@ziee/framework/events'
+import type { AppEvents } from '@txresbench/framework/events'
+import { useEventBusStore } from '@txresbench/framework/events'
 import type { TxrPredictionsResponse, TxrRunDetail, TxrRunMethod } from '@/api-client/types'
 import { ResultsPage } from './ResultsPage'
 

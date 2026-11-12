@@ -1,5 +1,5 @@
 // canvasComposition — fold every contributing view's resolved canvas into the ONE option the
-// workbench's single `@ziee/viz` grid is driven with.
+// workbench's single `@txresbench/viz` grid is driven with.
 //
 // WHY THERE IS MORE THAN ONE CONTRIBUTOR. The canvas belongs to the WORKBENCH, not to whichever
 // pane happens to be the active tab. The feed store used to hold ONE resolved option plus the id
@@ -26,8 +26,8 @@
 //
 // Pure / framework-free (no React, no store) so the fold is directly unit-testable.
 
-import { LAYER_ID_SEP } from '@ziee/viz'
-import type { DatasetResolver, VizDataset, VizGridEntry, VizOption, VizSeries } from '@ziee/viz'
+import { LAYER_ID_SEP } from '@txresbench/viz'
+import type { DatasetResolver, VizDataset, VizGridEntry, VizOption, VizSeries } from '@txresbench/viz'
 
 /** Routes a controlled pane's close gesture to the declared action that removes it. */
 export type CloseRouter = (paneId: string) => void

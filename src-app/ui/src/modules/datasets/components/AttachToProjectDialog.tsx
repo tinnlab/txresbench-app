@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ApiClient } from '@/api-client'
 import { type ProjectDto } from '@/api-client/types'
-import { Button, Dialog, Empty, ErrorState, Input, Spinner, message } from '@ziee/kit'
+import { Button, Dialog, Empty, ErrorState, Input, Spinner, message } from '@txresbench/kit'
 import { Datasets } from '@/modules/datasets/stores/Datasets.store'
 import { Check, Search } from 'lucide-react'
 

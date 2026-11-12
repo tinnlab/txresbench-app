@@ -1,7 +1,7 @@
 // VizTooltip.tsx — the reusable positioned DOM tooltip for the GPU hover surfaces.
 // It is CHROME (a small absolutely-positioned <div> label:value list), NOT a data mark —
 // no SVG, no deck.gl layer. Mirrors the `AxisPointerOverlay` badge styling and is
-// theme-aware via the framework-agnostic viz-core `VizTheme` (no @ziee/* import).
+// theme-aware via the framework-agnostic viz-core `VizTheme` (no @txresbench/* import).
 //
 // It renders only the already-resolved `rows` (built O(1) by `tooltipModel`), offsets the
 // badge from the cursor, and clamps it inside its positioned parent so it never spills

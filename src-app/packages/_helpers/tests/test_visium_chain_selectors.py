@@ -169,8 +169,8 @@ def test_the_visium_matrix_satisfies_the_second_narrowing_every_consumer_applies
             "three of the five consumers with a perfectly valid-looking matrix")
         # …and the same declaration is inside the store, which is what a SANDBOXED
         # consumer reads (#211: the manifest-entry `meta` never crosses into the sandbox,
-        # but `attributes.cyto` is literally bytes in the zarr store, so it does).
-        attributes = VC.store_cyto_attributes(importer.store(entry))
+        # but `attributes.txr` is literally bytes in the zarr store, so it does).
+        attributes = VC.store_txr_attributes(importer.store(entry))
         assert attributes.get("kind") == "sparse_csc"
         assert attributes.get("axes") == ["cells", "genes"]
         assert attributes.get("nnz") == structure["nnz"]

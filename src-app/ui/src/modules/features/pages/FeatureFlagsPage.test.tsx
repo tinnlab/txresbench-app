@@ -22,7 +22,7 @@ beforeAll(() => {
 // `init` → `loadSettings` calls it during mount, so an incomplete mock leaks an
 // unhandled rejection (pre-existing; surfaced by any registered *Settings store).
 vi.mock('@/core/permissions', () => ({ usePermission: () => true, hasPermissionNow: () => true }))
-vi.mock('@ziee/shell', () => ({
+vi.mock('@txresbench/shell', () => ({
   SettingsPageContainer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }))
 // ListPagination pulls kit Pagination (heavy in jsdom); not the subject here.

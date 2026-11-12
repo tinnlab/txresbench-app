@@ -54,7 +54,7 @@ test('a populated surface renders through the CHUNKED path, with no request to /
   const net = trackReadPathRequests(page)
   await openWorkbench(page, proj.id)
   await expect(page.getByTestId('workbench-canvas-host').first()).toBeAttached({ timeout: 20_000 })
-  await page.waitForFunction(() => !!(window as unknown as { __cyto_ds?: unknown }).__cyto_ds, undefined, {
+  await page.waitForFunction(() => !!(window as unknown as { __txr_ds?: unknown }).__txr_ds, undefined, {
     timeout: 20_000,
   })
 
@@ -62,7 +62,7 @@ test('a populated surface renders through the CHUNKED path, with no request to /
   const flow = await page.evaluate(async projectId => {
     const mk = (
       window as unknown as {
-        __cyto_ds?: (id: string) => {
+        __txr_ds?: (id: string) => {
           catalog: () => Promise<{
             valueColumns: string[]
             categoricalColumns: { id: string; label: string }[]
@@ -73,8 +73,8 @@ test('a populated surface renders through the CHUNKED path, with no request to /
           categorical: (key: string) => Promise<{ codes: Uint16Array; categories: string[]; length: number }>
         }
       }
-    ).__cyto_ds
-    if (!mk) return { error: 'no __cyto_ds seam' }
+    ).__txr_ds
+    if (!mk) return { error: 'no __txr_ds seam' }
     const ds = mk(projectId)
     const cat = await ds.catalog()
     const layout = cat.layouts[0]
@@ -196,7 +196,7 @@ test('the populated surface renders at 390px — TEST-32', async ({ page, reques
   await openWorkbench(page, proj.id)
 
   await expect(page.getByTestId('workbench-canvas-host').first()).toBeAttached({ timeout: 20_000 })
-  await page.waitForFunction(() => !!(window as unknown as { __cyto_ds?: unknown }).__cyto_ds, undefined, {
+  await page.waitForFunction(() => !!(window as unknown as { __txr_ds?: unknown }).__txr_ds, undefined, {
     timeout: 20_000,
   })
 
@@ -205,12 +205,12 @@ test('the populated surface renders at 390px — TEST-32', async ({ page, reques
   const positionsLength = await page.evaluate(async projectId => {
     const mk = (
       window as unknown as {
-        __cyto_ds?: (id: string) => {
+        __txr_ds?: (id: string) => {
           catalog: () => Promise<{ layouts: { id: string }[] }>
           positions: (id: string) => Promise<{ length: number }>
         }
       }
-    ).__cyto_ds
+    ).__txr_ds
     if (!mk) return null
     const ds = mk(projectId)
     const layout = (await ds.catalog()).layouts[0]

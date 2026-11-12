@@ -100,7 +100,7 @@ describe('ProcessorPort — ITEM-10 typed seam', () => {
         geometry: { kind: 'polygon', rings: [new Float64Array([0, 0, 10, 0, 10, 10, 0, 10])] },
         classId: 'tumor',
         label: 'region 1',
-        properties: { measurements: { area: 123.5 }, 'ziee:foreign': true },
+        properties: { measurements: { area: 123.5 }, 'txresbench:foreign': true },
       },
       { geometry: { kind: 'point', xy: [5, 5] }, classId: null, label: null },
       { geometry: { kind: 'path', xy: new Float64Array([0, 0, 1, 1, 2, 2]) } },
@@ -114,7 +114,7 @@ describe('ProcessorPort — ITEM-10 typed seam', () => {
       expect(Array.from(poly.rings[0])).toEqual([0, 0, 10, 0, 10, 10, 0, 10])
     }
     // foreign-property passthrough (INV-7) survives the clone verbatim.
-    expect(clone[0].properties).toEqual({ measurements: { area: 123.5 }, 'ziee:foreign': true })
+    expect(clone[0].properties).toEqual({ measurements: { area: 123.5 }, 'txresbench:foreign': true })
     const pt = clone[1].geometry
     if (pt.kind === 'point') expect(pt.xy).toEqual([5, 5])
   })

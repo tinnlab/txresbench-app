@@ -31,7 +31,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// **The error code every gather-recipe refusal carries (audit finding 12).**
 ///
@@ -118,7 +118,7 @@ pub struct GatheredFrom {
     /// alignment's name for the column. See [`GatheredFrom::alignment_column`].
     pub column_selector: String,
     /// The name the ALIGNMENT knows this column by — the key into `levels__<column>__<i>`
-    /// and into `attributes.cyto_alignment.unified_levels`.
+    /// and into `attributes.txr_alignment.unified_levels`.
     ///
     /// **This used to be `column_selector`, and the two coinciding was a property of the old
     /// reference fixture, not of the producer.** That fixture carried every column of a
@@ -451,7 +451,7 @@ pub fn slice_chunk(bytes: &[u8], g: usize, chunk_elements: usize, item: usize) -
 ///
 /// `gathered_from` is the recipe (how to produce the bytes); `chunk_elements` /
 /// `values_chunk_bytes` are this store's geometry, already expressed in each array node's
-/// `chunk_grid`. Stamping them into `attributes.cyto` would put a second, redundant spelling
+/// `chunk_grid`. Stamping them into `attributes.txr` would put a second, redundant spelling
 /// of the geometry next to the authoritative one — the two-sources-of-truth shape this
 /// address change exists to remove.
 const SERVER_PRIVATE_STRUCTURE_KEYS: [&str; 3] =
@@ -460,8 +460,8 @@ const SERVER_PRIVATE_STRUCTURE_KEYS: [&str; 3] =
 /// **The GROUP node at a gathered store's root (DEC-26).**
 ///
 /// Measured off the real writer (`tests/fixtures/stage1_alignment/sources/
-/// level_0_group.zarr/zarr.json`) rather than designed: a `cyto_zarr` store's root is a
-/// `group` whose `attributes.cyto` is the artifact's declaration, and its members live
+/// level_0_group.zarr/zarr.json`) rather than designed: a `txr_zarr` store's root is a
+/// `group` whose `attributes.txr` is the artifact's declaration, and its members live
 /// BENEATH it. A gathered store used to serve its array AT the root, so a client following
 /// `columns[].path` asked for `values/…` and got a 404 — three surfaces disagreeing about
 /// where one member lives.
@@ -476,17 +476,17 @@ pub fn gathered_group_zarr_json(structure: &Value) -> Result<Value, AppError> {
             "gathered artifact's structure is not an object",
         )
     })?;
-    let mut cyto = serde_json::Map::new();
+    let mut txr = serde_json::Map::new();
     for (k, v) in obj {
         if SERVER_PRIVATE_STRUCTURE_KEYS.contains(&k.as_str()) {
             continue;
         }
-        cyto.insert(k.clone(), v.clone());
+        txr.insert(k.clone(), v.clone());
     }
     Ok(json!({
         "zarr_format": 3,
         "node_type": "group",
-        "attributes": { "cyto": Value::Object(cyto) },
+        "attributes": { "txr": Value::Object(txr) },
     }))
 }
 
@@ -494,7 +494,7 @@ pub fn gathered_group_zarr_json(structure: &Value) -> Result<Value, AppError> {
 ///
 /// Read from the artifact's own `columns[0].path` so the declaration and the address cannot
 /// disagree; `values` is the fallback, which is what every `metadata-column` store the
-/// producer writes uses (`cyto_columns.write_metadata_column` names its single member
+/// producer writes uses (`txr_columns.write_metadata_column` names its single member
 /// `values`). It is never the empty string: a member at the ROOT is the address this change
 /// exists to remove, and `resolveMember` cannot express it.
 pub fn gathered_member_path(structure: &Value) -> String {
@@ -519,7 +519,7 @@ pub fn split_group_zarr_json(member: &str, n: usize) -> Value {
     json!({
         "zarr_format": 3,
         "node_type": "group",
-        "attributes": { "cyto": {
+        "attributes": { "txr": {
             "kind": "string",
             "name": member,
             "layout": "split",
@@ -562,11 +562,11 @@ pub fn synthetic_zarr_json(structure: &Value) -> Result<Value, AppError> {
 }
 
 /// **The ARRAY node at `<root>/<member>/zarr.json`** — the geometry plus the member's own
-/// `attributes.cyto`.
+/// `attributes.txr`.
 ///
 /// **The levels ride the ARRAY node, beside `kind`** — measured off the real writer
 /// (`level_0_group.zarr/values/zarr.json`), and it is where `readCategoricalColumn`'s
-/// `array.cyto?.levels` and `cyto_zarr_read.read_column`'s `attributes.cyto.kind` both
+/// `array.txr?.levels` and `txr_zarr_read.read_column`'s `attributes.txr.kind` both
 /// already look. They used to be stamped on a ROOT array no client path could reach, and
 /// without the `kind` a consumer at the right address still got raw integers where every
 /// real dataset gives labels.
@@ -586,8 +586,8 @@ pub fn gathered_array_zarr_json(
     missing_level: Option<&Value>,
 ) -> Result<Value, AppError> {
     let mut decl = synthetic_zarr_json(structure)?;
-    let mut cyto = serde_json::Map::new();
-    cyto.insert(
+    let mut txr = serde_json::Map::new();
+    txr.insert(
         "name".into(),
         Value::String(gathered_member_path(structure)),
     );
@@ -598,10 +598,10 @@ pub fn gathered_array_zarr_json(
         .and_then(|c| c.get("kind"))
         .and_then(Value::as_str);
     if let Some(kind) = kind {
-        cyto.insert("kind".into(), Value::String(kind.to_string()));
+        txr.insert("kind".into(), Value::String(kind.to_string()));
     }
     if let Some(levels) = levels {
-        cyto.insert("levels".into(), levels.clone());
+        txr.insert("levels".into(), levels.clone());
     }
     // **DEC-27 — which entry of `levels` means "not in this vocabulary".**
     //
@@ -609,13 +609,13 @@ pub fn gathered_array_zarr_json(
     // invents the level only then: a run that drops nothing has no invented entry, and a
     // key present with a null would make a consumer branch on a fact that is not there.
     //
-    // The name matches `cyto_columns`' per-column `meta.missing_level` — ONE spelling for
+    // The name matches `txr_columns`' per-column `meta.missing_level` — ONE spelling for
     // this concept across the tree, so a reader that already handles a source column's
     // missing level handles a gathered one with the same code.
     if let Some(missing) = missing_level {
-        cyto.insert("missing_level".into(), missing.clone());
+        txr.insert("missing_level".into(), missing.clone());
     }
-    decl["attributes"] = json!({ "cyto": Value::Object(cyto) });
+    decl["attributes"] = json!({ "txr": Value::Object(txr) });
     Ok(decl)
 }
 
@@ -1718,9 +1718,9 @@ mod tests {
         // **THE STAGED LAYOUT IS ONE FLAT DIRECTORY, and this test's model of it was wrong.**
         //
         // `PY_HELPER_FILES` stages every helper — `alignment.py` from `_helpers` AND
-        // `cyto_columns.py` from `_lib` — flat into a single `/code` dir, so the source-tree
+        // `txr_columns.py` from `_lib` — flat into a single `/code` dir, so the source-tree
         // split is a LIFECYCLE distinction (runtime glue vs the on-disk format contract), not
-        // an import boundary. When stage 1 added `from cyto_columns import _missing_level` to
+        // an import boundary. When stage 1 added `from txr_columns import _missing_level` to
         // `alignment.py`, the sandbox ran it correctly on the first real run while THIS test
         // died at `ModuleNotFoundError` — the runtime was right and the test's model of it
         // was wrong, which is BASE.md H17's shape: a faithful-looking harness that reproduces
@@ -2277,7 +2277,7 @@ print(json.dumps([h(c[0], c[1], c[2]) for c in cases]))
         })
     }
 
-    /// **The root is a GROUP whose `attributes.cyto` is the artifact's declaration.**
+    /// **The root is a GROUP whose `attributes.txr` is the artifact's declaration.**
     ///
     /// Measured against `tests/fixtures/stage1_alignment/sources/level_0_group.zarr/
     /// zarr.json`, not designed: that is the node ingest already emits, so a client and a
@@ -2286,10 +2286,10 @@ print(json.dumps([h(c[0], c[1], c[2]) for c in cases]))
     fn the_gathered_root_is_a_group_carrying_the_declaration_minus_the_recipe() {
         let node = gathered_group_zarr_json(&gathered_declaration()).expect("group node");
         assert_eq!(node["node_type"], json!("group"));
-        assert_eq!(node["attributes"]["cyto"]["encoding"], json!("zarr_v3"));
-        assert_eq!(node["attributes"]["cyto"]["kind"], json!("table"));
+        assert_eq!(node["attributes"]["txr"]["encoding"], json!("zarr_v3"));
+        assert_eq!(node["attributes"]["txr"]["kind"], json!("table"));
         assert_eq!(
-            node["attributes"]["cyto"]["columns"][0]["path"],
+            node["attributes"]["txr"]["columns"][0]["path"],
             json!("values")
         );
 
@@ -2299,20 +2299,20 @@ print(json.dumps([h(c[0], c[1], c[2]) for c in cases]))
         // authoritative one, which is the drift this address change exists to remove.
         for key in SERVER_PRIVATE_STRUCTURE_KEYS {
             assert!(
-                node["attributes"]["cyto"].get(key).is_none(),
+                node["attributes"]["txr"].get(key).is_none(),
                 "{key} must not reach the store declaration: {node}"
             );
         }
         // …and the CONTROL: a key that is NOT private survives, so the strip is selective
         // rather than a filter that happens to drop everything checked above.
-        assert_eq!(node["attributes"]["cyto"]["n"], json!(5));
+        assert_eq!(node["attributes"]["txr"]["n"], json!(5));
     }
 
     /// **The member is an ARRAY under `values/`, carrying `kind` and the vocabulary.**
     ///
     /// Both fields are load-bearing and were BOTH absent: `readCategoricalColumn` reads
-    /// `array.cyto.levels`, and `cyto_zarr_read.read_column` dispatches on
-    /// `attributes.cyto.kind` — so a member without the kind returns raw integers at the
+    /// `array.txr.levels`, and `txr_zarr_read.read_column` dispatches on
+    /// `attributes.txr.kind` — so a member without the kind returns raw integers at the
     /// right address, which is a wrong answer with a clean console.
     #[test]
     fn the_gathered_member_is_an_array_declaring_its_kind_and_levels() {
@@ -2326,9 +2326,9 @@ print(json.dumps([h(c[0], c[1], c[2]) for c in cases]))
             node["chunk_grid"]["configuration"]["chunk_shape"],
             json!([4])
         );
-        assert_eq!(node["attributes"]["cyto"]["kind"], json!("categorical"));
-        assert_eq!(node["attributes"]["cyto"]["name"], json!("values"));
-        assert_eq!(node["attributes"]["cyto"]["levels"], levels);
+        assert_eq!(node["attributes"]["txr"]["kind"], json!("categorical"));
+        assert_eq!(node["attributes"]["txr"]["name"], json!("values"));
+        assert_eq!(node["attributes"]["txr"]["levels"], levels);
 
         // A column the alignment fuses no vocabulary for declares NO `levels` key — absent,
         // not empty. An empty list is a vocabulary of zero labels, and a consumer resolving
@@ -2336,14 +2336,14 @@ print(json.dumps([h(c[0], c[1], c[2]) for c in cases]))
         let bare =
             gathered_array_zarr_json(&gathered_declaration(), None, None).expect("array node");
         assert!(
-            bare["attributes"]["cyto"].get("levels").is_none(),
+            bare["attributes"]["txr"].get("levels").is_none(),
             "an absent vocabulary must be ABSENT, never an empty list: {bare}"
         );
 
         // …and a run that dropped NOTHING declares no `missing_level`, so a consumer never
         // branches on a fact that is not there. This is the state of nearly every run.
         assert!(
-            node["attributes"]["cyto"].get("missing_level").is_none(),
+            node["attributes"]["txr"].get("missing_level").is_none(),
             "a non-dropping run has no invented entry to name: {node}"
         );
     }
@@ -2366,15 +2366,15 @@ print(json.dumps([h(c[0], c[1], c[2]) for c in cases]))
         let missing = json!("NA");
         let node = gathered_array_zarr_json(&gathered_declaration(), Some(&levels), Some(&missing))
             .expect("array node");
-        assert_eq!(node["attributes"]["cyto"]["levels"], levels);
-        assert_eq!(node["attributes"]["cyto"]["missing_level"], missing);
+        assert_eq!(node["attributes"]["txr"]["levels"], levels);
+        assert_eq!(node["attributes"]["txr"]["missing_level"], missing);
 
         // THE CONTROL: the vocabulary is passed through VERBATIM and is NOT filtered by the
         // missing level. Excluding it would be the mirror defect — the codes index into the
         // FULL list, so a vocabulary with the invented entry removed re-indexes every label
         // after it.
         assert_eq!(
-            node["attributes"]["cyto"]["levels"]
+            node["attributes"]["txr"]["levels"]
                 .as_array()
                 .map(Vec::len),
             Some(3),
@@ -2389,7 +2389,7 @@ print(json.dumps([h(c[0], c[1], c[2]) for c in cases]))
         let other = gathered_array_zarr_json(&gathered_declaration(), Some(&levels), Some(&odd))
             .expect("array node");
         assert_eq!(
-            other["attributes"]["cyto"]["missing_level"], odd,
+            other["attributes"]["txr"]["missing_level"], odd,
             "the label is the PRODUCER's, not a convention this side re-derives"
         );
     }

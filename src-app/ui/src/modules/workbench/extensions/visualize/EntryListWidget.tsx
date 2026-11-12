@@ -79,7 +79,7 @@
 
 import * as React from 'react'
 import { observeElementOffset, observeElementRect, useVirtualizer } from '@tanstack/react-virtual'
-import { Checkbox, Input, ScrollArea, Select } from '@ziee/kit'
+import { Checkbox, Input, ScrollArea, Select } from '@txresbench/kit'
 import { cn } from '@/lib/utils'
 import { EmitControl } from '@/modules/workbench/core/render/EmitControl'
 import type {

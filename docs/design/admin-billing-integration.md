@@ -1,6 +1,6 @@
 # Admin Billing integration — encrypted Stripe secret config (design)
 
-**Source of intent:** GitHub issue [#30](https://github.com/ziee-ai/cytoanalyst/issues/30)
+**Source of intent:** GitHub issue [#30](https://github.com/tinnlab/txresbench/issues/30)
 (EPIC: Admin Console — full administrative control … billing …) and the
 security-sensitive feature brief for the **Billing integration** admin page.
 Sits alongside `docs/design/admin-settings-coverage.md` (#41) and
@@ -25,7 +25,7 @@ trace is a Critical security defect. The webhook signing secret
 
 - **INV-1 (encrypt at rest):** the Stripe secret and webhook secret are stored
   **ENCRYPTED at rest** using the SDK primitive
-  `ziee_framework::secret::encrypt_secret(pool, plaintext, storage_key)`
+  `txresbench_framework::secret::encrypt_secret(pool, plaintext, storage_key)`
   (pgcrypto `pgp_sym_encrypt` → `bytea`) and read back via `decrypt_secret(...)`.
   The stored column is `bytea` (ciphertext), **NEVER plaintext**. No bespoke
   crypto is invented and the SDK pin is not changed.

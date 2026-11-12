@@ -1,5 +1,5 @@
-import { ErrorState, Spin } from '@ziee/kit'
-import { SettingsPageContainer } from '@ziee/shell'
+import { ErrorState, Spin } from '@txresbench/kit'
+import { SettingsPageContainer } from '@txresbench/shell'
 import { SandboxSettings } from '@/modules/sandbox/stores/SandboxSettings.store'
 import { RootfsStatusCard } from '@/modules/sandbox/components/RootfsStatusCard'
 import { ResourceLimitsCard } from '@/modules/sandbox/components/ResourceLimitsCard'

@@ -5,7 +5,7 @@
 //! `include_bytes!`s that asset and, on first sandbox use, extracts it to
 //! `<app_data>/sandbox-rootfs/<content-digest>/rootfs.squashfs` (guarded by a
 //! sha256 marker so a re-extract only happens on a truncated write). Mirrors
-//! ziee `code_sandbox/embedded.rs`, minus the multi-flavor layout (DEC-2).
+//! txresbench `code_sandbox/embedded.rs`, minus the multi-flavor layout (DEC-2).
 //!
 //! CONTENT-DIGEST-KEYED CACHE (ITEM-22 / DEC-17): the extraction dir is keyed by
 //! the rootfs's FULL content sha256, NOT the schema version — so different rootfs
@@ -15,11 +15,11 @@
 //! `has_digest`, the placement-path helper, and reference-counted GC.
 //!
 //! NORMAL BUILDS STAGE A 0-BYTE STUB. Docker is no longer a build dependency of
-//! CytoAnalyst, so the staged asset is an intentional, permanent zero-byte stub and
+//! TxResBench, so the staged asset is an intentional, permanent zero-byte stub and
 //! `is_supported()` is false. The sandbox does NOT self-disable as a result — the
 //! analysis rootfs is lazy-fetched at runtime by
 //! [`crate::modules::sandbox::env_image::OciEnvImageProvider`] from
-//! `ghcr.io/ziee-ai/cyto-env/<env>:schema<N>-latest-<arch>`, cosign-verified and
+//! `ghcr.io/tinnlab/txresbench-env/<env>:schema<N>-latest-<arch>`, cosign-verified and
 //! squashfuse-mounted on the first `run_analysis`. `is_supported() == false` means
 //! only "nothing is embedded", never "the sandbox is unavailable".
 
@@ -27,7 +27,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 /// The embedded squashfs bytes. Zero-length when the build staged a stub
 /// (no docker / non-Linux / build failure) — `is_supported()` gates on this.
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn marker_matches_requires_exact_sha() {
-        let dir = std::env::temp_dir().join(format!("cyto-emb-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("txr-emb-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let marker = dir.join(".sqfs-sha");
         assert!(!marker_matches(&marker, "abc"), "missing marker never matches");

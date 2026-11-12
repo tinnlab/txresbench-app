@@ -1,5 +1,5 @@
-import type { LayoutDefinition } from '@ziee/framework/router'
-import { BlankLayout as BlankLayoutComponent } from '@ziee/shell'
+import type { LayoutDefinition } from '@txresbench/framework/router'
+import { BlankLayout as BlankLayoutComponent } from '@txresbench/shell'
 
 /**
  * BlankLayout - Simple layout with no chrome

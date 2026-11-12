@@ -5,7 +5,7 @@
 //! Native SOMA read/serve parity tests behind a `#[cfg(…)]` gate on a cargo flag,
 //! driving `TileDbArraySource` against a `tiledbsoma`-produced oracle store. ITEM-13
 //! deleted the module (`ffi.rs` / `store.rs` / `array_source/`), the `tiledb_serve` cargo
-//! flag, and `CYTO_TILEDB_LIB`; the suite is INVERTED in place to assert the removal.
+//! flag, and `TXR_TILEDB_LIB`; the suite is INVERTED in place to assert the removal.
 //!
 //! ── WHY INVERT RATHER THAN DELETE ───────────────────────────────────────────────
 //! INV-1 — "the server stores and serves; it never opens a byte for meaning" — is
@@ -24,7 +24,7 @@
 //! ── NOT VACUOUS ─────────────────────────────────────────────────────────────────
 //! Every scan strips comments before matching, so the deliberate TOMBSTONE comments left
 //! at each removal site (`modules/mod.rs`, `Cargo.toml`, `build.rs`) — which name
-//! `tiledb_serve` and `CYTO_TILEDB_LIB` precisely so a future agent does not reintroduce
+//! `tiledb_serve` and `TXR_TILEDB_LIB` precisely so a future agent does not reintroduce
 //! them — do not trip the scan, while any LIVE reintroduction does.
 //! `scanner_flags_live_code_but_not_comments` is the negative control proving the
 //! matcher actually fires, in both the Rust and the TOML dialect.
@@ -143,7 +143,7 @@ fn scan(files: &[PathBuf], needles: &[&str]) -> Vec<String> {
 /// This used to be `src/` + `build.rs` + `Cargo.toml`, and that list had a hole exactly
 /// the shape of the thing being forbidden: `build.rs` is a 90-line entry point that
 /// `#[path]`-includes `build_helper/mod.rs`, and the build's REAL logic lives there. A
-/// live `CYTO_TILEDB_LIB` read plus `cargo:rustc-link-lib=tiledb` /
+/// live `TXR_TILEDB_LIB` read plus `cargo:rustc-link-lib=tiledb` /
 /// `cargo:rustc-link-search` planted in `build_helper/` left all five tests below GREEN.
 /// A default-deny walk of the whole root closes that by construction: a new compiled
 /// source directory is scanned on arrival, with no list for anyone to forget to update.
@@ -243,14 +243,14 @@ fn tiledb_serve_cargo_flag_is_absent() {
 // ── 4 — the env var and the native link path are gone ───────────────────────────
 #[test]
 fn no_tiledb_link_path_in_the_build() {
-    // `CYTO_TILEDB_LIB` pointed `build.rs` at a prebuilt core `libtiledb` lib dir;
+    // `TXR_TILEDB_LIB` pointed `build.rs` at a prebuilt core `libtiledb` lib dir;
     // `rustc-link-lib`/`rustc-link-search` + `#[link(name = "tiledb")]` were how it got
     // linked. The crate must emit no link directive for a format-parsing library at all —
     // a dependency-graph read cannot see a hand-written FFI link, so this is the
     // assertion that covers it.
     let leaks = scan(
         &scanned_surface(),
-        &["CYTO_TILEDB_LIB", "rustc-link-lib", "rustc-link-search", "link(name = \"tiledb\")"],
+        &["TXR_TILEDB_LIB", "rustc-link-lib", "rustc-link-search", "link(name = \"tiledb\")"],
     );
     assert!(
         leaks.is_empty(),
@@ -267,13 +267,13 @@ fn scanner_flags_live_code_but_not_comments() {
     let tmp = std::env::temp_dir().join(format!("tiledb_removed_probe_{}.rs", std::process::id()));
 
     // Live code IS flagged…
-    std::fs::write(&tmp, "fn f() {\n    let d = std::env::var(\"CYTO_TILEDB_LIB\");\n}\n").unwrap();
-    let hits = scan(&[tmp.clone()], &["CYTO_TILEDB_LIB"]);
+    std::fs::write(&tmp, "fn f() {\n    let d = std::env::var(\"TXR_TILEDB_LIB\");\n}\n").unwrap();
+    let hits = scan(&[tmp.clone()], &["TXR_TILEDB_LIB"]);
     assert_eq!(hits.len(), 1, "a live reintroduction MUST be flagged, got {hits:?}");
 
     // …but a tombstone comment is NOT — which is why the tombstones are allowed to stay.
-    std::fs::write(&tmp, "// CYTO_TILEDB_LIB was deleted by ITEM-13\nfn f() {}\n").unwrap();
-    let none = scan(&[tmp.clone()], &["CYTO_TILEDB_LIB"]);
+    std::fs::write(&tmp, "// TXR_TILEDB_LIB was deleted by ITEM-13\nfn f() {}\n").unwrap();
+    let none = scan(&[tmp.clone()], &["TXR_TILEDB_LIB"]);
     assert!(none.is_empty(), "a comment must NOT be flagged: {none:?}");
 
     // The TOML dialect is exercised too — the manifest is in the scan set.

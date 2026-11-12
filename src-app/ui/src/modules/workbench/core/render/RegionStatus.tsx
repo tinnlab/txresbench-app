@@ -34,7 +34,7 @@
 // unit-testable without a store, a host, or a network.
 
 import * as React from 'react'
-import { Empty, ErrorState, Skeleton } from '@ziee/kit'
+import { Empty, ErrorState, Skeleton } from '@txresbench/kit'
 import type { DataStatus } from '@/modules/workbench/core/runtime/dataStatus'
 
 export interface RegionStatusProps {

@@ -140,7 +140,7 @@ def test_the_declarations_reach_the_stores_bytes_for_this_importer_as_well(impor
     entry = XF.entry(imported["entries"], "spatial-coordinates")
     store = imported["out"] / entry["path"]
 
-    stamped = json.loads((store / "zarr.json").read_text())["attributes"]["cyto"]
+    stamped = json.loads((store / "zarr.json").read_text())["attributes"]["txr"]
     assert stamped == entry["structure"]
 
     block = SD.require_spatial_declarations(store, consumer="a neighbourhood analysis")
@@ -151,7 +151,7 @@ def test_the_declarations_reach_the_stores_bytes_for_this_importer_as_well(impor
         "a micrometre space named a leg that produced a pixel scale — there is no such leg"
     )
     # EVERY key the block carries is compared against the catalog row, not a chosen five.
-    # Nothing mechanically pins `meta` against `structure['cyto_spatial']` — they agree
+    # Nothing mechanically pins `meta` against `structure['txr_spatial']` — they agree
     # only because one dict at one call site builds both — and the divergence pattern
     # (`coord_meta.update({...})` after the writer returns) is already in this importer.
     # A subset comparison would have let a post-hoc `coord_meta["unit"] = ...` sail past

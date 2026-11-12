@@ -24,7 +24,7 @@
 // icon-ghost close, semantic border/background tokens, logical-direction spacing only.
 
 import type { ReactNode } from 'react'
-import { Button as KitButton } from '@ziee/kit'
+import { Button as KitButton } from '@txresbench/kit'
 import { X } from 'lucide-react'
 
 /**

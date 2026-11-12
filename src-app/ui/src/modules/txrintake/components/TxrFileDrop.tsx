@@ -14,7 +14,7 @@
  * picked File is handed to `onPick` — the host owns decode + store.
  */
 import type { CSSProperties } from 'react'
-import { Upload } from '@ziee/kit'
+import { Upload } from '@txresbench/kit'
 import type { FileTableKind } from '@/api-client/types'
 
 /** The zone (board bytes). The dashed border is the NEUTRAL border token,

@@ -2,7 +2,7 @@
 // canvas grid render as a REAL WORKBENCH PANE instead of inside the grid.
 //
 // ── The defect this removes ─────────────────────────────────────────────────────────────
-// `@ziee/viz`'s grid resolves a host container per open surface and, when the host returns
+// `@txresbench/viz`'s grid resolves a host container per open surface and, when the host returns
 // none, stacks the surface in its OWN internal right panel — a 300px column INSIDE the grid
 // that occupies grid width, so opening a plot's "Edit plot" or "View table" shrank the plot
 // being edited. The workbench passed no resolver at all, so every surface took that path.
@@ -42,7 +42,7 @@
 // ── Why the pane OPEN/CLOSE arrives as an injected PORT ─────────────────────────────────
 // This module is re-exported by the workbench's public barrel (`core/index.ts`), and that
 // barrel must stay loadable under the `node:test` strip-types runner — no JSX anywhere in its
-// import graph (`core/index.test.ts`). Importing the dock store here would pull `@ziee/dock`'s
+// import graph (`core/index.test.ts`). Importing the dock store here would pull `@txresbench/dock`'s
 // `ContainerWindows.tsx` in behind it and break that, so the two store calls this needs arrive
 // as `SurfacePaneLifecycle`, installed by `panes.tsx` at boot beside the renderer registration
 // (`paneSurfaceLifecycle.ts`). It also leaves this module a pure DOM + registry unit.

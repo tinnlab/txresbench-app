@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Drawer } from '@ziee/shell'
+import { Drawer } from '@txresbench/shell'
 import { JobsDrawer as JobsDrawerStore } from '@/modules/jobs/JobsDrawer.store'
 import { Jobs } from '@/modules/jobs/Jobs.store'
 import { JobList } from './JobList'

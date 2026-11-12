@@ -58,7 +58,7 @@ use axum::{Extension, Json};
 use serde::Deserialize;
 use sqlx::SqlitePool;
 
-use ziee_core::{ApiResult, AppError};
+use txresbench_core::{ApiResult, AppError};
 
 use crate::modules::jobs::JobsUse;
 use crate::modules::permissions::{with_permission, RequirePermissions};

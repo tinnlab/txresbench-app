@@ -1,4 +1,4 @@
-// CytoAnalyst component gallery — boots @ziee/gallery with this app's DI surface.
+// TxResBench component gallery — boots @txresbench/gallery with this app's DI surface.
 // Dev-only: reachable ONLY from gallery.html (a separate Vite entry never
 // imported by the app's main.tsx), so it tree-shakes out of the prod bundle.
 
@@ -8,7 +8,7 @@ import {
   type DiscoveredGallery,
   type ModuleGallery,
   type SpecialRoute,
-} from '@ziee/gallery'
+} from '@txresbench/gallery'
 import {
   ACCENT_ORDER,
   ACCENT_PRESETS,
@@ -17,8 +17,8 @@ import {
   LazyComponentRenderer,
   Loading,
   ThemeProvider,
-} from '@ziee/shell'
-import { useRoutesStore } from '@ziee/framework/router'
+} from '@txresbench/shell'
+import { useRoutesStore } from '@txresbench/framework/router'
 import { ApiEndpoints } from '@/api-client/apiEndpoints'
 import { loadModules } from '@/modules/loader'
 import { useConfigClientStore } from '@/modules/config-client/ConfigClient.store'

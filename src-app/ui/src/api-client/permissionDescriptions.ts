@@ -21,7 +21,7 @@ export const PermissionDescriptions: Record<string, string> = {
   JobsUse: 'Create, view, and stop your own analysis jobs',
   McpSettingsManage: 'Change the MCP agent/tool caps and pairing-code TTL',
   McpSettingsRead: 'View the MCP agent/tool caps and pairing-code TTL',
-  McpUse: 'Let an external AI assistant (e.g. ziee chat) operate TxResBench on your behalf.',
+  McpUse: 'Let an external AI assistant (e.g. txresbench chat) operate TxResBench on your behalf.',
   NotificationsRead: 'Read and manage your own notifications.',
   ProfileEdit: 'Edit own profile information',
   ProfileRead: 'View own profile information',

@@ -35,7 +35,7 @@ pub mod types;
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 /// The module instance (no state — the catalogue's `OnceLock` is the only
 /// runtime fact, set by `init`).
@@ -93,7 +93,7 @@ static METHOD_CATALOGUE: ModuleEntry = ModuleEntry {
 // framework tie stays an epic-level finding (DRIFT-1).
 #[cfg(test)]
 mod tests {
-    use ziee_framework::{AppModule, MODULE_ENTRIES};
+    use txresbench_framework::{AppModule, MODULE_ENTRIES};
 
     use super::METHOD_CATALOGUE;
 

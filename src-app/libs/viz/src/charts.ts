@@ -1,12 +1,12 @@
-// @ziee/viz/charts — the tree-shakeable CHARTS subpath (EXTENSIBILITY_STUDY Part 6 STEP 7).
+// @txresbench/viz/charts — the tree-shakeable CHARTS subpath (EXTENSIBILITY_STUDY Part 6 STEP 7).
 // Each built-in chart is exported BOTH as a self-registering `{ install }` installer (so an app
 // can `use([ScatterChart, ViolinChart])` and pull in ONLY those) AND collectively via
 // `installBuiltins()` / `AllCharts` (the eager batteries-included set). Importing an individual
 // installer does NOT register it — `use(...)` does — so a bare `import { ScatterChart }` is inert
 // until opted in.
 //
-//   import { use } from '@ziee/viz/core'
-//   import { ScatterChart, ViolinChart } from '@ziee/viz/charts'
+//   import { use } from '@txresbench/viz/core'
+//   import { ScatterChart, ViolinChart } from '@txresbench/viz/charts'
 //   use([ScatterChart, ViolinChart])   // only these two register
 //
 // The chart Views themselves (the deck-backed rendering surface) are also re-exported here for a
@@ -16,7 +16,7 @@
 // NOTE `installBuiltinSchemas` (the render-free half — same types, same binding schemas, no
 // Views) is deliberately NOT re-exported here: this subpath's whole purpose is to deliver the
 // chart Views, so importing it from here would pull exactly what that function exists to avoid.
-// It lives on `@ziee/viz/core` (and the main barrel).
+// It lives on `@txresbench/viz/core` (and the main barrel).
 export {
   installBuiltins,
   AllCharts,

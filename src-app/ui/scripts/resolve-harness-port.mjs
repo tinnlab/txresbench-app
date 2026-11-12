@@ -29,7 +29,7 @@ import {
   portBase,
   resolveWorktreeRoot,
   serverIsThisWorktree,
-} from '@ziee/gallery/scripts/lib/run-key.mjs'
+} from '@txresbench/gallery/scripts/lib/run-key.mjs'
 
 import { classifyOrigin, reuseRequested } from './harness-origin.mjs'
 

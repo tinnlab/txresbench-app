@@ -3,7 +3,7 @@
 """Off-sandbox run harness for the `doublet` compute.
 
 Drives the REAL `compute/doublet.py` as a SUBPROCESS through the only seam that runs it
-outside bwrap (`CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR`), with `_lib` + `_helpers` on
+outside bwrap (`TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR`), with `_lib` + `_helpers` on
 `PYTHONPATH` exactly as the sandbox stages `/code`. Every input is declared in
 `/inputs/inputs.json` (the `render_inputs_json` wire shape) with a MEANINGLESS `in0`/`in1`
 mount name, so a compute that resolves by filename suffix cannot pass. Mirrors
@@ -37,13 +37,13 @@ _COMPUTE = _PKG / "compute"
 DETECT = _COMPUTE / "doublet.py"
 
 sys.path.insert(0, str(_LIB_DIR))
-import cyto_columns  # noqa: E402
-import cyto_csc  # noqa: E402
-import cyto_zarr_read  # noqa: E402
+import txr_columns  # noqa: E402
+import txr_csc  # noqa: E402
+import txr_zarr_read  # noqa: E402
 
 
 # ── the staged raw fixture (see `stage_fixtures.py`) ───────────────────────────────
-#: `.cyto-cache/fixtures/` is the repo's documented, gitignored fixture-staging convention.
+#: `.txr-cache/fixtures/` is the repo's documented, gitignored fixture-staging convention.
 #: `pbmc68k_reduced.h5ad`, the fixture already in the tree, is normalized AND scaled and is
 #: therefore INVALID for a raw-count method — this package needs raw UMIs.
 FIXTURE_NAME = "pbmc3k_raw.h5ad"
@@ -55,15 +55,15 @@ def repo_root() -> Path:
 
 
 def fixture_path() -> Path:
-    override = os.environ.get("CYTO_E2E_FIXTURES")
-    base = Path(override) if override else (repo_root() / ".cyto-cache" / "fixtures")
+    override = os.environ.get("TXR_E2E_FIXTURES")
+    base = Path(override) if override else (repo_root() / ".txr-cache" / "fixtures")
     return base / FIXTURE_NAME
 
 
 def require_fixture() -> Path:
     """The staged raw fixture, or a NAMED stop.
 
-    Absent + `CYTO_REQUIRE_FIXTURES=1` -> a hard FAILURE (the science tier's own setting:
+    Absent + `TXR_REQUIRE_FIXTURES=1` -> a hard FAILURE (the science tier's own setting:
     a skip there is not a pass). Absent otherwise -> a skip whose message is the exact
     command that fixes it, never a bare "skipped" that reads as green.
     """
@@ -77,7 +77,7 @@ def require_fixture() -> Path:
         "fixture already in the tree, is normalized+scaled and is NOT valid for a raw-count "
         "method."
     )
-    if os.environ.get("CYTO_REQUIRE_FIXTURES") == "1":
+    if os.environ.get("TXR_REQUIRE_FIXTURES") == "1":
         pytest.fail(msg)
     pytest.skip(msg)
 
@@ -110,7 +110,7 @@ def write_csc_store(dest: Path, dense) -> dict:
     mat = dense if sp.issparse(dense) else sp.csr_matrix(np.asarray(dense, dtype=np.float32))
     mat = mat.tocsr()
     mat.eliminate_zeros()
-    return cyto_csc.write_csc_zarr(cyto_csc.ArraySource(mat), dest, axes=("cells", "genes"))
+    return txr_csc.write_csc_zarr(txr_csc.ArraySource(mat), dest, axes=("cells", "genes"))
 
 
 def write_column_store(dest: Path, name: str, values, *, axis: str, holds_axis_keys=False):
@@ -132,7 +132,7 @@ def write_column_store(dest: Path, name: str, values, *, axis: str, holds_axis_k
         series = pd.Series(values)
     else:
         series = pd.Series(list(values))
-    return cyto_columns.write_metadata_column(
+    return txr_columns.write_metadata_column(
         dest.parent, dest.name, name, series, axis=axis, holds_axis_keys=holds_axis_keys)
 
 
@@ -195,9 +195,9 @@ class DetectRun:
         env["PYTHONPATH"] = os.pathsep.join(
             [str(_HELPERS_DIR), str(_LIB_DIR),
              *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])])
-        env["CYTO_INPUTS_DIR"] = str(self.inputs_dir)
-        env["CYTO_OUTPUTS_DIR"] = str(self.outputs_dir)
-        env.pop("CYTO_PROGRESS_FIFO", None)
+        env["TXR_INPUTS_DIR"] = str(self.inputs_dir)
+        env["TXR_OUTPUTS_DIR"] = str(self.outputs_dir)
+        env.pop("TXR_PROGRESS_FIFO", None)
         for k, v in (env_extra or {}).items():
             if v is None:
                 env.pop(str(k), None)  # UNSET (absent), not empty-string
@@ -243,7 +243,7 @@ class DetectRun:
         entry = self.entry(suffix)
         assert entry is not None, f"no output entry ending {suffix!r} in {[e['id'] for e in self.entries()]}"
         root = self.outputs_dir / entry["path"]
-        return cyto_zarr_read.read_column(root, "values")
+        return txr_zarr_read.read_column(root, "values")
 
     def scores(self, label="doublet"):
         return np.asarray(self.column(f"{label}_score"), dtype=np.float64)
@@ -527,7 +527,7 @@ def load_compute():
 # had its own R-side staging and its own R-side read-back, a wire-format disagreement
 # between the python writer and the R reader would cancel out and the numbers would be
 # quietly wrong. Going in through `write_csc_store` and out through
-# `cyto_zarr_read.read_column` is what makes a disagreement a TEST FAILURE.
+# `txr_zarr_read.read_column` is what makes a disagreement a TEST FAILURE.
 #
 # ── THE SANDBOX ARGV IS BORROWED, NOT INVENTED ────────────────────────────────────────
 # It mirrors `scripts/verify-r-rootfs-local.sh`, which mirrors
@@ -550,11 +550,11 @@ def load_compute():
 #: A pre-extracted `single-cell-r` rootfs directory. Extraction of a ~700 MB squashfs costs
 #: real time, so a caller that already has one (a lifecycle run, a dev loop) points at it
 #: and every test in the session reuses it.
-R_ROOTFS_DIR_ENV = "CYTO_R_ROOTFS_DIR"
+R_ROOTFS_DIR_ENV = "TXR_R_ROOTFS_DIR"
 #: The per-env air-gap seam the platform itself uses (`env_image.rs` SEAM_KEYS[0] +
 #: the env-id suffix). Read rather than re-derived, so this harness and `just test-sandbox`
 #: are pointed at the same artifact by the same variable.
-R_SEAM_ENV = "CYTO_ENV_ROOTFS_SQUASHFS__single-cell-r"
+R_SEAM_ENV = "TXR_ENV_ROOTFS_SQUASHFS__single-cell-r"
 R_ENV_ID = "single-cell-r"
 
 #: The sandbox's own PATH (`sandbox.rs`), spelled here once.
@@ -572,7 +572,7 @@ def r_rootfs_dir():
     """An extracted `single-cell-r` rootfs, or `None`.
 
     Prefers an already-extracted directory; otherwise extracts the staged squashfs ONCE
-    into `.cyto-cache/env-rootfs/single-cell-r.rootfs/` and reuses it. The extraction is
+    into `.txr-cache/env-rootfs/single-cell-r.rootfs/` and reuses it. The extraction is
     guarded by a marker file rather than by directory existence, so an extraction killed
     half-way is redone instead of being mistaken for a good one.
     """
@@ -582,7 +582,7 @@ def r_rootfs_dir():
     squash = os.environ.get(R_SEAM_ENV)
     if not squash or not Path(squash).is_file():
         return None
-    dest = repo_root() / ".cyto-cache" / "env-rootfs" / f"{R_ENV_ID}.rootfs"
+    dest = repo_root() / ".txr-cache" / "env-rootfs" / f"{R_ENV_ID}.rootfs"
     marker = dest / ".extracted-ok"
     if marker.is_file():
         return dest
@@ -601,7 +601,7 @@ def r_rootfs_dir():
 def require_r_env():
     """The extracted R rootfs, or a NAMED stop.
 
-    Absent + `CYTO_REQUIRE_FIXTURES=1` -> a hard FAILURE. The science tier's own setting:
+    Absent + `TXR_REQUIRE_FIXTURES=1` -> a hard FAILURE. The science tier's own setting:
     a skip there is not a pass, and this is the tier that decides whether a second doublet
     method works at all.
     """
@@ -614,7 +614,7 @@ def require_r_env():
         f"The image is NOT published (#80/#217), so the local build loop is the only route. "
         f"Set {R_ROOTFS_DIR_ENV} to reuse an already-extracted rootfs."
     )
-    if os.environ.get("CYTO_REQUIRE_FIXTURES") == "1":
+    if os.environ.get("TXR_REQUIRE_FIXTURES") == "1":
         pytest.fail(msg)
     pytest.skip(msg)
 
@@ -671,7 +671,7 @@ class ScdblfinderRun(DetectRun):
         binds = [self.inputs_dir, self.outputs_dir, _COMPUTE]
         extra = " ".join(
             f"{k}={v}" for k, v in (env_extra or {}).items() if v is not None)
-        cmd = (f"CYTO_INPUTS_DIR={self.inputs_dir} CYTO_OUTPUTS_DIR={self.outputs_dir} "
+        cmd = (f"TXR_INPUTS_DIR={self.inputs_dir} TXR_OUTPUTS_DIR={self.outputs_dir} "
                f"{extra} Rscript {SCDBLFINDER}")
         return run_in_r_sandbox(cmd, binds=binds)
 

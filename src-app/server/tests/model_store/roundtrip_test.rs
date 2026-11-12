@@ -10,14 +10,14 @@ use serde_json::{json, Value};
 
 use crate::common::TestServer;
 use super::{error_code, owner_token, pool, seed_run_with_models};
-use cytoanalyst::modules::execution_engine::repository::TxrRepository;
-use cytoanalyst::modules::execution_engine::types::{TxrMethodEnv, TxrTask};
-use cytoanalyst::modules::model_store::container::{
+use txresbench::modules::execution_engine::repository::TxrRepository;
+use txresbench::modules::execution_engine::types::{TxrMethodEnv, TxrTask};
+use txresbench::modules::model_store::container::{
     write_container, ContainerExport, ContainerModelFacts, ContainerModelSpec, ContainerProvenance,
     ContainerSet, ContainerTrainingSpec,
 };
-use cytoanalyst::modules::model_store::store::{self, ImportOptions, Provenance};
-use cytoanalyst::modules::model_store::types::{CovariateFacts, MarkerFacts, ModelProvenance};
+use txresbench::modules::model_store::store::{self, ImportOptions, Provenance};
+use txresbench::modules::model_store::types::{CovariateFacts, MarkerFacts, ModelProvenance};
 
 const METHOD_A: &str = "cox-cutpoint-risk";
 const METHOD_B: &str = "landmark-cox-current";
@@ -33,7 +33,7 @@ fn container_fixture(tree_dir: &std::path::Path, token: &str) -> Vec<u8> {
         .expect("parent")
         .join(format!("{token}-training.bin"));
     std::fs::write(&training_src, b"training file bytes").expect("training fixture");
-    let digest = cytoanalyst::modules::sandbox::stack::tree_sha256(tree_dir).expect("digest");
+    let digest = txresbench::modules::sandbox::stack::tree_sha256(tree_dir).expect("digest");
     let facts = ContainerModelFacts {
         name: format!("{token} model"),
         method_id: METHOD_A.to_string(),
@@ -50,7 +50,7 @@ fn container_fixture(tree_dir: &std::path::Path, token: &str) -> Vec<u8> {
         trained_on_patients: Some(2),
         trained_at: Some("2026-10-19T15:00:00+00:00".parse().expect("date")),
         decision_day: 56.0,
-        endpoint: cytoanalyst::modules::execution_engine::types::TxrEndpoint::Pfs,
+        endpoint: txresbench::modules::execution_engine::types::TxrEndpoint::Pfs,
         horizon: 238.0,
         contract: "2.0".to_string(),
         env: TxrMethodEnv {
@@ -60,16 +60,16 @@ fn container_fixture(tree_dir: &std::path::Path, token: &str) -> Vec<u8> {
         features: vec!["M1".to_string(), "M2".to_string()],
         required_markers: None,
         marker_facts: MarkerFacts {
-            kind: cytoanalyst::modules::method_catalogue::types::MarkerKind::Single,
+            kind: txresbench::modules::method_catalogue::types::MarkerKind::Single,
             count: 2,
             min_draws: 2,
             needs_baseline: false,
-            uses_history: cytoanalyst::modules::method_catalogue::types::UsesHistory::Landmark,
+            uses_history: txresbench::modules::method_catalogue::types::UsesHistory::Landmark,
             needs_detection_call: false,
             marker_groups_required: vec![],
         },
         covariates: CovariateFacts {
-            catalogue: cytoanalyst::modules::method_catalogue::types::CovariateMode::None,
+            catalogue: txresbench::modules::method_catalogue::types::CovariateMode::None,
             used: false,
         },
         embeds_training_data: false,

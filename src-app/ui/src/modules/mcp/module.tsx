@@ -1,5 +1,5 @@
 import { Bot, Plug } from 'lucide-react'
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 import { Permissions } from '@/api-client/permissions'
 import { SettingsLayoutDef } from '@/modules/settings/SettingsLayout'
 import { lazyWithPreload } from '@/utils/lazyWithPreload'
@@ -21,7 +21,7 @@ export default createModule({
     name: 'mcp',
     version: '1.0.0',
     description:
-      'AI Assistant Access: pair an external AI assistant (e.g. ziee chat) to TxResBench.',
+      'AI Assistant Access: pair an external AI assistant (e.g. txresbench chat) to TxResBench.',
   },
   dependencies: ['router'],
   routes: [

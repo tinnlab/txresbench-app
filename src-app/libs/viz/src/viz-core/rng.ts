@@ -33,7 +33,7 @@ export function seedFromString(s: string): number {
 /** The default seed for a cell: derived from its id so a figure is reproducible-by-default (DEC-8) while a
  *  caller may still override with an explicit seed for a fresh draw. */
 export function defaultCellSeed(cellId: string): number {
-  return seedFromString(cellId || 'ziee-viz')
+  return seedFromString(cellId || 'txresbench-viz')
 }
 
 /** A seeded rng bound to a cell (or an explicit override seed). The object it returns is passed straight to

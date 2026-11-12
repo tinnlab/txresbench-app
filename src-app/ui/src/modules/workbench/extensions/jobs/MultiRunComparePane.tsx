@@ -6,8 +6,8 @@
 // so "select multiple runs → side-by-side compare" is reachable in-pane.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { EventBus } from '@ziee/framework/stores'
-import { Empty, ErrorState, SectionHeader, Select, Spinner, type SelectOption } from '@ziee/kit'
+import { EventBus } from '@txresbench/framework/stores'
+import { Empty, ErrorState, SectionHeader, Select, Spinner, type SelectOption } from '@txresbench/kit'
 import { ApiClient } from '@/api-client'
 // Through `core/workstore/catalog`, NOT `ApiClient.Workstore.listArtifacts` directly:
 // the wrapper feeds every fetched row into the ambient artifact-name cache

@@ -329,7 +329,7 @@ def test_the_coordinates_are_unchanged_by_any_image_failure(tmp_path):
     the coordinates written when the image fails are BIT-IDENTICAL to those written when it
     succeeds, so "the import survived" means the artifacts are the same, not merely present.
     """
-    import cyto_zarr_read as CZR
+    import txr_zarr_read as CZR
 
     good_out = tmp_path / "good"
     XF.run_over(XF.PRIME, good_out)

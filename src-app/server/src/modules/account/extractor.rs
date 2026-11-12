@@ -29,9 +29,9 @@ use axum::http::{request::Parts, HeaderMap, StatusCode};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use ziee_auth::auth::DefaultIdentityResolver;
-use ziee_core::AppError;
-use ziee_framework::permissions::IdentityResolver;
+use txresbench_auth::auth::DefaultIdentityResolver;
+use txresbench_core::AppError;
+use txresbench_framework::permissions::IdentityResolver;
 
 use super::models::AccountRole;
 use super::repository::AccountRepository;

@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import type { AppModule } from '@ziee/framework/module-system/types'
+import type { AppModule } from '@txresbench/framework/module-system/types'
 import { ROUTE_CONVENTIONS } from '../txrintake/module'
 import txrRunModule from './module'
 import { chooseMethodsPath, runningPath } from './index'

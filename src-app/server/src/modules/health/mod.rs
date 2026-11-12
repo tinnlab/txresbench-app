@@ -1,15 +1,15 @@
 //! `health` module — the DB-free liveness surface, adopted verbatim from the
-//! SDK's `ziee-health` crate.
+//! SDK's `txresbench-health` crate.
 //!
 //! Mounts `GET /api/health` → `{ "status": "ok" }` (no DB, no auth, no
 //! permission) by merging the SDK crate's `routes()` bundle. A self-registering
 //! `MODULE_ENTRIES` module so the route lands under the shared `/api` prefix and
-//! appears in the emitted OpenAPI like every other CytoAnalyst surface.
+//! appears in the emitted OpenAPI like every other TxResBench surface.
 
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 pub struct HealthModule;
 
@@ -27,7 +27,7 @@ impl AppModule for HealthModule {
     }
 
     fn register_routes(&self, router: ApiRouter) -> ApiRouter {
-        router.merge(ziee_health::routes())
+        router.merge(txresbench_health::routes())
     }
 }
 

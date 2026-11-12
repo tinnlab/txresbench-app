@@ -13,7 +13,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
-vi.mock('@ziee/kit', () => ({
+vi.mock('@txresbench/kit', () => ({
   message: { info: () => {}, success: () => {}, error: () => {} },
 }))
 
@@ -39,7 +39,7 @@ const RASTER_ROW: DataPlaneArtifact = {
 }
 
 async function realPyramid() {
-  const { loadOmeTiffPyramid } = await import('@ziee/viz/core')
+  const { loadOmeTiffPyramid } = await import('@txresbench/viz/core')
   return loadOmeTiffPyramid({
     byteLength: RASTER_BYTES.byteLength,
     async read(start: number, end: number) {

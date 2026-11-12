@@ -305,7 +305,7 @@ test('[ITEM-21] PASSES on intra-layer + out-of-workbench imports (not this ruleâ
       'extensions/jobs/RunPane.tsx': `import { j } from './jobsHost'\nexport const r = j\n`,
       'extensions/jobs/jobsHost.ts': `export const j = 1\n`,
       // outside the workbench entirely
-      'extensions/canvas/viz.tsx': `import { Viz } from '@ziee/viz'\nimport { api } from '@/core/workstore/arrowClient'\nexport const v = [Viz, api]\n`,
+      'extensions/canvas/viz.tsx': `import { Viz } from '@txresbench/viz'\nimport { api } from '@/core/workstore/arrowClient'\nexport const v = [Viz, api]\n`,
     },
     ({ run }) => {
       const { code, stderr } = run()

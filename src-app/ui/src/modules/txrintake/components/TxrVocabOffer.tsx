@@ -20,7 +20,7 @@
  * any host input instead of silently re-asking an auto-joined column.
  */
 import type { CSSProperties } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import type { VocabOffer } from '../types'
 
 /** The board's grey offer row (one question + two kit buttons). */

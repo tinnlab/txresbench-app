@@ -5,7 +5,7 @@
 # ── WHY THIS EXISTS ─────────────────────────────────────────────────────────────────
 # `fetch-env-rootfs.sh` gets an env image by PULLING it from GHCR. That is the right
 # path for a deployment and the wrong one for a developer changing a recipe, because
-# `ghcr.io/ziee-ai/cyto-env/*` is not anonymously pullable, publishing to it needs a
+# `ghcr.io/tinnlab/txresbench-env/*` is not anonymously pullable, publishing to it needs a
 # `write:packages` token, and the workflow that would publish it is parked as
 # `.disabled` (commit 3f6452b8, org Actions billing — see `publish-env-rootfs.sh`).
 # So a recipe change was, until this script, unobservable without a credential the
@@ -37,12 +37,12 @@
 # matrix. No env id is spelled in this file, and a test enforces that.
 #
 # ── THE SEAM VARIABLE CANNOT BE `export`ed ──────────────────────────────────────────
-# The per-env air-gap seam is `CYTO_ENV_ROOTFS_SQUASHFS__<env-id>`. Every env id this
+# The per-env air-gap seam is `TXR_ENV_ROOTFS_SQUASHFS__<env-id>`. Every env id this
 # tree ships contains `-`, which is NOT legal in a shell identifier, so:
 #
-#     export CYTO_ENV_ROOTFS_SQUASHFS__my-env=/path   ->  bash: not a valid identifier
-#     CYTO_ENV_ROOTFS_SQUASHFS__my-env=/path cmd       ->  sh: ...: not found
-#     env 'CYTO_ENV_ROOTFS_SQUASHFS__my-env=/path' cmd ->  works, and is inherited
+#     export TXR_ENV_ROOTFS_SQUASHFS__my-env=/path   ->  bash: not a valid identifier
+#     TXR_ENV_ROOTFS_SQUASHFS__my-env=/path cmd       ->  sh: ...: not found
+#     env 'TXR_ENV_ROOTFS_SQUASHFS__my-env=/path' cmd ->  works, and is inherited
 #
 # Only the `env(1)` form works. This script therefore PRINTS a ready-to-run `env` line
 # rather than an `export` line a reader would paste and watch fail. `--print-seam`
@@ -90,7 +90,7 @@ case "$(uname -m)" in
     aarch64|arm64) ARCH=arm64 ;;
     *) ARCH="" ;;
 esac
-ARCH="${CYTO_ENV_ARCH:-$ARCH}"
+ARCH="${TXR_ENV_ARCH:-$ARCH}"
 ALL=0
 LIST=0
 PRINT_SEAM=0
@@ -170,7 +170,7 @@ case "$ARCH" in
     amd64) PLATFORM=linux/amd64 ;;
     arm64) PLATFORM=linux/arm64 ;;
     "") die "cannot derive an architecture from \`uname -m\` ($(uname -m)).
-  Name one explicitly: --arch amd64|arm64 (or set CYTO_ENV_ARCH)." ;;
+  Name one explicitly: --arch amd64|arm64 (or set TXR_ENV_ARCH)." ;;
     *) die "unsupported architecture: $ARCH (expected amd64 or arm64)" ;;
 esac
 HOST_ARCH=$(uname -m)
@@ -190,14 +190,14 @@ SCHEMA=$(grep -E 'const ROOTFS_SCHEMA_VERSION' "$VERSION_RS" | grep -oE '[0-9]+'
 
 # The SAME cache layout `fetch-env-rootfs.sh` owns, so a locally built artifact and a
 # fetched one are interchangeable at the seam and `--print-path` finds either.
-CACHE="${CYTO_ENV_ROOTFS_CACHE:-$REPO_ROOT/.cyto-cache/env-rootfs}"
-SEAM_KEY=CYTO_ENV_ROOTFS_SQUASHFS
+CACHE="${TXR_ENV_ROOTFS_CACHE:-$REPO_ROOT/.txr-cache/env-rootfs}"
+SEAM_KEY=TXR_ENV_ROOTFS_SQUASHFS
 # The docker LABEL every build below stamps with the env id it was built from. It is the
 # ONLY artifact-side evidence tying a set of bytes to an env: the schema marker, jq's
 # presence and jq's execution are all env-agnostic by construction. `--reuse-image`
 # checks it, which is what stops a convenience flag from re-creating the substitution
 # defect this whole epic exists to close.
-ENV_LABEL=com.cytoanalyst.env
+ENV_LABEL=com.txresbench.env
 
 staged_path_for() { echo "$CACHE/$1-schema$SCHEMA-$ARCH.squashfs"; }
 
@@ -234,7 +234,7 @@ if [ "$PRINT_SEAM" = "1" ]; then
         p=$(staged_path_for "$id")
         [ -s "$p" ] || continue
         # ── CONTENT VERIFICATION, and this is the load-bearing part ─────────────
-        # The staged squashfs carries NO env marker: the `com.cytoanalyst.env` label
+        # The staged squashfs carries NO env marker: the `com.txresbench.env` label
         # lives on the docker IMAGE and does not survive `docker cp`, and every other
         # check this loop runs is env-AGNOSTIC by construction (schema, jq presence, jq
         # execution — chosen precisely because they name no analysis domain). So without
@@ -385,7 +385,7 @@ for id in $TARGETS; do
     [ -f "$RECIPE" ] || die "no recipe at $RECIPE"
     OUT=$(staged_path_for "$id")
     # The image tag is BUILT from the derived id, never spelled.
-    TAG="cyto-env-local-$id:schema$SCHEMA-$ARCH"
+    TAG="txresbench-env-local-$id:schema$SCHEMA-$ARCH"
 
     echo "── $id ────────────────────────────────────────────────" >&2
     log "recipe : $RECIPE"
@@ -496,7 +496,7 @@ for id in $TARGETS; do
 
     # ── 2/4 extract the packed squashfs ─────────────────────────────────────────
     # The verification happens AFTER this, against the extracted artifact, and NOT via
-    # `cyto_verify_image_runs_jq`. That function runs `docker run --entrypoint jq` on
+    # `txr_verify_image_runs_jq`. That function runs `docker run --entrypoint jq` on
     # the built image, and the built image is the recipe's LAST stage — `packer`, a
     # bare `debian:bookworm-slim` + `squashfs-tools` that holds the rootfs as the
     # SUBDIRECTORY `/rootfs` and the packed artifact as `/rootfs.squashfs`. `jq` is
@@ -541,12 +541,12 @@ for id in $TARGETS; do
     #     have written it. This is the contract the runtime's mount probe enforces.
     probe=$(mktemp -d)
     if ! unsquashfs -no-progress -d "$probe/x" -f "$staging" \
-             .cytoanalyst-sandbox-rootfs-schema >/dev/null 2>&1; then
+             .txresbench-sandbox-rootfs-schema >/dev/null 2>&1; then
         rm -rf "$probe"; rm -f "$staging"
         die "cannot read the schema marker out of the extracted squashfs — it is not a
   readable squashfs image, so nothing downstream could mount it either."
     fi
-    got=$(tr -d ' \n' < "$probe/x/.cytoanalyst-sandbox-rootfs-schema" 2>/dev/null || true)
+    got=$(tr -d ' \n' < "$probe/x/.txresbench-sandbox-rootfs-schema" 2>/dev/null || true)
     rm -rf "$probe"
     if [ "$got" != "$SCHEMA" ]; then
         rm -f "$staging"
@@ -573,7 +573,7 @@ for id in $TARGETS; do
     fi
     # shellcheck source=lib/env-image-verify.sh
     . "$REPO_ROOT/scripts/lib/env-image-verify.sh"
-    if ! cyto_verify_rootfs_has_jq "$mnt"; then
+    if ! txr_verify_rootfs_has_jq "$mnt"; then
         unmount_probe; rm -f "$staging"
         die "the staged artifact does not carry jq; not staging it."
     fi

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dev-sandbox-bootstrap.sh — make the CytoAnalyst analysis sandbox runnable on a
+# dev-sandbox-bootstrap.sh — make the TxResBench analysis sandbox runnable on a
 # local dev box. Idempotent; safe to re-run. Applies the two HOST properties the
 # server cannot set itself (see `modules::sandbox` doc "Host requirements"):
 #
@@ -19,7 +19,7 @@ set -euo pipefail
 
 log() { printf '  %s\n' "$*"; }
 
-echo "== CytoAnalyst dev sandbox bootstrap =="
+echo "== TxResBench dev sandbox bootstrap =="
 
 # --- 1. packages (informational check only; install is distro-specific) ---
 missing=()

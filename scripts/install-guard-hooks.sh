@@ -6,7 +6,7 @@
 # ── WHY THIS IS AN INJECTION AND NOT A HOOK FILE ────────────────────────────────
 # `agent-kit/scripts/install-agent-hooks.sh` OWNS `$(git rev-parse --git-common-dir)/hooks/pre-push`
 # and writes it wholesale from a heredoc. agent-kit is a shared SUBMODULE consumed by
-# several apps, so forking that heredoc to add a cytoanalyst-specific check would put a
+# several apps, so forking that heredoc to add a txresbench-specific check would put a
 # repo-local concern into shared infrastructure and guarantee a merge conflict later.
 #
 # Instead this inserts a MARKED BLOCK immediately after the shebang of whatever
@@ -24,8 +24,8 @@ set -euo pipefail
 TOP="$(git rev-parse --show-toplevel)"
 HOOK_DIR="$(git rev-parse --git-common-dir)/hooks"
 HOOK="$HOOK_DIR/pre-push"
-BEGIN='# >>> cytoanalyst guard-integrity >>>'
-END='# <<< cytoanalyst guard-integrity <<<'
+BEGIN='# >>> txresbench guard-integrity >>>'
+END='# <<< txresbench guard-integrity <<<'
 
 mkdir -p "$HOOK_DIR"
 

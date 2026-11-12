@@ -1,6 +1,6 @@
 # ruff: noqa
 """Subprocess harness for the geneset.collection.freeze producer — drives the REAL compute
-script exactly as the sandbox runner would (CYTO_INPUTS_DIR/CYTO_OUTPUTS_DIR seam, `_lib` +
+script exactly as the sandbox runner would (TXR_INPUTS_DIR/TXR_OUTPUTS_DIR seam, `_lib` +
 the package's compute dir on PYTHONPATH), so spawn -> read params -> write /outputs runs for real.
 """
 import hashlib
@@ -28,9 +28,9 @@ def run_freeze(tmp_path, data):
     env["PYTHONPATH"] = os.pathsep.join(
         [str(_COMPUTE), str(_LIB), *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])]
     )
-    env["CYTO_INPUTS_DIR"] = str(inp)
-    env["CYTO_OUTPUTS_DIR"] = str(out)
-    env.pop("CYTO_PROGRESS_FIFO", None)
+    env["TXR_INPUTS_DIR"] = str(inp)
+    env["TXR_OUTPUTS_DIR"] = str(out)
+    env.pop("TXR_PROGRESS_FIFO", None)
     proc = subprocess.run([sys.executable, str(_SCRIPT)], env=env, capture_output=True, text=True)
     assert proc.returncode == 0, f"freeze producer failed ({proc.returncode}): {proc.stderr}"
     manifest = json.loads((out / "manifest.json").read_text())
@@ -51,9 +51,9 @@ def collection_entry(manifest):
 
 
 def structure_of(outputs_dir, entry):
-    """The producer-declared `structure` (attributes.cyto) stamped on the membership store."""
+    """The producer-declared `structure` (attributes.txr) stamped on the membership store."""
     zj = json.loads((Path(outputs_dir) / entry["path"] / "zarr.json").read_text())
-    return zj["attributes"]["cyto"]
+    return zj["attributes"]["txr"]
 
 
 def dir_digest(root):

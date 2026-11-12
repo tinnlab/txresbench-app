@@ -1,6 +1,6 @@
 import { FlaskConical, Settings2 } from 'lucide-react'
 import { Permissions } from '@/api-client/permissions'
-import { createModule } from '@ziee/framework'
+import { createModule } from '@txresbench/framework'
 import { isDesktop } from '@/core/platform'
 import { AppLayoutDef } from '@/modules/layouts/app-layout'
 import { SettingsLayoutDef } from '@/modules/settings/SettingsLayout'

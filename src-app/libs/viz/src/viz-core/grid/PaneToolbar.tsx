@@ -1,6 +1,6 @@
 // PaneToolbar.tsx — the per-pane TOP toolbar (it replaced the old dark `CellChrome` pill, which is
 // now DELETED — see `cellKinds.ts` for what survived it and why). It OCCUPIES a
-// 32px strip at the top of a pane (never overlays the plot) and is kit-styled to match the CytoAnalyst
+// 32px strip at the top of a pane (never overlays the plot) and is kit-styled to match the TxResBench
 // workbench tab strip (`h-8`, `bg-muted/40`, `border-b border-border`, ghost kit icon-buttons + tooltips,
 // lucide icons at 14px). Presentational: every mutation is a callback prop. Shown only when the global
 // tool rail's "cell toolbars" toggle is on.
@@ -17,7 +17,7 @@
 // `registry.test.ts` asserts those glyphs collide with no registered one.
 
 import { type ReactNode, memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Button, MenuRowButton, Popover, Select } from '@ziee/kit'
+import { Button, MenuRowButton, Popover, Select } from '@txresbench/kit'
 // BLIND-AUDIT M13: removing a PANE is destructive (it takes the pane and its docks with it) while
 // a dock's own `X` merely closes a panel — the two sat side by side wearing the same `X`. The
 // destructive one now reads as destructive; `X` is left to mean "close this panel".

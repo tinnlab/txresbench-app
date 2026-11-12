@@ -897,8 +897,8 @@ pub fn validate_model_ids(ids: &[String]) -> Result<(), axum::http::StatusCode> 
 /// The `404 PRETRAINED_UNKNOWN` refusal for an unknown id (the card/install/
 /// download/delete routes' not-found answer — one code, one entity, the
 /// pretrained id).
-pub fn unknown_id(id: &str) -> ziee_core::AppError {
-    ziee_core::AppError::new(
+pub fn unknown_id(id: &str) -> txresbench_core::AppError {
+    txresbench_core::AppError::new(
         axum::http::StatusCode::NOT_FOUND,
         PretrainedErrorCode::Unknown.as_str(),
         format!("no pretrained model {id} in the catalogue"),

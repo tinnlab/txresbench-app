@@ -5,7 +5,7 @@
 //! that spawns a real child process, so the queue / logs / metrics / stop
 //! pipeline is proven end-to-end. Realtime sync + notifications are behind
 //! no-op trait seams (`seams`), reconciled to live8's `modules/sync` +
-//! `ziee_notification` at merge.
+//! `txresbench_notification` at merge.
 
 // `models` + `repository` are `pub` so integration tests can assert at the DB
 // layer (the boot-crash-safety reset needs to insert an orphaned `running` row
@@ -57,7 +57,7 @@ use std::sync::Arc;
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 pub struct JobsModule;
 
@@ -130,14 +130,14 @@ impl AppModule for JobsModule {
         // started at the end, simply idles on that path).
         // G2 serve/worker role split (T3 / ITEM-3 / PROV-T3-2): the boot reconcile + sweep +
         // scheduler loop run ONLY on a process that claims jobs — a `worker` pod (always) or a
-        // `serve`/single-box process with `CYTO_SCHEDULER_ENABLED` on (default). The SaaS API
+        // `serve`/single-box process with `TXR_SCHEDULER_ENABLED` on (default). The SaaS API
         // pod runs `serve` with the flag OFF: it enqueues via `POST /jobs` but NEVER claims,
         // reconciles, or sweeps (those all touch runs another pod owns), so workers are the
         // ONLY claimer class — the precondition T4's cap-in-claim relies on. Single-box/desktop
         // is byte-identical (flag default-on → this branch runs, INV-4).
         if !scheduler::scheduler_should_spawn() {
             tracing::info!(
-                "jobs: scheduler DISABLED on this process (enqueue-only serve; CYTO_SCHEDULER_ENABLED off) — only worker pods claim (G2)"
+                "jobs: scheduler DISABLED on this process (enqueue-only serve; TXR_SCHEDULER_ENABLED off) — only worker pods claim (G2)"
             );
             return Ok(());
         }

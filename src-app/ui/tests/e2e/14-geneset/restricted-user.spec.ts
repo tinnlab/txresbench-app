@@ -23,7 +23,7 @@ import { BACKEND } from '../_owner'
 //     account is valid — the denial is the permission, not a broken login).
 //
 // The section + editor availability key on a `geneset/collection` artifact, so the positive
-// control first FREEZES one via the real producer (needs `CYTO_ENV_ROOTFS_SQUASHFS` staged).
+// control first FREEZES one via the real producer (needs `TXR_ENV_ROOTFS_SQUASHFS` staged).
 
 const KIND = 'geneset/collection'
 const FREEZE_TIMEOUT_MS = 180_000
@@ -44,7 +44,7 @@ async function seedFrozenCollection(request: APIRequestContext, auth: Record<str
     if (d.status === 'frozen' && d.frozen_artifact_id) return
     await new Promise(r => setTimeout(r, 2_000))
   }
-  throw new Error('seed collection did not freeze — is CYTO_ENV_ROOTFS_SQUASHFS staged?')
+  throw new Error('seed collection did not freeze — is TXR_ENV_ROOTFS_SQUASHFS staged?')
 }
 
 test('drafts::use gates the gene-sets affordance: PRESENT for a permitted user on the workbench, DENIED for one without it (TEST-19/A10)', async ({

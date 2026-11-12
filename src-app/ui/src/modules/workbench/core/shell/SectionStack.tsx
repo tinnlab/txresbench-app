@@ -30,7 +30,7 @@ import type * as React from 'react'
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 
-import { Empty } from '@ziee/kit'
+import { Empty } from '@txresbench/kit'
 
 import { cn } from '@/lib/utils'
 import type { SectionContribution } from '@/modules/workbench/core'

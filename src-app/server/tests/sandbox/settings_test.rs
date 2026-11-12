@@ -133,7 +133,7 @@ async fn registry_base_is_readonly_and_not_writable() {
         .json()
         .await
         .expect("status json");
-    assert_eq!(status["env_registry_base"], json!("ghcr.io/ziee-ai/cyto-env"), "registry base displayed");
+    assert_eq!(status["env_registry_base"], json!("ghcr.io/tinnlab/txresbench-env"), "registry base displayed");
     assert!(status["env_moving_tag"].as_str().is_some_and(|t| t.contains("latest")), "moving tag shown");
 
     // An attempt to send a registry override is ignored (unknown field) — the base
@@ -150,7 +150,7 @@ async fn registry_base_is_readonly_and_not_writable() {
         .json()
         .await
         .expect("status json");
-    assert_eq!(status2["env_registry_base"], json!("ghcr.io/ziee-ai/cyto-env"), "base unchanged — not operator-writable");
+    assert_eq!(status2["env_registry_base"], json!("ghcr.io/tinnlab/txresbench-env"), "base unchanged — not operator-writable");
 }
 
 // TEST-18 [ITEM-5, A9]: a user LACKING sandbox::settings::manage is refused the PUT

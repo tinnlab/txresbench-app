@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { Button, Form, FormField, Input, Select, message, useForm, zodResolver } from '@ziee/kit'
-import { Drawer } from '@ziee/shell'
+import { Button, Form, FormField, Input, Select, message, useForm, zodResolver } from '@txresbench/kit'
+import { Drawer } from '@txresbench/shell'
 import { ProjectDrawer } from '@/modules/project/stores/ProjectDrawer.store'
 import { ProjectDetail } from '@/modules/project/stores/ProjectDetail.store'
 import { EMAIL_RE } from '@/lib/validation'

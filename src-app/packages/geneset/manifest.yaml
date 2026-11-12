@@ -16,7 +16,7 @@
 #   · sections[] geneset.collections — the Visualize gene-sets surface (frozen readout + export).
 id: geneset
 name: Gene sets
-publisher: cyto
+publisher: txr
 version: 0.1.3
 apiVersion: "1.0"
 contributes:

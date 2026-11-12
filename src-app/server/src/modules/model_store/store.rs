@@ -5,7 +5,7 @@
 //! ### Layout (DEC-2 — plain dirs, never a blob store)
 //!
 //! Every byte stays under [`rootfs::data_root()`] (its test seam
-//! `CYTO_APP_DATA_DIR` / `scoped_data_root` is how the integration suite
+//! `TXR_APP_DATA_DIR` / `scoped_data_root` is how the integration suite
 //! isolates), so the sandbox binds PATHs and the engine speaks `host_dir`:
 //!
 //! - [`models_dir`] — `<data_root>/models` (the J screen's "Open the folder";
@@ -65,7 +65,7 @@ use axum::http::StatusCode;
 use serde_json::Value as Json;
 use sqlx::SqlitePool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use txresbench_core::AppError;
 
 use super::container::{
     read_container, read_container_bytes, write_container, ContainerExport, ContainerModelFacts,
@@ -88,7 +88,7 @@ use crate::modules::{rootfs, sandbox};
 
 /// `<data_root>/models` — the store's root under the app data root (DEC-2;
 /// the audit's PASS reading: `rootfs::data_root()`'s override follows the
-/// integration suite's `CYTO_APP_DATA_DIR`).
+/// integration suite's `TXR_APP_DATA_DIR`).
 pub fn models_dir() -> PathBuf {
     rootfs::data_root().join("models")
 }

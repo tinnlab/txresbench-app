@@ -49,17 +49,17 @@ interface Progress {
 }
 
 /** Space every stream's chunk ARRIVALS so a commit happens between them. Armed in an init script
- *  (like `__cyto_count_decodes`) so it cannot race the first read. */
+ *  (like `__txr_count_decodes`) so it cannot race the first read. */
 async function armChunkDelay(page: Page, ms: number): Promise<void> {
   await page.addInitScript(delay => {
-    ;(window as unknown as { __cyto_stream_chunk_delay_ms: number }).__cyto_stream_chunk_delay_ms = delay
+    ;(window as unknown as { __txr_stream_chunk_delay_ms: number }).__txr_stream_chunk_delay_ms = delay
   }, ms)
 }
 
 /** Every stream-progress event the page has observed, oldest first (the app's own per-chunk seam). */
 async function progressLog(page: Page): Promise<Progress[]> {
   return page.evaluate(() => {
-    const s = (window as unknown as { __cyto_stream?: { progress: () => Progress[] } }).__cyto_stream
+    const s = (window as unknown as { __txr_stream?: { progress: () => Progress[] } }).__txr_stream
     return s ? s.progress() : []
   })
 }

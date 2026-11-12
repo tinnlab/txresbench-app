@@ -2,7 +2,7 @@
   "zarr_format": 3,
   "node_type": "group",
   "attributes": {
-    "cyto": {
+    "txr": {
       "encoding": "zarr_v3",
       "kind": "table",
       "axis": "rows",

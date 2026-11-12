@@ -19,7 +19,7 @@
 # an `ExtensionManifest` at boot and reads only `id` + `run` + `methods`.
 id: clustering
 name: Clustering
-publisher: cyto
+publisher: txr
 # 0.1.0 — Stage-0 Stage-A: the package skeleton + `clustering.cluster`'s CORE compute
 # (embedding read, kNN-on-embedding, Leiden igraph/modularity, singleton reassignment,
 # determinism pin, ceiling gate, the categorical `metadata-column` output + full
@@ -39,7 +39,7 @@ publisher: cyto
 # optional `expression`) as module-level `*_SLOT` constants so the VIEW↔COMPUTE seam
 # reader confirms it resolves what `clustering.yaml` binds; the `embedding` single-value
 # input slot opts in to `auto_bind_sole_candidate` (DEC-15). Metadata/declaration only —
-# no compute behaviour, output or attributes.cyto change.
+# no compute behaviour, output or attributes.txr change.
 # 0.3.3 — the package's zero-src-app-diff guard is now SELF-LIMITING: it runs only on the
 # branch that introduced this package (add-only marker on this manifest) and SKIPS
 # visibly elsewhere, instead of re-asserting this branch's diff shape on every future

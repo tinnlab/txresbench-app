@@ -1,5 +1,5 @@
 // regionsPersistence — the storage plumbing for `WorkbenchRegions.store`, the region-ARRANGEMENT
-// twin of `dock/dockPersistence` (the pane-LAYOUT plumbing). Same conventions: a `cyto.wb.*`
+// twin of `dock/dockPersistence` (the pane-LAYOUT plumbing). Same conventions: a `txr.wb.*`
 // localStorage key holding a versioned `{ v, byProject }` blob, the same guarded-storage fallback,
 // the same "merge, don't clobber" save, and the same never-throw migration.
 //
@@ -13,7 +13,7 @@
 //     them outside `byProject` preserves exactly that semantic while still surviving a reload.
 //   • NOTHING per-WINDOW. `poppedOut` (paneId → popup container id) and the live drag state are
 //     deliberately NEVER persisted. A popup container id is only meaningful while its OS window is
-//     open and REGISTERED in `@ziee/dock`'s per-tab popup registry (`RegionPopoutWindows` portals
+//     open and REGISTERED in `@txresbench/dock`'s per-tab popup registry (`RegionPopoutWindows` portals
 //     through `getPopupWindow(containerId)`); a reload closes those windows and clears the
 //     registry, and a second tab never had them at all. Restoring `poppedOut` would therefore
 //     strand each listed pane — filtered out of its region by `notPopped` with no window to render
@@ -64,7 +64,7 @@ export interface RegionsBlob {
   byProject: Record<string, RegionsProjectSlice>
 }
 
-const REGIONS_KEY = 'cyto.wb.regions'
+const REGIONS_KEY = 'txr.wb.regions'
 
 /** Bump on a breaking arrangement-shape change (a FUTURE version reads as "no data"). */
 export const REGIONS_VERSION = 1
@@ -105,7 +105,7 @@ export function defaultRegionsSlice(): RegionsProjectSlice {
 /** Real browser localStorage (guarded). Node/SSR → in-memory. */
 export function defaultRegionsStorage(): SimpleStorage {
   const w = typeof window !== 'undefined' ? window : undefined
-  return guardedStorage(() => w?.localStorage, '__cyto_wb_regions_probe__')
+  return guardedStorage(() => w?.localStorage, '__txr_wb_regions_probe__')
 }
 
 function readBlob(storage: SimpleStorage): RegionsBlob | null {

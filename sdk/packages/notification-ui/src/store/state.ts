@@ -1,4 +1,4 @@
-import type { StoreSet } from '@ziee/framework/store-kit'
+import type { StoreSet } from '@txresbench/framework/store-kit'
 import type { NotificationNavigate, NotificationRow } from '../types'
 
 /**

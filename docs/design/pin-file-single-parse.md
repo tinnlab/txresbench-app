@@ -13,7 +13,7 @@ exploitable defects, and every one was the same fact wearing a different byte:
 
 | byte | one reader | the other reader | consequence |
 |---|---|---|---|
-| `#<NBSP>cyto:pin-source=` | Rust: `char::is_whitespace` is true for U+00A0, so it trims to a directive | R installer: POSIX `[[:space:]]` is false for it, so the line is prose | a directive the gate enforces and the installer never sees |
+| `#<NBSP>txr:pin-source=` | Rust: `char::is_whitespace` is true for U+00A0, so it trims to a directive | R installer: POSIX `[[:space:]]` is false for it, so the line is prose | a directive the gate enforces and the installer never sees |
 | a lone `CR` | Rust `str::lines()` splits on LF only → a comment *fragment* | R `readLines` splits on CR too → a whole *directive line* | one byte is a comment to every Rust and Python reader and a directive to the one program that installs |
 | `U+000B` | Rust `is_ascii_whitespace` excludes it | POSIX `[[:space:]]` includes it | the same divergence, one class down |
 | `U+001C` | Rust `char::is_whitespace` is **false** | Python `str.splitlines()` **breaks a line** on it, `str.isspace()` is **true** | the one that motivated #214 — see §2 |
@@ -48,7 +48,7 @@ better predicate over text; the class keeps producing new members because the cl
 > not parse the file.**
 
 The Rust build gate already parses the pin file completely — ecosystem declaration, exact
-pins, `# import=` tokens, `cyto:pin-source` directives — because the #80 dependency gate
+pins, `# import=` tokens, `txr:pin-source` directives — because the #80 dependency gate
 and the #192 regime both need all of it. It exports that parse as a generated data
 artefact. Every other consumer becomes a reader of data.
 
@@ -244,7 +244,7 @@ Rounds 2, 3 and 4 of #192 each **widened a set of FORBIDDEN characters** — NBS
 CR, then U+000B, then U+001C — and round 4 arrived at "control or whitespace, minus
 SPACE/TAB/LF", the union of three languages' notions of a separator, and called the class
 closed. This branch's audit found the next door open: `char::is_control()` is category `Cc`
-only, so the whole `Cf` FORMAT class passed. A `U+200B` in `#<ZWSP>cyto:pin-source=` makes
+only, so the whole `Cf` FORMAT class passed. A `U+200B` in `#<ZWSP>txr:pin-source=` makes
 the directive **inert while leaving it visibly present** — in the pin file, and in the
 generated artefact a reviewer reads. The bidi overrides behind Trojan Source
 (CVE-2021-42574) passed too.
@@ -367,9 +367,9 @@ implements; the assertion inside it is `parsers.len() == 3`. Its behavioural com
 
 ### Out of scope, stated rather than omitted
 
-The **env lock** (`/usr/local/lib/R/.cyto-env-lock.txt`, `/opt/venv/.cyto-env-lock.txt`) is
+The **env lock** (`/usr/local/lib/R/.txresbench-env-lock.txt`, `/opt/venv/.txresbench-env-lock.txt`) is
 a second file with three parsers of its own — the R writer/reader, `scripts/env-lock-of.sh`
-(`grep '^[^#][^=]*=='`), and `_lib/cyto_deps.py::env_lock_digest`. They are **not** reduced
+(`grep '^[^#][^=]*=='`), and `_lib/txr_deps.py::env_lock_digest`. They are **not** reduced
 here. The lock has no build-time Rust parse to export: it does not exist until the image is
 built, and it is read from inside or beside a published artifact. The same design would
 need a different producer, and inventing one on this branch would be scope this issue did

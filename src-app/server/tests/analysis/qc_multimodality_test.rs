@@ -96,7 +96,7 @@ fn one_run_over_two_bindings_emits_a_prefixed_column_for_each_on_the_shared_axis
         return;
     }
 
-    let root = tmp_dir("cyto-qc28");
+    let root = tmp_dir("txr-qc28");
     let inputs = root.join("inputs");
     let outputs = root.join("outputs");
     std::fs::create_dir_all(&inputs).unwrap();

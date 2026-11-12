@@ -5,7 +5,7 @@
 // own doc — never a fabricated figure. Classification is the pure, unit-tested
 // `previewParamOutcomes`.
 
-import { Tag, Tooltip } from '@ziee/kit'
+import { Tag, Tooltip } from '@txresbench/kit'
 import type { ParamField } from '@/modules/workbench/core'
 import { previewParamOutcomes, type ResidentInput } from './paramPreview'
 

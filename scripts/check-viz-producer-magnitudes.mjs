@@ -174,7 +174,7 @@
  * match and D7 needs a scope. That is a number nobody asked for rather than a claim that
  * has rotted, and it is a different property from the one #277 is about.
  *
- * Anything outside the scanned tree. The scan is rooted at `@ziee/viz`'s
+ * Anything outside the scanned tree. The scan is rooted at `@txresbench/viz`'s
  * `src/viz-core/spatial`, which is where every such quote lives today (verified by grep
  * over the whole package). D6's file floor makes a silently-empty scan impossible.
  *
@@ -287,7 +287,7 @@ const PRODUCER_PACKAGE = 'spatial-import-visium'
 const PRODUCER_MODULE = 'import_visium'
 /** The workspace whose prose is bound, by npm package NAME — resolved through the root
  *  `workspaces` globs, so a rename or a move fails loudly instead of scanning nothing. */
-const SUBJECT_WORKSPACE = '@ziee/viz'
+const SUBJECT_WORKSPACE = '@txresbench/viz'
 /** The subtree of that workspace the claims live in. */
 const SUBJECT_SUBDIR = 'src/viz-core/spatial'
 /** Text the scan reads. Emitted artifacts (`*.json`, `*.ome.tif`) are DELIBERATELY not

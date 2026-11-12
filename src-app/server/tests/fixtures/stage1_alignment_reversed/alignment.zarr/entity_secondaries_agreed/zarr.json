@@ -57,7 +57,7 @@
     }
   ],
   "attributes": {
-    "cyto": {
+    "txr": {
       "kind": "numeric",
       "name": "entity_secondaries_agreed"
     }

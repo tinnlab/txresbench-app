@@ -147,7 +147,7 @@ describe('a Run button refused by its input gate', () => {
    * What makes it sound HERE is the pairing: a `data-base-ui-tooltip-trigger` was always
    * stamped on the old button too, and the single reason it was a lie is asserted absent one
    * case above (`disabled` is gone). The OPENING half is proven directly, by real hover on real
-   * DOM, in three other places on this same prop — `@ziee/kit`'s `icon-button-tooltip.test.tsx`
+   * DOM, in three other places on this same prop — `@txresbench/kit`'s `icon-button-tooltip.test.tsx`
    * describe-D, and this repo's `disabledReasonReachable.test.tsx` for the launcher rows, the
    * analyses dock and AddButton.
    *

@@ -77,8 +77,8 @@ ARCH=amd64
 DRY_RUN=0
 SKIP_SIGN=0
 REGISTRY=ghcr.io
-REPO_PREFIX=cyto-env
-ARTIFACT_TYPE=application/vnd.cyto.env-rootfs.squashfs.v1
+REPO_PREFIX=txresbench-env
+ARTIFACT_TYPE=application/vnd.txresbench.env-rootfs.squashfs.v1
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -123,7 +123,7 @@ SCHEMA=$(grep -E 'const ROOTFS_SCHEMA_VERSION' "$VERSION_RS" | grep -oE '[0-9]+'
 [ -n "$SCHEMA" ] || { echo "cannot read ROOTFS_SCHEMA_VERSION from $VERSION_RS" >&2; exit 1; }
 
 SHA=$(git -C "$REPO_ROOT" rev-parse HEAD | cut -c1-12)
-OWNER=${GHCR_OWNER:-ziee-ai}
+OWNER=${GHCR_OWNER:-tinnlab}
 REPO="$REGISTRY/$OWNER/$REPO_PREFIX/$ENV_ID"
 IMMUTABLE_TAG="schema$SCHEMA-$SHA-$ARCH"
 MOVING_TAG="schema$SCHEMA-latest-$ARCH"
@@ -190,9 +190,9 @@ run docker build \
 # shellcheck source=lib/env-image-verify.sh
 . "$(dirname "$0")/lib/env-image-verify.sh"
 if [ "$DRY_RUN" != "1" ]; then
-    cyto_verify_image_runs_jq "rootfs-build:$ARCH" || exit 1
+    txr_verify_image_runs_jq "rootfs-build:$ARCH" || exit 1
 else
-    echo "+ cyto_verify_image_runs_jq rootfs-build:$ARCH"
+    echo "+ txr_verify_image_runs_jq rootfs-build:$ARCH"
 fi
 
 # ── 2/5 extract the packed squashfs ──────────────────────────────────────────────────
@@ -214,11 +214,11 @@ if [ "$DRY_RUN" != "1" ]; then
 fi
 run oras push \
     --artifact-type "$ARTIFACT_TYPE" \
-    --annotation "org.opencontainers.image.source=https://github.com/$OWNER/cytoanalyst" \
+    --annotation "org.opencontainers.image.source=https://github.com/$OWNER/txresbench" \
     --annotation "org.opencontainers.image.revision=$(git -C "$REPO_ROOT" rev-parse HEAD)" \
-    --annotation "com.cytoanalyst.rootfs.schema=$SCHEMA" \
-    --annotation "com.cytoanalyst.env=$ENV_ID" \
-    --annotation "com.cytoanalyst.arch=$ARCH" \
+    --annotation "com.txresbench.rootfs.schema=$SCHEMA" \
+    --annotation "com.txresbench.env=$ENV_ID" \
+    --annotation "com.txresbench.arch=$ARCH" \
     "$REPO:$IMMUTABLE_TAG" \
     "$SQUASHFS:$ARTIFACT_TYPE"
 

@@ -9,7 +9,7 @@ export interface FieldMeta {
 }
 
 /**
- * The label / description / required frame shared by every field renderer. `@ziee/kit`
+ * The label / description / required frame shared by every field renderer. `@txresbench/kit`
  * exposes no `Field` primitive, so (per DESIGN_SYSTEM's fallback) we compose an
  * accessible `<label>`-associated stack: a `flex flex-col gap-1.5` column with the
  * `doc` as muted helper text. Labelable controls (`Input`/`Select`/`Switch`/…) receive

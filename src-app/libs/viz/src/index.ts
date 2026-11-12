@@ -1,4 +1,4 @@
-// @ziee/viz — public API barrel for the standalone, SDK-free visualization
+// @txresbench/viz — public API barrel for the standalone, SDK-free visualization
 // engine. The app (src-app/ui) imports the engine + the two plain-zustand
 // coordination stores + the popout window from here (never deep paths). The
 // engine's OWN internal wiring uses relative imports within the package.
@@ -71,7 +71,7 @@ export { installBuiltinSchemas, BUILTIN_CHART_SCHEMAS } from './viz-core/charts/
 export type { ChartSchema } from './viz-core/charts/chartSchemas'
 export { installBuiltins } from './viz-core/charts/installBuiltins'
 
-// ---- Chart-authoring surface (mirrored from @ziee/viz/core so the "write your own
+// ---- Chart-authoring surface (mirrored from @txresbench/viz/core so the "write your own
 // chart type" flow works from the main barrel too): the model helpers + the
 // coordinate-system registry. -------------------------------------------------
 export {
@@ -122,7 +122,7 @@ export {
 export type { VizStores } from './adapter/vizStores'
 export { ValueDataZoom, DataZoomMatrix } from './viz-core/datazoom/DataZoom'
 
-// ---- Per-chart installers (EXTENSIBILITY_STUDY STEP 7; also on @ziee/viz/charts) ----
+// ---- Per-chart installers (EXTENSIBILITY_STUDY STEP 7; also on @txresbench/viz/charts) ----
 export {
   AllCharts,
   ScatterChart,
@@ -210,7 +210,7 @@ export type {
  */
 export { VizEventBusContext, closeEventBus } from './viz-core/events/EventBusContext'
 
-// ---- Declarative React binding: <Viz option={...} /> (STEP 7; also on @ziee/viz/react) ----
+// ---- Declarative React binding: <Viz option={...} /> (STEP 7; also on @txresbench/viz/react) ----
 export { Viz } from './react/Viz'
 export type { VizProps } from './react/Viz'
 
@@ -340,7 +340,7 @@ export type { CellSpec, WorkspaceSpec } from './viz-core/export/spec'
 export type { LayoutNode as SpecLayoutNode } from './viz-core/export/spec'
 
 // ---- Layout (split tree) ----------------------------------------------------
-export type { LayoutNode as SplitLayoutNode } from '@ziee/dock'
+export type { LayoutNode as SplitLayoutNode } from '@txresbench/dock'
 
 // ---- Persistence (autosave core) --------------------------------------------
 export { AUTOSAVE_KEY, debounce, readAutosave, writeAutosave } from './viz-core/persist/autosaveCore'

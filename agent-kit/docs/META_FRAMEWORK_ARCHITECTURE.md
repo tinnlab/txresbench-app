@@ -1,13 +1,13 @@
 # UI Meta-Framework Architecture
 
 > **Anchors.** Every rule here is quoted from real code. `sdk:` = the pinned SDK
-> submodule in your app (`sdk/packages/…`); `ziee:` = the reference consumer app
-> (`ziee/src-app/ui/…`), which is NOT in your checkout — it is the provenance
+> submodule in your app (`sdk/packages/…`); `txresbench:` = the reference consumer app
+> (`txresbench/src-app/ui/…`), which is NOT in your checkout — it is the provenance
 > anchor for consumer conventions the SDK cannot express.
 >
-> **The rule of authority: the SDK supplies the mechanism; ziee is the reference
-> consumer for how to USE it; an older fork (cytoanalyst, or a scaffold copied
-> from one) is a snapshot, not a standard.** When they disagree, ziee wins.
+> **The rule of authority: the SDK supplies the mechanism; txresbench is the reference
+> consumer for how to USE it; an older fork (txresbench, or a scaffold copied
+> from one) is a snapshot, not a standard.** When they disagree, txresbench wins.
 
 The app is: `main.tsx` → `App.tsx` (`loadModules()` + `<AppShell>`) → modules
 register routes/slots/stores → the router renders. **No app logic lives in the
@@ -34,7 +34,7 @@ This is the single most-inherited stale shape. **Do not write
 `import.meta.glob('./**/module.tsx', { eager: true })`** — that puts every module
 body in the entry chunk.
 
-A build plugin (`ziee:plugins/vite-plugin-module-manifest.js`, **app-local, not
+A build plugin (`txresbench:plugins/vite-plugin-module-manifest.js`, **app-local, not
 shipped by the SDK**) statically extracts the cheap decision layer
 `{ name, shouldLoad, routePaths, dependencies, load }` from each `module.tsx`
 without evaluating its imports, and emits a virtual manifest; `load()` is a
@@ -44,7 +44,7 @@ dynamic import of the heavy body. The **runtime half ships in the SDK**:
 (`module-system/types.ts:62-78`: `isAuthenticated`, `needsSetup`, `path`,
 `permissions`, `platform`, `can(...perms)`).
 
-Three selection paths (`ziee:src/modules/loader.ts`):
+Three selection paths (`txresbench:src/modules/loader.ts`):
 
 | wave | trigger | what runs |
 |---|---|---|
@@ -57,7 +57,7 @@ reference only `ctx` and the whitelisted `Permissions` enum
 (`sdk:…/module-system/types.ts:54-60`); any other free identifier is a hard build
 error. Gate with `ctx.can(Permissions.X)`, **never a literal string**.
 
-Proportion in ziee today (verified): **13 of 54 `module.tsx` files have no
+Proportion in txresbench today (verified): **13 of 54 `module.tsx` files have no
 `shouldLoad`** — 7 top-level core modules (`agent`, `app`, `auth`, `background`,
 `config-client`, `layouts/app-layout`, `router`) plus 6 file-viewer sub-modules.
 Everything else is gated. **Omit `shouldLoad` only if the module is needed on the
@@ -77,12 +77,12 @@ merges slots (`:216-231`), then calls `onModuleRegister` on every existing modul
 
 > "registerModule fans out onModuleRegister to already-registered modules (router
 > collects routes, sidebar collects slots) — do NOT hand-roll a second fan-out
-> loop (that double-registers routes)." — `ziee:src/modules/loader.ts:81-84`
+> loop (that double-registers routes)." — `txresbench:src/modules/loader.ts:81-84`
 
 A second loop in the loader is a **live duplicate-route bug**: the SDK's
 `addRoutes` (`sdk:framework/src/router/routes-store.ts:31-39`) appends without
-dedup. ziee's app-local routes store dedupes by `path + layout`
-(`ziee:src/modules/router/stores/routes-store.ts:12-28`) precisely for this.
+dedup. txresbench's app-local routes store dedupes by `path + layout`
+(`txresbench:src/modules/router/stores/routes-store.ts:12-28`) precisely for this.
 
 ### 1.4 What keeps a module cheap
 
@@ -90,7 +90,7 @@ dedup. ziee's app-local routes store dedupes by `path + layout`
 is selected — **everything it imports at top level is paid immediately.**
 
 - Page components go behind `lazyWithPreload(() => import('./Page'))` — an
-  **app-local util** (`ziee:src/utils/lazyWithPreload.ts:22`), not an SDK export.
+  **app-local util** (`txresbench:src/utils/lazyWithPreload.ts:22`), not an SDK export.
 - **`stores: []` is the normal state.** A `registerLazyStore`d store self-registers
   on import; listing it builds nothing new and re-adds an eager import.
 - `initialize` *kicks* work (one call); it never does the work inline.
@@ -162,7 +162,7 @@ it as `gen:store-actions` / `check:store-actions` and put the check inside
   *synchronous* selector read in render (`getFoo(): string`) — signatures are
   preserved verbatim, no Promise wrapping (`store-kit.ts:153-177`).
 - **A single `*.store.ts` file is still correct** for a boot-critical store that
-  is eagerly imported anyway (ziee keeps 10 such against 124 folder stores; its
+  is eagerly imported anyway (txresbench keeps 10 such against 124 folder stores; its
   `Auth.store.ts` is one, ~940 lines with an inline `actions:` factory). **Size
   alone is not the defect** — deferrability is.
 - **Prefetch is baked in.** `init` warms every lazy-action chunk after
@@ -242,7 +242,7 @@ re-initializes on next access.
 - `off`, `removeGroupListeners(group)`, `clear`, `getHandlerCount`.
 
 There is **no `emit_async` on the client** — that is the Rust bus. The handle is
-`EventBus` from `@ziee/framework/stores` (`stores.ts:397`), a lazily-built proxy
+`EventBus` from `@txresbench/framework/stores` (`stores.ts:397`), a lazily-built proxy
 because `stores.ts` and `module-system` form an import cycle (`stores.ts:371-395`).
 
 Typing is declaration-merge onto `AppEvents` (`events/types.ts:26-31`); **every
@@ -330,7 +330,7 @@ export interface SettingsPageSlot {
   id: string; icon: ReactNode; label: string; path: string
   order: number; permission?: PermissionExpr
 }
-declare module '@ziee/framework/module-system/types' {
+declare module '@txresbench/framework/module-system/types' {
   interface Slots { settingsUserPages: SettingsPageSlot[]; settingsAdminPages: SettingsPageSlot[] }
 }
 export {}
@@ -405,7 +405,7 @@ deprecated, `:129-133`.)
 
 1. Consumer owns the type; fillers import it for the merge only.
 2. One `types.ts` per owner, merged onto
-   `'@ziee/framework/module-system/types'`, ending `export {}`.
+   `'@txresbench/framework/module-system/types'`, ending `export {}`.
 3. Entries are plain data + a component reference. Never a rendered element built
    at module scope; never a closure over another module's store.
 4. Stable `id` (`<module>-<thing>`) + numeric `order` on every entry.
@@ -431,11 +431,11 @@ deprecated, `:129-133`.)
 
 ## 6. Router integration
 
-**There are TWO routers.** ziee's is **app-local**
-(`ziee:src/modules/router/{module.tsx,types.ts,components/RouterComponent.tsx,stores/routes-store.ts}`)
+**There are TWO routers.** txresbench's is **app-local**
+(`txresbench:src/modules/router/{module.tsx,types.ts,components/RouterComponent.tsx,stores/routes-store.ts}`)
 and is where every router feature was invented. The SDK's
-`@ziee/framework/router` is a **domain-agnostic port** of it
-(`sdk:framework/src/router/types.ts:8-15`). **ziee does not use
+`@txresbench/framework/router` is a **domain-agnostic port** of it
+(`sdk:framework/src/router/types.ts:8-15`). **txresbench does not use
 `createRouterModule`.** A new app may — knowing the port is behind on four
 things (§6.4).
 
@@ -446,7 +446,7 @@ exactly four: `loginPath`, `homePath`, `fallback`, `permissionGate`
 (`router/config.ts:19-32`). `RouteConfig.permission` is `unknown` on purpose
 (`router/types.ts:52-59`) and is narrowed by the app's injected gate; **if no gate
 is registered the route renders UNGATED** with a one-time console warning
-(`RouterComponent.tsx:29-39`). ziee types it `PermissionExpr` directly.
+(`RouterComponent.tsx:29-39`). txresbench types it `PermissionExpr` directly.
 
 ### 6.2 Layouts
 
@@ -455,8 +455,8 @@ A route names a `LayoutDefinition` **object**; the router groups routes by objec
 per group (`sdk:…/RouterComponent.tsx:52-96`). One exported `XLayoutDef` per
 shell — two objects for one shell splits the group.
 
-ziee's layout defs are `lazy()` on purpose so a module referencing a layout does
-not drag the whole shell into its chunk, and ziee's router wraps the layout in
+txresbench's layout defs are `lazy()` on purpose so a module referencing a layout does
+not drag the whole shell into its chunk, and txresbench's router wraps the layout in
 `Suspense` keyed by **index** (a lazy component has no stable `.name`). **The SDK
 router does neither** (`sdk:…/RouterComponent.tsx:76-85`: no Suspense,
 `key={layoutDef.component.name || 'layout'}`). So on the SDK router a lazy layout

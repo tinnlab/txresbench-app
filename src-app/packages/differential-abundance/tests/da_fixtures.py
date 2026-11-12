@@ -3,7 +3,7 @@
 """Off-sandbox run harness for the DA compute (mirrors `de_fixtures.py` / `clustering_fixtures.py`).
 
 Drives the REAL `compute/clusters.py` / `compute/neighbourhoods.py` as a SUBPROCESS through the
-`CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR` seam, with `_lib` on `PYTHONPATH` exactly as the sandbox
+`TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR` seam, with `_lib` on `PYTHONPATH` exactly as the sandbox
 stages `/code`. Every input is declared in `/inputs/inputs.json` with a MEANINGLESS `in0`/…
 mount name, so a compute that resolves by filename suffix cannot pass.
 
@@ -33,9 +33,9 @@ CLUSTERS = _COMPUTE / "clusters.py"
 NEIGHBOURHOODS = _COMPUTE / "neighbourhoods.py"
 
 sys.path.insert(0, str(_LIB_DIR))
-import cyto_columns  # noqa: E402
-import cyto_zarr  # noqa: E402
-import cyto_zarr_read  # noqa: E402
+import txr_columns  # noqa: E402
+import txr_zarr  # noqa: E402
+import txr_zarr_read  # noqa: E402
 
 
 # ── provenance stamps the regime classifier reads (INV-DA-3) ───────────────────────
@@ -49,17 +49,17 @@ MATRIX_DERIVED = {"clustering": {"method": "leiden", "flavor": "igraph"}}
 
 def write_column_store(dest: Path, values, *, name="col", provenance=None) -> dict:
     """A fixture categorical `metadata-column`. `provenance` (a dict) is stamped into the store's
-    group `attributes.cyto`."""
+    group `attributes.txr`."""
     import pandas as pd
 
     series = pd.Categorical([str(v) for v in values])
-    structure, meta = cyto_columns.write_metadata_column(
+    structure, meta = txr_columns.write_metadata_column(
         dest.parent, dest.name, name, pd.Series(series), axis="cells")
     if provenance:
         zj = dest / "zarr.json"
         doc = json.loads(zj.read_text())
-        cyto = doc.setdefault("attributes", {}).setdefault("cyto", {})
-        cyto.update(provenance)
+        txr = doc.setdefault("attributes", {}).setdefault("txr", {})
+        txr.update(provenance)
         zj.write_text(json.dumps(doc, indent=2))
     return structure
 
@@ -68,14 +68,14 @@ def write_embedding_store(dest: Path, arr, *, name="X_pca", kind="embedding",
                           method="pca") -> dict:
     """A fixture `embedding` artifact, as `embedding.reduce` emits it. `kind="layout"` (or a 2-D
     array) is what the INV-11 refusal is exercised with."""
-    structure, meta = cyto_columns.write_embedding(
+    structure, meta = txr_columns.write_embedding(
         dest.parent, dest.name, np.asarray(arr, dtype=np.float32),
         axis="cells", name=name, kind=kind, method=method)
     zj = dest / "zarr.json"
     doc = json.loads(zj.read_text())
-    cyto = doc.setdefault("attributes", {}).setdefault("cyto", {})
-    cyto.update(structure)
-    cyto["kind"] = kind if kind in ("layout", "umap", "tsne") else cyto.get("kind")
+    txr = doc.setdefault("attributes", {}).setdefault("txr", {})
+    txr.update(structure)
+    txr["kind"] = kind if kind in ("layout", "umap", "tsne") else txr.get("kind")
     zj.write_text(json.dumps(doc, indent=2))
     return structure
 
@@ -128,9 +128,9 @@ class DaRun:
         env["PYTHONPATH"] = os.pathsep.join(
             [str(_HELPERS_DIR), str(_LIB_DIR),
              *([env["PYTHONPATH"]] if env.get("PYTHONPATH") else [])])
-        env["CYTO_INPUTS_DIR"] = str(self.inputs_dir)
-        env["CYTO_OUTPUTS_DIR"] = str(self.outputs_dir)
-        env.pop("CYTO_PROGRESS_FIFO", None)
+        env["TXR_INPUTS_DIR"] = str(self.inputs_dir)
+        env["TXR_OUTPUTS_DIR"] = str(self.outputs_dir)
+        env.pop("TXR_PROGRESS_FIFO", None)
         for k, v in (env_extra or {}).items():
             if v is None:
                 env.pop(str(k), None)
@@ -162,18 +162,18 @@ class DaRun:
     def da_store(self, entry) -> Path:
         return self.outputs_dir / entry["path"]
 
-    def da_cyto(self, entry) -> dict:
+    def da_txr(self, entry) -> dict:
         doc = json.loads((self.da_store(entry) / "zarr.json").read_text())
-        return (doc.get("attributes") or {}).get("cyto") or {}
+        return (doc.get("attributes") or {}).get("txr") or {}
 
     def da_members(self, entry) -> set:
         """The MEMBERS actually written into a da/result store (the columns present on disk)."""
-        st = self.da_cyto(entry)
+        st = self.da_txr(entry)
         cols = st.get("columns") or []
         return {c.get("name") or c.get("path") for c in cols if isinstance(c, dict)}
 
     def da_column(self, entry, member) -> list:
-        return list(cyto_zarr_read.read_column(self.da_store(entry), member))
+        return list(txr_zarr_read.read_column(self.da_store(entry), member))
 
     def progress_phases(self, proc) -> list:
         return [l.split(":", 1)[1].strip().split("|")[0]

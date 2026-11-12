@@ -69,7 +69,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "itadmin",
-            "email": "it@cyto.test",
+            "email": "it@txresbench.test",
             "password": "itPassw0rd!",
             "display_name": "IT Admin"
         }))
@@ -86,7 +86,7 @@ async fn register_user(server: &TestServer, username: &str) -> (String, String) 
         .post(server.api_url("/auth/register"))
         .json(&json!({
             "username": username,
-            "email": format!("{username}@cyto.test"),
+            "email": format!("{username}@txresbench.test"),
             "password": "userPassw0rd!",
             "display_name": username,
         }))
@@ -377,7 +377,7 @@ async fn stop_running_and_cancel_queued() {
 // leg — an uningested run recovered — is TEST-62 below.)
 #[tokio::test]
 async fn boot_reconcile_fails_orphan_without_manifest() {
-    use cytoanalyst::modules::jobs::scheduler::reconcile_orphaned_running;
+    use txresbench::modules::jobs::scheduler::reconcile_orphaned_running;
 
     let server = TestServer::spawn().await;
     setup_admin(&server).await;
@@ -406,7 +406,7 @@ async fn boot_reconcile_fails_orphan_without_manifest() {
     // Empty workspace + staging roots (no per-run dir in either) make "no manifest"
     // unambiguous. ITEM-17: outputs are looked for in the STAGING root, so both are
     // passed — the shape `JobsModule::init` uses.
-    let base = std::env::temp_dir().join(format!("cyto-recon14-{}", Uuid::new_v4()));
+    let base = std::env::temp_dir().join(format!("txr-recon14-{}", Uuid::new_v4()));
     let root = base.join("sandboxes");
     let staging_root = base.join("run-staging");
     let report = reconcile_orphaned_running(&pool, &root, &staging_root).await;
@@ -884,10 +884,10 @@ async fn boot_reconcile_finalizes_uningested_and_fails_midrun() {
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
-    use cytoanalyst::modules::jobs::models::Job;
-    use cytoanalyst::modules::jobs::scheduler::reconcile_orphaned_running_in;
-    use cytoanalyst::modules::jobs::seams::{ArtifactIngestSink, PeakMetrics, RunRecorder};
-    use cytoanalyst::modules::sandbox::outputs::ProducedOutput;
+    use txresbench::modules::jobs::models::Job;
+    use txresbench::modules::jobs::scheduler::reconcile_orphaned_running_in;
+    use txresbench::modules::jobs::seams::{ArtifactIngestSink, PeakMetrics, RunRecorder};
+    use txresbench::modules::sandbox::outputs::ProducedOutput;
 
     let server = TestServer::spawn().await;
     setup_admin(&server).await;
@@ -902,7 +902,7 @@ async fn boot_reconcile_finalizes_uningested_and_fails_midrun() {
     // A per-test pair of roots, the shape `JobsModule::init` passes (ITEM-17): a
     // sandboxes root holding per-run WORKSPACES, and a SEPARATE staging root holding
     // per-run OUTPUTS. Both name their per-run dirs <root>/<job_id>.
-    let base = std::env::temp_dir().join(format!("cyto-recon-{}", Uuid::new_v4()));
+    let base = std::env::temp_dir().join(format!("txr-recon-{}", Uuid::new_v4()));
     let root = base.join("sandboxes");
     let staging_root = base.join("run-staging");
     assert!(
@@ -1234,7 +1234,7 @@ async fn share_dataset_with_user(
 // `materialize_inputs` gates every `dataset_file_ref` on.
 #[tokio::test]
 async fn dataset_file_ref_authz_owner_sharee_stranger() {
-    use cytoanalyst::modules::sandbox::inputs::file_readable_by;
+    use txresbench::modules::sandbox::inputs::file_readable_by;
 
     let server = TestServer::spawn().await;
     setup_admin(&server).await;
@@ -1273,9 +1273,9 @@ async fn dataset_file_ref_authz_owner_sharee_stranger() {
 // job fails safely and the other user's bytes never reach the sandbox.
 #[tokio::test]
 async fn materialize_rejects_cross_user_dataset_file_ref() {
-    use cytoanalyst::modules::sandbox::inputs::materialize_inputs;
-    use cytoanalyst::modules::sandbox::spec::AnalysisSpec;
-    use cytoanalyst::modules::workstore::object_store::LocalFsStore;
+    use txresbench::modules::sandbox::inputs::materialize_inputs;
+    use txresbench::modules::sandbox::spec::AnalysisSpec;
+    use txresbench::modules::workstore::object_store::LocalFsStore;
 
     let server = TestServer::spawn().await;
     setup_admin(&server).await;
@@ -1291,7 +1291,7 @@ async fn materialize_rejects_cross_user_dataset_file_ref() {
     let owner_a_id = Uuid::parse_str(&owner_a_id).unwrap();
 
     let store = LocalFsStore::new(
-        std::env::temp_dir().join(format!("cyto-idor-store-{}", Uuid::new_v4())),
+        std::env::temp_dir().join(format!("txr-idor-store-{}", Uuid::new_v4())),
     );
     let spec = AnalysisSpec::parse(&json!({
         "language": "python", "script": "print(1)",
@@ -1299,7 +1299,7 @@ async fn materialize_rejects_cross_user_dataset_file_ref() {
     }))
     .expect("spec parses");
 
-    let in_a = std::env::temp_dir().join(format!("cyto-idor-inA-{}", Uuid::new_v4()));
+    let in_a = std::env::temp_dir().join(format!("txr-idor-inA-{}", Uuid::new_v4()));
     let err = materialize_inputs(&spec, &in_a, owner_a_id, &[], &pool, &store)
         .await
         .expect_err("cross-user file ref is rejected at materialize");
@@ -1318,9 +1318,9 @@ async fn materialize_rejects_cross_user_dataset_file_ref() {
 // scope-less.
 #[tokio::test]
 async fn ingest_sink_resolves_dataset_scope_from_job() {
-    use cytoanalyst::modules::jobs::models::CreateJobRequest;
-    use cytoanalyst::modules::jobs::repository::JobRepository;
-    use cytoanalyst::modules::jobs::seams::{ArtifactIngestSink, WorkstoreIngestSink};
+    use txresbench::modules::jobs::models::CreateJobRequest;
+    use txresbench::modules::jobs::repository::JobRepository;
+    use txresbench::modules::jobs::seams::{ArtifactIngestSink, WorkstoreIngestSink};
 
     let server = TestServer::spawn().await;
     setup_admin(&server).await;
@@ -1361,7 +1361,7 @@ async fn ingest_sink_resolves_dataset_scope_from_job() {
         .expect("create dataset-scoped job");
 
     // Stage a real /outputs/manifest.json + file.
-    let ws = std::env::temp_dir().join(format!("cyto-ingest-ws-{}", Uuid::new_v4()));
+    let ws = std::env::temp_dir().join(format!("txr-ingest-ws-{}", Uuid::new_v4()));
     let outputs = ws.join("outputs");
     tokio::fs::create_dir_all(&outputs).await.unwrap();
     let manifest = json!({ "outputs": [
@@ -1545,10 +1545,10 @@ async fn test317_migration_backfill_idempotent_and_preserves_scope() {
 // job_scope → resolver → artifact for BOTH scopes.
 #[tokio::test]
 async fn test318_project_and_dataset_jobs_scope_rows_and_artifact_tagging() {
-    use cytoanalyst::modules::jobs::models::CreateJobRequest;
-    use cytoanalyst::modules::jobs::repository::JobRepository;
-    use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
-    use cytoanalyst::modules::workstore::object_store::LocalFsStore;
+    use txresbench::modules::jobs::models::CreateJobRequest;
+    use txresbench::modules::jobs::repository::JobRepository;
+    use txresbench::modules::workstore::ingest::ingest_run_outputs;
+    use txresbench::modules::workstore::object_store::LocalFsStore;
 
     let server = TestServer::spawn().await;
     setup_admin(&server).await;
@@ -1587,7 +1587,7 @@ async fn test318_project_and_dataset_jobs_scope_rows_and_artifact_tagging() {
 
     // Resolve each job's scope FROM job_scope (production resolver) and ingest a
     // staged run manifest under that scope — then assert the artifact's scope columns.
-    let store_root = std::env::temp_dir().join(format!("cyto-test318-store-{}", Uuid::new_v4()));
+    let store_root = std::env::temp_dir().join(format!("txr-test318-store-{}", Uuid::new_v4()));
     let store = LocalFsStore::new(store_root.clone());
     for (job, exp_project, exp_dataset) in
         [(&proj_job, Some(project), None), (&ds_job, None, Some(dataset))]
@@ -1598,7 +1598,7 @@ async fn test318_project_and_dataset_jobs_scope_rows_and_artifact_tagging() {
             .expect("the job has a job_scope row");
         let (p, d) = scope.split();
 
-        let ws = std::env::temp_dir().join(format!("cyto-test318-ws-{}", Uuid::new_v4()));
+        let ws = std::env::temp_dir().join(format!("txr-test318-ws-{}", Uuid::new_v4()));
         let outputs = ws.join("outputs");
         tokio::fs::create_dir_all(&outputs).await.unwrap();
         let manifest = json!({ "outputs": [
@@ -1705,9 +1705,9 @@ async fn test320_ambiguous_double_scope_still_rejected() {
 // outputs uncataloged) — the exact graceful behavior the old `ON DELETE SET NULL` gave.
 #[tokio::test]
 async fn test321_deleted_dataset_of_in_flight_job_finalizes_scope_less_no_fk_error() {
-    use cytoanalyst::modules::jobs::models::CreateJobRequest;
-    use cytoanalyst::modules::jobs::repository::{JobRepository, JobScope};
-    use cytoanalyst::modules::jobs::seams::{ArtifactIngestSink, WorkstoreIngestSink};
+    use txresbench::modules::jobs::models::CreateJobRequest;
+    use txresbench::modules::jobs::repository::{JobRepository, JobScope};
+    use txresbench::modules::jobs::seams::{ArtifactIngestSink, WorkstoreIngestSink};
 
     let server = TestServer::spawn().await;
     setup_admin(&server).await;
@@ -1772,7 +1772,7 @@ async fn test321_deleted_dataset_of_in_flight_job_finalizes_scope_less_no_fk_err
     crate::common::object_store::shared_object_store_root();
 
     // Stage a genuinely-finished run's /outputs/manifest.json + file.
-    let ws = std::env::temp_dir().join(format!("cyto-delds-ws-{}", Uuid::new_v4()));
+    let ws = std::env::temp_dir().join(format!("txr-delds-ws-{}", Uuid::new_v4()));
     let outputs = ws.join("outputs");
     tokio::fs::create_dir_all(&outputs).await.unwrap();
     let manifest = json!({ "outputs": [
@@ -1837,10 +1837,10 @@ async fn stalled_staging_phase_reaches_terminal_failed() {
     use std::time::{Duration, Instant};
 
     use async_trait::async_trait;
-    use cytoanalyst::modules::jobs::models::Job;
-    use cytoanalyst::modules::jobs::runner::{JobRunner, SpawnedJob};
-    use cytoanalyst::modules::jobs::scheduler::{execute_job, staging_ceiling};
-    use cytoanalyst::modules::sandbox::settings::SandboxResourceLimits;
+    use txresbench::modules::jobs::models::Job;
+    use txresbench::modules::jobs::runner::{JobRunner, SpawnedJob};
+    use txresbench::modules::jobs::scheduler::{execute_job, staging_ceiling};
+    use txresbench::modules::sandbox::settings::SandboxResourceLimits;
 
     let server = TestServer::spawn().await;
     setup_admin(&server).await;
@@ -1864,7 +1864,7 @@ async fn stalled_staging_phase_reaches_terminal_failed() {
     let limits = SandboxResourceLimits { staging_timeout_secs: 5, ..SandboxResourceLimits::defaults() };
     let budget = limits.staging_budget();
     let ceiling = staging_ceiling(budget);
-    cytoanalyst::modules::sandbox::settings_cache::invalidate(limits);
+    txresbench::modules::sandbox::settings_cache::invalidate(limits);
 
     /// A runner whose staging phase never completes — the shape of `provide()`
     /// waiting on a registry that never answers.
@@ -1982,5 +1982,5 @@ async fn stalled_staging_phase_reaches_terminal_failed() {
     // note on `StallingRunner`), and restore the process-wide settings cache for
     // sibling tests in this binary.
     release.store(true, Ordering::SeqCst);
-    cytoanalyst::modules::sandbox::settings_cache::invalidate(SandboxResourceLimits::defaults());
+    txresbench::modules::sandbox::settings_cache::invalidate(SandboxResourceLimits::defaults());
 }

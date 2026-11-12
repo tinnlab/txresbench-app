@@ -9,7 +9,7 @@
 //
 // TWO PERSISTED MIGRATIONS run on load (both pure + idempotent, both unit-tested):
 //   1. ONE-TIME LIFT (ITEM-59) — a user upgrading from the pre-ITEM-59 build has these
-//      four fields living inside the legacy `cyto.wb.layout` blob (the WorkbenchLayout
+//      four fields living inside the legacy `txr.wb.layout` blob (the WorkbenchLayout
 //      persist key). `migrateLegacyVizState` lifts them out ONCE into this store
 //      (guarded by a `_migrated` flag) so a saved coloring/plot-type survives.
 //   2. FIELD RENAME (WS-D / finding C5) — `activeProjection` was previously persisted
@@ -28,10 +28,10 @@ import type { PlotLayout, PlotType } from '../../core/shell/types'
  *  toolbar, but a stable literal here so this node-safe store never imports deck. */
 export const DEFAULT_PLOT_TYPE: PlotType = 'scatter'
 
-/** The persisted key for this store (distinct from the shell layout's `cyto.wb.layout`). */
-export const VIZ_STATE_KEY = 'cyto.wb.viz'
+/** The persisted key for this store (distinct from the shell layout's `txr.wb.layout`). */
+export const VIZ_STATE_KEY = 'txr.wb.viz'
 /** The legacy blob the one-time migration reads the four viz fields out of. */
-export const LEGACY_LAYOUT_KEY = 'cyto.wb.layout'
+export const LEGACY_LAYOUT_KEY = 'txr.wb.layout'
 
 /**
  * The PRE-RENAME persisted field name for `activeProjection` (WS-D / finding C5).
@@ -68,7 +68,7 @@ function asString(v: unknown): string | null {
 
 /**
  * Lift `{activeProjection, plotType, plotLayout}` out of every project's
- * legacy `ProjectLayout` (the pre-ITEM-59 `cyto.wb.layout` blob) into a fresh
+ * legacy `ProjectLayout` (the pre-ITEM-59 `txr.wb.layout` blob) into a fresh
  * per-project `VizProjectState` map. Fields absent from a legacy slice fall back to
  * the default (never dropping a present `plotType`). A malformed blob → an
  * empty map (never throws). `legacyRaw` is the PARSED blob (zustand-persist shape
@@ -152,7 +152,7 @@ function browserKv(): KV {
   // rather than re-probing on every read/write. `null` → fall back to an in-memory map.
   let storage: Storage | null = null
   try {
-    const probe = '__cyto_wb_viz_probe__'
+    const probe = '__txr_wb_viz_probe__'
     window.localStorage.setItem(probe, probe)
     window.localStorage.removeItem(probe)
     storage = window.localStorage
@@ -171,7 +171,7 @@ function browserKv(): KV {
 
 /** Load the persisted viz blob, running the one-time legacy migration when this store
  *  has never persisted (`_migrated` absent) — so the first boot after the relocation
- *  imports the user's saved coloring/plot-type from `cyto.wb.layout` — and the
+ *  imports the user's saved coloring/plot-type from `txr.wb.layout` — and the
  *  (idempotent) field-rename migration on whatever this store had already persisted. */
 function loadBlob(kv: KV): VizStateBlob {
   let existing: Partial<VizStateBlob> | null = null

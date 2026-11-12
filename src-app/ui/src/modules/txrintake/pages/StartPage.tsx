@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import type { CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'

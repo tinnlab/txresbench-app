@@ -1,11 +1,11 @@
-# @ziee/kit
+# @txresbench/kit
 
-The ziee design-system component kit — shadcn/Base-UI components rendering
+The txresbench design-system component kit — shadcn/Base-UI components rendering
 against a self-contained design-token layer.
 
 ## Styling — Tailwind v4 wiring (one line)
 
-`@ziee/kit` is built for **Tailwind v4** (CSS-first; no `tailwind.config.js`).
+`@txresbench/kit` is built for **Tailwind v4** (CSS-first; no `tailwind.config.js`).
 Tailwind v4 only auto-scans your app's own source tree — it never scans
 `node_modules` — so without wiring, the kit's components render **unstyled**
 (Tailwind never sees their utility classes).
@@ -15,14 +15,14 @@ itself:
 
 ```css
 @import "tailwindcss";
-@import "@ziee/kit/styles/kit.css";
+@import "@txresbench/kit/styles/kit.css";
 ```
 
 `kit.css` does both things the kit needs:
 
-1. imports the design tokens (`@ziee/kit/styles/tokens.css` — the shadcn CSS
+1. imports the design tokens (`@txresbench/kit/styles/tokens.css` — the shadcn CSS
    variables the components use: `bg-primary`, `text-muted-foreground`, …), and
-2. adds an `@source "…/@ziee/kit/src/**/*.{ts,tsx}"` directive (resolved
+2. adds an `@source "…/@txresbench/kit/src/**/*.{ts,tsx}"` directive (resolved
    relative to the kit, so it works from anywhere) telling Tailwind to scan the
    kit's own component sources so their classes make it into your generated CSS.
 
@@ -36,8 +36,8 @@ your own source directive:
 
 ```css
 @import "tailwindcss";
-@import "@ziee/kit/styles/tokens.css";
-@source "../node_modules/@ziee/kit/src/**/*.{ts,tsx}";
+@import "@txresbench/kit/styles/tokens.css";
+@source "../node_modules/@txresbench/kit/src/**/*.{ts,tsx}";
 ```
 
 > The `@source` path is resolved relative to the CSS file that contains it, so
@@ -47,7 +47,7 @@ your own source directive:
 ## Usage
 
 ```tsx
-import { Button } from "@ziee/kit";
+import { Button } from "@txresbench/kit";
 
 export function Example() {
   return <Button variant="default">Hello</Button>;

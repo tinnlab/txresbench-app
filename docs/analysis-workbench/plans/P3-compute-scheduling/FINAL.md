@@ -22,7 +22,7 @@ stub is `runner::StubJobRunner`, and `job_type` is stored but never dispatched o
 caps stdout/stderr to 1 MiB, and deletes the workspace on return; `CgroupScope` that only WRITES caps and never
 reads; `SeccompPipe`; `SandboxContext`; `probes`; `config`), `modules/rootfs` (docker-build-at-build-time →
 `include_bytes!` embed → lazy squashfuse-mount; minimal Dockerfile = debian + r-base-core + jsonlite + python3,
-`ROOTFS_SCHEMA_VERSION=1`, no scanpy/anndata/leiden/harmony), `modules/dataset`+`ziee-file` (content-addressed
+`ROOTFS_SCHEMA_VERSION=1`, no scanpy/anndata/leiden/harmony), `modules/dataset`+`txresbench-file` (content-addressed
 blobs). `SandboxRunResult` carries NO usage fields today.
 
 Boundary with other parts: P3 owns EXECUTION (spawn/stream), SCHEDULING (classes/pool/fair-share), the ROOTFS
@@ -59,7 +59,7 @@ run-node/code-blob RECORDING. P3 does not implement the catalog, the datatype re
   here (ITEM-25/26). Idempotent scheduler spawn unchanged.
 - **ITEM-5**: **Progress-FIFO plumbing** (`sandbox/sandbox.rs::build_bwrap_argv`). Add an optional
   `progress_fifo_src: Option<&str>` param that binds a host FIFO onto an in-sandbox progress path and sets the
-  `$…_PROGRESS` env (port of ziee `code_sandbox`'s proven `progress_fifo` pattern). The streaming runner drains
+  `$…_PROGRESS` env (port of txresbench `code_sandbox`'s proven `progress_fifo` pattern). The streaming runner drains
   the FIFO into structured `notifications/progress`-style frames (phase + pct + message) on the job SSE, so a
   scanpy script can emit real progress ("normalizing 40%"), not just log lines. `None` → byte-identical to the
   no-FIFO argv.
@@ -274,12 +274,12 @@ docker-build→`include_bytes!`→lazy-mount pipeline, `jobs/sse.rs` (SSE bus), 
   `config` are all built; P3 adds only the streaming spawn + cgroup read + drives it from jobs.
 - **`modules/rootfs` + build_helper** — docker-build→embed→lazy-squashfuse-mount pipeline + `format_version`/
   `is_fresh` schema gating; P3 only extends the Dockerfile manifest + bumps schema.
-- **`modules/dataset` + `ziee-file`** — content-addressed blob storage the working store (P1's) reads/writes
+- **`modules/dataset` + `txresbench-file`** — content-addressed blob storage the working store (P1's) reads/writes
   through.
-- **ziee `code_sandbox`** (SDK reference, forked into `sandbox/`) — prior art for the streaming child-driving
+- **txresbench `code_sandbox`** (SDK reference, forked into `sandbox/`) — prior art for the streaming child-driving
   shape, the `progress_fifo` notifications pattern (ITEM-5), and cgroup-scope idioms; `ComputeBackend`/
   `SandboxBackend` seam naming mirrors it.
-- **ziee-auth `session_settings.rs`** — singleton partial-update idiom for reserved-slots.
+- **txresbench-auth `session_settings.rs`** — singleton partial-update idiom for reserved-slots.
 - **DATA_MODEL `produces` manifest + provenance §B3.1** `inputs.json`/code-blob contract — the exact wire
   contract implemented.
 

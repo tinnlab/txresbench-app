@@ -15,7 +15,7 @@
 // which is a different capability (view state is not run params) and is not invented here.
 
 import { useMemo } from 'react'
-import { Empty, ErrorState, SectionHeader, Spinner } from '@ziee/kit'
+import { Empty, ErrorState, SectionHeader, Spinner } from '@txresbench/kit'
 import { usePaneStateValue } from '@/modules/workbench/core'
 import { useWorkbench } from '../../core/shell/WorkbenchContext'
 import { type WorkbenchPane, PaneScroll } from '../../core/shell/dock/paneModel'

@@ -1,9 +1,9 @@
 {
-  "name": "@ziee/config",
+  "name": "@txresbench/config",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Shared dev-config + design-token quality-gate tooling for ziee-SDK apps: biome preset, tsconfig base, syncpack policy, and parameterized design-contract lints.",
+  "description": "Shared dev-config + design-token quality-gate tooling for txresbench-SDK apps: biome preset, tsconfig base, syncpack policy, and parameterized design-contract lints.",
   "exports": {
     "./biome": "./biome.base.json",
     "./biome.base.json": "./biome.base.json",
@@ -14,14 +14,14 @@
     "./lint/*": "./src/lint/*"
   },
   "bin": {
-    "ziee-check": "./src/check.mjs",
-    "ziee-lint-colors": "./src/lint/hardcoded-colors.mjs",
-    "ziee-lint-settings-field": "./src/lint/settings-field.mjs",
-    "ziee-lint-adjacent-inline": "./src/lint/adjacent-inline.mjs",
-    "ziee-lint-logical-direction": "./src/lint/logical-direction.mjs",
-    "ziee-lint-tooltip-placement": "./src/lint/tooltip-placement.mjs",
-    "ziee-design-spec": "./src/lint/design-spec.mjs",
-    "ziee-kit-manifest": "./src/lint/kit-manifest.mjs"
+    "txresbench-check": "./src/check.mjs",
+    "txresbench-lint-colors": "./src/lint/hardcoded-colors.mjs",
+    "txresbench-lint-settings-field": "./src/lint/settings-field.mjs",
+    "txresbench-lint-adjacent-inline": "./src/lint/adjacent-inline.mjs",
+    "txresbench-lint-logical-direction": "./src/lint/logical-direction.mjs",
+    "txresbench-lint-tooltip-placement": "./src/lint/tooltip-placement.mjs",
+    "txresbench-design-spec": "./src/lint/design-spec.mjs",
+    "txresbench-kit-manifest": "./src/lint/kit-manifest.mjs"
   },
   "scripts": {
     "test": "node ../../scripts/run-node-tests.mjs --min 3"

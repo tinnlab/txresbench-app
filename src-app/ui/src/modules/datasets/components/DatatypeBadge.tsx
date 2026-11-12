@@ -1,4 +1,4 @@
-import { Tag } from '@ziee/kit'
+import { Tag } from '@txresbench/kit'
 import { datatypeLabel } from '@/modules/datasets/lib/format'
 
 /** A quiet outline tag naming a dataset's P2 datatype (or "Untyped"). */

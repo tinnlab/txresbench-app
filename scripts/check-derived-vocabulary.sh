@@ -46,7 +46,7 @@
 # data — it is the FRAMEWORK output-format library, staged by the server into EVERY
 # processor's `/code`. So anything it names, it names on behalf of every producer that
 # will ever exist: it is precisely the "core" INV-5 is about, and it was unscanned.
-# Measured cost of the gap: `cyto_columns.py` defaulted `axis` to a single-cell axis name
+# Measured cost of the gap: `txr_columns.py` defaulted `axis` to a single-cell axis name
 # and both `write_embedding`'s member `name` and its emitted `meta.kind` to a contributed
 # datatype id — a framework library authoring the producer's `structure.axis`, with the
 # guard printing PASS.
@@ -90,7 +90,7 @@
 # a string object — it can be `json.loads`ed or emitted — so exempting triple-quoted blocks
 # would be a genuine fail-open, not a prose courtesy. The consequence is deliberate: prose
 # in framework code must DESCRIBE a contributed datatype id rather than spell it. Fail-
-# closed, and stated at the top of `cyto_columns.py` where an author meets it.
+# closed, and stated at the top of `txr_columns.py` where an author meets it.
 #
 # ── MATCHING ────────────────────────────────────────────────────────────────────
 # Two tiers, both DERIVED — no term is ever typed into this file:
@@ -231,14 +231,14 @@ EOF
 # a pin cannot tell them apart. Nothing can, from the outside — so the file SAYS which it
 # is doing, in its own bytes, on its own line:
 #
-#     # cyto:guard-vocabulary
+#     # txr:guard-vocabulary
 #     KINDS=<the terms this guard hunts>
-#     # cyto:end-guard-vocabulary
+#     # txr:end-guard-vocabulary
 #
 # Only the lines INSIDE that block are blanked, exactly the way an in-source `#[cfg(test)]`
 # item is blanked for Rust — the mechanism is the same one, keyed on a declaration instead
 # of on an attribute. Everything else in a pinned guard is scanned like any other build
-# file. `// cyto:guard-vocabulary` is the same marker in the js dialect.
+# file. `// txr:guard-vocabulary` is the same marker in the js dialect.
 #
 # Pinning is still NECESSARY and is now not SUFFICIENT, so the exemption costs two keys
 # instead of one and both land in a reviewed diff:
@@ -308,7 +308,7 @@ EOF
 # tooling, at any depth. A `scripts/` directory nobody has created yet is scanned the day it
 # lands, with zero edits here.
 #
-# The declaration also carries the `cyto:guard-vocabulary` markers and the pin manifest that
+# The declaration also carries the `txr:guard-vocabulary` markers and the pin manifest that
 # bounds them, for the same reason: the exemption RULE is the second thing the two guards
 # derived separately, and #311 residual 1 is that only one of them honoured it.
 #
@@ -319,7 +319,7 @@ EOF
 SURFACE_DECL='scripts/lib/zero-core-surface.txt'
 if [ ! -f "$SURFACE_DECL" ]; then
   echo "FAIL: $SURFACE_DECL is missing, so this guard has no declaration of the build surface"
-  echo "      or of the cyto:guard-vocabulary exemption. It is the file"
+  echo "      or of the txr:guard-vocabulary exemption. It is the file"
   echo "      src-app/packages/spatial-types/tests/test_spatial_types_manifest.py reads too;"
   echo "      restore it rather than re-typing either rule into a guard (#311)."
   exit 1
@@ -335,7 +335,7 @@ decl_count() { decl_first "$1" | grep -c . || true; }
 # The repair for a demonstrated FAIL-OPEN, not tidiness. These values are interpolated
 # into four matcher languages — an awk ERE, a BRE `grep`, a Python `re` and a git
 # PATHSPEC — and a blind audit defeated every one of them from the declaration alone:
-#   * `vocab_block_open cyto:guard-vocabulary(` made awk's DYNAMIC regex fail to
+#   * `vocab_block_open txr:guard-vocabulary(` made awk's DYNAMIC regex fail to
 #     compile. awk compiles it lazily, on the first BUILD file, so awk died on EVERY
 #     build file with stderr swallowed, `out` was empty, `[ -n "$out" ] || continue`
 #     read that as "no hits", and the guard printed PASS over a real planted leak while
@@ -819,7 +819,7 @@ awk -F'\t' '{
 # BARE-looking compound (`single-cell`) that is also a PREFIX of the datatype ids
 # (`single-cell/expression`), and the compound matcher's boundary set treats `/` as a
 # boundary — so adding it to the app-core/framework vocabulary would newly flag prose in
-# `_lib/cyto_columns.py`'s docstrings, which describe the axis-defaulting defect they
+# `_lib/txr_columns.py`'s docstrings, which describe the axis-defaulting defect they
 # exist to warn about. Measured: 3 such hits. Widening a surface must not be smuggled in
 # as a vocabulary change; the app-core scan stays byte-identical to what it measured.
 : > "$ENVS.raw"
@@ -921,16 +921,16 @@ if [ -d "$RECIPE_ROOT" ]; then
     if ! grep -qxF "$_rid" "$ENVS.raw" 2>/dev/null; then
       # A recipe MAY legitimately be selected by the operator instead of by a manifest:
       # `processor_manifest.rs` documents that a contribution declaring NO env resolves
-      # against EVERY recipe and the deployment picks one via `CYTO_SANDBOX_ENV_ID`, and
+      # against EVERY recipe and the deployment picks one via `TXR_SANDBOX_ENV_ID`, and
       # the README lists that as a first-class channel. Failing such a recipe would be
       # this guard failing a CORRECT configuration, which is how a guard gets disabled.
       #
       # So the recipe may DECLARE that intent, in itself, with a marker comment — the same
-      # declare-don't-infer idiom as `cyto:env-smoke`. That keeps the anti-deletion
+      # declare-don't-infer idiom as `txr:env-smoke`. That keeps the anti-deletion
       # property intact: removing the last manifest declaration still fails UNLESS the
       # same commit also adds this marker, which is precisely the "force the removal into
       # a reviewed diff" the anchor exists for. It cannot be set accidentally.
-      if grep -qE '^[[:space:]]*#[[:space:]]*cyto:env-operator-selected([[:space:]]|$)' \
+      if grep -qE '^[[:space:]]*#[[:space:]]*txr:env-operator-selected([[:space:]]|$)' \
            "$RECIPE_ROOT/$_rid/Dockerfile" 2>/dev/null; then
         n_operator_selected=$((n_operator_selected + 1))
         # The marker DECLARES the env — from the recipe tree instead of from a manifest —
@@ -973,9 +973,9 @@ if [ -n "$undeclared" ]; then
   echo "      Do ONE of three things, in the same commit:"
   echo "        * declare it — \`env: <id>\` on a converter or an analysis in"
   echo "          src-app/packages/<pkg>/manifest.yaml; or"
-  echo "        * mark the recipe OPERATOR-SELECTED — put \`# cyto:env-operator-selected\`"
+  echo "        * mark the recipe OPERATOR-SELECTED — put \`# txr:env-operator-selected\`"
   echo "          on its own line in the recipe's Dockerfile, if it is meant to be chosen"
-  echo "          by CYTO_SANDBOX_ENV_ID rather than by a manifest (a documented, supported"
+  echo "          by TXR_SANDBOX_ENV_ID rather than by a manifest (a documented, supported"
   echo "          configuration); or"
   echo "        * delete the recipe."
   echo "      Declared env id(s) seen: $(tr '\n' ' ' < "$ENVS.raw")"
@@ -1018,7 +1018,7 @@ fi
 # gave a spurious exit 2 when the guard was invoked from a subdirectory or via a symlink.
 _grammar_lib="scripts/lib/env-id-grammar.sh"
 if [ ! -f "$_grammar_lib" ]; then
-  # Fail LOUDLY and say why. Without this the source fails, `cyto_is_valid_env_id` is
+  # Fail LOUDLY and say why. Without this the source fails, `txr_is_valid_env_id` is
   # undefined, `! <undefined>` is TRUE, and every derived id is reported malformed — a
   # missing file wearing the costume of a real finding. Observed exactly once, in a
   # fixture repo that copied the guard without its lib.
@@ -1032,7 +1032,7 @@ fi
 . "$_grammar_lib"
 while IFS= read -r _eid; do
   [ -n "$_eid" ] || continue
-  if ! cyto_is_valid_env_id "$_eid"; then
+  if ! txr_is_valid_env_id "$_eid"; then
     echo "FAIL: derived a malformed env id from a processor manifest: '$_eid'"
     echo "      A legal env id is a non-empty OCI path component: lowercase a-z, 0-9, . _ -"
     echo "      (src-app/server/src/modules/sandbox/env_id.rs, the grammar the runtime and"
@@ -1840,7 +1840,7 @@ function strip_comment(line, marker, quotes, wordstart,   out, i, L, c, instr, o
 # `-` immediately to the LEFT of the value. The boundary check therefore REJECTED the exact
 # leak this surface was added to catch: the first RED run of this guard reported the
 # `justfile` parameter default and stayed SILENT on the shell fallback in
-# `scripts/fetch-env-rootfs.sh`, which was written `ENV_ID="${ENV_ID:-${CYTO_..._ENV_ID:-x}}"`.
+# `scripts/fetch-env-rootfs.sh`, which was written `ENV_ID="${ENV_ID:-${TXR_..._ENV_ID:-x}}"`.
 #
 # So inside a `${…}` the operator run (`:-` `:=` `:+` `:?` `-` `=` `+` `?` `#` `%`) is blanked
 # to spaces, restoring the boundary without weakening it anywhere else: a hyphenated token
@@ -1975,7 +1975,7 @@ if [ -n "$structural" ]; then
     [ -n "$kind" ] || continue
     case "$kind" in
       '!!UNPINNED')
-        echo "  $file:$line: a cyto:guard-vocabulary marker in a file that is NOT pinned in"
+        echo "  $file:$line: a txr:guard-vocabulary marker in a file that is NOT pinned in"
         echo "      $GUARD_MANIFEST. The marker does NOT exempt anything here, and it fails"
         echo "      rather than no-opping so nobody believes in an exemption they do not have."
         echo "      Pin the file (scripts/check-guard-integrity.sh --update) if it really is a"
@@ -1983,16 +1983,16 @@ if [ -n "$structural" ]; then
         echo "      and DERIVE the value instead of naming it."
         ;;
       '!!UNTERMINATED')
-        echo "  $file:$line: a cyto:guard-vocabulary block is opened and never closed. Left"
+        echo "  $file:$line: a txr:guard-vocabulary block is opened and never closed. Left"
         echo "      alone that blanks the REST OF THE FILE — a whole-file exemption arriving"
         echo "      through a typo, which is exactly the shape #304 removed. Close it with"
-        echo "      \`# cyto:end-guard-vocabulary\` on its own line."
+        echo "      \`# txr:end-guard-vocabulary\` on its own line."
         ;;
       '!!STRAY')
-        echo "  $file:$line: a cyto:end-guard-vocabulary marker with no open block."
+        echo "  $file:$line: a txr:end-guard-vocabulary marker with no open block."
         ;;
       '!!NESTED')
-        echo "  $file:$line: a cyto:guard-vocabulary block opened inside another one."
+        echo "  $file:$line: a txr:guard-vocabulary block opened inside another one."
         ;;
       '!!JSBLOCK')
         echo "  $file:$line: a JavaScript block comment opens here and is never closed, so the"
@@ -2037,10 +2037,10 @@ if [ -n "$hits" ]; then
   echo "    $GUARD_MANIFEST no longer exempts the whole file (#304) — a pinned guard that"
   echo "    DISPATCHES on a domain id is exactly the case that leaked. DECLARE the block"
   echo "    instead, and keep it to the hunted vocabulary:"
-  echo "        # cyto:guard-vocabulary"
+  echo "        # txr:guard-vocabulary"
   echo "        KINDS=<the terms this guard hunts>"
-  echo "        # cyto:end-guard-vocabulary"
-  echo "    (\`// cyto:guard-vocabulary\` in a .mjs). Only those lines are blanked, and only"
+  echo "        # txr:end-guard-vocabulary"
+  echo "    (\`// txr:guard-vocabulary\` in a .mjs). Only those lines are blanked, and only"
   echo "    in a file that is pinned; every other line is scanned like any build file."
   exit 1
 fi

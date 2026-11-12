@@ -6,7 +6,7 @@
 // registry-injected — no live singleton — so it can render on an analysis card AND as
 // artifact tabs from the same data.
 
-import { Tag } from '@ziee/kit'
+import { Tag } from '@txresbench/kit'
 import type { AnalysisContribution, DatatypeLattice } from '@/modules/workbench/core'
 import { availableVisualizations, type VizAvailability, type VizRegistry, type VizDataContext } from './discovery'
 

@@ -29,9 +29,9 @@
 // `meta.categories` provably cannot: it is capped at 50 entries AND 1024 bytes
 // (`_helpers/colsummary.py`), and a count does not bound bytes.
 //
-// What can is the ITEM-51 pair, stamped by `cyto_zarr.Table.categorical` onto the column
+// What can is the ITEM-51 pair, stamped by `txr_zarr.Table.categorical` onto the column
 // member's own declaration and carried to this client inside `ArtifactRow.structure`. Read
-// off the running writer rather than from prose — `cyto_columns.write_metadata_column` over a
+// off the running writer rather than from prose — `txr_columns.write_metadata_column` over a
 // 3-level categorical returns:
 //
 //     structure.columns[0] = { path: "values", kind: "categorical", n_levels: 3,
@@ -101,7 +101,7 @@ export const COMPATIBLE_COLUMNS_SOURCE = 'compatible_columns'
 export const REQUIRE_COLUMN_IN_EVERY_DATASET = true
 
 /** Width, in bytes, of one level's short hash inside a `vocab_sketch`
- *  (`cyto_zarr.VOCAB_SKETCH_HASH_BYTES`). The sketch is a concatenation with no delimiter, so
+ *  (`txr_zarr.VOCAB_SKETCH_HASH_BYTES`). The sketch is a concatenation with no delimiter, so
  *  this is the only thing that says where one level ends — a reader that guessed it would
  *  silently mis-slice every sketch and answer subset questions with noise. */
 export const VOCAB_SKETCH_HASH_BYTES = 8
@@ -120,8 +120,8 @@ export const VOCAB_SKETCH_LEVEL_BUDGET = 6144
  * The SEMANTIC kind of a column, normalised out of the STORAGE kind the writer stamps.
  *
  * These are two different vocabularies and conflating them was a live defect. The storage
- * vocabulary is `categorical | string | numeric` (`cyto_zarr.Table`), and
- * `cyto_columns.write_metadata_column` routes every object-dtype series — the single most
+ * vocabulary is `categorical | string | numeric` (`txr_zarr.Table`), and
+ * `txr_columns.write_metadata_column` routes every object-dtype series — the single most
  * common label encoding, an ordinary imported label column — through `t.string(...)` while
  * stamping `meta.kind = "categorical"`. So the storage kind and the display kind DISAGREE BY
  * CONSTRUCTION for the commonest case.

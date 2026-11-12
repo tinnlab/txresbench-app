@@ -35,7 +35,7 @@ process.stdout.write(
     // off under the gate that needs it most.
     reporters: (cfg.reporter ?? []).map(r => (Array.isArray(r) ? r[0] : r)),
     backend: process.env.E2E_BACKEND,
-    dataDir: process.env.CYTO_APP_DATA_DIR,
+    dataDir: process.env.TXR_APP_DATA_DIR,
     // The carry that makes a worker agree with the runner.
     carry: process.env.__HARNESS_RESOLVED_app_e2e,
   }),

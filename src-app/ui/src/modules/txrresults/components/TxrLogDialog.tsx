@@ -30,7 +30,7 @@
 import { useEffect, useRef } from 'react'
 import type { CSSProperties } from 'react'
 import { useStore } from 'zustand'
-import { Button, Dialog, message } from '@ziee/kit'
+import { Button, Dialog, message } from '@txresbench/kit'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import type { TxrRunLogLine } from '@/api-client/types'
 

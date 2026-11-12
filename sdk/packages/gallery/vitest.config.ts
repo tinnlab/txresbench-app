@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 // @ts-expect-error - plain .mjs tooling shared by every package's config + node runner
 import { listNodeTestFiles } from '../../scripts/node-test-files.mjs'
 
-// Unit runner for @ziee/gallery. Mirrors @ziee/kit's config; see
+// Unit runner for @txresbench/gallery. Mirrors @txresbench/kit's config; see
 // `scripts/node-test-files.mjs` for why the `node:test` half is excluded HERE and run by
 // `npm run test:node`.
 //

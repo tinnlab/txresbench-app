@@ -12,7 +12,7 @@ UMAP/t-SNE layout — INV-11) and partitions it with Leiden.
     resolve the ONE embedding → CEILING GATE (before any read) → read the embedding →
     viable-cell refuse → sc.pp.neighbors (kNN on the embedding) → Leiden (igraph flavor,
     modularity) → singleton reassignment / sub-floor flag → write the categorical
-    `metadata-column` (+ stamp the clustering provenance into attributes.cyto) →
+    `metadata-column` (+ stamp the clustering provenance into attributes.txr) →
     [if an `expression` input is bound] DESCRIPTIVE markers (wilcoxon, doc 10 §4) → report
 
 Every stage is a named refusal on failure, never a silent wrong answer.
@@ -48,7 +48,7 @@ the circularity disclosure; NO `pvals_adj`/FDR is ever headlined as inference. S
   * Emits a categorical `metadata-column`, NOT an exclusive `clustering` datatype (owner
     DEC-9(c)) — a cluster label IS a categorical per-cell column, colourable for free.
 
-Roots overridable via `CYTO_INPUTS_DIR` / `CYTO_OUTPUTS_DIR`. Progress → `$CYTO_PROGRESS_FIFO`.
+Roots overridable via `TXR_INPUTS_DIR` / `TXR_OUTPUTS_DIR`. Progress → `$TXR_PROGRESS_FIFO`.
 """
 import _shared as S  # FIRST — pins the determinism env before numpy/scanpy load (INV-8)
 
@@ -56,8 +56,8 @@ import json
 
 import numpy as np
 
-import cyto_deps
-import cyto_columns
+import txr_deps
+import txr_columns
 import _markers as M
 
 
@@ -259,11 +259,11 @@ def main():
     # ── write the cluster label as a categorical `metadata-column` (INV-2, DEC-9(c)) ─
     progress("write", 88, "writing the cluster label")
     rel = "columns/clusters.zarr"
-    col_structure, col_meta = cyto_columns.write_metadata_column(
+    col_structure, col_meta = txr_columns.write_metadata_column(
         outputs_dir, rel, col_name, pd.Series(series), axis="cells",
         aligned_to=embedding_identity.get("aligned_to"))
 
-    # ── stamp the clustering provenance into the store's attributes.cyto (INV-2) ─────
+    # ── stamp the clustering provenance into the store's attributes.txr (INV-2) ─────
     versions = _library_versions()
     provenance = {
         "method": "leiden",
@@ -282,7 +282,7 @@ def main():
         "embedding": embedding_identity,     # INV-13 — which embedding (method + hash)
         "determinism_env": S.resolved_determinism_env(),  # INV-8
     }
-    # The clustering tag rides BOTH the store's group `attributes.cyto` AND the manifest
+    # The clustering tag rides BOTH the store's group `attributes.txr` AND the manifest
     # entry's `structure` (they are the two copies of one declaration the conformance gate
     # requires to agree): the store stamp is what a consumer reading the store URL sees, and
     # `col_structure` is what rides the artifact row.
@@ -360,7 +360,7 @@ def main():
     (outputs_dir / "clustering-report.json").write_text(json.dumps(report, indent=2))
     entries.append(S.output_entry(
         "clustering-report", S.DT_REPORT_QC, "clustering-report.json", "artifact",
-        structure=cyto_columns.opaque("application/json"),
+        structure=txr_columns.opaque("application/json"),
         meta={"kind": "clustering-report", "n_cells": int(n_cells),
               "n_clusters": n_clusters}))
 
@@ -427,10 +427,10 @@ def _library_versions():
       supported against, so recording it changes an outcome instead of only decorating
       the report.
 
-    Memoized in `cyto_deps`, so this and the manifest-write hook resolve once and cannot
+    Memoized in `txr_deps`, so this and the manifest-write hook resolve once and cannot
     disagree about what ran.
     """
-    return cyto_deps.resolve_and_check()["libraries"]
+    return txr_deps.resolve_and_check()["libraries"]
 
 
 if __name__ == "__main__":

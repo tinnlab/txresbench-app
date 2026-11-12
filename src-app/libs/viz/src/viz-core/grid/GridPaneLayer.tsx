@@ -50,7 +50,7 @@
 import React, { memo, useMemo } from 'react'
 import { useStore } from 'zustand'
 import type { DataSource, DatasetCatalog } from '../data/wire'
-import type { ContainerId } from '@ziee/dock'
+import type { ContainerId } from '@txresbench/dock'
 import type { DatasetEntry } from '../../adapter/DatasetStore'
 import { AnnotateProvider } from '../annotate/AnnotateContext'
 import type { AnnotateStore } from '../annotate/Annotate.store'

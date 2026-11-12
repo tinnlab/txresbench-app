@@ -140,7 +140,7 @@ test('a real emitted OME-TIFF artifact is read TILE-BY-TILE over byte ranges, ne
   const net = trackDataRequests(page)
   await openWorkbench(page, project.id)
   await page.waitForFunction(
-    () => !!(window as unknown as { __cyto_read?: { omeTiffPyramid?: unknown } }).__cyto_read
+    () => !!(window as unknown as { __txr_read?: { omeTiffPyramid?: unknown } }).__txr_read
       ?.omeTiffPyramid,
     undefined,
     { timeout: 30_000 },
@@ -179,7 +179,7 @@ test('a real emitted OME-TIFF artifact is read TILE-BY-TILE over byte ranges, ne
     async ([id, length]) =>
       await (
         window as unknown as {
-          __cyto_read: {
+          __txr_read: {
             omeTiffPyramid: (
               id: string,
               length: number,
@@ -195,7 +195,7 @@ test('a real emitted OME-TIFF artifact is read TILE-BY-TILE over byte ranges, ne
             }>
           }
         }
-      ).__cyto_read.omeTiffPyramid(id as string, length as number),
+      ).__txr_read.omeTiffPyramid(id as string, length as number),
     [artifactId as string, bytes.byteLength] as const,
   )
 

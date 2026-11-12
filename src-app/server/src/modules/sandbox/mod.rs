@@ -2,7 +2,7 @@
 //! against an analysis rootfs, and of txr benchmark-method runs in a stacked
 //! base+layer environment.
 //!
-//! Ported from ziee `code_sandbox`, Linux-first + companion-driven: exposed as a
+//! Ported from txresbench `code_sandbox`, Linux-first + companion-driven: exposed as a
 //! SERVICE (`service::run_analysis`) + a thin authenticated route (NOT a chat
 //! MCP server — DEC-5). Boot probes the host, creates the workspace root, and
 //! records `SandboxAvailability`; the rootfs mounts lazily on first run.
@@ -12,7 +12,7 @@
 //! Both modes are built by the same hardening core (`sandbox.rs`:
 //! [`build_bwrap_argv`] + `spawn_bwrap_child`); only the argv differs.
 //!
-//! 1. **Processor pipeline** (the shipped cytoanalyst path) — one trimmed
+//! 1. **Processor pipeline** (the shipped txresbench path) — one trimmed
 //!    analysis rootfs per env image, bound read-only; the per-job workspace
 //!    binds at `/home/analyst`; results land in the staging tree.
 //! 2. **Stacked method run** (txr; the [`stack`] submodule) — ONE trimmed
@@ -107,7 +107,7 @@ pub mod types;
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 
-use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 use config::{init_state, init_status, set_init_status, SandboxAvailability, SandboxState};
 
@@ -177,7 +177,7 @@ impl AppModule for SandboxModule {
         };
 
         // Workspace root `<data_root>/sandboxes/` chmod 0700. `data_root()`
-        // honors CYTO_APP_DATA_DIR so each integration test isolates here.
+        // honors TXR_APP_DATA_DIR so each integration test isolates here.
         let workspace_root = crate::modules::rootfs::data_root().join("sandboxes");
         if let Err(e) = create_workspace_root(&workspace_root) {
             set_init_status(SandboxAvailability::WorkspaceInitFailed);

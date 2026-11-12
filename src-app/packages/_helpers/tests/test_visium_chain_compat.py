@@ -19,7 +19,7 @@ had run it**.
   ordinary importer, which knows nothing about tissue positions or coordinate spaces.
 * **spatial-marked** — the spatial arm's matrix with the spatial declarations
   (`platform`, `measured_entity`, `coordinate_space`, `microns_per_pixel`, `positioning`,
-  `section`) stamped into the store's own `attributes.cyto`.
+  `section`) stamped into the store's own `attributes.txr`.
 
 Then the IDENTICAL chain over each: `qc.10x` → `cell.filter` → `embedding.reduce` →
 `clustering.cluster` → `de.markers` → `de.compare`, driven by one body of code
@@ -28,13 +28,13 @@ Then the IDENTICAL chain over each: `qc.10x` → `cell.filter` → `embedding.re
 **Why two arms were not enough, stated plainly because it was measured rather than
 guessed.** The first version of this file had only `spatial` and `control`, and a blind
 audit showed the comparison between them could not fail: the two importers emit
-BYTE-IDENTICAL matrices whose in-store `attributes.cyto` are also identical, and
+BYTE-IDENTICAL matrices whose in-store `attributes.txr` are also identical, and
 `inputs.json` carries only `{slot, kind, content_hash, sandbox_path}` — no datatype, no
 `meta`. No compute in the chain had any channel through which it *could* learn the matrix
 was spatial, so cross-arm equality was ENTAILED by byte-identity plus determinism. The
 auditor proved it by corrupting a real `qc.10x` metric: every test stayed green.
 
-The **spatial-marked** arm is the repair. `attributes.cyto` is the one declaration channel
+The **spatial-marked** arm is the repair. `attributes.txr` is the one declaration channel
 that genuinely reaches a sandboxed analysis (it is bytes inside the hardlinked zarr store,
 unlike the catalog-only `meta` that #211 is about). An arm that announces itself as spatial
 *through that channel* and still produces an identical answer is a real measurement of
@@ -42,7 +42,7 @@ unlike the catalog-only `meta` that #211 is about). An arm that announces itself
 would happen if #211 were fixed and every declaration became visible.
 
 **What the marked arm does NOT reach**, said out loud so it is not read as covering INV-2
-whole: it stamps only the EXPRESSION store, so the other bound stores' `attributes.cyto`
+whole: it stamps only the EXPRESSION store, so the other bound stores' `attributes.txr`
 (gene symbols, QC columns, the reduced layout, the grouping) are unmarked; the catalog
 DATATYPE that drives SELECTION (`single-cell/counts` vs `single-cell/expression`) is never
 exercised by a real bind — it is covered statically by `test_visium_chain_selectors.py`
@@ -302,7 +302,7 @@ def test_the_chain_ignores_spatial_declarations_it_CAN_see(spatial_arm, marked_a
     §9: "**Nothing needs to know it is spatial.**"
 
     The marked arm's matrix is byte-identical to the spatial arm's in every CSC member, but
-    its store's `attributes.cyto` additionally declares `platform: visium`,
+    its store's `attributes.txr` additionally declares `platform: visium`,
     `measured_entity: {kind: spot, resolution_um: 55}`, a `coordinate_space`, a
     `microns_per_pixel`, a `positioning` and a `section`. That is the ONE declaration
     channel a sandboxed compute can actually read — `sandbox/inputs.rs` hardlinks a stored
@@ -316,17 +316,17 @@ def test_the_chain_ignores_spatial_declarations_it_CAN_see(spatial_arm, marked_a
     This is also a forward-looking test of #211: it says what happens to the existing chain
     on the day those declarations DO become visible. The answer must be "nothing".
     """
-    marked_attributes = VC.store_cyto_attributes(
+    marked_attributes = VC.store_txr_attributes(
         marked_arm.importer.store(VC.expression_entry(marked_arm.importer)))
     for key in VC.SPATIAL_MARKERS:
         assert key in marked_attributes, (
             f"the marked arm does not actually declare {key!r} in the store's "
-            f"attributes.cyto, so this test would be comparing two identical matrices "
+            f"attributes.txr, so this test would be comparing two identical matrices "
             f"and could not fail")
-    plain_attributes = VC.store_cyto_attributes(
+    plain_attributes = VC.store_txr_attributes(
         spatial_arm.importer.store(VC.expression_entry(spatial_arm.importer)))
     assert not (set(VC.SPATIAL_MARKERS) & set(plain_attributes)), (
-        "the UNMARKED arm already carries a spatial declaration in attributes.cyto, so the "
+        "the UNMARKED arm already carries a spatial declaration in attributes.txr, so the "
         "two arms do not differ and this experiment has no variable")
     assert plain_attributes["nnz"] == marked_attributes["nnz"], (
         "the marker stamp changed the matrix's structural declaration; it must ADD keys "
@@ -621,7 +621,7 @@ def test_qc_computed_pct_mito_over_rows_that_are_spots_and_nothing_disclosed_it(
                 haystack.append(body.read_text().lower())
         haystack.append(str(entry.get("meta") or {}).lower())
         if entry["datatype"] == "metadata-column":
-            haystack.append(str(VC.store_cyto_attributes(run.qc.store(entry))).lower())
+            haystack.append(str(VC.store_txr_attributes(run.qc.store(entry))).lower())
     blob = "\n".join(haystack)
 
     assert "pct_mito" in blob, (

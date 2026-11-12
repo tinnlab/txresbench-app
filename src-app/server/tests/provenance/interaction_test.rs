@@ -403,9 +403,9 @@ async fn an_over_cap_label_or_legacy_recipe_is_refused_and_persists_nothing() {
 /// `.all()` in `graph::inputs_checksummed_flag` — either way readiness comes back true.
 #[tokio::test]
 async fn a_run_with_an_unresolvable_input_is_not_reported_as_checksummed() {
-    use cytoanalyst::modules::jobs::models::Job;
-    use cytoanalyst::modules::jobs::seams::{PeakMetrics, RunRecorder};
-    use cytoanalyst::modules::provenance::recorder::ProvenanceRunRecorder;
+    use txresbench::modules::jobs::models::Job;
+    use txresbench::modules::jobs::seams::{PeakMetrics, RunRecorder};
+    use txresbench::modules::provenance::recorder::ProvenanceRunRecorder;
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
@@ -515,7 +515,7 @@ async fn a_dropped_capture_commits_no_orphan_artifact() {
     use std::future::Future;
     use std::task::{Context, Poll, Waker};
 
-    use cytoanalyst::modules::provenance::interaction;
+    use txresbench::modules::provenance::interaction;
 
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
@@ -689,7 +689,7 @@ async fn an_attached_datasets_artifact_is_a_valid_selection_input() {
     assert_eq!(used, 1, "the recorded run pins the attached dataset's artifact");
 
     // (c) a NON-MEMBER is still refused — the edit gate precedes the scope rule.
-    create_user(&server, &admin, "tenancy_reader", "tenancy_reader@cyto.test").await;
+    create_user(&server, &admin, "tenancy_reader", "tenancy_reader@txresbench.test").await;
     let reader = login(&server, "tenancy_reader").await;
     let (status, _) = post_selection(
         &server,

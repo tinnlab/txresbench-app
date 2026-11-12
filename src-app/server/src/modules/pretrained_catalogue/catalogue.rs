@@ -41,7 +41,7 @@
 //! args, never process-global `set_var` — the measured cross-test
 //! contamination note in `sandbox/env_image.rs` applies here verbatim. The
 //! seams' defaults resolve the release values: [`CATALOGUE_URL`] for the
-//! fetch, `rootfs::data_root()` for the state dirs. `CYTO_TXR_CATALOGUE_URL`
+//! fetch, `rootfs::data_root()` for the state dirs. `TXR_CATALOGUE_URL`
 //! (documented) is honored ONLY as the default resolution of the `catalogue_url`
 //! seam — it is what the spawned-server integration harness uses to point the
 //! boot refresh at a closed loopback port instead of the production host
@@ -67,7 +67,7 @@ pub const CATALOGUE_URL: &str =
 /// The env seam that overrides the catalogue fetch URL (documented: the
 /// integration harness + a blocked-network boot; the default is the constant
 /// above).
-pub const CATALOGUE_URL_ENV: &str = "CYTO_TXR_CATALOGUE_URL";
+pub const CATALOGUE_URL_ENV: &str = "TXR_CATALOGUE_URL";
 
 /// The embedded snapshot's repo-root path (the boot error names the FILE —
 /// TEST-PC-01).
@@ -735,13 +735,13 @@ impl std::error::Error for RefreshError {}
 /// release default resolution except the documented env overrides).
 #[derive(Clone, Debug, Default)]
 pub struct PretrainedCatalogueSeams {
-    /// The catalogue fetch URL (default: the `CYTO_TXR_CATALOGUE_URL` env, or
+    /// The catalogue fetch URL (default: the `TXR_CATALOGUE_URL` env, or
     /// [`CATALOGUE_URL`]).
     pub catalogue_url: Option<String>,
     /// The HTTP client (default: a bounded-timeout reqwest client).
     pub http: Option<reqwest::Client>,
     /// The bundled-models dir (default:
-    /// `CYTO_TXR_BUNDLED_MODELS_DIR` or `<data_root>/pretrained-bundled`).
+    /// `TXR_BUNDLED_MODELS_DIR` or `<data_root>/pretrained-bundled`).
     pub bundled_dir: Option<PathBuf>,
     /// The app data root (default: `rootfs::data_root()`).
     pub data_root: Option<PathBuf>,
@@ -778,12 +778,12 @@ impl PretrainedCatalogueSeams {
         self.data_root.clone().unwrap_or_else(rootfs::data_root)
     }
 
-    /// The resolved bundled dir (PROV-PC-12's `CYTO_TXR_BUNDLED_MODELS_DIR`).
+    /// The resolved bundled dir (PROV-PC-12's `TXR_BUNDLED_MODELS_DIR`).
     pub fn bundled_dir(&self) -> PathBuf {
         if let Some(d) = &self.bundled_dir {
             return d.clone();
         }
-        std::env::var_os("CYTO_TXR_BUNDLED_MODELS_DIR")
+        std::env::var_os("TXR_BUNDLED_MODELS_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| self.data_root().join("pretrained-bundled"))
     }

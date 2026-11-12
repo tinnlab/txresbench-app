@@ -14,8 +14,8 @@
 
 use serde_json::Value;
 
-use cytoanalyst::modules::rootfs::version::ROOTFS_SCHEMA_VERSION;
-use cytoanalyst::modules::sandbox::env_image::resolve;
+use txresbench::modules::rootfs::version::ROOTFS_SCHEMA_VERSION;
+use txresbench::modules::sandbox::env_image::resolve;
 
 use super::setup_admin;
 use crate::common::TestServer;
@@ -65,7 +65,7 @@ async fn manifest_env_resolves_through_the_env_image_registry() {
     // is the manifest's id, passed through verbatim (DEC-23/L).
     assert_eq!(
         env_ref.oci_ref,
-        format!("ghcr.io/ziee-ai/cyto-env/{env_id}"),
+        format!("ghcr.io/tinnlab/txresbench-env/{env_id}"),
         "per-env GHCR repo = <product registry base>/<manifest env-id>"
     );
     let expect_tag = format!("schema{ROOTFS_SCHEMA_VERSION}-latest-amd64");
@@ -79,7 +79,7 @@ async fn manifest_env_resolves_through_the_env_image_registry() {
     );
     assert_eq!(
         env_ref.pull_ref(),
-        format!("ghcr.io/ziee-ai/cyto-env/{env_id}:{expect_tag}"),
+        format!("ghcr.io/tinnlab/txresbench-env/{env_id}:{expect_tag}"),
         "the tag pull ref is <oci_ref>:<tag>"
     );
 
@@ -95,7 +95,7 @@ async fn manifest_env_resolves_through_the_env_image_registry() {
     // TEST-1 proves.
     for open in ["bulk-rnaseq", "totally-unknown"] {
         let r = resolve(open).unwrap_or_else(|| panic!("{open} is a well-formed env-id"));
-        assert_eq!(r.oci_ref, format!("ghcr.io/ziee-ai/cyto-env/{open}"));
+        assert_eq!(r.oci_ref, format!("ghcr.io/tinnlab/txresbench-env/{open}"));
     }
     for bad in [
         "",

@@ -20,7 +20,7 @@
  * KEYS remain the selection × cards property the page owns).
  */
 import type { CSSProperties } from 'react'
-import { Button, Switch } from '@ziee/kit'
+import { Button, Switch } from '@txresbench/kit'
 import { pluralize } from '@/modules/txrlist'
 import { RESEARCH_NOTICE } from '../lib/format'
 import { RUN_BAR_EMPTY_REASON, SAVE_MODELS_MEANING } from '../lib/runBar'

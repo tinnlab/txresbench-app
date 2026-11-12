@@ -54,7 +54,7 @@ use axum::middleware::Next;
 use axum::response::Response;
 use uuid::Uuid;
 
-use ziee_auth::auth::JwtService;
+use txresbench_auth::auth::JwtService;
 
 use super::repository::AccountRepository;
 

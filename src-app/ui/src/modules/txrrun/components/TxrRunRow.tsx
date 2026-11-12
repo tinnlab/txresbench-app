@@ -43,7 +43,7 @@
  * action, never a crash and never a silent no-op.
  */
 import type { CSSProperties } from 'react'
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 import type { TxrRunMethod, TxrRunProgressFrame } from '@/api-client/types'
 import {
   formatBarValue,

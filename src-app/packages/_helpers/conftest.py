@@ -13,7 +13,7 @@ _SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 # _helpers → processors → src-app  (2 levels up)
 _SRC_APP = os.path.abspath(os.path.join(_SCRIPTS, *([os.pardir] * 2)))
 _EXT = os.path.join(_SRC_APP, "packages", "annotation-integrate")
-# packages/_lib → `cyto_zarr` / `cyto_columns`, the shared OUTPUT-FORMAT library
+# packages/_lib → `txr_zarr` / `txr_columns`, the shared OUTPUT-FORMAT library
 # (DEC-7). The runner stages these into `/code` next to the shared helpers, so the
 # suites must resolve them the same way or every compute script fails at import.
 _LIB = os.path.join(_SRC_APP, "packages", "_lib")

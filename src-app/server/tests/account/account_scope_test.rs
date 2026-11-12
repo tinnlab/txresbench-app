@@ -73,9 +73,9 @@ async fn inv1_cross_tenant_is_404_while_own_account_is_200() {
     let admin = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let p = create_user(&server, &admin, "as_p", "as_p@cyto.test").await;
-    let q = create_user(&server, &admin, "as_q", "as_q@cyto.test").await;
-    let r = create_user(&server, &admin, "as_r", "as_r@cyto.test").await;
+    let p = create_user(&server, &admin, "as_p", "as_p@txresbench.test").await;
+    let q = create_user(&server, &admin, "as_q", "as_q@txresbench.test").await;
+    let r = create_user(&server, &admin, "as_r", "as_r@txresbench.test").await;
 
     // Account A — P owns it, and it has a second member so the count is meaningful.
     let account_a = make_org_account(&pool, "Org A", p).await;
@@ -149,8 +149,8 @@ async fn inv2_header_cannot_override_path_in_either_direction() {
     let admin = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let p = create_user(&server, &admin, "hdr_p", "hdr_p@cyto.test").await;
-    let q = create_user(&server, &admin, "hdr_q", "hdr_q@cyto.test").await;
+    let p = create_user(&server, &admin, "hdr_p", "hdr_p@txresbench.test").await;
+    let q = create_user(&server, &admin, "hdr_q", "hdr_q@txresbench.test").await;
     let account_a = make_org_account(&pool, "Hdr A", p).await; // P is owner
     let account_b = make_org_account(&pool, "Hdr B", q).await; // P is NOT a member
 
@@ -196,8 +196,8 @@ async fn inv3_holding_the_capability_is_not_authority_over_another_account() {
     let admin = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let u = create_user(&server, &admin, "cap_u", "cap_u@cyto.test").await;
-    let other = create_user(&server, &admin, "cap_o", "cap_o@cyto.test").await;
+    let u = create_user(&server, &admin, "cap_u", "cap_u@txresbench.test").await;
+    let other = create_user(&server, &admin, "cap_o", "cap_o@txresbench.test").await;
 
     // U's own org (the control) and a foreign, populated org.
     let own = make_org_account(&pool, "Cap Own", u).await;
@@ -255,9 +255,9 @@ async fn inv4_role_floor_refuses_bare_member_and_admits_admin() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "fl_own", "fl_own@cyto.test").await;
-    let member = create_user(&server, &admin_token, "fl_mem", "fl_mem@cyto.test").await;
-    let acct_admin = create_user(&server, &admin_token, "fl_adm", "fl_adm@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "fl_own", "fl_own@txresbench.test").await;
+    let member = create_user(&server, &admin_token, "fl_mem", "fl_mem@txresbench.test").await;
+    let acct_admin = create_user(&server, &admin_token, "fl_adm", "fl_adm@txresbench.test").await;
 
     let account = make_org_account(&pool, "Floor Org", owner).await;
     add_member(&pool, account, member, "member").await;
@@ -326,8 +326,8 @@ async fn inv15_existing_surfaces_are_untouched() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let user = create_user(&server, &admin_token, "un_u", "un_u@cyto.test").await;
-    let other = create_user(&server, &admin_token, "un_o", "un_o@cyto.test").await;
+    let user = create_user(&server, &admin_token, "un_u", "un_u@txresbench.test").await;
+    let other = create_user(&server, &admin_token, "un_o", "un_o@txresbench.test").await;
     let token = login(&server, "un_u").await;
 
     // (a) `account::manage` is still granted to NO group — so a plain user still 403s
@@ -440,7 +440,7 @@ async fn no_admin_bypass_root_admin_is_404_until_actually_a_member() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "ab_own", "ab_own@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "ab_own", "ab_own@txresbench.test").await;
     let account = make_org_account(&pool, "No Bypass Org", owner).await;
 
     let admin_id: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username = 'admin'")
@@ -477,8 +477,8 @@ async fn personal_account_is_422_for_its_owner_but_404_for_a_stranger() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let u = create_user(&server, &admin_token, "pa_u", "pa_u@cyto.test").await;
-    let v = create_user(&server, &admin_token, "pa_v", "pa_v@cyto.test").await;
+    let u = create_user(&server, &admin_token, "pa_u", "pa_u@txresbench.test").await;
+    let v = create_user(&server, &admin_token, "pa_v", "pa_v@txresbench.test").await;
     let u_personal = personal_account_id(&pool, u).await;
     let v_personal = personal_account_id(&pool, v).await;
     let u_org = make_org_account(&pool, "PA Org", u).await;
@@ -578,9 +578,9 @@ async fn manage_context_reports_real_role_and_real_member_count() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "ctx_own", "ctx_own@cyto.test").await;
-    let a = create_user(&server, &admin_token, "ctx_a", "ctx_a@cyto.test").await;
-    let b = create_user(&server, &admin_token, "ctx_b", "ctx_b@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "ctx_own", "ctx_own@txresbench.test").await;
+    let a = create_user(&server, &admin_token, "ctx_a", "ctx_a@txresbench.test").await;
+    let b = create_user(&server, &admin_token, "ctx_b", "ctx_b@txresbench.test").await;
     let account = make_org_account(&pool, "Ctx Org", owner).await;
     add_member(&pool, account, a, "admin").await;
     add_member(&pool, account, b, "member").await;
@@ -619,7 +619,7 @@ async fn unauthenticated_malformed_and_capability_refusals() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let owner = create_user(&server, &admin_token, "rj_own", "rj_own@cyto.test").await;
+    let owner = create_user(&server, &admin_token, "rj_own", "rj_own@txresbench.test").await;
     let account = make_org_account(&pool, "Reject Org", owner).await;
 
     // ── 401: no token at all ──
@@ -647,7 +647,7 @@ async fn unauthenticated_malformed_and_capability_refusals() {
     // `create_user_without_projects` strips the Users group, which is where the
     // account::members::manage grant lives.
     let stripped =
-        create_user_without_projects(&server, &admin_token, "rj_str", "rj_str@cyto.test").await;
+        create_user_without_projects(&server, &admin_token, "rj_str", "rj_str@txresbench.test").await;
     let stripped_account = make_org_account(&pool, "Stripped Org", stripped).await;
     let stripped_token = login(&server, "rj_str").await;
 

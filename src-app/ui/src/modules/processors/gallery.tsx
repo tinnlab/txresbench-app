@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import type { ModuleGallery } from '@ziee/gallery'
+import type { ModuleGallery } from '@txresbench/gallery'
 import type { PackageLoadStatus } from '@/api-client/types'
 import { useProcessorsAdminStore } from '@/modules/processors/stores/ProcessorsAdmin.store'
 

@@ -26,7 +26,7 @@
 //     is not restated per site any more — that registry now routes its `plot` icon here.
 //   · THE VARIANT is `ghost`, i.e. borderless — the owner named the entry-axis section's as the one to keep,
 //     and it is also the house rule for peer icon-only buttons in one chrome cluster
-//     (`@ziee/kit` button.tsx's variant policy). It is not a prop: a caller that could pass
+//     (`@txresbench/kit` button.tsx's variant policy). It is not a prop: a caller that could pass
 //     `outline` is a caller that can re-create the divergence.
 //   · THE NAME carries the ROW, never the verb alone. Forty rows called "Plot" are forty
 //     indistinguishable controls to a screen-reader or voice user. Both `aria-label` and
@@ -48,7 +48,7 @@
 import * as React from 'react'
 import { ScatterChart } from 'lucide-react'
 
-import { Button } from '@ziee/kit'
+import { Button } from '@txresbench/kit'
 
 /** The icon NAME a declaration uses to ask for this control (`icon: plot` in a view spec). */
 export const EMIT_ICON = 'plot'

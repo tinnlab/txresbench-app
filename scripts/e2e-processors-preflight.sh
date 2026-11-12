@@ -4,7 +4,7 @@
 #
 # WHY IT FAILS INSTEAD OF SKIPPING
 # --------------------------------
-# The failure mode this exists to kill: `CYTO_E2E_REAL_COMPUTE` unset made the
+# The failure mode this exists to kill: `TXR_E2E_REAL_COMPUTE` unset made the
 # real-compute specs vanish (2 excluded outright by the config `grepInvert`, the
 # rest silently `test.skip`ped). A broken compute layer and a working one produced
 # the SAME green output, for months. So every precondition here is a hard FAIL with
@@ -27,7 +27,7 @@
 # ── MULTI-ENV (E5 / #193) ───────────────────────────────────────────────────────
 # Two additive flags. Neither changes the default invocation, because the LAST LINE of
 # this script is a load-bearing contract: `justfile` reads it with `| tail -1` in three
-# places and assigns it straight to `CYTO_ENV_ROOTFS_SQUASHFS`, so a diagnostic printed
+# places and assigns it straight to `TXR_ENV_ROOTFS_SQUASHFS`, so a diagnostic printed
 # last would be consumed as a path.
 #
 #   --env <id>   preflight THAT env's artifact instead of the derived default. Prefers a
@@ -35,7 +35,7 @@
 #                back to the fetch cache, so an env that exists only as a recipe — never
 #                published, which is every env but one while #80 stands — is reachable.
 #                ** ITS LAST LINE IS NOT A BARE PATH. ** It is that env's seam assignment,
-#                `env 'CYTO_ENV_ROOTFS_SQUASHFS__<id>=<path>'`, because a bare path is
+#                `env 'TXR_ENV_ROOTFS_SQUASHFS__<id>=<path>'`, because a bare path is
 #                only consumable through the UN-suffixed variable, which `seam_serves`
 #                associates with the DEPLOYMENT DEFAULT — so feeding `--env X`'s output to
 #                the default call sites would ask for X and be refused. Mutually exclusive
@@ -53,7 +53,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SEAM_KEY_BASE=CYTO_ENV_ROOTFS_SQUASHFS
+SEAM_KEY_BASE=TXR_ENV_ROOTFS_SQUASHFS
 fails=0
 WANT_ENV=""
 SEAMS=0
@@ -129,7 +129,7 @@ resolve_env_path() {
   fi
 }
 
-SQUASHFS="${CYTO_ENV_ROOTFS_SQUASHFS:-}"
+SQUASHFS="${TXR_ENV_ROOTFS_SQUASHFS:-}"
 if [ -n "$WANT_ENV" ]; then
   # An explicit --env overrides an ambient seam: the caller named an env, and silently
   # preflighting a DIFFERENT one because a variable happened to be exported is the same
@@ -194,7 +194,7 @@ if [ -s "$SQUASHFS" ]; then
   verify_default_artifact || true
 else
   bad "env image MISSING at $SQUASHFS"
-  hint "just env-rootfs      # one-time ~300 MB pull, ~5 s; cached under .cyto-cache/"
+  hint "just env-rootfs      # one-time ~300 MB pull, ~5 s; cached under .txr-cache/"
   hint "it needs a GitHub credential with read:packages (gh auth login, or \$GITHUB_TOKEN)"
 fi
 
@@ -399,7 +399,7 @@ EOF
   fi
   echo "== multi-env PASSED — all $staged_count declared env(s) staged and executable ==" >&2
   # The LAST LINE under --seams is the whole command prefix, on one line:
-  #     env 'CYTO_ENV_ROOTFS_SQUASHFS__<a>=/path/a' 'CYTO_ENV_ROOTFS_SQUASHFS__<b>=/path/b'
+  #     env 'TXR_ENV_ROOTFS_SQUASHFS__<a>=/path/a' 'TXR_ENV_ROOTFS_SQUASHFS__<b>=/path/b'
   # NOTE the `env` form and not `export`. The seam key embeds the env id, every id in
   # this tree contains '-', and '-' is not legal in a shell identifier — so neither
   # `export KEY=v` nor the `KEY=v cmd` assignment prefix can set these at all. `env(1)`
@@ -409,7 +409,7 @@ EOF
 fi
 
 # Under `--env <id>` the last line is the per-env SEAM ASSIGNMENT, not a bare path.
-# A bare path is only usable through `CYTO_ENV_ROOTFS_SQUASHFS`, which `seam_serves`
+# A bare path is only usable through `TXR_ENV_ROOTFS_SQUASHFS`, which `seam_serves`
 # associates with the DEPLOYMENT DEFAULT when no `_ENV` companion is set — so consuming
 # `--env X`'s output the way the justfile consumes the default output would ask for X and
 # be refused (`ENV_IMAGE_STAGED_ENV_MISMATCH`). Fail-closed, but useless. Emitting the

@@ -37,7 +37,7 @@ enough to run on every key change" is a number in a test rather than a claim in 
 loader the producer uses — so the cheapness is a call-site ARGUMENT rather than a second
 loader that could quietly start reading more.
 """
-import cyto_deps
+import txr_deps
 import json
 import sys
 
@@ -164,9 +164,9 @@ def main():
     # a shared `write_manifest`, which is exactly how it became the one declaring entry
     # the recording hook did not reach: the hook lives in the shared writers, and this
     # entry has none. Called explicitly here, on the same line the outputs are committed.
-    # The datatype is THIS package's, passed in: `cyto_deps` is app-core and may not
+    # The datatype is THIS package's, passed in: `txr_deps` is app-core and may not
     # name a contributed domain's vocabulary, so the caller supplies the pair.
-    cyto_deps.augment(out_dir, entries["outputs"], DT_RUN_ENVIRONMENT)
+    txr_deps.augment(out_dir, entries["outputs"], DT_RUN_ENVIRONMENT)
     (out_dir / "manifest.json").write_text(json.dumps(entries, indent=2))
     return 0
 

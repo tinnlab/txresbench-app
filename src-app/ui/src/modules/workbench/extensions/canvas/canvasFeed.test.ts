@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { cellSpaceKey, installBuiltinSchemas, parseOption, type DatasetCatalog } from '@ziee/viz'
+import { cellSpaceKey, installBuiltinSchemas, parseOption, type DatasetCatalog } from '@txresbench/viz'
 import type { ViewSpec } from '@/modules/workbench/core/manifest/viewSpec'
 import { __resetCoordinateIdsForTests, resolveDeclarativeCanvas } from './canvasFeed'
 import { declarativeCanvas } from './declarativeCanvasFeed.store'

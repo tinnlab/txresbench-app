@@ -42,7 +42,7 @@ const REPO = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: HERE, 
 const GATE = path.join(REPO, 'scripts/check-package-suites.mjs')
 
 /**
- * The COMMITTED typecheck floor, over the REAL tree (today: `@ziee/viz`, `@ziee/dock`).
+ * The COMMITTED typecheck floor, over the REAL tree (today: `@txresbench/viz`, `@txresbench/dock`).
  *
  * It lives here rather than inside the gate for one reason, stated so it is not mistaken
  * for an oversight: the gate is deliberately runnable against a SYNTHETIC tree — that is
@@ -738,8 +738,8 @@ test('TEST-16: a package with NO TypeScript on disk is a NAMED skip, never silen
 // the other repository, and failing here would only train people to bypass the gate. That is
 // the same split the pre-existing S3 already makes for the `test` case.
 //
-// Measured on the real tree with `sdk` made dirty: `@ziee/{framework,gallery,kit,shell}` are
-// typechecked, and `@ziee/{notification-ui,test-e2e}` come back as gaps. Without this test
+// Measured on the real tree with `sdk` made dirty: `@txresbench/{framework,gallery,kit,shell}` are
+// typechecked, and `@txresbench/{notification-ui,test-e2e}` come back as gaps. Without this test
 // that whole branch of the classifier would be code no suite ever reaches.
 // ─────────────────────────────────────────────────────────────────────────────
 

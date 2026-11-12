@@ -22,10 +22,10 @@
 use serde_json::json;
 use uuid::Uuid;
 
-use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
-use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
-use cytoanalyst::modules::workstore::gather_exec::resolve_masked_sparse_column;
-use cytoanalyst::modules::workstore::object_store::ObjectStore;
+use txresbench::modules::workstore::catalog::models::NewArtifact;
+use txresbench::modules::workstore::catalog::repository::CatalogRepository;
+use txresbench::modules::workstore::gather_exec::resolve_masked_sparse_column;
+use txresbench::modules::workstore::object_store::ObjectStore;
 
 use super::{create_project, pool_for, server_store, setup_admin};
 use crate::common::TestServer;
@@ -147,7 +147,7 @@ async fn put_mask(
         is_multifile: true,
         content_hash: put.content_hash.clone(),
         structure: json!({ "columns": [{ "name": "values", "path": "values" }] }),
-        meta: cytoanalyst::modules::workstore::mask::mask_meta("ds-source"),
+        meta: txresbench::modules::workstore::mask::mask_meta("ds-source"),
         role: "artifact".to_string(),
         stored_bytes: 0,
         logical_bytes: Some(0),

@@ -121,7 +121,7 @@ session's live worktree, never trust its build. Steps:
    into the shared node_modules (branches add deps that aren't hoisted → tsc
    `Cannot find module`).
 5. Gate: **tsc BOTH workspaces + `npm run check` BOTH + an independent clean
-   `cargo clean -p ziee && cargo check`** (fresh build DB; migrations must apply).
+   `cargo clean -p txresbench && cargo check`** (fresh build DB; migrations must apply).
    The clean build is the one that catches proc-macro/variant-registration bugs a
    warm build hides.
 6. Push to main, delete the branch, remove the worktree.
@@ -266,5 +266,5 @@ I am in the epic" only in your head.
 ## Hygiene
 - Merge deletes the remote branch AND removes the local worktree (else worktrees
   + `target/` dirs accumulate — this session reclaimed ~585 GB of them).
-- Scratch/logs under `/data/pbya/ziee/tmp`, not `/tmp` (small, shared).
+- Scratch/logs under `/data/pbya/txresbench/tmp`, not `/tmp` (small, shared).
 - Never `#[ignore]`/`.skip` to make a suite green; never fake a PASS line.

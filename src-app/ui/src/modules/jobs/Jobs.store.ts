@@ -1,6 +1,6 @@
 import { ApiClient } from '@/api-client'
 import { type JobDetail, type JobListItem } from '@/api-client/types'
-import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
+import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 import { createJobsLifecycle } from './jobsLifecycle'
 
 const DEFAULT_PER_PAGE = 10

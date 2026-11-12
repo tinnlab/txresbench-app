@@ -24,12 +24,12 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use cytoanalyst::modules::jobs::models::Job;
-use cytoanalyst::modules::jobs::repository::JobRepository;
-use cytoanalyst::modules::jobs::runner::finalize_analysis_with;
-use cytoanalyst::modules::jobs::scheduler::reconcile_orphaned_running_in;
-use cytoanalyst::modules::jobs::seams::{NoopRunRecorder, PeakMetrics};
-use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
+use txresbench::modules::jobs::models::Job;
+use txresbench::modules::jobs::repository::JobRepository;
+use txresbench::modules::jobs::runner::finalize_analysis_with;
+use txresbench::modules::jobs::scheduler::reconcile_orphaned_running_in;
+use txresbench::modules::jobs::seams::{NoopRunRecorder, PeakMetrics};
+use txresbench::modules::workstore::ingest::ingest_run_outputs;
 
 use super::hardening_common::*;
 use super::setup_admin;
@@ -47,8 +47,8 @@ async fn stage_manifest_only(
     let job_dir = sandboxes_root(server).join(job_id.to_string());
     tokio::fs::create_dir_all(&job_dir).await.unwrap();
     let staging_dir =
-        cytoanalyst::modules::sandbox::outputs::staging_dir(&run_staging_root(server), job_id);
-    let outputs = cytoanalyst::modules::sandbox::outputs::outputs_dir(&staging_dir);
+        txresbench::modules::sandbox::outputs::staging_dir(&run_staging_root(server), job_id);
+    let outputs = txresbench::modules::sandbox::outputs::outputs_dir(&staging_dir);
     tokio::fs::create_dir_all(&outputs).await.unwrap();
     tokio::fs::write(
         outputs.join("manifest.json"),
@@ -95,8 +95,8 @@ async fn stage_declared_vs_present(
         .await
         .unwrap();
     let staging_dir =
-        cytoanalyst::modules::sandbox::outputs::staging_dir(&run_staging_root(server), job_id);
-    let outputs = cytoanalyst::modules::sandbox::outputs::outputs_dir(&staging_dir);
+        txresbench::modules::sandbox::outputs::staging_dir(&run_staging_root(server), job_id);
+    let outputs = txresbench::modules::sandbox::outputs::outputs_dir(&staging_dir);
     tokio::fs::create_dir_all(&outputs).await.unwrap();
     for name in present {
         tokio::fs::write(outputs.join(format!("{name}.bin")), name.as_bytes())
@@ -175,7 +175,7 @@ async fn live_finalize_preserves_outputs_when_a_declaration_is_rejected() {
     let good_bytes: Vec<std::path::PathBuf> = ["o1", "o2", "o3", "o4"]
         .iter()
         .map(|n| {
-            cytoanalyst::modules::sandbox::outputs::outputs_dir(&stg_partial)
+            txresbench::modules::sandbox::outputs::outputs_dir(&stg_partial)
                 .join(format!("{n}.bin"))
         })
         .collect();

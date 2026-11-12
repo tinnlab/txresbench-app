@@ -1,12 +1,12 @@
 //! `mcp` module — the AI-controllable-actions MCP exposure surface (`ai-mcp`
-//! slice 1, backend). CytoAnalyst is the MCP **server** (exposer); ziee chat
+//! slice 1, backend). TxResBench is the MCP **server** (exposer); txresbench chat
 //! is the AI **host** (owns the LLM/chat loop/approval UX) — this module never
 //! runs an LLM and never shows an approval prompt.
 //!
 //! A single JSON-RPC endpoint (`POST /api/mcp`, [`handlers::jsonrpc_handler`])
 //! merges TWO capability catalogs behind one uniform
 //! `list_capabilities`/`describe_capability`/`invoke_capability` surface:
-//! - the SDK-derived REST/OpenAPI catalog (`ziee_control_mcp::catalog`,
+//! - the SDK-derived REST/OpenAPI catalog (`txresbench_control_mcp::catalog`,
 //!   populated from the finished OpenAPI doc in `lib.rs::build_app`), and
 //! - the frontend-action catalog ([`frontend_catalog`]) — the APP-OWNED shell
 //!   actions parsed from the committed `frontend-actions.json`, MERGED with the
@@ -17,12 +17,12 @@
 //!
 //! `invoke_capability` routes by where the operation_id resolved: a REST
 //! (`kind=rest`) op dispatches over loopback carrying the caller's forwarded
-//! JWT (ported from ziee's `modules/control_mcp`, minus its `chat_extension` /
-//! `repository` / approval-decision plumbing — CytoAnalyst has no
+//! JWT (ported from txresbench's `modules/control_mcp`, minus its `chat_extension` /
+//! `repository` / approval-decision plumbing — TxResBench has no
 //! `mcp_servers` table and no chat loop to gate); a frontend (`kind=frontend`)
 //! action relays over the dedicated duplex [`agent_channel`] (SSE-down +
 //! POST-up, per-request liveness) to the user's ONE paired/controlled browser
-//! session. One-time-code pairing ([`pairing`]) lets ziee mint an
+//! session. One-time-code pairing ([`pairing`]) lets txresbench mint an
 //! access+refresh token pair scoped to the connecting user without a token
 //! ever riding a URL.
 //!
@@ -49,7 +49,7 @@ use aide::axum::ApiRouter;
 use linkme::distributed_slice;
 use sqlx::SqlitePool;
 
-use ziee_framework::{loopback_host, AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+use txresbench_framework::{loopback_host, AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 pub use permissions::McpUse;
 
@@ -83,9 +83,9 @@ impl AppModule for McpModule {
         self.pool = Some(ctx.db_pool.clone());
 
         // Pin the loopback base URL (never the operator's `server.host`, and
-        // never model/ziee-supplied) so the REST-kind `invoke_capability`
+        // never model/txresbench-supplied) so the REST-kind `invoke_capability`
         // dispatch and the pairing `mcp_url` both target THIS process only.
-        // Mirrors ziee `control_mcp`'s `set_base_url` defense.
+        // Mirrors txresbench `control_mcp`'s `set_base_url` defense.
         let host = loopback_host(&ctx.config.server.host);
         let port = ctx.config.server.port;
         handlers::set_base_url(format!("http://{host}:{port}"));

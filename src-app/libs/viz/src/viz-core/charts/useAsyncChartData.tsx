@@ -7,7 +7,7 @@
 // and the Views render `<ChartError>` for it — honoring the "always show the error, never a
 // permanent spinner" rule.
 //
-// PURE-ish: react only (no deck, no store, no @ziee/*), matching the viz-core layering rule.
+// PURE-ish: react only (no deck, no store, no @txresbench/*), matching the viz-core layering rule.
 
 import { useEffect, useState, type DependencyList, type ReactElement, type ReactNode } from 'react'
 

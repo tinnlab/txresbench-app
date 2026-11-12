@@ -10,7 +10,7 @@ places and took three adversarial rounds to repair, with every gate green. #503
 measured that the duplicated sentence contains an overstatement: "`main()` has exactly
 two outcomes" is false as stated (an uncaught exception exits 1 with a raw traceback —
 INV-1's prohibited outcome — MEASURED through the shipped entrypoint on this node:
-`CYTO_OUTPUTS_DIR` set to a path that is an existing regular file makes `io_dirs()`'s
+`TXR_OUTPUTS_DIR` set to a path that is an existing regular file makes `io_dirs()`'s
 `Path.mkdir` raise `FileExistsError` outside `main()`'s try, rc 1, raw traceback, NO
 `spatial.import-visium:` prefix), and "there is no 'succeeded with a warning' outcome"
 is false as stated because the import DOES carry passive warning channels on success
@@ -131,7 +131,7 @@ text levels scanned the whole file anyway). Strings built by CALLS (`f"...{chr(3
 VARIABLE (`f"...{name}..."`, `a + "b"` where `a` is a name, `+=`) are NOT decoded by
 either pass and are the documented ceiling — the controls below assert those shapes are
 NOT caught, and the gap is the tracked residual
-https://github.com/ziee-ai/cytoanalyst/issues/614 (the HD sibling's counterpart of the
+https://github.com/tinnlab/txresbench/issues/614 (the HD sibling's counterpart of the
 same `#`-lesson is their issue #604).
 
 ## The exclusion is one named path, asserted
@@ -176,7 +176,7 @@ hyphenation, an inserted comma, a capitalisation change, a genuinely NEW paraphr
 different words, non-string content — is named but NOT pinned by a control, so those
 stay unmeasured and the ceiling is stated exactly as far as it is measured. The residual is the tracked
 ceiling:
-https://github.com/ziee-ai/cytoanalyst/issues/614 (the HD sibling notes the same class
+https://github.com/tinnlab/txresbench/issues/614 (the HD sibling notes the same class
 of gap as its #604). What it pins is the retracted sentence's four
 distinctive fragments, the #503 overstatement's two, FIX ROUND 1's recovered
 overstatement fragment and the #359 destination claim — in the shapes they actually
@@ -1177,7 +1177,7 @@ def test_TEST_135_the_documented_call_built_ceiling_is_NOT_caught(source):
     interpolating a NAME, a variable-mediated `+`, `+=`. None of these is inside the
     detector's guarantee: the AST Constants pass and the constant-fold see only literal
     operands. This control asserts each gap EXACTLY as documented (no overclaim), and
-    the residual is tracked as https://github.com/ziee-ai/cytoanalyst/issues/614."""
+    the residual is tracked as https://github.com/tinnlab/txresbench/issues/614."""
     assert _source_runtime_hits(source) == [], (
         f"the {source!r} shape was caught — update the ceiling, this changes the guarantee!"
     )

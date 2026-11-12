@@ -17,7 +17,7 @@ import {
  * the surfaces that guard cannot reach.
  *
  * ── WHY A SECOND SWEEP, AND NOT A WIDER FIRST ONE ─────────────────────────────────────────────
- * That guard walks 94 GALLERY surfaces and comes back clean. Not one of them mounts a `@ziee/viz`
+ * That guard walks 94 GALLERY surfaces and comes back clean. Not one of them mounts a `@txresbench/viz`
  * component — `modules/visualization/gallery.tsx` is registered `{ crawlOnly: true }`, and the
  * workbench surfaces that do appear mount shell chrome, not the plotting package. So the whole of
  * `libs/viz` — pane chrome, tool rails, the legend, the timeline transport, the tree panel —

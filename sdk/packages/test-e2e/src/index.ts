@@ -1,4 +1,4 @@
-// @ziee/test-e2e — the Layer-B end-to-end SCAFFOLD for ziee-SDK apps. The app
+// @txresbench/test-e2e — the Layer-B end-to-end SCAFFOLD for txresbench-SDK apps. The app
 // supplies its own specs + fixtures; this package supplies the reusable scaffold,
 // all parameterized over ONE `E2EConfig` seam:
 //   - definePlaywrightPreset / defineDesktopPreset — base Playwright configs

@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import type { ModuleGallery } from '@ziee/gallery'
+import type { ModuleGallery } from '@txresbench/gallery'
 import type { ListedArtifact } from '@/api-client/types'
 import { ProjectScopeProvider } from '@/modules/project/context/ProjectScope'
 import { useProjectDetailStore } from '@/modules/project/stores/ProjectDetail.store'

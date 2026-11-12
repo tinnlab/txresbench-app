@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { migrateOption, VIZ_OPTION_VERSION } from './parse'
-import type { LayoutNode } from '@ziee/dock'
+import type { LayoutNode } from '@txresbench/dock'
 
 const LAYOUT: LayoutNode = {
   kind: 'split',

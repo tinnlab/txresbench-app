@@ -4,7 +4,7 @@ Checked against `BUILD_PLAN.md` deployment-scope table (desktop + single-box ser
 local arm behind open seams; do NOT build the distributed arm; do NOT close the seams).
 
 Worktrees consulted: analysis-workflow-wt (feat/analysis-workflow), visualization-wt (feat/visualization),
-cytoanalyst (main @ 63520fb), ziee (host SDK).
+txresbench (main @ 63520fb), txresbench (host SDK).
 
 ---
 
@@ -45,7 +45,7 @@ live3 `feat/visualization` (visualization-wt) — every cited symbol/file exists
 - `viz-core/selection/SelectionController.ts`, `showcase/registry.ts`, `DeckScatterCanvas.tsx`,
   `gridSelection.ts` (selectInPolygon) ✓
 
-live8 / cytoanalyst main — every cited symbol exists:
+live8 / txresbench main — every cited symbol exists:
 - `study/models.rs` `EffectivePermission` + `repository.rs` `effective_permission` ✓
 - `STUDY_EXTENSIONS` + `delete_study_with_extensions` + `on_study_deleted` (study/lifecycle.rs,
   core/extension/registry.rs) ✓
@@ -54,12 +54,12 @@ live8 / cytoanalyst main — every cited symbol exists:
   `build_bwrap_argv`/`run_analysis`/`ExtraMount` ✓; `rootfs/version.rs` ✓
 - `feat/provenance` recipe model = design-only (`.lifecycle/` only) — P4/P8/P10 describe it correctly. ✓
 
-ziee host SDK:
+txresbench host SDK:
 - `code_sandbox/{mod,mount_provider,cgroup}.rs` bwrap + cgroup ✓
 - `control_mcp/{catalog,tools,policy}.rs` ✓ (in-tree module) AND SDK crate
-  `sdk/crates/ziee-control-mcp/src/{catalog,policy,tools}.rs` ✓
+  `sdk/crates/txresbench-control-mcp/src/{catalog,policy,tools}.rs` ✓
 - `openapi/emit_ts.rs` `types_ts_parity` golden test ✓
-- `ziee-framework::mcp` (envelope + `loopback_host`) — `sdk/crates/ziee-framework/src/mcp.rs` ✓
+- `txresbench-framework::mcp` (envelope + `loopback_host`) — `sdk/crates/txresbench-framework/src/mcp.rs` ✓
 
 interface-round `analysisRegistry` (analysis-workflow-wt):
 - `modules/analysis/{registry.ts, types.ts}`, `standardRecipe`, seed plugins
@@ -67,25 +67,25 @@ interface-round `analysisRegistry` (analysis-workflow-wt):
 
 ## Reuse claims BROKEN / misdescribed
 
-**1 issue — P1's "ziee-file / raw upload is greenfield" grounding is stale relative to main.**
+**1 issue — P1's "txresbench-file / raw upload is greenfield" grounding is stale relative to main.**
 
-P1 FINAL grounding states: *"sdk/crates/ziee-file … is NOT yet even a server dependency"* and
+P1 FINAL grounding states: *"sdk/crates/txresbench-file … is NOT yet even a server dependency"* and
 *"wiring the raw input upload in (dep + migrations + init_file_storage + a multipart receiver, which
 exists nowhere server-side)."* P4 ITEM-5 similarly calls upload *"a checksum-less stub today →
 greenfield."*
 
-Reality: the analysis-workflow-wt branch (`feat/analysis-workflow`) is **behind cytoanalyst main**. Its
+Reality: the analysis-workflow-wt branch (`feat/analysis-workflow`) is **behind txresbench main**. Its
 merge-base with main is `587ca916`; main's tip is `63520fb "Merge feat/sdk-adopt-backend: adopt
-ziee-health + ziee-file (real dataset upload)."` On the branch tree, `ziee-file` is indeed absent from
+txresbench-health + txresbench-file (real dataset upload)."` On the branch tree, `txresbench-file` is indeed absent from
 `src-app/server/Cargo.toml` and `lib.rs` — so P1's statement is literally true *on its own stale tree*.
-But on **main**, `ziee-file` IS a server dependency (`server/Cargo.toml:47`) with a REAL dataset upload
-path, and P10 correctly cites *"ziee-file CAS blob store (adopted on main, 8045d78)"* while P11 ITEM-7
+But on **main**, `txresbench-file` IS a server dependency (`server/Cargo.toml:47`) with a REAL dataset upload
+path, and P10 correctly cites *"txresbench-file CAS blob store (adopted on main, 8045d78)"* while P11 ITEM-7
 assumes `api.files.upload` exists and P2 grounds itself on *"main 63520fb."*
 
 So P1 (and P4 ITEM-5) **under-claim existing reuse** and over-scope the upload/multipart work as
 greenfield because they were grounded on a worktree behind main. Not a nonexistent reuse claim — the
 opposite: a real, already-merged capability described as not-yet-built. This is the known "stale tree
-denies merged code" failure mode. **Fix at implementation:** re-ground P1/P4's upload + ziee-file
+denies merged code" failure mode. **Fix at implementation:** re-ground P1/P4's upload + txresbench-file
 sections against main (rebase feat/analysis-workflow onto main / 63520fb) so P1 doesn't re-build the
 multipart receiver + `init_file_storage` wiring that main already ships; reconcile the P1↔P10↔P11
 upload-ownership split accordingly.
@@ -94,8 +94,8 @@ upload-ownership split accordingly.
 
 Scope discipline is **clean** across all 11 parts — no distributed/remote/HPC/MinIO/multi-pool
 machinery is built now, and no seam is closed. Load-bearing reuse claims all point at code that really
-exists. The single defect is a **stale-base grounding inconsistency**: P1/P4 treat ziee-file + raw
-upload as greenfield, contradicted by cytoanalyst main (63520fb) and by P2/P10/P11 which are grounded on
+exists. The single defect is a **stale-base grounding inconsistency**: P1/P4 treat txresbench-file + raw
+upload as greenfield, contradicted by txresbench main (63520fb) and by P2/P10/P11 which are grounded on
 the newer main. Re-ground before implementation.
 
 **1 issue (reuse-grounding, non-fatal).**

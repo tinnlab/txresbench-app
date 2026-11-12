@@ -3,7 +3,7 @@
 // a bare `string`, and an app narrows it to its own generated `Permissions`
 // enum at its own re-export boundary if it wants enum-level type-safety.
 //
-// See ziee's `.claude/PERMISSION_GATING.md` for the four-layer gating pattern.
+// See txresbench's `.claude/PERMISSION_GATING.md` for the four-layer gating pattern.
 
 /**
  * A single permission leaf. Framework-level, so this is a bare `string` —

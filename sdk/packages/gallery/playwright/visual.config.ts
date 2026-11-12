@@ -1,6 +1,6 @@
 /**
  * `defineVisualConfig(overrides?)` — the config-driven Visual-testing Playwright
- * preset (Layers A + B over the component gallery), re-homed under `@ziee/gallery`.
+ * preset (Layers A + B over the component gallery), re-homed under `@txresbench/gallery`.
  *
  * Distinct from the full E2E suite in one decisive way: the gallery is a dev-only,
  * BACKEND-FREE canvas, so this boots ONLY the gallery Vite server (serving
@@ -10,7 +10,7 @@
  * Every knob comes from the app's `gallery.config.json` (the SAME file the runner
  * gates + generators read), so a fresh app's `playwright.visual.config.ts` is just:
  *
- *   import { defineVisualConfig } from '@ziee/gallery/playwright/visual.config'
+ *   import { defineVisualConfig } from '@txresbench/gallery/playwright/visual.config'
  *   export default defineVisualConfig()
  *
  * Run:

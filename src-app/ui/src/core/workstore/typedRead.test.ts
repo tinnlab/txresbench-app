@@ -19,7 +19,7 @@
 // ── BYTES COME FROM THE REAL WRITER ────────────────────────────────────────────────
 //
 // The fixtures are the ones `zarrReader.test.ts` uses: written by `packages/_lib`'s
-// `cyto_zarr` (plus a handful of hand-built exotic dtypes the writer does not emit) and
+// `txr_zarr` (plus a handful of hand-built exotic dtypes the writer does not emit) and
 // checked in. Reading them through `memoryStore` drives the EXACT decode path HTTP uses;
 // TEST-41 then drives the same read over a stubbed network so the transport itself is
 // exercised rather than bypassed.
@@ -77,16 +77,16 @@ const storeOf = (prefix: string): ZarrStore => memoryStore(subtree(prefix))
  *  the same object an artifact row's `structure` column carries. */
 const TABLE_STRUCTURE = (
   JSON.parse(new TextDecoder().decode(TREE.get('table/zarr.json')!)) as {
-    attributes: { cyto: unknown }
+    attributes: { txr: unknown }
   }
-).attributes.cyto
+).attributes.txr
 
-/** The `csc` fixture's producer declaration — `cyto_csc.write_csc_zarr`'s own output. */
+/** The `csc` fixture's producer declaration — `txr_csc.write_csc_zarr`'s own output. */
 const CSC_STRUCTURE = (
   JSON.parse(new TextDecoder().decode(TREE.get('csc/zarr.json')!)) as {
-    attributes: { cyto: unknown }
+    attributes: { txr: unknown }
   }
-).attributes.cyto
+).attributes.txr
 
 /** A store that records every request, so "the mismatch fires before any DATA byte" is
  *  asserted on the request log rather than assumed. */
@@ -264,7 +264,7 @@ describe('TEST-39 (ITEM-29) — the return type is DERIVED from the `expect` lit
 
   it('a member whose structure omits `kind` falls back to the array declaration', async () => {
     // Both places the design says the declaration lives are consulted: the structure's
-    // `kind`, then the array's own `attributes.cyto.kind`. Neither is inferred from the
+    // `kind`, then the array's own `attributes.txr.kind`. Neither is inferred from the
     // dtype — a `uint16` array is not a categorical because its values happen to be small.
     const declaration = JSON.parse(JSON.stringify(TABLE_STRUCTURE)) as {
       columns: { path: string; kind?: string }[]
@@ -372,7 +372,7 @@ describe('TEST-40 (ITEM-29) — a declared/actual mismatch throws, naming both',
 
   it('`expect: "table"` against a non-table artifact names what it actually is', async () => {
     // The declaration is the PRODUCER's, read off the CSC fixture's own group node — the
-    // vocabulary `cyto_csc.write_csc_zarr` actually emits. A matrix and a table share
+    // vocabulary `txr_csc.write_csc_zarr` actually emits. A matrix and a table share
     // `encoding: "zarr_v3"`, so this mismatch can only be detected on the `kind`, and a
     // reader reporting "table" for the encoding would satisfy the expectation and then
     // decode a table with no columns.
@@ -389,7 +389,7 @@ describe('TEST-40 (ITEM-29) — a declared/actual mismatch throws, naming both',
   // ── the opaque TABLE arm ───────────────────────────────────────────────────────
   //
   // `readTable` decodes TWO encodings, because two producers write a table: a `zarr_v3`
-  // group, and an `opaque` JSON-columnar blob (`cyto_columns.opaque("application/json")` —
+  // group, and an `opaque` JSON-columnar blob (`txr_columns.opaque("application/json")` —
   // which is what several of the shipping processors emit for a per-entity column table).
   // This arm used to report the ENCODING as the actual kind, so `expect: 'table'` REFUSED
   // every one of them: the typed surface rejecting a table the reader beneath it reads, and

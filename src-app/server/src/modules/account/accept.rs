@@ -58,9 +58,9 @@ use axum::extract::FromRequestParts;
 use axum::http::{request::Parts, StatusCode};
 use uuid::Uuid;
 
-use ziee_auth::auth::DefaultIdentityResolver;
-use ziee_core::AppError;
-use ziee_framework::permissions::IdentityResolver;
+use txresbench_auth::auth::DefaultIdentityResolver;
+use txresbench_core::AppError;
+use txresbench_framework::permissions::IdentityResolver;
 
 use super::invitation_token::normalize_email;
 use super::models::AccountRole;
@@ -157,7 +157,7 @@ pub fn collapse_absent_account(err: AppError) -> AppError {
 /// # RESIDUAL RISK — this is containment, not proof of identity (#143)
 ///
 /// **Emails are never verified for password registration in this codebase.**
-/// `users.email_verified` exists (`ziee-auth`'s `202607140050_auth_schema.sql`) and is set
+/// `users.email_verified` exists (`txresbench-auth`'s `202607140050_auth_schema.sql`) and is set
 /// by OAuth provisioning, but there is no verification flow for a password signup, and
 /// `users_email_key` is a **case-sensitive** UNIQUE index — so two distinct principals can
 /// differ only by case and both satisfy this binding.
@@ -174,7 +174,7 @@ pub fn collapse_absent_account(err: AppError) -> AppError {
 /// invitee; requiring `email_verified` makes every password-registered invitee unable to
 /// redeem; binding on a user id is not expressible, since the invitee may have no account
 /// yet — which is the whole signup-then-accept case. The fix is a case-insensitive uniqueness
-/// rule on `users.email`, which lives in the pinned `ziee-auth` submodule. **#251.**
+/// rule on `users.email`, which lives in the pinned `txresbench-auth` submodule. **#251.**
 ///
 /// What this control therefore *is*: containment against a leaked invite link reaching the
 /// wrong **logged-in tab** — the realistic accident, where someone forwards a link and the

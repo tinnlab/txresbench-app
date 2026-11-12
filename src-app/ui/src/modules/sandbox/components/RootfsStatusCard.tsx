@@ -1,5 +1,5 @@
-import { Alert, Card } from '@ziee/kit'
-import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from '@ziee/kit/shadcn/field'
+import { Alert, Card } from '@txresbench/kit'
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldTitle } from '@txresbench/kit/shadcn/field'
 import { SandboxStatus } from '@/modules/sandbox/stores/SandboxStatus.store'
 import type { SandboxAvailability } from '@/api-client/types'
 

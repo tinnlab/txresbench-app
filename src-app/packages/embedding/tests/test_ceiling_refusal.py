@@ -95,7 +95,7 @@ def test_a_missing_declared_nnz_is_refused_not_bypassed(reduce_run):
     # strip `nnz` from the declared structure the ceiling reads.
     meta = store / "zarr.json"
     doc = json.loads(meta.read_text())
-    assert doc["attributes"]["cyto"].pop("nnz", None) is not None
+    assert doc["attributes"]["txr"].pop("nnz", None) is not None
     meta.write_text(json.dumps(doc, indent=2))
 
     proc = run.run({"n_hvg": 12, "n_pcs": 6})

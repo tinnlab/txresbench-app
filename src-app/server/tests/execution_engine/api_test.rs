@@ -14,16 +14,16 @@ use uuid::Uuid;
 
 use super::{cohort_run_body, error_code, owner_token, pool, register_user};
 use crate::common::TestServer;
-use cytoanalyst::modules::execution_engine::envmanifest;
-use cytoanalyst::modules::execution_engine::reconcile::reconcile_interrupted_runs;
-use cytoanalyst::modules::execution_engine::repository::{
+use txresbench::modules::execution_engine::envmanifest;
+use txresbench::modules::execution_engine::reconcile::reconcile_interrupted_runs;
+use txresbench::modules::execution_engine::repository::{
     MethodPatch, NewMethod, NewRun, TxrRepository,
 };
-use cytoanalyst::modules::execution_engine::types::{
+use txresbench::modules::execution_engine::types::{
     RunConfig, TxrMethodState, TxrProbSource, TxrRunCounts, TxrRunFileNames, TxrRunInputSummary,
     TxrRunMode, TxrRunStatus, TxrTask,
 };
-use cytoanalyst::modules::sandbox::stack::{validate_oci_ref, TXR_LAYER_REGISTRY_PREFIX};
+use txresbench::modules::sandbox::stack::{validate_oci_ref, TXR_LAYER_REGISTRY_PREFIX};
 
 static SEQ: AtomicUsize = AtomicUsize::new(1);
 
@@ -71,7 +71,7 @@ async fn seed_run(
         status,
         mode: TxrRunMode::Train,
         config: RunConfig {
-            endpoint: cytoanalyst::modules::execution_engine::types::TxrEndpoint::Pfs,
+            endpoint: txresbench::modules::execution_engine::types::TxrEndpoint::Pfs,
             decision_day: 56.0,
             look_ahead_day: 238.0,
             at_a_time,

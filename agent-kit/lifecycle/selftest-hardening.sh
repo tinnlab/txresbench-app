@@ -75,18 +75,18 @@ trap 'for p in "${KILLPIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done
       for d in "${CLEANUP[@]:-}"; do [ -n "$d" ] && rm -rf "$d"; done
       rm -f "$LC_SELFTEST_OUT"' EXIT
 
-# write a ziee-shaped .claude/app.config into a fixture repo. This is how the
-# de-ziee-ified preflight.sh + merge-gate.mjs read their app-specific paths; with
-# it present the gates reproduce ziee's exact PASS/FAIL, proving the app.config
+# write a txresbench-shaped .claude/app.config into a fixture repo. This is how the
+# de-txresbench-ified preflight.sh + merge-gate.mjs read their app-specific paths; with
+# it present the gates reproduce txresbench's exact PASS/FAIL, proving the app.config
 # seam is behavior-preserving. (The no-app.config SKIP path is asserted below.)
-write_ziee_appconfig() {
+write_txresbench_appconfig() {
   local R="$1"; mkdir -p "$R/.claude"
   cat > "$R/.claude/app.config" <<'CFGEOF'
 PREFLIGHT_SEED_FILE=src-app/server/binaries/hub-seed/index.json
 PREFLIGHT_SEED_HINT=refetch or copy the build seed from another clone
 PREFLIGHT_SUBMODULE=src-app/server/vendor/pgvector
 PREFLIGHT_NODE_WORKSPACES=src-app/ui src-app/desktop/ui
-PREFLIGHT_BUILD_DB_ENV=ZIEE_BUILD_DB_PERWORKTREE
+PREFLIGHT_BUILD_DB_ENV=TXR_BUILD_DB_PERWORKTREE
 PREFLIGHT_BUILD_DB_HOSTPORT=127.0.0.1:54321
 PREFLIGHT_BUILD_DB_SENTINEL=sqlx-build-sentinel
 PREFLIGHT_CONFIG_DIR=src-app/server/config
@@ -94,9 +94,9 @@ PREFLIGHT_CONFIG_FILE=dev.yaml
 PREFLIGHT_CONFIG_EXAMPLE=dev.example.yaml
 PREFLIGHT_CONFIG_PLACEHOLDER=dev-secret-change-in-production-min-32-chars-long
 MERGE_MIGRATIONS_DIR=src-app/server/migrations
-MERGE_CARGO_PACKAGE=ziee
+MERGE_CARGO_PACKAGE=txresbench
 MERGE_CARGO_DIR=src-app
-MERGE_CARGO_DESKTOP_PACKAGE=ziee-desktop
+MERGE_CARGO_DESKTOP_PACKAGE=txresbench-desktop
 MERGE_DESKTOP_TOUCH_PREFIX=src-app/desktop/tauri/
 MERGE_REGEN_CMD=just openapi-regen
 MERGE_GENERATED=src-app/ui/openapi/openapi.json src-app/ui/src/api-client/types.ts src-app/desktop/ui/openapi/openapi.json src-app/desktop/ui/src/api-client/types.ts
@@ -1017,7 +1017,7 @@ echo "-- Part B: merge-gate.mjs (deterministic gates, --skip-heavy) --"
 build_mg() {
   local branchmig="$1"; local R; R="$(new_repo)"; CLEANUP+=("$R")
   mkdir -p "$R/src-app/server/migrations"
-  write_ziee_appconfig "$R"
+  write_txresbench_appconfig "$R"
   echo "CREATE TABLE a();" > "$R/src-app/server/migrations/00000000000010_a.sql"
   git -C "$R" add -A && git -C "$R" commit -qm mig-10
   git -C "$R" checkout -q -b feat/mig
@@ -1045,7 +1045,7 @@ assert_exit_cmd 1 "merge-gate C2: migration <= main max is REFUSED" -- \
 # without an ahead-only allowance the guard would block legitimate pre-push
 # gating of unpushed work.
 R="$(new_repo)"; CLEANUP+=("$R")
-write_ziee_appconfig "$R"
+write_txresbench_appconfig "$R"
 mkdir -p "$R/src-app/server/migrations"
 echo "CREATE TABLE a();" > "$R/src-app/server/migrations/00000000000010_a.sql"
 git -C "$R" add -A && git -C "$R" commit -qm mig-10
@@ -1077,7 +1077,7 @@ git -C "$R" update-ref refs/remotes/origin/feat/mig "$(git -C "$R" rev-parse fea
 assert_exit_cmd 0 "merge-gate: local AHEAD of remote still passes (unpushed work)" -- \
   node "$MG" feat/mig --repo "$R" --base main --no-fetch --skip-heavy
 
-# de-ziee-ify + UNCONFIGURED-INPUT PROBE.
+# de-txresbench-ify + UNCONFIGURED-INPUT PROBE.
 #
 # This pair USED to assert that no `.claude/app.config` ⇒ C2 SKIPs, and that the
 # colliding migration above therefore passed. That is the defect, not the feature:
@@ -1119,7 +1119,7 @@ fi
 # C3 FAIL, not throw a TypeError on undefined stdout. Runs WITHOUT --skip-heavy
 # so C3 actually executes the (nonexistent) regen command.
 R="$(new_repo)"; CLEANUP+=("$R"); mkdir -p "$R/.claude"
-printf 'MERGE_MIGRATIONS_DIR=migrations\nMERGE_REGEN_CMD=ziee-nonexistent-regen-binary-xyz\nMERGE_GENERATED=gen.txt\n' > "$R/.claude/app.config"
+printf 'MERGE_MIGRATIONS_DIR=migrations\nMERGE_REGEN_CMD=txresbench-nonexistent-regen-binary-xyz\nMERGE_GENERATED=gen.txt\n' > "$R/.claude/app.config"
 echo hi > "$R/gen.txt"; git -C "$R" add -A && git -C "$R" commit -qm base-c3
 git -C "$R" checkout -q -b feat/c3
 echo change > "$R/f.txt"; git -C "$R" add -A && git -C "$R" commit -qm work-c3
@@ -1134,7 +1134,7 @@ fi
 # C4 stale: main advances after fork; branch is behind; --max-behind 0
 R="$(new_repo)"; CLEANUP+=("$R")
 mkdir -p "$R/src-app/server/migrations"
-write_ziee_appconfig "$R"
+write_txresbench_appconfig "$R"
 echo "CREATE TABLE a();" > "$R/src-app/server/migrations/00000000000010_a.sql"
 git -C "$R" add -A && git -C "$R" commit -qm mig-10
 git -C "$R" checkout -q -b feat/stale
@@ -1210,7 +1210,7 @@ unset GIT_ALLOW_PROTOCOL
 # ---------------------------------------------------------------------------
 # C3 parity is DERIVED, not declared: a generated file the merge resolved by
 # TAKING A SIDE must fail even when MERGE_GENERATED does not name it. This is
-# the cytoanalyst defect — `just openapi-regen` wrote five files against a
+# the txresbench defect — `just openapi-regen` wrote five files against a
 # two-entry list, and C3 scoped its diff TO the list, so the other three were
 # silently exempt from the whole point of the gate.
 # Fixture: regen.sh writes declared.txt AND undeclared.txt; the branch commits a
@@ -1271,10 +1271,10 @@ assert_exit_cmd 0 "merge-gate C3+C6: a COMPLETE MERGE_GENERATED list on a correc
 # ---------------------------------------------------------------------------
 echo "-- Part C: preflight.sh (env gate) --"
 # ---------------------------------------------------------------------------
-# good: hub-seed + pgvector + node_modules present (+ ziee-shaped app.config so
-# the de-ziee-ified checks activate exactly as they did when hard-coded).
+# good: hub-seed + pgvector + node_modules present (+ txresbench-shaped app.config so
+# the de-txresbench-ified checks activate exactly as they did when hard-coded).
 GOOD="$(new_repo)"; CLEANUP+=("$GOOD")
-write_ziee_appconfig "$GOOD"
+write_txresbench_appconfig "$GOOD"
 mkdir -p "$GOOD/src-app/server/binaries/hub-seed" \
          "$GOOD/src-app/server/vendor/pgvector" \
          "$GOOD/src-app/server/config" \
@@ -1291,7 +1291,7 @@ printf 'jwt:\n  secret: "dev-secret-change-in-production-min-32-chars-long"\n' \
 INSTALL_HOOKS="$(cd "$(dirname "$PREFLIGHT")/../scripts" && pwd)/install-agent-hooks.sh"
 (cd "$GOOD" && bash "$INSTALL_HOOKS" >/dev/null 2>&1)
 assert_exit_cmd 0 "preflight: fully-provisioned env passes" -- \
-  env -u DATABASE_URL -u ZIEE_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
+  env -u DATABASE_URL -u TXR_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
 
 # --- §8: the three ways the hook can be absent while looking present ---------
 # Each is REFUSED (exit 1); the installed case above is the negative control, so
@@ -1300,19 +1300,19 @@ assert_exit_cmd 0 "preflight: fully-provisioned env passes" -- \
 HOOK_BAK="$GOOD/pre-push.bak"; cp "$GOOD/.git/hooks/pre-push" "$HOOK_BAK"
 rm -f "$GOOD/.git/hooks/pre-push"
 assert_exit_cmd 1 "preflight §8: a clone with NO pre-push hook is REFUSED" -- \
-  env -u DATABASE_URL -u ZIEE_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
+  env -u DATABASE_URL -u TXR_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$GOOD/.git/hooks/pre-push"
 chmod +x "$GOOD/.git/hooks/pre-push"
 assert_exit_cmd 1 "preflight §8: a pre-push hook that never calls merge-gate is REFUSED" -- \
-  env -u DATABASE_URL -u ZIEE_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
+  env -u DATABASE_URL -u TXR_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
 cp "$HOOK_BAK" "$GOOD/.git/hooks/pre-push"; chmod -x "$GOOD/.git/hooks/pre-push"
 assert_exit_cmd 1 "preflight §8: a correct but NON-EXECUTABLE pre-push hook is REFUSED" -- \
-  env -u DATABASE_URL -u ZIEE_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
+  env -u DATABASE_URL -u TXR_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
 chmod +x "$GOOD/.git/hooks/pre-push"
 # and the installer is idempotent — re-running it over an installed hook still passes.
 (cd "$GOOD" && bash "$INSTALL_HOOKS" >/dev/null 2>&1)
 assert_exit_cmd 0 "preflight §8: re-running the installer is idempotent and still passes" -- \
-  env -u DATABASE_URL -u ZIEE_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
+  env -u DATABASE_URL -u TXR_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
 
 # --- placeholder detection is about the VALUE, not one spelling of it --------
 #
@@ -1332,7 +1332,7 @@ for spelling in 'double' 'bare' 'single' 'trailing-space' 'block-scalar'; do
     block-scalar)   printf 'jwt:\n  secret: >-\n    %s\n' "$PH" ;;
   esac > "$GOOD/src-app/server/config/dev.yaml"
   assert_exit_cmd 1 "preflight: placeholder jwt.secret ($spelling) is REFUSED" -- \
-    env -u DATABASE_URL -u ZIEE_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
+    env -u DATABASE_URL -u TXR_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
 done
 # NEGATIVE CONTROL — without it "refuse everything" would score 5/5. A real
 # secret that merely CONTAINS the word `secret`, and a comment that quotes the
@@ -1340,7 +1340,7 @@ done
 printf 'jwt:\n  # replace "%s" with a random value\n  secret: "kP3q8Zx-not-the-placeholder-just-a-long-random-value-49ch"\n' "$PH" \
   > "$GOOD/src-app/server/config/dev.yaml"
 assert_exit_cmd 0 "preflight: a real jwt.secret passes (placeholder only in a comment)" -- \
-  env -u DATABASE_URL -u ZIEE_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
+  env -u DATABASE_URL -u TXR_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
 
 # --- and the SEED path carried the same quoted-only assumption ---------------
 # `dev.example.yaml` with an UNQUOTED placeholder could not be seeded at all:
@@ -1355,7 +1355,7 @@ for spelling in 'double' 'bare' 'single'; do
     single) printf "jwt:\n  secret: '%s'\n" "$PH" ;;
   esac > "$GOOD/src-app/server/config/dev.example.yaml"
   assert_exit_cmd 0 "preflight: seeds dev.yaml from a $spelling-quoted example" -- \
-    env -u DATABASE_URL -u ZIEE_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
+    env -u DATABASE_URL -u TXR_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$GOOD"
   if [ -f "$GOOD/src-app/server/config/dev.yaml" ] && \
      ! grep -qF -- "$PH" "$GOOD/src-app/server/config/dev.yaml"; then
     PASS=$((PASS+1)); printf '  \033[32mok  \033[0m %s\n' "preflight: seeded dev.yaml ($spelling example) has no placeholder left"
@@ -1366,7 +1366,7 @@ done
 # a placeholder full of REGEX METACHARACTERS must be matched literally — the old
 # sed interpolated it into a pattern, so `.`/`*`/`[` matched the wrong span.
 META="$(new_repo)"; CLEANUP+=("$META")
-write_ziee_appconfig "$META"
+write_txresbench_appconfig "$META"
 sed -i 's|^PREFLIGHT_CONFIG_PLACEHOLDER=.*|PREFLIGHT_CONFIG_PLACEHOLDER=RE.PLACE[ME]*|' "$META/.claude/app.config"
 mkdir -p "$META/src-app/server/binaries/hub-seed" "$META/src-app/server/vendor/pgvector" \
          "$META/src-app/server/config" "$META/node_modules"
@@ -1376,35 +1376,35 @@ printf 'jwt:\n  secret: "RE.PLACE[ME]*"\n' > "$META/src-app/server/config/dev.ex
 printf 'jwt:\n  secret: RE.PLACE[ME]*\n' > "$META/src-app/server/config/dev.yaml"
 (cd "$META" && bash "$INSTALL_HOOKS" >/dev/null 2>&1)
 assert_exit_cmd 1 "preflight: a placeholder containing regex metacharacters is matched LITERALLY" -- \
-  env -u DATABASE_URL -u ZIEE_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$META"
+  env -u DATABASE_URL -u TXR_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$META"
 rm -f "$GOOD/src-app/server/config/dev.yaml"
 printf 'jwt:\n  secret: "%s"\n' "$PH" > "$GOOD/src-app/server/config/dev.example.yaml"
 
 # bad: hub-seed missing (build.rs would PANIC) — app.config present so the seed
 # + node_modules checks are ACTIVE and fail.
 BAD="$(new_repo)"; CLEANUP+=("$BAD")
-write_ziee_appconfig "$BAD"
+write_txresbench_appconfig "$BAD"
 (cd "$BAD" && bash "$INSTALL_HOOKS" >/dev/null 2>&1)
 assert_exit_cmd 1 "preflight: missing hub-seed/node_modules is REFUSED" -- \
-  env -u DATABASE_URL -u ZIEE_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$BAD"
+  env -u DATABASE_URL -u TXR_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$BAD"
 
-# de-ziee-ify: with NO app.config, every app-specific preflight check SKIPs and
+# de-txresbench-ify: with NO app.config, every app-specific preflight check SKIPs and
 # the gate exits 0 on the generic checks only (a fresh app pre-app.config is not
-# hard-blocked by ziee's server prerequisites).
+# hard-blocked by txresbench's server prerequisites).
 NOCFG="$(new_repo)"; CLEANUP+=("$NOCFG")
 # §8 is app.config-INDEPENDENT (the hook is lifecycle infrastructure, not an app
 # prerequisite), so this fixture needs one too for the "generic-only" claim to
 # be about the app-specific checks.
 (cd "$NOCFG" && bash "$INSTALL_HOOKS" >/dev/null 2>&1)
 assert_exit_cmd 0 "preflight: NO app.config ⇒ generic-only, exit 0" -- \
-  env -u DATABASE_URL -u ZIEE_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$NOCFG"
+  env -u DATABASE_URL -u TXR_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$NOCFG"
 
 # SECURITY regression: a malicious PREFLIGHT_BUILD_DB_ENV must be rejected before
 # bash ${!name} indirect expansion — a config value must NEVER execute code.
 INJ="$(new_repo)"; CLEANUP+=("$INJ"); mkdir -p "$INJ/.claude"
 INJMARK="$INJ/INJECTION_EXECUTED"
 printf 'PREFLIGHT_BUILD_DB_ENV=x[$(touch %s)]\nPREFLIGHT_BUILD_DB_HOSTPORT=127.0.0.1:5999\n' "$INJMARK" > "$INJ/.claude/app.config"
-env -u DATABASE_URL -u ZIEE_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$INJ" >"$LC_SELFTEST_OUT" 2>&1 || true
+env -u DATABASE_URL -u TXR_BUILD_DB_PERWORKTREE bash "$PREFLIGHT" --repo "$INJ" >"$LC_SELFTEST_OUT" 2>&1 || true
 if [ -e "$INJMARK" ]; then
   FAIL=$((FAIL+1)); printf '  \033[31mFAIL\033[0m %s\n' "preflight: malicious PREFLIGHT_BUILD_DB_ENV EXECUTED code (injection)"
 else
@@ -1417,7 +1417,7 @@ echo "-- Part D: merge-gate --verify-head (the pre-push-to-main hook guard) --"
 # clean HEAD: one migration, no .lifecycle
 R="$(new_repo)"; CLEANUP+=("$R")
 mkdir -p "$R/src-app/server/migrations"
-write_ziee_appconfig "$R"
+write_txresbench_appconfig "$R"
 echo "CREATE TABLE a();" > "$R/src-app/server/migrations/00000000000010_a.sql"
 git -C "$R" add -A && git -C "$R" commit -qm mig
 assert_exit_cmd 0 "verify-head: clean HEAD passes" -- node "$MG" --verify-head --repo "$R"
@@ -1432,7 +1432,7 @@ assert_exit_cmd 1 "verify-head C5: leaked .lifecycle/ on HEAD is REFUSED" -- nod
 # C2: HEAD has two migrations with the same number prefix
 R="$(new_repo)"; CLEANUP+=("$R")
 mkdir -p "$R/src-app/server/migrations"
-write_ziee_appconfig "$R"
+write_txresbench_appconfig "$R"
 echo "CREATE TABLE a();" > "$R/src-app/server/migrations/00000000000010_a.sql"
 echo "CREATE TABLE b();" > "$R/src-app/server/migrations/00000000000010_b.sql"
 git -C "$R" add -A && git -C "$R" commit -qm dup-mig
@@ -1453,13 +1453,13 @@ echo "hello" > "$R/src.txt"; git -C "$R" add -A && git -C "$R" commit -qm no-mig
 assert_exit_cmd 0 "verify-head C2 CONTROL: no app.config AND no migrations ⇒ passes (C5 only)" -- node "$MG" --verify-head --repo "$R"
 
 # ---------------------------------------------------------------------------
-echo "-- Part E: lifecycle-check.mjs de-ziee-ify (a NON-ziee frontend layout) --"
+echo "-- Part E: lifecycle-check.mjs de-txresbench-ify (a NON-txresbench frontend layout) --"
 # ---------------------------------------------------------------------------
 # lifecycle-check's frontend-workspace map + openapi-spec registry defaulted to
-# ziee's `src-app/ui` / `src-app/desktop/ui`. A second app with a different
+# txresbench's `src-app/ui` / `src-app/desktop/ui`. A second app with a different
 # layout (here: a single `webapp/` workspace) must be able to drive both from
-# .claude/app.config — proven BOTH ways: WITHOUT the config the ziee-default
-# paths are absent so the FE gate + R2-5 route gate SKIP (a non-ziee-layout FE
+# .claude/app.config — proven BOTH ways: WITHOUT the config the txresbench-default
+# paths are absent so the FE gate + R2-5 route gate SKIP (a non-txresbench-layout FE
 # touch reads as backend-only); WITH the config they activate on the app's own
 # paths. Each fixture is a complete phase-8 artifact set (mirrors Part A's R2-5).
 
@@ -1510,9 +1510,9 @@ npm run check (webapp): PASS
 gate:ui (webapp): PASS
 EOF
 git -C "$R" add -A && git -C "$R" commit -qm webmock
-# WITHOUT app.config: ziee-default OPENAPI_SPECS (src-app/…) absent ⇒ R2-5 SKIPs
+# WITHOUT app.config: txresbench-default OPENAPI_SPECS (src-app/…) absent ⇒ R2-5 SKIPs
 # AND webapp/ is not a known FE workspace ⇒ FE npm-check gate SKIPs ⇒ exit 0
-# (the ghost mock is NOT flagged — the ziee paths simply don't exist here).
+# (the ghost mock is NOT flagged — the txresbench paths simply don't exist here).
 lc 0 "lifecycle-check: NO app.config ⇒ webapp-layout FE + R2-5 gates SKIP (ghost mock not flagged)" --phase 8 --repo "$R" --dir "$D" --base main
 # WITH app.config pointing at the webapp layout: R2-5 finds the live registry and
 # REFUSES the ghost mock; the FE workspace gate is satisfied by the check line.
@@ -1569,7 +1569,7 @@ cat > "$D/TEST_RESULTS.md" <<'EOF'
 - **TEST-2**: PASS
 EOF
 git -C "$R" add -A && git -C "$R" commit -qm webfe
-# WITHOUT app.config: webapp/ is NOT a recognized FE workspace (ziee default map
+# WITHOUT app.config: webapp/ is NOT a recognized FE workspace (txresbench default map
 # is src-app/…) ⇒ the touch reads as non-frontend ⇒ no `npm run check` line is
 # required ⇒ exit 0 (the FE gate is app.config-driven, not baked to src-app).
 lc 0 "lifecycle-check: NO app.config ⇒ webapp FE touch not gated (no npm-check line required)" --phase 8 --repo "$R" --dir "$D" --base main

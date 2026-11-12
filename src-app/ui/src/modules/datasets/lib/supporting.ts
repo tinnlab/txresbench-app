@@ -6,7 +6,7 @@
 // without any store coupling (unit-testable, reused by the gallery seeds).
 
 import type { AxisSpec, Datatype, DatasetFile, DatasetWithFiles } from '@/api-client/types'
-import type { TagTone } from '@ziee/kit'
+import type { TagTone } from '@txresbench/kit'
 
 /** The supporting (non-primary) files linked into a dataset (ITEM-15). */
 export function supportingFiles(dataset: DatasetWithFiles | null): DatasetFile[] {
