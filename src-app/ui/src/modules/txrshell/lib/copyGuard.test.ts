@@ -5,7 +5,7 @@
  *
  * The guard scans every user-visible source the qa-fixes2 ITEM-2 sweep
  * named — the txr modules' non-test `.ts`/`.tsx`, `txrhelp/content.ts`,
- * the module READMEs, `README.txbench.md`, the landing-site content
+ * the module READMEs, `README.md`, the landing-site content
  * (`site/src/`) and the published API docs (`openapi.json` + the generated
  * client) — and fails on any banned phrase, case-insensitive.
  *
@@ -70,7 +70,7 @@ const MODULES = [
 
 /** Extra user-visible sources the sweep named (relative to the repo root). */
 const FILES = [
-  'README.txbench.md',
+  'README.md',
   'site/src/index.html',
   'src-app/ui/openapi/openapi.json',
   'src-app/ui/src/api-client/types.ts',
@@ -121,7 +121,7 @@ const ALLOW: AllowEntry[] = JSON.parse(readFileSync(allowFilePath, 'utf8')).entr
 
 describe('location-neutral copy guard (TEST-QF2-2c)', () => {
   it('scans the named user-visible sources for the banned phrases', () => {
-    expect(readFileSync(join(REPO_ROOT, 'README.txbench.md'), 'utf8').length).toBeGreaterThan(0)
+    expect(readFileSync(join(REPO_ROOT, 'README.md'), 'utf8').length).toBeGreaterThan(0)
     const files = new Set<string>([
       ...MODULES.flatMap(moduleFiles),
       ...FILES.filter(f => {
