@@ -72,8 +72,17 @@ const SIZES = [
 
 /** Give the gallery frame the test viewport's height (the default frame is
  *  720 px — bounded — so the shell's height chain is definite; resizing the
- *  frame to the size under test makes the measured layout the real one). */
+ *  frame to the size under test makes the measured layout the real one).
+ *  The wait is the REAL condition — the gallery's cold transform can mount
+ *  the surface after the fixed settle, so the frame + shell are polled for
+ *  before sizing (a settle-then-throw made the first leg of a cold run a
+ *  load-timing flake: `no gallery frame`). */
 async function sizeFrame(page: import('@playwright/test').Page, height: number) {
+  await page.waitForFunction(
+    () => document.querySelector('[data-gallery-frame]') !== null && document.querySelector('#txr-main') !== null,
+    undefined,
+    { timeout: 90_000 },
+  )
   await page.evaluate(h => {
     const frame = document.querySelector<HTMLElement>('[data-gallery-frame]')
     if (!frame) throw new Error('no gallery frame')
@@ -630,4 +639,155 @@ test('route Help: the rail follows the region, an anchor lands flush at its top,
     print.regionScrollHeight - 1,
   )
   await page.emulateMedia({ media: 'screen' })
+})
+
+// ── ITEM-3's closing surfaces: the catch-all and the dialogs ────────────────
+
+test('route Not found: the catch-all is the frame byte — no fixed chrome, ONE region, the header never moves', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`${GALLERY}txr-shell-route-not-found`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(SETTLE)
+  await sizeFrame(page, 900)
+
+  const shell = await page.evaluate(() => ({
+    shellClass: document.documentElement.classList.contains('txr-shell-mode-shell'),
+    overflow: getComputedStyle(document.documentElement).overflow,
+  }))
+  expect(shell.shellClass).toBe(true)
+  expect(shell.overflow).toBe('hidden')
+
+  // The catch-all renders NO fixed top/bottom chrome — the audit's row is
+  // "none / body / none", and the page's ONE region is the body.
+  const chrome = await page.evaluate(() => ({
+    top: document.querySelectorAll('[class*="txr-page-frame-top"]').length,
+    bottom: document.querySelectorAll('[class*="txr-page-frame-bottom"]').length,
+    regions: Array.from(document.querySelectorAll<HTMLElement>('[role="region"]')).map(
+      el => el.getAttribute('aria-label') ?? '',
+    ),
+  }))
+  expect(chrome.top, 'no fixed top on the catch-all').toBe(0)
+  expect(chrome.bottom, 'no fixed bottom on the catch-all').toBe(0)
+  expect(chrome.regions).toEqual(['Not found'])
+
+  // The block is centred within the region and the shell body scroller is
+  // unused (the region owns the scroll).
+  const routed = await routedArea(page)
+  expect(routed!.scrollHeight, 'the routed area has nothing to scroll').toBeLessThanOrEqual(
+    routed!.clientHeight + 1,
+  )
+  const block = await page.getByTestId('txr-not-found-text').boundingBox()
+  const regionBox = await page.locator('[aria-label="Not found"]').boundingBox()
+  expect(block).not.toBeNull()
+  expect(regionBox).not.toBeNull()
+  expect(block!.x, 'the block is horizontally centred').toBeGreaterThan(regionBox!.x)
+
+  // The header stays put; the one region has focus support (the shell byte).
+  // `focus({ preventScroll: true })` — the shell document cannot scroll, so
+  // plain focus() would only scroll the GALLERY HOST's own document (its
+  // chrome sits above the frame, 207 px taller than the test window), which
+  // is not the shell's byte.
+  const headerBefore = await page.locator('.txr-shell-header').boundingBox()
+  await page
+    .locator('[aria-label="Not found"]')
+    .evaluate(el => (el as HTMLElement).focus({ preventScroll: true }))
+  expect(
+    await page.evaluate(() => document.activeElement?.getAttribute('aria-label')),
+    'the region accepts focus',
+  ).toBe('Not found')
+  const headerAfter = await page.locator('.txr-shell-header').boundingBox()
+  expect(Math.abs(headerAfter!.y - headerBefore!.y)).toBeLessThanOrEqual(1)
+})
+
+test('the dialogs: title and footer stay fixed while the body scrolls (the audit\'s dialog byte)', async ({
+  page,
+}) => {
+  // The kit Dialog's byte: the popup caps itself to the viewport
+  // (`max-h-[calc(100dvh-2rem)]`) and its grid rows are auto /
+  // minmax(0, 1fr) / auto — the title and footer rows keep their size and
+  // position while the middle row is the scrollport. The models save-set
+  // checklist is the tall dialog. At the board's window (1280x520) the cap
+  // leaves it room, so the leg shrinks the window until the cap cuts the
+  // natural height — the "a tall dialog on a short screen scrolls instead
+  // of overflowing off-screen" case the byte exists for. The popup's byte
+  // is viewport-relative (it is portaled to the document body), so shell
+  // mode or flow mode is irrelevant to it.
+  await page.setViewportSize({ width: 1280, height: 520 })
+  await page.goto(`${GALLERY}txr-models-l`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(SETTLE)
+  await page.getByTestId('txr-models-open-l').click()
+  const dialog = page.getByTestId('txr-models-save')
+  await expect(dialog).toBeVisible()
+
+  const readByte = () =>
+    dialog.evaluate(el => {
+      const style = getComputedStyle(el)
+      return {
+        rows: style.gridTemplateRows.trim().split(/\s+/).map(track => parseFloat(track)),
+        maxHeight: style.maxHeight,
+        boxHeight: el.getBoundingClientRect().height,
+        viewport: window.innerHeight,
+      }
+    })
+
+  const byte = await readByte()
+  // The three rows of the dialog grid: title / body / footer. Chromium
+  // serialises the RESOLVED tracks (the `grid-rows-[auto_minmax(0,1fr)_auto]`
+  // byte has actually sized the dialog), so the pin is the shape: exactly
+  // three definite tracks, the middle one the body's.
+  expect(byte.rows, 'the dialog grid has three rows').toHaveLength(3)
+  expect(byte.rows.every(Number.isFinite), 'the tracks are resolved').toBe(true)
+  // The dialog caps to the viewport: max-height is 100dvh − 2rem.
+  const capPx = byte.viewport - 32
+  expect(Math.abs(parseFloat(byte.maxHeight) - capPx), 'capped to the viewport').toBeLessThanOrEqual(
+    2,
+  )
+  expect(byte.boxHeight, 'never taller than the cap').toBeLessThanOrEqual(capPx + 2)
+
+  // Shrink the window past the checklist's natural height: the cap now cuts
+  // the middle row — it absorbs the shrink while the title/footer rows keep
+  // their size, and it becomes the dialog's scrollport.
+  await page.setViewportSize({ width: 1280, height: 400 })
+  await page.waitForTimeout(300)
+  const shrunk = await readByte()
+  expect(shrunk.boxHeight, 'the shortened cap is honoured').toBeLessThanOrEqual(shrunk.viewport - 32 + 2)
+  expect(shrunk.rows).toHaveLength(3)
+  expect(Math.abs(shrunk.rows[0] - byte.rows[0]), 'the title row keeps its size').toBeLessThanOrEqual(
+    1,
+  )
+  expect(Math.abs(shrunk.rows[2] - byte.rows[2]), 'the footer row keeps its size').toBeLessThanOrEqual(
+    1,
+  )
+  expect(shrunk.rows[1], 'the body row is the one that absorbed the cap').toBeLessThan(byte.rows[1])
+
+  // The middle row owns the scroll: the DivScrollY host (grid item) has
+  // `overflow: hidden` (the overlayscrollbars byte) and its
+  // `data-overlayscrollbars-viewport` child is the scroll container —
+  // the checklist inside it is taller than the row, so the viewport is
+  // scrollable and the title/footer rows keep their y while it scrolls.
+  const before = await dialog.evaluate(el => ({
+    titleY: el.querySelector('[data-slot="dialog-title"]')?.getBoundingClientRect().top ?? -1,
+    footerY: el.querySelector('[data-slot="dialog-footer"]')?.getBoundingClientRect().top ?? -1,
+  }))
+  const probe = await dialog.evaluate(el => {
+    const viewport = el.querySelector<HTMLElement>('[data-overlayscrollbars-viewport]')
+    const title = el.querySelector('[data-slot="dialog-title"]')
+    const footer = el.querySelector('[data-slot="dialog-footer"]')
+    const found = viewport !== null
+    const scrollable = viewport === null ? 0 : viewport.scrollHeight - viewport.clientHeight
+    if (viewport !== null) viewport.scrollTop = 200
+    return {
+      found,
+      scrollable,
+      scrollTop: viewport?.scrollTop ?? 0,
+      titleY: title?.getBoundingClientRect().top ?? -1,
+      footerY: footer?.getBoundingClientRect().top ?? -1,
+    }
+  })
+  expect(probe.found, 'the body row carries the scrollport').toBe(true)
+  expect(probe.scrollable, 'the checklist overflows the body row').toBeGreaterThan(0)
+  expect(probe.scrollTop, 'the body row scrolled').toBeGreaterThan(0)
+  expect(Math.abs(probe.titleY - before.titleY), 'the title row never moved').toBeLessThanOrEqual(1)
+  expect(Math.abs(probe.footerY - before.footerY), 'the footer row never moved').toBeLessThanOrEqual(1)
 })

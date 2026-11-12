@@ -21,6 +21,7 @@ import { lazy, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import type { ModuleGallery } from '@ziee/gallery'
 import { TxrShell } from './TxrLayout'
+import { NotFoundPage } from './pages/NotFoundPage'
 import { PageFrame } from './components/PageFrame'
 import { PageToolbar } from './components/PageToolbar'
 import { PageFooterBar } from './components/PageFooterBar'
@@ -221,8 +222,26 @@ const RestoreStory = lazy(() =>
   }),
 )
 
+const NotFoundStory = lazy(() =>
+  Promise.resolve({
+    default: () => (
+      <TxrShell>
+        <NotFoundPage />
+      </TxrShell>
+    ),
+  }),
+)
+
 export const gallery: ModuleGallery = {
   seeded: [
+    {
+      slug: 'txr-shell-route-not-found',
+      title: 'Page not found inside the shell',
+      note: 'The app-shell ITEM-3 route byte for the catch-all: no fixed chrome, the not-found block in the page\'s ONE region (the audit\'s "none top, body region, none bottom" row), the shell\'s header stays put while the region scrolls in a short window.',
+      path: '*',
+      initialPath: '/no-such-route',
+      component: NotFoundStory,
+    },
     {
       slug: 'txr-shell-narrow-390',
       title: 'The shell header at narrow width',
