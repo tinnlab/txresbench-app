@@ -7,12 +7,16 @@
 //! 1. The METHODS are chosen deterministically from the real catalogue
 //!    ([`pick_fast_methods`]): the host-arch methods with a published
 //!    environment (`runtime_env_available`), `saves_model`, a `CanRun`
-//!    verdict on the example training data's own inventory, and a catalogue
-//!    estimate under 30 s (the plan's "3 that run in under 30 s each");
-//!    fastest-first, id tie-break, capped at 3. The pick is a PURE function
-//!    of the embedded catalogue + the embedded example — no calibration, no
-//!    host-CPU dependence, so every machine's first call trains the same
-//!    methods.
+//!    verdict on the example training data's own inventory, a marker set
+//!    the run's bundle builder accepts on the example's canonical rows
+//!    (the engine's own [`bundle::method_marker_set`] — the example carries
+//!    three main markers, so a `single` method without a fixed marker list
+//!    would be refused `BUNDLE_MARKER_COUNT_UNMET` before it starts), and a
+//!    catalogue estimate under 30 s (the plan's "3 that run in under 30 s
+//!    each"); fastest-first, id tie-break, capped at 3. The pick is a PURE
+//!    function of the embedded catalogue + the embedded example — no
+//!    calibration, no host-CPU dependence, so every machine's first call
+//!    trains the same methods.
 //! 2. The RUN is a real run through the engine's normal path
 //!    ([`orchestrator::start_run`], seam-injected so the test harness can
 //!    script the env/executor) over the embedded example training tables —
@@ -55,15 +59,16 @@ use uuid::Uuid;
 
 use txresbench_core::AppError;
 
+use crate::modules::execution_engine::bundle;
 use crate::modules::execution_engine::orchestrator::{self, EnvProvider, MethodExecutor};
 use crate::modules::execution_engine::runtime::RunRuntime;
 use crate::modules::execution_engine::types::{
     CreateRunRequest, RunConfig, TxrRunInput, TxrRunMode, TxrRunStatus,
 };
 use crate::modules::file_validator::types::{
-    ParsedTable, ParsedTableSource, TableFormat, ValidationMode, ValidationRequest,
+    CanonicalBundle, ParsedTable, ParsedTableSource, TableFormat, ValidationMode, ValidationRequest,
 };
-use crate::modules::file_validator::{assets, validate};
+use crate::modules::file_validator::{assets, canonical_bundle, validate};
 use crate::modules::method_catalogue::catalogue::catalogue;
 use crate::modules::method_catalogue::eligibility::{
     eligibility_for, estimate_seconds_for, runtime_env_available, REFERENCE_CPUS,
@@ -107,10 +112,29 @@ pub struct ExampleRunSeams {
 /// The deterministic fast-method pick (pure; the test seam of the real
 /// catalogue). The verdicts are the PURE eligibility engine over the example
 /// validation's inventory; the runtime-env + saves_model filters implement
-/// the plan's "methods that have a published environment"; the estimate is
-/// the catalogue's (`REFERENCE_CPUS` — host-independent).
-pub fn pick_fast_methods(inventory: &crate::modules::method_catalogue::types::InventoryEligibilityRequest,
-                         patients: u32) -> Vec<String> {
+/// the plan's "methods that have a published environment"; the marker filter
+/// is the run's own per-method marker rule ([`bundle::method_marker_set`])
+/// over the example's canonical rows (`train` — the same bundle the run
+/// builds from the same request), so a picked method is never refused
+/// `BUNDLE_MARKER_COUNT_UNMET`/`BUNDLE_NO_MAIN_MARKER` before it starts; the
+/// estimate is the catalogue's (`REFERENCE_CPUS` — host-independent).
+pub fn pick_fast_methods(
+    inventory: &crate::modules::method_catalogue::types::InventoryEligibilityRequest,
+    patients: u32,
+    train: &CanonicalBundle,
+) -> Vec<String> {
+    pick_fast_methods_with(inventory, patients, train, runtime_env_available)
+}
+
+/// [`pick_fast_methods`] with the published-environment predicate injected
+/// (production passes the host-arch [`runtime_env_available`]; the unit
+/// tests pass a fixed arch so the pick is checked on any host).
+fn pick_fast_methods_with(
+    inventory: &crate::modules::method_catalogue::types::InventoryEligibilityRequest,
+    patients: u32,
+    train: &CanonicalBundle,
+    env_available: impl Fn(&str) -> bool,
+) -> Vec<String> {
     let cat = catalogue();
     let verdicts = eligibility_for(
         cat,
@@ -122,12 +146,21 @@ pub fn pick_fast_methods(inventory: &crate::modules::method_catalogue::types::In
         .methods
         .into_iter()
         .filter(|m| m.status == EligibilityStatus::CanRun)
-        .filter(|m| runtime_env_available(&m.id))
-        .filter(|m| cat.method(&m.id).is_some_and(|x| x.saves_model))
+        .filter(|m| env_available(&m.id))
         .filter_map(|m| {
             let method = cat
                 .method(&m.id)
                 .expect("every verdict id is a catalogue method");
+            if !method.saves_model {
+                return None;
+            }
+            // The run's own marker rule on the example rows: a method whose
+            // marker set does not resolve would fail before it starts.
+            if bundle::method_marker_set(train, &method.markers, method.required_markers.as_ref())
+                .is_err()
+            {
+                return None;
+            }
             let seconds = estimate_seconds_for(method, patients, REFERENCE_CPUS);
             (seconds < EXAMPLE_METHOD_SECONDS_MAX).then_some((seconds, m.id))
         })
@@ -173,12 +206,11 @@ fn parsed_example(bytes: &'static [u8], name: &str) -> ParsedTable {
     }
 }
 
-/// The example training pair + the validator's verdict (the ONE validation
-/// the endpoint pins: zero errors and at most the normal A04 notes, asserted
-/// here and in the material test — a generator change that breaks the example
-/// fails before any endpoint serves it).
-pub fn example_validation() -> Result<crate::modules::file_validator::types::ValidationResponse, AppError> {
-    let request = ValidationRequest {
+/// The example training pair as the validator's request (Files mode, no
+/// joins/mapping, the default parameters) — the ONE request both the
+/// validation and the canonical rows are built from.
+fn example_validation_request() -> ValidationRequest {
+    ValidationRequest {
         mode: ValidationMode::Files,
         patients: Some(parsed_example(
             assets::ASSETS.patients_example,
@@ -191,7 +223,15 @@ pub fn example_validation() -> Result<crate::modules::file_validator::types::Val
         joins: Vec::new(),
         mapping: Vec::new(),
         parameters: Default::default(),
-    };
+    }
+}
+
+/// The example training pair + the validator's verdict (the ONE validation
+/// the endpoint pins: zero errors and at most the normal A04 notes, asserted
+/// here and in the material test — a generator change that breaks the example
+/// fails before any endpoint serves it).
+pub fn example_validation() -> Result<crate::modules::file_validator::types::ValidationResponse, AppError> {
+    let request = example_validation_request();
     let response = validate(&request).map_err(|e| {
         AppError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -219,6 +259,20 @@ pub fn example_validation() -> Result<crate::modules::file_validator::types::Val
         ));
     }
     Ok(response)
+}
+
+/// The example training pair's canonical rows — the train-side bundle the
+/// run builds from the same tables (`canonical_bundle` over the same
+/// Files-mode request: no joins, no mapping; the canonical rows do not
+/// depend on the decision day), the input of the pick's marker rule.
+pub fn example_canonical_bundle() -> Result<CanonicalBundle, AppError> {
+    canonical_bundle(&example_validation_request()).map_err(|e| {
+        AppError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "EXAMPLE_VALIDATION_FAILED",
+            format!("the embedded example data does not build its canonical rows: {e}"),
+        )
+    })
 }
 
 /// The example run request (the normal engine's input snapshot: the embedded
@@ -287,7 +341,8 @@ async fn inner(
     // catalogue and the assets are immutable).
     let validation = example_validation()?;
     let patients = validation.patients.as_ref().map(|p| p.rows).unwrap_or(0);
-    let methods = pick_fast_methods(&validation.inventory, patients);
+    let train = example_canonical_bundle()?;
+    let methods = pick_fast_methods(&validation.inventory, patients, &train);
 
     // The state row (may be None).
     let state_row = repo.example_state().await.map_err(|e| typed_error("EXAMPLE_STATE_READ", e.to_string()))?;
@@ -522,3 +577,122 @@ async fn store_save(
 }
 
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests — the pick applies the run's own marker rule
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modules::execution_engine::bundle::{BundleError, MarkerSelection};
+    use crate::modules::execution_engine::envmanifest::{env_for_arch, EnvArch};
+    use crate::modules::method_catalogue::types::{InventoryEligibilityRequest, MarkerKind};
+
+    /// The pick's inputs, exactly as [`inner`] computes them.
+    fn example_inputs() -> (InventoryEligibilityRequest, u32, CanonicalBundle) {
+        let validation = example_validation().expect("the example validates");
+        let patients = validation.patients.as_ref().map(|p| p.rows).unwrap_or(0);
+        let train = example_canonical_bundle().expect("the example builds its canonical rows");
+        (validation.inventory, patients, train)
+    }
+
+    /// The committed manifest's amd64 env set (the published arch), so the
+    /// pick is exercised on every host, not only where the host arch has
+    /// published environments.
+    fn amd64_env(id: &str) -> bool {
+        env_for_arch(id, EnvArch::Amd64).is_some()
+    }
+
+    /// Every method the pick returns — on the host arch and on the committed
+    /// amd64 env set — gets a marker set from the run's own rule
+    /// ([`bundle::method_marker_set`], the call `execute_train` makes first)
+    /// on the example's canonical rows; the amd64 pick is not empty, so the
+    /// assertion is never vacuous.
+    #[test]
+    fn every_picked_method_passes_the_run_marker_rule_on_the_example() {
+        let (inventory, patients, train) = example_inputs();
+        let host = pick_fast_methods(&inventory, patients, &train);
+        let amd64 = pick_fast_methods_with(&inventory, patients, &train, amd64_env);
+        assert!(
+            !amd64.is_empty(),
+            "the committed amd64 env set yields at least one example method"
+        );
+        assert!(amd64.len() <= EXAMPLE_METHOD_CAP, "{amd64:?}");
+        assert_eq!(
+            amd64,
+            pick_fast_methods_with(&inventory, patients, &train, amd64_env),
+            "the pick is deterministic"
+        );
+        let cat = catalogue();
+        for id in host.iter().chain(amd64.iter()) {
+            let method = cat.method(id).expect("a picked id is a catalogue method");
+            let selection = bundle::method_marker_set(
+                &train,
+                &method.markers,
+                method.required_markers.as_ref(),
+            )
+            .unwrap_or_else(|e| panic!("{id} is refused by the run's marker rule: {e}"));
+            assert!(!selection.mains().is_empty(), "{id} receives a marker");
+        }
+    }
+
+    /// The three-marker example refuses every `single` method without a fixed
+    /// marker list (`BUNDLE_MARKER_COUNT_UNMET`), so none is picked — even
+    /// though eligibility says `CanRun` for them and they otherwise pass the
+    /// pick's filters (the methods the pick used to return).
+    #[test]
+    fn a_single_marker_method_without_a_fixed_list_is_not_picked_on_the_three_marker_example() {
+        let (inventory, patients, train) = example_inputs();
+        assert_eq!(
+            MarkerSelection::all(&train).mains(),
+            ["M1", "M2", "M3"],
+            "the example carries three main markers"
+        );
+
+        let cat = catalogue();
+        let verdicts = eligibility_for(
+            cat,
+            &EligibilityRequest::Inventory {
+                inventory: inventory.clone(),
+            },
+        );
+        let single_without_list: Vec<String> = verdicts
+            .methods
+            .iter()
+            .filter(|m| m.status == EligibilityStatus::CanRun && amd64_env(&m.id))
+            .filter_map(|m| cat.method(&m.id))
+            .filter(|m| {
+                m.saves_model
+                    && m.markers.kind == MarkerKind::Single
+                    && m.required_markers.is_none()
+                    && estimate_seconds_for(m, patients, REFERENCE_CPUS)
+                        < EXAMPLE_METHOD_SECONDS_MAX
+            })
+            .map(|m| m.id.clone())
+            .collect();
+        assert!(
+            !single_without_list.is_empty(),
+            "the catalogue has fast single-marker methods without a fixed list that \
+             eligibility lets run on the example (the case under test)"
+        );
+        for id in &single_without_list {
+            let method = cat.method(id).expect("catalogue method");
+            match bundle::method_marker_set(&train, &method.markers, None) {
+                Err(BundleError::MarkerCountUnmet { expected: 1, names }) => {
+                    assert_eq!(names, ["M1", "M2", "M3"], "{id}");
+                }
+                other => panic!("{id}: expected BUNDLE_MARKER_COUNT_UNMET, got {other:?}"),
+            }
+        }
+
+        let host = pick_fast_methods(&inventory, patients, &train);
+        let amd64 = pick_fast_methods_with(&inventory, patients, &train, amd64_env);
+        for id in host.iter().chain(amd64.iter()) {
+            assert!(
+                !single_without_list.contains(id),
+                "{id} is a single-marker method without a fixed list — the run refuses it"
+            );
+        }
+    }
+}
