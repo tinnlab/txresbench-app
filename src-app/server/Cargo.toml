@@ -34,16 +34,6 @@ sandbox_seccomp = ["dep:sandbox-seccomp"]
 # per-worktree build DB on :54321 and sets DATABASE_URL for sqlx compile-time
 # query!/query_as! verification (provision_build_db, SDK gap G4 resolved).
 txresbench-build-support = { path = "../../sdk/crates/txresbench-build-support" }
-# Hashing the docker-built rootfs squashfs for the `.version` sidecar (embed
-# skip-if-fresh). Docker itself is invoked via std::process::Command (no crate).
-sha2 = "0.10"
-# The BUILD-TIME processor-manifest syntax gate (build_helper/processor_manifest.rs,
-# ITEM-8/DEC-5): parse + `deny_unknown_fields`-lint every `packages/*/manifest.yaml`
-# at `cargo check` time. `serde_norway` matches the runtime loader's YAML parser
-# (no `serde_yaml`, CODING_GUIDELINES §17).
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.141"
-serde_norway = "0.9"
 
 [dependencies]
 # --- SDK platform crates (path-deps into the pinned submodule) ---------------
