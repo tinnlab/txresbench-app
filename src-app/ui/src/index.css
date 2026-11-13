@@ -251,6 +251,18 @@ html.txr-shell-mode-shell #root {
   }
 }
 
+/* The macOS desktop window (the AppShell sets the class only there,
+ * `isMacDesktop()` in core/platform.ts): the title bar is a transparent
+ * overlay, so the traffic lights sit over the header's left end — the
+ * close button's left edge at x = 20 (`traffic_light_position` in
+ * src-app/desktop/tauri/src/lib.rs), three 14 px buttons 20 px apart, so
+ * x = 20..74 (measured on macOS 27). The header starts its content after
+ * them with a 20 px gap. Two classes and `!important` so the inset also
+ * beats the 700 px rule's padding and the inline 28 px. */
+.txr-shell-header.txr-shell-header-macos {
+  padding-left: 94px !important;
+}
+
 /* app-shell ITEM-1: the shell's skip link — the FIRST tab stop of the
  * document (it precedes the brand in the DOM). Parked off-screen left;
  * keyboard focus brings it into view (the Help page's skip-link pattern,

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarTrigger } from '@txresbench/kit'
 import { FiMenu } from 'react-icons/fi'
+import { isMacDesktop } from '@/core/platform'
 import { TxrThemeToggle } from '../TxrThemeToggle'
 import { shellModeClass, useShellMode } from '../lib/shellMode'
 
@@ -30,6 +31,17 @@ import { shellModeClass, useShellMode } from '../lib/shellMode'
  *
  * The routed area is a plain div — never a `<main>` (RES-09): every page
  * owns its own main landmark; the shell's div is the skip-link target.
+ *
+ * The macOS desktop window draws no title bar of its own (Tauri's overlay
+ * title bar, sdk/desktop/harness/src/window.rs): the traffic lights sit
+ * over the header's left end and the page receives every mouse event, so
+ * there the header IS the title bar. It gets the `txr-shell-header-macos`
+ * class (index.css keeps the traffic lights' strip clear) and
+ * `data-tauri-drag-region="deep"`: Tauri's drag script then moves the
+ * window from any non-interactive spot of the header (links and buttons
+ * stay clickable) and a double-click zooms it. The browser build and the
+ * Windows/Linux windows (native or decorum title bars) render the header
+ * unchanged.
  */
 export interface AppShellProps {
   children: ReactNode
@@ -45,6 +57,7 @@ export const SHELL_NAV_ITEMS = [
 
 export function AppShell({ children }: AppShellProps) {
   const mode = useShellMode()
+  const macTitleBar = isMacDesktop()
 
   // The document rules follow the shell: the `txr-shell-mode-*` class on
   // <html> (index.css) makes the document fixed in shell mode and leaves it
@@ -93,7 +106,8 @@ export function AppShell({ children }: AppShellProps) {
         Skip to content
       </a>
       <header
-        className="txr-shell-header"
+        className={macTitleBar ? 'txr-shell-header txr-shell-header-macos' : 'txr-shell-header'}
+        data-tauri-drag-region={macTitleBar ? 'deep' : undefined}
         style={{
           height: 56,
           boxSizing: 'border-box',
