@@ -34,8 +34,10 @@ import {
   STATE_LABEL,
   STATE_TONE,
   bucketOf,
+  collapseRepeatedLines,
   estimateQualityWord,
   formatBytes,
+  formatCollapsedLogLine,
   formatLogLine,
   formatProgress,
   formatRowTime,
@@ -359,6 +361,103 @@ describe('isTechnicalLogNoise (qa-fixes2 R2-5)', () => {
     expect(isTechnicalLogNoise(line('cox-baseline-delta done in 12s'))).toBe(false)
     expect(isTechnicalLogNoise(line('fitting the model'))).toBe(false)
   })
+})
+
+describe('collapseRepeatedLines + formatCollapsedLogLine (qa-fixes4 ITEM-3, methods-r3 R3-methods-5)', () => {
+  const line = (seq: number, method_id: string | undefined, content: string): TxrRunLogLine => ({
+    seq,
+    method_id,
+    stream: method_id === undefined ? 'engine' : 'stdout',
+    content,
+    created_at: '2026-11-06T10:02:12Z',
+  })
+  const METHODS = [{ method_id: 'm', label: 'm' }]
+
+  it('a twice-printed 3-line warning block collapses to one block with the ×6 badge on its first line', () => {
+    const lines = [
+      line(1, 'm', 'Warning message:'),
+      line(2, 'm', 'In read.table(file = file, header = header, sep = sep, quote = quote,  :'),
+      line(3, 'm', "  not all columns named in 'colClasses' exist"),
+      line(4, 'm', 'Warning message:'),
+      line(5, 'm', 'In read.table(file = file, header = header, sep = sep, quote = quote,  :'),
+      line(6, 'm', "  not all columns named in 'colClasses' exist"),
+    ]
+    const collapsed = collapseRepeatedLines(lines)
+    expect(collapsed).toHaveLength(3)
+    // Each line printed twice; the run's badge counts its 6 raw lines.
+    expect(collapsed.map(e => e.count)).toEqual([2, 2, 2])
+    expect(collapsed.map(e => e.runLength)).toEqual([6, 6, 6])
+    expect(collapsed.map(e => e.runStart)).toEqual([true, false, false])
+    // The × badge rides the run's first line (clock omitted — the test
+    // host's local TZ shifts the rendered hour; the suffix is the fact).
+    expect(fmt(collapsed[0]).endsWith('Warning message: ×6')).toBe(true)
+    expect(fmt(collapsed[1])).toContain(
+      'In read.table(file = file, header = header, sep = sep, quote = quote,  :',
+    )
+    expect(fmt(collapsed[2])).toContain("  not all columns named in 'colClasses' exist")
+  })
+
+  it('an identical line repeated N times collapses to one line ×N', () => {
+    const lines = [
+      line(1, 'm', 'same'),
+      line(2, 'm', 'same'),
+      line(3, 'm', 'same'),
+    ]
+    const collapsed = collapseRepeatedLines(lines)
+    expect(collapsed).toHaveLength(1)
+    expect(collapsed[0].count).toBe(3)
+    expect(collapsed[0].runLength).toBe(3)
+    expect(fmt(collapsed[0]).endsWith('same ×3')).toBe(true)
+  })
+
+  it('a truncated tail is never claimed as a repeat: [A,B,A,B,A] reads A,B ×4 then A', () => {
+    const lines = [
+      line(1, 'm', 'A'),
+      line(2, 'm', 'B'),
+      line(3, 'm', 'A'),
+      line(4, 'm', 'B'),
+      line(5, 'm', 'A'),
+    ]
+    const collapsed = collapseRepeatedLines(lines)
+    expect(collapsed).toHaveLength(3)
+    expect(collapsed.map(e => e.count)).toEqual([2, 2, 1])
+    expect(collapsed.map(e => e.runLength)).toEqual([4, 4, 1])
+    expect(collapsed.map(e => e.runStart)).toEqual([true, false, false])
+  })
+
+  it('the longest repeated run wins — a stream that is also A,A never fragments (A,A,B,A,A,B stays the (A,A,B) block)', () => {
+    const lines = [
+      line(1, 'm', 'A'),
+      line(2, 'm', 'A'),
+      line(3, 'm', 'B'),
+      line(4, 'm', 'A'),
+      line(5, 'm', 'A'),
+      line(6, 'm', 'B'),
+    ]
+    const collapsed = collapseRepeatedLines(lines)
+    expect(collapsed).toHaveLength(3)
+    expect(collapsed[0].count).toBe(2)
+    expect(collapsed[0].runLength).toBe(6)
+    expect(collapsed[0].runStart).toBe(true)
+  })
+
+  it('a first-pair match is never a repeat: [A,A,A,B] reads A ×3 then B', () => {
+    const lines = [line(1, 'm', 'A'), line(2, 'm', 'A'), line(3, 'm', 'A'), line(4, 'm', 'B')]
+    const collapsed = collapseRepeatedLines(lines)
+    expect(collapsed.map(e => e.count)).toEqual([3, 1])
+    expect(collapsed.map(e => e.runLength)).toEqual([3, 1])
+  })
+
+  it('the same text from two methods is NOT a repeat (identity is method + content)', () => {
+    const lines = [line(1, 'm1', 'same'), line(2, 'm2', 'same')]
+    const collapsed = collapseRepeatedLines(lines)
+    expect(collapsed).toHaveLength(2)
+    expect(collapsed.map(e => e.count)).toEqual([1, 1])
+  })
+
+  function fmt(entry: ReturnType<typeof collapseRepeatedLines>[number]): string {
+    return formatCollapsedLogLine(entry, METHODS)
+  }
 })
 
 describe('RESEARCH_NOTICE + the lib copy scan (TEST-RUN-05, INV-5)', () => {

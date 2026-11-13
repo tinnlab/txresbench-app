@@ -435,3 +435,92 @@ export function filterLogLines(
   if (methodId === null) return [...lines]
   return lines.filter(line => line.method_id === methodId)
 }
+
+/**
+ * One entry of the panel's collapsed view (qa-fixes4 ITEM-3, methods-r3
+ * R3-methods-5): a line shown once plus the repeat facts of the run it
+ * belongs to.
+ */
+export interface TxrCollapsedLogLine {
+  line: TxrRunLogLine
+  /** The raw lines THIS entry stands for (a block each of whose lines
+   *  printed `N` times; `1` = a single line) — the viewing count sums to
+   *  the raw lines shown. */
+  count: number
+  /** The whole run's raw line count (the "×N" badge's N; 1 = no repeat). */
+  runLength: number
+  /** The entry is the run's FIRST line — the "×N" badge's place. */
+  runStart: boolean
+}
+
+/** The two collision facts one repeated run must be identical on (a line's
+ *  identity in the log is WHICH method printed it + WHAT it says — the
+ *  same text from two methods is two log lines, not a repeat). */
+function sameLogLine(a: TxrRunLogLine, b: TxrRunLogLine): boolean {
+  return a.content === b.content && a.method_id === b.method_id
+}
+
+/**
+ * The F log panel's repeated-line collapse (qa-fixes4 ITEM-3, methods-r3
+ * R3-methods-5 — "repeat R warnings are collapsed into 'x6'"): a maximal
+ * run of lines that is one short sequence printed again (the engine's R
+ * methods print the identical 3-line `colClasses` warning block twice or
+ * three times; a line can also repeat verbatim) renders ONCE — the run's
+ * last line carries the "×N" marker with N = the run's raw line count, so
+ * a twice-printed 3-line warning reads its block once and ends in "×6"
+ * and a line printed six times reads "×6" too.
+ *
+ * The period chosen is the one whose repeated run is LONGEST (a
+ * `A,A,B,A,A,B` stream is the (A,A,B) block, never A,A-then-standalone),
+ * so a run never fragments into a smaller coincidence; a line with no
+ * repeat is a plain entry. The collapse is a VIEW feature: the engine's
+ * raw lines stay in the store, in `total` and in the copy's own facts —
+ * what is folded is the reading, not the log.
+ */
+export function collapseRepeatedLines(lines: readonly TxrRunLogLine[]): TxrCollapsedLogLine[] {
+  const out: TxrCollapsedLogLine[] = []
+  let i = 0
+  while (i < lines.length) {
+    // The longest run from i that repeats its own prefix (the smallest
+    // period that ties). Periodicity is checked position by position — a
+    // run is a repetition only when EVERY position agrees with its
+    // p-ago twin, so a [A,A,A,B] stream never claims the A-run for p=2
+    // (A,A vs A,B) even though its first pair matches.
+    let bestLen = 1
+    let bestPeriod = 1
+    for (let p = 1; p * 2 <= lines.length - i; p += 1) {
+      let k = 0
+      while (i + k < lines.length && sameLogLine(lines[i + (k % p)], lines[i + k])) {
+        k += 1
+      }
+      const repeat = Math.floor(k / p) * p
+      if (repeat >= 2 * p && (repeat > bestLen || (repeat === bestLen && p < bestPeriod))) {
+        bestLen = repeat
+        bestPeriod = p
+      }
+    }
+    if (bestLen === 1) {
+      out.push({ line: lines[i], count: 1, runLength: 1, runStart: false })
+      i += 1
+      continue
+    }
+    const repeat = bestLen / bestPeriod
+    for (let k = 0; k < bestPeriod; k += 1) {
+      out.push({ line: lines[i + k], count: repeat, runLength: bestLen, runStart: k === 0 })
+    }
+    i += bestLen
+  }
+  return out
+}
+
+/** One line of the panel's COLLAPSED view: the board's line shape + the
+ *  repeated run's "×N" badge on the run's first line — the SAME text the
+ *  copy writes (the collapse is a view feature: what the user sees is
+ *  what the paste gets, exactly like the technical filter). */
+export function formatCollapsedLogLine(
+  entry: TxrCollapsedLogLine,
+  methods: ReadonlyArray<TxrLogMethodRef>,
+): string {
+  const base = formatLogLine(entry.line, methods)
+  return entry.runStart && entry.runLength > 1 ? `${base} ×${entry.runLength}` : base
+}
