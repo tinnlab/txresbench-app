@@ -394,6 +394,24 @@ pub fn validate_layer_entries(entries: &[String]) -> Result<(), AppError> {
 
 // ────────────────────────────── the stacked argv ─────────────────────────────
 
+/// Where a method's own packages live: an empty mount point in both bases (tinnlab/txresbench
+/// base-images), filled by the method's layer. pip and R install there by default when a method image
+/// is built, and both read it ahead of the base's own packages.
+pub(crate) const METHOD_PACKAGES_DIR: &str = "/opt/txr-layer";
+
+/// The settings that point Python and R at [`METHOD_PACKAGES_DIR`] (plus base-py's `txrmethod` helper
+/// at `/opt/txrmethod`). The bases set the same values as image `ENV`, but the sandbox's
+/// `--clearenv` drops an image's environment, so a stacked run sets them itself. `PATH` gets
+/// `<METHOD_PACKAGES_DIR>/bin` in front of [`super::sandbox::SANDBOX_PATH`].
+pub(crate) const METHOD_RUN_ENV: [(&str, &str); 3] = [
+    ("PYTHONPATH", "/opt/txrmethod"),
+    ("PYTHONUSERBASE", METHOD_PACKAGES_DIR),
+    (
+        "R_LIBS",
+        "/opt/txr-layer/R-library:/usr/local/lib/R/site-library:/usr/local/lib/R/library",
+    ),
+];
+
 /// Build the bwrap argv of a stacked method run (PROV-SS-2).
 ///
 /// The hardening prefix is the SHIPPED builder's output, called with the same
@@ -481,7 +499,8 @@ pub(crate) fn build_stacked_bwrap_argv(
             + extra_mounts.len() * 3
             + 3
             + usize::from(model_mount.is_some()) * 3
-            + usize::from(sigbench_mode.is_some()) * 3,
+            + usize::from(sigbench_mode.is_some()) * 3
+            + usize::from(!layer_entries.is_empty()) * (METHOD_RUN_ENV.len() + 1) * 3,
     );
 
     // Layers, in manifest order. `--ro-bind-try`: an entry the layer does not
@@ -538,6 +557,18 @@ pub(crate) fn build_stacked_bwrap_argv(
             block.push(var.into());
             block.push(mode.to_string());
         }
+    }
+    // A method's packages (METHOD_RUN_ENV), whenever a layer is stacked; with nothing stacked the argv
+    // stays byte-identical to the shipped one (TEST-02). `PATH` overrides the prefix's (last-wins).
+    if !layer_entries.is_empty() {
+        for (var, value) in METHOD_RUN_ENV {
+            block.push("--setenv".into());
+            block.push(var.into());
+            block.push(value.into());
+        }
+        block.push("--setenv".into());
+        block.push("PATH".into());
+        block.push(format!("{METHOD_PACKAGES_DIR}/bin:{}", super::sandbox::SANDBOX_PATH));
     }
     // Thread overrides AFTER the prefix's `1` defaults (last-wins, TEST-05).
     // `n_cpu <= 1` emits nothing (the prefix default is `1`), which keeps the
@@ -1289,6 +1320,45 @@ mod tests {
         // Everything before the first `--`.
         let first_term = pos(&a, "--").unwrap();
         assert!(c < first_term && m < first_term && in_p < first_term && env_p < first_term);
+    }
+
+    /// A stacked run reads the method's own packages from /opt/txr-layer: the sandbox sets the bases'
+    /// package settings itself (its --clearenv drops the image's ENV), after the mounts, with PATH
+    /// overriding the prefix's.
+    #[test]
+    fn stacked_argv_points_python_and_r_at_the_method_packages() {
+        let a = stacked(&["/code", "/opt/txr-layer"], &input_output_mounts(), None, 1, Some("fit"));
+        let env_of = |var: &str| -> (usize, String) {
+            let i = a
+                .iter()
+                .enumerate()
+                .filter(|(i, s)| *s == var && *i > 0 && a[i - 1] == "--setenv")
+                .map(|(i, _)| i)
+                .last()
+                .unwrap_or_else(|| panic!("{var} not set"));
+            (i, a[i + 1].clone())
+        };
+        assert_eq!(env_of("PYTHONUSERBASE").1, "/opt/txr-layer");
+        assert_eq!(env_of("PYTHONPATH").1, "/opt/txrmethod", "base-py's txrmethod helper");
+        let (r_at, r_libs) = env_of("R_LIBS");
+        assert_eq!(
+            r_libs.split(':').collect::<Vec<_>>(),
+            ["/opt/txr-layer/R-library", "/usr/local/lib/R/site-library", "/usr/local/lib/R/library"],
+            "the method's library first, then the base's"
+        );
+        // PATH: the last setting wins, and it is the method's bin dir in front of the sandbox's PATH.
+        let (path_at, path) = env_of("PATH");
+        assert_eq!(path, format!("/opt/txr-layer/bin:{}", crate::modules::sandbox::sandbox::SANDBOX_PATH));
+        let prefix_path = pos(&a, "PATH").unwrap();
+        assert!(prefix_path < path_at, "overrides the prefix's PATH");
+        // After the mounts, before the first `--`.
+        let out_p = pos(&a, "/output").unwrap();
+        let first_term = pos(&a, "--").unwrap();
+        assert!(out_p < r_at && r_at < first_term && path_at < first_term);
+        // The layer entry for the packages is bound like any other.
+        let l = pos(&a, "/opt/txr-layer").expect("/opt/txr-layer bound");
+        assert_eq!(a[l - 2], "--ro-bind-try");
+        assert_eq!(a[l - 1], "/mnt/layer/opt/txr-layer");
     }
 
     /// TEST-02 + the INV-5 design-fidelity proof: the builder REUSES the

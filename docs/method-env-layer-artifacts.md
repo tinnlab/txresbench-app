@@ -251,9 +251,16 @@ shadows the path).
 The generator therefore closes each entry downward to the finest granularity
 that keeps the delta small:
 
-- a **new** package directory (absent from the base) is its own entry and
-  stays at delta size (e.g. `pip`'s new `site-packages/<pkg>` dirs, `R CMD
-  INSTALL`'s new `site-library/<pkg>` dirs);
+- a method's **own packages** live under `/opt/txr-layer`, where the bases'
+  `pip` and R install by default: everything under it is the ONE entry
+  `/opt/txr-layer`, bound onto the empty mount point the base provides (§5.3);
+- a **new** path anywhere else in the base's `/usr` or `/opt` (a package dir
+  installed into the base's own `site-packages`/`site-library`, a new
+  `/opt/<tool>`) is refused at build time, naming the paths: the sandbox
+  mounts the base's `/usr` and `/opt` read-only, so bwrap could not create its
+  mount point at run time (`Can't mkdir ...: Read-only file system`, measured
+  on Linux and in the macOS method VM for every method that installed a
+  package before §5.3);
 - a **changed** package directory (present in the base, at least one file
   differs) is its own entry and carries the method's full package subtree
   (e.g. `survival` re-installed at a different version);
@@ -314,6 +321,30 @@ parity-locked, so the growth is a deliberate `sandbox-stacked` change;
 (b) fold the shared system dependency into the per-language trimmed base
 (jags is method-specific, so this is the wrong shape here); (c) treat the
 method as layer-less.
+
+### §5.3 A method's own packages: `/opt/txr-layer`
+
+Both bases (tinnlab/txresbench `base-images/{python,r}`, tag `2.0`) end with an
+empty `/opt/txr-layer` (`/opt/txr-layer/R-library` in base-r) and the settings
+that make a method's build install there, set AFTER the base's own installs:
+
+- base-py: `PIP_USER=1`, `PYTHONUSERBASE=/opt/txr-layer`, `/opt/txr-layer/bin`
+  first on `PATH`; Python reads the user site
+  (`/opt/txr-layer/lib/python3.11/site-packages`) ahead of the base's
+  `site-packages`, so a method can add a package or pin another version of one
+  the base has;
+- base-r: `R_LIBS=/opt/txr-layer/R-library:/usr/local/lib/R/site-library:/usr/local/lib/R/library`
+  (`R_LIBS`, not `R_LIBS_USER`: rocker puts `R_LIBS` ahead of the user
+  library); `install2.r`, `remotes::install_*` and `R CMD INSTALL` install into
+  the first entry, and R loads a method's version ahead of the base's.
+
+A method image therefore differs from its base only under `/code` and
+`/opt/txr-layer`, and its layer has those two entries. The sandbox's
+`--clearenv` drops the image's `ENV`, so a stacked run sets the same values
+itself (`stack.rs` `METHOD_RUN_ENV`: `PYTHONPATH=/opt/txrmethod` for base-py's
+helper, `PYTHONUSERBASE`, `R_LIBS`, and `PATH` with `/opt/txr-layer/bin`
+first). The generator's `METHOD_PACKAGES_DIR` and `stack.rs`
+`METHOD_PACKAGES_DIR` name the same folder.
 
 ## §6 The OCI artifact (PROV-method-env-images-2)
 

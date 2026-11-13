@@ -203,6 +203,11 @@ ALLOWED_PREFIXES = (
     "/code",
 )
 
+#: Where a method's own packages live (the bases' mount point, tinnlab/txresbench base-images): pip and R
+#: install there by default. Everything under it is ONE layer entry, so a stacked run binds the whole
+#: folder onto the mount point the base provides. Must match stack.rs METHOD_PACKAGES_DIR.
+METHOD_PACKAGES_DIR = "/opt/txr-layer"
+
 #: Trim rules (DEC-12, design §4) — the shipped single-cell recipe's own
 #: set, as fixed constants (DEC-13: no settings row, no per-method profile).
 #: KEPT: `.pyi`/`.pyx`/`.pxd` (skimage/scipy lazy loaders read them), R
@@ -545,13 +550,15 @@ def _trimmed(p: str, kind: str) -> bool:
     return kind == "file" and p.endswith(TRIM_FILE_SUFFIXES)
 
 
-def closed_cover(delta: Delta, method_root: str) -> list[str]:
+def closed_cover(delta: Delta, method_root: str, base_root: str) -> list[str]:
     """Derive the subtree-closed cover of the delta (design §5.1) and REFUSE
     what cannot be a layer under the frozen contract (§5.2).
 
     Rules, in order — each is the reason the emitted entry list makes the
     runtime's per-entry bind loop equivalent to an overlay union (§8):
 
+      0. Everything under METHOD_PACKAGES_DIR (/opt/txr-layer, where pip and
+         R install a method's packages) is the one entry /opt/txr-layer.
       1. Every delta path must sit under an allowed prefix (/usr/local,
          /opt, /code); otherwise the build refuses and names the paths.
       2. /code is always an entry (the wrapper lives there; its parent is
@@ -568,6 +575,11 @@ def closed_cover(delta: Delta, method_root: str) -> list[str]:
          (a lone new /usr/local/bin tool, a new /opt file).
       6. Nothing else is an entry: a path shared with the base whose delta
          is empty is not an entry at all.
+      7. Every entry but /code must already exist in the base: the sandbox
+         mounts the base's /usr and /opt read-only, so bwrap cannot create a
+         mount point for a new path there ("Can't mkdir ...: Read-only file
+         system" at run time). Such a layer is refused here instead, naming
+         the paths; a method installs its packages into /opt/txr-layer.
     """
     if delta.paths_count == 0:
         raise BuildError(
@@ -580,6 +592,10 @@ def closed_cover(delta: Delta, method_root: str) -> list[str]:
     for p, kind in list(delta.added.items()) + list(delta.changed.items()):
         if not _under_allowed(p):
             outside.append("/" + p)
+            continue
+        packages_rel = METHOD_PACKAGES_DIR.lstrip("/")
+        if p == packages_rel or p.startswith(packages_rel + "/"):
+            entries.add(METHOD_PACKAGES_DIR)
             continue
         pkg = _package_root(p)
         if pkg is not None:
@@ -604,6 +620,15 @@ def closed_cover(delta: Delta, method_root: str) -> list[str]:
         )
     if "/code" not in entries:
         raise BuildError("the layer manifest must include /code (PROV-3)")
+    no_mount_point = sorted(e for e in entries if e != "/code"
+                            and not os.path.lexists(os.path.join(base_root, e.lstrip("/"))))
+    if no_mount_point:
+        raise BuildError(
+            "layer entries the base has no mount point for; the sandbox mounts "
+            "the base's /usr and /opt read-only, so these paths could not be "
+            "mounted at run time. Install the method's packages into "
+            f"{METHOD_PACKAGES_DIR} (the bases' pip and R default) instead of "
+            "the base's own folders:\n  " + "\n  ".join(no_mount_point))
     # The deletion half of PROV-3, decided AFTER the cover: a removal whose
     # path sits under a cover entry is shadowed by the entry's bind (the
     # method's replacement of that subtree — §5.1's content rule makes the
@@ -1213,7 +1238,7 @@ def build_one(eid: str, entry: dict, args) -> dict:
           f"{delta.n_dropped_excluded_added} debris-dropped")
 
     # 6-9. cover, materialize, trim, modes, contract files.
-    entries = closed_cover(delta, m_root)
+    entries = closed_cover(delta, m_root, b_root)
     layer_dir = os.path.join(args.out, "layers", f"{eid}-{args.arch}")
     layer_root = os.path.join(layer_dir, "layer")
     materialize_layer(entries, m_root, layer_root)
