@@ -254,3 +254,102 @@ async fn packer_output_imports_through_the_store_seam() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].pretrained_catalogue_version.as_deref(), Some("1.0.0"));
 }
+
+/// The packer's optional `conversions` (the package's `model.conversions`)
+/// reach the store: the reader accepts them in the header, a pretrained
+/// install stores them and resolve hands them to the engine — so a
+/// pretrained model of a method without its own probability gives chances.
+/// The committed fixture (no conversions) keeps its pinned bytes (the
+/// layout test above).
+#[tokio::test]
+async fn packer_conversions_reach_the_store() {
+    use txresbench::modules::execution_engine::predictions::Conversions;
+    use txresbench::modules::rootfs;
+
+    let server = TestServer::spawn().await;
+    let p = pool(&server).await;
+    let _g = rootfs::scoped_data_root(server.data_dir());
+
+    let mut facts: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(fixture("facts.json")).expect("read the fixture facts"),
+    )
+    .expect("the fixture facts parse");
+    let map = serde_json::json!({
+        "progression@238": {"kind": "logistic", "a": -0.4, "b": 1.7, "mu": 0.9,
+                            "sd": 0.35, "n": 120, "rate": 0.4},
+        "no_response": {"kind": "constant", "a": 0.0, "b": 0.0, "mu": 0.0,
+                        "sd": 1.0, "n": 64, "rate": 0.25},
+    });
+    facts["conversions"] = map.clone();
+    let facts_path = server.data_dir().join("facts-with-conversions.json");
+    std::fs::write(&facts_path, facts.to_string()).expect("write the facts");
+    let out = server.data_dir().join("packer-conversions.txr");
+    let report = run_packer(
+        &[
+            "--tree",
+            fixture("tree").to_str().expect("utf-8"),
+            "--facts",
+            facts_path.to_str().expect("utf-8"),
+            "--out",
+            out.to_str().expect("utf-8"),
+        ],
+        "pack with conversions",
+    );
+    let (size, _) = parse_report(&report.stdout);
+    assert_ne!(size, FIXTURE_BYTES, "the header grew by the conversions");
+    let bytes = std::fs::read(&out).expect("the packed container");
+
+    let want: Conversions = serde_json::from_value(map).expect("the map parses");
+    let restored = read_container_bytes(
+        &bytes,
+        &server.data_dir().join("conv-staging"),
+        ModelStoreLimits::MAX_CONTAINER_BYTES,
+    )
+    .expect("the store's reader accepts the conversions");
+    assert_eq!(restored.models[0].header.facts.conversions, want);
+
+    let outcome = store::install_imported(
+        &p,
+        &bytes,
+        &ImportOptions {
+            set_id: None,
+            provenance: Provenance::Pretrained {
+                catalogue_id: "fx-rule-001".to_string(),
+                version: "1.0.0".to_string(),
+                licence: "CC0 1.0 (synthetic fixture)".to_string(),
+            },
+        },
+    )
+    .await
+    .expect("the pretrained install accepts them");
+    let assets = store::resolve_assets(&p, &outcome.model_ids)
+        .await
+        .expect("resolve the installed model");
+    assert_eq!(assets[0].conversions, want, "the engine receives the packed map");
+
+    // A bad map never leaves the packer (and writes nothing).
+    facts["conversions"] = serde_json::json!({"progression": {"kind": "logistic", "a": 0,
+        "b": 1, "mu": 0, "sd": 1, "n": 3, "rate": 0.5}});
+    std::fs::write(&facts_path, facts.to_string()).expect("write the facts");
+    let refused = server.data_dir().join("refused.txr");
+    let res = Command::new("python3")
+        .arg(repo_root().join("scripts/pretrained-catalogue/pack_model_txr.py"))
+        .args([
+            "--tree",
+            fixture("tree").to_str().expect("utf-8"),
+            "--facts",
+            facts_path.to_str().expect("utf-8"),
+            "--out",
+            refused.to_str().expect("utf-8"),
+        ])
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .output()
+        .expect("spawn the packer");
+    assert!(!res.status.success());
+    assert!(
+        String::from_utf8_lossy(&res.stderr).contains("ERROR FACTS_BAD_CONVERSION"),
+        "{}",
+        String::from_utf8_lossy(&res.stderr)
+    );
+    assert!(!refused.exists(), "a refusal writes nothing");
+}
