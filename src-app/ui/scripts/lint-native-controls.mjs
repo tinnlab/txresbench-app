@@ -35,7 +35,7 @@
  *
  * ── THE RULE ──────────────────────────────────────────────────────────────────
  *
- * In first-party frontend source (`src-app/ui/src`, `src-app/libs/<p>/src`),
+ * In first-party frontend source (`src-app/ui/src`),
  * a JSX opening tag for `button` / `input` / `select` / `textarea` is a violation.
  * The `sdk/` submodule is not scanned: the kit is where these elements are
  * DEFINED, and that is the whole point of having a kit.

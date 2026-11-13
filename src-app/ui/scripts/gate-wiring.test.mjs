@@ -14,14 +14,14 @@
  * parser that extracted nothing would otherwise report a perfectly clean wiring.
  *
  * STRIP (single-cell): the surface-baseline device (its subject, the workbench surface,
- * left in ITEM-4), the workspace-package-suite gate (its subjects, `src-app/libs/{dock,
- * viz, workbench-api}` left in ITEM-2/4) and the submodule half of that gate (it existed
- * only to keep the package gate's workspace globs honest) left with their subjects; the
- * remaining wiring assertions below are the kept chain's own.
+ * left in ITEM-4), the workspace-package-suite gate (its subjects left in ITEM-2/4) and
+ * the submodule half of that gate (it existed only to keep the package gate's workspace
+ * globs honest) left with their subjects; the remaining wiring assertions below are the
+ * kept chain's own.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, existsSync, readdirSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -73,8 +73,8 @@ test('TEST-46: `just check` exists and invokes a real chain', () => {
 })
 
 test('TEST-46: the RETIRED `check-ts-packages` recipe is gone from executable justfile code', () => {
-  // ITEM-40 retired it: it ran `npm --prefix src-app/libs/workbench-api test`, and
-  // that package no longer exists. The explanatory comment recording the retirement
+  // ITEM-40 retired it: it ran a per-package `npm test` for a package that no longer
+  // exists. The explanatory comment recording the retirement
   // stays (so it is not re-added by accident) — hence the comment-stripped read.
   const code = justCode()
   assert.ok(!/^check-ts-packages\s*:/m.test(code), 'the retired recipe is still defined')
@@ -89,8 +89,8 @@ test('TEST-46: the RETIRED `check-ts-packages` recipe is gone from executable ju
 })
 
 test('TEST-46: the RETIRED single-cell recipes are gone from executable justfile code', () => {
-  // ITEM-2/ITEM-4 retired these with their subjects (processor packages, env-rootfs,
-  // the coercion corpus, `src-app/libs/viz`, the visual/viz e2e tiers, the processor
+  // ITEM-2/ITEM-4 retired these with their subjects (processor packages, env recipes,
+  // the coercion corpus, the sourcing viz lib, the visual/viz e2e tiers, the processor
   // inventory and the acceptance gate). A comment tidies nothing about executable code.
   const code = justCode()
   for (const r of [
@@ -188,7 +188,7 @@ test('the e2e-ROUTING gate is wired, and every e2e runner has a recipe', () => {
 
 test('TEST-46: the RETIRED single-cell UI scripts are gone', () => {
   // ITEM-4 removed these with their subjects (the viz showcase/bench/parity/render
-  // scripts with `src-app/libs/viz`, the workbench surface-drift device with the
+  // scripts with the sourcing viz lib, the workbench surface-drift device with the
   // workbench, the processor inventory with the processors suite).
   for (const f of [
     'capture-surface-baseline.mjs',
@@ -212,16 +212,3 @@ test('TEST-46: the RETIRED single-cell UI scripts are gone', () => {
     assert.ok(!existsSync(path.join(HERE, f)), `the retired script ${f} is back`)
 })
 
-test('the workspace has no `src-app/libs` packages left (their suite gate retired with them)', () => {
-  // `check-package-suites.mjs` (workspace-package coverage) died in ITEM-2 with the
-  // processor packages, and `src-app/libs/{dock,viz}` left in ITEM-4 — so the
-  // anti-rot assertion "every libs package with a test script is covered" has no
-  // population. It stays as the emptiness proof: a package ADDED back under
-  // `src-app/libs/` is exactly what ITEM-5's workspace rewrites have to re-home.
-  const libsRoot = path.join(REPO, 'src-app/libs')
-  const onDisk = existsSync(libsRoot)
-    ? readdirSync(libsRoot).filter(e => e !== 'node_modules')
-    : []
-  assert.deepEqual(onDisk, [], `src-app/libs/ contains packages (${onDisk.join(', ')}) that npm ` +
-    'workspaces would re-expose — the libs removal is incomplete')
-})

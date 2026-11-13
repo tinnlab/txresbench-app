@@ -14,7 +14,7 @@ The app pulls two artifact kinds from an OCI registry (the dev registry of
   * a per-method LAYER image (`tinnlab/txr-method-env-layers/<env-id>`), one
     squashfs carrying `/code` (the method's own wrapper bytes), the layer
     schema marker, `/layer-manifest.json` and the `usr/` mount-readiness
-    sentinel — the artifact shape of `docs/design/method-env-layer-artifacts.md`
+    sentinel — the artifact shape of `docs/method-env-layer-artifacts.md`
     §5/§6, byte-identical to the pinned §6.1 manifest construction.
 
 This script assembles both kinds **from the host** — no docker, no network:

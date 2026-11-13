@@ -66,11 +66,10 @@ const MANIFEST_PATH = process.env.COLLECT_ACTIONS_MANIFEST_PATH
   : path.resolve(UI_ROOT, '..', 'server', 'src', 'modules', 'mcp', 'frontend-actions.json')
 
 // STRIP (single-cell): the declarative `view_spec` population was the
-// processor-registry (ITEM-10) vocabulary — `<root>/<processor>/ui/*.yaml`
-// under `src-app/packages`, registered at runtime by the removed workbench
-// (`workbench/core/runtime/interpreter.ts`). The processor packages and the
-// workbench left with the single-cell platform, so the collector now emits the
-// hand-written `defineAction` population only.
+// processor-registry (ITEM-10) vocabulary — `<root>/<processor>/ui/*.yaml`,
+// registered at runtime by the removed workbench interpreter. The processor
+// packages and the workbench left with the single-cell platform, so the
+// collector now emits the hand-written `defineAction` population only.
 
 const TSCONFIG_PATH = path.join(UI_ROOT, 'tsconfig.json')
 const DEFINE_ACTION_PATH = path.join(SRC_ROOT, 'core', 'actions', 'defineAction.ts')

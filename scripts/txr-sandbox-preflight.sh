@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # txr-sandbox-preflight.sh — check the host requirements of the TxResBench
 # method sandbox WITHOUT changing anything. The non-destructive counterpart of
-# `scripts/dev-sandbox-bootstrap.sh` (which FIXES two of these on a dev box):
+# the dev-box prep script (which FIXES two of these on a dev box):
 # this one is the checklist the installer and the operator run (DEC-16), for
 # the STACKED mode — one trimmed per-language base rootfs + one per-method
 # layer per run, mounted by bwrap + squashfuse (see the `modules::sandbox`
 # module doc, "Host requirements").
 #
-# Checks — the same list as `dev-sandbox-bootstrap.sh` plus `oras`, the one
+# Checks — the same list as the dev-box prep script plus `oras`, the one
 # extra tool the txr env-FETCH path needs (PROV-SS-4 / CONS-SS-3):
 #   1. host tools: bwrap, squashfuse, fusermount3 (bwrap/squashfuse are the
 #      sandbox core; fusermount3 is how the squashfuse mount reaches bwrap)

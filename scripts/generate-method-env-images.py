@@ -16,7 +16,7 @@ against the committed file, DEC-15/INV-5).
 
 Binding references (read them before changing a constant or a rule):
 
-  - docs/design/method-env-layer-artifacts.md — the artifact contract:
+  - docs/method-env-layer-artifacts.md — the artifact contract:
     delta semantics (§3), trim rules (§4), the layer filesystem contract and
     the subtree-closed cover (§5/§5.1), the prefix refusal (§5.2), the mount
     semantics that make the cover rule load-bearing (§8), determinism (§10).
@@ -83,16 +83,16 @@ next to /.txr-method-env-layer-schema and /layer-manifest.json.
 
 WHAT THE SHIPPED CODE ALREADY PROVED (do not re-derive):
 
-  - the extract shape (docker create + export a built image) is
-    scripts/publish-env-rootfs.sh step 2 and the CI workflow it mirrors;
-  - the packer flags are src-app/env-rootfs/single-cell/Dockerfile's packer
-    stage: mksquashfs -comp zstd -Xcompression-level 22 -b 1M -all-root;
+  - the extract shape (docker create + export a built image) is the
+    framework's env-image publish step 2 and the CI workflow it mirrors;
+  - the packer flags are the framework's env-recipe packer stage:
+    mksquashfs -comp zstd -Xcompression-level 22 -b 1M -all-root;
   - the 0600-wrapper failure is a repeated benchmark record (the container's
     non-root user cannot read /code/run.py), which is why a wrapper below
     0644 read bits is a HARD ERROR (design §3.1) and every other file is
     normalized (files >= 0644, dirs >= 0755);
-  - the generated-artifact discipline is env-pins.generated.json +
-    scripts/check-recipe-pins.mjs: this script emits no wall-clock field,
+  - the generated-artifact discipline is the byte-parity pin: this script
+    emits no wall-clock field,
     sorts every emitted array, and writes no temp path into any record, so
     ITEM-3's byte-parity --check is reachable.
 
@@ -107,7 +107,7 @@ USAGE
 
   --arch            amd64 (default) | arm64; a cross-arch build is refused
                     unless ALLOW_EMULATED_BUILD=1 (mirror of
-                    publish-env-rootfs.sh: qemu bytes must not be staged
+                    the framework's publish script: qemu bytes must not be staged
                     by accident, DEC-10).
   --methods-dir     the methods repository (default $TXR_METHODS_DIR, else
                     /data/share/pbya/sigtrans/methods — the plan's CONS-1
@@ -251,7 +251,7 @@ MANIFEST_SCHEMA_VERSION = 1
 
 #: The OCI artifact type (DEC-14) — the manifest's `artifactType` AND the
 #: single file's media type (the publisher's `oras push` spells the file as
-#: `layer.squashfs:<ARTIFACT_TYPE>`, exactly the publish-env-rootfs.sh shape).
+#: `layer.squashfs:<ARTIFACT_TYPE>`, exactly the framework's publish shape).
 ARTIFACT_TYPE = "application/vnd.txr.method-env.layer.v1"
 
 #: The OCI image manifest media type of the artifact manifest.
@@ -793,7 +793,7 @@ class DockerStageError(Exception):
 
 def _run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess:
     """Run a build-stage command, printed with a `+ ` like
-    publish-env-rootfs.sh. Every build-stage process is launched through the
+    the framework's env-image publish path. Every build-stage process is launched through the
     caller's cap (ops/cap.sh); this script only avoids its own unbounded
     parallelism — it never spawns a worker pool."""
     print("+ " + " ".join(cmd))
@@ -872,7 +872,7 @@ def build_image(tag: str, build_dir: str, arch: str,
 
 def export_rootfs(image_ref: str, tar_path: str) -> None:
     """docker create + docker export + docker rm — the extract shape the
-    shipped publish-env-rootfs.sh (step 2) proves. `docker create` needs no
+    shipped publish sequence (step 2) proves. `docker create` needs no
     runtime; the exported stream is the image's filesystem (no volumes), so
     the delta is a pure image-vs-image comparison."""
     cid = docker("create", image_ref).stdout.decode("utf-8", "replace").strip()
@@ -1438,7 +1438,7 @@ def oci_artifact_manifest_bytes(rec: dict, contract: str) -> bytes:
     that closes the loop when oras is at hand.
 
     The shape mirrors what `oras push --artifact-type <t> <ref>:<tag>
-    layer.squashfs:<t>` stores (publish-env-rootfs.sh's own invocation
+    layer.squashfs:<t>` stores (the publisher's own invocation
     shape): artifactType = the artifact type, the single layer's mediaType
     = the artifact type (the file is the layer, not a tar), config = the
     OCI empty JSON, the layer descriptor carries the file title annotation
@@ -1791,7 +1791,7 @@ def main(argv: list[str]) -> int:
     if not os.path.isdir(args.methods_dir):
         parser.error(f"methods directory {args.methods_dir} is not a "
                      "directory (TXR_METHODS_DIR / --methods-dir)")
-    # verify_arch before any build (mirror publish-env-rootfs.sh).
+    # verify_arch before any build (mirror the publisher's own check).
     host = os.uname().machine
     host_arch = {"x86_64": "amd64", "amd64": "amd64",
                  "aarch64": "arm64", "arm64": "arm64"}.get(host)

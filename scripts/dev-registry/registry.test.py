@@ -6,7 +6,7 @@ server instance starts on an ephemeral port in the background and the wire
 flows are driven with http.client the way oras and the app's get/HEAD client
 behave (POST → PATCH → PUT?digest=, monolithic PUT, chunked PATCH, manifest
 PUT by tag with the artifact-manifest construction of
-docs/design/method-env-layer-artifacts.md §6.1, manifest GET by tag and by
+docs/method-env-layer-artifacts.md §6.1, manifest GET by tag and by
 digest, blob range GET, tags/list, DELETE, restart persistence).
 
 Run: python3 scripts/dev-registry/registry.test.py

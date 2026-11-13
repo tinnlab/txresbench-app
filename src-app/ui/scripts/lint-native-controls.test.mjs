@@ -218,10 +218,13 @@ test('the committed ledger is exactly what the tree produces (no drift, either d
 test('the scan reaches the real first-party roots and NOT the sdk submodule', () => {
   const roots = scanRoots()
   assert.ok(roots.some(r => r.endsWith(path.join('ui', 'src'))), 'ui/src must be scanned')
-  // STRIP (single-cell): `src-app/libs/{dock,viz}` left in ITEM-4, so the only
-  // first-party root left is `ui/src` — assert the emptiness so a package that comes
-  // BACK under `src-app/libs/` has to be added to this scan set deliberately.
-  assert.ok(!roots.some(r => r.includes(`${path.sep}libs${path.sep}`)), 'src-app/libs must NOT be scanned')
+  // STRIP (single-cell): the dock/viz libs left in ITEM-4, so the only first-party
+  // root left is `ui/src` — assert the emptiness so a libs tree that comes back has
+  // to be added to this scan set deliberately.
+  assert.ok(
+    !roots.some(r => r.includes(`${path.sep}libs${path.sep}`)),
+    'a platform-libs root must NOT be scanned',
+  )
   assert.ok(!roots.some(r => r.includes(`${path.sep}sdk${path.sep}`)), 'the kit DEFINES these elements')
   assert.ok(scanFiles(roots).length > 400, 'the scan set collapsed')
 })

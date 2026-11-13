@@ -16,7 +16,7 @@
 # (`check-processor-versions` blocked a behaviour change at an unbumped version;
 # `check-invariants` was itself red in a way the recipe could never reveal).
 #
-# ── THE PRINCIPLE (docs/design/aggregate-gate-reporting.md §2) ──────────────────
+# ── THE PRINCIPLE (docs/aggregate-gate-reporting.md §2) ──────────────────
 #   An aggregate gate runs every leg it names and reports every leg's result. A leg's
 #   failure changes the aggregate's VERDICT; it never changes which legs RUN.
 #
@@ -34,7 +34,7 @@
 # which an existing pytest parses). Legs are read from stdin, run in the order given,
 # never reordered and never parallelized.
 #
-# ── THE FLOOR (docs/design/derived-guards.md §2) ────────────────────────────────
+# ── THE FLOOR (docs/derived-guards.md §2) ────────────────────────────────
 # A runner that reads zero legs and reports success is the same vacuous green this whole
 # script exists to remove, so `--min-legs N` fails closed when fewer than N legs were
 # read — a leg quietly dropped from the recipe, or a heredoc that stops expanding,
@@ -199,7 +199,7 @@ if [ "$n" -lt "$MIN_LEGS" ]; then
   echo "  Legs read: ${names[*]}" >&2
   echo "  A leg has been dropped from the caller, or its heredoc stopped expanding. Do" >&2
   echo "  NOT lower the floor to go green — the floor is what makes a shrinking gate" >&2
-  echo "  visible (docs/design/derived-guards.md §2)." >&2
+  echo "  visible (docs/derived-guards.md §2)." >&2
   exit 2
 fi
 

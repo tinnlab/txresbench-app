@@ -20,7 +20,7 @@
 //
 // | guard                                | floor constant                          | how it collapses |
 // |--------------------------------------|-----------------------------------------|------------------|
-// | check-no-study-domain-literals.sh    | `MIN_FILES=1500`                        | `src-app/**` renamed |
+// | check-no-study-domain-literals.sh    | `MIN_FILES=800`                         | `src-app/**` renamed |
 // | lint-no-domain-in-builtin.mjs        | `SCAN_FLOORS{rust,workbenchFe,extraFe}` | scan roots renamed |
 // | collect-actions.mjs                  | `MIN_SOURCE_FILES` + `MIN_VIEWSPEC_FILES` | SRC_ROOT / VIEWSPEC_ROOT renamed |
 // | action-refs-lint.mjs                 | `MIN_SOURCE_FILES=400`                  | SRC_ROOT renamed |

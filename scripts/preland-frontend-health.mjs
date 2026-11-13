@@ -35,7 +35,7 @@
  * -------
  * Runs only when the diff vs the base (default `origin/main`) touches a frontend
  * path: `src-app/ui/` (the processor-package UI arm was removed with the
- * processor package tree and `src-app/libs/` with the viz/dock libs, strip node
+ * processor package tree; the libs arm with the viz/dock libs, strip node
  * ITEM-2/4). A backend-only branch SKIPS entirely and costs nothing.
  *
  * FOLLOW-UP (recorded, NOT implemented)

@@ -1470,8 +1470,7 @@ test('[WS-C][carve-out] an UNDECLARED package FAILS — the carve-out cannot acq
   // `viz` is DECLARED unscanned, so it does not violate; an invented one does.
   assert.deepEqual(mod.packageDeclarationViolations(), [], 'the live tree declares every package')
   // R20 §1 — the invented package is created in a TEMP `packages` root reached through
-  // `ROOTS_OVERRIDE`, not by `mkdir src-app/libs/__wsc_planted_pkg__` in the working
-  // tree. Both halves of the original assertion survive: the exported checker names it,
+  // `ROOTS_OVERRIDE`, not by planting a package in the working tree. Both halves of the original assertion survive: the exported checker names it,
   // and the whole guard fails on it.
   withTmp(dir => {
     mkdirSync(path.join(dir, '__wsc_planted_pkg__', 'src'), { recursive: true })
@@ -2993,9 +2992,9 @@ test('[WS-R5][G3] an UNDECLARED tree FAILS — "not scanned" must be written dow
     [],
     'every tree in the census is either reached or declared',
   )
-  // Three trees hid here — `src-app/testdata` (334 findings), repo-root `scripts/` (78, incl.
-  // 3 quote-delimited datatype ids) and `ui/scripts` (3901) — in no root and in no exclusion
-  // list, while the guard carefully documented `packages/**` and `libs/viz`. Drop every
+  // Three trees hid here — the platform's test-data corpus (334 findings), repo-root
+  // `scripts/` (78, incl. 3 quote-delimited datatype ids) and `ui/scripts` (3901) — in no
+  // root and in no exclusion list. Drop every
   // scanned file under one census level and the tree it belongs to must be named.
   const pruned = set.filter(e => !e.path.includes(`${path.sep}desktop${path.sep}`))
   const v = mod.treeDeclarationViolations(pruned)
@@ -3285,18 +3284,22 @@ test('[WS-R6][repo] a repo-root tree that is IGNORED but holds a TRACKED file st
   assert.equal(runGuard(undefined).code, 0)
 })
 
-test('[WS-R6] the four GENERATED+GITIGNORED declarations are now REDUNDANT, and kept on purpose', async () => {
+test('[WS-R6] the three GENERATED+GITIGNORED declarations are now REDUNDANT, and kept on purpose', async () => {
   // The decision recorded next to them in UNSCANNED_TREES, asserted rather than
-  // claimed: materialise all four and the git rule alone would skip every one — so
+  // claimed: materialise all three and the git rule alone would skip every one — so
   // they are belt-and-braces (the git rule needs `git`; a tarball export has none),
   // not mechanism. `server/config` is the control: it is TRACKED, so its declaration
   // is load-bearing and must NOT be skippable.
+  // STRIP (single-cell): the list is three, not four — `server/binaries` left the
+  // declarations with its builder (the staged embed slot left in ITEM-3, the
+  // gitignore row in ITEM-5a), and ITEM-5 also pruned the WS-R6 prose. It is
+  // intentionally NOT here: no longer generated and no longer ignored, a stale
+  // leftover must be called out by the census, not silently declared away.
   const mod = await import('./lint-no-domain-in-builtin.mjs')
   const repoRoot = path.resolve(__dirname, '..', '..', '..')
   const redundant = [
     'src-app/ui/test-results',
     'src-app/ui/playwright-report',
-    'src-app/server/binaries',
     'src-app/server/migrations-merged',
   ]
   const created = redundant.filter(r => !existsSync(path.join(repoRoot, r)))
@@ -3325,7 +3328,7 @@ test('[WS-R6] the four GENERATED+GITIGNORED declarations are now REDUNDANT, and 
 // STRIP (single-cell): both tiers derived from the CONTRIBUTED lattice — R7 from the
 // processor packages' package/analysis/view/action ids (`qc.compute` etc.), R8 from the
 // quoted-id lattice tokens used as a SEGMENT (`clustering_ref`, `selection.clustering`).
-// The lattice left with `src-app/packages` (ITEM-2) and the modules that consumed it
+// The lattice left with the package tree (ITEM-2) and the modules that consumed it
 // (ITEM-3/4), so both derivations are empty by truth and the tiers match nothing. The
 // guard deleted the tiers (and their floors/buckets) in lockstep — see the STRIP notes in
 // `lint-no-domain-in-builtin.mjs` at `PACKAGE_ID_TOKENS`, `QUOTED_ID_TOKENS` and the

@@ -414,7 +414,7 @@ export function contributedDatatypes(dir = PROCESSORS_DIR) {
  */
 export function contributedVocabularyViolations(entries = CONTRIBUTED_DATATYPES) {
   const out = []
-  // STRIP (single-cell): `src-app/packages/` no longer exists, so the derivation yields
+  // STRIP (single-cell): the package tree no longer exists, so the derivation yields
   // an EMPTY vocabulary — the truth of this tree, not a shrunk hand-list. The
   // `CONTRIBUTED_DATATYPE_FLOOR` / `CONTRIBUTING_PACKAGE_FLOOR` checks were deleted with
   // the subject they existed to guard, in lockstep with the Rust twin
@@ -1137,8 +1137,8 @@ export const PACKAGE_ID_TOKENS = [
 ].sort((a, b) => b.length - a.length)
 
 /**
- * STRIP (single-cell): the PACKAGE derivation tiers (derived from `src-app/libs/*` +
- * `contributedPackageIds`) were deleted with `src-app/libs` (ITEM-4) — `PACKAGE_FLOOR`,
+ * STRIP (single-cell): the PACKAGE derivation tiers (derived from the package
+ * workspaces + `contributedPackageIds`) were deleted with the dock/viz libs (ITEM-4) — `PACKAGE_FLOOR`,
  * `PACKAGE_TOKEN_FLOOR` and `packageVocabularyViolations` went with the walk they guarded,
  * lockstep with the Rust twin. The MATCHERS stay (see `matchPackageIds` below): they
  * iterate whatever tokens survive, which today is the empty set — an empty derivation is
@@ -1202,10 +1202,10 @@ const SCAN_FLOORS = {
    *  the processor-manifest + sandbox-rootfs helpers were the extensions registry's. */
   /** WS-C: `desktop/**` `.rs`/`.ts`/`.tsx` (the Tauri harness). Measured 6; STRIP RE-MEASURED 9. */
   desktop: 6,
-  /** STRIP (single-cell): `workbenchFe` root DELETED with `modules/workbench` (ITEM-4). */
+  /** STRIP (single-cell): `workbenchFe` root DELETED with the workbench module (ITEM-4). */
   /** WS-C: ALL the rest of `ui/src/**.{ts,tsx}` minus the DEC-9 exemptions. Measured 269; STRIP RE-MEASURED 293. */
   uiFe: 195,
-  /** STRIP (single-cell): `packagesFe` root DELETED with `src-app/libs` (ITEM-4). */
+  /** STRIP (single-cell): `packagesFe` root DELETED with the dock/viz libs (ITEM-4). */
   /**
    * WS-R3: `server/src/**` + `build_helper/**` `.sql`/`.py`/`.json`/`.yaml`.
    *
@@ -2317,7 +2317,7 @@ export function formatCoveragePinViolations(set) {
 // paths the walk happens to name — so THREE whole trees were in no scan root AND in no
 // declared-exclusion list, and nothing said so:
 //
-//   * `src-app/testdata/`   — 334 findings (300 in one JSON corpus)
+//   * the platform test-data corpus — 334 findings (300 in one JSON corpus)
 //   * repo-root `scripts/`  — 78 findings, including 3 quote-delimited datatype ids
 //   * `src-app/ui/scripts/` — 3901 findings
 //
@@ -2363,7 +2363,7 @@ const UNSCANNED_TREES = {
     'it is about the SQLite port and the test harness, not the domain. Added by the epic-reconcile ' +
     'commit; out for the same reason as `docs`, recorded so the zero is on the record.',
   docs: 'PROSE-ONLY research + design notes; measured 7377 findings (6271 code-tier / 1106 prose / ' +
-    '349 literal), 92 files, led by docs/research/data-processing/*.md (699/593/540). These are ' +
+    '349 literal), 92 files, led by the platform data-processing research (699/593/540). These are ' +
     'notes ABOUT the domain — the single place in the repo where naming the domain is the POINT — ' +
     'and nothing under docs/ compiles, ships or is read at runtime. Scanning them would be the ' +
     'same category error already recorded for packages/**. EXPLICITLY out.',
@@ -2439,29 +2439,29 @@ const UNSCANNED_TREES = {
     'the same generated vocabulary is the category error already recorded for `packages`/`docs`. ' +
     'Out, with the (zero-new) cost on the record.',
   // GENERATED + GITIGNORED (`.gitignore`: src-app/ui/test-results/, src-app/ui/playwright-report/).
-  // Playwright's two default output trees. Declared rather than name-skipped for exactly the
-  // reason `server/binaries` is: `CENSUS_SKIP_DIRS` is for universally-recognisable build output,
-  // and a reader deserves to be told what a repo-specific artefact tree is. Both are absent from a
-  // clean checkout and appear the moment anyone runs the e2e suite — which is how the census first
-  // fired on a developer machine at the round-5 reconciliation, on a tree that is by construction
-  // not source. Measured (this guard's tokenizer, via the self-test scan override): test-results
-  // = 1 candidate file (`.last-run.json`), 0 findings in any dialect; playwright-report is HTML +
-  // `.zip` traces, which have NO dialect in either tokenizer, so its measured cost is 0 by
-  // construction.
+  // Playwright's two default output trees. Declared rather than name-skipped for the same reason
+  // the server section declares `server/migrations-merged`: `CENSUS_SKIP_DIRS` is for
+  // universally-recognisable build output, and a reader deserves to be told what a repo-specific
+  // artefact tree is. Both are absent from a clean checkout and appear the moment anyone runs the
+  // e2e suite — which is how the census first fired on a developer machine at the round-5
+  // reconciliation, on a tree that is by construction not source. Measured (this guard's
+  // tokenizer, via the self-test scan override): test-results = 1 candidate file (`.last-run.json`),
+  // 0 findings in any dialect; playwright-report is HTML + `.zip` traces, which have NO dialect in
+  // either tokenizer, so its measured cost is 0 by construction.
   //
-  // WS-R6 — THESE FOUR ARE NOW REDUNDANT, AND KEPT ON PURPOSE. The runtime-artefact rule
-  // above covers every one of them: measured 2026-07-28 with all four materialised on disk,
+  // WS-R6 — THESE THREE ARE NOW REDUNDANT, AND KEPT ON PURPOSE. The runtime-artefact rule
+  // above covers every one of them: measured 2026-07-28 with all three materialised on disk,
   // `git check-ignore` reports IGNORED and `git ls-files` reports 0 TRACKED files for
-  // `ui/test-results`, `ui/playwright-report`, `server/binaries` and `server/migrations-merged`
-  // alike — so deleting all four declarations would leave the census green. They stay because:
+  // `ui/test-results`, `ui/playwright-report` and `server/migrations-merged` alike — so deleting
+  // all three declarations would leave the census green. They stay because:
   //   (1) the git rule can say "artefact", it cannot say WHAT the artefact is or what its
   //       MEASURED cost was — and that prose is the whole point of this list; and
   //   (2) they are the fail-CLOSED half of a belt-and-braces pair. The git rule needs `git`;
-  //       in a tarball export or a no-`.git` build container it skips nothing, and these four
+  //       in a tarball export or a no-`.git` build container it skips nothing, and these three
   //       trees (which exist precisely on machines that have built or tested) would go red for
   //       the same reason `txresbench-data` did.
   // The cost of keeping them is one narrow fail-OPEN: if a file were ever COMMITTED into one of
-  // these four, the git rule would correctly stop skipping it but the by-name declaration would
+  // these three, the git rule would correctly stop skipping it but the by-name declaration would
   // keep excluding it. `server/config` below shows the shape that matters — it is tracked (4
   // files) and NOT ignored, so its declaration is load-bearing, not redundant.
   'ui/test-results':
@@ -2472,12 +2472,15 @@ const UNSCANNED_TREES = {
     'tokenizer (HTML + zipped traces), so it carries no coverage to lose. Absent from a clean checkout.',
   // ── src-app/server ──
   // GENERATED + GITIGNORED. Declared rather than name-skipped: `CENSUS_SKIP_DIRS` is for
-  // universally-recognisable build output (`node_modules`, `target`), and these two are
-  // repo-specific enough that a reader deserves to be told what they are. Neither exists in
-  // a clean checkout — `binaries/` is staged by `build.rs`, `migrations-merged/` is composed
-  // at build time from the module-local migration sets — so both declarations are ordinarily
-  // vacuous and cost nothing.
-  'server/binaries': 'GENERATED + gitignored: build-staged binary payloads. Not source; absent from a clean checkout.',
+  // universally-recognisable build output (`node_modules`, `target`), and `migrations-merged/`
+  // is repo-specific enough that a reader deserves to be told what it is. It does not exist in
+  // a clean checkout — it is composed at build time from the module-local migration sets — so
+  // the declaration is ordinarily vacuous and costs nothing.
+  // STRIP (single-cell): this section used to carry a second entry, `server/binaries` — the
+  // sandbox embed-slot payloads staged by build.rs. That writer left with the removed
+  // sandbox-rootfs staging (ITEM-3), so the tree is no longer generated, its `.gitignore` row
+  // left with it, and the declaration went with both: a stale leftover from a pre-strip machine
+  // is a tree the census SHOULD call out by name, not silently exclude.
   'server/migrations-merged':
     'GENERATED + gitignored: the build-time composition of the module-local migration sets. ' +
     'The SOURCES are `server/src/modules/**/migrations/*.sql`, which ARE scanned (serverData) ' +
@@ -2649,8 +2652,8 @@ export function treeDeclarationViolations(set) {
       rel =>
         `"${rel}" is in NO scan root and in NO declared exclusion. Every tree is guarded by ` +
         `default; leaving one out is a DECISION that has to be written down — with its MEASURED ` +
-        `cost — in UNSCANNED_TREES. (Three trees hid here before WS-R5 G3: src-app/testdata, ` +
-        `repo-root scripts/ and ui/scripts, 4313 findings between them, declared nowhere.) ` +
+        `cost — in UNSCANNED_TREES. (Three trees hid here before WS-R5 G3: the platform's ` +
+        `test-data corpus, repo-root scripts/ and ui/scripts, 4313 findings between them, declared nowhere.) ` +
         `A tree that is GITIGNORED **and** holds zero tracked files is a runtime/build ` +
         `artefact and is skipped automatically (WS-R6) — this one is not.`,
     )
@@ -3407,7 +3410,7 @@ const BASELINE_ENTRY_CEILINGS = {
    *  WS-R7 RE-MEASURED **386**: -10, and it was 395 before this round even started (one
    *  unit of headroom, which §4 forbids — see the testCode note below for why that matters).
    *  The drop is the production doc-comment sweep: the domain NARRATIVE moved to
-   *  docs/design/processor-manifest-ui-separation.md and core now states the SHAPE, so the
+   *  the processor-manifest UI-separation design doc and core now states the SHAPE, so the
    *  illustrations that carried the vocabulary are gone rather than recorded.
    *  LOWERED 396 -> 386.
    *  WS-R8 RE-MEASURED **382**: -1. `extensions/types.rs` lost its `embedding` prose token
@@ -3589,7 +3592,7 @@ const BASELINE_ENTRY_CEILINGS = {
    *  INSPECTOR-PANE-DELETION RAISED 785 -> **786** (+1): ONE new (file, token) pair,
    *  `ui/src/modules/workbench/core/shell/dock/retiredSelectionPane.test.tsx` / `cells`. The
    *  suite drives the persisted-layout migration that retires the `selection` ("Inspector")
-   *  pane, and a test of a migration over `@txresbench/dock`'s pane map cannot avoid naming the field
+   *  pane, and a test of a migration over a pane map cannot avoid naming the field
    *  that map is stored under. It is the SAME false positive the sibling dock entries already
    *  record (a dock pane map, not the domain noun), and it was driven from 27 occurrences down
    *  to 2 at source first — every read funnels through one `panesOf` accessor and the fixtures
@@ -3701,7 +3704,7 @@ const BASELINE_ENTRY_CEILINGS = {
    *  (`awaitCellFilterSurface`, `TINY_COUNTS_CELLS`, the `nCells` seed field), the fixture
    *  column the criterion is built on (`nCount`, the ramp `_fixtures.ts` seeds and the only one
    *  whose range makes the threshold a strict subset rather than a degenerate keep-all), and the
-   *  `viz-cell-view-<pane>` testid @txresbench/viz stamps on every grid pane. The last is the same
+   *  `viz-cell-view-<pane>` testid the grid pane stamps. The last is the same
    *  "a cell here is a PANE of the workspace grid, not biology" reading the RENDER-PERF raise
    *  above already recorded for `ui/tests/viz-e2e/`. +3 is the exact count, so this stays an
    *  equality, not slack.
@@ -4679,8 +4682,8 @@ export function testObservationFloorViolations(observedNoun, observedProse, base
 // removed workbench tree `ui/src/modules/workbench/core/runtime/qcSurface.test.ts` +
 // `extensions/analysis/launcherAvailability.test.ts`). Their subject — a test that makes
 // the app's own suite fail if the contributed single-cell bundle is deleted or changes
-// size — no longer exists, because the bundle itself (`src-app/packages/*`, the
-// manifests the certifications counted) is gone. An empty certification list would pass
+// size — no longer exists, because the bundle itself (the package manifests the
+// certifications counted) is gone. An empty certification list would pass
 // vacuously, which is exactly the failure mode this ledger accuses, so the ledger,
 // `CARDINALITY_CERTIFICATION_CEILING` and `cardinalityCertificationViolations` were
 // deleted with the entries — lockstep with the Rust twin
