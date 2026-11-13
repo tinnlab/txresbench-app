@@ -73,7 +73,7 @@ txresbench-notification = { path = "../../sdk/crates/txresbench-notification", d
 txresbench-health = { path = "../../sdk/crates/txresbench-health" }
 # File STORE: the generic, domain-agnostic multi-derivative blob store + its
 # mountable `file_routes` HTTP surface (`routes` feature default-on). Backs the
-# dataset upload path (INPUT uploads only — see docs/DATA_STORAGE_REDESIGN.md).
+# dataset upload path (INPUT uploads only).
 # `sqlite-backend` selects the cfg-gated sqlite query sets + the sqlite
 # `migrations/` chain (ITEM-15/ITEM-26).
 txresbench-file = { path = "../../sdk/crates/txresbench-file", default-features = false, features = ["routes", "sqlite-backend"] }
@@ -104,7 +104,7 @@ bytes = "1"
 memchr = "2"
 tokio-util = { version = "0.7", features = ["io"] }
 # Per-process CPU% + RSS sampling for the per-job resource charts (cross-platform;
-# version matched to txresbench-hardware so the single Cargo.lock unifies it).
+# version shared with the SDK's own sampler so the single Cargo.lock unifies it).
 sysinfo = "0.37.2"
 # Per-job SSE stream (log/metric/status frames) — same primitives the SDK sync
 # stream uses; already in the workspace Cargo.lock.

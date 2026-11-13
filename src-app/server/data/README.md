@@ -20,7 +20,7 @@ The manifest and schema are the contract `execution-engine`'s runtime reads
 (embed via `include_dir!` or read from disk in dev builds): the runtime
 fetches `oci_ref@digest`, verifies `layer_sha256` before mounting, and shows
 `size_bytes` before the download starts. Design reference:
-`docs/design/method-env-layer-artifacts.md`.
+`docs/method-env-layer-artifacts.md`.
 
 Regeneration (on the publisher's machine; the generator reads the methods
 repository at build time only and never at run time):

@@ -1,6 +1,6 @@
 //! Process-wide jobs runtime state: the per-job SSE broadcaster, the running-job
-//! cancel registry, and the per-process resource sampler. Modeled on
-//! txresbench-hardware `monitoring.rs` (capped in-memory registry + prune-on-send).
+//! cancel registry, and the per-process resource sampler. Modeled on the
+//! SDK's monitoring seam (capped in-memory registry + prune-on-send).
 //!
 //! Pool-free: the maps are pool-independent, so this is a `LazyLock` singleton;
 //! the pool is threaded in where DB writes happen.

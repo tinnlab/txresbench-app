@@ -69,7 +69,7 @@
 //!    mounted. Missing `oras` degrades the txr env status, never a run against the
 //!    host filesystem.
 //!
-//! For a local dev box, `scripts/dev-sandbox-bootstrap.sh` applies 2 + 3 idempotently.
+//! For a local dev box, the dev-box sandbox prep step applies 2 + 3 idempotently.
 //! `scripts/txr-sandbox-preflight.sh` is the same checklist WITHOUT the fixes —
 //! the non-destructive check the installer and the operator run (DEC-16): the
 //! four host tools (bwrap, squashfuse, fusermount3, oras), `user_allow_other`

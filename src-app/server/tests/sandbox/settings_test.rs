@@ -188,7 +188,7 @@ async fn put_denied_without_manage_permission() {
 ///
 /// `fsize_bytes` is `RLIMIT_FSIZE` for every file written INSIDE a sandbox, including
 /// archive extraction, which is why the old 2 GiB default is what blocked Xenium
-/// import (`docs/design/upload-limits-policy.md` §"Ruling 2"; the largest measured
+/// import (the upload-limits policy, "Ruling 2"; the largest measured
 /// single bundle member is 5,179 MB, so 2 GiB refused it outright).
 #[tokio::test]
 async fn uncapped_uploads_test7_fsize_default_is_raised_on_a_fresh_database() {

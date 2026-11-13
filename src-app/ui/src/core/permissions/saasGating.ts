@@ -5,7 +5,7 @@
 // boolean — it is the PRESENCE of the page's backend-generated permission. A
 // build that stripped that permission from its OpenAPI spec (OSS/desktop) never
 // generates the member in the `Permissions` enum, so a presence check is false
-// there and true in a saas build. See `docs/design/admin-console-shell.md`
+// there and true in a saas build. See the admin-console design.
 // ("The saas-gating seam — how a saas page uses it") and `.claude/PERMISSION_GATING.md`.
 
 import { Permissions } from '@/api-client/permissions'

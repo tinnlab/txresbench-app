@@ -7,15 +7,7 @@
  * importing it from either does not register the other's tests. (`check:e2e-routing` R1/R2 are
  * about `*.spec.ts` placement; a shared module is outside that.)
  *
- * ── WHY A SECOND SWEEP EXISTED TO BE WRITTEN ──────────────────────────────────────────────────
- * The gallery sweep walks 94 gallery surfaces and reported a clean tree. Not one of them mounts a
- * `@txresbench/viz` component: `modules/visualization/gallery.tsx` is `{ crawlOnly: true }`, so the whole
- * plotting package — its pane chrome, its rails, its legend — was outside the guard's reach and a
- * green run said nothing at all about it. The sibling `viz-e2e/icon-button-tooltips-viz.spec.ts`
- * closes that by driving the same detector over the showcase, which is where those components
- * actually render.
- *
- * ── TWO CORRECTIONS THE SECOND SURFACE FORCED ────────────────────────────────────────────────
+ * ── THE TWO CORRECTIONS THE FIRST DEEP AUDIT FORCED ───────────────────────────────────────────
  * Both are WIDENINGS of the same claim, not exceptions to it, and both are pinned by probes in the
  * gallery spec's positive control:
  *
@@ -23,15 +15,15 @@
  *      icon-only", so a button whose entire content is `▢`, `✕`, `▸` or `⏮` counted as LABELLED and
  *      was skipped — and, worse, `accessibleName` then answered `"▢"`, so it was not reported as
  *      nameless either. A control can therefore be invisible to BOTH halves of the guard by drawing
- *      its icon as a codepoint instead of an `<svg>`, which is what the viz legend's per-category
+ *      its icon as a codepoint instead of an `<svg>`, which is what a legend's per-category
  *      show/hide toggle did. Text is now "text" only if it contains a LETTER or a NUMBER in any
  *      script (`\p{L}`/`\p{N}`), so CJK labels still count and geometric shapes do not.
  *
  *  (b) A NATIVE `title` ON AN ANCESTOR IS HOVER TEXT. `tooltipMarker` read `title` off the element
  *      only, while it already accepted the base-ui / kit markers on an ancestor. That asymmetry is
  *      not a policy — the browser really does show an ancestor's `title` when you hover a child, so
- *      reporting such a control as unexplained is a false finding. (Two collapsed kit `Select`
- *      triggers in viz are exactly this shape: the title sits on the wrapper span because Base UI
+ *      reporting such a control as unexplained is a false finding. (A collapsed kit `Select`
+ *      trigger is exactly this shape: the title sits on the wrapper span because Base UI
  *      renders the button.)
  */
 

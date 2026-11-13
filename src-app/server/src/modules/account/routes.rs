@@ -18,7 +18,7 @@ use super::models::{
 use super::permissions::{AccountManage, AccountMembersManage, AccountRead};
 
 /// The DEC-12 consent consequence, stated VERBATIM from the design (#140's option (a),
-/// `docs/design/membership-rescope.md` §2.1 / the research doc §3 D-1) and reused by
+/// (the membership-rescope design §2.1 / the research doc §3 D-1) and reused by
 /// every self-service membership route's description.
 ///
 /// #140 closed with this obligation unstated and the re-scope had to re-file it as a
@@ -401,7 +401,7 @@ fn revoke_invitation_docs(op: TransformOperation) -> TransformOperation {
 //
 // Recorded HERE, in the product tree, and not only in this branch's `.lifecycle/`
 // artifacts — which are stripped at merge. That is exactly how #140 lost this obligation
-// the first time, and how `docs/design/membership-rescope.md` §2.1 came to describe its
+// the first time, and how the membership-rescope design's §2.1 came to describe its
 // closure as "not a discharge, it is a transfer of obligation".
 //
 //  1. **The DEC-12 consent copy in the ROLE-SELECT helper text.** #140's option (a) was

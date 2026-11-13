@@ -1,6 +1,6 @@
 //! Sandbox module permissions.
 //!
-//! `PermissionCheck` impls (mirror `txresbench-hardware/permissions.rs`). The
+//! `PermissionCheck` impls (mirror the SDK's permission module). The
 //! `NAME` becomes the emitted FE `Permissions.<Name>` constant (via the 403
 //! example the framework's `with_permission` documents); the `PERMISSION`
 //! string is what `RequirePermissions` checks. Admin-only this round (admins

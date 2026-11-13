@@ -2,9 +2,8 @@
 //! Rust, next to the wire contract it deliberately did not touch.
 //!
 //! ── FEAT/STRIP-SINGLE-CELL (this branch) ───────────────────────────────────
-//! The seven single-cell modules (`datatype`, `dataset`, `drafts`, `extensions`,
-//! `project`, `provenance`, `workstore`) were deleted, along with `build_helper/`,
-//! `src-app/packages/`, the removed server test trees (`dataset`, `datatype`,
+//! The seven single-cell modules were deleted, along with `build_helper/`,
+//! the platform's package tree and data corpus, the removed server test trees (`dataset`, `datatype`,
 //! `drafts`, `extensions`, `project`, `provenance`, `workstore`, `analysis`,
 //! `geneset`, `model_coverage`, `tiledb_serve`, the trimmed `account`/`file`/
 //! `jobs`/`sandbox`/`predicate_removed`/`sqlite` sets) and the `sdk/crates` the
@@ -129,10 +128,10 @@ use std::path::{Path, PathBuf};
 /// WS-D: this is now exactly the JS guard's `QUOTED_ID_TOKENS` — the bare-word
 /// members of `DATATYPE_IDS`. The slash ids (`single-cell/expression`, …) moved to
 /// `SUBSTRING_TOKENS`, where the JS guard has always matched them, because a slash id
-/// never occurs generically and quote-delimiting it misses `env-rootfs/single-cell/`.
+/// never occurs generically and quote-delimiting it misses a slash id path.
 /// ── WS-R5 G2 — the vocabulary is DERIVED FROM THE MANIFESTS, on both sides ───────────
 ///
-/// STRIP (this branch): `src-app/packages/` no longer exists, so the derivation
+/// STRIP (this branch): the package tree no longer exists, so the derivation
 /// below yields an EMPTY vocabulary (the read_dir failure path). The quoted-id
 /// and quoted-title tiers are therefore empty, and the substring tier is
 /// `SUBSTRING_PREFIXES` alone. That is the truth of this tree, not a shrunk
@@ -220,8 +219,7 @@ const SUBSTRING_PREFIXES: &[&str] = &["single-cell"];
 /// Slash / compound tokens — they never occur in generic code, so they are matched as RAW
 /// SUBSTRINGS with no boundary rule at all. `single-cell` (no slash) is what catches the
 /// two real server hits the WS-C widening surfaced: the clap `about =` blurb in `main.rs`
-/// and the `../env-rootfs/single-cell/Dockerfile` build path in
-/// `build_helper/sandbox_rootfs.rs`.
+/// and the baked recipe-path string of the old build helper.
 ///
 /// WS-R5 G2 — the slash ids are DERIVED, minus anything a prefix already subsumes. The
 /// subsumption filter is load-bearing rather than tidiness: substring tokens are matched
@@ -453,9 +451,9 @@ struct ScanRoot {
     /// compiled in and run at boot, `seed_multimodal.py` / `seed_anndata_import.py` are
     /// `include_str!`-ed by `workstore/data_api.rs:1184,1470` AND executed,
     /// `mcp/frontend-actions.json` is a baked manifest — so a domain literal in any of
-    /// them ships exactly like one in a `.rs` file. `packages/**` and `env-rootfs/**`
-    /// stay UNSCANNED by decision (they ARE the contributed domain, as DATA); the JS
-    /// twin's extension-policy block records that with its measured cost.
+    /// them ships exactly like one in a `.rs` file. The platform's package tree and env
+    /// recipes were the contributed domain AS DATA and stayed unscanned by decision;
+    /// they have left, so nothing stands in for that decision now.
     exts: &'static [&'static str],
 }
 
@@ -853,7 +851,7 @@ const MIN_PROSE_HITS: usize = 238;
 ///
 /// RE-MEASURED **0**. WS-FT recorded 3 server-side (`main.rs` `--help` ×1,
 /// `build_helper/sandbox_rootfs.rs` build path ×2); WS-E removed the `--help` clause and
-/// WS-I turned the `env-rootfs/single-cell/` paths into build inputs, so the tier is now
+/// WS-I turned the recipe-path strings into build inputs, so the tier is now
 /// EMPTY and the target it always wanted — zero hardcoded domain datatype ids in the
 /// server — is actually met. `MUST_OBSERVE_LITERAL` went with it: a witness for an empty
 /// tier is a permanently-failing assertion, not a guard.
@@ -987,7 +985,7 @@ const MUST_SCAN_KEYS: &[&str] = &[
 // (R4-CARD-05/07/08) and `server/tests/datatype/mod.rs` (R4-CARD-06). Their
 // subject — a test that makes the app's own suite fail if the contributed
 // single-cell bundle is deleted or changes size — no longer exists, because the
-// bundle itself (`src-app/packages/*`, the manifests the certifications counted)
+// bundle itself (the removed package manifests the certifications counted)
 // is gone. An empty certification list would pass vacuously, which is exactly the
 // failure mode this ledger accuses; so `the_exact_cardinality_certifications_
 // are_still_pinned` and `CERTIFICATION_CEILING` were deleted with the entries.
@@ -1001,12 +999,12 @@ const MUST_SCAN_KEYS: &[&str] = &[
 
 // `MUST_OBSERVE_LITERAL` was here. The `literals` tier is EMPTY as of the round-2
 // reconciliation (WS-E removed the `main.rs` `--help` literal, WS-I the two
-// `env-rootfs/single-cell/` build paths), so `LITERAL_HITS_CEILING` is 0 and a witness
+// baked recipe-path strings), so `LITERAL_HITS_CEILING` is 0 and a witness
 // for an empty tier would be a permanently-failing assertion. What still holds the tier
 // closed is the ceiling itself (shrink-only: a new literal cannot be baselined without
 // raising a constant) plus `the_domain_token_scanner_actually_matches`, which pins
 // `substring_hits`/`quoted_hits` against the exact shapes — an unquoted `--help` blurb
-// and a baked `env-rootfs/single-cell/` path — that the pre-WS-D quoted-only tier could
+// and a baked recipe-path string — that the pre-WS-D quoted-only tier could
 // not see. Those unit assertions are the substring tier's liveness proof now.
 
 // `STALE_ALLOWED_CODE` / `STALE_ALLOWED_PROSE` were here. WS-FT could not prune the
@@ -2905,8 +2903,8 @@ fn the_server_data_root_covers_every_format_it_walks() {
 
 // (The derivation test was here: `the_contributed_vocabulary_is_derived_not_hand_listed`
 // and its `CONTRIBUTED_DATATYPE_FLOOR`. Its subject — the parser over
-// `src-app/packages/*/manifest.yaml`, its package census and its completeness rule —
-// was removed with `src-app/packages/`, so the test could only assert 0 >= 0. The
+// the package manifests, their census and their completeness rule —
+// was removed with the package tree, so the test could only assert 0 >= 0. The
 // derivation functions remain: they are what the scan reads, and their failure path
 // (missing dir -> empty vocabulary) is now the truth of this tree.)
 
@@ -3340,18 +3338,18 @@ fn the_domain_token_scanner_actually_matches() {
     );
 
     // WS-D — the SUBSTRING tier has no boundary rule at all, which is the only way to see
-    // the two real server hits (unquoted `--help` copy; a baked `env-rootfs/single-cell/`
-    // build path). A quoted-id scan sees neither.
+    // the two real server hits (unquoted `--help` copy; a baked recipe-path
+    // string). A quoted-id scan sees neither.
     assert_eq!(
         substring_hits(b"about = \"a single-cell workbench\"", "single-cell"),
         1
     );
     assert_eq!(
-        substring_hits(b"\"../env-rootfs/single-cell/Dockerfile\"", "single-cell"),
+        substring_hits(b"\"../scratch/single-cell/recipe/Dockerfile\"", "single-cell"),
         1
     );
     assert_eq!(
-        quoted_hits(b"\"../env-rootfs/single-cell/Dockerfile\"", "single-cell"),
+        quoted_hits(b"\"../scratch/single-cell/recipe/Dockerfile\"", "single-cell"),
         0
     );
 }

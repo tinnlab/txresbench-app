@@ -6,7 +6,7 @@
 // document — and with one document "the portal target is `document.body`" is true both when the kit
 // is correct and when it is broken. Every assertion here therefore runs against TWO real documents:
 // a subtree is mounted into a second document (an iframe's, standing in for a popped-out window's,
-// which is what `@txresbench/dock`'s ContainerWindows creates), and the overlays it opens must land in
+// which is what a popped-out window's portal container creates), and the overlays it opens must land in
 // THAT document.
 //
 // Both halves are asserted every time, and the second half is the one that fails on the bug:

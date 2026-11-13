@@ -344,16 +344,15 @@ fn shipped_material_and_module_prose_carry_no_banned_tokens() {
     // The guard scripts stay green with the module in tree. The
     // rename-completeness guard (`scripts/check-no-…-domain-literals.sh`,
     // resolved from the directory — the guard's own name carries the token it
-    // bans, so a literal cannot be spelled here) is RED on this branch-base
-    // tree for PRE-EXISTING conditions (recorded in DRIFT-1; no work by any
-    // node of this epic): the `src-app/libs/viz` EXTENSIBILITY_… mentions,
-    // the `src-app/server/data/method-env-images.json` licence texts, the
-    // workbench module's permission-literals tests, the OFL font
-    // licences and the framework's guard/hygiene test files. The guard
-    // displays the first 50 hits, so the assertion HERE is: (1) every hit it
-    // SHOWS is one of those recorded base paths, and (2) the same scan over
-    // THIS node's own paths (module + tests) is empty — proven by the same
-    // git-ls-files scan the guard runs, filtered to `file_validator`.
+    // bans, so a literal cannot be spelled here) is RED for PRE-EXISTING
+    // conditions: the `src-app/server/data/method-env-images.json` licence
+    // texts (prose quoted from published papers), the OFL font licences, the
+    // app's own txr-study-* CSS classes and the framework's guard/hygiene
+    // test files. The guard displays the first 50 hits, so the assertion HERE
+    // is: (1) every hit it SHOWS is one of those recorded base paths, and (2)
+    // the same scan over THIS node's own paths (module + tests) is empty —
+    // proven by the same git-ls-files scan the guard runs, filtered to
+    // `file_validator`.
     let guard_script = std::fs::read_dir(repo.join("scripts"))
         .expect("scripts dir")
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -378,8 +377,7 @@ fn shipped_material_and_module_prose_carry_no_banned_tokens() {
         for hit in hits {
             let path = hit.split(':').next().unwrap_or("");
             assert!(
-                path.starts_with("src-app/libs/viz/")
-                    || path.starts_with("src-app/server/data/")
+                path.starts_with("src-app/server/data/")
                     || path.starts_with("src-app/server/tests/method_catalogue/")
                     || path.starts_with("src-app/ui/scripts/"),
                 "the rename-completeness guard reports a hit OUTSIDE the recorded base conditions: {hit}"

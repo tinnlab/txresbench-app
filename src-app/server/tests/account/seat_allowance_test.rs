@@ -1,7 +1,7 @@
 //! #141 — the SEAT allowance: `member_allowance` in the plan catalog, enforced
 //! transactionally at membership creation.
 //!
-//! Realizes `docs/research/account-self-service-membership.md` §5 (`be009a2e`) and issue
+//! Realizes (the account self-service-membership research, §5, `be009a2e`, and issue
 //! #141's INV-10 / INV-10b.
 //!
 //! # Which build each test runs on, and why the file has two arms

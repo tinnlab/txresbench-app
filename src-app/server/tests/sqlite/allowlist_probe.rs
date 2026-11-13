@@ -98,16 +98,15 @@ fn the_app_lockfile_and_owned_source_carry_no_pg_downloader_reference() {
     }
 
     // 2. The app-owned shipped source: the server crate, the desktop crate
-    //    and the frontend roots — the roots the network guard scans, minus
+    //    and the frontend root — the roots the network guard scans, minus
     //    the shared SDK (which legitimately names the downloader behind its
-    //    postgres leg).
+    //    postgres leg). The platform's library roots left with them, exactly as
+    //    they left the network guard's own root list.
     let roots = [
         repo_root().join("src-app/server/src"),
         repo_root().join("src-app/server/build.rs"),
         repo_root().join("src-app/desktop/tauri/src"),
         repo_root().join("src-app/ui/src"),
-        repo_root().join("src-app/libs/dock/src"),
-        repo_root().join("src-app/libs/viz/src"),
     ];
     let mut scanned = 0usize;
     for root in &roots {

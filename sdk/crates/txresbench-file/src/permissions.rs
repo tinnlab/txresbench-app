@@ -61,8 +61,8 @@ mod tests {
     /// `Permissions` enum is scraped from) via `RequirePermissions`/
     /// `with_permission`. Pin the exact string + name + module + derived
     /// resource/action for every key so a rename can't silently drop one from
-    /// the generated enum. Mirrors `txresbench-hardware`'s
-    /// `hardware_permission_keys_are_stable`.
+    /// the generated enum. Mirrors the SDK's permission-keys
+    /// stability test.
     #[test]
     fn files_permission_keys_are_stable() {
         assert_eq!(FilesRead::PERMISSION, "files::read");

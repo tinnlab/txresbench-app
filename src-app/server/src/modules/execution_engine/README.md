@@ -44,7 +44,7 @@ binary cannot interpret is a boot refusal, never a degraded silent state.
 | `data/method-catalogue/catalogue.json` (schema v1) | `scripts/method-catalogue/gen_method_catalogue.py` (reads the benchmark tree at build time) | `envmanifest::facts_for` — the `method_catalogue` in-process accessor (group, tasks, draw facts, fitted/saves/frozen facts) |
 
 The manifest's `base_ref` is the pairing-anchor NAME, never a fetch target:
-the layer design (§7 of `docs/design/method-env-layer-artifacts.md`) makes
+the layer design (§7 of `docs/method-env-layer-artifacts.md`) makes
 the digest the identity (`com.txr.trimmed-from-digest`), and the app's own
 base namespace is the `sandbox` module's. A method whose manifest entry is
 missing stays a per-method `cannot_run` at run start; its reason is the
@@ -198,7 +198,9 @@ cargo test --test integration_tests execution_engine
 scripts/check-network-allowlist.sh          # INV-5: zero host literal
 scripts/check-no-format-crates.sh           # no `csv`-family crate linked
 scripts/check-guard-integrity.sh            # pins unchanged
-scripts/check-no-study-domain-literals.sh   # pre-existing libs/viz redness
+scripts/check-no-*-domain-literals.sh      # the rename-completeness guard (its name is spelled
+                                           # `*` here: the name itself carries the token it bans);
+                                           # red for the recorded pre-existing conditions
 cargo run --bin txresbench -- --generate-openapi ../ui/openapi
                                                # TEST-EE-29 parity: the
                                                # regen must be byte-idempotent

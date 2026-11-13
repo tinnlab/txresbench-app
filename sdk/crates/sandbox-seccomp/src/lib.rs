@@ -2,7 +2,7 @@
 //!
 //! The policy (which syscalls to deny, and with which errno) must be identical
 //! on the Linux host backend (`code_sandbox/probes.rs`) and inside the
-//! macOS/Windows microVM (`sandbox-guest-agent`) — otherwise the VM guests
+//! macOS/Windows microVM guests — otherwise the VM guests
 //! would silently run with weaker syscall filtering than the Linux host. Both
 //! consume this crate so the lists can never drift.
 //!

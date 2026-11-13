@@ -3,8 +3,8 @@
 //! Each test provisions a fresh, uniquely-named database, applies the crate's
 //! OWN migrator (`AUTH_MIGRATOR` — the schema + fkeys + seed set, in version
 //! order), hands back a pool, and drops the DB on teardown. Mirrors the
-//! committed patterns in `txresbench-onboarding/tests/repository.rs` and
-//! `txresbench-notification/tests/schema_and_models.rs`, except it runs the real
+//! committed patterns in the SDK's other crate-scoped test suites (the
+//! notification crate's schema_and_models test), except it runs the real
 //! `Migrator` so the seed rows (Administrators/Users groups, the 3 auth
 //! providers, the `session_settings` singleton) are present — the auth
 //! repositories depend on them.

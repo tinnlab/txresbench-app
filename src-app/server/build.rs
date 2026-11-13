@@ -34,8 +34,8 @@ fn main() {
     // Single-chain composition (ITEM-26): the ONE sqlite migration set is the
     // module-owned `src/modules/*/migrations/` dirs (globbed by the composer)
     // plus the three schema-bound SDK crates' `migrations/` dirs (explicit —
-    // their names are the crates the app schema-binds; txresbench-onboarding/seed
-    // are not bound). There is no driver branch: the PG chains were deleted
+    // their names are the crates the app schema-binds; the other SDK crates are
+    // not bound). There is no driver branch: the PG chains were deleted
     // with the engine swap and the merged dir always holds the sqlite chain.
     let module_roots = vec![manifest.join("src/modules")];
     let sdk_migration_dirs: Vec<PathBuf> = ["txresbench-auth", "txresbench-file", "txresbench-notification"]

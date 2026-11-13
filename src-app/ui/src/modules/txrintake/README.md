@@ -116,8 +116,7 @@ those bytes remain scanned — they stand as test bytes, never baselined.
 The guard is NOT wired into `just check` (the justfile's "NOT WIRED"
 record, `justfile` around line 457) and it fails on `main` today: its
 case-insensitive `stud(y|ies)` regex also matches the
-`EXTENSIBILITY_STUDY` design-doc acronym citations throughout
-`src-app/libs/viz` (an acronym in comments, not the retired domain), and
+`EXTENSIBILITY_STUDY` design-doc acronym citations (an acronym in comments, not the retired domain), and
 in this tree further pre-existing hits stand in the workbench module's
 rename-documenting comments and the guard's own fail-closed test strings
 (at the baseline the same classes total 99 hit lines, incl. the

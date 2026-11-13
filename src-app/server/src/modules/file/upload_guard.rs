@@ -38,7 +38,7 @@
 //!    inherits, so it is bounded rather than merely restated:
 //!    [`MAX_PART_HEADER_BYTES`] caps every part's header block, in **both** modes,
 //!    upstream of `multer`. The exposure is ALSO written down — see
-//!    `docs/design/upload-limits-policy.md` §"The multipart-header exposure" — because
+//!    (the upload-limits policy, "The multipart-header exposure") — because
 //!    a bound whose reason is undocumented is a bound the next reader deletes.
 //!
 //! ## Why a boundary-aware scanner, and not something cheaper

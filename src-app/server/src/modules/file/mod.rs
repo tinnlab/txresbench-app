@@ -2,7 +2,7 @@
 //! `file_routes` HTTP surface.
 //!
 //! TxResBench uses the store for INPUT uploads only (dataset matrix blobs — see
-//! `docs/DATA_STORAGE_REDESIGN.md`; result partial-reads / HDF5 do NOT flow
+//! the storage design; result partial-reads / HDF5 do NOT flow
 //! through it). Scientific blobs need no pdf/text/thumbnail derivatives, so the
 //! injected [`txresbench_file::seams::FileProcessor`] is a no-op that stores the
 //! original only, and the [`txresbench_file::seams::FileEvents`] seam is a no-op (no

@@ -9,7 +9,7 @@
 -- write.
 --
 -- The number is derived from measured file sizes, not taste (DEC-6 /
--- docs/design/upload-limits-policy.md).
+-- (the upload-limits design decision).
 --
 -- SQLite port note — the one construct change: SQLite has no
 -- `ALTER TABLE … ALTER COLUMN … SET DEFAULT`, so this file follows the

@@ -4,7 +4,7 @@
 //! |---|---|---|
 //! | `POST /api/account-invitations/accept` | authenticated only (the TOKEN is the capability) | INV-9 (indistinguishable misses), INV-EMAIL-BIND, INV-6 (the TOCTOU ceiling), INV-10 (seats, accept half), INV-17 (single-use + atomic), INV-18 (body-only transport), INV-NO-REGISTER-CHANGE |
 //!
-//! Realizes `docs/research/account-self-service-membership.md` §4.5 (branch
+//! Realizes (the account self-service-membership research, §4.5, branch
 //! `spike/research-account-membership`) and issue #146.
 //!
 //! # Standing rules for this suite (inherited verbatim from `account_invitations_test.rs`)

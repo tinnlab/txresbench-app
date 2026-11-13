@@ -31,7 +31,7 @@ import { resolvedOnce } from './scripts/resolved-once.mjs'
 // `tests/viz-e2e/`, a sibling of the `tests/gallery-e2e/` layout
 // `playwright.gallery.config.ts` had already written down as the convention.
 //
-// STRIP (single-cell): the viz and visual tiers left with `src-app/libs/viz`, the
+// STRIP (single-cell): the viz and visual tiers left with the sourcing lib, the
 // workbench/jobs pane specs and the visual harness (ITEM-4), so the directory table is
 // back to two.
 //

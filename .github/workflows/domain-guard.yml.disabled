@@ -2,7 +2,7 @@
 #
 # ── WHY THIS FILE EXISTS (WS-R5 §2) ─────────────────────────────────────────────────
 # Before it, `.github/workflows/` contained exactly ONE workflow (the single-cell
-# `env-images.yml`, removed by the strip node ITEM-2) and
+# env-image build workflow, removed by the strip node ITEM-2) and
 # nothing in it referenced the guard, `npm run check` or `cargo test`. Four rounds of
 # ratchet work — the shrink-only baseline, the scan floors, the MUST_SCAN witnesses, the
 # format pins, the certification ledger — were enforced only by a human choosing to run
@@ -80,22 +80,8 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install (root workspaces — sdk/packages/*, src-app/libs/*, src-app/ui)
+      - name: Install (root workspaces — sdk/packages/*, src-app/ui)
         run: npm ci
-
-      # `fixtureDrift.test.ts` REGENERATES the committed Zarr fixtures with the real
-      # producer (`__fixtures__/generate_zarr_fixtures.py`) and diffs the bytes, which is
-      # the whole point of it — a fixture that drifted from what the producer actually
-      # writes is a test asserting a shape nothing emits. So it needs numpy, and it
-      # ERRORS rather than skipping when numpy is absent: "install them rather than
-      # skipping this suite". A self-skip reporting ok would be exactly the unrun-and-
-      # wrong failure this workflow's header was written about (CARD-10).
-      #
-      # ubuntu-latest ships python3 but no numpy. The committed Zarr fixture
-      # generator (core/workstore, until the strip node's ITEM-4 removes it) needs
-      # it, so it is pinned here rather than left to the runner image's defaults.
-      - name: python3 + numpy (the fixture generator's real deps)
-        run: python3 -m pip install --quiet 'numpy>=1.24'
 
       # STEP 1. The guard over the REAL tree, asserting it scanned the real tree.
       # `--require-full-scan` fails if ANY `LINT_NO_DOMAIN_*` override — or the self-test

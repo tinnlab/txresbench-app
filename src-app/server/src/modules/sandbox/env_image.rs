@@ -22,7 +22,7 @@
 //! pulls that exact image (provenance-by-reference). No embedded fallback — an
 //! unreachable/un-cached registry is a clear error, not a silent stale rootfs.
 //!
-//! This mirrors the txresbench SDK's `txresbench-sandbox` `RootfsProvider` seam (fetch +
+//! This mirrors the SDK's rootfs-provider seam (fetch +
 //! mount, injected so backends never name concrete fetch modules); here the
 //! injected axis is the ENV rather than the flavor.
 //!
@@ -394,8 +394,8 @@ fn resolve_with(env_id: &str, seams: &EnvImageSeams) -> Option<EnvImageRef> {
     })
 }
 
-/// A `RootfsProvider`-style seam (mirrors the SDK's `txresbench-sandbox`
-/// `RootfsProvider`): turn an env-id into a ready-to-bind rootfs MOUNT DIR (the
+/// A rootfs-provider-style seam (mirrors the SDK's): turn an env-id into a
+/// ready-to-bind rootfs MOUNT DIR (the
 /// dir whose `usr/` the sandbox binds read-only). Injecting this behind a trait
 /// keeps the sandbox run path from naming a concrete OCI-fetch module, so an
 /// alternate provider (e.g. an in-process `oci-client` impl) drops in without
@@ -1286,7 +1286,7 @@ fn oras_resolve(
 
 /// cosign-verify the digest-pinned image. Local tests key-verify via
 /// [`EnvImageSeams::cosign_key`] (honored in debug builds only); production
-/// keyless-verifies the CI's OIDC identity (the `env-images.yml` workflow signing
+/// keyless-verifies the CI's OIDC identity (the the method-env publisher workflow signing
 /// as this repo). Never mounts an unverified image.
 fn cosign_verify(pinned: &str, deadline: Instant, seams: &EnvImageSeams) -> Result<(), AppError> {
     #[cfg(debug_assertions)]
@@ -1300,7 +1300,7 @@ fn cosign_verify(pinned: &str, deadline: Instant, seams: &EnvImageSeams) -> Resu
         run("cosign", &args, cap)?;
         return Ok(());
     }
-    // Keyless: the image must be signed by the `env-images.yml` workflow's OIDC
+    // Keyless: the image must be signed by the the method-env publisher workflow's OIDC
     // identity IN THIS REPO. The DEFAULT is STRICT — the workflow running on
     // `refs/heads/main`, i.e. the reviewed/merged path — so production only trusts a
     // rootfs signed after merge-to-main, NOT one a write collaborator signed from an

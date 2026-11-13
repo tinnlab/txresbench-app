@@ -3,10 +3,9 @@ import path from 'node:path'
 // @ts-expect-error — plain-JS helper, shared verbatim with `scripts/run-node-tests.mjs`
 import { listNodeTestFiles } from './scripts/node-test-files.mjs'
 
-// Unit/L0-L1 test runner (node env). The visualization engine + its unit suites
-// were extracted into the standalone `@txresbench/viz` package (src-app/libs/viz), which
-// owns its own vitest pass — so the app itself currently has no in-src unit
-// tests. `passWithNoTests` keeps this pass green until the app grows its own.
+// Unit/L0-L1 test runner (node env). The app's own in-src suites live under
+// `src/**/*.test.*`; `passWithNoTests` keeps this pass green while no plain
+// suite is registered.
 export default defineConfig({
   // Mirror `vite.config.ts`'s app-local `@` alias so in-`src` unit tests can
   // import through the same `@/…` paths the app uses (W1 actions/palette
