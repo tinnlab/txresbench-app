@@ -187,10 +187,12 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
     expect(result.current.loading).toBe(false)
   })
 
-  it('fires NOTHING before the first answer, then the defaults for the unanswered parts (R2-1)', async () => {
+  it('fires NOTHING before the first answer, then only the answered parts (R2-1 + R3-intake-2)', async () => {
     // (c): the old page reported "N of M methods fit" from an all-false /
     // default-schedule body the user never composed; now the empty-answers
-    // state issues no request at all.
+    // state issues no request at all — and the first answer carries NO
+    // schedule defaults (an unanswered draw question is absent = "any",
+    // never an assumed 1).
     const { result, rerender } = renderHook(
       ({ answers }) => useStudyPreview(answers, GROUPS),
       { initialProps: { answers: EMPTY_ANSWERS } },
@@ -199,18 +201,14 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
     expect(api.eligibility).not.toHaveBeenCalled()
     expect(result.current.fit).toBeNull()
 
-    // The first answer flips the gate; the unanswered fields keep the
-    // board's first options (DEC-5's preview contract), and the panel is
-    // answering a REAL question now.
+    // The first answer flips the gate; the unanswered schedule fields stay
+    // ABSENT (R3-intake-2), and the panel is answering a REAL question now.
     rerender({ answers: { ...EMPTY_ANSWERS, disease: 'lung' } })
     await settle()
     expect(api.eligibility).toHaveBeenCalledTimes(1)
     expect(api.eligibility).toHaveBeenCalledWith({
       preview: {
         marker_groups: { ctdna: false, counts: false, ldh: false },
-        before_treatment: 'always',
-        draws_during_treatment: 1,
-        last_draw_day: 56,
       },
     })
     expect(result.current.fit).not.toBeNull()

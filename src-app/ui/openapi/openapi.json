@@ -12866,22 +12866,31 @@
         ]
       },
       "PreviewEligibilityRequest": {
-        "description": "Screen B's preview body: which marker groups the user picked, and the\n draw-schedule answers (before-treatment values, draws during treatment, last\n draw day).",
+        "description": "Screen B's preview body: which marker groups the user picked, and the\n draw-schedule answers (before-treatment values, draws during treatment, last\n draw day). Every schedule field is OPTIONAL (R3-intake-2): an unanswered\n question is absent, and the preview treats an absent answer as \"any\" —\n it never assumes a value the user did not give (the old client sent the\n board's first options when unanswered, so an untouched question narrowed\n the fit count).",
         "type": "object",
         "properties": {
           "before_treatment": {
-            "description": "`always` | `sometimes` (whether the treating clinician always has a\n before-treatment sample).",
-            "type": "string"
+            "description": "`always` | `sometimes` (whether the treating clinician always has a\n before-treatment sample). Absent = not answered = no constraint.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "draws_during_treatment": {
-            "description": "The number of on-treatment draws the user will record (1|2|4).",
-            "type": "integer",
+            "description": "The number of on-treatment draws the user will record (1|2|4).\n Absent = not answered = any draw count (the minimum-draws verdict is\n not applied).",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "uint32",
             "minimum": 0
           },
           "last_draw_day": {
             "description": "The last draw day the schedule reaches (28|42|56|84).",
-            "type": "number",
+            "type": [
+              "number",
+              "null"
+            ],
             "format": "double"
           },
           "marker_groups": {
@@ -12893,10 +12902,7 @@
           }
         },
         "required": [
-          "marker_groups",
-          "before_treatment",
-          "draws_during_treatment",
-          "last_draw_day"
+          "marker_groups"
         ]
       },
       "PreviewQuery": {

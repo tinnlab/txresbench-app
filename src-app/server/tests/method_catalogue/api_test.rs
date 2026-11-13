@@ -629,6 +629,67 @@ async fn method_catalogue_eligibility_preview_screen_b() {
     assert_eq!(verdict["missing_groups"][0]["group_id"], "inflammation");
 }
 
+#[tokio::test]
+async fn method_catalogue_eligibility_preview_unanswered_schedule_is_any() {
+    // R3-intake-2 (HTTP half): an unanswered schedule question is ABSENT
+    // from the request and counts as "any" — no method is excluded on the
+    // draw axis, and the fit count is at least what a drawn answer would
+    // allow (the old client sent the board's first options when unanswered,
+    // so an untouched question narrowed the count).
+    let server = TestServer::spawn().await;
+    let token = owner_token(&server).await;
+
+    let unanswered = json!({
+        "preview": {
+            "marker_groups": {"ctdna": true}
+        }
+    });
+    let resp = server
+        .client
+        .post(server.api_url("/methods/eligibility"))
+        .bearer_auth(&token)
+        .json(&unanswered)
+        .send()
+        .await
+        .expect("preview");
+    assert_eq!(resp.status().as_u16(), 200);
+    let body: Value = resp.json().await.expect("body");
+    let codes: Vec<&str> = body["methods"]
+        .as_array()
+        .expect("methods")
+        .iter()
+        .flat_map(|m| m["reasons"].as_array().expect("reasons").iter())
+        .filter_map(|r| r["code"].as_str())
+        .collect();
+    assert!(
+        !codes.contains(&"MIN_DRAWS_UNMET"),
+        "an unanswered draw count excludes nothing: {codes:?}"
+    );
+
+    let answered_one = json!({
+        "preview": {
+            "marker_groups": {"ctdna": true},
+            "before_treatment": "always",
+            "draws_during_treatment": 1,
+            "last_draw_day": 42.0
+        }
+    });
+    let resp = server
+        .client
+        .post(server.api_url("/methods/eligibility"))
+        .bearer_auth(&token)
+        .json(&answered_one)
+        .send()
+        .await
+        .expect("preview");
+    let answered: Value = resp.json().await.expect("body");
+    assert!(
+        body["total_fit"].as_u64().expect("total_fit")
+            >= answered["total_fit"].as_u64().expect("total_fit"),
+        "unanswered (any) can only fit MORE than an answered one-draw schedule"
+    );
+}
+
 /// TEST-MC-27 (HTTP half): the outcome-availability codes reach the wire —
 /// RESPONSE_LABEL_MISSING for a response method without the outcome columns,
 /// SURVIVAL_OUTCOME_MISSING for a survival method, and NO mismatch for a

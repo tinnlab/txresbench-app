@@ -66,18 +66,14 @@ import {
 } from './format'
 import type { StudyAnswers } from '../types'
 
-/** The implied schedule of an unanswered B screen (the board's first options). */
-export const PREVIEW_DEFAULTS = {
-  before_treatment: 'always' as const,
-  draws_during_treatment: 1,
-  last_draw_day: 56,
-}
-
-/** The schedule answers the preview request carries. */
+/** The schedule answers the preview request carries — each is OPTIONAL:
+ *  an unanswered question is OMITTED from the body and the provider reads
+ *  it as "any" (R3-intake-2 — the old defaults were the board's first
+ *  options and made an untouched question narrow the fit count). */
 export interface PreviewSchedule {
-  before_treatment: 'always' | 'sometimes'
-  draws_during_treatment: 1 | 2 | 4
-  last_draw_day: number
+  before_treatment?: 'always' | 'sometimes'
+  draws_during_treatment?: 1 | 2 | 4
+  last_draw_day?: number
 }
 
 /** Build the exact PROV-MC-5 preview body (DEC-5: all group ids explicit). */
@@ -89,12 +85,11 @@ export function buildStudyPreviewRequest(
   for (const group of groups) {
     marker_groups[group.id] = answers.markerGroups?.[group.id] ?? false
   }
-  return {
-    marker_groups,
-    before_treatment: answers.beforeTreatment ?? PREVIEW_DEFAULTS.before_treatment,
-    draws_during_treatment: answers.drawsDuringTreatment ?? PREVIEW_DEFAULTS.draws_during_treatment,
-    last_draw_day: answers.lastDrawDay ?? PREVIEW_DEFAULTS.last_draw_day,
-  }
+  const request: PreviewEligibilityRequest = { marker_groups }
+  if (answers.beforeTreatment !== null) request.before_treatment = answers.beforeTreatment
+  if (answers.drawsDuringTreatment !== null) request.draws_during_treatment = answers.drawsDuringTreatment
+  if (answers.lastDrawDay !== null) request.last_draw_day = answers.lastDrawDay
+  return request
 }
 
 /** The fit-count split (board's "N of M methods fit" / "N methods are left out"). */

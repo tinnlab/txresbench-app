@@ -129,20 +129,23 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     await expect(page.getByTestId('txr-intake-study-group-ctdna')).toBeVisible()
     await expect(page.getByTestId('txr-intake-study-group-counts')).toBeVisible()
 
-    // The first answer flips the panel: the real catalogue's verdicts — 176
-    // answer-fit methods (the runnable set plus the env-absent methods whose
-    // only reason is the environment), the "can't start yet" fact separated
-    // (R2-1), and the left-out count as the ANSWER causes only (a method
-    // with no published environment is never reported as "doesn't fit with
-    // these answers").
+    // The first answer flips the panel: the real catalogue's verdicts — 192
+    // answer-fit methods with the schedule UNANSWERED (R3-intake-2: an
+    // unanswered draw question is absent = any, so no method is excluded on
+    // the draw axis), the env-absent subset of the fit ("146 of them cannot
+    // run yet" — the old line "N of M ... can't start" contradicted the
+    // headline, R3-intake-1), and the left-out count as EVERY answer cause
+    // (167 — the closed fit + left-out arithmetic; a method with no
+    // published environment is never reported as "doesn't fit with these
+    // answers").
     await page.getByTestId('txr-intake-study-group-ctdna').click()
     const fitCount = page.getByTestId('txr-intake-panel-fit-count')
-    await expect(fitCount).toHaveText('176 of 359 methods fit', { timeout: 60_000 })
+    await expect(fitCount).toHaveText('192 of 359 methods fit your study', { timeout: 60_000 })
     await expect(page.getByTestId('txr-intake-panel-no-env')).toHaveText(
-      "265 of 359 methods have no published environment and can't start.",
+      '146 of them cannot run yet',
     )
     await expect(page.getByTestId('txr-intake-panel-excluded')).toContainText(
-      '52 methods are left out',
+      '167 methods are left out',
     )
     // No can-run-for-some row: the real response reports zero.
     await expect(page.getByTestId('txr-intake-panel-some')).toHaveCount(0)
@@ -220,7 +223,7 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     // The provider's markdown backticks are stripped for display (ITEM-6 F5e);
     // R2-5: the two notes are one grouped line each + the codes disclosure.
     await expect(problems).toContainText(
-      "column M1 unit 'a.u.' is not a recognizable unit family — no scale assumption is made",
+      "column M1 unit 'a.u.' is not a unit we recognise — scales are not compared",
     )
     await expect(problems.locator(':scope > li')).toHaveCount(3)
     // R2-3: the codes are out of the sentences — one details disclosure.

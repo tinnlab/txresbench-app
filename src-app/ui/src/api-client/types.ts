@@ -2449,18 +2449,26 @@ export interface PretrainedTransferSummary {
 /**
  * Screen B's preview body: which marker groups the user picked, and the
  *  draw-schedule answers (before-treatment values, draws during treatment, last
- *  draw day).
+ *  draw day). Every schedule field is OPTIONAL (R3-intake-2): an unanswered
+ *  question is absent, and the preview treats an absent answer as "any" —
+ *  it never assumes a value the user did not give (the old client sent the
+ *  board's first options when unanswered, so an untouched question narrowed
+ *  the fit count).
  */
 export interface PreviewEligibilityRequest {
   /**
    * `always` | `sometimes` (whether the treating clinician always has a
-   *  before-treatment sample).
+   *  before-treatment sample). Absent = not answered = no constraint.
    */
-  before_treatment: string
-  /** The number of on-treatment draws the user will record (1|2|4). */
-  draws_during_treatment: number
+  before_treatment?: string
+  /**
+   * The number of on-treatment draws the user will record (1|2|4).
+   *  Absent = not answered = any draw count (the minimum-draws verdict is
+   *  not applied).
+   */
+  draws_during_treatment?: number
   /** The last draw day the schedule reaches (28|42|56|84). */
-  last_draw_day: number
+  last_draw_day?: number
   /** group id → checked. Absent groups count as unchecked. */
   marker_groups: any
 }

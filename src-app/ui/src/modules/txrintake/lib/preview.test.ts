@@ -119,7 +119,7 @@ function response(
 }
 
 describe('buildStudyPreviewRequest (TEST-INT-2)', () => {
-  it('emits ALL group ids with explicit booleans, checkboxes verbatim (DEC-5)', () => {
+  it('carries the schedule answers verbatim, answered ones only (R3-intake-2)', () => {
     const req = buildStudyPreviewRequest(FULL_ANSWERS, GROUPS)
     expect(Object.keys(req.marker_groups as Record<string, boolean>).sort()).toEqual(
       [...GROUP_IDS].sort(),
@@ -138,7 +138,10 @@ describe('buildStudyPreviewRequest (TEST-INT-2)', () => {
     expect(req.last_draw_day).toBe(56)
   })
 
-  it('defaults the unanswered schedule: last draw 56 (DEC-5), board first options otherwise', () => {
+  it('omits an unanswered schedule question — the provider reads it as "any" (R3-intake-2)', () => {
+    // The old body carried the board's first options when unanswered, so an
+    // untouched draw question narrowed the fit count; an unanswered question
+    // is ABSENT, never an assumed value.
     const req = buildStudyPreviewRequest(EMPTY_ANSWERS, GROUPS)
     expect(req).toEqual({
       marker_groups: {
@@ -150,10 +153,20 @@ describe('buildStudyPreviewRequest (TEST-INT-2)', () => {
         'methylation-sequencing': false,
         other: false,
       },
-      before_treatment: 'always',
-      draws_during_treatment: 1,
-      last_draw_day: 56,
     })
+    expect(req.before_treatment).toBeUndefined()
+    expect(req.draws_during_treatment).toBeUndefined()
+    expect(req.last_draw_day).toBeUndefined()
+  })
+
+  it('sends exactly the answered schedule fields (a partial answer)', () => {
+    const req = buildStudyPreviewRequest(
+      { ...EMPTY_ANSWERS, drawsDuringTreatment: 1 },
+      GROUPS,
+    )
+    expect(req.draws_during_treatment).toBe(1)
+    expect(req.before_treatment).toBeUndefined()
+    expect(req.last_draw_day).toBeUndefined()
   })
 })
 

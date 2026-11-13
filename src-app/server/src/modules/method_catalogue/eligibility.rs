@@ -499,9 +499,17 @@ fn with_runtime_env(mut resp: EligibilityResponse) -> EligibilityResponse {
 /// Screen B's request (the PREVIEW body): the panel is answered from the
 /// schedule + marker-group answers, without any patient data.
 fn preview_eligibility(cat: &Catalogue, req: &PreviewEligibilityRequest) -> EligibilityResponse {
-    let schedule_draws = req
+    // R3-intake-2: an unanswered schedule question counts as "any" — the
+    // panel never excludes a method on an axis the user did not answer (the
+    // old client sent the board's first options when unanswered, so an
+    // untouched question narrowed the fit count as if it were answered).
+    // The minimum-draws verdict is applied only when the on-treatment draw
+    // count is known; an answered "always" before-treatment question adds
+    // the baseline draw to that schedule (an unanswered one can be either,
+    // so it adds nothing — and never produces a can_run_some reclassification).
+    let scheduled = req
         .draws_during_treatment
-        .saturating_add(if req.before_treatment == "always" { 1 } else { 0 });
+        .map(|draws| draws + if req.before_treatment.as_deref() == Some("always") { 1 } else { 0 });
     let mut methods = Vec::with_capacity(cat.methods.len());
     for m in &cat.methods {
         let mut reasons: Vec<Reason> = Vec::new();
@@ -533,20 +541,23 @@ fn preview_eligibility(cat: &Catalogue, req: &PreviewEligibilityRequest) -> Elig
                 });
             }
         }
-        let schedule_ok = m.min_draws <= schedule_draws;
+        let schedule_ok = match scheduled {
+            None => true,
+            Some(s) => m.min_draws <= s,
+        };
         if !schedule_ok {
             reasons.push(Reason {
                 code: ReasonCode::MinDrawsUnmet,
                 params: BTreeMap::from([
                     ("required".to_string(), serde_json::Value::from(m.min_draws)),
-                    ("planned".to_string(), serde_json::Value::from(schedule_draws)),
+                    ("planned".to_string(), serde_json::Value::from(scheduled.unwrap_or(0))),
                 ]),
                 group_id: None,
             });
         }
         // The schedule's patient split: a "sometimes" before-treatment answer
         // means some patients have no baseline draw.
-        let some_baseline = m.needs_baseline && req.before_treatment != "always";
+        let some_baseline = m.needs_baseline && req.before_treatment.as_deref() == Some("sometimes");
         let status = if !m.runnable || !missing_groups.is_empty() || !schedule_ok {
             EligibilityStatus::CannotRun
         } else if some_baseline {
@@ -1984,9 +1995,9 @@ mod tests {
         let cat = catalogue_with(methods, serde_json::json!([]));
         let preview = PreviewEligibilityRequest {
             marker_groups: BTreeMap::from([("methylation-sequencing".to_string(), true)]),
-            before_treatment: "always".to_string(),
-            draws_during_treatment: 2,
-            last_draw_day: 56.0,
+            before_treatment: Some("always".to_string()),
+            draws_during_treatment: Some(2),
+            last_draw_day: Some(56.0),
         };
         let resp = eligibility_for(&cat, &EligibilityRequest::Preview { preview });
         let v = resp.methods.iter().find(|m| m.id == "fx-panel").unwrap();
@@ -2002,14 +2013,51 @@ mod tests {
     }
 
     #[test]
+    fn preview_unanswered_draws_are_any() {
+        // R3-intake-2: an unanswered schedule question is ABSENT, and the
+        // preview never assumes a value — the minimum-draws verdict is not
+        // applied (3 required draws meet an unanswered count) and the
+        // before-treatment question produces no can_run_some split.
+        let m = method_json("fx-needs", &[
+            ("min_draws", serde_json::json!(3)),
+            ("needs_baseline", serde_json::json!(true)),
+        ]);
+        let cat = one_method_catalogue(m);
+        let preview = PreviewEligibilityRequest {
+            marker_groups: BTreeMap::new(),
+            before_treatment: None,
+            draws_during_treatment: None,
+            last_draw_day: None,
+        };
+        let resp = eligibility_for(&cat, &EligibilityRequest::Preview { preview });
+        assert_eq!(resp.methods[0].status, EligibilityStatus::CanRun);
+        assert!(!resp.methods[0].reasons.iter().any(|r| r.code == ReasonCode::MinDrawsUnmet));
+        assert_eq!(resp.total_fit, 1);
+        assert_eq!(resp.total_some, 0);
+
+        // The same method with ONLY the draw count answered: the verdict
+        // applies the known count; the unanswered baseline question adds
+        // nothing (and never reclassifies).
+        let answered = PreviewEligibilityRequest {
+            marker_groups: BTreeMap::new(),
+            before_treatment: None,
+            draws_during_treatment: Some(1),
+            last_draw_day: None,
+        };
+        let resp = eligibility_for(&cat, &EligibilityRequest::Preview { preview: answered });
+        assert_eq!(resp.methods[0].status, EligibilityStatus::CannotRun);
+        assert!(resp.methods[0].reasons.iter().any(|r| r.code == ReasonCode::MinDrawsUnmet));
+    }
+
+    #[test]
     fn preview_sometimes_baseline_is_some() {
         let m = method_json("fx-baseline", &[("needs_baseline", serde_json::json!(true))]);
         let cat = one_method_catalogue(m);
         let preview = PreviewEligibilityRequest {
             marker_groups: BTreeMap::new(),
-            before_treatment: "sometimes".to_string(),
-            draws_during_treatment: 2,
-            last_draw_day: 56.0,
+            before_treatment: Some("sometimes".to_string()),
+            draws_during_treatment: Some(2),
+            last_draw_day: Some(56.0),
         };
         let resp = eligibility_for(&cat, &EligibilityRequest::Preview { preview });
         assert_eq!(resp.methods[0].status, EligibilityStatus::CanRunSome);
