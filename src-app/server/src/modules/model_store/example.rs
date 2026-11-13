@@ -64,9 +64,9 @@ use uuid::Uuid;
 
 use txresbench_core::AppError;
 
-use crate::modules::execution_engine::bundle::BundleSettings;
+use crate::modules::execution_engine::bundle::{BundleError, BundleSettings};
 use crate::modules::execution_engine::orchestrator::{
-    self, detect_cpus, per_method_cpus, EnvProvider, MethodExecutor,
+    self, detect_cpus, EnvProvider, MethodExecutor,
 };
 use crate::modules::execution_engine::runtime::RunRuntime;
 use crate::modules::execution_engine::types::{
@@ -81,7 +81,9 @@ use crate::modules::method_catalogue::catalogue::catalogue;
 use crate::modules::method_catalogue::eligibility::{
     eligibility_for, estimate_seconds_for, runtime_env_available, REFERENCE_CPUS,
 };
-use crate::modules::method_catalogue::types::{Catalogue, EligibilityRequest, EligibilityStatus};
+use crate::modules::method_catalogue::types::{
+    Catalogue, EligibilityRequest, EligibilityStatus, Method,
+};
 use crate::modules::model_store::repository::{ExampleStateRow, ModelStoreRepository};
 use crate::modules::model_store::types::{ExampleSetResponse, ExampleSetState};
 
@@ -137,6 +139,28 @@ impl ExampleRunInputs {
             .map(|p| p.rows)
             .unwrap_or(0)
     }
+
+    /// The bundle settings the run's method calls build with
+    /// ([`orchestrator::method_bundle_settings`] over the run config and the
+    /// CPU count the run detects at start).
+    pub(crate) fn bundle_settings(&self) -> BundleSettings {
+        orchestrator::method_bundle_settings(&self.config, detect_cpus())
+    }
+
+    /// The pick's bundle filter for one method: every bundle the run's train
+    /// call builds for it on these inputs ([`orchestrator::train_bundle_preflight`]
+    /// — marker set, train/test, cross-fit), with the run's settings and the
+    /// method's `min_draws`. `Ok` means the run never refuses the method with
+    /// a `BUNDLE_*` code.
+    pub fn preflight(&self, method: &Method) -> Result<(), BundleError> {
+        orchestrator::train_bundle_preflight(
+            &self.train,
+            self.predict.as_deref(),
+            method,
+            &self.bundle_settings(),
+            method.min_draws,
+        )
+    }
 }
 
 fn validation_failed(message: impl Into<String>) -> AppError {
@@ -147,18 +171,12 @@ fn validation_failed(message: impl Into<String>) -> AppError {
     )
 }
 
-/// Canonicalize the example run's request through the run's own pass (the
-/// ONE validation the endpoint pins: zero errors and at most the normal A04
-/// notes, asserted here and in the material test — a generator change that
-/// breaks the example fails before any endpoint serves it).
-pub fn example_run_inputs() -> Result<ExampleRunInputs, AppError> {
-    let request = example_run_request(&[]);
-    let canonical = orchestrator::canonicalize_run(&request.input, &request.config, request.mode)
-        .map_err(|e| {
-        validation_failed(format!("the embedded example data does not validate: {e}"))
-    })?;
-    let errors: Vec<_> = canonical
-        .validated
+/// The ONE validation verdict the endpoint pins on the example: zero errors
+/// and at most the normal A04 notes (asserted here and in the material test
+/// — a generator change that breaks the example fails before any endpoint
+/// serves it).
+fn error_free(validated: ValidationResponse) -> Result<ValidationResponse, AppError> {
+    let errors: Vec<_> = validated
         .problems
         .iter()
         .filter(|p| p.severity == ProblemSeverity::Error)
@@ -173,40 +191,49 @@ pub fn example_run_inputs() -> Result<ExampleRunInputs, AppError> {
                 .collect::<Vec<_>>()
         )));
     }
+    Ok(validated)
+}
+
+fn not_valid(e: AppError) -> AppError {
+    validation_failed(format!("the embedded example data does not validate: {e}"))
+}
+
+/// Canonicalize the example run's request through the run's own pass
+/// ([`orchestrator::canonicalize_run`]), checked by [`error_free`].
+pub fn example_run_inputs() -> Result<ExampleRunInputs, AppError> {
+    let request = example_run_request(&[]);
+    let canonical = orchestrator::canonicalize_run(&request.input, &request.config, request.mode)
+        .map_err(not_valid)?;
+    let validation = error_free(canonical.validated)?;
     let train = canonical
         .train
         .ok_or_else(|| validation_failed("the example run carries no training side"))?;
     Ok(ExampleRunInputs {
-        validation: canonical.validated,
+        validation,
         train,
         predict: canonical.predict,
         config: request.config,
     })
 }
 
-/// The example training pair + the validator's verdict (the run's own
-/// validation of [`example_run_request`]'s tables).
+/// The example training pair + the validator's verdict: the run's own
+/// validation of [`example_run_request`]'s tables
+/// ([`orchestrator::validate_run`], the first step of the run's pass),
+/// without building the canonical sides.
 pub fn example_validation() -> Result<ValidationResponse, AppError> {
-    example_run_inputs().map(|inputs| inputs.validation)
-}
-
-/// The bundle settings a method call of a run with `config` builds its
-/// bundles with (the executor's `BundleSettings::for_run` over the run
-/// config and the per-method lane CPU count; `threads` only reaches
-/// `params.json`, never a refusal).
-pub fn run_bundle_settings(config: &RunConfig) -> BundleSettings {
-    BundleSettings::for_run(config, per_method_cpus(detect_cpus(), config.at_a_time))
+    let request = example_run_request(&[]);
+    orchestrator::validate_run(&request.input, &request.config, request.mode)
+        .map_err(not_valid)
+        .and_then(error_free)
 }
 
 /// The deterministic fast-method pick (the test seam of the real catalogue).
 /// The verdicts are the PURE eligibility engine over the example run's
 /// inventory; the runtime-env + saves_model filters implement the plan's
 /// "methods that have a published environment"; the bundle filter is
-/// [`orchestrator::train_bundle_preflight`] — every bundle the run's train
-/// call builds (marker set, train/test, cross-fit), built by the engine's
-/// own functions with the run's settings and the method's `min_draws`, so a
-/// picked method is never refused with a `BUNDLE_*` code; the estimate is
-/// the catalogue's (`REFERENCE_CPUS` — host-independent).
+/// [`ExampleRunInputs::preflight`], so a picked method is never refused with
+/// a `BUNDLE_*` code; the estimate is the catalogue's (`REFERENCE_CPUS` —
+/// host-independent).
 pub fn pick_fast_methods(inputs: &ExampleRunInputs) -> Vec<String> {
     pick_fast_methods_with(inputs, runtime_env_available)
 }
@@ -214,7 +241,7 @@ pub fn pick_fast_methods(inputs: &ExampleRunInputs) -> Vec<String> {
 /// [`pick_fast_methods`] with the published-environment predicate injected
 /// (production passes the host-arch [`runtime_env_available`]; the tests
 /// pass a fixed arch so the pick is checked on any host).
-pub(crate) fn pick_fast_methods_with(
+fn pick_fast_methods_with(
     inputs: &ExampleRunInputs,
     env_available: impl Fn(&str) -> bool,
 ) -> Vec<String> {
@@ -229,7 +256,6 @@ fn pick_from(
     env_available: impl Fn(&str) -> bool,
 ) -> Vec<String> {
     let patients = inputs.patients();
-    let settings = run_bundle_settings(&inputs.config);
     let verdicts = eligibility_for(
         cat,
         &EligibilityRequest::Inventory {
@@ -254,14 +280,7 @@ fn pick_from(
             }
             // The run's own bundle stage on the example rows: a method it
             // would refuse fails before (or between) its calls.
-            orchestrator::train_bundle_preflight(
-                &inputs.train,
-                inputs.predict.as_deref(),
-                method,
-                &settings,
-                method.min_draws,
-            )
-            .ok()?;
+            inputs.preflight(method).ok()?;
             Some((seconds, m.id))
         })
         .collect();
@@ -303,7 +322,7 @@ pub fn example_methods() -> Result<Vec<String>, AppError> {
 /// The embedded example training tables as parsed tables (the browser-decode
 /// equivalent — the committed bytes are unquoted, verified by the assets
 /// check; this is the ONE CSV split the server does for its own assets).
-pub(crate) fn parsed_example(bytes: &'static [u8], name: &str) -> ParsedTable {
+fn parsed_example(bytes: &'static [u8], name: &str) -> ParsedTable {
     let text = std::str::from_utf8(bytes).expect("the embedded example is utf-8");
     let mut lines = text.split('\n').filter(|l| !l.is_empty());
     let header = lines.next().expect("the example has a header line");
@@ -675,7 +694,7 @@ mod tests {
     #[test]
     fn every_picked_method_builds_every_run_bundle_on_the_example() {
         let inputs = inputs();
-        let settings = run_bundle_settings(&inputs.config);
+        let settings = inputs.bundle_settings();
         let host = pick_fast_methods(&inputs);
         let amd64 = pick_fast_methods_with(&inputs, amd64_env);
         assert!(
@@ -719,6 +738,94 @@ mod tests {
         }
     }
 
+    /// The example pick on this host plus the pick on the committed amd64 env
+    /// set, so the check is never empty on a host whose arch has no published
+    /// environments.
+    fn pick_any_arch(inputs: &ExampleRunInputs) -> Vec<String> {
+        let mut picked = pick_fast_methods(inputs);
+        for id in pick_fast_methods_with(inputs, amd64_env) {
+            if !picked.contains(&id) {
+                picked.push(id);
+            }
+        }
+        picked
+    }
+
+    /// "Use example" trains: every method the example pick returns goes
+    /// through the run's own `prepare_run` over [`example_run_request`], then
+    /// the REAL train executor with the context the drive builds (only the
+    /// sandbox is scripted — the engine's `test_support`). No method is
+    /// refused at the bundle stage, every one finishes with a produced
+    /// model, and the pick judged the same canonical sides `prepare_run`
+    /// hands the executor, under the same config.
+    #[tokio::test]
+    async fn every_example_pick_trains_through_the_real_executor() {
+        use crate::modules::execution_engine::orchestrator::test_support::train_with_scripted_sandbox;
+        use crate::modules::execution_engine::types::TxrMethodState;
+        use crate::modules::sandbox::stack::MethodRunMode;
+
+        let inputs = inputs();
+        let picked = pick_any_arch(&inputs);
+        assert!(!picked.is_empty(), "the amd64 pick is not empty");
+        let req = example_run_request(&picked);
+        assert_eq!(req.config, inputs.config, "the pick used the run's config");
+
+        let run = train_with_scripted_sandbox(&req, "example-pick-executor").await;
+        assert_eq!(
+            run.train.as_deref().map(json),
+            Some(json(&*inputs.train)),
+            "the pick judged the run's train side"
+        );
+        assert_eq!(
+            run.predict.as_deref().map(json),
+            inputs.predict.as_deref().map(json),
+            "the pick judged the run's predict side"
+        );
+        assert_eq!(
+            run.methods
+                .iter()
+                .map(|m| m.method_id.clone())
+                .collect::<Vec<_>>(),
+            picked
+        );
+        for m in &run.methods {
+            let id = &m.method_id;
+            let facts = catalogue().method(id).expect("a catalogue method");
+            assert_eq!(m.min_draws, facts.min_draws, "{id}: the plan's min_draws");
+            // Only a host without a published env plans it `cannot_run`, and
+            // then for the env — never a data reason.
+            assert_eq!(
+                m.cannot_run,
+                !runtime_env_available(id),
+                "{id}: {:?}",
+                m.reason
+            );
+            if m.cannot_run {
+                let reason = m.reason.as_ref().expect("a cannot_run reason");
+                assert!(
+                    ["ENV_IMAGE_MISSING", "ENV_UNKNOWN"].contains(&reason.code.as_str()),
+                    "{id}: {reason:?}"
+                );
+            }
+            assert_eq!(
+                m.preflight,
+                Ok(()),
+                "{id}: the pick's preflight on the run's context"
+            );
+            assert!(m.outcome.reason.is_none(), "{id}: {:?}", m.outcome.reason);
+            assert_eq!(m.outcome.state, TxrMethodState::Finished, "{id}");
+            assert!(
+                m.outcome.model.is_some(),
+                "{id}: save_models → a produced model"
+            );
+            assert_eq!(
+                m.calls.first(),
+                Some(&MethodRunMode::FitOnly),
+                "{id}: the fit ran"
+            );
+        }
+    }
+
     /// The three-marker example refuses every `single` method without a fixed
     /// marker list (`BUNDLE_MARKER_COUNT_UNMET`), so none is picked — even
     /// though eligibility says `CanRun` for them and they otherwise pass the
@@ -726,7 +833,7 @@ mod tests {
     #[test]
     fn a_single_marker_method_without_a_fixed_list_is_not_picked_on_the_three_marker_example() {
         let inputs = inputs();
-        let settings = run_bundle_settings(&inputs.config);
+        let settings = inputs.bundle_settings();
         assert_eq!(
             MarkerSelection::all(&inputs.train).mains(),
             ["M1", "M2", "M3"],
@@ -793,7 +900,7 @@ mod tests {
     #[test]
     fn the_pick_preflight_refuses_the_bundle_stage_beyond_the_marker_rule() {
         let inputs = inputs();
-        let settings = run_bundle_settings(&inputs.config);
+        let settings = inputs.bundle_settings();
         let amd64 = pick_fast_methods_with(&inputs, amd64_env);
         let id = amd64.first().expect("the amd64 pick is not empty");
         let mut method = catalogue().method(id).expect("catalogue method").clone();
@@ -876,6 +983,16 @@ mod tests {
         );
     }
 
+    /// The validate-only path answers the same verdict the run's full pass
+    /// carries (one request builder, one validation).
+    #[test]
+    fn example_validation_is_the_run_pass_validation() {
+        assert_eq!(
+            json(&example_validation().expect("the example validates")),
+            json(&inputs().validation)
+        );
+    }
+
     /// The cached pick is the pick of a fresh computation on this host, and
     /// it is computed once: however many calls (the endpoint's polls) read
     /// it, the initializer ran one time in this process.
@@ -937,7 +1054,7 @@ mod tests {
     #[test]
     fn a_method_the_bundle_stage_refuses_is_not_picked() {
         let full = inputs();
-        let settings = run_bundle_settings(&full.config);
+        let settings = full.bundle_settings();
         let target = pick_fast_methods_with(&full, amd64_env)
             .into_iter()
             .next()
