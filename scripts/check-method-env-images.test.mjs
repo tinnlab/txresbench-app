@@ -51,6 +51,14 @@
 //            with a named cause, and the publisher refuses to push on that
 //            failure — the artifact-level checks read the built bytes and
 //            therefore need REAL mksquashfs/unsquashfs (the layer fixtures).
+//   TEST-12  the layer cover (`closed_cover`) on small base/method trees: a
+//            method's Python and R packages under /opt/txr-layer are the ONE
+//            entry /opt/txr-layer (beside /code), including a package the base
+//            also has; a new package dir in the base's own library and a new
+//            /opt folder are refused at build time, naming the path (the base's
+//            /usr and /opt are read-only in the sandbox, so no mount point could
+//            be made for them); a changed file the base already has stays an
+//            entry; a code-only method is just /code.
 //
 //   node --test scripts/check-method-env-images.test.mjs
 
@@ -908,4 +916,101 @@ test('TEST-8e the publisher refuses to push when the behavioral verifier fails',
   ]);
   assert.equal(r.status, 1, `the publisher must refuse: ${r.stderr}\n${r.stdout}`);
   assert.match(r.stderr, /refusing: the behavioral verifier failed for fixture-v-amd64/);
+});
+
+// ── TEST-12: the layer cover on small base/method trees ───────────────────────
+// The generator's own compute_delta + closed_cover, imported by path, over two
+// plain directory trees (no docker): the base, and the base plus what the
+// method's build added.
+const COVER_HARNESS = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("txr_generator", sys.argv[1])
+g = importlib.util.module_from_spec(spec)
+sys.modules["txr_generator"] = g
+spec.loader.exec_module(g)
+base, method = sys.argv[2], sys.argv[3]
+try:
+    delta = g.compute_delta(method, base, g.build_base_index(base))
+    print(json.dumps({"entries": g.closed_cover(delta, method, base)}))
+except g.BuildError as e:
+    print(json.dumps({"error": str(e)}))
+`;
+
+/** The base trees: a py-like and an r-like base, each with the /opt/txr-layer mount point. */
+const COVER_BASE = {
+  'usr/local/lib/python3.11/site-packages/numpy/__init__.py': 'numpy 2.1.3\n',
+  'usr/local/lib/R/site-library/survival/DESCRIPTION': 'Version: 3.8-3\n',
+  'opt/txrmethod/txrmethod/__init__.py': 'MODE_ENV = "TXRESBENCH_MODE"\n',
+  'opt/txr-layer/R-library/': null,
+  'code/': null,
+};
+
+function writeTree(root, files) {
+  for (const [rel, body] of Object.entries(files)) {
+    const p = path.join(root, rel);
+    if (body === null) {
+      fs.mkdirSync(p, { recursive: true });
+    } else {
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, body);
+    }
+  }
+}
+
+/** Run the cover for a method that added `added` (path → content, null = dir) to the base. */
+function cover(added) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'txr-cover-'));
+  try {
+    const base = path.join(dir, 'base');
+    const method = path.join(dir, 'method');
+    writeTree(base, COVER_BASE);
+    writeTree(method, COVER_BASE);
+    writeTree(method, { 'code/run.py': 'print("fit")\n', ...added });
+    const r = spawnSync('python3', ['-c', COVER_HARNESS, GENERATOR, base, method], { encoding: 'utf8' });
+    assert.equal(r.status, 0, `the harness itself must run: ${r.stderr}`);
+    return JSON.parse(r.stdout);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('TEST-12a Python packages under /opt/txr-layer are one entry beside /code', () => {
+  const r = cover({
+    'opt/txr-layer/lib/python3.11/site-packages/six.py': 'six\n',
+    'opt/txr-layer/lib/python3.11/site-packages/numpy/__init__.py': 'numpy 2.0.0\n',
+    'opt/txr-layer/lib/python3.11/site-packages/numpy-2.0.0.dist-info/METADATA': 'Version: 2.0.0\n',
+    'opt/txr-layer/bin/f2py': '#!/bin/sh\n',
+  });
+  assert.deepEqual(r, { entries: ['/code', '/opt/txr-layer'] });
+});
+
+test('TEST-12b R packages under /opt/txr-layer/R-library (one the base also has) are one entry', () => {
+  const r = cover({
+    'opt/txr-layer/R-library/glue/DESCRIPTION': 'Version: 1.8.0\n',
+    'opt/txr-layer/R-library/survival/DESCRIPTION': 'Version: 3.7-0\n',
+  });
+  assert.deepEqual(r, { entries: ['/code', '/opt/txr-layer'] });
+});
+
+test('TEST-12c a new package in the base\'s own R library is refused, naming the path', () => {
+  const r = cover({ 'usr/local/lib/R/site-library/remotes/DESCRIPTION': 'Version: 2.5.0\n' });
+  assert.ok(r.error, `must be refused: ${JSON.stringify(r)}`);
+  assert.match(r.error, /no mount point/);
+  assert.match(r.error, /\/usr\/local\/lib\/R\/site-library\/remotes/);
+  assert.match(r.error, /\/opt\/txr-layer/);
+});
+
+test('TEST-12d a new folder under /opt is refused, naming the path', () => {
+  const r = cover({ 'opt/uv-python/bin/python3': '#!/bin/sh\n' });
+  assert.ok(r.error, `must be refused: ${JSON.stringify(r)}`);
+  assert.match(r.error, /\/opt\/uv-python/);
+});
+
+test('TEST-12e a changed file the base already has stays an entry (its mount point exists)', () => {
+  const r = cover({ 'opt/txrmethod/txrmethod/__init__.py': 'MODE_ENV = "TXRESBENCH_MODE"\n# fixture\n' });
+  assert.deepEqual(r, { entries: ['/code', '/opt/txrmethod/txrmethod/__init__.py'] });
+});
+
+test('TEST-12f a code-only method is just /code', () => {
+  assert.deepEqual(cover({}), { entries: ['/code'] });
 });

@@ -102,10 +102,12 @@ const CHILD_MARKER: &str = "TXR_MST_CHILD";
 const CHILD_TEST_PATH: &str = "sandbox::method_stack_test::stacked_run_child";
 
 /// The env-id components of the fixture artifacts (DATA, only ever spelled in
-/// this test file): the base + the two layer variants the scenarios stack.
+/// this test file): the base + the layer variants the scenarios stack.
 const BASE_ID: &str = "mst-base-xq4";
 const LAYER1_ID: &str = "mst-layer-a1q4";
 const LAYER2_ID: &str = "mst-layer-a2q4";
+/// The layer that carries a method's own packages in /opt/txr-layer.
+const LAYER3_ID: &str = "mst-layer-a3q4";
 
 // ────────────────────────────── shell helpers ────────────────────────────────
 
@@ -273,6 +275,8 @@ fn build_base_rootfs(base: &Path) {
     for bin in ["bash", "prlimit", "cat", "true"] {
         copy_binary_into_base(base, bin);
     }
+    // The bases' mount point for a method's own packages (tinnlab/txresbench base-images).
+    std::fs::create_dir_all(base.join("opt/txr-layer")).expect("base /opt/txr-layer");
     assert!(
         base.join("usr/bin/bash").is_file() && base.join("usr/bin/true").is_file(),
         "the base fixture carries usr/bin/bash + usr/bin/true (the PID-ns probe runs /bin/true)"
@@ -351,6 +355,37 @@ if [ "$SIGBENCH_MODE" = "predict" ]; then
 fi
 echo "fixture wrapper: done"
 "#
+}
+
+/// The wrapper of the packages layer: it reports the package settings the sandbox set, reads a file
+/// from the layer's /opt/txr-layer, and runs a program from /opt/txr-layer/bin found through PATH.
+fn packages_run_sh() -> &'static str {
+    r#"#!/bin/bash
+echo "PYTHONUSERBASE=$PYTHONUSERBASE"
+echo "PYTHONPATH=$PYTHONPATH"
+echo "R_LIBS=$R_LIBS"
+echo "PATH=$PATH"
+echo "MARKER=$(cat /opt/txr-layer/lib/marker.txt)"
+txr-layer-tool
+echo '{"fit": true}' > /model/model.json
+echo "patient_id,pred" > /output/predictions.csv
+cat /input/patients.csv >> /output/predictions.csv
+"#
+}
+
+/// The packages layer: `/code/run.sh` + a method's own packages under `/opt/txr-layer` (a data file and a
+/// program in its `bin/`), with the entries the generator emits for such a method.
+fn build_packages_layer_rootfs(root: &Path) {
+    build_layer_rootfs(root, packages_run_sh(), &["/code", "/opt/txr-layer"]);
+    let lib = root.join("opt/txr-layer/lib");
+    let bin = root.join("opt/txr-layer/bin");
+    std::fs::create_dir_all(&lib).expect("layer lib dir");
+    std::fs::create_dir_all(&bin).expect("layer bin dir");
+    std::fs::write(lib.join("marker.txt"), "method packages").expect("write marker");
+    let tool = bin.join("txr-layer-tool");
+    std::fs::write(&tool, "#!/bin/bash\necho TOOL_FROM_LAYER_PATH\n").expect("write tool");
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).expect("tool mode");
 }
 
 /// Write a contract-shaped input bundle (the layout CONS-SS-1 names; the
@@ -731,6 +766,44 @@ async fn stacked_run_child() {
             );
             println!("PROBE_OK tamper_refused_before_any_bind");
         }
+        // A layer carrying a method's own packages in /opt/txr-layer: bound onto the base's mount
+        // point, with the sandbox's package settings pointing Python, R and PATH at it.
+        "packages_layer" => {
+            let layer3_sqfs =
+                PathBuf::from(std::env::var_os("TXR_MST_LAYER3_SQFS").expect("layer3"));
+            let layer3_pin = sha256_hex(&std::fs::read(&layer3_sqfs).expect("read layer3 fixture"));
+            let job = Uuid::new_v4();
+            let outputs = work.join("outputs-packages");
+            let r = match run_one!(
+                job,
+                layer_ref(LAYER3_ID, &layer3_pin),
+                MethodRunMode::FitPredict,
+                None,
+                Some(work.join("model-out-packages")),
+                outputs.clone(),
+                None
+            ) {
+                Ok(r) => r,
+                Err(e) => fail(format!("packages-layer run refused: {} ({})", e.error_code(), e)),
+            };
+            assert_eq!(r.exit_code, 0, "the packages-layer run exits 0; stdout: {}", r.stdout);
+            let out = r.stdout;
+            for line in [
+                "PYTHONUSERBASE=/opt/txr-layer",
+                "PYTHONPATH=/opt/txrmethod",
+                "R_LIBS=/opt/txr-layer/R-library:/usr/local/lib/R/site-library:/usr/local/lib/R/library",
+                "MARKER=method packages",
+                "TOOL_FROM_LAYER_PATH",
+            ] {
+                assert!(out.lines().any(|l| l == line), "missing {line:?} in: {out}");
+            }
+            assert!(
+                out.lines().any(|l| l.starts_with("PATH=/opt/txr-layer/bin:")),
+                "the method's bin dir leads PATH: {out}"
+            );
+            assert!(outputs.join("predictions.csv").is_file(), "/output/predictions.csv written");
+            println!("PROBE_OK packages_layer");
+        }
         other => fail(format!("unknown scenario {other:?}")),
     }
 }
@@ -786,6 +859,7 @@ fn spawn_child(work: &Path, data_dir: &Path, scenario: &str) -> (bool, String) {
         .env("TXR_MST_BASE_SQFS", work.join("base.squashfs"))
         .env("TXR_MST_LAYER1_SQFS", work.join("layer1.squashfs"))
         .env("TXR_MST_LAYER2_SQFS", work.join("layer2.squashfs"))
+        .env("TXR_MST_LAYER3_SQFS", work.join("layer3.squashfs"))
         .env(format!("TXR_ENV_ROOTFS_SQUASHFS__{BASE_ID}"), work.join("base.squashfs"))
         .env(
             format!("TXR_ENV_ROOTFS_SQUASHFS__{LAYER1_ID}"),
@@ -794,6 +868,10 @@ fn spawn_child(work: &Path, data_dir: &Path, scenario: &str) -> (bool, String) {
         .env(
             format!("TXR_ENV_ROOTFS_SQUASHFS__{LAYER2_ID}"),
             work.join("layer2.squashfs"),
+        )
+        .env(
+            format!("TXR_ENV_ROOTFS_SQUASHFS__{LAYER3_ID}"),
+            work.join("layer3.squashfs"),
         )
         // The child must start from a clean seam environment: whatever this
         // box exported to run the rootfs-gated tiers would otherwise leak in
@@ -837,7 +915,7 @@ fn assert_child_ran_one(stdout: &str) {
     );
 }
 
-/// Build the fixture set once for the child legs: base + layer1 + layer2
+/// Build the fixture set once for the child legs: base + layer1 + layer2 + layer3 (packages)
 /// squashfs under `work`. Returns the plain base DIR (for the PID-ns gate).
 fn build_stack_fixtures(work: &Path) -> PathBuf {
     let base_dir = work.join("base-root");
@@ -851,6 +929,8 @@ fn build_stack_fixtures(work: &Path) -> PathBuf {
     let run2 = format!("{}\n# layer2 marker\n", fixture_run_sh());
     build_layer_rootfs(&work.join("layer2-root"), &run2, &["/code"]);
     squash(&work.join("layer2-root"), &work.join("layer2.squashfs"));
+    build_packages_layer_rootfs(&work.join("layer3-root"));
+    squash(&work.join("layer3-root"), &work.join("layer3.squashfs"));
     base_dir
 }
 
@@ -1315,6 +1395,32 @@ fn stacked_real_run_exits_zero_and_records_both_digests() {
             "stacked_real_run_exits_zero_and_records_both_digests",
             &format!("child: {reason}"),
         );
+    }
+}
+
+/// A real stacked run of a layer carrying a method's own packages in /opt/txr-layer (the case the
+/// stacked tests never covered: every method that installs a package): the layer's folder is bound
+/// onto the base's mount point, and the run sees the package settings (PYTHONUSERBASE, PYTHONPATH,
+/// R_LIBS, PATH with /opt/txr-layer/bin first), the layer's files, and a program from its bin/.
+#[test]
+fn stacked_run_reads_the_method_packages_from_opt_txr_layer() {
+    let name = "stacked_run_reads_the_method_packages_from_opt_txr_layer";
+    let Some(()) = stack_gate(name) else {
+        return;
+    };
+    let work = scratch();
+    let _guard = WorkGuard(work.clone());
+    let base_dir = build_stack_fixtures(&work);
+    let Some(()) = stack_gate_pidns(name, &base_dir) else {
+        return;
+    };
+    let data = work.join("data");
+    std::fs::create_dir_all(&data).expect("data dir");
+    let (ok, stdout) = spawn_child(&work, &data, "packages_layer");
+    assert!(ok, "the packages-layer child must run clean");
+    assert_child_ran_one(&stdout);
+    if let Some(reason) = child_skipped(&stdout) {
+        record_skip(name, &format!("child: {reason}"));
     }
 }
 

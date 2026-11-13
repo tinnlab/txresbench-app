@@ -55,6 +55,11 @@ const SANDBOX_HOME: &str = "/home/analyst";
 /// bind is applied over, in argv order).
 pub const PROGRESS_FIFO_SANDBOX_PATH: &str = "/tmp/.txr_progress";
 
+/// The sandbox's `PATH`: the conda env first (the scientific Python stack), then the system dirs. A stacked
+/// method run puts the method's own `/opt/txr-layer/bin` ahead of it (`stack::build_stacked_bwrap_argv`).
+pub(crate) const SANDBOX_PATH: &str =
+    "/opt/venv/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
 /// Build the full bwrap argv: hardening prefix + prlimit tail + `/bin/bash -lc
 /// <cmd>`. `rootfs_dir` is the squashfuse mount dir (contains `usr/`).
 /// `progress_fifo_src` (when `Some`) binds a host FIFO at
@@ -166,8 +171,7 @@ pub(crate) fn build_bwrap_argv(
         "analyst".into(),
         "--setenv".into(),
         "PATH".into(),
-        // Conda env first (the scientific Python stack), then the system dirs.
-        "/opt/venv/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin".into(),
+        SANDBOX_PATH.into(),
         "--setenv".into(),
         "LANG".into(),
         "C.UTF-8".into(),
