@@ -185,8 +185,12 @@ beforeEach(() => {
   sseHandlers = undefined
   // The F page's one-second elapsed tick (RP-2): fake timers make the clock
   // deterministic; `shouldAdvanceTime` keeps the real-async helpers
-  // (`findByTestId`, waitFor) progressing.
-  vi.useFakeTimers({ shouldAdvanceTime: true })
+  // (`findByTestId`, waitFor) progressing. qa-fixes4 ITEM-3
+  // (R3-methods-3): the LIVE elapsed reads the run's `started_at` against
+  // this clock, so `now` is pinned 100 s after the fixture's run start
+  // (00:00:40Z) — the header reads "1 min 40 s elapsed" at load, exactly
+  // the engine's snapshot figure the fixture carries.
+  vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date('2026-11-06T00:02:20Z') })
   listRunLogs.mockResolvedValue({ lines: [], next_seq: 0, total: 0 })
   stopRun.mockResolvedValue(undefined)
   stopMethod.mockResolvedValue(undefined)
@@ -261,9 +265,9 @@ describe('RunningPage — the run id and the header facts (TEST-RUN-23)', () => 
   it('ticks the elapsed from the run\'s own snapshot and counts the time-left down (RP-2)', async () => {
     renderAt('run-1')
     await screen.findByTestId('txr-run-time-line')
-    // Live: 100 s snapshot + 5 s of page time → ≥ 1 min 45 s elapsed, and
-    // the time-left is the estimate minus that live elapsed (it moved off
-    // the frozen "1 min 40 s").
+    // Live: 100 s at the pinned clock + 5 s of page time → ≥ 1 min 45 s
+    // elapsed, and the time-left is the estimate minus that live elapsed
+    // (it moved off the frozen "1 min 40 s").
     act(() => {
       vi.advanceTimersByTime(5000)
     })
@@ -272,6 +276,31 @@ describe('RunningPage — the run id and the header facts (TEST-RUN-23)', () => 
       const match = text.match(/^about 2 minutes left · (\d+) min (\d+) s elapsed · rough estimate$/)
       expect(match).not.toBeNull()
       expect(Number(match![1]) * 60 + Number(match![2])).toBeGreaterThanOrEqual(105)
+    })
+  })
+
+  it('reads the header elapsed from started_at, not the load-time snapshot (qa-fixes4 ITEM-3, methods-r3 R3-methods-3)', async () => {
+    // The round-3 defect: the header lagged the real clock — the snapshot's
+    // elapsed at load drove a one-second counter that drifts when timers are
+    // delayed ("21 s elapsed" at t=28.7 of a 30 s run). A STALE snapshot on
+    // the wire must not freeze the header either: the clock is pinned 100 s
+    // after the run's started_at, so the header reads 1 min 40 s even
+    // though the snapshot (a frame that arrived 50 s ago) says 50.
+    const detail = runDetail('run-1')
+    detail.elapsed_secs = 50
+    getRun.mockResolvedValue(detail)
+    renderAt('run-1')
+    const line = await screen.findByTestId('txr-run-time-line')
+    expect(line.textContent).toBe('about 2 minutes left · 1 min 40 s elapsed · rough estimate')
+    // The rows read the same wall clock: the run started 100 s ago, so the
+    // header and the row cell count the same seconds (both wall-clock).
+    act(() => {
+      vi.advanceTimersByTime(10_000)
+    })
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('txr-run-time-line').textContent).toBe(
+        'about 2 minutes left · 1 min 50 s elapsed · rough estimate',
+      )
     })
   })
 

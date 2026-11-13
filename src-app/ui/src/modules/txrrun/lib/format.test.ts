@@ -176,9 +176,15 @@ describe('formatTimeLeft (TEST-RUN-04)', () => {
     expect(formatTimeLeft({ schedule_seconds: 60 }, 0)).toBe('about 1 minute left')
   })
 
-  it('clamps at zero — an overrun never reads negative — under a minute at the floor', () => {
-    expect(formatTimeLeft({ schedule_seconds: 300 }, 320)).toBe('under a minute left')
-    expect(formatTimeLeft({ schedule_seconds: 30 }, 0)).toBe('under a minute left')
+  it('a sub-minute remainder reads its real seconds — never the constant "under a minute left" (qa-fixes4 ITEM-3, methods-r3 R2-2 leftover)', () => {
+    expect(formatTimeLeft({ schedule_seconds: 540 }, 520)).toBe('about 20 s left')
+    expect(formatTimeLeft({ schedule_seconds: 30 }, 0)).toBe('about 30 s left')
+    expect(formatTimeLeft({ schedule_seconds: 60 }, 1)).toBe('about 59 s left')
+  })
+
+  it('an overrun reads "finishing up" — the estimate\'s schedule elapsed, the run is finalizing (never a negative)', () => {
+    expect(formatTimeLeft({ schedule_seconds: 300 }, 320)).toBe('finishing up')
+    expect(formatTimeLeft({ schedule_seconds: 300 }, 300)).toBe('finishing up')
   })
 
   it('returns null with no estimate and treats a missing elapsed as a just-started run', () => {
@@ -262,6 +268,17 @@ describe('formatRowTime + methodLabelOf (qa-fixes RES-01 null-vs-undefined)', ()
     expect(formatRowTime(row('finished'))).toBe('')
     // The elapsed guard reads null the same way (no duration mark, not a dash).
     expect(formatRowTime(row('running', { elapsed_secs: null as unknown as number }))).toBe('')
+  })
+
+  it('a finished row reads the engine\'s own elapsed_secs FIRST — the same count the log line words (qa-fixes4 ITEM-3, methods-r3 R3-methods-8)', () => {
+    // The round-3 pair: duration_ms 6286 (→ "6 s" by rounding) against the
+    // engine's log/elapsed 7 — the row now reads elapsed_secs so the table
+    // cell and the log quote are one count.
+    expect(formatRowTime(row('finished', { elapsed_secs: 7, duration_ms: 6286 }))).toBe(
+      'done in 7 s',
+    )
+    // No elapsed (an old row): the duration_ms fallback keeps the R2-4 word.
+    expect(formatRowTime(row('finished', { duration_ms: 112_000 }))).toBe('done in 1 min 52 s')
   })
 
   it('a skipped row never reads a done line (it never ran) and a stopped row reads its elapsed (RP-7)', () => {

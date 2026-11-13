@@ -158,20 +158,25 @@ export function formatSecs(secs: number | null): string {
 /**
  * The F header's time-left line (DEC-3): the run's own create-time
  * estimate minus the elapsed seconds (a missing elapsed counts as 0 — a
- * just-started run), floored at 0 (an overrun never reads negative),
- * rounded to whole minutes and announced as "about" — the estimate is the
- * engine's packed schedule, never re-computed here (INV-4). A `null`
- * estimate (the run carries none — a provider failure / an empty queued
- * set; PROV-EE-3) → `null`, so the header omits the segment entirely
- * rather than fabricating a zero.
+ * just-started run), announced as "about" — the estimate is the engine's
+ * packed schedule, never re-computed here (INV-4). qa-fixes4 ITEM-3
+ * (methods-r3 R2-2 leftover): the line is a REAL figure that counts down —
+ * a sub-minute remainder reads its own seconds ("about 20 s left", never
+ * the constant "under a minute left") and a run whose estimate's schedule
+ * has fully elapsed reads "finishing up" (the overrun is the run's own
+ * finalizing, no longer a promise of more work). A `null` estimate (the
+ * run carries none — a provider failure / an empty queued set;
+ * PROV-EE-3) → `null`, so the header omits the segment entirely rather
+ * than fabricating a zero.
  */
 export function formatTimeLeft(
   estimate: { schedule_seconds: number } | null,
   elapsedSecs: number | null,
 ): string | null {
   if (estimate === null) return null
-  const remaining = Math.max(0, estimate.schedule_seconds - (elapsedSecs ?? 0))
-  if (remaining < 60) return 'under a minute left'
+  const remaining = estimate.schedule_seconds - (elapsedSecs ?? 0)
+  if (remaining <= 0) return 'finishing up'
+  if (remaining < 60) return `about ${Math.max(1, Math.round(remaining))} s left`
   const minutes = Math.round(remaining / 60)
   return `about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} left`
 }
@@ -253,8 +258,12 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
  * (qa-fixes2 R2-4 — the column was empty during the run because the rows
  * only carry an engine snapshot, and a sub-minute run never saw one), a
  * completed row reads "done in M min S s" (the board's log line's words at
- * the row's own duration, `duration_ms`), a failed / cannot-run row reads
- * its elapsed (the board's "5 s"), and a stopped row reads the elapsed it
+ * the row's own duration — qa-fixes4 ITEM-3, methods-r3 R3-methods-8: the
+ * row reads the engine's `elapsed_secs` FIRST, the same seconds fact the
+ * engine's own log line words, so the row cell and the log quote can never
+ * disagree; `duration_ms` is the fallback for an old row the engine gave no
+ * elapsed), a failed / cannot-run row reads its elapsed (the board's "5 s"),
+ * and a stopped row reads the elapsed it
  * reached (it ran for a while before the user cleared it). A SKIPPED row
  * reads nothing: it never ran (qa-fixes ITEM-3, RP-7 — its "done in …"
  * was the engine's duration_ms of a row that never started). Waiting rows
@@ -286,9 +295,16 @@ export function formatRowTime(r: TxrRunMethod, nowMs: number | null = null): str
     case 'stopped':
       return r.elapsed_secs == null ? '' : formatSecs(r.elapsed_secs)
     case 'finished':
-      return r.duration_ms == null
-        ? ''
-        : `done in ${formatSecs(r.duration_ms / 1000)}`
+      // R3-methods-8 (qa-fixes4 ITEM-3): the engine's own log line words the
+      // method's seconds as its `elapsed_secs` ("done in 7s"), so the row
+      // reads THAT fact first — the table cell and the log quote are one
+      // count. An old row whose engine record has no elapsed falls back to
+      // `duration_ms` (the R2-4 pin's word).
+      return r.elapsed_secs == null
+        ? r.duration_ms == null
+          ? ''
+          : `done in ${formatSecs(r.duration_ms / 1000)}`
+        : `done in ${formatSecs(r.elapsed_secs)}`
     default:
       return ''
   }
