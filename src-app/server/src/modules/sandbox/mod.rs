@@ -83,6 +83,10 @@ pub mod cgroup;
 pub mod config;
 pub mod env_id;
 pub mod env_image;
+// macOS: stacked method runs execute in a per-run libkrun microVM (the base +
+// layer images attach as read-only disks; bwrap runs inside the guest).
+#[cfg(target_os = "macos")]
+pub mod mac_vm_run;
 pub mod method_env;
 pub mod outputs;
 pub mod permissions;
@@ -95,7 +99,7 @@ pub mod sandbox;
 // `sandbox::spawn_bwrap_child` on the argv built here (DEC-1: extension of the
 // shipped module, not a replacement).
 pub mod stack;
-#[cfg(target_os = "linux")]
+// The progress/milestone line codecs: the Linux FIFO drain and the macOS VM seam.
 pub mod streaming;
 pub mod service;
 pub mod settings;
@@ -154,14 +158,27 @@ impl AppModule for SandboxModule {
         // not init.
 
         // Host probe (bwrap on PATH + cgroup + seccomp). Missing bwrap → disable.
-        let host = match probes::probe_host_only() {
-            Some(h) => h,
-            None => {
+        // macOS: methods run in a per-run Linux VM (`mac_vm_run`), so the probe
+        // is the VM runtime (launcher + guest root on Apple Silicon) instead.
+        #[cfg(not(target_os = "macos"))]
+        let probed = probes::probe_host_only().ok_or_else(|| {
+            "bwrap not found on PATH — sandbox disabled (host_unsupported). \
+             Install bubblewrap + squashfuse to enable."
+                .to_string()
+        });
+        #[cfg(target_os = "macos")]
+        let probed = mac_vm_run::probe_host().map_err(|reason| {
+            format!("{reason} — method VMs disabled (host_unsupported)")
+        });
+        // Per-run VM dirs (image clones, input copies) a crashed app left
+        // behind; no run can be active yet.
+        #[cfg(target_os = "macos")]
+        mac_vm_run::sweep_stale_dirs();
+        let host = match probed {
+            Ok(h) => h,
+            Err(reason) => {
                 set_init_status(SandboxAvailability::HostUnsupported);
-                tracing::warn!(
-                    "sandbox: bwrap not found on PATH — sandbox disabled (host_unsupported). \
-                     Install bubblewrap + squashfuse to enable."
-                );
+                tracing::warn!("sandbox: {reason}");
                 tracing::info!(
                 "{}",
                 stack_boot_summary(

@@ -180,6 +180,22 @@ pub struct RootfsStatus {
 /// is intentionally NOT enforced: a historical rootfs may be an older schema and
 /// is used as-is for byte-faithful reproduction.
 pub fn ensure_ready_by_digest(digest: &str) -> Result<PathBuf, AppError> {
+    let image = cached_image_by_digest(digest)?;
+    // Serialize concurrent mounts of the SAME digest so only ONE squashfuse is
+    // ever spawned for it (blind-audit MED). The lock is held only across the
+    // mount; a different digest takes a different lock and proceeds in parallel.
+    // The loser wakes to `mount_at`'s fast path (`usr/` present) and returns the
+    // same mount dir — no orphaned FUSE daemon.
+    let lock = digest_mount_lock(digest);
+    let _guard = lock.lock().unwrap_or_else(|p| p.into_inner());
+    mount::mount_at(&image, &cache::digest_dir(digest).join("mnt"), false)
+}
+
+/// The cached squashfs image for `digest`, WITHOUT mounting it: the digest
+/// must be well-formed (`ROOTFS_BAD_DIGEST`, 400) and present in the local
+/// cache (`ROOTFS_DIGEST_ABSENT`, 404). [`ensure_ready_by_digest`] mounts the
+/// returned image on Linux; the macOS method VM attaches it as a disk instead.
+pub fn cached_image_by_digest(digest: &str) -> Result<PathBuf, AppError> {
     if !cache::is_valid_digest(digest) {
         return Err(AppError::new(
             axum::http::StatusCode::BAD_REQUEST,
@@ -198,18 +214,7 @@ pub fn ensure_ready_by_digest(digest: &str) -> Result<PathBuf, AppError> {
             ),
         ));
     }
-    // Serialize concurrent mounts of the SAME digest so only ONE squashfuse is
-    // ever spawned for it (blind-audit MED). The lock is held only across the
-    // mount; a different digest takes a different lock and proceeds in parallel.
-    // The loser wakes to `mount_at`'s fast path (`usr/` present) and returns the
-    // same mount dir — no orphaned FUSE daemon.
-    let lock = digest_mount_lock(digest);
-    let _guard = lock.lock().unwrap_or_else(|p| p.into_inner());
-    mount::mount_at(
-        &cache::squashfs_path_for(digest),
-        &cache::digest_dir(digest).join("mnt"),
-        false,
-    )
+    Ok(cache::squashfs_path_for(digest))
 }
 
 /// Current rootfs status (never errors — reports availability instead).

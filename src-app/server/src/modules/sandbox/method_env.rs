@@ -819,7 +819,7 @@ impl MethodEnvManager {
         }
         // A persisted-rule Ready entry: mount now (the per-digest lock + fast
         // path make a concurrent mount cheap).
-        let mount = crate::modules::rootfs::ensure_ready_by_digest(&digest)?;
+        let mount = ready_artifact_path(&digest)?;
         entry.mounted_dir = Some(mount.clone());
         Ok(ProvidedMount {
             mount_dir: mount,
@@ -846,7 +846,7 @@ impl MethodEnvManager {
                 remaining(deadline_at, "stage the staged squashfs")?;
                 stage_payload(&sq, &r.digest)?;
                 remaining(deadline_at, "mount the staged squashfs")?;
-                let mount = crate::modules::rootfs::ensure_ready_by_digest(&r.digest)?;
+                let mount = ready_artifact_path(&r.digest)?;
                 return Ok(ProvidedMount {
                     mount_dir: mount,
                     digest: Some(r.digest.clone()),
@@ -874,10 +874,17 @@ impl MethodEnvManager {
         if crate::modules::rootfs::cache::has_digest(&r.digest) {
             let cached = crate::modules::rootfs::cache::squashfs_path_for(&r.digest);
             // The cache entry claims to BE the pinned digest; a bit-rotten or
-            // operator-replaced file must not mount (INV-1 "always").
-            verify_payload_bytes(&cached, &r.digest)?;
+            // operator-replaced file must not mount (INV-1 "always"). macOS
+            // never attaches this file: its run seam clones it and verifies
+            // the CLONE (the bytes the VM reads) — skipping that hash only
+            // when this process already verified the cache file and its
+            // identity, ctime included, is unchanged — so hashing the cache
+            // file here as well would read each image twice.
+            if !cfg!(target_os = "macos") {
+                verify_payload_bytes(&cached, &r.digest)?;
+            }
             remaining(deadline_at, "mount the cached artifact")?;
-            let mount = crate::modules::rootfs::ensure_ready_by_digest(&r.digest)?;
+            let mount = ready_artifact_path(&r.digest)?;
             return Ok(ProvidedMount {
                 mount_dir: mount,
                 digest: Some(r.digest.clone()),
@@ -943,7 +950,7 @@ impl MethodEnvManager {
         remaining(deadline_at, "stage the pulled artifact")?;
         stage_payload(&payload, &r.digest)?;
         remaining(deadline_at, "mount the pulled artifact")?;
-        let mount = crate::modules::rootfs::ensure_ready_by_digest(&r.digest)?;
+        let mount = ready_artifact_path(&r.digest)?;
         Ok(ProvidedMount {
             mount_dir: mount,
             digest: Some(r.digest.clone()),
@@ -957,17 +964,13 @@ impl MethodEnvManager {
         status.mounted = entry
             .mounted_dir
             .as_deref()
-            .map(|d| d.join("usr").exists())
+            .map(artifact_path_ready)
             .unwrap_or_else(|| {
                 entry
                     .status
                     .digest
                     .as_deref()
-                    .map(|d| {
-                        crate::modules::rootfs::mount::is_mounted(
-                            &crate::modules::rootfs::cache::digest_dir(d),
-                        )
-                    })
+                    .map(digest_ready)
                     .unwrap_or(false)
             });
         status
@@ -1357,6 +1360,55 @@ fn is_executable(path: &Path) -> bool {
 }
 
 // ────────────────────────────── air-gap seams ─────────────────────────────────
+
+/// What a run consumes for a verified artifact already in the content-digest
+/// cache. Linux: the squashfuse mount dir (`rootfs::ensure_ready_by_digest`).
+/// macOS: the cached squashfs image itself — the method VM attaches it as a
+/// read-only disk, so nothing is mounted on the host
+/// (`service::run_method_in_stack`, macOS). Callers verified the bytes first.
+fn ready_artifact_path(digest: &str) -> Result<PathBuf, AppError> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::modules::rootfs::cached_image_by_digest(digest)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        crate::modules::rootfs::ensure_ready_by_digest(digest)
+    }
+}
+
+/// Re-verify an environment image file against its pinned payload digest
+/// (INV-1), for a caller that hands the FILE to something that reads it later.
+/// On Linux a run reads the squashfuse mount of bytes verified when mounted;
+/// the macOS method VM boots a per-run clone of the cached file, so its seam
+/// verifies the clone — unless this process already verified that cache file
+/// and its identity (device, inode, size, mtime, ctime) is unchanged — before
+/// the boot. A replaced or corrupted file is refused, never booted under the
+/// recorded digest.
+pub fn verify_image_file(path: &Path, digest: &str) -> Result<(), AppError> {
+    verify_payload_bytes(path, digest)
+}
+
+/// Whether a path [`ready_artifact_path`] (or a staged-dir seam) returned is
+/// usable now: a mounted dir with `usr/` on Linux, the image file on macOS.
+fn artifact_path_ready(path: &Path) -> bool {
+    if cfg!(target_os = "macos") {
+        path.is_file()
+    } else {
+        path.join("usr").exists()
+    }
+}
+
+/// Whether the cached artifact for `digest` is usable without a new download:
+/// mounted on Linux, present in the cache on macOS.
+fn digest_ready(digest: &str) -> bool {
+    use crate::modules::rootfs::cache;
+    if cfg!(target_os = "macos") {
+        cache::has_digest(digest)
+    } else {
+        crate::modules::rootfs::mount::is_mounted(&cache::digest_dir(digest))
+    }
+}
 
 /// `TXR_ENV_ROOTFS_SQUASHFS__<env-id>` (exact env) or the bare
 /// `TXR_ENV_ROOTFS_SQUASHFS` serving the env named by
