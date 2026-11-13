@@ -120,7 +120,14 @@ mod tests {
     #[test]
     fn stdio_with_base_layer_and_ro_paths_in_order() {
         let mode = parse(&[
-            "--stdio", "--base", "/mnt/c/b.sqfs", "--ro", "/mnt/c/in", "--layer", "/mnt/c/l.sqfs", "--ro",
+            "--stdio",
+            "--base",
+            "/mnt/c/b.sqfs",
+            "--ro",
+            "/mnt/c/in",
+            "--layer",
+            "/mnt/c/l.sqfs",
+            "--ro",
             "/mnt/c/model",
         ]);
         assert_eq!(
@@ -133,7 +140,11 @@ mod tests {
         );
         assert_eq!(
             parse(&["--base", "/b", "--stdio"]),
-            Ok(Mode::Stdio(StdioArgs { base: "/b".into(), layer: None, ro: vec![] }))
+            Ok(Mode::Stdio(StdioArgs {
+                base: "/b".into(),
+                layer: None,
+                ro: vec![]
+            }))
         );
     }
 
@@ -152,11 +163,17 @@ mod tests {
             (&["--stdio", "--base", "/b", "--ro", "in"], "absolute path"),
             (&["--stdio", "--base", "/b", "--layer", "--ro"], "absolute path"),
             (&["--stdio", "--base", "/b", "--base", "/c"], "--base is given twice"),
-            (&["--stdio", "--base", "/b", "--layer", "/l", "--layer", "/m"], "--layer is given twice"),
+            (
+                &["--stdio", "--base", "/b", "--layer", "/l", "--layer", "/m"],
+                "--layer is given twice",
+            ),
             (&["--stdio", "--stdio", "--base", "/b"], "--stdio is given twice"),
             (&["--base", "/b"], "need --stdio"),
             (&["--ro", "/x"], "need --stdio"),
-            (&["--pipe-selftest", "--stdio", "--base", "/b"], "takes no other argument"),
+            (
+                &["--pipe-selftest", "--stdio", "--base", "/b"],
+                "takes no other argument",
+            ),
             (&["--pipe-selftest", "--pipe-selftest"], "given twice"),
             (&["--stdio", "--base", "/b", "extra"], "unexpected argument"),
             (&["--stdio", "--base=/b"], "unexpected argument"),
@@ -181,7 +198,11 @@ mod tests {
     fn non_utf8_paths_are_kept_byte_for_byte() {
         use std::os::unix::ffi::OsStringExt;
         let raw = b"/mnt/c/\xff.sqfs".to_vec();
-        let args = vec![OsString::from("--stdio"), OsString::from("--base"), OsString::from_vec(raw.clone())];
+        let args = vec![
+            OsString::from("--stdio"),
+            OsString::from("--base"),
+            OsString::from_vec(raw.clone()),
+        ];
         match parse_args(args) {
             Ok(Mode::Stdio(a)) => assert_eq!(a.base.into_os_string().into_vec(), raw),
             other => panic!("{other:?}"),

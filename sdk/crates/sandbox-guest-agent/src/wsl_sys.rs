@@ -108,7 +108,9 @@ struct FuseMount {
 
 impl RealOps {
     fn fd(&self, source: Source) -> Result<&OwnedFd, String> {
-        self.opened.get(&source).ok_or_else(|| format!("{source:?} was not opened"))
+        self.opened
+            .get(&source)
+            .ok_or_else(|| format!("{source:?} was not opened"))
     }
 
     /// Unmount each squashfuse mount and end its process. The mounts would go
@@ -173,7 +175,13 @@ impl MountOps for RealOps {
 
     fn tmpfs(&mut self, target: &Path, options: &str) -> Result<(), String> {
         require_dir(target)?;
-        mount(Some("tmpfs"), target, Some("tmpfs"), libc::MS_NOSUID | libc::MS_NODEV, Some(options))
+        mount(
+            Some("tmpfs"),
+            target,
+            Some("tmpfs"),
+            libc::MS_NOSUID | libc::MS_NODEV,
+            Some(options),
+        )
     }
 
     fn squashfs_kernel(&mut self, source: Source, target: &Path) -> Result<(), String> {
@@ -242,7 +250,10 @@ impl MountOps for RealOps {
                 Err(e) => break Some(format!("waiting for squashfuse: {e}")),
             }
             if Instant::now() >= deadline {
-                break Some(format!("squashfuse did not mount within {}s", SQUASHFUSE_READY_TIMEOUT.as_secs()));
+                break Some(format!(
+                    "squashfuse did not mount within {}s",
+                    SQUASHFUSE_READY_TIMEOUT.as_secs()
+                ));
             }
             std::thread::sleep(Duration::from_millis(20));
         };
@@ -252,7 +263,10 @@ impl MountOps for RealOps {
             let _ = child.wait();
             return Err(why);
         }
-        self.fuse.push(FuseMount { target: target.to_path_buf(), child });
+        self.fuse.push(FuseMount {
+            target: target.to_path_buf(),
+            child,
+        });
         Ok(())
     }
 
@@ -265,7 +279,12 @@ impl MountOps for RealOps {
         let created = if is_dir {
             std::fs::create_dir(target)
         } else {
-            OpenOptions::new().write(true).create_new(true).mode(0o444).open(target).map(drop)
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o444)
+                .open(target)
+                .map(drop)
         };
         created.map_err(|e| format!("creating the mount point: {e}"))?;
         let src = fd_path(fd);
@@ -288,16 +307,24 @@ pub struct ProtocolStdio {
 
 /// Take stdin/stdout for the protocol: keep them on close-on-exec fds and
 /// point fd 0 at /dev/null and fd 1 at stderr, so no child (squashfuse, bwrap)
-/// and no stray print can read frames or write into the stream.
+/// and no stray print can read frames or write into the stream. The stream is
+/// read and written with blocking calls, so it is made blocking if it came
+/// non-blocking.
 pub fn take_protocol_stdio() -> io::Result<ProtocolStdio> {
     let input = io::stdin().as_fd().try_clone_to_owned()?;
     let output = io::stdout().as_fd().try_clone_to_owned()?;
+    set_blocking(&input)?;
+    set_blocking(&output)?;
     let null = File::open("/dev/null")?;
     // SAFETY: dup2 on fds this process owns.
     if unsafe { libc::dup2(null.as_raw_fd(), 0) } < 0 {
         return Err(io::Error::last_os_error());
     }
-    let to_stdout = if unsafe { libc::fcntl(2, libc::F_GETFD) } >= 0 { 2 } else { null.as_raw_fd() };
+    let to_stdout = if unsafe { libc::fcntl(2, libc::F_GETFD) } >= 0 {
+        2
+    } else {
+        null.as_raw_fd()
+    };
     if unsafe { libc::dup2(to_stdout, 1) } < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -316,6 +343,21 @@ fn open_o_path(path: &Path) -> io::Result<OwnedFd> {
     }
     // SAFETY: `fd` was just opened and is owned by nothing else.
     Ok(unsafe { <OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) })
+}
+
+/// Clear `O_NONBLOCK` on an fd's open file description.
+fn set_blocking(fd: &OwnedFd) -> io::Result<()> {
+    // SAFETY: fcntl on an fd this process owns.
+    let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if flags & libc::O_NONBLOCK != 0
+        && unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags & !libc::O_NONBLOCK) } < 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 /// `/proc/self/fd/<n>`: the file behind an open fd.
@@ -361,7 +403,9 @@ fn attach_loop(image: &OwnedFd, name: &[u8]) -> Result<(File, String), String> {
         // Taken by someone else since GET_FREE: ask again.
         last = format!("{path}: {err}");
     }
-    Err(format!("no free loop device after {LOOP_ATTACH_TRIES} tries (last: {last})"))
+    Err(format!(
+        "no free loop device after {LOOP_ATTACH_TRIES} tries (last: {last})"
+    ))
 }
 
 fn mount(
@@ -373,8 +417,8 @@ fn mount(
 ) -> Result<(), String> {
     let cstr = |s: &str| CString::new(s).map_err(|_| format!("{s:?} contains a NUL byte"));
     let c_src = src.map(cstr).transpose()?;
-    let c_target = CString::new(target.as_os_str().as_bytes())
-        .map_err(|_| format!("{} contains a NUL byte", target.display()))?;
+    let c_target =
+        CString::new(target.as_os_str().as_bytes()).map_err(|_| format!("{} contains a NUL byte", target.display()))?;
     let c_fs = fstype.map(cstr).transpose()?;
     let c_data = data.map(cstr).transpose()?;
     let ptr = |c: &Option<CString>| c.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
@@ -472,7 +516,10 @@ mod tests {
             parse_mounts_at(text, Path::new("/sandbox-rootfs")),
             vec![(101, "squashfs".to_string()), (104, "fuse".to_string())]
         );
-        assert_eq!(parse_mounts_at(text, Path::new("/host-mounts/with space")), vec![(103, "tmpfs".to_string())]);
+        assert_eq!(
+            parse_mounts_at(text, Path::new("/host-mounts/with space")),
+            vec![(103, "tmpfs".to_string())]
+        );
         assert!(parse_mounts_at(text, Path::new("/sandbox")).is_empty());
     }
 
@@ -482,18 +529,26 @@ mod tests {
         let file = dir.path().join("image.sqfs");
         std::fs::write(&file, b"not really squashfs").unwrap();
         let mut ops = RealOps::default();
-        assert_eq!(ops.open(Source::Base, dir.path()), Err("not a regular file".to_string()));
+        assert_eq!(
+            ops.open(Source::Base, dir.path()),
+            Err("not a regular file".to_string())
+        );
         ops.open(Source::Base, &file).expect("a regular file is an image");
         ops.open(Source::Ro(0), dir.path()).expect("a dir can be bound");
         ops.open(Source::Ro(1), &file).expect("a file can be bound");
-        let missing = ops.open(Source::Layer, &dir.path().join("missing")).expect_err("missing");
+        let missing = ops
+            .open(Source::Layer, &dir.path().join("missing"))
+            .expect_err("missing");
         assert!(missing.contains("No such file"), "{missing}");
         // A FIFO is refused without blocking on it.
         let fifo = dir.path().join("fifo");
         let c = CString::new(fifo.as_os_str().as_bytes()).unwrap();
         assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
         assert_eq!(ops.open(Source::Layer, &fifo), Err("not a regular file".to_string()));
-        assert_eq!(ops.open(Source::Ro(2), &fifo), Err("not a directory or a regular file".to_string()));
+        assert_eq!(
+            ops.open(Source::Ro(2), &fifo),
+            Err("not a directory or a regular file".to_string())
+        );
         // The image is held open readable (the loop device reads it).
         let mut buf = [0u8; 3];
         let image = File::from(ops.opened[&Source::Base].try_clone().unwrap());
