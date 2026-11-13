@@ -1,6 +1,9 @@
 {
   "name": "txresbench-root",
   "private": true,
+  "scripts": {
+    "fetch-oras": "node scripts/fetch-oras.mjs"
+  },
   "workspaces": [
     "sdk/packages/*",
     "src-app/ui"
