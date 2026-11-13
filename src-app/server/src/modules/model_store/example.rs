@@ -951,6 +951,7 @@ mod tests {
         );
         for m in &run.methods {
             let id = &m.method_id;
+            assert!(m.train_target, "{id}: a train request plans train calls");
             let facts = catalogue().method(id).expect("a catalogue method");
             assert_eq!(m.min_draws, facts.min_draws, "{id}: the plan's min_draws");
             // Only a host without a published env plans it `cannot_run`, and
