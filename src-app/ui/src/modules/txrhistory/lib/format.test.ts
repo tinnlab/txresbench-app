@@ -20,7 +20,7 @@
  * rule (the sibling run module's clock-skew guard class).
  */
 import { describe, expect, it } from 'vitest'
-import type { TxrHistoryBucket, TxrRunReason, TxrRunMode } from '@/api-client/types'
+import type { TxrHistoryBucket, TxrRunCounts, TxrRunReason, TxrRunMode } from '@/api-client/types'
 import {
   NO_REASON_RECORDED,
   displayBucketOf,
@@ -28,10 +28,12 @@ import {
   formatBytes,
   formatDate,
   formatDurationWords,
+  isTroubleRun,
   modeChip,
   reasonLine,
   statusLabel,
   tookLine,
+  troubleReasonLine,
 } from './format'
 
 const MIB = 1024 * 1024
@@ -120,20 +122,103 @@ describe('formatDate (TEST-HIST-5 — injected locale/now, no hardcoded month ta
   })
 })
 
-describe('statusLabel (TEST-HIST-5)', () => {
+describe('statusLabel (TEST-HIST-5 + qa-fixes4 ITEM-2)', () => {
+  const allDone = { finished: 3, failed: 0, stopped: 0, skipped: 0, cannot_run: 0, running: 0, downloading: 0, waiting: 0 }
+
   it('maps the four provider buckets to the board words and the sibling status tones (DEC-9)', () => {
-    expect(statusLabel('running')).toEqual({ text: 'Running', tone: 'var(--txr-brand-ink)' })
-    expect(statusLabel('finished')).toEqual({ text: 'Done', tone: 'var(--txr-success)' })
-    expect(statusLabel('stopped')).toEqual({ text: 'Stopped', tone: 'var(--txr-muted)' })
-    expect(statusLabel('failed')).toEqual({ text: 'Failed', tone: 'var(--txr-danger)' })
+    expect(statusLabel('running', allDone, 3)).toEqual({ text: 'Running', tone: 'var(--txr-brand-ink)' })
+    expect(statusLabel('finished', allDone, 3)).toEqual({ text: 'Done', tone: 'var(--txr-success)' })
+    // ITEM-2: the stopped word is the truthful "Stopped by you" (the old
+    // board word "Stopped" did not say WHO stopped the run).
+    expect(statusLabel('stopped', { ...allDone, stopped: 1 }, 1)).toEqual({ text: 'Stopped by you', tone: 'var(--txr-muted)' })
+    expect(statusLabel('failed', { ...allDone, failed: 1 }, 1)).toEqual({ text: 'Failed', tone: 'var(--txr-danger)' })
+  })
+
+  it('"Done" only when every method finished (ITEM-2: the partial truth words)', () => {
+    expect(statusLabel('finished', { ...allDone, finished: 2, failed: 3 }, 5).text).toBe(
+      'Done, 3 of 5 methods failed',
+    )
+    expect(statusLabel('finished', { ...allDone, finished: 6, cannot_run: 203 }, 209).text).toBe(
+      'Done, 203 of 209 methods could not run',
+    )
+    expect(statusLabel('finished', { ...allDone, finished: 4, stopped: 1, skipped: 1 }, 6).text).toBe(
+      'Done, 2 of 6 methods were stopped or skipped',
+    )
+    expect(statusLabel('stopped', { ...allDone, stopped: 4, skipped: 2 }, 6).text).toBe(
+      'Stopped by you (2 skipped)',
+    )
+  })
+
+  it('the partial-finished tone is the warning amber (the "some/partly" token), the plain Done stays green', () => {
+    expect(statusLabel('finished', { ...allDone, finished: 2, failed: 3 }, 5).tone).toBe('var(--txr-warning)')
+    expect(statusLabel('finished', allDone, 3).tone).toBe('var(--txr-success)')
+  })
+
+  it('a row without the engine counts falls back to the four bucket words (a pre-ITEM-2 server)', () => {
+    expect(statusLabel('finished', undefined, 5).text).toBe('Done')
+    expect(statusLabel('stopped', null, 6).text).toBe('Stopped')
   })
 
   it('is total over the provider bucket vocabulary — every bucket yields a word', () => {
     const buckets: TxrHistoryBucket[] = ['running', 'finished', 'stopped', 'failed']
     for (const bucket of buckets) {
-      const { text } = statusLabel(bucket)
+      const { text } = statusLabel(bucket, allDone, 3)
       expect(text.trim().length, bucket).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('isTroubleRun + troubleReasonLine (qa-fixes4 ITEM-2 — R3-results-3)', () => {
+  const counts = (over: Partial<TxrRunCounts>): TxrRunCounts => ({
+    finished: 0,
+    failed: 0,
+    stopped: 0,
+    skipped: 0,
+    cannot_run: 0,
+    running: 0,
+    downloading: 0,
+    waiting: 0,
+    ...over,
+  })
+
+  it('a finished bucket with unmet methods is trouble; all-finished is not', () => {
+    expect(isTroubleRun('finished', counts({ finished: 2, failed: 3 }), 5)).toBe(true)
+    expect(isTroubleRun('finished', counts({ finished: 6, cannot_run: 203 }), 209)).toBe(true)
+    expect(isTroubleRun('finished', counts({ finished: 6 }), 6)).toBe(false)
+  })
+
+  it('failed/stopped are always trouble, running never, and a counts-less row cannot be judged', () => {
+    expect(isTroubleRun('failed', counts({ failed: 1 }), 1)).toBe(true)
+    expect(isTroubleRun('stopped', counts({ stopped: 1 }), 1)).toBe(true)
+    expect(isTroubleRun('running', counts({ running: 2 }), 2)).toBe(false)
+    expect(isTroubleRun('finished', undefined, 5)).toBe(false)
+  })
+
+  it('the partial line names the dominant state and keeps the detail verbatim (never a re-author)', () => {
+    expect(
+      troubleReasonLine(counts({ finished: 2, failed: 3 }), {
+        code: 'BUNDLE_MARKER_COUNT_UNMET',
+        detail: 'the method needs a different number of markers than the file has',
+      }),
+    ).toBe('Failed: the method needs a different number of markers than the file has')
+    expect(
+      troubleReasonLine(counts({ finished: 6, cannot_run: 203 }), {
+        code: 'ENV_UNKNOWN',
+        detail: 'the method environment is not available yet',
+      }),
+    ).toBe('Could not run: the method environment is not available yet')
+    expect(
+      troubleReasonLine(counts({ finished: 4, stopped: 1, skipped: 1 }), {
+        code: 'ABORTED',
+        detail: 'stopped by the user',
+      }),
+    ).toBe('Stopped: stopped by the user')
+  })
+
+  it('never renders a blank part — the sibling constant stands in (INV-2)', () => {
+    expect(troubleReasonLine(counts({ finished: 5, failed: 1 }), undefined)).toBe(
+      `Failed: ${NO_REASON_RECORDED}`,
+    )
   })
 })
 
@@ -234,9 +319,9 @@ describe('displayBucketOf (qa-fixes2 R2-02 — the failed-run presentation)', ()
       code: 'ENV_UNREADY',
       detail: 'oras is not installed',
     }
-    expect(statusLabel(displayBucketOf({ bucket: 'finished', can_reopen: false })).text).toBe(
-      'Failed',
-    )
+    expect(
+      statusLabel(displayBucketOf({ bucket: 'finished', can_reopen: false }), undefined, 1).text,
+    ).toBe('Failed')
     expect(
       reasonLine(displayBucketOf({ bucket: 'finished', can_reopen: false }), reason),
     ).toBe('Failed: oras is not installed')

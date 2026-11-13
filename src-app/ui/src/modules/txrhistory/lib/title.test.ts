@@ -32,6 +32,7 @@ function item(over: Partial<TxrHistoryItem> = {}): TxrHistoryItem {
   return {
     id: 'run-1',
     bucket: 'finished',
+    counts: { finished: 3, failed: 0, stopped: 0, skipped: 0, cannot_run: 0, running: 0, downloading: 0, waiting: 0 },
     mode: 'train',
     created_at: '2026-11-05T10:02:00Z',
     method_count: 3,

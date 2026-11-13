@@ -37,7 +37,16 @@
 import type { CSSProperties } from 'react'
 import { Button, Skeleton } from '@txresbench/kit'
 import type { TxrHistoryDetail, TxrHistoryItem } from '@/api-client/types'
-import { endpointLabel, displayBucketOf, formatDate, modeChip, reasonLine, statusLabel } from '../lib/format'
+import {
+  endpointLabel,
+  displayBucketOf,
+  formatDate,
+  isTroubleRun,
+  modeChip,
+  reasonLine,
+  statusLabel,
+  troubleReasonLine,
+} from '../lib/format'
 import { titleFor } from '../lib/title'
 import type { TxrChipTone } from '../types'
 import { TxrHistoryDetailBlock } from './TxrHistoryDetailBlock'
@@ -103,10 +112,19 @@ const LOADING_BLOCK: CSSProperties = {
  * provider's detail verbatim, in the failure red).
  */
 export function subtitleFor(item: TxrHistoryItem): string | null {
-  // R2-02: the displayed bucket decides the reason line — a `finished` run
-  // with no finished method presents as `failed` and reads its reason.
-  const reason = reasonLine(displayBucketOf(item), item.reason)
-  if (reason !== null) return reason
+  // R2-02 + qa-fixes4 ITEM-2: the displayed bucket decides the reason line —
+  // a `finished` run with no finished method presents as `failed` and reads
+  // its reason; a finished run whose counts report MET but unfinished
+  // methods (partial failures / stops / skips) is not all-done and reads the
+  // first terminal reason too (the status chip names the count; THIS line is
+  // the one-line "why" of PLAN ITEM-2 (a)).
+  const bucket = displayBucketOf(item)
+  if (bucket === 'failed' || bucket === 'stopped') {
+    return reasonLine(bucket, item.reason)
+  }
+  if (bucket === 'finished' && isTroubleRun(bucket, item.counts, item.method_count)) {
+    return troubleReasonLine(item.counts as NonNullable<TxrHistoryItem['counts']>, item.reason)
+  }
   const segments: string[] = []
   if (item.mode === 'reuse') {
     // R2-04: a reuse row's methods are the consumed MODELS — the raw
@@ -163,6 +181,7 @@ export interface TxrHistoryCardProps {
   onReveal?: (runId: string) => void
   onLog?: (runId: string) => void
   onOpenSet?: (setId: string) => void
+  onDelete?: (runId: string) => void
 }
 
 export function TxrHistoryCard({
@@ -180,12 +199,15 @@ export function TxrHistoryCard({
   onReveal,
   onLog,
   onOpenSet,
+  onDelete,
 }: TxrHistoryCardProps) {
   const chip = modeChip(item.mode)
   const bucket = displayBucketOf(item)
-  const status = statusLabel(bucket)
+  const status = statusLabel(bucket, item.counts, item.method_count)
   const subtitle = subtitleFor(item)
-  const failed = bucket === 'failed' || bucket === 'stopped'
+  // The trouble rows use the failure-red reason line (R2-02: a genuinely
+  // stopped/failed row; ITEM-2: a partial run's "N of M did not finish" line).
+  const trouble = isTroubleRun(bucket, item.counts, item.method_count)
   const openDetail = expanded && detail !== null && detail.id === item.id
   const rowStyle: CSSProperties = {
     borderWidth: expanded ? 2 : 1,
@@ -200,7 +222,7 @@ export function TxrHistoryCard({
         <div style={TITLE_BLOCK}>
           <div style={ROW_TITLE}>{titleFor(item)}</div>
           {subtitle !== null ? (
-            <div data-testid={`txr-history-subtitle-${item.id}`} style={failed ? FAILURE_SUBTITLE : ROW_SUBTITLE}>
+            <div data-testid={`txr-history-subtitle-${item.id}`} style={trouble ? FAILURE_SUBTITLE : ROW_SUBTITLE}>
               {subtitle}
             </div>
           ) : null}
@@ -248,6 +270,7 @@ export function TxrHistoryCard({
           onReveal={onReveal}
           onLog={onLog}
           onOpenSet={onOpenSet}
+          onDelete={onDelete}
         />
       ) : null}
     </li>
