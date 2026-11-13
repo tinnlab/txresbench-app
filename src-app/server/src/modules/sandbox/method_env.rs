@@ -66,7 +66,8 @@
 //! # Blocking + bounded
 //!
 //! [`MethodEnvManager::ensure`] shells to host tools (`oras`, resolved via
-//! [`tool_bin`]: `<app_data>/bin` first, then `PATH` — DEC-4) and does
+//! [`tool_bin`]: the app executable's directory (the bundled sidecar) first,
+//! then `<app_data>/bin`, then `PATH` — DEC-4) and does
 //! synchronous I/O, so the caller runs it on `spawn_blocking`, exactly like
 //! `EnvImageProvider::provide`. `deadline` is the TOTAL wall-clock budget for
 //! the whole resolve→verify→pull→stage→mount sequence; exceeding it returns
@@ -117,7 +118,8 @@ pub const ENV_KIND_INVALID_CODE: &str = "ENV_KIND_INVALID";
 /// terminal state is `failed` and a later `ensure` retries cleanly (TEST-11).
 pub const ENV_DOWNLOAD_CANCELLED_CODE: &str = "ENV_DOWNLOAD_CANCELLED";
 
-/// `oras` is not installed on `PATH` nor in `<app_data>/bin`. The txr env
+/// `oras` is not found next to the app executable, in `<app_data>/bin` nor on
+/// `PATH` ([`tool_bin`]). The txr env
 /// status degrades (the env's state is `failed` with this error); a run is
 /// never attempted against the host filesystem instead (module INV-2).
 /// (The shipped `env_image.rs` names the same host-tool condition
@@ -897,7 +899,8 @@ impl MethodEnvManager {
             AppError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 ENV_TOOL_MISSING_CODE,
-                "oras is not installed (looked in <app_data>/bin and PATH); the method \
+                "oras is not installed (looked next to the app executable, in \
+                 <app_data>/bin and on PATH); the method \
                  environment cannot be downloaded — install oras or stage the environment \
                  with TXR_ENV_ROOTFS_SQUASHFS__<env-id>",
             )
@@ -1322,26 +1325,50 @@ fn pull_ref_for(
 
 // ────────────────────────────── tool resolution ───────────────────────────────
 
-/// `<app_data>/bin/<name>` when executable, else `PATH` (DEC-4 — the installer
-/// is expected to place the tool there; a system install is the fallback).
+/// The first executable `<name>` (`<name>.exe` on Windows) found, in order:
+/// the directory of the running executable (where the desktop bundle ships
+/// `oras` as a Tauri sidecar, `bundle.externalBin`), then `<app_data>/bin`
+/// (DEC-4 — an operator-placed tool), then `PATH` (a system install).
 pub fn tool_bin(name: &str) -> Option<PathBuf> {
+    let exe_dir = running_exe_dir();
     tool_bin_in(
+        exe_dir.as_deref(),
         &crate::modules::rootfs::data_root().join("bin"),
         name,
-        &std::env::var("PATH").unwrap_or_default(),
+        &std::env::var_os("PATH").unwrap_or_default(),
+        std::env::consts::EXE_SUFFIX,
     )
 }
 
-/// The pure core of [`tool_bin`], testable without touching the process PATH.
-fn tool_bin_in(app_data_bin: &Path, name: &str, path: &str) -> Option<PathBuf> {
-    let candidate = app_data_bin.join(name);
-    if is_executable(&candidate) {
-        return Some(candidate);
-    }
-    path.split(':')
-        .filter(|p| !p.is_empty())
-        .map(|p| Path::new(p).join(name))
-        .find(|p| is_executable(p))
+/// The directory holding the running executable. Symlinks are resolved on
+/// Unix so a linked launcher still finds the sidecar next to the real binary
+/// (Windows keeps `current_exe` as is: canonicalising there yields `\\?\` paths).
+fn running_exe_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    #[cfg(unix)]
+    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+    exe.parent().map(Path::to_path_buf)
+}
+
+/// The pure core of [`tool_bin`], testable without touching the process:
+/// `exe_dir`, then `app_data_bin`, then each `PATH` entry (split with the
+/// platform's separator), looking for `<name><exe_suffix>`.
+fn tool_bin_in(
+    exe_dir: Option<&Path>,
+    app_data_bin: &Path,
+    name: &str,
+    path: &std::ffi::OsStr,
+    exe_suffix: &str,
+) -> Option<PathBuf> {
+    let file = format!("{name}{exe_suffix}");
+    let path_dirs = std::env::split_paths(path).filter(|d| !d.as_os_str().is_empty());
+    exe_dir
+        .map(Path::to_path_buf)
+        .into_iter()
+        .chain(std::iter::once(app_data_bin.to_path_buf()))
+        .chain(path_dirs)
+        .map(|dir| dir.join(&file))
+        .find(|candidate| is_executable(candidate))
 }
 
 fn is_executable(path: &Path) -> bool {
@@ -1908,7 +1935,8 @@ fn oras_resolve(
         AppError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             ENV_TOOL_MISSING_CODE,
-            "oras is not installed (looked in <app_data>/bin and PATH)",
+            "oras is not installed (looked next to the app executable, in <app_data>/bin \
+             and on PATH)",
         )
     })?;
     let mut args = vec!["resolve".to_string()];
@@ -2174,51 +2202,156 @@ mod tests {
 
     // ── tool_bin (TEST-10) ────────────────────────────────────────────────
 
-    #[test]
-    fn tool_bin_prefers_app_data_bin_over_path() {
-        let (root, _guard) = data_root();
-        let app_bin = root.join("bin");
-        std::fs::write(app_bin.join("oras"), "#!/bin/sh\n").unwrap();
+    /// Write an executable stub `<dir>/<file>` (mode 0755 on Unix).
+    fn exec_stub(dir: &Path, file: &str) -> PathBuf {
+        std::fs::create_dir_all(dir).unwrap();
+        let p = dir.join(file);
+        std::fs::write(&p, "#!/bin/sh\n").unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(app_bin.join("oras"), std::fs::Permissions::from_mode(0o755))
-                .unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
+        p
+    }
+
+    fn path_of(dirs: &[&Path]) -> std::ffi::OsString {
+        std::env::join_paths(dirs).unwrap()
+    }
+
+    #[test]
+    fn tool_bin_prefers_the_executable_dir_over_app_data_bin_and_path() {
+        let (root, _guard) = data_root();
+        let exe_dir = root.join("exe-dir");
+        let app_bin = root.join("bin");
+        let on_path = root.join("on-path");
+        let sidecar = exec_stub(&exe_dir, "oras");
+        exec_stub(&app_bin, "oras");
+        exec_stub(&on_path, "oras");
+        let path = path_of(&[&on_path]);
+        let resolved = tool_bin_in(Some(&exe_dir), &app_bin, "oras", &path, "").expect("resolved");
+        assert_eq!(resolved, sidecar, "the sidecar next to the executable wins");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn tool_bin_prefers_app_data_bin_over_path() {
+        let (root, _guard) = data_root();
+        let exe_dir = root.join("exe-dir");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let app_bin = root.join("bin");
+        let in_app_bin = exec_stub(&app_bin, "oras");
         let also = root.join("also-bin");
-        std::fs::create_dir_all(&also).unwrap();
-        std::fs::write(also.join("oras"), "#!/bin/sh\n").unwrap();
-        let path = format!("{}:{}", app_bin.display(), also.display());
-        let resolved = tool_bin_in(&app_bin, "oras", &path).expect("resolved");
+        exec_stub(&also, "oras");
+        let path = path_of(&[&app_bin, &also]);
+        let resolved = tool_bin_in(Some(&exe_dir), &app_bin, "oras", &path, "").expect("resolved");
         assert_eq!(
-            resolved,
-            app_bin.join("oras"),
-            "app_data/bin wins over PATH"
+            resolved, in_app_bin,
+            "app_data/bin wins over PATH when no sidecar"
+        );
+        let resolved = tool_bin_in(None, &app_bin, "oras", &path, "").expect("resolved");
+        assert_eq!(
+            resolved, in_app_bin,
+            "no executable dir known: app_data/bin first"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn tool_bin_falls_back_to_path_when_absent_from_app_data_bin() {
+    fn tool_bin_falls_back_to_path_when_absent_from_exe_dir_and_app_data_bin() {
         let (root, _guard) = data_root();
+        let exe_dir = root.join("exe-dir");
+        std::fs::create_dir_all(&exe_dir).unwrap();
         let app_bin = root.join("bin");
+        let empty = root.join("empty-path-dir");
+        std::fs::create_dir_all(&empty).unwrap();
         let also = root.join("also-bin");
-        std::fs::create_dir_all(&also).unwrap();
-        std::fs::write(also.join("oras"), "#!/bin/sh\n").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(also.join("oras"), std::fs::Permissions::from_mode(0o755))
-                .unwrap();
-        }
-        let path = format!("{}:{}", app_bin.display(), also.display());
-        let resolved = tool_bin_in(&app_bin, "oras", &path).expect("resolved");
-        assert_eq!(resolved, also.join("oras"), "PATH fallback");
+        let on_path = exec_stub(&also, "oras");
+        let path = path_of(&[&empty, &also]);
+        let resolved = tool_bin_in(Some(&exe_dir), &app_bin, "oras", &path, "").expect("resolved");
+        assert_eq!(resolved, on_path, "PATH fallback, entries in order");
         assert!(
-            tool_bin_in(&app_bin, "definitely-absent", "").is_none(),
+            tool_bin_in(
+                Some(&exe_dir),
+                &app_bin,
+                "definitely-absent",
+                std::ffi::OsStr::new(""),
+                ""
+            )
+            .is_none(),
             "an empty PATH resolves nothing"
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn tool_bin_skips_a_non_executable_sidecar() {
+        let (root, _guard) = data_root();
+        let exe_dir = root.join("exe-dir");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        std::fs::write(exe_dir.join("oras"), "not executable").unwrap();
+        let app_bin = root.join("bin");
+        let in_app_bin = exec_stub(&app_bin, "oras");
+        let resolved = tool_bin_in(
+            Some(&exe_dir),
+            &app_bin,
+            "oras",
+            std::ffi::OsStr::new(""),
+            "",
+        )
+        .expect("resolved");
+        assert_eq!(resolved, in_app_bin);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Windows naming: with the `.exe` suffix only `oras.exe` resolves, at
+    /// every step of the order; a bare `oras` file is not the tool.
+    #[test]
+    fn tool_bin_uses_the_exe_suffix_at_every_step() {
+        let (root, _guard) = data_root();
+        let exe_dir = root.join("exe-dir");
+        let app_bin = root.join("bin");
+        let on_path = root.join("on-path");
+        exec_stub(&exe_dir, "oras");
+        exec_stub(&app_bin, "oras");
+        exec_stub(&on_path, "oras");
+        let path = path_of(&[&on_path]);
+        assert!(
+            tool_bin_in(Some(&exe_dir), &app_bin, "oras", &path, ".exe").is_none(),
+            "no oras.exe anywhere: nothing resolves"
+        );
+        let on_path_exe = exec_stub(&on_path, "oras.exe");
+        assert_eq!(
+            tool_bin_in(Some(&exe_dir), &app_bin, "oras", &path, ".exe"),
+            Some(on_path_exe)
+        );
+        let app_bin_exe = exec_stub(&app_bin, "oras.exe");
+        assert_eq!(
+            tool_bin_in(Some(&exe_dir), &app_bin, "oras", &path, ".exe"),
+            Some(app_bin_exe)
+        );
+        let sidecar_exe = exec_stub(&exe_dir, "oras.exe");
+        assert_eq!(
+            tool_bin_in(Some(&exe_dir), &app_bin, "oras", &path, ".exe"),
+            Some(sidecar_exe)
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// `tool_bin` itself reads the running executable's directory: a stub
+    /// placed next to the test binary is what it resolves.
+    #[test]
+    fn tool_bin_reads_the_running_executable_dir() {
+        let (root, _guard) = data_root();
+        let exe_dir = running_exe_dir().expect("the test binary has a directory");
+        let name = format!("txr-tool-bin-probe-{}", uuid::Uuid::new_v4());
+        let file = format!("{name}{}", std::env::consts::EXE_SUFFIX);
+        let stub = exec_stub(&exe_dir, &file);
+        let resolved = tool_bin(&name);
+        let _ = std::fs::remove_file(&stub);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(resolved, Some(stub));
     }
 
     // ── persistence / state ledger ─────────────────────────────────────────
