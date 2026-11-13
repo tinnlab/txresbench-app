@@ -236,9 +236,9 @@ fn stack_availability(availability: SandboxAvailability, oras_present: bool) -> 
                 (
                     true,
                     Some(
-                        "`oras` not found (<app_data>/bin, then PATH); env DOWNLOADS are \
-                         unavailable until it is installed — cached or seam-staged (air-gapped) \
-                         environments still run"
+                        "`oras` not found (next to the app executable, <app_data>/bin, then \
+                         PATH); env DOWNLOADS are unavailable until it is installed — cached or \
+                         seam-staged (air-gapped) environments still run"
                             .to_string(),
                     ),
                 )
