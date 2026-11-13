@@ -521,9 +521,22 @@ export function TxrMethodPicker({
                             <div style={{ fontSize: 12, fontFamily: "'Source Code Pro', monospace", color: 'var(--txr-muted)' }}>
                               {card.id}
                             </div>
-                            <div style={{ fontSize: 12.5, color: 'var(--txr-text-2)' }}>
-                              {card.run.reasonLine}
-                            </div>
+                            {/* qa-fixes4 ITEM-3 (methods-r3 R2-6): the row
+                                shows EVERY reason the verdict carries, one
+                                line each — the environment fact first, the
+                                data reasons (a missing marker, the drawn-day
+                                coverage, too few draws) BESIDE it; the old
+                                first-reason-only line hid what the user
+                                could fix. */}
+                            {card.run.reasonLines.map((reasonLine, index) => (
+                              <div
+                                key={`${card.id}-${index}`}
+                                data-testid={`txr-method-cannot-reason-${card.id}-${index}`}
+                                style={{ fontSize: 12.5, color: 'var(--txr-text-2)' }}
+                              >
+                                {reasonLine}
+                              </div>
+                            ))}
                             <div style={{ fontSize: 12.5, color: 'var(--txr-muted)' }}>
                               {card.run.reasonFix || group.fix}
                             </div>

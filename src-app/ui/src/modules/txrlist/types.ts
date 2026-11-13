@@ -160,8 +160,10 @@ export interface TxrMethodNeeds {
  * - `rank` is the benchmark fact (D36); `needs` the quiet line's facts.
  * - `run` is the eligibility verdict in the picker's terms: the three board
  *   codes, the coverage line, and — for a `cannot` card — the FIRST reason's
- *   code (the picker's per-reason grouping), the plain reason line and the
- *   one-line fix ("add a column named …").
+ *   code (the picker's per-reason grouping), the plain reason line, the
+ *   FULL reason set (`reasonLines`, every reason the verdict carries, the
+ *   file's data reasons BESIDE the environment reason — qa-fixes4 ITEM-3's
+ *   methods-r3 R2-6) and the one-line fix ("add a column named …").
  */
 export interface TxrMethodCard {
   key: string
@@ -183,6 +185,9 @@ export interface TxrMethodCard {
     coverageLine: string
     reasonCode: string | null
     reasonLine: string
+    /** Every reason of the verdict, one plain line each, provider order
+     *  (the environment fact first, the file's data reasons beside it). */
+    reasonLines: string[]
     reasonFix: string
     disabled: boolean
   }

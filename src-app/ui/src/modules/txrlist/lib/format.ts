@@ -218,6 +218,31 @@ export function formatReasonLine(
 }
 
 /**
+ * The row's FULL reason set, one plain line per reason (qa-fixes4 ITEM-3,
+ * methods-r3 R2-6): the eligibility verdict carries every cause — the
+ * runtime-env stage pushes `ENV_IMAGE_MISSING` FIRST and the file reasons
+ * (a missing marker, the drawn-day coverage, too few draws) FOLLOW it, so
+ * a row that reads only the first reason shows "no published environment
+ * available" and hides exactly what the user could change. The list keeps
+ * the provider's order — the environment fact reads first, the data
+ * reasons beside it — and an empty list falls back to the coverage line
+ * (the pre-R2-6 byte).
+ */
+export function formatReasonLines(
+  status: TxrRunStatus,
+  reasons: ReadonlyArray<{ code: TxrReasonCode }>,
+  coverage: TxrCoverageFacts,
+  minDraws: TxrMinDrawsFacts,
+  missingMarkers: ReadonlyArray<{ display_name?: string }>,
+  missingGroups: ReadonlyArray<{ display_name?: string }> = [],
+): string[] {
+  if (reasons.length === 0) return [formatCoverage(coverage)]
+  return reasons.map(r =>
+    formatReasonLine(status, [r], coverage, minDraws, missingMarkers, missingGroups),
+  )
+}
+
+/**
  * The bottom-bar total (board wording: "about 14 minutes in total").
  * `null` (loading, or an empty selection) renders the board
  * loading ellipsis "…"; anything under a minute renders the short form
