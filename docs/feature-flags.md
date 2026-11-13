@@ -4,10 +4,8 @@
 
 Today all feature-gating in TxResBench is **compile-time only**:
 
-- the cargo `saas` feature (`#[cfg(feature = "saas")]`) links modules in or out,
 - `#[distributed_slice(MODULE_ENTRIES)]` self-registration decides what a binary carries,
-- `CORE_MODULE_BLOCKLIST` splits desktop vs server,
-- `seed_only_enabled` is an **ENV config** (sandbox/processors), not admin-togglable.
+- `CORE_MODULE_BLOCKLIST` splits desktop vs server.
 
 There is **no runtime, admin-togglable feature flag** — an operator cannot turn a
 capability on or off for the deployment, or for one account, without a rebuild/redeploy.

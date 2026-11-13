@@ -37,7 +37,7 @@ items:
 
 | artifact | path | produced by |
 |---|---|---|
-| design (this file) | `docs/design/method-env-layer-artifacts.md` | this node |
+| design (this file) | `docs/method-env-layer-artifacts.md` | this node |
 | manifest | `src-app/server/data/method-env-images.json` | `scripts/generate-method-env-images.py` (ITEM-2/3) |
 | manifest JSON Schema | `src-app/server/data/method-env-images.schema.json` | this node (hand-written, versioned) |
 | data README | `src-app/server/data/README.md` | this node |
@@ -338,7 +338,7 @@ Annotations, exactly:
 | `com.txr.layer_sha256` | `layer_sha256` |
 | `com.txr.layer_schema` | `"1"` |
 
-The publisher mirrors `scripts/publish-env-rootfs.sh` (login → push with
+The publisher mirrors `scripts/publish-method-env-images.sh` (login → push with
 artifact type + annotations → immutable tag → cosign sign; `--dry-run`,
 `--env`, `--arch`, `--skip-sign`; refuses cross-arch builds and refuses
 overwriting a tag whose remote digest differs).
@@ -379,7 +379,7 @@ whitespace, ASCII-only values (no HTML escapes), `com.txr.layer_schema` as
 the string `"1"` (annotations are strings, DEC-11). The layer's
 `mediaType` is the artifact type itself — the publisher's `oras push`
 spells the file `layer.squashfs:<ARTIFACT_TYPE>`, exactly the
-`publish-env-rootfs.sh` shape — and the layer descriptor carries the file
+`publish-method-env-images.sh` shape — and the layer descriptor carries the file
 title annotation (oras's file-push convention).
 
 The writer stages these exact bytes as

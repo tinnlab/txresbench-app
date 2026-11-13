@@ -36,7 +36,7 @@ test-unit:
 #
 # So every leg now RUNS, its failure is CONTAINED, and the aggregate's verdict is derived
 # at the end from the collected exit codes — non-zero if ANY leg failed, with a summary
-# naming which failed and which passed. `docs/design/aggregate-gate-reporting.md` §2.
+# naming which failed and which passed. `docs/aggregate-gate-reporting.md` §2.
 #
 # #287's ten legs became FIVE in the strip node (ITEM-2): `check-py`, `check-packages`,
 # `check-coercion`, `check-processor-versions` and `check-r-regime` verified the
@@ -49,7 +49,7 @@ test-unit:
 # previously-hidden failure at once. Those failures are PRE-EXISTING and now VISIBLE, each
 # with its own issue and owner — that is the entire value of the change, not a regression in
 # it. Do NOT allowlist a leg, mute one, or lower `--min-legs` to get a green;
-# `docs/design/derived-guards.md` §5 lists exactly those as what is not the repair.
+# `docs/derived-guards.md` §5 lists exactly those as what is not the repair.
 #
 # `--min-legs` is the floor: a leg silently dropped from the heredoc below — or a heredoc
 # that stops expanding — must redden rather than shrink the gate to a green over a smaller
@@ -86,22 +86,22 @@ check:
 
 # The committed architectural-invariant guards. All three shipped as executable scripts
 # and were invoked by NO justfile recipe and NO workflow (`.github/workflows/` holds only
-# `env-images.yml`) — the same "guard nobody runs" shape as R3-99 and as the processor
-# pytest suites before `check-py`. They are cheap (git-grep over tracked files), so they
+# a single env-build workflow) — the same "guard nobody runs" shape as R3-99 and as the
+# processor pytest suites before the platform left. They are cheap (git-grep over tracked files), so they
 # belong in the default gate rather than in a reader's good intentions.
 #
 # NOT WIRED: `scripts/check-no-study-domain-literals.sh`. It is RED TODAY, and the
 # redness is PRE-EXISTING, not branch-introduced: its `stud(y|ies)` regex is
-# case-insensitive, so it matches three legitimate uses — the "in this study"
-# prose quoted from published papers in `src-app/server/data` (the method-env
-# catalogue's licence fields), the OFL licence texts shipped under
-# `src-app/ui/src/assets/fonts/`, and the app's own `txr-study-*` CSS classes at
-# `src-app/ui/src/index.css` (the board spec calls screen B "Your study"; the
-# guard's txr-module exclusion covers `src/modules/txr*`, not the root stylesheet).
-# Wiring it would gate every future change on that pre-existing failure. The fix
-# belongs to that guard's owner: allowlist the three measured classes (they are not
-# `study`-domain residuals, and the two legit families are as real now as when this
-# was written). Tracked, not silently dropped.
+# case-insensitive, so it matches four legitimate classes — the app's own
+# `study` screen vocabulary under `src/modules/txr*` (the board spec calls screen
+# B "Your study"; the guard's txr-module exclusion does not currently apply, its
+# pathspec has a leading `/` — pre-existing, a finding for the guard's owner),
+# the "in this study" prose quoted from published papers in the method-env
+# catalogue's licence fields, the OFL font licence texts, and the guard's own
+# hygiene/test prose. Wiring it would gate every future change on that
+# pre-existing failure. The fix belongs to that guard's owner: make the txr
+# exclusion bite and allowlist the measured remaining classes. Tracked, not
+# silently dropped.
 # #295 ADDED `check-pub-orphans-controls`, the orphan guard's OWN negative controls, in the
 # load-bearing position `check-packages` and `check-guards` already document: a gate edited
 # without its controls still passing is a gate whose PASS is worth nothing. #295 cleared this

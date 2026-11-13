@@ -15,7 +15,7 @@ Nothing about the layers is published automatically. The app-epic build runs
 entirely on the build machine; the framework's Actions workflows are parked
 (billing) and the app repo adds none. The consequence is the same as for the
 framework's env image, documented in
-`docs/runbooks/env-image-republish.md` §0: a layer that exists only in a
+(see the layer-delta rule): a layer that exists only in a
 staging directory is a layer no clinician can download.
 
 What each step owns, and who may run it:
@@ -48,7 +48,7 @@ via a new app build that embeds the regenerated manifest (see §6).
 | the manifest guard | `scripts/check-method-env-images.sh` | schema + structural validation + regen parity |
 | the publisher | `scripts/publish-method-env-images.sh` | verify the staged bytes → login → push → verify the digest → sign |
 | the behavioral verifier | `scripts/lib/method-env-verify.sh` (ITEM-7) | extracts the staged layer and verifies its artifact contract (marker, wrapper, modes, entries, `usr/` sentinel); EX-7's stacked equivalence is the Rust test's arbiter |
-| the artifact contract (the design) | `docs/design/method-env-layer-artifacts.md` | delta semantics, trim rules, layer filesystem contract, the pinned OCI manifest bytes (§6/§6.1) |
+| the artifact contract (the design) | `docs/method-env-layer-artifacts.md` | delta semantics, trim rules, layer filesystem contract, the pinned OCI manifest bytes (§6/§6.1) |
 
 ---
 
