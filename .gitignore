@@ -37,6 +37,9 @@ src-app/desktop/tauri/gen/
 # must already contain the directory (DRIFT-1 ITEM-2 #6).
 src-app/desktop/tauri/resources/pretrained-bundled/*
 !src-app/desktop/tauri/resources/pretrained-bundled/.gitkeep
+# The macOS method-VM runtime archive (scripts/build-macos-vm-runtime.sh); only its .gitkeep is tracked.
+src-app/desktop/tauri/resources/sandbox-vm-runtime/*
+!src-app/desktop/tauri/resources/sandbox-vm-runtime/.gitkeep
 
 # Node
 node_modules

@@ -786,6 +786,83 @@ def spdx_roots(licence: str) -> list[str]:
     return re.findall(r"[A-Za-z0-9.+-]+", licence.replace("(", " ").replace(")", " "))
 
 
+# The macOS method-VM runtime archive (scripts/build-macos-vm-runtime.sh) ships native code that no
+# lockfile lists. Its pins live in that script; the guest root's Alpine packages are listed here by name,
+# and the build script refuses a guest root holding a package this list does not name.
+MACOS_VM_RUNTIME = {
+    "libkrun": ("1.19.7", "Apache-2.0", "https://github.com/containers/libkrun"),
+    "libkrunfw": ("5.6.2", "GPL-2.0-only AND LGPL-2.1-only", "https://github.com/containers/libkrunfw"),
+}
+ALPINE_RELEASE = "3.20"
+ALPINE_PACKAGES = [
+    ("alpine-baselayout, alpine-baselayout-data", "GPL-2.0-only"),
+    ("alpine-keys", "MIT"),
+    ("bubblewrap", "LGPL-2.0-or-later"),
+    ("busybox, busybox-binsh", "GPL-2.0-only"),
+    ("libcap2", "BSD-3-Clause OR GPL-2.0-only"),
+    ("libcap-ng", "GPL-2.0-or-later AND LGPL-2.1-or-later"),
+    ("libeconf", "MIT"),
+    ("libncursesw, ncurses-terminfo-base", "X11"),
+    ("libseccomp", "LGPL-2.1-or-later"),
+    ("linux-pam", "BSD-3-Clause"),
+    ("musl", "MIT"),
+    ("skalibs, utmps-libs", "ISC"),
+    ("sqlite-libs", "public domain (blessing)"),
+    ("zlib", "Zlib"),
+    (
+        "util-linux, util-linux-misc and its split packages (agetty, blkid, cfdisk, dmesg, findmnt, flock, "
+        "fstrim, hexdump, logger, losetup, lsblk, mcookie, mount, partx, runuser, setarch, setpriv, sfdisk, "
+        "umount, uuidgen, wipefs, libblkid, libfdisk, libmount, libsmartcols, libuuid)",
+        "per file: GPL-2.0-or-later, GPL-2.0-only, GPL-3.0-or-later, GPL-1.0-or-later, LGPL-2.1-or-later, "
+        "LGPL-1.0-only, BSD-3-Clause, BSD-4-Clause-UC, MIT or public domain",
+    ),
+]
+
+
+def render_macos_vm_runtime() -> list[str]:
+    krun_v, krun_l, krun_src = MACOS_VM_RUNTIME["libkrun"]
+    fw_v, fw_l, fw_src = MACOS_VM_RUNTIME["libkrunfw"]
+    lines = ["## macOS method-VM runtime (Apple Silicon builds only)", ""]
+    lines.append(
+        "The macOS app ships `sandbox-vm-runtime.tar` (built by `scripts/build-macos-vm-runtime.sh`), which "
+        "runs each method inside a small Linux virtual machine. The app unpacks it into its data folder on "
+        "first use; its `MANIFEST` records the exact versions, source archives and checksums of what it "
+        "contains. The Linux and Windows builds do not include it."
+    )
+    lines.append("")
+    lines.append(
+        f"- **libkrun {krun_v}** — {krun_l} — {krun_src} — built from source without GPU support; the Rust "
+        "crates compiled into it are under MIT, Apache-2.0, BSD, ISC, Zlib or Unlicense terms (its Cargo.lock)."
+    )
+    lines.append(
+        f"- **libkrunfw {fw_v}** — {fw_l} — {fw_src} — the Linux kernel the virtual machine boots (GPL-2.0-only) "
+        f"inside a small library (LGPL-2.1-only). The corresponding source (kernel version, patches and "
+        f"configuration) is published with the release: {fw_src}/releases/tag/v{fw_v}"
+    )
+    lines.append(
+        "- **The guest agent and the VM launcher** — built from this repository's "
+        "`sdk/crates/sandbox-guest-agent` and `sdk/crates/sandbox-vm-launcher`. The agent statically links "
+        "musl (MIT) and libseccomp (LGPL-2.1-or-later; its source is linked below and the agent's source is "
+        "in this repository); its Rust crates (tokio, tokio-vsock, vsock, nix, tracing, serde and their "
+        "dependencies) are under MIT and/or Apache-2.0 terms."
+    )
+    lines.append(
+        f"- **The guest userland: Alpine Linux {ALPINE_RELEASE} packages**, each under its own licence; sources: "
+        f"https://gitlab.alpinelinux.org/alpine/aports/-/tree/{ALPINE_RELEASE}-stable"
+    )
+    for names, lic in ALPINE_PACKAGES:
+        lines.append(f"  - {names} — {lic}")
+    lines.append("")
+    lines.append(
+        "Licence texts: GPL-2.0 https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt, "
+        "LGPL-2.1 https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt, "
+        "LGPL-2.0 https://www.gnu.org/licenses/old-licenses/lgpl-2.0.txt, "
+        "GPL-3.0 https://www.gnu.org/licenses/gpl-3.0.txt."
+    )
+    lines.append("")
+    return lines
+
+
 def render_notices(rust: list[Pkg], sdkonly: list[Pkg], npm: list[Pkg]) -> str:
     lines: list[str] = []
     lines.append("# THIRD-PARTY NOTICES")
@@ -846,6 +923,7 @@ def render_notices(rust: list[Pkg], sdkonly: list[Pkg], npm: list[Pkg]) -> str:
         
     )
     lines.append("")
+    lines.extend(render_macos_vm_runtime())
     lines.append("## Licence texts")
     lines.append("")
     lines.append(
