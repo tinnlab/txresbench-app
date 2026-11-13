@@ -324,7 +324,11 @@ pub fn unit_mixed_problem(column: &str, facts: &MarkerUnitFacts) -> Option<FileP
 
 /// The A04 WARNING for a vocabulary-matched marker whose unit does not match
 /// the vocabulary's unit (DEC-10: `family` and no-agreement verdicts are
-/// warnings; the message says which).
+/// warnings; the message says which). The wording is plain words
+/// (R3-intake-4): the old "differs from the vocabulary unit" / "recognizable
+/// unit family" phrasing was clinician jargon on a green-adjacent card — the
+/// fact is one sentence: the unit is not the known one, so scales are not
+/// compared.
 pub fn unit_mismatch_problem(
     column: &str,
     user_unit: &str,
@@ -332,25 +336,23 @@ pub fn unit_mismatch_problem(
     agreement: UnitAgreement,
 ) -> FileProblem {
     let agreement_text = match agreement {
-        UnitAgreement::Family(_) => "the unit agrees only by unit family",
-        UnitAgreement::Unknown => {
-            "the unit is not recognized, so the scale cannot be compared"
+        UnitAgreement::Family(_) => {
+            "it is the same kind of unit but not the same one, so scales are not compared"
         }
+        UnitAgreement::Unknown => "we do not recognise this unit, so scales are not compared",
         UnitAgreement::Matches => {
             "the unit matches — no problem"
         }
     };
     // The vocabulary entry's canonical unit is not always recorded: an empty
-    // string rendered inside the quotes would read "vocabulary unit ''" — a
+    // string rendered inside the quotes would read "the known unit ''" — a
     // bug-shaped blank (qa-fixes ITEM-5, RES-24). The empty case names the
-    // vocabulary without quoting a non-fact.
+    // known unit without quoting a non-fact.
     let message = if canonical_unit.trim().is_empty() {
-        format!(
-            "column `{column}` unit '{user_unit}' differs from the vocabulary unit: {agreement_text}"
-        )
+        format!("column `{column}` unit '{user_unit}' is not the known unit: {agreement_text}")
     } else {
         format!(
-            "column `{column}` unit '{user_unit}' differs from the vocabulary unit '{canonical_unit}': {agreement_text}"
+            "column `{column}` unit '{user_unit}' is not the known unit '{canonical_unit}': {agreement_text}"
         )
     };
     FileProblem::new(
@@ -371,7 +373,7 @@ pub fn unit_unclassified_problem(column: &str, unit: &str) -> FileProblem {
         None,
         Some(column.to_string()),
         format!(
-            "column `{column}` unit '{unit}' is not a recognizable unit family — no scale assumption is made"
+            "column `{column}` unit '{unit}' is not a unit we recognise — scales are not compared"
         ),
     )
 }
@@ -384,9 +386,7 @@ pub fn unit_absent_problem(column: &str) -> FileProblem {
         ProblemSeverity::Warning,
         None,
         Some(column.to_string()),
-        format!(
-            "column `{column}` carries no unit — the scale cannot be checked against the vocabulary"
-        ),
+        format!("column `{column}` has no unit — scales are not compared"),
     )
 }
 
@@ -554,12 +554,12 @@ mod tests {
         assert_eq!(problem.code, ProblemCode::A04UnitDiffers);
         assert_eq!(problem.severity, ProblemSeverity::Warning);
         assert!(
-            problem.message.contains("unit 'ng/mL' differs from the vocabulary unit"),
+            problem.message.contains("is not the known unit"),
             "{}",
             problem.message
         );
         assert!(
-            problem.message.contains("is not recognized"),
+            problem.message.contains("we do not recognise this unit"),
             "{}",
             problem.message
         );
