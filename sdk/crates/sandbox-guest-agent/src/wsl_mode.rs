@@ -68,22 +68,49 @@ pub enum Step {
 /// The steps for one WSL-mode run, in order.
 pub fn mount_plan(args: &StdioArgs) -> Vec<Step> {
     let mut plan = vec![Step::PrivateNamespace];
-    plan.push(Step::Open { source: Source::Base, path: args.base.clone() });
+    plan.push(Step::Open {
+        source: Source::Base,
+        path: args.base.clone(),
+    });
     if let Some(layer) = &args.layer {
-        plan.push(Step::Open { source: Source::Layer, path: layer.clone() });
+        plan.push(Step::Open {
+            source: Source::Layer,
+            path: layer.clone(),
+        });
     }
     for (i, path) in args.ro.iter().enumerate() {
-        plan.push(Step::Open { source: Source::Ro(i), path: path.clone() });
+        plan.push(Step::Open {
+            source: Source::Ro(i),
+            path: path.clone(),
+        });
     }
-    plan.push(Step::Tmpfs { target: TMP_DIR.into(), options: TMP_OPTIONS });
-    plan.push(Step::Tmpfs { target: WORKSPACE_DIR.into(), options: WORKSPACE_OPTIONS });
-    plan.push(Step::Squashfs { source: Source::Base, target: ROOTFS_MOUNT.into() });
+    plan.push(Step::Tmpfs {
+        target: TMP_DIR.into(),
+        options: TMP_OPTIONS,
+    });
+    plan.push(Step::Tmpfs {
+        target: WORKSPACE_DIR.into(),
+        options: WORKSPACE_OPTIONS,
+    });
+    plan.push(Step::Squashfs {
+        source: Source::Base,
+        target: ROOTFS_MOUNT.into(),
+    });
     if args.layer.is_some() {
-        plan.push(Step::Squashfs { source: Source::Layer, target: LAYER_MOUNT.into() });
+        plan.push(Step::Squashfs {
+            source: Source::Layer,
+            target: LAYER_MOUNT.into(),
+        });
     }
-    plan.push(Step::Tmpfs { target: HOST_MOUNTS_DIR.into(), options: HOST_MOUNTS_OPTIONS });
+    plan.push(Step::Tmpfs {
+        target: HOST_MOUNTS_DIR.into(),
+        options: HOST_MOUNTS_OPTIONS,
+    });
     for i in 0..args.ro.len() {
-        plan.push(Step::BindRo { source: Source::Ro(i), target: Path::new(HOST_MOUNTS_DIR).join(i.to_string()) });
+        plan.push(Step::BindRo {
+            source: Source::Ro(i),
+            target: Path::new(HOST_MOUNTS_DIR).join(i.to_string()),
+        });
     }
     plan
 }
@@ -106,7 +133,10 @@ pub trait MountOps {
 pub fn execute(plan: &[Step], ops: &mut dyn MountOps) -> Result<(), String> {
     let mut paths: HashMap<Source, &Path> = HashMap::new();
     let path_of = |paths: &HashMap<Source, &Path>, s: Source| -> String {
-        paths.get(&s).map(|p| p.display().to_string()).unwrap_or_else(|| format!("{s:?}"))
+        paths
+            .get(&s)
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| format!("{s:?}"))
     };
     for step in plan {
         match step {
@@ -114,7 +144,8 @@ pub fn execute(plan: &[Step], ops: &mut dyn MountOps) -> Result<(), String> {
                 .private_namespace()
                 .map_err(|e| format!("entering a private mount namespace: {e}"))?,
             Step::Open { source, path } => {
-                ops.open(*source, path).map_err(|e| format!("opening {}: {e}", path.display()))?;
+                ops.open(*source, path)
+                    .map_err(|e| format!("opening {}: {e}", path.display()))?;
                 paths.insert(*source, path);
             }
             Step::Tmpfs { target, options } => ops
@@ -123,7 +154,11 @@ pub fn execute(plan: &[Step], ops: &mut dyn MountOps) -> Result<(), String> {
             Step::Squashfs { source, target } => {
                 let kernel = match ops.squashfs_kernel(*source, target) {
                     Ok(()) => {
-                        tracing::info!("agent: mounted {} at {} (kernel squashfs)", path_of(&paths, *source), target.display());
+                        tracing::info!(
+                            "agent: mounted {} at {} (kernel squashfs)",
+                            path_of(&paths, *source),
+                            target.display()
+                        );
                         continue;
                     }
                     Err(e) => e,
@@ -134,7 +169,11 @@ pub fn execute(plan: &[Step], ops: &mut dyn MountOps) -> Result<(), String> {
                 );
                 match ops.squashfuse(*source, target) {
                     Ok(()) => {
-                        tracing::info!("agent: mounted {} at {} (squashfuse)", path_of(&paths, *source), target.display())
+                        tracing::info!(
+                            "agent: mounted {} at {} (squashfuse)",
+                            path_of(&paths, *source),
+                            target.display()
+                        )
                     }
                     Err(fuse) => {
                         return Err(format!(
@@ -146,7 +185,11 @@ pub fn execute(plan: &[Step], ops: &mut dyn MountOps) -> Result<(), String> {
                 }
             }
             Step::BindRo { source, target } => ops.bind_ro(*source, target).map_err(|e| {
-                format!("binding {} read-only at {}: {e}", path_of(&paths, *source), target.display())
+                format!(
+                    "binding {} read-only at {}: {e}",
+                    path_of(&paths, *source),
+                    target.display()
+                )
             })?,
         }
     }
@@ -166,7 +209,10 @@ mod tests {
 
     impl FakeOps {
         fn failing(fail: &[&'static str]) -> Self {
-            Self { calls: Vec::new(), fail: fail.to_vec() }
+            Self {
+                calls: Vec::new(),
+                fail: fail.to_vec(),
+            }
         }
         fn record(&mut self, call: String) -> Result<(), String> {
             let failed = self.fail.iter().any(|f| call.starts_with(f));
@@ -233,12 +279,25 @@ mod tests {
 
     #[test]
     fn without_a_layer_or_ro_paths_only_the_base_is_mounted() {
-        let args = StdioArgs { base: "/b.sqfs".into(), layer: None, ro: vec![] };
+        let args = StdioArgs {
+            base: "/b.sqfs".into(),
+            layer: None,
+            ro: vec![],
+        };
         let plan = mount_plan(&args);
-        assert!(!plan.iter().any(|s| matches!(s, Step::Squashfs { source: Source::Layer, .. })));
+        assert!(!plan.iter().any(|s| matches!(
+            s,
+            Step::Squashfs {
+                source: Source::Layer,
+                ..
+            }
+        )));
         assert!(!plan.iter().any(|s| matches!(s, Step::BindRo { .. })));
         // /host-mounts is still a private, empty tmpfs.
-        assert!(plan.contains(&Step::Tmpfs { target: HOST_MOUNTS_DIR.into(), options: HOST_MOUNTS_OPTIONS }));
+        assert!(plan.contains(&Step::Tmpfs {
+            target: HOST_MOUNTS_DIR.into(),
+            options: HOST_MOUNTS_OPTIONS
+        }));
     }
 
     #[test]
@@ -253,7 +312,11 @@ mod tests {
             .collect();
         assert_eq!(
             mounts,
-            vec!["kernel Base /sandbox-rootfs", "squashfuse Base /sandbox-rootfs", "kernel Layer /sandbox-layer"]
+            vec![
+                "kernel Base /sandbox-rootfs",
+                "squashfuse Base /sandbox-rootfs",
+                "kernel Layer /sandbox-layer"
+            ]
         );
     }
 
@@ -263,9 +326,18 @@ mod tests {
         let err = execute(&mount_plan(&full_args()), &mut ops).expect_err("no way to mount the layer");
         assert!(err.contains("/mnt/c/img/layer.sqfs"), "{err}");
         assert!(err.contains("/sandbox-layer"), "{err}");
-        assert!(err.contains("kernel squashfs: injected failure; squashfuse: injected failure"), "{err}");
-        assert_eq!(ops.calls.last().map(String::as_str), Some("squashfuse Layer /sandbox-layer"));
-        assert!(!ops.calls.iter().any(|c| c.starts_with("bind")), "nothing after the failure ran");
+        assert!(
+            err.contains("kernel squashfs: injected failure; squashfuse: injected failure"),
+            "{err}"
+        );
+        assert_eq!(
+            ops.calls.last().map(String::as_str),
+            Some("squashfuse Layer /sandbox-layer")
+        );
+        assert!(
+            !ops.calls.iter().any(|c| c.starts_with("bind")),
+            "nothing after the failure ran"
+        );
     }
 
     #[test]
@@ -281,14 +353,20 @@ mod tests {
         let mut ops = FakeOps::failing(&["open Ro(1)"]);
         let err = execute(&mount_plan(&full_args()), &mut ops).expect_err("missing input");
         assert!(err.starts_with("opening /tmp/identity"), "{err}");
-        assert!(!ops.calls.iter().any(|c| c.starts_with("tmpfs") || c.starts_with("kernel")));
+        assert!(!ops
+            .calls
+            .iter()
+            .any(|c| c.starts_with("tmpfs") || c.starts_with("kernel")));
     }
 
     #[test]
     fn a_failed_bind_names_the_path_and_the_target() {
         let mut ops = FakeOps::failing(&["bind Ro(0)"]);
         let err = execute(&mount_plan(&full_args()), &mut ops).expect_err("bind fails");
-        assert!(err.contains("binding /mnt/c/run/input read-only at /host-mounts/0"), "{err}");
+        assert!(
+            err.contains("binding /mnt/c/run/input read-only at /host-mounts/0"),
+            "{err}"
+        );
         assert!(!ops.calls.iter().any(|c| c == "bind Ro(1) /host-mounts/1"));
     }
 

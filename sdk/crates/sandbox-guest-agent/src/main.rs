@@ -23,6 +23,8 @@
 //! exactly one protocol connection over stdin/stdout with the same handler as
 //! the VM ([`handle_conn`]), and exits: 0 ok, 2 bad arguments, 3 setup failure,
 //! 4 transport/protocol error. Stdout carries frames only; logs go to stderr.
+//! If stdin ends while the command runs (the app stopped the run or went
+//! away), the command's whole process group is killed and the agent exits 4.
 //! It makes no cgroup change (the distro's cgroup tree is shared), so per-exec
 //! limits rest on the prlimit in the argv. `--pipe-selftest` copies stdin to
 //! stdout until EOF, to check the pipe the app talks over.
@@ -90,6 +92,39 @@ const EXTRA_MOUNT_TAG_PREFIX: &str = "host-mount-";
 /// WSL mode has none (see [`handle_exec`]).
 #[cfg(target_os = "linux")]
 const VM_CGROUP_ROOT: &str = "/sys/fs/cgroup";
+
+/// Where the agent runs a command; the two differ only in what they may
+/// touch around it.
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Host {
+    /// The method VM: the agent owns the whole guest.
+    Vm,
+    /// One run in the app's WSL distro, which every process in WSL shares.
+    Wsl,
+}
+
+#[cfg(target_os = "linux")]
+impl Host {
+    /// Where per-exec cgroups go. WSL has none: its cgroup tree is shared by
+    /// every process in WSL, and the agent's own cgroup cannot get
+    /// controllers for children without stopping other processes from
+    /// joining it; the prlimit in the argv applies.
+    fn cgroup_root(self) -> Option<&'static str> {
+        match self {
+            Host::Vm => Some(VM_CGROUP_ROOT),
+            Host::Wsl => None,
+        }
+    }
+
+    /// Whether the command runs as the leader of its own process group, which
+    /// is killed as a whole when the run is stopped. In WSL, killing `wsl.exe`
+    /// may leave the processes inside WSL running; in the VM everything dies
+    /// with the VM.
+    fn own_process_group(self) -> bool {
+        self == Host::Wsl
+    }
+}
 
 /// Chunk size for streaming child stdout/stderr.
 const READ_CHUNK: usize = 64 * 1024;
@@ -209,7 +244,7 @@ async fn serve_stdio(stdio: wsl_sys::ProtocolStdio, bpf: Option<Arc<Vec<u8>>>) -
     let rd = tokio::fs::File::from_std(std::fs::File::from(stdio.input));
     let wr = tokio::fs::File::from_std(std::fs::File::from(stdio.output));
     tracing::info!("txresbench-sandbox-agent: serving one connection on stdin/stdout");
-    let end = handle_conn(tokio::io::join(rd, wr), bpf, None).await;
+    let end = handle_conn(tokio::io::join(rd, wr), bpf, Host::Wsl).await;
     let (code, why) = stdio_exit(&end);
     if let Some(why) = why {
         eprintln!("txresbench-sandbox-agent: {why}");
@@ -306,7 +341,7 @@ where
     tracing::info!("agent: connection from {peer}");
     let bpf = bpf.clone();
     tokio::spawn(async move {
-        if let Err(e) = handle_conn(stream, bpf, Some(VM_CGROUP_ROOT)).await {
+        if let Err(e) = handle_conn(stream, bpf, Host::Vm).await {
             tracing::warn!("agent: connection handler error: {e}");
         }
     });
@@ -427,21 +462,16 @@ enum ConnEnd {
     Refused,
     /// The request was handled: the command ran, or failed to start (sent as
     /// `Exit(-1)`). `delivered`: every frame up to `ArtifactsDone` was
-    /// written; `host_left`: the host closed its side before the command
-    /// ended (so the command was killed).
+    /// written; `host_left`: the host closed its side (or it broke) before
+    /// the command ended, so the command was killed.
     Ran { delivered: bool, host_left: bool },
 }
 
 /// Handle one control connection: wait for the host's `Exec`, then run it
-/// ([`handle_exec`]). `cgroup_root`: where per-exec cgroups go (VM mode), or
-/// `None` for no cgroup at all (WSL mode).
+/// ([`handle_exec`]).
 // handle_conn calls install_seccomp + uses Linux-only APIs.
 #[cfg(target_os = "linux")]
-async fn handle_conn<S>(
-    stream: S,
-    bpf: Option<Arc<Vec<u8>>>,
-    cgroup_root: Option<&'static str>,
-) -> std::io::Result<ConnEnd>
+async fn handle_conn<S>(stream: S, bpf: Option<Arc<Vec<u8>>>, host: Host) -> std::io::Result<ConnEnd>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -471,7 +501,7 @@ where
         decoder.feed(&buf[..n]);
     };
 
-    handle_exec(rd, wr, req, bpf, cgroup_root).await
+    handle_exec(rd, wr, req, bpf, host).await
 }
 
 /// Whether the frames queued so far all reached the stream: the writer task
@@ -495,7 +525,7 @@ async fn handle_exec<R, W>(
     wr: W,
     req: sandbox_vm_protocol::ExecRequest,
     bpf: Option<Arc<Vec<u8>>>,
-    cgroup_root: Option<&'static str>,
+    host: Host,
 ) -> std::io::Result<ConnEnd>
 where
     R: AsyncRead + Unpin + Send + 'static,
@@ -559,6 +589,9 @@ where
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
+    if host.own_process_group() {
+        cmd.process_group(0);
+    }
 
     // Install the seccomp pipe (read end dup2'd to the host-specified fd in the
     // bwrap child). Keep the read fd to close after spawn.
@@ -623,11 +656,8 @@ where
 
     // In-guest cgroup v2 (defense-in-depth; the prlimit wrapper in the argv is
     // the always-on backstop). Held until the end of the fn so Drop removes the
-    // cgroup after the child exits. WSL mode (no cgroup root) creates none:
-    // the distro's cgroup tree is shared by every process in WSL, and the
-    // agent's own cgroup cannot get controllers for its children without
-    // stopping other processes from joining it.
-    let _cgroup = match (&req.cgroup, child.id(), cgroup_root) {
+    // cgroup after the child exits. WSL mode creates none (Host::cgroup_root).
+    let _cgroup = match (&req.cgroup, child.id(), host.cgroup_root()) {
         (Some(limits), Some(pid), Some(root)) => match GuestCgroup::create(root, req.request_id, limits) {
             Ok(cg) => {
                 cg.attach(pid);
@@ -664,13 +694,13 @@ where
             Err(_) => (-1, false, false),
         },
         _ = tokio::time::sleep(budget) => {
-            let _ = child.start_kill();
+            stop_command(&mut child, host);
             let _ = child.wait().await;
             (-1, true, false)
         }
         _ = wait_host_eof(&mut rd) => {
             tracing::info!(request_id = req.request_id, "agent: host disconnected; killing command");
-            let _ = child.start_kill();
+            stop_command(&mut child, host);
             let _ = child.wait().await;
             (-1, false, true)
         }
@@ -1276,6 +1306,19 @@ fn install_seccomp(
     Ok((read_fd, writer))
 }
 
+/// SIGKILL a running command: bwrap, and in WSL its whole process group. Only
+/// called before the child is reaped, so its pid still names its group.
+#[cfg(target_os = "linux")]
+fn stop_command(child: &mut tokio::process::Child, host: Host) {
+    if host.own_process_group() {
+        if let Some(pid) = child.id() {
+            // SAFETY: plain syscall; the group is the child's own (setpgid at spawn).
+            unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+        }
+    }
+    let _ = child.start_kill();
+}
+
 /// Resolve when the host closes the control connection (read half hits EOF) or
 /// errors — i.e. its budget ran out or the run was cancelled. The host sends
 /// only the `Exec` frame,
@@ -1419,7 +1462,7 @@ mod tests {
         let (host_side, agent_side) = duplex(64 * 1024);
         let (mut host_rd, mut host_wr) = tokio::io::split(host_side);
         let agent_task = tokio::spawn(async move {
-            let _ = handle_conn(agent_side, None, None).await;
+            let _ = handle_conn(agent_side, None, Host::Vm).await;
         });
 
         host_wr
@@ -1446,6 +1489,162 @@ mod tests {
         drop(host_wr);
         let _ = agent_task.await;
         collected
+    }
+
+    // ---- how a connection ends (WSL mode's exit code) ----
+
+    /// Run `handle_conn` on one end of a pipe; `host` drives the other end
+    /// and returns once it is done with it.
+    async fn conn_end<F, Fut>(host: F) -> std::io::Result<ConnEnd>
+    where
+        F: FnOnce(tokio::io::DuplexStream) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        let (host_side, agent_side) = duplex(64 * 1024);
+        let agent = tokio::spawn(handle_conn(agent_side, None, Host::Wsl));
+        host(host_side).await;
+        agent.await.expect("handler task")
+    }
+
+    async fn read_until_done(host: &mut tokio::io::DuplexStream) {
+        let mut d = Decoder::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            while let Ok(Some(f)) = d.next_frame() {
+                if f == Frame::ArtifactsDone {
+                    return;
+                }
+            }
+            let n = host.read(&mut buf).await.unwrap_or(0);
+            assert!(n > 0, "the agent closed before ArtifactsDone");
+            d.feed(&buf[..n]);
+        }
+    }
+
+    #[tokio::test]
+    async fn conn_end_tells_each_way_a_connection_ends() {
+        // Closed before any request.
+        let end = conn_end(|host| async move { drop(host) }).await;
+        assert_eq!(end.unwrap(), ConnEnd::NoRequest);
+
+        // Bytes that are not a frame.
+        let end = conn_end(|mut host| async move {
+            host.write_all(&[99, 0, 0, 0, 0]).await.unwrap();
+        })
+        .await;
+        assert_eq!(end.unwrap(), ConnEnd::BadFrame);
+
+        // A version this agent does not serve.
+        let end = conn_end(|mut host| async move {
+            let mut req = echo_exec(vec!["x"]);
+            req.protocol_version = 0;
+            host.write_all(&encode(&Frame::Exec(req))).await.unwrap();
+        })
+        .await;
+        assert_eq!(end.unwrap(), ConnEnd::Refused);
+
+        // A run whose frames all reached the host.
+        let end = conn_end(|mut host| async move {
+            host.write_all(&encode(&Frame::Exec(echo_exec(vec!["hi"])))).await.unwrap();
+            read_until_done(&mut host).await;
+        })
+        .await;
+        assert_eq!(end.unwrap(), ConnEnd::Ran { delivered: true, host_left: false });
+
+        // The host goes away while the command runs: the command is killed.
+        let end = conn_end(|mut host| async move {
+            let mut req = echo_exec(vec!["30"]);
+            req.bwrap_path = "/bin/sleep".into();
+            host.write_all(&encode(&Frame::Exec(req))).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        })
+        .await;
+        assert!(matches!(end.unwrap(), ConnEnd::Ran { host_left: true, .. }));
+
+        // Frames that could not be written: a failed start has nothing to wait
+        // for, so its Exit is written after the host is gone.
+        let end = conn_end(|mut host| async move {
+            let mut req = echo_exec(vec!["x"]);
+            req.bwrap_path = "/nonexistent/bwrap".into();
+            host.write_all(&encode(&Frame::Exec(req))).await.unwrap();
+        })
+        .await;
+        assert_eq!(end.unwrap(), ConnEnd::Ran { delivered: false, host_left: false });
+    }
+
+    /// Whether a process with `needle` in its command line exists.
+    fn running(needle: &str) -> bool {
+        std::fs::read_dir("/proc").unwrap().flatten().any(|e| {
+            std::fs::read(e.path().join("cmdline"))
+                .map(|c| String::from_utf8_lossy(&c).replace('\0', " ").contains(needle))
+                .unwrap_or(false)
+        })
+    }
+
+    async fn gone_within(needle: &str, limit: Duration) -> bool {
+        let deadline = std::time::Instant::now() + limit;
+        while running(needle) {
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        true
+    }
+
+    /// A command that leaves a process behind in its process group: only a
+    /// kill of the whole group stops it.
+    fn shell_with_background(marker: &str) -> sandbox_vm_protocol::ExecRequest {
+        let mut req = echo_exec(vec!["-c", &format!("sleep {marker} & sleep 30")]);
+        req.bwrap_path = "/bin/sh".into();
+        req
+    }
+
+    #[tokio::test]
+    async fn wsl_mode_kills_the_whole_process_group_when_the_host_leaves() {
+        let end = conn_end(|mut host| async move {
+            host.write_all(&encode(&Frame::Exec(shell_with_background("2741")))).await.unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while !running("sleep 2741") {
+                assert!(std::time::Instant::now() < deadline, "the command did not start");
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(matches!(end.unwrap(), ConnEnd::Ran { host_left: true, .. }));
+        assert!(gone_within("sleep 2741", Duration::from_secs(5)).await, "the background process was killed");
+    }
+
+    #[tokio::test]
+    async fn wsl_mode_kills_the_whole_process_group_at_the_timeout() {
+        let end = conn_end(|mut host| async move {
+            let mut req = shell_with_background("2743");
+            req.timeout_ms = 500;
+            host.write_all(&encode(&Frame::Exec(req))).await.unwrap();
+            read_until_done(&mut host).await;
+        })
+        .await;
+        assert_eq!(end.unwrap(), ConnEnd::Ran { delivered: true, host_left: false });
+        assert!(gone_within("sleep 2743", Duration::from_secs(5)).await, "the background process was killed");
+    }
+
+    #[test]
+    fn stdio_exit_codes_follow_the_contract() {
+        let code = |end: std::io::Result<ConnEnd>| stdio_exit(&end).0;
+        assert_eq!(code(Ok(ConnEnd::NoRequest)), cli::EXIT_OK);
+        assert_eq!(code(Ok(ConnEnd::Ran { delivered: true, host_left: false })), cli::EXIT_OK);
+        for end in [
+            ConnEnd::BadFrame,
+            ConnEnd::Refused,
+            ConnEnd::Ran { delivered: false, host_left: false },
+            ConnEnd::Ran { delivered: true, host_left: true },
+            ConnEnd::Ran { delivered: false, host_left: true },
+        ] {
+            let (code, why) = stdio_exit(&Ok(end));
+            assert_eq!(code, cli::EXIT_TRANSPORT, "{end:?}");
+            assert!(why.is_some(), "{end:?} says why");
+        }
+        assert_eq!(code(Err(std::io::Error::other("broken"))), cli::EXIT_TRANSPORT);
     }
 
     #[tokio::test]

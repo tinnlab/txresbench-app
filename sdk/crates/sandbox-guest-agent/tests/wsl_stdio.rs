@@ -40,18 +40,27 @@ fn bad_arguments_exit_2_with_usage_on_stderr_and_nothing_on_stdout() {
         &["--pipe-selftest", "--stdio"],
         &["--bogus"],
     ] {
-        let out = Command::new(AGENT).args(args).stdin(Stdio::null()).output().expect("run the agent");
+        let out = Command::new(AGENT)
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .expect("run the agent");
         assert_eq!(out.status.code(), Some(2), "{args:?}: {out:?}");
         assert!(out.stdout.is_empty(), "{args:?}: stdout {:?}", out.stdout);
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(stderr.contains("usage: txresbench-sandbox-agent --stdio"), "{args:?}: {stderr}");
+        assert!(
+            stderr.contains("usage: txresbench-sandbox-agent --stdio"),
+            "{args:?}: {stderr}"
+        );
     }
 }
 
 #[test]
 fn pipe_selftest_echoes_every_byte_and_exits_0() {
     // Every byte value, frames' worth of data, and no trailing newline.
-    let data: Vec<u8> = (0..(3 * 1024 * 1024 + 17)).map(|i: u32| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
+    let data: Vec<u8> = (0..(3 * 1024 * 1024 + 17))
+        .map(|i: u32| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+        .collect();
     let mut child = Command::new(AGENT)
         .arg("--pipe-selftest")
         .stdin(Stdio::piped())
@@ -69,7 +78,12 @@ fn pipe_selftest_echoes_every_byte_and_exits_0() {
     writer.join().unwrap();
     let status = child.wait().unwrap();
     assert_eq!(status.code(), Some(0));
-    assert!(echoed == data, "echo differs: {} bytes back for {}", echoed.len(), data.len());
+    assert!(
+        echoed == data,
+        "echo differs: {} bytes back for {}",
+        echoed.len(),
+        data.len()
+    );
 }
 
 #[test]
@@ -89,7 +103,7 @@ fn a_base_image_that_cannot_be_used_exits_3_with_the_reason_on_stderr() {
 
 // ---- as root, in a privileged container ----------------------------------
 
-/// A busybox base image, a layer image and an input dir, under the system
+/// A busybox base image, a layer image, an input dir and an input file, under the system
 /// temp dir (`/tmp`), which the agent covers with its own tmpfs: the agent
 /// must still read them through the paths it was given.
 struct Fixture {
@@ -98,15 +112,26 @@ struct Fixture {
     base: PathBuf,
     layer: PathBuf,
     input: PathBuf,
+    identity: PathBuf,
 }
 
 impl Fixture {
     fn new() -> Self {
-        assert_eq!(unsafe { libc::geteuid() }, 0, "the e2e tests need root (see the module doc)");
+        assert_eq!(
+            unsafe { libc::geteuid() },
+            0,
+            "the e2e tests need root (see the module doc)"
+        );
         // The distro's mounts may propagate (shared): make this namespace's
         // shared too, so a mount that escaped the agent's namespace shows here.
         let rc = unsafe {
-            libc::mount(std::ptr::null(), c"/".as_ptr(), std::ptr::null(), libc::MS_REC | libc::MS_SHARED, std::ptr::null())
+            libc::mount(
+                std::ptr::null(),
+                c"/".as_ptr(),
+                std::ptr::null(),
+                libc::MS_REC | libc::MS_SHARED,
+                std::ptr::null(),
+            )
         };
         assert_eq!(rc, 0, "make / shared: {}", std::io::Error::last_os_error());
         // The guest root's empty mount points (the app's distro has them).
@@ -122,7 +147,9 @@ impl Fixture {
             .find(|p| Path::new(p).is_file())
             .expect("a static busybox");
         std::fs::copy(busybox, rootfs.join("bin/busybox")).unwrap();
-        for applet in ["sh", "cat", "echo", "id", "grep", "sleep", "mkdir", "printf", "test", "["] {
+        for applet in [
+            "sh", "cat", "echo", "id", "grep", "sleep", "mkdir", "printf", "test", "[",
+        ] {
             std::os::unix::fs::symlink("busybox", rootfs.join("bin").join(applet)).unwrap();
         }
         let layer_dir = root.join("layer");
@@ -135,7 +162,16 @@ impl Fixture {
         let input = root.join("input");
         std::fs::create_dir_all(&input).unwrap();
         std::fs::write(input.join("in.txt"), b"hello from input\n").unwrap();
-        Fixture { _dir: dir, root, base, layer, input }
+        let identity = root.join("identity.txt");
+        std::fs::write(&identity, b"identity-file\n").unwrap();
+        Fixture {
+            _dir: dir,
+            root,
+            base,
+            layer,
+            input,
+            identity,
+        }
     }
 
     fn args(&self) -> Vec<String> {
@@ -147,6 +183,8 @@ impl Fixture {
             self.layer.display().to_string(),
             "--ro".into(),
             self.input.display().to_string(),
+            "--ro".into(),
+            self.identity.display().to_string(),
         ]
     }
 }
@@ -231,7 +269,14 @@ impl Agent {
             s
         });
         let stdin = child.stdin.take();
-        Agent { child, stdin, out, stdout_bytes: Vec::new(), decoder: Decoder::new(), stderr }
+        Agent {
+            child,
+            stdin,
+            out,
+            stdout_bytes: Vec::new(),
+            decoder: Decoder::new(),
+            stderr,
+        }
     }
 
     fn pid(&self) -> u32 {
@@ -332,17 +377,36 @@ fn exec_request(script: &str) -> ExecRequest {
         "--ro-bind",
         "/host-mounts/0",
         "/input",
+        "--ro-bind",
+        "/host-mounts/1",
+        "/etc/identity",
     ]
     .into_iter()
     .map(String::from)
     .collect();
-    for (src, dst) in [(out.as_str(), "/output"), (home.as_str(), "/home/sandboxuser"), (PROGRESS_GUEST_FIFO_PATH, "/run/progress")] {
+    for (src, dst) in [
+        (out.as_str(), "/output"),
+        (home.as_str(), "/home/sandboxuser"),
+        (PROGRESS_GUEST_FIFO_PATH, "/run/progress"),
+    ] {
         argv.extend(["--bind".into(), src.into(), dst.into()]);
     }
     argv.extend(
-        ["--setenv", "PATH", "/bin", "--chdir", "/", "--seccomp", "10", "--", "/bin/sh", "-c", script]
-            .into_iter()
-            .map(String::from),
+        [
+            "--setenv",
+            "PATH",
+            "/bin",
+            "--chdir",
+            "/",
+            "--seccomp",
+            "10",
+            "--",
+            "/bin/sh",
+            "-c",
+            script,
+        ]
+        .into_iter()
+        .map(String::from),
     );
     ExecRequest {
         protocol_version: PROTOCOL_VERSION,
@@ -375,7 +439,7 @@ fn exec_request(script: &str) -> ExecRequest {
 /// (none: no network), writes outputs and exits 7.
 const SCRIPT: &str = r#"echo ready > /run/progress
 while [ ! -e /input/go ]; do sleep 0.05; done
-cat /input/in.txt
+cat /input/in.txt /etc/identity
 cat /opt/layer/marker >&2
 echo "uid=$(id -u)"
 echo "routes=$(grep -vc Iface /proc/net/route)"
@@ -394,7 +458,9 @@ fn mounts_of(pid: &str, points: &[&str]) -> Vec<(String, String, String)> {
             let point = f.get(4)?;
             let opts = f.get(5)?;
             let fstype = line.split(" - ").nth(1)?.split(' ').next()?;
-            points.contains(point).then(|| (point.to_string(), fstype.to_string(), opts.to_string()))
+            points
+                .contains(point)
+                .then(|| (point.to_string(), fstype.to_string(), opts.to_string()))
         })
         .collect()
 }
@@ -445,9 +511,17 @@ fn processes_with(needle: &str) -> Vec<String> {
 /// Wait until no process has `token` in its command line (the sandboxed
 /// command is killed with the agent's bwrap).
 fn wait_gone(token: &str) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    wait_gone_within(token, Duration::from_secs(10));
+}
+
+fn wait_gone_within(token: &str, limit: Duration) {
+    let deadline = Instant::now() + limit;
     while !processes_with(token).is_empty() {
-        assert!(Instant::now() < deadline, "the command outlived its run: {:?}", processes_with(token));
+        assert!(
+            Instant::now() < deadline,
+            "the command outlived its run: {:?}",
+            processes_with(token)
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -462,10 +536,16 @@ fn assert_nothing_left(fx: &Fixture) {
         if loops.is_empty() && fuse.is_empty() {
             break;
         }
-        assert!(Instant::now() < deadline, "left behind: loop devices {loops:?}, squashfuse {fuse:?}");
+        assert!(
+            Instant::now() < deadline,
+            "left behind: loop devices {loops:?}, squashfuse {fuse:?}"
+        );
         std::thread::sleep(Duration::from_millis(50));
     }
-    let ours = mounts_of("self", &["/sandbox-rootfs", "/sandbox-layer", "/host-mounts", "/workspace"]);
+    let ours = mounts_of(
+        "self",
+        &["/sandbox-rootfs", "/sandbox-layer", "/host-mounts", "/workspace"],
+    );
     assert!(ours.is_empty(), "mounts reached the caller's namespace: {ours:?}");
 }
 
@@ -495,8 +575,20 @@ fn run_method(start: Start, fuse: bool) {
     // While the command runs: the agent's own mount namespace holds the mounts.
     let pid = agent.pid().to_string();
     let own_ns = std::fs::read_link("/proc/self/ns/mnt").unwrap();
-    assert_ne!(std::fs::read_link(format!("/proc/{pid}/ns/mnt")).unwrap(), own_ns, "a private mount namespace");
-    let points = ["/sandbox-rootfs", "/sandbox-layer", "/host-mounts", "/host-mounts/0", "/tmp", "/workspace"];
+    assert_ne!(
+        std::fs::read_link(format!("/proc/{pid}/ns/mnt")).unwrap(),
+        own_ns,
+        "a private mount namespace"
+    );
+    let points = [
+        "/sandbox-rootfs",
+        "/sandbox-layer",
+        "/host-mounts",
+        "/host-mounts/0",
+        "/host-mounts/1",
+        "/tmp",
+        "/workspace",
+    ];
     let mounts = mounts_of(&pid, &points);
     for (point, image) in [("/sandbox-rootfs", &fx.base), ("/sandbox-layer", &fx.layer)] {
         let (_, fstype, opts) = find(&mounts, point);
@@ -505,12 +597,20 @@ fn run_method(start: Start, fuse: bool) {
         } else {
             assert_eq!(fstype, "squashfs", "{point}");
             let loops = loops_backed_by(&fx.root);
-            assert!(loops.iter().any(|l| l.ends_with(&image.display().to_string())), "{loops:?}");
+            assert!(
+                loops.iter().any(|l| l.ends_with(&image.display().to_string())),
+                "{loops:?}"
+            );
         }
         assert!(opts.split(',').any(|o| o == "ro"), "{point} is read-only: {opts}");
     }
-    let (_, _, input_opts) = find(&mounts, "/host-mounts/0");
-    assert!(input_opts.split(',').any(|o| o == "ro"), "the input bind is read-only: {input_opts}");
+    for point in ["/host-mounts/0", "/host-mounts/1"] {
+        let (_, _, opts) = find(&mounts, point);
+        assert!(
+            opts.split(',').any(|o| o == "ro"),
+            "the input bind {point} is read-only: {opts}"
+        );
+    }
     for point in ["/tmp", "/workspace", "/host-mounts"] {
         assert_eq!(find(&mounts, point).1, "tmpfs", "{point}");
     }
@@ -521,13 +621,27 @@ fn run_method(start: Start, fuse: bool) {
         let md = std::fs::metadata(path).unwrap();
         (md.dev(), md.ino(), md.rdev())
     };
-    assert_eq!(file(&format!("/proc/{pid}/fd/0")), file("/dev/null"), "fd 0 is /dev/null");
-    assert_eq!(file(&format!("/proc/{pid}/fd/1")), file(&format!("/proc/{pid}/fd/2")), "fd 1 is the agent's stderr");
+    assert_eq!(
+        file(&format!("/proc/{pid}/fd/0")),
+        file("/dev/null"),
+        "fd 0 is /dev/null"
+    );
+    assert_eq!(
+        file(&format!("/proc/{pid}/fd/1")),
+        file(&format!("/proc/{pid}/fd/2")),
+        "fd 1 is the agent's stderr"
+    );
     // ...and nothing of it in the caller's namespace.
     assert!(mounts_of("self", &["/sandbox-rootfs", "/sandbox-layer", "/host-mounts/0"]).is_empty());
     // No cgroup made or changed (WSL's cgroup tree is shared).
-    assert!(!Path::new("/sys/fs/cgroup/sb-1").exists(), "no per-exec cgroup in WSL mode");
-    assert_eq!(std::fs::read_to_string("/sys/fs/cgroup/cgroup.subtree_control").ok(), cgroup_before);
+    assert!(
+        !Path::new("/sys/fs/cgroup/sb-1").exists(),
+        "no per-exec cgroup in WSL mode"
+    );
+    assert_eq!(
+        std::fs::read_to_string("/sys/fs/cgroup/cgroup.subtree_control").ok(),
+        cgroup_before
+    );
 
     // Let the command go on; read to the end of the exchange.
     std::fs::write(fx.input.join("go"), b"").unwrap();
@@ -537,17 +651,37 @@ fn run_method(start: Start, fuse: bool) {
     assert!(rest.is_empty(), "nothing after ArtifactsDone: {rest:?}");
 
     let out = stdout_text(&frames, true);
-    assert_eq!(out, "hello from input\nuid=1001\nroutes=0\n", "frames: {frames:?}\nagent stderr:\n{stderr}");
+    assert_eq!(
+        out, "hello from input\nidentity-file\nuid=1001\nroutes=0\n",
+        "frames: {frames:?}\nagent stderr:\n{stderr}"
+    );
     assert!(stdout_text(&frames, false).contains("layer-marker"), "{frames:?}");
-    let exit = frames.iter().position(|f| matches!(f, Frame::Exit(_))).expect("an Exit frame");
-    assert_eq!(frames[exit], Frame::Exit(ExitStatus { code: 7, timed_out: false }));
+    let exit = frames
+        .iter()
+        .position(|f| matches!(f, Frame::Exit(_)))
+        .expect("an Exit frame");
+    assert_eq!(
+        frames[exit],
+        Frame::Exit(ExitStatus {
+            code: 7,
+            timed_out: false
+        })
+    );
     let mut outputs = std::collections::BTreeMap::new();
     for f in &frames[exit + 1..] {
         match f {
-            Frame::ArtifactChunk { mount_index: 0, rel_path, offset: 0, data } => {
+            Frame::ArtifactChunk {
+                mount_index: 0,
+                rel_path,
+                offset: 0,
+                data,
+            } => {
                 outputs.insert(rel_path.clone(), data.clone());
             }
-            Frame::ArtifactDir { mount_index: 0, rel_path } => {
+            Frame::ArtifactDir {
+                mount_index: 0,
+                rel_path,
+            } => {
                 outputs.insert(format!("{rel_path}/"), Vec::new());
             }
             Frame::ArtifactsDone => {}
@@ -634,9 +768,54 @@ fn e2e_the_host_leaving_mid_run_kills_the_command_and_exits_4() {
     agent.close_stdin();
     let (code, _, stderr) = agent.finish();
     assert_eq!(code, Some(4), "{stderr}");
-    assert!(stderr.contains("closed the connection before the command finished"), "{stderr}");
+    assert!(
+        stderr.contains("closed the connection before the command finished"),
+        "{stderr}"
+    );
     wait_gone(token);
     assert_nothing_left(&fx);
+}
+
+/// The app stops a run by killing its `wsl.exe`, which may leave the agent
+/// running in WSL: stdin closing must stop the command at once (exit 4).
+fn stdin_closed_mid_command(req: ExecRequest, marker: &str) {
+    let fx = Fixture::new();
+    let mut agent = Agent::start(&fx.args(), Start::Direct);
+    agent.send(&encode(&Frame::Exec(req)));
+    let deadline = Instant::now() + WAIT;
+    while processes_with(marker).is_empty() {
+        assert!(Instant::now() < deadline, "the command did not start");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    agent.close_stdin();
+    let started = Instant::now();
+    let (code, _, stderr) = agent.finish();
+    assert_eq!(code, Some(4), "{stderr}");
+    wait_gone_within(marker, Duration::from_secs(5));
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "stopped within a few seconds"
+    );
+    assert_nothing_left(&fx);
+}
+
+#[test]
+#[ignore = "needs root in a privileged container: sdk/scripts/test-guest-agent-linux.sh"]
+fn e2e_stdin_closing_stops_a_long_sandboxed_command() {
+    stdin_closed_mid_command(exec_request("sleep 300"), "sleep 300");
+}
+
+#[test]
+#[ignore = "needs root in a privileged container: sdk/scripts/test-guest-agent-linux.sh"]
+fn e2e_stdin_closing_kills_the_command_s_whole_process_group() {
+    // No pid namespace to collapse here: a background process is reached
+    // only by killing the process group.
+    let mut req = exec_request("unused");
+    req.bwrap_path = "/bin/sh".into();
+    req.argv = vec!["-c".into(), "sleep 3001 & sleep 3002".into()];
+    req.seccomp_fd = None;
+    req.progress = false;
+    stdin_closed_mid_command(req, "sleep 3001");
 }
 
 #[test]
@@ -663,7 +842,10 @@ fn e2e_without_kernel_squashfs_or_squashfuse_exits_3_with_both_reasons() {
     assert_eq!(code, Some(3), "{stderr}");
     assert!(rest.is_empty(), "no frame: {rest:?}");
     assert!(stderr.contains("kernel squashfs: LOOP_CTL_GET_FREE"), "{stderr}");
-    assert!(stderr.contains("squashfuse: /usr/bin/squashfuse is not installed"), "{stderr}");
+    assert!(
+        stderr.contains("squashfuse: /usr/bin/squashfuse is not installed"),
+        "{stderr}"
+    );
     assert_nothing_left(&fx);
 }
 
@@ -677,7 +859,79 @@ fn e2e_a_missing_input_exits_3_before_anything_is_mounted() {
     let (code, rest, stderr) = agent.finish();
     assert_eq!(code, Some(3), "{stderr}");
     assert!(rest.is_empty());
-    assert!(stderr.contains(&format!("setup failed: opening {}", fx.root.join("no-such-input").display())), "{stderr}");
+    assert!(
+        stderr.contains(&format!(
+            "setup failed: opening {}",
+            fx.root.join("no-such-input").display()
+        )),
+        "{stderr}"
+    );
+    assert_nothing_left(&fx);
+}
+
+#[test]
+#[ignore = "needs root in a privileged container: sdk/scripts/test-guest-agent-linux.sh"]
+fn e2e_non_blocking_stdin_and_stdout_still_carry_the_exchange() {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    let fx = Fixture::new();
+    // Two pipes, non-blocking on both ends; ours are made blocking again.
+    let pipe = || {
+        let mut fds = [0; 2];
+        assert_eq!(
+            unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) },
+            0
+        );
+        unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) }
+    };
+    let blocking = |fd: &OwnedFd| {
+        let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+        assert_eq!(
+            unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags & !libc::O_NONBLOCK) },
+            0
+        );
+    };
+    let (agent_in, host_out) = pipe();
+    let (host_in, agent_out) = pipe();
+    blocking(&host_out);
+    blocking(&host_in);
+    let mut child = Command::new(AGENT)
+        .args(fx.args())
+        .stdin(Stdio::from(agent_in))
+        .stdout(Stdio::from(agent_out))
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start the agent");
+    let mut to_agent = std::fs::File::from(host_out);
+    let mut from_agent = std::fs::File::from(host_in);
+    // Nothing to read at first: a non-blocking read would fail right away.
+    std::thread::sleep(Duration::from_millis(300));
+    let mut req = exec_request("unused");
+    req.bwrap_path = "/bin/echo".into();
+    req.argv = vec!["over a non-blocking pipe".into()];
+    req.seccomp_fd = None;
+    req.progress = false;
+    to_agent.write_all(&encode(&Frame::Exec(req))).unwrap();
+    let mut decoder = Decoder::new();
+    let mut frames = Vec::new();
+    let mut buf = [0u8; 4096];
+    while !frames.contains(&Frame::ArtifactsDone) {
+        let n = from_agent.read(&mut buf).unwrap();
+        assert!(n > 0, "the agent closed early: {frames:?}");
+        decoder.feed(&buf[..n]);
+        while let Some(f) = decoder.next_frame().unwrap() {
+            frames.push(f);
+        }
+    }
+    drop(to_agent);
+    let status = child.wait().unwrap();
+    let mut stderr = String::new();
+    child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+    assert_eq!(status.code(), Some(0), "{stderr}");
+    assert_eq!(stdout_text(&frames, true), "over a non-blocking pipe\n");
+    assert!(frames.contains(&Frame::Exit(ExitStatus {
+        code: 0,
+        timed_out: false
+    })));
     assert_nothing_left(&fx);
 }
 
