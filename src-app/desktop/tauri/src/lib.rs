@@ -60,12 +60,14 @@ pub fn register_invoke_handler<R: tauri::Runtime>(
 /// `tauri.conf.json`: its `app.windows` is empty by design and the harness
 /// `WindowConfig` builds the window — the conf file would be a dead pin.)
 ///
-/// The macOS traffic lights sit over the UI's 56 px shell header (the
-/// overlay title bar): x = 20 is the close button's left edge — the UI's
-/// `.txr-shell-header-macos` inset in `src-app/ui/src/index.css` clears the
-/// three buttons from there — and y = 26 puts the 16 px buttons at
-/// 20..36 px, centred on the header (measured on macOS 27: y = 22 gave
-/// 16..32, 4 px above the header's centre line).
+/// The macOS traffic lights sit over the UI's 56 px title bar (the overlay
+/// title bar): x = 20 is the close button's left edge, and y = 26 puts the
+/// 16 px buttons at 20..36 px, centred on the title bar (measured on
+/// macOS 27: y = 22 gave 16..32, 4 px above its centre line). The UI keeps
+/// the same geometry in ONE file, `src-app/ui/src/core/macTitleBar.json`
+/// (the shell header's inset, both skip links and the AppLayout chrome read
+/// it); `traffic_lights_match_the_ui_geometry` fails when this position and
+/// that file disagree.
 pub(crate) fn desktop_window_config() -> WindowConfig {
     WindowConfig {
         title: "TxResBench".to_string(),
@@ -187,24 +189,73 @@ mod tests {
         );
     }
 
-    /// The macOS traffic lights and the UI's shell header are one layout: the
-    /// header's `.txr-shell-header-macos` inset (`src-app/ui/src/index.css`)
-    /// is computed from x = 20 (+ the 54 px of buttons + a gap), and y = 26
-    /// centres the buttons on the 56 px header. Moving either value without
-    /// the CSS puts the brand under the buttons or the buttons off-centre.
+    /// The macOS traffic lights and the UI's title bar are one layout. The UI
+    /// keeps its side in `src-app/ui/src/core/macTitleBar.json`; this checks
+    /// the VALUES, not just that a rule exists:
+    /// - the window is built with the JSON's traffic-light position;
+    /// - the buttons' box in the JSON (where they land in the page) follows
+    ///   from that position: AppKit's three 14 px buttons 20 px apart are
+    ///   54 px wide, and with tao's inset the 16 px-tall box starts 6 px
+    ///   above y (measured on macOS 27: y = 22 gave 16..32, y = 26 20..36);
+    /// - the buttons are centred on the UI's title bar, and the UI's text
+    ///   starts after them;
+    /// - index.css's shell-header inset reads the JSON's value (the custom
+    ///   property the shell sets from it), not a px copy of its own.
     #[test]
-    fn traffic_lights_match_the_ui_header_inset() {
+    fn traffic_lights_match_the_ui_geometry() {
+        const GEOMETRY: &str = include_str!("../../../ui/src/core/macTitleBar.json");
+        const BUTTONS_WIDTH: f64 = 54.0;
+        const BUTTONS_HEIGHT: f64 = 16.0;
+        const BUTTONS_TOP_ABOVE_Y: f64 = 6.0;
+
+        let geometry: serde_json::Value =
+            serde_json::from_str(GEOMETRY).expect("src-app/ui/src/core/macTitleBar.json parses");
+        let num = |path: &[&str]| -> f64 {
+            let mut value = &geometry;
+            for key in path {
+                value = &value[*key];
+            }
+            value
+                .as_f64()
+                .unwrap_or_else(|| panic!("macTitleBar.json has no number at {}", path.join(".")))
+        };
+
+        let (x, y) = desktop_window_config().traffic_light_position;
         assert_eq!(
-            desktop_window_config().traffic_light_position,
-            (20.0, 26.0),
-            "the traffic-light position is mirrored by the UI's \
-             .txr-shell-header-macos inset (src-app/ui/src/index.css); \
-             change both together",
+            (x, y),
+            (num(&["trafficLightPosition", "x"]), num(&["trafficLightPosition", "y"])),
+            "the window's traffic_light_position and the UI's \
+             src-app/ui/src/core/macTitleBar.json disagree; change both together",
         );
-        const INDEX_CSS: &str = include_str!("../../../ui/src/index.css");
+
+        let (left, right) = (num(&["trafficLights", "left"]), num(&["trafficLights", "right"]));
+        let (top, bottom) = (num(&["trafficLights", "top"]), num(&["trafficLights", "bottom"]));
+        assert_eq!(left, x, "the close button's left edge is the position's x");
+        assert_eq!(right, x + BUTTONS_WIDTH, "three buttons end 54 px after x");
+        assert_eq!(top, y - BUTTONS_TOP_ABOVE_Y, "the buttons start 6 px above y");
+        assert_eq!(bottom, top + BUTTONS_HEIGHT, "the buttons are 16 px tall");
+
+        let title_bar_height = num(&["titleBarHeight"]);
+        assert_eq!(
+            (top + bottom) / 2.0,
+            title_bar_height / 2.0,
+            "the traffic lights are not centred on the UI's {title_bar_height} px title bar",
+        );
         assert!(
-            INDEX_CSS.contains(".txr-shell-header.txr-shell-header-macos"),
-            "the UI's macOS header inset rule is gone from index.css",
+            num(&["contentStart"]) > right,
+            "the UI's text would start under the zoom button",
+        );
+
+        const INDEX_CSS: &str = include_str!("../../../ui/src/index.css");
+        let rule = INDEX_CSS
+            .split(".txr-shell-header.txr-shell-header-macos")
+            .nth(1)
+            .and_then(|rest| rest.split('}').next())
+            .expect("the UI's macOS header inset rule is gone from index.css");
+        assert!(
+            rule.contains("var(--txr-mac-content-start)"),
+            "the macOS header inset must read --txr-mac-content-start (from \
+             macTitleBar.json), not a px value of its own: {rule}",
         );
     }
 
