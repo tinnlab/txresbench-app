@@ -2,7 +2,7 @@
 name = "sandbox-guest-agent"
 version = "0.1.0"
 edition = "2021"
-description = "In-VM init/agent for the macOS method VM: mounts the images, listens on vsock, runs the host-supplied bwrap argv, streams output and the run's outputs back"
+description = "Guest agent for method runs: the macOS method VM's init (mounts the images, listens on vsock) and, with --stdio, one run in the Windows app's WSL distro (private mount namespace, protocol over stdin/stdout); runs the host-supplied bwrap argv and streams output and the run's outputs back"
 publish = false
 
 [[bin]]
@@ -18,7 +18,7 @@ sandbox-vm-protocol = { path = "../sandbox-vm-protocol" }
 # identical filter. Requires libseccomp for the guest arch at build time
 # (static) — see scripts/build-macos-vm-guest-root.sh.
 sandbox-seccomp = { path = "../sandbox-seccomp" }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "net", "time", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "net", "time", "sync", "fs"] }
 tokio-vsock = "0.7"
 libc = "0.2"
 tracing = "0.1"

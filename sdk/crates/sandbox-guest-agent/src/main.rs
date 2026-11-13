@@ -15,6 +15,18 @@
 //! The agent is a *dumb executor*: all hardening lives in the argv the host
 //! sends, so the host's argv builder stays the single source of truth.
 //!
+//! ## WSL mode (`--stdio`)
+//! On Windows the same agent runs one method run inside the app's WSL distro,
+//! started per run as `txresbench-sandbox-agent --stdio --base <image>
+//! [--layer <image>] [--ro <path>]...` (see [`cli`]). It mounts the images and
+//! the read-only inputs in a private mount namespace ([`wsl_mode`]), serves
+//! exactly one protocol connection over stdin/stdout with the same handler as
+//! the VM ([`handle_conn`]), and exits: 0 ok, 2 bad arguments, 3 setup failure,
+//! 4 transport/protocol error. Stdout carries frames only; logs go to stderr.
+//! It makes no cgroup change (the distro's cgroup tree is shared), so per-exec
+//! limits rest on the prlimit in the argv. `--pipe-selftest` copies stdin to
+//! stdout until EOF, to check the pipe the app talks over.
+//!
 //! ## Guest contract (must match the host's libkrun configuration)
 //!  - vsock port [`VSOCK_PORT`] — agent listens; host connects via the bridge.
 //!  - [`ROOTFS_DEVICE`] — the squashfs block device; mounted read-only at
@@ -25,6 +37,11 @@
 // The agent runs only in the Linux guest; on other hosts the crate builds to
 // the stub `main` below, which uses none of these imports or guest constants.
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+
+mod cli;
+mod wsl_mode;
+#[cfg(target_os = "linux")]
+mod wsl_sys;
 
 #[cfg(target_os = "linux")]
 use std::sync::Arc;
@@ -69,6 +86,10 @@ const EXTRA_MOUNTS_DIR: &str = "/host-mounts";
 /// `EXTRA_MOUNT_TAG_PREFIX`.
 #[cfg(target_os = "linux")]
 const EXTRA_MOUNT_TAG_PREFIX: &str = "host-mount-";
+/// VM mode's cgroup v2 root; each exec gets a scope `sb-<request_id>` under it.
+/// WSL mode has none (see [`handle_exec`]).
+#[cfg(target_os = "linux")]
+const VM_CGROUP_ROOT: &str = "/sys/fs/cgroup";
 
 /// Chunk size for streaming child stdout/stderr.
 const READ_CHUNK: usize = 64 * 1024;
@@ -82,21 +103,51 @@ fn main() {
 }
 
 #[cfg(target_os = "linux")]
-#[tokio::main(flavor = "multi_thread")]
-async fn main() {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .with_writer(std::io::stderr)
-        .init();
+fn main() {
+    let mode = match cli::parse_args(std::env::args_os().skip(1)) {
+        Ok(mode) => mode,
+        Err(why) => {
+            eprintln!("txresbench-sandbox-agent: {why}\n{}", cli::USAGE);
+            std::process::exit(cli::EXIT_BAD_ARGS);
+        }
+    };
+    match mode {
+        cli::Mode::Vm => vm_main(),
+        cli::Mode::PipeSelftest => std::process::exit(pipe_selftest()),
+        cli::Mode::Stdio(args) => std::process::exit(stdio_main(&args)),
+    }
+}
 
-    init_mounts();
-    cgroup_init();
+/// VM mode: the method VM's entrypoint.
+#[cfg(target_os = "linux")]
+fn vm_main() {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed building the Runtime")
+        .block_on(async {
+            tracing_subscriber::fmt()
+                .with_max_level(tracing::Level::INFO)
+                .with_writer(std::io::stderr)
+                .init();
 
-    // Build the seccomp BPF once from the shared policy crate (identical to the
-    // Linux host). Per-exec we pipe these bytes to bwrap's --seccomp fd. If the
-    // build fails (a broken guest image), execs that request seccomp fail
-    // closed rather than running unfiltered.
-    let bpf: Option<Arc<Vec<u8>>> = match sandbox_seccomp::build_bpf() {
+            init_mounts();
+            cgroup_init();
+
+            let bpf = build_seccomp_bpf();
+
+            // libkrun bridges this vsock port to a unix socket on the host.
+            serve_vsock(VSOCK_PORT, bpf).await
+        })
+}
+
+/// Build the seccomp BPF once from the shared policy crate (identical to the
+/// Linux host). Per-exec we pipe these bytes to bwrap's --seccomp fd. If the
+/// build fails (a broken guest image), execs that request seccomp fail
+/// closed rather than running unfiltered.
+#[cfg(target_os = "linux")]
+fn build_seccomp_bpf() -> Option<Arc<Vec<u8>>> {
+    match sandbox_seccomp::build_bpf() {
         Ok((bytes, unresolved)) => {
             if !unresolved.is_empty() {
                 tracing::warn!(?unresolved, "agent: some seccomp DENY entries unresolved on this kernel");
@@ -107,10 +158,105 @@ async fn main() {
             tracing::error!("agent: seccomp filter build FAILED: {e} — seccomp'd execs will fail closed");
             None
         }
+    }
+}
+
+/// WSL mode: mount the run's images and inputs in a private mount namespace,
+/// serve one connection on stdin/stdout, and return the exit code.
+#[cfg(target_os = "linux")]
+fn stdio_main(args: &cli::StdioArgs) -> i32 {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .with_writer(std::io::stderr)
+        .with_ansi(false)
+        .init();
+
+    // Before anything can print or start a child: stdout carries frames only.
+    let stdio = match wsl_sys::take_protocol_stdio() {
+        Ok(stdio) => stdio,
+        Err(e) => {
+            eprintln!("txresbench-sandbox-agent: cannot use stdin/stdout for the protocol: {e}");
+            return cli::EXIT_TRANSPORT;
+        }
     };
 
-    // libkrun bridges this vsock port to a unix socket on the host.
-    serve_vsock(VSOCK_PORT, bpf).await
+    // The mounts, on this one thread, before the runtime starts any other.
+    let mut ops = wsl_sys::RealOps::default();
+    if let Err(why) = wsl_mode::execute(&wsl_mode::mount_plan(args), &mut ops) {
+        eprintln!("txresbench-sandbox-agent: setup failed: {why}");
+        return cli::EXIT_SETUP;
+    }
+    let bpf = build_seccomp_bpf();
+    let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("txresbench-sandbox-agent: setup failed: starting the runtime: {e}");
+            return cli::EXIT_SETUP;
+        }
+    };
+    let code = rt.block_on(serve_stdio(stdio, bpf));
+    // A read of stdin can still be pending on the blocking pool; it must not
+    // keep the agent alive.
+    rt.shutdown_background();
+    ops.stop_squashfuse();
+    code
+}
+
+/// Serve the one connection on the protocol stdio and map how it ended to
+/// the exit code.
+#[cfg(target_os = "linux")]
+async fn serve_stdio(stdio: wsl_sys::ProtocolStdio, bpf: Option<Arc<Vec<u8>>>) -> i32 {
+    let rd = tokio::fs::File::from_std(std::fs::File::from(stdio.input));
+    let wr = tokio::fs::File::from_std(std::fs::File::from(stdio.output));
+    tracing::info!("txresbench-sandbox-agent: serving one connection on stdin/stdout");
+    let end = handle_conn(tokio::io::join(rd, wr), bpf, None).await;
+    let (code, why) = stdio_exit(&end);
+    if let Some(why) = why {
+        eprintln!("txresbench-sandbox-agent: {why}");
+    }
+    code
+}
+
+/// WSL mode's exit code for how the connection ended, and the reason to
+/// print for a failure.
+#[cfg(target_os = "linux")]
+fn stdio_exit(end: &std::io::Result<ConnEnd>) -> (i32, Option<String>) {
+    match end {
+        Ok(ConnEnd::NoRequest) => (cli::EXIT_OK, None),
+        Ok(ConnEnd::Ran { delivered: true, host_left: false }) => (cli::EXIT_OK, None),
+        Ok(ConnEnd::Ran { host_left: true, .. }) => {
+            (cli::EXIT_TRANSPORT, Some("the host closed the connection before the command finished".into()))
+        }
+        Ok(ConnEnd::Ran { delivered: false, .. }) => {
+            (cli::EXIT_TRANSPORT, Some("could not send every frame to the host".into()))
+        }
+        Ok(ConnEnd::BadFrame) => (cli::EXIT_TRANSPORT, Some("the host sent a malformed frame".into())),
+        Ok(ConnEnd::Refused) => {
+            (cli::EXIT_TRANSPORT, Some("the request's protocol version is not served by this agent".into()))
+        }
+        Err(e) => (cli::EXIT_TRANSPORT, Some(format!("reading the protocol stream failed: {e}"))),
+    }
+}
+
+/// `--pipe-selftest`: copy stdin to stdout byte for byte until EOF.
+#[cfg(target_os = "linux")]
+fn pipe_selftest() -> i32 {
+    use std::io::Write;
+    use std::os::fd::AsFd;
+    let copy = || -> std::io::Result<u64> {
+        let mut input = std::fs::File::from(std::io::stdin().as_fd().try_clone_to_owned()?);
+        let mut output = std::fs::File::from(std::io::stdout().as_fd().try_clone_to_owned()?);
+        let n = std::io::copy(&mut input, &mut output)?;
+        output.flush()?;
+        Ok(n)
+    };
+    match copy() {
+        Ok(_) => cli::EXIT_OK,
+        Err(e) => {
+            eprintln!("txresbench-sandbox-agent: pipe self-test failed: {e}");
+            cli::EXIT_TRANSPORT
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -160,7 +306,7 @@ where
     tracing::info!("agent: connection from {peer}");
     let bpf = bpf.clone();
     tokio::spawn(async move {
-        if let Err(e) = handle_conn(stream, bpf).await {
+        if let Err(e) = handle_conn(stream, bpf, Some(VM_CGROUP_ROOT)).await {
             tracing::warn!("agent: connection handler error: {e}");
         }
     });
@@ -269,11 +415,33 @@ fn mount_fs(src: &str, target: &str, fstype: &str, flags: libc::c_ulong, data: O
     }
 }
 
+/// How one connection ended (VM mode only logs it; WSL mode exits with it).
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConnEnd {
+    /// The host closed the connection before sending a request.
+    NoRequest,
+    /// The host sent bytes that do not decode as a frame.
+    BadFrame,
+    /// The request's protocol version is not served; nothing ran.
+    Refused,
+    /// The request was handled: the command ran, or failed to start (sent as
+    /// `Exit(-1)`). `delivered`: every frame up to `ArtifactsDone` was
+    /// written; `host_left`: the host closed its side before the command
+    /// ended (so the command was killed).
+    Ran { delivered: bool, host_left: bool },
+}
+
 /// Handle one control connection: wait for the host's `Exec`, then run it
-/// ([`handle_exec`]).
+/// ([`handle_exec`]). `cgroup_root`: where per-exec cgroups go (VM mode), or
+/// `None` for no cgroup at all (WSL mode).
 // handle_conn calls install_seccomp + uses Linux-only APIs.
 #[cfg(target_os = "linux")]
-async fn handle_conn<S>(stream: S, bpf: Option<Arc<Vec<u8>>>) -> std::io::Result<()>
+async fn handle_conn<S>(
+    stream: S,
+    bpf: Option<Arc<Vec<u8>>>,
+    cgroup_root: Option<&'static str>,
+) -> std::io::Result<ConnEnd>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -293,17 +461,29 @@ where
             Ok(None) => {}
             Err(e) => {
                 tracing::warn!("agent: protocol error: {e}");
-                return Ok(());
+                return Ok(ConnEnd::BadFrame);
             }
         }
         let n = rd.read(&mut buf).await?;
         if n == 0 {
-            return Ok(()); // peer closed before sending a request
+            return Ok(ConnEnd::NoRequest); // peer closed before sending a request
         }
         decoder.feed(&buf[..n]);
     };
 
-    handle_exec(rd, wr, req, bpf).await
+    handle_exec(rd, wr, req, bpf, cgroup_root).await
+}
+
+/// Whether the frames queued so far all reached the stream: the writer task
+/// ended without a write error and a last flush succeeds.
+#[cfg(target_os = "linux")]
+async fn writer_delivered<W: AsyncWrite + Unpin>(
+    writer: tokio::task::JoinHandle<Option<W>>,
+) -> bool {
+    match writer.await {
+        Ok(Some(mut wr)) => wr.flush().await.is_ok(),
+        _ => false,
+    }
 }
 
 /// Run one `Exec`. All hardening lives in the argv the host built; the agent
@@ -315,7 +495,8 @@ async fn handle_exec<R, W>(
     wr: W,
     req: sandbox_vm_protocol::ExecRequest,
     bpf: Option<Arc<Vec<u8>>>,
-) -> std::io::Result<()>
+    cgroup_root: Option<&'static str>,
+) -> std::io::Result<ConnEnd>
 where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
@@ -325,7 +506,7 @@ where
     // served.
     if let Err(why) = req.check_version() {
         tracing::error!(request_id = req.request_id, "agent: {why}; rejecting");
-        return Ok(());
+        return Ok(ConnEnd::Refused);
     }
 
     tracing::info!(
@@ -368,8 +549,8 @@ where
         // report a cut-off copy-back instead of this failure.
         let _ = tx.send(Frame::ArtifactsDone);
         drop(tx);
-        let _ = writer.await;
-        return Ok(());
+        let delivered = writer_delivered(writer).await;
+        return Ok(ConnEnd::Ran { delivered, host_left: false });
     }
 
     let mut cmd = Command::new(&req.bwrap_path);
@@ -391,8 +572,8 @@ where
                 // would report a cut-off copy-back instead of this failure.
                 let _ = tx.send(Frame::ArtifactsDone);
                 drop(tx);
-                let _ = writer.await;
-                return Ok(());
+                let delivered = writer_delivered(writer).await;
+                return Ok(ConnEnd::Ran { delivered, host_left: false });
             }
         },
         _ => (None, None),
@@ -435,16 +616,19 @@ where
             // FIFO) so the writer sees every sender gone and finishes.
             drop(progress);
             drop(tx);
-            let _ = writer.await;
-            return Ok(());
+            let delivered = writer_delivered(writer).await;
+            return Ok(ConnEnd::Ran { delivered, host_left: false });
         }
     };
 
     // In-guest cgroup v2 (defense-in-depth; the prlimit wrapper in the argv is
     // the always-on backstop). Held until the end of the fn so Drop removes the
-    // cgroup after the child exits.
-    let _cgroup = match (&req.cgroup, child.id()) {
-        (Some(limits), Some(pid)) => match GuestCgroup::create(req.request_id, limits) {
+    // cgroup after the child exits. WSL mode (no cgroup root) creates none:
+    // the distro's cgroup tree is shared by every process in WSL, and the
+    // agent's own cgroup cannot get controllers for its children without
+    // stopping other processes from joining it.
+    let _cgroup = match (&req.cgroup, child.id(), cgroup_root) {
+        (Some(limits), Some(pid), Some(root)) => match GuestCgroup::create(root, req.request_id, limits) {
             Ok(cg) => {
                 cg.attach(pid);
                 Some(cg)
@@ -454,6 +638,10 @@ where
                 None
             }
         },
+        (Some(_), Some(_), None) => {
+            tracing::info!("agent: no per-exec cgroup in WSL mode; the prlimit in the argv applies");
+            None
+        }
         _ => None,
     };
 
@@ -470,21 +658,21 @@ where
     // host disconnect we kill the workload instead of letting it run to the
     // full timeout.
     let budget = Duration::from_millis(req.timeout_ms.max(1));
-    let (code, timed_out) = tokio::select! {
+    let (code, timed_out, host_left) = tokio::select! {
         res = child.wait() => match res {
-            Ok(status) => (status.code().unwrap_or(-1), false),
-            Err(_) => (-1, false),
+            Ok(status) => (status.code().unwrap_or(-1), false, false),
+            Err(_) => (-1, false, false),
         },
         _ = tokio::time::sleep(budget) => {
             let _ = child.start_kill();
             let _ = child.wait().await;
-            (-1, true)
+            (-1, true, false)
         }
         _ = wait_host_eof(&mut rd) => {
             tracing::info!(request_id = req.request_id, "agent: host disconnected; killing command");
             let _ = child.start_kill();
             let _ = child.wait().await;
-            (-1, false)
+            (-1, false, true)
         }
     };
 
@@ -506,6 +694,7 @@ where
     // queued, take the write half back, and write every chunk directly so a
     // large file never queues in memory.
     drop(tx);
+    let mut delivered = false;
     if let Ok(Some(mut wr)) = writer.await {
         // The command's status first, so a failed copy-back can never lose
         // it; then the outputs; then the end marker.
@@ -515,11 +704,11 @@ where
             .is_ok()
         {
             send_artifacts_chunked(&req.collect_artifacts, req.artifacts.total_cap_bytes, &mut wr).await;
-            let _ = wr.write_all(&encode(&Frame::ArtifactsDone)).await;
+            delivered = wr.write_all(&encode(&Frame::ArtifactsDone)).await.is_ok();
         }
-        let _ = wr.flush().await;
+        delivered &= wr.flush().await.is_ok();
     }
-    Ok(())
+    Ok(ConnEnd::Ran { delivered, host_left })
 }
 
 /// Provision each artifact-collection dir so a sandboxed `open(O_CREAT)`/`mkdir`
@@ -980,8 +1169,8 @@ struct GuestCgroup {
 
 #[cfg(target_os = "linux")]
 impl GuestCgroup {
-    fn create(request_id: u64, limits: &CgroupLimits) -> std::io::Result<Self> {
-        let path = std::path::PathBuf::from(format!("/sys/fs/cgroup/sb-{request_id}"));
+    fn create(root: &str, request_id: u64, limits: &CgroupLimits) -> std::io::Result<Self> {
+        let path = std::path::PathBuf::from(format!("{root}/sb-{request_id}"));
         std::fs::create_dir(&path)?;
         // Per-controller writes are best-effort: a controller the guest kernel
         // didn't build still leaves the others enforcing. We do NOT fail the
@@ -1230,7 +1419,7 @@ mod tests {
         let (host_side, agent_side) = duplex(64 * 1024);
         let (mut host_rd, mut host_wr) = tokio::io::split(host_side);
         let agent_task = tokio::spawn(async move {
-            let _ = handle_conn(agent_side, None).await;
+            let _ = handle_conn(agent_side, None, None).await;
         });
 
         host_wr
