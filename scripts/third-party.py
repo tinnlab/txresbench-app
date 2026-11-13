@@ -926,6 +926,61 @@ def render_macos_vm_runtime() -> list[str]:
     return lines
 
 
+# The Windows app's WSL runtime (scripts/build-wsl-rootfs.sh): the root file system of the app's own WSL 2
+# distro, with the guest agent built from this repository. Each line names Alpine packages and the licence
+# their apk database records; the build script refuses a root holding a package that no line names with
+# that licence, and its MANIFEST.json records the exact versions.
+WSL_ALPINE_PACKAGES = [
+    ("alpine-baselayout, alpine-baselayout-data", "GPL-2.0-only"),
+    ("alpine-keys", "MIT"),
+    ("bubblewrap", "LGPL-2.0-or-later"),
+    ("busybox, busybox-binsh", "GPL-2.0-only"),
+    ("fuse3, fuse3-libs, fuse-common", "GPL-2.0-only AND LGPL-2.1-only"),
+    ("libcap2", "BSD-3-Clause OR GPL-2.0-only"),
+    ("lz4-libs", "BSD-2-Clause AND GPL-2.0-only"),
+    ("lzo", "GPL-2.0-or-later"),
+    ("musl", "MIT"),
+    ("squashfuse", "BSD-2-Clause"),
+    ("xz-libs", "GPL-2.0-or-later AND 0BSD AND Public-Domain AND LGPL-2.1-or-later"),
+    ("zlib", "Zlib"),
+    ("zstd-libs", "BSD-3-Clause OR GPL-2.0-or-later"),
+]
+
+
+def render_wsl_runtime() -> list[str]:
+    lines = ["## WSL runtime (Windows builds only)", ""]
+    lines.append(
+        "The Windows app ships `txresbench-wsl.tar` (built by `scripts/build-wsl-rootfs.sh`), the root file "
+        "system of the app's own WSL 2 distribution, in which each method runs. The app imports it with "
+        "`wsl --import` on first use; its `MANIFEST.json` records the exact package versions, their licences "
+        "and the archive's checksum. The Linux and macOS builds do not include it."
+    )
+    lines.append("")
+    lines.append(
+        "- **The guest agent** — built from this repository's `sdk/crates/sandbox-guest-agent`. It statically "
+        "links musl (MIT) and libseccomp (LGPL-2.1-or-later; its source is linked below and the agent's source "
+        "is in this repository); its Rust crates (tokio, tokio-vsock, vsock, nix, tracing, serde and their "
+        "dependencies) are under MIT and/or Apache-2.0 terms."
+    )
+    lines.append(
+        f"- **The userland: Alpine Linux {ALPINE_RELEASE} packages**, each under its own licence; sources: "
+        f"https://gitlab.alpinelinux.org/alpine/aports/-/tree/{ALPINE_RELEASE}-stable"
+    )
+    for names, lic in WSL_ALPINE_PACKAGES:
+        lines.append(f"  - {names} — {lic}")
+    lines.append("")
+    lines.append(
+        "Licence texts: GPL-2.0 https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt, "
+        "LGPL-2.1 https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt, "
+        "LGPL-2.0 https://www.gnu.org/licenses/old-licenses/lgpl-2.0.txt, "
+        "BSD-2-Clause https://opensource.org/license/bsd-2-clause, "
+        "BSD-3-Clause https://opensource.org/license/bsd-3-clause, "
+        "0BSD https://opensource.org/license/0bsd."
+    )
+    lines.append("")
+    return lines
+
+
 def render_notices(rust: list[Pkg], sdkonly: list[Pkg], npm: list[Pkg], programs: list[Pkg]) -> str:
     lines: list[str] = []
     lines.append("# THIRD-PARTY NOTICES")
@@ -1009,6 +1064,7 @@ def render_notices(rust: list[Pkg], sdkonly: list[Pkg], npm: list[Pkg], programs
     )
     lines.append("")
     lines.extend(render_macos_vm_runtime())
+    lines.extend(render_wsl_runtime())
     lines.append("## Licence texts")
     lines.append("")
     lines.append(

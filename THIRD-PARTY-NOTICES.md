@@ -1007,6 +1007,28 @@ The macOS app ships `sandbox-vm-runtime.tar` (built by `scripts/build-macos-vm-r
 
 Licence texts: GPL-2.0 https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt, LGPL-2.1 https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt, LGPL-2.0 https://www.gnu.org/licenses/old-licenses/lgpl-2.0.txt, GPL-3.0 https://www.gnu.org/licenses/gpl-3.0.txt.
 
+## WSL runtime (Windows builds only)
+
+The Windows app ships `txresbench-wsl.tar` (built by `scripts/build-wsl-rootfs.sh`), the root file system of the app's own WSL 2 distribution, in which each method runs. The app imports it with `wsl --import` on first use; its `MANIFEST.json` records the exact package versions, their licences and the archive's checksum. The Linux and macOS builds do not include it.
+
+- **The guest agent** — built from this repository's `sdk/crates/sandbox-guest-agent`. It statically links musl (MIT) and libseccomp (LGPL-2.1-or-later; its source is linked below and the agent's source is in this repository); its Rust crates (tokio, tokio-vsock, vsock, nix, tracing, serde and their dependencies) are under MIT and/or Apache-2.0 terms.
+- **The userland: Alpine Linux 3.20 packages**, each under its own licence; sources: https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.20-stable
+  - alpine-baselayout, alpine-baselayout-data — GPL-2.0-only
+  - alpine-keys — MIT
+  - bubblewrap — LGPL-2.0-or-later
+  - busybox, busybox-binsh — GPL-2.0-only
+  - fuse3, fuse3-libs, fuse-common — GPL-2.0-only AND LGPL-2.1-only
+  - libcap2 — BSD-3-Clause OR GPL-2.0-only
+  - lz4-libs — BSD-2-Clause AND GPL-2.0-only
+  - lzo — GPL-2.0-or-later
+  - musl — MIT
+  - squashfuse — BSD-2-Clause
+  - xz-libs — GPL-2.0-or-later AND 0BSD AND Public-Domain AND LGPL-2.1-or-later
+  - zlib — Zlib
+  - zstd-libs — BSD-3-Clause OR GPL-2.0-or-later
+
+Licence texts: GPL-2.0 https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt, LGPL-2.1 https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt, LGPL-2.0 https://www.gnu.org/licenses/old-licenses/lgpl-2.0.txt, BSD-2-Clause https://opensource.org/license/bsd-2-clause, BSD-3-Clause https://opensource.org/license/bsd-3-clause, 0BSD https://opensource.org/license/0bsd.
+
 ## Licence texts
 
 Full texts are reproduced below for the licences under which the bundled components are released (MIT, Apache-2.0, MPL-2.0); the other licence families are referenced by their canonical URLs and apply per component as listed above.
