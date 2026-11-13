@@ -340,7 +340,7 @@ export const TXHISTORY_RUN_LEAK = fixtureRun(9, {
   bucket: 'failed',
   created_at: '2026-06-19T08:02:00Z',
   method_count: 1,
-  methods: [fxMethodRow('baseline-ctdna-detectability')],
+  methods: [fxMethodRow('relchange-threshold')],
   file_names: ['breast_panel.csv'],
   learned_from: undefined,
   predicted: undefined,

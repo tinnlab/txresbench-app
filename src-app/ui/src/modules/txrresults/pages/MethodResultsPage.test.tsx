@@ -333,7 +333,7 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
     // desktop mode alike.
     expect(view.queryByTestId('txr-results-saved-in')).toBeNull()
     expect(view.queryByTestId('txr-results-open-folder')).toBeNull()
-    expect(view.textContent).not.toContain('/home/u/.txresbench/analysis-2026-11-06-0000/')
+    expect(view.container.textContent).not.toContain('/home/u/.txresbench/analysis-2026-11-06-0000/')
   })
 
   it('selects the active method tab from the URL segment (compare / method / unknown method, no crash)', async () => {
@@ -563,13 +563,13 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
     const view = await renderLoaded()
     expect(view.queryByTestId('txr-results-saved-in')).toBeNull()
     expect(view.queryByTestId('txr-results-open-folder')).toBeNull()
-    expect(view.textContent).not.toContain('/home/u/.txresbench/analysis-2026-11-06-0000/')
+    expect(view.container.textContent).not.toContain('/home/u/.txresbench/analysis-2026-11-06-0000/')
     cleanup()
     platform.desktop = true
     const desktop = await renderLoaded()
     expect(desktop.queryByTestId('txr-results-saved-in')).toBeNull()
     expect(desktop.queryByTestId('txr-results-open-folder')).toBeNull()
-    expect(desktop.textContent).not.toContain('/home/u/.txresbench/analysis-2026-11-06-0000/')
+    expect(desktop.container.textContent).not.toContain('/home/u/.txresbench/analysis-2026-11-06-0000/')
   })
 
   it('the one-method header saves THIS model (finished + produced) and emits txr:save-one-model-requested', async () => {

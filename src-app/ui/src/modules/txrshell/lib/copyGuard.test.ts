@@ -143,7 +143,7 @@ const ALLOW: AllowEntry[] = JSON.parse(readFileSync(allowFilePath, 'utf8')).entr
 /** The banned-phrase hits of one line (both sweep generations). */
 function phraseHits(line: string): string[] {
   const lower = line.toLowerCase()
-  const hits = BANNED.filter(phrase => lower.includes(phrase))
+  const hits: string[] = [...BANNED.filter(phrase => lower.includes(phrase))]
   for (const pattern of ITEM1_PATTERNS) {
     if (pattern.re.test(line)) hits.push(pattern.phrase)
   }

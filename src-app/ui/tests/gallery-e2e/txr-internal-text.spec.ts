@@ -47,29 +47,10 @@ const GALLERY = '/gallery.html?surface='
 // dev-only specs.
 test.setTimeout(600_000)
 
-/** The leak patterns of the report (the UI guard's own set). */
-const PATH_RE = /(^|\s)\/(data|home|usr|var|tmp|opt)\//i
-const PLACEHOLDER_RE = /<app_data>/i
-const TOOL_RE = /\boras\b/i
-
-/** A text node matching any leak pattern (Text mode). */
-function* leakMatches(node: Node): Generator<string> {
-  if (node.nodeType === Node.TEXT_NODE) {
-    const text = node.textContent ?? ''
-    if (text.trim().length > 0 && (PATH_RE.test(text) || PLACEHOLDER_RE.test(text) || TOOL_RE.test(text))) {
-      yield text.trim()
-    }
-    return
-  }
-  if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_NODE) return
-  for (const child of Array.from(node.childNodes)) {
-    yield* leakMatches(child)
-  }
-}
-
 /** Collect every leaking text node of the page's visible text (the
  *  `<script>`/`<style>` tags are skipped — their text is CSS/JS, not a
- *  drawn text node). */
+ *  drawn text node). The patterns are the UI guard's own (`safeText` +
+ *  the plan's pinned set) — the same three the report searched for. */
 function leakingTextNodes(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const hits: string[] = []
@@ -99,7 +80,7 @@ function leakingTextNodes(page: Page): Promise<string[]> {
  *  formatters' sentence-ending period on the reason lines). */
 const GENERIC = 'This information is not available'
 
-async function assertNoInternalText(page: Page, genericCountMin: number): Promise<void> {
+async function assertNoInternalText(page: Page): Promise<void> {
   // The positive control first: the guards DID fire.
   const body = await page.locator('body').innerText()
   expect(body).toContain(GENERIC)
@@ -109,10 +90,10 @@ async function assertNoInternalText(page: Page, genericCountMin: number): Promis
 }
 
 for (const surface of [
-  'txrresults/txr-results-g-leak',
-  'txrresults/txr-results-h-leak',
-  'txrrun/txr-run-f-leak',
-  'txrhistory/txr-history-leak',
+  'txr-results-g-leak',
+  'txr-results-h-leak',
+  'txr-run-f-leak',
+  'txr-history-leak',
 ]) {
   test(`${surface} — no internal path, placeholder or tool name in any text node`, async ({ page }) => {
     await page.goto(`${GALLERY}${surface}`)
@@ -120,7 +101,7 @@ for (const surface of [
     await expect(frame).toBeVisible()
     // The store's load settles (the leak story's run/row renders).
     await expect(page.getByText(GENERIC).first()).toBeVisible()
-    await assertNoInternalText(page, 1)
+    await assertNoInternalText(page)
 
     // The run's own machine directory never renders anywhere.
     await expect(page.locator('body')).not.toContainText('/txr-live')
