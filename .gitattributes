@@ -1,3 +1,12 @@
+# Every text file checks out with LF on every platform, Windows included. The build
+# embeds repo files byte for byte: the file-validator CSVs (the backend checks their
+# first line at boot), the catalogue JSON, and the migration SQL that sqlx checksums.
+# Git for Windows' default `core.autocrlf=true` (also what the Windows release build
+# checks out with) turned them into CRLF, and that build's backend refused to start
+# (FILE_VALIDATOR_ASSET_HEADER). `text=auto` leaves binary files alone. Pinned by
+# `modules::tests::every_tracked_file_checks_out_with_lf_endings`.
+* text=auto eol=lf
+
 # ai-mcp ITEM-15: the frontend-action manifest is a generated/committed
 # golden artifact whose `collect-actions.mjs --check` gate does a raw
 # byte-diff against the collector's (always-LF) output. Force LF at checkout

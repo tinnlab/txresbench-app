@@ -267,6 +267,35 @@ pub fn ensure_checked() -> Result<&'static AssetFacts, AssetsError> {
 mod tests {
     use super::*;
 
+    /// The embedded CSVs carry LF line endings only. A checkout that turns them
+    /// into CRLF (Git for Windows' default `core.autocrlf=true`) embeds a `\r` at
+    /// the end of every line, the header check then reads `...,stage\r`, and the
+    /// backend refuses to start. `.gitattributes` (`* text=auto eol=lf`) prevents
+    /// that; a working tree checked out before that rule still has CRLF files and
+    /// fails here (re-checkout: `git rm -r -q --cached . && git reset -q --hard`).
+    #[test]
+    fn the_real_embed_has_no_carriage_returns() {
+        let embedded: [(&str, &[u8]); 5] = [
+            ("templates/patients.csv", PATIENTS_TEMPLATE_CSV),
+            ("templates/measurements.csv", MEASUREMENTS_TEMPLATE_CSV),
+            ("examples/patients.csv", PATIENTS_EXAMPLE_CSV),
+            ("examples/measurements.csv", MEASUREMENTS_EXAMPLE_CSV),
+            (
+                "examples/predict-measurements.csv",
+                PREDICT_MEASUREMENTS_EXAMPLE_CSV,
+            ),
+        ];
+        let with_cr: Vec<&str> = embedded
+            .iter()
+            .filter(|(_, bytes)| bytes.contains(&b'\r'))
+            .map(|(name, _)| *name)
+            .collect();
+        assert!(
+            with_cr.is_empty(),
+            "data/file-validator files embedded with CRLF line endings: {with_cr:?}"
+        );
+    }
+
     #[test]
     fn the_real_embed_passes_the_boot_check_with_expected_counts() {
         let facts = check(&ASSETS).expect("the committed six CSVs must pass the boot check");
