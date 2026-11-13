@@ -527,7 +527,11 @@ mod tests {
         assert_eq!(family.code, ProblemCode::A04UnitDiffers);
         assert_eq!(family.severity, ProblemSeverity::Warning);
         assert!(family.message.contains("U/mL"), "{}", family.message);
-        assert!(family.message.contains("only by unit family"), "{}", family.message);
+        assert!(
+            family.message.contains("same kind of unit but not the same one"),
+            "{}",
+            family.message
+        );
 
         let unknown = unit_mismatch_problem(
             "unit",
@@ -536,12 +540,21 @@ mod tests {
             UnitAgreement::Unknown,
         );
         assert_eq!(unknown.code, ProblemCode::A04UnitDiffers);
-        assert!(unknown.message.contains("is not recognized"), "{}", unknown.message);
+        assert!(
+            unknown.message.contains("we do not recognise this unit"),
+            "{}",
+            unknown.message
+        );
 
         let unclassified = unit_unclassified_problem("unit", "furlongs");
         assert_eq!(unclassified.code, ProblemCode::A04UnitDiffers);
         assert_eq!(unclassified.severity, ProblemSeverity::Warning);
         assert!(unclassified.message.contains("furlongs"), "{}", unclassified.message);
+        assert!(
+            unclassified.message.contains("not a unit we recognise"),
+            "{}",
+            unclassified.message
+        );
     }
 
     #[test]

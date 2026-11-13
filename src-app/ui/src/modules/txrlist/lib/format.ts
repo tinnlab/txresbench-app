@@ -332,7 +332,8 @@ export function formatMethodCoverage(coverage: TxrCoverageFacts): string {
  * headline and left the two numbers untellable as one story). The count is
  * the env-absent subset of the fit count; the line is shown only when it is
  * non-zero. The location-neutral rule (ITEM-2) keeps the sentence's "yet"
- * instead of "on this computer" — the owner's copy guard pins the phrase.
+ * without the deployment-place clause the plan's copy carried — the owner's
+ * copy guard pins that phrase (see the qa-fixes4 DRIFT entry).
  */
 export function formatNoEnvLine(noEnvFit: number): string {
   return `${noEnvFit} of them cannot run yet`

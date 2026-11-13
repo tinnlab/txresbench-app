@@ -206,16 +206,16 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     expect(screen.queryByText('The columns we look for are on the left.')).toBeNull()
   })
 
-  it('the first-rows box keeps cell words whole and hints the sideways scroll (F9)', () => {
+  it('the first-rows box keeps entry words whole and hints the sideways scroll (F9)', () => {
     const file = loadedPatients()
     renderCard({ file })
     const box = document.querySelector('.txr-intake-first-rows') as HTMLElement | null
     expect(box).toBeTruthy()
-    // Every cell (and the header) is nowrap — the patient id never breaks
+    // Every entry (and the header) is nowrap — the patient id never breaks
     // into three lines and a wide unit column never squeezes a neighbor.
-    const cells = [...box!.querySelectorAll('th, td')] as HTMLElement[]
-    expect(cells.length).toBeGreaterThan(0)
-    expect(cells.every(cell => cell.style.whiteSpace === 'nowrap')).toBe(true)
+    const entries = [...box!.querySelectorAll('th, td')] as HTMLElement[]
+    expect(entries.length).toBeGreaterThan(0)
+    expect(entries.every(entry => entry.style.whiteSpace === 'nowrap')).toBe(true)
     // No overflow in jsdom's 0-width box → no hint; when the box really
     // overflows, the hint appears (the report's "cut with no scroll hint").
     expect(screen.queryByTestId('txr-intake-first-rows-scroll-hint')).toBeNull()

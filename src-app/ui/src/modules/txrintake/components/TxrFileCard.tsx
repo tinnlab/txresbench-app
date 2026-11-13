@@ -242,7 +242,7 @@ const EXAMPLE_ENTRY: CSSProperties = {
   padding: '4px 10px',
   borderBottom: '1px solid var(--txr-surface-raised)',
   fontSize: 12.5,
-  // F9: a preview cell never wraps mid-word — the natural column width is
+  // F9: a preview entry never wraps mid-word — the natural column width is
   // the scrollbox's, never a squeezed 3-line id (the phone report's cut).
   whiteSpace: 'nowrap',
 }
@@ -629,12 +629,12 @@ function RoleTable({ roles }: { roles: RoleRow[] }) {
  *  max height with overflow on BOTH axes and the sticky header above, so a
  *  tall preview scrolls inside its box and the header never leaves it (the
  *  audit's /files + /predict-files byte; the card never grows the page).
- *  qa-fixes4 F9: the cells are NOWRAP (a patient id never wraps mid-word and
- *  a wide unit column never squeezes the id column into 3 lines — the
- *  phone preview's cut columns), the box keeps the table's NATURAL width so
- *  every column is reachable, and an overflow shadow hints that the box
- *  scrolls sideways (the round-3 report's "cut at 'os_e' with no scroll
- *  hint"). */
+ *  qa-fixes4 F9: the table's entries are NOWRAP (a patient id never wraps
+ *  mid-word and a wide unit column never squeezes the id column into 3
+ *  lines — the phone preview's cut columns), the box keeps the table's
+ *  NATURAL width so every column is reachable, and an overflow shadow hints
+ *  that the box scrolls sideways (the round-3 report's "cut at 'os_e' with
+ *  no scroll hint"). */
 function FirstRows({ columns, rows }: { columns: string[]; rows: (string | null)[][] }) {
   const boxRef = useRef<HTMLDivElement>(null)
   const [scrollsSideways, setScrollsSideways] = useState(false)
@@ -665,7 +665,7 @@ function FirstRows({ columns, rows }: { columns: string[]; rows: (string | null)
       {/* ITEM-6 F9: the table scrolls INSIDE its box (the last column of the
           patients preview used to clip at the card edge with no way to see it —
           "response_da" cut mid-word; the box's own overflow keeps the page
-          fixed and the hint-comma inside cells no longer hides the tail). */}
+          fixed and a long value's tail no longer hides the neighbour). */}
       <div
         ref={boxRef}
         className="txr-intake-first-rows"
