@@ -155,12 +155,14 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
 
     // The left-out rows carry the TRUE answer reasons (the shared E-vocabulary
     // lines), never the env fallback. The first visible row is the response's
-    // first answer-gated method; "needs 5 or more draws" is a draw-schedule
-    // cause, neither exists without an answer.
+    // first answer-gated method; a draw-schedule cause like "needs 5 or more
+    // draws" CANNOT appear — the draw question is unanswered, and an
+    // unanswered question is absent = any (R3-intake-2), so nobody is
+    // excluded on the draw axis.
     const excluded = page.getByTestId('txr-intake-panel-excluded')
     await expect(excluded).toContainText('asm-best-change-rule')
     await expect(excluded).toContainText('needs markers from:')
-    await expect(excluded).toContainText('needs 5 or more draws')
+    await expect(excluded).not.toContainText('needs 5 or more draws')
     await expect(excluded).not.toContainText("doesn't fit with these answers")
   })
 
@@ -209,23 +211,24 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     // The measurements card: the board-N line with the C "Ready." terminator
     // — the real marker columns and the real draw schedule (PROV-FV-3).
     const measurementsStatus = page.getByTestId('txr-intake-file-status-measurements')
-    await expect(measurementsStatus).toContainText('✓ 300 patients read')
+    await expect(measurementsStatus).toContainText('✓ 100 patients read')
     await expect(measurementsStatus).toContainText(
       'Found 2,959 rows: markers M1, M2 and M3; draws on 10 days (-28 to 336). Ready.',
     )
 
-    // The example files carry the provider's own two A04 notes (the a.u.
-    // unit is not a recognizable family — warning severity, never a gate;
-    // R2-6: a ready file WITH notes is the distinct warning-toned
-    // "Ready, with notes" state, not the green all-clear).
+    // The example files carry the provider's own three A04 notes (the a.u.
+    // unit columns M1/M2/M3 — warning severity, never a gate; R2-6: a ready
+    // file WITH notes is the distinct warning-toned "Ready, with notes"
+    // state, not the green all-clear).
     const problems = page.getByTestId('txr-intake-file-notes-measurements')
     await expect(measurementsStatus).toContainText('Ready, with 3 notes')
     // The provider's markdown backticks are stripped for display (ITEM-6 F5e);
-    // R2-5: the two notes are one grouped line each + the codes disclosure.
+    // R2-5: the three unit notes are one grouped line each + the codes
+    // disclosure in the same list (4 li).
     await expect(problems).toContainText(
       "column M1 unit 'a.u.' is not a unit we recognise — scales are not compared",
     )
-    await expect(problems.locator(':scope > li')).toHaveCount(3)
+    await expect(problems.locator(':scope > li')).toHaveCount(4)
     // R2-3: the codes are out of the sentences — one details disclosure.
     await expect(problems.getByTestId('txr-intake-file-notes-codes-measurements')).toBeVisible()
 
@@ -296,7 +299,7 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     // The board-N green box, data-filled from the real predict-mode validate
     // (the same measurements facts; the board's own continuation line).
     const status = page.getByTestId('txr-intake-file-status-measurements')
-    await expect(status).toContainText('✓ 300 patients read')
+    await expect(status).toContainText('✓ 100 patients read')
     await expect(status).toContainText(
       'Found 2,959 rows: markers M1, M2 and M3; draws on 10 days (-28 to 336). Next you choose the models that can run on it.',
     )
