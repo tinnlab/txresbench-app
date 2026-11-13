@@ -13,7 +13,7 @@
 //!     `/sandbox-layer`, read-only: kernel squashfs on a loop device that clears
 //!     itself when unmounted, else squashfuse;
 //!  5. mounts a tmpfs at `/host-mounts` and binds the i-th `--ro` path read-only
-//!     at `/host-mounts/<i>`.
+//!     at `/host-mounts/<i>` (the path only, not mounts below it).
 //!
 //! It makes no cgroup change at all (see `main.rs`). The first failure stops
 //! the plan; the agent then exits with `EXIT_SETUP`.
