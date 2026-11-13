@@ -603,6 +603,7 @@ impl HistoryRepository {
         let status = row.status()?;
         let mode = row.mode()?;
         let bucket = bucket_for(status);
+        let counts = row.counts()?;
         let summary = row.summarize(Vec::new())?;
         let estimate = row.estimate()?;
         let file_names = file_name_list(&summary.input_summary.file_names);
@@ -613,6 +614,7 @@ impl HistoryRepository {
             id: row.id,
             mode,
             bucket,
+            counts,
             created_at: row.created_at,
             started_at: row.started_at,
             finished_at: row.finished_at,
@@ -1843,6 +1845,81 @@ mod tests {
         // COMPLETE-record rule is the provider's, pinned here).
         let produced = produced_models(&seed.pool, seed.run_a).await.expect("produced seam");
         assert_eq!(produced.len() as u32, a.models_made.produced);
+    }
+
+    /// qa-fixes4 ITEM-2 (TEST-QF4-2): the K row's `counts` is the engine's
+    /// OWN stored per-state accounting (the run's `txr_runs.counts` JSON,
+    /// the same value the F/G headers read), so the K status can say
+    /// "Done" only when every method finished and name the stopped/skipped
+    /// counts. The stop-all shape (4 stopped + 2 skipped) is the round-3
+    /// report's own (methods-r3 R3-methods-10).
+    #[tokio::test]
+    async fn item_counts_are_the_engine_stored_counts() {
+        let seed = seed_world("counts").await;
+        let engine = TxrRepository::new(seed.pool.clone());
+        let id = Uuid::new_v4();
+        let dir = std::env::temp_dir()
+            .join(format!("history-store-counts-{id}"))
+            .display()
+            .to_string();
+        seed_run(
+            &engine,
+            id,
+            chrono::DateTime::<Utc>::from_timestamp(1_800_000_000, 0).expect("stamp"),
+            TxrRunStatus::Stopped,
+            crate::modules::execution_engine::types::TxrRunMode::Train,
+            input_summary(
+                Some(94),
+                None,
+                5,
+                crate::modules::execution_engine::types::TxrRunFileNames {
+                    patients: Some("patients.csv".to_string()),
+                    measurements: "measurements.csv".to_string(),
+                    predict_measurements: None,
+                },
+            ),
+            Vec::new(),
+            6,
+            dir,
+            None,
+        )
+        .await;
+        for method in ["m1", "m2", "m3", "m4"] {
+            seed_method(&engine, id, method, TxrMethodState::Stopped, None).await;
+        }
+        for method in ["m5", "m6"] {
+            seed_method(&engine, id, method, TxrMethodState::Skipped, None).await;
+        }
+        // The engine's counting writer (`counts` column) — the test seeds the
+        // run row and the method rows separately, then records the counts
+        // exactly as `finish_run` would.
+        let counts = TxrRunCounts {
+            stopped: 4,
+            skipped: 2,
+            ..counts()
+        };
+        let counts_json = serde_json::to_value(counts).expect("counts serialize");
+        sqlx::query!(
+            "UPDATE txr_runs SET counts = $2 WHERE id = $1",
+            id,
+            counts_json
+        )
+        .execute(&seed.pool)
+        .await
+        .expect("counts recorded");
+
+        let repo = HistoryRepository::new(seed.pool.clone());
+        let page = repo.page(&query(None, None, Some("stopped"))).await.expect("page");
+        let item = page
+            .items
+            .iter()
+            .find(|i| i.id == id)
+            .expect("the stop-all run is on the page");
+        assert_eq!(item.bucket, TxrHistoryBucket::Stopped);
+        assert_eq!(item.method_count, 6);
+        assert_eq!(item.counts.stopped, 4);
+        assert_eq!(item.counts.skipped, 2);
+        assert_eq!(item.counts.finished, 0);
     }
 
     #[tokio::test]

@@ -13859,12 +13859,12 @@
             "const": "profile"
           },
           {
-            "description": "An account the user is a member of changed (created/renamed/deleted).\n Owner-scoped. **Vocabulary only in A1** — the `account` module emits it\n once sync-wired by A4 (`publish_account` + the `Accounts` store); until\n then the FE `sync:account` subscription is a no-op. `id` is the account id.",
+            "description": "An account the user is a member of changed (created/renamed/deleted).\n Owner-scoped. `id` is the account id.",
             "type": "string",
             "const": "account"
           },
           {
-            "description": "An account-membership row changed (a member added/removed, or a role\n change). Owner-scoped. **Vocabulary only in A1** — emitted once sync-wired\n by A4; the FE `sync:account_member` subscription refetches the member list.\n `id` is the account id (the changed membership's account).",
+            "description": "An account-membership row changed (a member added/removed, or a role\n change). Owner-scoped. `id` is the account id (the changed membership's\n account).",
             "type": "string",
             "const": "account_member"
           },
@@ -14482,6 +14482,14 @@
             "description": "The retention flag (the retention row's `copies_kept`; a run without\n a row reads `true` — INV-2's conservative default).",
             "type": "boolean"
           },
+          "counts": {
+            "description": "The engine's own per-state method counts (the run's `txr_runs.counts`\n JSON verbatim — qa-fixes4 ITEM-2: the K row's status is truthful\n (\"Done\" only when every method finished; the partial word names the\n failed count), and the counts are the ENGINE's single accounting, the\n same fact the F/G headers render).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TxrRunCounts"
+              }
+            ]
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -14623,6 +14631,7 @@
           "id",
           "mode",
           "bucket",
+          "counts",
           "created_at",
           "method_count",
           "file_names",

@@ -2893,7 +2893,7 @@ export interface SyncConnectedData {
  *  `publish` call site (there is no central audience table — an owner-scoped
  *  entity broadcast to everyone would be a leak).
  */
-export type SyncEntity = 'notification' | 'profile' | 'session' | 'session_settings' | 'user' | 'group' | 'auth_provider' | 'account' | 'account_member'
+export type SyncEntity = 'notification' | 'profile' | 'account' | 'account_member' | 'session_settings' | 'user' | 'group' | 'auth_provider' | 'session'
 
 /** The change notification pushed to clients. Notify-and-refetch only. */
 export interface SyncEvent {
@@ -3135,6 +3135,14 @@ export interface TxrHistoryItem {
    *  a row reads `true` — INV-2's conservative default).
    */
   copies_kept: boolean
+  /**
+   * The engine's own per-state method counts (the run's `txr_runs.counts`
+   *  JSON verbatim — qa-fixes4 ITEM-2: the K row's status is truthful
+   *  ("Done" only when every method finished; the partial word names the
+   *  failed count), and the counts are the ENGINE's single accounting, the
+   *  same fact the F/G headers render).
+   */
+  counts: TxrRunCounts
   created_at: string
   decision_day: number
   /** The engine's run dir verbatim (`<data_root>/analysis-…-<id8>`). */
