@@ -427,7 +427,7 @@ fn revoke_invitation_docs(op: TransformOperation) -> TransformOperation {
 //     deliberately NOT `origin`-stamped, so they arrive over the wire like any other and
 //     must NOT be echoed. A revision of this branch briefly stamped them and thereby
 //     deleted the only notification the acting client had for a side effect it does not
-//     model; see `handlers.rs::fan_cancelled_transfers`.
+//     model; the transfer fan was removed with the `project` module (strip ITEM-3).
 //
 // One obligation deliberately does NOT extend to `leave`: the DEC-12 consent copy.
 // `DEC12_CONSENT` states what a membership GRANTS, and leaving relinquishes rather than

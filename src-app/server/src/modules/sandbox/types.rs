@@ -7,7 +7,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Host-level capabilities probed once at boot (rootfs-independent).
@@ -82,33 +81,6 @@ pub struct ExtraMount {
 pub enum MountMode {
     ReadOnly,
     ReadWrite,
-}
-
-/// A declared read-only **reference** mount (ITEM-5c / DEC-11): a large,
-/// admin-allowlisted host path (e.g. a Cell Ranger reference transcriptome)
-/// bound RO into the sandbox WITHOUT being copied+hashed as an input. This is
-/// the WIRE form carried on `AnalysisSpec.extra_mounts`; the runner validates it
-/// against the deployment allowlist and turns it into a RO [`ExtraMount`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ExtraMountDecl {
-    /// The host path to bind (must be under an admin allowlist entry; absolute
-    /// + `..`-free per `spec::validate`).
-    pub host_path: String,
-    /// The absolute in-sandbox mount target (e.g. `/refs/transcriptome`), never a
-    /// harness-managed root.
-    pub sandbox_path: String,
-}
-
-impl ExtraMountDecl {
-    /// Convert a declared reference mount into a concrete read-only [`ExtraMount`]
-    /// bind. (Allowlist enforcement is the caller's — `spec::validate_extra_mounts_allowed`.)
-    pub fn to_ro_mount(&self) -> ExtraMount {
-        ExtraMount {
-            host_path: PathBuf::from(&self.host_path),
-            sandbox_path: self.sandbox_path.clone(),
-            mode: MountMode::ReadOnly,
-        }
-    }
 }
 
 impl HardeningCapabilities {

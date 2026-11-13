@@ -1,22 +1,13 @@
-//! Sandbox HTTP surface: status + resource-limits settings + execute + the
-//! txr method-env + method-run routes (PROV-SS-5).
+//! Sandbox HTTP surface: status + resource-limits settings + the txr
+//! method-env + method-run routes (PROV-SS-5).
 //!
 //! Gated routes call `with_permission::<(..)>` in their `*_docs` so the 403
 //! example carries `required_permissions` — that is what the framework's
-//! `emit_ts` scrapes to emit the FE `Permissions.<Name>` constants
-//! (PLAN_AUDIT correction #2).
+//! `emit_ts` scrapes to emit the FE `Permissions.<Name>` constants.
 //!
-//! The txr half mirrors the DEC-5 pattern of the rest of the module: a thin
-//! typed route over the `service` seam (DEC-1 — the sandbox module extension,
-//! no new module registration, no new permission — DEC-12 reuses the three
-//! existing sandbox permissions). The env routes WRAP the
-//! [`super::method_env`] manager's in-process surface; the method-run route
-//! wraps [`super::service::run_method_in_stack`] exactly like `/sandbox/execute`
-//! wraps `run_analysis` (admission first, 429 on a full pool, the seam's typed
-//! 503 for a non-Linux / sandbox-disabled host). The route never accepts
-//! client-supplied host mounts beyond the request's own bundle/outputs/model
-//! dirs (the in-process pipeline seam passes `mounts`; this wrapper passes
-//! none).
+//! strip-single-cell ITEM-3: the `POST /api/sandbox/execute` companion of the
+//! removed analysis pipeline (`run_analysis`) is gone; the route list below is
+//! the kept method surface.
 
 use aide::axum::routing::{get_with, post_with};
 use aide::axum::ApiRouter;
@@ -38,7 +29,7 @@ use super::config::{init_status, SandboxAvailability};
 use super::env_id::is_valid_env_id;
 use super::method_env::{self, EnvKind, MethodEnvStatus};
 use super::permissions::{SandboxExecute, SandboxSettingsManage, SandboxSettingsRead};
-use super::service::{run_analysis, run_method_in_stack, AnalysisRequest, AnalysisResult};
+use super::service::run_method_in_stack;
 use super::settings::{SandboxResourceLimits, SandboxSettingsRepository, UpdateSandboxResourceLimits};
 use super::settings_cache;
 use super::stack::{MethodRunRequest, MethodRunResult};
@@ -65,7 +56,6 @@ pub fn sandbox_routes() -> ApiRouter {
             "/sandbox/settings",
             get_with(get_settings, get_settings_docs).put_with(update_settings, update_settings_docs),
         )
-        .api_route("/sandbox/execute", post_with(execute, execute_docs))
         // ── txr method-env + method-run surface (PROV-SS-5, DEC-12) ──────────
         .api_route("/sandbox/envs", get_with(list_envs, list_envs_docs))
         .api_route(
@@ -150,91 +140,6 @@ fn update_settings_docs(op: TransformOperation) -> TransformOperation {
         .tag("sandbox")
         .summary("Update sandbox resource limits")
         .response::<200, Json<SandboxResourceLimits>>()
-}
-
-// ─────────────────────────────── execute ──────────────────────────────
-
-/// Run a command in the sandbox, synchronously, under the box-wide concurrency cap.
-///
-/// ## Admission, and why this route did not have any
-///
-/// This handler spawns a full bwrap child and waits for it. It used to do so with NO
-/// admission control whatsoever: N concurrent requests meant N concurrent sandbox
-/// children, bounded by nothing but the caller's patience, while `max_concurrent_jobs`
-/// sat there bounding the scheduler's children only. A cap that half the spawners
-/// ignore is not a cap; it is a number in a settings page.
-///
-/// It now claims a slot from the SAME pool, through the SAME statement, as the
-/// scheduler and `provenance::verify` (`jobs::admission::admit` →
-/// `create_running_under_cap`, whose check is a sub-select of the INSERT — N of this
-/// handler are in flight at once and a separate `count < cap` read would be a
-/// check-then-act race). Deliberately NOT a second limiter beside the first: two
-/// independent caps over one CPU pool sum, they do not bound.
-///
-/// ## The refusal is immediate and typed, not a queue
-///
-/// A human is holding this socket open. Queueing them behind an invisible depth is
-/// indistinguishable from a hang, so a full pool answers **429 `SANDBOX_POOL_FULL`**
-/// straight away — a status a client can branch on and a message naming the knob.
-///
-/// ## What the row buys besides the bound
-///
-/// `job_type = "sandbox"` (NOT `"analysis"`: boot reconcile finalizes and INGESTS an
-/// orphaned running *analysis* job, and this run must never reach the catalog). Minting
-/// it also makes the run listable and stoppable through the ordinary jobs surface,
-/// which it previously was not — an unbounded run was also an invisible, unkillable
-/// one.
-async fn execute(
-    auth: RequirePermissions<(SandboxExecute,)>,
-    Extension(pool): Extension<SqlitePool>,
-    Json(req): Json<AnalysisRequest>,
-) -> ApiResult<Json<AnalysisResult>> {
-    let job_id = Uuid::new_v4();
-    let admitted = admission::admit(
-        &pool,
-        job_id,
-        auth.user.id,
-        "sandbox",
-        "Sandbox execute",
-        serde_json::json!({ "timeout_secs": req.timeout_secs }),
-        // No project scope: this route takes no project and invents none. The row is
-        // reachable by its owner and by an admin, which is the correct reach for a run
-        // nobody else can name.
-        None,
-    )
-    .await
-    .map_err(|e| e.to_api_error())?;
-    if admitted.is_none() {
-        return Err(admission::pool_full("SANDBOX_POOL_FULL").to_api_error());
-    }
-
-    // The REST route never accepts client-supplied host mounts (path-escape
-    // risk); the pipeline seam passes those in-process.
-    let result = run_analysis(&pool, &req, &[], job_id).await;
-
-    // FINALLY-shaped: the slot is released on the error path too. A `running` row that
-    // never closes permanently consumes a slot of `max_concurrent_jobs`, so leaking
-    // enough of them wedges the scheduler for the life of the process — which would
-    // turn this fix into a worse bug than the one it replaces.
-    //
-    // A non-zero EXIT CODE from the sandboxed command is not a failed run: the run did
-    // what it was asked. Only a failure to run at all is `Some(reason)`.
-    let failure = result.as_ref().err().map(|e| e.to_string());
-    admission::close_slot(&pool, job_id, failure.as_deref()).await;
-
-    let result = result.map_err(|e| e.to_api_error())?;
-    Ok((StatusCode::OK, Json(result)))
-}
-
-fn execute_docs(op: TransformOperation) -> TransformOperation {
-    with_permission::<(SandboxExecute,)>(op)
-        .id("Sandbox.execute")
-        .tag("sandbox")
-        .summary("Run an analysis command in the sandbox")
-        .response::<200, Json<AnalysisResult>>()
-        .response_with::<429, (), _>(|r| {
-            r.description("The compute pool is full (max_concurrent_jobs); retry shortly")
-        })
 }
 
 // ─────────────────────────── method envs + method run ────────────────────────
@@ -479,14 +384,14 @@ fn delete_env_docs(op: TransformOperation) -> TransformOperation {
 /// [`run_method_in_stack`] over
 /// [`MethodRunRequest`]; mirrors [`execute`] exactly: admission FIRST (a full
 /// pool answers 429 `SANDBOX_POOL_FULL` immediately — the slot is claimed
-/// through the same `jobs::admission` pool as the scheduler and `execute`, so
+/// through the same `jobs::admission` pool the engine uses, so
 /// N of these can never stack past `max_concurrent_jobs`), then the seam, then
 /// `close_slot` on BOTH paths (a leaked `running` row permanently consumes a
 /// slot).
 ///
 /// The route never accepts client-supplied host mounts beyond the request's
 /// own bundle/outputs/model dirs (the in-process pipeline seam passes
-/// `mounts`; this wrapper passes none, exactly like [`execute`]). The seam's
+/// `mounts`; this wrapper passes none). The seam's
 /// typed 503 `SANDBOX_UNAVAILABLE` (non-Linux / sandbox-disabled host) and all
 /// caller-data refusals propagate unchanged.
 ///
@@ -507,7 +412,7 @@ async fn method_run(
         "Method stack run",
         serde_json::json!({ "mode": req.mode, "timeout_secs": req.timeout_secs }),
         // No project scope: this route takes no project and invents none (the
-        // same reach rule as `execute`).
+        // same reach rule as every out-of-scheduler slot).
         None,
     )
     .await
@@ -519,7 +424,7 @@ async fn method_run(
     let result = run_method_in_stack(&pool, &req, &[], job_id, None).await;
 
     // FINALLY-shaped slot release: a non-zero EXIT CODE is not a failed run;
-    // only a failure to run at all is Some(reason) — same rule as `execute`.
+    // only a failure to run at all is Some(reason) — same rule as the slot close.
     let failure = result.as_ref().err().map(|e| e.to_string());
     admission::close_slot(&pool, job_id, failure.as_deref()).await;
 

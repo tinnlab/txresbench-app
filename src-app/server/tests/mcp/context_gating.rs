@@ -79,9 +79,13 @@ async fn list_capabilities_reflects_the_committed_manifest_no_server_ai_filterin
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
 
-    // A full Users-group member holds mcp::use + projects::use, so they see the
-    // manifest's mcp/projects-scoped actions — the shape the existing
+    // A full Users-group member holds mcp::use + jobs::use, so they see the
+    // manifest's mcp/jobs-scoped actions — the shape the existing
     // `frontend_actions.rs` TEST-8 already proves fits under the list cap.
+    // (The project/dataset actions were exercised here before the strip;
+    // their `projects::use` grant went with the removed project module, so a
+    // Users member no longer sees them — the positive control now uses kept
+    // actions the caller IS permitted to run.)
     create_user(&server, &admin, "ctxlister", "ctxlister@x.test").await;
     let user = login(&server, "ctxlister").await;
 
@@ -105,10 +109,12 @@ async fn list_capabilities_reflects_the_committed_manifest_no_server_ai_filterin
         );
     }
 
-    // Non-vacuous positive control: the mcp/projects-scoped actions (including a
-    // context-bearing one, `dataset.process`) ARE present for this permitted
-    // caller — the list is a real reflection of the manifest, not empty.
-    for expected in ["app.navigate", "dataset.process", "project.openProject"] {
+    // Non-vacuous positive control: kept actions the permitted caller can run —
+    // an mcp::use-gated global one, a jobs::use-gated global one, and a
+    // jobs::use-gated context-bearing one (`workbench.openJobs`, context
+    // "workbench") — are present, so the list is a real reflection of the
+    // manifest, not empty.
+    for expected in ["app.navigate", "job.create", "workbench.openJobs"] {
         assert!(
             frontend_ids.contains(expected),
             "expected manifest action `{expected}` present for a Users member: {frontend_ids:?}"
@@ -139,17 +145,18 @@ async fn describe_capability_surfaces_the_context_precondition() {
     let user = login(&server, "ctxdescriber").await;
 
     // A non-global action names its required context AND flags it as a
-    // precondition. `dataset.process` (permission `projects::use`, held by
-    // Users) is context `"dataset"`.
-    let dataset = tools_call(
+    // precondition. `workbench.openJobs` (permission `jobs::use`, held by
+    // Users) is context `"workbench"` — the kept vehicle for the context
+    // bearing shape the stripped `dataset.process` used to play.
+    let open_jobs = tools_call(
         &server,
         &user,
         "describe_capability",
-        json!({ "operation_id": "dataset.process" }),
+        json!({ "operation_id": "workbench.openJobs" }),
     )
     .await;
-    let structured = &dataset["structuredContent"];
-    assert_eq!(structured["context"], "dataset", "{structured}");
+    let structured = &open_jobs["structuredContent"];
+    assert_eq!(structured["context"], "workbench", "{structured}");
     assert_eq!(structured["context_required"], true, "{structured}");
 
     // A `"global"` action carries its context but is NOT a precondition (no
@@ -191,10 +198,10 @@ async fn invoke_context_inactive_action_relays_context_inactive_as_iserror() {
             &driver,
             "invoke_capability",
             json!({
-                // A `context:"dataset"` instance action; the caller is NOT on a
-                // dataset surface, so the engine will reject it as inactive.
-                "operation_id": "dataset.process",
-                "body": { "view_id": "v1", "spec": {} }
+                // A `context:"workbench"` instance action; the caller is NOT on
+                // a workbench surface, so the engine will reject it as inactive.
+                "operation_id": "workbench.openJobs",
+                "body": { "view_id": "v1" }
             }),
         ),
         async {
@@ -202,7 +209,7 @@ async fn invoke_context_inactive_action_relays_context_inactive_as_iserror() {
                 .await
                 .expect("agent_invoke frame arrives over the real SSE channel");
             assert_eq!(invoke_frame["type"], "agent_invoke");
-            assert_eq!(invoke_frame["action_id"], "dataset.process");
+            assert_eq!(invoke_frame["action_id"], "workbench.openJobs");
             assert_eq!(invoke_frame["view_id"], "v1", "{invoke_frame}");
             let request_id = invoke_frame["request_id"].clone();
 
@@ -216,7 +223,7 @@ async fn invoke_context_inactive_action_relays_context_inactive_as_iserror() {
                 request_id,
                 false,
                 Value::Null,
-                Some("CONTEXT_INACTIVE: context \"dataset\" is not active; navigate there first, then retry"),
+                Some("CONTEXT_INACTIVE: context \"workbench\" is not active; navigate there first, then retry"),
             )
             .await;
         }

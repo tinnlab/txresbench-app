@@ -3,40 +3,41 @@
 //! base+layer environment.
 //!
 //! Ported from txresbench `code_sandbox`, Linux-first + companion-driven: exposed as a
-//! SERVICE (`service::run_analysis`) + a thin authenticated route (NOT a chat
+//! SERVICE (`service::run_method_in_stack`) + the authenticated txr routes (NOT a chat
 //! MCP server — DEC-5). Boot probes the host, creates the workspace root, and
 //! records `SandboxAvailability`; the rootfs mounts lazily on first run.
 //!
-//! # Two execution modes, one security core
+//! # One execution mode, one security core
 //!
-//! Both modes are built by the same hardening core (`sandbox.rs`:
-//! [`build_bwrap_argv`] + `spawn_bwrap_child`); only the argv differs.
+//! The stacked method run (txr; the [`stack`] submodule) — ONE trimmed
+//! per-language base rootfs + ONE per-method layer image per run. The
+//! layer's `layer-manifest.json` entries bind individually, read-only, on
+//! top of the base (a layer never shadows the base wholesale),
+//! `/input` read-only, `/output` writable, `/model` read-only after a
+//! whole-tree sha256 check (fit writes `/model` into the caller's staging
+//! dir), `SIGBENCH_MODE`/`TXRESBENCH_MODE` fit/predict per contract.md X1
+//! (one value under both spellings — the X1-era and the 2.0 SDK's name),
+//! and `--network
+//! none` is the shipped `--unshare-net`. [`stack::build_stacked_bwrap_argv`]
+//! REUSES [`sandbox::build_bwrap_argv`] for the byte-identical hardening
+//! prefix and splices the layer/model/mount/env block at ONE fixed seam —
+//! right after the shipped `/proc`-file mask run — so a later hardening
+//! change can never be applied to only one argv path (a wrong splice is a
+//! typed internal error, never a silent one). Every method runs in its own
+//! stack (INV-2); the base and layer digests are recorded in the run
+//! workspace (INV-6). Env fetch/verify/cache/mount and the env-status +
+//! method-run HTTP surface are the rest of this module's surface,
+//! gated by the existing sandbox permissions (no new permission). The
+//! method-run service seam is [`service::run_method_in_stack`]: ONE
+//! admitted job slot runs ONE method stack — the caller (execution-engine)
+//! owns admission, the bundle, the schedule and the run rows.
 //!
-//! 1. **Processor pipeline** (the shipped txresbench path) — one trimmed
-//!    analysis rootfs per env image, bound read-only; the per-job workspace
-//!    binds at `/home/analyst`; results land in the staging tree.
-//! 2. **Stacked method run** (txr; the [`stack`] submodule) — ONE trimmed
-//!    per-language base rootfs + ONE per-method layer image per run. The
-//!    layer's `layer-manifest.json` entries bind individually, read-only, on
-//!    top of the base (a layer never shadows the base wholesale),
-//!    `/input` read-only, `/output` writable, `/model` read-only after a
-//!    whole-tree sha256 check (fit writes `/model` into the caller's staging
-//!    dir), `SIGBENCH_MODE`/`TXRESBENCH_MODE` fit/predict per contract.md X1
-//!    (one value under both spellings — the X1-era and the 2.0 SDK's name),
-//!    and `--network
-//!    none` is the shipped `--unshare-net`. [`stack::build_stacked_bwrap_argv`]
-//!    REUSES [`sandbox::build_bwrap_argv`] for the byte-identical hardening
-//!    prefix and splices the layer/model/mount/env block at ONE fixed seam —
-//!    right after the shipped `/proc`-file mask run — so a later hardening
-//!    change can never be applied to only one argv path (a wrong splice is a
-//!    typed internal error, never a silent one). Every method runs in its own
-//!    stack (INV-2); the base and layer digests are recorded in the run
-//!    workspace (INV-6). Env fetch/verify/cache/mount and the env-status +
-//!    method-run HTTP surface are the rest of this module's txr extension,
-//!    gated by the existing sandbox permissions (no new permission). The
-//!    method-run service seam is [`service::run_method_in_stack`]: ONE
-//!    admitted job slot runs ONE method stack — the caller (execution-engine)
-//!    owns admission, the bundle, the schedule and the run rows.
+//! The single-cell platform's ANALYSIS-rootfs processor pipeline
+//! (processor packages, `AnalysisSpec`, artifact in/out, the per-env
+//! `OciEnvImageProvider` run path) was removed with its modules
+//! (strip-single-cell ITEM-3); the env-image provider's digest-cache +
+//! mount core stays because the method environments share it ([`method_env`],
+//! [`crate::modules::rootfs::cache`]).
 //!
 //! # Host requirements (operator + dev)
 //!
@@ -82,15 +83,12 @@ pub mod cgroup;
 pub mod config;
 pub mod env_id;
 pub mod env_image;
-pub mod inputs;
 pub mod method_env;
 pub mod outputs;
 pub mod permissions;
-pub mod processors;
 pub mod probes;
 pub mod routes;
 pub mod sandbox;
-pub mod spec;
 // Stacked-layer method sandbox (txr): contract types + the pure argv/model/ref
 // rules + the stacked argv builder — the second execution mode described in the
 // module doc. No exported fn touches bwrap itself; the run seam drives

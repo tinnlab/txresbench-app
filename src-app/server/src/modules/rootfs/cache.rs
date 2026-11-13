@@ -43,9 +43,11 @@ pub fn is_valid_digest(digest: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// `<app_data>/sandbox-rootfs/` — the same base `embedded.rs` extracts under.
+/// `<app_data>/sandbox-rootfs/` — the content-digest cache base (was
+/// `embedded::base_dir()`; the embedded slot is gone — strip ITEM-3 — so the
+/// base is defined here, the cache's own home).
 pub fn base_dir() -> PathBuf {
-    super::embedded::base_dir()
+    super::data_root().join("sandbox-rootfs")
 }
 
 /// `<app_data>/sandbox-rootfs/<digest>/` — the per-digest cache dir (its `mnt/`
@@ -266,10 +268,10 @@ pub fn gc_unreferenced(referenced: &HashSet<String>) -> Vec<String> {
 pub fn gc_unreferenced_with_cap(referenced: &HashSet<String>, max: usize) -> Vec<String> {
     let base = base_dir();
     let mut protected: HashSet<String> = HashSet::new();
-    let embedded = super::embedded::content_sha256_full();
-    if !embedded.is_empty() {
-        protected.insert(embedded);
-    }
+    // strip-single-cell ITEM-3: the embedded-digest protection arm was removed
+    // with the embedded slot (it was inert in every normal build — the stub
+    // digest is the empty string). Mount state and the last-resolved digest are
+    // what identify a live artifact here.
     if let Some(live) = crate::modules::sandbox::env_image::last_resolved_digest() {
         protected.insert(live);
     }

@@ -96,33 +96,10 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.141"
 # YAML config loader (matches the SDK's `serde_norway` choice — see SDK_GAPS G2).
 serde_norway = "0.9"
-# Bakes the `src-app/packages/` manifest tree into the binary (the extensions
-# module `include_dir!`s it + parses each `manifest.yaml` at boot). NEW dep — no
-# prior embed precedent in this crate (see PLAN_AUDIT ITEM-2).
-include_dir = "0.7"
-# Hot-swappable process-wide registry holders (extensions + datatype) so a rescan
-# (S6 watcher / S7 reload) can atomically re-publish without a restart (INV-2, S2).
-# NEW dep. There is no `[workspace.dependencies]` table here, so pin directly.
-arc-swap = "1.7"
-# Live, cross-platform, debounced filesystem watcher on `<data_root>/processors/`
-# (ITEM-13, INV-10, S6): a dropped/edited/removed processor package auto-reflects
-# through the SAME rescan+republish path with no rebuild + no manual reload.
-# `notify-debouncer-full` coalesces an editor's multi-write burst into one rescan
-# (WATCH_DEBOUNCE=500ms, DEC-14) and re-exports `notify` (RecommendedWatcher /
-# RecursiveMode). NEW deps — pin directly (no `[workspace.dependencies]` table).
-notify = "8"
-notify-debouncer-full = "0.5"
 schemars = { version = "0.9.0", features = ["chrono04", "uuid1"] }
 uuid = { version = "1.18", features = ["serde", "v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
-# artifact-model ITEM-37 — the `/data` byte plane STREAMS from disk instead of
-# buffering the whole blob per request (`File` → seek → `.take(len)` →
-# `ReaderStream` → `Body::from_stream`). `bytes::Bytes` is the stream item type
-# named by `ObjectStore::get_stream`; `tokio-util`'s `io` feature is
-# `ReaderStream`. Both were already resolved transitively — they are pinned here
-# because the workstore now depends on them DIRECTLY, and neither is a
-# format-parsing crate (see the INV-1 note below / `check-no-format-crates.sh`).
 bytes = "1"
 memchr = "2"
 tokio-util = { version = "0.7", features = ["io"] }
@@ -190,15 +167,6 @@ mime_guess = "2.0"
 # package enters `Cargo.lock`, and it is outside every guard's denylist.
 regex = "1"
 
-# --- the ONE decode allowance (INV-1 as amended, DEC-23) ----------------------
-# `flate2` inflates the gzip member of the writer's chunk chain, in
-# `workstore/gather_decode.rs` and nowhere else. It was already a dev-dependency and
-# already LEGAL under `check-no-format-crates.sh` ("a general byte-stream codec ... is
-# not reading an array"); what bounds the amendment is not the crate but the SCOPE, which
-# that guard now enforces by refusing a decompressor in any other server source file.
-# The shard index (u64 pairs) and the un-shuffle (index arithmetic) need no crate at all,
-# which is exactly why a crate-graph check alone could not have held this line.
-flate2 = "1"
 # bwrap/seccomp/PDEATHSIG/pipe primitives — Linux-only (the sandbox is
 # Linux-first, DEC-3). Gated so macOS/Windows still compile.
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -274,13 +242,6 @@ serde_norway = "0.9"
 # converter's ARCHIVE path runs on real bytes. `default-features = false` keeps it
 # to the STORED method (the trio members are already gzipped) — no codec deps.
 zip = { version = "6", default-features = false }
-# The suite's own reader for what a processor emitted (`tests/common/zarr.rs`).
-# A TEST dependency, never a server one: INV-1 is about what the SERVER can link,
-# and `scripts/check-no-format-crates.sh` states the boundary in its own words —
-# a general byte-stream codec is legal, a crate whose reason to exist is decoding
-# scientific array codecs is not. Decompressing one transport frame so a test can
-# assert on the values a processor wrote is the former.
-flate2 = "1"
 # Drive the harness-sentinel router directly (`ServiceExt::oneshot`) so the route's
 # PRESENCE is asserted against a real axum service rather than against source text.
 # Both are already in the lockfile as transitive axum deps.

@@ -121,45 +121,6 @@ const STREAM_BUFFER_BYTES: usize = 256 * 1024;
 /// only by whatever body ceiling (if any) the deployment carries.
 const TEXT_FIELD_MAX_BYTES: usize = 1024 * 1024;
 
-/// Hard ceiling on the NUMBER of parts in one multipart upload.
-///
-/// The per-part state is small — a path, a length, a digest, a filename, tens of
-/// bytes — but it is held for the WHOLE request (group planning needs every filename
-/// before it can decide), and so is one temp file per part. Small times unbounded is
-/// unbounded: a minimal `file` part costs about a hundred body bytes, so a request
-/// could carry parts in proportion to its body — on the order of 10^8 under the old
-/// 64 GiB ceiling, and with no arithmetic bound at all on a desktop build once that
-/// ceiling is gone (#185 §1) — which is tens of GB of resident part state and 10^8
-/// inodes on the data volume. That is
-/// the same process-death this module exists to remove, reached along a different
-/// axis than file size, and "each part is cheap" is not an answer to it.
-///
-/// 1024 is far above any real bundle (a Visium HD `outs/` is tens of files; the
-/// wizard sends one part per declared member plus three control fields) and far
-/// below anything that costs the process. Over it is a named refusal, like every
-/// other ceiling here.
-///
-/// **#185 §1 / DEC-5: this is the DOCUMENTED default; it is not read at runtime.**
-/// The enforced ceiling is the admin setting `workstore_settings.max_upload_parts`,
-/// read at use per request. Be precise about what this constant now is, because an
-/// earlier version of this doc overclaimed: nothing in production reads it. The
-/// enforced default is an independent literal in `workstore::settings::defaults()`
-/// and the seeded value is a third literal in `202609020010_upload_limits.sql`.
-/// Three copies of one number can drift silently, so
-/// `uncapped_uploads_part_cap_literals_agree` pins this constant to `defaults()`,
-/// and TEST-16 pins `defaults()` to the migration — which closes the triangle.
-/// It is kept (rather than deleted) because the streaming tests derive their
-/// part-cap fixtures from it, and because a named constant with this rationale is
-/// where the NUMBER's justification lives.
-///
-/// The VALUE did not change, deliberately: the owner's ruling is about file
-/// SIZE ("that depends on user computer to process"), and a part cap bounds
-/// resident per-part state and inode count instead, which is a different axis and
-/// one that gets MORE load-bearing now that the body ceiling no longer bounds how
-/// many parts can arrive at all. What changed is that it stopped being a number only
-/// a rebuild could move.
-pub const MAX_UPLOAD_PARTS: usize = 1024;
-
 /// A temp part older than this is an orphan from a process that died mid-upload
 /// (DEC-5/DEC-8). Only has to exceed the longest plausible single upload.
 const TMP_UPLOAD_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
@@ -352,11 +313,6 @@ impl StagedPart {
     /// — and therefore every dataset `content_hash` merkled from it — unchanged.
     pub fn sha256_hex(&self) -> &str {
         &self.sha256_hex
-    }
-
-    /// `sha256:<hex>` — the prefixed form the provenance/content-hash surfaces use.
-    pub fn content_hash(&self) -> String {
-        format!("sha256:{}", self.sha256_hex)
     }
 
     /// The first `n` bytes, for datatype sniffing. Reads a BOUNDED prefix — the
@@ -604,38 +560,6 @@ async fn move_into_place(src: &Path, dest: &Path) -> Result<(), AppError> {
 /// loop cannot land in one staging path and miss the other — which is the same
 /// duplication class the `Stager` doc-comment describes for `get`-then-`write`.
 /// `hex::encode(Sha256)` is byte-identical to `object_store::sha256_hex`, so a
-/// streamed digest equals the buffered one.
-pub async fn copy_file_hashing(src: &Path, dest: &Path) -> std::io::Result<String> {
-    fn phase(what: &str, err: std::io::Error) -> std::io::Error {
-        std::io::Error::new(err.kind(), format!("{what}: {err}"))
-    }
-
-    let mut reader = tokio::fs::File::open(src)
-        .await
-        .map_err(|e| phase(&format!("open {}", src.display()), e))?;
-    let mut writer = tokio::io::BufWriter::with_capacity(
-        STREAM_BUFFER_BYTES,
-        tokio::fs::File::create(dest)
-            .await
-            .map_err(|e| phase("create destination", e))?,
-    );
-    let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; STREAM_BUFFER_BYTES];
-    loop {
-        let n = reader.read(&mut buf).await.map_err(|e| phase("read", e))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-        writer
-            .write_all(&buf[..n])
-            .await
-            .map_err(|e| phase("write", e))?;
-    }
-    writer.flush().await.map_err(|e| phase("flush", e))?;
-    Ok(hex::encode(hasher.finalize()))
-}
-
 /// Persist an already-streamed part as a durable `File`, without ever materializing
 /// its bytes.
 ///
@@ -720,76 +644,6 @@ pub async fn ingest_staged(
     }
 }
 
-/// Copy a stored blob to `dest`, hashing in the same pass; returns `sha256:<hex>`.
-///
-/// This is the fix for buffer 2 (#182 INV-2). `stage_dataset_file` used to call
-/// `load_original` — which returns `Vec<u8>` and therefore re-materialized the whole
-/// file in the API process — then hash the slice and `fs::write` it. Here the file
-/// never exists in memory: `get_original_path` gives the source, and a
-/// `STREAM_BUFFER_BYTES` loop hashes and writes at the same time.
-///
-/// A **hardlink** would make this free, and #182 suggests it. It is deliberately NOT
-/// used (DEC-6): `/inputs` is materialized into a workspace the compute can WRITE to,
-/// so a hardlink would let a job mutate the canonical stored original for every
-/// dataset that references it.
-///
-/// Falls back to `load_original` when the storage path is not a readable regular
-/// file. **That fallback re-buffers the whole file** — it is exactly the defect this
-/// function removes — so be precise about when it runs:
-///
-/// * for a future non-filesystem `FileStorage`, which is the case it exists for. If
-///   a second backend ever lands this branch is an INV-2 gap, not a safety net, and
-///   must be replaced with a streaming reader on that backend.
-/// * TODAY, with `FilesystemStorage`, whenever `symlink_metadata` FAILS or reports
-///   something that is neither a symlink nor a regular file — i.e. a missing or
-///   unreadable blob. (A symlink does NOT reach the fallback: the arm above refuses
-///   it outright, mirroring the store's own `reject_if_symlink`.) Those cases then
-///   fail inside `load_original` too, so nothing large is actually buffered, but the
-///   branch is reachable and calling it "unreachable" would be wrong.
-pub async fn copy_original_streaming(
-    user_id: Uuid,
-    blob_version_id: Uuid,
-    extension: &str,
-    dest: &Path,
-) -> Result<String, AppError> {
-    let storage = get_file_storage();
-    let src = storage.get_original_path(user_id, blob_version_id, extension);
-
-    // Symlink refusal, mirroring `FilesystemStorage`'s own `reject_if_symlink`: a
-    // symlink planted in the storage tree must not be followed to an arbitrary host
-    // path. Reading through the path seam instead of `load_original` means this
-    // check is ours to make, so it is made here rather than inherited.
-    match tokio::fs::symlink_metadata(&src).await {
-        Ok(meta) if meta.file_type().is_symlink() => {
-            tracing::error!(
-                path = %src.display(),
-                "Refusing to stage a storage path that is a symlink"
-            );
-            return Err(AppError::not_found("File"));
-        }
-        Ok(meta) if meta.is_file() => {
-            let hex = copy_file_hashing(&src, dest).await.map_err(|e| {
-                AppError::internal_error(format!("stream stored blob to staging dest: {e}"))
-            })?;
-            return Ok(format!("sha256:{hex}"));
-        }
-        _ => {}
-    }
-
-    // Not a regular file at the deterministic path — some other backend. Fall back
-    // to the seam's own reader (whole-file, but this branch is unreachable for the
-    // only shipped implementation).
-    let bytes = storage
-        .load_original(user_id, blob_version_id, extension)
-        .await?;
-    tokio::fs::write(dest, &bytes)
-        .await
-        .map_err(|e| AppError::internal_error(format!("write materialized dataset file: {e}")))?;
-    let mut hasher = Sha256::new();
-    hasher.update(&bytes);
-    Ok(format!("sha256:{}", hex::encode(hasher.finalize())))
-}
-
 /// Best-effort reclaim of temp parts left by a process that died mid-upload.
 ///
 /// `StagedPart::drop` covers every IN-PROCESS exit path; nothing covers a SIGKILL,
@@ -804,9 +658,9 @@ pub async fn copy_original_streaming(
 /// Age ALONE would have been wrong, and specifically wrong for the case this branch
 /// makes possible: on a multi-part upload only the part currently streaming advances
 /// its mtime, so parts 1..N-1 go idle for the rest of the request. With up to
-/// [`MAX_UPLOAD_PARTS`] parts and no wall-clock bound anywhere in this server, an
-/// upload making progress the whole time could have had its
-/// earlier parts unlinked and then died at `move_into_place`. Never fatal.
+/// the configured per-request part cap and no wall-clock bound anywhere in this
+/// server, an upload making progress the whole time could have had its earlier
+/// parts unlinked and then died at `move_into_place`. Never fatal.
 pub async fn sweep_stale_tmp_uploads() {
     sweep_tmp_uploads_in(tmp_upload_dir()).await
 }

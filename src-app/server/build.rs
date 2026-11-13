@@ -12,11 +12,12 @@
 //!    provision_build_db`; that helper keeps its postgres leg for the SDK's
 //!    own standalone builds, but THIS crate's compose is sqlite-only).
 //!    `cargo:rustc-env=DATABASE_URL` then holds the resolved URL (scoped to
-//!    THIS crate) — SDK gap G4, resolved by `provision_build_db`. Beneath it:
-//!    the sandbox-rootfs embed slot stub (fail-soft — the single-cell
-//!    analysis-rootfs recipes were removed in the strip node (ITEM-2), the
-//!    embed slot is retained only so the runtime `include_bytes!` still
-//!    compiles, and ITEM-3 removes the slot with the single-cell arms).
+//!    THIS crate) — SDK gap G4, resolved by `provision_build_db`.
+//!
+//! strip-single-cell ITEM-3: the sandbox-rootfs embed-slot stub writer
+//! (`build_helper/sandbox_rootfs.rs`) and the processor-manifest lint
+//! (`build_helper/processor_manifest.rs`) were removed with their arms — the
+//! runtime no longer `include_bytes!`s an embed slot, so nothing needs staging.
 //!
 //! The build DB is the per-worktree file `txresbench_build_<key>.sqlite` the
 //! one-call `provision_build_db` derives from the committed sqlite sentinel
@@ -25,9 +26,6 @@
 use std::path::PathBuf;
 
 use txresbench_build_support::{compose_merged_migrations_from, provision_build_db};
-
-#[path = "build_helper/mod.rs"]
-mod build_helper;
 
 fn main() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -53,15 +51,6 @@ fn main() {
     // keeps its postgres leg for the SDK's own standalone builds; this crate's
     // chain is sqlite and a postgres-leg run here would fail loudly at apply).
     provision_build_db(&merged);
-
-    // Sandbox-rootfs embed slot: fail-soft stub writer. The analysis-rootfs
-    // recipes (`env-rootfs/`) are gone (strip node ITEM-2 — the method
-    // environments come from the txresbench-env pipeline, not these recipes);
-    // the runtime still `include_bytes!`s the slot, so the build writes a
-    // zero-byte stub ("rootfs unavailable" → the embedded path self-disables).
-    if let Err(e) = build_helper::sandbox_rootfs::setup(&manifest) {
-        println!("cargo:warning=sandbox rootfs setup errored ({e}); continuing (sandbox self-disables)");
-    }
 
     // NOTE (artifact-model ITEM-13): a `#[cfg(feature = "tiledb_serve")]` block used to
     // sit here and point the linker at a prebuilt core `libtiledb` given by the

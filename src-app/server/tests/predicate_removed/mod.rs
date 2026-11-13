@@ -149,12 +149,14 @@ async fn the_app_boots_with_the_predicate_limits_migration_removed() {
         .await
         .expect("connect to the per-test DB");
 
-    // POSITIVE CONTROL: the schema really was migrated.
-    let projects: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='projects')")
+    // POSITIVE CONTROL: the schema really was migrated — probed on a KEPT
+    // module's table (`files`; the `projects` table the platform version of this
+    // control used is gone with the project module, ITEM-3).
+    let files: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='files')")
         .fetch_one(&pool)
         .await
-        .expect("probe projects");
-    assert!(projects, "the per-test DB is migrated — without this the absences below are vacuous");
+        .expect("probe files");
+    assert!(files, "the per-test DB is migrated — without this the absences below are vacuous");
 
     for table in ["predicate_limits", "predicate_settings"] {
         let exists: bool =
@@ -164,48 +166,4 @@ async fn the_app_boots_with_the_predicate_limits_migration_removed() {
                 .unwrap_or_else(|e| panic!("probe {table}: {e}"));
         assert!(!exists, "`{table}` still exists after ITEM-4 — an orphaned table");
     }
-}
-
-#[tokio::test]
-async fn the_versioned_predicate_recipe_envelope_is_refused_rather_than_reinterpreted() {
-    // `POST /provenance/selections` SURVIVES ITEM-4 but its recipe payload used to accept
-    // the versioned predicate-DSL envelope. Silently reinterpreting such a payload as a
-    // flat recipe is precisely the double-encoding defect INV-10 forbids, so it must be
-    // REFUSED — and this is the one place a caller could still smuggle a predicate in.
-    let server = TestServer::spawn().await;
-    let admin = setup_admin(&server).await;
-
-    let project = server
-        .client
-        .post(server.api_url("/projects"))
-        .bearer_auth(&admin)
-        .json(&json!({ "name": "predicate refusal", "description": "" }))
-        .send()
-        .await
-        .expect("create project");
-    assert_eq!(project.status().as_u16(), 201);
-    let project_id = project.json::<Value>().await.expect("project json")["id"]
-        .as_str()
-        .expect("project id")
-        .to_string();
-
-    let resp = server
-        .client
-        .post(server.api_url("/provenance/selections"))
-        .bearer_auth(&admin)
-        .json(&json!({
-            "project_id": project_id,
-            "input_artifact_id": uuid::Uuid::new_v4(),
-            "recipe": { "predicate": { "idList": { "ids": [0, 1] } }, "dsl_version": "1" },
-            "label": "smuggled",
-        }))
-        .send()
-        .await
-        .expect("post selection");
-    let code = resp.status().as_u16();
-    assert_eq!(
-        code, 400,
-        "the scrapped predicate envelope must be REFUSED with a 400, not silently \
-         reinterpreted (got {code})"
-    );
 }

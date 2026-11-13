@@ -319,21 +319,6 @@ pub fn resolve_caps(
 /// A `SandboxResourceLimits` snapshot carrying a job's resolved per-job caps —
 /// used to drive `CgroupScope::create` on the streaming path (it takes the same
 /// limits shape the batch path uses). Overlays the resolved profile onto the
-/// ceiling's non-cgroup fields (prlimit tail).
-pub fn limits_from_profile(
-    profile: &crate::modules::sandbox::backend::ResourceProfile,
-    ceiling: &SandboxResourceLimits,
-) -> SandboxResourceLimits {
-    SandboxResourceLimits {
-        memory_max_bytes: profile.memory_max_bytes,
-        memory_swap_max_bytes: profile.memory_swap_max_bytes,
-        pids_max: profile.pids_max,
-        cpu_max: profile.cpu_max.clone(),
-        timeout_secs: profile.timeout_secs as i64,
-        ..ceiling.clone()
-    }
-}
-
 /// PUT body — every field optional (absent = leave unchanged).
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct UpdateSandboxResourceLimits {

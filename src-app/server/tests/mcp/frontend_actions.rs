@@ -26,8 +26,10 @@ async fn list_capabilities_includes_permission_filtered_frontend_actions() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
 
-    // A full Users-group member holds BOTH mcp::use and projects::use → sees
-    // both manifest frontend actions.
+    // A full Users-group member holds BOTH mcp::use and jobs::use → sees
+    // both manifest frontend actions. (`project.openProject` — the original
+    // projects::use-gated vehicle — went with the removed project module's
+    // grant; `job.create` is the kept jobs::use-gated same-shape action.)
     create_user(&server, &admin, "full", "full@x.test").await;
     let full = login(&server, "full").await;
     let result = tools_call(&server, &full, "list_capabilities", json!({})).await;
@@ -38,10 +40,10 @@ async fn list_capabilities_includes_permission_filtered_frontend_actions() {
         .map(|o| o["operation_id"].as_str().unwrap())
         .collect();
     assert!(frontend_ids.contains(&"app.navigate"), "{frontend_ids:?}");
-    assert!(frontend_ids.contains(&"project.openProject"), "{frontend_ids:?}");
+    assert!(frontend_ids.contains(&"job.create"), "{frontend_ids:?}");
 
-    // A user holding ONLY mcp::use (no projects::use) sees app.navigate
-    // (permission=mcp::use) but NOT project.openProject (permission=projects::use)
+    // A user holding ONLY mcp::use (no jobs::use) sees app.navigate
+    // (permission=mcp::use) but NOT job.create (permission=jobs::use)
     // — proving list_capabilities pre-filters frontend actions per caller.
     create_user_with_only_mcp_use(&server, &admin, "mcponly", "mcponly@x.test").await;
     let mcp_only = login(&server, "mcponly").await;
@@ -57,8 +59,8 @@ async fn list_capabilities_includes_permission_filtered_frontend_actions() {
         "mcp::use holder sees app.navigate: {frontend_ids2:?}"
     );
     assert!(
-        !frontend_ids2.contains(&"project.openProject"),
-        "lacking projects::use excludes project.openProject: {frontend_ids2:?}"
+        !frontend_ids2.contains(&"job.create"),
+        "lacking jobs::use excludes job.create: {frontend_ids2:?}"
     );
 }
 
@@ -135,7 +137,7 @@ async fn frontend_invoke_not_connected_and_not_permitted() {
     assert_eq!(result["isError"], true);
     assert_eq!(result["structuredContent"]["error_code"], "FRONTEND_NOT_CONNECTED");
 
-    // A user holding mcp::use but NOT projects::use invoking project.openProject
+    // A user holding mcp::use but NOT jobs::use invoking job.create
     // → NOT_PERMITTED. Crucially: no agent channel is opened for this user at
     // all, so a relay attempt would have failed as FRONTEND_NOT_CONNECTED
     // instead — getting NOT_PERMITTED here is direct proof the permission
@@ -147,8 +149,8 @@ async fn frontend_invoke_not_connected_and_not_permitted() {
         &restricted,
         "invoke_capability",
         json!({
-            "operation_id": "project.openProject",
-            "body": { "project_id": "11111111-1111-1111-1111-111111111111" }
+            "operation_id": "job.create",
+            "body": { "name": "x" }
         }),
     )
     .await;

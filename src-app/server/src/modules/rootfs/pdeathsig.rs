@@ -12,7 +12,7 @@
 //!
 //! The squashfuse mount in [`super::mount`] is reached from
 //! `tokio::task::spawn_blocking` (`sandbox::service::…` and
-//! `sandbox::backend::local_bwrap::…` both call `OciEnvImageProvider::provide`
+//! the sandbox env providers both call their provider's staging
 //! there, which lands in `rootfs::ensure_ready{,_by_digest}`). Tokio reaps an
 //! IDLE blocking-pool thread after `thread_keep_alive` (default ~10s). So a
 //! squashfuse spawned directly on that thread is SIGTERM'd by the kernel roughly

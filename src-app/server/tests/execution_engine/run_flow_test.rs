@@ -32,7 +32,7 @@ use super::{
     FakeExecutor, FakeStackRunSeam,
 };
 use crate::common::TestServer;
-use crate::dataset::hardening_common::record_skip;
+use crate::common::record_skip;
 use txresbench::modules::execution_engine::envmanifest;
 use txresbench::modules::execution_engine::orchestrator::{self, StackMethodExecutor};
 use txresbench::modules::execution_engine::repository::{produced_models, TxrRepository};

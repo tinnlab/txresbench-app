@@ -76,7 +76,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::common::{TestOptions, TestServer};
-use crate::dataset::hardening_common::record_skip;
+use crate::common::record_skip;
 
 use txresbench::modules::sandbox::backend::{MilestoneFrame, ProgressFrame, ProgressSink};
 use txresbench::modules::sandbox::method_env::{

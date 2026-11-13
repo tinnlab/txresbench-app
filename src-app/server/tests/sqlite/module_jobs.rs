@@ -29,10 +29,12 @@
 //!    the `make_interval` port) reclaims stale rows under the limit and
 //!    discards poison rows at it; the `job_settings` singleton (`id = TRUE`),
 //!    the COALESCE partial update + audit stamp; log/milestone/metric
-//!    round-trips (INTEGER→i32, REAL→f32, JSON TEXT detail);
-//! 4. the JSON1 membership port of `= ANY(uuid[])`
-//!    (`IN (SELECT unhex(j.value) FROM json_each($1) AS j)`) on the
-//!    controllable-subset visibility predicate.
+//!    round-trips (INTEGER→i32, REAL→f32, JSON TEXT detail).
+//!
+//! The job-visibility scope arms (the `= ANY(uuid[])` membership grade over
+//! `job_scope` against `projects` / `project_shares` / `datasets`) are GONE:
+//! the strip removed the `project`/`dataset` modules, so no SQL over those
+//! tables can exist in the kept tree.
 //!
 //! (ITEM-19's per-item verification note: this file is authored in the red
 //! window — ITEM-12 flipped the tree, ITEM-25 turns it green — so its first
@@ -677,144 +679,4 @@ async fn reaper_settings_and_log_surface_hold() {
             .expect("metric row");
     assert_eq!(cpu, 12.5, "REAL -> f32");
     assert_eq!(pids, 2, "INTEGER -> i32");
-}
-
-/// TEST-26 leg 4: the JSON1 membership port on the visibility surface — the
-/// controllable-subset shape (`= ANY(uuid[])` → `IN (SELECT unhex(...) FROM
-/// json_each(...))`) grades a project-scoped job set: the project owner
-/// controls both jobs; the accepted-share editor controls only her own.
-#[tokio::test]
-async fn json_membership_and_scope_arms_grade_like_any() {
-    let scratch = Scratch::new("jobs-membership");
-    let merged = compose_sqlite_chain(scratch.path());
-    let (pool, _migrator) = apply_chain(&merged, &scratch.path().join("scratch.sqlite")).await;
-
-    let owner = user(&pool, "vis_owner").await;
-    let editor = user(&pool, "vis_editor").await;
-    let outside = user(&pool, "vis_outside").await;
-    let org = Uuid::new_v4();
-    sqlx::query("INSERT INTO accounts (id, kind, name) VALUES (?, 'organization', 'Org')")
-        .bind(org)
-        .execute(&pool)
-        .await
-        .expect("org");
-    sqlx::query("INSERT INTO account_members (account_id, user_id, role) VALUES (?, ?, 'owner')")
-        .bind(org)
-        .bind(owner)
-        .execute(&pool)
-        .await
-        .expect("org owner");
-    let project = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO projects (id, owner_id, account_id, name) VALUES (?, ?, ?, 'Shared Proj')",
-    )
-    .bind(project)
-    .bind(owner)
-    .bind(org)
-    .execute(&pool)
-    .await
-    .expect("project");
-    sqlx::query(
-        "INSERT INTO project_shares (id, project_id, owner_id, recipient_id, permission_level, status) \
-         VALUES (randomblob(16), ?, ?, ?, 'editor', 'accepted')",
-    )
-    .bind(project)
-    .bind(owner)
-    .bind(editor)
-    .execute(&pool)
-    .await
-    .expect("share");
-    let j_owner = job(&pool, owner, "running", "j-owner").await;
-    let j_editor = job(&pool, editor, "running", "j-editor").await;
-    for id in [j_owner, j_editor] {
-        sqlx::query(
-            "INSERT INTO job_scope (job_id, scope_kind, scope_id) VALUES (?, 'project', ?)",
-        )
-        .bind(id)
-        .bind(project)
-        .execute(&pool)
-        .await
-        .expect("scope");
-    }
-    let ids = uuid_json(&[j_owner, j_editor]);
-
-    let grade = |pool: &SqlitePool, uid: Uuid| {
-        let pool = pool.clone();
-        let ids = ids.clone();
-        async move {
-            sqlx::query_scalar(
-                r#"SELECT j.id FROM jobs j
-                   WHERE j.id IN (SELECT unhex(jv.value) FROM json_each($1) AS jv)
-                     AND (
-                           (j.owner_id = $2 AND (
-                              NOT EXISTS (
-                                SELECT 1 FROM job_scope jsc WHERE jsc.job_id = j.id
-                                  AND ( (jsc.scope_kind = 'project'
-                                           AND EXISTS (SELECT 1 FROM projects pc
-                                                        WHERE pc.id = jsc.scope_id))
-                                     OR (jsc.scope_kind = 'dataset'
-                                           AND EXISTS (SELECT 1 FROM datasets dc
-                                                        WHERE dc.id = jsc.scope_id)) ))
-                              OR EXISTS (
-                                SELECT 1 FROM job_scope jsc WHERE jsc.job_id = j.id
-                                  AND ( (jsc.scope_kind = 'project' AND EXISTS (
-                                         SELECT 1 FROM projects pc
-                                          WHERE pc.id = jsc.scope_id
-                                            AND (pc.account_id IN (
-                                                   SELECT am.account_id FROM account_members am
-                                                    WHERE am.user_id = $2)
-                                              OR EXISTS (
-                                                   SELECT 1 FROM project_shares psc
-                                                    WHERE psc.project_id = pc.id
-                                                      AND psc.recipient_id = $2
-                                                      AND psc.status = 'accepted')))) ))))
-                        OR EXISTS (
-                             SELECT 1 FROM job_scope js
-                              WHERE js.job_id = j.id AND (
-                                   (js.scope_kind = 'project' AND EXISTS (
-                                          SELECT 1 FROM projects p
-                                           WHERE p.id = js.scope_id AND p.owner_id = $2
-                                             AND p.account_id IN (
-                                                   SELECT am.account_id FROM account_members am
-                                                    WHERE am.user_id = $2)))))
-                     )"#,
-            )
-            .bind(&ids)
-            .bind(uid)
-            .fetch_all(&pool)
-            .await
-            .expect("grade")
-            .into_iter()
-            .collect::<Vec<Uuid>>()
-        }
-    };
-    let mut got = grade(&pool, owner).await;
-    got.sort();
-    let mut want = vec![j_owner, j_editor];
-    want.sort();
-    assert_eq!(
-        got, want,
-        "project owner controls both jobs (creator + owner arms)"
-    );
-    assert_eq!(
-        grade(&pool, editor).await,
-        vec![j_editor],
-        "the accepted-share editor controls only her own job"
-    );
-    assert_eq!(
-        grade(&pool, outside).await,
-        Vec::<Uuid>::new(),
-        "an outsider grades nothing through the JSON-hex membership"
-    );
-
-    // Empty uuid[] (an empty active-group set) is a valid membership bind.
-    let none: Vec<Uuid> = sqlx::query_scalar(
-        r#"SELECT j.id FROM jobs j
-           WHERE j.id IN (SELECT unhex(jv.value) FROM json_each($1) AS jv)"#,
-    )
-    .bind(uuid_json(&[]))
-    .fetch_all(&pool)
-    .await
-    .expect("empty membership");
-    assert!(none.is_empty(), "empty uuid[] -> no rows");
 }

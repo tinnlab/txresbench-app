@@ -67,54 +67,22 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  * consumer that this counter cannot see, or it is debt with a named plan.
  */
 const LEDGER = {
-  // ── verified against the tree at 96770d83; each was read, not assumed ──────────────
-  install_run_seams:
-    'jobs/seams.rs — a "retained so existing callers/tests keep working" wrapper over ' +
-    '`install_ingest_sink` + `install_recorder`. There are no such callers. Debt, and the ' +
-    'kind that reads as wired: a seam installer nothing invokes leaves the Noop seam in ' +
-    'place with every gate green.',
-  list_references:
-    'provenance/repository.rs — reference listing, written ahead of the surface meant to ' +
-    'read it. Debt, pre-existing.',
-  latest_verification_for_run:
-    'provenance/repository.rs — same cohort as list_references. Debt, pre-existing.',
-  ReferenceResourceDto:
-    'provenance/models.rs — the DTO those two return. Falls with them.',
-  write_generated_artifact:
-    'provenance/graph.rs — writes a generated-artifact edge; no caller. Debt, pre-existing.',
-  // `PENDING` (provenance/verify/mod.rs) left this ledger in #295 — WIRED, not silenced:
-  // `provenance/repository.rs::insert_verification` now binds `verify::status::PENDING`
-  // instead of inlining the `'pending'` SQL literal, which is what that vocabulary exists
-  // for. It had also stopped being REPORTED, because `c13ffb36` added a second, consumed
-  // `pub const PENDING` in `workstore/migration_repo.rs` and this counter matches
-  // identifiers by NAME across the whole tree — the under-reporting direction documented
-  // above. That masking class is filed as #308; it is a change to the counter's
-  // derivation, not to this ledger.
-  dataset_input_datatypes:
-    'extensions/mod.rs — declared datatype inputs, read by no server path. Debt, pre-existing.',
-  set_integration_status:
-    'dataset/repository.rs — writes a dataset integration status nothing sets. Debt, ' +
-    'pre-existing.',
-  ensure_ready:
-    'rootfs/mod.rs — the analysis rootfs readiness check. The sandbox mounts lazily on the ' +
-    'first run through a different path; this one is unreached. Debt, pre-existing.',
-  // `list_cached_digests` (deleted) and `gc_unreferenced` (wired) were removed from this
-  // ledger by #154. The cache now has a real eviction path: `provenance::rootfs_gc`
-  // supplies the referenced-digest set and drives a boot + 6-hourly sweep.
+  // ── stripped with their modules in strip-single-cell ITEM-3; re-derived ─────
+  // ── the entries below were deleted (their subjects left with workstore /
+  // ── provenance / dataset / extensions / rootfs arms) or became consumed:
+  // ── install_run_seams, list_references, latest_verification_for_run,
+  // ── ReferenceResourceDto, write_generated_artifact, dataset_input_datatypes,
+  // ── set_integration_status, ensure_ready, get_limits, definition_source_ids,
+  // ── decode_row_vector. Only the framework-seam pin below survives.
   RequireAdmin:
     'modules/permissions.rs — the root-only admin extractor. Every handler moved to ' +
     '`RequirePermissions`; the remaining mentions are prose explaining that move. Debt, ' +
     'pre-existing.',
-  get_limits:
-    'workstore/mod.rs — the boot-installed workstore limits accessor. The caps it returns ' +
-    '(DE-page cap, slice byte cap) are read by no handler. Debt, pre-existing.',
-  definition_source_ids:
-    "workstore/gathered.rs — the recipe's source ids in definition-hash form. " +
-    '`virtual_dataset.rs` builds the same list inline instead. Debt, pre-existing.',
-  decode_row_vector:
-    'workstore/gathered.rs — decodes a raw row vector. The segment model made the row plan ' +
-    '`(source, row)` pairs rather than one `Vec<u32>`, so the shape this serves is gone. ' +
-    'Debt, pre-existing, and the same shape as `resolve_gathered_chain`.',
+  HEADER_SCAN_MAX_ROWS:
+    'file_validator/types.rs — the decode row-scan bound. The browser library mirrors ' +
+    'the value (src-app/ui/src/lib/txr-files/csv.ts) rather than importing the server ' +
+    'constant, so this counter cannot see that consumer; the parity is pinned by the ' +
+    'library spec (its own tests). Kept as the server-side named authority.',
 };
 
 const DECL = /^\s*pub (?:async fn|fn|struct|enum|trait|const|type) ([A-Za-z_][A-Za-z0-9_]*)/;

@@ -63,7 +63,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::dataset::hardening_common::record_skip;
+use crate::common::record_skip;
 
 // ────────────────────────────── child protocol ───────────────────────────────
 

@@ -352,78 +352,10 @@ fn notify_departed_member(account_id: uuid::Uuid, departed: Uuid, actor: Actor) 
     );
 }
 
-/// Fan the `ProjectTransfer` DELETE frames for the transfers #171's offboarding hook
-/// cancelled inside the removal transaction — one per party. Mirrors
-/// `admin/routes.rs::remove_account_member` and `project::handlers::cancel_transfer`.
+/// **strip-single-cell ITEM-3:** the project-transfer fan was removed with the
+/// `project` module — a removal no longer cancels transfers, so there is nothing
+/// to tell the two parties.
 ///
-/// **`origin` is `None` for both parties — and an earlier revision of this function that
-/// "fixed" that was a REGRESSION, so the reasoning is recorded rather than the conclusion
-/// alone.**
-///
-/// `origin` does not mean "the actor" — it means *"do not send this frame, because the
-/// acting client is going to re-emit it locally instead"*. `core/sync/localEcho.ts` is
-/// explicit that the echo is a MANUAL, per-call-site obligation: the client echoes
-/// exactly the frames its own action declares. A Leave or Remove action declares
-/// `account_member` and `account`; **nothing echoes `project_transfer`**, because from
-/// the client's point of view this mutation was a membership change and the transfer
-/// cancellation is a side effect it does not know about.
-///
-/// So stamping `origin` here does not spare a double fetch — it withholds the frame from
-/// the one recipient who performed the action and whose project views are about to be
-/// stale, with nothing to put it back. Three live subscribers (`Projects.store.ts`,
-/// `ProjectDetail.store.ts`, `ProjectAdmin.store.ts`) would not refetch until that tab's
-/// next `sync:reconnect` — a staleness WINDOW rather than a permanent loss, since
-/// `localEcho.ts` is explicit that the echo is a latency path and reconnect is the
-/// correctness path. A window is still the wrong trade when nothing is bought by it.
-///
-/// It reached both call sites. On `leave` the actor is a party to every cancelled
-/// transfer, so their own frames vanished; on the admin/remove path the actor is
-/// generally a third party — the cancellation is scoped to the REMOVED member
-/// (`cancel_pending_transfers_for_removed_member`'s `from_user_id = $2 OR to_user_id = $2`)
-/// — but when the acting admin happens to BE the counterparty, theirs vanished too.
-///
-/// **The rule this leaves behind**, stated as the criterion rather than the outcome:
-/// suppress a frame with `origin` only when the acting client's OWN action can know to
-/// echo it. That is what separates this function from [`notify_departed_member`] fifty
-/// lines above, which DOES stamp `origin` — a Leave/Remove action knows it changed a
-/// membership, so it can echo `account_member` and `account`; it does not know that a
-/// project transfer was cancelled as a side effect, because that is not part of the
-/// operation it invoked. "Is there an echo today?" is the wrong test — a frontend exists,
-/// and it already echoes `project_transfer` for the operations that DO invoke a transfer
-/// (`ProjectDetail.store.ts`); what does not exist yet is any client for THIS route
-/// (#149). Applying "is there an echo today?" would therefore have argued for stamping
-/// neither, which is why the criterion is about what the acting action can KNOW, not about
-/// what happens to be wired.
-///
-/// `admin/routes.rs::remove_account_member` passes `None` too, but NOT for a reason that
-/// transfers: it takes no `SyncOrigin` extractor at all and publishes with
-/// `Actor::detached()`, so `None` is the only value in scope there regardless of who acts.
-/// It is not a precedent for this decision, and an earlier version of this comment
-/// justified it as one ("the acting admin is a third party") — which is also not
-/// structurally true, since the cancellation matches the REMOVED member on either side and
-/// the acting admin can be the counterparty.
-/// `project::handlers::cancel_transfer` is NOT a precedent for `None` — it stamps
-/// `origin` on the acting owner's frame and `None` on the counterparty's — and an earlier
-/// version of this comment cited it as one.
-fn fan_cancelled_transfers(cancelled: Vec<crate::modules::project::CancelledTransfer>) {
-    for t in cancelled {
-        publish(
-            SyncEntity::ProjectTransfer,
-            SyncAction::Delete,
-            t.id,
-            Audience::owner(t.from_user_id),
-            None,
-        );
-        publish(
-            SyncEntity::ProjectTransfer,
-            SyncAction::Delete,
-            t.id,
-            Audience::owner(t.to_user_id),
-            None,
-        );
-    }
-}
-
 /// `PATCH /api/accounts/{account_id}/members/{user_id}` (#142) — change a member's role
 /// on an account you administer.
 ///
@@ -470,13 +402,12 @@ pub async fn remove_member(
 ) -> ApiResult<()> {
     let ceiling = ceiling_of(&scope);
     let actor = Actor::user(scope.actor_user_id, origin.0);
-    let cancelled = AccountRepository::new(pool.clone())
+    AccountRepository::new(pool.clone())
         .remove_member(scope.account_id, user_id, ceiling)
         .await
         .map_err(e)?;
     publish_account_member(&pool, scope.account_id, SyncAction::Delete, actor).await;
     notify_departed_member(scope.account_id, user_id, actor);
-    fan_cancelled_transfers(cancelled);
     Ok((StatusCode::NO_CONTENT, ()))
 }
 
@@ -503,13 +434,12 @@ pub async fn leave_account(
 ) -> ApiResult<()> {
     let ceiling = ceiling_of(&scope);
     let actor = Actor::user(scope.actor_user_id, origin.0);
-    let cancelled = AccountRepository::new(pool.clone())
+    AccountRepository::new(pool.clone())
         .remove_member(scope.account_id, scope.actor_user_id, ceiling)
         .await
         .map_err(e)?;
     publish_account_member(&pool, scope.account_id, SyncAction::Delete, actor).await;
     notify_departed_member(scope.account_id, scope.actor_user_id, actor);
-    fan_cancelled_transfers(cancelled);
     Ok((StatusCode::NO_CONTENT, ()))
 }
 

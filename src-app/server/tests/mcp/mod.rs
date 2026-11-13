@@ -41,8 +41,10 @@ pub(crate) fn token_of(body: Value) -> String {
 }
 
 /// Create a user (admin-created). Auto-joined to the Users group, so they
-/// hold BOTH `mcp::use` (mcp_grants migration) and `projects::use` (project
-/// module's grant) — the default "full" caller shape most tests want.
+/// hold `mcp::use` (mcp_grants migration) + `jobs::use` (jobs baseline grant)
+/// — the default "full" caller shape most tests want. The `projects::use`
+/// grant went with the removed project module, so a Users-group member no
+/// longer holds it (only the admin's `*` wildcard does).
 pub(crate) async fn create_user(server: &TestServer, admin: &str, username: &str, email: &str) -> String {
     let resp = server
         .client
@@ -74,8 +76,8 @@ pub(crate) async fn login(server: &TestServer, username: &str) -> String {
     token_of(resp.json().await.expect("login json"))
 }
 
-/// Create a user then STRIP them from the Users group → they hold NEITHER
-/// `mcp::use` nor `projects::use` (for the A9 deny path).
+/// Create a user then STRIP them from the Users group → they hold neither
+/// `mcp::use` nor `jobs::use` (for the A9 deny path).
 pub(crate) async fn create_user_without_mcp_use(
     server: &TestServer,
     admin: &str,
@@ -97,9 +99,10 @@ pub(crate) async fn create_user_without_mcp_use(
 }
 
 /// Create a user holding `mcp::use` and NOTHING else — strips the default
-/// Users grant (which bundles `mcp::use` + `projects::use` together) then
+/// Users grant (which bundles `mcp::use` + `jobs::use` together) then
 /// grants `mcp::use` alone via a bespoke group. Isolates the
-/// permission-filter assertions (TEST-8/TEST-10) from `projects::use`.
+/// permission-filter assertions (TEST-8/TEST-10) from `jobs::use` (the
+/// kept stand-in for the removed `projects::use`-gated actions).
 pub(crate) async fn create_user_with_only_mcp_use(
     server: &TestServer,
     admin: &str,
@@ -263,7 +266,6 @@ pub(crate) async fn post_agent_pong(server: &TestServer, token: &str, request_id
     body["ok"].as_bool().unwrap_or(false)
 }
 
-mod backend_actions;
 mod context_gating;
 mod frontend_actions;
 mod instance_actions;
@@ -295,6 +297,14 @@ async fn initialize_and_tools_list_expose_three_control_tools() {
         vec!["list_capabilities", "describe_capability", "invoke_capability"]
     );
 }
+
+// ------------------------------- TEST-7 (deleted) -------------------------------
+// `backend_actions.rs` tested the ONE backend op the old suite exercised from
+// the live OpenAPI catalog — `Project.list` (the REST half of TEST-7). With
+// `/api/projects*` stripped, that op no longer exists in the catalog (the
+// catalog is derived from the live aide doc), so both arms — the
+// list_capabilities presence check and the loopback invoke — are deleted
+// rather than emptied; no kept backend op replaces them in this suite.
 
 // ------------------------------- TEST-11: A9 deny -------------------------------
 

@@ -88,7 +88,7 @@ use super::types::{
     CovariateFacts, MarkerFacts, ModelEligibility, ModelEligibilityResponse, ModelReason,
     ModelReasonCode,
 };
-use crate::modules::execution_engine::types::{TxrEndpoint, TxrTask};
+use crate::modules::execution_engine::types::TxrTask;
 use crate::modules::method_catalogue::catalogue;
 use crate::modules::method_catalogue::eligibility::{
     estimate_quality_for, estimate_seconds_for, parse_standard_ids, required_marker_match,
@@ -785,6 +785,7 @@ fn verdict(reasons: &[ModelReason], eligible: u32, total: u32) -> EligibilitySta
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modules::execution_engine::types::TxrEndpoint;
     use crate::modules::method_catalogue::types::{FileOutcomes, PatientDrawCounts, StandardId};
     use chrono::{DateTime, Utc};
     use serde_json::json;

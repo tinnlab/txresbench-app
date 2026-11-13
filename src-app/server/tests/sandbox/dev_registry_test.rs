@@ -46,7 +46,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use crate::dataset::hardening_common::record_skip;
+use crate::common::record_skip;
 
 const CHILD_MARKER: &str = "TXR_ACCEPT_CHILD";
 const CHILD_TEST_PATH: &str = "sandbox::dev_registry_test::dev_registry_acceptance_child";

@@ -15,14 +15,7 @@ use std::process::Stdio;
 #[cfg(target_os = "linux")]
 use std::sync::Arc;
 #[cfg(target_os = "linux")]
-use std::time::{Duration, Instant};
-
-#[cfg(target_os = "linux")]
-use tokio::io::{AsyncRead, AsyncReadExt};
-#[cfg(target_os = "linux")]
 use tokio::process::Command;
-#[cfg(target_os = "linux")]
-use tokio::time::timeout;
 
 use txresbench_core::AppError;
 
@@ -30,20 +23,6 @@ use super::settings::SandboxResourceLimits;
 use super::types::{HardeningCapabilities, MountMode, PidNsMode, SandboxContext, ExtraMount};
 #[cfg(target_os = "linux")]
 use super::types::{CgroupMode, SeccompMode};
-
-/// Output of a single bwrap invocation. stdout/stderr are each capped at
-/// [`OUTPUT_CAP_BYTES`]; the child is NOT killed at the cap (it can finish),
-/// only truncated in the capture.
-#[derive(Debug, Clone)]
-pub struct SandboxRunResult {
-    pub exit_code: i32,
-    pub stdout: String,
-    pub stderr: String,
-    pub stdout_truncated: bool,
-    pub stderr_truncated: bool,
-    pub duration_ms: u64,
-    pub timed_out: bool,
-}
 
 /// Per-call output cap (1 MiB).
 pub const OUTPUT_CAP_BYTES: usize = 1024 * 1024;
@@ -465,50 +444,6 @@ impl SandboxSetup {
     }
 }
 
-/// Build the argv, configure the `Command` (piped stdio + kill_on_drop + seccomp
-/// pre_exec), spawn bwrap, and attach the child to the cgroup scope. Shared by
-/// the batch (`run_in_sandbox`) and streaming (`streaming::run_analysis_streaming`)
-/// paths. The caller owns the returned live `Child` (and the `setup` guards).
-#[cfg(target_os = "linux")]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn spawn_bwrap_child(
-    setup: &SandboxSetup,
-    caps: &HardeningCapabilities,
-    ctx: &SandboxContext,
-    rootfs_dir: &Path,
-    command: &str,
-    limits: &SandboxResourceLimits,
-    extra_mounts: &[ExtraMount],
-    progress_fifo_src: Option<&str>,
-) -> Result<tokio::process::Child, AppError> {
-    // Guard a non-UTF8 rootfs path: build_bwrap_argv uses `to_str().unwrap_or_default()`,
-    // so an empty string would make `<rootfs>/usr` == `/usr` and bind the HOST
-    // /usr into the sandbox. Refuse rather than silently escape. [blind-audit LOW]
-    if rootfs_dir.to_str().is_none() {
-        return Err(AppError::new(
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "ROOTFS_PATH_INVALID",
-            "the rootfs mount path is not valid UTF-8; refusing to build the sandbox",
-        ));
-    }
-
-    let argv = build_bwrap_argv(
-        caps,
-        ctx,
-        rootfs_dir,
-        command,
-        setup.synthetic.passwd(),
-        setup.synthetic.group(),
-        setup.synthetic.mask(),
-        setup.seccomp_pipe.as_ref().map(|p| p.target_fd()),
-        limits,
-        extra_mounts,
-        progress_fifo_src,
-    );
-
-    spawn_argv_child(setup, caps, argv)
-}
-
 /// Spawn bwrap with an ALREADY-BUILT argv: the stdio/kill_on_drop/seccomp-dup2/
 /// cgroup-attach plumbing every argv path shares. The stacked run seam
 /// (`service::run_method_in_stack`) builds its argv through
@@ -566,95 +501,6 @@ pub(crate) fn spawn_argv_child(
     }
 
     Ok(child)
-}
-
-/// Run a shell command inside the bwrap-isolated analysis sandbox (BATCH path —
-/// capture stdout/stderr + return; the REST `/sandbox/execute` consumer). The
-/// streaming jobs path uses [`SandboxSetup::prepare`] + [`spawn_bwrap_child`]
-/// directly and drives the child itself.
-#[cfg(target_os = "linux")]
-pub async fn run_in_sandbox(
-    state: &super::config::SandboxState,
-    ctx: &SandboxContext,
-    rootfs_dir: &Path,
-    command: &str,
-    timeout_secs: Option<u64>,
-    limits: &SandboxResourceLimits,
-    extra_mounts: &[ExtraMount],
-    caps: &HardeningCapabilities,
-) -> Result<SandboxRunResult, AppError> {
-    let setup = SandboxSetup::prepare(state, ctx, limits, caps)?;
-
-    let started = Instant::now();
-    let mut child = spawn_bwrap_child(
-        &setup, caps, ctx, rootfs_dir, command, limits, extra_mounts, None,
-    )?;
-
-    let stdout = child.stdout.take().expect("stdout piped");
-    let stderr = child.stderr.take().expect("stderr piped");
-    let stdout_handle = tokio::spawn(read_capped_owned(stdout));
-    let stderr_handle = tokio::spawn(read_capped_owned(stderr));
-
-    let budget = Duration::from_secs(timeout_secs.unwrap_or(limits.timeout_secs.max(1) as u64));
-    let wait = timeout(budget, child.wait()).await;
-    let (timed_out, status) = match wait {
-        Ok(Ok(s)) => (false, s.code().unwrap_or(-1)),
-        Ok(Err(e)) => {
-            return Err(AppError::new(
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "BWRAP_WAIT_FAILED",
-                format!("wait on bwrap child failed: {e}"),
-            ));
-        }
-        Err(_) => {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-            (true, -1)
-        }
-    };
-
-    let (stdout_buf, stdout_truncated) = stdout_handle.await.unwrap_or_else(|_| (Vec::new(), false));
-    let (stderr_buf, stderr_truncated) = stderr_handle.await.unwrap_or_else(|_| (Vec::new(), false));
-    let duration_ms = started.elapsed().as_millis() as u64;
-
-    // Drop the setup (cgroup scope removal + seccomp fd close) after the child.
-    drop(setup);
-
-    tracing::info!(exit_code = status, timed_out, duration_ms, "sandbox.exec complete");
-
-    Ok(SandboxRunResult {
-        exit_code: status,
-        stdout: lossy_string_with_marker(stdout_buf, stdout_truncated),
-        stderr: lossy_string_with_marker(stderr_buf, stderr_truncated),
-        stdout_truncated,
-        stderr_truncated,
-        duration_ms,
-        timed_out,
-    })
-}
-
-#[cfg(target_os = "linux")]
-async fn read_capped_owned<R: AsyncRead + Unpin + Send + 'static>(mut reader: R) -> (Vec<u8>, bool) {
-    let mut buf = Vec::with_capacity(8 * 1024);
-    let mut chunk = [0u8; 8 * 1024];
-    let mut truncated = false;
-    loop {
-        match reader.read(&mut chunk).await {
-            Ok(0) => break,
-            Ok(n) => {
-                if buf.len() + n > OUTPUT_CAP_BYTES {
-                    let remain = OUTPUT_CAP_BYTES - buf.len();
-                    buf.extend_from_slice(&chunk[..remain]);
-                    truncated = true;
-                    while reader.read(&mut chunk).await.unwrap_or(0) > 0 {}
-                    break;
-                }
-                buf.extend_from_slice(&chunk[..n]);
-            }
-            Err(_) => break,
-        }
-    }
-    (buf, truncated)
 }
 
 /// Turn captured bytes into a lossy String with a truncation marker appended.
