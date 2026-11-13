@@ -1,10 +1,19 @@
 import { Tooltip, Button } from '@txresbench/kit'
+import {
+  sidebarToggleLeftFor,
+  titleBarHeightFor,
+  useWindowChrome,
+  windowDragRegionAttr,
+} from '@txresbench/shell'
 import { PanelLeft, PanelRight } from 'lucide-react'
 import { AppLayout } from '@/modules/layouts/app-layout/AppLayout.store'
 import { cn } from '@/lib/utils'
 
 export function SidebarToggleButton() {
   const { isSidebarCollapsed, nativeScroll, headerHidden } = AppLayout
+  // The enclosing AppLayout's host-window chrome (the macOS desktop window:
+  // the traffic lights sit over the top-left corner; null elsewhere).
+  const windowChrome = useWindowChrome()
 
   // Single compact size at every breakpoint. The previous
   // responsive flip (44px on xs viewports for WCAG 2.5.5 touch
@@ -17,6 +26,10 @@ export function SidebarToggleButton() {
 
   return (
     <div
+      data-testid="layout-sidebar-toggle-bar"
+      // The macOS desktop window: the wrapper's band around the button is
+      // title bar too (the button itself stays a button).
+      data-tauri-drag-region={windowDragRegionAttr(windowChrome)}
       className={cn(
         'flex items-center gap-6 mr-4 fixed',
         // z-index depends on whether the left sidebar Sheet is open:
@@ -33,7 +46,12 @@ export function SidebarToggleButton() {
           : 'h-[50px] z-10',
       )}
       style={{
-        left: 12,
+        // 12, or 8 px past the macOS traffic lights (74 + 8 = 82) in the
+        // desktop window (`windowChrome`).
+        left: sidebarToggleLeftFor(windowChrome),
+        // The band is the title bar's height there (56: the button is
+        // centred on the traffic lights), the class's 50 px elsewhere.
+        ...(windowChrome && !nativeScroll ? { height: titleBarHeightFor(windowChrome) } : null),
         // Native (mobile Settings): match the header exactly — safe-area (clear
         // the notch) + the header's 5px offset — so the button's center lines up
         // with the header text and the top band stays 50px.

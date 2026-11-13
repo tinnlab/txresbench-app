@@ -164,6 +164,8 @@ const CARD_BUTTON_ROW: CSSProperties = {
   paddingTop: 10,
   display: 'flex',
   alignItems: 'center',
+  // Space between the card's button and "Use example"; they stay on one row.
+  gap: 10,
 }
 
 const PRIMARY_BUTTON: CSSProperties = {

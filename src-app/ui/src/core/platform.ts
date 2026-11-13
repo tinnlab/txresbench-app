@@ -16,9 +16,14 @@ export function isWeb(): boolean {
 
 // macOS, read from the user agent: WKWebView (the Tauri webview on macOS)
 // reports "Macintosh; Intel Mac OS X ..." on Intel and Apple silicon alike.
-// iOS says "like Mac OS X" but never "Macintosh", so it does not match.
+// An iPhone says "like Mac OS X" without "Macintosh", but an iPad (Safari
+// and WKWebView alike) sends the same desktop "Macintosh" user agent as a
+// Mac. The touch screen tells them apart: an iPad reports several touch
+// points, a Mac reports 0.
 export function isMacOS(): boolean {
-  return typeof navigator !== 'undefined' && /Macintosh/.test(navigator.userAgent)
+  if (typeof navigator === 'undefined') return false
+  if (!/Macintosh/.test(navigator.userAgent)) return false
+  return !(navigator.maxTouchPoints > 1)
 }
 
 // The macOS desktop window. Its title bar is a transparent overlay

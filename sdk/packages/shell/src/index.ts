@@ -57,6 +57,16 @@ export { Drawer, type DrawerProps } from './components/Drawer'
 export { ResizeHandle } from './components/ResizeHandle'
 export { HeaderBarContainer } from './components/HeaderBarContainer'
 export { useHeaderLeftInset } from './hooks/useHeaderLeftInset'
+export { useWindowChrome } from './hooks/useWindowChrome'
+export {
+  headerLeftInsetFor,
+  sidebarToggleLeftFor,
+  skipLinkStyleFor,
+  titleBarHeightFor,
+  windowChromeOrNull,
+  windowDragRegionAttr,
+  type WindowChrome,
+} from './hooks/windowChrome'
 
 // Layouts
 export { BlankLayout } from './layouts/BlankLayout'
