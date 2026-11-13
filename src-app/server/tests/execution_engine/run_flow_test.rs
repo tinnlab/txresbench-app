@@ -227,7 +227,9 @@ async fn run_dir_tree_lives_under_the_data_root() {
 /// → a predict-only reuse run (no outcomes) gets the TRAINING conversion: the
 /// method row says `converted`, every scored patient has a chance, and the
 /// chances are the train run's recorded map applied to the reuse risks (the
-/// package's `save()` + `predict()`). The same reuse with the map removed
+/// package's `save()` + `predict()`). The model carries one map per need its
+/// training scores covered, so a reuse for the other covered outcome (death)
+/// gets that outcome's training map. The same reuse with the map removed
 /// from the asset (a model saved before conversions were kept) finishes with
 /// no chances and the note saying why.
 #[tokio::test]
@@ -269,7 +271,11 @@ async fn reuse_of_a_saved_model_gets_the_training_probabilities() {
     assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
     let train_dir = PathBuf::from(&row.dir);
     let recorded = predictions::read_conversions(&train_dir, method).expect("recorded");
-    assert_eq!(recorded.keys().collect::<Vec<_>>(), vec!["progression@238"]);
+    assert_eq!(
+        recorded.keys().collect::<Vec<_>>(),
+        vec!["death@238", "progression@238"],
+        "one map per need: the cohort learns progression and death"
+    );
     let saved = store::save_from_run(
         &pool,
         &SaveModelsRequest {
@@ -292,7 +298,7 @@ async fn reuse_of_a_saved_model_gets_the_training_probabilities() {
         serde_json::from_value(serde_json::to_value(&assets[0]).unwrap()).expect("engine element");
 
     // A predict-only reuse on the same patients' measurements (no outcomes).
-    let reuse_request = |asset: TxrModelAsset| CreateRunRequest {
+    let reuse_request = |asset: TxrModelAsset, endpoint| CreateRunRequest {
         mode: TxrRunMode::Reuse,
         input: TxrRunInput {
             patients: None,
@@ -303,6 +309,7 @@ async fn reuse_of_a_saved_model_gets_the_training_probabilities() {
             keep_copies: false,
         },
         config: txresbench::modules::execution_engine::types::RunConfig {
+            endpoint,
             at_a_time: 1,
             decision_day: 56.0,
             look_ahead_day: 238.0,
@@ -311,7 +318,8 @@ async fn reuse_of_a_saved_model_gets_the_training_probabilities() {
         method_ids: Vec::new(),
         model_ids: vec![asset],
     };
-    let reuse = start(reuse_request(asset.clone())).await;
+    use txresbench::modules::execution_engine::types::TxrEndpoint;
+    let reuse = start(reuse_request(asset.clone(), TxrEndpoint::Pfs)).await;
     let row = wait_terminal(&repo, reuse.id).await;
     assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
     let m = repo
@@ -369,14 +377,43 @@ async fn reuse_of_a_saved_model_gets_the_training_probabilities() {
     }
     assert_eq!(
         predictions::read_conversions(&reuse_dir, &model_id).expect("recorded"),
-        recorded,
+        predictions::Conversions::from([("progression@238".to_string(), c.clone())]),
         "the reuse run records the map it applied"
     );
+
+    // A reuse for the other covered outcome (death at the same day): the
+    // death column applies the death map the training run fitted.
+    let reuse_os = start(reuse_request(asset.clone(), TxrEndpoint::Os)).await;
+    let row_os = wait_terminal(&repo, reuse_os.id).await;
+    assert_eq!(row_os.status().expect("parses"), TxrRunStatus::Finished);
+    let raw_os = std::fs::read_to_string(
+        PathBuf::from(&row_os.dir).join("output").join(&model_id).join("predictions.csv"),
+    )
+    .expect("raw output");
+    let risk_os: std::collections::BTreeMap<String, f64> = raw_os
+        .lines()
+        .skip(1)
+        .map(|l| {
+            let parts: Vec<&str> = l.split(',').collect();
+            (parts[0].to_string(), parts[1].parse().expect("risk"))
+        })
+        .collect();
+    let body = predictions_of(reuse_os.id).await;
+    let col = &body["methods"][0];
+    assert_eq!(col["task"], "os");
+    assert_eq!(col["prob_source"], "converted");
+    let d = &recorded["death@238"];
+    for (i, id) in body["patients"].as_array().expect("patients").iter().enumerate() {
+        let id = id.as_str().expect("id");
+        let want = d.apply(Some(risk_os[id])).expect("a probability");
+        let got = col["probabilities"][i].as_f64().expect("a chance");
+        assert!((got - want).abs() < 1e-6, "{id}: {got} vs the death map's {want}");
+    }
 
     // A model saved before conversions were kept: no chances, a clear note.
     let mut old = asset;
     old.conversions.clear();
-    let reuse_old = start(reuse_request(old)).await;
+    let reuse_old = start(reuse_request(old, TxrEndpoint::Pfs)).await;
     let row = wait_terminal(&repo, reuse_old.id).await;
     assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
     let m = repo

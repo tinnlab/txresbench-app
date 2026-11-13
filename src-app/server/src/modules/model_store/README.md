@@ -80,11 +80,12 @@ Saving binds a run record through the engine's own in-process seam
 digests, trained-on count, byte size, own-data AUC) is copied into the store,
 and the requirements the I screen checks against are recorded from the run's
 config and the method bundle's `params.json` plus the catalogue facts — never
-re-derived, never invented. The run's recorded risk→probability conversion
+re-derived, never invented. The run's recorded risk→probability conversions
 (`output/<method>/conversions.json`, the TxResBench package's
-`model.conversions` map) is saved with the model in `txr_models.conversions`
-(`{}` = none: a model saved before the column existed, or a method with its
-own probability); export/import carries it in the header, and saving or
+`model.conversions` map: one entry per outcome the training scores cover) are
+saved with the model in `txr_models.conversions` (`{}` = none: a model saved
+before the column existed, or a method with its own probability for every
+outcome); export/import carries the map in the header, and saving or
 importing the same tree + method into a set again fills it in only on a row
 that has none. A model whose requirements could not be recorded
 (it was imported from a container without them) is answered

@@ -949,6 +949,7 @@ fn read_chance_column(run_dir: &Path, method_id: &str) -> Option<Vec<ChanceRow>>
 fn assemble_predictions(
     run_dir: &Path,
     rows: &[MethodRow],
+    look_ahead_day: f64,
 ) -> (Vec<String>, Vec<TxrPredictionMethod>) {
     let mut patients: Vec<String> = Vec::new();
     let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -1011,26 +1012,34 @@ fn assemble_predictions(
             Some("none") => TxrProbSource::None,
             _ => TxrProbSource::Native,
         };
-        // The flat-result fact: the conversion recorded beside the column
-        // (`output/<method_id>/conversions.json`) is the event-rate map. Only
-        // a converted column can be flat; an unreadable or absent record
-        // (a run from before the record existed) is "not flat".
+        let task = match m.task.as_deref() {
+            Some("os") => TxrTask::Os,
+            Some("response") => TxrTask::Response,
+            _ => TxrTask::Pfs,
+        };
+        // The flat-result fact: the conversion that made THIS column (the
+        // recorded map's entry for the column's outcome at the run's
+        // look-ahead — a train run records every need's map, a reuse run the
+        // one it applied) is the event-rate map. Only a converted column can
+        // be flat; an unreadable or absent record (a run from before the
+        // record existed) is "not flat".
+        let outcome = super::predictions::task_outcome(task);
+        let column_key = super::predictions::conversion_key(
+            outcome,
+            super::predictions::is_survival(outcome).then_some(look_ahead_day),
+        );
         let flat_conversion = matches!(
             prob_source,
             TxrProbSource::Recalibrated | TxrProbSource::Converted
         ) && super::predictions::read_conversions(run_dir, &m.method_id)
-            .map(|map| !map.is_empty() && map.values().all(|c| c.is_flat()))
+            .map(|map| map.get(&column_key).is_some_and(|c| c.is_flat()))
             .unwrap_or(false);
         methods_out.push(TxrPredictionMethod {
             method_id: m.method_id.clone(),
             label: m.label.clone(),
             group: m.group.clone(),
             group_label,
-            task: match m.task.as_deref() {
-                Some("os") => TxrTask::Os,
-                Some("response") => TxrTask::Response,
-                _ => TxrTask::Pfs,
-            },
+            task,
             prob_source,
             flat_conversion,
             coverage: match (m.coverage_scored, m.coverage_eligible) {
@@ -1128,7 +1137,8 @@ async fn get_predictions(
         .map_err(|e| e.to_api_error())?;
     let (patients, methods) = tokio::task::spawn_blocking({
         let dir = PathBuf::from(&row.dir);
-        move || assemble_predictions(&dir, &rows)
+        let look_ahead_day = config.look_ahead_day;
+        move || assemble_predictions(&dir, &rows, look_ahead_day)
     })
     .await
     .map_err(|e| {
@@ -1184,13 +1194,15 @@ async fn download_predictions(
         )
         .to_api_error());
     };
+    let config = run_config(&row).map_err(|e| e.to_api_error())?;
     let rows = repo
         .methods_for_run(id)
         .await
         .map_err(|e| e.to_api_error())?;
     let (patients, methods) = tokio::task::spawn_blocking({
         let dir = PathBuf::from(&row.dir);
-        move || assemble_predictions(&dir, &rows)
+        let look_ahead_day = config.look_ahead_day;
+        move || assemble_predictions(&dir, &rows, look_ahead_day)
     })
     .await
     .map_err(|e| {
@@ -1442,7 +1454,7 @@ mod tests {
             method_row("m-a", "pfs", "native", 2, 3),
             method_row("m-b", "pfs", "recalibrated", 2, 2),
         ];
-        let (patients, methods) = assemble_predictions(&run_dir, &rows_db);
+        let (patients, methods) = assemble_predictions(&run_dir, &rows_db, 238.0);
         assert_eq!(patients, vec!["P1", "P2", "P3"]);
         assert_eq!(methods.len(), 2);
         assert_eq!(methods[0].probabilities, vec![Some(0.9), None, Some(0.5)]);
@@ -1513,12 +1525,28 @@ mod tests {
             n: 30,
             rate: Some(0.37),
         };
-        for (id, c) in [("m-flat", Some(flat)), ("m-curve", Some(curve)), ("m-old", None), ("m-native", None)] {
+        for (id, c) in [
+            ("m-flat", Some(flat.clone())),
+            ("m-curve", Some(curve.clone())),
+            ("m-old", None),
+            ("m-native", None),
+        ] {
             write_chance_column(&run_dir, id, &rows(0.37)).expect("writes");
             if let Some(c) = c {
                 let map = Conversions::from([("progression@238".to_string(), c)]);
                 write_conversions(&run_dir, id, &map).expect("writes");
             }
+        }
+        // A train run records every need's map: the flag reads the entry of
+        // the column's own outcome at the run's look-ahead.
+        let both = Conversions::from([
+            ("progression@238".to_string(), curve.clone()),
+            ("death@238".to_string(), flat.clone()),
+            ("death@365".to_string(), curve.clone()),
+        ]);
+        for id in ["m-pfs", "m-os"] {
+            write_chance_column(&run_dir, id, &rows(0.37)).expect("writes");
+            write_conversions(&run_dir, id, &both).expect("writes");
         }
         // A native column with a stray record is still not "flat".
         let stray = Conversions::from([(
@@ -1539,8 +1567,10 @@ mod tests {
             method_row("m-curve", "pfs", "converted", 2, 2),
             method_row("m-old", "pfs", "recalibrated", 2, 2),
             method_row("m-native", "pfs", "native", 2, 2),
+            method_row("m-pfs", "pfs", "recalibrated", 2, 2),
+            method_row("m-os", "os", "recalibrated", 2, 2),
         ];
-        let (_, methods) = assemble_predictions(&run_dir, &rows_db);
+        let (_, methods) = assemble_predictions(&run_dir, &rows_db, 238.0);
         let facts: Vec<(TxrProbSource, bool)> =
             methods.iter().map(|m| (m.prob_source, m.flat_conversion)).collect();
         assert_eq!(
@@ -1550,8 +1580,13 @@ mod tests {
                 (TxrProbSource::Converted, false),
                 (TxrProbSource::Recalibrated, false),
                 (TxrProbSource::Native, false),
+                (TxrProbSource::Recalibrated, false),
+                (TxrProbSource::Recalibrated, true),
             ]
         );
+        // The same os column at another look-ahead reads death@365 (a curve).
+        let (_, at_365) = assemble_predictions(&run_dir, &rows_db, 365.0);
+        assert!(!at_365[5].flat_conversion);
         let wire = serde_json::to_value(&methods[0]).unwrap();
         assert_eq!(wire["prob_source"], "converted");
         assert_eq!(wire["flat_conversion"], true);
@@ -1608,7 +1643,7 @@ mod tests {
         let mut failed = method_row("m-failed", "pfs", "native", 0, 0);
         failed.state = TxrMethodState::Failed.as_str().to_string();
         let rows_db = vec![failed, method_row("m-first", "pfs", "native", 1, 1)];
-        let (patients, methods) = assemble_predictions(&run_dir, &rows_db);
+        let (patients, methods) = assemble_predictions(&run_dir, &rows_db, 238.0);
         assert_eq!(methods.len(), 1);
         assert_eq!(methods[0].method_id, "m-first");
         assert_eq!(patients, vec!["P9"]);
@@ -1640,7 +1675,7 @@ mod tests {
         // (repository.rs), while `method_id` is the resolved model's UUID.
         reuse_row.label = "cfmedip-ctdna-clearance-three-group".to_string();
         reuse_row.group = "response-call".to_string();
-        let (_, methods) = assemble_predictions(&run_dir, &[reuse_row]);
+        let (_, methods) = assemble_predictions(&run_dir, &[reuse_row], 238.0);
         assert_eq!(methods.len(), 1);
         assert_eq!(methods[0].method_id, "57519b29-fc69-4797-b38f-5822ae9dea91");
         assert_eq!(methods[0].label, "cfmedip-ctdna-clearance-three-group");
