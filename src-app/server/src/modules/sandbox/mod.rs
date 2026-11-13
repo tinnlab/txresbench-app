@@ -90,6 +90,8 @@ pub mod env_image;
 // layer images attach as read-only disks; bwrap runs inside the guest).
 #[cfg(target_os = "macos")]
 pub mod mac_vm_run;
+#[cfg(target_os = "macos")]
+pub mod vm_exchange;
 pub mod method_env;
 pub mod outputs;
 pub mod permissions;
