@@ -261,6 +261,23 @@ describe('load(runId) (PROV-UR-2; DEC-3/18)', () => {
     expect(streamRun).toHaveBeenCalled()
   })
 
+  it('ITEM-2 (d): a run with NO finished method never requests predictions (the two 409 console errors are gone)', async () => {
+    getRun.mockResolvedValue({
+      ...runDetail('run-1'),
+      status: 'stopped',
+      counts: { ...runDetail('run-1').counts, finished: 0, stopped: 6, running: 0 },
+      predictions_ready: false,
+    })
+    getPredictions.mockRejectedValue(new Error('must not be called'))
+    await state().load('run-1')
+    expect(getPredictions).not.toHaveBeenCalled()
+    // The empty-heatmap state is set locally from the run's own counts.
+    expect(state().predictionsError).toBe('unavailable')
+    expect(state().predictions).toBeNull()
+    expect(state().runError).toBeNull()
+    expect(streamRun).toHaveBeenCalled()
+  })
+
   it('resets the whole state when a different run id loads (no cross-run bleed)', async () => {
     await loadedRun('run-1')
     state().setSearch('S0001')

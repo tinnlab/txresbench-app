@@ -368,11 +368,14 @@ describe('ResultsPage (TEST-UR-6 — store wiring, states, actions)', () => {
     // The failed row's log action opens that method's dialog.
     fireEvent.click(view.getByTestId('txr-results-failed-show-log-lm-cox-a'))
     expect(state().logDialogFor).toBe('lm-cox-a')
-    // The header keeps the recorded counts + decision day but drops the
-    // completed-run segments (nothing was learned; the elapsed reads like
-    // a finished run's fact next to a failure).
+    // The header's STATUS is now the K vocabulary (ITEM-2 (a)): the counts
+    // segment ("0 of 4 methods finished") is replaced by the honest
+    // "Failed"; the decision day stays, the completed-run segments are
+    // dropped (nothing was learned, the elapsed reads like a finished
+    // run's fact next to a failure).
     const subtitle = view.getByTestId('txr-results-subtitle').textContent ?? ''
-    expect(subtitle).toContain('0 of 4 methods finished')
+    expect(subtitle).toContain('Failed')
+    expect(subtitle).not.toContain('methods finished')
     expect(subtitle).toContain('decision day 56')
     expect(subtitle).not.toContain('learned from')
     expect(subtitle).not.toContain('took')
@@ -382,14 +385,18 @@ describe('ResultsPage (TEST-UR-6 — store wiring, states, actions)', () => {
     expect(view.queryByTestId('txr-results-error')).toBeNull()
   })
 
-  it('renders the stopped-run state with the same honesty (RES-02, the stopped half)', async () => {
+  it('renders the stopped-run state with the same honesty (RES-02, the stopped half) and lists the SKIPPED methods too (ITEM-2 (d) — never "4 of 6")', async () => {
     const run = runFixture()
     run.status = 'stopped'
-    run.methods = run.methods.map(m => ({
-      ...m,
-      state: 'stopped' as const,
-    }))
-    run.counts = { ...run.counts, finished: 0, stopped: run.methods.length, running: 0, cannot_run: 0 }
+    run.methods = [
+      ...run.methods.map(m => ({
+        ...m,
+        state: 'stopped' as const,
+      })),
+      methodRow('skip-a', 'skipped'),
+      methodRow('skip-b', 'skipped'),
+    ]
+    run.counts = { ...run.counts, finished: 0, stopped: 4, skipped: 2, running: 0, cannot_run: 0 }
     api.getRun.mockResolvedValue(run)
     api.getPredictions.mockRejectedValueOnce(httpError(409))
     const view = await renderLoaded()
@@ -397,6 +404,29 @@ describe('ResultsPage (TEST-UR-6 — store wiring, states, actions)', () => {
     const block = view.getByTestId('txr-results-run-failed')
     expect(block.textContent).toContain('This run was stopped')
     expect(block.textContent).toContain('see the log for the reason')
+    // The 2 skipped methods are listed next to the 4 stopped ones (the
+    // round-3 "4 of 6" defect: they were missing).
+    expect(view.getByTestId('txr-results-run-failed-skip-a')).toBeTruthy()
+    expect(view.getByTestId('txr-results-run-failed-skip-b')).toBeTruthy()
+    expect(view.getByTestId('txr-results-run-failed-lm-cox-a')).toBeTruthy()
+    // The header leads with the K vocabulary's stop word (ITEM-2 (a)).
+    const subtitle = view.getByTestId('txr-results-subtitle').textContent ?? ''
+    expect(subtitle).toContain('Stopped by you')
+  })
+
+  it('a run with NO finished method never requests predictions (ITEM-2 (d): the two 409 console errors of R3-methods-10 are gone)', async () => {
+    const run = runFixture()
+    run.status = 'stopped'
+    run.methods = run.methods.map(m => ({ ...m, state: 'stopped' as const }))
+    run.counts = { ...run.counts, finished: 0, stopped: run.methods.length, running: 0, cannot_run: 0 }
+    api.getRun.mockResolvedValue(run)
+    api.getPredictions.mockReset()
+    api.getPredictions.mockRejectedValue(new Error('must not be called'))
+    const view = await renderLoaded()
+    await waitFor(() => expect(view.getByTestId('txr-results-run-failed')).toBeTruthy())
+    expect(api.getPredictions).not.toHaveBeenCalled()
+    // The CSV button is disabled exactly when nothing is downloadable.
+    expect(view.getByTestId('txr-results-download').hasAttribute('disabled')).toBe(true)
   })
 
 
@@ -504,9 +534,43 @@ describe('ResultsPage (TEST-UR-6 — store wiring, states, actions)', () => {
     const banner = view.getByTestId('txr-results-cannot-cox-nomarker')
     expect(banner.textContent).toContain('cox-nomarker')
     expect(banner.textContent).toContain('LDH is not in your measurements')
-    expect(banner.textContent).toContain('The other 3 methods are shown.')
+    // ITEM-2 (b): the tail's "other N" is the TRUE finished count (2 of the
+    // 4 methods here), never the false "total minus one".
+    expect(banner.textContent).toContain('The other 2 methods are shown.')
     fireEvent.click(view.getByTestId('txr-results-show-log-cox-nomarker'))
     expect(state().logDialogFor).toBe('cox-nomarker')
+  })
+
+  it('a finished run with 3 of 5 failed: ONE summary card with the true tail, the K-vocabulary header, predictions still shown (R3-results-3)', async () => {
+    const run = runFixture()
+    run.status = 'finished'
+    run.methods = [
+      methodRow('fin-a', 'finished'),
+      methodRow('fin-b', 'finished'),
+      ...Array.from({ length: 3 }, (_, i) =>
+        methodRow(`bundled-${i}`, 'failed', {
+          reason: {
+            code: 'BUNDLE_MARKER_COUNT_UNMET',
+            detail: 'the method needs a different number of markers than the file has',
+          },
+        }),
+      ),
+    ]
+    run.counts = { ...run.counts, finished: 2, failed: 3, running: 0, cannot_run: 0 }
+    api.getRun.mockResolvedValue(run)
+    api.getPredictions.mockResolvedValue(predictionsOf('run-1', ['fin-a', 'fin-b']))
+    const view = await renderLoaded()
+    await waitFor(() => expect(view.getByTestId('txr-results-trouble-summary-failed-BUNDLE_MARKER_COUNT_UNMET')).toBeTruthy())
+    const card = view.getByTestId('txr-results-trouble-summary-failed-BUNDLE_MARKER_COUNT_UNMET')
+    expect(card.textContent).toContain('3 methods failed: the method needs a different number of markers than the file has.')
+    expect(card.textContent).toContain('The other 2 methods are shown.')
+    // The header speaks the K vocabulary (ITEM-2 (a)).
+    expect(view.getByTestId('txr-results-subtitle').textContent).toContain(
+      'Done, 3 of 5 methods failed',
+    )
+    // The finished methods' columns are still shown.
+    expect(view.getByTestId('txr-heatmap-header-fin-a')).toBeTruthy()
+    expect(view.queryByTestId('txr-results-error')).toBeNull()
   })
 
   it('wires the search to the store and narrows the patient rows', async () => {

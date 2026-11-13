@@ -178,6 +178,16 @@ export function formatTaskLabel(key: TxrOutcomeKey, horizon: number): string {
 
 /** The facts the G/H header subtitle formats (PROV-UR-5). */
 export interface TxrSubtitleFacts {
+  /**
+   * qa-fixes4 ITEM-2 (a): the run's status word on the SAME vocabulary as
+   * the K status chip (the shared `txrshell/lib/runStatus` builder) — a
+   * terminal run's subtitle leads with it ("Failed", "Stopped by you
+   * (2 skipped)", "Done, 3 of 5 methods failed", "Done") and the counts
+   * segment ("N of M methods finished") is omitted beside it — the status
+   * word carries the same fact in the K vocabulary. Null/absent for a live
+   * run (the counts segment stays, DEC-4).
+   */
+  status?: string | null
   /** `run.counts.finished` — methods that reached `finished`. */
   finished: number | null
   /** The run's selected-method count (`run.counts` total or `method_ids.length`). */
@@ -223,7 +233,9 @@ export function formatDecisionDay(day: number | null): string | null {
  * The full subtitle, segment-wise: each segment is omitted when its datum is
  * null (no empty runs in the sentence — a run with no elapsed time yet
  * reads the counts, learned-from and decision-day segments only), and the
- * segments join with the board's " · " separator. For a fully-populated run
+ * segments join with the board's " · " separator. A terminal run's STATUS
+ * word (ITEM-2 (a), the K vocabulary) leads and replaces the counts
+ * segment — the same fact, the K words. For a fully-populated live run
  * the board's verbatim bytes are:
  *
  * `<n> of <m> methods finished · learned from <p> patients · decision day <d> · took <s> minutes <z> seconds`
@@ -231,10 +243,12 @@ export function formatDecisionDay(day: number | null): string | null {
 export function formatSubtitle(facts: TxrSubtitleFacts): string {
   const segments: string[] = []
   const counts = formatCounts(facts.finished, facts.total)
+  const status = facts.status ?? null
+  if (status !== null) segments.push(status)
+  else if (counts !== null) segments.push(counts)
   const learned = formatLearnedFrom(facts.trainedOn)
   const day = formatDecisionDay(facts.decisionDay)
   const took = formatTook(facts.tookSeconds)
-  if (counts !== null) segments.push(counts)
   if (learned !== null) segments.push(learned)
   if (day !== null) segments.push(day)
   if (took !== null) segments.push(`took ${took}`)

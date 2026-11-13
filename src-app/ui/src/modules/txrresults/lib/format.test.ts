@@ -168,6 +168,40 @@ describe('the subtitle segment builders (PROV-UR-5)', () => {
       formatSubtitle({ finished: null, total: null, trainedOn: null, decisionDay: null, tookSeconds: null }),
     ).toBe('')
   })
+
+  it('ITEM-2 (a): a terminal run\'s status word leads and replaces the counts segment (the K vocabulary)', () => {
+    expect(
+      formatSubtitle({
+        status: 'Done, 3 of 5 methods failed',
+        finished: 2,
+        total: 5,
+        trainedOn: 120,
+        decisionDay: 56,
+        tookSeconds: 680,
+      }),
+    ).toBe('Done, 3 of 5 methods failed · learned from 120 patients · decision day 56 · took 11 minutes 20 seconds')
+    expect(
+      formatSubtitle({
+        status: 'Failed',
+        finished: 0,
+        total: 6,
+        trainedOn: null,
+        decisionDay: 56,
+        tookSeconds: null,
+      }),
+    ).toBe('Failed · decision day 56')
+    // A null status keeps the live counts segment.
+    expect(
+      formatSubtitle({
+        status: null,
+        finished: 2,
+        total: 5,
+        trainedOn: null,
+        decisionDay: null,
+        tookSeconds: null,
+      }),
+    ).toBe('2 of 5 methods finished')
+  })
 })
 
 describe('formatReasonText (the cannot-run banner sentence, DEC-15)', () => {

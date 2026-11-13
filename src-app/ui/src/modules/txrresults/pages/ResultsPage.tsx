@@ -18,12 +18,13 @@ import {
   TxrResultsBar,
   TxrResultsHeader,
 } from '../components/TxrResultsHeader'
-import { TxrCannotRunBanner } from '../components/TxrCannotRunBanner'
-import { TxrRunFailedState } from '../components/TxrRunFailedState'
 import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
 import { TxrMethodFilterBar } from '../components/TxrMethodFilterBar'
 import { TxrHeatmapTable } from '../components/TxrHeatmapTable'
 import { TxrLogDialog } from '../components/TxrLogDialog'
+import { TxrRunTrouble } from '../components/TxrRunTrouble'
+import { TxrRunFailedState } from '../components/TxrRunFailedState'
+import { troubleRowsOf } from '../lib/trouble'
 import { formatChanceMissingNote, formatConstantNote, formatMixedOutcomeNote, formatNoChanceNote, txrRunFailed } from '../lib/format'
 
 /**
@@ -340,7 +341,8 @@ export function ResultsPage() {
     )
   }
 
-  const cannotRun = run.methods.filter(m => m.state === 'cannot_run')
+  const troubleRows = troubleRowsOf(run.methods)
+  const finishedCount = run.counts?.finished ?? 0
   // A terminal failed/stopped run with no predictions is the honest
   // failure state (RES-02 + qa-fixes2 R2-02): the engine's `finished`
   // status also covers a run where NOTHING finished (`predictions_ready`
@@ -370,9 +372,9 @@ export function ResultsPage() {
               {runFailed ? (
                 <TxrRunFailedState run={run} onShowLog={methodId => TxrResults.openLog(methodId)} onShowHistory={() => navigate('/history')} />
               ) : null}
-              <TxrCannotRunBanner
-                methods={cannotRun}
-                total={run.methods.length}
+              <TxrRunTrouble
+                rows={troubleRows}
+                finishedCount={finishedCount}
                 onShowLog={methodId => TxrResults.openLog(methodId)}
               />
             </div>
@@ -425,9 +427,9 @@ export function ResultsPage() {
               predictions={predictions}
               predictionsError={predictionsError}
             />
-            <TxrCannotRunBanner
-              methods={cannotRun}
-              total={run.methods.length}
+            <TxrRunTrouble
+              rows={troubleRows}
+              finishedCount={finishedCount}
               onShowLog={methodId => TxrResults.openLog(methodId)}
             />
             {downloadFailed ? (

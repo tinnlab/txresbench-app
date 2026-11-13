@@ -464,6 +464,24 @@ html.txr-shell-mode-shell #root {
     align-items: flex-start !important;
   }
 }
+
+/* qa-fixes4 ITEM-2 (c, methods-r3 R3-methods-11 / results-r3 R3-results-1):
+ * the trouble row lines — the summary cards' expandable lists AND the
+ * terminal failure state's rows — stack at phone width: the method id,
+ * the state word, the reason and "Show the log" each get their own line
+ * (the reason never collapses into a one-word-per-line column and never
+ * overlaps the log link; the desktop row's baseline alignment is overridden
+ * for the stacked layout only). */
+@media (max-width: 640px) {
+  .txr-results-trouble-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 2px !important;
+  }
+  .txr-results-trouble-row .txr-results-trouble-reason {
+    flex: 0 0 auto !important;
+  }
+}
 @media (min-width: 641px) {
   .txr-run-table {
     min-width: 700px;

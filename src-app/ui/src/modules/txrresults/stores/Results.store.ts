@@ -272,10 +272,22 @@ const TxrResultsDef = defineStore('TxrResults', {
 
     /** Load the predictions snapshot with the stale-response guard: only the
      *  LATEST request may write state (a delayed older response can never
-     *  overwrite a newer one), and only in the run epoch that started it. */
+     *  overwrite a newer one), and only in the run epoch that started it.
+     *
+     *  qa-fixes4 ITEM-2 (methods-r3 R3-methods-10, results-r3 R3-results-1):
+     *  a run with NO finished method has no predictions column — the
+     *  endpoint answers 409, and this store must not ask (the round-3
+     *  console carried two 409s per stopped-run page load). The empty state
+     *  is set LOCALLY from the run's own counts (the engine's accounting is
+     *  in the detail); the SSE's `prediction` frame patches the counts to
+     *  ≥ 1 and re-runs this, so a live run still gets its columns. */
     const refreshPredictions = async (): Promise<void> => {
-      const runId = get().runId
+      const { runId, run } = get()
       if (!runId) return
+      if (run !== null && (run.counts?.finished ?? 0) === 0) {
+        set({ predictions: null, predictionsError: 'unavailable' })
+        return
+      }
       const gen = generation
       const seq = ++predictionsSeq
       set({ predictionsLoading: true })

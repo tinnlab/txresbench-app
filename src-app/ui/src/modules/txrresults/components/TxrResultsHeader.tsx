@@ -26,6 +26,7 @@ import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@txresbench/kit'
 import type { TxrPredictionsResponse, TxrRunDetail } from '@/api-client/types'
+import { runStatusWord, truthBucketOf } from '@/modules/txrshell/lib/runStatus'
 import { emitSaveModels, emitSaveOneModel } from '../events'
 import { formatSubtitle } from '../lib/format'
 import type { TxrSubtitleFacts } from '../lib/format'
@@ -74,10 +75,15 @@ export function tookSecondsOf(run: TxrRunDetail): number | null {
   return null
 }
 
-/** The subtitle facts the header formats (every datum nullable at the wire). */
+/** The subtitle facts the header formats (every datum nullable at the wire).
+ *  A terminal run's `status` is the SAME vocabulary as the K status chip
+ *  (ITEM-2 (a) — the plan's "same vocabulary on the results page header"),
+ *  computed here from the engine's own counts through the shared builder. */
 export function subtitleFactsOf(run: TxrRunDetail | null): TxrSubtitleFacts {
   if (run === null) return { finished: null, total: null, trainedOn: null, decisionDay: null, tookSeconds: null }
+  const bucket = truthBucketOf(run.status, run.counts)
   return {
+    status: bucket === null ? null : runStatusWord(bucket, run.counts, run.methods.length),
     finished: run.counts?.finished ?? null,
     total: run.methods.length,
     trainedOn: run.input_summary?.patients ?? null,
