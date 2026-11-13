@@ -410,6 +410,14 @@ export const gallery: ModuleGallery = {
       component: lazy(() => Promise.resolve({ default: () => <FStoryView runId="run-f-failed" /> })),
     },
     {
+      slug: 'txr-run-f-leak',
+      title: 'Running (screen F) — terminal failed snapshot with leaked-style reasons (ITEM-1 guard)',
+      note: 'qa-fixes4 ITEM-1 (results-r3 R3-results-2): a direct URL at a TERMINAL failed run renders the snapshot — the failed row\'s reason is the report\'s leaked wording (tool name + absolute path); the detail line passes the `safeText` guard, and the browser spec `txr-internal-text.spec.ts` asserts no text node leaks the tool name or the path.',
+      path: '/analysis/:runId/running',
+      initialPath: `/analysis/${'run-f-leak'}/running`,
+      component: lazy(() => Promise.resolve({ default: () => <FStoryView runId="run-f-leak" /> })),
+    },
+    {
       slug: 'txr-run-f-narrow-390',
       title: 'Running (screen F) at 390 px',
       note: 'The board\'s mobile width: the header, the strip and the table stack, the header actions stay inside the viewport, no horizontal page overflow.',

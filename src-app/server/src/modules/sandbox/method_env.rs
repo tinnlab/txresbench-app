@@ -890,9 +890,13 @@ impl MethodEnvManager {
             AppError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 ENV_TOOL_MISSING_CODE,
-                "oras is not installed (looked in <app_data>/bin and PATH); the method \
-                 environment cannot be downloaded — install oras or stage the environment \
-                 with TXR_ENV_ROOTFS_SQUASHFS__<env-id>",
+                // qa-fixes4 ITEM-1 (first-order wording): the old text named
+                // the tool, its search locations and a deployment env var —
+                // internal facts a user must never see. The API-boundary
+                // sanitiser (`modules::err_sanitiser`) is the backstop; the
+                // sentence itself is plain now (mirrors the report's own
+                // plain replacement).
+                "The method environment is not available yet",
             )
         })?;
         let cancel = self
@@ -1856,7 +1860,7 @@ fn oras_resolve(
         AppError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             ENV_TOOL_MISSING_CODE,
-            "oras is not installed (looked in <app_data>/bin and PATH)",
+            "The method environment is not available yet",
         )
     })?;
     let mut args = vec!["resolve".to_string()];

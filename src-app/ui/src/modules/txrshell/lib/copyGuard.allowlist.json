@@ -37,6 +37,26 @@
       "reason": "The same INV-8 fallback statement in the second component section — duplicate of the entry above (the schema is emitted twice)."
     },
     {
+      "file": "src-app/ui/openapi/openapi.json",
+      "line": "\"description\": \"One env's status (PROV-SS-4, CONS-EE-7). `bytes_downloaded` is polled from\\n the growing staged file (no oras-output parser — oras's progress format is\\n not a contract); `bytes_total` is `None` while no size is known (the caller\\n that holds the catalogue's `size_bytes` drives the user-visible progress\\n bar).\",",
+      "reason": "qa-fixes4 ITEM-1: the machine-inspection env-status API doc (PROV-SS-4) explains why the download progress is polled from the staged file, naming the internal tool the parser skips — API/developer-facing documentation, never rendered UI copy (rule (e))."
+    },
+    {
+      "file": "src-app/ui/openapi/openapi.json",
+      "line": "\"description\": \"The stacked-mode availability half of [`EnvIndexStatus`] (PROV-SS-5).\\n\\n `supported` is the host-capability bit the stacked mode shares with the\\n shipped sandbox (`SandboxAvailability::Ready` — bwrap + squashfuse + userns\\n / `/proc` are all probed at boot); the env-FETCH half (oras) is reported\\n separately in `tool_bins` + `reason` because a staged-or-cached deployment\\n runs without it (ITEM-6's preflight is the operator's checklist, DEC-16).\",",
+      "reason": "qa-fixes4 ITEM-1: the machine-inspection availability API doc (PROV-SS-5) naming the host probes and the env-fetch tool — API/developer-facing documentation, never rendered UI copy (rule (e))."
+    },
+    {
+      "file": "src-app/ui/openapi/openapi.json",
+      "line": "\"description\": \"The degradation note when something short of hard-unavailable is wrong\\n (e.g. `oras` not found for env downloads); `None` when nothing is noted.\",",
+      "reason": "qa-fixes4 ITEM-1: the machine-inspection degradation-note API doc naming the env-fetch tool — API/developer-facing documentation, never rendered UI copy (rule (e))."
+    },
+    {
+      "file": "src-app/ui/openapi/openapi.json",
+      "line": "\"description\": \"Map of the host tools the txr env fetch path resolves through\\n (`method_env::tool_bin`): `{ \\\"oras\\\": \\\"<path>\\\" | null }`. Machine-\\n readable so the admin view can render the exact gap; never trusted for\\n anything security-relevant.\"",
+      "reason": "qa-fixes4 ITEM-1: the machine-inspection tool-map API doc naming the env-fetch tool — API/developer-facing documentation, never rendered UI copy (rule (e))."
+    },
+    {
       "file": "src-app/ui/src/api-client/types.ts",
       "line": "/** The installer ships the file when true (INV-8 — the offline path). */",
       "reason": "Generated copy of the framework dataset-catalogue doc above (INV-8 bundled-asset path), developer-facing, rule (e)."
@@ -45,6 +65,56 @@
       "file": "src-app/ui/src/api-client/types.ts",
       "line": "*  the layer chosen (a failed refresh is silent — offline is a valid state —",
       "reason": "Generated copy of the framework dataset-catalogue doc above (INV-8 fallback), developer-facing, rule (e)."
+    },
+    {
+      "file": "src-app/ui/src/api-client/types.ts",
+      "line": "*  the growing staged file (no oras-output parser — oras's progress format is",
+      "reason": "Generated copy of the env-status API doc above (PROV-SS-4) naming the internal tool the parser skips — developer-facing, rule (e)."
+    },
+    {
+      "file": "src-app/ui/src/api-client/types.ts",
+      "line": "*  / `/proc` are all probed at boot); the env-FETCH half (oras) is reported",
+      "reason": "Generated copy of the availability API doc above (PROV-SS-5) naming the host probes and env-fetch tool — developer-facing, rule (e)."
+    },
+    {
+      "file": "src-app/ui/src/api-client/types.ts",
+      "line": "*  (e.g. `oras` not found for env downloads); `None` when nothing is noted.",
+      "reason": "Generated copy of the degradation-note API doc above naming the env-fetch tool — developer-facing, rule (e)."
+    },
+    {
+      "file": "src-app/ui/src/api-client/types.ts",
+      "line": "*  (`method_env::tool_bin`): `{ \"oras\": \"<path>\" | null }`. Machine-",
+      "reason": "Generated copy of the host-tool-map API doc above naming the env-fetch tool — developer-facing, rule (e)."
+    },
+    {
+      "file": "src-app/ui/src/modules/txrshell/lib/safeText.ts",
+      "line": "* - the `<app_data>` placeholder.",
+      "reason": "qa-fixes4 ITEM-1 (impl): this file IS the guard; its own doc comment states the placeholder pattern it refuses to render (rule (e) — developer-facing comment, never rendered)."
+    },
+    {
+      "file": "src-app/ui/src/modules/txrshell/lib/safeText.ts",
+      "line": "/** The `<app_data>` placeholder (the dev-machine app-data dir). */",
+      "reason": "qa-fixes4 ITEM-1 (impl): the guard's own constant doc naming the placeholder pattern it refuses to render (rule (e) — developer-facing comment)."
+    },
+    {
+      "file": "src-app/ui/src/modules/txrshell/lib/safeText.ts",
+      "line": "export const INTERNAL_PLACEHOLDER = /<app_data>/i",
+      "reason": "qa-fixes4 ITEM-1 (impl): the guard's own detection regex — the placeholder pattern is BY DEFINITION inside the guard, and matches nothing user-visible (the copy-guard scans raw text, rule (e))."
+    },
+    {
+      "file": "src-app/ui/src/modules/txrresults/fixtures.ts",
+      "line": "detail: 'oras is not installed (looked in /data/txr-live/bin and PATH)',",
+      "reason": "qa-fixes4 ITEM-1: fixture SEED data for the leak story (the browser spec's worst-case leaked wording) — a test input, never user-visible copy; the guard's own safeText + browser spec prove nothing renders it."
+    },
+    {
+      "file": "src-app/ui/src/modules/txrrun/fixtures.ts",
+      "line": "reason: { code: 'ENV_IMAGE_TOOL_MISSING', detail: 'oras is not installed (looked in /data/txr-live/bin and PATH)' },",
+      "reason": "qa-fixes4 ITEM-1: fixture SEED data for the F leak story (the browser spec's worst-case leaked wording) — a test input, never user-visible copy."
+    },
+    {
+      "file": "src-app/ui/src/modules/txrhistory/fixtures.ts",
+      "line": "detail: 'oras is not installed (looked in /data/txr-live/bin and PATH)',",
+      "reason": "qa-fixes4 ITEM-1: fixture SEED data for the history leak story (the browser spec's worst-case leaked wording) — a test input, never user-visible copy."
     }
   ]
 }

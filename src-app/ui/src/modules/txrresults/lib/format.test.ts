@@ -44,13 +44,13 @@ import {
   formatPct,
   formatProbSourceLine,
   formatReasonText,
-  formatSavedIn,
   formatSharedTopSentence,
   formatSubtitle,
   formatTaskLabel,
   formatTook,
   txrRunFailed,
 } from './format'
+import { SAFE_TEXT_GENERIC } from '@/modules/txrshell/lib/safeText'
 
 describe('formatTook (the subtitle duration)', () => {
   it('renders the boarded precise durations (TEST-UR-3 pins)', () => {
@@ -198,27 +198,19 @@ describe('formatReasonText (the cannot-run banner sentence, DEC-15)', () => {
   it('omits no sentence for any prior detail', () => {
     expect(formatReasonText('REQUIRED_MARKER_MISSING', 'LDH is not in your measurements')).toMatch(/\.$/)
   })
-})
 
-describe('formatSavedIn (the aside display path)', () => {
-  it('renders the run directory trimmed, with the board trailing slash', () => {
-    expect(formatSavedIn('/home/u1/.txresbench/analysis-2033-06-12-abcd1234')).toBe(
-      '/home/u1/.txresbench/analysis-2033-06-12-abcd1234/',
+  it('refuses to render an internal path or <app_data> detail (qa-fixes4 ITEM-1)', () => {
+    // The UI-side safeText guard (the server sanitiser's second line): a
+    // leaked absolute path or placeholder never reaches the screen.
+    expect(formatReasonText('ENV_TOOL_MISSING', 'oras is not installed (looked in /data/tmp/bin and PATH)')).toBe(
+      `${SAFE_TEXT_GENERIC}.`,
     )
-    expect(formatSavedIn('/home/u1/.txresbench/analysis-2033-06-12-abcd1234/')).toBe(
-      '/home/u1/.txresbench/analysis-2033-06-12-abcd1234/',
+    expect(formatReasonText('ENV_TOOL_MISSING', 'oras is not installed (looked in <app_data>/bin and PATH)')).toBe(
+      `${SAFE_TEXT_GENERIC}.`,
     )
-    expect(formatSavedIn('  /home/u1/.txresbench/analysis-2033-06-12-abcd1234/  ')).toBe(
-      '/home/u1/.txresbench/analysis-2033-06-12-abcd1234/',
+    expect(formatReasonText('ENV_UNKNOWN', 'no published environment on /usr/local/methods')).toBe(
+      `${SAFE_TEXT_GENERIC}.`,
     )
-    expect(formatSavedIn('/')).toBe('/')
-  })
-
-  it('returns null for a null, empty or whitespace path (the aside omits the line)', () => {
-    expect(formatSavedIn(null)).toBeNull()
-    expect(formatSavedIn(undefined)).toBeNull()
-    expect(formatSavedIn('')).toBeNull()
-    expect(formatSavedIn('   ')).toBeNull()
   })
 })
 

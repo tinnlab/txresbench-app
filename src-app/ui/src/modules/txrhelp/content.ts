@@ -446,7 +446,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     blocks: [
       {
         kind: 'paragraph',
-        text: 'The app keeps the run database, the per-run folders (your files, the trained models and the predictions), the saved models, the downloaded analysis environments and its cache.',
+        text: 'The app keeps the files you upload with each run, the predictions it makes, and the models you save.',
       },
       {
         kind: 'callout',

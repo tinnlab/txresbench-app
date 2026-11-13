@@ -679,7 +679,7 @@ describe('TxrHistoryDetailBlock + the composition helpers (TEST-HIST-7 — the f
 })
 
 describe('TxrHistoryFooter (TEST-HIST-7 — usage line + the two retention links)', () => {
-  it('renders the usage line from the usage record: count · mono data dir · bytes · the promise trail', () => {
+  it('renders the usage line from the usage record: count · bytes · the promise trail, no data dir (qa-fixes4 ITEM-1)', () => {
     const view = render(
       <TxrHistoryFooter
         usage={usage()}
@@ -692,7 +692,11 @@ describe('TxrHistoryFooter (TEST-HIST-7 — usage line + the two retention links
       />,
     )
     const line = view.getByTestId('txr-history-usage')
-    expect(line.textContent).toBe('3 runs · /data/txresbench uses 327 MB of stored files. Delete a run to free the space.')
+    // results-r3 R3-results-2: the `/data/txresbench` segment is gone —
+    // the data root is an internal host fact; what remains is the board's
+    // storage line without the path.
+    expect(line.textContent).toBe('3 runs · uses 327 MB of stored files. Delete a run to free the space.')
+    expect(line.textContent).not.toContain('/data/txresbench')
   })
 
   it('falls back to the list total for the count and omits the bytes/path segments when usage is unavailable', () => {

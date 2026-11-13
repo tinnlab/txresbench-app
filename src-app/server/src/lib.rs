@@ -192,6 +192,18 @@ async fn build_app(
         backstop_state,
         modules::account::backstop::ensure_personal_account_backstop,
     ));
+    // qa-fixes4 ITEM-1: the ONE user-facing error-message sanitiser at the
+    // txr modules' API boundary (engine, model store, history, catalogue,
+    // pretrained). Deliberately a WHOLE-APP layer with an internal route
+    // scope — a per-module `register_routes` layer would cover only the
+    // routes registered before that module and could not be ONE shared
+    // sanitiser; the middleware selects the txr surface by path and passes
+    // framework routes through untouched. It runs AFTER `finish_api`, so
+    // the OpenAPI spec (and the generated client) is unaware of it — the
+    // `internal_detail` field is a runtime-only addition, never rendered.
+    let app = app.layer(axum::middleware::from_fn(
+        modules::err_sanitiser::txr_json_boundary,
+    ));
     // Install the file-store request handle globally (the mountable file_routes
     // handlers extract `Extension<FileContext>`).
     let app = app.layer(axum::Extension(file_ctx));

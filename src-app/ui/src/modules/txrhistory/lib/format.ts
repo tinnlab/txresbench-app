@@ -51,6 +51,7 @@
  * shell (ITEM-1) and the footer (ITEM-4), pinned against the board
  * verbatim by TEST-HIST-6.
  */
+import { safeText } from '@/modules/txrshell/lib/safeText'
 import type { TxrEndpoint, TxrHistoryBucket, TxrRunMode, TxrRunReason } from '@/api-client/types'
 import type { TxrChipTone } from '../types'
 
@@ -64,10 +65,10 @@ export const HISTORY_SUBTITLE =
 
 /**
  * The footer usage line's trailing sentence: "… uses N MB of stored files.
- * Delete a run to free the space." — the size figure and the
- * path segment are the provider's (`TxrHistoryUsage`), composed by the
- * footer component; this constant keeps the storage line verbatim in one
- * place.
+ * Delete a run to free the space." — the size figure is the provider's
+ * (`TxrHistoryUsage`; qa-fixes4 ITEM-1: the `data_dir` path segment is
+ * no longer composed at all), set by the footer component; this constant
+ * keeps the storage line verbatim in one place.
  */
 export const HISTORY_USAGE_TRAIL = 'of stored files. Delete a run to free the space.'
 
@@ -262,8 +263,13 @@ export function endpointLabel(endpoint: TxrEndpoint, lookAheadDay: number): stri
  * bridge class; the provider-side fix is the regen's recorded owner).
  */
 export function reasonLine(bucket: TxrHistoryBucket, reason: TxrRunReason | null | undefined): string | null {
+  // qa-fixes4 ITEM-1: the detail passes through the UI-side `safeText`
+  // guard (the server sanitiser already made it plain; the guard is the
+  // never-render-a-path second line).
   const detail =
-    reason != null && reason.detail.trim().length > 0 ? reason.detail : NO_REASON_RECORDED
+    reason != null && reason.detail.trim().length > 0
+      ? safeText(reason.detail)
+      : NO_REASON_RECORDED
   switch (bucket) {
     case 'running':
     case 'finished':

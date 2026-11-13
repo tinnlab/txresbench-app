@@ -543,12 +543,50 @@ export const TXRRUN_RUN_F_FAILED: TxrRunDetail = runDetail({
   ],
 })
 
+/**
+ * qa-fixes4 ITEM-1 (results-r3 R3-results-2): the F leak story's run — a
+ * TERMINAL failed snapshot (a direct URL at a terminal run renders the
+ * snapshot) whose reason is the report's own leaked wording (tool name +
+ * absolute path). The page's detail line passes `safeText`, and the
+ * browser spec `txr-internal-text.spec.ts` asserts no text node leaks the
+ * tool name or the path. Deliberate fixture seed: the copy-guard's
+ * allow-list carries this line with its reason (fixture data, never
+ * user-visible copy).
+ */
+export const TXRRUN_RUN_LEAK: TxrRunDetail = runDetail({
+  id: 'run-f-leak',
+  dir: 'Documents/TxResBench/analysis-fx-2005',
+  status: 'failed',
+  elapsed_secs: 95,
+  estimate: {
+    schedule_seconds: TXRRUN_SCHEDULE_SECONDS,
+    total_seconds: TXRRUN_SCHEDULE_SECONDS,
+    estimate_quality: 'measured',
+  },
+  log_lines: 2,
+  methods: [
+    txrrunMethodRow('baseline-ctdna-detectability', 'failed', {
+      group: 'static-risk',
+      group_label: 'Static risk',
+      phase: 'env',
+      elapsed_secs: 95,
+      reason: { code: 'ENV_IMAGE_TOOL_MISSING', detail: 'oras is not installed (looked in /data/txr-live/bin and PATH)' },
+    }),
+    txrrunMethodRow('cox-ctdna-status-rfs', 'cannot_run', {
+      group: 'static-risk',
+      group_label: 'Static risk',
+      reason: { code: 'REQUIRED_MARKER_MISSING', detail: 'LDH is not in your measurements.' },
+    }),
+  ],
+})
+
 /** Every cassette-served run detail, keyed by run id (the mock's getRun table). */
 export const TXRRUN_RUN_DETAILS: Record<string, TxrRunDetail> = {
   [TXRRUN_RUN_F.id]: TXRRUN_RUN_F,
   [TXRRUN_RUN_F_WORKING.id]: TXRRUN_RUN_F_WORKING,
   [TXRRUN_RUN_F_FINISHED.id]: TXRRUN_RUN_F_FINISHED,
   [TXRRUN_RUN_F_FAILED.id]: TXRRUN_RUN_F_FAILED,
+  [TXRRUN_RUN_LEAK.id]: TXRRUN_RUN_LEAK,
 }
 
 /** The rows the stream route owns (the id-scoped mock route's claim). */

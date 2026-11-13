@@ -328,6 +328,37 @@ export const TXHISTORY_RUN_COPIES_CLEARED = fixtureRun(6, {
 })
 
 /**
+ * qa-fixes4 ITEM-1 (results-r3 R3-results-2, the help-r3 location row): the
+ * leak story's failed row — the reason is the report's own leaked wording
+ * (tool name + absolute path). The card's reason line passes `safeText`,
+ * and the browser spec `txr-internal-text.spec.ts` asserts no text node
+ * leaks the tool name or the path on `/history`. Deliberate fixture seed:
+ * the copy-guard's allow-list carries this line with its reason (fixture
+ * data, never user-visible copy).
+ */
+export const TXHISTORY_RUN_LEAK = fixtureRun(9, {
+  bucket: 'failed',
+  created_at: '2026-06-19T08:02:00Z',
+  method_count: 1,
+  methods: [fxMethodRow('baseline-ctdna-detectability')],
+  file_names: ['breast_panel.csv'],
+  learned_from: undefined,
+  predicted: undefined,
+  reason: {
+    code: 'ENV_IMAGE_TOOL_MISSING',
+    detail: 'oras is not installed (looked in /data/txr-live/bin and PATH)',
+  },
+  markers_saved: false,
+  copies_kept: true,
+  can_rerun: true,
+  can_reopen: false,
+  can_download: false,
+  models_made: { produced: 0, saved_sets: [] },
+  elapsed_secs: undefined,
+  estimate_total_seconds: undefined,
+})
+
+/**
  * The family inventory, newest first (server order): the four board rows
  * + the running row + the copy-cleared row — one consistent inventory
  * for every story's list view.

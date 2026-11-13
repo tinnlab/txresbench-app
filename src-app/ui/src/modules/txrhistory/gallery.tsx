@@ -72,6 +72,7 @@ import {
   TXHISTORY_RUN_BOARD_REUSE,
   TXHISTORY_RUN_BOARD_TRAIN,
   TXHISTORY_RUN_COPIES_CLEARED,
+  TXHISTORY_RUN_LEAK,
   TXHISTORY_RUN_RUNNING,
   TXHISTORY_USAGE,
   fixtureHistoryPage,
@@ -303,6 +304,20 @@ function seedCopiesCleared(): void {
   })
 }
 
+/** The ITEM-1 leak view: the one failed row whose reason is the report's
+ *  leaked wording (tool name + absolute path) — the card's reason line
+ *  must render the guarded generic sentence and nothing else (a text node
+ *  with the tool name or an absolute path is a regression). */
+function seedLeak(): void {
+  TxrHistory.reset()
+  extendCassette({
+    'History.listHistory': (ctx: MockRequestContext) =>
+      fixtureHistoryPage([TXHISTORY_RUN_LEAK], ctx.query),
+    'History.getUsage': () => fixtureUsage(1, 12 * 1024 * 1024),
+    'History.getPreferences': () => ({ keep_file_copies: true }),
+  })
+}
+
 /** The paging view: the 25-run family (page size 20 → a second page).
  *  The resolver records into the seam like the module cassette's own —
  *  the spec's limit/offset pins read the recorded calls. */
@@ -454,6 +469,19 @@ export const gallery: ModuleGallery = {
               apply={() => void TxrHistory.expand(TXHISTORY_RUN_COPIES_CLEARED.id)}
             />
           ),
+        }),
+      ),
+      fullHeight: true,
+    },
+    {
+      slug: 'txr-history-leak',
+      title: 'History — a failed row whose raw reason is internal text (ITEM-1 guard)',
+      note: 'qa-fixes4 ITEM-1 (results-r3 R3-results-2): the fixture reason is the report\'s leaked wording (tool name + absolute path); the card\'s reason line passes the `safeText` guard and the browser spec `txr-internal-text.spec.ts` asserts no text node leaks it — and the footer\'s usage line reads count · size with no data dir.',
+      path: '/*',
+      initialPath: '/history',
+      component: lazy(() =>
+        Promise.resolve({
+          default: () => <HistoryStory seed={seedLeak} />,
         }),
       ),
       fullHeight: true,

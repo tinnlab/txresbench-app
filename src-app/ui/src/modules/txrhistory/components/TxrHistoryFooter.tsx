@@ -1,11 +1,12 @@
 /**
  * TxrHistoryFooter — the K board's accountability footer (PROV-HIST-5):
- * the usage line (the run count + the data dir + the size + the board's
- * trailing promise — the count from the usage record, the path segment
- * only when the provider reports it, GAP-HIST-1 grown, never a
- * hardcoded path) and the two retention links: "Do not keep copies of
- * my files" ↔ "Keep copies of my files" (the preference's state) plus
- * the red "Clear all history".
+ * the usage line (the run count + the size + the board's trailing
+ * promise — the count from the usage record; qa-fixes4 ITEM-1,
+ * results-r3 R3-results-2: the mono `data_dir` segment is GONE — the
+ * data root is an internal host fact — the size stays, and the
+ * segment omits when the provider reports no usage) and the two
+ * retention links: "Do not keep copies of my files" ↔ "Keep copies of
+ * my files" (the preference's state) plus the red "Clear all history".
  *
  * The links REPORT, the page coordinates: the confirm dialog
  * (`TxrConfirmDialog`) is the destructive gate (INV-2 — the store's
@@ -17,8 +18,8 @@
  * The usage line's facts: count = `usage.run_count` (the provider's
  * engine-truth count); the DEC-3 fallback to the list's `total` when the
  * usage figure is unavailable keeps the board's "N runs" honest — the
- * bytes/path segments are the usage record's own and omit when it is
- * absent (never a fabricated figure, INV-6). A one-run count reads the
+ * bytes segment is the usage record's own and omits when it is absent
+ * (never a fabricated figure, INV-6). A one-run count reads the
  * singular.
  */
 import type { CSSProperties } from 'react'
@@ -37,12 +38,6 @@ const FOOTER: CSSProperties = {
   paddingTop: 8,
   fontSize: 13.5,
   color: 'var(--txr-muted)',
-}
-
-/** The mono data-dir segment (the board's path bytes). */
-const MONO: CSSProperties = {
-  fontFamily: "'Source Code Pro', monospace",
-  fontSize: 12.5,
 }
 
 /** The retention links row (the board's 18 px gap). */
@@ -95,8 +90,7 @@ export function TxrHistoryFooter({
         {usage !== null ? (
           <>
             {SEP}
-            <span style={MONO}>{usage.data_dir}</span>
-            {` uses ${formatBytes(usage.total_bytes)}`}
+            {`uses ${formatBytes(usage.total_bytes)}`}
           </>
         ) : null}
         {` ${HISTORY_USAGE_TRAIL}`}

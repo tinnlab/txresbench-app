@@ -53,6 +53,27 @@ const BANNED = [
   'another computer',
 ] as const
 
+/**
+ * The qa-fixes4 ITEM-1 sweep (results-r3 R3-results-2 + help-r3's location
+ * section): user-visible sources must not carry "app server", the "oras"
+ * tool name, the `<app_data>` placeholder or an absolute path of the common
+ * roots. Two of the four are the plan's pinned literal phrases; the path
+ * check is word-anchored (`(^|\s)/data/…`) on purpose — a module import
+ * like `'@/data/useModelInventory'` is code wiring, not user-visible copy,
+ * and an anchored check is what tells the two apart without an allow-list
+ * entry per import. `oras` is whole-word so a method id or a journal name
+ * containing it does not fire.
+ */
+const ITEM1_PATTERNS: ReadonlyArray<{ phrase: string; re: RegExp }> = [
+  { phrase: 'app server', re: /app server/i },
+  { phrase: 'oras', re: /\boras\b/i },
+  { phrase: '<app_data>', re: /<app_data>/i },
+  {
+    phrase: '/data/ (word-anchored)',
+    re: /(^|\s)\/(data|home|usr|var|tmp|opt)\//i,
+  },
+]
+
 /** The repo root, derived from the ui package cwd (vitest runs there). */
 const REPO_ROOT = resolve(process.cwd(), '../..')
 
@@ -119,6 +140,16 @@ const allowFilePath = join(
 )
 const ALLOW: AllowEntry[] = JSON.parse(readFileSync(allowFilePath, 'utf8')).entries
 
+/** The banned-phrase hits of one line (both sweep generations). */
+function phraseHits(line: string): string[] {
+  const lower = line.toLowerCase()
+  const hits = BANNED.filter(phrase => lower.includes(phrase))
+  for (const pattern of ITEM1_PATTERNS) {
+    if (pattern.re.test(line)) hits.push(pattern.phrase)
+  }
+  return hits
+}
+
 describe('location-neutral copy guard (TEST-QF2-2c)', () => {
   it('scans the named user-visible sources for the banned phrases', () => {
     expect(readFileSync(join(REPO_ROOT, 'README.md'), 'utf8').length).toBeGreaterThan(0)
@@ -137,7 +168,7 @@ describe('location-neutral copy guard (TEST-QF2-2c)', () => {
       const lines = readFileSync(join(REPO_ROOT, rel), 'utf8').split('\n')
       for (let i = 0; i < lines.length; i += 1) {
         const trimmed = lines[i].trim()
-        const hits = BANNED.filter(phrase => lines[i].toLowerCase().includes(phrase))
+        const hits = phraseHits(lines[i])
         if (hits.length === 0) continue
         const allowed = ALLOW.some(entry => entry.file === rel && entry.line === trimmed)
         if (!allowed) {
@@ -155,9 +186,9 @@ describe('location-neutral copy guard (TEST-QF2-2c)', () => {
       const match = lines.find(line => line.trim() === entry.line)
       expect(match !== undefined, `allow-list entry no longer matches: ${entry.file}`).toBe(true)
       expect(entry.reason.length).toBeGreaterThan(10)
-      const lower = (match ?? '').toLowerCase()
+      const hits = phraseHits(match ?? '')
       expect(
-        BANNED.some(phrase => lower.includes(phrase)),
+        hits.length > 0,
         `allow-list entry is not a banned phrase: ${entry.file}`,
       ).toBe(true)
     }

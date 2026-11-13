@@ -176,6 +176,19 @@ export const TXR_CANNOT_SPEC: FxMethodSpec = {
 /** The cannot-run banner's reason (the engine's sentence style, DEC-15). */
 export const TXR_CANNOT_REASON = { code: 'REQUIRED_MARKER_MISSING', detail: 'LDH is not in your measurements.' }
 
+/**
+ * qa-fixes4 ITEM-1: the leak story's reason — a producer's raw internal
+ * text (tool name + absolute path), EXACTLY the shape the round-3 report
+ * screenshotted (results-r3 R3-results-2). The UI's `safeText` guard (and
+ * the browser spec `txr-internal-text.spec.ts`) prove it is never
+ * rendered. Deliberate fixture seed: the copy-guard's allow-list carries
+ * this line with its reason (fixture data, never user-visible copy).
+ */
+export const TXR_LEAK_REASON = {
+  code: 'ENV_IMAGE_TOOL_MISSING',
+  detail: 'oras is not installed (looked in /data/txr-live/bin and PATH)',
+}
+
 /** The cannot story's two finished methods (one per outcome tab — the mixed case). */
 export const TXR_CANNOT_FINISHED: FxMethodSpec[] = [TXR_G_SPECS[11], TXR_G_SPECS[8]]
 
@@ -588,6 +601,24 @@ export const TXR_RUN_H_LONG: TxrRunDetail = runDetail({
   ],
 })
 
+/** The leak story's run: a terminal FAILED run (no predictions — the honest
+ *  failure state of screens G/H, qa-fixes2 R2-02) whose method reason is the
+ *  report's leaked text (ITEM-1). */
+export const TXR_RUN_FAILED_LEAK: TxrRunDetail = runDetail({
+  id: 'run-leak-1',
+  dir: 'Documents/TxResBench/analysis-fx-1009',
+  status: 'failed',
+  elapsed_secs: 95,
+  outcome: { endpoint: 'pfs', horizon: TXR_HORIZON, task_is_mixed: false },
+  methods: [
+    methodRow(TXR_CANNOT_SPEC, 'failed', {
+      reason: { ...TXR_LEAK_REASON },
+      elapsed_secs: 95,
+      phase: 'env',
+    }),
+  ],
+})
+
 /** Every cassette-served run detail, keyed by run id (the mock's `getRun` table). */
 export const TXR_RUNS: Record<string, TxrRunDetail> = {
   [TXR_RUN_G.id]: TXR_RUN_G,
@@ -600,6 +631,7 @@ export const TXR_RUNS: Record<string, TxrRunDetail> = {
   [TXR_RUN_EMPTY.id]: TXR_RUN_EMPTY,
   [TXR_RUN_G_LONG.id]: TXR_RUN_G_LONG,
   [TXR_RUN_H_LONG.id]: TXR_RUN_H_LONG,
+  [TXR_RUN_FAILED_LEAK.id]: TXR_RUN_FAILED_LEAK,
 }
 
 /** Every cassette-served predictions response, keyed by run id. */

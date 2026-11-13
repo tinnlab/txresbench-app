@@ -327,10 +327,13 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
     expect(view.getByTestId('txr-results-care').textContent).toContain(
       `learned on your ${PATIENTS.length + 160} patients`,
     )
-    expect(view.getByTestId('txr-results-saved-in').textContent).toContain(
-      '/home/u/.txresbench/analysis-2026-11-06-0000/',
-    )
-    expect(document.querySelector('[data-testid="txr-results-open-folder"]')).toBeNull()
+    // qa-fixes4 ITEM-1 (results-r3 R3-results-2): the aside's saved-in line
+    // and its open-folder action are GONE — the run dir is an internal host
+    // fact and appears nowhere on the compare/method pages, in web and
+    // desktop mode alike.
+    expect(view.queryByTestId('txr-results-saved-in')).toBeNull()
+    expect(view.queryByTestId('txr-results-open-folder')).toBeNull()
+    expect(view.textContent).not.toContain('/home/u/.txresbench/analysis-2026-11-06-0000/')
   })
 
   it('selects the active method tab from the URL segment (compare / method / unknown method, no crash)', async () => {
@@ -556,17 +559,17 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
     expect(state().chanceDialogOpen).toBe(true)
   })
 
-  it('the saved-in line shows the run dir and the open-folder action only on desktop (mocked both ways)', async () => {
+  it('the saved-in line is gone in web AND desktop mode (qa-fixes4 ITEM-1)', async () => {
     const view = await renderLoaded()
+    expect(view.queryByTestId('txr-results-saved-in')).toBeNull()
     expect(view.queryByTestId('txr-results-open-folder')).toBeNull()
+    expect(view.textContent).not.toContain('/home/u/.txresbench/analysis-2026-11-06-0000/')
     cleanup()
     platform.desktop = true
     const desktop = await renderLoaded()
-    expect(desktop.getByTestId('txr-results-open-folder')).toBeTruthy()
-    fireEvent.click(desktop.getByTestId('txr-results-open-folder'))
-    expect(desktop.getByTestId('txr-results-saved-in').textContent).toContain(
-      '/home/u/.txresbench/analysis-2026-11-06-0000/',
-    )
+    expect(desktop.queryByTestId('txr-results-saved-in')).toBeNull()
+    expect(desktop.queryByTestId('txr-results-open-folder')).toBeNull()
+    expect(desktop.textContent).not.toContain('/home/u/.txresbench/analysis-2026-11-06-0000/')
   })
 
   it('the one-method header saves THIS model (finished + produced) and emits txr:save-one-model-requested', async () => {

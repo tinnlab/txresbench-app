@@ -310,7 +310,7 @@ export function ResultsPage() {
                 <ErrorState
                   variant="page"
                   resource="the run"
-                  description="The results could not be loaded right now. Check that the app server is running, then try again."
+                  description="The results could not be loaded right now. Try again in a moment."
                   onRetry={errorRetry}
                   data-testid="txr-results-error"
                 />

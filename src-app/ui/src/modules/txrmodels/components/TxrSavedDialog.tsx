@@ -5,11 +5,10 @@
  * The summary reads the PROV-MS-3 response: "N models saved" (the count of
  * the response's saved rows — the models THIS call saved), the quoted set
  * name + the total size (the Σ of the saved rows' `size_bytes`,
- * `formatBytes` — never a blank, never "0 MB" for a missing fact) and the
- * "in …" where-segment (the REAL models root — `ModelListResponse.
- * models_dir`, CONS-UM-4's one-shot exposure; the board's
- * Documents/TxResBench/models/ path is a design example, INV-4 — the
- * where-segment is omitted when the server reports no root).
+ * `formatBytes` — never a blank, never "0 MB" for a missing fact).
+ * qa-fixes4 ITEM-1 (results-r3 R3-results-2): the board's "in …" segment
+ * (the real models root) is GONE — the dialog no longer fetches
+ * `models_dir` at all; where the files live is an internal host fact.
  *
  * The three actions (the board's words):
  *
@@ -24,11 +23,10 @@
  * Escape/backdrop close through the kit Dialog's `onOpenChange`.
  * Test-ids: `txr-models-saved-*`.
  */
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Dialog } from '@txresbench/kit'
 import type { ModelSaveResponse } from '@/api-client/types'
-import { ApiClient } from '@/api-client'
 import { useTxrIntakeStore } from '@/modules/txrintake'
 import { predictFilesPath } from '@/modules/txrrun'
 import { formatBytes } from '../lib/format'
@@ -50,13 +48,6 @@ const SUMMARY: CSSProperties = { margin: 0, fontSize: 13, color: 'var(--txr-text
 /** The lead paragraph's look. */
 const LEAD: CSSProperties = { margin: '6px 0 0', fontSize: 13, color: 'var(--txr-muted)' }
 
-/** The models root's mono look (the folder the models live in). */
-const PATH: CSSProperties = {
-  fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
-  fontSize: 12.5,
-  color: 'var(--txr-text-2)',
-}
-
 /** The separator between the summary's segments (the board's " · "). */
 const SEP = ' \u00b7 '
 
@@ -75,12 +66,16 @@ function summarySize(models: ReadonlyArray<ModelSaveResponse['models'][number]>)
   return formatBytes(total)
 }
 
-/** The summary line: the quoted set name, the size, the where-segment. */
-function summaryLine(response: ModelSaveResponse, modelsRoot: string | null): string {
+/**
+ * The summary line: the quoted set name + the size. qa-fixes4 ITEM-1
+ * (results-r3 R3-results-2): the board's "in <models_dir>" where-segment
+ * is GONE — the models root is an internal host fact and the dialog no
+ * longer fetches `models_dir` at all (what is saved matters, not where).
+ */
+function summaryLine(response: ModelSaveResponse): string {
   const parts = [`\u201c${response.set.name}\u201d`]
   const size = summarySize(response.models)
   if (size !== null) parts.push(size)
-  if (modelsRoot !== null) parts.push(`in ${modelsRoot}`)
   return parts.join(SEP)
 }
 
@@ -93,32 +88,6 @@ export interface TxrSavedDialogProps {
 
 export function TxrSavedDialog({ response, onClose }: TxrSavedDialogProps) {
   const navigate = useNavigate()
-  const [modelsRoot, setModelsRoot] = useState<string | null>(null)
-  const dirEpoch = useRef(0)
-
-  // The one extra fact: the real models folder (CONS-UM-4's one-shot
-  // `models_dir`) — the where-segment of the board's summary line. A
-  // failure degrades to the pathless sentence (the segment omits), never
-  // blocks the confirmation.
-  useEffect(() => {
-    if (response === null) {
-      setModelsRoot(null)
-      return
-    }
-    const my = ++dirEpoch.current
-    void ApiClient.Models.listModels({})
-      .then(list => {
-        if (my !== dirEpoch.current) return
-        setModelsRoot(list.models_dir ?? null)
-      })
-      .catch(() => {
-        if (my !== dirEpoch.current) return
-        setModelsRoot(null)
-      })
-    return () => {
-      dirEpoch.current += 1
-    }
-  }, [response])
 
   const predictWithThem = (): void => {
     if (response === null) return
@@ -155,7 +124,7 @@ export function TxrSavedDialog({ response, onClose }: TxrSavedDialogProps) {
       }
     >
       <p data-testid="txr-models-saved-summary" style={SUMMARY}>
-        <span style={PATH}>{response === null ? '' : summaryLine(response, modelsRoot)}</span>
+        {response === null ? '' : summaryLine(response)}
       </p>
       <p data-testid="txr-models-saved-lead" style={LEAD}>
         {LEAD_TEXT}

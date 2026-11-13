@@ -27,6 +27,7 @@
  * from the results subtitle's precise "11 minutes 20 seconds"; no cross-node
  * seam is created for it.
  */
+import { safeText } from '@/modules/txrshell/lib/safeText'
 import type { TxrOutcomeKey } from '../types'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -274,31 +275,12 @@ export function formatReasonText(
 ): string {
   void code
   const d = detail?.trim()
-  if (d && d.length > 0) return ensureSentenceEnd(d)
+  // qa-fixes4 ITEM-1: the UI-side `safeText` guard is the second line
+  // behind the server's API-boundary sanitiser — a leaked absolute path /
+  // the app-data placeholder is never rendered (the browser regression
+  // test feeds a leaked detail through this exact formatter).
+  if (d && d.length > 0) return ensureSentenceEnd(safeText(d))
   return ensureSentenceEnd(REASON_FALLBACK)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// `formatSavedIn` — the "Saved in <path>" display path
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * The run directory as the H aside's "Saved in" line shows it (the board's
- * mono span, `Results.dc.html`: "Documents/TxResBench/analysis-2026-10-21-1002/").
- * The engine's `run.dir` is the absolute path the run lives at (D01's hidden
- * app-data folder); this formatter returns it trimmed, with exactly one
- * trailing slash so the folder presentation matches the board's span. A
- * null/empty/whitespace dir → `null` (the aside omits the line — never a
- * blank path). The board's "Documents/TxResBench/…" shortening is a design
- * example; the real configured path renders as-is.
- */
-export function formatSavedIn(dir: string | null | undefined): string | null {
-  if (dir === null || dir === undefined) return null
-  const trimmed = dir.trim()
-  if (trimmed.length === 0) return null
-  const withoutSlash = trimmed.replace(/\/+$/, '')
-  if (withoutSlash.length === 0) return '/'
-  return `${withoutSlash}/`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

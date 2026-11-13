@@ -10,7 +10,7 @@ import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, compareReport, divergentPatients, sortByFirstMethod, viewOf } from '../lib/heatmap'
-import { compareResultsPath, methodResultsPath, downloadPredictionsCsv, revealRunDir } from '../index'
+import { compareResultsPath, methodResultsPath, downloadPredictionsCsv } from '../index'
 import { formatConstantNote, formatMixedOutcomeNote, formatNoChanceNote, txrRunFailed } from '../lib/format'
 import { subtitleFactsOf, TxrResultsBar, TxrResultsHeader } from '../components/TxrResultsHeader'
 import { TxrCannotRunBanner } from '../components/TxrCannotRunBanner'
@@ -33,10 +33,11 @@ import type { TxrOutcomeKey } from '../types'
  * URL-as-view INV-6), the outcome tabs, the patient × method bar table
  * (sorted by the FIRST method, DEC-6), the two-method compare card with the
  * divergent-only toggle (compare tab), the explanatory aside
- * (TxrMethodAside + the chance dialog + the saved-in/open-folder line) and
- * the header actions (the H board's "Download predictions (CSV)", the
- * one-method "Save this model" — SaveOne board — or the run's
- * "Save the models (N)", New analysis).
+ * (TxrMethodAside + the chance dialog) and the header actions (the H
+ * board's "Download predictions (CSV)", the one-method "Save this model" —
+ * SaveOne board — or the run's "Save the models (N)", New analysis).
+ * qa-fixes4 ITEM-1: the aside's saved-in/open-folder line is removed (the
+ * run dir is an internal host fact — results-r3 R3-results-2).
  *
  * The page owns the same state machine as screen G (DEC-18 — both results
  * URLs share it): 404 → not-found, detail/predictions network failure →
@@ -390,7 +391,7 @@ export function MethodResultsPage() {
                 <ErrorState
                   variant="page"
                   resource="the run"
-                  description="The results could not be loaded right now. Check that the app server is running, then try again."
+                  description="The results could not be loaded right now. Try again in a moment."
                   onRetry={errorRetry}
                   data-testid="txr-results-error"
                 />
@@ -628,12 +629,10 @@ export function MethodResultsPage() {
                     </>
                   ) : null}
                   <TxrMethodAside
-                    dir={run.dir ?? null}
                     trainedOn={run.input_summary?.patients ?? null}
                     method={activeColumn}
                     onShowLog={activeColumn ? method => TxrResults.openLog(method) : undefined}
                     onOpenChance={() => TxrResults.openChanceDialog(true)}
-                    onOpenFolder={dir => void revealRunDir(dir)}
                   />
                 </aside>
               </div>

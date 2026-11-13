@@ -47,6 +47,7 @@ import type {
   TxrRunProgressFrame,
   TimingQuality,
 } from '@/api-client/types'
+import { safeText } from '@/modules/txrshell/lib/safeText'
 import type { TxrRunBucket } from '../types'
 
 /**
@@ -231,10 +232,12 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
       return formatBytes(r.bytes_downloaded, total)
     }
     case 'running':
-      return progress?.message ?? ''
+      // qa-fixes4 ITEM-1: the frame's message passes the UI-side `safeText`
+      // guard too (a producer's path would never be rendered).
+      return safeText(progress?.message ?? '')
     case 'failed':
     case 'cannot_run':
-      return r.reason?.detail ?? 'no reason recorded'
+      return safeText(r.reason?.detail ?? 'no reason recorded')
     default:
       return ''
   }

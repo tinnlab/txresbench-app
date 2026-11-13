@@ -5,6 +5,12 @@
 
 pub mod permissions;
 
+// TxResBench: the ONE user-facing error-message sanitiser at the API
+// boundary of the txr modules (qa-fixes4 ITEM-1) — no absolute path, no
+// `<app_data>` placeholder, no internal tool name reaches the UI; the full
+// text stays in the log and in the un-rendered `internal_detail` field.
+pub mod err_sanitiser;
+
 // TxResBench: the account/user-management/admin/billing SaaS modules were removed
 // along with their registrations (single-user local app — see dev/docs/app-build-strip.md).
 pub mod account;
