@@ -4,7 +4,7 @@
 //! |---|---|---|
 //! | `POST /api/account-invitations/accept` | authenticated only (the TOKEN is the capability) | INV-9 (indistinguishable misses), INV-EMAIL-BIND, INV-6 (the TOCTOU ceiling), INV-10 (seats, accept half), INV-17 (single-use + atomic), INV-18 (body-only transport), INV-NO-REGISTER-CHANGE |
 //!
-//! Realizes `docs/research/account-self-service-membership.md` §4.5 (branch
+//! Realizes (the account self-service-membership research, §4.5, branch
 //! `spike/research-account-membership`) and issue #146.
 //!
 //! # Standing rules for this suite (inherited verbatim from `account_invitations_test.rs`)
@@ -1366,8 +1366,7 @@ async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_bac
     // SQLite port: the plpgsql fault FUNCTION has no SQLite form; the trigger body is
     // `SELECT RAISE(ABORT, …)` directly (the SQLite-native way to abort a statement).
     // `LowerHex` for Uuid renders the HYPHENATED form; `hex()` renders none — the
-    // hyphens must be stripped or the WHEN clause never matches (the ITEM-25 record;
-    // see `workstore/axis_identity_test` for the same idiom).
+    // hyphens must be stripped or the WHEN clause never matches (the ITEM-25 record).
     let inv_hex = format!("{:x}", inv).replace('-', "");
     sqlx::query(&format!(
         "CREATE TRIGGER txr_test_accept_fault BEFORE UPDATE ON account_invitations \
@@ -2279,9 +2278,11 @@ async fn a_successful_accept_writes_one_joined_row_tied_to_its_invitation() {
 // ===========================================================================
 /// The widened `add_member_in_tx` is **behaviour-preserving for its pre-existing caller**.
 ///
-/// Driven through the REAL admin route (`POST /api/admin/accounts/{id}/members`), not
-/// through the repository, so what is proven is the shipped surface: the add still succeeds,
-/// still writes exactly one `joined` ledger row, and that row's `invitation_id` is NULL.
+/// Driven through the retained repository function the removed admin route
+/// (`POST /api/admin/accounts/{id}/members`) delegated to — the admin route has no
+/// object on this node (stripped, DRIFT-1.25) — so what is proven is the same add
+/// still succeeds, still writes exactly one `joined` ledger row, and that row's
+/// `invitation_id` is NULL.
 #[tokio::test]
 async fn the_admin_add_path_still_writes_a_joined_row_with_no_invitation_id() {
     let f = fixture("i17c").await;

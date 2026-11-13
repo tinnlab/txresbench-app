@@ -35,7 +35,7 @@
  *
  * ── THE RULE ──────────────────────────────────────────────────────────────────
  *
- * In first-party frontend source (`src-app/ui/src`, `src-app/libs/<p>/src`),
+ * In first-party frontend source (`src-app/ui/src`),
  * a JSX opening tag for `button` / `input` / `select` / `textarea` is a violation.
  * The `sdk/` submodule is not scanned: the kit is where these elements are
  * DEFINED, and that is the whole point of having a kit.
@@ -92,8 +92,10 @@ export const OPT_OUT_MARKER = 'native-control-ok'
 const MARKER_LOOKBACK = 3
 
 /** Collapse detector. A guard that scanned (almost) nothing must not pass.
- *  Measured 2026-08-09: 1063 first-party `.ts`/`.tsx` files. */
-export const MIN_SCANNED_FILES = 700
+ *  Measured 2026-08-09: 1063 first-party `.ts`/`.tsx` files.
+ *  STRIP (single-cell) RE-MEASURED 433 on the ITEM-4 tree (the workbench/dock/viz/mcp
+ *  single-cell modules left); LOWERED 700 -> 289 (≈2/3 of 433). */
+export const MIN_SCANNED_FILES = 289
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', 'coverage', '.vite', '.git'])
 const SCAN_EXT = /\.(ts|tsx)$/

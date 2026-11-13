@@ -1,16 +1,19 @@
-//! Squashfuse mount of the extracted analysis rootfs + schema-version probe.
+//! Squashfuse mount of a content-digest-cached squashfs + schema-version probe.
 //!
 //! Mirrors txresbench `code_sandbox/runtime_mount.rs::mount_if_needed` (idempotency,
 //! dead-FUSE clear, `PR_SET_PDEATHSIG` so the FUSE daemon dies with the server,
-//! bounded mount-visibility wait), collapsed to a SINGLE rootfs (no per-flavor
-//! map — DEC-2). Linux-only (the sandbox is Linux-first — DEC-3); other targets
-//! return `Unsupported` and the sandbox self-disables.
+//! bounded mount-visibility wait), collapsed to the content-digest cache
+//! (no per-flavor map — DEC-2). strip-single-cell ITEM-3: the EMBEDDED-rootfs
+//! mount arm (`ensure_mounted`, the extract-from-the-binary path) was removed
+//! with the analysis-rootfs embedding; the digest-keyed [`mount_at`] stays — it
+//! is what the txr method environments mount through
+//! ([`crate::modules::rootfs::ensure_ready_by_digest`]). Linux-only (the sandbox
+//! is Linux-first — DEC-3); other targets return `Unsupported`.
 
 use std::path::{Path, PathBuf};
 
 use txresbench_core::AppError;
 
-use super::embedded::ExtractedRootfs;
 use super::version::{ROOTFS_SCHEMA_MARKER, ROOTFS_SCHEMA_VERSION};
 
 /// Compare the mounted rootfs's schema marker content against the embedded
@@ -68,13 +71,6 @@ mod linux {
 
     fn registry() -> &'static Mutex<Vec<Mounted>> {
         MOUNTS.get_or_init(|| Mutex::new(Vec::new()))
-    }
-
-    /// Mount (idempotently) the extracted EMBEDDED squashfs read-only and return
-    /// the mount dir (`<extracted.dir>/mnt`). Enforces the current-schema probe
-    /// (the embedded rootfs MUST match the binary's `ROOTFS_SCHEMA_VERSION`).
-    pub fn ensure_mounted(extracted: &ExtractedRootfs) -> Result<PathBuf, AppError> {
-        mount_at(&extracted.squashfs_path, &extracted.dir.join("mnt"), true)
     }
 
     /// Mount a squashfs (given its path + target mount dir) read-only.
@@ -252,10 +248,6 @@ mod portable {
         )
     }
 
-    pub fn ensure_mounted(_extracted: &ExtractedRootfs) -> Result<PathBuf, AppError> {
-        Err(unsupported())
-    }
-
     pub fn mount_at(
         _squashfs_path: &Path,
         _mount_dir: &Path,
@@ -272,9 +264,9 @@ mod portable {
 }
 
 #[cfg(target_os = "linux")]
-pub use linux::{ensure_mounted, is_mounted, mount_at, teardown};
+pub use linux::{is_mounted, mount_at, teardown};
 #[cfg(not(target_os = "linux"))]
-pub use portable::{ensure_mounted, is_mounted, mount_at, teardown};
+pub use portable::{is_mounted, mount_at, teardown};
 
 #[cfg(test)]
 mod tests {

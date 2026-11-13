@@ -1,7 +1,13 @@
 //! Auth + gated-route integration tests over the SDK harness. Proves the full
 //! production path end-to-end through a real spawned server + real Postgres:
 //! first-run setup → JWT mint → `/auth/me` → a `RequirePermissions`-gated route
-//! on a NON-auth module (users) resolving the injected identity resolver.
+//! on a NON-auth module resolving the injected identity resolver.
+//!
+//! ITEM-3: the platform `/projects` route the suite used as its gated-route
+//! vehicle is gone with the project module; `/api/txr/runs` (the execution
+//! engine's list route, `RequirePermissions<(JobsUse,)>`) is the kept route with
+//! the same property — its ONLY authorization path is the framework permission
+//! extractor, and the Users group holds `jobs::use` by default.
 
 use serde_json::{json, Value};
 
@@ -67,20 +73,20 @@ async fn make_user(server: &TestServer, admin: &str, name: &str) -> String {
         .to_string()
 }
 
-/// `GET /projects` — a `RequirePermissions<(ProjectsUse,)>`-gated route on a
+/// `GET /api/txr/runs` — a `RequirePermissions<(JobsUse,)>`-gated route on a
 /// NON-auth module, i.e. one whose ONLY authorization path is the framework
 /// permission extractor (`DefaultIdentityResolver::authenticate`). Deliberately
 /// not `/auth/me` or any `JwtAuth`-gated route: those go through
 /// `assert_token_version_current`, a DIFFERENT epoch check, and would pass even
 /// with the resolver broken.
-async fn get_projects_status(server: &TestServer, token: &str) -> u16 {
+async fn get_runs_status(server: &TestServer, token: &str) -> u16 {
     server
         .client
-        .get(server.api_url("/projects"))
+        .get(server.api_url("/txr/runs"))
         .bearer_auth(token)
         .send()
         .await
-        .expect("/projects request")
+        .expect("/txr/runs request")
         .status()
         .as_u16()
 }
@@ -122,19 +128,19 @@ async fn setup_admin_then_login_me_and_gated_users() {
         .expect("setup response carries an access token")
         .to_string();
 
-    // A `RequirePermissions`-gated route on the USER module, unauthenticated →
+    // A `RequirePermissions`-gated route on a non-auth module, unauthenticated →
     // 401 (proves the resolver Extension reaches non-auth routes; a broken wire
     // would 500 "missing extension" or 404).
     let unauth = server
         .client
-        .get(server.api_url("/projects"))
+        .get(server.api_url("/txr/runs"))
         .send()
         .await
-        .expect("unauth /projects request");
+        .expect("unauth /txr/runs request");
     assert_eq!(
         unauth.status().as_u16(),
         401,
-        "/projects without a token is 401"
+        "/txr/runs without a token is 401"
     );
 
     // /auth/me with the token → 200 + our user (resolver validates the JWT).
@@ -192,12 +198,12 @@ async fn logout_revokes_the_access_token_on_gated_routes() {
     // Both tokens work on the gated route BEFORE anyone logs out. Without this
     // the 401 below could mean "alice's token was never valid".
     assert_eq!(
-        get_projects_status(&server, &alice).await,
+        get_runs_status(&server, &alice).await,
         200,
         "alice's fresh token must pass the gated route"
     );
     assert_eq!(
-        get_projects_status(&server, &bob).await,
+        get_runs_status(&server, &bob).await,
         200,
         "bob's fresh token must pass the gated route"
     );
@@ -216,18 +222,18 @@ async fn logout_revokes_the_access_token_on_gated_routes() {
     // The SAME captured token, re-used on the SAME gated route → rejected.
     let after = server
         .client
-        .get(server.api_url("/projects"))
+        .get(server.api_url("/txr/runs"))
         .bearer_auth(&alice)
         .send()
         .await
-        .expect("post-logout /projects request");
+        .expect("post-logout /txr/runs request");
     assert_eq!(
         after.status().as_u16(),
         401,
         "a logged-out user's access token must be rejected on a \
          RequirePermissions-gated route, not honored until exp"
     );
-    let body: Value = after.json().await.expect("post-logout /projects json");
+    let body: Value = after.json().await.expect("post-logout /txr/runs json");
     assert_eq!(
         body["error_code"], "SESSION_REVOKED",
         "the rejection must be the revocation check, not some other 401: {body}"
@@ -236,7 +242,7 @@ async fn logout_revokes_the_access_token_on_gated_routes() {
     // Negative control: bob never logged out, so his epoch still matches and
     // his token must still pass in the same window.
     assert_eq!(
-        get_projects_status(&server, &bob).await,
+        get_runs_status(&server, &bob).await,
         200,
         "another user's token must NOT be revoked by alice's logout"
     );
@@ -315,7 +321,7 @@ async fn admin_password_reset_revokes_the_targets_existing_sessions() {
 
     // --- NEGATIVE CONTROL: both credentials work BEFORE the reset. ---
     assert_eq!(
-        get_projects_status(&server, &victim_access).await,
+        get_runs_status(&server, &victim_access).await,
         200,
         "the victim's access token must pass before the reset"
     );
@@ -351,11 +357,11 @@ async fn admin_password_reset_revokes_the_targets_existing_sessions() {
     //     the pre-strip admin reset also bumped the epoch; that path is gone. ---
     let after = server
         .client
-        .get(server.api_url("/projects"))
+        .get(server.api_url("/txr/runs"))
         .bearer_auth(&victim_access)
         .send()
         .await
-        .expect("post-change /projects");
+        .expect("post-change /txr/runs");
     assert_eq!(
         after.status().as_u16(),
         200,
@@ -374,7 +380,7 @@ async fn admin_password_reset_revokes_the_targets_existing_sessions() {
 
     // --- NEGATIVE CONTROL: an uninvolved user is untouched. ---
     assert_eq!(
-        get_projects_status(&server, &bystander_access).await,
+        get_runs_status(&server, &bystander_access).await,
         200,
         "another user's access token must survive the victim's reset"
     );
@@ -387,7 +393,7 @@ async fn admin_password_reset_revokes_the_targets_existing_sessions() {
     // --- And the reset did what it says: the NEW password is the live one. ---
     let (fresh_access, _) = login_pair(&server, "victim", "brandNewPassw0rd!").await;
     assert_eq!(
-        get_projects_status(&server, &fresh_access).await,
+        get_runs_status(&server, &fresh_access).await,
         200,
         "the victim can sign in again with the new password"
     );

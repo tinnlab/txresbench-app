@@ -219,9 +219,9 @@ pub struct MethodRunRequest {
     pub timeout_secs: Option<u64>,
 }
 
-/// Outcome of one stacked run (PROV-SS-1). `exit_code` etc. mirror the shipped
-/// `SandboxRunResult`; the digests + model facts are the method-run extras
-/// (INV-6).
+/// Outcome of one stacked run (PROV-SS-1). The `exit_code`/`stdout`/`stderr`/
+/// `timed_out` fields carry the same facts the removed batch `SandboxRunResult`
+/// carried; the digests + model facts are the method-run extras (INV-6).
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct MethodRunResult {
     pub exit_code: i32,

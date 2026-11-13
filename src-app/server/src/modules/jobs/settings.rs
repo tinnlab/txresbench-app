@@ -2,9 +2,9 @@
 //! slots).
 //!
 //! Mirrors txresbench-auth's `SessionSettingsRepository`: a single `id = TRUE` row,
-//! partial COALESCE update, read-at-use (the scheduler reads it every tick, with
-//! a safe fallback on DB error so the hot path never breaks). Compile-time
-//! `query_as!` macros (SDK gap G4 resolved).
+//! partial COALESCE update, read-at-use (the execution engine reads the cap at
+//! admit/claim time, with a safe fallback on DB error so the hot path never
+//! breaks). Compile-time `query_as!` macros (SDK gap G4 resolved).
 //!
 //! SQLite driver (sqlite-store DEC-1): the INTEGER-affinity columns keep their
 //! Rust field types spelled out (`max_concurrent_jobs as "…: i32"` — the sqlite
@@ -12,21 +12,17 @@
 //! `now()` → `strftime('%Y-%m-%dT%H:%M:%fZ','now')` rewrite. `id = TRUE` is
 //! legal SQLite 3.46 (TRUE is the integer 1) and is kept verbatim.
 
-use std::time::Duration;
-
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 use txresbench_core::AppError;
 
 use super::models::{JobSettings, UpdateJobSettingsRequest};
-use super::scheduler::ReaperLimits;
 
 /// The safe default concurrency if the settings row can't be read.
 pub const DEFAULT_MAX_CONCURRENT: i32 = 2;
 /// Inclusive bounds for `max_concurrent_jobs` (matches the DB CHECK).
 pub const MIN_MAX_CONCURRENT: i32 = 1;
-pub const MAX_MAX_CONCURRENT: i32 = 64;
 /// The safe default reserved interactive slots if the row can't be read.
 pub const DEFAULT_RESERVED_INTERACTIVE: i32 = 1;
 /// The safe default per-tenant concurrency cap if the settings row can't be read (T4 §6).
@@ -35,68 +31,24 @@ pub const DEFAULT_PER_TENANT_MAX_CONCURRENT: i32 = 2;
 pub const MIN_PER_TENANT_MAX_CONCURRENT: i32 = 1;
 pub const MAX_PER_TENANT_MAX_CONCURRENT: i32 = 64;
 
-// ── SSE + admission knobs (#54). Defaults EXACTLY equal the compiled constants
-// they replace, so a never-PUT deployment is byte-identical (INV-1). Bounds are the
-// guardrails (DEC-3): an admin must not be able to set a hang or an OOM.
+// ── SSE + admission knob bounds (#54). The stored singleton keeps the columns;
+// the validators below are the read/update gate for the admin PUT surface of
+// the platform — the values changed only through that surface, which is
+// stripped, so the knobs remain stored-but-frozen. Bounds are the guardrails
+// (DEC-3): an admin must not be able to set a hang or an OOM.
 
-/// SSE heartbeat interval, seconds. Default == the axum `KeepAlive::default()` (15s).
-pub const DEFAULT_SSE_KEEP_ALIVE_SECS: i64 = 15;
+/// SSE heartbeat interval bounds, seconds (DB CHECK mirrors these).
 pub const MIN_SSE_KEEP_ALIVE_SECS: i64 = 1;
 pub const MAX_SSE_KEEP_ALIVE_SECS: i64 = 300;
-/// Global per-job SSE subscriber cap. Default == `runtime::MAX_SSE_CLIENTS` (256).
-pub const DEFAULT_SSE_MAX_CLIENTS: i32 = 256;
+/// Global per-job SSE subscriber cap bounds.
 pub const MIN_SSE_MAX_CLIENTS: i32 = 1;
 pub const MAX_SSE_MAX_CLIENTS: i32 = 4096;
-/// Detached-admit wait budget, seconds. Default == `admission::ADMISSION_WAIT` (15s).
-pub const DEFAULT_ADMISSION_WAIT_SECS: i64 = 15;
+/// Detached-admit wait budget bounds, seconds.
 pub const MIN_ADMISSION_WAIT_SECS: i64 = 1;
 pub const MAX_ADMISSION_WAIT_SECS: i64 = 60;
-/// Admit poll interval, ms. Default == `admission::ADMISSION_POLL` (250ms).
-pub const DEFAULT_ADMISSION_POLL_MS: i64 = 250;
+/// Admit poll interval bounds, ms.
 pub const MIN_ADMISSION_POLL_MS: i64 = 10;
 pub const MAX_ADMISSION_POLL_MS: i64 = 10_000;
-
-// ── Scheduler/reaper timing knobs (#56). Defaults EXACTLY equal the compiled
-// `scheduler::ReaperLimits::default()` + the two inline tick literals, so a never-PUT
-// deployment is byte-identical (INV-5). Bounds are guardrails (DEC-2/DEC-3).
-
-/// Worker heartbeat cadence, seconds. Default == `ReaperLimits::default().heartbeat` (10s).
-pub const DEFAULT_HEARTBEAT_SECS: i64 = 10;
-pub const MIN_HEARTBEAT_SECS: i64 = 1;
-pub const MAX_HEARTBEAT_SECS: i64 = 60;
-/// Reaper sweep cadence, seconds. Default == `ReaperLimits::default().reaper_tick` (15s).
-pub const DEFAULT_REAPER_TICK_SECS: i64 = 15;
-pub const MIN_REAPER_TICK_SECS: i64 = 1;
-pub const MAX_REAPER_TICK_SECS: i64 = 300;
-/// Stale-reclaim threshold, seconds. Default == `ReaperLimits::default().stale_threshold` (45s).
-pub const DEFAULT_STALE_THRESHOLD_SECS: i64 = 45;
-pub const MIN_STALE_THRESHOLD_SECS: i64 = 5;
-pub const MAX_STALE_THRESHOLD_SECS: i64 = 3600;
-/// The reaper safety guardrail (INV-4 / DEC-3): the stale threshold must be at least this many
-/// heartbeat intervals, so a still-live worker (which beats every `heartbeat_secs`) is NEVER
-/// reclaimed. The compiled default is 4.5×; 3× is the conservative hard floor.
-///
-/// This value is duplicated as the literal `3` in the migration's
-/// `job_settings_stale_threshold_bounds` DB CHECK — the two MUST stay in sync (the CHECK is the
-/// DB twin of this const). Changing one without the other lets a value pass one layer and fail
-/// the other.
-pub const STALE_HEARTBEAT_MULTIPLE: i64 = 3;
-/// Poison-job discard-at-max. Default == `ReaperLimits::default().max_reclaims` (5).
-pub const DEFAULT_MAX_RECLAIMS: i32 = 5;
-pub const MIN_MAX_RECLAIMS: i32 = 1;
-pub const MAX_MAX_RECLAIMS: i32 = 100;
-/// Bounded reclaim/discard batch per sweep. Default == `ReaperLimits::default().reclaim_batch` (100).
-pub const DEFAULT_RECLAIM_BATCH: i64 = 100;
-pub const MIN_RECLAIM_BATCH: i64 = 1;
-pub const MAX_RECLAIM_BATCH: i64 = 10_000;
-/// Dispatch (claim) loop cadence, ms. Default == the inline `interval(from_millis(500))`.
-pub const DEFAULT_DISPATCH_TICK_MS: i64 = 500;
-pub const MIN_DISPATCH_TICK_MS: i64 = 50;
-pub const MAX_DISPATCH_TICK_MS: i64 = 60_000;
-/// CPU/RSS metric sampling cadence, seconds. Default == the inline `interval(from_secs(1))`.
-pub const DEFAULT_METRIC_TICK_SECS: i64 = 1;
-pub const MIN_METRIC_TICK_SECS: i64 = 1;
-pub const MAX_METRIC_TICK_SECS: i64 = 60;
 
 pub struct JobSettingsRepository {
     pool: SqlitePool,
@@ -185,51 +137,6 @@ impl JobSettingsRepository {
         .map_err(AppError::database_error)
     }
 
-    /// Read-at-use (keep-alive interval, subscriber cap) for the SSE stream handler
-    /// (INV-5). Falls back to the const defaults on any DB error so the hot path never
-    /// breaks (byte-preserving, INV-1). `sse_max_clients` is floored at its minimum.
-    pub async fn sse_config(&self) -> (Duration, usize) {
-        match self.get().await {
-            Ok(s) => (
-                Duration::from_secs(s.sse_keep_alive_secs.max(MIN_SSE_KEEP_ALIVE_SECS) as u64),
-                s.sse_max_clients.max(MIN_SSE_MAX_CLIENTS) as usize,
-            ),
-            Err(e) => {
-                tracing::warn!(error = ?e, "job_settings read failed; using default SSE config");
-                (
-                    Duration::from_secs(DEFAULT_SSE_KEEP_ALIVE_SECS as u64),
-                    DEFAULT_SSE_MAX_CLIENTS as usize,
-                )
-            }
-        }
-    }
-
-    /// Read-at-use (wait budget, poll interval) for the detached admission loop
-    /// (INV-5). Falls back to the const defaults on any DB error (byte-preserving,
-    /// INV-1). `poll` is clamped strictly below `wait` so at least two attempts fit.
-    pub async fn admission_config(&self) -> (Duration, Duration) {
-        match self.get().await {
-            Ok(s) => {
-                let wait_secs = s.admission_wait_secs.max(MIN_ADMISSION_WAIT_SECS);
-                let poll_ms = s
-                    .admission_poll_ms
-                    .max(MIN_ADMISSION_POLL_MS)
-                    .min((wait_secs * 1000 - 1).max(MIN_ADMISSION_POLL_MS));
-                (
-                    Duration::from_secs(wait_secs as u64),
-                    Duration::from_millis(poll_ms as u64),
-                )
-            }
-            Err(e) => {
-                tracing::warn!(error = ?e, "job_settings read failed; using default admission config");
-                (
-                    Duration::from_secs(DEFAULT_ADMISSION_WAIT_SECS as u64),
-                    Duration::from_millis(DEFAULT_ADMISSION_POLL_MS as u64),
-                )
-            }
-        }
-    }
-
     /// Read-at-use (cap, reserved) pair for the scheduler's admission gate. Falls
     /// back to the safe defaults on any DB error; `reserved` is clamped so it can
     /// never exceed `cap - 1` (a reservation can't swallow the whole pool).
@@ -254,65 +161,12 @@ impl JobSettingsRepository {
             }
         }
     }
-
-    /// One-read dispatch config (#56 perf-round): the `job_settings` row is read ONCE and
-    /// BOTH the dispatch-tick cadence AND the `(cap, reserved, per_tenant)` triple are
-    /// derived from that single snapshot — so the dispatch loop no longer issues two
-    /// full-row SELECTs of the same singleton per tick (was `scheduler_limits()` +
-    /// `caps()`). Falls back to the compiled defaults on a DB error. The claim loop still
-    /// re-reads `caps()` on each SUBSEQUENT iteration for mid-tick admin-cap freshness; only
-    /// the FIRST iteration's caps come from this combined read.
-    pub async fn dispatch_config(&self) -> (Duration, (i64, i64, i64)) {
-        match self.get().await {
-            Ok(s) => {
-                let limits = clamp_scheduler_limits(
-                    s.heartbeat_secs,
-                    s.reaper_tick_secs,
-                    s.stale_threshold_secs,
-                    s.max_reclaims,
-                    s.reclaim_batch,
-                    s.dispatch_tick_ms,
-                    s.metric_tick_secs,
-                );
-                (limits.dispatch_tick, caps_of(&s))
-            }
-            Err(e) => {
-                tracing::warn!(error = ?e, "job_settings read failed; using default dispatch config");
-                (ReaperLimits::default().dispatch_tick, default_caps())
-            }
-        }
-    }
-
-    /// Read-at-use scheduler/reaper timing limits (#56, INV-1) — consumed at the TOP
-    /// of each scheduler-loop iteration (dispatch/heartbeat/reaper) and once per job
-    /// for the metric sampler, so an admin PUT takes effect without a restart. Falls
-    /// back to the compiled `ReaperLimits::default()` on any DB error so the hot path
-    /// never breaks (byte-preserving, INV-5). Every field is floored/clamped to its
-    /// bounds, and `stale_threshold` is floored at `3 × heartbeat` (INV-4) so a stored
-    /// row that somehow escaped validation can never drive a live-job reclaim.
-    pub async fn scheduler_limits(&self) -> ReaperLimits {
-        match self.get().await {
-            Ok(s) => clamp_scheduler_limits(
-                s.heartbeat_secs,
-                s.reaper_tick_secs,
-                s.stale_threshold_secs,
-                s.max_reclaims,
-                s.reclaim_batch,
-                s.dispatch_tick_ms,
-                s.metric_tick_secs,
-            ),
-            Err(e) => {
-                tracing::warn!(error = ?e, "job_settings read failed; using default scheduler limits");
-                ReaperLimits::default()
-            }
-        }
-    }
 }
 
 /// Pure derivation of the `(global_cap, reserved, per_tenant_cap)` admission triple from a
 /// settings row: `cap` floored at its min, `reserved` clamped to `cap - 1` (a reservation
-/// can't swallow the whole pool), `per_tenant` floored at its min. Shared by `caps()` and
-/// `dispatch_config()` so the one-read path derives identical values (no DB).
+/// can't swallow the whole pool), `per_tenant` floored at its min. Shared by `caps()`
+/// / `cap_and_reserved` so every reader derives identical values (no DB).
 fn caps_of(s: &JobSettings) -> (i64, i64, i64) {
     let cap = s.max_concurrent_jobs.max(MIN_MAX_CONCURRENT) as i64;
     let reserved = (s.reserved_interactive_slots.max(0) as i64).min((cap - 1).max(0));
@@ -327,41 +181,6 @@ fn default_caps() -> (i64, i64, i64) {
         DEFAULT_RESERVED_INTERACTIVE as i64,
         DEFAULT_PER_TENANT_MAX_CONCURRENT as i64,
     )
-}
-
-/// Pure clamp of the seven raw scheduler-knob values into a bounds-safe `ReaperLimits`
-/// (unit-testable, no DB). Each field is clamped to its `MIN_/MAX_`, and the stale
-/// threshold is additionally floored at `STALE_HEARTBEAT_MULTIPLE × heartbeat` (INV-4)
-/// AFTER the heartbeat itself is clamped — so no stored/legacy row can ever yield a
-/// stale threshold below the live-worker safety floor.
-pub fn clamp_scheduler_limits(
-    heartbeat_secs: i64,
-    reaper_tick_secs: i64,
-    stale_threshold_secs: i64,
-    max_reclaims: i32,
-    reclaim_batch: i64,
-    dispatch_tick_ms: i64,
-    metric_tick_secs: i64,
-) -> ReaperLimits {
-    let heartbeat = heartbeat_secs.clamp(MIN_HEARTBEAT_SECS, MAX_HEARTBEAT_SECS);
-    let reaper_tick = reaper_tick_secs.clamp(MIN_REAPER_TICK_SECS, MAX_REAPER_TICK_SECS);
-    let stale_floor = (heartbeat * STALE_HEARTBEAT_MULTIPLE).max(MIN_STALE_THRESHOLD_SECS);
-    let stale = stale_threshold_secs
-        .clamp(MIN_STALE_THRESHOLD_SECS, MAX_STALE_THRESHOLD_SECS)
-        .max(stale_floor);
-    let max_reclaims = max_reclaims.clamp(MIN_MAX_RECLAIMS, MAX_MAX_RECLAIMS);
-    let reclaim_batch = reclaim_batch.clamp(MIN_RECLAIM_BATCH, MAX_RECLAIM_BATCH);
-    let dispatch_tick_ms = dispatch_tick_ms.clamp(MIN_DISPATCH_TICK_MS, MAX_DISPATCH_TICK_MS);
-    let metric_tick = metric_tick_secs.clamp(MIN_METRIC_TICK_SECS, MAX_METRIC_TICK_SECS);
-    ReaperLimits {
-        heartbeat: Duration::from_secs(heartbeat as u64),
-        reaper_tick: Duration::from_secs(reaper_tick as u64),
-        stale_threshold: Duration::from_secs(stale as u64),
-        max_reclaims,
-        reclaim_batch,
-        dispatch_tick: Duration::from_millis(dispatch_tick_ms as u64),
-        metric_tick: Duration::from_secs(metric_tick as u64),
-    }
 }
 
 /// Validate a `per_tenant_max_concurrent` update against its bounds
@@ -462,78 +281,6 @@ pub fn validate_sse_admission(
                     "admission_poll_ms ({effective_poll}) must be strictly less than \
                      admission_wait_secs*1000 ({})",
                     effective_wait * 1000
-                ),
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// Validate the scheduler/reaper timing knobs (#56, INV-2/INV-4) against their bounds,
-/// surfaced as a typed 422 BEFORE the write (mirrors the DB CHECK). The cross-field
-/// `stale_threshold_secs >= STALE_HEARTBEAT_MULTIPLE × heartbeat_secs` guardrail is
-/// checked against the EFFECTIVE pair (the requested new value if present, else the
-/// stored one) so a change to EITHER field that would strand the pair — including
-/// LOWERING `heartbeat_secs` alone under an already-stored stale, or lowering
-/// `stale_threshold_secs` alone — is caught here as a 422, not escaped to the DB CHECK
-/// as a 500. `current_heartbeat_secs` / `current_stale_secs` are the stored values used
-/// when the request does not set the corresponding field.
-pub fn validate_scheduler_limits(
-    req: &UpdateJobSettingsRequest,
-    current_heartbeat_secs: i64,
-    current_stale_secs: i64,
-) -> Result<(), AppError> {
-    fn range_i64(v: i64, lo: i64, hi: i64, code: &'static str, field: &str) -> Result<(), AppError> {
-        if !(lo..=hi).contains(&v) {
-            return Err(AppError::unprocessable_entity(
-                code,
-                format!("{field} must be between {lo} and {hi}"),
-            ));
-        }
-        Ok(())
-    }
-
-    if let Some(n) = req.heartbeat_secs {
-        range_i64(n, MIN_HEARTBEAT_SECS, MAX_HEARTBEAT_SECS, "INVALID_HEARTBEAT", "heartbeat_secs")?;
-    }
-    if let Some(n) = req.reaper_tick_secs {
-        range_i64(n, MIN_REAPER_TICK_SECS, MAX_REAPER_TICK_SECS, "INVALID_REAPER_TICK", "reaper_tick_secs")?;
-    }
-    if let Some(n) = req.stale_threshold_secs {
-        range_i64(n, MIN_STALE_THRESHOLD_SECS, MAX_STALE_THRESHOLD_SECS, "INVALID_STALE_THRESHOLD", "stale_threshold_secs")?;
-    }
-    if let Some(n) = req.max_reclaims {
-        if !(MIN_MAX_RECLAIMS..=MAX_MAX_RECLAIMS).contains(&n) {
-            return Err(AppError::unprocessable_entity(
-                "INVALID_MAX_RECLAIMS",
-                format!("max_reclaims must be between {MIN_MAX_RECLAIMS} and {MAX_MAX_RECLAIMS}"),
-            ));
-        }
-    }
-    if let Some(n) = req.reclaim_batch {
-        range_i64(n, MIN_RECLAIM_BATCH, MAX_RECLAIM_BATCH, "INVALID_RECLAIM_BATCH", "reclaim_batch")?;
-    }
-    if let Some(n) = req.dispatch_tick_ms {
-        range_i64(n, MIN_DISPATCH_TICK_MS, MAX_DISPATCH_TICK_MS, "INVALID_DISPATCH_TICK", "dispatch_tick_ms")?;
-    }
-    if let Some(n) = req.metric_tick_secs {
-        range_i64(n, MIN_METRIC_TICK_SECS, MAX_METRIC_TICK_SECS, "INVALID_METRIC_TICK", "metric_tick_secs")?;
-    }
-
-    // The reaper safety guardrail (INV-4 / DEC-3), against the EFFECTIVE pair — a still-live
-    // worker heartbeats every `heartbeat_secs`, so the reclaim threshold must be a generous
-    // multiple of it or the reaper could reclaim rows a live worker is still running.
-    if req.heartbeat_secs.is_some() || req.stale_threshold_secs.is_some() {
-        let effective_heartbeat = req.heartbeat_secs.unwrap_or(current_heartbeat_secs);
-        let effective_stale = req.stale_threshold_secs.unwrap_or(current_stale_secs);
-        if effective_stale < STALE_HEARTBEAT_MULTIPLE * effective_heartbeat {
-            return Err(AppError::unprocessable_entity(
-                "INVALID_STALE_THRESHOLD",
-                format!(
-                    "stale_threshold_secs ({effective_stale}) must be at least \
-                     {STALE_HEARTBEAT_MULTIPLE}× heartbeat_secs ({}) so a live worker is never \
-                     reclaimed",
-                    STALE_HEARTBEAT_MULTIPLE * effective_heartbeat
                 ),
             ));
         }
@@ -670,106 +417,4 @@ mod tests {
         );
     }
 
-    // TEST-1 (#56): validate_scheduler_limits enforces each knob's range AND the cross-field
-    // stale >= 3×heartbeat guardrail against the EFFECTIVE (requested-else-stored) pair.
-    #[test]
-    fn scheduler_limits_bounds_and_guardrail() {
-        // A wholly valid update (stale 60 >= 3*15).
-        let ok = UpdateJobSettingsRequest {
-            heartbeat_secs: Some(15),
-            reaper_tick_secs: Some(20),
-            stale_threshold_secs: Some(60),
-            max_reclaims: Some(3),
-            reclaim_batch: Some(500),
-            dispatch_tick_ms: Some(250),
-            metric_tick_secs: Some(2),
-            ..Default::default()
-        };
-        assert!(validate_scheduler_limits(&ok, DEFAULT_HEARTBEAT_SECS, DEFAULT_STALE_THRESHOLD_SECS).is_ok());
-
-        // Each per-field range violation → its typed code.
-        for (req, code) in [
-            (UpdateJobSettingsRequest { heartbeat_secs: Some(0), ..Default::default() }, "INVALID_HEARTBEAT"),
-            (UpdateJobSettingsRequest { reaper_tick_secs: Some(301), ..Default::default() }, "INVALID_REAPER_TICK"),
-            (UpdateJobSettingsRequest { stale_threshold_secs: Some(4), ..Default::default() }, "INVALID_STALE_THRESHOLD"),
-            (UpdateJobSettingsRequest { max_reclaims: Some(0), ..Default::default() }, "INVALID_MAX_RECLAIMS"),
-            (UpdateJobSettingsRequest { reclaim_batch: Some(0), ..Default::default() }, "INVALID_RECLAIM_BATCH"),
-            (UpdateJobSettingsRequest { dispatch_tick_ms: Some(10), ..Default::default() }, "INVALID_DISPATCH_TICK"),
-            (UpdateJobSettingsRequest { metric_tick_secs: Some(61), ..Default::default() }, "INVALID_METRIC_TICK"),
-        ] {
-            assert_eq!(
-                validate_scheduler_limits(&req, DEFAULT_HEARTBEAT_SECS, DEFAULT_STALE_THRESHOLD_SECS)
-                    .unwrap_err()
-                    .error_code(),
-                code,
-            );
-        }
-
-        // Guardrail: setting BOTH so stale < 3×heartbeat → rejected (heartbeat 10, stale 20 < 30).
-        let both = UpdateJobSettingsRequest {
-            heartbeat_secs: Some(10),
-            stale_threshold_secs: Some(20),
-            ..Default::default()
-        };
-        assert_eq!(
-            validate_scheduler_limits(&both, DEFAULT_HEARTBEAT_SECS, DEFAULT_STALE_THRESHOLD_SECS)
-                .unwrap_err()
-                .error_code(),
-            "INVALID_STALE_THRESHOLD"
-        );
-
-        // Guardrail asymmetric: RAISING heartbeat alone (to 20) above stored stale/3 (45/3=15)
-        // strands the pair (45 < 60) → rejected against the EFFECTIVE (stored) stale.
-        let raise_hb = UpdateJobSettingsRequest { heartbeat_secs: Some(20), ..Default::default() };
-        assert_eq!(
-            validate_scheduler_limits(&raise_hb, DEFAULT_HEARTBEAT_SECS, 45)
-                .unwrap_err()
-                .error_code(),
-            "INVALID_STALE_THRESHOLD",
-            "raising heartbeat alone under a stored stale is a typed 422, never a DB 500"
-        );
-
-        // Lowering stale alone below 3×stored-heartbeat → rejected.
-        let lower_stale = UpdateJobSettingsRequest { stale_threshold_secs: Some(20), ..Default::default() };
-        assert_eq!(
-            validate_scheduler_limits(&lower_stale, 10, DEFAULT_STALE_THRESHOLD_SECS)
-                .unwrap_err()
-                .error_code(),
-            "INVALID_STALE_THRESHOLD"
-        );
-    }
-
-    // TEST-2 (#56): clamp_scheduler_limits floors/clamps every field to its bounds and floors
-    // stale at 3×heartbeat, so read-at-use never yields an out-of-bounds or unsafe cadence.
-    #[test]
-    fn clamp_scheduler_limits_is_bounds_safe() {
-        // The compiled defaults round-trip byte-identically (INV-5).
-        let d = clamp_scheduler_limits(
-            DEFAULT_HEARTBEAT_SECS,
-            DEFAULT_REAPER_TICK_SECS,
-            DEFAULT_STALE_THRESHOLD_SECS,
-            DEFAULT_MAX_RECLAIMS,
-            DEFAULT_RECLAIM_BATCH,
-            DEFAULT_DISPATCH_TICK_MS,
-            DEFAULT_METRIC_TICK_SECS,
-        );
-        assert_eq!(d.heartbeat, Duration::from_secs(10));
-        assert_eq!(d.reaper_tick, Duration::from_secs(15));
-        assert_eq!(d.stale_threshold, Duration::from_secs(45));
-        assert_eq!(d.max_reclaims, 5);
-        assert_eq!(d.reclaim_batch, 100);
-        assert_eq!(d.dispatch_tick, Duration::from_millis(500));
-        assert_eq!(d.metric_tick, Duration::from_secs(1));
-
-        // Out-of-range values are clamped, and a too-low stored stale is floored at 3×heartbeat.
-        let c = clamp_scheduler_limits(30, 9999, 5, 9999, 0, 1, 9999);
-        assert_eq!(c.heartbeat, Duration::from_secs(30));
-        assert_eq!(c.reaper_tick, Duration::from_secs(MAX_REAPER_TICK_SECS as u64));
-        // stale floored at 3*30 = 90 despite the row saying 5.
-        assert_eq!(c.stale_threshold, Duration::from_secs(90));
-        assert_eq!(c.max_reclaims, MAX_MAX_RECLAIMS);
-        assert_eq!(c.reclaim_batch, MIN_RECLAIM_BATCH);
-        assert_eq!(c.dispatch_tick, Duration::from_millis(MIN_DISPATCH_TICK_MS as u64));
-        assert_eq!(c.metric_tick, Duration::from_secs(MAX_METRIC_TICK_SECS as u64));
-    }
 }

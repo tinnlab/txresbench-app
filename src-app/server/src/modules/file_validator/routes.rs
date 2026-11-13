@@ -71,7 +71,7 @@ use tokio::task::spawn_blocking;
 use txresbench_core::{ApiResult, AppError};
 
 use crate::modules::permissions::{with_permission, RequirePermissions};
-use crate::modules::project::ProjectsUse;
+use crate::modules::permissions::ProjectsUse;
 
 use super::assets::ASSETS;
 use super::inspect::inspect;

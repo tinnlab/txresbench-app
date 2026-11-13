@@ -5,23 +5,14 @@
 
 use clap::{Parser, Subcommand};
 
-/// The run MODE (T3 / ITEM-2 / §4.3). Absent ⇒ `serve` (the historical default — the
-/// existing invocation + the openapi/backfill flags below are untouched). `worker` boots the
-/// SAME library assembly minus the public router and runs the scheduler loop (claims jobs).
+/// Run mode. Absent ⇒ `serve` (the historical default — the existing invocation
+/// and the `--generate-openapi` flag below are untouched). The single-cell platform's
+/// `worker`/`run-job` pod modes and the artifact backfill flags were removed with
+/// their modules (strip-single-cell ITEM-3).
 #[derive(Subcommand, Debug)]
 enum Mode {
     /// Run the HTTP API server (the default when no subcommand is given).
     Serve,
-    /// Run a job worker: claim + execute queued jobs, no public router (SaaS worker pod).
-    Worker,
-    /// Execute exactly ONE already-claimed job in-pod, then exit (the job-per-run
-    /// `KubernetesBackend` pod entrypoint, #66): stage inputs from the object store → bwrap →
-    /// finalize outputs back. No public router, no scheduler loop (claims nothing else).
-    RunJob {
-        /// The id of the already-claimed job to execute.
-        #[arg(long)]
-        job_id: uuid::Uuid,
-    },
 }
 
 #[derive(Parser, Debug)]
@@ -30,7 +21,7 @@ enum Mode {
     about = "TxResBench server — treatment response from blood markers (txresbench SDK)"
 )]
 struct Cli {
-    /// Run mode. Omit for `serve` (default). `worker` runs the job scheduler loop only.
+    /// Run mode. Omit for `serve` (default).
     #[command(subcommand)]
     mode: Option<Mode>,
 
@@ -42,21 +33,6 @@ struct Cli {
     /// (emitting `<DIR>/../src/api-client/*`), then exit. Consumed by the desktop/OSS build.
     #[arg(long, value_name = "DIR")]
     generate_openapi: Option<String>,
-
-    /// Report what the artifact→dataset backfill (ITEM-45) WOULD change, then exit.
-    ///
-    /// **Read-only.** It is the migration's own code path with `write = false` — DEC-9: a
-    /// dry-run implemented as a separate query is a dry-run of something other than the
-    /// migration, and can agree with itself while diverging from what runs.
-    ///
-    /// Reads `DATABASE_URL`, so it can be pointed at a database WITHOUT booting the server
-    /// or going through the running application.
-    #[arg(long)]
-    backfill_dry_run: bool,
-
-    /// PERFORM the artifact→dataset backfill (the same code path, `write = true`).
-    #[arg(long)]
-    backfill_write: bool,
 }
 
 #[tokio::main]
@@ -70,45 +46,6 @@ async fn main() {
             Ok(()) => std::process::exit(0),
             Err(e) => {
                 eprintln!("OpenAPI generation failed: {e}");
-                std::process::exit(1);
-            }
-        }
-    }
-
-    if cli.backfill_dry_run || cli.backfill_write {
-        let url = match std::env::var("DATABASE_URL") {
-            Ok(u) => u,
-            Err(_) => {
-                eprintln!(
-                    "backfill: set DATABASE_URL to the database to read. This path never \
-                     boots the server and never goes through the running application."
-                );
-                std::process::exit(2);
-            }
-        };
-        let pool = match sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(2)
-            .connect(&url)
-            .await
-        {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("backfill: cannot connect: {e}");
-                std::process::exit(2);
-            }
-        };
-        match txresbench::modules::workstore::ownership_backfill::run_backfill(
-            &pool,
-            cli.backfill_write,
-        )
-        .await
-        {
-            Ok(report) => {
-                println!("{}", report.render());
-                std::process::exit(0);
-            }
-            Err(e) => {
-                eprintln!("backfill failed: {e}");
                 std::process::exit(1);
             }
         }
@@ -135,8 +72,6 @@ async fn main() {
     // Dispatch on the run mode. No subcommand ⇒ `serve` (default, unchanged); `worker`
     // boots the same assembly minus the public router and runs the scheduler loop (ITEM-2).
     let result = match cli.mode {
-        Some(Mode::Worker) => txresbench::run_worker(config).await,
-        Some(Mode::RunJob { job_id }) => txresbench::run_job_once(config, job_id).await,
         Some(Mode::Serve) | None => txresbench::serve_blocking(config).await,
     };
     if let Err(e) = result {

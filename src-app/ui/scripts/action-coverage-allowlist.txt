@@ -29,7 +29,4 @@ modules/user/components/user/AssignGroupDrawer.tsx
 modules/user/components/group/UserGroupsSettings.tsx
 modules/user/components/group/EditUserGroupDrawer.tsx
 # Admin settings-save pages (form save dispatches runAction('*.updateSettings')).
-modules/sandbox/components/ResourceLimitsCard.tsx
-modules/jobs/pages/JobSettingsPage.tsx
-modules/provenance/components/ProvenanceSettingsCard.tsx
 modules/auth/SessionSettingsPage.tsx

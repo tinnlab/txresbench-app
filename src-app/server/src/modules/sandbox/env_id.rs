@@ -1,21 +1,17 @@
 //! The env-id GRAMMAR — single-sourced between the runtime and the build lint.
 //!
-//! WHY ITS OWN MODULE: `env:` is declared in a contributed manifest and read in two
-//! places that cannot share a crate — the RUNTIME type
-//! ([`extensions::types`](crate::modules::extensions::types)) and the BUILD-TIME lint
-//! mirror (`build_helper/processor_manifest.rs`, compiled by `build.rs`). If each
-//! spelled the grammar itself they would drift, and the drift direction that matters is
-//! the silent one: a manifest the build lint accepts but the runtime rejects registers
-//! nothing while every gate stays green.
+//! WHY ITS OWN MODULE: `env:` (an env-id) is read in more than one place and each
+//! must spell the grammar identically — the runtime resolver here, the settings
+//! validator, the method-env manager's id checks. If each spelled the grammar
+//! itself they would drift, and the drift direction that matters is the silent
+//! one: an id one site accepts and another rejects fails late, not loud.
 //!
-//! So the predicate lives here, in a module with NO dependencies beyond `core`, and
-//! `build.rs` `#[path]`-includes this very file — the same single-sourcing precedent
-//! `src/modules/rootfs/version.rs` already sets for the rootfs schema logic. One
-//! definition, two compilations, no mirror to drift.
+//! So the predicate lives here, in a module with NO dependencies beyond `core`.
+//! One definition, every reader, no mirror to drift.
 //!
 //! There is deliberately NO allowlist of known env names here. Any well-formed id maps
-//! to its own per-env image repo; the set of envs is deployment DATA declared by the
-//! contributed manifests, never a list the app core carries (INV-4).
+//! to its own per-env image repo; the set of envs is deployment DATA, never a list the
+//! app core carries (INV-4).
 
 /// Whether `env_id` is a valid OCI repository PATH COMPONENT (lowercase
 /// alphanumerics + `.` `_` `-`, non-empty).

@@ -15,12 +15,6 @@ use std::path::{Path, PathBuf};
 
 use txresbench_test_harness::{HarnessApp, SpawnFacts, SpawnPlan, SpawnedServer, TestHarness, Variant};
 
-/// The suite's reader for what a processor emitted. Here rather than beside one
-/// caller because two test modules in different trees need it, and a second copy of a
-/// decoder is how two tests start disagreeing about the same bytes.
-#[allow(dead_code)]
-pub mod zarr;
-
 /// B0 — the local Stripe sim harness (signed-webhook injector + reference verifier +
 /// placeholder webhook consumer + meter-event capture stand-in). TEST-ONLY; carries
 /// its own `#[cfg(test)]` self-tests (the INV-2 acceptance proof). Some of its public
@@ -29,13 +23,6 @@ pub mod zarr;
 /// caller so B2/B3 can build on it without re-forking.
 #[allow(dead_code)]
 pub mod stripe_sim;
-
-/// The test binary's ONE process-wide blob store. `workstore`'s store handle and
-/// ownership claim are WRITE-ONCE process statics — a boot-time fact for a server,
-/// shared mutable state for a 440-test binary — so the harness owns them rather than
-/// letting each test install (and then delete) its own. See the module docs for the
-/// failure this prevents.
-pub mod object_store;
 
 /// TxResBench's `HarnessApp`. Server-only (no desktop test crate yet).
 pub struct CytoHarnessApp;
@@ -311,90 +298,10 @@ jwt:
 
 // ───────────────── the test process's own "boot": process-global registries ─────
 //
-// WHY THIS LIVES IN THE HARNESS AND NOT IN ONE TEST MODULE.
-//
-// The server under test is a SUBPROCESS (`SpawnPlan::binary_name`), so its
-// boot-time `extensions::init` publishes the extension + datatype registries in
-// ITS address space, not ours. Anything a test calls IN-PROCESS
-// (`env_image::default_env_id`, `processors::resolve_with_package`,
-// `workstore::ingest`'s typing validation, …) reads the TEST process's globals,
-// which nothing published unless some test module happened to.
-//
-// That "happened to" is a defect generator, and it has now produced two verdict
-// inversions in a row:
-//
-//   * the DATATYPE registry — published only by `datatype::mod`, so
-//     `workstore::axis_identity_test` ran with `ingest`'s typing validator ON or
-//     OFF depending on which other module shared the invocation (round 13);
-//   * the EXTENSION registry — published only by `analysis::mod`, so
-//     `dataset::capsule_cross_version_test` (TEST-68, acceptance) EXECUTED with
-//     an `analysis::*` neighbour in the selector and SELF-SKIPPED without one,
-//     because `env_image::default_env_id()` resolves the env-id off that registry
-//     (round 14).
-//
-// Both were the same shape: process-global state published by exactly ONE module,
-// so a test's verdict is a function of its neighbours. Fixing the affected test
-// only relocates the hole — the next in-process reader re-opens it, silently.
-// The mechanism dies here for the EXTENSION registry instead: `TestServer::spawn`
-// is this process's boot, so every server-using test sees that registry exactly as
-// production does, whatever the selector. A test with no server still opts in by
-// calling [`ensure_extension_registry`] directly (`analysis::stage_code_dir` does).
-//
-// The class-fix is enforced rather than trusted: `dataset::hardening_common::
-// stage_second_env_image` treats an ABSENT extension registry as a HARNESS FAULT
-// and panics, instead of folding it into an environmental self-skip. If this
-// publication is ever removed, that acceptance test goes RED and names this
-// function — it cannot go quiet again.
-//
-// STILL OWNED BY ONE MODULE, deliberately: the DATATYPE registry
-// (`datatype::mod::test22_ingest_validates_each_output_against_registry`). Publishing
-// it here would switch `workstore::ingest`'s typing validator ON for the ~8 test files
-// that call `ingest_run_outputs` in-process — a behaviour change wider than the defect
-// it would close, and measured NOT to be flipping any verdict today (`workstore::
-// {schema_shape,conformance_gate,zarr_store}_test` + `dataset::process_test` were run
-// with and without `datatype::test22_ingest` in the selector: 16/16 and 17/17, same
-// set). It is a latent instance of this class, not a live one — if a verdict is ever
-// found to turn on it, publish it here alongside the extension registry rather than
-// hardening the affected test.
+// strip-single-cell ITEM-3: the extension/datatype registry publication helpers
+// (`processors_root`, `ensure_extension_registry`) were removed with the
+// extensions/processor platform; no kept in-process reader loads them.
 
-/// The repo's processors root — the same folder layout `sandbox::processors::resolve_in`
-/// scans in production (there it is the extracted seed; here it is the working tree, so an
-/// edit to a compute script is exercised without a rebuild).
-pub fn processors_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../packages")
-        .canonicalize()
-        .unwrap_or_else(|e| panic!("locate the processors root: {e}"))
-}
-
-/// Publish the process-global EXTENSION registry the way boot does, once per test
-/// binary, so in-process production code (`env_image::default_env_id`,
-/// `processors::resolve_with_package`, …) resolves against the same contributed
-/// manifests the running server does.
-///
-/// Built from the WORKING TREE — the same folder `analysis::stage_code_dir`
-/// resolves against — so a manifest edit is exercised without re-baking the seed.
-///
-/// Never overwrites: a test module that owns the registry for its own fixture
-/// (`extensions::*` builds bespoke ones) keeps it.
-pub fn ensure_extension_registry() {
-    use std::sync::OnceLock;
-    static ONCE: OnceLock<()> = OnceLock::new();
-    ONCE.get_or_init(|| {
-        use txresbench::modules::extensions::{loader, ExtensionRegistry};
-        if loader::try_registry().is_some() {
-            return;
-        }
-        match ExtensionRegistry::build_from_dir(&processors_root()) {
-            Ok(reg) => loader::set_global_registry(std::sync::Arc::new(reg)),
-            // A tree that will not fold is not this helper's failure to report:
-            // in-process resolution then behaves as it does in any registry-less
-            // context, and the acceptance test that REQUIRES the registry
-            // (`stage_second_env_image`) fails loudly rather than self-skipping.
-            Err(e) => eprintln!("test harness: extension registry did not build: {e}"),
-        }
-    });
-}
 /// The SSE sync probe, imported FROM THE SDK.
 ///
 /// This was a 258-line hand-rolled mirror of `txresbench_test_harness`'s own
@@ -434,10 +341,6 @@ impl TestServer {
 
     /// [`spawn`](Self::spawn) with per-spawn knobs (see [`TestOptions`]).
     pub async fn spawn_with(opts: TestOptions) -> Self {
-        // This process's half of "boot" — see the block comment above. Cheap
-        // (once per binary) and ordered BEFORE the server so a test that reads a
-        // registry between `spawn()` and its first request still sees it.
-        ensure_extension_registry();
         let harness = TestHarness::new(
             CytoHarnessApp,
             PathBuf::from(env!("CARGO_MANIFEST_DIR")),
@@ -513,14 +416,6 @@ pub async fn group_assign(pool: &sqlx::SqlitePool, user_id: uuid::Uuid, group_id
         .expect("assign member to group");
 }
 
-pub async fn group_deactivate(pool: &sqlx::SqlitePool, group_id: uuid::Uuid) {
-    let groups = txresbench_auth::user::GroupRepository::new(pool.clone());
-    groups
-        .update(group_id, None, None, None, Some(false))
-        .await
-        .expect("deactivate group");
-}
-
 /// Remove a user from the seeded `Users` group (the group every registered user
 /// joins) — the repo substitute for `DELETE /groups/{user}/{group}/remove`.
 pub async fn group_remove_from_users(pool: &sqlx::SqlitePool, user_id: uuid::Uuid) {
@@ -536,3 +431,64 @@ pub async fn group_remove_from_users(pool: &sqlx::SqlitePool, user_id: uuid::Uui
         .await
         .expect("remove from the Users group");
 }
+
+// ─────────────────────────── test self-skip ledger ────────────────────────────
+// Re-homed from `tests/dataset/hardening_common.rs` (strip-single-cell ITEM-3):
+// the skip ledger is a general harness utility the kept sandbox tests use.
+
+/// Where the self-skip ledger is written: `TXR_TEST_SKIP_LEDGER`, else
+/// `<workspace>/target/test-skip-ledger.tsv`. Appended to, never truncated (the
+/// suite runs many tests across threads and binaries) — clear it before a run.
+pub fn skip_ledger_path() -> PathBuf {
+    match std::env::var_os("TXR_TEST_SKIP_LEDGER") {
+        Some(p) => PathBuf::from(p),
+        // `CARGO_MANIFEST_DIR` = <workspace>/src-app/server.
+        None => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-skip-ledger.tsv"),
+    }
+}
+
+/// Announce a self-skip on BOTH channels: the human `eprintln!` (visible only
+/// under `--nocapture`) and the machine-readable ledger (survives libtest
+/// capture, so a run's skips can be COUNTED). With `TXR_TEST_NO_SKIP=1` the gate
+/// becomes a hard failure instead — the mode an acceptance tier runs in.
+///
+/// Call this from EVERY gate: a bare `eprintln!` skip is invisible by default and
+/// reads as a PASS.
+pub fn record_skip(test: &str, reason: &str) {
+    let path = skip_ledger_path();
+    eprintln!(
+        "SKIP {test}: {reason} — self-skip, not the ignore attribute (also recorded in {})",
+        path.display()
+    );
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    // O_APPEND: each line is one small `write(2)`, so concurrent test threads —
+    // and concurrently-running test binaries — interleave lines, never bytes.
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        use std::io::Write;
+        let one_line: String = reason
+            .chars()
+            .map(|c| {
+                if c == '\t' || c == '\n' || c == '\r' {
+                    ' '
+                } else {
+                    c
+                }
+            })
+            .collect();
+        let _ = writeln!(f, "{test}\t{one_line}");
+    }
+    if std::env::var("TXR_TEST_NO_SKIP").is_ok_and(|v| v == "1") {
+        panic!(
+            "SKIP {test}: {reason} — TXR_TEST_NO_SKIP=1 demands this tier ACTUALLY RUN, \
+             so the skip is a hard failure"
+        );
+    }
+}
+
+

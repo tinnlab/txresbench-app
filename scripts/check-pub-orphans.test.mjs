@@ -5,7 +5,7 @@
 // #295 cleared this guard's first red: two unconsumed `pub` items had reached `main` and a
 // ledger entry had gone stale. Every way of clearing a red guard except the honest one ends
 // with the guard passing because it stopped LOOKING — raise the floor, widen an allowlist,
-// `#[allow]` the item, quietly delete the assertion. `docs/design/derived-guards.md` §5
+// `#[allow]` the item, quietly delete the assertion. `docs/derived-guards.md` §5
 // names those as non-repairs, and this repository has filed the "fix made the check blind"
 // class repeatedly (#274, #286, #272, #213). A one-off "I added a `pub fn` and watched it
 // go red" proves the guard bit on the day someone typed it and nothing about tomorrow.
@@ -117,7 +117,7 @@ function runGuard(repoDir) {
  * exists to kill a specific mutation of the guard that the others survive:
  *
  * * `used_item`  — declared and consumed inside `modules/`: the ordinary case.
- * * `far_item`   — declared in the server crate, consumed ONLY from `src-app/libs/**`. Kills
+ * * `far_item`   — declared in the server crate, consumed ONLY from `src-app/consumers/**`. Kills
  *                  the REFERENCE-scope narrowing (`rsFiles('src-app')` → `'src-app/server'`),
  *                  which every control survived before this item existed.
  * * `root_item`  — declared at the server crate's ROOT, outside `modules/`. Kills a
@@ -135,12 +135,12 @@ const CONSUMED = {
     'pub fn used_item() -> u8 { 1 }\nfn caller() -> u8 { used_item() }\n',
   'src-app/server/src/modules/demo/exported.rs': 'pub fn far_item() -> u8 { 3 }\n',
   // Deliberately NOT under `src-app/server` — this is the reference scope's outer edge.
-  'src-app/libs/consumer/src/lib.rs': 'fn use_far() -> u8 { far_item() }\n',
+  'src-app/consumers/consumer/src/lib.rs': 'fn use_far() -> u8 { far_item() }\n',
   // Declared at the crate ROOT, not under `modules/` — the declaration scope's inner edge.
   'src-app/server/src/permissions.rs':
     'pub fn root_item() -> u8 { 4 }\nfn root_caller() -> u8 { root_item() }\n',
   // OUTSIDE the declaration scope: unconsumed, and must never be reported.
-  'src-app/libs/consumer/src/orphaned_but_out_of_scope.rs':
+  'src-app/consumers/consumer/src/orphaned_but_out_of_scope.rs':
     'pub fn outside_item() -> u8 { 5 }\n',
 };
 

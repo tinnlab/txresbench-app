@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { loginAsOwner } from '../project/_helpers'
+import { loginAsOwner } from '../_helpers'
 
 // TEST-11 [covers ITEM-8]: the /settings/accounts page renders the personal-account
 // card for a real user, and reflows at a narrow (~390px) viewport with no horizontal

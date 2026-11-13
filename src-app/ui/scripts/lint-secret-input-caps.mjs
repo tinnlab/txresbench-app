@@ -66,8 +66,9 @@ const SRC_APP = path.resolve(UI_ROOT, '..')
 export const OPT_OUT_MARKER = 'secret-cap-ok'
 const MARKER_LOOKBACK = 3
 
-/** Collapse detector — a guard that scanned (almost) nothing must not pass. */
-export const MIN_SCANNED_FILES = 700
+/** Collapse detector — a guard that scanned (almost) nothing must not pass.
+ *  STRIP (single-cell) RE-MEASURED 433 on the ITEM-4 tree; LOWERED 700 -> 289 (≈2/3 of 433). */
+export const MIN_SCANNED_FILES = 289
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', 'coverage', '.vite', '.git'])
 const SCAN_EXT = /\.(ts|tsx)$/

@@ -21,23 +21,6 @@ pub type RequirePermissions<Perms> =
 /// non-admin). Exposes `.user: User`.
 pub type RequireAdmin = txresbench_framework::permissions::RequireAdmin<DefaultIdentityResolver>;
 
-/// The acting user's ACTIVE group ids — the `group_ids` argument every
-/// share/visibility resolver takes (`DatasetRepository::{access, is_visible_to,
-/// require_can_edit}`).
-///
-/// One definition, because the inactive-group filter is a security predicate: a
-/// deactivated group must not confer a share. Two hand-copies already existed
-/// (`dataset::routes`, `dataset::process`) and a third was about to be written for
-/// the jobs create path; the moment one copy forgets `.is_active` the endpoints that
-/// use it silently honour shares through disabled groups.
-pub fn active_group_ids(groups: &[Group]) -> Vec<uuid::Uuid> {
-    groups
-        .iter()
-        .filter(|g| g.is_active)
-        .map(|g| g.id)
-        .collect()
-}
-
 /// True if the acting principal holds `perm` (wildcard-aware). Admins hold
 /// everything; otherwise any of the user's direct permissions or active-group
 /// permissions must match `perm` exactly, via `*`, or via a `resource::*`
@@ -66,9 +49,33 @@ fn perm_matches(held: &str, wanted: &str) -> bool {
     false
 }
 
+/// `projects::use` — the permission key reused by the kept txr catalogue routes
+/// (`/api/methods*`, `/api/file-validation*`) as their gate ("no new permission").
+///
+/// Re-homed here from the removed `project` module (strip-single-cell ITEM-3,
+/// owner verdict: small seam edit, no behaviour change): the constant is
+/// byte-identical — same `NAME`, `PERMISSION`, `DESCRIPTION` and `MODULE` — so
+/// held-permission rows, the sync audiences and the FE
+/// `Permissions.ProjectsUse` constant all keep resolving. The module's own
+/// migration grant was removed with it; the app's single user is the admin
+/// (`"*"` wildcard), so the gate passes exactly as before.
+pub struct ProjectsUse;
+impl PermissionCheck for ProjectsUse {
+    const NAME: &'static str = "ProjectsUse";
+    const PERMISSION: &'static str = "projects::use";
+    const DESCRIPTION: &'static str = "Create, view, and manage your projects";
+    const MODULE: &'static str = "project";
+}
+
 #[cfg(test)]
 mod tests {
     use super::perm_matches;
+
+    // The re-homed permission is defined in this module (ITEM-3); bring it in
+    // for the wire-string pin below, together with the trait that exposes the
+    // associated consts.
+    use super::ProjectsUse;
+    use txresbench_identity::PermissionCheck;
 
     #[test]
     fn wildcard_matching() {
@@ -77,5 +84,15 @@ mod tests {
         assert!(perm_matches("users::*", "users::read"));
         assert!(!perm_matches("users::read", "users::edit"));
         assert!(!perm_matches("groups::*", "users::read"));
+    }
+
+    // The re-homed permission keeps its wire bytes (strip-single-cell ITEM-3):
+    // the scraper emits `Permissions.ProjectsUse` and held permissions / sync
+    // audiences match on the exact string.
+    #[test]
+    fn projects_use_keeps_its_wire_strings() {
+        assert_eq!(ProjectsUse::NAME, "ProjectsUse");
+        assert_eq!(ProjectsUse::PERMISSION, "projects::use");
+        assert_eq!(ProjectsUse::MODULE, "project");
     }
 }

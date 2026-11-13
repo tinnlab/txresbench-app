@@ -59,7 +59,7 @@ use txresbench_core::{ApiResult, AppError};
 
 use crate::modules::execution_engine::repository::TxrRepository;
 use crate::modules::permissions::{with_permission, RequirePermissions};
-use crate::modules::project::ProjectsUse;
+use crate::modules::permissions::ProjectsUse;
 
 use super::catalogue;
 use super::calibration::TimingCalibration;

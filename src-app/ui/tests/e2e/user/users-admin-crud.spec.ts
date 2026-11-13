@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { loginAsOwner } from '../project/_helpers'
+import { loginAsOwner } from '../_helpers'
 
 // TEST-11 [covers ITEM-1, ITEM-5, ITEM-15] (#49) — behavior-preservation for the Users
 // identity-CRUD refactor. The create + delete controls now dispatch permissioned

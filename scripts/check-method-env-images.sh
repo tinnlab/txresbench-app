@@ -9,7 +9,7 @@
 # the transfer starts (DEC-7), and a saved model records its values verbatim
 # (INV-6). A hand-edit of one of those fields is a silent divergence from the
 # artifact the clinician actually runs — exactly the category of drift the
-# env-pins precedent (`scripts/check-recipe-pins.mjs`) guards against, applied
+# generated-pin discipline guards against, applied
 # to the one generated file this node ships. This guard is the committed-file
 # validator: it re-validates what the writer (ITEM-3) assembled, from the
 # outside, so a bad record that produced a bad manifest is caught HERE rather

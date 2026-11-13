@@ -20,23 +20,25 @@
 //
 // | guard                                | floor constant                          | how it collapses |
 // |--------------------------------------|-----------------------------------------|------------------|
-// | check-kinds-zero-core.sh             | `CORE_FILES` named-path assertion       | CORE_FILES renamed |
-// | check-no-legacy-wire.sh              | `assert_all_present` over 3 named sets  | scan-set paths renamed |
-// | check-no-study-domain-literals.sh    | `MIN_FILES=1500`                        | `src-app/**` renamed |
-// | check-processor-seed-versions.sh     | `MIN_PACKAGES=5`                        | `<pkg>/manifest.yaml` layout renamed |
-// | coercion-parity.mjs                  | `MIN_CORPUS_CASES=120`                  | corpus emptied/truncated |
-// | check-package-suites.mjs             | `MIN_GATED_PACKAGES=2`                  | workspace globs / package dirs renamed |
-// | coercion-parity-ws-check.mjs         | exact-copy-count assert (`checkSix`)    | a mirror deleted/renamed |
+// | check-no-study-domain-literals.sh    | `MIN_FILES=800`                         | `src-app/**` renamed |
 // | lint-no-domain-in-builtin.mjs        | `SCAN_FLOORS{rust,workbenchFe,extraFe}` | scan roots renamed |
 // | collect-actions.mjs                  | `MIN_SOURCE_FILES` + `MIN_VIEWSPEC_FILES` | SRC_ROOT / VIEWSPEC_ROOT renamed |
 // | action-refs-lint.mjs                 | `MIN_SOURCE_FILES=400`                  | SRC_ROOT renamed |
 // | action-coverage.mjs                  | `MIN_SOURCE_FILES=400`                  | SRC_ROOT renamed |
 //
+// STRIP (single-cell): the guards whose ONLY subject left the tree left with it
+// (ITEM-2/ITEM-4) and are therefore absent from this inventory BY DESIGN, not by
+// oversight: `check-kinds-zero-core.sh`, `check-package-suites.mjs`,
+// `check-processor-seed-versions.sh`, `coercion-parity.mjs` + `-ws-check.mjs`
+// (processor packages), `check-no-legacy-wire.sh` (workstore), and the UI
+// `lint-layer-boundary.mjs` / `lint-positional-declaration.mjs` (workbench
+// layers, declared collections). This file asserts SURVIVORS fail closed; the
+// retirement itself is asserted by `gate-wiring.test.mjs`.
+//
 // NOT guards (deliberately absent): `ts-resolve*.mjs` (module loaders),
-// `viz-bench/viz-perf` (benchmarks), `preland-frontend-health.mjs`
+// `preland-frontend-health.mjs`
 // and `verify-backend-merge.sh` (diff-driven merge gates with no fixed scan set),
-// `dev-sandbox-bootstrap.sh` (a host bootstrap), `coercion-parity-ts.mjs` (a READER
-// invoked by the runner, not a standalone gate), and `*.test.mjs` (tests).
+// and `*.test.mjs` (tests).
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -101,35 +103,6 @@ function runNode(script, env = {}) {
 
 // ── repo-root shell guards ──────────────────────────────────────────────────
 
-// artifact-model ITEM-12/13 UPGRADED these two guards from a COUNT floor
-// (`MIN_FILES=8` / `READER_MIN=4`) to a NAMED-PATH assertion, because a count is the
-// weaker property: it passes for any N files including N of the WRONG ones, it cannot
-// say WHICH hard-coded path stopped resolving, and it rots on every legitimate deletion
-// (which is precisely how it rotted when the serve core and the native array reader were
-// deleted). The property under test is unchanged — a collapsed scan set must EXIT
-// NON-ZERO, never congratulate itself — so these two assert the new failure text and
-// additionally assert that the failure NAMES the paths, which the old floor could not.
-test('[ITEM-37] check-kinds-zero-core.sh FAILS when CORE_FILES resolve to nothing', () => {
-  const { code, stdout } = runShellGuardInEmptyRepo('check-kinds-zero-core.sh')
-  assert.notEqual(code, 0, 'a collapsed app-core scan set must not PASS')
-  assert.match(stdout, /a guarded app-core path no longer exists/)
-  // …and it names them, which is the whole reason the count floor was replaced.
-  assert.match(stdout, /src-app\/server\/src\/modules\/workstore\/data_api\.rs/)
-  assert.doesNotMatch(stdout, /^PASS/m)
-})
-
-test('[ITEM-37] check-no-legacy-wire.sh FAILS when the serve/wire/FE scan sets resolve to nothing', () => {
-  const { code, stdout } = runShellGuardInEmptyRepo('check-no-legacy-wire.sh')
-  assert.notEqual(code, 0, 'a collapsed serve/wire/FE scan set must not PASS')
-  assert.match(stdout, /a guarded path no longer exists/)
-  // All THREE scan sets must report, not just the first — a guard that stops at the
-  // first missing path hides the other two collapsing behind it.
-  assert.match(stdout, /\[INV-1 domain-free serve decision\]/)
-  assert.match(stdout, /\[no-legacy-wire \(backend\)\]/)
-  assert.match(stdout, /\[no-legacy-wire \(frontend\)\]/)
-  assert.doesNotMatch(stdout, /^PASS/m)
-})
-
 test('[ITEM-37] check-no-study-domain-literals.sh FAILS when `src-app/**` resolves to nothing', () => {
   const { code, stdout } = runShellGuardInEmptyRepo('check-no-study-domain-literals.sh')
   assert.notEqual(code, 0, 'a collapsed product-source scan set must not PASS')
@@ -137,58 +110,7 @@ test('[ITEM-37] check-no-study-domain-literals.sh FAILS when `src-app/**` resolv
   assert.doesNotMatch(stdout, /^PASS: 0 surviving study\/Study/m)
 })
 
-test('[ITEM-37] check-processor-seed-versions.sh FAILS when no package manifest resolves', () => {
-  const { code, stdout, stderr } = runShellGuardInEmptyRepo('check-processor-seed-versions.sh', {
-    mkdirs: ['src-app/packages'],
-    env: { BASE_REF: 'HEAD' },
-  })
-  assert.notEqual(code, 0, 'checking ZERO seed packages must not report clean')
-  assert.match(stdout + stderr, /below the\n?\s*floor of|seed package manifest/)
-  assert.doesNotMatch(stdout, /clean \(0 seed package/)
-})
-
 // ── repo-root node guards ───────────────────────────────────────────────────
-
-test('[ITEM-37] coercion-parity.mjs FAILS on an empty/truncated corpus', () => {
-  withTmp(dir => {
-    // Copy the runner into a temp tree whose `src-app/testdata` corpus is EMPTY.
-    // (`ROOT` is derived from the script's own location, so the copy re-roots it.)
-    mkdirSync(path.join(dir, 'scripts'), { recursive: true })
-    mkdirSync(path.join(dir, 'src-app', 'testdata'), { recursive: true })
-    for (const f of ['coercion-parity.mjs', 'coercion-parity-ws-check.mjs']) {
-      copyFileSync(path.join(ROOT_SCRIPTS, f), path.join(dir, 'scripts', f))
-    }
-    writeFileSync(
-      path.join(dir, 'src-app', 'testdata', 'criteria-coercion-corpus.json'),
-      JSON.stringify({ cases: [] }),
-    )
-    const r = spawnSync(process.execPath, [path.join('scripts', 'coercion-parity.mjs')], {
-      cwd: dir,
-      encoding: 'utf8',
-    })
-    assert.notEqual(r.status, 0, 'a parity run over an empty corpus proves nothing')
-    assert.match(r.stderr, /CORPUS COLLAPSED/)
-    assert.doesNotMatch(r.stdout, /agree cell-for-cell/)
-  })
-})
-
-test('[ITEM-37] coercion-parity-ws-check.mjs FAILS when its mirrored sources are missing', () => {
-  withTmp(dir => {
-    // The ws-check reads FOUR hard-coded source paths. Re-rooted into an empty tree
-    // they do not exist, and it must throw rather than report identical sets.
-    mkdirSync(path.join(dir, 'scripts'), { recursive: true })
-    copyFileSync(
-      path.join(ROOT_SCRIPTS, 'coercion-parity-ws-check.mjs'),
-      path.join(dir, 'scripts', 'coercion-parity-ws-check.mjs'),
-    )
-    const r = spawnSync(process.execPath, [path.join('scripts', 'coercion-parity-ws-check.mjs')], {
-      cwd: dir,
-      encoding: 'utf8',
-    })
-    assert.notEqual(r.status, 0, 'missing mirror sources must not read as "sets identical"')
-    assert.doesNotMatch(r.stdout, /are identical/)
-  })
-})
 
 // ── src-app/ui/scripts node guards ──────────────────────────────────────────
 //
@@ -273,25 +195,11 @@ test('[ITEM-37] action-coverage.mjs FAILS when SRC_ROOT collapses — even with 
 test('[ITEM-37] every floored guard states its floor as a literal constant in-source', async () => {
   const { readFileSync } = await import('node:fs')
   const expectations = [
-    // The two ITEM-12/13 guards commit a NAMED SCAN SET instead of a count. The regexes
-    // are deliberately anchored to CODE shapes (`NAME=(` at column 0, a `[ -f … ] ||`
-    // presence test) rather than to a bare identifier: the previous `/MIN_FILES=\d+/`
-    // form would have gone on matching a PROSE mention of the old constant in the
-    // header comment, i.e. the pin would have survived the mechanism it pinned being
-    // deleted. That is the same rot this whole file exists to catch, one level up.
-    [path.join(ROOT_SCRIPTS, 'check-kinds-zero-core.sh'), /^CORE_FILES=\(/m],
-    [path.join(ROOT_SCRIPTS, 'check-kinds-zero-core.sh'), /\[ -f "\$f" \] \|\| MISSING\+=/],
-    [path.join(ROOT_SCRIPTS, 'check-no-legacy-wire.sh'), /^assert_all_present\(\) \{/m],
-    [path.join(ROOT_SCRIPTS, 'check-no-legacy-wire.sh'), /^SERVE_DECISION=\(/m],
-    [path.join(ROOT_SCRIPTS, 'check-no-legacy-wire.sh'), /^BE_WIRE=\(/m],
-    [path.join(ROOT_SCRIPTS, 'check-no-legacy-wire.sh'), /^FE_WITNESSES=\(/m],
+    // The survivor list — every floored guard still in the tree. The deleted guards'
+    // rows left with the guards (see the STRIP note above; `gate-wiring.test.mjs`
+    // asserts the retirements).
     [path.join(ROOT_SCRIPTS, 'check-no-study-domain-literals.sh'), /MIN_FILES=\d+/],
-    [path.join(ROOT_SCRIPTS, 'check-processor-seed-versions.sh'), /MIN_PACKAGES=\d+/],
-    [path.join(ROOT_SCRIPTS, 'coercion-parity.mjs'), /const MIN_CORPUS_CASES = \d+/],
-    [path.join(ROOT_SCRIPTS, 'check-package-suites.mjs'), /const MIN_GATED_PACKAGES = \d+/],
     [path.join(UI_SCRIPTS, 'lint-no-domain-in-builtin.mjs'), /const SCAN_FLOORS = \{/],
-    [path.join(UI_SCRIPTS, 'lint-positional-declaration.mjs'), /MIN_DECLARED_FIELDS = \d+/],
-    [path.join(UI_SCRIPTS, 'lint-positional-declaration.mjs'), /MIN_SCANNED_FILES = \d+/],
     [path.join(UI_SCRIPTS, 'collect-actions.mjs'), /const MIN_SOURCE_FILES = \d+/],
     [path.join(UI_SCRIPTS, 'action-refs-lint.mjs'), /const MIN_SOURCE_FILES = \d+/],
     [path.join(UI_SCRIPTS, 'action-coverage.mjs'), /const MIN_SOURCE_FILES = \d+/],

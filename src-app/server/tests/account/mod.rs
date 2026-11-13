@@ -43,38 +43,26 @@ mod saas_gating_test;
 // A5 — auto-create a personal account on every user-creation path + backstop.
 mod auto_personal_test;
 
-// A2 — ownership refactor + backfill + account_of_* resolvers.
-mod account_of_test;
-mod behavior_preserving_test;
-mod ownership_create_test;
-mod ownership_migration_test;
-
 // A3 — membership authz flip (composes WITH RBAC; cross-account → 404).
 mod account_scope_test;
-mod account_scoping_test;
-mod authz_scope_test;
-mod behavior_preserving_authz_test;
-mod cross_account_404_test;
-mod rbac_composition_test;
 
-// A4 — active-account context + read REST + sync half.
-mod account_sync_test;
-mod accounts_api_test;
-mod active_account_test;
-
-// Tier-1 admin (#34) — create an org via POST /api/accounts.
-mod create_org_test;
-
-// H-1 (#147) / H-2 (#144) — the two live access-control holes: removal must
-// revoke (including resources the removed member created), and a PERSONAL
-// account's membership may not be mutated.
+// H-1 (#147) / H-2 (#144) — the personal-account membership guard survives; the
+// removed-member revocation half went with the project/dataset resources it guarded.
 mod personal_account_membership_test;
-mod removal_revokes_test;
 
 // #142 — the self-service member mutations (change role, remove, leave) and the R-1
 // role-escalation guard they introduce.
 mod member_events_test;
-mod member_mutations_test;
+
+// A4 — read REST + sync half. (The active-account context suite was DROPPED: the
+// `ActiveAccount` extractor has no kept consumer — its project/dataset write routes are
+// stripped — and the extractor is now only exercised at registration.)
+mod account_sync_test;
+mod accounts_api_test;
+
+// Tier-1 admin (#34) — create an org via POST /api/accounts.
+mod create_org_test;
+
 
 // #145 — account invitations: the token model and the create/list/resend/revoke routes,
 // their enumeration-safety contract, and INV-R1 at `add_member` (which #145 gave the
@@ -92,13 +80,8 @@ mod invitation_accept_test;
 // `--features saas` and the "desktop is unlimited" control without it.
 mod seat_allowance_test;
 
-// #171 — the transfer-side sibling of H-1: `accept_transfer` moved a project OUT of
-// its account with no re-validation, so a removed member could take the org's project
-// with them. Both remedies (cancel-on-removal AND re-validate-at-accept), each proven
-// to refuse alone.
-mod transfer_escape_test;
-
-/// The seeded `Users` group id (holds `projects::use` etc.); used to strip a user's
+/// The seeded `Users` group id (holds the baseline capability grants — `jobs::use`,
+/// `account::read`, `account::members::manage`, …); used to strip a user's
 /// baseline RBAC capability for the A9 deny path (RBAC-composition tests).
 pub const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
 
@@ -119,9 +102,8 @@ pub async fn login(server: &TestServer, username: &str) -> String {
     token_of(resp.json().await.expect("login json"))
 }
 
-/// Create a user then STRIP them from the Users group → they no longer hold
-/// `projects::use` (the RBAC capability), for the "member lacking the perm ⇒ 403"
-/// composition half.
+/// Create a user then STRIP them from the Users group → they lose their baseline
+/// RBAC capability grants, for the "member lacking the perm ⇒ 403" composition half.
 pub async fn create_user_without_projects(
     server: &TestServer,
     admin: &str,
@@ -169,27 +151,6 @@ pub async fn add_member(pool: &SqlitePool, account: uuid::Uuid, user: uuid::Uuid
         .execute(pool)
         .await
         .expect("insert account member");
-}
-
-/// Move a project into `account` (simulating a project created in / transferred to a
-/// shared org account); `owner_id` is left as the creating member.
-pub async fn move_project_to_account(pool: &SqlitePool, project: uuid::Uuid, account: uuid::Uuid) {
-    sqlx::query("UPDATE projects SET account_id = $1 WHERE id = $2")
-        .bind(account)
-        .bind(project)
-        .execute(pool)
-        .await
-        .expect("move project to account");
-}
-
-/// Move a dataset into `account`.
-pub async fn move_dataset_to_account(pool: &SqlitePool, dataset: uuid::Uuid, account: uuid::Uuid) {
-    sqlx::query("UPDATE datasets SET account_id = $1 WHERE id = $2")
-        .bind(account)
-        .bind(dataset)
-        .execute(pool)
-        .await
-        .expect("move dataset to account");
 }
 
 /// `POST /api/accounts` (create-org, #34) with an optional bearer + a JSON body →

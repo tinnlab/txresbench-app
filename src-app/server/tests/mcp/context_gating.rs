@@ -10,11 +10,14 @@
 //!   manifest omits.
 //! - `describe_capability` surfaces each capability's `context` precondition
 //!   (so the agent navigates to that context first).
-//! - an `invoke_capability` for a context-inactive action RELAYS the engine's
-//!   `CONTEXT_INACTIVE` verdict as an `isError` tool result — the backend never
-//!   judges context itself (this mirrors the `STALE_STATE` relay in
-//!   `instance_actions.rs`; ARCHITECTURE.md Layer 5/6: permission =
-//!   backend-enforced trust, context/staleness = engine-enforced correctness).
+//!
+//! STRIP (single-cell): the CONTEXT_INACTIVE relay proof left with its only
+//! vehicle — the context-gated `workbench.openJobs` action. Every kept
+//! manifest action is context "global", so the relay path (backend never
+//! judges context itself; it relays the engine's verdict) has no kept
+//! producer; it returns to coverage with the first context-bearing txr
+//! action. The relay MACHINERY itself is unchanged (the same code path
+//! TEST-9/TEST-10 prove for the NOT_CONNECTED / NOT_PERMITTED verdicts).
 
 use std::collections::BTreeSet;
 use std::time::Duration;
@@ -79,9 +82,13 @@ async fn list_capabilities_reflects_the_committed_manifest_no_server_ai_filterin
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
 
-    // A full Users-group member holds mcp::use + projects::use, so they see the
-    // manifest's mcp/projects-scoped actions — the shape the existing
+    // A full Users-group member holds mcp::use + jobs::use, so they see the
+    // manifest's mcp/jobs-scoped actions — the shape the existing
     // `frontend_actions.rs` TEST-8 already proves fits under the list cap.
+    // (The project/dataset actions were exercised here before the strip;
+    // their `projects::use` grant went with the removed project module, so a
+    // Users member no longer sees them — the positive control now uses kept
+    // actions the caller IS permitted to run.)
     create_user(&server, &admin, "ctxlister", "ctxlister@x.test").await;
     let user = login(&server, "ctxlister").await;
 
@@ -105,10 +112,12 @@ async fn list_capabilities_reflects_the_committed_manifest_no_server_ai_filterin
         );
     }
 
-    // Non-vacuous positive control: the mcp/projects-scoped actions (including a
-    // context-bearing one, `dataset.process`) ARE present for this permitted
-    // caller — the list is a real reflection of the manifest, not empty.
-    for expected in ["app.navigate", "dataset.process", "project.openProject"] {
+    // Non-vacuous positive control: kept actions the permitted caller can run —
+    // the mcp::use-gated globals — are present, so the list is a real
+    // reflection of the manifest, not empty. (The jobs::use-gated
+    // `workbench.openJobs` context-bearing vehicle left with the workbench;
+    // every kept manifest action is context "global".)
+    for expected in ["app.navigate", "nav.aiAccess", "views.list"] {
         assert!(
             frontend_ids.contains(expected),
             "expected manifest action `{expected}` present for a Users member: {frontend_ids:?}"
@@ -138,22 +147,12 @@ async fn describe_capability_surfaces_the_context_precondition() {
     create_user(&server, &admin, "ctxdescriber", "ctxdescriber@x.test").await;
     let user = login(&server, "ctxdescriber").await;
 
-    // A non-global action names its required context AND flags it as a
-    // precondition. `dataset.process` (permission `projects::use`, held by
-    // Users) is context `"dataset"`.
-    let dataset = tools_call(
-        &server,
-        &user,
-        "describe_capability",
-        json!({ "operation_id": "dataset.process" }),
-    )
-    .await;
-    let structured = &dataset["structuredContent"];
-    assert_eq!(structured["context"], "dataset", "{structured}");
-    assert_eq!(structured["context_required"], true, "{structured}");
-
     // A `"global"` action carries its context but is NOT a precondition (no
-    // `context_required` flag) — it is invokable from anywhere.
+    // `context_required` flag) — it is invokable from anywhere. (The only
+    // non-global manifest actions were the workbench instance actions; with
+    // the workbench stripped, every kept action is context "global", so the
+    // context_required shape has no kept vehicle — the machinery stays and
+    // returns to coverage when a context-bearing txr action appears.)
     let navigate = tools_call(
         &server,
         &user,
@@ -166,71 +165,5 @@ async fn describe_capability_surfaces_the_context_precondition() {
     assert!(
         structured.get("context_required").is_none(),
         "a global action must not be flagged as a context precondition: {structured}"
-    );
-}
-
-// ------------------------------- TEST-106 (c) -------------------------------
-
-/// A context-gated action invoked while its context is inactive: the ENGINE
-/// (here a simulated one) plays the `CONTEXT_INACTIVE` rejection verbatim, and
-/// the backend RELAYS it as an `isError` tool result WITHOUT judging context
-/// itself — exactly the shape the `STALE_STATE` relay proves for staleness.
-#[tokio::test]
-async fn invoke_context_inactive_action_relays_context_inactive_as_iserror() {
-    let server = TestServer::spawn().await;
-    let admin = setup_admin(&server).await;
-    create_user(&server, &admin, "ctxdriver", "ctxdriver@x.test").await;
-    let driver = login(&server, "ctxdriver").await;
-
-    let session_id = Uuid::new_v4();
-    let (mut stream, mut buf) = open_agent_stream(&server, &driver, session_id).await;
-
-    let (invoke_result, ()) = tokio::join!(
-        tools_call(
-            &server,
-            &driver,
-            "invoke_capability",
-            json!({
-                // A `context:"dataset"` instance action; the caller is NOT on a
-                // dataset surface, so the engine will reject it as inactive.
-                "operation_id": "dataset.process",
-                "body": { "view_id": "v1", "spec": {} }
-            }),
-        ),
-        async {
-            let invoke_frame = next_sse_event(&mut stream, &mut buf, Duration::from_secs(10))
-                .await
-                .expect("agent_invoke frame arrives over the real SSE channel");
-            assert_eq!(invoke_frame["type"], "agent_invoke");
-            assert_eq!(invoke_frame["action_id"], "dataset.process");
-            assert_eq!(invoke_frame["view_id"], "v1", "{invoke_frame}");
-            let request_id = invoke_frame["request_id"].clone();
-
-            // The simulated engine plays the real `./engine.ts` context-guard's
-            // rejection shape verbatim (PLAN.md ITEM-4): `ok: false` with a
-            // `CONTEXT_INACTIVE`-prefixed error naming the context, no `result`.
-            // The backend does NOT judge context — it only relays this verdict.
-            post_agent_result(
-                &server,
-                &driver,
-                request_id,
-                false,
-                Value::Null,
-                Some("CONTEXT_INACTIVE: context \"dataset\" is not active; navigate there first, then retry"),
-            )
-            .await;
-        }
-    );
-
-    assert_eq!(invoke_result["isError"], true, "{invoke_result}");
-    let structured = &invoke_result["structuredContent"];
-    assert_eq!(structured["kind"], "frontend");
-    assert_eq!(structured["ok"], false);
-    assert!(
-        structured["error"]
-            .as_str()
-            .unwrap_or_default()
-            .starts_with("CONTEXT_INACTIVE"),
-        "the engine's CONTEXT_INACTIVE verdict is relayed faithfully: {structured}"
     );
 }

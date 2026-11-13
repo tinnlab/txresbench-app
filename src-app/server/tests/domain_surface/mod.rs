@@ -1,6 +1,21 @@
 //! TEST-40 (ITEM-23 / ITEM-29) + WS-B + WS-D — the server-side domain surface, in
 //! Rust, next to the wire contract it deliberately did not touch.
 //!
+//! ── FEAT/STRIP-SINGLE-CELL (this branch) ───────────────────────────────────
+//! The seven single-cell modules were deleted, along with `build_helper/`,
+//! the platform's package tree and data corpus, the removed server test trees (`dataset`, `datatype`,
+//! `drafts`, `extensions`, `project`, `provenance`, `workstore`, `analysis`,
+//! `geneset`, `model_coverage`, `tiledb_serve`, the trimmed `account`/`file`/
+//! `jobs`/`sandbox`/`predicate_removed`/`sqlite` sets) and the `sdk/crates` the
+//! single-cell platform needed. Every floor/ceiling/list in this file was
+//! re-anchored on the CURRENT tree by emulating this file's own scanner (the
+//! measurement and the constants are argued in each constant's own comment; the
+//! derivation test, the cardinality ledger and the two project-wire tests were
+//! deleted because their subjects are gone). The shared
+//! `ui/scripts/domain-baseline.json` still holds entries for deleted files; the
+//! JS side re-bases it in a separate step, so until then the STALE check names
+//! those entries.
+//!
 //! ── WHAT WS-B CHANGED (DOMAIN_AUDIT §0, blind spot #3) ──────────────────────
 //! This file used to scan **3 of 16 modules** (`sandbox`, `project`, `dataset`)
 //! with a **3-word noun vocabulary** (`leiden`, `umap`, `CellSet`). The 2026-07-28
@@ -93,13 +108,6 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use crate::common::TestServer;
-
-// TEST-6 (ITEM-21 / INV-5): the N+1 property of the DERIVED-vocabulary shell guard —
-// a term declared by a NEW processor manifest is forbidden in app-core with no guard
-// edit. Source-only (a synthetic fixture repo); no server, no DB.
-mod derived_vocabulary_test;
-
 // ════════════════════════════════════════════════════════════════════════════
 //  VOCABULARY — kept in lockstep with `ui/scripts/lint-no-domain-in-builtin.mjs`
 // ════════════════════════════════════════════════════════════════════════════
@@ -120,20 +128,16 @@ mod derived_vocabulary_test;
 /// WS-D: this is now exactly the JS guard's `QUOTED_ID_TOKENS` — the bare-word
 /// members of `DATATYPE_IDS`. The slash ids (`single-cell/expression`, …) moved to
 /// `SUBSTRING_TOKENS`, where the JS guard has always matched them, because a slash id
-/// never occurs generically and quote-delimiting it misses `env-rootfs/single-cell/`.
+/// never occurs generically and quote-delimiting it misses a slash id path.
 /// ── WS-R5 G2 — the vocabulary is DERIVED FROM THE MANIFESTS, on both sides ───────────
 ///
-/// It was a HAND-LIST here exactly as it was in the JS twin, and it had drifted exactly as
-/// far: `de` was listed but PRUNED from the lattice, while `cell-set`, `annotation-table`,
-/// `geneset/collection`, `graph/attributed` and `de/result` ship and were absent — four of
-/// the five invisible to every tier. Two of the three CONTRIBUTING PACKAGES (`open-kinds`,
-/// `anndata-import`) were unaccounted for in either enforcer.
-///
-/// Both sides now read `src-app/packages/*/manifest.yaml`. A byte-identical minimal slice
-/// reader rather than a YAML dependency — deliberately, and for the same reason the JS side
-/// has no dependencies: a gate that a transitive dep bump can break is a worse gate, and the
-/// two readers have to agree BYTE FOR BYTE or the shared baseline drifts. The parity dump
-/// (`dump_observation_for_parity`) is what proves they do.
+/// STRIP (this branch): the package tree no longer exists, so the derivation
+/// below yields an EMPTY vocabulary (the read_dir failure path). The quoted-id
+/// and quoted-title tiers are therefore empty, and the substring tier is
+/// `SUBSTRING_PREFIXES` alone. That is the truth of this tree, not a shrunk
+/// hand-list: there are no contributed datatype ids left to forbid. The
+/// `CONTRIBUTED_DATATYPE_FLOOR` and its derivation test were deleted with the
+/// subject they existed to guard.
 fn contributed_datatypes() -> &'static Vec<(String, String)> {
     static CACHE: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
     CACHE.get_or_init(|| {
@@ -191,23 +195,6 @@ fn contributed_datatypes() -> &'static Vec<(String, String)> {
     })
 }
 
-/// Measured 2026-07-28: 20 ids across 3 packages. Mirrors the JS
-/// `CONTRIBUTED_DATATYPE_FLOOR`; `the_contributed_vocabulary_is_derived_not_hand_listed`
-/// is what fails when the parse goes short, instead of the guard quietly forbidding less.
-///
-/// LOWERED 20 -> 19 (artifact-model ITEM-38), which is the branch this floor's own failure
-/// text offers: "lower CONTRIBUTED_DATATYPE_FLOOR deliberately if the lattice really
-/// shrank." It really shrank, by exactly one: the lossless multi-file store type was
-/// removed from its contributing package at that package's 0.6.0, because ITEM-27 had
-/// already deleted the only thing that could produce it. (Worded without naming the
-/// package or the id — this file is itself scanned, and a guard's own commentary must not
-/// be where the vocabulary re-enters the tree.) This is NOT the failure the floor catches
-/// (a collapsed or mis-pointed parse, which shows up as a LARGE drop toward zero) — the
-/// parse still reads 3 packages and 19 ids, and a re-added id is still forbidden on
-/// arrival with no edit here. Lowered in lockstep with the JS twin's constant of the same
-/// name; the two must agree or neither is checking the other.
-const CONTRIBUTED_DATATYPE_FLOOR: usize = 19;
-
 /// Bare-word ids — matched ONLY when quote-delimited (see the doc above).
 fn quoted_id_tokens() -> Vec<&'static str> {
     contributed_datatypes()
@@ -232,8 +219,7 @@ const SUBSTRING_PREFIXES: &[&str] = &["single-cell"];
 /// Slash / compound tokens — they never occur in generic code, so they are matched as RAW
 /// SUBSTRINGS with no boundary rule at all. `single-cell` (no slash) is what catches the
 /// two real server hits the WS-C widening surfaced: the clap `about =` blurb in `main.rs`
-/// and the `../env-rootfs/single-cell/Dockerfile` build path in
-/// `build_helper/sandbox_rootfs.rs`.
+/// and the baked recipe-path string of the old build helper.
 ///
 /// WS-R5 G2 — the slash ids are DERIVED, minus anything a prefix already subsumes. The
 /// subsumption filter is load-bearing rather than tidiness: substring tokens are matched
@@ -465,9 +451,9 @@ struct ScanRoot {
     /// compiled in and run at boot, `seed_multimodal.py` / `seed_anndata_import.py` are
     /// `include_str!`-ed by `workstore/data_api.rs:1184,1470` AND executed,
     /// `mcp/frontend-actions.json` is a baked manifest — so a domain literal in any of
-    /// them ships exactly like one in a `.rs` file. `packages/**` and `env-rootfs/**`
-    /// stay UNSCANNED by decision (they ARE the contributed domain, as DATA); the JS
-    /// twin's extension-policy block records that with its measured cost.
+    /// them ships exactly like one in a `.rs` file. The platform's package tree and env
+    /// recipes were the contributed domain AS DATA and stayed unscanned by decision;
+    /// they have left, so nothing stands in for that decision now.
     exts: &'static [&'static str],
 }
 
@@ -484,18 +470,21 @@ const DATA_EXTS: &[&str] = &["sql", "py", "json", "yaml", "yml"];
 /// constant down by one, which trains everyone to treat a red floor as paperwork. It is
 /// also verbatim the antipattern the POSITIVE-COUNT block below warns about, and it is
 /// how this twin went red unnoticed across a round-1 merge. Restored to ≈2/3.
-const MIN_FILES_MODULES: usize = 107;
+/// STRIP: RE-MEASURED **127** (107 -> 127) after the seven single-cell modules were
+/// deleted; floor LOWERED 107 -> 84 (⅔ of 127). The walker's
+/// test-only-BY-DECLARATION exclusion resolves to nothing in this tree (no
+/// `#[cfg(test)] mod x;` declaration remains in `src/modules`), so the raw `.rs`
+/// count is the walk's count.
+const MIN_FILES_MODULES: usize = 84;
 /// WS-D: `server/src/*.rs` OUTSIDE `modules/` — `lib.rs` (the whole boot assembly),
 /// `main.rs` (the CLI), `config.rs`, `database.rs`, `openapi.rs`. The two files an
 /// operator reads first, and both were outside every guard in the tree: `main.rs` names
 /// the domain in the shipped binary's own `--help` blurb. Measured 5; floor 5 (this root
 /// is small and fixed). WS-R3 §4: 5 -> 3, the same ≈2/3 restoration; the file IDENTITY is
 /// pinned by `MUST_SCAN_KEYS`, which is the check that actually names what went missing.
-const MIN_FILES_SRC_ROOT: usize = 3;
-/// WS-D: `server/build_helper/**.rs`. These RUN at build time and bake paths into the
-/// binary, so a domain path here ships exactly like one in `modules/`. Measured 3.
-/// WS-R3 §4: 3 -> 2.
-const MIN_FILES_BUILD_HELPER: usize = 2;
+/// STRIP: RE-MEASURED **6** (the tree also carries `harness_sentinel.rs` at this root);
+/// floor LOWERED 3 -> 4 (⅔ of 6).
+const MIN_FILES_SRC_ROOT: usize = 4;
 
 /// WS-R3 §2 — `server/src/**` + `build_helper/**` in the four DATA formats. Measured 53
 /// (49 `.sql` migrations, 2 `include_str!`-ed `.py` drivers, 2 `.json` manifests). Floor
@@ -512,7 +501,10 @@ const MIN_FILES_BUILD_HELPER: usize = 2;
 /// collapse detector is for: it fired, named the root, and the drop turned out to be
 /// accounted rather than a collapsed walk. Both halves agree at 12 (the JS twin's
 /// `SCAN_FLOORS.serverData`), which is the check that neither was edited to fit.
-const MIN_FILES_SERVER_DATA: usize = 8;
+/// STRIP: RE-MEASURED **32** (31 surviving module migrations + `mcp/frontend-actions.json`).
+/// The two `include_str!`-ed `.py` seed drivers are gone with `workstore`; no `.py` or
+/// `.yaml`/`.yml` file remains under `src/`. Floor LOWERED 8 -> 21 (⅔ of 32).
+const MIN_FILES_SERVER_DATA: usize = 21;
 
 // ── WS-R4: the TEST TREE roots ──────────────────────────────────────────────
 //
@@ -520,8 +512,8 @@ const MIN_FILES_SERVER_DATA: usize = 8;
 // statement than "`#[cfg(test)]` blanking hid it": the blanking never applied, because
 // the walk never reached the directory. Nobody had ever looked, and this is where the
 // audit found the EXACT-CARDINALITY CERTIFICATIONS of the contributed domain bundle
-// (see `CARDINALITY_CERTIFICATIONS`) — assertions that make the app's OWN suite fail if
-// `packages/single-cell-types` is deleted.
+// (see the ledger's removal note above) — assertions that make the app's OWN suite
+// fail if `packages/single-cell-types` is deleted.
 //
 // THE EXTENSION RULE FOR A TEST ROOT, in lockstep with the JS twin's block at
 // `defaultScanSet`: round 3's production rule ("every format the app EMBEDS, EXECUTES or
@@ -529,8 +521,9 @@ const MIN_FILES_SERVER_DATA: usize = 8;
 // analogue is what makes a domain literal in a test tree load-bearing at all — that the
 // SUITE RUNS IT: **a test root is scanned in every format the suite COMPILES, EXECUTES
 // or ASSERTS AGAINST from that tree, and in no others.** Here that is `.rs` (compiled +
-// run by `cargo test --test integration_tests`) plus the DATA formats the suite reads
-// (the 12 processor-manifest lint fixtures, `make_mtx_trio.py`, `gen_oracle.py`).
+// run by `cargo test --test integration_tests`) — the DATA formats that used to qualify
+// (the 12 processor-manifest lint fixtures, `make_mtx_trio.py`, `gen_oracle.py`) are
+// gone with the removed test dirs, so the separate data root is gone too.
 // `.sh` is NOT scanned: there is no `.sh` dialect in either tokenizer and adding one is
 // a new-dialect decision, not a root decision. `.gz` is binary.
 //
@@ -539,9 +532,14 @@ const MIN_FILES_SERVER_DATA: usize = 8;
 /// first test the debug-seed surface has ever had); floor 78 -> 79.
 /// ROUND-5 RE-MEASURED **120** (+1: the round's new cross-side agreement test, whose
 /// absence let two enforcers of one behaviour assert opposite things); floor 79 -> 80.
-const MIN_FILES_SERVER_TESTS: usize = 80;
-/// `server/tests/**` in the DATA formats the suite reads. Measured 14; floor at ≈2/3.
-const MIN_FILES_SERVER_TESTS_DATA: usize = 9;
+/// STRIP: RE-MEASURED **85** after the removed test trees were deleted; floor LOWERED
+/// 80 -> 56 (⅔ of 85).
+const MIN_FILES_SERVER_TESTS: usize = 56;
+// STRIP: the `server-tests-data` root is gone — the current `server/tests/**` tree
+// carries no `.sql`/`.py`/`.json`/`.yaml` file at all (its fixtures left with the
+// removed test dirs), so a root with a floor of 0 is not a floor. The literal tier
+// still runs over every `.rs` file of `server-tests`, which is where the surviving
+// test-tier literal hits live.
 
 // ── WS-R4: the TEST tier's own CALIBRATION ──────────────────────────────────
 //
@@ -560,7 +558,12 @@ const MIN_FILES_SERVER_TESTS_DATA: usize = 9;
 /// claim was re-anchored this round). Floor 248 -> 249 (≈2/3).
 /// DRIFT RECONCILIATION 2026-08-10 — RE-MEASURED **317** (374 -> 317); 249/317 = 79% is a
 /// tripwire. LOWERED 249 -> 211 (⅔ of 317).
-const MIN_TEST_NOUN_PAIRS: usize = 211;
+/// STRIP: RE-MEASURED **75** — the removed module test trees carried the rest, and
+/// this file's own deleted tests retired no distinct pair (every deleted token
+/// still occurs elsewhere in this file). Floor LOWERED 211 -> 50 (⅔ of 75). The
+/// measurement is a snapshot: the server module strip was still landing while it
+/// was taken, and the parent re-runs the floors once that work settles.
+const MIN_TEST_NOUN_PAIRS: usize = 50;
 /// Total noun+acronym hits in the TEST tier. Measured **1548** on 2026-07-28.
 /// ROUND-4 RE-MEASURED **1544** (-4) — the same four `cell` hits. Floor 1032 -> 1029.
 /// NOTE this tier barely moved while the JS twin's TEST tier rose by 185: the relocation
@@ -571,11 +574,16 @@ const MIN_TEST_NOUN_PAIRS: usize = 211;
 /// coverage claim was re-anchored because it was false as written. Floor 1029 -> 1036.
 /// DRIFT RECONCILIATION 2026-08-10 — RE-MEASURED **1148** (1554 -> 1148); 1036/1148 = 90%
 /// is the second-worst margin in the file. LOWERED 1036 -> 765 (⅔ of 1148).
-const MIN_TEST_NOUN_HITS: usize = 765;
+/// STRIP: RE-MEASURED **355** (see the pairs note above for the snapshot caveat).
+/// Floor LOWERED 765 -> 236 (⅔ of 355).
+const MIN_TEST_NOUN_HITS: usize = 236;
 /// Files with a TEST-tier comment hit. Measured **55** on 2026-07-28 — ROUND-4 UNCHANGED
 /// (no server test file lost its LAST comment-tier hit), so the floor stays 36 (65%).
 /// ROUND-5 UNCHANGED at **55**, same reason; floor stays 36.
-const MIN_TEST_PROSE_FILES: usize = 36;
+/// STRIP: RE-MEASURED **16** — 16 server test files carry a comment-tier hit
+/// (snapshotted while the module strip was still landing). Floor LOWERED 36 -> 10
+/// (⅔ of 16).
+const MIN_TEST_PROSE_FILES: usize = 10;
 /// Total TEST-tier comment hits. Measured **832** on 2026-07-28. ROUND-4 RE-MEASURED
 /// **838** (+6): this reconciliation's own doc comments in THIS file, recording what
 /// r4dataapi deleted, hand-argued under `R3-META` in `domain-baseline.json` because
@@ -585,7 +593,10 @@ const MIN_TEST_PROSE_FILES: usize = 36;
 /// Floor 554 -> 564 (≈2/3).
 /// DRIFT RECONCILIATION 2026-08-10 — RE-MEASURED **650** (847 -> 650); 564/650 = 87% is a
 /// tripwire. LOWERED 564 -> 433 (⅔ of 650).
-const MIN_TEST_PROSE_HITS: usize = 433;
+/// STRIP: RE-MEASURED **198** (snapshot caveat as above; the final hit came from this
+/// strip's own removal note, which has to spell the surviving literal token).
+/// Floor LOWERED 433 -> 132 (⅔ of 198).
+const MIN_TEST_PROSE_HITS: usize = 132;
 /// TEST-tier datatype LITERALS, server side. Measured **302** on 2026-07-28 — the first
 /// time anyone looked. A CEILING, set AT the measurement and shrink-only from there:
 /// a NEW test asserting on a hardcoded domain datatype id must be written against a
@@ -647,7 +658,12 @@ const MIN_TEST_PROSE_HITS: usize = 433;
 /// datatype id; the one test literal this port would have added (the sqlite module_workstore
 /// axis-candidate arm) was rewritten to a NON-domain datatype instead. Ledger again equals
 /// measurement (321 = 318 + 3); shrink-only from here.
-const TEST_LITERAL_HITS_CEILING: usize = 321;
+/// STRIP: RE-MEASURED **13** — every surviving test-tier literal is the
+/// `single-cell` substring in THIS file (the guard's own matcher controls), all the
+/// quoted-id/quoted-title hits are gone with the manifest-derived vocabulary, and
+/// the removed test trees' literals went with them. LOWERED 321 -> 13, set AT the
+/// measurement, shrink-only.
+const TEST_LITERAL_HITS_CEILING: usize = 13;
 
 /// A baseline key in the TEST tier. The Rust twin only walks SERVER roots (it always
 /// has — `ui/**` is the JS twin's half), so server-side this is exactly "under
@@ -670,7 +686,10 @@ fn is_test_tier_key(key: &str) -> bool {
 /// `features` module (the runtime feature-flags subsystem). Both consciously admitted = 20.
 /// TXRBENCH STRIP retired 4 (billing, admin, user, app) and added 1 (`localsession`, the
 /// single-owner local session) = 17 — consciously, in lockstep with the FE twin.
-const EXPECT_MODULES: usize = 17;
+/// STRIP (this branch): RE-MEASURED **16** — the seven single-cell modules were
+/// deleted, so 17 -> 16. This exact-count assertion fired at the base already
+/// (the base held 23 modules against a stale 17); it is now correctly 16.
+const EXPECT_MODULES: usize = 16;
 
 // ── POSITIVE-COUNT FLOORS ───────────────────────────────────────────────────
 //
@@ -715,7 +734,9 @@ const EXPECT_MODULES: usize = 17;
 /// worst margin of any floor in this file and the next one that would have gone red; see
 /// `MIN_PROSE_HITS` below for the accounting of the same 13-day monotone drift that moved
 /// all four production tiers. LOWERED 32 -> 23 (⅔ of 35).
-const MIN_NOUN_PAIRS: usize = 23;
+/// STRIP: RE-MEASURED **77** (77 pairs across the surviving production tree; the
+/// remainder was the deleted single-cell modules' entries). LOWERED 23 -> 51 (⅔ of 77).
+const MIN_NOUN_PAIRS: usize = 51;
 /// Total noun+acronym HITS in code. A pair floor alone cannot see a file going from 16
 /// `cell` hits to 1 — the pair survives. RE-MEASURED **75** (115 at WS-FT's port, 126
 /// before its rename). 126 → 75 is 51 hits: 11 to FT's own `CellSet` → `RowSet` rename and
@@ -746,7 +767,9 @@ const MIN_NOUN_PAIRS: usize = 23;
 /// DRIFT RECONCILIATION 2026-08-10 — RE-MEASURED **144** (186 -> 144). 124/144 = 86%, the
 /// same tripwire margin this file lowered `MIN_PROSE_FILES` for at 84%. LOWERED 124 -> 96
 /// (⅔ of 144).
-const MIN_NOUN_HITS: usize = 96;
+/// STRIP: RE-MEASURED **681** (the deleted single-cell modules carried the rest).
+/// LOWERED 96 -> 454 (⅔ of 681).
+const MIN_NOUN_HITS: usize = 454;
 /// Files with at least one comment-tier hit. RE-MEASURED **68** (71 at WS-FT's port).
 /// Floor UNCHANGED at 45 — that is still ≈2/3 of the new measurement.
 /// WS-R3 RE-MEASURED **85** (68 -> 85). RAISED 45 -> 56 (≈2/3).
@@ -757,7 +780,10 @@ const MIN_NOUN_HITS: usize = 96;
 /// r4spec. 56/67 = 84% is a TRIPWIRE, so LOWERED 56 -> 44 (⅔ of 67).
 /// DRIFT RECONCILIATION 2026-08-10 — RE-MEASURED **53** (67 -> 53); 44/53 = 83%, the same
 /// tripwire the line above lowered for. LOWERED 44 -> 35 (⅔ of 53).
-const MIN_PROSE_FILES: usize = 35;
+/// STRIP: RE-MEASURED **61**; the walk reaches 61 surviving production files with a
+/// comment-tier hit (snapshot at the strip's module commit; a sibling worker was
+/// still landing module trims while it was taken). LOWERED 35 -> 40 (⅔ of 61).
+const MIN_PROSE_FILES: usize = 40;
 /// Total comment-tier hits. RE-MEASURED **545** (585 at WS-FT's port, 586 before its
 /// rename). 586 → 545 is 41, fully accounted: WS-J `serve_core.rs` −17 + `ingest.rs` −3;
 /// WS-I `rootfs/version.rs` −6 + `sandbox/settings.rs` −7 + `build_helper` −1; WS-G
@@ -814,7 +840,9 @@ const MIN_PROSE_FILES: usize = 35;
 /// four constants up: "a floor set just under the measurement is a floor that a normal,
 /// correct fix breaks." LOWERED 287 -> 190 (⅔ of 286), which puts the collapse-detector
 /// margin back.
-const MIN_PROSE_HITS: usize = 190;
+/// STRIP: RE-MEASURED **358** comment-tier hits in the surviving production tree
+/// (same snapshot caveat). LOWERED 190 -> 238 (⅔ of 358).
+const MIN_PROSE_HITS: usize = 238;
 
 /// `substring` / `quoted-id` / `quoted-title` — a hardcoded domain datatype-id LITERAL,
 /// the hardest INV-3 kind. This is a CEILING, not a ratchet with room: the count may only
@@ -823,7 +851,7 @@ const MIN_PROSE_HITS: usize = 190;
 ///
 /// RE-MEASURED **0**. WS-FT recorded 3 server-side (`main.rs` `--help` ×1,
 /// `build_helper/sandbox_rootfs.rs` build path ×2); WS-E removed the `--help` clause and
-/// WS-I turned the `env-rootfs/single-cell/` paths into build inputs, so the tier is now
+/// WS-I turned the recipe-path strings into build inputs, so the tier is now
 /// EMPTY and the target it always wanted — zero hardcoded domain datatype ids in the
 /// server — is actually met. `MUST_OBSERVE_LITERAL` went with it: a witness for an empty
 /// tier is a permanently-failing assertion, not a guard.
@@ -852,7 +880,11 @@ const MIN_PROSE_HITS: usize = 190;
 /// in `workstore/seed_anndata_import.py` (`embedding` x2, `metadata-column` x1), an
 /// `include_str!`-ed driver that is still `#[cfg(debug_assertions)]`-gated. The server's
 /// literal surface is now one file. Shrink-only from 3.
-const LITERAL_HITS_CEILING: usize = 3;
+/// STRIP: RE-MEASURED **0** — the last surviving literal was the `include_str!`-ed seed
+/// driver with `workstore`, and the quoted-id/quoted-title tiers are empty with the
+/// package manifests gone, so the production literal tier is empty again. Ceiling
+/// 3 -> 0, set AT the measurement; shrink-only.
+const LITERAL_HITS_CEILING: usize = 0;
 
 /// (baseline key, token) pairs that MUST be observed — the audit's own load-bearing server
 /// findings, named, PLUS one witness per newly-added root and per newly-added tier. A
@@ -888,10 +920,12 @@ const LITERAL_HITS_CEILING: usize = 3;
 /// construction: it proves a root is live by asserting a LEAK still exists there, so the
 /// very fix the round exists to make deletes the guard's own liveness proof. Pinning the
 /// FILE the root must reach survives the tree getting clean, which is the point.
-const MUST_OBSERVE: &[(&str, &str)] = &[
-    ("server/src/modules/provenance/criteria_script.rs", "cell"), // the largest S-residue (16)
-    ("server/src/modules/dataset/repository.rs", "mtx"), // the WS-C ten-noun addition is live
-];
+/// STRIP (this branch): the two surviving entries are RETIRED — both files went with
+/// the removed modules (`provenance/criteria_script.rs`, `dataset/repository.rs`). Per
+/// this list's own rule, the entry goes in the same commit as the subject; the
+/// per-root liveness they provided is held by `MUST_SCAN_KEYS`, and `MIN_NOUN_PAIRS` /
+/// `MIN_NOUN_HITS` still prove the matcher fires on the surviving tree.
+const MUST_OBSERVE: &[(&str, &str)] = &[];
 
 /// One REAL production file per scan root that the walk MUST reach — the replacement for
 /// the retired per-root residue witnesses above (see `MUST_OBSERVE`). A root renamed,
@@ -901,18 +935,15 @@ const MUST_OBSERVE: &[(&str, &str)] = &[
 /// (which proves the scanner fires) — together those are what the residue witnesses stood
 /// in for. Mirrors the JS twin's `[WS-C][roots] every NEW root is really scanned`.
 const MUST_SCAN_KEYS: &[&str] = &[
-    // ROOT `modules`. This pinned `workstore/serve_core.rs` until artifact-model ITEM-12
-    // DELETED it (the Selection→Arrow serve core; `/data` is the only read path now and
-    // the server never decodes). Per this const's own rule — "removing an entry here needs
-    // the root's replacement coverage named in the same commit" — the replacement is
-    // `workstore/data_api.rs`: the same module, the same root, and now the file that
-    // actually serves the bytes, so the root's coverage is unchanged in substance. It is
-    // also the largest surviving file in the root, which is what makes it a good liveness
-    // witness rather than an arbitrary one.
-    "server/src/modules/workstore/data_api.rs", // root `modules`
-    "server/src/main.rs",                       // root `src-root` (WS-D's new root)
+    // ROOT `modules`. STRIP: `workstore/data_api.rs` went with the workstore module.
+    // Per this const's own rule — "removing an entry here needs the root's replacement
+    // coverage named in the same commit" — the replacement is
+    // `execution_engine/orchestrator.rs`: the same root, now the largest file in it
+    // (which is what makes it a good liveness witness rather than an arbitrary one),
+    // and it still carries the largest surviving domain residue.
+    "server/src/modules/execution_engine/orchestrator.rs", // root `modules`
+    "server/src/main.rs",                       // root `src-root`
     "server/src/lib.rs",                        // root `src-root`
-    "server/build_helper/sandbox_rootfs.rs",    // root `build-helper` (WS-D's new root)
     // WS-R3 §2 — one witness per DATA format the `server-data` root walks, so a root that
     // silently stops covering a format fails HERE and names the file.
     // ── ROUND-4 RECONCILIATION — re-decided on evidence, mirroring the JS twin ──
@@ -927,192 +958,53 @@ const MUST_SCAN_KEYS: &[&str] = &[
     // it must not be the only thing standing between a root and a silently-dropped
     // FORMAT. `.py` is therefore pinned by FORMAT rather than by name; see
     // `FORMAT_COVERAGE_PINS` and `the_server_data_root_covers_every_format_it_walks`.
-    "server/src/modules/workstore/migrations/202608030004_workstore_baseline.sql",
+    // STRIP: the `.py` witness is gone by definition (no `.py` remains under `src/`, and
+    // the format pin test is vacuous for it), and the `.sql` witness is re-pointed at
+    // `jobs/migrations/202608030001_jobs_baseline.sql` — a surviving per-module
+    // baseline migration in the same spirit as the round-4 re-point. `.json` still has
+    // `mcp/frontend-actions.json`.
+    "server/src/modules/jobs/migrations/202608030001_jobs_baseline.sql",
     "server/src/modules/mcp/frontend-actions.json",
     // WS-R4 — one witness per TEST root, same mechanism (a root that is renamed or
-    // filtered out fails HERE and names the file). `datatype/mod.rs` and
-    // `extensions/api_test.rs` are two of the files carrying an exact-cardinality
-    // certification, so a rename that would take one out of the guard's sight is caught
-    // by this check before the ledger's own anchor check even runs.
+    // filtered out fails HERE and names the file). STRIP: the data-format witnesses
+    // (`processor_manifest_lint` yaml, `make_mtx_trio.py`) and the datatype/extensions
+    // test files left with their trees; the surviving test root witness is
+    // `integration_tests.rs`, the file that declares every suite module.
     "server/tests/integration_tests.rs",
-    "server/tests/datatype/mod.rs",
-    "server/tests/extensions/api_test.rs",
-    "server/tests/fixtures/processor_manifest_lint/ok/goodpkg/manifest.yaml",
-    "server/tests/dataset/fixtures/make_mtx_trio.py",
 ];
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WS-R4 — EXACT-CARDINALITY CERTIFICATIONS (server side)
+//  WS-R4 EXACT-CARDINALITY CERTIFICATIONS — REMOVED (this branch)
 // ════════════════════════════════════════════════════════════════════════════
+//
+// The whole ledger is gone, per this file's own discipline. Every one of the
+// certifications it pinned lived in a deleted unit: `server/src/modules/`
+// `extensions/loader.rs` (R4-CARD-03), `datatype/sniff.rs` (R4-CARD-04),
+// `datatype/mod.rs` (R4-CARD-15), and the deleted test trees
+// `server/tests/extensions/{datatype_contribution_test,api_test}.rs`
+// (R4-CARD-05/07/08) and `server/tests/datatype/mod.rs` (R4-CARD-06). Their
+// subject — a test that makes the app's own suite fail if the contributed
+// single-cell bundle is deleted or changes size — no longer exists, because the
+// bundle itself (the removed package manifests the certifications counted)
+// is gone. An empty certification list would pass vacuously, which is exactly the
+// failure mode this ledger accuses; so `the_exact_cardinality_certifications_
+// are_still_pinned` and `CERTIFICATION_CEILING` were deleted with the entries.
+//
+// NO replacement: the surviving server test tree pins nothing to any contributed
+// bundle's cardinality (its `features`/`file_validator`/`sandbox`/`mcp` tests
+// assert on their own modules' shape, not on a package's output count). The JS
+// twin's half of the ledger is re-based in the sibling step the baseline work
+// owns.
 
-/// The finding this round exists to surface, and the one thing a VOCABULARY guard
-/// structurally CANNOT catch.
-///
-/// A cardinality certification is a test assertion that makes the app's OWN SUITE fail if
-/// the contributed domain bundle is deleted or changes size — `assert_eq!(reg.len(),
-/// lattice.len())`, `assert_eq!(table.len(), 15)`, `assert_eq!(conv.produces.len(), 5)`.
-/// It is not "a test using a domain id as an example input" (there are ~33 of those in
-/// `server/tests/**` alone); it is the app's build depending on ONE bundle's cardinality.
-///
-/// TWO REASONS IT NEEDS ITS OWN MECHANISM rather than a wider scan:
-///   1. The load-bearing text carries NO vocabulary token. `assert_eq!(reg.len(),
-///      lattice.len())` is a NUMERIC assertion — no noun, no datatype id, no acronym.
-///      A grep guard over the domain vocabulary is blind to it BY CONSTRUCTION. Widening
-///      the scan set (which WS-R4 also did) would not have found these; the audit found
-///      them by reading. Claiming the widened scan covers them would be exactly the
-///      "green because we did not look" this round exists to end.
-///   2. FOUR OF THEM ARE IN-SOURCE `#[cfg(test)]` — the compiler-enforced exemption
-///      round 3 kept. That exemption's justification is an INV-1/INV-3 argument about
-///      what the BINARY carries, and it remains sound. But a cardinality certification
-///      is not an INV-3 violation: nothing ships. It is a BUILD-TIME COUPLING, and the
-///      shipping argument is simply irrelevant to it. So the answer is NOT to un-blank
-///      `#[cfg(test)]` — that re-opens the 633 code / 180 prose / 69 literal hits
-///      `cfg_block_spans` measured and correctly declined, nearly all of it a generic
-///      engine tested against a concrete domain, which is what such tests SHOULD do.
-///
-/// MECHANISM — deliberately the `MUST_SCAN_KEYS` discipline, not a new one: pin the
-/// certification by FILE + a load-bearing ANCHOR string, and FAIL when the anchor goes
-/// missing, so a certification cannot be silently moved, renamed or rewritten out from
-/// under the ledger. SHRINK-ONLY via the length assertion in the test below.
-///
-/// This list is the SERVER half (8 of the 12). The JS twin holds all twelve, including the
-/// four frontend ones; keeping the server half here means `cargo test` alone catches a
-/// server-side move. The counts are stated rather than derived, so they go stale: they last
-/// moved when the JS twin retired its fourth frontend entry (its subject left the shipped
-/// package) and lowered its own ceiling; this half was NOT affected, and its ceiling below
-/// deliberately did not move.
-const CARDINALITY_CERTIFICATIONS: &[(&str, &str, &str)] = &[
-    // ── R4-CARD-01 — RETIRED (fix/zero-core-derived): FIXED, not moved, not re-anchored ──
-    //
-    // The entry was `server/src/modules/datatype/tests/mod.rs` + the anchor
-    // `seed registry has a different type count than the golden lattice`, i.e.
-    // `assert_eq!(reg.len(), lattice.len())` against a `lattice` array frozen inside
-    // `lattice_golden.json`. This ledger used it as its OWN worked example: the itemisation
-    // in the surrounding comment had gone stale while the assertion still passed, because
-    // the two numbers being compared move together and nothing forced the prose to keep up.
-    //
-    // It is retired on the FIXED branch. There is no replacement number: the `lattice` key
-    // is deleted and the expected type set is DERIVED — the Rust roots UNION every declared
-    // `contributes.datatypes[].id` across `src-app/packages/*/manifest.yaml`, compared as a
-    // SET with per-id `extends`/`is_abstract`. The app's build is therefore no longer coupled
-    // to the contributed bundle's CARDINALITY, only to its DECLARATION. That also removes the
-    // reason a new datatype had to edit a file under `src-app/server/src/` at all, which had
-    // made the zero-core invariant and this certification mutually unsatisfiable.
-    //
-    // The certification did not get weaker by being retired: a count cannot tell an added
-    // type from a removed one and cannot see a package that failed to LOAD, and the
-    // derivation fails loudly on both.
-    //
-    // DUAL-LEDGER entry, so the JS twin (`ui/scripts/lint-no-domain-in-builtin.mjs`) removes
-    // its copy and lowers `CARDINALITY_CERTIFICATION_CEILING` 12 -> 11 in this same commit,
-    // exactly as the CARD-02 retirement required. Written out rather than silently deleted,
-    // for the reason CARD-02 states: a removal is the one disposition that leaves no trace.
-    // Design: docs/design/derived-guards.md §4. Covered by TEST-16 — this very test,
-    // `the_exact_cardinality_certifications_are_still_pinned`, run with the entry gone.
-    // R4-CARD-02 — RETIRED 2026-08-03. It pinned the DOMAIN processors' view-scoped action
-    // set at exactly 20, inside `server/src/modules/mcp/view_spec_actions.rs`. That module
-    // is GONE: view-scoped capability registration moved out of the server, taking the file
-    // and its two `testdata/*.json` oracles with it. Nothing in the app crate scans the
-    // packages' `ui/*.yaml` for actions any more, so nothing in it can be coupled to that
-    // bundle's SIZE — this is the ledger's "genuinely retired" branch, not a move. Entry
-    // removed and CERTIFICATION_CEILING lowered 9 -> 8 in the same commit, in lockstep with
-    // the JS twin (14 -> 13), which held the same entry. Written out rather than silently
-    // deleted: a removal is the one disposition that leaves no trace, and the ledger
-    // becoming amnesia is the failure this mechanism exists to prevent.
-    // RE-ANCHORED (artifact-model ITEM-27), 5 -> 4, same reason and same commit as
-    // R4-CARD-08 below: one declared output left the contributed manifest, so both halves
-    // of this pair had to move. NOTE what the pair caught — the REST-surface half moved
-    // with the manifest and this in-source half did NOT, so `embedded_tree_builds` was
-    // FAILING while its ledger anchor still matched exactly. A ledger sees a certification
-    // being moved out from under it; it does not see one going stale in place.
-    // (Deliberately worded without naming the retired id: this file is itself scanned, and
-    // a guard's own commentary must not be where the vocabulary re-enters the tree.)
-    (
-        "R4-CARD-03",
-        "server/src/modules/extensions/loader.rs",
-        "assert_eq!(conv.produces.len(), 4);",
-    ),
-    (
-        "R4-CARD-04",
-        "server/src/modules/datatype/sniff.rs",
-        "assert_eq!(sniff(&r, \"x.h5ad\", b\"\"), Some(\"single-cell/anndata\".into()));",
-    ),
-    // WS-R5 RE-ANCHOR. CARD-05's anchor WAS the sentence "all 15 domain types are covered by
-    // the parity table" — a claim that is FALSE (the contributing package ships 16 types; one
-    // of them has never been in the table) and that could not be corrected without breaking
-    // the pin. Corrected + re-anchored in the same commit, which is exactly the two-sided edit
-    // the mechanism is supposed to force.
-    //
-    // RE-ANCHORED AGAIN (artifact-model ITEM-38), 15/16 -> 14/15. One contributed type was
-    // REMOVED from the package (its only producer had already been deleted), so the parity
-    // table lost a row and the package lost a type. The certification was REWRITTEN, not
-    // FIXED — it is still an exact cardinality pinned to the contributed bundle's size — so
-    // per this ledger's own instruction it is re-anchored and CERTIFICATION_CEILING is
-    // untouched. The NUMBERS stay in the anchor deliberately, for the reason CARD-08 states:
-    // a number-free anchor survives the count changing, and the ledger then stops noticing
-    // the exact event it exists to surface.
-    (
-        "R4-CARD-05",
-        "server/tests/extensions/datatype_contribution_test.rs",
-        "the parity table covers 14 of the 15 types single-cell-types contributes",
-    ),
-    (
-        "R4-CARD-06",
-        "server/tests/datatype/mod.rs",
-        "test22_merged_registry_reproduces_the_domain_lattice_no_regression",
-    ),
-    (
-        "R4-CARD-07",
-        "server/tests/extensions/api_test.rs",
-        "two primary + two supporting (cells/genes annotation) accepts",
-    ),
-    // RE-ANCHORED (artifact-model ITEM-27), in lockstep with the JS twin's `R4-CARD-08`.
-    // The anchor was "five declared produces entries"; ITEM-27 retired one declared output
-    // from the contributed manifest and the assertion became
-    // `assert_eq!(produces.len(), 4)`. The certification was REWRITTEN, not FIXED — still
-    // an exact cardinality pinned to the contributed bundle's size — so per this ledger's
-    // own instruction it is RE-ANCHORED, and CERTIFICATION_CEILING is untouched.
-    // The NUMBER stays in the anchor on purpose: a number-free anchor would survive the
-    // count changing, and the ledger would then stop noticing the exact event it exists
-    // to surface.
-    (
-        "R4-CARD-08",
-        "server/tests/extensions/api_test.rs",
-        "four declared produces entries",
-    ),
-    // WS-R5 — CARD-15, contributed by the CARD-10 fix workstream. An in-source
-    // `#[cfg(test)]` certification of axis NAMES, i.e. the axis assumption DOMAIN_AUDIT §1
-    // identifies as the root cause, asserted as an exact ordered vector.
-    //
-    // A server cert, so it is in BOTH ledgers — and this entry is the reason that phrase
-    // needs saying out loud. RE-ANCHORED (processor-manifest-ui-separation, ITEM-12/13):
-    // the old anchor was
-    //   assert_eq!(names, vec!["cells", "genes"], "{id} carries the cells+genes axes inline")
-    // a single assertion over `single-cell/anndata` + `single-cell/matrix-mtx`. Those became
-    // opaque import formats and the axes moved onto the ANALYSABLE types, so the test is now
-    // a ten-row table. Re-anchored rather than retired because the certification WIDENED
-    // (2 datatypes -> 10) — the literals are still exact and still ordered.
-    //
-    // The JS twin (`ui/scripts/lint-no-domain-in-builtin.mjs`) was re-anchored at the time;
-    // THIS copy was missed, and the mismatch went unnoticed for several rounds because the
-    // two ledgers are only ever compared by a human reading both. That is the whole failure
-    // mode "in BOTH ledgers" is warning about: a dual-ledger entry has two anchors and
-    // fixing one leaves the other pointing at deleted text.
-    (
-        "R4-CARD-15",
-        "server/src/modules/datatype/mod.rs",
-        "(\"embedding\", &[\"cells\", \"dims\"], &[\"barcode\", \"dim_index\"]),",
-    ),
-];
 
 // `MUST_OBSERVE_LITERAL` was here. The `literals` tier is EMPTY as of the round-2
 // reconciliation (WS-E removed the `main.rs` `--help` literal, WS-I the two
-// `env-rootfs/single-cell/` build paths), so `LITERAL_HITS_CEILING` is 0 and a witness
+// baked recipe-path strings), so `LITERAL_HITS_CEILING` is 0 and a witness
 // for an empty tier would be a permanently-failing assertion. What still holds the tier
 // closed is the ceiling itself (shrink-only: a new literal cannot be baselined without
 // raising a constant) plus `the_domain_token_scanner_actually_matches`, which pins
 // `substring_hits`/`quoted_hits` against the exact shapes — an unquoted `--help` blurb
-// and a baked `env-rootfs/single-cell/` path — that the pre-WS-D quoted-only tier could
+// and a baked recipe-path string — that the pre-WS-D quoted-only tier could
 // not see. Those unit assertions are the substring tier's liveness proof now.
 
 // `STALE_ALLOWED_CODE` / `STALE_ALLOWED_PROSE` were here. WS-FT could not prune the
@@ -1160,18 +1052,9 @@ fn scan_roots() -> Vec<ScanRoot> {
             exclude_modules: true,
             exts: RUST_EXTS,
         },
-        ScanRoot {
-            label: "build-helper",
-            dir: crate_root.join("build_helper"),
-            key_prefix: "server/build_helper",
-            floor: MIN_FILES_BUILD_HELPER,
-            apply_test_only: false,
-            exclude_modules: false,
-            exts: RUST_EXTS,
-        },
         // WS-R3 §2 — the DATA root. One root for `server/src/**` in the four data
-        // formats; `build_helper` carries none today, and a second near-empty root would
-        // be a floor of 0, which is not a floor.
+        // formats; `build_helper` carried none and was deleted with this strip, and a
+        // second near-empty root would be a floor of 0, which is not a floor.
         ScanRoot {
             label: "server-data",
             dir: crate_root.join("src"),
@@ -1196,15 +1079,10 @@ fn scan_roots() -> Vec<ScanRoot> {
             exclude_modules: false,
             exts: RUST_EXTS,
         },
-        ScanRoot {
-            label: "server-tests-data",
-            dir: crate_root.join("tests"),
-            key_prefix: "server/tests",
-            floor: MIN_FILES_SERVER_TESTS_DATA,
-            apply_test_only: false,
-            exclude_modules: false,
-            exts: DATA_EXTS,
-        },
+        // STRIP: the `server-tests-data` root (DATA_EXTS under `tests/`) is gone — the
+        // current test tree carries no data-format file at all. The literal tier of
+        // `server-tests` still runs over every `.rs`, which is where the surviving
+        // test-tier literal hits now live.
     ]
 }
 
@@ -2921,19 +2799,6 @@ fn the_server_noun_scan_covers_every_module_and_still_matches() {
     );
 }
 
-/// WS-R4 — the exact-cardinality certifications are PINNED, not merely described.
-///
-/// Each entry names a file plus a load-bearing ANCHOR string. If the anchor goes missing
-/// the test FAILS and says which certification moved, so one cannot be silently rewritten
-/// out from under the ledger. The list is SHRINK-ONLY: removing an entry (because the
-/// certification was genuinely fixed) is a deliberate two-line edit; ADDING one requires
-/// raising the length assertion, which is a reviewable admission that a NEW test was
-/// pinned to a contributed bundle's size.
-///
-/// This is deliberately the same discipline as `MUST_SCAN_KEYS` — pin a real thing by
-/// name, fail when the walk stops reaching it — and not a new mechanism. What it is NOT
-/// is a vocabulary check: see the type doc for why a grep guard cannot see these at all.
-/// PARITY DUMP — writes this twin's full observation to
 /// ROUND-4 — the PER-FORMAT coverage pin, the Rust half of the JS twin's
 /// `FORMAT_COVERAGE_PINS`.
 ///
@@ -3036,66 +2901,12 @@ fn the_server_data_root_covers_every_format_it_walks() {
     }
 }
 
-/// WS-R5 G2 — the DERIVATION is fail-closed, on this side too.
-///
-/// Deriving the vocabulary from DATA removes the drift a hand-list guarantees, and replaces
-/// it with a new way to be silently wrong: if the manifests move, or their indentation shape
-/// changes, the parse yields a SHORT list, the twin forbids LESS, and every assertion in this
-/// file still passes. That is the "scoped just narrowly enough to miss what it forbids"
-/// failure one level up from where SCAN_FLOORS catches it. So the derivation gets its own
-/// floor, its own package census and its own completeness rule — the same three the JS
-/// `contributedVocabularyViolations` applies, so the two cannot drift apart either.
-#[test]
-fn the_contributed_vocabulary_is_derived_not_hand_listed() {
-    let entries = contributed_datatypes();
-    assert!(
-        entries.len() >= CONTRIBUTED_DATATYPE_FLOOR,
-        "the processor manifests yielded {} contributed datatype(s), below the floor of \
-         {CONTRIBUTED_DATATYPE_FLOOR}. The vocabulary this twin forbids is DERIVED from \
-         packages/*/manifest.yaml; a short parse means they moved or their shape changed, \
-         and the twin is now forbidding LESS than the tree contributes.",
-        entries.len()
-    );
-    for (id, title) in entries {
-        assert!(
-            !title.is_empty(),
-            "contributed datatype `{id}` has no `title:` in the slice this twin reads — the \
-             TITLE tier would silently under-cover it, and a hardcoded label is as much of a \
-             leak as a hardcoded id."
-        );
-    }
-    // The specific drift WS-R5 found, pinned so a regression to the hand-list is a failure
-    // and not a silence. `de` LEFT the lattice (it was still in both hand-lists); the other
-    // five ARRIVED without either enforcer noticing, four of them invisible to every tier.
-    let ids: BTreeSet<&str> = entries.iter().map(|(i, _)| i.as_str()).collect();
-    for must in [
-        "cell-set",
-        "annotation-table",
-        "geneset/collection",
-        "graph/attributed",
-        "de/result",
-    ] {
-        assert!(ids.contains(must), "the derived vocabulary lost `{must}`");
-    }
-    assert!(
-        !ids.contains("de"),
-        "`de` is back in the lattice. It was PRUNED, and both enforcers carried it in a \
-         hand-list for rounds afterwards — spending a quoted-id token, and a title, on a type \
-         that does not ship. If it really returned, that is a contribution to review, not a \
-         list to edit."
-    );
-    // And the two tiers really receive it: a slash id must reach the SUBSTRING tier (it is
-    // excluded from the quoted tier by its slash, which is how three ids ended up matched by
-    // nothing at all), and a bare id must reach the QUOTED tier.
-    assert!(substring_tokens().contains(&"geneset/collection"));
-    assert!(quoted_id_tokens().contains(&"cell-set"));
-    // …and a prefix must SUBSUME its own children, or every `single-cell/*` site double-counts.
-    assert!(
-        !substring_tokens().contains(&"single-cell/expression"),
-        "`single-cell` already matches it; substring tokens do not arbitrate longest-first, so \
-         listing both double-counts every site."
-    );
-}
+// (The derivation test was here: `the_contributed_vocabulary_is_derived_not_hand_listed`
+// and its `CONTRIBUTED_DATATYPE_FLOOR`. Its subject — the parser over
+// the package manifests, their census and their completeness rule —
+// was removed with the package tree, so the test could only assert 0 >= 0. The
+// derivation functions remain: they are what the scan reads, and their failure path
+// (missing dir -> empty vocabulary) is now the truth of this tree.)
 
 /// `$DOMAIN_SURFACE_DUMP` as JSON so it can be diffed, per file and per token, against
 /// the JS guard's. Round 3 verified parity this way and WS-R4 does the same for the two
@@ -3117,44 +2928,12 @@ fn dump_observation_for_parity() {
     std::fs::write(&dest, serde_json::to_string_pretty(&j).unwrap()).expect("dump written");
 }
 
-#[test]
-fn the_exact_cardinality_certifications_are_still_pinned() {
-    // WS-R5: 8 -> 9 (CARD-15, the two-axis-name certification).
-    // fix/zero-core-derived: 8 -> 7. R4-CARD-01 was FIXED (the frozen `lattice` count became a
-    // derivation over the package manifests), so per this test's own instruction the entry is
-    // removed AND the ceiling drops in the same commit. Nothing was added to offset it, and
-    // the JS twin's ceiling moves 12 -> 11 in lockstep — this is a dual-ledger entry.
-    const CERTIFICATION_CEILING: usize = 7;
-    assert!(
-        CARDINALITY_CERTIFICATIONS.len() <= CERTIFICATION_CEILING,
-        "{} certifications, above the ceiling of {CERTIFICATION_CEILING}. The ledger is \
-         SHRINK-ONLY: a NEW test pinned to the contributed bundle's cardinality must be \
-         written against the manifest instead, or admitted by raising this constant.",
-        CARDINALITY_CERTIFICATIONS.len()
-    );
-    let root = src_app();
-    let mut missing: Vec<String> = Vec::new();
-    for (id, file, anchor) in CARDINALITY_CERTIFICATIONS {
-        let p = root.join(file);
-        let Ok(src) = std::fs::read_to_string(&p) else {
-            missing.push(format!("{id}: {file} no longer exists"));
-            continue;
-        };
-        if !src.contains(anchor) {
-            missing.push(format!("{id}: the anchor `{anchor}` is gone from {file}"));
-        }
-    }
-    assert!(
-        missing.is_empty(),
-        "a pinned exact-cardinality certification moved or was rewritten ({} of {}):\n  {}\n\
-         Either it was FIXED — remove the entry AND lower CERTIFICATION_CEILING in the same \
-         commit — or it was rewritten, in which case re-anchor it. Silently losing the anchor \
-         is how a ledger becomes amnesia.",
-        missing.len(),
-        CARDINALITY_CERTIFICATIONS.len(),
-        missing.join("\n  ")
-    );
-}
+// (The certification test was here: `the_exact_cardinality_certifications_are_still_pinned`
+// with `CARDINALITY_CERTIFICATIONS` and `CERTIFICATION_CEILING`. The ledger's own rules
+// said the whole point was that ONLY the JS twin keeps the full list and both halves
+// move together; this branch removed the bundle the certifications counted, so all
+// seven entries' files are gone and the list is empty — see the section note above
+// where the ledger's removal is recorded.)
 
 #[test]
 fn the_domain_token_scanner_actually_matches() {
@@ -3559,18 +3338,18 @@ fn the_domain_token_scanner_actually_matches() {
     );
 
     // WS-D — the SUBSTRING tier has no boundary rule at all, which is the only way to see
-    // the two real server hits (unquoted `--help` copy; a baked `env-rootfs/single-cell/`
-    // build path). A quoted-id scan sees neither.
+    // the two real server hits (unquoted `--help` copy; a baked recipe-path
+    // string). A quoted-id scan sees neither.
     assert_eq!(
         substring_hits(b"about = \"a single-cell workbench\"", "single-cell"),
         1
     );
     assert_eq!(
-        substring_hits(b"\"../env-rootfs/single-cell/Dockerfile\"", "single-cell"),
+        substring_hits(b"\"../scratch/single-cell/recipe/Dockerfile\"", "single-cell"),
         1
     );
     assert_eq!(
-        quoted_hits(b"\"../env-rootfs/single-cell/Dockerfile\"", "single-cell"),
+        quoted_hits(b"\"../scratch/single-cell/recipe/Dockerfile\"", "single-cell"),
         0
     );
 }
@@ -3715,17 +3494,26 @@ fn the_shared_baseline_is_a_worklist_not_amnesia() {
     // deliberately RE-baselined rather than pruned, precisely to avoid that). The
     // removal-documenting PROSE survives as that file's surviving `prose` entry in the
     // baseline, so the history is not erased — only the executable residue is.
-    for must in ["S3"] {
-        assert!(
-            server_findings.contains(must),
-            "the server side of the baseline must still carry the {must} residue; has {server_findings:?}"
-        );
-    }
+    // S3 LEFT this list at the strip's ITEM-4 baseline re-base, on the S2
+    // precedent above and with the same burden of proof. S3's whole server-side
+    // CODE residue was one module's record-parser pair (the two token entries
+    // the file's own S3 doc comment above names) plus that module's
+    // export-doc prose row — the module is `provenance`, which left with the
+    // registry walk in ITEM-3, and the pruning pass (ITEM-4) took the residue
+    // to zero with the file. This is a finding COMPLETED, not a finding pruned
+    // on the strength of a re-tag: the entries left ONLY because their carrier
+    // left.
+    assert!(
+        !server_findings.contains("S3"),
+        "S3 has server-side CODE residue again — the record-parser vocabulary is back in \
+         app-core. Put S3 back in the must-list above in the same commit, with the reason."
+    );
     assert!(
         !server_findings.contains("DEC-M"),
         "DEC-M has server-side CODE residue again — the `cell_count`/`gene_count` wire \
-         fields came back. Put DEC-M back in the must-list above and re-invert the two \
-         `the_dec_m_wire_contract_fields_*` tests in the same commit."
+         fields came back. Put DEC-M back in the must-list above; the two wire-shape \
+         inverse tests that used to pin this (`the_dec_m_wire_contract_fields_*`) were \
+         deleted with the project module this strip removed."
     );
     // The INVERSE pin for S2, mirroring the DEC-M one: S2 is "the two-axis persistence
     // layer" blast radius, and artifact-model deleted that layer. A new S2-tagged CODE
@@ -3756,125 +3544,10 @@ fn the_shared_baseline_is_a_worklist_not_amnesia() {
     );
 }
 
-#[test]
-fn the_dec_m_wire_contract_fields_are_GONE() {
-    // WS-H (DEC-M, finding W7) retired `cell_count`/`gene_count` from `AdminProjectRow`.
-    // They were the last single-cell nouns in the core's WIRE contract, and they had
-    // already been dead for some time: the SQL projected `0::bigint` for both (DEC-1
-    // removed per-dataset domain counts) and the FE column that rendered them was
-    // deleted in round 1. Removing them was therefore a versioned API change with no
-    // behavioural loss — spec + generated TS client regenerated in the same commit.
-    //
-    // This is the INVERSE of the old retention pin: it holds the removal, so a revert
-    // or a copy-paste reinstatement has to be deliberate.
-    let models =
-        std::fs::read_to_string(server_src().join("project/models.rs")).expect("models.rs");
-    // POSITIVE CONTROL: the struct itself is still here, so the assertions below cannot
-    // pass because the file moved or the type was renamed out from under them.
-    assert!(
-        models.contains("pub struct AdminProjectRow"),
-        "AdminProjectRow vanished from project/models.rs — this test is asserting over the \
-         wrong file and the absence checks below are vacuous"
-    );
-    for field in ["cell_count", "gene_count"] {
-        assert!(
-            !models.contains(field),
-            "`{field}` came back to AdminProjectRow. It is a retired single-cell noun in \
-             the core wire contract (DEC-M / W7); the generalization is the OPEN axis set \
-             on the project catalog (`GET /projects/{{id}}/catalog` → `axes[]`), whose \
-             cardinalities `workstore::data_api::derive_axes` derives from each \
-             key artifact's declared `structure` (artifact-model ITEM-8 deleted the \
-             former `workstore::axes::axis_length(project, axis)` along with the \
-             name-keyed `workstore_axis_entry` table it counted)."
-        );
-    }
-
-    let repo =
-        std::fs::read_to_string(server_src().join("project/repository.rs")).expect("repository.rs");
-    assert!(
-        repo.contains("dataset_count!"),
-        "the admin-project query moved — the projection assertions below are vacuous"
-    );
-    for field in ["cell_count", "gene_count"] {
-        assert!(
-            !repo.contains(field),
-            "`{field}` came back to the admin-project projection in project/repository.rs"
-        );
-    }
-}
-
-#[tokio::test]
-async fn the_project_admin_wire_shape_no_longer_carries_the_dec_m_fields() {
-    // The source assertion above is necessary but not sufficient: the field could be
-    // reintroduced on the wire alone (a hand-written serializer, a `#[serde(flatten)]`
-    // extras bag). This is the wire itself.
-    let server = TestServer::spawn().await;
-
-    let setup = server
-        .client
-        .post(server.api_url("/session/local"))
-        .json(&json!({
-            "username": "admin",
-            "email": "admin@txresbench.test",
-            "password": "adminPassw0rd!",
-            "display_name": "Admin"
-        }))
-        .send()
-        .await
-        .expect("setup/admin");
-    // The node's owner mint (POST /session/local) is a fixed-owner route that
-    // answers 200 — the posted body is ignored, never a fresh 201 owner.
-    assert_eq!(setup.status().as_u16(), 200);
-    let body: Value = setup.json().await.expect("setup json");
-    let admin = body["access_token"]
-        .as_str()
-        .or_else(|| body["token"].as_str())
-        .expect("token")
-        .to_string();
-
-    let created = server
-        .client
-        .post(server.api_url("/projects"))
-        .bearer_auth(&admin)
-        .json(&json!({ "name": "dec-m wire shape", "description": "" }))
-        .send()
-        .await
-        .expect("create project");
-    assert_eq!(created.status().as_u16(), 201);
-
-    let resp = server
-        .client
-        .get(server.api_url("/admin/projects"))
-        .bearer_auth(&admin)
-        .send()
-        .await
-        .expect("GET /admin/projects");
-    assert_eq!(
-        resp.status().as_u16(),
-        200,
-        "the admin project list is reachable"
-    );
-    let list: Value = resp.json().await.expect("admin projects json");
-
-    let rows = list["rows"]
-        .as_array()
-        .unwrap_or_else(|| panic!("could not find the `rows` array in {list}"));
-    // POSITIVE COUNT: an empty list would satisfy any per-row absence assertion vacuously.
-    assert!(!rows.is_empty(), "the admin project list returned no rows");
-
-    let row = &rows[0];
-    // POSITIVE CONTROL: the row is a real, populated AdminProjectRow — the surviving
-    // count field is present — so "the domain fields are missing" means removed, not
-    // "the response shape is empty".
-    assert!(
-        row.get("dataset_count").is_some(),
-        "`dataset_count` is missing too — this row is not an AdminProjectRow. Row: {row}"
-    );
-    for f in ["cell_count", "gene_count"] {
-        assert!(
-            row.get(f).is_none(),
-            "`{f}` is back on the AdminProjectRow WIRE shape. It is a retired \
-             single-cell noun (DEC-M / W7). Row: {row}"
-        );
-    }
-}
+// (The two DEC-M wire tests were here: `the_dec_m_wire_contract_fields_are_GONE`
+// (source) and `the_project_admin_wire_shape_no_longer_carries_the_dec_m_fields`
+// (wire, via `/projects` and `/admin/projects`). Their subject — `AdminProjectRow` and
+// the project module's wire contract — was removed with the `project` module, so both
+// could only fail on the file-not-found path. The DEC-M decision is recorded above in
+// `the_shared_baseline_is_a_worklist_not_amnesia`'s must-not list; the wire-shape
+// inverse assertion it named is gone with the wire it guarded.)

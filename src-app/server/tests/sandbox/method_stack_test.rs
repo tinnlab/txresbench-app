@@ -31,11 +31,13 @@
 //! - TEST-11: `cancel` stops an in-flight pull against a slow loopback
 //!   fixture; the ledger leaves `downloading`; a subsequent `ensure` retries
 //!   cleanly to `ready`.
-//! - TEST-12 (INV-1): the four-route matrix against the spawned server —
+//! - TEST-12 (INV-1): the route matrix against the spawned server —
 //!   401 / 403 / 200 / 404 `ENV_UNKNOWN` / 204 `DELETE ?prune` (cache entry +
-//!   ledger gone) / 429 `SANDBOX_POOL_FULL` on `/method-run` / a typed 503 on
-//!   the friendly-degradation arm, with `/sandbox/status` still serving 200 as
-//!   the positive control.
+//!   ledger gone) / a typed 503 on the friendly-degradation arm, with
+//!   `/sandbox/status` still serving 200 as the positive control. (The 429
+//!   full-pool arm's driver — the jobs admin REST surface — left with the
+//!   jobs drawer UI in ITEM-3; the arm went with it; see the STRIP note at
+//!   its former site.)
 //! - TEST-13: `scripts/txr-sandbox-preflight.sh` exists, parses under
 //!   `bash -n`, names every host requirement + its exact remediation, and
 //!   exits non-zero under a PATH stub.
@@ -76,7 +78,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::common::{TestOptions, TestServer};
-use crate::dataset::hardening_common::record_skip;
+use crate::common::record_skip;
 
 use txresbench::modules::sandbox::backend::{MilestoneFrame, ProgressFrame, ProgressSink};
 use txresbench::modules::sandbox::method_env::{
@@ -186,7 +188,7 @@ fn stack_gate(test: &str) -> Option<()> {
             "`user_allow_other` is NOT enabled in /etc/fuse.conf — the non-root squashfuse \
              `-o allow_other` mount the rootfs path requires is refused \
              (scripts/txr-sandbox-preflight.sh names the exact fix; \
-             scripts/dev-sandbox-bootstrap.sh applies it with sudo)",
+             the dev-box prep script applies it with sudo)",
         );
         return None;
     }
@@ -230,14 +232,30 @@ fn copy_into_usr(base: &Path, abs: &Path) {
     std::fs::copy(abs, &dest).expect("copy fixture file");
 }
 
+/// Resolve `binary` to the first executable file on `PATH`. Not `command -v`:
+/// the shell reports its BUILTINS by name (`command -v true` → `true` — dash
+/// and bash alike), which the old fixture build asserted absolute and died on
+/// with "resolved true to true". A PATH walk is shell-dialect-free and
+/// returns the file the exec would land on.
+fn resolve_on_path(binary: &str) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(binary))
+        .find(|candidate| {
+            std::fs::metadata(candidate)
+                .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+                .unwrap_or(false)
+        })
+}
+
 /// Copy `binary` (resolved on PATH) and every shared object `ldd` reports into
 /// the base fixture.
 fn copy_binary_into_base(base: &Path, binary: &str) {
-    let which = sh_out(&format!("command -v {binary}"));
-    let bin = PathBuf::from(&which);
-    assert!(bin.is_absolute(), "resolved {binary} to {which}");
+    let bin = resolve_on_path(binary)
+        .unwrap_or_else(|| panic!("could not resolve {binary} to an executable on PATH"));
     copy_into_usr(base, &bin);
-    let ldd = sh_out(&format!("ldd {which}"));
+    let ldd = sh_out(&format!("ldd {}", bin.display()));
     for line in ldd.lines() {
         for tok in line.split_whitespace() {
             if tok.starts_with('/') && Path::new(tok).is_absolute() {
@@ -1302,15 +1320,15 @@ fn stacked_real_run_exits_zero_and_records_both_digests() {
 
 // ─────────────────────────────── TEST-12 ─────────────────────────────────────
 
-/// **TEST-12 [acceptance] [INV-1]** — the four-route matrix against the
+/// **TEST-12 [acceptance] [INV-1]** — the route matrix against the
 /// spawned server: 401 unauthenticated; 403 restricted (no sandbox
 /// permission) on all four; admin 200s + the `not_downloaded` answer for a
 /// well-formed never-seen id; 404 `ENV_UNKNOWN` for a grammar-invalid id;
 /// 204 `DELETE ?prune=true` (the 204 target is PRE-STAGED through the harness
-/// — a real `ensure` needs network/oras); 429 `SANDBOX_POOL_FULL` on
-/// `/method-run`; and the typed-503 degradation arm with `/sandbox/status`
-/// serving 200 as the positive control (a gated capability, never a broken
-/// route).
+/// — a real `ensure` needs network/oras); and the typed-503 degradation arm
+/// with `/sandbox/status` serving 200 as the positive control (a gated
+/// capability, never a broken route). The former 429 full-pool arm left with
+/// its driver — see the STRIP note in the body.
 #[tokio::test]
 async fn route_matrix_gates_statuses_and_delete_prune() {
     use super::{restricted_user_token, setup_admin};
@@ -1480,67 +1498,19 @@ async fn route_matrix_gates_statuses_and_delete_prune() {
         .expect("delete again");
     assert_eq!(resp.status().as_u16(), 404, "already forgotten");
 
-    // ── 429 SANDBOX_POOL_FULL on /method-run (a full pool) ─────────────────
-    // Same shape as admission_test.rs's refusal: cap 1, a running stub job
-    // holds the only slot, the route answers 429 immediately.
-    let put = server
-        .client
-        .put(server.api_url("/job-settings"))
-        .bearer_auth(&admin)
-        .json(&json!({ "max_concurrent_jobs": 1, "reserved_interactive_slots": 0 }))
-        .send()
-        .await
-        .expect("job-settings");
-    assert_eq!(put.status().as_u16(), 200, "cap 1");
-    let holder: Value = server
-        .client
-        .post(server.api_url("/jobs"))
-        .bearer_auth(&admin)
-        .json(&json!({ "job_type": "stub", "name": "mst-holder", "params": { "steps": 600 } }))
-        .send()
-        .await
-        .expect("holder")
-        .json()
-        .await
-        .expect("json");
-    let holder_id = Uuid::parse_str(holder["id"].as_str().expect("id")).expect("uuid");
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let j: Value = server
-            .client
-            .get(server.api_url(&format!("/jobs/{holder_id}")))
-            .bearer_auth(&admin)
-            .send()
-            .await
-            .expect("holder status")
-            .json()
-            .await
-            .expect("json");
-        if j["job"]["status"].as_str() == Some("running") {
-            break;
-        }
-        assert!(tokio::time::Instant::now() < deadline, "the holder never ran");
-        tokio::time::sleep(Duration::from_millis(150)).await;
-    }
-    let resp = server
-        .client
-        .post(method_run.as_str())
-        .bearer_auth(&admin)
-        .json(&valid_run_body)
-        .send()
-        .await
-        .expect("method-run 429");
-    assert_eq!(resp.status().as_u16(), 429, "a full pool refuses immediately");
-    let body: Value = resp.json().await.expect("429 json");
-    assert_eq!(body["error_code"], json!("SANDBOX_POOL_FULL"));
-    let stop = server
-        .client
-        .post(server.api_url(&format!("/jobs/{holder_id}/stop")))
-        .bearer_auth(&admin)
-        .send()
-        .await
-        .expect("stop");
-    assert_eq!(stop.status().as_u16(), 200, "holder stopped");
+    // STRIP: the 429 SANDBOX_POOL_FULL arm used to live here,
+    // driven through the jobs admin REST surface (PUT /job-settings cap 1, a
+    // stub job holder under POST /jobs, GET + /stop on the held job). That
+    // surface left in ITEM-3 with the jobs drawer UI (jobs/mod.rs now
+    // registers no routes — see its register_routes comment), so the arm's
+    // driver does not exist on ANY host and the arm could not run: a
+    // `PUT /job-settings` 404 stopped the matrix cold. The arm left with its
+    // driver (the gate-wiring precedent, DRIFT-1 ITEM-5 #6); the typed-429
+    // contract it asserted is still pinned where the code is — the unit tier
+    // (`jobs::admission`'s `pool_full_is_a_typed_429`) and the method-run
+    // route's own doc (`sandbox/routes.rs`), which states the slot is claimed
+    // before the seam and closed on both paths. Restore an HTTP driver for
+    // the arm here if a kept knob for the admission settings ever returns.
 
     // ── the typed-503 degradation arm ──────────────────────────────────────
     // With a free slot and a caller-data-valid request, the seam refuses with

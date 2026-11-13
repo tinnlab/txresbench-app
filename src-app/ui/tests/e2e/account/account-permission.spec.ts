@@ -5,7 +5,7 @@ import {
   MEMBER_PASSWORD,
   ownerToken,
   waitUntilOffLoginScreen,
-} from '../project/_helpers'
+} from '../_helpers'
 
 // TEST-13 [negative-perm][positive-control] (A10 — the epic-closing authz proof,
 // deferred from A1 DEC-4 / A3 DEC-7 to the first account surface):

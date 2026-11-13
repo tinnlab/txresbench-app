@@ -131,7 +131,8 @@ pub fn catalog_json() -> String {
 }
 
 /// The committed copy's path (the UI's own file — regenerated, never edited
-/// by hand).
+/// by hand; written only by the catalogue-hygiene test below).
+#[cfg(test)]
 fn committed_path() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../ui/src/modules/txrhelp/validator-catalog.json")

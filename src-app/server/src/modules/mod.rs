@@ -8,11 +8,7 @@ pub mod permissions;
 // TxResBench: the account/user-management/admin/billing SaaS modules were removed
 // along with their registrations (single-user local app — see dev/docs/app-build-strip.md).
 pub mod account;
-pub mod datatype;
 pub mod localsession;
-pub mod dataset;
-pub mod drafts;
-pub mod extensions;
 // The runtime toggles subsystem (Admin Console epic #40) — a general admin
 // capability in every build (mirrors `admin`). Its migration is discovered by
 // build.rs like every other module's.
@@ -67,10 +63,7 @@ pub mod sandbox;
 // links no format-parsing library at all. Artifact bytes are served as bytes
 // (`GET /artifacts/{id}/data[/{*member}]`) and decoded in the browser.
 pub mod jobs;
-pub mod provenance;
-pub mod project;
 pub mod sync;
-pub mod workstore;
 
 #[cfg(test)]
 mod tests {

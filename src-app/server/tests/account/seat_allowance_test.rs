@@ -1,7 +1,7 @@
 //! #141 — the SEAT allowance: `member_allowance` in the plan catalog, enforced
 //! transactionally at membership creation.
 //!
-//! Realizes `docs/research/account-self-service-membership.md` §5 (`be009a2e`) and issue
+//! Realizes (the account self-service-membership research, §5, `be009a2e`, and issue
 //! #141's INV-10 / INV-10b.
 //!
 //! # Which build each test runs on, and why the file has two arms
@@ -13,15 +13,17 @@
 //! INV-3 can never drift apart, and the file-level tests (source enumeration, generated
 //! openapi) run on BOTH builds because they are build-independent.
 //!
-//! # The only HTTP add-member route today is the ADMIN one
+//! # How the real-route arms reach `add_member`
 //!
 //! There is no self-service member-ADD route: `account/routes.rs` mounts list / leave /
 //! remove / set-role / invitations, and the self-service add path is
-//! invitation-then-accept, which is #146's and does not exist yet. So the real-route arms
-//! here drive `POST /api/admin/accounts/{account_id}/members`, which reaches
-//! `add_member` at `ActorCeiling::PlatformStaff`, and the #146-shaped arms drive
-//! `AccountRepository::add_member_in_tx` directly on a caller-owned transaction — which is
-//! exactly the shape #146 will use.
+//! invitation-then-accept, which is #146's. The admin add ROUTE
+//! (`POST /api/admin/accounts/{account_id}/members`) is stripped on this node
+//! (DRIFT-1.25), so the real-route arms here drive the SAME repository function through
+//! `crate::admin::admin_add_member` — a repo call under `ActorCeiling::PlatformStaff`
+//! (see `tests/admin/mod.rs`), the retained surface the removed handler delegated to —
+//! and the #146-shaped arms drive `AccountRepository::add_member_in_tx` directly on a
+//! caller-owned transaction — which is exactly the shape #146 will use.
 //!
 //! **The seat limit binds PlatformStaff too (#141 DEC-10), and that is deliberate.**
 //! `ActorCeiling` grades authority to CONFER A ROLE; a seat is CAPACITY, which does not
@@ -750,44 +752,18 @@ async fn test23_an_unknown_plan_is_refused_with_its_own_code() {
     assert_eq!(body["details"]["plan_id"], "retired-enterprise", "body: {body}");
     assert_eq!(member_count(&pool, org).await, 1, "nobody was added");
 
-    // ── The READ SURFACE must agree with the enforcement (FIX_ROUND-6, R6-1) ──
+    // ── THE READ SURFACE half is DROPPED (stripped build) ──
     //
-    // FIX_ROUND-5 tried to pin this with a unit assertion on a shared const. A blind audit
-    // proved that pinned only the const's VALUE: replacing `build_quota_state`'s USE of it
-    // with a literal 9_999_999 — the read surface then promising ten million seats for a
-    // plan the enforcement refuses outright — left the ENTIRE lib suite green. Half a
-    // coupling is not a coupling, and the assertion's own message claimed otherwise.
+    // FIX_ROUND-5 tried to pin the read half with a unit assertion on a shared const; a
+    // blind audit proved that pinned only the const's VALUE, so FIX_ROUND-6 asserted the
+    // missing half at the only layer that could: the actual HTTP response of the billing
+    // quota route (`GET /api/admin/accounts/{id}/quota`), which exposes `build_quota_state`
+    // (an off-catalog plan reporting ZERO seats, matching the enforcement's refusal).
     //
-    // This asserts the missing half at the only layer that can: the actual HTTP response for
-    // an account on an off-catalog plan. It needs a database and a mounted billing route, so
-    // it could never have been a unit test — which is why two rounds of unit-level "fixes"
-    // could not close it. Verified by re-running that same mutation: it now fails here.
-    let quota = server
-        .client
-        .get(server.api_url(&format!("/admin/accounts/{org}/quota")))
-        .bearer_auth(&admin)
-        .send()
-        .await
-        .expect("admin quota read");
-    let qstatus = quota.status().as_u16();
-    if qstatus == 200 {
-        let qbody: Value = quota.json().await.unwrap_or(Value::Null);
-        assert_eq!(
-            qbody["member_allowance"], 0,
-            "an unknown plan must report ZERO seats on the READ surface, matching the \
-             enforcement's refusal — a non-zero value is the read surface promising seats \
-             the guard will not grant: {qbody}"
-        );
-    } else {
-        // The billing routes mount only when a Stripe secret is configured (the §16
-        // kill-switch), so outside that tier this read is a 404. Stated rather than silently
-        // skipped, and asserted so a THIRD status cannot pass unnoticed.
-        assert_eq!(
-            qstatus, 404,
-            "either the quota route answers and reports 0 seats, or it is not mounted at \
-             all — any other status is a real failure"
-        );
-    }
+    // That route is STRIPPED with the `/api/admin/accounts/*` billing surface (DRIFT-1.25),
+    // and no retained route exposes `build_quota_state` — so the read half is no longer
+    // reachable in this build. Recorded rather than silently dropped; the ENFORCEMENT half
+    // (the direction that refuses) remains pinned above and in the control below.
 
     // CONTROL: back on a real plan, far under the allowance, the identical add succeeds.
     sqlx::query("UPDATE accounts SET plan_id = 'free' WHERE id = $1")
@@ -1153,13 +1129,11 @@ async fn test17_the_seat_refusal_leaves_the_callers_transaction_usable() {
     );
 }
 
-// TEST-10 [covers: ITEM-8] lives in `tests/billing/seat_quota_read_test.rs`, not here.
-// `GET /api/admin/accounts/{id}/quota` is a BILLING route, and the whole billing route
-// surface mounts only when a Stripe secret is configured (billing's §16 kill-switch), which
-// is the `just billing-sim-test-l2-saas` tier's env — so every billing HTTP acceptance test
-// in this repo lives under `tests/billing/` for exactly that reason. Putting it there keeps
-// this file runnable by a plain `cargo test --features saas account::` and follows twenty
-// sibling files rather than inventing a per-test env guard.
+// TEST-10 [covers: ITEM-8] (the quota READ surface agreeing with the enforcement) had
+// its home in the removed `tests/billing/seat_quota_read_test.rs`: it drives
+// `GET /api/admin/accounts/{id}/quota`, a BILLING route, and that whole surface —
+// including the `tests/billing/` directory — is STRIPPED with the SaaS billing tier
+// (see the READ-SURFACE note in TEST-23 above). The enforcement half stays here.
 
 // ─────────────────────── desktop arm: no seat limit at all ───────────────────────
 

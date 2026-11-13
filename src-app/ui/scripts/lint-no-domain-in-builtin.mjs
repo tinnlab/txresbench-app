@@ -414,25 +414,12 @@ export function contributedDatatypes(dir = PROCESSORS_DIR) {
  */
 export function contributedVocabularyViolations(entries = CONTRIBUTED_DATATYPES) {
   const out = []
-  if (entries.length < CONTRIBUTED_DATATYPE_FLOOR) {
-    out.push(
-      `the processor manifests yielded ${entries.length} contributed datatype(s), below the ` +
-        `committed floor of ${CONTRIBUTED_DATATYPE_FLOOR}. The vocabulary this guard forbids is ` +
-        `DERIVED from ${path.relative(SRC_APP, PROCESSORS_DIR)}/*/manifest.yaml; a short parse ` +
-        `means the manifests moved or their shape changed, and the guard is now forbidding ` +
-        `LESS than the tree contributes. Re-point \`contributedDatatypes\`, or lower ` +
-        `CONTRIBUTED_DATATYPE_FLOOR deliberately if the lattice really shrank.`,
-    )
-  }
-  const pkgs = new Set(entries.map(e => e.pkg))
-  if (pkgs.size < CONTRIBUTING_PACKAGE_FLOOR) {
-    out.push(
-      `only ${pkgs.size} package(s) were seen contributing datatypes (${[...pkgs].join(', ') || 'none'}), ` +
-        `below the committed floor of ${CONTRIBUTING_PACKAGE_FLOOR}. The pre-WS-R5 hand-list ` +
-        `mirrored ONE manifest and two contributing packages went unaccounted for; this is what ` +
-        `notices if the walk regresses to that.`,
-    )
-  }
+  // STRIP (single-cell): the package tree no longer exists, so the derivation yields
+  // an EMPTY vocabulary — the truth of this tree, not a shrunk hand-list. The
+  // `CONTRIBUTED_DATATYPE_FLOOR` / `CONTRIBUTING_PACKAGE_FLOOR` checks were deleted with
+  // the subject they existed to guard, in lockstep with the Rust twin
+  // (`server/tests/domain_surface/mod.rs`). The per-entry shape check below stays for a
+  // future lattice.
   for (const e of entries) {
     if (!e.title) {
       out.push(
@@ -457,8 +444,10 @@ export function contributedVocabularyViolations(entries = CONTRIBUTED_DATATYPES)
  *  packages, and a re-added id is still forbidden on arrival with no edit here. Lowered
  *  in lockstep with the Rust twin's constant of the same name in
  *  `server/tests/domain_surface/mod.rs`; the two must agree or neither checks the other. */
-const CONTRIBUTED_DATATYPE_FLOOR = 19
-const CONTRIBUTING_PACKAGE_FLOOR = 3
+// STRIP (single-cell): `CONTRIBUTED_DATATYPE_FLOOR` (19) and
+// `CONTRIBUTING_PACKAGE_FLOOR` (3) deleted with the processor-package lattice — the
+// derivation is empty by truth, and the fail-closed pair existed to catch a collapsed
+// walk of a lattice that no longer has walks. Lockstep with the Rust twin.
 
 const CONTRIBUTED_DATATYPES = contributedDatatypes()
 
@@ -1148,71 +1137,12 @@ export const PACKAGE_ID_TOKENS = [
 ].sort((a, b) => b.length - a.length)
 
 /**
- * Fail CLOSED on the DERIVATION, exactly as `contributedVocabularyViolations` does for the
- * lattice. If the manifests move or their shape changes, the parse yields a SHORT list and
- * the guard forbids LESS while still printing ✓ — the same "scoped just narrowly enough"
- * failure one level up.
- * @returns {string[]}
- */
-export function packageVocabularyViolations(
-  entries = PACKAGE_IDS_ALL,
-  tokens = PACKAGE_ID_TOKENS,
-) {
-  const out = []
-  const pkgs = new Set(entries.map(e => e.pkg))
-  if (pkgs.size < PACKAGE_FLOOR) {
-    out.push(
-      `only ${pkgs.size} processor package(s) were parsed for their OWN ids ` +
-        `(${[...pkgs].join(', ') || 'none'}), below the committed floor of ${PACKAGE_FLOOR}. ` +
-        `The package vocabulary is DERIVED from ${path.relative(SRC_APP, PROCESSORS_DIR)}/*/` +
-        `manifest.yaml + ui/*.yaml; a short walk means the tree moved and this tier is now ` +
-        `forbidding less than the packages name.`,
-    )
-  }
-  for (const src of ['analysis', 'view', 'action']) {
-    if (!entries.some(e => e.source === src)) {
-      out.push(
-        `the package walk found ZERO \`${src}\` ids. Every shipped package declares at ` +
-          `least one, so an empty class means the slice reader stopped matching that block's ` +
-          `shape — the SILENT half of a stale derivation.`,
-      )
-    }
-  }
-  if (tokens.length < PACKAGE_TOKEN_FLOOR) {
-    out.push(
-      `the package vocabulary reduced to ${tokens.length} usable token(s), below the ` +
-        `committed floor of ${PACKAGE_TOKEN_FLOOR}. Either the walk collapsed or the ` +
-        `precision filters (separator+length, not-already-caught) grew teeth they should ` +
-        `not have. Lower the floor deliberately if a package genuinely went away.`,
-    )
-  }
-  return out
-}
-
-/** Measured 2026-08-03: 8 package dirs, 82 declared ids, **34** usable tokens after the
- *  two precision filters. Floors at ≈⅔, the collapse-detector margin every other floor in
- *  this file uses — NOT a tripwire sitting on its own measurement (see the WS-R3 §4 note
- *  on SCAN_FLOORS for why that distinction is load-bearing: a floor set one below its
- *  measurement trains everyone to treat a red floor as paperwork).
- *
- *  The 82 → 34 reduction is almost entirely filter 2 (`latticeAlreadyMatches`), and it is
- *  the filter working: `cell.filter::cf.run` is dropped because `cell` already fires
- *  there, `qc.compute::qc.setGeneNames` because `gene` does. What survives is the set
- *  NOTHING upstairs could see — the `qc.*` / `cf.*` / `cr.*` action ids, the `qc.compute`
- *  view id, `annotation-integrate`, `open-kinds`. */
-const PACKAGE_FLOOR = 5
-const PACKAGE_TOKEN_FLOOR = 22
-
-/**
- * Scan `text` for package ids. Raw substrings with a NON-IDENTIFIER boundary on both
- * sides: every surviving token carries a `.`/`-`/`/`, so it cannot occur as an accident of
- * ordinary code — the same argument SUBSTRING_TOKENS makes. Longest-first with an
- * occupied-range map, so `qc.compute::qc.run` counts once, not three times.
- */
-/**
- * Which BASELINE SECTION each package kind ratchets against. The package tier shares the
- * noun tiers' sections (identical disposition vocabulary, identical ratchet) but keeps its
- * own KIND so the lattice-measured observation floors stay lattice-measured.
+ * STRIP (single-cell): the PACKAGE derivation tiers (derived from the package
+ * workspaces + `contributedPackageIds`) were deleted with the dock/viz libs (ITEM-4) — `PACKAGE_FLOOR`,
+ * `PACKAGE_TOKEN_FLOOR` and `packageVocabularyViolations` went with the walk they guarded,
+ * lockstep with the Rust twin. The MATCHERS stay (see `matchPackageIds` below): they
+ * iterate whatever tokens survive, which today is the empty set — an empty derivation is
+ * the truth of this tree, the same position recorded for the contributed lattice.
  */
 const PACKAGE_KIND_BUCKET = { 'package-id': 'domain-noun', 'package-prose': 'domain-prose' }
 
@@ -1264,20 +1194,18 @@ export function matchPackageIds(text, onHit, tokens = PACKAGE_ID_TOKENS) {
 // `extraFe` is GONE — it was a presence assertion wearing a floor's clothes, and it
 // is replaced by `MUST_SCAN_KEYS`, which names the file that went missing.
 const SCAN_FLOORS = {
-  /** `server/src/modules/**.rs` minus `#[cfg(test)] mod` declarations. Measured 161. */
-  rust: 107,
-  /** WS-C: `server/src/*.rs` OUTSIDE `modules/` (lib/main/openapi/config/database). Measured 5. */
-  rustRoot: 3,
-  /** WS-C: `server/build_helper/**.rs` (mod / processor_manifest / sandbox_rootfs). Measured 3. */
-  buildHelper: 2,
-  /** WS-C: `desktop/**` `.rs`/`.ts`/`.tsx` (the Tauri harness). Measured 6. */
-  desktop: 4,
-  /** `ui/src/modules/workbench/**.{ts,tsx}` minus the DEC-9 exemptions. Measured 191. */
-  workbenchFe: 127,
-  /** WS-C: ALL the rest of `ui/src/**.{ts,tsx}` minus the DEC-9 exemptions. Measured 269. */
-  uiFe: 179,
-  /** WS-C: the scanned `packages/*` (see SCANNED_PACKAGES) minus exemptions. Measured 8. */
-  packagesFe: 5,
+  /** `server/src/modules/**.rs` minus `#[cfg(test)] mod` declarations. Measured 161; STRIP RE-MEASURED 127. */
+  rust: 84,
+  /** WS-C: `server/src/*.rs` OUTSIDE `modules/` (lib/main/openapi/config/database). Measured 5; STRIP RE-MEASURED 6. */
+  rustRoot: 4,
+  /** STRIP (single-cell): `buildHelper` root DELETED with `build_helper/` (ITEM-3) —
+   *  the processor-manifest + sandbox-rootfs helpers were the extensions registry's. */
+  /** WS-C: `desktop/**` `.rs`/`.ts`/`.tsx` (the Tauri harness). Measured 6; STRIP RE-MEASURED 9. */
+  desktop: 6,
+  /** STRIP (single-cell): `workbenchFe` root DELETED with the workbench module (ITEM-4). */
+  /** WS-C: ALL the rest of `ui/src/**.{ts,tsx}` minus the DEC-9 exemptions. Measured 269; STRIP RE-MEASURED 293. */
+  uiFe: 195,
+  /** STRIP (single-cell): `packagesFe` root DELETED with the dock/viz libs (ITEM-4). */
   /**
    * WS-R3: `server/src/**` + `build_helper/**` `.sql`/`.py`/`.json`/`.yaml`.
    *
@@ -1290,42 +1218,31 @@ const SCAN_FLOORS = {
    * turned out to be accounted rather than a collapsed walk. (`datatype/tests/
    * lattice_golden.json` is on disk but NOT in the count: its directory is declared
    * `#[cfg(test)] mod tests;`, so the test-only-BY-DECLARATION exclusion covers it.)
-   */
-  serverData: 8,
-  /**
-   * WS-R3: `ui/src/**` + `desktop/**` + scanned `packages/*` data files. Measured 5.
    *
-   * ROUND-3 RECONCILIATION — this root is the one whose measurement is NOT a property
-   * of the commit. A worktree that has run a `cargo build` also carries four UNTRACKED,
-   * tauri-CODEGEN'd files (`desktop/tauri/gen/schemas/{acl-manifests,capabilities,
-   * desktop-schema,linux-schema}.json`), so the walk reports 9 there and 5 in a clean
-   * checkout. Verified by moving `gen/schemas` aside: the count drops 9 → 5 and the guard
-   * stays green (those four carry ZERO domain hits, so neither hit-count floor moves).
-   * The floor therefore stays anchored to the COMMITTED measurement of 5 — raising it to
-   * ⅔ of 9 would make a clean CI checkout fail a floor it cannot satisfy.
+   * STRIP (single-cell) RE-MEASURED **32** (was 12 + the deleted seeds): the workstore /
+   * provenance / datatype / dataset migrations and the `frontend-actions.json` rewrite
+   * carried most of it; the remaining `.sql`/`.json` corpus is the kept modules'.
    */
-  feData: 3,
-  /** WS-R3: `ui/openapi/**.json` — the shipped contract. Measured 1; a 1-file root. */
+  serverData: 21,
+  /** WS-R3: `ui/src/**` + `desktop/**` + scanned `packages/*` data files. Measured 5; STRIP RE-MEASURED 8. */
+  feData: 5,
+  /** WS-R3: the committed `ui/openapi/openapi.json` (the spec's domain surface). */
   uiOpenapi: 1,
   // ── WS-R4: the TEST roots. Same ≈⅔ collapse-detector basis as every floor
   // above — these are the roots MOST likely to be silently dropped, because a
   // "why is the linter reading my tests" impulse is a one-line edit away.
-  /** `server/tests/**.rs` — the backend integration suite. ROUND-4 RE-MEASURED **119**
-   *  (118 + r4dataapi's new `workstore/seed_debug_test.rs`); floor 78 -> 79 (⅔).
-   *  ROUND-5 RE-MEASURED **120** (+1: r5card's `datatype/cross_side_test.rs`, the
-   *  cross-side agreement test whose absence let two enforcers of one behaviour assert
-   *  opposite things); floor 79 -> 80 (⅔). The new file contributes ZERO hits in either
-   *  tier — it states the contract as a DERIVED property rather than spelling it — so
-   *  this is the one root whose file count moved without moving any observation. */
-  serverTests: 80,
-  /** `server/tests/**` `.py`/`.yaml`/`.json`/`.sql` fixtures. Measured 14. */
-  serverTestsData: 9,
-  /** `ui/tests/**` `.ts`/`.tsx` (+ data exts, none today). ROUND-4 RE-MEASURED **185**
-   *  (184 + r4dataapi's new `14-declarative-qc/_fixtures.ts`); floor 122 -> 123 (⅔). */
-  uiTests: 123,
-  /** The ex-BASENAME-exemption root: `*.{test,spec}.*` + `__fixtures__`/`__testutil__`
-   *  under `ui/src` / `desktop` / the scanned packages. Measured 132. */
-  uiSpecs: 88,
+  /** `server/tests/**.rs` — the backend integration suite. STRIP RE-MEASURED 85. */
+  serverTests: 56,
+  /** STRIP (single-cell): `serverTestsData` root DELETED with its fixtures (ITEM-3 — the
+   *  processor-manifest lint fixtures, mtx-trio generator, gathered/parity corpora). */
+  /** `ui/tests/**` `.ts`/`.tsx` (`e2e/` excluded by the sibling root below; the e2e specs
+   *  are driven by their own config). STRIP RE-MEASURED 67. */
+  uiTests: 44,
+  /** The ex-BASENAME-exemption predicate root: `*.{test,spec}.*` + `__fixtures__`/
+   *  `__testutil__` under `ui/src` / `desktop` / the scanned packages. The workbench
+   *  corpus that was this root's bulk left in ITEM-4; the surviving unit-test corpus
+   *  (actions, sync, txr-files, txr modules) re-measures it at 140. */
+  uiSpecs: 93,
 }
 
 /** Bare-word ids — matched ONLY when quote-delimited (see header). */
@@ -1406,31 +1323,11 @@ const ID_STEM_TOKENS = QUOTED_ID_TOKENS.filter(
   id => id.length >= 5 && !/[.\-/_]/.test(id) && !latticeAlreadyMatches(id),
 )
 
-/** The floor is a COLLAPSE detector, not a target. It is 1 because the filtered set is
- *  1 today and saying so is the honest form; the tier's value is prospective — every
- *  future single-word contributed id (`spatial`, `velocity`, `pathway`) joins it with no
- *  edit here. A 0-token tier would print ✓ having matched nothing, which is the failure
- *  every other floor in this file exists to stop. */
-export const ID_STEM_TOKEN_FLOOR = 1
-
-/** Fail CLOSED on the derivation, exactly as the lattice and package tiers do. */
-export function idStemVocabularyViolations(tokens = ID_STEM_TOKENS) {
-  const out = []
-  if (tokens.length < ID_STEM_TOKEN_FLOOR) {
-    out.push(
-      `the ID-STEM vocabulary COLLAPSED: ${tokens.length} token(s) < ID_STEM_TOKEN_FLOOR ` +
-        `(${ID_STEM_TOKEN_FLOOR}). Derived from QUOTED_ID_TOKENS; a guard that forbids ` +
-        `nothing still prints ✓.`,
-    )
-  }
-  return out
-}
-
-/** Which baseline SECTION the stem kind ratchets against — the code section, like the
- *  package tier, while keeping its OWN kind so the lattice-measured observation floors
- *  stay lattice-measured. */
-const ID_STEM_KIND_BUCKET = { 'id-stem': 'domain-noun' }
-
+// STRIP (single-cell): the ID-STEM derivation floor (`ID_STEM_TOKEN_FLOOR`) and its
+// `idStemVocabularyViolations` check were deleted with the lattice they guarded —
+// `QUOTED_ID_TOKENS` is empty by truth, so the stem vocabulary is empty and the
+// "forbids nothing" fail-closed check has no subject. `ID_STEM_KIND_BUCKET` went with
+// them (see `bucketize`). The matcher stays (it iterates whatever tokens exist).
 /**
  * Match each stem token where it sits as a SEGMENT: a separator on one side and a
  * non-identifier character (or the string edge) on the other. A BARE occurrence — the
@@ -1450,11 +1347,17 @@ export function matchIdStems(text, onHit, tokens = ID_STEM_TOKENS) {
 }
 
 const QUOTE = "['\"`]"
-const QUOTED_ID_RE = new RegExp(`${QUOTE}(${QUOTED_ID_TOKENS.map(escapeRe).join('|')})${QUOTE}`, 'g')
-const QUOTED_TITLE_RE = new RegExp(
-  `${QUOTE}(${DATATYPE_TITLES.map(escapeRe).join('|')})${QUOTE}`,
-  'g',
-)
+// STRIP (single-cell): with the lattice gone both token lists are EMPTY by truth, and
+// `new RegExp(quote + '' + quote)` would then match every EMPTY string literal
+// (`''` / `""` / `` `` ``) as a bare quoted id — thousands of false findings. The
+// empty-list form is therefore pinned to a regex that never matches, so a future
+// lattice re-adds the real alternation with no edit to the guard.
+const QUOTED_ID_RE = QUOTED_ID_TOKENS.length === 0
+  ? /(?!x)x/
+  : new RegExp(`${QUOTE}(${QUOTED_ID_TOKENS.map(escapeRe).join('|')})${QUOTE}`, 'g')
+const QUOTED_TITLE_RE = DATATYPE_TITLES.length === 0
+  ? /(?!x)x/
+  : new RegExp(`${QUOTE}(${DATATYPE_TITLES.map(escapeRe).join('|')})${QUOTE}`, 'g')
 
 // ── Tokenizer: classify every char as code | comment | string ───────────────
 // Produces two derived texts (both newline-preserving so line numbers survive):
@@ -2142,7 +2045,9 @@ export function defaultScanSet() {
   //       `CARDINALITY_CERTIFICATIONS` for the one thing it costs that this round
   //       had to answer for anyway.
   for (const f of listFiles(SERVER_TESTS, CODE_EXTS_RUST)) add(f, 'serverTests')
-  for (const f of listFiles(SERVER_TESTS, DATA_EXTS)) add(f, 'serverTestsData')
+  // STRIP (single-cell): the `serverTestsData` root is DELETED with its fixtures (ITEM-3 —
+  // the processor-manifest lint fixtures, mtx-trio generator, gathered/parity corpora); the
+  // root carries no file in the current tree. Lockstep with the Rust twin.
   for (const f of listFiles(UI_TESTS, [...CODE_EXTS_FE, ...DATA_EXTS])) add(f, 'uiTests')
   // `uiSpecs` — the ex-BASENAME-exemption root: every `*.{test,spec}.{ts,tsx}` and
   // every `__fixtures__`/`__testutil__` file under the FE production trees. It is a
@@ -2177,7 +2082,8 @@ export function defaultScanSet() {
   }
   // WS-C: the build helpers. They RUN at build time and bake paths into the
   // binary, so a domain path here ships exactly like one in `modules/`.
-  for (const f of listFiles(BUILD_HELPER, ['.rs'])) add(f, 'buildHelper')
+  // STRIP (single-cell): the `buildHelper` root is DELETED with `build_helper/` (ITEM-3 —
+  // the processor-manifest + sandbox-rootfs helpers were the extensions registry's).
   // WS-C: the desktop harness (Tauri). Small and, as measured, already clean —
   // which is precisely why it is cheap to guard and expensive to leave open.
   for (const f of listFiles(DESKTOP, ['.rs', '.ts', '.tsx'])) {
@@ -2219,7 +2125,8 @@ export function defaultScanSet() {
     if (!productionOnly(f)) continue
     add(f, 'serverData')
   }
-  for (const f of listFiles(BUILD_HELPER, DATA_EXTS)) add(f, 'serverData')
+  // STRIP (single-cell): `build_helper/` is gone with ITEM-3; this arm is vacuous and kept
+  // out of the walk with the root.
   // `feData` — the same for the three frontend trees.
   for (const f of listFiles(UI_SRC, DATA_EXTS)) {
     if (!productionOnly(f)) continue
@@ -2268,23 +2175,18 @@ const MUST_SCAN_KEYS = [
   // is now the only read surface and the server never decodes. The witness went missing
   // and this check fired, which is exactly what it is for.
   //
-  // Re-pointed at `workstore/data_api.rs`, byte-for-byte the same key the Rust twin
-  // (`server/tests/domain_surface/mod.rs::MUST_SCAN_KEYS`) re-pointed to, so the two
-  // enforcers keep naming the same file. It is the same module, the same root, and now
-  // the file that actually serves the bytes — the root's coverage is unchanged in
-  // substance — and it is the largest surviving file in the root, which makes it a good
-  // liveness witness rather than an arbitrary one.
-  ['rust', 'server/src/modules/workstore/data_api.rs'],
+  // STRIP (single-cell): re-pointed in lockstep with the Rust twin — `workstore/
+  // data_api.rs` went with the workstore module (ITEM-3); the replacement is the
+  // same root's largest surviving file, `execution_engine/orchestrator.rs`.
+  ['rust', 'server/src/modules/execution_engine/orchestrator.rs'],
   ['rustRoot', 'server/src/main.rs'],
   ['rustRoot', 'server/src/lib.rs'],
-  ['buildHelper', 'server/build_helper/sandbox_rootfs.rs'],
   ['desktop', 'desktop/tauri/src/main.rs'],
-  ['workbenchFe', 'ui/src/modules/workbench/core/index.ts'],
-  // the two formerly hand-listed FE subjects (ITEM-16 + the bootstrap lattice),
-  // which used to be asserted only as `extraFe === 2`.
-  ['uiFe', 'ui/src/core/datatypes/builtin.ts'],
-  ['uiFe', 'ui/src/modules/datasets/components/UploadPanel.tsx'],
-  ['packagesFe', 'libs/dock/src/index.ts'],
+  // STRIP: the `buildHelper` / `workbenchFe` / `packagesFe` witnesses left with
+  // their roots, and the two formerly hand-listed FE subjects
+  // (`core/datatypes/builtin.ts`, `modules/datasets/components/UploadPanel.tsx`)
+  // were themselves the platform's datatype/bootstrap lattice — theirs and the
+  // roots' deletion is owned by ITEM-3/ITEM-4, not by a re-point.
   // ── ROUND-4 RECONCILIATION — the `serverData` witnesses, re-decided on evidence ──
   //
   // WS-R4 de-anchored the `.py` witness (`seed_multimodal.py`) because the two seed
@@ -2312,27 +2214,28 @@ const MUST_SCAN_KEYS = [
   // EXIST but the walk reached none. It cannot be broken by deleting a file (if the last
   // one goes, the pin goes vacuous) and it cannot be dodged by an exemption. `.py` is
   // covered by that, not by a name.
-  ['serverData', 'server/src/modules/workstore/migrations/202608030004_workstore_baseline.sql'],
+  // STRIP: the `.py` witness is gone by definition (no `.py` remains under `src/`), and
+  // the `.sql` witness is re-pointed at `jobs/migrations/202608030001_jobs_baseline.sql`
+  // — a surviving per-module baseline migration in the same spirit as the round-4
+  // re-point. `.json` still has `mcp/frontend-actions.json`.
+  ['serverData', 'server/src/modules/jobs/migrations/202608030001_jobs_baseline.sql'],
   ['serverData', 'server/src/modules/mcp/frontend-actions.json'],
-  ['feData', 'ui/src/modules/workbench/core/manifest/schema.json'],
+  ['feData', 'ui/src/modules/txrhelp/validator-catalog.json'],
+  // STRIP (single-cell): the uiFe / uiSpecs witnesses were the platform's
+  // datatype/bootstrap lattice (`core/datatypes/builtin.ts`, the workbench
+  // `__testutil__/fakes.ts`), which left with ITEM-3/4. The roots SURVIVE, so their
+  // witnesses are re-pointed at a kept module's real pairs rather than dropped —
+  // the every-root-has-a-witness invariant (`lint-no-domain-in-builtin.test.mjs`)
+  // holds, and each pair is a file the guard's own test tier already reads.
+  ['uiFe', 'ui/src/modules/features/FeatureFlags.store.ts'],
+  ['uiSpecs', 'ui/src/modules/features/FeatureFlags.store.test.ts'],
   ['uiOpenapi', 'ui/openapi/openapi.json'],
-  // ── WS-R4 — one REAL witness per TEST root. Same mechanism as every entry
-  // above (pin a load-bearing file by name; fail when the walk stops reaching
-  // it), deliberately NOT a new one. Two of the four are the files carrying the
-  // exact-cardinality certifications this round exists to surface, so a rename
-  // that would take a certification out of the guard's sight fails HERE and
-  // names the file.
+  // ── WS-R4 — one REAL witness per TEST root. STRIP: the removed modules' data
+  // fixtures + their witnesses left with them (`serverTestsData` root is gone
+  // too), and the `uiSpecs` witness was the workbench's `__testutil__/fakes.ts`.
   ['serverTests', 'server/tests/integration_tests.rs'],
-  ['serverTests', 'server/tests/datatype/mod.rs'],
-  // Both durable by the same standard applied to `serverData` above: the manifest
-  // fixture backs the processor-manifest LINT suite (deleting it deletes the test), and
-  // `make_mtx_trio.py` is the documented regenerator for the committed mtx-trio fixture,
-  // cited by `dataset/mtx_trio_convert_test.rs:13,38,147`. Neither is a debug-route
-  // accessory.
-  ['serverTestsData', 'server/tests/fixtures/processor_manifest_lint/ok/goodpkg/manifest.yaml'],
-  ['serverTestsData', 'server/tests/dataset/fixtures/make_mtx_trio.py'],
-  ['uiTests', 'ui/tests/e2e/datatype/registry.spec.ts'],
-  ['uiSpecs', 'ui/src/modules/workbench/core/__testutil__/fakes.ts'],
+  ['serverTests', 'server/tests/features/mod.rs'],
+  ['uiTests', 'ui/tests/e2e/feature-flags/helpers.ts'],
 ]
 
 /**
@@ -2414,7 +2317,7 @@ export function formatCoveragePinViolations(set) {
 // paths the walk happens to name — so THREE whole trees were in no scan root AND in no
 // declared-exclusion list, and nothing said so:
 //
-//   * `src-app/testdata/`   — 334 findings (300 in one JSON corpus)
+//   * the platform test-data corpus — 334 findings (300 in one JSON corpus)
 //   * repo-root `scripts/`  — 78 findings, including 3 quote-delimited datatype ids
 //   * `src-app/ui/scripts/` — 3901 findings
 //
@@ -2460,7 +2363,7 @@ const UNSCANNED_TREES = {
     'it is about the SQLite port and the test harness, not the domain. Added by the epic-reconcile ' +
     'commit; out for the same reason as `docs`, recorded so the zero is on the record.',
   docs: 'PROSE-ONLY research + design notes; measured 7377 findings (6271 code-tier / 1106 prose / ' +
-    '349 literal), 92 files, led by docs/research/data-processing/*.md (699/593/540). These are ' +
+    '349 literal), 92 files, led by the platform data-processing research (699/593/540). These are ' +
     'notes ABOUT the domain — the single place in the repo where naming the domain is the POINT — ' +
     'and nothing under docs/ compiles, ships or is read at runtime. Scanning them would be the ' +
     'same category error already recorded for packages/**. EXPLICITLY out.',
@@ -2536,29 +2439,29 @@ const UNSCANNED_TREES = {
     'the same generated vocabulary is the category error already recorded for `packages`/`docs`. ' +
     'Out, with the (zero-new) cost on the record.',
   // GENERATED + GITIGNORED (`.gitignore`: src-app/ui/test-results/, src-app/ui/playwright-report/).
-  // Playwright's two default output trees. Declared rather than name-skipped for exactly the
-  // reason `server/binaries` is: `CENSUS_SKIP_DIRS` is for universally-recognisable build output,
-  // and a reader deserves to be told what a repo-specific artefact tree is. Both are absent from a
-  // clean checkout and appear the moment anyone runs the e2e suite — which is how the census first
-  // fired on a developer machine at the round-5 reconciliation, on a tree that is by construction
-  // not source. Measured (this guard's tokenizer, via the self-test scan override): test-results
-  // = 1 candidate file (`.last-run.json`), 0 findings in any dialect; playwright-report is HTML +
-  // `.zip` traces, which have NO dialect in either tokenizer, so its measured cost is 0 by
-  // construction.
+  // Playwright's two default output trees. Declared rather than name-skipped for the same reason
+  // the server section declares `server/migrations-merged`: `CENSUS_SKIP_DIRS` is for
+  // universally-recognisable build output, and a reader deserves to be told what a repo-specific
+  // artefact tree is. Both are absent from a clean checkout and appear the moment anyone runs the
+  // e2e suite — which is how the census first fired on a developer machine at the round-5
+  // reconciliation, on a tree that is by construction not source. Measured (this guard's
+  // tokenizer, via the self-test scan override): test-results = 1 candidate file (`.last-run.json`),
+  // 0 findings in any dialect; playwright-report is HTML + `.zip` traces, which have NO dialect in
+  // either tokenizer, so its measured cost is 0 by construction.
   //
-  // WS-R6 — THESE FOUR ARE NOW REDUNDANT, AND KEPT ON PURPOSE. The runtime-artefact rule
-  // above covers every one of them: measured 2026-07-28 with all four materialised on disk,
+  // WS-R6 — THESE THREE ARE NOW REDUNDANT, AND KEPT ON PURPOSE. The runtime-artefact rule
+  // above covers every one of them: measured 2026-07-28 with all three materialised on disk,
   // `git check-ignore` reports IGNORED and `git ls-files` reports 0 TRACKED files for
-  // `ui/test-results`, `ui/playwright-report`, `server/binaries` and `server/migrations-merged`
-  // alike — so deleting all four declarations would leave the census green. They stay because:
+  // `ui/test-results`, `ui/playwright-report` and `server/migrations-merged` alike — so deleting
+  // all three declarations would leave the census green. They stay because:
   //   (1) the git rule can say "artefact", it cannot say WHAT the artefact is or what its
   //       MEASURED cost was — and that prose is the whole point of this list; and
   //   (2) they are the fail-CLOSED half of a belt-and-braces pair. The git rule needs `git`;
-  //       in a tarball export or a no-`.git` build container it skips nothing, and these four
+  //       in a tarball export or a no-`.git` build container it skips nothing, and these three
   //       trees (which exist precisely on machines that have built or tested) would go red for
   //       the same reason `txresbench-data` did.
   // The cost of keeping them is one narrow fail-OPEN: if a file were ever COMMITTED into one of
-  // these four, the git rule would correctly stop skipping it but the by-name declaration would
+  // these three, the git rule would correctly stop skipping it but the by-name declaration would
   // keep excluding it. `server/config` below shows the shape that matters — it is tracked (4
   // files) and NOT ignored, so its declaration is load-bearing, not redundant.
   'ui/test-results':
@@ -2569,12 +2472,15 @@ const UNSCANNED_TREES = {
     'tokenizer (HTML + zipped traces), so it carries no coverage to lose. Absent from a clean checkout.',
   // ── src-app/server ──
   // GENERATED + GITIGNORED. Declared rather than name-skipped: `CENSUS_SKIP_DIRS` is for
-  // universally-recognisable build output (`node_modules`, `target`), and these two are
-  // repo-specific enough that a reader deserves to be told what they are. Neither exists in
-  // a clean checkout — `binaries/` is staged by `build.rs`, `migrations-merged/` is composed
-  // at build time from the module-local migration sets — so both declarations are ordinarily
-  // vacuous and cost nothing.
-  'server/binaries': 'GENERATED + gitignored: build-staged binary payloads. Not source; absent from a clean checkout.',
+  // universally-recognisable build output (`node_modules`, `target`), and `migrations-merged/`
+  // is repo-specific enough that a reader deserves to be told what it is. It does not exist in
+  // a clean checkout — it is composed at build time from the module-local migration sets — so
+  // the declaration is ordinarily vacuous and costs nothing.
+  // STRIP (single-cell): this section used to carry a second entry, `server/binaries` — the
+  // sandbox embed-slot payloads staged by build.rs. That writer left with the removed
+  // sandbox-rootfs staging (ITEM-3), so the tree is no longer generated, its `.gitignore` row
+  // left with it, and the declaration went with both: a stale leftover from a pre-strip machine
+  // is a tree the census SHOULD call out by name, not silently exclude.
   'server/migrations-merged':
     'GENERATED + gitignored: the build-time composition of the module-local migration sets. ' +
     'The SOURCES are `server/src/modules/**/migrations/*.sql`, which ARE scanned (serverData) ' +
@@ -2582,6 +2488,31 @@ const UNSCANNED_TREES = {
   'server/config':
     'deployment YAML (dev/e2e configs). Measured 0 findings. Out because it is per-machine ' +
     'operator config, not shipped source; recorded so the zero is on the record rather than assumed.',
+  // STRIP (single-cell) — three trees the census found on the CURRENT tree, all KEPT and
+  // all measured with the guard's own tokenizer (allowed-parse-scan override, matches the
+  // production matchers exactly):
+  data:
+    'the KEPT TxResBench record data: method-catalogue/catalogue.json + file-validator/' +
+    "tidy-2.0.json (+ pretrained-catalogue/{catalogue,bundled-models}.json, which are clean). " +
+    'MEASURED 3048 domain-noun hits over 2 files (catalogue.json 2951, tidy-2.0.json 97), 0 ' +
+    'prose/literal. This is the kept product\'s own DATA — the method catalogue and the ' +
+    'validator rules are the txr-domain analogue of the removed packages/ lattice DATA, and ' +
+    'the vocabulary these files carry (feature/sample/gene...) is the kept measurement-table ' +
+    'domain, scanned WHERE IT SHIPS (the consuming server/FE code) rather than in registry ' +
+    'form. Same category as `packages`/`testdata`: DATA, not source. Recorded with the cost.',
+  site:
+    'the GitHub Pages landing site for the TxResBench desktop app (site/README.md): a static ' +
+    'HTML/CSS page + JSON feeds (the update feed and the pretrained-model catalogue) + its ' +
+    'own node test suite. NOT shipped in the app. MEASURED 0 findings over its 6 dialect ' +
+    'files (config.json, public/pretrained-catalogue.json, 4 test .mjs) — the catalogue ' +
+    'carries no token the guard matches. Recorded so the zero is on the record.',
+  'server/data':
+    'generated data (method-env-images.json + its schema, per the directory README: produced ' +
+    'by scripts/generate-method-env-images.py, regen-parity-checked by ' +
+    'scripts/check-method-env-images.sh, which is the guard that owns it). MEASURED 6 ' +
+    'domain-noun hits over the one data file (feature/features/Genome in the kept method ' +
+    'registry). GENERATED + guard-owned by its own script; the walk would only re-derive ' +
+    'what the generator emits. Recorded, not scanned.',
 }
 
 // ── THE RUNTIME-ARTEFACT RULE (WS-R6) ───────────────────────────────────────
@@ -2721,8 +2652,8 @@ export function treeDeclarationViolations(set) {
       rel =>
         `"${rel}" is in NO scan root and in NO declared exclusion. Every tree is guarded by ` +
         `default; leaving one out is a DECISION that has to be written down — with its MEASURED ` +
-        `cost — in UNSCANNED_TREES. (Three trees hid here before WS-R5 G3: src-app/testdata, ` +
-        `repo-root scripts/ and ui/scripts, 4313 findings between them, declared nowhere.) ` +
+        `cost — in UNSCANNED_TREES. (Three trees hid here before WS-R5 G3: the platform's ` +
+        `test-data corpus, repo-root scripts/ and ui/scripts, 4313 findings between them, declared nowhere.) ` +
         `A tree that is GITIGNORED **and** holds zero tracked files is a runtime/build ` +
         `artefact and is skipped automatically (WS-R6) — this one is not.`,
     )
@@ -2817,7 +2748,11 @@ export function scanVolumeViolations(scanned, overridden) {
 }
 
 /** ≈2/3 of the 1111 files measured on 2026-07-28. See `scanVolumeViolations`. */
-const SCANNED_TOTAL_FLOOR = 741
+// STRIP (single-cell) RE-MEASURED **768** on the ITEM-4 tree (127 rust + 6 rustRoot + 9
+// desktop + 293 uiFe + 32 serverData + 8 feData + 1 uiOpenapi + 85 serverTests + 67
+// uiTests + 140 uiSpecs): the single-cell modules, the dock/viz libs and the removed
+// test trees carried the rest. LOWERED 741 -> 512 (≈2/3 of 768), same margin.
+const SCANNED_TOTAL_FLOOR = 512
 
 // ── Scan one file ───────────────────────────────────────────────────────────
 
@@ -3112,7 +3047,9 @@ export function loadBaseline() {
  * Read that as the honest scoreboard: r4spec took the twelve literals it could SEE to
  * zero, and three it could not see were there the whole time.
  */
-const LITERAL_HITS_CEILING = 36
+// STRIP (single-cell) LOWERED 36 -> 4: the ITEM-4 prune removed the stale literal entries; the surviving
+// 4 literal hits are the dev-gallery cassette fixture's `single-cell` seed, all recorded + shrink-only.
+const LITERAL_HITS_CEILING = 4
 
 /**
  * WS-B — the POSITIVE EXPECTED COUNT. `floorViolations` already fails a collapsed
@@ -3263,8 +3200,13 @@ const OBSERVATION_FLOORS = {
    * here — 226 of the 408 are files that were REGENERATED or DELETED, not reworded.
    *
    * ROUND-5 RECONCILIATION RE-MEASURED **1035** — UNCHANGED. Floor unchanged at 690.
+   *
+   * STRIP (single-cell) RE-MEASURED **477**: the workbench/dock/viz FE modules and the
+   * provenance/workstore/dataset/datatype server modules carried the bulk of the prose
+   * tier, and their deletion took it below the round-5 floor. LOWERED 690 -> 318
+   * (≈2/3 of 477), the same collapse-detector margin.
    */
-  domainProse: 690,
+  domainProse: 318,
   /**
    * `code` entries in `domain-baseline.json`. Measured at 152 on 2026-07-28 with the
    * floor at 100 (≈2/3 of the measurement).
@@ -3305,8 +3247,12 @@ const OBSERVATION_FLOORS = {
    *
    * ROUND-5 RECONCILIATION RE-MEASURED **147** code entries in 66 files — UNCHANGED.
    * Floor unchanged at 98; `BASELINE_ENTRY_CEILINGS.code` stays 147, at the measurement.
+   *
+   * STRIP (single-cell) RE-MEASURED **49** entries in 25 files after the ITEM-4
+   * `--prune-baseline` (2021 entries removed with their deleted subjects). LOWERED
+   * 98 -> 32 (≈2/3), same margin.
    */
-  baselineEntries: 98,
+  baselineEntries: 32,
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -3448,7 +3394,7 @@ const BASELINE_ENTRY_CEILINGS = {
  *  `--prune-baseline` once the WS-R8 cargo/cfg-`feature` CONTEXT rule started excluding the
  *  `#[cfg(feature="saas")]` grammar — the recurring form that the compute/accounts epics gate
  *  whole modules with. Recorded here so the drop is deliberate, not a silent collapse. */
-  code: 165, /* TXRBENCH STRIP LOWERED 171 -> 165 (-6): the deletion-driven prune removed the entries of the deleted SaaS/auth/account UI modules, the api-client-saas twin, the feature-flags per-account store and the stripped server modules. | #54 (mcp-settings) RAISED 170 -> 171 (+1 ADMISSION, FALSE-POSITIVE): completes the workstore-settings (#54) merge omission — `server/src/modules/workstore/settings_cache.rs` carries `cell` (count 4), the Rust interior-mutability `fn cell()` accessor idiom, IDENTICAL to the already-baselined `sandbox/`+`provenance/settings_cache.rs` twins; that merge added neither the baseline entry nor this ceiling bump, leaving main red on this lint. The NEW mcp file `mcp/settings_cache.rs` deliberately renamed its accessor `cell`->`slot`, so this feature itself adds ZERO code-tier domain tokens. +1 is the exact count, an equality. #53 (per-account overrides + clear) RAISED 169 -> 170 (+1 ADMISSION, GENERIC): the new per-account picker store `ui/src/modules/features/stores/FeatureFlagAccounts.store.ts` carries the software product-flag word "feature" (not a genomic feature). +1 is the exact count, an equality. MERGED #48+#50 on base 157 (169 = 157+6+6, an equality). #48 (feature-flags toggle) +6: `builtin/featureFlagActions.ts`, `modules/features/gallery.tsx`, and the regenerated `mcp/frontend-actions.json` manifest carry the software product-flag word "feature(s)" — not a genomic feature. #50 (saas-client-seam) +6: the saas-ON generated api-client twin `ui/src/api-client-saas/{apiEndpoints,permissionDescriptions,permissions,types}.ts` is a domain-surface copy of the default api-client carrying the SAME software feature tokens, GENERATED from `--features saas` and reworded only at the server source (kept IN scope to match the guard's stance on generated trees). #40 (feature-flags epic) RAISED 131 -> 157 (+26 ADMISSION, GENERIC): the runtime feature-flags admin subsystem uses "feature" as a SOFTWARE product flag; module name, feature_flags table, features::manage permission and /api/admin/features routes are the mandated public surface and cannot be reworded. */
+  code: 125, /* STRIP (single-cell): RE-MEASURED 125 (file, token) pairs after the ITEM-4 baseline re-base — the deleted single-cell entries came out, the kept TxResBench corpus (measurement-table vocabulary, dispositioned FALSE-POSITIVE / GENERIC / DOC-CHANGELOG / W7 / R4-TESTS-*) came in. LOWERED 165 -> 125, back onto the measurement. | TXRBENCH STRIP LOWERED 171 -> 165 (-6): the deletion-driven prune removed the entries of the deleted SaaS/auth/account UI modules, the api-client-saas twin, the feature-flags per-account store and the stripped server modules. | #54 (mcp-settings) RAISED 170 -> 171 (+1 ADMISSION, FALSE-POSITIVE): completes the workstore-settings (#54) merge omission — `server/src/modules/workstore/settings_cache.rs` carries `cell` (count 4), the Rust interior-mutability `fn cell()` accessor idiom, IDENTICAL to the already-baselined `sandbox/`+`provenance/settings_cache.rs` twins; that merge added neither the baseline entry nor this ceiling bump, leaving main red on this lint. The NEW mcp file `mcp/settings_cache.rs` deliberately renamed its accessor `cell`->`slot`, so this feature itself adds ZERO code-tier domain tokens. +1 is the exact count, an equality. #53 (per-account overrides + clear) RAISED 169 -> 170 (+1 ADMISSION, GENERIC): the new per-account picker store `ui/src/modules/features/stores/FeatureFlagAccounts.store.ts` carries the software product-flag word "feature" (not a genomic feature). +1 is the exact count, an equality. MERGED #48+#50 on base 157 (169 = 157+6+6, an equality). #48 (feature-flags toggle) +6: `builtin/featureFlagActions.ts`, `modules/features/gallery.tsx`, and the regenerated `mcp/frontend-actions.json` manifest carry the software product-flag word "feature(s)" — not a genomic feature. #50 (saas-client-seam) +6: the saas-ON generated api-client twin `ui/src/api-client-saas/{apiEndpoints,permissionDescriptions,permissions,types}.ts` is a domain-surface copy of the default api-client carrying the SAME software feature tokens, GENERATED from `--features saas` and reworded only at the server source (kept IN scope to match the guard's stance on generated trees). #40 (feature-flags epic) RAISED 131 -> 157 (+26 ADMISSION, GENERIC): the runtime feature-flags admin subsystem uses "feature" as a SOFTWARE product flag; module name, feature_flags table, features::manage permission and /api/admin/features routes are the mandated public surface and cannot be reworded. */
   /** (file, token) pairs — NOT files: the prose tier has been per-token since WS-R3. 455.
    *  ARTIFACT-MODEL RE-MEASURED **416** (-39 removed, 3 lowered, 0 added). LOWERED 455 -> 416.
    *  ITEM-14 COMPLETION RE-MEASURED **401**: -15 (12 in the deleted `datatype/layout.rs`,
@@ -3464,7 +3410,7 @@ const BASELINE_ENTRY_CEILINGS = {
    *  WS-R7 RE-MEASURED **386**: -10, and it was 395 before this round even started (one
    *  unit of headroom, which §4 forbids — see the testCode note below for why that matters).
    *  The drop is the production doc-comment sweep: the domain NARRATIVE moved to
-   *  docs/design/processor-manifest-ui-separation.md and core now states the SHAPE, so the
+   *  the processor-manifest UI-separation design doc and core now states the SHAPE, so the
    *  illustrations that carried the vocabulary are gone rather than recorded.
    *  LOWERED 396 -> 386.
    *  WS-R8 RE-MEASURED **382**: -1. `extensions/types.rs` lost its `embedding` prose token
@@ -3484,7 +3430,7 @@ const BASELINE_ENTRY_CEILINGS = {
    *  contribution DECLARED, where the deleted per-strip copy had illustrated that with a
    *  contributed analysis by name. One entry removed by `--prune-baseline`; none added, none
    *  raised. LOWERED 379 -> 378. */
-  prose: 406, /* SQLITE-STORE ITEM-26 RAISED 405 -> 406 (+1 ADMISSION, GENERIC): the workstore infra-config migration's SQLite port note names the D02 product flag ("the secret feature itself stays DORMANT") in `server/src/modules/workstore/migrations/202608290090_infra_config.sql` — SOFTWARE feature-flag word, not a genomic feature; the remaining migration-vocabulary raises were lowerings (build_helper/mod.rs `embedding` pruned, apply_chain testProse 6->3 pruned). +1 is the exact count, an equality. | SQLITE-STORE ITEM-25 RAISED 399 -> 405 (+6 ADMISSION: +7 R4-TESTS-FIXTURE/GENERIC entries from the noun-scan ledger re-anchor for the sqlite-store test port — build_helper/mod.rs `embedding` (SOFTWARE meaning, its `feature` note merged into the same entry), account/dataset/jobs/provenance repository.rs `ident` ×4 + project/repository.rs `ident` ×2 (GENERIC: the SQL identifier/shorthand sense; dataset's entry keeps DOC-EXAMPLE with the merged note), workstore/migration_repo.rs `feature` (GENERIC: the migration FEATURE flag); −2 PRUNED as stale (jobs/repository.rs prose `feature`, the whole mcp/pairing.rs doc-comment block) = net +5; +1 FALSE-POSITIVE for ITEM-24's `desktop/tauri/src/commands.rs` doc comment naming the RUST CARGO `sqlite-backend` feature flag (see the ledger entry). +6 is the exact count, an equality. | TXRBENCH STRIP LOWERED 408 -> 399 (-9): the deletion-driven prune removed the doc-comment entries of the deleted SaaS/auth/account modules, the api-client-saas twin, the feature-flags per-account store and the stripped server module docs. | #54 (mcp-settings) RAISED 407 -> 408 (+1 ADMISSION, GENERIC): completes the workstore-settings (#54) merge omission — `server/src/modules/workstore/settings.rs` doc-comment prose names the software `feature` (this admin-settings feature, INV-1), not a genomic feature; that merge left it unbaselined and main red on this lint. The NEW mcp source adds ZERO prose-tier domain tokens. +1 is the exact count, an equality. #53 (per-account overrides + clear) RAISED 405 -> 407 (+2 ADMISSION, GENERIC): comment prose in the new per-account picker store `FeatureFlagAccounts.store.ts` names the software feature flags it documents ("feature"/"features", not genomic). +2 is the exact count, an equality. MERGED #48+#50 on base 392 (405 = 392+6+7, an equality). #48 (feature-flags toggle) +6: toggle-editor comment prose names the software feature flags it documents (`featureFlagActions.ts`, `features/gallery.tsx`, `FeatureFlags.store.ts`, `module.tsx`). #50 (saas-client-seam) +7: the saas-ON twin `ui/src/api-client-saas/types.ts` mirrors the SAME server `#[derive(JsonSchema)]` doc-comment prose as `api-client/types.ts` (cells 2 / de 1 / gene 1 / genes 2 / obs 2 / sample 2 / features 2), GENERATED from `--features saas`; fixed at the server doc-comment or not at all. #40 (feature-flags epic) RAISED 374 -> 392 (+18 ADMISSION, GENERIC): comment prose in modules/features + its FE page + the JSDoc mirrored into the generated api-client. A4 (accounts epic) +1; WS-R8 net 0 (379); WS-R9 379 -> 374 (-5): the billing epic's saas-`feature` prose-context rule excludes bare `feature` in five saas-gated backend files. */
+  prose: 156, /* STRIP (single-cell): RE-MEASURED 156 (file, token) prose pairs after the ITEM-4 re-base; LOWERED 406 -> 156, back onto the measurement. | SQLITE-STORE ITEM-26 RAISED 405 -> 406 (+1 ADMISSION, GENERIC): the workstore infra-config migration's SQLite port note names the D02 product flag ("the secret feature itself stays DORMANT") in `server/src/modules/workstore/migrations/202608290090_infra_config.sql` — SOFTWARE feature-flag word, not a genomic feature; the remaining migration-vocabulary raises were lowerings (build_helper/mod.rs `embedding` pruned, apply_chain testProse 6->3 pruned). +1 is the exact count, an equality. | SQLITE-STORE ITEM-25 RAISED 399 -> 405 (+6 ADMISSION: +7 R4-TESTS-FIXTURE/GENERIC entries from the noun-scan ledger re-anchor for the sqlite-store test port — build_helper/mod.rs `embedding` (SOFTWARE meaning, its `feature` note merged into the same entry), account/dataset/jobs/provenance repository.rs `ident` ×4 + project/repository.rs `ident` ×2 (GENERIC: the SQL identifier/shorthand sense; dataset's entry keeps DOC-EXAMPLE with the merged note), workstore/migration_repo.rs `feature` (GENERIC: the migration FEATURE flag); −2 PRUNED as stale (jobs/repository.rs prose `feature`, the whole mcp/pairing.rs doc-comment block) = net +5; +1 FALSE-POSITIVE for ITEM-24's `desktop/tauri/src/commands.rs` doc comment naming the RUST CARGO `sqlite-backend` feature flag (see the ledger entry). +6 is the exact count, an equality. | TXRBENCH STRIP LOWERED 408 -> 399 (-9): the deletion-driven prune removed the doc-comment entries of the deleted SaaS/auth/account modules, the api-client-saas twin, the feature-flags per-account store and the stripped server module docs. | #54 (mcp-settings) RAISED 407 -> 408 (+1 ADMISSION, GENERIC): completes the workstore-settings (#54) merge omission — `server/src/modules/workstore/settings.rs` doc-comment prose names the software `feature` (this admin-settings feature, INV-1), not a genomic feature; that merge left it unbaselined and main red on this lint. The NEW mcp source adds ZERO prose-tier domain tokens. +1 is the exact count, an equality. #53 (per-account overrides + clear) RAISED 405 -> 407 (+2 ADMISSION, GENERIC): comment prose in the new per-account picker store `FeatureFlagAccounts.store.ts` names the software feature flags it documents ("feature"/"features", not genomic). +2 is the exact count, an equality. MERGED #48+#50 on base 392 (405 = 392+6+7, an equality). #48 (feature-flags toggle) +6: toggle-editor comment prose names the software feature flags it documents (`featureFlagActions.ts`, `features/gallery.tsx`, `FeatureFlags.store.ts`, `module.tsx`). #50 (saas-client-seam) +7: the saas-ON twin `ui/src/api-client-saas/types.ts` mirrors the SAME server `#[derive(JsonSchema)]` doc-comment prose as `api-client/types.ts` (cells 2 / de 1 / gene 1 / genes 2 / obs 2 / sample 2 / features 2), GENERATED from `--features saas`; fixed at the server doc-comment or not at all. #40 (feature-flags epic) RAISED 374 -> 392 (+18 ADMISSION, GENERIC): comment prose in modules/features + its FE page + the JSDoc mirrored into the generated api-client. A4 (accounts epic) +1; WS-R8 net 0 (379); WS-R9 379 -> 374 (-5): the billing epic's saas-`feature` prose-context rule excludes bare `feature` in five saas-gated backend files. */
   /** 834 measured, 835 as committed: +1 for the R5-GUARD-SELF code entry the Rust twin's
    *  own new drift-pinning test costs it.
    *
@@ -3646,7 +3592,7 @@ const BASELINE_ENTRY_CEILINGS = {
    *  INSPECTOR-PANE-DELETION RAISED 785 -> **786** (+1): ONE new (file, token) pair,
    *  `ui/src/modules/workbench/core/shell/dock/retiredSelectionPane.test.tsx` / `cells`. The
    *  suite drives the persisted-layout migration that retires the `selection` ("Inspector")
-   *  pane, and a test of a migration over `@txresbench/dock`'s pane map cannot avoid naming the field
+   *  pane, and a test of a migration over a pane map cannot avoid naming the field
    *  that map is stored under. It is the SAME false positive the sibling dock entries already
    *  record (a dock pane map, not the domain noun), and it was driven from 27 occurrences down
    *  to 2 at source first — every read funnels through one `panesOf` accessor and the fixtures
@@ -3758,7 +3704,7 @@ const BASELINE_ENTRY_CEILINGS = {
    *  (`awaitCellFilterSurface`, `TINY_COUNTS_CELLS`, the `nCells` seed field), the fixture
    *  column the criterion is built on (`nCount`, the ramp `_fixtures.ts` seeds and the only one
    *  whose range makes the threshold a strict subset rather than a degenerate keep-all), and the
-   *  `viz-cell-view-<pane>` testid @txresbench/viz stamps on every grid pane. The last is the same
+   *  `viz-cell-view-<pane>` testid the grid pane stamps. The last is the same
    *  "a cell here is a PANE of the workspace grid, not biology" reading the RENDER-PERF raise
    *  above already recorded for `ui/tests/viz-e2e/`. +3 is the exact count, so this stays an
    *  equality, not slack.
@@ -3925,7 +3871,7 @@ const BASELINE_ENTRY_CEILINGS = {
  *  (the guard's own vocabulary-list strings; its genuine domain tokens `barcodes`/`cellset`/
  *  `samples`/`anndata` on those lines still fire). `--prune-baseline` removed both; -2 is the exact
  *  count, an equality. */
-  testCode: 840, /* SQLITE-STORE ITEM-26 RAISED 839 -> 840 (+1 ADMISSION, R4-TESTS-RS): TEST-33 final_layout.rs (the post-ITEM-26 layout pin) enumerates the feature-flags migration module by name in its MIGRATION_MODULES constant — the software product-flag module, not a genomic feature; the file path carries the module name too. +1 is the exact count, an equality. | SQLITE-STORE ITEM-25 RAISED 834 -> 839 (+5 ADMISSION, R4-TESTS-RS): the new sqlite-leg module tests whose SUBJECT is the shipped datatype vocabulary they drive and assert — server/tests/sqlite/apply_chain.rs (feature, features: the apply_chain action/kind ids), server/tests/sqlite/module_dataset.rs (h5ad: the import path the assert exercises) and server/tests/sqlite/module_workstore.rs (cells, genes: the open-axis columns the store round-trips). Same class as the R7-ACCEPT admissions: the vocabulary belongs to the tests' subject, not to new app code. +5 is the exact count, an equality. | TXRBENCH STRIP RAISED 833 -> 834 (+1 ADMISSION, R4-TESTS-RS): `server/tests/integration_tests.rs`'s `mod features;` registration became visible to the scan when the strip removed the file's own `#[cfg(feature = "saas")]` lines that had carried it under the WS-R9 file-context rule; recorded in the same file's ledger entry (software product flag, not a genomic feature). | VISIUM-HD-BIN-CONTROL RAISED 826 -> 833 (+7 ADMISSION, R7-ACCEPT): the two new acceptance tests whose SUBJECT is the shipped spatial-import-visium-hd view + spatial-types container declaration (`containerMembers.shipped.test.ts`, `visiumHdRunInputs.test.ts`) name the shipped package vocabulary they drive and assert (the view/analysis ids, the hd.setBin/hd.run action ids, the container declaration). +7 is the exact count, an equality. | #53 (per-account overrides + clear) RAISED 824 -> 826 (+2 ADMISSION, GENERIC): the new clear-override backend integration test `server/tests/features/delete_test.rs` (features) + the per-account e2e `ui/tests/e2e/feature-flags/feature-flags-per-account.spec.ts` (feature) exercise the software feature-flags subsystem; not a genomic feature. +2 is the exact count, an equality. | #48 render test TEST-10: +2 (FALSE-POSITIVE) FeatureFlagsPage.test.tsx feature,features — software flag, not genomic.*/ /* #48 (feature-flags toggle) RAISED 817 -> 822 (+5 ADMISSION, FALSE-POSITIVE): the new unit specs for the toggle (`featureFlagActions.test.ts`, `FeatureFlags.store.test.ts`, `gallery.test.ts`) reference the software feature-flags identifiers under test. Not a genomic feature. +5 is the exact count, an equality. | #40 (feature-flags epic) RAISED 802 -> 817 (+15 ADMISSION, GENERIC): the backend integration tests (server/tests/features) + the FE e2e (ui/tests/e2e/feature-flags) exercise the software feature-flags subsystem; "feature(s)" is the mandated identifier surface, not a genomic feature. Recorded per (file, token) under the test tier. +15 is the exact count, an equality. */
+  testCode: 112, /* STRIP (single-cell): RE-MEASURED 112 (file, token) pairs after the ITEM-4 re-base; LOWERED 840 -> 112, back onto the measurement. | SQLITE-STORE ITEM-26 RAISED 839 -> 840 (+1 ADMISSION, R4-TESTS-RS): TEST-33 final_layout.rs (the post-ITEM-26 layout pin) enumerates the feature-flags migration module by name in its MIGRATION_MODULES constant — the software product-flag module, not a genomic feature; the file path carries the module name too. +1 is the exact count, an equality. | SQLITE-STORE ITEM-25 RAISED 834 -> 839 (+5 ADMISSION, R4-TESTS-RS): the new sqlite-leg module tests whose SUBJECT is the shipped datatype vocabulary they drive and assert — server/tests/sqlite/apply_chain.rs (feature, features: the apply_chain action/kind ids), server/tests/sqlite/module_dataset.rs (h5ad: the import path the assert exercises) and server/tests/sqlite/module_workstore.rs (cells, genes: the open-axis columns the store round-trips). Same class as the R7-ACCEPT admissions: the vocabulary belongs to the tests' subject, not to new app code. +5 is the exact count, an equality. | TXRBENCH STRIP RAISED 833 -> 834 (+1 ADMISSION, R4-TESTS-RS): `server/tests/integration_tests.rs`'s `mod features;` registration became visible to the scan when the strip removed the file's own `#[cfg(feature = "saas")]` lines that had carried it under the WS-R9 file-context rule; recorded in the same file's ledger entry (software product flag, not a genomic feature). | VISIUM-HD-BIN-CONTROL RAISED 826 -> 833 (+7 ADMISSION, R7-ACCEPT): the two new acceptance tests whose SUBJECT is the shipped spatial-import-visium-hd view + spatial-types container declaration (`containerMembers.shipped.test.ts`, `visiumHdRunInputs.test.ts`) name the shipped package vocabulary they drive and assert (the view/analysis ids, the hd.setBin/hd.run action ids, the container declaration). +7 is the exact count, an equality. | #53 (per-account overrides + clear) RAISED 824 -> 826 (+2 ADMISSION, GENERIC): the new clear-override backend integration test `server/tests/features/delete_test.rs` (features) + the per-account e2e `ui/tests/e2e/feature-flags/feature-flags-per-account.spec.ts` (feature) exercise the software feature-flags subsystem; not a genomic feature. +2 is the exact count, an equality. | #48 render test TEST-10: +2 (FALSE-POSITIVE) FeatureFlagsPage.test.tsx feature,features — software flag, not genomic.*/ /* #48 (feature-flags toggle) RAISED 817 -> 822 (+5 ADMISSION, FALSE-POSITIVE): the new unit specs for the toggle (`featureFlagActions.test.ts`, `FeatureFlags.store.test.ts`, `gallery.test.ts`) reference the software feature-flags identifiers under test. Not a genomic feature. +5 is the exact count, an equality. | #40 (feature-flags epic) RAISED 802 -> 817 (+15 ADMISSION, GENERIC): the backend integration tests (server/tests/features) + the FE e2e (ui/tests/e2e/feature-flags) exercise the software feature-flags subsystem; "feature(s)" is the mandated identifier surface, not a genomic feature. Recorded per (file, token) under the test tier. +15 is the exact count, an equality. */
   /** ══ VIZ-STREAMING-READS (slice D) RAISED +1 ══ the prose half of the same admission: the new
    *  `cell-filter-regression.spec.ts` carries one `feature` prose token, same R4-TESTS-E2E
    *  disposition. +1 is the exact count of new pairs.
@@ -4101,7 +4047,7 @@ const BASELINE_ENTRY_CEILINGS = {
  *  Rust+SQL only) excludes `server/tests/workstore/mod.rs`'s `feature` doc-comment pair ("its Cargo
  *  feature", behind `#[cfg(feature = "saas")]`). A software build token; `--prune-baseline` removed
  *  it; -1 is the exact count, an equality. */
-  testProse: 624, /* SQLITE-STORE ITEM-25 RAISED 618 -> 624 (+6 ADMISSION, R4-TESTS-RS): comment prose in the new sqlite-leg module tests names the shipped vocabulary those tests drive and assert — reaper_single_runner_test.rs (obs), apply_chain.rs (feature, features), chain_account_project.rs (feature), chain_workstore.rs (feature), module_workstore.rs (genes). Same disposition as the testCode raises; +6 is the exact count, an equality. | VISIUM-HD-BIN-CONTROL RAISED 613 -> 618 (+5 ADMISSION, R7-ACCEPT): comment prose in the two new acceptance tests whose SUBJECT is the shipped spatial-import-visium-hd view + spatial-types container declaration (`containerMembers.shipped.test.ts`, `visiumHdRunInputs.test.ts`) names the shipped package vocabulary those tests drive and assert (the view/analysis ids, the hd.setBin/hd.run action ids, the container declaration). +5 is the exact count, an equality. | #53 (per-account overrides + clear) RAISED 611 -> 613 (+2 ADMISSION, GENERIC): comment prose in the new clear-override integration test `delete_test.rs` (features) + the per-account e2e spec (features) names the software feature flags under test; not a genomic feature. +2 is the exact count, an equality. | #48 render test TEST-10: +1 (FALSE-POSITIVE) FeatureFlagsPage.test.tsx prose feature.*/ /* #48 (feature-flags toggle) RAISED 606 -> 610 (+4 ADMISSION, FALSE-POSITIVE): comment prose in the new toggle unit specs names the software feature flags under test. Same disposition as testCode. +4 is the exact count, an equality. | #40 (feature-flags epic) RAISED 596 -> 606 (+10 ADMISSION, GENERIC): comment prose in the feature-flags integration + e2e tests names the software feature flags under test. Same disposition as testCode — a product flag, not a genomic feature. +10 is the exact count, an equality. */
+  testProse: 80, /* STRIP (single-cell): RE-MEASURED 80 (file, token) prose pairs after the ITEM-4 re-base; LOWERED 624 -> 80, back onto the measurement. | SQLITE-STORE ITEM-25 RAISED 618 -> 624 (+6 ADMISSION, R4-TESTS-RS): comment prose in the new sqlite-leg module tests names the shipped vocabulary those tests drive and assert — reaper_single_runner_test.rs (obs), apply_chain.rs (feature, features), chain_account_project.rs (feature), chain_workstore.rs (feature), module_workstore.rs (genes). Same disposition as the testCode raises; +6 is the exact count, an equality. | VISIUM-HD-BIN-CONTROL RAISED 613 -> 618 (+5 ADMISSION, R7-ACCEPT): comment prose in the two new acceptance tests whose SUBJECT is the shipped spatial-import-visium-hd view + spatial-types container declaration (`containerMembers.shipped.test.ts`, `visiumHdRunInputs.test.ts`) names the shipped package vocabulary those tests drive and assert (the view/analysis ids, the hd.setBin/hd.run action ids, the container declaration). +5 is the exact count, an equality. | #53 (per-account overrides + clear) RAISED 611 -> 613 (+2 ADMISSION, GENERIC): comment prose in the new clear-override integration test `delete_test.rs` (features) + the per-account e2e spec (features) names the software feature flags under test; not a genomic feature. +2 is the exact count, an equality. | #48 render test TEST-10: +1 (FALSE-POSITIVE) FeatureFlagsPage.test.tsx prose feature.*/ /* #48 (feature-flags toggle) RAISED 606 -> 610 (+4 ADMISSION, FALSE-POSITIVE): comment prose in the new toggle unit specs names the software feature flags under test. Same disposition as testCode. +4 is the exact count, an equality. | #40 (feature-flags epic) RAISED 596 -> 606 (+10 ADMISSION, GENERIC): comment prose in the feature-flags integration + e2e tests names the software feature flags under test. Same disposition as testCode — a product flag, not a genomic feature. +10 is the exact count, an equality. */
 }
 
 /**
@@ -4436,7 +4382,14 @@ export function baselineAdmissionViolations(baseline) {
 // TOKEN dropped out of `dataset/repository.rs` but that FILE keeps other bare tokens, so it
 // stays counted. Again found by the `[reconcile]` control naming this ceiling; the two
 // reclaimed slots are GIVEN UP, not banked.
-const BARE_PROSE_CEILING = 59
+//
+// ── STRIP (single-cell): RE-MEASURED 59 -> **4** (-55). The ITEM-4 `--prune-baseline`
+// removed 2021 entries and re-absorbed the kept tree's residue with an EXPLAINED
+// disposition per file, so the unexplained bulk record shrank to four entries, each a
+// bare measurement-table `sample`/`feature` token (e.g. `server/src/modules/jobs/
+// runtime.rs`). The ceiling follows the measurement — its own paragraph above says a
+// ceiling left above the live count is the hole this constant exists to close.
+const BARE_PROSE_CEILING = 4
 // WS-C RE-ANCHORED 124 -> 99. The bulk record is being PAID DOWN, not grandfathered
 // forever: 22 entries were RAISED by the widened vocabulary and converted to the
 // {count, finding, note} form in the same pass (a raised budget must say why it
@@ -4620,7 +4573,9 @@ const BARE_PROSE_CEILING = 59
 // the same commit. No new test LOGIC hardcodes a datatype id (the one this port would have
 // added was rewritten to a non-domain datatype), so the tier total sits AT the measurement
 // again.
-const TEST_LITERAL_HITS_CEILING = 524
+// STRIP (single-cell) LOWERED 524 -> 13: the ITEM-4 prune removed the stale test-tier literal entries; the
+// surviving 13 are the domain_surface self-reference (the twin has to spell what it searches for).
+const TEST_LITERAL_HITS_CEILING = 13
 
 /** No grandfathered bulk record exists in the test tier — it was created in one commit. */
 const TEST_BARE_PROSE_CEILING = 0
@@ -4649,8 +4604,12 @@ const TEST_OBSERVATION_FLOORS = {
    *       re-anchor, correcting a coverage claim that was false as written
    *   -1  `ui/tests/e2e/datatype/sniff.spec.ts`                   r5card — the spec stopped
    *       naming an id and now DERIVES it from the same registry the server serves
+   *
+   * STRIP (single-cell) RE-MEASURED **627**: the single-cell e2e suites, the workbench
+   * test tree and the removed server test dirs were the test tier's bulk. LOWERED
+   * 2680 -> 418 (≈2/3 of 627), same margin.
    */
-  testDomainNoun: 2680,
+  testDomainNoun: 418,
   /**
    * `domain-prose` hits across the four TEST roots. Measured **1780** on 2026-07-28.
    * ROUND-4 RE-MEASURED **1844** (+64): +58 from the same two r4dataapi files as above,
@@ -4664,8 +4623,11 @@ const TEST_OBSERVATION_FLOORS = {
    *   +2  `server/tests/extensions/datatype_contribution_test.rs` r5guard
    *   -3  `server/tests/datatype/mod.rs`                          r5card — the CARD-10 fix
    *       removed the prose that described a type the lattice no longer contains
+   *
+   * STRIP (single-cell) RE-MEASURED **257**: same deletion set as the noun tier above.
+   * LOWERED 1235 -> 171 (≈2/3 of 257), same margin.
    */
-  testDomainProse: 1235,
+  testDomainProse: 171,
   /**
    * `testCode` entries in `domain-baseline.json`. Measured **816** on 2026-07-28.
    * ROUND-4 RE-MEASURED **834**: +21 hand-argued `R4-RELOCATED` entries in the two
@@ -4675,8 +4637,11 @@ const TEST_OBSERVATION_FLOORS = {
    * stays 556 (⅔ of 834). (The ENTRY-COUNT ceiling did move, 835 -> 834: it sits AT the
    * measurement where this floor sits at ⅔ of it. Both are correct; that asymmetry is
    * the point — see the header of `BASELINE_ENTRY_CEILINGS`.)
+   *
+   * STRIP (single-cell) RE-MEASURED **70** entries in 22 files after the ITEM-4
+   * `--prune-baseline`. LOWERED 556 -> 46 (≈2/3), same margin.
    */
-  testBaselineEntries: 556,
+  testBaselineEntries: 46,
 }
 
 export function testObservationFloorViolations(observedNoun, observedProse, baselineEntries) {
@@ -4705,419 +4670,29 @@ export function testObservationFloorViolations(observedNoun, observedProse, base
   return out
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  WS-R4 — EXACT-CARDINALITY CERTIFICATIONS (finding R4-TESTS-CARD)
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
+//  WS-R4 EXACT-CARDINALITY CERTIFICATIONS — REMOVED (this branch)
+// ══════════════════════════════════════════════════════════════════════
+//
+// STRIP (single-cell): the whole ledger is gone, per this file's own discipline.
+// Every one of the ten certified subjects lived in a deleted unit
+// (`server/src/modules/{extensions/loader.rs,datatype/sniff.rs,datatype/mod.rs}`, the
+// deleted test trees `server/tests/extensions/{datatype_contribution_test,api_test}.rs`
+// and `server/tests/datatype/mod.rs`, `ui/tests/e2e/datatype/registry.spec.ts`, and the
+// removed workbench tree `ui/src/modules/workbench/core/runtime/qcSurface.test.ts` +
+// `extensions/analysis/launcherAvailability.test.ts`). Their subject — a test that makes
+// the app's own suite fail if the contributed single-cell bundle is deleted or changes
+// size — no longer exists, because the bundle itself (the package manifests the
+// certifications counted) is gone. An empty certification list would pass
+// vacuously, which is exactly the failure mode this ledger accuses, so the ledger,
+// `CARDINALITY_CERTIFICATION_CEILING` and `cardinalityCertificationViolations` were
+// deleted with the entries — lockstep with the Rust twin
+// (`server/tests/domain_surface/mod.rs`, which did the same in ITEM-3).
+//
+// NO replacement: the surviving tree pins nothing to any contributed bundle's
+// cardinality (its `features`/`file_validator`/`sandbox`/`mcp` tests assert on their own
+// modules' shape, not on a package's output count).
 
-/**
- * The qualitatively different finding this round surfaced, and the one thing a
- * VOCABULARY guard structurally cannot catch.
- *
- * A cardinality certification is a test assertion that makes the app's OWN SUITE FAIL
- * if the contributed domain bundle is deleted or changes size. It is not "a test using
- * a domain id as an example input" (that is incidental, and there are hundreds); it is
- * the app's build depending on ONE domain bundle's cardinality or membership.
- *
- * WHY IT NEEDS ITS OWN MECHANISM, and why widening the scan set does NOT reach it:
- *
- *   1. The load-bearing text carries NO vocabulary token at all.
- *      `assert_eq!(reg.len(), lattice.len())` is a NUMERIC assertion. No noun, no
- *      datatype id, no acronym — a grep guard over the domain vocabulary is blind to
- *      it by construction. The audit found these by READING. Scanning the trees would
- *      not have found them, and pretending otherwise would be the same "green because
- *      we did not look" the last two rounds existed to stop.
- *   2. FOUR OF THE FOURTEEN ARE NOT IN THE TEST TREES.
- *      `datatype/tests/mod.rs` and `mcp/view_spec_actions.rs` are IN-SOURCE
- *      `#[cfg(test)]` — the compiler-enforced exemption round 3 kept, for a reason
- *      that remains sound (an INV-1/INV-3 argument about what the BINARY carries).
- *      But a cardinality certification is not an INV-3 violation: nothing ships. It is
- *      a BUILD-TIME COUPLING, and the shipping argument is simply irrelevant to it.
- *      So the answer is not to un-blank `#[cfg(test)]` — that re-opens the 633 code /
- *      180 prose / 69 literal hits round 3 measured and correctly declined, almost all
- *      of it a generic engine being tested against a concrete domain, which is what a
- *      generic engine's tests SHOULD do. The answer is a targeted, named ledger.
- *
- * MECHANISM — deliberately `MUST_SCAN_KEYS`, not something new: pin the certification
- * by FILE + a load-bearing ANCHOR string. If the anchor stops being present, the guard
- * FAILS and names the file, so a certification cannot be silently moved, renamed or
- * rewritten out from under the ledger. The list is SHRINK-ONLY by
- * `CARDINALITY_CERTIFICATION_CEILING`: removing one (by fixing it) is a two-line edit
- * here; ADDING one requires raising a constant, which is a reviewable admission that a
- * new test was pinned to a contributed bundle's size.
- *
- * ── WHAT THIS LEDGER ACTUALLY COVERS (WS-R5 — the previous claim was false) ─────────
- *
- * It used to open "MEASURED: FOURTEEN, not the three the round started from", which reads
- * as a census. It is not one, and the difference matters because every downstream reader
- * treated it as the population. What the ledger holds is FOURTEEN HAND-ASSEMBLED ANCHORS,
- * and it is incomplete inside its OWN declared scope in three specific, measured ways:
- *
- *   1. ONE ANCHOR PER FILE. The pin is (file, anchor), and the sweep recorded one per
- *      file — so a certification rewritten AROUND its anchor leaves every sibling in the
- *      same file live and green. ~30 un-anchored certifications were subsequently found
- *      INSIDE files this ledger already names: `qcSurface.test.ts` (+8),
- *      `cellFilterSurface.test.ts` (+12), `api_test.rs:72`, `sniff.rs:90,98`. That is a
- *      structural weakness in the mechanism, not a gap in one sweep.
- *   2. THE "CARDINALITY" FRAMING BIASES TOWARD `.len()`. The largest un-ledgered class is
- *      exact-VALUE and exact-ORDER-HEAD pins — `dataset/repository.rs:1381-1385` pins a
- *      value AND an order via `.first()` — which are just as bundle-coupled but carry no
- *      cardinal number, so they fall outside the ledger's own stated criterion. Six more
- *      were found beyond CARD-15, including a hardcoded 3-row table pinning the entire
- *      `open-kinds` package. CARD-15 itself is one of these: an exact ORDERED vector, not
- *      a count. The name has outlived its accuracy.
- *   3. IT IS A SAMPLE, NOT A POPULATION. Nothing in this file counts the population, so
- *      no number here can be a completeness claim. The honest statement is: fourteen
- *      certifications are PINNED; the true population is larger and unmeasured.
- *
- * The PREMISE still holds and is worth restating, because it is what justifies a
- * hand-assembled ledger at all: a vocabulary grep is structurally blind to these (see (1)
- * at the top of this comment — the load-bearing text carries no vocabulary token), so
- * there is no widening of the scan set that reaches them. What was wrong was the
- * EXECUTION — one-per-file, `.len()`-shaped, and presented as a measurement.
- *
- * NOT EXPANDED IN THIS COMMIT, deliberately. Growing the ledger to the full population is
- * a scoping decision for the owner, and an accurate statement of coverage is worth more
- * right now than a longer list assembled by the same method. A further ~16 SOFT membership
- * certifications (assert a domain id is PRESENT but tolerate additions) are recorded in
- * `domain-baseline.json`'s README rather than pinned here.
- *
- * Composition of the fourteen: four in-source `#[cfg(test)]` (R4-CARD-01..04 — plus
- * CARD-15, also in-source), four in `server/tests/**` (05..08), one in `ui/tests/**` (09;
- * 10 was RETIRED WS-R5, see below) and four `*.test.ts` under `ui/src` that the BASENAME
- * exemption hid (11..14).
- *
- * These are RECORDED, not FIXED. Fixing them is a later decision (see the ranked
- * worklist in `domain-baseline.json`'s README) — a certification is legitimate ONCE the
- * thing it certifies is derived from the manifest rather than hardcoded.
- */
-const CARDINALITY_CERTIFICATIONS = [
-  // ── in-source `#[cfg(test)]` — NOT reachable by the test-tree roots ────────
-  // ── R4-CARD-01 — RETIRED (fix/zero-core-derived): FIXED, not moved, not re-anchored ──
-  //
-  // The entry was `server/src/modules/datatype/tests/mod.rs` + the anchor
-  // `seed registry has a different type count than the golden lattice`, i.e.
-  // `assert_eq!(reg.len(), lattice.len())` against a `lattice` array frozen inside
-  // `lattice_golden.json`. It was the ledger's OWN example of the failure mode ("the
-  // itemisation is ALREADY STALE while the assertion still passes — the clearest possible
-  // demonstration that nobody was watching this coupling").
-  //
-  // It is retired on the FIXED branch, not the moved or rewritten one: there is no
-  // replacement number anywhere. The `lattice` key is deleted from the fixture and the
-  // expected type set is now DERIVED — the Rust roots UNION every declared
-  // `contributes.datatypes[].id` across `src-app/packages/*/manifest.yaml`, compared as a
-  // SET with per-id `extends`/`is_abstract`. So the app's build is no longer coupled to the
-  // contributed bundle's CARDINALITY at all; it is coupled to its DECLARATION, which is the
-  // disposition this ledger describes as legitimate. Contributing a datatype consequently
-  // costs zero edits under `src-app/server/src/`, which the previous state made impossible.
-  //
-  // Two consequences worth stating because they are what the ledger is for:
-  //   * the certification did not become weaker. A count cannot distinguish an added type
-  //     from a removed one and cannot see a package that failed to LOAD; the derivation
-  //     fails loudly on both.
-  //   * this is a DUAL-LEDGER entry, so the Rust twin's `CERTIFICATION_CEILING` moves
-  //     8 -> 7 in this same commit, exactly as the WS-R5 CARD-02 retirement did.
-  //
-  // Design: docs/design/derived-guards.md §4. Entry removed and
-  // CARDINALITY_CERTIFICATION_CEILING lowered 12 -> 11 here, in the same commit.
-  // ── R4-CARD-02 — RETIRED 2026-08-03, not re-anchored ──────────────────────
-  //
-  // The entry was `server/src/modules/mcp/view_spec_actions.rs` + the anchor
-  // `equivalence_with_the_previously_baked_20_entries`. Its history in ONE round, because
-  // both halves matter and the second overtook the first:
-  //
-  //   1. The test was RENAMED to `surviving_baked_entries_still_match_field_for_field`
-  //      (the frozen `== 20` equality had discharged its purpose and would have failed on
-  //      every honest view edit). That is a REWRITE, so the entry was re-anchored on an
-  //      assertion message and the ceiling was deliberately NOT moved.
-  //   2. The whole module was then DELETED — view-scoped capability registration moved out
-  //      of the server, taking `view_spec_actions.rs`, `testdata/scanned_view_actions.json`
-  //      and `testdata/baked_view_actions_before.json` with it.
-  //
-  // After (2) there is no certification left to pin: the app crate no longer scans
-  // `packages/*/ui/*.yaml` for actions at all, so nothing in it can be coupled to that
-  // bundle's SIZE. This is the ledger's documented "it was genuinely retired" branch —
-  // entry removed, `CARDINALITY_CERTIFICATION_CEILING` lowered 14 -> 13 in the same commit,
-  // and the Rust twin's `CERTIFICATION_CEILING` 9 -> 8 in lockstep (it held the same entry;
-  // the two halves must agree or neither checks the other).
-  //
-  // Recorded at this length ON PURPOSE. A deletion is the one disposition that leaves no
-  // trace in the ledger, and "the ledger became amnesia" is the failure this mechanism was
-  // built against — the note is what stops a future reader concluding the pin was simply
-  // lost. It was the ledger's own top-ranked retirement candidate ("a behaviour-preservation
-  // proof for a migration that has landed … the most likely of the fourteen to be retirable
-  // outright"), and it retired by its subject leaving rather than by being fixed.
-  {
-    // RE-ANCHORED (artifact-model ITEM-27), 5 -> 4, same reason and same commit as
-    // R4-CARD-08 below. NOTE what this pair caught, because it is evidence for §1 of the
-    // WS-R5 note above (ONE ANCHOR PER FILE): the REST-surface half moved with the
-    // manifest and this in-source half did not, so `embedded_tree_builds` was FAILING
-    // while its ledger anchor still matched exactly. The ledger cannot see a certification
-    // it has not anchored, and it cannot see a certification going STALE either — only
-    // one being moved out from under it.
-    id: 'R4-CARD-03',
-    file: 'server/src/modules/extensions/loader.rs',
-    anchor: 'assert_eq!(conv.produces.len(), 4);',
-    where: 'in-source #[cfg(test)]',
-    note:
-      'Over the REAL extracted seed folder: converters.len()==1, produces.len()==4, and ' +
-      'conv.env == Some("single-cell"). Exact cardinality of ONE contributed manifest. ' +
-      'Was 5 until artifact-model ITEM-27 removed the `single-cell/soma` output.',
-  },
-  {
-    id: 'R4-CARD-04',
-    file: 'server/src/modules/datatype/sniff.rs',
-    anchor: 'assert_eq!(sniff(&r, "x.h5ad", b""), Some("single-cell/anndata".into()));',
-    where: 'in-source #[cfg(test)]',
-    note:
-      'Over build_from_embedded(). The comment encodes the SORT ORDERING between two domain ids ' +
-      '(`single-cell/anndata` < `single-cell/expression`), so adding a sniffable domain type ' +
-      'breaks it; and `sniff("results.csv") == None` breaks if a csv-claiming type returns.',
-  },
-  // ── `server/tests/**` — IN the new serverTests root ────────────────────────
-  {
-    id: 'R4-CARD-05',
-    file: 'server/tests/extensions/datatype_contribution_test.rs',
-    anchor: 'all 15 domain types are covered by the parity table',
-    where: 'server/tests/** (serverTests root)',
-    note:
-      'assert_eq!(table.len(), 15) over a HARDCODED 15-row parity table spelling out ' +
-      'id/title/extends/ancestors/viewers/selectors/axes/caps for every single-cell type, ' +
-      'verified against the merged registry. The single largest verbatim copy of the ' +
-      'contributed lattice inside the app suite. artifact-model ITEM-38 moved it 15 -> 14 rows ' +
-      '(one contributed type removed); the RUST twin re-anchored on the assertion message, ' +
-      'while THIS anchor is the pre-WS-R5 sentence quoted in the surrounding comment and is ' +
-      'therefore unaffected — the two ledgers pin different strings in the same file.',
-  },
-  {
-    id: 'R4-CARD-06',
-    file: 'server/tests/datatype/mod.rs',
-    anchor: 'test22_merged_registry_reproduces_the_domain_lattice_no_regression',
-    where: 'server/tests/** (serverTests root)',
-    note:
-      'A hardcoded 15-id domain list asserted present, 15 hardcoded is_a triples, and EXACT ' +
-      'viewer lists (`vf("embedding") == ["embedding-scatter","matrix-grid","table"]`). The test ' +
-      'NAME itself certifies a cardinality ("test22"), and the lattice is now 26.',
-  },
-  {
-    id: 'R4-CARD-07',
-    file: 'server/tests/extensions/api_test.rs',
-    anchor: 'two primary + two supporting (cells/genes annotation) accepts',
-    where: 'server/tests/** (serverTests root)',
-    note:
-      'assert_eq!(accepts.len(), 4) — exact cardinality of the contributed anndata-import ' +
-      'manifest\'s accepts list, over the REST surface.',
-  },
-  // RE-ANCHORED (artifact-model ITEM-27). The anchor was `five declared produces entries`;
-  // ITEM-27 deleted the TileDB-SOMA write, so `single-cell/soma` left the manifest's
-  // `produces` list and the assertion became `assert_eq!(produces.len(), 4)`. The
-  // certification was REWRITTEN, not FIXED — it is still an exact cardinality pinned to
-  // the contributed bundle's size — so per this ledger's own instruction the entry is
-  // re-anchored rather than removed, and the ceiling is untouched.
-  //
-  // The anchor deliberately keeps the NUMBER in it. A number-free anchor
-  // (`assert_eq!(produces.len()`) would survive the count changing, and then the ledger
-  // would stop noticing exactly the event it exists to surface: the contributed bundle's
-  // cardinality moving under a test that hardcodes it. Re-anchoring on each such move is
-  // the intended cost.
-  {
-    id: 'R4-CARD-08',
-    file: 'server/tests/extensions/api_test.rs',
-    anchor: 'four declared produces entries',
-    where: 'server/tests/** (serverTests root)',
-    note:
-      'assert_eq!(produces.len(), 4) — the produces half of R4-CARD-07, and the REST-surface ' +
-      'twin of R4-CARD-03. Listed separately because they are separate assertions that would be ' +
-      'fixed separately. Was 5 until artifact-model ITEM-27 removed the `single-cell/soma` ' +
-      'output (the transpose BUFFER, never a real product).',
-  },
-  // ── `ui/tests/**` — IN the new uiTests root ────────────────────────────────
-  {
-    id: 'R4-CARD-09',
-    file: 'ui/tests/e2e/datatype/registry.spec.ts',
-    anchor: 'golden parity failures',
-    where: 'ui/tests/** (uiTests root)',
-    note:
-      'Replays the SHARED golden JSON in the browser: EXACT viewersFor list comparison plus ' +
-      'is_a / accepts / layoutKind. It never read the `lattice` array in that fixture, so when ' +
-      'fix/zero-core-derived deleted that array (retiring R4-CARD-01, above) this half was ' +
-      'unaffected and stands alone — it pins CASES over the lattice, not the SIZE of it. ' +
-      'This file is also a MUST_SCAN witness for the uiTests root.',
-  },
-  // ── R4-CARD-10 was HERE. RETIRED WS-R5: it was FIXED, not deferred. ────────
-  //
-  // It pinned `expect(results.csv.datatype).toBe('de')` — a hard membership claim on a
-  // datatype that had been PRUNED from the lattice. The sibling workstream that fixed it
-  // established something this round's §2 should be read alongside: the assertion was not
-  // "green and wrong", it was UNRUN and wrong. Built and executed, the server returns
-  // `null`, so `toBe('de')` fails outright and cannot have passed since the prune. The
-  // divergence survived for rounds because the two enforcers sit on runners with different
-  // COSTS — `cargo test` gets run, the Playwright suite does not — which is the same root
-  // cause as "the guard runs in no CI workflow at all", seen from the other end. The fix
-  // moved the FE-side check onto `cargo test` rather than leaving it in a suite nothing
-  // invokes. Removing this entry is therefore a genuine shrink of the ledger; the CEILING
-  // does not move because CARD-15 lands in the same commit (see the ceiling note).
-  // ── `*.test.ts` under `ui/src` — the ex-BASENAME-exemption (uiSpecs root) ──
-  {
-    id: 'R4-CARD-11',
-    file: 'ui/src/modules/workbench/core/runtime/qcSurface.test.ts',
-    anchor: "expect(a.produces).toEqual(['metadata-column', 'report/qc'])",
-    where: '*.test.ts under ui/src (uiSpecs root — was BASENAME-exempt)',
-    note:
-      'EXACT-SET equality against the produces list read out of the SHIPPED ' +
-      '`packages/qc/manifest.yaml`. Invisible for the whole life of the guard purely because ' +
-      'the file is named `*.test.ts`.',
-  },
-  // ── R4-CARD-12 — RETIRED (processor-manifest-ui-separation). GENUINELY retired. ──
-  //
-  // The entry was `ui/src/modules/workbench/core/runtime/qcSurface.test.ts` + the anchor
-  // `['atac', 'prot', 'rna']`, an EXACT-SET equality over the contributed per-modality preset
-  // families. It is the ledger's "it was FIXED" branch, not its "it was rewritten" one, and the
-  // distinction is worth stating because the anchor text still occurs in the file:
-  //
-  //   1. The SUBJECT is gone. The contributed package no longer declares per-modality preset
-  //      FAMILIES and the view no longer carries a modality picker or a `$state.modality` — the
-  //      owner's question ("what if the modality is not in the list") had no answer, because the
-  //      picked value became the emitted column prefix, so anything outside the three was
-  //      silently mis-prefixed. The modality is now stamped by the importer into each matrix's
-  //      own structure and read off the store; the view neither picks nor relays one.
-  //   2. What survives in the file is the exact INVERSE assertion — the three names are bound
-  //      once, as a set the spec proves NOTHING carries. A negative control over a retired
-  //      vocabulary is not a certification of a contributed bundle's cardinality: it cannot fail
-  //      when that bundle GROWS, which is the only event this ledger exists to notice. Re-
-  //      anchoring on it would pin a permanent green.
-  //
-  // So: entry removed, CARDINALITY_CERTIFICATION_CEILING lowered 13 -> 12 in the same commit.
-  // The Rust twin does NOT hold this entry (it is a frontend certification; the twin carries the
-  // eight server-side ones), so its own CERTIFICATION_CEILING is deliberately UNCHANGED —
-  // checked rather than assumed, because R4-CARD-15 was mis-handled this way earlier in this
-  // very feature: a dual-ledger entry has TWO anchors and fixing one leaves the other dangling.
-  // R4-CARD-13 REMOVED — the certification was FIXED, not lost. The exact-set equality it
-  // pinned (`expect(a.produces).toEqual([...])` in `cellFilterSurface.test.ts`) broke `main`
-  // the moment the analysis legitimately gained a QC report output. It is now asserted as a
-  // PROPERTY — the produced set must contain the annotation column and must NOT contain the
-  // datatype the analysis consumes, that datatype DERIVED from the analysis's own `appliesTo`
-  // slot rather than restated. So the assertion no longer carries a domain literal at all,
-  // which is why the entry goes away instead of being re-anchored.
-  // Per this ledger's own rule: entry removed, CARDINALITY_CERTIFICATION_CEILING lowered
-  // 12 -> 11 in the same commit.
-  //
-  // NOTE for whoever touches R4-CARD-14 next: it is the SAME shape, still live
-  // (`toEqual(['single-cell/expression'])` in `launcherAvailability.test.ts`). It has not
-  // broken yet only because that manifest key has not grown. Left alone deliberately here —
-  // this commit exists to un-break `main`, not to re-open a second certification.
-  {
-    id: 'R4-CARD-14',
-    file: 'ui/src/modules/workbench/extensions/analysis/launcherAvailability.test.ts',
-    anchor: "toEqual(['single-cell/expression'])",
-    where: '*.test.ts under ui/src (uiSpecs root — was BASENAME-exempt)',
-    note:
-      'EXACT-SET equality on missingInputs() against the shipped cell-filter manifest\'s accepts. ' +
-      'Its sibling `nextSteps.test.ts` carries the same class ' +
-      "(`producedSummary(qc) === 'metadata-column and report/qc'`, `analysisId === 'cell.filter'`) " +
-      'and is baselined under R4-TESTS-UNIT rather than pinned here, to keep this ledger to ' +
-      'ONE entry per distinct certification SHAPE.',
-  },
-  // ── WS-R5 — contributed by the CARD-10 fix workstream ─────────────────────
-  {
-    id: 'R4-CARD-15',
-    file: 'server/src/modules/datatype/mod.rs',
-    anchor: '("embedding", &["cells", "dims"], &["barcode", "dim_index"]),',
-    where: 'in-source `#[cfg(test)]` — NOT reachable by any scan root',
-    note:
-      'An EXACT ORDERED vector of single-cell axis NAMES — the axis assumption ' +
-      'DOMAIN_AUDIT §1 identifies as the root cause, asserted as a literal. A server ' +
-      'certification, so it is pinned in BOTH ledgers (Rust CERTIFICATION_CEILING 8 -> 9). It ' +
-      'is also a good example of the SHAPE problem stated in the header: it certifies exact ' +
-      'VALUES and ORDER, not a count, so the word "cardinality" does not really describe it. ' +
-      'RE-ANCHORED (processor-manifest-ui-separation, ITEM-12/13). The old anchor was ' +
-      '`assert_eq!(names, vec!["cells", "genes"], "{id} carries the cells+genes axes inline")`, ' +
-      'a single assertion over `single-cell/anndata` + `single-cell/matrix-mtx`. The axes moved ' +
-      'ONTO the ANALYSABLE types, so the anchored test is now a ten-row table. Re-anchored ' +
-      'rather than removed because the certification was WIDENED, not fixed: it went from 2 ' +
-      'datatypes to 10, and the literals are still exact and still ordered. Recording it as ' +
-      'fixed would have been the amnesia this ledger exists to prevent — and the widening is ' +
-      'defensible only because `axes_for` is a FLAT lookup, so enumerating every subtype is ' +
-      'what catches one silently losing its axes. ' +
-      'NOTE CORRECTED (same feature, later commit): this note used to add that the two import ' +
-      'formats "became OPAQUE import formats declaring no axes at all". The first half holds ' +
-      '(they extend `data/opaque`); the second does NOT, and asserting it cost a working ' +
-      'feature — `dataset/routes.rs` validates a supporting file\'s axis against ' +
-      '`axes_for(dataset.datatype)`, which for an uploaded h5ad IS the container, so axis-less ' +
-      'meant every attachment 422\'d (7 integration tests). Opacity (lattice position) and axis ' +
-      'IDENTITY are now asserted independently, and the identity half — ' +
-      '`import_format_primaries_are_opaque_but_still_declare_axis_identity`, carrying ' +
-      '`assert_eq!(names, vec!["cells", "genes"], …)` — is the ORIGINAL anchor text, alive again ' +
-      'in the same file and NOT pinned. A third instance of the ONE-ANCHOR-PER-FILE weakness §1 ' +
-      'states; recorded here rather than minted as R4-CARD-16, because raising ' +
-      'CARDINALITY_CERTIFICATION_CEILING is the owner\'s admission to make, not a triage pass\'s.',
-  },
-]
-
-/**
- * SHRINK-ONLY. Adding a certification means raising this in the same commit.
- *
- * WS-R5 — STAYS AT 14, and the arithmetic is worth writing down because the guard's own
- * failure text does not cover this case. R4-CARD-10 was REMOVED (fixed) and R4-CARD-15 was
- * ADDED in the same commit: 14 - 1 + 1 = 14. The message on the anchor-missing path says
- * "remove this entry AND lower CARDINALITY_CERTIFICATION_CEILING in the same commit", which
- * is UNSATISFIABLE when a removal and an addition land together — lowering it would then
- * fail the length check the next line runs. Read the instruction as "the ledger may not GROW
- * silently": a net-zero swap needs no edit here, and the reviewable artefact is the pair of
- * entries, not the constant. Stating this beats leaving the next reader to conclude the
- * check misfired.
- */
-// LOWERED 13 -> **12** (processor-manifest-ui-separation): R4-CARD-12 was RETIRED by its
-// subject leaving — the contributed package stopped declaring per-modality preset families and
-// the view stopped picking a modality, so there is no bundle cardinality left to pin. See the
-// written-out retirement note in the list above; the ceiling moves in the SAME commit as the
-// removal because nothing was added to offset it (unlike the WS-R5 net-zero swap described
-// above, where a removal and an addition landed together and the constant correctly stood still).
-// COUNT LOWERED 11 -> 10 (main, semantic merge repair). Two commits retired one
-// certification each, independently and correctly: `d8d121e6` retired R4-CARD-13 and
-// `fix/zero-core-derived` retired R4-CARD-01. Each was cut from a tree where the ceiling
-// read 12, so each lowered it 12 -> 11 and BOTH wrote the literal `11`. git merged the two
-// identical lines without a conflict, so two removals produced one decrement and the ceiling
-// silently drifted one above the ledger. Neither commit was wrong; the counter was.
-// This is why the count is asserted in three places (ledger, ceiling, test) rather than
-// derived — but note the three-sided rule does NOT protect against this shape, because a
-// textual merge of two equal edits is invisible to it. The `npm run check` twin below is
-// what actually caught it.
-const CARDINALITY_CERTIFICATION_CEILING = 10
-
-/**
- * @returns {string[]} one message per certification whose anchor went missing, plus one
- * if the ledger grew past its ceiling.
- */
-export function cardinalityCertificationViolations() {
-  const out = []
-  if (CARDINALITY_CERTIFICATIONS.length > CARDINALITY_CERTIFICATION_CEILING) {
-    out.push(
-      `CARDINALITY_CERTIFICATIONS has ${CARDINALITY_CERTIFICATIONS.length} entries, above the ` +
-        `committed ceiling of ${CARDINALITY_CERTIFICATION_CEILING}. The ledger is SHRINK-ONLY.`,
-    )
-  }
-  for (const c of CARDINALITY_CERTIFICATIONS) {
-    const abs = path.join(SRC_APP, c.file)
-    if (!existsSync(abs)) {
-      out.push(
-        `${c.id}: "${c.file}" no longer exists. A cardinality certification cannot be moved out ` +
-          `from under this ledger silently — re-point the entry in the same commit as the move, ` +
-          `or delete it if the certification was genuinely retired (and lower ` +
-          `CARDINALITY_CERTIFICATION_CEILING).`,
-      )
-      continue
-    }
-    if (!readFileSync(abs, 'utf8').includes(c.anchor)) {
-      out.push(
-        `${c.id}: the anchor \`${c.anchor}\` is gone from "${c.file}". Either the certification ` +
-          `was FIXED — remove this entry AND lower CARDINALITY_CERTIFICATION_CEILING in the same ` +
-          `commit — or it was rewritten, in which case re-anchor it. Silently losing the anchor ` +
-          `is how a ledger becomes amnesia.`,
-      )
-    }
-  }
-  return out
-}
 
 export function observationFloorViolations(observedNoun, observedProse, baselineEntries) {
   const out = []
@@ -5178,11 +4753,10 @@ export function runGuard() {
   // less in every mode, including a self-test, and a self-test that silently stopped
   // forbidding things would certify the wrong thing about its own fixtures.
   const treeDecls = counts ? treeDeclarationViolations(scanSet) : []
-  const vocabulary = [
-    ...contributedVocabularyViolations(),
-    ...packageVocabularyViolations(),
-    ...idStemVocabularyViolations(),
-  ]
+  // STRIP (single-cell): the contributed-datatype / package-id / id-stem DERIVATION
+  // floors were deleted with the processor lattice; the surviving derivation check is the
+  // lattice SHAPE check inside `contributedVocabularyViolations` (empty by truth).
+  const vocabulary = [...contributedVocabularyViolations()]
 
   // ── WS-R4: the findings SPLIT BY TIER before anything is counted ───────────
   //
@@ -5219,7 +4793,10 @@ export function runGuard() {
       // WS-R7 — the PACKAGE tier shares the noun tiers' baseline SECTIONS (its
       // dispositions and its ratchet are identical) while keeping its own KIND, so the
       // lattice-measured `OBSERVATION_FLOORS` totals below are untouched by it.
-      const bucket = out[PACKAGE_KIND_BUCKET[f.kind] ?? ID_STEM_KIND_BUCKET[f.kind] ?? f.kind]
+      // STRIP (single-cell): the `ID_STEM_KIND_BUCKET` arm died with the id-stem tier —
+      // `QUOTED_ID_TOKENS` is empty by truth and no finding carries an id-stem kind, so
+      // the bucket map has no entry to consult.
+      const bucket = out[PACKAGE_KIND_BUCKET[f.kind] ?? f.kind]
       if (!bucket) continue
       const k = baselineKey(f.file)
       const tok = f.token.toLowerCase()
@@ -5533,7 +5110,6 @@ export function runGuard() {
     observationFloors.push(
       ...testObservationFloorViolations(testTotalNoun, testTotalProse, testBaselineEntries),
     )
-    baselineErrors.push(...cardinalityCertificationViolations())
   }
 
   return {
@@ -5852,10 +5428,8 @@ function main() {
       `${Object.keys(baseline.testCode ?? {}).length} file(s), ` +
       `${Object.keys(baseline.testProse ?? {}).length} testProse file(s)).`,
   )
-  console.log(
-    `    exact-cardinality certifications pinned: ${CARDINALITY_CERTIFICATIONS.length} ` +
-      `(ceiling ${CARDINALITY_CERTIFICATION_CEILING}, shrink-only) — see CARDINALITY_CERTIFICATIONS.`,
-  )
+  // STRIP (single-cell): the exact-cardinality certification ledger was deleted with its
+  // subjects (see the section header); its print line went with it.
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

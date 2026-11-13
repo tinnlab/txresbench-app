@@ -97,7 +97,7 @@ impl SandboxResourceLimits {
             // its own.
             //
             // Derived from MEASURED platform sizes, not taste (DEC-6 and
-            // `docs/design/upload-limits-policy.md` §"Evidence for the new default"):
+            // (the upload-limits policy, "Evidence for the new default"):
             // the largest single Xenium bundle member measured is
             // `morphology.ome.tif` at 5,179 MB (XOA 1.0.1 breast rep1; 3,078 MB on
             // XOA 3.0.0 Prime 5K), whole bundles run 7.56-9.86 GB per region, and
@@ -319,21 +319,6 @@ pub fn resolve_caps(
 /// A `SandboxResourceLimits` snapshot carrying a job's resolved per-job caps —
 /// used to drive `CgroupScope::create` on the streaming path (it takes the same
 /// limits shape the batch path uses). Overlays the resolved profile onto the
-/// ceiling's non-cgroup fields (prlimit tail).
-pub fn limits_from_profile(
-    profile: &crate::modules::sandbox::backend::ResourceProfile,
-    ceiling: &SandboxResourceLimits,
-) -> SandboxResourceLimits {
-    SandboxResourceLimits {
-        memory_max_bytes: profile.memory_max_bytes,
-        memory_swap_max_bytes: profile.memory_swap_max_bytes,
-        pids_max: profile.pids_max,
-        cpu_max: profile.cpu_max.clone(),
-        timeout_secs: profile.timeout_secs as i64,
-        ..ceiling.clone()
-    }
-}
-
 /// PUT body — every field optional (absent = leave unchanged).
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct UpdateSandboxResourceLimits {
@@ -766,14 +751,14 @@ mod tests {
     //
     // This asserts the design's promise, not the code's behaviour: the two
     // evidence constants below are transcribed from
-    // `docs/design/upload-limits-policy.md` §"Evidence for the new default", so if
+    // (the upload-limits policy, "Evidence for the new default", so if
     // the default were quietly lowered back toward the old 2 GiB the headroom
     // assertion goes red rather than silently tracking whatever `defaults()` says.
     #[test]
     fn uncapped_uploads_test8_fsize_default_is_raised_and_still_bounded() {
         const GIB: i64 = 1024 * 1024 * 1024;
         // Largest single Xenium bundle member measured: morphology.ome.tif,
-        // XOA 1.0.1 breast rep1 = 5,179 MB (docs/design/upload-limits-policy.md).
+        // XOA 1.0.1 breast rep1 = 5,179 MB (the upload-limits policy).
         const LARGEST_MEASURED_XENIUM_MEMBER_BYTES: i64 = 5_179 * 1000 * 1000;
         // The old shipped default that blocked Xenium import.
         const OLD_DEFAULT_BYTES: i64 = 2 * GIB;

@@ -12,7 +12,7 @@
 # the per-method layers the runtime downloads would exist nowhere, and the
 # "download state for environments" the app promises would be a design board
 # and nothing more. This script is the manual path, mirroring
-# `scripts/publish-env-rootfs.sh` (the framework's proven publish sequence:
+# the framework's env-image publish sequence (
 # login → push → cosign sign, `--dry-run`, `--env`, `--arch`, `--skip-sign`,
 # refuse cross-arch builds) with the differences the layer contract requires
 # (below).
@@ -169,7 +169,7 @@ case "$ARCH" in
   *) echo "publish: unsupported --arch: $ARCH (expected amd64 or arm64)" >&2; exit 2 ;;
 esac
 
-# ── refuse a cross-arch publish (mirror of publish-env-rootfs.sh) ──────────────
+# ── refuse a cross-arch publish (mirror of the framework's sequence) ───────────
 # `--arch` DECIDES THE TAG, so it must decide what could have been built; a
 # qemu-built layer (native libs under emulation) is not something to publish
 # under a native arch tag that a clinician's mac/linux then fetches. Demand a

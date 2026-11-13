@@ -93,7 +93,7 @@ MANIFEST='scripts/guard-hashes.txt'
 # way everything else here is (the marker must still be declared IN the file, in a diff a human
 # reads, and MIN_GUARDS moves with the set), but it is a coupling worth knowing about before the
 # next widening rather than after it.
-GUARD_GLOBS=('scripts/check-*.sh' 'scripts/check-*.mjs' 'scripts/lib/*' 'scripts/coercion-parity*')
+GUARD_GLOBS=('scripts/check-*.sh' 'scripts/check-*.mjs' 'scripts/lib/*')
 
 # Measured 2026-09-07 (#316): 26 guards. A manifest shorter than this is a gutted manifest.
 #
@@ -107,36 +107,19 @@ GUARD_GLOBS=('scripts/check-*.sh' 'scripts/check-*.mjs' 'scripts/lib/*' 'scripts
 # `AGGREGATE_FLOORS` comment, four files away, argued that a floor is raised with the set it
 # guards. A blind auditor caught it. The rule has no exception for the branch enforcing it:
 # when the manifest grows, this number grows in the same diff.
-# #311/#324: 26 -> 27 with `scripts/lib/zero-core-surface.txt`, in the same diff that adds it,
-# which is what the paragraph above demands and what #316 had to be told twice.
-# #355: 27 -> 29 with `scripts/check-design-citations.mjs` and its control suite
-# `scripts/check-design-citations.test.mjs`, in the same diff that adds them. Both are matched
-# by the existing `scripts/check-*.mjs` glob, so check 2 would have reported them as unpinned
-# guards on the first run — which is the glob doing its job, and the reason this number moves
-# here rather than being noticed later.
-# #300: 29 -> 31 with `scripts/check-manifest-version-claims.sh` and its controls
-# `scripts/check-manifest-version-claims.test.mjs`, in the same diff that adds both. The
-# controls are pinned for the reason `check-design-citations.test.mjs` and
-# `check-pub-orphans.test.mjs` are: they are the only thing that establishes the guard beside
-# them still BITES, so gutting them is gutting the guard one level up.
-# App branch (4001939): 31 -> 32 with `scripts/check-network-allowlist.sh` and its controls
-# `scripts/check-network-allowlist.test.mjs`. Both entered the tree in that app-audit commit
-# (licence/network audit) and were never pinned — the two entries this branch's ITEM-27
-# re-pin adds. The pin-before-use rule applies to a guard the app SHIPS: the network
-# allowlist is the contract for "only method-env + update-check network use", and an
-# unpinned copy can be gutted in a diff nobody reads, exactly like any other guard.
-# App branch (method-env-images ITEM-4): 32 -> 34 with `scripts/check-method-env-images.sh`
-# and its controls `scripts/check-method-env-images.test.mjs`, in the same diff that adds
-# them (both matched by the existing `scripts/check-*.sh|mjs` glob, so check 2 would have
-# reported them as unpinned on the first run). The pair validates the generated env-manifest
-# (schema + structural rules + regen parity), the surface the runtime fetches layers by —
-# exactly the "a guard that decides what the app runs" standing the network allowlist pins
-# above; the floor moves with the set it guards, as every entry above this one says.
-MIN_GUARDS=35
-# ITEM-7 (method-env-images): 34 -> 35 with `scripts/lib/method-env-verify.sh` —
-# the behavioral layer verifier the publish path gates on (pinned for the same
-# reason env-image-verify.sh and env-id-grammar.sh are: it is guard logic under
-# a `scripts/lib/` name), in the same diff that adds it.
+# The ledger grew step by step to 35 (each entry above the strip line recorded the
+# guard added and the floor raised with it, in the same diff; the full per-entry
+# record is in the git history of this file). The strip node ITEM-2 removed the
+# twenty single-cell guards together with their subjects (processor packages +
+# manifest gates, env-recipe pins, coercion corpus, workstore wire, design
+# citations) and re-derived the ledger with --update in the same diff, as every
+# entry demands: every removed guard updates the ledger in the commit that removes
+# it. The surviving set is 16 — it includes `check-naming.sh`, which was on disk
+# but unpinned since the rebrand commit, i.e. that re-pin also healed an inherited
+# red — and the floor moves with the set it guards, exactly as every entry above
+# demands. ITEM-5 added `check-dead-refs.sh` (16 -> 17) and raised the floor
+# in the same diff.
+MIN_GUARDS=17
 
 MODE='verify'
 case "${1:-}" in

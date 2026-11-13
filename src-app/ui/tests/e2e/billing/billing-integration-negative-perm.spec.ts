@@ -5,7 +5,7 @@ import {
   MEMBER_PASSWORD,
   ownerToken,
   waitUntilOffLoginScreen,
-} from '../project/_helpers'
+} from '../_helpers'
 
 // TEST-14 [negative-perm][positive-control] (#60) — the Billing-integration admin page
 // is a saas-only, `billing::admin`-gated surface. The e2e harness drives the DEFAULT

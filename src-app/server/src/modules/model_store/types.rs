@@ -233,18 +233,6 @@ pub struct ExampleSetResponse {
     pub error: Option<String>,
 }
 
-/// The single-row example-set creation state (`txr_example_set`, qa-fixes3
-/// ITEM-3): which run is training the example models (or which set is ready),
-/// or the last failure's reason. App-internal (one row, id = 1); the wire
-/// type is [`ExampleSetResponse`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExampleSetRow {
-    pub state: ExampleSetState,
-    pub run_id: Option<Uuid>,
-    pub set_id: Option<Uuid>,
-    pub error: Option<String>,
-}
-
 /// The save response (201): the set (created or grown), the saved rows and the
 /// optional one-off export.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

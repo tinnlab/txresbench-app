@@ -1,21 +1,21 @@
-//! `rootfs` module — the EMBEDDED analysis-rootfs slot (`include_bytes!`), extracted +
-//! squashfuse-mounted on first sandbox use WHEN a non-empty asset was staged.
+//! `rootfs` module — the content-digest squashfs cache + mount core the
+//! sandbox's environments are staged through.
 //!
-//! CURRENT STATE: docker is no longer a build dependency of TxResBench, so the embedded
-//! slot is an INTENTIONAL, PERMANENT 0-byte stub in normal builds. That is NOT a broken
-//! or degraded build and the sandbox does NOT self-disable because of it — the analysis
-//! rootfs is lazy-fetched at RUNTIME by [`crate::modules::sandbox::env_image::OciEnvImageProvider`]
-//! from `ghcr.io/tinnlab/txresbench-env/<env>:schema<N>-latest-<arch>`, cosign-verified and
-//! squashfuse-mounted on the first `run_analysis`. This module's embedded path is the
-//! legacy/optional route (and the digest-keyed cache it shares with the OCI provider).
+//! strip-single-cell ITEM-3 (map §1 `rootfs` KEEP (trim)): the EMBEDDED
+//! analysis-rootfs slot (`embedded.rs`, the build-time staging stub) and the
+//! provenance reproducibility glue (`env_obtain`/`RootfsCacheObtain`) were
+//! removed with the single-cell platform. What stays is what the METHOD
+//! environments run on: [`data_root`] (the app data root every kept module
+//! resolves), the digest-keyed cache (cache.rs), the squashfuse mount core
+//! (mount.rs), and [`ensure_ready_by_digest`] — the mount the
+//! `sandbox::method_env` manager drives for every base + layer artifact,
+//! digest-pinned and byte-verified before it is mounted.
 //!
-//! Public surface for the `sandbox` module: [`ensure_ready`] (lazy extract +
-//! mount, returns the mount dir whose `usr/` bwrap binds read-only) and
-//! [`status`] (for the admin UI). Registration exists only to log rootfs
-//! availability at boot; the HTTP surface lives in the `sandbox` module.
+//! `ensure_ready` (the embedded extract+mount path) is gone with the slot; the
+//! per-digest mount serialization stays, because by-digest mounts are the only
+//! mounts there are now.
 
 pub mod cache;
-pub mod embedded;
 pub mod mount;
 /// Process-lifetime `PR_SET_PDEATHSIG` spawning (Linux-only, like the mount itself).
 #[cfg(target_os = "linux")]
@@ -121,13 +121,13 @@ impl Drop for DataRootGuard {
     }
 }
 
-/// Cached successful mount dir — [`ensure_ready`] mounts once per process.
-static READY: OnceCell<PathBuf> = OnceCell::new();
+/// strip-single-cell ITEM-3: the once-per-process embed mount cache
+/// (`READY` + `ensure_ready`) was removed with the embedded slot; mounts are
+/// now per-digest only ([`DIGEST_MOUNT_LOCKS`]).
 
-/// Per-digest mount serialization (blind-audit MED). Unlike [`ensure_ready`]
-/// (serialized by the single `READY` `OnceCell`), [`ensure_ready_by_digest`]
-/// mounts a HISTORICAL rootfs BY DIGEST and has no single init cell — so two
-/// concurrent reproduce/verify runs of the SAME digest could both pass
+/// Per-digest mount serialization (blind-audit MED): [`ensure_ready_by_digest`]
+/// mounts an artifact BY DIGEST and has no single init cell — so two
+/// concurrent runs of the SAME digest could both pass
 /// `mount_at`'s check-then-act probe and each spawn a squashfuse daemon
 /// (orphaning one). A per-digest mutex admits only ONE thread into the
 /// extract+mount for a given digest; the loser then hits `mount_at`'s fast path
@@ -151,35 +151,23 @@ fn digest_mount_lock(digest: &str) -> Arc<Mutex<()>> {
 pub struct RootfsStatus {
     /// Embedded schema version the binary expects.
     pub schema_version: u32,
-    /// Short content hash of the embedded rootfs (empty when it's a stub).
+    /// Short content hash of the embedded rootfs (always empty — the slot is
+    /// removed; kept only to preserve the wire shape).
     pub content_version: String,
-    /// The FULL sha256 hex digest of the embedded rootfs (the env digest the
-    /// provenance layer pins). Empty when it's a stub (ITEM-6, additive).
+    /// The FULL sha256 hex digest of the embedded rootfs (always empty — the
+    /// slot is removed; kept only to preserve the wire shape).
     pub content_sha256: String,
-    /// Size of the embedded rootfs in bytes (0 = stub / not built in).
+    /// Size of the embedded rootfs in bytes (0 — the slot is removed).
     pub embedded_bytes: u64,
-    /// The build embedded a real (non-stub) rootfs.
+    /// The build embedded a real (non-stub) rootfs (always false — the slot is
+    /// removed).
     pub supported: bool,
-    /// The rootfs has been extracted to the app data dir.
+    /// The rootfs has been extracted to the app data dir (always false — see
+    /// the module doc; the digest cache is the live store).
     pub extracted: bool,
-    /// The rootfs is currently squashfuse-mounted.
+    /// The rootfs is currently squashfuse-mounted (always false — see the
+    /// module doc; `GET /api/sandbox/envs` reports per-env mount state).
     pub mounted: bool,
-}
-
-/// Lazy extract + mount. Returns the mount dir (contains `usr/`, `etc/…`, and the
-/// schema marker). Cached after the first success. Errors (stub build, no
-/// squashfuse, schema mismatch, non-Linux) are cheap to re-raise.
-pub fn ensure_ready() -> Result<PathBuf, AppError> {
-    // `get_or_try_init` serializes the extract+mount so only ONE thread ever
-    // spawns squashfuse (a plain check-then-act let two concurrent first-runs
-    // both spawn, orphaning the first FUSE daemon). On error the cell stays
-    // empty so a later call retries. [blind-audit HIGH-2]
-    READY
-        .get_or_try_init(|| {
-            let extracted = embedded::ensure_extracted()?;
-            mount::ensure_mounted(&extracted)
-        })
-        .cloned()
 }
 
 /// Mount the rootfs pinned by a run's CONTENT DIGEST (ITEM-22 / DEC-17) and
@@ -225,43 +213,28 @@ pub fn ensure_ready_by_digest(digest: &str) -> Result<PathBuf, AppError> {
 }
 
 /// Current rootfs status (never errors — reports availability instead).
+///
+/// strip-single-cell ITEM-3: the embedded analysis-rootfs slot was removed, so
+/// the embedded-fact fields (`content_version`, `content_sha256`,
+/// `embedded_bytes`, `supported`, `extracted`, `mounted`) are always the
+/// absent-artifact values — the wire shape is kept so the status route's
+/// schema does not churn. The live machine facts are the digest cache (per-env
+/// download/mount state), which `GET /api/sandbox/envs` reports.
 pub fn status() -> RootfsStatus {
-    // The extraction cache is content-digest-keyed now (ITEM-22), so probe the
-    // embedded digest's dir rather than a schema-keyed one.
-    let digest = embedded::content_sha256_full();
-    let dir = cache::digest_dir(&digest);
-    let extracted = !digest.is_empty() && cache::has_digest(&digest);
     RootfsStatus {
         schema_version: ROOTFS_SCHEMA_VERSION,
-        content_version: embedded::content_version(),
-        content_sha256: digest,
-        embedded_bytes: embedded::embedded_len() as u64,
-        supported: embedded::is_supported(),
-        extracted,
-        mounted: extracted && mount::is_mounted(&dir),
+        content_version: String::new(),
+        content_sha256: String::new(),
+        embedded_bytes: 0,
+        supported: false,
+        extracted: false,
+        mounted: false,
     }
 }
 
 /// Tear down the squashfuse mount (best-effort; PDEATHSIG is the real backstop).
 pub fn shutdown() {
     mount::teardown();
-}
-
-/// The content-digest cache as the reproducibility-readiness obtainability check
-/// (ITEM-22 / DEC-32): a run's PINNED `env_rootfs_sha256` is obtainable here iff
-/// its squashfs is present in the local digest-keyed cache. Installed into the
-/// `provenance` seam at `init` so `readiness.env_pinned` reflects the WHOLE cache
-/// (every extracted/served/operator-placed digest), not just the embedded one.
-struct RootfsCacheObtain;
-
-impl crate::modules::provenance::env_obtain::RootfsObtainability for RootfsCacheObtain {
-    fn has_digest(&self, digest: &str) -> bool {
-        // The pinned digest is stored bare (lowercase hex), but tolerate a
-        // `sha256:` scheme prefix defensively (the seam contract): `cache::has_digest`
-        // requires a bare 64-char hex, so normalize before delegating.
-        let bare = crate::modules::provenance::env_obtain::normalize_digest(digest);
-        cache::has_digest(&bare)
-    }
 }
 
 pub struct RootfsModule;
@@ -276,33 +249,12 @@ impl AppModule for RootfsModule {
     }
 
     fn init(&mut self, _ctx: &ModuleContext) -> Result<(), Box<dyn std::error::Error>> {
-        let s = status();
-        if s.supported {
-            tracing::info!(
-                schema = s.schema_version,
-                content = %s.content_version,
-                bytes = s.embedded_bytes,
-                "rootfs: embedded analysis rootfs present (lazy-mounts on first use)"
-            );
-        } else {
-            // NOT a warning: docker was removed as a build dependency, so the embedded
-            // slot is a 0-byte stub BY DESIGN in normal builds. The sandbox stays enabled —
-            // the analysis rootfs is lazy-fetched over OCI on the first `run_analysis`.
-            tracing::info!(
-                "rootfs: no embedded analysis rootfs — the embedded slot is a 0-byte stub by \
-                 design (docker is not a build dependency). The sandbox is NOT disabled: the \
-                 analysis rootfs is lazy-fetched at runtime from \
-                 ghcr.io/tinnlab/txresbench-env/<env>:schema<N>-latest-<arch>, cosign-verified and \
-                 squashfuse-mounted on the first run_analysis"
-            );
-        }
-        // Wire the digest-keyed cache into the provenance reproducibility-readiness
-        // obtainability seam (ITEM-22 / DEC-32). Without this, `readiness.env_pinned`
-        // falls back to "only the embedded digest is obtainable"; with it, any digest
-        // present in the local cache (extracted / served / operator-placed) reports
-        // obtainable. Idempotent (`OnceLock::set`).
-        crate::modules::provenance::env_obtain::install_rootfs_obtainability(
-            std::sync::Arc::new(RootfsCacheObtain),
+        // strip-single-cell ITEM-3: the embedded-rootfs log lines and the
+        // provenance obtainability install were removed with their arms. The
+        // digest cache + mount core this module provides are booted on demand
+        // by the sandbox's method-env manager.
+        tracing::info!(
+            "rootfs: digest cache + mount core ready (method environments mount by pinned digest; no embedded rootfs)"
         );
         Ok(())
     }
@@ -322,51 +274,6 @@ static ROOTFS: ModuleEntry = ModuleEntry {
     description: "Embedded analysis rootfs (docker-built + embedded).",
     constructor: || Box::new(RootfsModule),
 };
-
-#[cfg(test)]
-mod obtainability_tests {
-    use super::*;
-    use crate::modules::provenance::env_obtain::{self, RootfsObtainability};
-
-    // FIX 3 (ITEM-22 / DEC-32): the cache-backed obtainability seam reports a
-    // digest obtainable exactly when its squashfs is present in the local cache,
-    // tolerates a `sha256:` prefix, and — after install — drives the process-wide
-    // `is_env_obtainable` check the provenance readiness layer consults.
-    #[test]
-    fn cache_obtainability_reports_cached_digest() {
-        // A unique, valid (64-char lowercase hex) digest so this never collides
-        // with a real cached rootfs and needs no shared-dir isolation.
-        let digest = format!(
-            "{}{}",
-            uuid::Uuid::new_v4().simple(),
-            uuid::Uuid::new_v4().simple()
-        );
-        let seam = RootfsCacheObtain;
-        // Un-cached → not obtainable.
-        assert!(!seam.has_digest(&digest), "an un-cached digest is not obtainable");
-
-        // Place a non-empty squashfs at the digest's cache path → now obtainable.
-        let path = cache::squashfs_path_for(&digest);
-        std::fs::create_dir_all(path.parent().unwrap()).expect("mk digest dir");
-        std::fs::write(&path, b"squashfs-bytes").expect("write squashfs");
-        assert!(seam.has_digest(&digest), "a cached digest is obtainable");
-        // The seam tolerates a `sha256:` scheme prefix (stored key is bare hex).
-        assert!(
-            seam.has_digest(&format!("sha256:{digest}")),
-            "sha256: scheme prefix is tolerated"
-        );
-
-        // Installing it wires the provenance readiness obtainability check to the
-        // cache (idempotent) — the cached digest now reports obtainable process-wide.
-        env_obtain::install_rootfs_obtainability(std::sync::Arc::new(RootfsCacheObtain));
-        assert!(
-            env_obtain::is_env_obtainable(Some(&digest)),
-            "after install, the process-wide check reports the cached digest obtainable"
-        );
-
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
-    }
-}
 
 #[cfg(test)]
 mod digest_mount_lock_tests {

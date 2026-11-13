@@ -114,7 +114,10 @@ pub async fn admit(
     job_type: &str,
     name: &str,
     params: serde_json::Value,
-    project_id: Option<Uuid>,
+    // strip-single-cell ITEM-3: the platform's project-scope slot (job_scope)
+    // was removed with the `project` module. The parameter is kept so the calls
+    // still read "no project scope" (callers pass `None`), but nothing is written.
+    _project_id: Option<Uuid>,
 ) -> Result<Option<Job>, AppError> {
     debug_assert_ne!(
         job_type, "analysis",
@@ -129,7 +132,7 @@ pub async fn admit(
     // it here would refuse an admissible run to hold a slot for a queue this caller
     // will never enter.
     JobRepository::new(pool.clone())
-        .create_running_under_cap(id, owner_id, job_type, name, params, project_id, cap)
+        .create_running_under_cap(id, owner_id, job_type, name, params, cap)
         .await
 }
 
@@ -147,7 +150,8 @@ pub async fn admit_within(
     job_type: &str,
     name: &str,
     params: serde_json::Value,
-    project_id: Option<Uuid>,
+    // (see [`admit`] — the scope slot went with the `project` module)
+    _project_id: Option<Uuid>,
     budget: Duration,
     poll: Duration,
 ) -> Result<Option<Job>, AppError> {
@@ -161,7 +165,7 @@ pub async fn admit_within(
             job_type,
             name,
             params.clone(),
-            project_id,
+            _project_id,
         )
         .await?
         {
@@ -218,13 +222,9 @@ pub async fn close_slot(pool: &SqlitePool, job_id: Uuid, failure: Option<&str>) 
         }
     };
     super::runtime::runtime().close_job(job_id);
-    if let Some(owner_id) = owner {
-        super::seams::sync_sink().publish_job_changed(
-            owner_id,
-            super::seams::JobChange::Updated,
-            job_id,
-        );
-    }
+    // strip-single-cell ITEM-3: the per-job SSE sync fan-out (`seams::sync_sink`)
+    // was removed with the jobs drawer UI; no kept subscriber exists.
+    let _ = owner;
 }
 
 #[cfg(test)]

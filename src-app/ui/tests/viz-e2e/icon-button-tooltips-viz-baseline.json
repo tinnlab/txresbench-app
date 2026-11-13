@@ -1,5 +1,0 @@
-{
-  "$comment": "SHRINK-ONLY, two sections, BOTH EMPTY. `entries` = visible icon-only controls in the plotting package with NOTHING that explains them on hover; every one the first run found was fixable in this repo and was fixed. `neverOpens` = controls that CLAIM a tooltip (the DOM marker is there, the source reads fine) and open none; it held ten rows, all of them sdk/packages/kit composing a tooltip onto an element that was ALREADY a Popover trigger, and all ten retired themselves when that kit fix landed (main 3454e64b / kit 2d7546dd redefined `iconOnly` as renders-no-words and made a Tooltip compose transparently onto an existing trigger). An empty section is the point: a NEW offender in either FAILS, and a stale entry FAILS too, so neither can be added silently and neither can outlive its fix. Regenerate with ICON_BUTTON_TOOLTIPS_WRITE=1 after a genuine fix — never to make a red run green.",
-  "entries": {},
-  "neverOpens": {}
-}

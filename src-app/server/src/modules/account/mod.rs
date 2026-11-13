@@ -80,7 +80,7 @@ pub use member_scope::{
 };
 pub use permissions::{AccountManage, AccountMembersManage, AccountRead};
 pub use repository::{
-    AccountAdminStatus, AccountRepository,
+    AccountRepository,
     // #142 / #145: the R-1 role-escalation ceiling. A REQUIRED argument on ALL THREE
     // membership mutations — `add_member`, `set_role`, `remove_member` — so a new caller
     // of any of them cannot silently get no ceiling; the `PlatformStaff` variant is the

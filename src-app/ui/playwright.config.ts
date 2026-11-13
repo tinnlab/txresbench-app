@@ -5,7 +5,6 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeDerivedConfig } from './scripts/e2e-config-derive.mjs'
 import { resolvedOnce } from './scripts/resolved-once.mjs'
-import { narrowedOut, narrowingBanner } from './scripts/tag-narrowing.mjs'
 
 // TxResBench E2E (Layer-B). The web model is TWO servers: the backend — on this
 // node the SQLite store, ONE local file per run, no server process and no cluster
@@ -17,12 +16,10 @@ import { narrowedOut, narrowingBanner } from './scripts/tag-narrowing.mjs'
 // dogfooding gap in SDK_GAPS (an "embedded-two-server web" preset would remove
 // this bespoke config).
 //
-// ── TEST ROUTING — four configs, four DISJOINT testDirs ──────────────────────────
+// ── TEST ROUTING — two configs, two DISJOINT testDirs ───────────────────────────
 //
 //   playwright.config.ts          tests/e2e          backend + preview (ports DERIVED)
-//   playwright.viz.config.ts      tests/viz-e2e      @txresbench/viz showcase (derived)
 //   playwright.gallery.config.ts  tests/gallery-e2e  gallery (derived)
-//   playwright.visual.config.ts   tests/visual       gallery (derived, `npm run gate:ui`)
 //
 // Directory == runner. There is deliberately NO `testIgnore` anywhere: an exclusion
 // pattern puts the routing sixty lines away from the spec, so the next directory added
@@ -34,10 +31,13 @@ import { narrowedOut, narrowingBanner } from './scripts/tag-narrowing.mjs'
 // `tests/viz-e2e/`, a sibling of the `tests/gallery-e2e/` layout
 // `playwright.gallery.config.ts` had already written down as the convention.
 //
+// STRIP (single-cell): the viz and visual tiers left with the sourcing lib, the
+// workbench/jobs pane specs and the visual harness (ITEM-4), so the directory table is
+// back to two.
+//
 // Enforced, not remembered: `npm run check:e2e-routing` (inside `just check`) fails on
 // a nested testDir, a spec owned by zero or two configs, an empty testDir, or a config
-// with no npm script + just recipe. `just e2e-all` runs all four; `just e2e-inventory`
-// prints what each one really collects, including the files that collect NOTHING.
+// with no npm script + just recipe. `just e2e-all` runs both.
 //
 // ── SERVER OWNERSHIP — why the fixed :3155/:4173 are gone ────────────────────────
 //
@@ -185,68 +185,23 @@ process.env.HARNESS_ORIGINS = JSON.stringify([
   { label: 'e2e app (vite preview)', port: Number(APP_PORT), url: APP_URL },
 ])
 
-// HOST-CAPABILITY GATE — by TAG, in the CONFIG (the Playwright analogue of
-// `#[cfg(target_os = ...)]`).
+// HOST-CAPABILITY GATE — RETIRED WITH ITS SUBJECT (strip node ITEM-4).
 //
-// Tests that commit a GENUINE `cell.filter` sandbox run need a sandbox-executable host
-// (bwrap + a staged analysis rootfs). They carry `@acceptance` in their title, are
-// excluded from a DEFAULT run by the `grepInvert` below, and are positively selected by
-// `just verify-acceptance` (`TXR_E2E_REAL_COMPUTE=1` + `--grep @acceptance`).
+// The `@acceptance` tests committed genuine `cell.filter` sandbox runs and needed a
+// sandbox-executable host; they were excluded by TAG in this config and positively
+// selected by `just verify-acceptance`. The only spec files carrying the tag were the
+// removed processor platform's (provenance, datasets, 14-declarative-qc, ...), so the
+// tag now matches nothing and the whole gate — `grepInvert`, the derived
+// `narrowedOut()` banner (with `scripts/tag-narrowing.mjs`), the fail-closed JUnit
+// parser — left with them. The default run collects the whole kept suite; a future
+// host-gated tier must reintroduce the tag + selection + disclosure TOGETHER.
 //
-// ── R3-114: two earlier levers, and why each was wrong ────────────────────────────
-//
-// 1. A file-level `testIgnore` came first. It was chosen to avoid an in-body conditional
-//    skip that "reports ok while executing nothing" — correct reasoning for Rust's
-//    libtest (an `eprintln! + return` prints `ok`), but NOT for Playwright, whose
-//    conditional skip is reported as SKIPPED, with its reason, in the run summary and is
-//    never counted as passed. `testIgnore` is the one that hides: it removes the spec
-//    from COLLECTION, so its absence is invisible in the output. Worker E measured the
-//    consequence — **224 tests collected by default vs 241 with
-//    `TXR_E2E_REAL_COMPUTE=1`** — and nothing in the repo set the flag, so
-//    `filter-save-records-recipe.spec.ts` (TEST-26, the plan's own `[acceptance][INV-8]`
-//    spec and the ONLY test exercising the frontend save path) had never run in any gate
-//    while 224 green looked exactly like 241 green.
-// 2. Round 4 moved the gate INTO the spec body as a conditional skip. Strictly more
-//    honest than (1) — the file is always collected and a capability-less host says so —
-//    but the ACCEPTANCE host could still self-exempt, and the condition sat in the spec
-//    where a reader of the invocation could not see it.
-//
-// Round 6 moved it to the tag. The exclusion now lives in the invocation surface, in ONE
-// greppable place; on the acceptance host the test cannot opt out at all — it must PASS;
-// and "selected nothing" cannot read as green either, because `just verify-acceptance`
-// parses its JUnit report FAIL-CLOSED and hard-fails on `tests == 0`. That coupling is
-// what makes a tag safe here where a bare grep filter would not be.
-const REAL_COMPUTE = !!process.env.TXR_E2E_REAL_COMPUTE
-// WHAT THIS RUN LEFT OUT — derived, never remembered. This block used to carry
-// `REAL_COMPUTE_SPECS`, a hand-written array naming ONE spec file; by the time anyone
-// re-read it, FIVE spec files carried `@acceptance`, so the banner disclosed a fifth of
-// the exclusion and no count at all — a disclosure that reads as complete while being
-// stale is worse than none. `narrowedOut()` scans the specs on disk, so adding a tagged
-// test anywhere updates this banner with no edit here (`scripts/tag-narrowing.mjs`), and
-// `scripts/check-test-scope-lists.mjs` fails the build if a hand-list comes back.
-if (!REAL_COMPUTE) {
-  console.warn(narrowingBanner(narrowedOut({ testDir: './tests/e2e' })))
-}
-
-console.warn(
-  `[playwright] e2e origins — backend :${BACKEND_PORT}` +
-    `${PORTS.appE2eBackend.pinned ? ' (pinned)' : ''}${PORTS.appE2eBackend.reused ? ' REUSED' : ''}` +
-    `, app :${APP_PORT}${PORTS.appE2ePreview.pinned ? ' (pinned)' : ''}` +
-    `${PORTS.appE2ePreview.reused ? ' REUSED' : ''}; db ${E2E_DB_FILE}; config ${DERIVED_CONFIG}`,
-)
-
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 120_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,
   workers: 1,
-  // The HOST-CAPABILITY EXCLUSION itself (see the block above). Must be dropped under
-  // TXR_E2E_REAL_COMPUTE rather than left on: a config-level `grepInvert` is ANDed with a
-  // CLI `--grep` (runner applies the project filter independently of the CLI one), so
-  // leaving it in place would make `verify-acceptance`'s `--grep @acceptance` select ZERO
-  // tests — which that recipe's fail-closed JUnit parser now treats as a hard FAIL.
-  grepInvert: REAL_COMPUTE ? undefined : /@acceptance/,
   // Proof re-taken before the first spec. Playwright starts `webServer` entries BEFORE
   // `globalSetup`, so by the time this runs both origins either exist and identify
   // themselves as this worktree, or the run is refused in seconds with a banner naming

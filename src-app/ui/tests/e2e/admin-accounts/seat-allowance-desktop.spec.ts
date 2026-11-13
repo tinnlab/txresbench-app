@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import { BACKEND, createMember, loginAsOwner, ownerToken } from '../project/_helpers'
+import { BACKEND, createMember, loginAsOwner, ownerToken } from '../_helpers'
 
 // TEST-19 [acceptance][invariant: INV-3][positive-control] (#141) — the RUNTIME half of
 // "on a desktop/OSS build the seat check compiles out and `member_allowance` is unlimited;

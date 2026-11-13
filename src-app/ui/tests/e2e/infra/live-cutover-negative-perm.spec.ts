@@ -5,7 +5,7 @@ import {
   MEMBER_PASSWORD,
   ownerToken,
   waitUntilOffLoginScreen,
-} from '../project/_helpers'
+} from '../_helpers'
 
 // TEST-CUT-NP [negative-perm][positive-control] (#64) — the live object-store hot-cutover
 // status/progress + cost-ack + retire-when-ready surface is part of the same saas-only,

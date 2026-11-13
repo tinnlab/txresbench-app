@@ -48,8 +48,12 @@ FILES="$(git ls-files -- 'src-app/**' | grep -vE "$EXCLUDE")"
 # and every `grep` below sees EMPTY input, finds no hits, and the guard prints PASS
 # having scanned ZERO files. That fail-open shape produced four live incidents this
 # round. The floor is a COMMITTED constant, so shrinking coverage needs an explicit,
-# reviewable edit here.
-MIN_FILES=1500
+# reviewable edit here. The strip node removed ~530 tracked files from src-app/
+# (processor packages, env recipes, the dock/viz libs, the platform docs and
+# suites), so the scan set measured 2026-11-12 is 869 files — the floor is set
+# deliberately below the measurement (800); a further collapse below that point
+# fails closed exactly as the sentinel is meant to.
+MIN_FILES=800
 n_files="$(printf '%s\n' "$FILES" | grep -c .)"
 if [ "$n_files" -lt "$MIN_FILES" ]; then
   echo "FAIL: the src-app/ product-source scan set resolved to $n_files file(s), below the"

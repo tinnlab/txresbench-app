@@ -11,19 +11,13 @@ import { start as startActionsEngine, stop as stopActionsEngine } from '@/core/a
 // `defineAction` calls (the compile-time collector, `scripts/collect-
 // actions.mjs`, scans source files directly and doesn't need an import site
 // at all; only the RUNTIME registry needs one).
-//   - `appActions` (slice 1): `app.navigate` / `project.openProject`.
+//   - `appActions` (slice 1): `app.navigate`.
 //   - `worldModel` (slice 3, PLAN.md ITEM-6): the world-model read actions
 //     (`views.list`/`view.describe`/`selection.get`) — global, not tied to
 //     any one instance surface, so they live here rather than under
 //     `modules/instance-harness`.
 import '@/core/actions/builtin/appActions'
 import '@/core/actions/builtin/worldModel'
-//   - `workbenchActions` (W1 PLAN.md ITEM-6): the workbench/analysis/dataset
-//     action vocabulary (`dataset.process` / `analysis.launch` / `pane.*`) —
-//     context-gated (`'workbench'`/`'dataset'`) instance actions.
-import '@/core/actions/builtin/workbenchActions'
-// richer-actions: the dataset choreography vocabulary (dataset.add / .byId / .list).
-import '@/core/actions/builtin/datasetActions'
 import { installActionsSeam } from '@/core/actions/e2eSeam'
 
 // Install the read/drive `window.__actions` e2e seam (adds no capability beyond the

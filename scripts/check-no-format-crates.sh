@@ -269,20 +269,15 @@ fi
 
 # ── the DECODE SCOPE check (INV-1 as amended) ───────────────────────────────────
 #
-# The crate graph alone cannot enforce the amendment, and saying so is the point: the
-# chain's three codecs need `flate2` (a general byte-stream codec this guard has always
-# called LEGAL), plus a shard index that is `u64` pairs and an un-shuffle that is index
-# arithmetic — neither of which needs a crate at all. So "no denied crate is linkable"
-# would stay green while every module in the server grew a decoder.
+# The amending decision granted ONE file the right to decompress: the gathered-chain
+# decoder of the platform's artifact store, allowed to decode the chain the writer
+# emits. That module and its decoder left with the single-cell platform, and no
+# decoder is linkable into the server today — in the keep tree there is NO
+# allowance, and a decompressor of any kind in shipped source is an INV-1
+# violation, full stop. If a future need legitimately requires decoding, that is
+# an invariant change: amend the design, this block and the crate list in ONE
+# reviewable diff, and put the allowance back here with the decision cited.
 #
-# What bounds the allowance is therefore WHERE a decompressor may appear. Exactly one
-# file is allowed to hold one, and everything else in the server's source is refused.
-#
-# Sized to the decision, not to the crate: this is not "the server may decode", it is
-# "the gather may decode the chain the writer emits". The codec ALLOWLIST — three names,
-# and a by-name refusal for anything else — lives in that module and is asserted by its
-# own unit tests; this check only enforces that the module is the sole holder.
-DECODE_SCOPE_ALLOWED='src-app/server/src/modules/workstore/gather_decode.rs'
 # Entry points that constitute decoding a stored payload. `sha2`/`crc32c` are absent on
 # purpose: hashing and integrity-checking are in INV-1's own list of things the server
 # DOES, and neither yields a plaintext byte.
@@ -295,19 +290,14 @@ DECODE_SCOPE_ALLOWED='src-app/server/src/modules/workstore/gather_decode.rs'
 # check while sitting anywhere in the tree. `libflate`, `zune-inflate`, `lz4` and `snap` are
 # not in the graph today and are here so that adding one does not also require remembering
 # to add it here.
-#
-# The rule the owner amended is "the GATHER may decode, and nothing else may" — so what is
-# scoped is the ACT, and the marker set has to reach every crate that can perform it.
 DECODE_MARKERS='flate2|miniz_oxide|libflate|zune_inflate|zune-inflate|lz4|snap::|GzDecoder|ZlibDecoder|DeflateDecoder|MultiGzDecoder|DecompressorOxide|inflate_into|decompress_to_vec|zstd::|zstd_safe|brotli::|BrotliDecompress|Decompressor'
 
 scan_decode_scope() { # <root-to-scan> <label>
   local root="$1" label="$2" hits=0
-  # EVERY Rust source that can be linked into the server, not one directory. The amendment
-  # says the gather may decode and NOTHING ELSE may; scanning only `server/src` bounded that
-  # to one crate, so a decoder in a sibling workspace crate — which links into the same
-  # binary — passed. `tests/` is deliberately out of scope: INV-1 is about what the SERVER
-  # does, and the suite's own reader (`tests/common/zarr.rs`) is the sanctioned way a test
-  # says what a processor emitted.
+  # EVERY Rust source that can be linked into the server, not one directory. Scanning
+  # only `server/src` bounded the old amendment to one crate, so a decoder in a sibling
+  # workspace crate — which links into the same binary — passed. `tests/` is deliberately
+  # out of scope: INV-1 is about what the SERVER does, not about a test fixture reader.
   local trees=()
   for d in "$root"/src-app/*/src; do [ -d "$d" ] && trees+=("$d"); done
   if [ ${#trees[@]} -eq 0 ]; then
@@ -316,18 +306,16 @@ scan_decode_scope() { # <root-to-scan> <label>
   fi
   local offenders
   offenders="$(grep -rlE --include='*.rs' "$DECODE_MARKERS" "${trees[@]}" 2>/dev/null |
-                 sed "s#^$root/##" |
-                 grep -vxF "$DECODE_SCOPE_ALLOWED" || true)"
+                 sed "s#^$root/##" || true)"
   if [ -n "$offenders" ]; then
-    echo "FAIL: a DECODER appears outside the gather module (INV-1 as amended)."
+    echo "FAIL: a DECODER appears in shipped source (INV-1 as amended)."
     echo ""
     printf '  %s\n' $offenders
     echo ""
-    echo "INV-1 allows the GATHER to decode the writer's chain — in"
-    echo "  $DECODE_SCOPE_ALLOWED"
-    echo "and nowhere else. The exception exists because a virtual dataset's bytes cannot"
-    echo "be produced without it (see the header); it is not a general licence to open"
-    echo "artifact bytes, and every other module still stores, serves and never interprets."
+    echo "No shipped file may decompress: the one granted allowance (the platform's"
+    echo "gathered-chain decoder) left with its module and nothing else ever holds that"
+    echo "right. Storing, serving and never interpreting a byte is the rule; a"
+    echo "decompressor here is a new decoding path, i.e. an invariant change."
     echo ""
     echo "  - need a shape/dtype?    read the producer's \`structure\`, do not sniff the bytes."
     echo "  - decompressing a TRANSPORT frame (an upload, an archive)? that is not this —"
@@ -336,9 +324,7 @@ scan_decode_scope() { # <root-to-scan> <label>
     echo "                           header and this list in ONE reviewable diff."
     return 1
   fi
-  hits="$(grep -rlE --include='*.rs' "$DECODE_MARKERS" "${trees[@]}" 2>/dev/null | wc -l | tr -d ' ')"
-  echo "  decode scope ($label): OK — $hits file(s) hold a decoder, all within"
-  echo "      $DECODE_SCOPE_ALLOWED"
+  echo "  decode scope ($label): OK — 0 file(s) hold a decoder (no allowance in the tree)."
   return 0
 }
 

@@ -8,15 +8,8 @@
   "kitImport": "@txresbench/kit",
   "lintCmds": [],
   "runtimeBaselineModule": "src/dev/gallery/runtime-baseline.js",
-  "visualConfig": "playwright.visual.config.ts",
-  "visualTestDir": "./tests/visual",
-  "visualSpecs": [
-    "declarative-layout.spec.ts",
-    "jobs-detail-contrast.spec.ts",
-    "picker-popup-width.spec.ts",
-    "pane-inset.spec.ts",
-    "pane-scroll.spec.ts",
-    "pane-chrome.spec.ts"
-  ],
+  "visualConfig": null,
+  "visualTestDir": null,
+  "visualSpecs": [],
   "visualSnapshotSpecs": []
 }

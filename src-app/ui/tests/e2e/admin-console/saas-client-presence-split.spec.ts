@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { loginAsOwner } from '../project/_helpers'
+import { loginAsOwner } from '../_helpers'
 
 // TEST-7 [acceptance][invariant: INV-1][positive-control] — the two-spec client seam (#50).
 //

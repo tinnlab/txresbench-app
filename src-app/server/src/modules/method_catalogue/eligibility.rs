@@ -828,7 +828,6 @@ fn inventory_method(
 /// (system, id) equality, plus the `other`-system name/alias fallback).
 struct InventoryResolution<'a> {
     ok: bool,
-    matched_ids: Vec<String>,
     missing_ids: Vec<String>,
     fraction: f64,
     /// The inventory markers that satisfied a required entry (the method's
@@ -847,7 +846,6 @@ fn inventory_required_match<'a>(
     if req.is_empty() {
         return InventoryResolution {
             ok: false,
-            matched_ids: Vec::new(),
             missing_ids: Vec::new(),
             fraction: 0.0,
             used: Vec::new(),
@@ -894,10 +892,6 @@ fn inventory_required_match<'a>(
     }
     InventoryResolution {
         ok,
-        matched_ids: present
-            .iter()
-            .map(|i| req[*i].id.trim().to_ascii_lowercase())
-            .collect(),
         missing_ids: (0..req.len())
             .filter(|i| !present.contains(i))
             .map(|i| req[i].id.trim().to_ascii_lowercase())

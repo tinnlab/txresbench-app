@@ -326,8 +326,8 @@ async fn inv15_existing_surfaces_are_untouched() {
     let admin_token = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let user = create_user(&server, &admin_token, "un_u", "un_u@txresbench.test").await;
-    let other = create_user(&server, &admin_token, "un_o", "un_o@txresbench.test").await;
+    // A plain user (Users-group member, no `account::manage`).
+    let _user = create_user(&server, &admin_token, "un_u", "un_u@txresbench.test").await;
     let token = login(&server, "un_u").await;
 
     // (a) `account::manage` is still granted to NO group — so a plain user still 403s
@@ -353,77 +353,17 @@ async fn inv15_existing_surfaces_are_untouched() {
         "no group may hold account::manage — it is admin-only via the `*` wildcard"
     );
 
-    // (b) `ActiveAccount` still 404s a NON-MEMBER admin: the arrival of AccountScope
-    //     introduced no admin bypass anywhere.
-    //
-    //     This MUST be exercised through a route that actually TAKES the
-    //     `ActiveAccount` extractor. `GET /api/accounts` does not — it is
-    //     `RequirePermissions<(AccountRead,)>` and ignores the header entirely — so
-    //     asserting on it would prove nothing about `ActiveAccount` at all.
-    //     `POST /api/projects` is the extractor's real consumer (it stamps the created
-    //     project's `account_id` from it), and is what `active_account_test.rs` uses.
-    let foreign = make_org_account(&pool, "Untouched Org", other).await;
-    let resp = server
-        .client
-        .post(server.api_url("/projects"))
-        .bearer_auth(&admin_token)
-        .header("X-Account-Id", foreign.to_string())
-        .json(&json!({ "name": "should-404", "description": "" }))
-        .send()
-        .await
-        .expect("admin acts under a foreign account");
-    assert_eq!(
-        resp.status().as_u16(),
-        404,
-        "a root admin who is not a member still 404s through ActiveAccount"
-    );
-
-    //     DISCRIMINATING CONTROL for (b): a MEMBER of that same org, acting under the
-    //     SAME header, succeeds. Without this arm the pair varies two things at once
-    //     (header+foreign vs no-header+personal) and so cannot tell "ActiveAccount
-    //     404s a NON-MEMBER" — the invariant — from "ActiveAccount 404s ANY
-    //     X-Account-Id", which would be account switching broken outright: exactly the
-    //     "existing surface was touched" regression this test claims to disprove.
-    let member_token = login(&server, "un_o").await;
-    let resp = server
-        .client
-        .post(server.api_url("/projects"))
-        .bearer_auth(&member_token)
-        .header("X-Account-Id", foreign.to_string())
-        .json(&json!({ "name": "member-under-org", "description": "" }))
-        .send()
-        .await
-        .expect("a member acts under their own org");
-    assert!(
-        resp.status().is_success(),
-        "a MEMBER acting under the same header succeeds — so the admin's 404 above is \
-         the membership refusal, not a blanket header rejection: {}",
-        resp.status()
-    );
-
-    //     POSITIVE CONTROL for (b): the SAME admin, the SAME route, with NO header
-    //     (their personal account) succeeds — so the 404 above is the membership
-    //     refusal and not a build in which project creation is simply broken.
-    let resp = server
-        .client
-        .post(server.api_url("/projects"))
-        .bearer_auth(&admin_token)
-        .json(&json!({ "name": "control-ok", "description": "" }))
-        .send()
-        .await
-        .expect("admin acts under their personal account");
-    assert!(
-        resp.status().is_success(),
-        "the same admin CAN create a project under their own account: {}",
-        resp.status()
-    );
+    // (b) DROPPED — the `ActiveAccount` extractor's "still 404s a NON-MEMBER admin"
+    //     arm. It could only be exercised through `POST /api/projects`, the
+    //     extractor's single consumer, which is stripped with the project module
+    //     (see `active_account_test.rs`, also dropped). The extractor has no kept
+    //     consumer; its personal-account backstop is exercised at registration only.
 
     // (c) AdminAccountScope's 403-BEFORE-lookup order — the arm asserting it has no object
     //     on this node: the `/admin/accounts/*` surface it guarded is stripped (DRIFT-1.25),
-    //     and the retained `AccountScope` keys on membership FIRST, which is what (b) above
-    //     proves is not an existence oracle for the account-scoped surfaces. Recorded in the
-    //     drift ledger rather than silently dropped.
-    let _ = user;
+    //     and the retained `AccountScope` keys on membership FIRST, which TEST-4 / TEST-5
+    //     above prove is not an existence oracle for the account-scoped surfaces. Recorded
+    //     in the drift ledger rather than silently dropped.
 }
 
 // ---------------------------------------------------------------------------

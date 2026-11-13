@@ -348,27 +348,29 @@ async fn a_reported_capability_cannot_shadow_an_app_owned_action() {
 
     let (_stream, _buf, connection_id) = open_stream_with_connection_id(&server, &user).await;
 
-    // `dataset.process` is app-owned, `context:"dataset"`, permission
-    // `projects::use`. The report tries to replace all three.
-    let mut impostor = capability("dataset.process", "mcp::use");
+    // `app.navigate` is app-owned, `context:"global"`, permission
+    // `mcp::use`. The report tries to replace all three. (The old target,
+    // `dataset.process` with its `projects::use` gate, was stripped with the
+    // project/dataset modules; the collision rule is action-shape agnostic.)
+    let mut impostor = capability("app.navigate", "mcp::use");
     impostor["title"] = json!("IMPOSTOR");
-    impostor["context"] = json!("global");
+    impostor["context"] = json!("workbench");
     assert!(post_capabilities(&server, &user, &connection_id, json!([impostor])).await);
 
     let described = tools_call(
         &server,
         &user,
         "describe_capability",
-        json!({ "operation_id": "dataset.process" }),
+        json!({ "operation_id": "app.navigate" }),
     )
     .await;
     let structured = &described["structuredContent"];
     assert_ne!(structured["title"], "IMPOSTOR", "{structured}");
     assert_eq!(
-        structured["required_permission"], "projects::use",
+        structured["required_permission"], "mcp::use",
         "{structured}"
     );
-    assert_eq!(structured["context"], "dataset", "{structured}");
+    assert_eq!(structured["context"], "global", "{structured}");
 }
 
 /// One user's report is invisible to another, and a `connection_id` belonging to

@@ -1,5 +1,5 @@
 //! TEST-3/4 — realtime sync: the `/api/sync/subscribe` SSE endpoint auth-gate +
-//! handshake, and an owner-scoped project-create frame delivered to the owner's
+//! handshake, and an owner-scoped account-create frame delivered to the owner's
 //! stream but NOT to another user's (owner isolation over the full mount →
 //! publish → deliver path).
 
@@ -188,7 +188,7 @@ async fn subscribe_auth_gate_and_handshake() {
 }
 
 #[tokio::test]
-async fn project_create_frame_is_owner_scoped() {
+async fn account_create_frame_is_owner_scoped() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
     let alice = make_user(&server, &admin, "alice").await;
@@ -200,18 +200,42 @@ async fn project_create_frame_is_owner_scoped() {
     assert!(read_until(&mut a_stream, "connected", Duration::from_secs(5)).await);
     assert!(read_until(&mut b_stream, "connected", Duration::from_secs(5)).await);
 
-    // Alice creates a project (a separate client so her stream keeps reading).
+    // The old owner-scoped emit was the project-create frame (`/api/projects`
+    // is removed with the projects module). The KEPT event source through the
+    // same SSE spine is `sync::publish_account_created`: an admin founds an
+    // org on alice's behalf (`POST /api/accounts` is gated `account::manage`,
+    // admin-only; the body's `owner_id` makes HER the owner member), and the
+    // account + account_member CREATE frames fan owner-scoped to alice — the
+    // audience is owner ∪ members and the actor is detached, so nobody is
+    // suppressed. A separate client so alice's stream keeps reading.
+    let alice_uid: uuid::Uuid = {
+        let pool = sqlx::SqlitePool::connect(server.database_url())
+            .await
+            .expect("connect id lookup pool");
+        let id: uuid::Uuid = sqlx::query_scalar("SELECT id FROM users WHERE username = 'alice'")
+            .fetch_one(&pool)
+            .await
+            .expect("alice user row");
+        pool.close().await;
+        id
+    };
     let client2 = reqwest::Client::new();
-    let r = client2.post(server.api_url("/projects")).bearer_auth(&alice).json(&json!({"name":"synced"})).send().await.unwrap();
+    let r = client2
+        .post(server.api_url("/accounts"))
+        .bearer_auth(&admin)
+        .json(&json!({"name":"synced","owner_id": alice_uid}))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(r.status().as_u16(), 201);
 
-    // Alice's stream receives a `project` sync frame; Bob's does NOT.
+    // Alice's stream receives an `account` sync frame; Bob's does NOT.
     assert!(
-        read_until(&mut a_stream, "\"project\"", Duration::from_secs(5)).await,
-        "the owner's stream receives the project sync frame"
+        read_until(&mut a_stream, "\"account\"", Duration::from_secs(5)).await,
+        "the owner's stream receives the account sync frame"
     );
     assert!(
-        !read_until(&mut b_stream, "\"project\"", Duration::from_secs(2)).await,
+        !read_until(&mut b_stream, "\"account\"", Duration::from_secs(2)).await,
         "another user's stream must NOT receive the owner-scoped frame"
     );
 }

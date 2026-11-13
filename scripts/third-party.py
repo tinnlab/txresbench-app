@@ -815,7 +815,8 @@ def render_notices(rust: list[Pkg], sdkonly: list[Pkg], npm: list[Pkg]) -> str:
     lines.append("")
     lines.append(
         "These crates are needed by the SDK crates this repository carries that the desktop build "
-        "does not link (sandbox/VM/hardware/onboarding/seed/update). Licences marked unverified "
+        "does not link (the SDK's test-harness, control-mcp and sandbox-seccomp families keep "
+        "their own test-only and optional deps). Licences marked unverified "
         "could not be resolved from the local cargo registry cache; their upstream manifests "
         "are the source of record."
     )
@@ -838,11 +839,11 @@ def render_notices(rust: list[Pkg], sdkonly: list[Pkg], npm: list[Pkg]) -> str:
     lines.append("## R and Python environments")
     lines.append("")
     lines.append(
-        "The analysis environments are container images built from separate recipe files "
-        "(`src-app/env-rootfs/`), never linked into the application. The installed R and Python "
-        "packages keep their own licences; the env-image build records them (the images' "
-        "`requirements` pins are in `src-app/env-rootfs/*/requirements.txt`) and the methods used "
-        "by TxResBench carry their own licence statements."
+        "The method environments are container images fetched from the txresbench-env pipeline "
+        "(per-language base images + per-method layers), never linked into the application. The "
+        "installed R and Python packages keep their own licences; the env-image build records "
+        "them in the images and the methods used by TxResBench carry their own licence statements."
+        
     )
     lines.append("")
     lines.append("## Licence texts")

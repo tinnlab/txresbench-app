@@ -62,8 +62,8 @@ test('TEST-22: the three deleted routes are individually absent', () => {
   // Positive control: a route that SURVIVES the deletion is still declared, so the
   // assertions above are reading a populated path list.
   assert.ok(
-    paths.some(p => p.includes('/provenance/selections')),
-    'POST /provenance/selections survives ITEM-4 and must still be in the spec',
+    paths.some(p => p.includes('/api/sync/subscribe')),
+    'GET /api/sync/subscribe survives ITEM-4 and must still be in the spec',
   )
 })
 
@@ -90,18 +90,12 @@ test('TEST-22: `types.ts` carries no predicate TYPE or permission (comments excl
     'predicate_settings',
   ])
     assert.ok(!code.includes(n), `types.ts still declares ${n}`)
-  // Stronger than the name list: NO occurrence of the word at all in executable code —
-  // except for an explicit, individually-justified allowlist.
-  //
-  // The allowlist exists because `predicate` is also ordinary software vocabulary. The
-  // methods-narration work generates `MethodsParamRole`, whose members classify what a
-  // recorded parameter DOES ('a list of predicates' / 'an opaque predicate'); it has no
-  // relationship to the deleted `server/src/modules/predicate/` surface, which is what
-  // ITEM-4 removed and what the explicit name list above pins.
-  //
-  // Only the exact quoted MEMBER LITERALS are subtracted, never the whole declaration:
-  // a NEW `*predicate*` member added to that very same enum still trips the sweep below.
-  const GENERIC_PREDICATE_LITERALS = ["'predicate_list'", "'opaque_predicate'"]
+  // Stronger than the name list: NO occurrence of the word at all in executable code.
+  // The `predicate`-vocabulary allowance that once existed here (MethodsParamRole's
+  // `'predicate_list'` / `'opaque_predicate'`, generated from the methods-narration
+  // response schemas) left with its schemas on the ITEM-4 regen — `types.ts` now has
+  // zero `predicate` occurrences in code, so the sweep stands alone.
+  const GENERIC_PREDICATE_LITERALS: string[] = []
   // Positive control: an allowance for something that is no longer generated is a hole,
   // not an allowance. If these ever leave the spec, delete them from this list.
   for (const lit of GENERIC_PREDICATE_LITERALS)
@@ -124,14 +118,14 @@ test('TEST-22: the three SPLIT-OUT generated files exist and are populated', () 
   const perms = readFileSync(SIBLINGS['permissions.ts'], 'utf8')
   assert.match(perms, /export enum Permissions \{/, 'permissions.ts must declare the enum')
   assert.ok(
-    (perms.match(/^ {2}[A-Za-z]\w* = '/gm) ?? []).length >= 30,
+    (perms.match(/^ {2}[A-Za-z]\w* = '/gm) ?? []).length >= 20,
     'permissions.ts has implausibly few enum members',
   )
 
   const descs = readFileSync(SIBLINGS['permissionDescriptions.ts'], 'utf8')
   assert.match(descs, /export const PermissionDescriptions/, 'permissionDescriptions.ts must declare the map')
   assert.ok(
-    (descs.match(/^ {2}[A-Za-z]\w*: '/gm) ?? []).length >= 30,
+    (descs.match(/^ {2}[A-Za-z]\w*: '/gm) ?? []).length >= 20,
     'permissionDescriptions.ts has implausibly few entries',
   )
 

@@ -1,14 +1,12 @@
 import { useSyncExternalStore } from 'react'
-import { JobsDrawer } from '@/modules/jobs/JobsDrawer.store'
 
 // Module-level open/closed state for the command palette — the SAME
 // out-of-React-singleton + `useSyncExternalStore` shape the agent engine
 // uses for its connection status (`@/core/actions/engine.ts`). A
 // module-level singleton (not a Zustand store) is deliberate: the palette
 // must be openable from non-React call sites too (a `sidebarTools` slot's
-// `onClick`, the global ⌘K keydown listener in `module.tsx`), exactly like
-// `JobsDrawer` is opened via `JobsDrawer.open()` — except the palette
-// has no server-backed state worth a full store, just visibility.
+// `onClick`, the global ⌘K keydown listener in `module.tsx`) — it has no
+// server-backed state worth a full store, just visibility.
 
 let open = false
 const listeners = new Set<() => void>()

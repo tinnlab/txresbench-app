@@ -311,9 +311,13 @@ test('[acceptance][INV-1] FAILS on a slash-id substring in production Rust', () 
 test('[acceptance][INV-2] FAILS on a `=== id` domain branch in production TS', () => {
   withTmp(dir => {
     const f = path.join(dir, 'CanvasView.tsx')
-    writeFileSync(f, `export const has = (id: string) => id === 'clustering'\n`)
-    const { code } = runGuard([{ path: f, lang: 'ts' }])
+    // STRIP (single-cell): the fixture used `'clustering'` (a contributed-datatype id);
+    // the quoted-id lattice tier is EMPTY now (the manifest.yaml lattice left with the
+    // processor packages), so the planted branch is re-pointed at a surviving noun.
+    writeFileSync(f, `export const has = (id: string) => id === 'embedding'\n`)
+    const { code, stderr } = runGuard([{ path: f, lang: 'ts' }])
     assert.equal(code, 1)
+    assert.match(stderr, /\[domain-noun\]\s+embedding/)
   })
 })
 
@@ -395,10 +399,10 @@ test('[WS-R3][§1] RED: a `#[cfg(debug_assertions)]` block is SCANNED, not exemp
         `pub fn real() -> &'static str { "plottable-xy" }`,
       ].join('\n') + '\n',
     )
-    const { code, stderr } = runGuard([{ path: f, lang: 'rust', nouns: false }])
+    const { code, stderr } = runGuard([{ path: f, lang: 'rust', nouns: true }])
     assert.equal(code, 1, 'a domain literal under #[cfg(debug_assertions)] must FAIL')
     assert.match(stderr, /\[substring\]\s+single-cell/)
-    assert.match(stderr, /\[quoted-id\]\s+embedding/)
+    assert.match(stderr, /\[domain-noun\]\s+embedding/)
   })
 })
 
@@ -476,7 +480,7 @@ test('[WS-R4] RED: a `*.test.ts` file is SCANNED — the basename exemption is G
     writeFileSync(t, bad)
     const { code, stderr } = runGuard([{ path: t, lang: 'ts' }])
     assert.equal(code, 1, 'a domain id can no longer be hidden by naming the file `*.test.ts`')
-    assert.match(stderr, /\[quoted-id\]\s+embedding/)
+    assert.match(stderr, /\[domain-noun\]\s+embedding/)
   })
 })
 
@@ -484,10 +488,10 @@ test('[WS-R4] RED: `*.spec.tsx` / `*.spec.mjs` are scanned too — the whole glo
   withTmp(dir => {
     for (const name of ['a.spec.ts', 'b.spec.tsx', 'c.test.mjs', 'd.test.js']) {
       const f = path.join(dir, name)
-      writeFileSync(f, `const id = 'clustering'\n`)
+      writeFileSync(f, `const id = 'embedding'\n`)
       const { code, stderr } = runGuard([{ path: f, lang: 'ts' }])
       assert.equal(code, 1, `${name} must be scanned, not exempted by basename`)
-      assert.match(stderr, /\[quoted-id\]\s+clustering/)
+      assert.match(stderr, /\[domain-noun\]\s+embedding/)
     }
   })
 })
@@ -524,15 +528,23 @@ test('[WS-R3][§4] the basename-exemption branches are absent from the guard SOU
   assert.ok(!/base === 'cassette\.ts'/.test(live), 'the `cassette.ts` basename branch is back')
 })
 
-test('[WS-R3][§4] the real scan set REACHES the 10 formerly basename-exempt files', async () => {
+test('[WS-R3][§4] the real scan set REACHES the formerly basename-exempt files', async () => {
   const mod = await import(`${GUARD}?ws-r3-basename`)
   const keys = new Set(mod.defaultScanSet().set.map(e => mod.baselineKey(e.path)))
+  // STRIP (single-cell): nine of the ten formerly exempt files lived in the removed
+  // workbench/datasets modules, so they left the tree (and are asserted gone below).
+  // The survivor — `dev/gallery/fixtures/cassette.ts`, the kept gallery harness's
+  // cassette fixture — must be reached, and its residue is in the `literals` ledger.
   for (const k of [
-    'ui/src/modules/workbench/gallery.tsx',
-    'ui/src/modules/datasets/gallery.tsx',
     'ui/src/dev/gallery/fixtures/cassette.ts',
   ]) {
     assert.ok(keys.has(k), `${k} must be in the scan set now`)
+  }
+  for (const k of [
+    'ui/src/modules/workbench/gallery.tsx',
+    'ui/src/modules/datasets/gallery.tsx',
+  ]) {
+    assert.ok(!keys.has(k), `${k} left with its module — it must NOT be in the scan set`)
   }
 })
 
@@ -694,13 +706,17 @@ test('[WS-B][blind-spot-1] the `/gallery/` directory branch is absent from the g
   // and it is asserted absent by `[WS-R3][§4] the basename-exemption branches …`.
 })
 
-test('[WS-B][blind-spot-1] the real scan set now REACHES the former `/gallery/` files', async () => {
+test('[WS-B][blind-spot-1] the real scan set now REACHES the (former) `/gallery/` files', async () => {
   const mod = await import('./lint-no-domain-in-builtin.mjs')
   const { set } = mod.defaultScanSet()
-  const reached = set.filter(e => e.path.replace(/\\/g, '/').includes('/modules/workbench/core/gallery/'))
+  // STRIP (single-cell): the workbench's `core/gallery/` production directory left with
+  // the workbench; the surviving gallery subtree is the KEPT dev harness
+  // (`ui/src/dev/gallery`), and the point of the original assertion — the blanket
+  // directory exemption is gone, so gallery files are reached — still holds for it.
+  const reached = set.filter(e => e.path.replace(/\\/g, '/').includes('/dev/gallery/'))
   assert.ok(
     reached.length >= 2,
-    `the widened scan must reach the production files under core/gallery/, got ${reached.length}`,
+    `the widened scan must reach the production files under dev/gallery/, got ${reached.length}`,
   )
 })
 
@@ -866,7 +882,10 @@ test('[WS-B][baseline] every `code` entry names a DOMAIN_AUDIT finding or an exp
   // stays a collapse detector rather than a tripwire the next fix pass breaks.
   // WS-R3 re-anchored 44 -> 131 with the measurement (67 -> 197): the four holes this
   // round closed surfaced 130 more (file, token) pairs. Same ≈2/3 rule.
-  assert.ok(entries.length >= 131, `expected >=131 baselined entries, got ${entries.length}`)
+  // STRIP (single-cell) re-anchored 131 -> 125 with the measurement: the ITEM-4
+  // `--prune-baseline` removed 2021 entries, the kept tree's residue was re-absorbed at
+  // 125 code entries, and the ceiling moved in the same commit.
+  assert.ok(entries.length >= 125, `expected >=125 baselined entries, got ${entries.length}`)
   const findings = new Set(entries.map(([, , s]) => s.finding))
   // C4 LEFT this list on 2026-07-28: `createHost.ts`'s `n = c.n_cells ?? 0` (and
   // `FAKE_HOST_N_CELLS`) is GONE — the open-axis migration replaced it with declared
@@ -892,7 +911,10 @@ test('[WS-B][baseline] every `code` entry names a DOMAIN_AUDIT finding or an exp
   // the deletion, which is why it survives in `prose` and is zero in `code`. Verified by
   // grep, not assumed. Moving it to the `gone` list below makes a revert FAIL here, which
   // is stricter than leaving it in `must` and is the same two-sided edit E1/DEC-M took.
-  for (const must of ['S3', 'DEC-J']) {
+  // STRIP (single-cell): the S3/DEC-J residues left with the workstore/provenance
+  // modules; the surviving code ledger's dispositions are the classes below. The
+  // `gone` list keeps its discipline: a residue is asserted ABSENT so a revert fails.
+  for (const must of ['R3-GALLERY', 'W7']) {
     assert.ok(findings.has(must), `the baseline must carry the ${must} residue`)
   }
   for (const gone of ['E1', 'DEC-M', 'S2']) {
@@ -926,7 +948,7 @@ test('[WS-B][baseline] RATCHET: one MORE occurrence than the baseline FAILS', ()
   assert.match(stderr, /\d+ domain finding\(s\) outside the committed baseline/)
   assert.match(
     stderr,
-    new RegExp(`${path.basename(file).replace('.', '\\.')}:\\d+:\\d+\\s+\\[domain-\\w+\\]\\s+${tok}`),
+    new RegExp(`${path.basename(file).replace('.', '\\.')}:\\d+:\\d+\\s+\\[domain-\\w+\\]\\s+${tok}`, 'i'),
     `the excess must be reported by file and token, got:\n${stderr.slice(0, 2000)}`,
   )
   // Positive control: at the COMMITTED budget the same tree is green, so the failure
@@ -1117,11 +1139,16 @@ test('[WS-B][floor] the live run is ABOVE every observation floor by a real marg
   //                                        lowered 13. Prose ROSE 1085 -> 1268 because
   //                                        WS-C's widening landed between the two rows,
   //                                        then fell 1398 -> 1268 in this round.
+  //   STRIP (single-cell) RE-MEASURED   963 noun / 477 prose / 125 entries
+  //                                        ← the ITEM-4 tree: the noun scale SURVIVED
+  //                                        (the kept TxResBench surface itself uses the
+  //                                        same words for measurement tables), the
+  //                                        prose scale fell with the doc-heavy modules.
   // Each anchor is ≈2/3 of its measurement, matching OBSERVATION_FLOORS: a tripwire set
   // just under the measurement is what left the Rust twin red from round-1's merge on.
-  assert.ok(totals.domainNoun >= 300, `expected >=300 live domain-noun hits, got ${totals.domainNoun}`)
-  assert.ok(totals.domainProse >= 840, `expected >=840 live domain-prose hits, got ${totals.domainProse}`)
-  assert.ok(entries >= 44, `expected >=44 baselined entries, got ${entries}`)
+  assert.ok(totals.domainNoun >= 642, `expected >=642 live domain-noun hits, got ${totals.domainNoun}`)
+  assert.ok(totals.domainProse >= 318, `expected >=318 live domain-prose hits, got ${totals.domainProse}`)
+  assert.ok(entries >= 84, `expected >=84 baselined entries, got ${entries}`)
 })
 
 // ── ITEM-37: the guard FAILS CLOSED when its hard-coded scan set collapses ──
@@ -1151,14 +1178,16 @@ test('[acceptance][ITEM-37] every scan root has a NONZERO committed floor', asyn
   // `MUST_SCAN_KEYS`, which names the file that went missing). Every root is floored:
   // a root added without a floor is a root that can silently collapse, which is the
   // exact incident this constant exists for (four live cases).
-  // WS-R4 added the four TEST roots. The list is spelled out rather than derived from
-  // SCAN_FLOORS on purpose: deriving it would make the test agree with the guard by
-  // construction, and this test exists to notice a root that was added WITHOUT a floor.
+  // STRIP (single-cell): `buildHelper` / `workbenchFe` / `packagesFe` /
+  // `serverTestsData` were DELETED with their subjects (schema/comments deleted out of
+  // SCAN_FLOORS — a floored root must not outlive its tree), so the list is the ten
+  // surviving floored roots; the four deleted ones are asserted to resolve to ZERO
+  // files and to carry no floor, so a subject can never come back unfloored.
   const ROOTS = [
-    'rust', 'rustRoot', 'buildHelper', 'desktop', 'workbenchFe', 'uiFe', 'packagesFe',
-    'serverData', 'feData', 'uiOpenapi',
-    'serverTests', 'serverTestsData', 'uiTests', 'uiSpecs',
+    'rust', 'rustRoot', 'desktop', 'uiFe', 'serverData', 'feData', 'uiOpenapi',
+    'serverTests', 'uiTests', 'uiSpecs',
   ]
+  const DELETED = ['buildHelper', 'workbenchFe', 'packagesFe', 'serverTestsData']
   const zeroed = Object.fromEntries(ROOTS.map(r => [r, 0]))
   const violations = mod.floorViolations(zeroed)
   assert.equal(violations.length, ROOTS.length, `all ${ROOTS.length} roots are floored`)
@@ -1166,7 +1195,12 @@ test('[acceptance][ITEM-37] every scan root has a NONZERO committed floor', asyn
   assert.equal(mod.floorViolations(huge).length, 0)
   // and the LIVE run clears every one of them.
   const { counts } = mod.defaultScanSet()
-  assert.deepEqual(Object.keys(counts).sort(), [...ROOTS].sort(), 'every root reports a count')
+  for (const r of ROOTS) {
+    assert.ok(counts[r] > 0, `root ${r} resolved to ZERO files — it is not being walked`)
+  }
+  for (const r of DELETED) {
+    assert.equal(counts[r], 0, `the deleted root ${r} must resolve to ZERO files`)
+  }
   assert.deepEqual(mod.floorViolations(counts), [], 'the live tree clears every floor')
 })
 
@@ -1187,7 +1221,7 @@ test('[WS-R4] RED: `__testutil__/**` is SCANNED — the directory exemption is G
     const d = path.join(dir, '__testutil__')
     mkdirSync(d, { recursive: true })
     const f = path.join(d, 'demoExtension.ts')
-    // The four datatype-id literals the real `demoExtension.ts` carries.
+    // The four datatype-id literals the real `demoExtension.ts` carried.
     writeFileSync(
       f,
       `export const ACCEPTS = ['single-cell/expression', 'embedding', 'clustering', 'metadata-column']\n`,
@@ -1195,7 +1229,7 @@ test('[WS-R4] RED: `__testutil__/**` is SCANNED — the directory exemption is G
     const { code, stderr } = runGuard([{ path: f, lang: 'ts' }])
     assert.equal(code, 1, 'a domain literal can no longer be hidden by naming a directory')
     assert.match(stderr, /single-cell/)
-    assert.match(stderr, /\[quoted-id\]\s+clustering/)
+    assert.match(stderr, /\[domain-noun\]\s+embedding/)
   })
 })
 
@@ -1213,7 +1247,7 @@ test('[TEST-2][ITEM-1] RED: the SAME literal in a sibling NON-`__testutil__` fil
     const { code, stderr } = runGuard([{ path: f, lang: 'ts' }])
     assert.equal(code, 1, 'the exemption must be a directory exemption, not a filename exemption')
     assert.match(stderr, /single-cell/)
-    assert.match(stderr, /\[quoted-id\]\s+clustering/)
+    assert.match(stderr, /\[domain-noun\]\s+embedding/)
   })
 })
 
@@ -1222,7 +1256,7 @@ test('[WS-R4] the retired directory exemption is retired AT ANY DEPTH', () => {
     const deep = path.join(dir, 'core', '__testutil__', 'nested')
     mkdirSync(deep, { recursive: true })
     const f = path.join(deep, 'fakes.ts')
-    writeFileSync(f, `export const K = 'clustering'\n`)
+    writeFileSync(f, `export const K = 'embedding'\n`)
     assert.equal(
       runGuard([{ path: f, lang: 'ts' }]).code,
       1,
@@ -1259,10 +1293,11 @@ test('[TEST-33][ITEM-20] RED: a domain literal under `processor-packages/` is no
     const d = path.join(dir, 'processor-packages', 'single-cell')
     mkdirSync(d, { recursive: true })
     const f = path.join(d, 'fieldProviders.ts')
-    writeFileSync(f, `export const PRODUCES = ['clustering', 'metadata-column']\n`)
+    writeFileSync(f, `export const PRODUCES = ['single-cell/expression', 'embedding']\n`)
     const { code, stderr } = runGuard([{ path: f, lang: 'ts' }])
     assert.equal(code, 1, 'the ITEM-20 exemption must not have survived its subject')
-    assert.match(stderr, /clustering/)
+    assert.match(stderr, /single-cell/)
+    assert.match(stderr, /\[domain-noun\]\s+embedding/)
   })
 })
 
@@ -1320,7 +1355,11 @@ test('[TEST-43][ITEM-30] the server scan set reaches every `server/src/modules/*
   // The load-bearing assertion in this test is the per-module coverage check below
   // (`uncovered` must be empty) — it NAMES what went missing, which a count never can.
   // The count is the coarse belt underneath it and is deliberately kept.
-  assert.ok(counts.rust >= 152, `expected ≥152 scanned server .rs files, got ${counts.rust}`)
+  // STRIP (single-cell): the module tree moved with ITEM-3's removals —
+  // project, dataset, datatype, extensions, provenance, workstore, drafts and the
+  // SaaS/auth modules left — so the server `.rs` walk now reaches 127 files. This is
+  // a re-measurement after a DELETION, not a floor lowered to accommodate a leak.
+  assert.ok(counts.rust >= 127, `expected ≥127 scanned server .rs files, got ${counts.rust}`)
 
   // Every module DIRECTORY under `server/src/modules` contributes at least one
   // scanned file — the pre-ITEM-30 state was 4 of 17, which a "zero violations"
@@ -1343,7 +1382,10 @@ test('[TEST-43][ITEM-30] the server scan set reaches every `server/src/modules/*
   //   TXRBENCH STRIP retired 4 (billing, admin, user, app — the SaaS/auth surfaces) and added
   //   1 (`localsession`, the single-owner local session) = 17, consciously, in lockstep with
   //   the Rust twin's EXPECT_MODULES.
-  assert.equal(modules.length, 17, 'the module count is a POSITIVE expectation: a new module must be consciously admitted, and a deleted one consciously retired')
+  //   STRIP (single-cell) ITEM-3: retired the single-cell module directories with their
+  //   modules (drafts, dataset, datatype, extensions, project, provenance, workstore) and
+  //   trimmed nothing else — 17 -> 16, again in lockstep with the Rust twin.
+  assert.equal(modules.length, 16, 'the module count is a POSITIVE expectation: a new module must be consciously admitted, and a deleted one consciously retired')
   const covered = new Set(
     scanned
       .map(p => path.relative(serverRoot, p).split(path.sep)[0])
@@ -1354,15 +1396,17 @@ test('[TEST-43][ITEM-30] the server scan set reaches every `server/src/modules/*
 })
 
 test('[TEST-43][ITEM-30] RED: a planted literal in a PREVIOUSLY-UNSCANNED module FAILS', () => {
-  // `project/` was one of the 13 modules the pre-ITEM-30 scan set never reached.
+  // STRIP (single-cell): `project/` left with the projects module (ITEM-3); the point
+  // of the test — a domain literal in a real module file fails on that module's real
+  // scan entry — is re-pointed at a surviving single-cell-carrier module file.
   const r = plantInCopyOfReal(
-    'server/src/modules/project/mod.rs',
+    'server/src/modules/features/mod.rs',
     '\npub const PLANTED_FOR_TEST: &str = "single-cell/expression";\n',
   )
   assertPlantDetected(
     r,
-    [/project\/mod\.rs/, /\[substring\]\s+single-cell/],
-    'a domain literal in `project/` must fail the guard on that module\'s real scan entry',
+    [/features\/mod\.rs/, /\[substring\]\s+single-cell/],
+    'a domain literal in `features/` must fail the guard on that module\'s real scan entry',
   )
 })
 
@@ -1376,21 +1420,18 @@ test('[WS-C][roots] every NEW root is really scanned — a planted noun FAILS in
   const { set } = mod.defaultScanSet()
   const inSet = rel => set.some(e => e.path.replace(/\\/g, '/').endsWith(rel))
   // The roots the pre-WS-C guard could not see, each pinned by a REAL file.
+  // STRIP (single-cell): the `buildHelper` / `packagesFe` / `workbenchFe` roots are
+  // DELETED with their subjects — `build_helper/` went in ITEM-3, `libs/dock` and the
+  // workbench in ITEM-4 — so the witnesses below are the surviving roots, and the
+  // deleted roots' emptiness is asserted by `[acceptance][ITEM-37] every scan root…`.
   for (const rel of [
     'server/src/main.rs', // rustRoot
     'server/src/lib.rs', // rustRoot
-    'server/build_helper/sandbox_rootfs.rs', // buildHelper
-    'desktop/tauri/src/lib.rs', // desktop
+    'desktop/tauri/src/main.rs', // desktop
     'ui/src/api-client/types.ts', // uiFe
-    // RE-POINTED (artifact-model ITEM-24). This named `core/workstore/arrowClient.ts`
-    // until ITEM-24 removed `apache-arrow`/`zarrita` and the Arrow client with them; the
-    // witness went missing and this check fired, which is what it is for. The successor
-    // is the module BARREL, not the file that replaced arrowClient: the reader
-    // implementation under `core/workstore/` is exactly the churning surface ITEM-23/29
-    // is rewriting, and pinning a witness to it would make this test hostage to that
-    // churn. `index.ts` is the stable identity of that root.
-    'ui/src/core/workstore/index.ts', // uiFe
-    'libs/dock/src/containers.ts', // packagesFe
+    // RE-POINTED (strip ITEM-4): `core/workstore/` left with the workstore module;
+    // the substituting witness is the kept core surface's own barrel-adjacent file.
+    'ui/src/core/platform.ts', // uiFe
   ]) {
     assert.ok(inSet(rel), `${rel} must be in the scan set — that root is the point of WS-C`)
   }
@@ -1429,8 +1470,7 @@ test('[WS-C][carve-out] an UNDECLARED package FAILS — the carve-out cannot acq
   // `viz` is DECLARED unscanned, so it does not violate; an invented one does.
   assert.deepEqual(mod.packageDeclarationViolations(), [], 'the live tree declares every package')
   // R20 §1 — the invented package is created in a TEMP `packages` root reached through
-  // `ROOTS_OVERRIDE`, not by `mkdir src-app/libs/__wsc_planted_pkg__` in the working
-  // tree. Both halves of the original assertion survive: the exported checker names it,
+  // `ROOTS_OVERRIDE`, not by planting a package in the working tree. Both halves of the original assertion survive: the exported checker names it,
   // and the whole guard fails on it.
   withTmp(dir => {
     mkdirSync(path.join(dir, '__wsc_planted_pkg__', 'src'), { recursive: true })
@@ -1551,23 +1591,33 @@ test('[WS-C][literals] the tier is recorded, capped, and every entry names a fin
   // The honest form keeps the regression property that made the original worth having: the
   // shipped contract may carry EXACTLY the recorded R5-G2-SPEC residue and nothing else, so
   // a new domain datatype id entering the contract still fails HERE and names itself.
+  // STRIP (single-cell): the R5-G2-SPEC residue (`annotation-table` in the SHIPPED
+  // openapi.json) left with the contributed lattice it was derived from — the
+  // `annotation-table` id is contributed by the (removed) `anndata-import` package, so
+  // the regenerated contract carries none of it. The honest witness inverts to the
+  // same regression property: the shipped contract may carry ZERO domain datatype
+  // literal, and a NEW one entering it fails HERE and names itself.
   const spec = literals['ui/openapi/openapi.json'] ?? {}
   assert.deepEqual(
     Object.keys(spec).sort(),
-    ['annotation-table'],
-    'the SHIPPED contract may carry ONLY the recorded R5-G2-SPEC residue — a NEW domain ' +
+    [],
+    'the SHIPPED contract may carry NO recorded domain datatype literal — a NEW domain ' +
       'datatype id in the contract must fail here',
   )
-  assert.equal(spec['annotation-table'].finding, 'R5-G2-SPEC')
-  assert.equal(spec['annotation-table'].count, 3)
+  const rawSpec = readFileSync(path.join(__dirname, '..', 'openapi', 'openapi.json'), 'utf8')
+  for (const gone of ['annotation-table', 'geneset/collection', 'de/result']) {
+    assert.ok(!rawSpec.includes(gone), `the shipped contract still names \`${gone}\` — the regen did not run`)
+  }
   assert.ok(
     !Object.keys(literals).some(f => f.endsWith('workstore/data_api.rs')),
     'the debug-seed surface must carry NO domain datatype literal (r4dataapi took it to zero)',
   )
   // …but the tier must still have live SITES, or `hits > 0` could be one stale entry.
+  // STRIP (single-cell): led by the cassette.ts residue (4, R3-GALLERY) — the dev-gallery
+  // fixture that was invisible under the retired basename exemption.
   assert.ok(
-    Object.keys(literals).length >= 4,
-    'the literal tier still records several distinct sites — it has not collapsed to a stub',
+    Object.keys(literals).length >= 1,
+    'the literal tier still records a live site — it has not collapsed to a stub',
   )
   // The ceiling must equal the CURRENT measurement — slack here is room for a new
   // hardcoded id. At zero, the NEXT literal cannot be baselined without raising it.
@@ -1627,12 +1677,13 @@ function plantInReal(relFromSrcApp, extra, patterns, why) {
 }
 
 test('[WS-R3][§1][un-gameable] a leak planted in a REAL `#[cfg(debug_assertions)]` block FAILS', () => {
-  // `workstore/routes.rs` registers its six debug routes under the attribute. Before
-  // WS-R3 this plant was invisible: the whole item block was blanked before matching.
+  // STRIP (single-cell): `workstore/routes.rs` left with the workstore module; the
+  // subject is the ATTRIBUTE (a debug-gated block is scanned, not blanked), so the
+  // plant moves to a surviving real module file.
   plantInReal(
-    'server/src/modules/workstore/routes.rs',
+    'server/src/modules/sync/mod.rs',
     '\n#[cfg(debug_assertions)]\npub const R3_PLANTED: &str = "single-cell/atac";\n',
-    [/workstore\/routes\.rs/, /\[substring\]\s+single-cell/],
+    [/sync\/mod\.rs/, /\[substring\]\s+single-cell/],
     'a literal under #[cfg(debug_assertions)] must fail',
   )
 })
@@ -1653,12 +1704,20 @@ test('[WS-R3][§2][un-gameable] a leak planted in a REAL `.sql` migration FAILS'
   )
 })
 
-test('[WS-R3][§2][un-gameable] a leak planted in a REAL `include_str!`-ed `.py` driver FAILS', () => {
-  plantInReal(
-    'server/src/modules/workstore/seed_multimodal.py',
-    '\nR3_PLANTED = "single-cell/protein"\n',
-    [/seed_multimodal\.py/, /\[substring\]\s+single-cell/],
-    'the seed drivers are include_str!-ed AND executed',
+test("[WS-R3][§1][un-gameable] a leak planted in a REAL `include_str!`-ed payload FAILS", async () => {
+  // STRIP (single-cell): the include_str!-ed `.py` seed drivers left with the
+  // workstore, so the `.py` format no longer exists anywhere in the scan set — the
+  // format-pin row for it is VACUOUS by design (asserted in `[R4][format] the pin
+  // goes VACUOUS…`). The surviving embedded payload (mcp's frontend-actions.json,
+  // account's accept.rs self-include) is covered by its own `.json`/openapi tests
+  // below/before this one. This arm is asserted as ABSENCE so the retired format
+  // cannot come back un-caught.
+  const mod = await import(`${GUARD}?r3-pydriver`)
+  const { set } = mod.defaultScanSet()
+  assert.deepEqual(
+    set.filter(e => e.path.endsWith('.py')),
+    [],
+    'the `.py` format left with the seed drivers; a new one must be admitted to the scan set deliberately',
   )
 })
 
@@ -1721,9 +1780,9 @@ test('[WS-R3][§3][un-gameable] each of the five NEW tokens fires in REAL produc
   ]
   for (const [tok, line] of plants) {
     plantInReal(
-      'ui/src/core/datatypes/builtin.ts',
+      'ui/src/modules/notification/Notifications.store.ts',
       `\n${line}`,
-      [/builtin\.ts/, new RegExp(`\\[domain-noun\\]\\s+${tok}`, 'i')],
+      [/Notifications\.store\.ts/, new RegExp(`\\[domain-noun\\]\\s+${tok}`, 'i')],
       `the token \`${tok}\` must fire`,
     )
   }
@@ -1817,22 +1876,24 @@ test('[WS-R3][§4] MUST_SCAN_KEYS names the missing file when a root stops being
   const { set } = mod.defaultScanSet()
   assert.deepEqual(mod.mustScanViolations(set), [], 'the live tree reaches every pinned witness')
   // Drop the pinned witnesses one at a time: each must be reported BY NAME.
+  // STRIP (single-cell): the witnesses for the deleted roots and subjects left with
+  // them — `build_helper/sandbox_rootfs.rs`, `core/datatypes/builtin.ts`,
+  // `seed_multimodal.py`, the datatype/registry e2e and the workbench `__testutil__`
+  // (their roots and files are gone; the guard's MUST_SCAN_KEYS reflects that).
   for (const key of [
     'server/src/main.rs',
-    'server/build_helper/sandbox_rootfs.rs',
+    'server/src/modules/execution_engine/orchestrator.rs',
     'ui/openapi/openapi.json',
-    // WS-R4 RE-ANCHORED: `seed_multimodal.py` was here and is no longer a witness — it is
-    // `include_str!`-ed only by the six `#[cfg(debug_assertions)]` routes in
-    // `workstore/data_api.rs`, which are under active review for deletion, and a liveness
-    // witness an unrelated round can delete turns this gate red for a non-domain reason.
     'server/src/modules/mcp/frontend-actions.json',
-    'ui/src/core/datatypes/builtin.ts',
-    // …and one witness per WS-R4 TEST root, so the same drop-one-at-a-time proof covers
-    // the roots this round added.
+    'server/src/modules/jobs/migrations/202608030001_jobs_baseline.sql',
+    'ui/src/modules/txrhelp/validator-catalog.json',
+    'ui/src/modules/features/FeatureFlags.store.ts',
+    'ui/src/modules/features/FeatureFlags.store.test.ts',
+    // …and one witness per surviving TEST root, so the same drop-one-at-a-time proof
+    // covers the roots this round added.
     'server/tests/integration_tests.rs',
-    'server/tests/dataset/fixtures/make_mtx_trio.py',
-    'ui/tests/e2e/datatype/registry.spec.ts',
-    'ui/src/modules/workbench/core/__testutil__/fakes.ts',
+    'server/tests/features/mod.rs',
+    'ui/tests/e2e/feature-flags/helpers.ts',
   ]) {
     const pruned = set.filter(e => mod.baselineKey(e.path) !== key)
     const v = mod.mustScanViolations(pruned)
@@ -1859,13 +1920,21 @@ test('[R4][format] a root that stops covering a FORMAT fails and NAMES the forma
   // Simulate exactly the failure a per-FILE witness cannot see: the extension policy
   // (or an exemption) silently stops covering a format, while every pinned FILE of the
   // OTHER formats is still reached, so `mustScanViolations` stays green.
-  for (const ext of ['.py', '.sql', '.json']) {
+  // STRIP (single-cell): `.py` left the tree with the seed drivers, so it is no longer
+  // a real format in this root — its pin is VACUOUS by design (asserted in the test
+  // below) and cannot fire; the two surviving data formats are covered here.
+  for (const ext of ['.sql', '.json']) {
     const pruned = set.filter(e => !e.path.endsWith(ext))
     const v = mod.formatCoveragePinViolations(pruned)
     assert.equal(v.length, 1, `dropping every ${ext} must produce exactly one violation`)
     assert.match(v[0], new RegExp(`"\\${ext}" file`), `the violation must name ${ext}`)
     assert.match(v[0], /serverData/)
   }
+  assert.deepEqual(
+    set.filter(e => e.path.endsWith('.py')),
+    [],
+    'precondition: no .py remains, so the isolated .py case is the VACUOUS one below',
+  )
 })
 
 test('[R4][format] the pin goes VACUOUS, not red, when the last file of a format is gone', async () => {
@@ -1924,7 +1993,17 @@ test('[WS-R3][§4] every scan FLOOR keeps a real collapse-detector margin', asyn
   // with a non-trivial count the floor must leave room for a real deletion.
   const src = readFileSync(GUARD, 'utf8')
   const block = src.split('const SCAN_FLOORS = {')[1].split('\n}')[0]
+  // STRIP (single-cell): the four deleted roots (`buildHelper`, `workbenchFe`,
+  // `packagesFe`, `serverTestsData`) are asserted BEFORE the loop — they must have NO
+  // floor and a ZERO count, so a subject resurrected without a floor fails here.
+  const flooredRoots = new Set(
+    [...block.matchAll(/^\s{2}(\w+):\s*\d+,/gm)].map(m => m[1]),
+  )
   for (const [root, got] of Object.entries(counts)) {
+    if (!flooredRoots.has(root)) {
+      assert.equal(got, 0, `${root} has no committed floor but resolves to ${got} file(s) — floor it or delete the root`)
+      continue
+    }
     const m = block.match(new RegExp(`\\b${root}:\\s*(\\d+)`))
     assert.ok(m, `${root} has no committed floor`)
     const floor = Number(m[1])
@@ -1947,23 +2026,28 @@ test('[WS-R3][§4] every scan FLOOR keeps a real collapse-detector margin', asyn
 // never walked. These tests hold the four new roots open, hold the tier split
 // apart, and pin the exact-cardinality ledger.
 
-test('[WS-R4][roots] the real scan set REACHES all four TEST roots', async () => {
+test('[WS-R4][roots] the real scan set REACHES the TEST roots', async () => {
   const mod = await import('./lint-no-domain-in-builtin.mjs')
   const { set, counts } = mod.defaultScanSet()
   const keys = new Set(set.map(e => mod.baselineKey(e.path)))
-  for (const root of ['serverTests', 'serverTestsData', 'uiTests', 'uiSpecs']) {
+  // STRIP (single-cell): `serverTestsData` (the data-format fixtures under
+  // `server/tests/**`) is DELETED with its fixtures — it carries no file in the
+  // current tree and has no floor; asserted as the positivity its absence allows.
+  for (const root of ['serverTests', 'uiTests', 'uiSpecs']) {
     assert.ok(counts[root] > 0, `root ${root} resolved to ZERO files — it is not being walked`)
   }
+  assert.equal(counts.serverTestsData, 0, 'the deleted serverTestsData root must carry no file')
   // One real, load-bearing file per root, by name — a count alone cannot say WHICH.
+  // STRIP (single-cell): the datatype/processor-manifest/mtx-trio witnesses left with
+  // their fixtures; the surviving witnesses are the kept modules' own suites.
   for (const k of [
     'server/tests/integration_tests.rs',
-    'server/tests/datatype/mod.rs',
-    'server/tests/fixtures/processor_manifest_lint/ok/goodpkg/manifest.yaml',
-    'server/tests/dataset/fixtures/make_mtx_trio.py',
-    'ui/tests/e2e/datatype/registry.spec.ts',
-    'ui/tests/e2e/datatype/sniff.spec.ts',
-    'ui/src/modules/workbench/core/__testutil__/fakes.ts',
-    'ui/src/modules/workbench/core/runtime/qcSurface.test.ts',
+    'server/tests/features/mod.rs',
+    'server/tests/features/features_authz_test.rs',
+    'server/tests/mcp/context_gating.rs',
+    'ui/tests/e2e/feature-flags/feature-flags-permissions.spec.ts',
+    'ui/tests/e2e/feature-flags/helpers.ts',
+    'ui/src/modules/features/FeatureFlags.store.test.ts',
   ]) {
     assert.ok(keys.has(k), `the scan set does not reach ${k}`)
   }
@@ -2006,13 +2090,6 @@ test('[WS-R4][roots] a per-root NO-OP walk FAILS — every test root fails close
   // code. That is what "fails closed" was claiming.
   const cases = [
     { label: 'serverTests', roots: k => ({ serverTests: k }), expect: ['serverTests'] },
-    // The SHARED-DIRECTORY case. `serverTestsData` has no key of its own; it reads the
-    // same tree in the data formats, so one empty directory must fail BOTH, named.
-    {
-      label: 'serverTests+serverTestsData',
-      roots: k => ({ serverTests: k }),
-      expect: ['serverTests', 'serverTestsData'],
-    },
     { label: 'uiTests', roots: k => ({ uiTests: k }), expect: ['uiTests'] },
     // The PREDICATE-ROOT case. `uiSpecs` collects `*.{test,spec}.{ts,tsx}` +
     // `__fixtures__`/`__testutil__` from the three FE trees, so all three go empty.
@@ -2071,7 +2148,9 @@ test('[WS-R4][floors] every TEST root floor keeps the ≈2/3 collapse-detector m
   const { counts } = mod.defaultScanSet()
   const src = readFileSync(GUARD, 'utf8')
   const block = src.split('const SCAN_FLOORS = {')[1].split('\n}')[0]
-  for (const root of ['serverTests', 'serverTestsData', 'uiTests', 'uiSpecs']) {
+  // STRIP (single-cell): `serverTestsData` is DELETED (no files, no floor) — the
+  // surviving test roots are the three below.
+  for (const root of ['serverTests', 'uiTests', 'uiSpecs']) {
     const m = block.match(new RegExp(`\\b${root}:\\s*(\\d+)`))
     assert.ok(m, `${root} has no committed floor`)
     const floor = Number(m[1])
@@ -2094,9 +2173,14 @@ test('[WS-R4][tier] the TIER SPLIT is real — production counts did not absorb 
   const mod = await import('./lint-no-domain-in-builtin.mjs')
   const { totals, testTotals, baseline } = mod.runGuard()
   assert.ok(totals.domainNoun > 0 && testTotals.domainNoun > 0, 'both tiers must be observing')
+  // STRIP (single-cell): the pre-strip invariant was `testTotals > totals` (the
+  // uncontributed test trees carried more of the vocabulary); the kept TxResBench
+  // surface INVERTS it — the production modules legitimately speak the measurement-table
+  // vocabulary more than the kept tests do. The invariant both tiers observe and that
+  // neither absorbed the other remains the load-bearing assertion.
   assert.ok(
-    testTotals.domainNoun > totals.domainNoun,
-    'the test tier is known to be larger; if it is not, the roots collapsed',
+    totals.domainNoun > testTotals.domainNoun,
+    'the production tier must stay the larger observation on the kept tree — if the PRODUCTION walk collapsed the tiers become indistinguishable',
   )
   const isTest = k =>
     k.startsWith('server/tests/') ||
@@ -2146,19 +2230,22 @@ test('[WS-R4][tier] a PRODUCTION leak is NOT absorbed by a test-tier budget', as
   // against the untouched observation is the same inequality as observation +1 against
   // the committed budget. The +1 on the TEST side is unchanged, so the attack it models
   // ("file the budget under the other tier") is intact, as is every assertion below.
-  const PROD = 'ui/src/modules/workbench/gallery.tsx'
-  const TEST = 'ui/src/modules/workbench/core/contributions/analysis.test.ts'
+  // STRIP (single-cell): the old pair (`workbench/gallery.tsx` / workbench
+  // `analysis.test.ts`) left with the workbench; re-anchored on the same token
+  // (`sample`) in a kept production file and a kept test-tier file.
+  const PROD = 'server/src/modules/jobs/runtime.rs'
+  const TEST = 'server/tests/domain_surface/mod.rs'
   const real = JSON.parse(readFileSync(path.join(__dirname, 'domain-baseline.json'), 'utf8'))
-  assert.ok(real.code[PROD]?.leiden?.count >= 1, `${PROD} must already carry a baselined leiden budget`)
-  assert.ok(real.testCode[TEST]?.leiden, `${TEST} must already carry a baselined leiden entry`)
+  assert.ok(real.code[PROD]?.sample?.count >= 1, `${PROD} must already carry a baselined sample budget`)
+  assert.ok(real.testCode[TEST]?.sample, `${TEST} must already carry a baselined sample entry`)
   const tmp = mkdtempSync(path.join(os.tmpdir(), 'nodomain-tier-'))
   try {
-    // (a) THE ATTACK — one production `leiden` is over budget, and the spare +1 of
+    // (a) THE ATTACK — one production `sample` is over budget, and the spare +1 of
     // budget is filed against a TEST-tier file.
     const attackPath = path.join(tmp, 'test-budget.json')
     const a = JSON.parse(JSON.stringify(real))
-    a.code[PROD].leiden.count -= 1
-    a.testCode[TEST].leiden.count += 1
+    a.code[PROD].sample.count -= 1
+    a.testCode[TEST].sample.count += 1
     writeFileSync(attackPath, JSON.stringify(a))
     const attacked = spawnSync(process.execPath, [GUARD], {
       env: guardEnv({ LINT_NO_DOMAIN_BASELINE_OVERRIDE: attackPath }),
@@ -2167,14 +2254,14 @@ test('[WS-R4][tier] a PRODUCTION leak is NOT absorbed by a test-tier budget', as
     assert.equal(attacked.status, 1, 'a production leak must not be absorbed by a test budget')
     assert.match(
       attacked.stderr,
-      /workbench\/gallery\.tsx:\d+:\d+\s+\[domain-noun\]\s+leiden/,
+      /jobs\/runtime\.rs:\d+:\d+\s+\[domain-noun\]\s+sample/i,
       `the production finding must be REPORTED, got:\n${attacked.stderr.slice(0, 3000)}`,
     )
     // …and the same fact from the other side: the raised TEST entry finds nothing to
     // consume, because the production hit is not in the test observation at all.
     assert.match(
       attacked.stderr,
-      /testCode\[".*analysis\.test\.ts"\]\["leiden"\] = \d+ but only \d+ remain/,
+      /testCode\[".*domain_surface\/mod\.rs"\]\["sample"\] = \d+ but only \d+ remain/,
       'the raised test-tier budget must be reported STALE — the tiers never share',
     )
 
@@ -2275,6 +2362,12 @@ test('[WS-R4][baseline] every testCode/testLiterals entry names an R4-TESTS-* fi
     // exists to prevent. The no-amnesty property is untouched: the note assertion below still
     // demands a real argument, and the set is still closed.
     'DOC-EXAMPLE',
+    // STRIP (single-cell): `DOC-CHANGELOG` — the strip-note prose that records what
+    // ITEM-2/3/4 removed (the word "single-cell" in those comments IS the record).
+    // It is in the guard's own closed VALID_FINDING_TAGS, and the TEST-tier ledger
+    // carries the same class of entry (the re-base absorbed strip notes in kept test
+    // files with it), so the set admitted here follows the guard's.
+    'DOC-CHANGELOG',
   ])
   let n = 0
   for (const [name, sect] of [
@@ -2297,7 +2390,9 @@ test('[WS-R4][baseline] every testCode/testLiterals entry names an R4-TESTS-* fi
     assert.ok(spec.tokens, `testProse["${k}"] must use the per-(file,token) form`)
     assert.ok(OK.has(spec.finding), `testProse["${k}"] has no R4-TESTS-* finding`)
   }
-  assert.ok(n > 500, `only ${n} test-tier entries — the ledger collapsed`)
+  // STRIP (single-cell): re-anchored 500 -> 100 with the ITEM-4 measurement
+  // (112 testCode + 1 testLiterals entries).
+  assert.ok(n > 100, `only ${n} test-tier entries — the ledger collapsed`)
 })
 
 test('[WS-R4][baseline] the TEST ratchet fires in BOTH directions', async () => {
@@ -2374,74 +2469,14 @@ test('[WS-R4][baseline] the TEST bare-prose ceiling is ZERO — nothing is grand
   assert.match(r.stderr, /UNEXPLAINED testProse entries/)
 })
 
-// COUNT LOWERED 14 -> 13 (2026-08-03), in the same commit that retired R4-CARD-02. Its
-// subject — `server/src/modules/mcp/view_spec_actions.rs` and its two `testdata/*.json`
-// oracles — was DELETED when view-scoped capability registration moved out of the server,
-// so there is no longer anything in the app crate coupled to the contributed bundle's SIZE
-// through it. This edit IS the two-sided change the ledger's own instruction demands
-// ("remove this entry AND lower CARDINALITY_CERTIFICATION_CEILING in the same commit"): the
-// number lives in three places on purpose — the ledger, the ceiling, and this test — and a
-// retirement that updates fewer than all three is caught here.
+// ── WS-R4 EXACT-CARDINALITY CERTIFICATIONS — RETIRED with their ledger (this branch) ──
 //
-// COUNT LOWERED 13 -> 12 (processor-manifest-ui-separation), retiring R4-CARD-12. Its subject
-// was an EXACT-SET equality over the contributed per-modality preset families in the shipped
-// view spec. The package stopped declaring those families and the view stopped picking a
-// modality at all — the picked value had been the emitted column prefix, so anything outside
-// the three had no correct answer — so there is no bundle cardinality left to pin. The
-// three-name literal DOES still occur in that file, as the exact INVERSE assertion (a set the
-// spec proves nothing carries); re-anchoring on it would pin a permanent green, because a
-// negative control over a retired vocabulary cannot fail when the bundle GROWS. This is the
-// three-sided edit again: ledger entry removed, ceiling lowered, this count follows.
-// COUNT LOWERED 12 -> 10 (main, semantic merge repair). TWO retirements landed between
-// these runs — R4-CARD-13 (`d8d121e6`) and R4-CARD-01 (`fix/zero-core-derived`) — each
-// correct on its own branch, each cut from a tree reading 12, so each lowered the ceiling
-// 12 -> 11 and both wrote the literal `11`. A textual merge of two identical lines raises no
-// conflict, so two removals yielded one decrement. THIS test is what caught the drift, which
-// is the argument for keeping the count asserted here and not only at the ceiling.
-test('[WS-R4][card] all ten exact-cardinality certifications are still anchored', async () => {
-  const mod = await import('./lint-no-domain-in-builtin.mjs')
-  assert.deepEqual(
-    mod.cardinalityCertificationViolations(),
-    [],
-    'a pinned certification moved or was rewritten — re-anchor it, or remove it AND lower ' +
-      'CARDINALITY_CERTIFICATION_CEILING in the same commit',
-  )
-  const src = readFileSync(GUARD, 'utf8')
-  const block = src.split('const CARDINALITY_CERTIFICATIONS = [')[1].split('\n]\n')[0]
-  const ids = [...block.matchAll(/id:\s*'(R4-CARD-\d+)'/g)].map(m => m[1])
-  assert.equal(ids.length, 10, 'the ledger must hold all ten surviving certifications')
-  assert.equal(new Set(ids).size, 10, 'certification ids must be unique')
-  const ceiling = Number(src.match(/const CARDINALITY_CERTIFICATION_CEILING = (\d+)/)[1])
-  assert.equal(ceiling, ids.length, 'the ceiling must sit AT the ledger size — it is shrink-only')
-})
-
-test('[WS-R4][card] a MOVED certification FAILS and names the file', async () => {
-  // The un-gameability property of the ledger: it must not be possible to rewrite a
-  // certification out from under it silently. Simulated by pointing the checker at an
-  // anchor that is deliberately absent.
-  const src = readFileSync(GUARD, 'utf8')
-  const block = src.split('const CARDINALITY_CERTIFICATIONS = [')[1].split('\n]\n')[0]
-  const first = block.match(/anchor:\s*'([^']+)'/)
-  assert.ok(first, 'the ledger must anchor on a literal string')
-  // The probe MUST live beside the real guard: `SRC_APP` is derived from `__dirname`,
-  // so a copy in /tmp would collapse every root and fail for the wrong reason. `.mjs`
-  // under `scripts/` is in no scan root, so the probe cannot perturb a measurement.
-  const probe = path.join(__dirname, 'lint-no-domain-in-builtin.__cardprobe.mjs')
-  try {
-    writeFileSync(
-      probe,
-      readFileSync(GUARD, 'utf8').replace(first[1], 'THIS-ANCHOR-DOES-NOT-EXIST-ANYWHERE'),
-    )
-    const r = spawnSync(process.execPath, [probe], { encoding: 'utf8' })
-    assert.equal(r.status, 1, 'a lost anchor must FAIL')
-    assert.match(r.stderr, /R4-CARD-\d+: the anchor/)
-    assert.match(r.stderr, /Silently losing the anchor|no longer exists/)
-    // …and it must be the ONLY thing that failed — otherwise the probe proved nothing.
-    assert.doesNotMatch(r.stderr, /scan set COLLAPSED/)
-  } finally {
-    rmSync(probe, { force: true })
-  }
-})
+// STRIP (single-cell): `CARDINALITY_CERTIFICATIONS` and `cardinalityCertificationViolations`
+// were deleted from the guard — every certified subject lived in a deleted unit, and the
+// guard's own comment (see the "WS-R4 EXACT-CARDINALITY CERTIFICATIONS — REMOVED" block in
+// lint-no-domain-in-builtin.mjs) records the deletion with the Rust twin's lockstep. The two
+// tests below were retired WITH their subject, not re-pointed: a certification over a
+// contributed bundle that no longer exists has nothing to certify.
 
 // ── WS-R4 — the `ident` / `IDENTITY` boundary fix (segment suppression) ───────
 test('[WS-R4][boundary] a vocabulary token inside a DIFFERENT compound word is suppressed', async () => {
@@ -2922,44 +2957,30 @@ test('[WS-R5][rationale] a note may not contradict its OWN token counts', async 
 // ════════════════════════════════════════════════════════════════════════════
 //  WS-R5 G2 / G3 — the vocabulary is DATA; "not scanned" is a DECISION
 // ════════════════════════════════════════════════════════════════════════════
+//
+// STRIP (single-cell): the G2 derivation is EMPTY BY TRUTH — the lattice it derived
+// from (`packages/single-cell-types/manifest.yaml`) left with the processor packages,
+// so `contributedDatatypes()` resolves to nothing and the guard's own
+// `contributedVocabularyViolations` accepts the empty rate (see the STRIP note in
+// `lint-no-domain-in-builtin.mjs`: "the surviving derivation check is the lattice SHAPE
+// check — empty by truth"). The two G2 tests below were RETIRED with their subject: a
+// derivation over a manifest that no longer exists can pin nothing. G3 (the tree census)
+// survives — its subject is the whole repo, not the lattice.
 
-test('[WS-R5][G2] the vocabulary is DERIVED from the manifests, not hand-listed', async () => {
+test('[WS-R5][G2] the derivation is EMPTY by truth — the lattice left with its packages', async () => {
   const mod = await import('./lint-no-domain-in-builtin.mjs')
   const entries = mod.contributedDatatypes()
-  assert.deepEqual(mod.contributedVocabularyViolations(entries), [])
-  const ids = new Set(entries.map(e => e.id))
-  const pkgs = new Set(entries.map(e => e.pkg))
-  // The exact drift the hand-list had accumulated, pinned so a regression to it FAILS.
-  assert.ok(pkgs.size >= 3, `datatypes come from ${pkgs.size} package(s): ${[...pkgs]}`)
-  for (const missed of [
-    'cell-set', // caught only incidentally, by the `cell` noun
-    'annotation-table',
-    'geneset/collection', // NOT caught by the `gene` noun: the lowercase `s` fails rightOk
-    'graph/attributed',
-    'de/result',
-  ]) {
-    assert.ok(ids.has(missed), `the derived vocabulary must contain ${missed}`)
-  }
-  assert.ok(!ids.has('de'), '`de` was PRUNED from the lattice — a hand-list kept it alive')
-  // A SHORT parse must be loud, not quiet: deriving from DATA trades one silent-drift mode
-  // for another unless the derivation itself is fail-closed.
-  const short = mod.contributedVocabularyViolations(entries.slice(0, 2))
-  assert.ok(short.length >= 1)
-  assert.match(short[0], /below the committed floor/)
-  const untitled = mod.contributedVocabularyViolations([{ pkg: 'p', id: 'x/y', title: null }])
-  assert.ok(untitled.some(m => /has no `title:`/.test(m)))
-})
-
-test('[WS-R5][G2] a NEWLY-derived id really FIRES in a real production file', () => {
-  // The derivation is only worth anything if the widened vocabulary reaches the scan. One
-  // of the four ids that were invisible to EVERY tier, planted in a production-shaped file.
+  assert.deepEqual(entries, [], 'no contributed datatype remains — the manifest lattice is gone')
+  assert.deepEqual(mod.contributedVocabularyViolations(entries), [], 'the empty lattice must pass the shape check')
+  // The ids that motivated G2 must not be livable ANYWHERE in the surviving guard:
+  // the only literal tier left is the structural `single-cell` substring.
   withTmp(dir => {
     const f = path.join(dir, 'leak.rs')
-    writeFileSync(f, 'const P: &str = "geneset/collection";\nconst Q: &str = "annotation-table";\n')
+    writeFileSync(f, 'const P: &str = "geneset/collection";\nconst Q: &str = "embedding";\n')
     const { code, stderr } = runGuard([{ path: f, lang: 'rust' }])
-    assert.equal(code, 1)
-    assert.match(stderr, /\[substring\]\s+geneset\/collection/)
-    assert.match(stderr, /\[quoted-id\]\s+annotation-table/)
+    assert.equal(code, 1, 'the surviving noun tier must still catch the residual domain words')
+    assert.match(stderr, /\[domain-noun\]\s+embedding/)
+    assert.doesNotMatch(stderr, /geneset/, 'the retired lattice id is not in any surviving tier')
   })
 })
 
@@ -2971,9 +2992,9 @@ test('[WS-R5][G3] an UNDECLARED tree FAILS — "not scanned" must be written dow
     [],
     'every tree in the census is either reached or declared',
   )
-  // Three trees hid here — `src-app/testdata` (334 findings), repo-root `scripts/` (78, incl.
-  // 3 quote-delimited datatype ids) and `ui/scripts` (3901) — in no root and in no exclusion
-  // list, while the guard carefully documented `packages/**` and `libs/viz`. Drop every
+  // Three trees hid here — the platform's test-data corpus (334 findings), repo-root
+  // `scripts/` (78, incl. 3 quote-delimited datatype ids) and `ui/scripts` (3901) — in no
+  // root and in no exclusion list. Drop every
   // scanned file under one census level and the tree it belongs to must be named.
   const pruned = set.filter(e => !e.path.includes(`${path.sep}desktop${path.sep}`))
   const v = mod.treeDeclarationViolations(pruned)
@@ -3263,18 +3284,22 @@ test('[WS-R6][repo] a repo-root tree that is IGNORED but holds a TRACKED file st
   assert.equal(runGuard(undefined).code, 0)
 })
 
-test('[WS-R6] the four GENERATED+GITIGNORED declarations are now REDUNDANT, and kept on purpose', async () => {
+test('[WS-R6] the three GENERATED+GITIGNORED declarations are now REDUNDANT, and kept on purpose', async () => {
   // The decision recorded next to them in UNSCANNED_TREES, asserted rather than
-  // claimed: materialise all four and the git rule alone would skip every one — so
+  // claimed: materialise all three and the git rule alone would skip every one — so
   // they are belt-and-braces (the git rule needs `git`; a tarball export has none),
   // not mechanism. `server/config` is the control: it is TRACKED, so its declaration
   // is load-bearing and must NOT be skippable.
+  // STRIP (single-cell): the list is three, not four — `server/binaries` left the
+  // declarations with its builder (the staged embed slot left in ITEM-3, the
+  // gitignore row in ITEM-5a), and ITEM-5 also pruned the WS-R6 prose. It is
+  // intentionally NOT here: no longer generated and no longer ignored, a stale
+  // leftover must be called out by the census, not silently declared away.
   const mod = await import('./lint-no-domain-in-builtin.mjs')
   const repoRoot = path.resolve(__dirname, '..', '..', '..')
   const redundant = [
     'src-app/ui/test-results',
     'src-app/ui/playwright-report',
-    'src-app/server/binaries',
     'src-app/server/migrations-merged',
   ]
   const created = redundant.filter(r => !existsSync(path.join(repoRoot, r)))
@@ -3296,215 +3321,20 @@ test('[WS-R6] the four GENERATED+GITIGNORED declarations are now REDUNDANT, and 
 })
 
 // ════════════════════════════════════════════════════════════════════════════
-//  WS-R7 — the PACKAGE-VOCABULARY tier (a shipped package's OWN ids)
+//  WS-R7 (package-vocabulary tier) + WS-R8 (id-stem tier) — RETIRED with their
+//  vocabularies (this branch, strip node ITEM-4).
 // ════════════════════════════════════════════════════════════════════════════
 //
-// The tier exists because a human OUT-READ the guard on its own stated subject:
-// `RETIRED_BY_VIEW_REWRITE = &["qc.compute::qc.setModality"]` sat in the app backend
-// across five widening rounds and no tier objected, because every tier above polices the
-// single-cell LATTICE and that string is PACKAGE vocabulary.
-//
-// So the first test below is not a synthetic probe — it is that exact const. A guard that
-// has never been OBSERVED failing on the case that motivated it is not evidence of
-// anything; that is the standing lesson from every source-scanning guard this repo has
-// shipped. The second is the control that keeps it honest: the vocabulary is DERIVED from
-// `packages/`, so a plausible id that is not in the tree must NOT fire. Without that
-// control a guard matching on SHAPE (`\w+\.\w+::\w+\.\w+`) would pass the first test while
-// being a different, and much worse, guard.
+// STRIP (single-cell): both tiers derived from the CONTRIBUTED lattice — R7 from the
+// processor packages' package/analysis/view/action ids (`qc.compute` etc.), R8 from the
+// quoted-id lattice tokens used as a SEGMENT (`clustering_ref`, `selection.clustering`).
+// The lattice left with the package tree (ITEM-2) and the modules that consumed it
+// (ITEM-3/4), so both derivations are empty by truth and the tiers match nothing. The
+// guard deleted the tiers (and their floors/buckets) in lockstep — see the STRIP notes in
+// `lint-no-domain-in-builtin.mjs` at `PACKAGE_ID_TOKENS`, `QUOTED_ID_TOKENS` and the
+// `ID_STEM_KIND_BUCKET` arm. The tests below were retired WITH their subject: a guard so
+// derived cannot pin an id that no longer exists.
 
-test('[WS-R7][acceptance] FAILS on the exact const that motivated the tier', () => {
-  withTmp(dir => {
-    const f = path.join(dir, 'view_spec_actions.rs')
-    writeFileSync(
-      f,
-      'const RETIRED_BY_VIEW_REWRITE: &[&str] = &["qc.compute::qc.setModality"];\n',
-    )
-    const { code, stderr } = runGuard([{ path: f, lang: 'rust' }])
-    assert.equal(code, 1, 'a package view/action id hardcoded in the app backend must FAIL')
-    assert.match(stderr, /qc\.compute/, 'the guard must NAME the offending id')
-    assert.match(stderr, /view_spec_actions\.rs/, 'and NAME the file it is in')
-    assert.match(stderr, /package-id/, 'and classify it as the package tier, not the lattice one')
-  })
-})
-
-test('[WS-R7][acceptance] FAILS on a bare package ACTION id in production TS', () => {
-  withTmp(dir => {
-    const f = path.join(dir, 'actions.ts')
-    writeFileSync(f, `export const isRun = (id: string) => id === 'cf.addCriterion'\n`)
-    const { code, stderr } = runGuard([{ path: f, lang: 'ts' }])
-    assert.equal(code, 1)
-    assert.match(stderr, /cf\.addCriterion/)
-  })
-})
-
-test('[WS-R7][negative-control] PASSES on a plausible id that is NOT in packages/', () => {
-  withTmp(dir => {
-    const f = path.join(dir, 'plausible.rs')
-    // Same SHAPE as the real thing, in the same position, in the same dialect. It is
-    // absent from `packages/`, so a data-driven guard says nothing and a
-    // shape-matching one convicts. This is the test that tells the two apart.
-    writeFileSync(
-      f,
-      'const RETIRED: &[&str] = &["spatial.deconvolve::sd.run", "velocity.scvelo"];\n',
-    )
-    const { code, stderr } = runGuard([{ path: f, lang: 'rust' }])
-    assert.equal(code, 0, `an id absent from the package tree must NOT fire:\n${stderr}`)
-  })
-})
-
-test('[WS-R7] a package id in a COMMENT lands in the PROSE tier, not the code tier', () => {
-  withTmp(dir => {
-    const f = path.join(dir, 'note.ts')
-    writeFileSync(f, `// the qc.compute view declares its own source\nexport const x = 1\n`)
-    const { code, stderr } = runGuard([{ path: f, lang: 'ts' }])
-    assert.equal(code, 1)
-    assert.match(stderr, /package-prose/, 'a comment is the lower severity, as for the nouns')
-    assert.doesNotMatch(stderr, /\[package-id\]/, 'and NOT the executable-commitment tier')
-  })
-})
-
-test('[WS-R7] the vocabulary is DERIVED from the package tree, not hand-listed', async () => {
-  const mod = await import('./lint-no-domain-in-builtin.mjs')
-  const ids = mod.contributedPackageIds()
-  const pkgs = new Set(ids.map(e => e.pkg))
-  assert.ok(pkgs.size >= 5, `expected the walk to reach the real packages, saw ${pkgs.size}`)
-  for (const source of ['package', 'analysis', 'view', 'action', 'namespaced']) {
-    assert.ok(
-      ids.some(e => e.source === source),
-      `every shipped package declares at least one \`${source}\` id; none was parsed, which ` +
-        `is the SILENT half of a stale derivation`,
-    )
-  }
-  assert.deepEqual(
-    mod.packageVocabularyViolations(),
-    [],
-    'the derivation guards itself: a collapsed parse must be a hard failure, not a short list',
-  )
-  // Pointed at an empty tree the walk yields nothing AND the floors fire — the same
-  // fail-closed property `SCAN_FLOORS` gives the scan set.
-  withTmp(dir => {
-    const empty = mod.contributedPackageIds(dir)
-    assert.deepEqual(empty, [], 'no packages, no vocabulary')
-    assert.ok(
-      mod.packageVocabularyViolations(empty, []).length >= 3,
-      'and an empty vocabulary must be LOUD, never a silent pass',
-    )
-  })
-})
-
-test('[WS-R7] the precision filters drop only what the lattice already catches', async () => {
-  const mod = await import('./lint-no-domain-in-builtin.mjs')
-  const tokens = new Set(mod.PACKAGE_ID_TOKENS)
-  // KEPT — invisible to every tier above (`qc` is not a noun, and `QC` is matched
-  // case-SENSITIVELY on purpose).
-  //
-  // `qc.addHb` stood here until the per-preset add ACTIONS were replaced by one generic add
-  // over a preset catalog carried as DATA. Its successor `qc.addPreset` is the same shape and
-  // the same claim — a shipped action id no other tier can see — and naming a LIVE id is the
-  // point: this assertion is about the derivation reaching the shipped specs, so an id the
-  // specs no longer declare would pin a permanent green.
-  for (const t of ['qc.compute', 'qc.addPreset', 'cf.addCriterion', 'cr.run']) {
-    assert.ok(tokens.has(t), `${t} is new coverage and must be in the vocabulary`)
-  }
-  // DROPPED by filter 2 — the lattice already fires inside these, so keeping them would
-  // double-count every site (the measured 60+ duplicate failure the SUBSTRING_PREFIXES
-  // subsumption filter exists to prevent).
-  for (const t of ['cell.filter', 'anndata.import', 'qc.setGeneNames', 'cellranger.count']) {
-    assert.ok(!tokens.has(t), `${t} is already caught by the lattice tier; it must not double-count`)
-  }
-  // DROPPED by filter 1 — a bare, separator-less id is ambiguous English-adjacent noise.
-  for (const t of ['qc', 'cellranger']) {
-    assert.ok(!tokens.has(t), `${t} is too ambiguous to be believed; precision over reach`)
-  }
-})
-
-// ════════════════════════════════════════════════════════════════════════════
-//  WS-R8 — the ID-STEM tier (a lattice id used as a SEGMENT, not as a literal)
-// ════════════════════════════════════════════════════════════════════════════
-//
-// The blind spot: `QUOTED_ID_RE` requires the WHOLE quoted literal to BE the id, so an
-// id used as a STEM was invisible. The motivating case is not hypothetical — it is
-// verbatim what `provenance/action_registry.rs` and `provenance/interaction.rs` shipped
-// while this guard printed ✓.
-
-test('[WS-R8][acceptance] FAILS on the exact payload key that motivated the tier', () => {
-  withTmp(dir => {
-    const f = path.join(dir, 'action_registry.rs')
-    // Verbatim the shipped line.
-    writeFileSync(f, 'let cref = req_str(recipe, "clustering_ref", action_type)?;\n')
-    const { code, stderr } = runGuard([{ path: f, lang: 'rust' }])
-    assert.equal(code, 1, stderr)
-    assert.match(stderr, /\[id-stem\]\s+clustering/)
-  })
-})
-
-test('[WS-R8][acceptance] FAILS on a lattice id used as a DOTTED segment', () => {
-  withTmp(dir => {
-    const f = path.join(dir, 'catalog.rs')
-    writeFileSync(f, 'dispatch("selection.clustering", D::LabelSet),\n')
-    const { code, stderr } = runGuard([{ path: f, lang: 'rust' }])
-    assert.equal(code, 1, stderr)
-    assert.match(stderr, /\[id-stem\]\s+clustering/)
-  })
-})
-
-test('[WS-R8][negative-control] PASSES on a plausible STEM that is NOT a contributed id', () => {
-  withTmp(dir => {
-    const f = path.join(dir, 'plausible.rs')
-    // The same shape, the same position, the same dialect — differing only in whether
-    // the stem is a real id in `packages/`. A shape-matcher convicts here; a
-    // data-driven tier says nothing.
-    writeFileSync(f, 'let r = req_str(recipe, "grouping_ref", action_type)?;\nlet s = "selection.spatial";\n')
-    const { code, stderr } = runGuard([{ path: f, lang: 'rust' }])
-    assert.equal(code, 0, `a stem absent from the lattice must NOT fire:\n${stderr}`)
-  })
-})
-
-test('[WS-R8][scope] a stem in a COMMENT does NOT fire — the tier is code-only', () => {
-  withTmp(dir => {
-    const f = path.join(dir, 'note.rs')
-    // Deliberate: the doc comments that EXPLAIN this fix quote `clustering_ref`, and the
-    // measured production yield of a prose stem tier was 7 dispositions and 0 defects.
-    // A tier that funds its own rationale is the "baselined into silence" outcome.
-    writeFileSync(f, '// the old key was `clustering_ref`, named after a contributed type\nlet ok = 1;\n')
-    const { code, stderr } = runGuard([{ path: f, lang: 'rust' }])
-    assert.equal(code, 0, stderr)
-    assert.doesNotMatch(stderr, /id-stem/)
-  })
-})
-
-test('[WS-R8][no-double-count] a BARE quoted id stays the quoted-id tier, not the stem tier', () => {
-  withTmp(dir => {
-    const f = path.join(dir, 'bare.rs')
-    writeFileSync(f, 'let dt = "clustering";\n')
-    const { code, stderr } = runGuard([{ path: f, lang: 'rust' }])
-    assert.equal(code, 1, stderr)
-    assert.match(stderr, /\[quoted-id\]/)
-    assert.doesNotMatch(stderr, /\[id-stem\]/, 'the two tiers must not both claim one byte')
-  })
-})
-
-test('[WS-R8] the stem vocabulary is DERIVED, and its precision filters are the measured ones', async () => {
-  const mod = await import('./lint-no-domain-in-builtin.mjs')
-  assert.deepEqual(mod.idStemVocabularyViolations(), [], 'the derived set must clear its floor')
-  // The filters, asserted as BEHAVIOUR rather than by reading the token list: a stem the
-  // filters drop must not fire, and the one they keep must.
-  assert.deepEqual(mod.idStemVocabularyViolations([]), [
-    'the ID-STEM vocabulary COLLAPSED: 0 token(s) < ID_STEM_TOKEN_FLOOR (1). Derived from ' +
-      'QUOTED_ID_TOKENS; a guard that forbids nothing still prints ✓.',
-  ])
-  const hits = []
-  // `embedding` is dropped (already a DOMAIN NOUN — the noun tier owns `embedding_hash`),
-  // `de` is dropped (2 chars), `metadata-column` is dropped (it carries a separator of
-  // its own, and all 7 of its production hits are the `metadata-column-family` CAPABILITY).
-  mod.matchIdStems('embedding_hash de_page metadata-column-family clustering_ref', (i, t) =>
-    hits.push(t),
-  )
-  assert.deepEqual(hits, ['clustering'])
-  // …and the SEPARATOR set is narrow on purpose: `:` and `/` are excluded because the
-  // guard's own false-positive-free acceptance went RED on the ref prefix
-  // `startsWith('clustering:')` while they were in. See ID_STEM_SEPARATORS.
-  const noisy = []
-  mod.matchIdStems("k.startsWith('clustering:') && p === 'a/clustering/b'", (i, t) => noisy.push(t))
-  assert.deepEqual(noisy, [], 'a ref prefix and a path segment are NOT stem uses')
-})
+// The surviving evidence for what the tiers policed is the noun + structural tiers,
+// asserted above (the acceptance tests at the top of this file and the noun fixtures
+// throughout), and the tree census / format pins below the retired sections.

@@ -14,7 +14,7 @@ it — this repo's comments are rich and several have been found wrong.
 ## Quick start
 
 One-time: `cp src-app/server/config/dev.example.yaml src-app/server/config/dev.yaml` and set
-`jwt.secret` (`README.md:27-30`). **That file is gitignored (`.gitignore:11`), so every fresh clone
+`jwt.secret`. **That file is gitignored (`.gitignore:16-17`), so every fresh clone
 or `git worktree add` lacks it** — see Bring-up traps.
 
 - Backend: `cd src-app/server && CONFIG_FILE=config/dev.yaml cargo run` (embedded SQLite: one file, no database cluster)
@@ -25,74 +25,55 @@ or `git worktree add` lacks it** — see Bring-up traps.
 
 | path | what |
 |---|---|
-| `src-app/packages/` | ~27 processor packages (pytest). An analysis is DATA: `manifest.yaml` + `compute/*.py` + `ui/*.yaml` |
-| `src-app/server/` | Rust binary crate — `config/`, `migrations/`, `tests/` |
-| `src-app/ui/` | Vite/React/TS frontend (its own `npm run check` chain) |
-| `src-app/libs/` | workspace npm libs, incl. `viz` |
-| `src-app/env-rootfs/` | container recipes: `single-cell`, `single-cell-r`, `dock`, `viz`, `DEFAULT_ENV` |
-| `scripts/` | the guard suite (see Guards) |
-| `docs/` | design + research, read on demand |
-| `agent-kit/` | submodule — ships `skills/` and `lifecycle/` |
-| `sdk/` | submodule |
+| `src-app/server/` | Rust binary crate — `config/`, `migrations/`, `tests/`; module tree under `src/modules/` (the txr run/history/model/pretrained/method-catalogue/file-validator modules + the framework spine: account, jobs, sandbox, rootfs, mcp, features, sync, permissions) |
+| `src-app/ui/` | Vite/React/TS frontend; the app is the `txr*` module family + shell/help/settings (its own `npm run check` chain) |
+| `src-app/desktop/` | Tauri desktop shell (`tauri/`) + the desktop dev harness |
+| `sdk/` | submodule — the txresbench SDK: `crates/` (framework, core, auth, file, health, identity, notification, build-support, control-mcp, test-harness, sandbox-seccomp), `packages/` (kit, shell, framework, config, gallery, notification-ui, test-e2e), `desktop/harness` |
+| `data/` | first-party embedded data: `method-catalogue/`, `file-validator/`, `pretrained-catalogue/` |
+| `scripts/` | generators + the guard suite (see Guards); `scripts/lib/` is shared verify logic |
+| `docs/` | design + research, read on demand (the single-cell platform's docs were removed with it) |
+| `agent-kit/` | vendored dev tooling (no submodule pointer) — `skills/` and `lifecycle/` |
+| `site/` | the GitHub-Pages landing site + the updater/pretrained feeds |
 
 ## Test entry points
 
-**`just check` is the aggregate gate** (`justfile:59-70`). Run it, never a subset. It runs 10 legs
-via `scripts/check-aggregate.sh --min-legs 10`, which **collects results rather than
+**`just check` is the aggregate gate** (`justfile:57-66`). Run it, never a subset. It runs 5 legs
+via `scripts/check-aggregate.sh --min-legs 5`, which **collects results rather than
 short-circuiting** — one red leg does not abort the others, so read every exit code:
 
 `check-aggregate-controls` (self-test) · `cargo check --workspace --tests` · `ui npm run check` ·
-`ui npm run build` · `check-py` · `check-packages` · `check-coercion` · `check-processor-versions` ·
-`check-invariants` · `check-r-regime` (`justfile:63-71`).
+`ui npm run build` · `check-invariants`.
 
-It is a **deep tree, not 10 flat commands**: `check-invariants` fans out to 9 sub-legs
-(`justfile:508-518`) and `check-guards` to 7 more (`justfile:599-610`); `ui npm run check` is itself
-a 14-step chain (`ui/package.json:12`).
+It is a **deep tree, not 5 flat commands**: `check-invariants` fans out to 5 sub-legs
+(`justfile:127-133`: test-scope-lists, pub-orphans + controls, check-guards, check-domain) and
+`check-guards` to 4 more (guard-integrity controls + method-env-images + no-format-crates);
+`ui npm run check` is itself a 14-step chain (`src-app/ui/package.json:11`).
 
-- Backend integration: `just test THREADS="4"` (`justfile:14`) · unit: `just test-unit`
-  (`justfile:17`)
-- Package tests: `cd src-app/packages && python3 -m pytest <package>/tests`
-
-**Some legs run for tens of minutes and look hung — they are not.** Measured by agents in this repo,
-not documented in it: `check-packages` ≈55 min (a ~47-min magnitudes phase spawning ~71 Python
-producers, issue #493) and `libs/viz npm test` ≈68 min (`Duration 4058.63s`, 251 files / 3,581
-tests). Multiple gate runs have been killed as "hangs" before this was understood. Budget hours.
+- Backend integration: `just test 4` (positional `THREADS`, default 4; `justfile:22`) · unit: `just test-unit`
+  (`justfile:20`)
 
 **Baseline before blaming your branch.** Re-run the same leg on a clean checkout of your base and
 compare failing sets **by name** (`comm`), not by count.
 
 ## Hard invariants
 
-**Packages own their own diff surface.** Each package that ships
-`tests/test_zero_src_app_diff.py` declares its **OWN** `SANCTIONED_*` set — there is **no single
-global allowlist**, deliberately: *"each package keeps its own `SANCTIONED` set… a union across
-packages would grant every package every other package's exemptions"*
-(`src-app/packages/_lib/zero_core_guard.py:60-63`). The sets genuinely differ — compare
-`embedding/tests/test_zero_src_app_diff.py:43-46` (2 paths) with
-`spatial-types/…:67-74` (5) and `r-skeleton/…:59-88` (which sanctions a server-src file and the
-`justfile`). **Read your own package's set; never assume another's.**
-The guard is a **branch-diff property, not a tree scan**: it runs only on the branch that introduces
-the package (detected by `manifest.yaml` in `git diff --diff-filter=A`) and otherwise skips with a
-stated reason (`_lib/zero_core_guard.py:24-32,52-58`).
-
-*Distinct guard, easily confused:* `scripts/check-kinds-zero-core.sh:1-31` (INV-2) bans 3 hardcoded
-zero-core kind ids from app-core. That is about kind ids, not about which files a package may touch.
-
-- **A package ships no `.tsx`/`.jsx`** — enforced as a tree scan over the package directory
-  (`differential-expression/tests/test_zero_src_app_diff.py:69-95`,
-  `test_package_declares_no_render_source`; same invariant documented at
-  `clustering/tests/test_manifest_shape.py:7,109`).
-- **`packages/pytest.ini` `testpaths` is an enumeration, not a glob.** A `tests/` dir missing from it
-  fails `check-py` with *"PACKAGE SUITE COLLECTED BY NOTHING"*. Register a new test dir **in the same
-  commit** that creates it.
-- **A change under an existing package bumps its `manifest.yaml` version** — two guards, neither
-  substituting for the other (`justfile:437-442`): `check-processor-seed-versions.sh`
-  (branch vs merge-base) and `check-manifest-version-claims.sh` (branch vs `origin/main` **and all
-  unmerged refs**, so a collision with a sibling branch is detected).
 - **The analysis sandbox has no network.** `--unshare-net` at
-  `src-app/server/src/modules/sandbox/sandbox.rs:117`, asserted at `:772`
-  (*"network must be blocked"*), and carried into the emitted reproduction script
-  (`reproduce_script.rs:623`). Nothing is fetched at run time — ever. Fetch at build time instead.
+  `src-app/server/src/modules/sandbox/sandbox.rs:96`, asserted at `:637`
+  (*"network must be blocked"*). Nothing is fetched at run time — ever. Fetch at build time
+  instead; the method environments themselves are downloaded by digest from the method catalogue
+  before a run (the app's only network uses are those downloads and the update check, both pinned
+  by `scripts/check-network-allowlist.sh`).
+- **The app is bare-metal single-user by design.** No login screen, no queue, no provenance or
+  workspace screens: the route surface is the app's own `/api/health`, `/api/session/local`,
+  `/api/app/mode`, `/api/methods*`, `/api/markers`, `/api/file-validation/*` and `/api/txr/*`
+  families, and the desktop shell calls the engine in-process. The framework routes that remain
+  (mcp, admin/features, sync) are platform furniture kept whole for the desktop shell — they are
+  not app screens.
+- **No dead references to removed units.** The platform's trees (processor packages, env recipes,
+  the dock/viz libs, the platform docs) are gone, and `scripts/check-dead-refs.sh` fails if a
+  tracked file mentions a removed path or crate again. `scripts/check-naming.sh` pins the same
+  property for the predecessor-app names. Never re-add a removed unit's path to prose, configs or
+  guards without deleting the guard token alongside it.
 - **Never weaken, skip, delete or baseline-away a test or guard to go green**, including writing a
   false allowlist/ledger entry to silence a lint. A guard you believe is wrong is a finding to
   report, not an entry to add.
@@ -100,17 +81,16 @@ zero-core kind ids from app-core. That is about kind ids, not about which files 
 ## Guards (`scripts/`)
 
 `check-guard-integrity.sh` pins every guard's bytes in `guard-hashes.txt` — a guard cannot be
-quietly edited. Others: `check-kinds-zero-core.sh`, `check-processor-seed-versions.sh`,
-`check-manifest-version-claims.sh`, `check-derived-vocabulary.sh`, `check-no-legacy-wire.sh`,
-`check-no-format-crates.sh`, `check-pub-orphans.mjs`, `check-design-citations.mjs`,
-`check-recipe-pins.mjs`, `check-test-scope-lists.mjs`, `check-package-suites.mjs`,
-`coercion-parity.mjs`, `check-env-loop.sh`. The domain lint lives in the frontend and is invoked by
-`just check-domain` (`justfile:691-698`): `ui/scripts/lint-no-domain-in-builtin.mjs`.
-
-⚠️ **The domain lint's admission surface is under `src-app/ui/`.** Admitting a new contributed id
-there makes `lifecycle-check` classify the branch as *frontend work* and demand an e2e test. Prefer
-a **fixture-derived id** (resolve it from the merged registry at runtime) over raising a ceiling.
-Root cause filed as issue #479.
+quietly edited (grow `MIN_GUARDS` in the same commit that adds one). Others:
+`check-aggregate.sh` (+ its test), `check-naming.sh`, `check-dead-refs.sh`, `check-network-allowlist.sh`,
+`check-no-format-crates.sh`, `check-no-study-domain-literals.sh` (kept, and currently RED on
+measured prose — see its comment in the justfile), `check-pub-orphans.mjs`,
+`check-test-scope-lists.mjs`, `check-method-env-images.sh` (+ test), and the frontend-suite guards
+under `src-app/ui/scripts/` (`check-e2e-routing.mjs`, `check-rename-mechanical.mjs`,
+`lint-no-domain-in-builtin.mjs`, `guard-floors.test.mjs`, `lint-native-controls.mjs`,
+`lint-secret-input-caps.mjs`, `collect-actions.mjs`, `action-refs-lint.mjs`,
+`action-coverage.mjs`, `lint-text-source-bytes.mjs`). The domain lint is invoked by
+`just check-domain` (`justfile:205-218`).
 
 ## Working files — never `/tmp` (owner rule)
 
@@ -118,18 +98,20 @@ Root cause filed as issue #479.
 scratch scripts, fixtures, baselines and evidence all go under **`/data/pbya/txresbench/`**, e.g.
 `/data/pbya/txresbench/tmp/<task>/` (outside the repo, so it is not git noise). For test and gate
 runs, export `TMPDIR` to a directory there as well, so tool-created temp dirs follow.
-`/` and `/tmp` share one 879G overlay; `/data/pbya` is a separate ZFS pool with ~44T free. Freeing
-space under `/data/pbya` does nothing for `/`.
+`/` and `/tmp` share one overlay; `/data/pbya` is a separate ZFS pool with far more free space.
+Freeing space under `/data/pbya` does nothing for `/`.
 
 ## Bring-up traps
 
 A fresh clone or worktree fails in ways that read like code defects:
 
-- **`src-app/server/config/dev.yaml` is gitignored** (`.gitignore:11`) and absent from `git ls-files`.
-  Anything reading it fails with a message resembling a generation defect. Fix per `README.md:27-30`;
-  when scripting the copy, **assert the `jwt.secret` substitution matched** so a silent no-op cannot
+- **`src-app/server/config/dev.yaml` is gitignored** (`.gitignore:16-17`) and absent from `git ls-files`.
+  Anything reading it fails with a message resembling a generation defect. When scripting the copy, **assert the `jwt.secret` substitution matched** so a silent no-op cannot
   produce a placeholder secret.
-- `node_modules` and submodule init are not automatic in a new worktree.
+- `node_modules` and submodule init are not automatic in a new worktree (the SDK is a submodule;
+  `sdk/packages/*` + `src-app/ui` are the root npm workspaces; the lockfile is text-edited, never
+  re-resolved — DEC-5).
+- The test-harness writes its per-worktree app-data under `.txresbench-cache/` (gitignored).
 
 ## Skills index — load on trigger, not by default
 
@@ -152,6 +134,7 @@ and the orchestrator runs the gate and merges.
 
 ## Open / unverified — do not assert these as fact
 
-- **"A contribution declares exactly one `env`"** — strong circumstantial evidence
-  (`provenance/export/methods.rs:2453,2474`; `sandbox/env_image.rs:26,483`) but no schema-level
-  assertion has been read. Verify before relying on it.
+- **The method-env base is verified only at the method-env-images node.** The app trusts the
+  method catalogue's digest pins (`sandbox/method_env.rs`) and the `check-method-env-images.sh`
+  verify script; the base `ghcr.io/tinnlab/txresbench-env/base-{py,r}` images and their contents
+  are not re-verified in this repository.

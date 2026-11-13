@@ -27,8 +27,6 @@ ROOTS=(
   "$REPO/src-app/server/src"
   "$REPO/src-app/desktop/tauri/src"
   "$REPO/src-app/ui/src"
-  "$REPO/src-app/libs/dock/src"
-  "$REPO/src-app/libs/viz/src"
   "$REPO/sdk/crates/txresbench-core/src"
   "$REPO/sdk/crates/txresbench-framework/src"
   "$REPO/sdk/crates/txresbench-file/src"

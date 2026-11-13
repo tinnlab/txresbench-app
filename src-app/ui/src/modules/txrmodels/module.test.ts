@@ -248,7 +248,14 @@ describe('txrmodels module (TEST-MOD-01)', () => {
         p =>
           p.startsWith('src-app/ui/src/api-client/') &&
           p !== 'src-app/ui/src/api-client/types.ts' &&
-          p !== 'src-app/ui/src/api-client/apiEndpoints.ts',
+          p !== 'src-app/ui/src/api-client/apiEndpoints.ts' &&
+          // ITEM-4 (its DRIFT-1): the api-client was
+          // regenerated wholesale after the OpenAPI regen dropped the
+          // removed surface; the three remaining client files moved
+          // with it.
+          p !== 'src-app/ui/src/api-client/index.ts' &&
+          p !== 'src-app/ui/src/api-client/permissionDescriptions.ts' &&
+          p !== 'src-app/ui/src/api-client/permissions.ts',
       ),
     ).toEqual([])
     expect(

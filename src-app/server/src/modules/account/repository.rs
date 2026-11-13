@@ -22,11 +22,6 @@ use uuid::Uuid;
 
 use txresbench_core::AppError;
 
-// #171 (a) — the offboarding hook's SQL lives in the project module's repository
-// (guideline §9: a module owns its own tables), and is called here on this
-// transaction's connection so removal and cancellation commit together (DEC-6/DEC-7).
-use crate::modules::project::{CancelledTransfer, ProjectRepository};
-
 use super::models::{
     Account, AccountInvitation, AccountKind, AccountMember, AccountMemberEvent, AccountRole,
     AdminAccountSummary, InvitationSummary,
@@ -464,9 +459,9 @@ impl NewMemberEvent {
 /// mutation's. It cannot be otherwise without changing this signature, which is a reviewable
 /// event.
 ///
-/// The same shape, for the same reason, as
-/// `ProjectRepository::cancel_pending_transfers_for_removed_member` — the house idiom for
-/// "another write, on THIS transaction's connection, so both commit or neither does".
+/// The same shape as the (removed) project module's transfer-cancellation call —
+/// the house idiom for "another write, on THIS transaction's connection, so both
+/// commit or neither does".
 ///
 /// # What is NOT written here
 ///
@@ -1311,23 +1306,6 @@ impl AccountRepository {
 
     // ==================== admin cross-account surface (#33/#34/#35) ==============
 
-    /// Count ALL accounts (membership-free), optionally filtered by `kind` — the
-    /// `total` for the admin "Showing N of M" list (#33). Admin-only via the route
-    /// gate; the repository is membership-neutral.
-    pub async fn count_all_accounts(&self, kind: Option<AccountKind>) -> Result<i64, AppError> {
-        let kind_s = kind.map(|k| k.as_str());
-        let row = sqlx::query!(
-            r#"SELECT COUNT(*) as "count!"
-               FROM accounts
-               WHERE ($1 IS NULL OR kind = $1)"#,
-            kind_s,
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(AppError::database_error)?;
-        Ok(row.count)
-    }
-
     /// One page of ALL accounts (membership-FREE — the #33 cross-account admin list),
     /// optionally filtered by `kind`, each with its member count + (cheap) owner user
     /// id. Bounded (guideline §4: never unbounded). Ordered `created_at ASC` for a
@@ -1788,30 +1766,16 @@ impl AccountRepository {
     /// owner" calls cannot both pass and leave the account ownerless. 404 if the
     /// membership does not exist.
     ///
-    /// **#171 (a) — this is the OFFBOARDING HOOK.** Removal now also cancels every
-    /// still-pending project transfer the departing member is a party to on this
-    /// account's projects, in EITHER direction, inside this same transaction. Without
-    /// it, a member who had been offered (or who had offered) an org project kept a
-    /// live path to move that project into a personal account AFTER losing all
-    /// relationship to the tenant — `accept_transfer` re-stamps `projects.account_id`,
-    /// so the resource leaves the organization entirely.
-    ///
-    /// It hangs HERE, on the repository, and not on the admin handler, for the same
-    /// reason `refuse_if_personal` does (H-2/#144, pinned by a test asserting that
-    /// architecture): this is the one function every removal path reaches. The admin
-    /// route is its only production caller today; the self-service membership
-    /// mutations of #142 inherit it with no further edit, and a handler-level hook
-    /// would silently not cover them.
-    ///
-    /// Returns the cancelled transfers so the caller can tell BOTH parties (DEC-10) —
-    /// a third party performed the removal, so neither party's device has a local
-    /// mutation of its own to echo.
+    /// **strip-single-cell ITEM-3:** the platform's project-transfer cancellation
+    /// half was removed with the `project` module. Removal still runs the
+    /// `LAST_OWNER` guard, the personal-account refusal and the in-transaction
+    /// audit row; the `project_transfers` side effect no longer exists.
     pub async fn remove_member(
         &self,
         account_id: Uuid,
         user_id: Uuid,
         actor: ActorCeiling,
-    ) -> Result<Vec<CancelledTransfer>, AppError> {
+    ) -> Result<(), AppError> {
         // H-2 (#144): refuse on a PERSONAL account BY NAME. `LAST_OWNER` happens to
         // catch this today, but only by the accident of there being exactly one
         // owner; the refusal must not depend on that accident (TEST-22 asserts the
@@ -1894,35 +1858,9 @@ impl AccountRepository {
             ));
         }
 
-        // #171 (a) — in the SAME transaction as the membership DELETE (DEC-6), and
-        // deliberately BEFORE it (DEC-33). A committed removal whose transfer
-        // cancellation silently did not happen is precisely the half-applied
-        // offboarding state this exists to prevent — the shape #147's INV-11d already
-        // refuses for the reassignment half — and the ORDER is what makes that true
-        // under concurrency rather than only in a quiet system.
-        //
-        // With the cancellation LAST, this transaction spent its whole life holding
-        // membership locks and none on `project_transfers`, so a concurrent
-        // `accept_transfer` could slip in between the membership DELETE and this
-        // statement, claim the transfer, re-stamp the project into the recipient's
-        // personal account and commit — after which this DELETE woke, found
-        // `status = 'accepted'`, removed 0 rows, and the removal COMMITTED reporting
-        // success. The project had left the tenant with the departing member and
-        // nothing reported a problem. That was verified against a real Postgres, not
-        // theorised, and it is INV-1 failing exactly the way the owner named: one
-        // mechanism failing SILENTLY. Half (b) cannot cover it — in that direction the
-        // INITIATOR's authority is intact, which is #171 path 1.
-        //
-        // Taking the `project_transfers` rows FIRST closes it: a concurrent accept's
-        // `UPDATE ... WHERE status = 'pending'` now blocks on rows this transaction
-        // has already claimed, and on commit finds them gone and refuses. If the
-        // accept genuinely got there first, this DELETE removes 0 rows and reports so
-        // — the honest outcome for that ordering, since the transfer really did
-        // complete while the member was still a member. Pinned by TEST-18.
-        let cancelled = ProjectRepository::cancel_pending_transfers_for_removed_member(
-            &mut tx, account_id, user_id,
-        )
-        .await?;
+        // strip-single-cell ITEM-3: the in-transaction project-transfer
+        // cancellation (the `project` module's offboarding hook) was removed
+        // with the module; what remains is the membership DELETE + audit row.
 
         // #148 — THE MEMBERSHIP AUDIT ROW, on `&mut tx`, so it commits with the removal or
         // not at all (#142's "Other obligations": "Every mutation writes an audit event
@@ -1982,7 +1920,7 @@ impl AccountRepository {
         }
 
         tx.commit().await.map_err(AppError::database_error)?;
-        Ok(cancelled)
+        Ok(())
     }
 
     /// Change `user_id`'s role on `account_id` (#35), refusing to demote the SOLE
@@ -2153,7 +2091,8 @@ impl AccountRepository {
     ///    `system` producer, decide there, and know that hiding it is a bug too.**
     /// 2. On `actor_kind = 'admin'` rows `actor_user_id` is NULLed: an account admin learns
     ///    that platform staff acted, never WHICH employee. The id is still stored and is
-    ///    served by [`list_member_events_staff`], which is what makes this a redaction rather
+    ///    served by the platform-staff surface (removed with the admin module), which is
+///    what made this a redaction rather
     ///    than an unfalsifiable claim.
     /// 3. `reason` is never selected — a staff-authored internal note is not the reading
     ///    tenant's business (the `admin_suspend_reason` precedent).
@@ -2203,67 +2142,6 @@ impl AccountRepository {
             .collect()
     }
 
-    /// How many ledger rows the STAFF read would return (#148) — every row, system included.
-    pub async fn count_member_events_staff(&self, account_id: Uuid) -> Result<i64, AppError> {
-        let row = sqlx::query!(
-            r#"SELECT COUNT(*) as "count!" FROM account_member_events WHERE account_id = $1"#,
-            account_id,
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(AppError::database_error)?;
-        Ok(row.count)
-    }
-
-    /// One page of the FULL membership-audit row, for the platform-staff surface (#148).
-    ///
-    /// This is the counterpart that makes [`list_member_events_scoped`]'s redaction a real,
-    /// falsifiable decision: without a surface that serves the staff `actor_user_id` and the
-    /// `reason`, "redacted from the account admin" would be observationally identical to
-    /// "never recorded", and DEC-7 would be untestable.
-    pub async fn list_member_events_staff(
-        &self,
-        account_id: Uuid,
-        limit: i64,
-        offset: i64,
-    ) -> Result<Vec<AccountMemberEvent>, AppError> {
-        let rows = sqlx::query!(
-            r#"SELECT id as "id: Uuid", created_at as "created_at: DateTime<Utc>", action, actor_kind,
-                      actor_user_id as "actor_user_id?: Uuid",
-                      target_user_id as "target_user_id?: Uuid",
-                      target_email, old_role, new_role,
-                      invitation_id as "invitation_id?: Uuid", reason
-               FROM account_member_events
-               WHERE account_id = $1
-               ORDER BY created_at DESC, id DESC
-               LIMIT $2 OFFSET $3"#,
-            account_id,
-            limit,
-            offset,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(AppError::database_error)?;
-
-        rows.into_iter()
-            .map(|r| {
-                Ok(AccountMemberEvent {
-                    id: r.id,
-                    created_at: r.created_at,
-                    action: r.action,
-                    actor_kind: r.actor_kind,
-                    actor_user_id: r.actor_user_id,
-                    target_user_id: r.target_user_id,
-                    target_email: r.target_email,
-                    old_role: r.old_role.as_deref().map(AccountRole::from_str).transpose()?,
-                    new_role: r.new_role.as_deref().map(AccountRole::from_str).transpose()?,
-                    invitation_id: r.invitation_id,
-                    reason: r.reason,
-                })
-            })
-            .collect()
-    }
-
     /// Fetch one account by id, or `None` if absent.
     pub async fn get(&self, id: Uuid) -> Result<Option<Account>, AppError> {
         let row = sqlx::query!(
@@ -2289,73 +2167,6 @@ impl AccountRepository {
             })),
             None => Ok(None),
         }
-    }
-
-    /// The account's admin-suspension status columns (#37) — the shape the admin
-    /// `GET …/status` + suspend/reactivate responses surface. `None` for a nonexistent
-    /// account. Keyed on `accounts.id`.
-    pub async fn account_admin_status(
-        &self,
-        id: Uuid,
-    ) -> Result<Option<AccountAdminStatus>, AppError> {
-        let row = sqlx::query!(
-            r#"SELECT admin_suspended as "admin_suspended: bool",
-                      admin_suspended_at as "admin_suspended_at?: DateTime<Utc>",
-                      admin_suspended_by as "admin_suspended_by?: Uuid",
-                      admin_suspend_reason
-               FROM accounts WHERE id = $1"#,
-            id,
-        )
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(AppError::database_error)?;
-        Ok(row.map(|r| AccountAdminStatus {
-            account_id: id,
-            admin_suspended: r.admin_suspended,
-            admin_suspended_at: r.admin_suspended_at,
-            admin_suspended_by: r.admin_suspended_by,
-            admin_suspend_reason: r.admin_suspend_reason,
-        }))
-    }
-
-    /// Set or clear an account's admin-suspension (#37, DEC-3/DEC-13/DEC-17). On
-    /// suspend (`suspended = true`) it stamps `admin_suspended_at` (the SQLite
-    /// canonical `strftime('%Y-%m-%dT%H:%M:%fZ','now')` — the PG `now()` port) +
-    /// `admin_suspended_by` + the optional `reason`; on reactivate (`false`) it clears
-    /// all three audit columns (the columns describe the CURRENT hold). Idempotent — a
-    /// re-suspend/re-reactivate simply re-writes the same target state (each write
-    /// derives the target, never increments). The caller (the admin route) has already
-    /// resolved the account to exist via `AdminAccountScope`.
-    pub async fn set_admin_suspended(
-        &self,
-        id: Uuid,
-        suspended: bool,
-        by: Uuid,
-        reason: Option<&str>,
-    ) -> Result<(), AppError> {
-        // On reactivate, force the audit columns NULL regardless of any passed reason.
-        let (at_by, reason): (Option<Uuid>, Option<&str>) = if suspended {
-            (Some(by), reason)
-        } else {
-            (None, None)
-        };
-        sqlx::query!(
-            r#"UPDATE accounts
-               SET admin_suspended = $1,
-                   admin_suspended_at = CASE WHEN $1 THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE NULL END,
-                   admin_suspended_by = $2,
-                   admin_suspend_reason = $3,
-                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-               WHERE id = $4"#,
-            suspended,
-            at_by,
-            reason,
-            id,
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(AppError::database_error)?;
-        Ok(())
     }
 
     // ==================== #145 — account invitations =============================
@@ -3892,17 +3703,6 @@ fn uuid_list_json(ids: &[Uuid]) -> String {
             .collect::<Vec<String>>(),
     )
     .expect("a Vec<String> is always JSON-serializable")
-}
-
-/// An account's admin-suspension status (#37) — the reader shape the admin status /
-/// suspend / reactivate routes surface (mapped to `AdminAccountStatusResponse`).
-#[derive(Debug, Clone, PartialEq)]
-pub struct AccountAdminStatus {
-    pub account_id: Uuid,
-    pub admin_suspended: bool,
-    pub admin_suspended_at: Option<DateTime<Utc>>,
-    pub admin_suspended_by: Option<Uuid>,
-    pub admin_suspend_reason: Option<String>,
 }
 
 #[cfg(test)]

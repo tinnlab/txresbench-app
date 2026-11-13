@@ -253,26 +253,32 @@ mod tests {
 
     #[test]
     fn committed_manifest_parses_with_the_two_contract_actions() {
+        // STRIP (ITEM-6): the second signature action was `project.openProject`,
+        // which left with the project module (ITEM-3) and the manifest regen
+        // (ITEM-4b) dropped it. The kept manifest's two signature actions are
+        // the shell navigation action and the admin feature-flag action — the
+        // same parse-proves-contract property, on the kept surface.
         let catalog = build_from_str(MANIFEST_JSON);
         let nav = catalog.get("app.navigate").expect("app.navigate present");
         assert_eq!(nav.permission, "mcp::use");
         assert!(nav.mutating);
         assert_eq!(nav.params_schema["required"][0], "path");
 
-        let open = catalog
-            .get("project.openProject")
-            .expect("project.openProject present");
-        assert_eq!(open.permission, "projects::use");
-        assert_eq!(open.params_schema["required"][0], "project_id");
+        let flag = catalog
+            .get("features.setGlobalFlag")
+            .expect("features.setGlobalFlag present");
+        assert_eq!(flag.permission, "features::manage");
+        assert_eq!(flag.params_schema["required"][0], "flag_key");
     }
 
     #[test]
     fn iter_yields_every_entry() {
         // The manifest now carries every registered `defineAction` across
         // the app (slice-2 added project/job/nav actions on top of slice-1's
-        // two contract actions — PLAN.md ITEM-2), so this asserts the two
-        // ORIGINAL contract actions are present among N entries rather than
-        // pinning an exact count that would churn on every new registration.
+        // two contract actions — PLAN.md ITEM-2; STRIP ITEM-4b's regen left
+        // the kept 9). This asserts the two signature actions are present
+        // among N entries rather than pinning an exact count that would churn
+        // on every new registration.
         let catalog = build_from_str(MANIFEST_JSON);
         let ids: Vec<&str> = catalog.iter().map(|a| a.id.as_str()).collect();
         assert!(
@@ -280,8 +286,8 @@ mod tests {
             "app.navigate missing: {ids:?}"
         );
         assert!(
-            ids.contains(&"project.openProject"),
-            "project.openProject missing: {ids:?}"
+            ids.contains(&"features.setGlobalFlag"),
+            "features.setGlobalFlag missing: {ids:?}"
         );
         assert!(
             ids.len() >= 2,
@@ -358,25 +364,24 @@ mod tests {
     fn committed_manifest_carries_context_per_action() {
         // The regen'd `frontend-actions.json` already carries `context` on
         // every action — confirm it deserializes onto the new field with the
-        // expected values (workbench / dataset / global).
+        // expected values. STRIP (ITEM-6): the platform contexts
+        // (`workbench`, `dataset`) left with their modules (ITEM-4); every
+        // kept action is app/framework-owned and carries `"global"`, and a
+        // non-global context re-entering the committed manifest must fail
+        // here rather than ride the collector.
         let catalog = build_from_str(MANIFEST_JSON);
-        assert_eq!(
-            catalog
-                .get("analysis.launch")
-                .expect("analysis.launch")
-                .context,
-            "workbench"
-        );
-        assert_eq!(
-            catalog
-                .get("dataset.process")
-                .expect("dataset.process")
-                .context,
-            "dataset"
-        );
         assert_eq!(
             catalog.get("app.navigate").expect("app.navigate").context,
             "global"
+        );
+        let non_global: Vec<&str> = catalog
+            .iter()
+            .filter(|a| a.context != "global")
+            .map(|a| a.id.as_str())
+            .collect();
+        assert!(
+            non_global.is_empty(),
+            "only app/framework actions are committed: {non_global:?}"
         );
     }
 
@@ -422,13 +427,18 @@ mod tests {
     }
 
     #[test]
-    fn committed_manifest_carries_enriched_metadata_for_dataset_actions() {
+    fn committed_manifest_carries_enriched_metadata_for_framework_admin_actions() {
+        // STRIP (ITEM-6): the dataset actions whose metadata this asserted
+        // left with the platform (ITEM-4's manifest regen). The kept enriched
+        // actions are the feature-flag admin actions — the discoverability
+        // metadata (group + description) reaching the agent. The alias
+        // mechanism itself is proved by the raw-fixture test above.
         let catalog = build_from_str(MANIFEST_JSON);
         let e = catalog
-            .get("dataset.add.byId")
-            .expect("dataset.add.byId present");
+            .get("features.setGlobalFlag")
+            .expect("features.setGlobalFlag present");
         assert!(e.description.is_some(), "should carry a description");
-        assert!(!e.aliases.is_empty(), "should carry aliases");
+        assert_eq!(e.group.as_deref(), Some("Admin"));
     }
 
     // ── DOMAIN_AUDIT S1: the two populations + the merge ────────────────────
@@ -454,10 +464,13 @@ mod tests {
             leaked.is_empty(),
             "view-scoped actions must be reported by the controlled session, not baked in: {leaked:?}"
         );
-        // …and the app-owned half is still all there.
+        // …and the app/framework-owned half is still all there. STRIP
+        // (ITEM-6): the `workbench.openAnalyses` / `provenance.record-selection`
+        // pins left with their modules (ITEM-4's regen); the kept half's pins
+        // are the shell nav action and the framework admin/views actions.
         assert!(catalog.get("app.navigate").is_some());
-        assert!(catalog.get("workbench.openAnalyses").is_some());
-        assert!(catalog.get("provenance.record-selection").is_some());
+        assert!(catalog.get("features.setGlobalFlag").is_some());
+        assert!(catalog.get("views.list").is_some());
     }
 
     /// With NOTHING reported, the catalog is the app-owned half verbatim — a

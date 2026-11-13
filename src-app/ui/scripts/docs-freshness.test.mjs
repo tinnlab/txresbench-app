@@ -69,9 +69,8 @@ function sdkSource(file) {
   return existsSync(path) ? readFileSync(path, 'utf8') : null
 }
 
-/** `src-app/ui/scripts` → `src-app`. The prose ITEM-13/ITEM-14 correct lives under here. */
-const SRC_APP = join(REPO_ROOT, 'src-app')
-const readIf = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : null)
+/** `src-app/ui/scripts` → `src-app`. (TEST-18's files lived under here; the constant
+ *  left when its block was retired — see the STRIP note below.) */
 
 describe('TEST-43 (ITEM-35) — the SDK change carries its coordination record', () => {
   const sha = pinnedSdkSha()
@@ -137,152 +136,17 @@ describe('TEST-43 (ITEM-35) — the SDK change carries its coordination record',
 })
 
 // ─────────────────────────────────────────────────────────────────────────────────────
-// TEST-18 (ITEM-13, ITEM-14) — no in-tree prose still claims a behaviour this round corrected.
+// TEST-18 (ITEM-13, ITEM-14) — RETIRED with its subjects (strip node ITEM-4).
 //
-// Two superseded claims were found by the phase-1 audit and are corrected by ITEM-13/ITEM-14:
-//
-//   ITEM-13 — `STREAMING_PROGRESSIVE_PLAN.md` planned a `data/arrowStream.ts` Arrow-IPC reader
-//             and gated phase 2.6 on "the backend can serve Arrow columns". That file was never
-//             written and never will be: DEC-4 chose byte-shuffle + gzip precisely so the browser
-//             decodes natively (`_lib/txr_zarr.py:26-32`), and the producer contract states there
-//             is "no Arrow IPC on the wire" (`:5-8`). The phantom blocker cost one reader a day.
-//   ITEM-14 — `coordinates.yaml` / `colour-by.yaml` justified per-cell dataset bases by an
-//             identity-space argument that `canvasFeed.ts`'s `sharedCoordinateBase` (`450efed6`)
-//             superseded one day after it was written: panes on ONE coordinate artifact now fold
-//             to ONE base and DO brush together, which the owner closed as the DESIRED behaviour.
-//
-// ── WHY EVERY ASSERTION IS CONDITIONED ON THE CODE, AND BIDIRECTIONAL ────────────────
-//
-// `assert.doesNotMatch(plan, /arrowStream/)` would FREEZE A STRING. It stays green forever once
-// the prose is edited, says nothing about whether prose and code agree, and — worse — it would
-// still be green if the code REVERTED and the prose became correct again. That is the failure
-// mode standing-check 5 records against TEST-43's own first draft, one file up.
-//
-// So each case below reads the CODE STATE first and asserts the prose that state implies, in BOTH
-// directions:
-//
-//   · `data/arrowStream.ts` ABSENT  ⇒ the plan must NOT name it (a plan naming a file that does
-//     not exist is the phantom blocker).
-//   · `data/arrowStream.ts` PRESENT ⇒ the plan MUST name it (someone shipped the Arrow reader and
-//     deleted its plan row — the prose is now stale in the other direction).
-//   · `sharedCoordinateBase` LIVE in `canvasFeed.ts` ⇒ the superseded sentences must be ABSENT.
-//   · `sharedCoordinateBase` GONE                    ⇒ they must be PRESENT (the fold was reverted,
-//     per-cell bases are the behaviour again, and the original rationale is true again).
-//
-// Neither arm can be satisfied by the other, and neither is satisfied by the document's size:
-// every match is a specific claim, not a keyword (standing check 5 — scope to the CLAIM).
-//
-// ── ANTI-VACUITY ─────────────────────────────────────────────────────────────────────
-//
-// Every file this reads is asserted to EXIST and to be non-trivial FIRST. A renamed or moved file
-// would otherwise make every case below a silent no-op reporting PASS — the fail-open shape.
-
-/** The Arrow-IPC reader the plan once specified. Its ABSENCE is the fact ITEM-13 records. */
-const ARROW_READER = join(SRC_APP, 'libs', 'viz', 'src', 'data', 'arrowStream.ts')
-const PROGRESSIVE_PLAN = join(SRC_APP, 'libs', 'viz', 'STREAMING_PROGRESSIVE_PLAN.md')
-const CANVAS_FEED = join(SRC_APP, 'ui', 'src', 'modules', 'workbench', 'extensions', 'canvas', 'canvasFeed.ts')
-const COORDINATES_YAML = join(SRC_APP, 'packages', 'single-cell-viz', 'ui', 'coordinates.yaml')
-const COLOUR_BY_YAML = join(SRC_APP, 'packages', 'single-cell-viz', 'ui', 'colour-by.yaml')
-
-/** The two superseded sentences, as the audit found them. Matched as CLAIMS — the specific
- *  wording each file carried — not as the keyword "brush", which occurs legitimately throughout
- *  both specs and would make this vacuous. */
-const SUPERSEDED_COORDINATES = /two cells sharing one base would brush each\s*#?\s*other/
-const SUPERSEDED_COLOUR_BY = /two adjacent cells brush independently/
-
-describe('TEST-18 (ITEM-13, ITEM-14) — superseded prose does not outlive the code that superseded it', () => {
-  const plan = readIf(PROGRESSIVE_PLAN)
-  const feed = readIf(CANVAS_FEED)
-  const coordinates = readIf(COORDINATES_YAML)
-  const colourBy = readIf(COLOUR_BY_YAML)
-
-  test('every document and source this guard reads is present and non-trivial (anti-vacuity)', () => {
-    // Without this, a rename turns every case below into a silent no-op that still reports PASS.
-    for (const [name, text] of [
-      ['STREAMING_PROGRESSIVE_PLAN.md', plan],
-      ['canvasFeed.ts', feed],
-      ['coordinates.yaml', coordinates],
-      ['colour-by.yaml', colourBy],
-    ]) {
-      assert.ok(text, `${name} is missing — this guard would pass by reading nothing`)
-      assert.ok(text.length > 1000, `${name} is implausibly short (${text.length} bytes)`)
-    }
-  })
-
-  test('ITEM-13 — the plan names `data/arrowStream.ts` IF AND ONLY IF that reader exists', () => {
-    assert.ok(plan, 'no plan to check')
-    const shipped = existsSync(ARROW_READER)
-    const named = /data\/arrowStream\.ts/.test(plan)
-    if (shipped) {
-      assert.ok(
-        named,
-        'libs/viz/src/data/arrowStream.ts EXISTS but STREAMING_PROGRESSIVE_PLAN.md no longer names it — the Arrow reader shipped and its plan row was deleted; the plan is stale in the OTHER direction',
-      )
-    } else {
-      assert.ok(
-        !named,
-        'STREAMING_PROGRESSIVE_PLAN.md still specifies `data/arrowStream.ts`, a file that does not exist — DEC-4 chose shuffle+gzip so the browser decodes natively (_lib/txr_zarr.py:26-32) and the wire carries no Arrow IPC (:5-8). Leaving the row makes phase 2.6 look blocked on a backend format nobody is going to build (ITEM-13)',
-      )
-    }
-  })
-
-  test('ITEM-13 — the phase-2.6 gate does not wait on a backend Arrow endpoint', () => {
-    assert.ok(plan, 'no plan to check')
-    if (existsSync(ARROW_READER)) return // the Arrow arc is real again; the old gate is correct
-    // The specific superseded GATE, not the word "Arrow" — the document legitimately keeps the
-    // industry survey's Arrow references, and matching those would make this vacuous.
-    assert.doesNotMatch(
-      plan,
-      /when the backend can\s*\n?\s*serve Arrow columns/,
-      'the phase-2.6 gate still reads "wire 2.6 when the backend can serve Arrow columns" — a blocker that does not exist for this wire format (ITEM-13)',
-    )
-    assert.doesNotMatch(
-      plan,
-      /\*\*Backend Arrow-IPC streaming endpoints\*\*/,
-      'the cross-cutting section still lists a "Backend Arrow-IPC streaming endpoints" dependency for items 7/8 — they shipped over the existing sharded-zarr byte-range route (ITEM-13)',
-    )
-    // …and the correction is actually RECORDED, not merely deleted: the owner required the reason
-    // to be written down "so that nobody waits on a phantom blocker again".
-    assert.match(
-      plan,
-      /97\.4%/,
-      'the amended gate does not record WHY there is no backend Arrow dependency (DEC-4: shuffle+gzip at 97.4% of blosc\'s ratio, natively decodable) — deleting the blocker without recording the reason invites the next reader to re-add it (ITEM-13)',
-    )
-  })
-
-  test('ITEM-14 — the per-cell-base rationale survives IF AND ONLY IF the fold does not', () => {
-    assert.ok(feed && coordinates && colourBy, 'nothing to check')
-    // Read from the CODE: is the shared-base fold live? Detected by the function `canvasFeed.ts`
-    // actually defines and calls, so deleting the fold — not merely renaming a comment — is what
-    // flips this.
-    const folded = /function sharedCoordinateBase\b/.test(feed) && /sharedCoordinateBase\(/.test(feed)
-    if (folded) {
-      assert.doesNotMatch(
-        coordinates,
-        SUPERSEDED_COORDINATES,
-        'coordinates.yaml still justifies per-cell bases by "two cells sharing one base would brush each other", but canvasFeed.ts folds exactly those declared bases (sharedCoordinateBase, 450efed6) — panes on one coordinate artifact DO share a base and DO brush together, which ledger row 34 closed as the desired behaviour (ITEM-14)',
-      )
-      assert.doesNotMatch(
-        colourBy,
-        SUPERSEDED_COLOUR_BY,
-        'colour-by.yaml still carries the twin claim "two adjacent cells brush independently" while sharedCoordinateBase is live (ITEM-14)',
-      )
-    } else {
-      // The fold is gone: per-cell bases are the behaviour again and the ORIGINAL prose is true.
-      // Removing the fold and leaving the corrected prose is stale in the other direction.
-      assert.match(
-        coordinates,
-        SUPERSEDED_COORDINATES,
-        'canvasFeed.ts no longer folds declared bases (sharedCoordinateBase is gone), so per-cell bases ARE the identity boundary again — coordinates.yaml should say so, and no longer does (ITEM-14, the reverting direction)',
-      )
-      assert.match(
-        colourBy,
-        SUPERSEDED_COLOUR_BY,
-        'the fold is gone but colour-by.yaml still records its twin claim as superseded (ITEM-14, the reverting direction)',
-      )
-    }
-  })
-})
+// The ITEM-13/ITEM-14 superseded-prose checks read `libs/viz`'s
+// `STREAMING_PROGRESSIVE_PLAN.md` / `arrowStream.ts`, the workbench
+// `canvasFeed.ts` fold and the single-cell-viz package's `coordinates.yaml` /
+// `colour-by.yaml` — every one of which left with the single-cell tree. The guard
+// whose subject is gone is deleted, not re-pointed at a near-identical file (the
+// same disposition as the workbench layer-boundary and positional-declaration
+// lints; `gate-wiring.test.mjs` asserts those retirements). TEST-43 above remains:
+// its SDK_GAPS.md subject was deleted pre-strip (commit 378e9cc6) and the record is
+// a CARRIED pre-existing red, not this round's.
 
 // ─────────────────────────────────────────────────────────────────────────────────────
 // TEST-23's BINDING (ITEM-17b) — where its assertions live, asserted rather than asserted-about.

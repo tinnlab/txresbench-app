@@ -26,80 +26,23 @@ use txresbench_framework::sync::Audience;
 #[serde(rename_all = "snake_case")]
 pub enum SyncEntity {
     // --- Owner-scoped (delivered only to the owning user) ---
-    /// A project owned by (or accepted-shared to) the user.
-    Project,
-    /// A project-share row changed (created/accepted/declined/revoked). Delivered
-    /// owner-scoped to the party who must refetch (recipient or owner).
-    ProjectShare,
-    /// A project-transfer row changed (created/accepted/declined). Owner-scoped.
-    ProjectTransfer,
     /// A durable notification for the user (created/read/deleted). Owner-scoped.
     Notification,
-    /// A dataset changed (metadata / files / sharing / project membership).
-    /// Owner-scoped: emitted to the owner ∪ sharees audience (ITEM-1/2).
-    Dataset,
-    /// A dataset folder changed (created/renamed/deleted, or a dataset added/
-    /// removed). Owner-scoped (ITEM-24). The FE `sync:dataset_folder`
-    /// subscription refetches the folder rail.
-    DatasetFolder,
     /// The caller's own profile (display fields / active state). Owner-scoped.
     Profile,
-    /// A job the user owns (queued/running/stopped/… list-status changes).
-    /// Owner-scoped. (Jobs module; the jobs backend emits it once sync-wired
-    /// post-merge — until then the FE `sync:job` subscription is a no-op.)
-    Job,
-    /// A workstore catalog artifact changed (produced by ingest / removed on
-    /// delete). Project-scoped: emitted to the project audience (owner ∪ accepted
-    /// shares) via the workstore write path, so a shared workbench refetches the
-    /// catalog live when a collaborator (or the AI) produces a result. P1 OWNS
-    /// this variant; P10 emits `::Artifact` too (there is NO separate
-    /// `AnalysisResult` variant — A5). Notify-and-refetch only.
-    Artifact,
-    /// A provenance RUN NODE changed (recorded on capture). Project-scoped: fanned
-    /// to the project's owner ∪ accepted recipients (P4). The FE subscribes to
-    /// `sync:provenance` and refetches the runs list / graph.
-    ///
-    /// **`id` is the RUN id — always.** Building an export used to publish this same
-    /// entity carrying a PROJECT id, which made a received `{entity: provenance,
-    /// id: X}` undecidable: `X` could name a run or a project, and the wire contract
-    /// carries nothing else to disambiguate it. That site is deleted (see
-    /// `provenance/handlers.rs::export`), so the entity has exactly one id meaning.
-    /// A future project-wide provenance event gets its OWN variant rather than a
-    /// second meaning here. Notify-and-refetch only.
-    Provenance,
-    /// A re-run verification changed (a detached verify task reached a terminal
-    /// state). Owner-scoped (P4). `id` is the verification id; the client
-    /// refetches `/provenance/verifications`. Notify-and-refetch only.
-    ProvenanceVerification,
     /// An account the user is a member of changed (created/renamed/deleted).
-    /// Owner-scoped. **Vocabulary only in A1** — the `account` module emits it
-    /// once sync-wired by A4 (`publish_account` + the `Accounts` store); until
-    /// then the FE `sync:account` subscription is a no-op. `id` is the account id.
+    /// Owner-scoped. `id` is the account id.
     Account,
     /// An account-membership row changed (a member added/removed, or a role
-    /// change). Owner-scoped. **Vocabulary only in A1** — emitted once sync-wired
-    /// by A4; the FE `sync:account_member` subscription refetches the member list.
-    /// `id` is the account id (the changed membership's account).
+    /// change). Owner-scoped. `id` is the account id (the changed membership's
+    /// account).
     AccountMember,
-    /// A draftable entity (`drafts` row) changed (created/edited/frozen/deleted).
-    /// Project-scoped: emitted to the project audience (owner ∪ accepted shares) via
-    /// the drafts write path, so a shared workbench refetches live. The FE subscribes
-    /// to `sync:draft` and refetches via the `drafts::use`-gated `GET /api/drafts`.
-    /// Notify-and-refetch only.
-    Draft,
 
     // --- Admin-permission-scoped (delivered to holders of the read perm) ---
-    /// Deployment-wide project settings (singleton `project_settings`). Delivered to
-    /// holders of `projects::use` (every projects user reads the transfer_enabled
-    /// flag to gate the Transfer affordance); notify-only — the client refetches.
-    ProjectSettings,
     /// Deployment-wide JWT session settings (singleton). Present so the existing
     /// auth `SessionSettings` store's `sync:session_settings` subscription has a
     /// valid entity; the turnkey auth module will emit it once sync-wired.
     SessionSettings,
-    /// Deployment-wide job settings (singleton `job_settings`, concurrency cap).
-    /// Admin-permission-scoped (jobs module).
-    JobSettings,
     /// A user account (admin users list).
     User,
     /// A user group (admin groups list; includes group permissions).
@@ -111,10 +54,6 @@ pub enum SyncEntity {
     /// this app mounts the admin provider ENDPOINTS but has no admin provider
     /// UI, so the client half does not exist yet.
     AuthProvider,
-    /// Deployment-wide provenance settings (singleton `provenance_settings`).
-    /// Delivered to holders of `provenance::settings::read` (admins via `*`); the
-    /// FE settings store refetches on the signal.
-    ProvenanceSettings,
 
     // --- Owner-scoped signal ---
     /// The user's session/permissions changed (group membership or a group's
@@ -460,37 +399,23 @@ mod tests {
 
     #[test]
     fn entity_names_match_the_frontend_sync_vocabulary() {
+        // STRIP (single-cell): the project/dataset/job/artifact/provenance/draft/
+        // settings variants left with their publishers (ITEM-3/4) — the enum is now
+        // exactly the vocabulary a kept publisher emits or a kept client subscribes
+        // to (`syncChannelParity.test.ts` enforces the same one-to-one set).
         let cases = [
-            (SyncEntity::Project, "project"),
-            (SyncEntity::Draft, "draft"),
-            (SyncEntity::Dataset, "dataset"),
-            (SyncEntity::DatasetFolder, "dataset_folder"),
-            (SyncEntity::ProjectShare, "project_share"),
-            (SyncEntity::ProjectTransfer, "project_transfer"),
-            (SyncEntity::ProjectSettings, "project_settings"),
             (SyncEntity::Notification, "notification"),
-            (SyncEntity::Session, "session"),
-            // P1 workstore catalog artifact (project-scoped emit). The FE
-            // subscribes to `sync:artifact`.
-            (SyncEntity::Artifact, "artifact"),
-            // P4 provenance run node + settings singleton.
-            (SyncEntity::Provenance, "provenance"),
-            (
-                SyncEntity::ProvenanceVerification,
-                "provenance_verification",
-            ),
-            (SyncEntity::ProvenanceSettings, "provenance_settings"),
-            // Accounts epic A1 (vocabulary only; emitted by A4).
+            (SyncEntity::User, "user"),
+            (SyncEntity::Group, "group"),
             (SyncEntity::Account, "account"),
             (SyncEntity::AccountMember, "account_member"),
+            (SyncEntity::Profile, "profile"),
+            (SyncEntity::SessionSettings, "session_settings"),
+            (SyncEntity::Session, "session"),
             // The auth-domain entities `txresbench-auth` publishes through
             // `AuthSyncSink` (mapped in `sync::auth_sink`). Their wire names are
             // what the FE `sync:<entity>` subscriptions key on, so a rename here
             // silently unwires those stores.
-            (SyncEntity::Profile, "profile"),
-            (SyncEntity::SessionSettings, "session_settings"),
-            (SyncEntity::User, "user"),
-            (SyncEntity::Group, "group"),
             (SyncEntity::AuthProvider, "auth_provider"),
         ];
         for (e, name) in cases {
@@ -517,7 +442,7 @@ mod tests {
     #[test]
     fn wire_payload_is_notify_only_three_keys() {
         let e = SyncEvent {
-            entity: SyncEntity::Project,
+            entity: SyncEntity::Notification,
             action: SyncAction::Update,
             id: Uuid::nil(),
         };
@@ -528,6 +453,6 @@ mod tests {
             3,
             "only entity/action/id may cross the wire: {json}"
         );
-        assert!(json.contains("\"entity\":\"project\""), "{json}");
+        assert!(json.contains("\"entity\":\"notification\""), "{json}");
     }
 }

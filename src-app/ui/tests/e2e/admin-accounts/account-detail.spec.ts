@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import { BACKEND, createMember, loginAsOwner, ownerToken } from '../project/_helpers'
+import { BACKEND, createMember, loginAsOwner, ownerToken } from '../_helpers'
 
 // #57 — the account-detail page. These specs run under the DEFAULT (saas-OFF) build,
 // so `billing::admin` is absent from the generated enum for EVERY user — the billing

@@ -3,30 +3,29 @@
 // registers nothing). Two-part proof: (a) importing each builtin file registers its ids
 // (asserted here via the live registry), and (b) each owning `module.tsx` carries the
 // side-effect import (asserted against the module source).
+//
+// STRIP (single-cell): the sandbox/workstore/provenance/jobs settings actions left with
+// their modules; the surviving settings actions are the mcp (Ai) and the feature-flag
+// ones, whose wiring is asserted here.
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import './sandboxSettingsActions'
-import './workstoreSettingsActions'
-import './provenanceSettingsActions'
-import './jobsActions'
+import './mcpSettingsActions'
+import './featureFlagActions'
 import { getActionMeta } from '../defineAction'
 
 const NEW_IDS = [
-  'sandbox.updateSettings',
-  'workstore.updateSettings',
-  'provenance.updateSettings',
-  'jobs.updateSettings',
+  'mcp.updateSettings',
+  'features.setGlobalFlag',
+  'features.setAccountFlag',
+  'features.clearAccountOverride',
 ]
 
 // owning module.tsx → the builtin file it must side-effect-import
 const MODULE_IMPORTS: Record<string, string[]> = {
-  'src/modules/sandbox/module.tsx': ['@/core/actions/builtin/sandboxSettingsActions'],
-  'src/modules/workstore/module.tsx': ['@/core/actions/builtin/workstoreSettingsActions'],
-  'src/modules/provenance/module.tsx': ['@/core/actions/builtin/provenanceSettingsActions'],
-  // jobs.updateSettings lives in jobsActions.ts, imported once from command-palette/module.tsx.
-  'src/modules/command-palette/module.tsx': ['@/core/actions/builtin/jobsActions'],
+  'src/modules/mcp/module.tsx': ['@/core/actions/builtin/mcpSettingsActions'],
+  'src/modules/features/module.tsx': ['@/core/actions/builtin/featureFlagActions'],
 }
 
 const SRC_ROOT = resolve(__dirname, '../../../..')

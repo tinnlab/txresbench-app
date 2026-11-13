@@ -1,5 +1,5 @@
 //! ITEM-7 — TEST-7/EX-7 [acceptance] [INV-1, INV-3, INV-4]: the layer-artifact
-//! equivalence arbiter (design doc §9 · `docs/design/method-env-layer-artifacts.md`).
+//! equivalence arbiter (design doc §9 · `docs/method-env-layer-artifacts.md`).
 //!
 //! The stacked-layer design is only correct if a bind of the layer's entries
 //! reproduces the method image's subtree at those paths (§8). Every earlier
@@ -63,7 +63,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::dataset::hardening_common::record_skip;
+use crate::common::record_skip;
 
 // ────────────────────────────── child protocol ───────────────────────────────
 
@@ -159,7 +159,7 @@ fn stack_gate(test: &str) -> Option<()> {
             "`user_allow_other` is NOT enabled in /etc/fuse.conf — the non-root squashfuse \
              `-o allow_other` mount the rootfs path requires is refused \
              (scripts/txr-sandbox-preflight.sh names the exact fix; \
-             scripts/dev-sandbox-bootstrap.sh applies it with sudo)",
+             the dev-box prep script applies it with sudo)",
         );
         return None;
     }

@@ -85,17 +85,18 @@ async fn login(server: &TestServer, username: &str) -> String {
 }
 
 /// One AUTHENTICATED request on a `RequirePermissions`-gated NON-auth route
-/// (`GET /projects`, held by the Users group) → its status. This is the request the
+/// (`GET /api/txr/runs`, held by the Users group via `jobs::use` — the kept stand-in
+/// for the stripped `GET /api/projects`) → its status. This is the request the
 /// backstop rides. Returns the status so the caller can assert the backstop NEVER
 /// turned a normal response into a 5xx.
-async fn authed_projects(server: &TestServer, token: &str) -> u16 {
+async fn authed_gated(server: &TestServer, token: &str) -> u16 {
     server
         .client
-        .get(server.api_url("/projects"))
+        .get(server.api_url("/txr/runs"))
         .bearer_auth(token)
         .send()
         .await
-        .expect("/projects request")
+        .expect("/txr/runs request")
         .status()
         .as_u16()
 }
@@ -167,7 +168,7 @@ async fn backstop_creates_on_first_authed_request_then_caches() {
     // First authenticated request → the backstop heals it.
     let token = login(&server, "alice").await;
     assert_eq!(
-        authed_projects(&server, &token).await,
+        authed_gated(&server, &token).await,
         200,
         "gated route succeeds"
     );
@@ -183,7 +184,7 @@ async fn backstop_creates_on_first_authed_request_then_caches() {
     );
 
     // Second authenticated request → no second account (cache hit + ON CONFLICT).
-    assert_eq!(authed_projects(&server, &token).await, 200);
+    assert_eq!(authed_gated(&server, &token).await, 200);
     assert_eq!(
         personal_count(&pool, alice).await,
         1,
@@ -221,7 +222,7 @@ async fn backstop_is_noop_without_valid_identity() {
     // backstop, and still no account is created.
     let bad = server
         .client
-        .get(server.api_url("/projects"))
+        .get(server.api_url("/txr/runs"))
         .bearer_auth("not-a-real-jwt")
         .send()
         .await
@@ -276,7 +277,7 @@ async fn fresh_registration_gets_exactly_one_personal_account() {
     // The turnkey register path ran no synchronous ensure — the backstop is the only
     // thing that can create the account, and only on an authenticated request.
     let token = login(&server, "freshuser").await;
-    assert_eq!(authed_projects(&server, &token).await, 200);
+    assert_eq!(authed_gated(&server, &token).await, 200);
 
     assert_eq!(
         personal_count(&pool, fresh).await,
@@ -311,7 +312,7 @@ async fn externally_provisioned_user_healed_by_backstop() {
     );
 
     let token = login(&server, "ldapuser").await;
-    assert_eq!(authed_projects(&server, &token).await, 200);
+    assert_eq!(authed_gated(&server, &token).await, 200);
 
     assert_eq!(
         personal_count(&pool, ldap_like).await,
@@ -338,7 +339,7 @@ async fn ensure_is_idempotent_across_sync_site_and_backstop() {
     // Now run the backstop path repeatedly — it must NOT create a second.
     let token = login(&server, "alice").await;
     for _ in 0..3 {
-        assert_eq!(authed_projects(&server, &token).await, 200);
+        assert_eq!(authed_gated(&server, &token).await, 200);
     }
     assert_eq!(
         personal_count(&pool, alice).await,
@@ -368,7 +369,7 @@ async fn preexisting_user_without_account_self_heals() {
 
     // First login + request self-heals.
     let token1 = login(&server, "bob").await;
-    assert_eq!(authed_projects(&server, &token1).await, 200);
+    assert_eq!(authed_gated(&server, &token1).await, 200);
     assert_eq!(
         personal_count(&pool, bob).await,
         1,
@@ -377,7 +378,7 @@ async fn preexisting_user_without_account_self_heals() {
 
     // A brand-new login (fresh token) + request — still exactly one, never a second.
     let token2 = login(&server, "bob").await;
-    assert_eq!(authed_projects(&server, &token2).await, 200);
+    assert_eq!(authed_gated(&server, &token2).await, 200);
     assert_eq!(
         personal_count(&pool, bob).await,
         1,
@@ -487,7 +488,7 @@ async fn backstop_still_self_heals_a_pre_hook_user() {
 
     // The retained backstop heals on the next authenticated request.
     let token = login(&server, "carol").await;
-    assert_eq!(authed_projects(&server, &token).await, 200);
+    assert_eq!(authed_gated(&server, &token).await, 200);
     assert_eq!(
         personal_count(&pool, carol).await,
         1,

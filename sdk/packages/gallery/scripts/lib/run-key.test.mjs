@@ -20,12 +20,16 @@ import { createServer } from 'node:net'
 
 // TEST-3: CROSS-LANGUAGE parity — the SAME literals the Rust #[cfg(test)]
 // `cross_language_parity_fixture` pins. A drift in either language fails one.
+// STRIP (ITEM-6): the rename (a380526a) rewrote the fixture path literals
+// (`/data/pbya/<old-name>/tmp/xwt-*` → `/data/pbya/txresbench/tmp/xwt-*`)
+// without re-deriving the pinned hashes (the old values were the hashes of the
+// old literals); re-anchored to the JS/Rust/Python-verified values below.
 test('TEST-3 cross-language FNV parity fixture', () => {
-  assert.equal(fnv1a8('/data/pbya/txresbench/tmp/xwt-a'), '12080097')
-  assert.equal(fnv1a8('/data/pbya/txresbench/tmp/xwt-b'), '1208014a')
+  assert.equal(fnv1a8('/data/pbya/txresbench/tmp/xwt-a'), '9c1bf64a')
+  assert.equal(fnv1a8('/data/pbya/txresbench/tmp/xwt-b'), '9c1bf053')
   // worktreeKey strips /src-app → same key from a manifest-style path.
-  assert.equal(worktreeKey('/data/pbya/txresbench/tmp/xwt-a/src-app/server'), '12080097')
-  assert.equal(worktreeKey('/data/pbya/txresbench/tmp/xwt-a'), '12080097')
+  assert.equal(worktreeKey('/data/pbya/txresbench/tmp/xwt-a/src-app/server'), '9c1bf64a')
+  assert.equal(worktreeKey('/data/pbya/txresbench/tmp/xwt-a'), '9c1bf64a')
 })
 
 // TEST-2: key shape + portBase math + pickBindablePort.

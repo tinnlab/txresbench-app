@@ -18,7 +18,7 @@ use super::models::{
 use super::permissions::{AccountManage, AccountMembersManage, AccountRead};
 
 /// The DEC-12 consent consequence, stated VERBATIM from the design (#140's option (a),
-/// `docs/design/membership-rescope.md` §2.1 / the research doc §3 D-1) and reused by
+/// (the membership-rescope design §2.1 / the research doc §3 D-1) and reused by
 /// every self-service membership route's description.
 ///
 /// #140 closed with this obligation unstated and the re-scope had to re-file it as a
@@ -401,7 +401,7 @@ fn revoke_invitation_docs(op: TransformOperation) -> TransformOperation {
 //
 // Recorded HERE, in the product tree, and not only in this branch's `.lifecycle/`
 // artifacts — which are stripped at merge. That is exactly how #140 lost this obligation
-// the first time, and how `docs/design/membership-rescope.md` §2.1 came to describe its
+// the first time, and how the membership-rescope design's §2.1 came to describe its
 // closure as "not a discharge, it is a transfer of obligation".
 //
 //  1. **The DEC-12 consent copy in the ROLE-SELECT helper text.** #140's option (a) was
@@ -427,7 +427,7 @@ fn revoke_invitation_docs(op: TransformOperation) -> TransformOperation {
 //     deliberately NOT `origin`-stamped, so they arrive over the wire like any other and
 //     must NOT be echoed. A revision of this branch briefly stamped them and thereby
 //     deleted the only notification the acting client had for a side effect it does not
-//     model; see `handlers.rs::fan_cancelled_transfers`.
+//     model; the transfer fan was removed with the `project` module (strip ITEM-3).
 //
 // One obligation deliberately does NOT extend to `leave`: the DEC-12 consent copy.
 // `DEC12_CONSENT` states what a membership GRANTS, and leaving relinquishes rather than

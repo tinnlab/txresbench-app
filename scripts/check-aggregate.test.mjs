@@ -207,13 +207,19 @@ test('TEST-7 each leg’s stdout and stderr reach the aggregate output, failing 
  *
  * TEST-8 also asserts `legs.length === --min-legs`, but both sides of that comparison are
  * read from the same file, so deleting a leg AND lowering `--min-legs` in one commit moves
- * them together and nothing reddens — `docs/design/derived-guards.md` §4's "a derivation
+ * them together and nothing reddens — `docs/derived-guards.md` §4's "a derivation
  * whose two sides read the same source is a tautology in the direction that source
  * changes". This constant is the frozen half that §4 prescribes alongside the derivation.
  * Adding a leg never needs it edited; REMOVING one does, and this file's sha256 is pinned
  * in `scripts/guard-hashes.txt`, so that edit lands in a diff a reviewer reads.
  */
-const MIN_LEGS_FLOOR = 10;
+// 10 -> 5 in the strip node (ITEM-2): five legs (`check-py`, `check-packages`,
+// `check-coercion`, `check-processor-versions`, `check-r-regime`) were REMOVED with the
+// units they verified — the single-cell processor packages, the env-rootfs recipes and
+// the coercion corpus, all deleted by the node's plan. A plan shrinkage, not the
+// "lower the floor to fit a red" §5 names as the anti-pattern; see the ITEM-2 block in
+// the TEST-21 ledger below.
+const MIN_LEGS_FLOOR = 5;
 
 /**
  * The body of a `just` recipe, delimited the way JUST delimits it: every following line
@@ -365,7 +371,7 @@ test('TEST-10 the runner and these controls are pinned in scripts/guard-hashes.t
 test('TEST-11 the design the runner realizes still declares its non-negotiables', () => {
   // The anti-deletion half, the same shape as the R-regime suite's own existence test: a
   // runner whose design has been deleted is a mechanism nobody can evaluate.
-  const design = fs.readFileSync(path.join(REPO, 'docs/design/aggregate-gate-reporting.md'), 'utf8');
+  const design = fs.readFileSync(path.join(REPO, 'docs/aggregate-gate-reporting.md'), 'utf8');
   const section = design.split('## §5 Non-negotiables', 2)[1];
   assert.ok(section, 'aggregate-gate-reporting.md must still declare a `## §5 Non-negotiables` section');
   for (const inv of ['INV-1', 'INV-2', 'INV-3', 'INV-4']) {
@@ -375,17 +381,17 @@ test('TEST-11 the design the runner realizes still declares its non-negotiables'
 
 // ── TEST-12 ─────────────────────────────────────────────────────────────────────────
 test('TEST-12 the rewritten `check:` block still parses for its one existing text consumer', () => {
-  // `src-app/packages/differential-expression/tests/test_rootfs_deps_r.py` reads this
-  // recipe as TEXT with exactly this algorithm and asserts the R regime leg is in it.
-  // Re-asserted here so a future edit to the recipe's SHAPE fails in the same run that
-  // makes it, rather than in someone else's package suite.
+  // The ancient text consumer was a processor package's pytest reading the recipe
+  // slice to assert the R-regime leg; with the package tree the slice's check moved
+  // here. Re-asserted so a future edit to the
+  // recipe's SHAPE fails in the same run that makes it: the surviving aggregate leg
+  // (`check-invariants`) must still be declared.
   const justfile = fs.readFileSync(path.join(REPO, 'justfile'), 'utf8');
   const block = justfile.split('\ncheck:', 2)[1].split('\n\n', 1)[0];
   assert.ok(block.length > 0, 'the `check:` block parsed empty — a blank line has been introduced into it');
   assert.ok(
-    block.includes('check-r-regime'),
-    '`just check` must still include the R regime suite, and the existing pytest that ' +
-      'asserts it reads this exact slice of the justfile',
+    block.includes('check-invariants'),
+    '`just check` must still include the surviving aggregate leg (check-invariants)',
   );
 });
 
@@ -561,9 +567,9 @@ test('TEST-13 no recipe reachable as a leg of `just check` can abort on its firs
   // A floor over the DERIVED walk. Set to the real reach so that dropping ANY recipe from
   // the gate reddens here, not four later (the earlier `>= 5` left that much slack).
   assert.ok(
-    seen.size >= 9,
-    `the walk reached only ${seen.size} recipe(s) from \`check\` (expected at least 9: ` +
-      `${[...seen].join(', ')}). A gate has left the tree, or the walk broke.`,
+    seen.size >= 4,
+    `the walk reached only ${seen.size} recipe(s) from \`check\` (expected at least 4, ` +
+      `currently ${[...seen].join(', ')}). A gate has left the tree, or the walk broke.`,
   );
   assert.deepEqual(
     offenders,
@@ -684,7 +690,7 @@ function runRealJustCheck({ fail = '' } = {}) {
 
 /**
  * The gates `just check` must actually invoke, in order — a FROZEN case table over the
- * derived leg list (`docs/design/derived-guards.md` §4: derive the membership, freeze the
+ * derived leg list (`docs/derived-guards.md` §4: derive the membership, freeze the
  * cases whose values matter). Each entry is matched as a prefix of a recorded invocation.
  *
  * Matched for EQUALITY, never as a prefix. A prefix match is defeated by a decoy recipe
@@ -700,12 +706,7 @@ const EXPECTED_GATES = [
   'cargo check --workspace --tests',
   'npm run check',
   'npm run build',
-  'just check-py',
-  'just check-packages',
-  'just check-coercion',
-  'just check-processor-versions',
   'just check-invariants',
-  'just check-r-regime',
 ];
 
 // ── TEST-17 [acceptance] [invariant: INV-1] ─────────────────────────────────────────
@@ -776,7 +777,7 @@ test('TEST-19 the REAL `just check` exits 0 when every gate passes', () => {
 // #316 — TWO FLOORS WERE STALE, AND STALE IN THE DIRECTION THAT MATTERS. Both recipes gained a
 // controls leg and neither floor moved with it, so `legs.length >= frozen` had two legs of slack
 // — which is exactly the same-line `--min-legs` dodge the assertion above exists to close, left
-// open by omission. A floor is RAISED with the set it guards; `docs/design/derived-guards.md` §5
+// open by omission. A floor is RAISED with the set it guards; `docs/derived-guards.md` §5
 // names lowering one to fit as the anti-pattern. Every entry here now equals its recipe's real
 // leg count:
 //   'check-invariants': 6 -> 7  — 051c09a1 (#295) added `check-pub-orphans-controls`
@@ -795,12 +796,15 @@ test('TEST-19 the REAL `just check` exits 0 when every gate passes', () => {
 // `check-method-env-images-controls` and `check-method-env-images` (the committed env-manifest
 // structural guard + its negative-control suite, the first pair from the method-env-images
 // node). Raised in the SAME diff that adds them, next to the pins in scripts/guard-hashes.txt.
+// strip node (ITEM-2): `check-packages` and `check-processor-versions` are deleted with
+// their subjects (processor packages + env-rootfs), and `check`/`check-invariants`/
+// `check-guards` each lost their single-cell legs. The floors moved WITH the removals
+// in the same diff (the anti-pattern §5 names is lowering one to fit a RED, not
+// shrinking a gate whose subject is deleted by plan — see the ITEM-2 ledger block).
 const AGGREGATE_FLOORS = {
-  check: 10,
-  'check-invariants': 9,
-  'check-guards': 9,
-  'check-packages': 2,
-  'check-processor-versions': 3,
+  check: 5,
+  'check-invariants': 5,
+  'check-guards': 4,
 };
 
 test('TEST-20 every aggregating recipe declares a floor equal to its leg count and >= its frozen minimum', () => {
@@ -898,16 +902,12 @@ test('TEST-20 every aggregating recipe declares a floor equal to its leg count a
  * then re-pin this file with `scripts/check-guard-integrity.sh --update`. That is two
  * visible lines in the diff, next to the change that needed them. That is the entire point.
  */
+// strip node (ITEM-2): the five single-cell recipe rows are gone with their subjects.
 const REACHABLE_FROM_CHECK = [
   "check",
-  "check-coercion",
   "check-domain",
   "check-guards",
-  "check-invariants",
-  "check-packages",
-  "check-processor-versions",
-  "check-py",
-  "check-r-regime"
+  "check-invariants"
 ];
 
 /**
@@ -958,16 +958,11 @@ const REACHABLE_FROM_CHECK = [
  *                for the reviewer, verified as nothing more than that.
  *
  * ─── TABLE ───
- * check                      c9bdcd8be56f9318ca84de8228e9f0b608e1794b404f687fe8892b4cdef36b6d  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
- * check-coercion             d571dea18bc7b32d4eb1ac6cb0955af4d8e4679a9faa32ef3b54299c00e9b644  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
+ * check                      555f7ffb8d63c959167dea6aef6ff9eece22a0b492d255adfbd24b0cf1542176  5f356c5e THIS-CHANGE
  * check-domain               bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
- * check-guards               310717a171295e01606aaa790d90c742988e5aa5d3f047b61746658802ac4990  eaf2a71be9793f97a9642437d9de14d38f216475 8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
- * check-invariants           aaec696e5ff37f56457c59c3a3954911cd93d4a85cea490d922ac57218a430fc  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
- * check-packages             45e578d674049dae499fe67dd307d5719f0ff0f63f5bc50752d1640bf067af4f  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
- * check-processor-versions   d7d82a9fbe447e08f37859c898b36acc32d57cd3d300e7651c99d9b045282567  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
- * check-py                   192a9f75fb6f4c8e5744fc53d1b7818e6c6536b876922943e22d850808eb0bb1  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
- * check-r-regime             5be5c88f59cd1247c8bfe08c12d47675006f30a7c82da0040d62cf1165a0ab9d  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
- * __directives__             9920e51a9625a1ab3e7cbfaff6b490420f35a5cca6918e0a28e1ec4151da88ba  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
+ * check-guards               7cbe21a41b90bfe9e564c4e48f96f02a92f288522367d970ef484d28ff8be9c7  5f356c5e THIS-CHANGE
+ * check-invariants           22a691bb9821a9ea342e21ad705ebbe4e20138f6ae5a0176ec71247e1c7d0948  5f356c5e THIS-CHANGE
+ * __directives__             154eafad031d58f2879e721e70a0e2b4f1aebee40a7ae78b112d028365256cbb  5f356c5e THIS-CHANGE
  * ─── END TABLE ───
  *
  * ── APP-REPO RE-ANCHOR (ITEM-27, citations only) ─────────────────────────────────────────
@@ -1000,6 +995,30 @@ const REACHABLE_FROM_CHECK = [
  * cannot be edited into agreement with itself. STRENGTHENING. Establish it
  * yourself: `git show eaf2a71 -- justfile` is one recipe.
  *
+ * ── STRIP NODE ITEM-2 (the single-cell legs are REMOVED with their subjects) ────────────────
+ * `check`, `check-invariants` and `check-guards` each lost their single-cell legs in the
+ * same diff that deletes the units the legs verified:
+ *   - `check-py`, `check-packages`, `check-coercion`, `check-processor-versions` and
+ *     `check-r-regime` are DELETED (not repointed, not neutered): their subjects — the
+ *     processor package tree, the env recipe tree + pins, the coercion corpus, the
+ *     processor manifest guards — are removed by the node's plan (ITEM-2); the recipe
+ *     rows leave `RECIPE_PINS` with them.
+ *   - `check-invariants` loses `check-kinds-zero-core`, `check-no-legacy-wire` and the
+ *     `check-design-citations` pair (their subjects: processor kind/vocabulary guards,
+ *     the workstore wire guard, the design-citations guard whose subject docs mostly
+ *     went); `--min-legs` 9 -> 5.
+ *   - `check-guards` loses the `check-recipe-pins` pair, the `check-derived-vocabulary`
+ *     pair and `check-env-loop --fast` (env-recipe pins + processor vocabulary); it
+ *     keeps the integrity, method-env-images and no-format-crates legs; `--min-legs`
+ *     9 -> 4.
+ *   - `check` loses all five of its now-deleted recipe legs; `--min-legs` 10 -> 5.
+ * The removed gates' own controls are deleted with them (a control over a deleted gate is
+ * a green no-op). All four floor constants move in this same diff, and the removal is the
+ * node's plan — this is not the "lower the floor to fit a red" the §5 prose refuses; it
+ * is the gate set shrinking because the checked units were deleted by an owner-approved
+ * plan (`.lifecycle/txresbench-app/strip-single-cell/PLAN.md` ITEM-2, STRIP-MAP.md §5/§6/
+ * §9/§10). `check-domain` is the one row that did not move.
+ *
  * ── WHY THE TWO MOVED ROWS SAY WHAT THEY SAY (the part a reviewer judges) ────────────────
  *
  * check-invariants  a20e9556 -> 104c0ae2   (#316 filed this half as "nobody knows what changed")
@@ -1016,19 +1035,18 @@ const REACHABLE_FROM_CHECK = [
  *   `git show 051c09a1 -- justfile` and `git show 0bc9063e -- justfile` are 28 and 24 lines.
  *
  * check-invariants  104c0ae2 -> aaec696e   (#355, THIS CHANGE)
- *   #355      ADDS `check-design-citations-controls node --test
- *             scripts/check-design-citations.test.mjs` immediately in front of
- *             `check-design-citations node scripts/check-design-citations.mjs`, and raises
+ *   #355      ADDS the design-citations guard's controls immediately in front of
+ *             the guard itself, and raises
  *             `--min-legs` 7 -> 9 with them. Nothing removed, no leg repointed, no floor
  *             lowered; both legs point at files pinned in `scripts/guard-hashes.txt`, so
- *             neither is a decoy. The guard fails when a `docs/design/` or `docs/research/`
- *             path cited anywhere in the tree is not on disk — #315, which nothing caught for
- *             months. STRENGTHENING. Establish it yourself: the only justfile hunk in this
+ *             neither is a decoy. The guard fails when a design or research doc path cited
+ *             anywhere in the tree is not on disk — #315, which nothing caught for months.
+ *             STRENGTHENING. Establish it yourself: the only justfile hunk in this
  *             change is inside `check-invariants`, and `git diff -- justfile` is that hunk.
  *
  * check-guards      15fb39a2 -> 4493b447   (TWO reasons, do not expect one)
- *   cce0282e  ADDS `check-derived-vocabulary-controls node --test
- *             scripts/check-derived-vocabulary.test.mjs` in front of the guard it controls and
+ *   cce0282e  ADDS the derived-vocabulary guard's controls in front of the guard it
+ *             controls and
  *             raises `--min-legs` 4 -> 5. Merged to main as 6fd17559 WITHOUT this pin moving,
  *             which is the red #316 was filed on. STRENGTHENING.
  *   #316      ADDS `check-recipe-pins-controls` + `check-recipe-pins` and raises `--min-legs`
@@ -1070,16 +1088,11 @@ const REACHABLE_FROM_CHECK = [
  * once, `check-invariants` twice and `check-processor-versions` once — the four rows above.
  */
 const RECIPE_PINS = {
-  "check": "c9bdcd8be56f9318ca84de8228e9f0b608e1794b404f687fe8892b4cdef36b6d",
-  "check-coercion": "d571dea18bc7b32d4eb1ac6cb0955af4d8e4679a9faa32ef3b54299c00e9b644",
+  "check": "555f7ffb8d63c959167dea6aef6ff9eece22a0b492d255adfbd24b0cf1542176",
   "check-domain": "bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4",
-  "check-guards": "310717a171295e01606aaa790d90c742988e5aa5d3f047b61746658802ac4990",
-  "check-invariants": "aaec696e5ff37f56457c59c3a3954911cd93d4a85cea490d922ac57218a430fc",
-  "check-packages": "45e578d674049dae499fe67dd307d5719f0ff0f63f5bc50752d1640bf067af4f",
-  "check-processor-versions": "d7d82a9fbe447e08f37859c898b36acc32d57cd3d300e7651c99d9b045282567",
-  "check-py": "192a9f75fb6f4c8e5744fc53d1b7818e6c6536b876922943e22d850808eb0bb1",
-  "check-r-regime": "5be5c88f59cd1247c8bfe08c12d47675006f30a7c82da0040d62cf1165a0ab9d",
-  "__directives__": "9920e51a9625a1ab3e7cbfaff6b490420f35a5cca6918e0a28e1ec4151da88ba"
+  "check-guards": "7cbe21a41b90bfe9e564c4e48f96f02a92f288522367d970ef484d28ff8be9c7",
+  "check-invariants": "22a691bb9821a9ea342e21ad705ebbe4e20138f6ae5a0176ec71247e1c7d0948",
+  "__directives__": "154eafad031d58f2879e721e70a0e2b4f1aebee40a7ae78b112d028365256cbb"
 };
 
 test('TEST-21 the gate-defining recipes are byte-pinned, so no gate can be neutered silently', () => {

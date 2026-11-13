@@ -16,21 +16,17 @@
 //! (zero errors), every file has a unique numeric prefix, the group's table
 //! set matches the Postgres chain, and the group-specific row semantics hold
 //! (TEST-15…TEST-18). ITEM-7 owns the SDK group: `txresbench-auth` (5 files),
-//! `txresbench-file` (1), `txresbench-notification` (1). ITEM-8 owns the app group part 1:
-//! `jobs` (6), `sandbox` (3), `mcp` (2), `features` (1), `file` (1). ITEM-9
-//! owns the app group part 2: `workstore` (19) — the shared-harness leg pins
-//! the whole 39-file chain + the app groups' row semantics; the jobs-specific
-//! scheduler invariants live in `chain_jobs.rs` (TEST-15) and the
-//! workstore-specific ones in `chain_workstore.rs` (TEST-16). ITEM-10 owns
-//! the app group part 3: `account` (8) + `project` (1) — the shared harness
-//! now pins the 48-file chain; the account/project-specific row semantics
-//! live in `chain_account_project.rs` (TEST-17). ITEM-11 owns the last app
-//! group part 4: `dataset` (4), `drafts` (3), `provenance` (2) — the shared
-//! harness now pins the FULL 57-file chain (the complete SQLite chain that
-//! ITEM-12 flips to); the dataset/drafts/provenance-specific row semantics
-//! live in `chain_dataset_drafts_prov.rs` (TEST-18). ITEM-26 then moved every
-//! file into its FINAL dir (the module dirs / the SDK crates' `migrations/`)
-//! and deleted the staging tree + the PG chains.
+//! `txresbench-file` (1), `txresbench-notification` (1). ITEM-8 owns the app
+//! group part 1: `jobs` (6), `sandbox` (3), `mcp` (2), `features` (1),
+//! `file` (1). ITEM-26 moved every file into its FINAL dir (the module dirs /
+//! the SDK crates' `migrations/`) and deleted the staging tree + the PG
+//! chains. The strip (feat/strip-single-cell) REMOVED the `datatype`,
+//! `dataset`, `drafts`, `extensions`, `project`, `provenance` and `workstore`
+//! modules and their migrations, plus ITEM-3's ownership files
+//! (202608040013/…014) — the kept chain is the SDK 7 files plus the kept
+//! modules' 31 files: `jobs` (6), `sandbox` (3), `mcp` (2), `features` (1),
+//! `file` (1), `account` (6), `execution_engine` (7), `model_store` (3),
+//! `history_store` (2) — 38 files total, pinned below.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -43,54 +39,39 @@ use sqlx::Row;
 const SDK_CHAIN_GROUPS: &[(&str, usize)] =
     &[("txresbench-auth", 5), ("txresbench-file", 1), ("txresbench-notification", 1)];
 
-/// The app chain module groups ITEM-8 + ITEM-9 + ITEM-10 + ITEM-11 ports:
-/// (module dir name, expected `.sql` count).
+/// The app chain module groups the kept modules ship: (module dir name,
+/// expected `.sql` count).
 const APP_CHAIN_GROUPS: &[(&str, usize)] = &[
     ("jobs", 6),
     ("sandbox", 3),
     ("mcp", 2),
     ("features", 1),
     ("file", 1),
-    ("workstore", 19),
-    ("account", 8),
-    ("project", 1),
-    ("dataset", 4),
-    ("drafts", 3),
-    ("provenance", 2),
+    ("account", 6),
+    ("execution_engine", 7),
+    ("model_store", 3),
+    ("history_store", 2),
 ];
 
 /// The table set the ported chain creates (SDK 12 + jobs 8 (incl.
-/// compute_meter) + sandbox 1 + mcp 2 + features 1 + workstore 6 +
-/// account 5 + project 5 + dataset 5 + drafts 3 + provenance 5 = 53),
-/// alphabetically — the Postgres chain's table names verbatim.
-/// `workstore_axis_entry` is NOT in the set: the baseline creates it and
-/// `202608040002` drops it (in the PG chain too). ITEM-11 (dataset)
-/// replaced the `datasets` test stub with the REAL chain table — the name
-/// in the set is unchanged; every other name in the set has been real
-/// since its own item.
+/// compute_meter) + sandbox 1 + mcp 2 + features 1 + account 5 +
+/// execution_engine 5 + model_store 3 + history_store 2 = 39),
+/// alphabetically. The strip removed the dataset/project/workstore/
+/// provenance/drafts tables with their modules — this set is exactly the
+/// tables the kept chain creates (verified against a real SQLite apply of
+/// `migrations-merged/`).
 const TABLE_SET: &[&str] = &[
     "account_invitation_mints",
     "account_invitations",
     "account_member_events",
     "account_members",
     "accounts",
-    "artifacts",
     "auth_providers",
     "compute_meter",
-    "dataset_files",
-    "dataset_folder_members",
-    "dataset_folders",
-    "dataset_shares",
-    "datasets",
-    "draft_artifact_lineage",
-    "draft_freeze_jobs",
-    "drafts",
     "feature_flags",
     "file_versions",
     "files",
     "groups",
-    "infra_compute",
-    "infra_object_store",
     "job_dependencies",
     "job_logs",
     "job_metrics",
@@ -102,26 +83,23 @@ const TABLE_SET: &[&str] = &[
     "mcp_settings",
     "notifications",
     "oauth_sessions",
-    "object_store_migration",
     "pending_account_links",
-    "project_datasets",
-    "project_settings",
-    "project_shares",
-    "project_transfers",
-    "projects",
-    "provenance_code_blobs",
-    "provenance_reference_resources",
-    "provenance_run_repro",
-    "provenance_settings",
-    "provenance_verifications",
     "refresh_tokens",
     "sandbox_settings",
     "session_settings",
-    "storage_meter",
+    "txr_app_config",
+    "txr_example_set",
+    "txr_history_preferences",
+    "txr_model_sets",
+    "txr_models",
+    "txr_run_logs",
+    "txr_run_methods",
+    "txr_run_retention",
+    "txr_runs",
+    "txr_timing_samples",
     "user_auth_links",
     "user_groups",
     "users",
-    "workstore_settings",
 ];
 
 /// Every file the SDK group ships, in the version-sorted order the merged
@@ -136,10 +114,10 @@ const SDK_CHAIN_FILES: &[&str] = &[
     "202609090010_users_email_lowercase_invariant.sql",
 ];
 
-/// Every file the ported chain ships (SDK 7 + app ITEM-8 groups 13 +
-/// ITEM-9's workstore 19 + ITEM-10's account 8 + project 1 + ITEM-11's
-/// dataset 4 + drafts 3 + provenance 2), in the version-sorted order the
-/// merged chain applies them — the complete 57-file SQLite chain.
+/// Every file the ported chain ships (SDK 7 + the kept modules' 31: jobs 6,
+/// sandbox 3, mcp 2, features 1, file 1, account 6, execution_engine 7,
+/// model_store 3, history_store 2), in the version-sorted order the merged
+/// chain applies them — the complete 38-file SQLite chain.
 pub(crate) const CHAIN_FILES: &[&str] = &[
     "202607140050_auth_schema.sql",
     "202607140125_file_schema.sql",
@@ -148,56 +126,37 @@ pub(crate) const CHAIN_FILES: &[&str] = &[
     "202607144500_auth_seed.sql",
     "202607144600_auth_add_users_token_version.sql",
     "202608030001_jobs_baseline.sql",
-    "202608030002_dataset_baseline.sql",
-    "202608030003_project_baseline.sql",
-    "202608030004_workstore_baseline.sql",
-    "202608030005_provenance_baseline.sql",
     "202608030006_sandbox_baseline.sql",
     "202608030007_mcp_baseline.sql",
     "202608030008_file_baseline.sql",
-    "202608040001_artifact_model.sql",
-    "202608040002_artifact_model_drop.sql",
-    "202608040003_artifact_role.sql",
-    "202608040004_artifact_gathered.sql",
-    "202608040005_dataset_source_integrate.sql",
-    "202608040006_usable_artifacts_view.sql",
-    "202608040007_stored_vs_logical_bytes.sql",
-    "202608040008_integrate_declares_alignment.sql",
-    "202608040009_artifact_mask_role.sql",
-    "202608040010_recipe_alignment_or_single_source.sql",
-    "202608040011_dataset_source_filter.sql",
     "202608040012_account_baseline.sql",
-    "202608040013_ownership_account_id.sql",
-    "202608040014_account_id_indexes.sql",
-    "202608050001_storage_meter.sql",
     "202608050002_compute_meter.sql",
     "202608050003_multiworker_claim.sql",
-    "202608240001_drafts_baseline.sql",
-    "202608240002_draft_freeze_jobs.sql",
-    "202608240003_draft_artifact_lineage.sql",
     "202608260001_compute_meter_account.sql",
-    "202608260002_storage_meter_account.sql",
-    "202608280001_artifact_membership_index.sql",
     "202608280002_features_baseline.sql",
     "202608280011_account_admin_suspend.sql",
     "202608290010_sandbox_per_class_defaults.sql",
-    "202608290020_workstore_settings.sql",
     "202608290030_jobs_sse_admission_knobs.sql",
     "202608290040_mcp_settings.sql",
-    "202608290050_provenance_gc_settings.sql",
     "202608290070_jobs_scheduler_reaper_knobs.sql",
-    "202608290090_infra_config.sql",
-    "202608290100_object_store_migration.sql",
-    "202608290110_object_store_cutover.sql",
-    "202608290120_object_store_old_config.sql",
-    "202608290130_object_store_abandon.sql",
-    "202609020010_upload_limits.sql",
     "202609020020_sandbox_fsize_default.sql",
     "202609040001_account_members_manage.sql",
     "202609040002_account_invitations.sql",
     "202609040003_account_invitation_mints.sql",
     "202609040010_account_member_events.sql",
     "202609090010_users_email_lowercase_invariant.sql",
+    "202610260001_txr_runs.sql",
+    "202610260002_txr_run_methods.sql",
+    "202610260003_txr_run_logs.sql",
+    "202610260004_txr_app_config.sql",
+    "202610260005_txr_run_methods_model_fields.sql",
+    "202610260006_txr_runs_estimate.sql",
+    "202610260007_txr_model_sets.sql",
+    "202610260008_txr_models.sql",
+    "202610260009_txr_history_preferences.sql",
+    "202610260010_txr_run_retention.sql",
+    "202610260011_txr_timing_samples.sql",
+    "202610270001_txr_example_set.sql",
 ];
 
 static UNIQUE: AtomicU64 = AtomicU64::new(0);
@@ -308,19 +267,17 @@ pub(crate) async fn applied_version_count(pool: &SqlitePool) -> i64 {
         .get::<i64, _>(0)
 }
 
-/// TEST-14 (ITEM-7 + ITEM-8/9/10/11 groups): the ported chain (SDK 7 + app
-/// ITEM-8 groups 13 + ITEM-9 workstore 19 + ITEM-10 account 8 + project 1
-/// + ITEM-11 dataset 4 + drafts 3 + provenance 2) composes to exactly its
-/// fifty-seven files, applies to a scratch SQLite 3.46 file with zero
-/// errors, yields the Postgres chain's table set, and re-applies as a
-/// no-op.
+/// TEST-14 (the kept modules): the ported chain (SDK 7 + kept app modules
+/// 31) composes to exactly its thirty-eight files, applies to a scratch
+/// SQLite 3.46 file with zero errors, yields the kept chain's table set,
+/// and re-applies as a no-op.
 #[tokio::test]
 async fn ported_chain_applies_from_scratch_and_reapplies_as_noop() {
     let scratch = Scratch::new("full-chain");
     let merged = compose_sqlite_chain(scratch.path());
 
-    // The composed set is exactly the fifty-seven ported files — the FULL
-    // SQLite chain (the final, post-ITEM-26 layout).
+    // The composed set is exactly the thirty-eight ported files — the FULL
+    // stripped SQLite chain.
     assert_eq!(merged_sql_files(&merged), CHAIN_FILES);
 
     // Every file has a unique numeric prefix (the merge-gate C2 namespace
@@ -403,21 +360,19 @@ async fn sdk_chain_type_contract_and_seed_semantics_hold() {
             ("Administrators".to_string(), "[\"*\"]".to_string(), 1),
             (
                 "Users".to_string(),
-                // The app-side grants (ITEM-8: jobs::use by 202608030001,
+                // The app-side grants (jobs::use by 202608030001,
                 // mcp::use by 202608030007, the six files:: perms by
-                // 202608030008; ITEM-10: projects::use + notifications::read
-                // by 202608030003, account::read by 202608040012,
-                // account::members::manage by 202609040001; ITEM-11:
-                // provenance::read + provenance::export by 202608030005,
-                // drafts::use by 202608240001) ride ON TOP of the auth
+                // 202608030008, account::read by 202608040012,
+                // account::members::manage by 202609040001 — the
+                // project/dataset/drafts/provenance grant migrations are
+                // gone with the stripped modules) ride ON TOP of the auth
                 // seed's two profile perms — the order is the chain's
                 // version order.
                 "[\"profile::read\",\"profile::edit\",\"jobs::use\",\
-                 \"projects::use\",\"notifications::read\",\
-                 \"provenance::read\",\"provenance::export\",\"mcp::use\",\
+                 \"mcp::use\",\
                  \"files::read\",\"files::upload\",\"files::download\",\
                  \"files::delete\",\"files::preview\",\"files::generate_token\",\
-                 \"account::read\",\"drafts::use\",\"account::members::manage\"]"
+                 \"account::read\",\"account::members::manage\"]"
                     .to_string(),
                 1
             ),
@@ -575,14 +530,15 @@ async fn email_invariant_refuses_case_collisions_in_legacy_data() {
     // The full chain now REFUSES: the functional unique index cannot be
     // created over the case-twin rows, the transaction rolls back, and the
     // migration is not recorded — the operator decides which account survives.
-    // The refusal lands at the LAST file of the chain (202609090010 sorts
-    // above every app file), so the six pre-applied files plus the
-    // fifty app files (ITEM-8's 13 + ITEM-9's 19 + ITEM-10's 9 +
-    // ITEM-11's 9) are applied and only the invariant file itself is not:
-    // 56 of 57. Every parent table the mid-chain migrations reference
-    // (`accounts`, `projects`, `datasets`) is REAL — the full chain is applied
-    // below — so no test-side stubs stand in any more (ITEM-26 deleted the
-    // staged chain and with it the stub machinery).
+    // The refusal lands at 202609090010 (the 26th of the 38 files: it sorts
+    // above every SDK and kept-app file, but BELOW the execution_engine /
+    // model_store / history_store files), so the six pre-applied SDK files
+    // plus the nineteen kept-app files between them and the invariant are
+    // applied and only the invariant file itself is not: 25 of 38. The
+    // mid-chain migrations reference only kept tables (`users`, `accounts`,
+    // `groups`, the jobs/sandbox/mcp/files tables) — the full chain is
+    // applied below — so no test-side stubs stand in any more (ITEM-26
+    // deleted the staged chain and with it the stub machinery).
     let full_migrator = Migrator::new(merged.as_path())
         .await
         .expect("full migrator");
@@ -594,9 +550,13 @@ async fn email_invariant_refuses_case_collisions_in_legacy_data() {
         err.to_string().contains("users_email_lower_uniq"),
         "refusal must name the invariant index: {err}"
     );
+    let invariant_at = CHAIN_FILES
+        .iter()
+        .position(|f| *f == "202609090010_users_email_lowercase_invariant.sql")
+        .expect("the invariant file is in the chain");
     assert_eq!(
         applied_version_count(&pool).await,
-        (CHAIN_FILES.len() - 1) as i64,
+        invariant_at as i64,
         "the refused migration must be the only file not applied"
     );
     let emails: Vec<String> = sqlx::query_scalar("SELECT email FROM users ORDER BY email")
