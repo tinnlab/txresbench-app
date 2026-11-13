@@ -501,28 +501,37 @@ export function RunningPage() {
             <TxrCountsStrip counts={run.counts} />
             <div data-testid="txr-run-tabs" style={TAB_ROW}>
               {TABS.map(entry => (
-                <Button
+                <span
                   key={entry.id}
-                  data-testid={`txr-run-tab-${entry.id}`}
-                  variant="outline"
-                  className="rounded-full font-normal"
-                  style={tab === entry.id ? ACTIVE_TAB : TAB_CHIP}
-                  aria-pressed={tab === entry.id}
-                  title={entry.definition}
-                  onClick={() => TxrRun.setTab(entry.id)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
-                  {entry.label} {bucketCounts[entry.id]}
-                </Button>
+                  <Button
+                    data-testid={`txr-run-tab-${entry.id}`}
+                    variant="outline"
+                    className="rounded-full font-normal"
+                    style={tab === entry.id ? ACTIVE_TAB : TAB_CHIP}
+                    aria-pressed={tab === entry.id}
+                    title={entry.definition}
+                    onClick={() => TxrRun.setTab(entry.id)}
+                  >
+                    {entry.label} {bucketCounts[entry.id]}
+                  </Button>
+                  {/* qa-fixes4 ITEM-3 (methods-r3 RP-10): the Working chip's
+                      definition is ALWAYS on screen beside it — "Working 6"
+                      alone never leaves a reader guessing what the bucket
+                      holds (the old render-on-active line appeared only
+                      after the tab was clicked). */}
+                  {entry.id === 'working' && entry.definition !== undefined ? (
+                    <span
+                      data-testid="txr-run-tab-working-definition"
+                      style={{ fontSize: 12.5, color: 'var(--txr-muted)' }}
+                    >
+                      {entry.definition}
+                    </span>
+                  ) : null}
+                </span>
               ))}
               <span style={{ flexGrow: 1 }} />
-              {tab === 'working' ? (
-                <span
-                  data-testid="txr-run-tab-working-definition"
-                  style={{ fontSize: 12.5, color: 'var(--txr-muted)' }}
-                >
-                  {TABS.find(t => t.id === 'working')?.definition}
-                </span>
-              ) : null}
               {!state.logOpen ? (
                 <Button
                   data-testid="txr-run-log-open"

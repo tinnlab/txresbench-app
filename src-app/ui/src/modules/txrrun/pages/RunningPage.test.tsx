@@ -394,6 +394,16 @@ describe('RunningPage — the F tabs (ITEM-9, RP-3)', () => {
     expect(screen.getByTestId('txr-run-tab-working').getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByTestId('txr-run-tab-all').getAttribute('aria-pressed')).toBe('false')
   })
+
+  it('the Working chip\'s definition is on screen even before the tab is active (qa-fixes4 ITEM-3, methods-r3 RP-10)', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-tabs')
+    // The report's chip read "Working 6 / 0" with no hint; the definition
+    // now sits beside the chip always (the old render was active-tab-only).
+    expect(screen.getByTestId('txr-run-tab-working-definition').textContent).toBe(
+      'Waiting, downloading or running',
+    )
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

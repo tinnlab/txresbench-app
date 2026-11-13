@@ -97,9 +97,16 @@ const METHOD_LOOK: CSSProperties = {
 /** The board's state column look (the state word in its tone, bold). */
 const STATE_WORD: CSSProperties = { ...COLUMN_LOOK, fontWeight: 600, whiteSpace: 'nowrap' }
 
-/** The progress column: track + fill (the board's 7 px rounded bar). */
+/** The progress column: track + fill (the board's 7 px rounded bar).
+ *  qa-fixes4 ITEM-3 (methods-r3 R2-9): `width: 100%` — on the phone's
+ *  stacked card the cell is a flex row, and a flex item with no width but
+ *  a percentage-width child resolves that child's percentage against an
+ *  indefinite track → the track collapsed to 0 px (the report's "no bar at
+ *  all" on the phone cards while the desktop showed a grey track). The
+ *  definite width is the same layout the desktop table cell gives it. */
 const BAR_TRACK: CSSProperties = {
   height: 7,
+  width: '100%',
   borderRadius: 999,
   background: 'var(--txr-border-subtle)',
   overflow: 'hidden',
@@ -173,7 +180,10 @@ export function TxrRunRow({ row, progress, rowError, nowMs = null, onAction }: T
         </span>
       </td>
       <td data-label="Progress" style={{ ...COLUMN_LOOK, width: '26%' }}>
-        <div style={BAR_TRACK}>
+        <div
+          data-testid={`txr-run-bar-track-${row.method_id}`}
+          style={BAR_TRACK}
+        >
           <div
             data-testid={`txr-run-bar-${row.method_id}`}
             style={{ ...BAR_FILL, width: `${bar}%`, background: STATE_TONE[row.state] }}
