@@ -857,12 +857,9 @@ html.txr-shell-mode-flow .txr-help-rail {
   }
 }
 
-/* qa-fixes2 ITEM-3: the Help page's skip link — off-screen until it takes
- * focus (the component parks it at left:-9999; focus brings it into view). */
-.txr-help-skip-link:focus {
-  left: 12px !important;
-  top: 12px !important;
-}
+/* qa-fixes2 ITEM-3: the Help page's skip link is GONE (qa-fixes4 ITEM-5,
+ * R3-help-5): the shell's AppShell owns the ONE skip link, and this page's
+ * old rule (off-screen until focus) died with the element it styled. */
 
 /* qa-fixes4 ITEM-3 (methods-r3 R2-7): the E screen's run bar at the phone
  * width. SHELL mode (>=768x520) pins the frame's bottom slot by the
