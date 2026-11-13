@@ -325,15 +325,15 @@ fn example_family_is_deterministic_and_passes_the_validator() {
 /// refusal on the example run's own canonical input, and a catalogue
 /// estimate under 30 s at the example's patient count; the cached pick the
 /// endpoint serves is the same list.
-#[test]
-fn pick_is_deterministic_three_fast_saving_methods() {
+#[tokio::test]
+async fn pick_is_deterministic_three_fast_saving_methods() {
     let inputs = example::example_run_inputs().expect("the example canonicalizes");
     let patients = inputs.patients();
     let a = example::pick_fast_methods(&inputs);
     let b = example::pick_fast_methods(&inputs);
     assert_eq!(a, b, "the pick is deterministic");
     assert_eq!(
-        example::example_methods().expect("cached pick"),
+        example::example_methods().await.expect("cached pick"),
         a,
         "the endpoint's cached pick"
     );
