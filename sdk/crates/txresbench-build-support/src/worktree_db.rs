@@ -297,9 +297,13 @@ mod tests {
         // literal for the SAME worktree-root string. If either language's FNV
         // drifts, one of the two suites goes red. `worktree_key` strips /src-app,
         // so the manifest form and the bare-root form hash the identical string.
-        assert_eq!(worktree_key("/data/pbya/txresbench/tmp/xwt-a/src-app/server"), "12080097");
-        assert_eq!(worktree_key("/data/pbya/txresbench/tmp/xwt-a"), "12080097");
-        assert_eq!(worktree_key("/data/pbya/txresbench/tmp/xwt-b"), "1208014a");
+        // STRIP (ITEM-6): the rename rewrote the literals (the old-name
+        // `…/tmp/xwt-*` paths) without re-deriving the hashes; these values are
+        // the agreed FNV-1a of the NEW literals (Node twin + independent Python
+        // check both compute them), re-anchored with the JS side.
+        assert_eq!(worktree_key("/data/pbya/txresbench/tmp/xwt-a/src-app/server"), "9c1bf64a");
+        assert_eq!(worktree_key("/data/pbya/txresbench/tmp/xwt-a"), "9c1bf64a");
+        assert_eq!(worktree_key("/data/pbya/txresbench/tmp/xwt-b"), "9c1bf053");
     }
 
     #[test]
