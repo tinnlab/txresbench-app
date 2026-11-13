@@ -38,7 +38,12 @@ run on a machine with access to `/data/share/pbya/sigtrans` and
    `python3 scripts/pretrained-catalogue/pack_model_txr.py --tree <model-dir> --facts facts.json --out <id>@<version>.txr`
    The facts JSON carries the card's method facts, the needs, the env digests
    (from `src-app/server/data/method-env-images.json`, `base_digest` +
-   `layer_sha256` — INV-7) and the licence; `--verify` re-opens the container.
+   `layer_sha256` — INV-7) and the licence; for a method without its own
+   probability, add the optional `conversions` (the TxResBench package's
+   `model.conversions`: key `outcome` or `outcome@horizon`, value
+   `{kind, a, b, mu, sd, n, rate}`, fitted on the training patients) so the
+   installed model gives chances when it is reused; `--verify` re-opens the
+   container.
    The packer prints `size_bytes:` and `sha256:` — record both.
 2. **Publish.** Create the release asset `<id>@<version>.txr` under the release
    tag `<id>-v<version>` of `tinnlab/txresbench-models` (immutable: an asset
