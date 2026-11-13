@@ -360,9 +360,64 @@ test.describe('txr-help — the measured layout at 1440x900', () => {
     await expect(page.locator('[data-testid="txr-help-section-troubleshooting"] mark').first()).toBeVisible()
     await input.fill('zzzzzz')
     await expect(page.getByTestId('txr-help-no-results')).toBeVisible()
+    // The no-match line has no orphan period after the button (R3-help-4).
+    await expect(page.getByTestId('txr-help-no-results')).toContainText('and try')
+    // Reset happens on the button, not only on clearing the input.
     await page.getByTestId('txr-help-clear-search').click()
     await expect(page.getByTestId('txr-help-no-results')).toHaveCount(0)
     await expect(page.getByTestId('txr-help-section-models')).toBeVisible()
+  })
+
+  test('the search narrows the rail, expands the matching entries and names the hidden quick start (R3-help-4)', async ({ page }) => {
+    await openHelp(page, { width: 1440, height: 900 })
+    // A body-only match ("duplicate rows" is in R07's TITLE — use a body word):
+    await page.getByTestId('txr-help-search-input').fill('patient_id repeats')
+    // The rail lists ONLY the matching section (the old page kept 11 links).
+    await expect(page.locator('[data-testid="txr-help-rail"] a')).toHaveCount(1)
+    await expect(page.getByTestId('txr-help-toc-troubleshooting')).toBeVisible()
+    // The matched entry is EXPANDED (the old page left a body-only match
+    // collapsed: a title with no sign of why it matched).
+    await expect(page.getByTestId('txr-help-accordion-trigger-R07')).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
+    // The quick-start row is replaced by a notice (it used to vanish).
+    await expect(page.getByTestId('txr-help-quickstart')).toHaveCount(0)
+    await expect(page.getByTestId('txr-help-quickstart-hidden')).toBeVisible()
+    // Clearing restores the full rail.
+    await page.getByTestId('txr-help-search-input').fill('')
+    await expect(page.locator('[data-testid="txr-help-rail"] a')).toHaveCount(11)
+    await expect(page.getByTestId('txr-help-quickstart')).toBeVisible()
+  })
+
+  test('the status heading carries no stray backslash and the page owns no in-page skip link (R3-help-3/-5)', async ({ page }) => {
+    await openHelp(page, { width: 1440, height: 900 })
+    const statuses = page.getByTestId('txr-help-statuses')
+    await expect(statuses.getByText("What a method's row says while a run is going")).toBeVisible()
+    await expect(statuses.getByText(/method\\'s row/)).toHaveCount(0)
+    // The shell's AppShell owns the ONE skip link (first tab stop); this
+    // page's old copy sat after the header in the tab order.
+    await expect(page.locator('.txr-help-skip-link')).toHaveCount(0)
+  })
+
+  test('the body links carry the kit ring — no default outline beside the header\'s shadow (R3-help-5)', async ({ page }) => {
+    await openHelp(page, { width: 1440, height: 900 })
+    // Keyboard modality marks the next programmatic focus as :focus-visible
+    // (the modality flag the browser keeps after the last real key press).
+    await page.keyboard.press('Tab')
+    await page.locator('[data-testid="txr-help-toc-overview"]').evaluate(el => (el as HTMLElement).focus())
+    const ring = await page
+      .locator('[data-testid="txr-help-toc-overview"]')
+      .evaluate(el => ({
+        shadow: getComputedStyle(el).boxShadow,
+        outline: getComputedStyle(el).outlineStyle,
+      }))
+    expect(ring.outline).toBe('none')
+    // The SAME 3 px --ring shadow byte the header links paint (the resolved
+    // colour-mix prints in `color(srgb 0.22 0.36 0.63 / 0.5)` — the shadow
+    // shape is the byte, not the colour-parser spelling).
+    expect(ring.shadow).not.toBe('none')
+    expect(ring.shadow).toMatch(/0px 0px 0px 3px$/)
   })
 
   test('a #problem-<code> deep link opens the entry, expands it and lands clear of the header', async ({ page }) => {
@@ -400,6 +455,27 @@ test.describe('txr-help — the breakpoints', () => {
     expect(m.rail.width).toBe(240)
     expect(overlap(m.rail as never, m.column as never)).toBe(false)
     expect(m.overflow).toBeLessThanOrEqual(1)
+    // qa-fixes4 ITEM-5 (R3-help-1): the step-4 screen chip never pokes past
+    // its own card (the round-3 "chip ends at x=1260 while its card ends at
+    // 1244"; at 1024 it pushed the page to 1035 px wide).
+    const chips = await page.evaluate(() => {
+      const out: Array<{ delta: number }> = []
+      for (const step of [1, 2, 3, 4]) {
+        const card = document.querySelector<HTMLElement>(`[data-testid="txr-help-step-${step}"]`)
+        const chip = document.querySelector<HTMLElement>(
+          `[data-testid="txr-help-step-screen-${step}"]`,
+        )
+        if (card === null || chip === null) continue
+        const c = card.getBoundingClientRect()
+        const s = chip.getBoundingClientRect()
+        out.push({ delta: s.right - c.right })
+      }
+      return out
+    })
+    for (const { delta } of chips) {
+      expect(delta, 'the step chip stays inside its card').toBeLessThanOrEqual(1)
+    }
+    expect(chips.length).toBe(4)
   })
 
   test('[768x1024] no rail: the Contents disclosure replaces it, no overlap, no overflow', async ({ page }) => {
@@ -461,6 +537,13 @@ test.describe('txr-help — the breakpoints', () => {
       })
     expect(tableWrap.scrollable, 'the table wraps and scrolls inside its pane').toBeGreaterThan(0)
     expect(tableWrap.fits, 'the table wrapper stays inside the 390 frame').toBeLessThanOrEqual(1)
+    // qa-fixes4 ITEM-5 (R3-help-2): the overflow carries a CUE — the
+    // sideways-scroll caption + the right-edge fade — so the Meaning column
+    // is never an undiscovered cut column.
+    await expect(page.getByTestId('txr-help-filetable-patients-scroll-hint')).toBeVisible()
+    await expect(page.getByTestId('txr-help-filetable-patients-scroll-hint')).toContainText(
+      'The table scrolls sideways',
+    )
     // Back to top appears after scrolling — the frame's REGION is the
     // real scroller (the page's frame byte: one region, region-driven
     // back-to-top; the story's own summary said the region is bounded in
@@ -578,6 +661,57 @@ test.describe('txr-help — light and dark', () => {
       assertContrast('tip callout', measured.calloutTip)
       assertContrast('watch callout', measured.calloutWatch)
       assertContrast('code chip', measured.codeChip)
+    })
+
+    test(`[${theme}] the search highlight keeps >= 4.5:1 contrast (R3-help-4 — the old dark-amber mark failed in light mode)`, async ({
+      page,
+    }) => {
+      await openHelp(page, { width: 1440, height: 900 }, 'txr-help', theme)
+      await page.getByTestId('txr-help-search-input').fill('duplicate')
+      const measured = await page.evaluate(() => {
+        const parse = (value: string): { rgb: [number, number, number]; alpha: number } | null => {
+          const m = value.match(/rgba?\(([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\)/)
+          if (!m) return null
+          return {
+            rgb: [Number(m[1]), Number(m[2]), Number(m[3])],
+            alpha: m[4] === undefined ? 1 : Number(m[4]),
+          }
+        }
+        // The effective background under the mark: composite the mark's own
+        // translucent fill over the first opaque ancestor.
+        const mark = document.querySelector<HTMLElement>('mark')!
+        const bg = parse(getComputedStyle(mark).backgroundColor)
+        const fg = parse(getComputedStyle(mark).color)
+        if (bg === null || fg === null) return null
+        let base = [255, 255, 255] as [number, number, number]
+        let node: Element | null = mark.parentElement
+        while (node) {
+          const fill = parse(getComputedStyle(node).backgroundColor)
+          if (fill && fill.alpha > 0.01) {
+            base = [
+              fill.rgb[0] * fill.alpha + base[0] * (1 - fill.alpha),
+              fill.rgb[1] * fill.alpha + base[1] * (1 - fill.alpha),
+              fill.rgb[2] * fill.alpha + base[2] * (1 - fill.alpha),
+            ] as [number, number, number]
+            if (fill.alpha === 1) break
+          }
+          node = node.parentElement
+        }
+        const bgRgb: [number, number, number] = [
+          bg.rgb[0] * bg.alpha + base[0] * (1 - bg.alpha),
+          bg.rgb[1] * bg.alpha + base[1] * (1 - bg.alpha),
+          bg.rgb[2] * bg.alpha + base[2] * (1 - bg.alpha),
+        ]
+        const fgRgb: [number, number, number] = [
+          fg.rgb[0] * fg.alpha + bgRgb[0] * (1 - fg.alpha),
+          fg.rgb[1] * fg.alpha + bgRgb[1] * (1 - fg.alpha),
+          fg.rgb[2] * fg.alpha + bgRgb[2] * (1 - fg.alpha),
+        ]
+        return { fg: fgRgb, bg: bgRgb }
+      })
+      expect(measured, 'a mark exists for a matching query').not.toBeNull()
+      const ratio = contrast(measured!.fg, measured!.bg)
+      expect(ratio, `search mark contrast ${ratio} in ${theme}`).toBeGreaterThanOrEqual(4.5)
     })
   }
 })

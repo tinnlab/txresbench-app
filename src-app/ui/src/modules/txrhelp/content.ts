@@ -213,13 +213,13 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               name: 'patient_id',
               required: true,
               meaning: 'your own patient code — the same code in both files',
-              example: 'P0001',
+              example: 'J0000',
             },
             {
               name: 'pfs_days',
               required: true,
               meaning: 'days until progression or death, or until the last follow-up',
-              example: '214',
+              example: '472',
             },
             {
               name: 'pfs_event',
@@ -231,31 +231,35 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               name: 'os_days',
               required: true,
               meaning: 'days until death, or until the last follow-up',
-              example: '214',
+              example: '808',
             },
             {
               name: 'os_event',
               required: true,
               meaning: '1 = died, 0 = alive at last follow-up',
-              example: '0',
+              example: '1',
             },
             {
               name: 'responder',
               required: false,
               meaning: 'the response outcome: 1/0, paired with response_day',
-              example: '1',
+              example: '0',
             },
             {
               name: 'response_day',
               required: false,
               meaning: 'the day the response was assessed',
-              example: '56',
+              example: '35',
             },
             {
               name: 'age · sex · stage or cov_<name>',
               required: false,
               meaning: 'extra inputs some methods use; any other column is left out of the analysis',
-              example: '58',
+              // qa-fixes4 ITEM-5 (help-r3 R3-help-6): the example value IS
+              // the first "Copy example rows" row's own values now (was
+              // "58" beside J0000,472,… in the copy) — the table and the
+              // clipboard tell one story.
+              example: '77 · M · III',
             },
           ],
           exampleRows:
@@ -273,31 +277,33 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               name: 'patient_id',
               required: true,
               meaning: 'the patient code from the patients table',
-              example: 'P0001',
+              example: 'J0000',
             },
             {
               name: 'day',
               required: true,
               meaning: 'days from the start of treatment — day 0 is the first treatment day, draws before it are negative',
-              example: '0',
+              example: '-28',
             },
             {
               name: 'marker',
               required: true,
               meaning: 'the marker\'s name as you write it, for example LDH or ctDNA',
-              example: 'LDH',
+              example: 'M1',
             },
             {
               name: 'value',
               required: true,
               meaning: 'a number; a blank entry means no measurement at that draw — a blank is not a zero',
-              example: '310',
+              example: '8.1',
             },
             {
               name: 'unit',
               required: false,
               meaning: 'for example U/L — lets the app check the scale against the method\'s expectation',
-              example: 'U/L',
+              // qa-fixes4 ITEM-5 (R3-help-6): the example family's own unit
+              // — the copied rows and the table's Example column now agree.
+              example: 'a.u.',
             },
           ],
           exampleRows:
@@ -344,7 +350,11 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       },
       {
         kind: 'callout',
-        tone: 'tip',
+        // qa-fixes4 ITEM-5 (help-r3 R3-help-6): this is a WARNING, not a tip
+        // — "research, not treatment" is the caution's own words. The one
+        // Tip callout (the template one) keeps the tip ivory, so each kind
+        // reads one colour.
+        tone: 'watch',
         text: 'The notice under the list is part of the app: predictions are for research, not for deciding a patient\'s treatment. The Run button stays disabled, with "Select at least one method" beside it, until you tick a method.',
       },
     ],
@@ -679,7 +689,8 @@ export const PROBLEM_HELP: readonly HelpProblemEntry[] = [
     anchor: 'problem-a02',
     title: 'no outcome column',
     meaning: 'The patients table carries none of the outcome column sets — no pfs, no os, no responder / response_day — so no analysis can be built on it.',
-    action: 'Add at least one outcome set: pfs_days + pfs_event, os_days + os_event, or responder + response_day.',
+    action:
+      'Add the outcome columns the app requires: pfs_days + pfs_event and os_days + os_event (with patient_id). responder + response_day are extra — they do not replace the pfs and os columns, so adding only "responder" still leaves the required-column errors.',
   },
   {
     code: 'A03',

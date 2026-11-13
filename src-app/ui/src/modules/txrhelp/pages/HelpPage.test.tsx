@@ -188,7 +188,7 @@ describe('HelpPage render (TEST-HELP-3)', () => {
       // React input ignores a direct `input.value =` write).
       fireEvent.change(input, { target: { value } })
     }
-    fireChange('duplicate')
+    fireChange('duplicate rows')
     // R07's entry survives, a clear section is hidden.
     expect(screen.getByTestId('txr-help-section-troubleshooting')).toBeTruthy()
     expect(screen.getByTestId('txr-help-problem-problem-r07')).toBeTruthy()
@@ -196,19 +196,109 @@ describe('HelpPage render (TEST-HELP-3)', () => {
     // No match at all → the no-results state, and the button restores.
     fireChange('zzzzzz')
     expect(screen.getByTestId('txr-help-no-results')).toBeTruthy()
+    // qa-fixes4 ITEM-5 (R3-help-4): the no-match sentence has no orphan
+    // period after the button ("Clear the search ." was the report's find).
+    expect(screen.getByTestId('txr-help-no-results').textContent).toContain('and try')
+    expect(screen.getByTestId('txr-help-no-results').textContent).not.toMatch(/ \. /)
     const clear = screen.getByTestId('txr-help-clear-search')
     expect(clear).toBeTruthy()
     fireChange('')
     expect(screen.queryByTestId('txr-help-no-results')).toBeNull()
   })
 
-  it('carries the accessibility landmarks and the skip link', () => {
+  it('the search narrows the TOC, expands the matching entries and names the hidden quick-start (R3-help-4)', () => {
+    renderHelp()
+    const input = screen.getByTestId('txr-help-search-input') as HTMLInputElement
+    const fireChange = (value: string): void => {
+      fireEvent.change(input, { target: { value } })
+    }
+    fireChange('duplicate rows')
+    // The rail lists ONLY the matching section (the old page kept all 11
+    // links and highlighted a section the article did not show).
+    const toc = screen.getByRole('navigation', { name: 'On this page' })
+    expect(within(toc).getAllByRole('link').map(l => l.getAttribute('data-testid'))).toEqual([
+      'txr-help-toc-troubleshooting',
+    ])
+    // The matching entry is EXPANDED (the report's collapsed body-only
+    // match: "duplicate rows" is in the title — use the body word to prove
+    // the point).
+    fireChange('patient_id repeats')
+    const trigger = document.querySelector<HTMLElement>(
+      '[data-testid="txr-help-accordion-trigger-R07"]',
+    )!
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    // The quick-start row is replaced by the notice (it used to vanish).
+    expect(screen.queryByTestId('txr-help-quickstart')).toBeNull()
+    expect(screen.getByTestId('txr-help-quickstart-hidden').textContent).toContain('hidden')
+    // Clearing the search restores everything.
+    fireChange('')
+    expect(within(toc).getAllByRole('link').length).toBe(HELP_SECTIONS.length)
+    expect(screen.getByTestId('txr-help-quickstart')).toBeTruthy()
+    expect(screen.queryByTestId('txr-help-quickstart-hidden')).toBeNull()
+  })
+
+  it('the statuses heading carries no stray backslash (R3-help-3)', () => {
+    renderHelp()
+    const statuses = screen.getByTestId('txr-help-statuses')
+    // The JSX text node once rendered `\'` literally — the byte the report
+    // caught in "What a method\'s row says while a run is going".
+    expect(statuses.textContent).toContain("What a method's row says while a run is going")
+    expect(statuses.textContent).not.toContain("\\'")
+  })
+
+  it('carries the accessibility landmarks, and the page owns NO in-page skip link (R3-help-5)', () => {
     renderHelp()
     expect(screen.getByRole('main')).toBeTruthy()
     expect(screen.getByRole('navigation', { name: 'On this page' })).toBeTruthy()
     expect(screen.getByRole('search')).toBeTruthy()
-    const skip = document.querySelector<HTMLAnchorElement>('.txr-help-skip-link')!
-    expect(skip.getAttribute('href')).toBe('#txr-help-content')
+    // The shell's AppShell renders the ONE skip link as the document's
+    // first tab stop; a second one here would be the report's 7th stop.
+    expect(document.querySelector<HTMLAnchorElement>('.txr-help-skip-link')).toBeNull()
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  })
+
+  it('the A02 advice lists every required column and never offers responder alone (R3-help-6 accuracy)', () => {
+    renderHelp()
+    const entry = PROBLEM_HELP.find(e => e.code === 'A02')!
+    for (const column of ['pfs_days', 'pfs_event', 'os_days', 'os_event', 'patient_id']) {
+      expect(entry.action).toContain(column)
+    }
+    expect(entry.action).toContain('extra')
+    expect(entry.action).toContain('do not replace')
+  })
+
+  it('the callout kinds stay one colour per kind: one Tip, one warning voice (R3-help-6)', () => {
+    renderHelp()
+    const tips = screen.getAllByTestId('txr-help-callout-tip')
+    expect(tips.length).toBe(1)
+    // The "research, not treatment" notice is the WARNING voice now.
+    const watches = screen.getAllByTestId('txr-help-callout-watch')
+    expect(watches.some(w => w.textContent?.includes('not for deciding'))).toBe(true)
+  })
+
+  it('the Example column values equal the copied example rows (R3-help-6)', () => {
+    renderHelp()
+    for (const file of ['patients', 'measurements'] as const) {
+      const block = HELP_SECTIONS.find(s => s.id === 'files')!.blocks.find(
+        b => b.kind === 'fileCard' && b.card.file === file,
+      )!
+      expect(block.kind).toBe('fileCard')
+      const card = block.kind === 'fileCard' ? block.card : null
+      if (card === null) return
+      const lines = card.exampleRows.split('\n')
+      const header = lines[0].split(',')
+      const values = lines[1].split(',')
+      for (const column of card.columns) {
+        let expected = ''
+        if (column.name === 'age · sex · stage or cov_<name>') {
+          // The covariate family's example value joins the row's own values.
+          expected = `${values[7]} · ${values[8]} · ${values[9]}`
+        } else {
+          const index = header.indexOf(column.name)
+          expected = values[index]
+        }
+        expect(column.example, `${file}: ${column.name}`).toBe(expected)
+      }
+    }
   })
 })

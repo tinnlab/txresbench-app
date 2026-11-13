@@ -36,6 +36,7 @@ const api = vi.hoisted(() => ({
   streamRun: vi.fn(),
   listRunLogs: vi.fn(),
   downloadPredictions: vi.fn(),
+  catalogueDetail: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -45,6 +46,10 @@ vi.mock('@/api-client', () => ({
       streamRun: (...a: unknown[]) => api.streamRun(...a),
       listRunLogs: (...a: unknown[]) => api.listRunLogs(...a),
       downloadPredictions: (...a: unknown[]) => api.downloadPredictions(...a),
+    },
+    // qa-fixes4 ITEM-5 (R3-help-8): the document title's catalogue lookup.
+    MethodCatalogue: {
+      detail: (...a: unknown[]) => api.catalogueDetail(...a),
     },
   },
 }))
@@ -257,6 +262,10 @@ beforeEach(() => {
   api.streamRun.mockReset()
   api.listRunLogs.mockReset()
   api.downloadPredictions.mockReset()
+  // qa-fixes4 ITEM-5 (R3-help-8): the catalogue's short human name is the
+  // method tab's document title.
+  api.catalogueDetail.mockReset()
+  api.catalogueDetail.mockResolvedValue({ title: 'Landmark Cox model' })
   sseHandlers = null
   platform.desktop = false
   api.getRun.mockResolvedValue(runFixture())
@@ -336,8 +345,23 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
     expect(view.container.textContent).not.toContain('/home/u/.txresbench/analysis-2026-11-06-0000/')
   })
 
-  it('selects the active method tab from the URL segment (compare / method / unknown method, no crash)', async () => {
-    const view = await renderLoaded()
+  it('the document title of a method tab is the catalogue\'s short human name, not the wire id (R3-help-8)', async () => {
+    await act(async () => {
+      renderPage('/analysis/run-1/results/methods/lm-cox-a')
+    })
+    // The lookup is made for the method id.
+    expect(api.catalogueDetail).toHaveBeenCalledWith({ method_id: 'lm-cox-a' })
+    await waitFor(() => expect(document.title).toBe('Landmark Cox model — TxResBench'))
+
+    // A non-catalogue method (a saved model's id): the catalogue rejects,
+    // the title falls back to the column label — never a blank "Method".
+    api.catalogueDetail.mockRejectedValue(httpError(404))
+    const { unmount } = renderPage('/analysis/run-1/results/methods/lm-cox-a')
+    await waitFor(() => expect(document.title).toBe('lm-cox-a — TxResBench'))
+    unmount()
+  })
+
+  it('selects the active method tab from the URL segment (compare / method / unknown method, no crash)', async () => {    const view = await renderLoaded()
     expect(activeOf('txr-results-method-tab-compare')).toBe('active')
 
     cleanup()

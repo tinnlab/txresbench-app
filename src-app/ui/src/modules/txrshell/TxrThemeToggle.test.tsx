@@ -73,16 +73,25 @@ describe('TxrThemeToggle (TEST-QF2-1)', () => {
     // (the kit Button promotes a string `tooltip` to `aria-label`, shown on
     // hover AND keyboard focus) AND carries the visible state text, so the
     // icon-only narrow header loses no information for a screen reader.
+    // qa-fixes4 ITEM-5: the suffix words the CURRENT state — the plan's
+    // "Switch to dark mode (currently light)" — and the visible label is
+    // inside it (label-in-name, 2.5.3).
     const dark = withResolved('dark')
     expect(screen.getByTestId('txr-theme-toggle').getAttribute('aria-label')).toBe(
-      'Switch to light mode (Dark)',
+      'Switch to light mode (currently dark)',
     )
+    expect(
+      screen.getByTestId('txr-theme-toggle').getAttribute('aria-label')?.toLowerCase(),
+    ).toContain('dark')
     dark.unmount()
 
     const light = withResolved('light')
     expect(screen.getByTestId('txr-theme-toggle').getAttribute('aria-label')).toBe(
-      'Switch to dark mode (Light)',
+      'Switch to dark mode (currently light)',
     )
+    expect(
+      screen.getByTestId('txr-theme-toggle').getAttribute('aria-label')?.toLowerCase(),
+    ).toContain('light')
     light.unmount()
   })
 

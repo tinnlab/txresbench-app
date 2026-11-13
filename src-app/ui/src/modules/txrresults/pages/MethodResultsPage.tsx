@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Button, ErrorState, Skeleton } from '@txresbench/kit'
+import { ApiClient } from '@/api-client'
 import type { TxrRunDetail } from '@/api-client/types'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
@@ -243,11 +244,33 @@ export function MethodResultsPage() {
   )
   const isCompareTab = methodId === undefined || methodId === null
   const methodNotFound = !isCompareTab && activeColumn === null
+  // qa-fixes4 ITEM-5 (help-r3 R3-help-8): the document title of a method
+  // tab names the METHOD, not the wire id — the catalogue's short human
+  // name (`GET /api/methods/{id}`, the E screen's own title byte) with the
+  // label fallback while it loads and for a non-catalogue method (a reuse
+  // run's id is the saved model's; its `label` is the model name — RES-05).
+  // The page's own headings keep the board's monospace id.
+  const [methodTitle, setMethodTitle] = useState<string | null>(null)
+  useEffect(() => {
+    if (methodId === undefined || methodId === null) return
+    let alive = true
+    setMethodTitle(null)
+    ApiClient.MethodCatalogue.detail({ method_id: methodId })
+      .then(detail => {
+        if (alive) setMethodTitle(detail.title)
+      })
+      .catch(() => {
+        // A non-catalogue method id (a saved model): keep the fallback.
+      })
+    return () => {
+      alive = false
+    }
+  }, [methodId])
   // R2-G1: the tab/title byte is the page's own h1 — the Compare-methods tab
   // on `/compare`, the method column's label on a method tab (the same word
   // the page renders under the method tabs), "Method" while it loads.
   useDocumentTitle(
-    isCompareTab ? 'Compare methods' : (activeColumn?.label ?? 'Method'),
+    isCompareTab ? 'Compare methods' : (methodTitle ?? activeColumn?.label ?? 'Method'),
   )
   // The H base view: the one-method tab's OWN column (its task is the
   // method's — the outcome tabs yield to it, RES-11), else the active

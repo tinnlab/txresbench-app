@@ -462,6 +462,17 @@ export function PredictFilesPage() {
               </p>
             ) : null}
 
+            {/* qa-fixes4 ITEM-5 (help-r3 R3-help-6): this screen serves BOTH
+                predict paths — the screen says which one the user is on (the
+                Help quick-start cards set the intent first; a direct visit
+                defaults to the pretrained path, the same default the
+                Continue button and the aside use). */}
+            <p data-testid="txr-intake-predict-path" style={INTRO}>
+              {intent === 'reuse'
+                ? 'This is the saved-model path — you will pick from the models you saved.'
+                : 'This is the pretrained-model path — you will pick from the pretrained models.'}
+            </p>
+
             <div
               style={{
                 display: 'flex',

@@ -805,6 +805,44 @@ html.txr-shell-mode-flow .txr-help-rail {
   border-radius: 6px;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
 }
+/* qa-fixes4 ITEM-5 (help-r3 R3-help-5): the page body's links carry the
+ * SAME ring the shell header's links and the kit controls paint — the old
+ * Help links (rail, contents, quick-start CTA) were left with the
+ * browser's thin 1 px default outline next to the header's 3 px ring. No
+ * default outline, a 3 px `--ring` shadow at 50 %, the link's 6 px
+ * radius — the identical byte, so a keyboard user sees one focus style
+ * across the header and the article. `:focus-visible`, never `:focus`. */
+.txr-help-link {
+  border-radius: 6px;
+}
+.txr-help-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
+}
+/* qa-fixes4 ITEM-5 (help-r3 R3-help-5, the owner byte): the theme switch's
+ * touch target at the narrow width — the icon-only button measured
+ * 34x30 px; 44x44 px is the floor. The header is 56 px tall, so the
+ * button fits. */
+@media (max-width: 700px) {
+  .txr-theme-toggle {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+}
+/* qa-fixes4 ITEM-5 (help-r3 R3-help-6, polish): the floating "Top" chip is
+ * a phone-width 44 px target, and the article's bottom padding grows so
+ * the LAST lines are not under it when the reader reaches the end. */
+@media (max-width: 640px) {
+  .txr-help-backtop {
+    right: 10px !important;
+    bottom: 10px !important;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .txr-help-region-content {
+    padding-bottom: 104px !important;
+  }
+}
 /* The phone layout of the Help page: the stepper and the quick-start row
  * stack under 640 px (the board's phone breakpoint; the grid's own
  * two-column switch is at 1024 px in the layout block above). Nothing may
