@@ -56,7 +56,7 @@
 //! data. What differs per machine is only the environment contents the run
 //! downloads (the digest-pinned published layers).
 
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use axum::http::StatusCode;
 use sqlx::SqlitePool;
@@ -131,13 +131,11 @@ pub struct ExampleRunInputs {
 }
 
 impl ExampleRunInputs {
-    /// The example's training patient count (the estimate's `patients`).
+    /// The example's training patient count for the estimate: the train
+    /// side's distinct canonical patients — the count the run's own estimate
+    /// uses (`compute_estimate`), never the patients table's row count.
     pub fn patients(&self) -> u32 {
-        self.validation
-            .patients
-            .as_ref()
-            .map(|p| p.rows)
-            .unwrap_or(0)
+        self.train.patients.len() as u32
     }
 
     /// The bundle settings the run's method calls build with
@@ -255,6 +253,21 @@ fn pick_from(
     inputs: &ExampleRunInputs,
     env_available: impl Fn(&str) -> bool,
 ) -> Vec<String> {
+    first_passing(fast_candidates(cat, inputs, env_available), |method| {
+        // The run's own bundle stage on the example rows: a method it would
+        // refuse fails before (or between) its calls.
+        inputs.preflight(method).is_ok()
+    })
+}
+
+/// The cheap filters, fastest first with an id tie-break: a `CanRun`
+/// verdict, a published environment, `saves_model` and a catalogue estimate
+/// under [`EXAMPLE_METHOD_SECONDS_MAX`].
+fn fast_candidates<'c>(
+    cat: &'c Catalogue,
+    inputs: &ExampleRunInputs,
+    env_available: impl Fn(&str) -> bool,
+) -> Vec<(f64, &'c Method)> {
     let patients = inputs.patients();
     let verdicts = eligibility_for(
         cat,
@@ -262,7 +275,7 @@ fn pick_from(
             inventory: inputs.validation.inventory.clone(),
         },
     );
-    let mut candidates: Vec<(f64, String)> = verdicts
+    let mut candidates: Vec<(f64, &Method)> = verdicts
         .methods
         .into_iter()
         .filter(|m| m.status == EligibilityStatus::CanRun)
@@ -271,52 +284,82 @@ fn pick_from(
             let method = cat
                 .method(&m.id)
                 .expect("every verdict id is a catalogue method");
-            if !method.saves_model {
-                return None;
-            }
             let seconds = estimate_seconds_for(method, patients, REFERENCE_CPUS);
-            if seconds >= EXAMPLE_METHOD_SECONDS_MAX {
-                return None;
-            }
-            // The run's own bundle stage on the example rows: a method it
-            // would refuse fails before (or between) its calls.
-            inputs.preflight(method).ok()?;
-            Some((seconds, m.id))
+            (method.saves_model && seconds < EXAMPLE_METHOD_SECONDS_MAX)
+                .then_some((seconds, method))
         })
         .collect();
-    candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.id.cmp(&b.1.id)));
+    candidates
+}
+
+/// The first [`EXAMPLE_METHOD_CAP`] candidates, in order, that pass
+/// `preflight` — the (costly) preflight runs in that order and stops once
+/// the cap is reached. Filtering an ordered list keeps its order, so this is
+/// the same set as preflighting every candidate, then sorting and capping.
+fn first_passing(
+    candidates: Vec<(f64, &Method)>,
+    mut preflight: impl FnMut(&Method) -> bool,
+) -> Vec<String> {
     candidates
         .into_iter()
+        .filter(|(_, method)| preflight(method))
         .take(EXAMPLE_METHOD_CAP)
-        .map(|(_, id)| id)
+        .map(|(_, method)| method.id.clone())
         .collect()
 }
 
-/// The pick, computed once per process. Every input is fixed for the
-/// process lifetime: the embedded example bytes, the embedded catalogue, the
-/// env manifest (itself loaded once, `envmanifest::MANIFEST`) and the host
-/// arch (a compile-time constant) — so the cached list is the list a fresh
-/// computation returns, and the endpoint's polls (every 1.5 s while the set
-/// trains) never re-parse the example or re-run eligibility under
-/// [`ENSURE_LOCK`]. An example that does not validate is kept as its
-/// `(status, code, message)` and answered as the same error on every call.
-static EXAMPLE_PICK: LazyLock<Result<Vec<String>, (u16, String, String)>> = LazyLock::new(|| {
+/// The pick's computation: the example run's inputs, then the pick. Pure and
+/// CPU-bound (validate + canonicalize + every candidate's bundles up to the
+/// cap), so it runs off the async runtime ([`cached_pick`]).
+fn compute_example_pick() -> Result<Vec<String>, AppError> {
     #[cfg(test)]
     tests::PICK_COMPUTATIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    example_run_inputs()
-        .map(|inputs| pick_fast_methods(&inputs))
-        .map_err(|e| (e.status_code(), e.error_code().to_string(), e.to_string()))
-});
+    example_run_inputs().map(|inputs| pick_fast_methods(&inputs))
+}
+
+/// The pick, cached once it succeeds. Every input is fixed for the process
+/// lifetime — the embedded example bytes, the embedded catalogue, the env
+/// manifest (itself loaded once) and the host arch (a compile-time
+/// constant) — so the cached list is the list a fresh computation returns,
+/// and the endpoint's polls (every 1.5 s while the set trains) never redo
+/// the work.
+///
+/// Only a success is stored. A failure is returned and the next call
+/// computes again: today's failures come from the embedded example and
+/// catalogue, so a retry gives the same typed error (at the cost of one
+/// computation off the runtime per call on a build that cannot serve the
+/// example anyway), while a failure that is not a property of those inputs
+/// — a panic, or a blocking task that did not complete — must not stick
+/// until a restart. The cell never poisons: a panic inside the computation
+/// surfaces as a typed error and leaves the cell empty.
+static EXAMPLE_PICK: tokio::sync::OnceCell<Vec<String>> = tokio::sync::OnceCell::const_new();
 
 /// The example's method pick ([`EXAMPLE_PICK`]).
-pub fn example_methods() -> Result<Vec<String>, AppError> {
-    EXAMPLE_PICK.clone().map_err(|(status, code, message)| {
-        AppError::new(
-            StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-            code,
-            message,
-        )
+pub async fn example_methods() -> Result<Vec<String>, AppError> {
+    cached_pick(&EXAMPLE_PICK, compute_example_pick).await
+}
+
+/// Serve `cell`'s pick, computing it with `compute` on the blocking pool
+/// when the cell is empty. Concurrent callers wait for the one computation
+/// in flight; an `Err` or a panic leaves the cell empty for the next call.
+async fn cached_pick<F>(
+    cell: &tokio::sync::OnceCell<Vec<String>>,
+    compute: F,
+) -> Result<Vec<String>, AppError>
+where
+    F: FnOnce() -> Result<Vec<String>, AppError> + Send + 'static,
+{
+    cell.get_or_try_init(|| async move {
+        tokio::task::spawn_blocking(compute).await.map_err(|e| {
+            typed_error(
+                "EXAMPLE_PICK_FAILED",
+                format!("the example method pick did not complete: {e}"),
+            )
+        })?
     })
+    .await
+    .cloned()
 }
 
 /// The embedded example training tables as parsed tables (the browser-decode
@@ -414,9 +457,9 @@ async fn inner(
 ) -> Result<ExampleSetResponse, AppError> {
     let repo = ModelStoreRepository::new(pool.clone());
 
-    // The fast-method pick (computed once per process — the catalogue, the
-    // assets and the env manifest are immutable).
-    let methods = example_methods()?;
+    // The fast-method pick (computed once per process on the blocking pool —
+    // the catalogue, the assets and the env manifest are immutable).
+    let methods = example_methods().await?;
 
     // The state row (may be None).
     let state_row = repo.example_state().await.map_err(|e| typed_error("EXAMPLE_STATE_READ", e.to_string()))?;
@@ -995,12 +1038,12 @@ mod tests {
 
     /// The cached pick is the pick of a fresh computation on this host, and
     /// it is computed once: however many calls (the endpoint's polls) read
-    /// it, the initializer ran one time in this process.
-    #[test]
-    fn the_cached_pick_is_computed_once_and_equals_a_fresh_pick() {
-        let cached = example_methods().expect("the example validates");
+    /// it, the computation ran one time in this process.
+    #[tokio::test]
+    async fn the_cached_pick_is_computed_once_and_equals_a_fresh_pick() {
+        let cached = example_methods().await.expect("the example validates");
         for _ in 0..20 {
-            assert_eq!(example_methods().expect("again"), cached);
+            assert_eq!(example_methods().await.expect("again"), cached);
         }
         assert_eq!(
             PICK_COMPUTATIONS.load(Ordering::SeqCst),
@@ -1011,6 +1054,108 @@ mod tests {
             cached,
             pick_fast_methods(&inputs()),
             "the cache holds a fresh pick"
+        );
+    }
+
+    /// A panicking or failing computation does not break later calls: the
+    /// panic comes back as a typed error, neither outcome is cached, the cell
+    /// does not poison, the next call computes again, and the first success
+    /// is cached and served without computing.
+    #[tokio::test]
+    async fn a_panicking_or_failing_pick_does_not_stick() {
+        static CELL: tokio::sync::OnceCell<Vec<String>> = tokio::sync::OnceCell::const_new();
+        static RUNS: AtomicUsize = AtomicUsize::new(0);
+
+        let panicked = cached_pick(&CELL, || -> Result<Vec<String>, AppError> {
+            RUNS.fetch_add(1, Ordering::SeqCst);
+            panic!("the pick computation panicked")
+        })
+        .await
+        .expect_err("a panic is an error, not a poisoned cell");
+        assert_eq!(panicked.error_code(), "EXAMPLE_PICK_FAILED");
+        assert!(CELL.get().is_none(), "a panic is not cached");
+
+        let failed = cached_pick(&CELL, || {
+            RUNS.fetch_add(1, Ordering::SeqCst);
+            Err(validation_failed("the example does not validate"))
+        })
+        .await
+        .expect_err("the failure is returned");
+        assert_eq!(failed.error_code(), "EXAMPLE_VALIDATION_FAILED");
+        assert!(CELL.get().is_none(), "a failure is not cached");
+
+        let picked = cached_pick(&CELL, || {
+            RUNS.fetch_add(1, Ordering::SeqCst);
+            Ok(vec!["m".to_string()])
+        })
+        .await
+        .expect("a later call computes again and succeeds");
+        assert_eq!(picked, ["m"]);
+
+        let cached = cached_pick(&CELL, || -> Result<Vec<String>, AppError> {
+            panic!("a cached pick is never recomputed")
+        })
+        .await
+        .expect("the success is cached");
+        assert_eq!(cached, ["m"]);
+        assert_eq!(RUNS.load(Ordering::SeqCst), 3);
+    }
+
+    /// The preflight runs over the candidates in pick order (fastest first,
+    /// id tie-break) and stops once the cap is reached, and the picked set is
+    /// the one the old order gave: preflight every candidate, then sort and
+    /// cap — on this host's env set and on the committed amd64 one.
+    #[test]
+    fn the_preflight_runs_in_pick_order_and_stops_at_the_cap() {
+        let inputs = inputs();
+        let host = |id: &str| runtime_env_available(id);
+        let envs: [(&str, &dyn Fn(&str) -> bool); 2] = [("host", &host), ("amd64", &amd64_env)];
+        for (arch, env) in envs {
+            let candidates = fast_candidates(catalogue(), &inputs, env);
+            let order: Vec<String> = candidates.iter().map(|(_, m)| m.id.clone()).collect();
+
+            let mut eager: Vec<(f64, String)> = candidates
+                .iter()
+                .filter(|(_, m)| inputs.preflight(m).is_ok())
+                .map(|(seconds, m)| (*seconds, m.id.clone()))
+                .collect();
+            eager.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+            let eager: Vec<String> = eager
+                .into_iter()
+                .take(EXAMPLE_METHOD_CAP)
+                .map(|(_, id)| id)
+                .collect();
+
+            let mut preflighted: Vec<String> = Vec::new();
+            let lazy = first_passing(candidates, |m| {
+                preflighted.push(m.id.clone());
+                inputs.preflight(m).is_ok()
+            });
+            assert_eq!(lazy, eager, "{arch}: the same picked set");
+            assert_eq!(lazy, pick_fast_methods_with(&inputs, env), "{arch}");
+            assert_eq!(
+                preflighted,
+                order[..preflighted.len()],
+                "{arch}: the preflight follows the pick order"
+            );
+            if lazy.len() == EXAMPLE_METHOD_CAP {
+                assert_eq!(
+                    preflighted.last(),
+                    lazy.last(),
+                    "{arch}: the preflight stops at the cap"
+                );
+            }
+        }
+        let amd64 = fast_candidates(catalogue(), &inputs, amd64_env);
+        let mut runs = 0;
+        let _ = first_passing(amd64.clone(), |m| {
+            runs += 1;
+            inputs.preflight(m).is_ok()
+        });
+        assert!(
+            runs < amd64.len(),
+            "the amd64 candidates outnumber the preflights the cap needs ({runs} of {})",
+            amd64.len()
         );
     }
 
@@ -1041,43 +1186,70 @@ mod tests {
         }
     }
 
+    /// The example inputs with the training rows cut to the first `n`
+    /// patients (the validation, the predict side and the config unchanged).
+    fn cut_inputs(full: &ExampleRunInputs, n: usize) -> ExampleRunInputs {
+        ExampleRunInputs {
+            validation: full.validation.clone(),
+            train: Arc::new(first_patients(&full.train, n)),
+            predict: full.predict.clone(),
+            config: full.config.clone(),
+        }
+    }
+
+    /// A picked method that a cross-fit fold would refuse once it is
+    /// `fitted`: a search over cohort sizes and the (unmodified) amd64 pick
+    /// on the cut rows, for a method that is not fitted, whose marker set
+    /// and first train/test bundles build, but whose call — marked `fitted`
+    /// in a copy of the catalogue — is refused `BUNDLE_NO_LEARNABLE_OUTCOME`
+    /// at a cross-fit fold's rest set.
+    fn crossfit_refused_case(
+        full: &ExampleRunInputs,
+    ) -> Option<(ExampleRunInputs, Catalogue, String)> {
+        let refused = Err(BundleError::NoLearnableOutcome {
+            min: bundle::MIN_TRAINING_PATIENTS,
+        });
+        for n in bundle::MIN_TRAINING_PATIENTS..full.train.patients.len() {
+            let cut = cut_inputs(full, n);
+            for id in pick_from(catalogue(), &cut, amd64_env) {
+                let mut cat = catalogue().clone();
+                let entry = cat.methods.iter_mut().find(|m| m.id == id)?;
+                if entry.fitted {
+                    continue;
+                }
+                entry.fitted = true;
+                let fitted = cat.method(&id)?;
+                let first_bundles = orchestrator::method_bundles(
+                    &cut.train,
+                    cut.predict.as_deref(),
+                    fitted,
+                    &cut.bundle_settings(),
+                    fitted.min_draws,
+                );
+                if first_bundles.is_ok() && cut.preflight(fitted) == refused {
+                    return Some((cut, cat, id));
+                }
+            }
+        }
+        None
+    }
+
     /// A method the bundle stage refuses is not picked, even when it passes
     /// every other filter including the marker rule and its first train/test
     /// bundles ([`orchestrator::method_bundles`]). On the real catalogue and
     /// the real example no method is refused past the marker rule, so the
-    /// case is built: the training rows are cut to 12 patients (enough for
-    /// the full-cohort train bundle, too few for a cross-fit fold's rest
-    /// set), and the first amd64 pick is marked `fitted` in a copy of the
-    /// catalogue, so its call would build the cross-fit bundles and be
-    /// refused `BUNDLE_NO_LEARNABLE_OUTCOME` between its calls. That method
-    /// leaves the pick; unmodified, it stays in.
+    /// case is built and searched for ([`crossfit_refused_case`]): the rows
+    /// are cut so the full-cohort train bundle learns but a cross-fit fold's
+    /// rest set does not, and a picked method is marked `fitted` in a copy
+    /// of the catalogue, so its call would build the cross-fit bundles and be
+    /// refused between its calls. That method leaves the pick (it was picked
+    /// unmodified on the same rows); the rest of the pick stays.
     #[test]
     fn a_method_the_bundle_stage_refuses_is_not_picked() {
         let full = inputs();
-        let settings = full.bundle_settings();
-        let target = pick_fast_methods_with(&full, amd64_env)
-            .into_iter()
-            .next()
-            .expect("the amd64 pick is not empty");
-
-        let cut = ExampleRunInputs {
-            validation: full.validation.clone(),
-            train: Arc::new(first_patients(&full.train, 12)),
-            predict: full.predict.clone(),
-            config: full.config.clone(),
-        };
-        let mut cat = catalogue().clone();
-        let entry = cat
-            .methods
-            .iter_mut()
-            .find(|m| m.id == target)
-            .expect("the picked method is in the catalogue");
-        assert!(
-            !entry.fitted,
-            "{target}: the case needs a method that is not fitted yet"
-        );
-        entry.fitted = true;
-        let fitted = cat.method(&target).expect("the modified method").clone();
+        let (cut, cat, target) = crossfit_refused_case(&full)
+            .expect("a picked method that a cross-fit fold refuses once fitted");
+        let fitted = cat.method(&target).expect("the modified method");
 
         // Every other filter keeps it.
         let verdicts = eligibility_for(
@@ -1094,47 +1266,40 @@ mod tests {
         assert_eq!(verdict.status, EligibilityStatus::CanRun, "{target}");
         assert!(amd64_env(&target) && fitted.saves_model, "{target}");
         assert!(
-            estimate_seconds_for(&fitted, cut.patients(), REFERENCE_CPUS)
+            estimate_seconds_for(fitted, cut.patients(), REFERENCE_CPUS)
                 < EXAMPLE_METHOD_SECONDS_MAX,
             "{target} stays under the time budget"
         );
         assert!(
-            orchestrator::method_bundles(
+            bundle::method_marker_set(
                 &cut.train,
-                cut.predict.as_deref(),
-                &fitted,
-                &settings,
-                fitted.min_draws
+                &fitted.markers,
+                fitted.required_markers.as_ref()
             )
             .is_ok(),
-            "{target}: the marker set and the first train/test bundles build"
+            "{target}: the marker rule accepts it"
         );
 
         // The bundle stage refuses it, so the pick leaves it out.
         assert_eq!(
-            orchestrator::train_bundle_preflight(
-                &cut.train,
-                cut.predict.as_deref(),
-                &fitted,
-                &settings,
-                fitted.min_draws,
-            ),
+            cut.preflight(fitted),
             Err(BundleError::NoLearnableOutcome {
                 min: bundle::MIN_TRAINING_PATIENTS
             }),
             "{target}: a cross-fit fold's rest set learns no outcome"
+        );
+        let unmodified = pick_from(catalogue(), &cut, amd64_env);
+        assert!(
+            unmodified.contains(&target),
+            "{target} is picked unmodified"
         );
         let picked = pick_from(&cat, &cut, amd64_env);
         assert!(
             !picked.contains(&target),
             "{target} is refused, not picked: {picked:?}"
         );
-        assert!(!picked.is_empty(), "the other candidates are still picked");
-
-        // Control: the same rows with the unmodified catalogue keep it.
-        assert!(
-            pick_from(catalogue(), &cut, amd64_env).contains(&target),
-            "{target} is picked when its call builds no cross-fit bundles"
-        );
+        for id in unmodified.iter().filter(|id| **id != target) {
+            assert!(picked.contains(id), "{id} is still picked: {picked:?}");
+        }
     }
 }
