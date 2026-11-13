@@ -15,7 +15,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -386,6 +386,42 @@ test('tauri.conf.json ships the sidecar and both build hooks stage it before the
 
   const gitignore = fs.readFileSync(path.join(repo, '.gitignore'), 'utf8');
   assert.match(gitignore, /^src-app\/desktop\/tauri\/binaries\/$/m, 'the staged binaries are never committed');
+});
+
+// ── third-party notices ──────────────────────────────────────────────────────
+
+test('THIRD-PARTY-NOTICES.md lists the bundled oras at the pinned version', () => {
+  const repo = path.resolve(path.dirname(SCRIPT), '..');
+  const notices = fs.readFileSync(path.join(repo, 'THIRD-PARTY-NOTICES.md'), 'utf8');
+  const section = notices.split('\n## ').find((s) => s.startsWith('Programs bundled with the application'));
+  assert.ok(section, 'the notices carry the bundled-programs section');
+  assert.ok(
+    section.includes(`- **oras ${ORAS_VERSION}** — Apache-2.0 — https://github.com/oras-project/oras`),
+    `the notices name oras ${ORAS_VERSION} under Apache-2.0`,
+  );
+  assert.ok(section.includes(`as recorded in the oras ${ORAS_VERSION} release SBOMs`));
+});
+
+test('the notices generator reads the oras version and refuses a version its module table was not read for', () => {
+  const repo = path.resolve(path.dirname(SCRIPT), '..');
+  const probe = [
+    '-I', '-c',
+    'import importlib.util, sys\n' +
+      'spec = importlib.util.spec_from_file_location("tp", sys.argv[1])\n' +
+      'm = importlib.util.module_from_spec(spec); sys.modules["tp"] = m; spec.loader.exec_module(m)\n' +
+      'print(m.oras_version(sys.argv[2]))',
+    path.join(repo, 'scripts/third-party.py'),
+  ];
+  const ok = spawnSync('python3', [...probe, repo], { encoding: 'utf8' });
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.equal(ok.stdout.trim(), ORAS_VERSION);
+
+  const fake = scratch('fetch-oras-notices-');
+  fs.mkdirSync(path.join(fake, 'scripts'));
+  fs.writeFileSync(path.join(fake, 'scripts/fetch-oras.mjs'), "export const ORAS_VERSION = '9.9.9';\n");
+  const bumped = spawnSync('python3', [...probe, fake], { encoding: 'utf8' });
+  assert.notEqual(bumped.status, 0);
+  assert.match(bumped.stderr, /pins oras 9\.9\.9 but ORAS_GO_MODULES was read from the oras 1\.3\.6 SBOMs/);
 });
 
 // ── the CLI with the real pinned table ───────────────────────────────────────
