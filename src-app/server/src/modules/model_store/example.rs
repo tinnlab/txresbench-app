@@ -1325,6 +1325,16 @@ mod tests {
         panic!("the condition did not hold in time");
     }
 
+    /// Poll `caller` until `started` holds, then drop it: the caller goes
+    /// away while its computation runs.
+    async fn drop_once_started<F: std::future::Future>(caller: F, started: impl Fn() -> bool) {
+        let mut caller = std::pin::pin!(caller);
+        tokio::select! {
+            _ = &mut caller => panic!("the computation finished before it was released"),
+            _ = until(started) => {}
+        }
+    }
+
     /// A caller dropped mid-computation does not lose the computation:
     /// a caller arriving while it runs waits on that same computation, and
     /// with no caller left its outcome is still stored — one computation
@@ -1335,35 +1345,35 @@ mod tests {
         static SHARED: PickCache = PickCache::new();
         static SHARED_RUNS: AtomicUsize = AtomicUsize::new(0);
         let (release, wait) = std::sync::mpsc::channel::<()>();
-        let first = tokio::spawn(SHARED.get(move || {
+        let first = SHARED.get(move || {
             SHARED_RUNS.fetch_add(1, Ordering::SeqCst);
             wait.recv().expect("released");
             Ok(vec!["m".to_string()])
-        }));
-        until(|| SHARED_RUNS.load(Ordering::SeqCst) == 1).await;
-        first.abort();
-        assert!(first.await.expect_err("aborted").is_cancelled());
-        let second = tokio::spawn(SHARED.get(|| {
+        });
+        drop_once_started(first, || SHARED_RUNS.load(Ordering::SeqCst) == 1).await;
+        let second = SHARED.get(|| {
             SHARED_RUNS.fetch_add(1, Ordering::SeqCst);
             Ok(vec!["a second computation".to_string()])
-        }));
-        tokio::task::yield_now().await;
-        release.send(()).expect("the computation waits");
-        assert_eq!(second.await.expect("joined").expect("picked"), ["m"]);
+        });
+        // `join!` polls the second caller first, so it is waiting on the
+        // running computation before that is released.
+        let (picked, ()) = tokio::join!(second, async {
+            tokio::task::yield_now().await;
+            release.send(()).expect("the computation waits");
+        });
+        assert_eq!(picked.expect("picked"), ["m"]);
         assert_eq!(SHARED_RUNS.load(Ordering::SeqCst), 1, "one computation");
 
         // No caller left: the outcome still reaches the cache.
         static ALONE: PickCache = PickCache::new();
         static ALONE_RUNS: AtomicUsize = AtomicUsize::new(0);
         let (release, wait) = std::sync::mpsc::channel::<()>();
-        let first = tokio::spawn(ALONE.get(move || {
+        let first = ALONE.get(move || {
             ALONE_RUNS.fetch_add(1, Ordering::SeqCst);
             wait.recv().expect("released");
             Ok(vec!["m".to_string()])
-        }));
-        until(|| ALONE_RUNS.load(Ordering::SeqCst) == 1).await;
-        first.abort();
-        assert!(first.await.expect_err("aborted").is_cancelled());
+        });
+        drop_once_started(first, || ALONE_RUNS.load(Ordering::SeqCst) == 1).await;
         release.send(()).expect("the computation waits");
         until(|| ALONE.outcome.get().is_some()).await;
         let cached = ALONE

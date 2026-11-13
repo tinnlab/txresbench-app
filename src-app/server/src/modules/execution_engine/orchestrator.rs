@@ -4540,9 +4540,9 @@ fn cancel_env(env: &Arc<dyn EnvProvider>, base_id: &str, layer_id: &str) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Engine fixtures that other modules' tests drive: the REAL train executor
-/// over a scripted sandbox, with the context the drive builds. A feature's
-/// tests exercise the engine path through this, so the engine's own tests do
-/// not depend on that feature.
+/// over a scripted sandbox, with the context the drive builds. Another
+/// module's tests exercise the engine path through this, so the engine's own
+/// tests do not depend on that module.
 #[cfg(test)]
 pub(crate) mod test_support {
     use super::tests::{
