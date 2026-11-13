@@ -63,8 +63,10 @@
 //!   [`CalibrationError::NoUsableTrainingData`] → `RECALIBRATION_FAILED`,
 //!   never an all-empty column.
 //! - **The saved conversions** (the package's `model.conversions`, kept with
-//!   the model by `save()` and applied by `predict()`): the fitted map is
-//!   recorded as `output/<method_id>/conversions.json` ([`write_conversions`]
+//!   the model by `save()` and applied by `predict()`): a train run fits one
+//!   map per need its training scores cover (the shown one makes its
+//!   column) and records them as `output/<method_id>/conversions.json`
+//!   ([`write_conversions`]
 //!   / [`read_conversions`], the [`Conversions`] map keyed by
 //!   [`conversion_key`]); the model store keeps it with a saved model, and a
 //!   predict-only reuse applies the map for its (outcome, horizon)
@@ -1033,11 +1035,12 @@ pub fn conversion_key(outcome: &str, horizon: Option<f64>) -> String {
 /// death"). Sorted keys, so a recorded map serialises byte-stably.
 pub type Conversions = BTreeMap<String, Conversion>;
 
-/// The run-dir record of the conversion a method's chances were made with:
-/// `output/<method_id>/conversions.json` (beside `chance.csv`). It holds the
-/// ONE map that produced that run's column (the training fit, the reuse
-/// cohort's refit, or the saved model's map); the save flow copies a train
-/// run's file into the saved model.
+/// The run-dir record of a method's conversions:
+/// `output/<method_id>/conversions.json` (beside `chance.csv`). A train run
+/// records the map of every need its training scores cover (the package's
+/// `fit()`; the shown outcome's map made the run's column); a reuse run
+/// records the one map it applied (the cohort's refit, or the saved model's
+/// map). The save flow copies a train run's file into the saved model.
 pub const CONVERSIONS_FILE: &str = "conversions.json";
 
 /// The outcomes a conversion key may name (the package's outcome vocabulary).

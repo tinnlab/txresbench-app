@@ -1064,6 +1064,33 @@ impl StackMethodExecutor {
                 }
             }
         };
+        // Every other need the training scores already cover gets its map too
+        // (the package's `fit()` keeps one conversion per need in
+        // `model.conversions`): the same scores, no extra call. Only the shown
+        // map makes this run's column, so a need whose map cannot be learned
+        // is left out instead of failing the method.
+        let shown_key =
+            super::predictions::conversion_key(outcome_spec.outcome, outcome_spec.horizon);
+        let mut conversions = super::predictions::Conversions::new();
+        if let Some(c) = &conversion {
+            conversions.insert(shown_key.clone(), c.clone());
+        }
+        for (need_outcome, need_horizon) in &needs {
+            let key = super::predictions::conversion_key(need_outcome, *need_horizon);
+            if key == shown_key {
+                continue;
+            }
+            let map = score_map_for(&score_tables, spec, need_outcome);
+            if let Ok(c) = super::predictions::fit_recalibration(
+                spec,
+                &outcomes_csv,
+                &map,
+                need_outcome,
+                *need_horizon,
+            ) {
+                conversions.insert(key, c);
+            }
+        }
 
         // ── the final predict call over the predict surface ─────────────────
         let score = self
@@ -1118,17 +1145,17 @@ impl StackMethodExecutor {
         if let Err(e) = super::predictions::write_chance_column(&ctx.run_dir, &method_id, &rows) {
             return Ok(failed_outcome(io_failure(&e)));
         }
-        // The fitted conversion is recorded beside the column
+        // The fitted conversions (the shown one and every other covered
+        // need) are recorded beside the column
         // (`output/<method_id>/conversions.json`, the package's
-        // `model.conversions` shape): the save flow copies it into the saved
-        // model, so a later reuse on new patients applies the same map (the
-        // package's `save()` keeps the conversions with the model).
-        if let Some(c) = conversion {
-            let map = super::predictions::Conversions::from([(
-                super::predictions::conversion_key(outcome_spec.outcome, outcome_spec.horizon),
-                c,
-            )]);
-            if let Err(e) = super::predictions::write_conversions(&ctx.run_dir, &method_id, &map) {
+        // `model.conversions` shape): the save flow copies them into the saved
+        // model, so a later reuse on new patients — for the shown outcome or
+        // another covered one — applies the training map (the package's
+        // `save()` keeps the conversions with the model).
+        if !conversions.is_empty() {
+            if let Err(e) =
+                super::predictions::write_conversions(&ctx.run_dir, &method_id, &conversions)
+            {
                 return Ok(failed_outcome(io_failure(&e)));
             }
         }
@@ -6236,16 +6263,20 @@ mod tests {
         }
         drop(calls);
 
-        // The fitted conversion is recorded beside the column (the save
-        // flow keeps it with the model): one map, the shown key, and it IS
-        // the map that made `chance.csv` from the final call's risks.
+        // The fitted conversions are recorded beside the column (the save
+        // flow keeps them with the model): one map per need the training
+        // scores cover — the cohort learns progression and death, the method
+        // has no native probability — and the SHOWN key's map is the one
+        // that made `chance.csv` from the final call's risks.
         let recorded = predictions::read_conversions(&run_dir, "ctdna-tf-four-group")
-            .expect("the recorded conversion reads");
+            .expect("the recorded conversions read");
         assert_eq!(
             recorded.keys().collect::<Vec<_>>(),
-            vec!["progression@238"],
-            "one map for the shown (outcome, horizon)"
+            vec!["death@238", "progression@238"],
+            "one map per need, the shown (progression, 238) included"
         );
+        assert!(recorded.values().all(|c| c.n > 0), "each map learned from patients");
+        assert_ne!(recorded["death@238"], recorded["progression@238"]);
         let c = &recorded["progression@238"];
         let raw = std::fs::read_to_string(outputs.join("predictions.csv")).unwrap();
         let raw = bundle::parse_csv(&raw).unwrap();
@@ -6294,14 +6325,21 @@ mod tests {
             .count();
         assert_eq!(fold_fits, predictions::CROSS_FIT_FOLDS);
         drop(calls);
-        // A native column is never converted, so nothing is recorded (the
-        // saved model then carries no conversion — its probability is its own).
-        assert!(
-            !run_dir
-                .join("output/jm-lme")
-                .join(predictions::CONVERSIONS_FILE)
-                .exists(),
-            "no conversion recorded for a native column"
+        // The shown column is native and never converted, but the method
+        // writes no probability for death: the cross-fit scores the run
+        // already made give death its map (the package's one map per need,
+        // no extra call), recorded for a later reuse — and no map for the
+        // native progression.
+        let recorded = predictions::read_conversions(&run_dir, "jm-lme").expect("recorded");
+        assert_eq!(
+            recorded.keys().collect::<Vec<_>>(),
+            vec!["death@238"],
+            "a map for the non-native need only"
+        );
+        assert_eq!(
+            seam.calls.lock().unwrap_or_else(|e| e.into_inner()).len(),
+            2 + 2 * predictions::CROSS_FIT_FOLDS,
+            "no extra call for the extra map"
         );
     }
 
@@ -6872,6 +6910,16 @@ mod tests {
         name: &str,
         conversions: predictions::Conversions,
     ) -> (MethodOutcome, PathBuf, Vec<SeamCall>, String) {
+        predict_only_reuse_for(name, conversions, types::TxrEndpoint::Pfs).await
+    }
+
+    /// [`predict_only_reuse`] for a run endpoint (the reuse run's own
+    /// outcome; the look-ahead stays the fixture's 238).
+    async fn predict_only_reuse_for(
+        name: &str,
+        conversions: predictions::Conversions,
+        endpoint: types::TxrEndpoint,
+    ) -> (MethodOutcome, PathBuf, Vec<SeamCall>, String) {
         let _g = rootfs::scoped_data_root(test_data_dir(name));
         let pool = merged_pool().await;
         let seam = FakeStackRunSeam::new();
@@ -6883,6 +6931,7 @@ mod tests {
         make_method_dirs(&run_dir, "m-1");
         let mut req = cohort_reuse_request(&asset_dir, &digest, "ctdna-tf-four-group");
         req.input.patients = None;
+        req.config.endpoint = endpoint;
         req.model_ids[0].conversions = conversions;
         assert_eq!(req.validate(), Ok(()), "the asset's conversions pass the request rules");
         let prepared = prepare_run(
@@ -6894,7 +6943,7 @@ mod tests {
         )
         .expect("the reuse fixture validates");
         assert!(prepared.train.is_none(), "predict-only: no outcomes side");
-        let (ctx, _cancel) = executor_ctx(
+        let (mut ctx, _cancel) = executor_ctx(
             &run_dir,
             "m-1",
             prepared.train,
@@ -6905,6 +6954,7 @@ mod tests {
                 asset: req.model_ids[0].clone(),
             },
         );
+        ctx.config = req.config.clone();
         let outcome = exec.execute(ctx).await.expect("verdict");
         let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner()).clone();
         (outcome, run_dir, calls, digest)
@@ -7011,6 +7061,51 @@ mod tests {
                 "no native probability, and this saved model's score-to-chance conversion is for death at 365 days, not progression at 238 days"
             );
         }
+    }
+
+    /// A saved model carries one map per need its training covered: a reuse
+    /// for ANOTHER covered outcome (death, while the model was shown for
+    /// progression) applies that outcome's own training map.
+    #[tokio::test]
+    async fn executor_reuse_predict_only_applies_another_covered_outcome() {
+        let progression = saved_logistic_map()["progression@238"].clone();
+        let death = predictions::Conversion {
+            a: 0.3,
+            b: 0.6,
+            mu: 0.5,
+            sd: 0.2,
+            ..progression.clone()
+        };
+        let map = predictions::Conversions::from([
+            ("progression@238".to_string(), progression),
+            ("death@238".to_string(), death.clone()),
+        ]);
+        let (outcome, run_dir, calls, _) =
+            predict_only_reuse_for("executor-reuse-death", map, types::TxrEndpoint::Os).await;
+        assert_eq!(outcome.state, TxrMethodState::Finished, "{:?}", outcome.reason);
+        assert_eq!(outcome.task, Some(TxrTask::Os));
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::Converted));
+        let raw = std::fs::read_to_string(run_dir.join("output/m-1/predictions.csv")).unwrap();
+        let raw = bundle::parse_csv(&raw).unwrap();
+        let risk_of: std::collections::BTreeMap<&str, &str> = raw
+            .col("patient_id")
+            .unwrap()
+            .iter()
+            .map(String::as_str)
+            .zip(raw.col("risk").unwrap().iter().map(String::as_str))
+            .collect();
+        let rows = recorded_chances(&run_dir);
+        assert!(!rows.is_empty());
+        for (id, p, _) in rows {
+            let want = death.apply(bundle::parse_number(risk_of[id.as_str()])).unwrap();
+            assert_eq!(p, format!("{want:.6}"), "{id}: the death map, not the progression one");
+        }
+        assert_eq!(
+            predictions::read_conversions(&run_dir, "m-1").expect("recorded"),
+            predictions::Conversions::from([("death@238".to_string(), death)]),
+            "the reuse run records the one map it applied"
+        );
+        assert_eq!(calls.len(), 1);
     }
 
     #[tokio::test]

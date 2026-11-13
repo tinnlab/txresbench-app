@@ -94,11 +94,14 @@ after validation and — for a method with no native probability — after the
 conversion band (the raw file cannot be re-derived into it).
 
 Beside it, `output/<method_id>/conversions.json` records the risk→probability
-conversion that column was made with, in the TxResBench package's
+conversions, in the TxResBench package's
 `model.conversions` shape (contract 2.0 `model.schema.json`: key `outcome` or
 `outcome@horizon`, value `{kind, a, b, mu, sd, n, rate}`). A train run records
-the map it fitted on the training scores (out-of-fold for a `fitted` method);
-the model store copies it into a saved model (the package's `save()` keeps the
+one map per need its training scores cover — every learned outcome without a
+native probability, at the run's look-ahead — fitted on those scores
+(out-of-fold for a `fitted` method; no extra call), and the shown outcome's map
+makes its column; a reuse run records the one map it applied. The model store
+copies a train run's file into a saved model (the package's `save()` keeps the
 conversions with the model) and hands it back on the reuse asset
 (`TxrModelAsset.conversions`). A reuse run applies, in order: the method's own
 probability (`native`); a refit on the run's own patients when the run carries
@@ -107,7 +110,8 @@ run's (outcome, horizon) (`converted` — the package's `predict()`). Without a
 matching saved conversion the column has no chances (`none`) and each note
 says why (a model saved before conversions were kept, or a conversion for
 another outcome/day). The predictions surface reports `flat_conversion` when
-the recorded conversion is the event-rate map.
+the column's own conversion (its outcome at the run's look-ahead) is the
+event-rate map.
 
 ## Files
 
