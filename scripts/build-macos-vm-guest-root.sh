@@ -17,12 +17,15 @@
 #   Point the app at the result with TXR_SANDBOX_GUEST_ROOT=<out-dir>.
 #
 # Needs Docker able to run linux/arm64 containers (Docker Desktop on Apple Silicon).
+# The pinned build images and the agent build are shared with scripts/build-wsl-rootfs.sh
+# (scripts/guest-root-common.sh).
 set -eu
 
 die() { echo "build-macos-vm-guest-root: $*" >&2; exit 1; }
 
 [ $# -eq 1 ] || die "usage: sh scripts/build-macos-vm-guest-root.sh <out-dir>"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$ROOT/scripts/guest-root-common.sh"
 OUT_PARENT=$(cd "$(dirname "$1")" 2>/dev/null && pwd) || die "the parent of $1 does not exist"
 OUT="$OUT_PARENT/$(basename "$1")"
 AGENT_REL=usr/bin/txresbench-sandbox-agent
@@ -33,18 +36,16 @@ if [ -e "$OUT" ] && [ ! -f "$OUT/$AGENT_REL" ]; then
 fi
 
 # The protocol versions the agent serves, read from their one declaration.
-PROTO_SRC="$ROOT/sdk/crates/sandbox-vm-protocol/src/lib.rs"
-VERSION=$(sed -n 's/^pub const PROTOCOL_VERSION: u32 = \([0-9][0-9]*\);$/\1/p' "$PROTO_SRC")
-MIN_VERSION=$(sed -n 's/^pub const PROTOCOL_VERSION_MIN: u32 = \([0-9][0-9]*\);$/\1/p' "$PROTO_SRC")
-[ -n "$VERSION" ] && [ -n "$MIN_VERSION" ] || die "cannot read PROTOCOL_VERSION(_MIN) from $PROTO_SRC"
+guest_protocol_range "$ROOT" || die "cannot read the agent protocol versions"
+VERSION=$GUEST_PROTOCOL_MAX
+MIN_VERSION=$GUEST_PROTOCOL_MIN
 
 command -v docker >/dev/null 2>&1 || die "docker is not installed"
 docker info >/dev/null 2>&1 || die "docker is not running"
 
-# Build images, pinned by digest (multi-arch index). The apk package versions are not
-# pinned: they come from the Alpine 3.20 repository at build time.
-RUST_IMAGE=rust:1.90-alpine3.20@sha256:ef86f37c2819ebd1ecb1dbd7efda70c693cb013232688aa136a5a2f1e3b65e55
-ALPINE_IMAGE=alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+# The Alpine image, pinned by digest (guest-root-common.sh). The apk package versions are
+# not pinned: they come from the Alpine 3.20 repository at build time.
+ALPINE_IMAGE=$(guest_alpine_image aarch64)
 
 STAGE="$OUT.building.$$"
 cleanup() { rm -rf "$STAGE" "$STAGE.agent"; }
@@ -52,17 +53,8 @@ trap cleanup EXIT INT TERM
 mkdir "$STAGE"
 
 echo "build-macos-vm-guest-root: building the guest agent (static aarch64-musl)" >&2
-docker run --rm --platform linux/arm64 -v "$ROOT:/work:ro" -w /work/sdk \
-  -e CARGO_TARGET_DIR=/tmp/cargo-target \
-  -e 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static' \
-  -e LIBSECCOMP_LINK_TYPE=static -e LIBSECCOMP_LIB_PATH=/usr/lib \
-  "$RUST_IMAGE" sh -c '
-    set -e
-    apk add -q libseccomp-dev libseccomp-static musl-dev build-base pkgconf >/dev/null
-    cargo build --release --locked --target aarch64-unknown-linux-musl -p sandbox-guest-agent 1>&2
-    cat /tmp/cargo-target/aarch64-unknown-linux-musl/release/txresbench-sandbox-agent' \
-  > "$STAGE.agent" || die "the guest agent build failed"
-[ -s "$STAGE.agent" ] || die "the guest agent build produced no binary"
+mkdir "$STAGE.agent"
+guest_build_agent "$ROOT" aarch64 "$STAGE.agent" || die "the guest agent build failed"
 
 echo "build-macos-vm-guest-root: assembling the Alpine userland" >&2
 # Device nodes are left out: the guest kernel provides /dev, and they cannot be
@@ -91,7 +83,7 @@ done
 echo "sandboxuser:x:1001:1001:Sandbox User:/home/sandboxuser:/bin/bash" > "$STAGE/etc/txresbench-sandbox-passwd"
 echo "sandboxuser:x:1001:" > "$STAGE/etc/txresbench-sandbox-group"
 : > "$STAGE/etc/txresbench-sandbox-empty"
-install -m 0755 "$STAGE.agent" "$STAGE/$AGENT_REL"
+install -m 0755 "$STAGE.agent/txresbench-sandbox-agent" "$STAGE/$AGENT_REL"
 
 for f in usr/bin/bwrap "$AGENT_REL" bin/busybox; do
   [ -f "$STAGE/$f" ] || die "the assembled guest root has no /$f"
