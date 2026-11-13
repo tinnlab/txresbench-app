@@ -129,11 +129,13 @@ impl MethodExecutor for ModelFakeExecutor {
             .lock()
             .expect("lock")
             .push(ctx.method_id.clone());
-        // The real train executor's bundle stage over the drive's own context
-        // (the run's canonical sides, its config, the plan's min_draws, the
-        // lane CPU count): a refusal fails the method with its `BUNDLE_*`
-        // code exactly like `execute_train`, so the example set cannot
-        // become ready on a method the real run would refuse.
+        // The bundle preflight over the drive's own context (the run's
+        // canonical sides, its config, the plan's min_draws, the lane CPU
+        // count): a refusal fails the method with its `BUNDLE_*` code. This
+        // is the same preflight the pick applies, so it catches the pick's
+        // input or config drifting from what the drive hands the executor;
+        // that the preflight matches `execute_train` itself is checked by
+        // the unit test `call_bundle_preflight_matches_the_executor_bundle_stage`.
         let facts = envmanifest::facts_for(&ctx.method_id)
             .ok_or_else(|| AppError::internal_error(format!("unknown method {}", ctx.method_id)))?;
         if let Err(e) = orchestrator::call_bundle_preflight(&ctx, facts) {
