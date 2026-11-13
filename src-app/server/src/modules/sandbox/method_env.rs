@@ -1546,13 +1546,15 @@ fn is_executable(path: &Path) -> bool {
 /// cache. Linux: the squashfuse mount dir (`rootfs::ensure_ready_by_digest`).
 /// macOS: the cached squashfs image itself — the method VM attaches it as a
 /// read-only disk, so nothing is mounted on the host
-/// (`service::run_method_in_stack`, macOS). Callers verified the bytes first.
+/// (`service::run_method_in_stack`, macOS). Windows: the image too — the WSL
+/// agent mounts it (`service::run_method_in_stack`, Windows). Callers
+/// verified the bytes first.
 fn ready_artifact_path(digest: &str) -> Result<PathBuf, AppError> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         crate::modules::rootfs::cached_image_by_digest(digest)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         crate::modules::rootfs::ensure_ready_by_digest(digest)
     }

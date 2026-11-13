@@ -90,8 +90,10 @@ pub mod env_image;
 // layer images attach as read-only disks; bwrap runs inside the guest).
 #[cfg(target_os = "macos")]
 pub mod mac_vm_run;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod vm_exchange;
+#[cfg(target_os = "windows")]
+pub mod wsl_run;
 pub mod method_env;
 pub mod outputs;
 pub mod permissions;
@@ -165,7 +167,10 @@ impl AppModule for SandboxModule {
         // Host probe (bwrap on PATH + cgroup + seccomp). Missing bwrap → disable.
         // macOS: methods run in a per-run Linux VM (`mac_vm_run`), so the probe
         // is the VM runtime (launcher + guest root on Apple Silicon) instead.
-        #[cfg(not(target_os = "macos"))]
+        // Windows: methods run in the app's WSL 2 distro (`wsl_run`), so the
+        // probe checks that WSL is installed and new enough and that the app
+        // ships its guest root.
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         let probed = probes::probe_host_only().ok_or_else(|| {
             "bwrap not found on PATH — sandbox disabled (host_unsupported). \
              Install bubblewrap + squashfuse to enable."
@@ -175,6 +180,9 @@ impl AppModule for SandboxModule {
         let probed = mac_vm_run::probe_host().map_err(|reason| {
             format!("{reason} — method VMs disabled (host_unsupported)")
         });
+        #[cfg(target_os = "windows")]
+        let probed = wsl_run::probe_host()
+            .map_err(|reason| format!("{reason} — methods disabled (host_unsupported)"));
         // Per-run VM dirs (image clones, input copies) a crashed app left
         // behind; no run can be active yet.
         #[cfg(target_os = "macos")]

@@ -696,6 +696,69 @@ struct WriterState {
     entries: usize,
 }
 
+/// How messages name the host's file system (both fold names together).
+#[cfg(target_os = "macos")]
+const HOST_FS: &str = "the Mac's file system";
+#[cfg(windows)]
+const HOST_FS: &str = "Windows' file system";
+
+/// Whether the host's file system can hold `part` as one plain name. Windows
+/// gives meaning to characters and names a Linux workload may use freely: `\`
+/// and `:` (a path separator, a drive, an alternate data stream), `<>"|?*` and
+/// control characters, a trailing dot or space (silently dropped), and the
+/// device names (`CON`, `NUL`, `COM1`, `LPT¹`, ... with any extension). Such a
+/// name could land somewhere other than where the workload put it, so it is
+/// refused.
+#[cfg(windows)]
+fn host_name_ok(part: &str) -> bool {
+    if part.chars().any(|c| c < ' ' || matches!(c, '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*')) {
+        return false;
+    }
+    if part.ends_with('.') || part.ends_with(' ') {
+        return false;
+    }
+    let stem = part.split('.').next().unwrap_or("").trim_end_matches(' ').to_ascii_uppercase();
+    let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
+        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.chars().count() == 4
+            && matches!(stem.chars().nth(3), Some('0'..='9' | '¹' | '²' | '³')));
+    !device
+}
+
+/// Every plain name fits the Mac's file system (APFS folding is handled by
+/// [`fold_name`] and the exact-name check).
+#[cfg(not(windows))]
+fn host_name_ok(_part: &str) -> bool {
+    true
+}
+
+/// Open without following a symlink at the last path part (`O_NOFOLLOW`).
+#[cfg(unix)]
+fn no_follow(open: &mut std::fs::OpenOptions) {
+    use std::os::unix::fs::OpenOptionsExt;
+    open.custom_flags(libc::O_NOFOLLOW);
+}
+
+/// Open a reparse point (symlink, junction) itself, never what it points to
+/// (`FILE_FLAG_OPEN_REPARSE_POINT`), so a write cannot land elsewhere.
+#[cfg(windows)]
+fn no_follow(open: &mut std::fs::OpenOptions) {
+    use std::os::windows::fs::OpenOptionsExt;
+    open.custom_flags(0x0020_0000);
+}
+
+/// Create the relative symlink `dest -> target`.
+#[cfg(unix)]
+fn make_symlink(target: &str, dest: &Path) -> Result<(), String> {
+    std::os::unix::fs::symlink(target, dest).map_err(|e| format!("symlink: {e}"))
+}
+
+/// Windows: never called ([`WriterState::symlink`] leaves every link out).
+#[cfg(windows)]
+fn make_symlink(_target: &str, _dest: &Path) -> Result<(), String> {
+    Err("symlinks are not created on Windows".into())
+}
+
 /// Fold a relative path the way APFS compares names: Unicode NFC, lowercase.
 fn fold_name(rel_path: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
@@ -794,7 +857,7 @@ impl WriterState {
             .get(mount_index as usize)
             .ok_or_else(|| format!("unknown output dir index {mount_index}"))?;
         let plain = |part: &str| {
-            !part.is_empty() && part != "." && part != ".." && part.len() <= MAX_NAME_BYTES
+            !part.is_empty() && part != "." && part != ".." && part.len() <= MAX_NAME_BYTES && host_name_ok(part)
         };
         if rel_path.is_empty() || rel_path.len() > MAX_REL_PATH_BYTES || !rel_path.split('/').all(plain) {
             return Err("refused an unsafe or over-long output path".into());
@@ -842,8 +905,8 @@ impl WriterState {
                         .unwrap_or(false);
                     if !exact {
                         return Err(format!(
-                            "{prefix} is the same name as an existing entry to the Mac's file \
-                             system (it differs only by letter case or Unicode form)"
+                            "{prefix} is the same name as an existing entry to {HOST_FS} (it \
+                             differs only by letter case or Unicode form)"
                         ));
                     }
                 }
@@ -860,8 +923,8 @@ impl WriterState {
             match self.names.get(&key) {
                 Some(seen) if *seen != prefix => {
                     return Err(format!(
-                        "differs from {seen} only by letter case or Unicode form, and the \
-                         Mac's file system cannot keep both"
+                        "differs from {seen} only by letter case or Unicode form, and {HOST_FS} \
+                         cannot keep both"
                     ));
                 }
                 Some(_) => {}
@@ -895,6 +958,12 @@ impl WriterState {
         // The link's own path is checked first: a malformed frame is an
         // error, never a note.
         self.check_rel(mount_index, rel_path)?;
+        // Windows: creating a symlink needs a privilege (Developer Mode or an
+        // administrator) the app does not have, so every output symlink is
+        // left out with a note.
+        if cfg!(windows) {
+            return Ok(self.leave_out(rel_path, target));
+        }
         let sandbox_root = self
             .sandbox_paths
             .get(mount_index as usize)
@@ -940,7 +1009,7 @@ impl WriterState {
             std::fs::create_dir_all(parent_dir).map_err(|e| format!("mkdir: {e}"))?;
         }
         // symlink() refuses an existing name, so nothing is ever replaced.
-        std::os::unix::fs::symlink(&link_target, &dest).map_err(|e| format!("symlink: {e}"))
+        make_symlink(&link_target, &dest)
     }
 
     /// Record a symlink that is not recreated because it leaves its dir.
@@ -963,9 +1032,9 @@ impl WriterState {
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
             }
-            use std::os::unix::fs::OpenOptionsExt;
             let mut open = std::fs::OpenOptions::new();
-            open.write(true).custom_flags(libc::O_NOFOLLOW);
+            open.write(true);
+            no_follow(&mut open);
             if self.pre_existing.contains(&key) {
                 open.create(true).truncate(true);
             } else {
@@ -1097,6 +1166,7 @@ mod tests {
         assert_eq!(std::fs::read(root.0.join("old.csv")).unwrap(), b"new");
     }
 
+    #[cfg(unix)]
     #[test]
     fn writer_never_follows_a_symlink_already_in_the_output_dir() {
         let root = TempDir::new();
@@ -1294,6 +1364,7 @@ mod tests {
         assert_eq!(report.errors.len(), 1, "{:?}", report.errors);
     }
 
+    #[cfg(unix)]
     #[test]
     fn writer_recreates_symlinks_inside_the_dir_only() {
         let root = TempDir::new();
@@ -1341,6 +1412,43 @@ mod tests {
         let errors = writer.finish().await.errors;
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert_eq!(std::fs::read(root.0.join("other.csv")).unwrap(), b"ok");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_refuses_output_names_it_would_store_elsewhere() {
+        let root = TempDir::new();
+        let mut w = WriterState::new(out_dirs(&[&root.0]));
+        for bad in [
+            "con", "CON.txt", "nul.csv", "Com1", "lpt9.log", "COM\u{b9}.x", "aux .txt", "CONOUT$", "a:b", "a:b:$DATA",
+            "a\\b", "x.", "x ", "a<b", "q?", "t\u{1}", "dir/nul",
+        ] {
+            assert!(w.chunk(0, bad, 0, b"x").is_err(), "{bad:?} must be refused");
+            w.current = None;
+        }
+        for ok in ["con1.txt", "console.log", "data.csv", "a.b.c", "COM10", "lpt.csv"] {
+            w.chunk(0, ok, 0, b"x").unwrap_or_else(|e| panic!("{ok:?}: {e}"));
+            w.current = None;
+        }
+        let mut names: Vec<String> = std::fs::read_dir(&root.0)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["COM10", "a.b.c", "con1.txt", "console.log", "data.csv", "lpt.csv"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_leaves_output_symlinks_out_with_a_note() {
+        let root = TempDir::new();
+        let mut w = WriterState::new(out_dirs(&[&root.0]));
+        w.apply(WriterMsg::Symlink(0, "link.csv".into(), "pred.csv".into()));
+        w.apply(WriterMsg::Symlink(0, "../up".into(), "x".into()));
+        assert_eq!(w.notes, ["link.csv -> pred.csv"]);
+        assert_eq!(w.errors.len(), 1, "an unsafe link path is still an error: {:?}", w.errors);
+        assert!(std::fs::symlink_metadata(root.0.join("link.csv")).is_err());
     }
 
     #[test]
