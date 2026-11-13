@@ -1307,7 +1307,10 @@ fn install_seccomp(
 }
 
 /// SIGKILL a running command: bwrap, and in WSL its whole process group. Only
-/// called before the child is reaped, so its pid still names its group.
+/// called before the child is reaped, so its pid still names its group. The
+/// sandboxed processes themselves are in another session (bwrap's
+/// `--new-session`); the argv's `--unshare-pid` and `--die-with-parent` end
+/// them with bwrap.
 #[cfg(target_os = "linux")]
 fn stop_command(child: &mut tokio::process::Child, host: Host) {
     if host.own_process_group() {
