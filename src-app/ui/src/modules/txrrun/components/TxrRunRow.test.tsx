@@ -141,13 +141,20 @@ describe('TxrRunRow — the per-state row facts (TEST-RUN-20)', () => {
     expect(onAction).toHaveBeenCalledWith({ kind: 'view', methodId: 'method-a' })
   })
 
-  it('the bar track carries a definite width — the phone stacked card cannot resolve the fill against an auto track (qa-fixes4 ITEM-3, methods-r3 R2-9)', () => {
+  it('the bar track carries its flex width — the phone stacked card cannot resolve the fill against an auto track (qa-fixes4 ITEM-3, methods-r3 R2-9)', () => {
     const { rowEl } = renderRow(row('waiting'))
-    // At the phone breakpoint the cell is a flex row; a track without a
-    // definite width collapses to 0 (the report's no-bar phone cards while
-    // the desktop showed a grey track). The pin is the inline width on the
-    // track — the browser tier measures the rendered box.
+    // At the phone breakpoint the cell is a flex row, and the track must be
+    // a flex item that takes the row's leftover (the report's no-bar phone
+    // cards while the desktop showed a grey track). The pin is the inline
+    // flex + fallback width on the track; the browser tier measured the
+    // rendered box (the card cell's own phone width rule is the index.css
+    // half of the fix — the cell's inline 26 % column width shrank it to
+    // 58 px and left the track 0 px).
     expect(within(rowEl).getByTestId('txr-run-bar-track-method-a').style.width).toBe('100%')
+    // jsdom's style serializer expands the shorthand basis to "0px".
+    expect(
+      within(rowEl).getByTestId('txr-run-bar-track-method-a').style.flex,
+    ).toMatch(/^1 1 0(px)?$/)
     // The fill's percentage then resolves against a definite track.
     expect(within(rowEl).getByTestId('txr-run-bar-method-a').style.width).toBe('0%')
   })

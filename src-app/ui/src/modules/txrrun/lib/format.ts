@@ -48,6 +48,8 @@ import type {
   TimingQuality,
 } from '@/api-client/types'
 import { safeText } from '@/modules/txrshell/lib/safeText'
+// The ONE env-missing sentence (the list's CM-1 wording — R3-methods-9).
+import { NO_PUBLISHED_ENVIRONMENT_REASON } from '@/modules/txrlist/lib/format'
 import type { TxrRunBucket } from '../types'
 
 /**
@@ -242,6 +244,18 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
       return safeText(progress?.message ?? '')
     case 'failed':
     case 'cannot_run':
+      // qa-fixes4 ITEM-3 (methods-r3 R3-methods-9): the reason CODE is the
+      // one closed vocabulary and its fact has ONE sentence — an
+      // `ENV_IMAGE_MISSING` row reads the list's "no published environment
+      // available" (CM-1's plain reason), never the engine's stored
+      // pre-vocabulary detail ("no published environment for method
+      // <id>" — the same fact, two wordings). Any other code keeps the
+      // engine's stored detail verbatim; a row the engine recorded no
+      // reason for reads the constant below — a failure is never blank
+      // (INV-2).
+      if (r.reason?.code === 'ENV_IMAGE_MISSING') {
+        return NO_PUBLISHED_ENVIRONMENT_REASON
+      }
       return safeText(r.reason?.detail ?? 'no reason recorded')
     default:
       return ''

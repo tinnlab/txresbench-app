@@ -163,6 +163,22 @@ export function formatMissingItem(missing: ReadonlyArray<{ display_name?: string
  * - anything else (or an empty reasons list) → "cannot run with this
  *   file" — the constant fallback, never a blank line.
  */
+/**
+ * The ONE sentence a method whose environment is not published reads —
+ * the method list's reason and the F row's reason say the same words
+ * (qa-fixes4 ITEM-3, methods-r3 R3-methods-9): the row's stored engine
+ * detail is the old pre-vocabulary sentence ("no published environment
+ * for method <id>"), while the list said "no published environment
+ * available" for the SAME `ENV_IMAGE_MISSING` code — same fact, two
+ * wordings; the shared code is the key, the shared sentence is this one.
+ */
+export const NO_PUBLISHED_ENVIRONMENT_REASON = 'no published environment available'
+
+/**
+ * The row's one reason line (the FIRST reason only, fine-print plain).
+ *
+ * The sentence vocabulary (one words-per-code table, TEST-UL-13):
+ */
 export function formatReasonLine(
   status: TxrRunStatus,
   reasons: ReadonlyArray<{ code: TxrReasonCode }>,
@@ -197,7 +213,7 @@ export function formatReasonLine(
     case 'NOT_RUNNABLE':
       return 'not available with this build'
     case 'ENV_IMAGE_MISSING':
-      return 'no published environment available'
+      return NO_PUBLISHED_ENVIRONMENT_REASON
     case 'TASK_INCOMPATIBLE':
       return 'needs an outcome column your file lacks'
     case 'RESPONSE_LABEL_MISSING':

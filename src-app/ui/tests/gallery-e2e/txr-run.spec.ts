@@ -291,7 +291,7 @@ test.describe('txr-run-f-failed — the failures kept with their reasons (TEST-R
   }) => {
     await page.goto(`${GALLERY}txr-run-f-failed`)
 
-    await expect(page.getByTestId('txr-run-title')).toHaveText('Running 6 methods')
+    await expect(page.getByTestId('txr-run-title')).toHaveText('Running 7 methods')
     // A failed row's reason is never blank (the row's own chip — read on
     // the Failed tab, before the switch; the Cannot-run tab holds others).
     await expect(page.getByTestId('txr-run-state-cox-timevarying-slope')).toHaveText('failed')
@@ -307,6 +307,18 @@ test.describe('txr-run-f-failed — the failures kept with their reasons (TEST-R
     await page.getByTestId('txr-run-tab-cannot_run').click()
     await expect(page.getByTestId('txr-run-detail-cox-ctdna-status-rfs')).toContainText(
       'LDH is not in your measurements.',
+    )
+    // qa-fixes4 ITEM-3 (methods-r3 R3-methods-9): the env-missing row reads
+    // the LIST's sentence ("no published environment available", CM-1's
+    // plain reason) — the row's stored detail is the old pre-vocabulary
+    // wording ("no published environment for method <id>"); same fact, one
+    // wording across the list and the run rows.
+    await expect(page.getByTestId('txr-run-state-jm-mem-lq')).toHaveText('cannot run')
+    await expect(page.getByTestId('txr-run-detail-jm-mem-lq')).toContainText(
+      'no published environment available',
+    )
+    await expect(page.getByTestId('txr-run-detail-jm-mem-lq')).not.toContainText(
+      'no published environment for method',
     )
 
     await page.getByTestId('txr-run-action-cox-ctdna-status-rfs').click()
@@ -328,8 +340,10 @@ test.describe('txr-run-f-finished — the terminal snapshot (TEST-RUN-25)', () =
     await expect(page.getByTestId('txr-run-counts-finished')).toHaveText('6 finished')
     await expect(rowCount(page)).toHaveCount(6)
     await expect(page.getByTestId('txr-run-see-results')).toBeVisible()
-    // A terminal run has no live-run controls and no leave-and-continue note.
-    await expect(page.getByTestId('txr-run-stop-all')).toBeDisabled()
+    // A terminal run has no live-run controls and no leave-and-continue note
+    // (qa-fixes4 ITEM-2d: HIDDEN, not disabled — the stale disabled pin is
+    // the pre-ITEM-2d byte; the count-0 assertion is the truth).
+    await expect(page.getByTestId('txr-run-stop-all')).toHaveCount(0)
     await expect(page.getByTestId('txr-run-leave-note')).toHaveCount(0)
     await page.getByTestId('txr-run-tab-finished').click()
     await expect(rowCount(page)).toHaveCount(6)
@@ -344,7 +358,10 @@ test.describe('txr-run-f-not-found — the 404 state (TEST-RUN-26)', () => {
 
     const missing = page.getByTestId('txr-run-not-found')
     await expect(missing).toBeVisible()
-    await expect(missing).toContainText('This analysis run could not be found')
+    // qa-fixes4 ITEM-2e's not-found copy (the round-3 "This analysis run
+    // could not be found" was the pre-ITEM-2e byte; the stale pin is
+    // repaired here with the shipped words).
+    await expect(missing).toContainText('We could not find this run')
     await expect(page.getByTestId('txr-run-history')).toBeVisible()
     await expect(page.getByTestId('txr-run-load-error')).toHaveCount(0)
   })
@@ -372,6 +389,19 @@ test.describe('txr-run-e-narrow-390 / txr-run-f-narrow-390 — the mobile width 
     )
     expect(overflow, 'E page horizontal overflow px').toBeLessThanOrEqual(1)
 
+    // qa-fixes4 ITEM-3 (methods-r3 R2-7): the run bar's Run button is IN
+    // VIEW at 390x844 without scrolling — the report measured the old
+    // position:static bar at y=1141; the frame's bottom slot is FIXED to
+    // the viewport's bottom edge below 768 px (a sticky pin does not move
+    // here — the flow shell's overflow-x-hidden document wrapper is the
+    // scrollport, so the bar anchors to it and never sticks; index.css).
+    const run = page.getByTestId('txr-run-bar-run')
+    await expect(run).toBeVisible()
+    const barBox = await run.boundingBox()
+    expect(barBox, 'the Run button must be mounted').not.toBeNull()
+    expect(barBox!.y, 'Run button top').toBeGreaterThanOrEqual(0)
+    expect(barBox!.y + barBox!.height, 'Run button bottom').toBeLessThanOrEqual(844)
+
     await page.goto(`${GALLERY}txr-run-f-narrow-390`)
     await expect(page.getByTestId('txr-run-header')).toBeVisible()
     await expect(page.getByTestId('txr-run-counts')).toBeVisible()
@@ -390,6 +420,61 @@ test.describe('txr-run-e-narrow-390 / txr-run-f-narrow-390 — the mobile width 
       expect(box!.x).toBeGreaterThanOrEqual(0)
       expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
     }
+  })
+
+  test('the phone run cards: labels on one value column, the bar track visible (qa-fixes4 ITEM-3, methods-r3 R2-9)', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-run-f-narrow-390`)
+    await expect(page.getByTestId('txr-run-header')).toBeVisible()
+    // A running row's card: the State value, the bar and the Time value
+    // start at ONE x (the report measured 131 for State/Time against 141
+    // for Progress/Actions — the label column was auto-width; the 76 px
+    // label basis pins every value to the same line).
+    const state = await page.getByTestId('txr-run-state-dynforest').boundingBox()
+    const track = await page.getByTestId('txr-run-bar-track-dynforest').boundingBox()
+    const time = await page.getByTestId('txr-run-time-dynforest').boundingBox()
+    expect(state, 'state value box').not.toBeNull()
+    expect(track, 'progress track box').not.toBeNull()
+    expect(time, 'time value box').not.toBeNull()
+    expect(Math.abs(state!.x - time!.x), 'State and Time start at the same x').toBeLessThanOrEqual(1)
+    expect(Math.abs(track!.x - time!.x), 'Progress and Time start at the same x').toBeLessThanOrEqual(1)
+    // The report's "no bar at all" on the phone cards: the track must have
+    // a real width — the stacked cell's inline 26 % column width shrank
+    // the card cell to a 58 px column and the flexible track took 0 px of
+    // it; the phone rule makes the cell the full row (index.css), so the
+    // track takes the leftover after the 76 px label column.
+    expect(track!.width, 'the grey track is visible').toBeGreaterThan(0)
+    // The follow-up edge: the finished row's bar is full (the desktop and
+    // phone read the same 100).
+    const finishedTrack = await page
+      .getByTestId('txr-run-bar-track-direct-on')
+      .boundingBox()
+    expect(finishedTrack, 'finished track box').not.toBeNull()
+    expect(finishedTrack!.width).toBeGreaterThan(0)
+    const finishedBar = await page.getByTestId('txr-run-bar-direct-on').boundingBox()
+    expect(finishedBar!.width / finishedTrack!.width).toBeGreaterThan(0.99)
+  })
+
+  test('the log panel: the controls sit above the lines box and the panel is bounded (qa-fixes4 ITEM-3, methods-r3 R3-methods-6)', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-run-f-narrow-390`)
+    await expect(page.getByTestId('txr-run-header')).toBeVisible()
+    await page.getByTestId('txr-run-log-open').click()
+    await expect(page.getByTestId('txr-run-log')).toBeVisible()
+    const controls = await page.getByTestId('txr-run-log-controls').boundingBox()
+    const lines = await page.getByTestId('txr-run-log-lines').boundingBox()
+    expect(controls, 'controls box').not.toBeNull()
+    expect(lines, 'lines box').not.toBeNull()
+    // The round-3 report: the controls sat at y=8204 below a 9,100 px pre
+    // — the row above the box is the reachability fix.
+    expect(controls!.y + controls!.height, 'controls bottom above the lines top').toBeLessThanOrEqual(
+      lines!.y + 1,
+    )
+    // The lines box itself is bounded (the panel's flex column: the pre
+    // fills its slot and scrolls inside — never the 9,100 px report).
+    expect(lines!.height, 'the lines box fits the viewport').toBeLessThanOrEqual(844)
   })
 })
 

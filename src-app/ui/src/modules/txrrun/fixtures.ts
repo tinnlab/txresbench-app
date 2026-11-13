@@ -540,6 +540,19 @@ export const TXRRUN_RUN_F_FAILED: TxrRunDetail = runDetail({
       group_label: 'Static risk',
       reason: { code: 'REQUIRED_MARKER_MISSING', detail: 'LDH is not in your measurements.' },
     }),
+    // qa-fixes4 ITEM-3 (methods-r3 R3-methods-9): the env-missing row — the
+    // engine stores the OLD pre-vocabulary detail ("no published
+    // environment for method <id>") under the shared ENV_IMAGE_MISSING
+    // code (the orchestrator's own words); the row's detail line must read
+    // the LIST's sentence for the same code.
+    txrrunMethodRow('jm-mem-lq', 'cannot_run', {
+      group: 'response-call',
+      group_label: 'Response call',
+      reason: {
+        code: 'ENV_IMAGE_MISSING',
+        detail: 'no published environment for method "jm-mem-lq"',
+      },
+    }),
   ],
 })
 

@@ -460,6 +460,18 @@ html.txr-shell-mode-shell #root {
   .txr-run-table tr.txr-run-row td[data-label='Time'] {
     text-align: left !important;
   }
+  /* qa-fixes4 ITEM-3 (methods-r3 R2-9): the desktop column keeps its
+     proportional width inline (26 % of the row's width) — in the stacked
+     card that same width SHRINKS the cell to a narrow 58 px column (a
+     block-level flex box with a definite width does not fill the row),
+     and the track's flexible width resolved against the squeezed
+     container → no bar at all on the phone cards. The card cell is the
+     full row (the label + value flex row takes what it needs), and the
+     track takes the leftover after the 76 px label column (its
+     `flex: 1 1 0` + `width: 100 %` in TxrRunRow). */
+  .txr-run-table tr.txr-run-row td[data-label='Progress'] {
+    width: auto !important;
+  }
   .txr-run-table tr.txr-run-row td[data-label='Actions'] {
     align-items: flex-start !important;
   }
@@ -812,6 +824,35 @@ html.txr-shell-mode-flow .txr-help-rail {
 .txr-help-skip-link:focus {
   left: 12px !important;
   top: 12px !important;
+}
+
+/* qa-fixes4 ITEM-3 (methods-r3 R2-7): the E screen's run bar at the phone
+ * width. SHELL mode (>=768x520) pins the frame's bottom slot by the
+ * frame's own 100 % height; below it the app is FLOW mode (the phone /
+ * web-demo byte — the document scrolls, the shell header sticks at the
+ * top) and the frame grows to the content, so the bar used to sit AFTER
+ * the whole method list (the round-3 report: the Run button at y=1141
+ * against an 844 px viewport — position: static). A STICKY bottom bar
+ * does not pin here: the flow shell's own document wrapper carries
+ * `overflow-x-hidden`, which makes THAT wrapper the scroll container
+ * (overflow-y resolves to auto) — a sticky bar anchors to the wrapper's
+ * 100 %-tall scrollport, not the viewport, so it does not move while the
+ * document scrolls (measured: the bar stayed at the document end). The
+ * bar is FIXED to the viewport's bottom edge instead (never off-screen
+ * below 768 px, where the shell is always FLOW), and the frame carries
+ * the bar's own height as bottom padding so the list's last rows are
+ * never hidden behind it (the fixed bar overlays the padding only). */
+@media (max-width: 767px) {
+  .txr-run-page .txr-page-frame-bottom {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+  }
+  .txr-run-page .txr-page-frame {
+    padding-bottom: 238px;
+  }
 }
 
 /* qa-fixes3 ITEM-2 (d): the choose-methods page at phone width. The ITEM-2

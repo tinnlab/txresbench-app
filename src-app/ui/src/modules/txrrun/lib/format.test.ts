@@ -244,6 +244,32 @@ describe('formatProgress (TEST-RUN-04)', () => {
     expect(missing).toBe('no reason recorded')
   })
 
+  it('an env-missing row reads the list\'s one sentence, not the engine\'s stored detail (qa-fixes4 ITEM-3, methods-r3 R3-methods-9)', () => {
+    // The engine stores the OLD pre-vocabulary sentence under the shared
+    // ENV_IMAGE_MISSING code (orchestrator: "no published environment for
+    // method \"<id>\""); the method list says "no published environment
+    // available" for the same code — the row reads the list's words.
+    const oldWording = {
+      code: 'ENV_IMAGE_MISSING',
+      detail: 'no published environment for method "bayes-pt-cure-joint"',
+    }
+    expect(formatProgress(row('cannot_run', { reason: oldWording }), null)).toBe(
+      'no published environment available',
+    )
+    expect(formatProgress(row('failed', { reason: oldWording }), null)).toBe(
+      'no published environment available',
+    )
+    // A non-env code keeps the engine's stored words (the row's own fact).
+    expect(
+      formatProgress(
+        row('cannot_run', {
+          reason: { code: 'REQUIRED_MARKER_MISSING', detail: 'LDH is not in your measurements.' },
+        }),
+        null,
+      ),
+    ).toBe('LDH is not in your measurements.')
+  })
+
   it('renders an empty detail line for the terminal non-error states and waiting', () => {
     expect(formatProgress(row('waiting'), null)).toBe('')
     expect(formatProgress(row('finished'), null)).toBe('')

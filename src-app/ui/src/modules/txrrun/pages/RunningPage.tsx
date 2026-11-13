@@ -517,10 +517,10 @@ export function RunningPage() {
                     {entry.label} {bucketCounts[entry.id]}
                   </Button>
                   {/* qa-fixes4 ITEM-3 (methods-r3 RP-10): the Working chip's
-                      definition is ALWAYS on screen beside it — "Working 6"
-                      alone never leaves a reader guessing what the bucket
-                      holds (the old render-on-active line appeared only
-                      after the tab was clicked). */}
+                      definition is ALWAYS on screen beside it — a bare
+                      "Working 6" chip left a reader guessing what the
+                      bucket holds (the old render-on-active line appeared
+                      only after the tab was clicked). */}
                   {entry.id === 'working' && entry.definition !== undefined ? (
                     <span
                       data-testid="txr-run-tab-working-definition"
