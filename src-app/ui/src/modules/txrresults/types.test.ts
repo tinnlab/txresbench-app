@@ -41,7 +41,8 @@ describe('txrresults view-model types (PROV-UR-3)', () => {
       group: string
       groupLabel: string
       task: TxrOutcomeKey
-      probSource: 'native' | 'recalibrated' | null
+      probSource: 'native' | 'recalibrated' | 'converted' | null
+      flatConversion: boolean
       coverage: { scored: number; eligible: number; fraction: number } | null
       values: (number | null)[]
       notes: (string | null)[]

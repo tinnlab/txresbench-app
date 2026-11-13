@@ -62,6 +62,17 @@
 //!   refusal) and a conversion with no usable (risk, label) pair is
 //!   [`CalibrationError::NoUsableTrainingData`] → `RECALIBRATION_FAILED`,
 //!   never an all-empty column.
+//! - **The saved conversions** (the package's `model.conversions`, kept with
+//!   the model by `save()` and applied by `predict()`): a train run fits one
+//!   map per need its training scores cover (the shown one makes its
+//!   column) and records them as `output/<method_id>/conversions.json`
+//!   ([`write_conversions`]
+//!   / [`read_conversions`], the [`Conversions`] map keyed by
+//!   [`conversion_key`]); the model store keeps it with a saved model, and a
+//!   predict-only reuse applies the map for its (outcome, horizon)
+//!   ([`saved_conversion_rows`] — `prob_source: converted`), or reports no
+//!   chances with a note naming why. Every map from outside the engine
+//!   passes [`check_conversions`] (the package schema's key + value rules).
 //!
 //! Pure functions: text in, typed facts out — no I/O (ITEM-9 reads the
 //! files); the CSV bytes are read with the module's own codec
@@ -69,6 +80,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -821,8 +833,10 @@ pub enum ConversionKind {
 /// `fit()` stores per (outcome, horizon) (`model.conversions`). The serde
 /// shape is the package's JSON exactly (`{kind, a, b, mu, sd, n, rate}`); a
 /// conversion is fitted on the TRAINING scores only and applied unchanged to
-/// the test patients (DEC-8).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// the test patients (DEC-8). A saved model carries its conversions (the
+/// [`Conversions`] map) so a later reuse run applies the same map.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(rename = "TxrConversion")]
 pub struct Conversion {
     /// `"logistic"` | `"constant"` (the package's `kind` vocabulary — a
     /// String, not an enum, so the record's wire bytes stay the package's).
@@ -1007,6 +1021,231 @@ pub fn conversion_key(outcome: &str, horizon: Option<f64>) -> String {
     match horizon {
         Some(h) => format!("{outcome}@{}", horizon_name(h)),
         None => outcome.to_string(),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The saved conversions (the package's `model.conversions` map): recorded on
+// the run, carried by a saved model, applied by a reuse run
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A model's risk→probability conversions, keyed by [`conversion_key`] — the
+/// package's `model.conversions` (contract 2.0 `model.schema.json`
+/// `conversions`: "key = outcome, or outcome@horizon for progression and
+/// death"). Sorted keys, so a recorded map serialises byte-stably.
+pub type Conversions = BTreeMap<String, Conversion>;
+
+/// The run-dir record of a method's conversions:
+/// `output/<method_id>/conversions.json` (beside `chance.csv`). A train run
+/// records the map of every need its training scores cover (the package's
+/// `fit()`; the shown outcome's map made the run's column); a reuse run
+/// records the one map it applied (the cohort's refit, or the saved model's
+/// map). The save flow copies a train run's file into the saved model.
+pub const CONVERSIONS_FILE: &str = "conversions.json";
+
+/// The outcomes a conversion key may name (the package's outcome vocabulary).
+const CONVERSION_OUTCOMES: [&str; 4] = ["progression", "death", "no_response", "progressive_disease"];
+
+/// One refused entry of a conversions map: the key and what is wrong.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversionProblem {
+    pub key: String,
+    pub problem: String,
+}
+
+impl std::fmt::Display for ConversionProblem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "conversion {:?}: {}", self.key, self.problem)
+    }
+}
+
+impl Conversion {
+    /// The package's value rules (`model.schema.json`): kind `logistic` or
+    /// `constant`; finite a, b, mu; a finite sd > 0; b ≥ 0 (a higher score
+    /// never gives a lower probability); n ≥ 0; rate null or in [0, 1].
+    pub fn check(&self) -> Result<(), String> {
+        if self.kind != "logistic" && self.kind != "constant" {
+            return Err(format!("kind {:?} is not logistic or constant", self.kind));
+        }
+        for (name, v) in [("a", self.a), ("b", self.b), ("mu", self.mu)] {
+            if !v.is_finite() {
+                return Err(format!("{name} is not a finite number"));
+            }
+        }
+        if !(self.sd.is_finite() && self.sd > 0.0) {
+            return Err("sd is not a finite number above 0".to_string());
+        }
+        if self.b < 0.0 {
+            return Err("b is negative".to_string());
+        }
+        if self.n < 0 {
+            return Err("n is negative".to_string());
+        }
+        if let Some(r) = self.rate {
+            if !(r.is_finite() && (0.0..=1.0).contains(&r)) {
+                return Err("rate is not within [0, 1]".to_string());
+            }
+        }
+        Ok(())
+    }
+
+    /// A flat map: every scored patient gets the same probability (the
+    /// training fit fell back to the event rate — the score did not rise
+    /// with the outcome, did not vary, or the labels were one class).
+    pub fn is_flat(&self) -> bool {
+        self.kind() == ConversionKind::Constant
+    }
+}
+
+/// The key rule: an outcome of the package's vocabulary; progression/death
+/// carry `@<h>` with a finite h > 0 in [`conversion_key`]'s own spelling (a
+/// key is looked up by exact text, so `progression@238.0` would never match
+/// and is refused); the response outcomes carry no horizon.
+pub fn check_conversion_key(key: &str) -> Result<(), String> {
+    let (outcome, horizon) = match key.split_once('@') {
+        Some((o, h)) => (o, Some(h)),
+        None => (key, None),
+    };
+    if !CONVERSION_OUTCOMES.contains(&outcome) {
+        return Err(format!("{outcome:?} is not an outcome"));
+    }
+    match (is_survival(outcome), horizon) {
+        (true, None) => Err(format!("{outcome} needs a horizon (\"{outcome}@<day>\")")),
+        (false, Some(_)) => Err(format!("{outcome} takes no horizon")),
+        (false, None) => Ok(()),
+        (true, Some(h)) => {
+            let day: f64 = h
+                .parse()
+                .map_err(|_| format!("the horizon {h:?} is not a number"))?;
+            if !(day.is_finite() && day > 0.0) {
+                return Err(format!("the horizon {h:?} is not a day above 0"));
+            }
+            if conversion_key(outcome, Some(day)) != key {
+                return Err(format!(
+                    "the key is not spelled {:?}",
+                    conversion_key(outcome, Some(day))
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Every entry of a map from outside the engine (a run request's asset, a
+/// `.txr` header, a recorded file) passes the key and value rules; the first
+/// failing entry is named.
+pub fn check_conversions(map: &Conversions) -> Result<(), ConversionProblem> {
+    for (key, c) in map {
+        check_conversion_key(key)
+            .and_then(|()| c.check())
+            .map_err(|problem| ConversionProblem {
+                key: key.clone(),
+                problem,
+            })?;
+    }
+    Ok(())
+}
+
+/// The plain words of a key for a note: `progression@238` → "progression at
+/// 238 days", `no_response` → "no response".
+pub fn conversion_label(key: &str) -> String {
+    match key.split_once('@') {
+        Some((outcome, h)) => format!("{} at {h} days", outcome.replace('_', " ")),
+        None => key.replace('_', " "),
+    }
+}
+
+/// Record the conversion a method's chances were made with
+/// (`output/<method_id>/conversions.json`, the package's map shape).
+pub fn write_conversions(
+    run_dir: &std::path::Path,
+    method_id: &str,
+    map: &Conversions,
+) -> std::io::Result<()> {
+    let out_dir = run_dir.join("output").join(method_id);
+    std::fs::create_dir_all(&out_dir)?;
+    let mut text = serde_json::to_string_pretty(map)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    text.push('\n');
+    std::fs::write(out_dir.join(CONVERSIONS_FILE), text)
+}
+
+/// Read a run's recorded conversion for one method. No file is an empty map
+/// (a native-probability method, or a run made before the file was
+/// recorded); an unreadable or invalid file is an error naming it.
+pub fn read_conversions(run_dir: &std::path::Path, method_id: &str) -> Result<Conversions, String> {
+    let path = run_dir.join("output").join(method_id).join(CONVERSIONS_FILE);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Conversions::new()),
+        Err(e) => return Err(format!("read {}: {e}", path.display())),
+    };
+    let map: Conversions =
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    check_conversions(&map).map_err(|p| format!("{}: {p}", path.display()))?;
+    Ok(map)
+}
+
+/// The predict-only reuse column: its source, its rows and the map that was
+/// applied (None = no chances).
+pub struct SavedConversionRows {
+    pub prob_source: super::types::TxrProbSource,
+    pub rows: Vec<PredictionRow>,
+    /// The applied map (`(key, conversion)`), recorded beside `chance.csv`.
+    pub applied: Option<(String, Conversion)>,
+}
+
+/// The predict-only reuse rule (the package's `predict()`): the saved
+/// model's conversion for this run's (outcome, horizon) turns the risk into
+/// the probability — `prob_source: converted`. Without a matching map (or
+/// with a flat map that has no event rate) the column stays empty and every
+/// scored patient's note says why (a model saved before conversions were
+/// kept, or a map for another outcome/day); an abstained patient keeps its
+/// own note.
+pub fn saved_conversion_rows(
+    conversions: &Conversions,
+    outcome: &str,
+    horizon: Option<f64>,
+    rows: Vec<PredictionRow>,
+) -> SavedConversionRows {
+    let key = conversion_key(outcome, horizon);
+    let usable = conversions
+        .get(&key)
+        .filter(|c| c.kind() == ConversionKind::Logistic || c.rate.is_some());
+    if let Some(c) = usable {
+        return SavedConversionRows {
+            prob_source: super::types::TxrProbSource::Converted,
+            rows: converted_rows(c, &rows),
+            applied: Some((key, c.clone())),
+        };
+    }
+    let reason = if conversions.contains_key(&key) {
+        "no native probability, and this saved model's score-to-chance conversion has no event rate"
+            .to_string()
+    } else if conversions.is_empty() {
+        "no native probability, and this saved model has no score-to-chance conversion (it was saved before the app kept one)"
+            .to_string()
+    } else {
+        let have: Vec<String> = conversions.keys().map(|k| conversion_label(k)).collect();
+        format!(
+            "no native probability, and this saved model's score-to-chance conversion is for {}, not {}",
+            have.join(", "),
+            conversion_label(&key)
+        )
+    };
+    let rows = rows
+        .into_iter()
+        .map(|mut r| {
+            if r.probability.is_none() && r.risk.is_some() && r.note.is_empty() {
+                r.note = reason.clone();
+            }
+            r
+        })
+        .collect();
+    SavedConversionRows {
+        prob_source: super::types::TxrProbSource::None,
+        rows,
+        applied: None,
     }
 }
 
@@ -2846,6 +3085,198 @@ mod tests {
         // Coverage recomputes over the converted rows (the plan's finalize).
         let cov = coverage(&out);
         assert_eq!((cov.scored, cov.eligible), (2, 3));
+    }
+
+    // ── the saved conversions (the package's `model.conversions`) ──────────
+
+    fn logistic(a: f64, b: f64) -> Conversion {
+        Conversion {
+            kind: "logistic".to_string(),
+            a,
+            b,
+            mu: 1.0,
+            sd: 2.0,
+            n: 40,
+            rate: Some(0.3),
+        }
+    }
+
+    fn flat(rate: Option<f64>) -> Conversion {
+        Conversion {
+            kind: "constant".to_string(),
+            a: 0.0,
+            b: 0.0,
+            mu: 1.0,
+            sd: 1.0,
+            n: 40,
+            rate,
+        }
+    }
+
+    /// The key + value rules of `model.schema.json`, each refusal naming the
+    /// key it found.
+    #[test]
+    fn check_conversions_accepts_the_package_shape_and_names_bad_entries() {
+        let ok = Conversions::from([
+            ("progression@238".to_string(), logistic(-0.5, 1.2)),
+            ("death@238.5".to_string(), flat(Some(0.2))),
+            ("no_response".to_string(), flat(None)),
+            ("progressive_disease".to_string(), logistic(0.0, 0.0)),
+        ]);
+        assert_eq!(check_conversions(&ok), Ok(()));
+        assert_eq!(check_conversions(&Conversions::new()), Ok(()));
+
+        let bad_values = [
+            (Conversion { a: f64::NAN, ..logistic(0.0, 1.0) }, "a is not a finite number"),
+            (Conversion { mu: f64::INFINITY, ..logistic(0.0, 1.0) }, "mu is not a finite number"),
+            (Conversion { sd: 0.0, ..logistic(0.0, 1.0) }, "sd is not a finite number above 0"),
+            (Conversion { sd: -1.0, ..logistic(0.0, 1.0) }, "sd is not a finite number above 0"),
+            (logistic(0.0, -0.1), "b is negative"),
+            (Conversion { n: -1, ..logistic(0.0, 1.0) }, "n is negative"),
+            (flat(Some(1.5)), "rate is not within [0, 1]"),
+            (Conversion { kind: "spline".to_string(), ..logistic(0.0, 1.0) }, "kind \"spline\" is not logistic or constant"),
+        ];
+        for (c, problem) in bad_values {
+            let map = Conversions::from([("progression@238".to_string(), c)]);
+            assert_eq!(
+                check_conversions(&map),
+                Err(ConversionProblem {
+                    key: "progression@238".to_string(),
+                    problem: problem.to_string()
+                })
+            );
+        }
+        for key in [
+            "progression",
+            "death@-5",
+            "death@0",
+            "progression@238.0",
+            "progression@abc",
+            "foo@238",
+            "no_response@238",
+            "",
+        ] {
+            let map = Conversions::from([(key.to_string(), logistic(0.0, 1.0))]);
+            let err = check_conversions(&map).expect_err(key);
+            assert_eq!(err.key, key, "the refused key is named");
+        }
+    }
+
+    /// The run-dir record: write → read is the same map; no file is "none
+    /// recorded"; a broken file is an error naming the file.
+    #[test]
+    fn conversions_file_round_trips_and_a_missing_file_is_empty() {
+        let run_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/txr-execution-engine-conversions")
+            .join(uuid::Uuid::new_v4().simple().to_string());
+        let map = Conversions::from([("progression@238".to_string(), logistic(-0.25, 0.75))]);
+        write_conversions(&run_dir, "m-a", &map).expect("writes");
+        assert_eq!(read_conversions(&run_dir, "m-a"), Ok(map.clone()));
+        let text =
+            std::fs::read_to_string(run_dir.join("output/m-a").join(CONVERSIONS_FILE)).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({"progression@238": {"kind": "logistic", "a": -0.25, "b": 0.75,
+                "mu": 1.0, "sd": 2.0, "n": 40, "rate": 0.3}}),
+            "the package's map shape"
+        );
+        assert_eq!(read_conversions(&run_dir, "m-none"), Ok(Conversions::new()));
+
+        std::fs::create_dir_all(run_dir.join("output/m-bad")).unwrap();
+        std::fs::write(run_dir.join("output/m-bad").join(CONVERSIONS_FILE), "{not json").unwrap();
+        let err = read_conversions(&run_dir, "m-bad").expect_err("bad JSON");
+        assert!(err.contains("m-bad"), "{err}");
+        std::fs::write(
+            run_dir.join("output/m-bad").join(CONVERSIONS_FILE),
+            r#"{"progression": {"kind": "logistic", "a": 0, "b": 1, "mu": 0, "sd": 1, "n": 3, "rate": 0.5}}"#,
+        )
+        .unwrap();
+        let err = read_conversions(&run_dir, "m-bad").expect_err("bad key");
+        assert!(err.contains("\"progression\""), "{err}");
+        let _ = std::fs::remove_dir_all(&run_dir);
+    }
+
+    #[test]
+    fn conversion_labels_read_plainly() {
+        assert_eq!(conversion_label("progression@238"), "progression at 238 days");
+        assert_eq!(conversion_label("death@238.5"), "death at 238.5 days");
+        assert_eq!(conversion_label("no_response"), "no response");
+    }
+
+    /// The predict-only reuse rule: the matching key converts every scored
+    /// patient (an abstention keeps its note); no map / another key / a
+    /// rate-less flat map give no chances and a note saying why.
+    #[test]
+    fn saved_conversion_rows_apply_the_matching_key() {
+        let rows = || {
+            vec![
+                PredictionRow {
+                    patient_id: "T0001".to_string(),
+                    risk: Some(3.0),
+                    probability: None,
+                    note: String::new(),
+                },
+                PredictionRow {
+                    patient_id: "T0002".to_string(),
+                    risk: None,
+                    probability: None,
+                    note: "no value at the landmark".to_string(),
+                },
+                PredictionRow {
+                    patient_id: "T0003".to_string(),
+                    risk: Some(-1.0),
+                    probability: None,
+                    note: String::new(),
+                },
+            ]
+        };
+        let c = logistic(-0.5, 1.5);
+        let map = Conversions::from([("progression@238".to_string(), c.clone())]);
+        let hit = saved_conversion_rows(&map, "progression", Some(238.0), rows());
+        assert_eq!(hit.prob_source, super::super::types::TxrProbSource::Converted);
+        assert_eq!(hit.applied, Some(("progression@238".to_string(), c.clone())));
+        assert!(approx(hit.rows[0].probability.unwrap(), c.apply(Some(3.0)).unwrap()));
+        assert!(approx(hit.rows[2].probability.unwrap(), c.apply(Some(-1.0)).unwrap()));
+        assert_eq!(hit.rows[1].probability, None);
+        assert_eq!(hit.rows[1].note, "no value at the landmark");
+        assert_eq!(coverage(&hit.rows).scored, 2);
+
+        let old = saved_conversion_rows(&Conversions::new(), "progression", Some(238.0), rows());
+        assert_eq!(old.prob_source, super::super::types::TxrProbSource::None);
+        assert_eq!(old.applied, None);
+        assert!(old.rows.iter().all(|r| r.probability.is_none()));
+        assert_eq!(
+            old.rows[0].note,
+            "no native probability, and this saved model has no score-to-chance conversion (it was saved before the app kept one)"
+        );
+        assert_eq!(old.rows[1].note, "no value at the landmark", "an abstention keeps its own note");
+
+        let other = saved_conversion_rows(&map, "death", Some(365.0), rows());
+        assert_eq!(other.prob_source, super::super::types::TxrProbSource::None);
+        assert_eq!(
+            other.rows[2].note,
+            "no native probability, and this saved model's score-to-chance conversion is for progression at 238 days, not death at 365 days"
+        );
+        // The horizon is part of the key: the same outcome at another day
+        // does not match either.
+        let day = saved_conversion_rows(&map, "progression", Some(180.0), rows());
+        assert_eq!(day.prob_source, super::super::types::TxrProbSource::None);
+
+        let rateless = Conversions::from([("no_response".to_string(), flat(None))]);
+        let none = saved_conversion_rows(&rateless, "no_response", None, rows());
+        assert_eq!(none.prob_source, super::super::types::TxrProbSource::None);
+        assert_eq!(
+            none.rows[0].note,
+            "no native probability, and this saved model's score-to-chance conversion has no event rate"
+        );
+        // A flat map with a rate converts (every scored patient gets it).
+        let rated = Conversions::from([("no_response".to_string(), flat(Some(0.25)))]);
+        let out = saved_conversion_rows(&rated, "no_response", None, rows());
+        assert_eq!(out.prob_source, super::super::types::TxrProbSource::Converted);
+        assert_eq!(out.rows[0].probability, Some(0.25));
+        assert!(out.applied.as_ref().unwrap().1.is_flat());
+        assert!(!c.is_flat());
     }
 
     /// TEST-EE-22 (ITEM-6 fixtures): the new fixtures are synthetic in-test

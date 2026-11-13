@@ -24,6 +24,7 @@ function column(index: number): TxrHeatmapColumn {
     values: [],
     notes: [],
     constantValue: null,
+    flatConversion: false,
   }
 }
 

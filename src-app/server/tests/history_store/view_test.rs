@@ -371,6 +371,7 @@ fn mock_model(set_id: Uuid, name: &str) -> txresbench::modules::model_store::rep
         embeds_training_data: false,
         own_auc: Some(0.66),
         own_c: Some(0.63),
+        conversions: serde_json::json!({}),
     }
 }
 

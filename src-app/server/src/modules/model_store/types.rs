@@ -622,6 +622,10 @@ pub struct ResolvedAsset {
     pub method_version: String,
     pub env: TxrMethodEnv,
     pub contract: String,
+    /// The model's saved risk→probability conversions (the engine element's
+    /// `conversions`; absent when none was saved).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub conversions: crate::modules::execution_engine::predictions::Conversions,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1098,6 +1102,7 @@ mod tests {
                 layer_digest: "ca".repeat(32),
             },
             contract: "2.0".into(),
+            conversions: Default::default(),
         };
         let json = serde_json::to_value(&engine_asset).expect("engine asset serializes");
         let mine: ResolvedAsset = serde_json::from_value(json.clone())
@@ -1105,6 +1110,29 @@ mod tests {
         assert_eq!(serde_json::to_value(&mine).expect("store asset serializes"), json);
         assert_eq!(mine.env.base_digest, engine_asset.env.base_digest);
         assert_eq!(mine.env.layer_digest, engine_asset.env.layer_digest);
+
+        // With saved conversions, both directions are still byte-equal (the
+        // UI passes the resolve response straight into the run request).
+        let mut with = engine_asset.clone();
+        with.conversions.insert(
+            "no_response".to_string(),
+            crate::modules::execution_engine::predictions::Conversion {
+                kind: "constant".to_string(),
+                a: 0.0,
+                b: 0.0,
+                mu: 1.25,
+                sd: 1.0,
+                n: 44,
+                rate: Some(0.25),
+            },
+        );
+        let json = serde_json::to_value(&with).expect("engine asset serializes");
+        let mine: ResolvedAsset = serde_json::from_value(json.clone()).expect("store parses");
+        assert_eq!(mine.conversions, with.conversions);
+        assert_eq!(serde_json::to_value(&mine).expect("store serializes"), json);
+        let back: TxrModelAsset = serde_json::from_value(serde_json::to_value(&mine).unwrap())
+            .expect("the engine parses the store's element");
+        assert_eq!(back.conversions, with.conversions);
 
         // ModelEligibility carries the engine's typed vocabulary.
         let elig = ModelEligibility {

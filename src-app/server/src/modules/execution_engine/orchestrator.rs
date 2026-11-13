@@ -643,14 +643,18 @@ impl ProgressSink for StackSink {
 /// - the final call's output is validated + assembled (ITEM-5) and the
 ///   missing probability filled by the conversion band (ITEM-6);
 ///   `prob_source` is native or recalibrated, never mixed (INV-3); the
-///   produced `/model` tree is collected when the run saves models.
+///   fitted conversion is recorded as `output/<method_id>/conversions.json`
+///   (the save flow keeps it with the model, as the package's `save()`
+///   does); the produced `/model` tree is collected when the run saves models.
 ///
 /// **Reuse mode** — no fit: one `ReuseModel` call against the verified asset;
 /// the probabilities are the model's own native column when it declares one,
 /// otherwise the conversion is re-fitted from the reuse run's own outcomes
-/// when it carries them (a predict-only reuse has no training data — the
-/// column reports `prob_source: "none"` + the note, never an invented
-/// number; DRIFT-1 ITEM-9 #3).
+/// when it carries them (`recalibrated`), otherwise (a predict-only reuse)
+/// the saved model's own training conversion for the run's (outcome,
+/// horizon) is applied (`converted` — the package's `predict()`). A model
+/// without a matching saved conversion reports `prob_source: "none"` + the
+/// note naming why, never an invented number (DRIFT-1 ITEM-9 #3).
 pub struct StackMethodExecutor {
     pool: sqlx::SqlitePool,
     seam: Arc<dyn StackRunSeam>,
@@ -1060,6 +1064,33 @@ impl StackMethodExecutor {
                 }
             }
         };
+        // Every other need the training scores already cover gets its map too
+        // (the package's `fit()` keeps one conversion per need in
+        // `model.conversions`): the same scores, no extra call. Only the shown
+        // map makes this run's column, so a need whose map cannot be learned
+        // is left out instead of failing the method.
+        let shown_key =
+            super::predictions::conversion_key(outcome_spec.outcome, outcome_spec.horizon);
+        let mut conversions = super::predictions::Conversions::new();
+        if let Some(c) = &conversion {
+            conversions.insert(shown_key.clone(), c.clone());
+        }
+        for (need_outcome, need_horizon) in &needs {
+            let key = super::predictions::conversion_key(need_outcome, *need_horizon);
+            if key == shown_key {
+                continue;
+            }
+            let map = score_map_for(&score_tables, spec, need_outcome);
+            if let Ok(c) = super::predictions::fit_recalibration(
+                spec,
+                &outcomes_csv,
+                &map,
+                need_outcome,
+                *need_horizon,
+            ) {
+                conversions.insert(key, c);
+            }
+        }
 
         // ── the final predict call over the predict surface ─────────────────
         let score = self
@@ -1096,10 +1127,10 @@ impl StackMethodExecutor {
             return Ok(failed_outcome(io_failure(&e)));
         }
 
-        let (prob_source, rows) = match conversion {
+        let (prob_source, rows) = match &conversion {
             Some(c) => (
                 TxrProbSource::Recalibrated,
-                super::predictions::converted_rows(&c, &score.rows),
+                super::predictions::converted_rows(c, &score.rows),
             ),
             None => (TxrProbSource::Native, score.rows),
         };
@@ -1113,6 +1144,20 @@ impl StackMethodExecutor {
         // the results surface (INV-2, never a silent skip).
         if let Err(e) = super::predictions::write_chance_column(&ctx.run_dir, &method_id, &rows) {
             return Ok(failed_outcome(io_failure(&e)));
+        }
+        // The fitted conversions (the shown one and every other covered
+        // need) are recorded beside the column
+        // (`output/<method_id>/conversions.json`, the package's
+        // `model.conversions` shape): the save flow copies them into the saved
+        // model, so a later reuse on new patients — for the shown outcome or
+        // another covered one — applies the training map (the package's
+        // `save()` keeps the conversions with the model).
+        if !conversions.is_empty() {
+            if let Err(e) =
+                super::predictions::write_conversions(&ctx.run_dir, &method_id, &conversions)
+            {
+                return Ok(failed_outcome(io_failure(&e)));
+            }
         }
 
         // The produced model: ONLY a `saves_model` method has a `/model` tree
@@ -1264,8 +1309,17 @@ impl StackMethodExecutor {
             }
         };
 
-        let (prob_source, rows) = if score.native_column.is_some() {
-            (TxrProbSource::Native, score.rows)
+        // The order (the package's `predict()` plus the app's cohort refit):
+        // 1. a native probability column is served as it is;
+        // 2. a reuse run that carries its own patients' outcomes refits the
+        //    conversion on that cohort (`recalibrated`) — the refit wins over
+        //    the saved model's map;
+        // 3. a predict-only reuse applies the conversion the saved model
+        //    carries from its training run for this run's (outcome, horizon)
+        //    (`converted`, the package's `probability_source`); without a
+        //    matching map the column has no chances and each note says why.
+        let (prob_source, rows, applied) = if score.native_column.is_some() {
+            (TxrProbSource::Native, score.rows, None)
         } else if let Some(train) = reuse_train {
             // A data-carrying reuse run: the conversion is re-fitted from the
             // model's scores over the run's own cohort (the honest
@@ -1327,6 +1381,13 @@ impl StackMethodExecutor {
                 Ok(c) => (
                     TxrProbSource::Recalibrated,
                     super::predictions::converted_rows(&c, &predict_rows),
+                    Some((
+                        super::predictions::conversion_key(
+                            outcome_spec.outcome,
+                            outcome_spec.horizon,
+                        ),
+                        c,
+                    )),
                 ),
                 Err(e) => {
                     let reason = TxrRunReason::from_engine(e.engine_code(), e.detail());
@@ -1334,29 +1395,30 @@ impl StackMethodExecutor {
                 }
             }
         } else {
-            // A predict-only reuse: no training data to fit a conversion. The
-            // honest record names the missing source (`prob_source: "none"`)
-            // instead of an invented number.
-            let rows: Vec<super::predictions::PredictionRow> = score
-                .rows
-                .into_iter()
-                .map(|mut r| {
-                    if r.probability.is_none() && r.risk.is_some() && r.note.is_empty() {
-                        r.note =
-                            "no native probability; a predict-only reuse has no training data to fit the conversion"
-                                .to_string();
-                    }
-                    r
-                })
-                .collect();
-            (TxrProbSource::None, rows)
+            // A predict-only reuse: the saved model's own conversion (never
+            // an invented number — the training fit the package keeps with
+            // the model), or no chances with the reason on each row.
+            let saved = super::predictions::saved_conversion_rows(
+                &asset.conversions,
+                outcome_spec.outcome,
+                outcome_spec.horizon,
+                score.rows,
+            );
+            (saved.prob_source, saved.rows, saved.applied)
         };
         let coverage = super::predictions::coverage(&rows);
 
         // The recorded chance column (ITEM-10's read surface — same as the
-        // train arm; the reuse column is this run's own).
+        // train arm; the reuse column is this run's own) + the conversion it
+        // was made with.
         if let Err(e) = super::predictions::write_chance_column(&ctx.run_dir, &method_id, &rows) {
             return Ok(failed_outcome(io_failure(&e)));
+        }
+        if let Some((key, c)) = applied {
+            let map = super::predictions::Conversions::from([(key, c)]);
+            if let Err(e) = super::predictions::write_conversions(&ctx.run_dir, &method_id, &map) {
+                return Ok(failed_outcome(io_failure(&e)));
+            }
         }
 
         Ok(MethodOutcome {
@@ -5840,6 +5902,7 @@ mod tests {
                     layer_digest: "d".repeat(64),
                 },
                 contract: "2.0".to_string(),
+                conversions: Default::default(),
             }],
         };
         let summary = start_run(pool.clone(), runtime, env, executor, owner(), req)
@@ -6199,6 +6262,33 @@ mod tests {
             assert_eq!(c.params["seed"], 1);
         }
         drop(calls);
+
+        // The fitted conversions are recorded beside the column (the save
+        // flow keeps them with the model): one map per need the training
+        // scores cover — the cohort learns progression and death, the method
+        // has no native probability — and the SHOWN key's map is the one
+        // that made `chance.csv` from the final call's risks.
+        let recorded = predictions::read_conversions(&run_dir, "ctdna-tf-four-group")
+            .expect("the recorded conversions read");
+        assert_eq!(
+            recorded.keys().collect::<Vec<_>>(),
+            vec!["death@238", "progression@238"],
+            "one map per need, the shown (progression, 238) included"
+        );
+        assert!(recorded.values().all(|c| c.n > 0), "each map learned from patients");
+        assert_ne!(recorded["death@238"], recorded["progression@238"]);
+        let c = &recorded["progression@238"];
+        let raw = std::fs::read_to_string(outputs.join("predictions.csv")).unwrap();
+        let raw = bundle::parse_csv(&raw).unwrap();
+        let chance = std::fs::read_to_string(outputs.join("chance.csv")).unwrap();
+        let chance = bundle::parse_csv(&chance).unwrap();
+        let risks = raw.col("risk").unwrap();
+        let probs = chance.col("probability").unwrap();
+        assert_eq!(risks.len(), probs.len());
+        for (r, p) in risks.iter().zip(probs) {
+            let want = c.apply(bundle::parse_number(r)).expect("a scored risk");
+            assert_eq!(p, &format!("{want:.6}"), "chance.csv = the recorded map(risk)");
+        }
     }
 
     #[tokio::test]
@@ -6235,6 +6325,22 @@ mod tests {
             .count();
         assert_eq!(fold_fits, predictions::CROSS_FIT_FOLDS);
         drop(calls);
+        // The shown column is native and never converted, but the method
+        // writes no probability for death: the cross-fit scores the run
+        // already made give death its map (the package's one map per need,
+        // no extra call), recorded for a later reuse — and no map for the
+        // native progression.
+        let recorded = predictions::read_conversions(&run_dir, "jm-lme").expect("recorded");
+        assert_eq!(
+            recorded.keys().collect::<Vec<_>>(),
+            vec!["death@238"],
+            "a map for the non-native need only"
+        );
+        assert_eq!(
+            seam.calls.lock().unwrap_or_else(|e| e.into_inner()).len(),
+            2 + 2 * predictions::CROSS_FIT_FOLDS,
+            "no extra call for the extra map"
+        );
     }
 
     // ── the bundle preflight against the executor's own bundle stage ──────
@@ -6535,11 +6641,29 @@ mod tests {
                     layer_digest: "d".repeat(64),
                 },
                 contract: "2.0".to_string(),
+                conversions: Default::default(),
             }],
         }
     }
 
     /// A model asset tree under `run_dir` + its digest.
+    /// A saved training conversion for the reuse fixtures' (progression,
+    /// 238) column: a rising logistic map with numbers no cohort fit lands on.
+    fn saved_logistic_map() -> predictions::Conversions {
+        predictions::Conversions::from([(
+            "progression@238".to_string(),
+            predictions::Conversion {
+                kind: "logistic".to_string(),
+                a: -0.4,
+                b: 1.7,
+                mu: 0.9,
+                sd: 0.35,
+                n: 120,
+                rate: Some(0.4),
+            },
+        )])
+    }
+
     fn fixture_asset(run_dir: &Path) -> (PathBuf, String) {
         let asset_dir = run_dir.join("asset-model");
         std::fs::create_dir_all(&asset_dir).unwrap();
@@ -6588,7 +6712,11 @@ mod tests {
         let (asset_dir, digest) = fixture_asset(&run_dir);
         make_method_dirs(&run_dir, "m-1");
         let method = "ctdna-tf-four-group";
-        let req = cohort_reuse_request(&asset_dir, &digest, method);
+        let mut req = cohort_reuse_request(&asset_dir, &digest, method);
+        // The saved model also carries its training conversion: a run with
+        // its own patients' outcomes still refits on them (the refit wins).
+        let saved = saved_logistic_map();
+        req.model_ids[0].conversions = saved.clone();
         let prepared = prepare_run(
             &req.input,
             &req.config,
@@ -6667,6 +6795,10 @@ mod tests {
             "the cohort train bundle"
         );
         drop(calls);
+        // The recorded map is the cohort refit, not the saved one.
+        let recorded = predictions::read_conversions(&run_dir, "m-1").expect("recorded");
+        assert_eq!(recorded.keys().collect::<Vec<_>>(), vec!["progression@238"]);
+        assert_ne!(recorded, saved, "the cohort refit, not the saved training map");
     }
 
     /// A refusal while building the reuse conversion's cohort bundles is
@@ -6771,50 +6903,37 @@ mod tests {
         drop(calls);
     }
 
-    #[tokio::test]
-    async fn executor_reuse_predict_only_reports_prob_source_none() {
-        let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse"));
+    /// One predict-only reuse of the risk-only fixture model (no patients
+    /// table: the run carries no outcomes) whose asset carries `conversions`;
+    /// returns the verdict, the run dir and the seam's calls.
+    async fn predict_only_reuse(
+        name: &str,
+        conversions: predictions::Conversions,
+    ) -> (MethodOutcome, PathBuf, Vec<SeamCall>, String) {
+        predict_only_reuse_for(name, conversions, types::TxrEndpoint::Pfs).await
+    }
+
+    /// [`predict_only_reuse`] for a run endpoint (the reuse run's own
+    /// outcome; the look-ahead stays the fixture's 238).
+    async fn predict_only_reuse_for(
+        name: &str,
+        conversions: predictions::Conversions,
+        endpoint: types::TxrEndpoint,
+    ) -> (MethodOutcome, PathBuf, Vec<SeamCall>, String) {
+        let _g = rootfs::scoped_data_root(test_data_dir(name));
         let pool = merged_pool().await;
         let seam = FakeStackRunSeam::new();
         let exec = StackMethodExecutor::with_seam(pool, seam.clone());
         // The asset: a /model tree the fixture writes + digests (the verify-
         // before-bind digest of the request).
         let run_dir = rootfs::data_root();
-        let asset_dir = run_dir.join("asset-model");
-        std::fs::create_dir_all(&asset_dir).unwrap();
-        std::fs::write(asset_dir.join("model.rds"), "fixture-model").unwrap();
-        let digest = crate::modules::sandbox::stack::tree_sha256(&asset_dir).unwrap();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
         make_method_dirs(&run_dir, "m-1");
-        let req = CreateRunRequest {
-            mode: TxrRunMode::Reuse,
-            input: TxrRunInput {
-                patients: None,
-                measurements: cohort_measurements_table(),
-                predict_measurements: Some(cohort_measurements_table()),
-                joins: Vec::new(),
-                mapping: Vec::new(),
-                keep_copies: false,
-            },
-            config: RunConfig {
-                at_a_time: 2,
-                decision_day: 56.0,
-                look_ahead_day: 238.0,
-                ..Default::default()
-            },
-            method_ids: Vec::new(),
-            model_ids: vec![crate::modules::execution_engine::types::TxrModelAsset {
-                model_id: "m-1".to_string(),
-                host_dir: asset_dir.display().to_string(),
-                tree_sha256: digest.clone(),
-                method_id: "ctdna-tf-four-group".to_string(),
-                method_version: "2.0.0".to_string(),
-                env: TxrMethodEnv {
-                    base_digest: "c".repeat(64),
-                    layer_digest: "d".repeat(64),
-                },
-                contract: "2.0".to_string(),
-            }],
-        };
+        let mut req = cohort_reuse_request(&asset_dir, &digest, "ctdna-tf-four-group");
+        req.input.patients = None;
+        req.config.endpoint = endpoint;
+        req.model_ids[0].conversions = conversions;
+        assert_eq!(req.validate(), Ok(()), "the asset's conversions pass the request rules");
         let prepared = prepare_run(
             &req.input,
             &req.config,
@@ -6823,7 +6942,8 @@ mod tests {
             &req.model_ids,
         )
         .expect("the reuse fixture validates");
-        let (ctx, _cancel) = executor_ctx(
+        assert!(prepared.train.is_none(), "predict-only: no outcomes side");
+        let (mut ctx, _cancel) = executor_ctx(
             &run_dir,
             "m-1",
             prepared.train,
@@ -6834,21 +6954,158 @@ mod tests {
                 asset: req.model_ids[0].clone(),
             },
         );
+        ctx.config = req.config.clone();
         let outcome = exec.execute(ctx).await.expect("verdict");
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        (outcome, run_dir, calls, digest)
+    }
+
+    /// The `m-1` reuse column as recorded: `(patient, probability, note)`.
+    fn recorded_chances(run_dir: &Path) -> Vec<(String, String, String)> {
+        let text = std::fs::read_to_string(run_dir.join("output/m-1/chance.csv")).unwrap();
+        let t = bundle::parse_csv(&text).unwrap();
+        let ids = t.col("patient_id").unwrap();
+        let probs = t.col("probability").unwrap();
+        let notes = t.col("note").unwrap();
+        (0..ids.len())
+            .map(|i| (ids[i].clone(), probs[i].clone(), notes[i].clone()))
+            .collect()
+    }
+
+    /// A model saved before conversions were kept: no chances, and the note
+    /// says why (never an invented number).
+    #[tokio::test]
+    async fn executor_reuse_predict_only_reports_prob_source_none() {
+        let (outcome, run_dir, calls, digest) =
+            predict_only_reuse("executor-reuse", predictions::Conversions::new()).await;
         assert_eq!(outcome.state, TxrMethodState::Finished);
         assert_eq!(
             outcome.prob_source,
             Some(TxrProbSource::None),
-            "predict-only reuse of a risk-only method has no conversion source"
+            "predict-only reuse of a model without a saved conversion has no chances"
         );
-        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(outcome.coverage.as_ref().map(|c| c.scored), Some(0));
+        let rows = recorded_chances(&run_dir);
+        assert!(!rows.is_empty());
+        for (id, p, note) in &rows {
+            assert!(p.is_empty(), "{id}: no probability");
+            assert_eq!(
+                note,
+                "no native probability, and this saved model has no score-to-chance conversion (it was saved before the app kept one)"
+            );
+        }
+        assert!(
+            !run_dir.join("output/m-1").join(predictions::CONVERSIONS_FILE).exists(),
+            "nothing was applied, nothing recorded"
+        );
         assert_eq!(calls.len(), 1, "one reuse call");
         assert_eq!(calls[0].mode, MethodRunMode::ReuseModel);
         assert_eq!(
             calls[0].mount.as_ref().map(|(_, d)| d.as_str()),
             Some(digest.as_str())
         );
-        drop(calls);
+    }
+
+    /// The package's `predict()`: a predict-only reuse applies the saved
+    /// model's training conversion for the run's (outcome, horizon) —
+    /// `converted`, every scored patient's chance = map(risk), the applied
+    /// map recorded beside the column — with no extra call.
+    #[tokio::test]
+    async fn executor_reuse_predict_only_applies_the_saved_conversion() {
+        let saved = saved_logistic_map();
+        let (outcome, run_dir, calls, _) =
+            predict_only_reuse("executor-reuse-saved", saved.clone()).await;
+        assert_eq!(outcome.state, TxrMethodState::Finished, "{:?}", outcome.reason);
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::Converted));
+        let cov = outcome.coverage.expect("coverage");
+        assert_eq!(cov.scored, cov.eligible, "every scored patient has a chance");
+        assert!(cov.scored > 0);
+        let raw = std::fs::read_to_string(run_dir.join("output/m-1/predictions.csv")).unwrap();
+        let raw = bundle::parse_csv(&raw).unwrap();
+        let risk_of: std::collections::BTreeMap<&str, &str> = raw
+            .col("patient_id")
+            .unwrap()
+            .iter()
+            .map(String::as_str)
+            .zip(raw.col("risk").unwrap().iter().map(String::as_str))
+            .collect();
+        let c = &saved["progression@238"];
+        for (id, p, note) in recorded_chances(&run_dir) {
+            let want = c.apply(bundle::parse_number(risk_of[id.as_str()])).unwrap();
+            assert_eq!(p, format!("{want:.6}"), "{id}: the saved map of its risk");
+            assert!(note.is_empty());
+        }
+        assert_eq!(
+            predictions::read_conversions(&run_dir, "m-1"),
+            Ok(saved),
+            "the applied map is recorded beside the column"
+        );
+        assert_eq!(calls.len(), 1, "no extra call: the map is the saved one");
+    }
+
+    /// A saved conversion for another outcome/day is never applied: no
+    /// chances, and the note names both.
+    #[tokio::test]
+    async fn executor_reuse_predict_only_names_a_mismatched_conversion() {
+        let other = predictions::Conversions::from([(
+            "death@365".to_string(),
+            saved_logistic_map()["progression@238"].clone(),
+        )]);
+        let (outcome, run_dir, _, _) = predict_only_reuse("executor-reuse-other", other).await;
+        assert_eq!(outcome.state, TxrMethodState::Finished);
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::None));
+        for (id, p, note) in recorded_chances(&run_dir) {
+            assert!(p.is_empty(), "{id}");
+            assert_eq!(
+                note,
+                "no native probability, and this saved model's score-to-chance conversion is for death at 365 days, not progression at 238 days"
+            );
+        }
+    }
+
+    /// A saved model carries one map per need its training covered: a reuse
+    /// for ANOTHER covered outcome (death, while the model was shown for
+    /// progression) applies that outcome's own training map.
+    #[tokio::test]
+    async fn executor_reuse_predict_only_applies_another_covered_outcome() {
+        let progression = saved_logistic_map()["progression@238"].clone();
+        let death = predictions::Conversion {
+            a: 0.3,
+            b: 0.6,
+            mu: 0.5,
+            sd: 0.2,
+            ..progression.clone()
+        };
+        let map = predictions::Conversions::from([
+            ("progression@238".to_string(), progression),
+            ("death@238".to_string(), death.clone()),
+        ]);
+        let (outcome, run_dir, calls, _) =
+            predict_only_reuse_for("executor-reuse-death", map, types::TxrEndpoint::Os).await;
+        assert_eq!(outcome.state, TxrMethodState::Finished, "{:?}", outcome.reason);
+        assert_eq!(outcome.task, Some(TxrTask::Os));
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::Converted));
+        let raw = std::fs::read_to_string(run_dir.join("output/m-1/predictions.csv")).unwrap();
+        let raw = bundle::parse_csv(&raw).unwrap();
+        let risk_of: std::collections::BTreeMap<&str, &str> = raw
+            .col("patient_id")
+            .unwrap()
+            .iter()
+            .map(String::as_str)
+            .zip(raw.col("risk").unwrap().iter().map(String::as_str))
+            .collect();
+        let rows = recorded_chances(&run_dir);
+        assert!(!rows.is_empty());
+        for (id, p, _) in rows {
+            let want = death.apply(bundle::parse_number(risk_of[id.as_str()])).unwrap();
+            assert_eq!(p, format!("{want:.6}"), "{id}: the death map, not the progression one");
+        }
+        assert_eq!(
+            predictions::read_conversions(&run_dir, "m-1").expect("recorded"),
+            predictions::Conversions::from([("death@238".to_string(), death)]),
+            "the reuse run records the one map it applied"
+        );
+        assert_eq!(calls.len(), 1);
     }
 
     #[tokio::test]

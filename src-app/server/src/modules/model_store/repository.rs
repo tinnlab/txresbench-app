@@ -116,6 +116,9 @@ pub struct ModelRow {
     pub embeds_training_data: bool,
     pub own_auc: Option<f64>,
     pub own_c: Option<f64>,
+    /// The saved risk→probability conversions (the package's
+    /// `model.conversions` map; `{}` when none was saved).
+    pub conversions: Json,
     pub created_at: DateTime<Utc>,
 }
 
@@ -157,6 +160,8 @@ pub struct NewModel {
     pub embeds_training_data: bool,
     pub own_auc: Option<f64>,
     pub own_c: Option<f64>,
+    /// The conversions to save (`{}` when none).
+    pub conversions: Json,
 }
 
 /// The repository. Pool-bound (CONS-MS-1/2): takes the process pool; the
@@ -379,6 +384,7 @@ impl ModelStoreRepository {
         let required_markers = m.required_markers.clone();
         let marker_facts = m.marker_facts.clone();
         let covariates = m.covariates.clone();
+        let conversions = m.conversions.clone();
         // The id is a bind local (see `insert_set`).
         let id = Uuid::new_v4();
         sqlx::query_as!(
@@ -390,10 +396,10 @@ impl ModelStoreRepository {
                   contract, env_base_digest, env_layer_digest, trained_on_patients,
                   trained_at, decision_day, endpoint, horizon, features,
                   required_markers, marker_facts, covariates, embeds_training_data,
-                  own_auc, own_c)
+                  own_auc, own_c, conversions)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
-                       $27, $28, $29, $30, $31)
+                       $27, $28, $29, $30, $31, $32)
                RETURNING id as "id: Uuid", set_id as "set_id?: Uuid", name, method_id,
                          method_version, "group", group_label, task, provenance,
                          imported_from, pretrained_catalogue_id,
@@ -407,6 +413,7 @@ impl ModelStoreRepository {
                          covariates as "covariates: serde_json::Value",
                          embeds_training_data as "embeds_training_data: bool",
                          own_auc, own_c,
+                         conversions as "conversions: serde_json::Value",
                          created_at as "created_at: DateTime<Utc>""#,
             id,
             m.set_id,
@@ -439,6 +446,7 @@ impl ModelStoreRepository {
             m.embeds_training_data,
             m.own_auc,
             m.own_c,
+            conversions,
         )
         .fetch_one(&self.pool)
         .await
@@ -461,7 +469,8 @@ impl ModelStoreRepository {
                       marker_facts as "marker_facts: serde_json::Value",
                       covariates as "covariates: serde_json::Value",
                       embeds_training_data as "embeds_training_data: bool",
-                      own_auc, own_c, created_at as "created_at: DateTime<Utc>"
+                      own_auc, own_c, conversions as "conversions: serde_json::Value",
+                      created_at as "created_at: DateTime<Utc>"
                FROM txr_models WHERE id = $1"#,
             id,
         )
@@ -494,7 +503,8 @@ impl ModelStoreRepository {
                       marker_facts as "marker_facts: serde_json::Value",
                       covariates as "covariates: serde_json::Value",
                       embeds_training_data as "embeds_training_data: bool",
-                      own_auc, own_c, created_at as "created_at: DateTime<Utc>"
+                      own_auc, own_c, conversions as "conversions: serde_json::Value",
+                      created_at as "created_at: DateTime<Utc>"
                FROM txr_models
                WHERE ($1 IS NULL OR set_id = $1)
                  AND ($2 IS NULL
@@ -627,7 +637,8 @@ impl ModelStoreRepository {
                       marker_facts as "marker_facts: serde_json::Value",
                       covariates as "covariates: serde_json::Value",
                       embeds_training_data as "embeds_training_data: bool",
-                      own_auc, own_c, created_at as "created_at: DateTime<Utc>"
+                      own_auc, own_c, conversions as "conversions: serde_json::Value",
+                      created_at as "created_at: DateTime<Utc>"
                FROM txr_models
                WHERE tree_sha256 = $1 AND method_id = $2
                  AND ((set_id = $3) OR (set_id IS NULL AND $3 IS NULL))"#,
@@ -638,6 +649,26 @@ impl ModelStoreRepository {
         .fetch_optional(&self.pool)
         .await
         .map_err(AppError::database_error)
+    }
+
+    /// Fill in a saved model's conversions when it has none (`'{}'` — a row
+    /// saved before conversions were kept). A row that already carries a map
+    /// keeps it: a saved model's recorded facts are never rewritten (INV-2).
+    /// `true` when the row was filled.
+    pub async fn fill_missing_conversions(
+        &self,
+        id: Uuid,
+        conversions: &Json,
+    ) -> Result<bool, AppError> {
+        let res = sqlx::query!(
+            "UPDATE txr_models SET conversions = $2 WHERE id = $1 AND conversions = '{}'",
+            id,
+            conversions,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(res.rows_affected() > 0)
     }
 
     /// Record the set's training facts AFTER the tree/training copies landed
@@ -776,6 +807,7 @@ mod tests {
             embeds_training_data: false,
             own_auc: Some(0.66),
             own_c: Some(0.63),
+            conversions: serde_json::json!({}),
         }
     }
 
@@ -1133,6 +1165,68 @@ mod tests {
             .await
             .expect("composed");
         assert!(none.is_empty());
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The saved conversions column (the package's `model.conversions` map)
+    /// round-trips through the insert and every read; a row written without
+    /// the column (every row saved before it existed) reads `{}`; the fill
+    /// writes only a row that has none.
+    #[tokio::test]
+    async fn conversions_round_trip_and_fill_only_an_empty_row() {
+        let (pool, path) = test_pool().await;
+        let repo = ModelStoreRepository::new(pool.clone());
+        let set = repo
+            .insert_set("conversions", None, None, false, None)
+            .await
+            .expect("set");
+        let map = json!({"death@238": {"kind": "logistic", "a": -0.4, "b": 1.7,
+            "mu": 0.9, "sd": 0.35, "n": 120, "rate": 0.4}});
+        let mut with = new_model(Some(set.id), &"a1".repeat(32), "ctdna-tf-four-group");
+        with.conversions = map.clone();
+        let inserted = repo.insert_model(&with).await.expect("insert");
+        assert_eq!(inserted.conversions, map, "RETURNING carries it");
+        let got = repo.get_model(inserted.id).await.expect("get").expect("row");
+        assert_eq!(got.conversions, map);
+        let listed = repo.list_models(Some(set.id), None, None).await.expect("list");
+        assert_eq!(listed[0].conversions, map);
+        let by_ref = repo
+            .get_model_by_ref(Some(set.id), &"a1".repeat(32), "ctdna-tf-four-group")
+            .await
+            .expect("by ref")
+            .expect("row");
+        assert_eq!(by_ref.conversions, map);
+
+        // A row without the column (the migration's default).
+        let old_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO txr_models (id, set_id, name, method_id, method_version, "group",
+                 group_label, provenance, tree_sha256, dir, size_bytes, contract, decision_day,
+                 endpoint, horizon, features, marker_facts, covariates, embeds_training_data)
+               VALUES (?, ?, 'old', 'ctdna-tf-four-group', '1.0.0', 'landmark', 'Landmark',
+                 'run', ?, '/data/x', 1, '2.0', 56.0, 'pfs', 238.0, '[]', '{}', '{}', 0)"#,
+        )
+        .bind(old_id)
+        .bind(set.id)
+        .bind("b2".repeat(32))
+        .execute(&pool)
+        .await
+        .expect("a row written without the column");
+        let old = repo.get_model(old_id).await.expect("get").expect("row");
+        assert_eq!(old.conversions, json!({}), "the default is no conversion");
+
+        // The fill: an empty row gains the map; a row with a map keeps it.
+        assert!(repo.fill_missing_conversions(old_id, &map).await.expect("fill"));
+        let filled = repo.get_model(old_id).await.expect("get").expect("row");
+        assert_eq!(filled.conversions, map);
+        let other = json!({"death@365": {"kind": "constant", "a": 0.0, "b": 0.0,
+            "mu": 0.0, "sd": 1.0, "n": 9, "rate": 0.2}});
+        assert!(!repo.fill_missing_conversions(old_id, &other).await.expect("fill"));
+        assert!(!repo.fill_missing_conversions(inserted.id, &other).await.expect("fill"));
+        let kept = repo.get_model(inserted.id).await.expect("get").expect("row");
+        assert_eq!(kept.conversions, map, "a saved map is never rewritten");
 
         pool.close().await;
         let _ = std::fs::remove_file(&path);

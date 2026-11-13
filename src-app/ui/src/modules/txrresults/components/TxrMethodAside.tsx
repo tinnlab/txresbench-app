@@ -110,7 +110,7 @@ export function TxrMethodAside({
             </div>
           ) : null}
           <div data-testid="txr-results-prob-source" style={FACT_LINE}>
-            {formatProbSourceLine(method.probSource)}
+            {formatProbSourceLine(method.probSource, method.flatConversion)}
           </div>
           {onShowLog ? (
             <Button

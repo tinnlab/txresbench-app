@@ -51,6 +51,7 @@ import {
   formatTook,
   txrRunFailed,
 } from './format'
+import { chanceExplanationOf } from '../components/TxrChanceDialog'
 
 describe('formatTook (the subtitle duration)', () => {
   it('renders the boarded precise durations (TEST-UR-3 pins)', () => {
@@ -354,8 +355,30 @@ describe('qa-fixes ITEM-4 — the names, legend and plain-voice notes (RES-03/04
     expect(formatProbSourceLine('recalibrated')).toBe(
       'The chances were recalibrated on your patients before being shown.',
     )
+    expect(formatProbSourceLine('converted')).toBe(
+      'The method gives a score; the chances use the score-to-chance conversion learned when the model was trained.',
+    )
     expect(formatProbSourceLine(null)).toBe(
-      'No chances are shown: this predict-only reuse has no training data to convert the scores into chances.',
+      'No chances are shown: the saved model has no score-to-chance conversion for this outcome and day.',
+    )
+  })
+
+  it('adds the flat-result sentence to a converted or recalibrated column only', () => {
+    expect(formatProbSourceLine('converted', true)).toBe(
+      "The method gives a score; the chances use the score-to-chance conversion learned when the model was trained. This method's score did not track the outcome in the training data, so every patient gets the same chance: the event rate.",
+    )
+    expect(formatProbSourceLine('recalibrated', true)).toBe(
+      "The chances were recalibrated on your patients before being shown. This method's score did not track the outcome in the training data, so every patient gets the same chance: the event rate.",
+    )
+    expect(formatProbSourceLine('recalibrated', false)).toBe(
+      'The chances were recalibrated on your patients before being shown.',
+    )
+    // A native column or a column without chances is never "flat".
+    expect(formatProbSourceLine('native', true)).toBe(
+      "The chances are the method's own estimates, as it was trained.",
+    )
+    expect(formatProbSourceLine(null, true)).toBe(
+      'No chances are shown: the saved model has no score-to-chance conversion for this outcome and day.',
     )
   })
 })
@@ -397,7 +420,7 @@ describe('formatNoChanceNote (R2-03 no-chance wall of blanks)', () => {
         { label: 'Model B', probSource: null },
       ]),
     ).toBe(
-      'No chances are shown for Model B: this predict-only reuse has no training data to convert the scores into chances.',
+      'No chances are shown for Model B: the saved model has no score-to-chance conversion for this outcome and day.',
     )
   })
 
@@ -409,7 +432,7 @@ describe('formatNoChanceNote (R2-03 no-chance wall of blanks)', () => {
         { label: 'Model C', probSource: 'recalibrated' },
       ]),
     ).toBe(
-      'No chances are shown for Model A, Model B: this predict-only reuse has no training data to convert the scores into chances.',
+      'No chances are shown for Model A, Model B: the saved models have no score-to-chance conversion for this outcome and day.',
     )
   })
 
@@ -421,5 +444,43 @@ describe('formatNoChanceNote (R2-03 no-chance wall of blanks)', () => {
       ]),
     ).toBeNull()
     expect(formatNoChanceNote([])).toBeNull()
+  })
+})
+
+describe('chanceExplanationOf (the "How the chance is calculated" sentences)', () => {
+  const col = (
+    probSource: 'native' | 'recalibrated' | 'converted' | null,
+    flatConversion = false,
+  ) => ({ probSource, flatConversion })
+
+  it('says "as trained" when no column was recalibrated or converted', () => {
+    expect(chanceExplanationOf('pfs', 238, [col('native'), col(null)]).calibration).toBe(
+      "None of these chances were recalibrated on your data: they are the methods' estimates as trained.",
+    )
+  })
+
+  it('counts recalibrated and converted columns, and the flat ones', () => {
+    const summary = chanceExplanationOf('pfs', 238, [
+      col('native'),
+      col('recalibrated'),
+      col('converted', true),
+      col('converted'),
+    ])
+    expect(summary.lead).toBe(
+      "Each method's chance of progression or death by day 238 is its own estimate for that patient, made from the markers in their measurements.",
+    )
+    expect(summary.calibration).toBe(
+      '1 of the 4 methods were recalibrated on your patients before making these chances. ' +
+        '2 of the 4 methods turn their score into a chance with the conversion learned when the model was trained. ' +
+        'For 1 of the 4 methods the score did not track the outcome in the training data, so every patient gets the same chance: the event rate.',
+    )
+  })
+
+  it('never counts a native column as flat', () => {
+    expect(
+      chanceExplanationOf('os', 365, [col('native', true), col('converted')]).calibration,
+    ).toBe(
+      '1 of the 2 methods turn their score into a chance with the conversion learned when the model was trained.',
+    )
   })
 })

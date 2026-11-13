@@ -15,6 +15,108 @@ use txresbench::modules::execution_engine::types::{TxrMethodState, TxrRunStatus}
 const METHOD_A: &str = "cox-cutpoint-risk";
 const METHOD_B: &str = "landmark-cox-current";
 
+/// The training conversion is kept with the saved model (the package's
+/// `save()` keeps `model.conversions`): the run's recorded
+/// `output/<method>/conversions.json` → POST save → POST resolve hands the
+/// engine the same map. A run recorded before the file existed saves a model
+/// without one (no `conversions` key on the asset); saving that run's tree
+/// again from a run that has the file fills the missing map in.
+#[tokio::test]
+async fn save_then_resolve_carries_the_training_conversion() {
+    let server = TestServer::spawn().await;
+    let token = owner_token(&server).await;
+    let repo = TxrRepository::new(pool(&server).await);
+    let map = json!({"progression@238": {"kind": "logistic", "a": -0.4, "b": 1.7,
+        "mu": 0.9, "sd": 0.35, "n": 120, "rate": 0.4}});
+
+    let save = |run_id: Uuid, set: Value| {
+        let server = &server;
+        let token = token.clone();
+        async move {
+            let resp = server
+                .client
+                .post(server.api_url("/txr/models/save"))
+                .bearer_auth(&token)
+                .json(&json!({"run_id": run_id, "method_ids": [METHOD_A], "target": set}))
+                .send()
+                .await
+                .expect("save");
+            assert_eq!(resp.status().as_u16(), 201);
+            let saved: Value = resp.json().await.expect("save json");
+            (
+                saved["models"][0]["id"].as_str().expect("id").to_string(),
+                saved["set"]["id"].as_str().expect("set id").to_string(),
+            )
+        }
+    };
+    let resolve = |id: String| {
+        let server = &server;
+        let token = token.clone();
+        async move {
+            let resp = server
+                .client
+                .post(server.api_url("/txr/models/resolve"))
+                .bearer_auth(&token)
+                .json(&json!({"model_ids": [id]}))
+                .send()
+                .await
+                .expect("resolve");
+            assert_eq!(resp.status().as_u16(), 200);
+            let body: Value = resp.json().await.expect("resolve json");
+            body["assets"][0].clone()
+        }
+    };
+
+    // A run recorded before the file existed: saved without a conversion.
+    // (Both runs are seeded under one name, so they produce the SAME tree —
+    // the same model retrained, e.g. a fixed rule.)
+    let (old_run, _) = seed_run_with_models(&server, &repo, "conv", &[METHOD_A]).await;
+    let (old_id, old_set) = save(old_run, json!({"set_name": "conversion cohort"})).await;
+    let asset = resolve(old_id.clone()).await;
+    assert!(asset.get("conversions").is_none(), "no map saved: {asset}");
+
+    // A run that recorded its conversion: the saved model carries it, and
+    // resolve hands it to the engine verbatim.
+    let (run_id, run_dir) = seed_run_with_models(&server, &repo, "conv", &[METHOD_A]).await;
+    let out = run_dir.join("output").join(METHOD_A);
+    std::fs::create_dir_all(&out).expect("output dir");
+    std::fs::write(out.join("conversions.json"), map.to_string()).expect("record");
+    let (id, _) = save(run_id, json!({"set_name": "conversion cohort 2"})).await;
+    let asset = resolve(id).await;
+    assert_eq!(asset["conversions"], map);
+    let engine_asset: txresbench::modules::execution_engine::types::TxrModelAsset =
+        serde_json::from_value(asset).expect("byte-compatible with TxrModelAsset");
+    assert_eq!(engine_asset.conversions.len(), 1);
+
+    // Saving the new run's (same) tree into the old set is the same model:
+    // the old row is the answer and gains the missing map.
+    let (again_id, set_again) = save(run_id, json!({"set_id": old_set})).await;
+    assert_eq!((again_id.as_str(), set_again.as_str()), (old_id.as_str(), old_set.as_str()));
+    let asset = resolve(old_id).await;
+    assert_eq!(asset["conversions"], map, "the missing map is filled in");
+
+    // A recorded file that breaks the package's rules refuses the save
+    // (never a silently dropped or invented map).
+    let (bad_run, bad_dir) = seed_run_with_models(&server, &repo, "conv-bad", &[METHOD_A]).await;
+    let out = bad_dir.join("output").join(METHOD_A);
+    std::fs::create_dir_all(&out).expect("output dir");
+    std::fs::write(
+        out.join("conversions.json"),
+        json!({"progression": map["progression@238"].clone()}).to_string(),
+    )
+    .expect("record");
+    let resp = server
+        .client
+        .post(server.api_url("/txr/models/save"))
+        .bearer_auth(&token)
+        .json(&json!({"run_id": bad_run, "method_ids": [METHOD_A],
+            "target": {"set_name": "conversion cohort 3"}}))
+        .send()
+        .await
+        .expect("save");
+    assert_eq!(resp.status().as_u16(), 500);
+}
+
 /// TEST-MS-08: the save-from-run flow (PROV-MS-3). A seeded finished run with
 /// two produced trees → POST save → 201 with the set + rows whose
 /// `tree_sha256` equals the run record's, `size_bytes`, `trained_at` == the

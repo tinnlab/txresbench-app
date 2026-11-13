@@ -23,11 +23,22 @@ header carries is either given in facts.json or derived:
             env{base_digest, layer_digest}, features, required_markers,
             marker_facts, covariates, embeds_training_data,
             trained_on_patients, trained_at, own_auc, own_c, catalogue_id,
-            licence
+            licence; optional: conversions
   derived : provenance{kind "pretrained", imported_from null, catalogue_id,
             licence}; tree_sha256 (PROV-SS-3 over the sorted regular files);
             size_bytes (sum of the carried file bytes)
   defaults: name -> method_id, token -> catalogue_id when omitted
+
+`conversions` (optional) is the model's risk-to-probability conversions, the
+TxResBench package's `model.conversions` (contract 2.0 model.schema.json): an
+object whose keys are an outcome (no_response, progressive_disease) or
+`<outcome>@<horizon>` (progression, death; the horizon spelled as the store
+spells it: 238, 238.5) and whose values are {kind: logistic|constant, a, b,
+mu, sd, n, rate|null}. The app applies the entry matching a reuse run's
+outcome and horizon, so a pretrained model of a method without its own
+probability gives chances. The checks are the store's (container.rs refuses a
+header that breaks them). Absent or empty: no `conversions` key is written, so
+a pack without conversions keeps its exact bytes.
 
 Determinism: the tree walk is sorted, entries are sorted by relpath bytes,
 the digest order IS the entry order, and the header JSON is compact with
@@ -104,6 +115,10 @@ REQUIRED_FACTS = [
 ]
 
 TASK_VALUES = ("pfs", "os", "response")
+CONVERSION_OUTCOMES = ("progression", "death", "no_response", "progressive_disease")
+SURVIVAL_OUTCOMES = ("progression", "death")
+CONVERSION_KINDS = ("logistic", "constant")
+CONVERSION_FIELDS = ("kind", "a", "b", "mu", "sd", "n", "rate")
 ENDPOINT_VALUES = ("pfs", "os")
 MATCH_VALUES = ("all", "min_fraction")
 MARKER_KIND_VALUES = ("any", "single", "panel", "multi")
@@ -256,6 +271,81 @@ def is_nullable_number(value):
     return value is None or (not isinstance(value, bool) and isinstance(value, (int, float)))
 
 
+def horizon_name(day):
+    """The store's `horizon_name`: a whole day is "238", a fractional one the
+    shortest round-trip text ("238.5")."""
+    if day == math.floor(day) and abs(day) < 1e15:
+        return "%d" % int(day)
+    return repr(float(day))
+
+
+def is_finite_number(value):
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(float(value))
+    )
+
+
+def normalize_conversions(conversions):
+    """Validate the optional conversions map with the store's key + value
+    rules and return it with sorted keys and the package's field order (the
+    header bytes stay deterministic). Every refusal names the key."""
+    if not isinstance(conversions, dict):
+        refuse("FACTS_BAD_VALUE", "the facts field 'conversions' is not an object")
+    out = {}
+    for key in sorted(conversions):
+        value = conversions[key]
+
+        def bad(problem, key=key):
+            refuse("FACTS_BAD_CONVERSION", "conversion %r: %s" % (key, problem))
+
+        outcome, sep, horizon = key.partition("@")
+        if outcome not in CONVERSION_OUTCOMES:
+            bad("%r is not an outcome" % outcome)
+        if outcome in SURVIVAL_OUTCOMES:
+            if not sep:
+                bad("%s needs a horizon (\"%s@<day>\")" % (outcome, outcome))
+            try:
+                day = float(horizon)
+            except ValueError:
+                bad("the horizon %r is not a number" % horizon)
+            if not (math.isfinite(day) and day > 0):
+                bad("the horizon %r is not a day above 0" % horizon)
+            if horizon != horizon_name(day):
+                bad("the key is not spelled %r" % ("%s@%s" % (outcome, horizon_name(day))))
+        elif sep:
+            bad("%s takes no horizon" % outcome)
+
+        if not isinstance(value, dict):
+            bad("the value is not an object")
+        missing = [f for f in CONVERSION_FIELDS if f not in value]
+        if missing:
+            bad("missing %s" % ", ".join(missing))
+        extra = sorted(set(value) - set(CONVERSION_FIELDS))
+        if extra:
+            bad("unknown field %s" % ", ".join(extra))
+        if value["kind"] not in CONVERSION_KINDS:
+            bad("kind %r is not logistic or constant" % (value["kind"],))
+        for name in ("a", "b", "mu"):
+            if not is_finite_number(value[name]):
+                bad("%s is not a finite number" % name)
+        if not is_finite_number(value["sd"]) or value["sd"] <= 0:
+            bad("sd is not a finite number above 0")
+        if value["b"] < 0:
+            bad("b is negative")
+        n = value["n"]
+        if isinstance(n, bool) or not isinstance(n, int):
+            bad("n is not an integer")
+        if n < 0:
+            bad("n is negative")
+        rate = value["rate"]
+        if rate is not None and (not is_finite_number(rate) or not 0 <= rate <= 1):
+            bad("rate is not within [0, 1]")
+        out[key] = {f: value[f] for f in CONVERSION_FIELDS}
+    return out
+
+
 def normalize_facts(facts):
     """Validate the facts and return the header's model entry (minus the
     derived tree fields). Every code names the failing field."""
@@ -398,7 +488,9 @@ def normalize_facts(facts):
             if not math.isfinite(float(value)):
                 refuse("FACTS_BAD_VALUE", "the facts field %r is not finite" % key)
 
-    return {
+    conversions = normalize_conversions(facts.get("conversions", {}))
+
+    entry = {
         # ContainerModel: token first, then the flattened facts (the field
         # order of container.rs ContainerModelFacts), then the derived pair.
         "token": token,
@@ -429,6 +521,11 @@ def normalize_facts(facts):
         "own_auc": own_auc,
         "own_c": own_c,
     }
+    # Written only when there is a map (the store's writer skips an empty
+    # one too), so a pack without conversions keeps its exact bytes.
+    if conversions:
+        entry["conversions"] = conversions
+    return entry
 
 
 # ────────────────────────────── pack ──────────────────────────────
@@ -599,6 +696,11 @@ def verify_container(path):
         model = models[0]
         if not isinstance(model, dict) or not isinstance(model.get("token"), str) or not model["token"]:
             refuse("VERIFY_BAD_HEADER", "the model entry has no token")
+        if "conversions" in model:
+            try:
+                normalize_conversions(model["conversions"])
+            except PackError as exc:
+                refuse("VERIFY_BAD_HEADER", "the model's conversions: %s" % exc)
 
         entry_count = reader.u32()
         if entry_count == 0:
@@ -805,6 +907,57 @@ def selftest():
                 "licence %r" % licence,
                 lambda: pack_to(facts=os.path.join(tmp, "broken.json")),
                 "LICENCE_EMPTY",
+            )
+        assert not os.path.exists(os.path.join(tmp, "refused.txr")), "a refusal writes nothing"
+
+        # ── the optional conversions (the package's model.conversions) ──
+        good = {
+            "progression@238": {"kind": "logistic", "a": -0.4, "b": 1.7, "mu": 0.9,
+                                "sd": 0.35, "n": 120, "rate": 0.4},
+            "no_response": {"rate": None, "kind": "constant", "a": 0.0, "b": 0.0,
+                            "mu": 0.0, "sd": 1.0, "n": 0},
+        }
+        conv_facts = dict(_facts())
+        conv_facts["conversions"] = good
+        conv_path = os.path.join(tmp, "conv.json")
+        with open(conv_path, "w", encoding="utf-8") as f:
+            json.dump(conv_facts, f)
+        out3 = os.path.join(tmp, "m3.txr")
+        pack(tree, conv_path, out3)
+        with open(out3, "rb") as f:
+            packed = f.read()
+        hlen = struct.unpack(U32, packed[len(MAGIC):len(MAGIC) + 4])[0]
+        header = json.loads(packed[len(MAGIC) + 4:len(MAGIC) + 4 + hlen].decode("utf-8"))
+        written = header["models"][0]["conversions"]
+        assert list(written) == ["no_response", "progression@238"], "sorted keys"
+        assert list(written["no_response"]) == list(CONVERSION_FIELDS), "the package's field order"
+        assert written["progression@238"]["b"] == 1.7
+        verify_container(out3)
+        assert b"conversions" not in first, "no conversions: no key, the earlier bytes"
+        for label, conv in (
+            ("a non-object", []),
+            ("an unknown outcome", {"foo@238": good["progression@238"]}),
+            ("a survival key without a horizon", {"progression": good["progression@238"]}),
+            ("a horizon spelled 238.0", {"progression@238.0": good["progression@238"]}),
+            ("a negative horizon", {"death@-5": good["progression@238"]}),
+            ("a response key with a horizon", {"no_response@238": good["no_response"]}),
+            ("an unknown kind", {"no_response": dict(good["no_response"], kind="spline")}),
+            ("sd 0", {"no_response": dict(good["no_response"], sd=0)}),
+            ("a falling slope", {"progression@238": dict(good["progression@238"], b=-0.1)}),
+            ("a rate above 1", {"no_response": dict(good["no_response"], rate=1.5)}),
+            ("a fractional n", {"no_response": dict(good["no_response"], n=1.5)}),
+            ("a boolean n", {"no_response": dict(good["no_response"], n=True)}),
+            ("a missing field", {"no_response": {"kind": "constant"}}),
+            ("an unknown field", {"no_response": dict(good["no_response"], extra=1)}),
+        ):
+            broken = dict(_facts())
+            broken["conversions"] = conv
+            with open(os.path.join(tmp, "broken.json"), "w", encoding="utf-8") as f:
+                json.dump(broken, f)
+            _expect_refusal(
+                "conversions: %s" % label,
+                lambda: pack_to(facts=os.path.join(tmp, "broken.json")),
+                "FACTS_BAD_VALUE" if label == "a non-object" else "FACTS_BAD_CONVERSION",
             )
         assert not os.path.exists(os.path.join(tmp, "refused.txr")), "a refusal writes nothing"
 

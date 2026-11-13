@@ -206,11 +206,17 @@ impl TxrPhase {
 
 /// Where a method column's probabilities come from (INV-3: never mixed
 /// silently in one column; U2 recalibration is recorded per method).
+/// `native`: the method's own probability; `recalibrated`: the risk turned
+/// into a probability by a conversion fitted in THIS run (the training
+/// patients, or a reuse run's own cohort); `converted`: the risk turned into
+/// a probability by the conversion a saved model carries from its training
+/// (the package's `probability_source: "converted"`); `none`: no probability.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TxrProbSource {
     Native,
     Recalibrated,
+    Converted,
     None,
 }
 
@@ -220,6 +226,7 @@ impl TxrProbSource {
         match self {
             TxrProbSource::Native => "native",
             TxrProbSource::Recalibrated => "recalibrated",
+            TxrProbSource::Converted => "converted",
             TxrProbSource::None => "none",
         }
     }
@@ -507,6 +514,13 @@ pub struct TxrModelAsset {
     pub method_version: String,
     pub env: TxrMethodEnv,
     pub contract: String,
+    /// The risk→probability conversions the saved model carries from its
+    /// training run (the package's `model.conversions`, key `outcome` or
+    /// `outcome@horizon`). A predict-only reuse applies the one matching the
+    /// run's outcome and horizon; absent/empty = none saved (a model saved
+    /// before conversions were kept).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub conversions: super::predictions::Conversions,
 }
 
 /// The env digest pair recorded on a method row / produced model (base + the
@@ -817,6 +831,13 @@ pub struct TxrPredictionMethod {
     pub group_label: String,
     pub task: TxrTask,
     pub prob_source: TxrProbSource,
+    /// The column's chances come from a FLAT conversion (kind `constant`):
+    /// the fit fell back to the event rate because the score did not track
+    /// the outcome in the data it was fitted on, so every scored patient has
+    /// the same chance. False for a native column, a column without chances,
+    /// and a run recorded before the conversion was kept beside the column.
+    #[serde(default)]
+    pub flat_conversion: bool,
     pub coverage: TxrCoverage,
     pub probabilities: Vec<Option<f64>>,
     pub notes: Vec<Option<String>>,
@@ -1052,6 +1073,13 @@ impl CreateRunRequest {
                     message: "method_id must not be empty".to_string(),
                 });
             }
+            if let Err(p) = super::predictions::check_conversions(&asset.conversions) {
+                return Err(TxrRequestError {
+                    code: TxrRequestErrorCode::InvalidModelAsset,
+                    field: format!("model_ids[{i}].conversions[{}]", p.key),
+                    message: p.problem,
+                });
+            }
         }
 
         Ok(())
@@ -1105,6 +1133,7 @@ mod tests {
                 layer_digest: "c".repeat(64),
             },
             contract: "2.0".to_string(),
+            conversions: Default::default(),
         }
     }
 
@@ -1462,6 +1491,64 @@ mod tests {
         req.model_ids[1].tree_sha256 = "zz".to_string();
         let err = req.validate().unwrap_err();
         assert_eq!(err.field, "model_ids[1].tree_sha256");
+    }
+
+    /// The saved conversions a source/converted column depends on: the
+    /// `converted` source's wire spelling (the package's word, stored as is).
+    #[test]
+    fn prob_source_converted_wire_spelling() {
+        assert_eq!(serde_json::to_value(TxrProbSource::Converted).unwrap(), json!("converted"));
+        assert_eq!(TxrProbSource::Converted.as_str(), "converted");
+        let back: TxrProbSource = serde_json::from_value(json!("converted")).unwrap();
+        assert_eq!(back, TxrProbSource::Converted);
+    }
+
+    /// An asset without `conversions` (every run-input.json recorded before
+    /// the field existed) parses as none and serialises without the field; a
+    /// bad map is refused naming the asset and the key.
+    #[test]
+    fn model_asset_conversions_default_and_are_checked() {
+        let plain = serde_json::to_value(valid_asset()).unwrap();
+        assert!(plain.get("conversions").is_none(), "no field when none is saved");
+        let parsed: TxrModelAsset = serde_json::from_value(plain).unwrap();
+        assert!(parsed.conversions.is_empty());
+
+        let c = super::super::predictions::Conversion {
+            kind: "logistic".to_string(),
+            a: 0.1,
+            b: 0.9,
+            mu: 1.0,
+            sd: 0.5,
+            n: 80,
+            rate: Some(0.35),
+        };
+        let mut with = valid_asset();
+        with.conversions.insert("progression@238".to_string(), c.clone());
+        let v = serde_json::to_value(&with).unwrap();
+        assert_eq!(v["conversions"]["progression@238"]["kind"], json!("logistic"));
+        let back: TxrModelAsset = serde_json::from_value(v).unwrap();
+        assert_eq!(back.conversions, with.conversions);
+
+        let mut req = sample_request(TxrRunMode::Reuse);
+        req.model_ids = vec![valid_asset(), with.clone()];
+        assert!(req.validate().is_ok());
+
+        let mut bad_key = with.clone();
+        bad_key.conversions.insert("progression@238.0".to_string(), c.clone());
+        req.model_ids = vec![valid_asset(), bad_key];
+        let err = req.validate().unwrap_err();
+        assert_eq!(err.code, TxrRequestErrorCode::InvalidModelAsset);
+        assert_eq!(err.field, "model_ids[1].conversions[progression@238.0]");
+
+        let mut bad_value = valid_asset();
+        bad_value.conversions.insert(
+            "no_response".to_string(),
+            super::super::predictions::Conversion { sd: 0.0, ..c },
+        );
+        req.model_ids = vec![bad_value];
+        let err = req.validate().unwrap_err();
+        assert_eq!(err.field, "model_ids[0].conversions[no_response]");
+        assert_eq!(err.message, "sd is not a finite number above 0");
     }
 
     #[test]

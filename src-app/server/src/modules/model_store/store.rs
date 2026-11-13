@@ -78,6 +78,7 @@ use super::types::{
     ModelStoreLimits, ModelSummary, ModelWarning, ModelWarningCode, ResolvedAsset,
     SaveModelsRequest, SaveTarget, SetSummary,
 };
+use crate::modules::execution_engine::predictions::{self, Conversions};
 use crate::modules::execution_engine::repository::{MethodRow, TxrRepository};
 use crate::modules::execution_engine::types::{
     TxrEndpoint, TxrMethodEnv, TxrMethodState, TxrProducedModel, TxrRunSummary, TxrTask,
@@ -621,6 +622,7 @@ async fn install_verified(
                             "the idempotence check found a row that vanished",
                         )
                     })?;
+                let existing = fill_missing_conversions(&repo, existing, &facts.conversions).await?;
                 outcome.model_ids.push(existing.id.to_string());
                 outcome.models.push(summary_from(&existing, set_name.as_deref())?);
                 continue;
@@ -676,6 +678,7 @@ async fn install_verified(
             embeds_training_data: facts.embeds_training_data,
             own_auc: facts.own_auc,
             own_c: facts.own_c,
+            conversions: json_value(&facts.conversions, "conversions")?,
         };
         let row = repo.insert_model(&new).await?;
         outcome.model_ids.push(row.id.to_string());
@@ -784,6 +787,25 @@ fn json_value<T: serde::Serialize>(v: &T, what: &str) -> Result<Json, AppError> 
         .map_err(|e| AppError::internal_error(format!("serialize {what}: {e}")))
 }
 
+/// The same-model rule of a save/import that lands on an existing row (same
+/// set + tree + method): the row is the answer, and it gains `incoming`
+/// conversions only when it has none (a row saved before conversions were
+/// kept); a row with a map keeps its map. Returns the row as it now stands.
+async fn fill_missing_conversions(
+    repo: &ModelStoreRepository,
+    existing: ModelRow,
+    incoming: &Conversions,
+) -> Result<ModelRow, AppError> {
+    if incoming.is_empty() || !row_conversions(&existing)?.is_empty() {
+        return Ok(existing);
+    }
+    repo.fill_missing_conversions(existing.id, &json_value(incoming, "conversions")?)
+        .await?;
+    repo.get_model(existing.id)
+        .await?
+        .ok_or_else(|| AppError::internal_error("the filled model row vanished"))
+}
+
 /// A recorded provenance string as the module's typed vocabulary.
 pub fn parse_provenance(provenance: &str) -> Result<ModelProvenance, AppError> {
     serde_json::from_value::<ModelProvenance>(Json::String(provenance.to_string()))
@@ -794,6 +816,17 @@ pub fn parse_provenance(provenance: &str) -> Result<ModelProvenance, AppError> {
 fn parse_row<T: serde::de::DeserializeOwned>(v: &Json, what: &str) -> Result<T, AppError> {
     serde_json::from_value(v.clone())
         .map_err(|e| AppError::internal_error(format!("{what}: {e}")))
+}
+
+/// A row's saved conversions as the engine's map, checked with the
+/// package's key + value rules (a row that fails them is corrupt — the
+/// engine never receives a map it would refuse).
+pub fn row_conversions(row: &ModelRow) -> Result<Conversions, AppError> {
+    let map: Conversions = parse_row(&row.conversions, "txr_models.conversions")?;
+    predictions::check_conversions(&map).map_err(|p| {
+        AppError::internal_error(format!("model {} records a bad {p}", row.id))
+    })?;
+    Ok(map)
 }
 
 /// The J/I list row (PROV-MS-2) — the marker-count + covariates subline facts
@@ -989,6 +1022,7 @@ pub async fn resolve_assets(
                 )))
             }
         };
+        let conversions = row_conversions(&row)?;
         assets.push(ResolvedAsset {
             model_id: id.clone(),
             host_dir: row.dir,
@@ -1000,6 +1034,7 @@ pub async fn resolve_assets(
                 layer_digest,
             },
             contract: row.contract,
+            conversions,
         });
     }
     Ok(assets)
@@ -1134,6 +1169,10 @@ pub async fn save_from_run(
                 .get_model_by_ref(Some(set_id), &pm.tree_sha256, &pm.method_id)
                 .await?
                 .expect("checked above");
+            // A row saved before conversions were kept gains this run's
+            // conversion (the upgrade path: train again, save into the same
+            // set); a row that has one keeps it.
+            let existing = fill_missing_conversions(&repo, existing, &facts.conversions).await?;
             saved_rows.push(existing);
             continue;
         }
@@ -1173,6 +1212,7 @@ pub async fn save_from_run(
                 embeds_training_data: facts.cat.embeds_training_data,
                 own_auc: pm.own_auc,
                 own_c: None,
+                conversions: json_value(&facts.conversions, "conversions")?,
             })
             .await?;
         saved_rows.push(row);
@@ -1237,6 +1277,10 @@ struct SaveFacts<'a> {
     task: Option<TxrTask>,
     marker_facts: MarkerFacts,
     covariates: CovariateFacts,
+    /// The training run's recorded conversion
+    /// (`output/<method>/conversions.json`; empty for a native-probability
+    /// method or a run recorded before the file existed).
+    conversions: Conversions,
 }
 
 fn save_facts(
@@ -1289,12 +1333,22 @@ fn save_facts(
         catalogue: cat.covariates,
         used: summary.config.covariates,
     };
+    // The conversion the training run fitted and applied (the package's
+    // `save()` keeps `model.conversions` with the model).
+    let conversions = predictions::read_conversions(Path::new(&summary.dir), &produced.method_id)
+        .map_err(|e| {
+            AppError::internal_error(format!(
+                "the run's recorded conversion for method {}: {e}",
+                produced.method_id
+            ))
+        })?;
     Ok(SaveFacts {
         cat,
         features,
         task,
         marker_facts,
         covariates,
+        conversions,
     })
 }
 
@@ -1414,6 +1468,7 @@ fn facts_from_row(row: &ModelRow) -> Result<ContainerModelFacts, AppError> {
         embeds_training_data: row.embeds_training_data,
         own_auc: row.own_auc,
         own_c: row.own_c,
+        conversions: row_conversions(row)?,
     })
 }
 
@@ -1751,6 +1806,7 @@ mod tests {
             embeds_training_data: false,
             own_auc: Some(0.66),
             own_c: Some(0.63),
+            conversions: serde_json::json!({}),
         }
     }
 
@@ -2203,6 +2259,87 @@ mod tests {
             .expect_err("unparseable");
         assert_eq!(err.status_code(), 404);
         assert_eq!(err.error_code(), "MODEL_NOT_FOUND");
+
+        pool.close().await;
+        let _ = fs::remove_file(&path);
+    }
+
+    /// The saved conversions travel with the model: resolve hands them to the
+    /// engine, a `.txr` export carries them and an import stores them; an
+    /// import that lands on an existing row (same set + tree + method) fills
+    /// in a row that has none and never rewrites a row that has one.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn conversions_ride_resolve_export_and_import() {
+        let (root, _guard) = scratch_root("conversions");
+        let (pool, path) = test_pool().await;
+        let repo = ModelStoreRepository::new(pool.clone());
+        let map = json!({"death@238": {"kind": "logistic", "a": -0.4, "b": 1.7,
+            "mu": 0.9, "sd": 0.35, "n": 120, "rate": 0.4}});
+
+        let (src, digest, _) = fixture_tree(&root, "conv");
+        let dir = copy_tree(&src, &digest).expect("tree");
+        let mut new = row_for(&dir, &digest, None, "dynforest");
+        new.conversions = map.clone();
+        let row = repo.insert_model(&new).await.expect("row");
+        let want: Conversions = serde_json::from_value(map.clone()).unwrap();
+
+        // Resolve: the engine element carries the map.
+        let assets = resolve_assets(&pool, &[row.id.to_string()]).await.expect("resolve");
+        assert_eq!(assets[0].conversions, want);
+
+        // Export → import (standalone): the imported row has the same map.
+        let export = export_model(&row).expect("export");
+        assert_eq!(export.models[0].facts.conversions, want);
+        let mut bytes = Vec::new();
+        write_container(&mut bytes, &export).expect("write");
+        let opts = |set_id| ImportOptions {
+            set_id,
+            provenance: Provenance::Imported {
+                source_name: "conv.txr".to_string(),
+            },
+        };
+        let out = install_imported(&pool, &bytes, &opts(None)).await.expect("import");
+        let imported = repo
+            .get_model(Uuid::parse_str(&out.model_ids[0]).unwrap())
+            .await
+            .expect("get")
+            .expect("row");
+        assert_eq!(row_conversions(&imported).expect("parses"), want);
+
+        // An existing row saved without a conversion, same tree + method in a
+        // set: the import into that set fills it in…
+        let set = repo.insert_set("conv set", None, None, false, None).await.expect("set");
+        let old = repo
+            .insert_model(&row_for(&dir, &digest, Some(set.id), "dynforest"))
+            .await
+            .expect("old row");
+        assert!(row_conversions(&old).expect("parses").is_empty());
+        let out = install_imported(&pool, &bytes, &opts(Some(set.id))).await.expect("import");
+        assert_eq!(out.model_ids, vec![old.id.to_string()], "the same model, no second row");
+        let filled = repo.get_model(old.id).await.expect("get").expect("row");
+        assert_eq!(row_conversions(&filled).expect("parses"), want);
+
+        // …and a later import with another map does not rewrite it.
+        let mut other_export = export_model(&row).expect("export");
+        other_export.models[0].facts.conversions = serde_json::from_value(json!({
+            "death@238": {"kind": "constant", "a": 0.0, "b": 0.0, "mu": 0.0,
+                "sd": 1.0, "n": 9, "rate": 0.2}})).unwrap();
+        let mut other_bytes = Vec::new();
+        write_container(&mut other_bytes, &other_export).expect("write");
+        install_imported(&pool, &other_bytes, &opts(Some(set.id))).await.expect("import");
+        let kept = repo.get_model(old.id).await.expect("get").expect("row");
+        assert_eq!(row_conversions(&kept).expect("parses"), want, "a saved map is kept");
+
+        // A corrupt stored map never reaches the engine.
+        sqlx::query("UPDATE txr_models SET conversions = ? WHERE id = ?")
+            .bind(r#"{"death": {"kind": "logistic", "a": 0, "b": 1, "mu": 0, "sd": 1, "n": 3, "rate": 0.5}}"#)
+            .bind(row.id)
+            .execute(&pool)
+            .await
+            .expect("corrupt the row");
+        let err = resolve_assets(&pool, &[row.id.to_string()]).await.expect_err("refused");
+        assert_eq!(err.status_code(), 500);
 
         pool.close().await;
         let _ = fs::remove_file(&path);
