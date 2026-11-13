@@ -222,6 +222,183 @@ async fn run_dir_tree_lives_under_the_data_root() {
     );
 }
 
+/// The reuse path end to end (scripted sandbox seam, so every host runs it):
+/// train a risk-only method with `save_models` → save the model → resolve it
+/// → a predict-only reuse run (no outcomes) gets the TRAINING conversion: the
+/// method row says `converted`, every scored patient has a chance, and the
+/// chances are the train run's recorded map applied to the reuse risks (the
+/// package's `save()` + `predict()`). The same reuse with the map removed
+/// from the asset (a model saved before conversions were kept) finishes with
+/// no chances and the note saying why.
+#[tokio::test]
+async fn reuse_of_a_saved_model_gets_the_training_probabilities() {
+    use txresbench::modules::execution_engine::predictions;
+    use txresbench::modules::execution_engine::types::{
+        CreateRunRequest, TxrModelAsset, TxrRunInput, TxrRunMode,
+    };
+    use txresbench::modules::model_store::store;
+    use txresbench::modules::model_store::types::{SaveModelsRequest, SaveTarget};
+
+    let server = TestServer::spawn().await;
+    let (token, owner) = register_user(&server, "txr-reuse-conv").await;
+    let pool = pool(&server).await;
+    let scratch = scratch_dir("reuse-conversion");
+    let _g = rootfs::scoped_data_root(&scratch);
+    let repo = TxrRepository::new(pool.clone());
+    let method = "ctdna-tf-four-group";
+    let start = |req: CreateRunRequest| {
+        let pool = pool.clone();
+        async move {
+            let exec = StackMethodExecutor::with_seam(pool.clone(), FakeStackRunSeam::new());
+            orchestrator::start_run(
+                pool,
+                Arc::new(RunRuntime::new()),
+                Arc::new(FakeEnv::new(Duration::from_millis(5))),
+                Arc::new(exec),
+                owner,
+                req,
+            )
+            .await
+            .expect("create")
+        }
+    };
+
+    // Train + save.
+    let train = start(cohort_run_request(&[method], 1, true)).await;
+    let row = wait_terminal(&repo, train.id).await;
+    assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
+    let train_dir = PathBuf::from(&row.dir);
+    let recorded = predictions::read_conversions(&train_dir, method).expect("recorded");
+    assert_eq!(recorded.keys().collect::<Vec<_>>(), vec!["progression@238"]);
+    let saved = store::save_from_run(
+        &pool,
+        &SaveModelsRequest {
+            run_id: train.id,
+            method_ids: vec![method.to_string()],
+            target: SaveTarget::NewSet {
+                set_name: "reuse conversion".to_string(),
+            },
+            keep_training_files: false,
+            also_export: false,
+            source_label: None,
+        },
+    )
+    .await
+    .expect("save");
+    let model_id = saved.models[0].id.to_string();
+    let assets = store::resolve_assets(&pool, &[model_id.clone()]).await.expect("resolve");
+    assert_eq!(assets[0].conversions, recorded, "the saved model carries the training map");
+    let asset: TxrModelAsset =
+        serde_json::from_value(serde_json::to_value(&assets[0]).unwrap()).expect("engine element");
+
+    // A predict-only reuse on the same patients' measurements (no outcomes).
+    let reuse_request = |asset: TxrModelAsset| CreateRunRequest {
+        mode: TxrRunMode::Reuse,
+        input: TxrRunInput {
+            patients: None,
+            measurements: super::cohort_measurements_parsed(),
+            predict_measurements: Some(super::cohort_measurements_parsed()),
+            joins: Vec::new(),
+            mapping: Vec::new(),
+            keep_copies: false,
+        },
+        config: txresbench::modules::execution_engine::types::RunConfig {
+            at_a_time: 1,
+            decision_day: 56.0,
+            look_ahead_day: 238.0,
+            ..Default::default()
+        },
+        method_ids: Vec::new(),
+        model_ids: vec![asset],
+    };
+    let reuse = start(reuse_request(asset.clone())).await;
+    let row = wait_terminal(&repo, reuse.id).await;
+    assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
+    let m = repo
+        .get_method(reuse.id, &model_id)
+        .await
+        .expect("method row")
+        .expect("exists");
+    assert_eq!(m.prob_source.as_deref(), Some("converted"));
+    assert_eq!(m.coverage_scored, m.coverage_eligible, "every scored patient has a chance");
+    assert!(m.coverage_scored.unwrap_or(0) > 0);
+
+    // The method's raw risks (the fixture writes no note, so a plain split
+    // reads the `patient_id,risk,…` rows).
+    let reuse_dir = PathBuf::from(&row.dir);
+    let raw = std::fs::read_to_string(reuse_dir.join("output").join(&model_id).join("predictions.csv"))
+        .expect("raw output");
+    let risk_of: std::collections::BTreeMap<String, f64> = raw
+        .lines()
+        .skip(1)
+        .map(|l| {
+            let parts: Vec<&str> = l.split(',').collect();
+            (parts[0].to_string(), parts[1].parse().expect("risk"))
+        })
+        .collect();
+    let predictions_of = |run_id: uuid::Uuid| {
+        let server = &server;
+        let token = token.clone();
+        async move {
+            server
+                .client
+                .get(server.api_url(&format!("/txr/runs/{run_id}/predictions")))
+                .bearer_auth(&token)
+                .send()
+                .await
+                .expect("predictions")
+                .json::<serde_json::Value>()
+                .await
+                .expect("json")
+        }
+    };
+    // The predictions route (the heatmap's read) serves the column as
+    // `converted`, each chance = the TRAINING map of the patient's risk.
+    let body = predictions_of(reuse.id).await;
+    let col = &body["methods"][0];
+    assert_eq!(col["prob_source"], "converted");
+    let c = &recorded["progression@238"];
+    assert_eq!(col["flat_conversion"], serde_json::json!(c.is_flat()));
+    let patients = body["patients"].as_array().expect("patients");
+    assert!(!patients.is_empty());
+    for (i, id) in patients.iter().enumerate() {
+        let id = id.as_str().expect("id");
+        let want = c.apply(Some(risk_of[id])).expect("a probability");
+        let got = col["probabilities"][i].as_f64().expect("a chance");
+        assert!((got - want).abs() < 1e-6, "{id}: {got} vs the training map's {want}");
+    }
+    assert_eq!(
+        predictions::read_conversions(&reuse_dir, &model_id).expect("recorded"),
+        recorded,
+        "the reuse run records the map it applied"
+    );
+
+    // A model saved before conversions were kept: no chances, a clear note.
+    let mut old = asset;
+    old.conversions.clear();
+    let reuse_old = start(reuse_request(old)).await;
+    let row = wait_terminal(&repo, reuse_old.id).await;
+    assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
+    let m = repo
+        .get_method(reuse_old.id, &model_id)
+        .await
+        .expect("method row")
+        .expect("exists");
+    assert_eq!(m.prob_source.as_deref(), Some("none"));
+    let body = predictions_of(reuse_old.id).await;
+    let col = &body["methods"][0];
+    assert_eq!(col["prob_source"], "none");
+    let probs = col["probabilities"].as_array().expect("probabilities");
+    assert!(!probs.is_empty());
+    for (p, note) in probs.iter().zip(col["notes"].as_array().expect("notes")) {
+        assert!(p.is_null(), "no probability");
+        assert_eq!(
+            note,
+            "no native probability, and this saved model has no score-to-chance conversion (it was saved before the app kept one)"
+        );
+    }
+}
+
 /// TEST-EE-33: the wrapper's live lines are appended while the run is active
 /// (the drainer, not a completion-time batch) and ride the run SSE runtime as
 /// `log` frames; the run-scoped log serves them after too.
@@ -1099,4 +1276,55 @@ async fn test_ee21_real_stack_reuse_path() {
     assert!(!models.is_empty(), "a produced model exists to reuse");
     let model = &models[0];
     assert!(Path::new(&model.dir).is_dir(), "the model tree exists");
+
+    // Save it, resolve it and reuse it on the same measurements with no
+    // outcomes: the risk-only method's column carries the TRAINING
+    // conversion (the package's `predict()`), not an empty column.
+    let saved = txresbench::modules::model_store::store::save_from_run(
+        &pool,
+        &txresbench::modules::model_store::types::SaveModelsRequest {
+            run_id: first.id,
+            method_ids: vec!["ctdna-tf-four-group".to_string()],
+            target: txresbench::modules::model_store::types::SaveTarget::NewSet {
+                set_name: "ee21 reuse".to_string(),
+            },
+            keep_training_files: false,
+            also_export: false,
+            source_label: None,
+        },
+    )
+    .await
+    .expect("save");
+    let model_id = saved.models[0].id.to_string();
+    let assets =
+        txresbench::modules::model_store::store::resolve_assets(&pool, &[model_id.clone()])
+            .await
+            .expect("resolve");
+    assert!(!assets[0].conversions.is_empty(), "the training conversion was saved");
+    let asset: txresbench::modules::execution_engine::types::TxrModelAsset =
+        serde_json::from_value(serde_json::to_value(&assets[0]).unwrap()).expect("element");
+    let mut reuse = cohort_run_request(&[], 1, false);
+    reuse.mode = txresbench::modules::execution_engine::types::TxrRunMode::Reuse;
+    reuse.input.patients = None;
+    reuse.input.predict_measurements = Some(super::cohort_measurements_parsed());
+    reuse.model_ids = vec![asset];
+    let second = orchestrator::start_run(
+        pool.clone(),
+        runtime.clone(),
+        env.clone(),
+        Arc::new(StackMethodExecutor::new(pool.clone())),
+        owner,
+        reuse,
+    )
+    .await
+    .expect("create the reuse run");
+    let row = wait_terminal(&repo, second.id).await;
+    assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
+    let m = repo
+        .get_method(second.id, &model_id)
+        .await
+        .expect("method row")
+        .expect("exists");
+    assert_eq!(m.prob_source.as_deref(), Some("converted"));
+    assert!(m.coverage_scored.unwrap_or(0) > 0, "the reuse column has chances");
 }

@@ -43,8 +43,8 @@ Byte layout (little-endian integers):
   `set`), the set facts, one `models[]` record per model (token, name,
   method id/version, group, task, provenance with licence, the recorded
   requirements — decision day, endpoint, horizon, features, env digests,
-  marker facts, covariates — the tree sha256 and byte size) and the optional
-  `training[]` listing,
+  marker facts, covariates — the optional `conversions` map, the tree sha256
+  and byte size) and the optional `training[]` listing,
 - per model, in header order: `u32 entry_count`; per entry a `u16`-length
   relative path (no `..`, no leading `/`), `u64` byte length, the bytes and
   their 32-byte sha256,
@@ -55,8 +55,9 @@ Import verifies, in order: magic + version, the header parses, the framing
 is consistent, every entry's sha256 matches its bytes, the paths are safe,
 the restored tree's own digest (the same algorithm the engine ran at fit
 time) equals the header's recorded digest, the declared byte size matches
-the restored count, and the container is within the byte cap (16 GiB). Any
-refusal writes nothing into the store. Exports are deterministic: the same
+the restored count, the saved conversions follow the package's key + value
+rules, and the container is within the byte cap (16 GiB). Any refusal writes
+nothing into the store. Exports are deterministic: the same
 artifacts produce identical bytes.
 
 ## The example saved set
@@ -79,7 +80,13 @@ Saving binds a run record through the engine's own in-process seam
 digests, trained-on count, byte size, own-data AUC) is copied into the store,
 and the requirements the I screen checks against are recorded from the run's
 config and the method bundle's `params.json` plus the catalogue facts — never
-re-derived, never invented. A model whose requirements could not be recorded
+re-derived, never invented. The run's recorded risk→probability conversion
+(`output/<method>/conversions.json`, the TxResBench package's
+`model.conversions` map) is saved with the model in `txr_models.conversions`
+(`{}` = none: a model saved before the column existed, or a method with its
+own probability); export/import carries it in the header, and saving or
+importing the same tree + method into a set again fills it in only on a row
+that has none. A model whose requirements could not be recorded
 (it was imported from a container without them) is answered
 `cannot_run` + `MODEL_REQUIREMENTS_UNRECORDED` rather than a silent "looks
 fine".
@@ -87,7 +94,8 @@ fine".
 Reuse resolution re-verifies every selected tree against its recorded digest
 before an asset leaves the store (409 on any mismatch): the engine only ever
 binds a verified artifact. The response element is byte-compatible with the
-engine's own `CreateRunRequest.model_ids[]` element, so the model screen
+engine's own `CreateRunRequest.model_ids[]` element (including the saved
+`conversions`, which a predict-only reuse applies), so the model screen
 passes it through untouched.
 
 ## Boundaries

@@ -13246,6 +13246,13 @@
           "contract": {
             "type": "string"
           },
+          "conversions": {
+            "description": "The model's saved risk→probability conversions (the engine element's\n `conversions`; absent when none was saved).",
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TxrConversion"
+            }
+          },
           "env": {
             "$ref": "#/components/schemas/TxrMethodEnv"
           },
@@ -14136,6 +14143,58 @@
         },
         "required": [
           "at_a_time"
+        ]
+      },
+      "TxrConversion": {
+        "description": "One risk→probability conversion — the model-side record the package's\n `fit()` stores per (outcome, horizon) (`model.conversions`). The serde\n shape is the package's JSON exactly (`{kind, a, b, mu, sd, n, rate}`); a\n conversion is fitted on the TRAINING scores only and applied unchanged to\n the test patients (DEC-8). A saved model carries its conversions (the\n [`Conversions`] map) so a later reuse run applies the same map.",
+        "type": "object",
+        "properties": {
+          "a": {
+            "description": "The logistic intercept where the score is standardised\n (`z = (risk − mu)/sd`); 0 for the constant kind.",
+            "type": "number",
+            "format": "double"
+          },
+          "b": {
+            "description": "The logistic slope on the standardised score, constrained to ≥ 0 (a\n higher score never gives a lower probability); 0 for the constant kind.",
+            "type": "number",
+            "format": "double"
+          },
+          "kind": {
+            "description": "`\"logistic\"` | `\"constant\"` (the package's `kind` vocabulary — a\n String, not an enum, so the record's wire bytes stay the package's).",
+            "type": "string"
+          },
+          "mu": {
+            "description": "The weighted mean of the training scores (the standardisation centre).",
+            "type": "number",
+            "format": "double"
+          },
+          "n": {
+            "description": "The patients the conversion was learned on.",
+            "type": "integer",
+            "format": "int64"
+          },
+          "rate": {
+            "description": "The weighted event rate — the constant map's value; `None` when no\n (risk, label) pair was usable (n = 0; the package's NA rate).",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "default": null
+          },
+          "sd": {
+            "description": "The weighted standard deviation of the training scores; 1 for the\n constant kind (the scale is irrelevant there).",
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "kind",
+          "a",
+          "b",
+          "mu",
+          "sd",
+          "n"
         ]
       },
       "TxrCoverage": {
@@ -15048,6 +15107,13 @@
           "contract": {
             "type": "string"
           },
+          "conversions": {
+            "description": "The risk→probability conversions the saved model carries from its\n training run (the package's `model.conversions`, key `outcome` or\n `outcome@horizon`). A predict-only reuse applies the one matching the\n run's outcome and horizon; absent/empty = none saved (a model saved\n before conversions were kept).",
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TxrConversion"
+            }
+          },
           "env": {
             "$ref": "#/components/schemas/TxrMethodEnv"
           },
@@ -15095,6 +15161,11 @@
         "properties": {
           "coverage": {
             "$ref": "#/components/schemas/TxrCoverage"
+          },
+          "flat_conversion": {
+            "description": "The column's chances come from a FLAT conversion (kind `constant`):\n the fit fell back to the event rate because the score did not track\n the outcome in the data it was fitted on, so every scored patient has\n the same chance. False for a native column, a column without chances,\n and a run recorded before the conversion was kept beside the column.",
+            "type": "boolean",
+            "default": false
           },
           "group": {
             "type": "string"
@@ -15202,11 +15273,12 @@
         ]
       },
       "TxrProbSource": {
-        "description": "Where a method column's probabilities come from (INV-3: never mixed\n silently in one column; U2 recalibration is recorded per method).",
+        "description": "Where a method column's probabilities come from (INV-3: never mixed\n silently in one column; U2 recalibration is recorded per method).\n `native`: the method's own probability; `recalibrated`: the risk turned\n into a probability by a conversion fitted in THIS run (the training\n patients, or a reuse run's own cohort); `converted`: the risk turned into\n a probability by the conversion a saved model carries from its training\n (the package's `probability_source: \"converted\"`); `none`: no probability.",
         "type": "string",
         "enum": [
           "native",
           "recalibrated",
+          "converted",
           "none"
         ]
       },

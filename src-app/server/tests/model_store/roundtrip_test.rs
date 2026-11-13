@@ -75,6 +75,7 @@ fn container_fixture(tree_dir: &std::path::Path, token: &str) -> Vec<u8> {
         embeds_training_data: false,
         own_auc: Some(0.66),
         own_c: Some(0.60),
+        conversions: Default::default(),
     };
     let export = ContainerExport {
         set: Some(ContainerSet {
@@ -97,6 +98,94 @@ fn container_fixture(tree_dir: &std::path::Path, token: &str) -> Vec<u8> {
     let mut buf = Vec::new();
     write_container(&mut buf, &export).expect("fixture container");
     buf
+}
+
+/// The saved conversion survives "move to another computer": a model saved
+/// from a run that recorded its conversion is exported (single model and
+/// set routes) and imported into a fresh store, where resolve hands the
+/// engine the same map. A container without conversions (every file written
+/// before they were kept) imports a model with none.
+#[tokio::test]
+async fn export_then_import_keeps_the_conversions() {
+    let server = TestServer::spawn().await;
+    let token = owner_token(&server).await;
+    let repo = TxrRepository::new(pool(&server).await);
+    let map = json!({"progression@238": {"kind": "constant", "a": 0.0, "b": 0.0,
+        "mu": 0.42, "sd": 1.0, "n": 77, "rate": 0.37}});
+    let (run_id, run_dir) = seed_run_with_models(&server, &repo, "conv-trip", &[METHOD_A]).await;
+    let out = run_dir.join("output").join(METHOD_A);
+    std::fs::create_dir_all(&out).expect("output dir");
+    std::fs::write(out.join("conversions.json"), map.to_string()).expect("record");
+    let resp = server
+        .client
+        .post(server.api_url("/txr/models/save"))
+        .bearer_auth(&token)
+        .json(&json!({"run_id": run_id, "method_ids": [METHOD_A],
+            "target": {"set_name": "Conversion trip"}}))
+        .send()
+        .await
+        .expect("save");
+    assert_eq!(resp.status().as_u16(), 201);
+    let saved: Value = resp.json().await.expect("json");
+    let model_id = saved["models"][0]["id"].as_str().expect("id").to_string();
+    let set_id = saved["set"]["id"].as_str().expect("set id").to_string();
+
+    let server2 = TestServer::spawn().await;
+    let token2 = owner_token(&server2).await;
+    for route in [
+        format!("/txr/models/{model_id}/export"),
+        format!("/txr/model-sets/{set_id}/export"),
+    ] {
+        let container = server
+            .client
+            .get(server.api_url(&route))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .expect("export")
+            .bytes()
+            .await
+            .expect("container bytes")
+            .to_vec();
+        let resp = server2
+            .client
+            .post(server2.api_url("/txr/models/import"))
+            .bearer_auth(&token2)
+            .multipart(Form::new().part("file", Part::bytes(container).file_name("trip.txr")))
+            .send()
+            .await
+            .expect("import");
+        assert_eq!(resp.status().as_u16(), 201, "{route}");
+        let imported: Value = resp.json().await.expect("import json");
+        let id = imported["models"][0]["id"].as_str().expect("id").to_string();
+        let assets = store::resolve_assets(&pool(&server2).await, &[id]).await.expect("resolve");
+        assert_eq!(
+            serde_json::to_value(&assets[0].conversions).expect("map"),
+            map,
+            "{route}: the same map on the other computer"
+        );
+    }
+
+    // An older container (no conversions in its header): imported with none.
+    let tree = server2.data_dir().join("older-tree");
+    let (tree, _, _) = super::fixture_tree(&tree, "older");
+    let older = container_fixture(&tree, "older");
+    let header_len = u32::from_le_bytes(older[9..13].try_into().expect("len")) as usize;
+    let header = std::str::from_utf8(&older[13..13 + header_len]).expect("utf-8");
+    assert!(!header.contains("conversions"), "an older header has no conversions");
+    let resp = server2
+        .client
+        .post(server2.api_url("/txr/models/import"))
+        .bearer_auth(&token2)
+        .multipart(Form::new().part("file", Part::bytes(older).file_name("older.txr")))
+        .send()
+        .await
+        .expect("import");
+    assert_eq!(resp.status().as_u16(), 201);
+    let imported: Value = resp.json().await.expect("import json");
+    let id = imported["models"][0]["id"].as_str().expect("id").to_string();
+    let assets = store::resolve_assets(&pool(&server2).await, &[id]).await.expect("resolve");
+    assert!(assets[0].conversions.is_empty());
 }
 
 /// TEST-MS-10: the round trip — export the saved SET via the route, import it

@@ -2608,6 +2608,11 @@ export interface ResolveResponse {
  */
 export interface ResolvedAsset {
   contract: string
+  /**
+   * The model's saved risk→probability conversions (the engine element's
+   *  `conversions`; absent when none was saved).
+   */
+  conversions?: any
   env: TxrMethodEnv
   host_dir: string
   method_id: string
@@ -2995,6 +3000,46 @@ export interface TxrAtATimeRequest {
 }
 
 /**
+ * One risk→probability conversion — the model-side record the package's
+ *  `fit()` stores per (outcome, horizon) (`model.conversions`). The serde
+ *  shape is the package's JSON exactly (`{kind, a, b, mu, sd, n, rate}`); a
+ *  conversion is fitted on the TRAINING scores only and applied unchanged to
+ *  the test patients (DEC-8). A saved model carries its conversions (the
+ *  [`Conversions`] map) so a later reuse run applies the same map.
+ */
+export interface TxrConversion {
+  /**
+   * The logistic intercept where the score is standardised
+   *  (`z = (risk − mu)/sd`); 0 for the constant kind.
+   */
+  a: number
+  /**
+   * The logistic slope on the standardised score, constrained to ≥ 0 (a
+   *  higher score never gives a lower probability); 0 for the constant kind.
+   */
+  b: number
+  /**
+   * `"logistic"` | `"constant"` (the package's `kind` vocabulary — a
+   *  String, not an enum, so the record's wire bytes stay the package's).
+   */
+  kind: string
+  /** The weighted mean of the training scores (the standardisation centre). */
+  mu: number
+  /** The patients the conversion was learned on. */
+  n: number
+  /**
+   * The weighted event rate — the constant map's value; `None` when no
+   *  (risk, label) pair was usable (n = 0; the package's NA rate).
+   */
+  rate?: number
+  /**
+   * The weighted standard deviation of the training scores; 1 for the
+   *  constant kind (the scale is irrelevant there).
+   */
+  sd: number
+}
+
+/**
  * The per-patient coverage record (the board's "needs 3 or more draws; 120 of
  *  151 have them" is renderable from this).
  */
@@ -3375,6 +3420,14 @@ export type TxrMethodState = 'waiting' | 'downloading' | 'running' | 'finished' 
  */
 export interface TxrModelAsset {
   contract: string
+  /**
+   * The risk→probability conversions the saved model carries from its
+   *  training run (the package's `model.conversions`, key `outcome` or
+   *  `outcome@horizon`). A predict-only reuse applies the one matching the
+   *  run's outcome and horizon; absent/empty = none saved (a model saved
+   *  before conversions were kept).
+   */
+  conversions?: any
   env: TxrMethodEnv
   host_dir: string
   method_id: string
@@ -3397,6 +3450,14 @@ export type TxrPhase = 'idle' | 'env' | 'fit' | 'predict' | 'done'
  */
 export interface TxrPredictionMethod {
   coverage: TxrCoverage
+  /**
+   * The column's chances come from a FLAT conversion (kind `constant`):
+   *  the fit fell back to the event rate because the score did not track
+   *  the outcome in the data it was fitted on, so every scored patient has
+   *  the same chance. False for a native column, a column without chances,
+   *  and a run recorded before the conversion was kept beside the column.
+   */
+  flat_conversion?: boolean
   group: string
   group_label: string
   /**
@@ -3433,8 +3494,13 @@ export interface TxrPredictionsResponse {
 /**
  * Where a method column's probabilities come from (INV-3: never mixed
  *  silently in one column; U2 recalibration is recorded per method).
+ *  `native`: the method's own probability; `recalibrated`: the risk turned
+ *  into a probability by a conversion fitted in THIS run (the training
+ *  patients, or a reuse run's own cohort); `converted`: the risk turned into
+ *  a probability by the conversion a saved model carries from its training
+ *  (the package's `probability_source: "converted"`); `none`: no probability.
  */
-export type TxrProbSource = 'native' | 'recalibrated' | 'none'
+export type TxrProbSource = 'native' | 'recalibrated' | 'converted' | 'none'
 
 /**
  * A produced model (X1's `/model` tree + the digests `model-store` binds to —

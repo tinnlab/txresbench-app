@@ -827,6 +827,7 @@ mod tests {
             embeds_training_data: false,
             own_auc: Some(0.66),
             own_c: Some(0.63),
+            conversions: serde_json::json!({}),
             created_at: "2026-10-19T15:00:00+00:00"
                 .parse::<DateTime<Utc>>()
                 .expect("fixture timestamp parses"),

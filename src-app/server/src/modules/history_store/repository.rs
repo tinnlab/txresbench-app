@@ -1392,6 +1392,7 @@ mod tests {
                 embeds_training_data: false,
                 own_auc: Some(0.7),
                 own_c: None,
+                conversions: serde_json::json!({}),
             })
             .await
             .expect("insert model")

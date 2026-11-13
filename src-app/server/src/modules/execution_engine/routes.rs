@@ -1005,6 +1005,22 @@ fn assemble_predictions(
             .or_else(|| envmanifest::facts_for(&m.label))
             .map(|f| f.group_label.clone())
             .unwrap_or_else(|| m.group.clone());
+        let prob_source = match m.prob_source.as_deref() {
+            Some("recalibrated") => TxrProbSource::Recalibrated,
+            Some("converted") => TxrProbSource::Converted,
+            Some("none") => TxrProbSource::None,
+            _ => TxrProbSource::Native,
+        };
+        // The flat-result fact: the conversion recorded beside the column
+        // (`output/<method_id>/conversions.json`) is the event-rate map. Only
+        // a converted column can be flat; an unreadable or absent record
+        // (a run from before the record existed) is "not flat".
+        let flat_conversion = matches!(
+            prob_source,
+            TxrProbSource::Recalibrated | TxrProbSource::Converted
+        ) && super::predictions::read_conversions(run_dir, &m.method_id)
+            .map(|map| !map.is_empty() && map.values().all(|c| c.is_flat()))
+            .unwrap_or(false);
         methods_out.push(TxrPredictionMethod {
             method_id: m.method_id.clone(),
             label: m.label.clone(),
@@ -1015,11 +1031,8 @@ fn assemble_predictions(
                 Some("response") => TxrTask::Response,
                 _ => TxrTask::Pfs,
             },
-            prob_source: match m.prob_source.as_deref() {
-                Some("recalibrated") => TxrProbSource::Recalibrated,
-                Some("none") => TxrProbSource::None,
-                _ => TxrProbSource::Native,
-            },
+            prob_source,
+            flat_conversion,
             coverage: match (m.coverage_scored, m.coverage_eligible) {
                 (Some(scored), Some(eligible)) => TxrCoverage {
                     scored: scored.max(0) as u32,
@@ -1456,6 +1469,95 @@ mod tests {
         let _ = std::fs::remove_dir_all(&run_dir);
     }
 
+    /// A `converted` row is served as `converted` (never the native
+    /// catch-all), and a column whose recorded conversion is the flat
+    /// (event-rate) map says so; a native column, a column without a record
+    /// and a logistic map are not flat.
+    #[test]
+    fn converted_and_flat_columns_are_reported() {
+        use super::super::predictions::{write_chance_column, write_conversions, Conversion, Conversions, PredictionRow};
+        let run_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/txr-execution-engine-item10/converted")
+            .join(uuid::Uuid::new_v4().simple().to_string());
+        let rows = |p: f64| {
+            vec![
+                PredictionRow {
+                    patient_id: "P1".into(),
+                    risk: Some(1.0),
+                    probability: Some(p),
+                    note: String::new(),
+                },
+                PredictionRow {
+                    patient_id: "P2".into(),
+                    risk: Some(2.0),
+                    probability: Some(p),
+                    note: String::new(),
+                },
+            ]
+        };
+        let flat = Conversion {
+            kind: "constant".to_string(),
+            a: 0.0,
+            b: 0.0,
+            mu: 1.5,
+            sd: 1.0,
+            n: 30,
+            rate: Some(0.37),
+        };
+        let curve = Conversion {
+            kind: "logistic".to_string(),
+            a: 0.2,
+            b: 1.1,
+            mu: 1.5,
+            sd: 0.5,
+            n: 30,
+            rate: Some(0.37),
+        };
+        for (id, c) in [("m-flat", Some(flat)), ("m-curve", Some(curve)), ("m-old", None), ("m-native", None)] {
+            write_chance_column(&run_dir, id, &rows(0.37)).expect("writes");
+            if let Some(c) = c {
+                let map = Conversions::from([("progression@238".to_string(), c)]);
+                write_conversions(&run_dir, id, &map).expect("writes");
+            }
+        }
+        // A native column with a stray record is still not "flat".
+        let stray = Conversions::from([(
+            "progression@238".to_string(),
+            Conversion {
+                kind: "constant".to_string(),
+                a: 0.0,
+                b: 0.0,
+                mu: 0.0,
+                sd: 1.0,
+                n: 3,
+                rate: Some(0.5),
+            },
+        )]);
+        write_conversions(&run_dir, "m-native", &stray).expect("writes");
+        let rows_db = vec![
+            method_row("m-flat", "pfs", "converted", 2, 2),
+            method_row("m-curve", "pfs", "converted", 2, 2),
+            method_row("m-old", "pfs", "recalibrated", 2, 2),
+            method_row("m-native", "pfs", "native", 2, 2),
+        ];
+        let (_, methods) = assemble_predictions(&run_dir, &rows_db);
+        let facts: Vec<(TxrProbSource, bool)> =
+            methods.iter().map(|m| (m.prob_source, m.flat_conversion)).collect();
+        assert_eq!(
+            facts,
+            vec![
+                (TxrProbSource::Converted, true),
+                (TxrProbSource::Converted, false),
+                (TxrProbSource::Recalibrated, false),
+                (TxrProbSource::Native, false),
+            ]
+        );
+        let wire = serde_json::to_value(&methods[0]).unwrap();
+        assert_eq!(wire["prob_source"], "converted");
+        assert_eq!(wire["flat_conversion"], true);
+        let _ = std::fs::remove_dir_all(&run_dir);
+    }
+
     /// qa-fixes2 R2-06: the wire average is the RUN's endpoint average —
     /// a mixed run's response-task column never joins the progression
     /// mean, and a no-chance column (all-null) is inert. The pins are
@@ -1471,6 +1573,7 @@ mod tests {
             group_label: "G".to_string(),
             task,
             prob_source: TxrProbSource::Native,
+            flat_conversion: false,
             coverage: TxrCoverage { scored: 2, eligible: 2, fraction: 1.0 },
             probabilities: vals,
             notes: vec![None, None],

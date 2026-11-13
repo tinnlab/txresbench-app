@@ -235,6 +235,14 @@ pub struct ContainerModelFacts {
     pub embeds_training_data: bool,
     pub own_auc: Option<f64>,
     pub own_c: Option<f64>,
+    /// The model's saved risk→probability conversions (the package's
+    /// `model.conversions`: key `outcome` or `outcome@horizon`, value
+    /// `{kind, a, b, mu, sd, n, rate}`). Optional in the header: a container
+    /// written before conversions were kept (or by the pretrained packer
+    /// without them) reads as none, and an empty map is not written, so the
+    /// export of a model without conversions keeps its earlier bytes.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub conversions: crate::modules::execution_engine::predictions::Conversions,
 }
 
 /// The recorded provenance of a model in the container (the plan's
@@ -842,6 +850,16 @@ fn validate_header(header: &ContainerHeader) -> Result<(), AppError> {
                 m.token
             )));
         }
+        // The saved conversions follow the package's key + value rules (the
+        // engine applies them as they are).
+        if let Err(p) =
+            crate::modules::execution_engine::predictions::check_conversions(&m.facts.conversions)
+        {
+            return Err(invalid_container(format!(
+                "model {:?} carries a bad {p}",
+                m.token
+            )));
+        }
     }
     // The header's training list names each payload entry; it must be
     // canonical (the writer's determinism rule: unique, safe relpaths).
@@ -1187,6 +1205,7 @@ mod tests {
             embeds_training_data: false,
             own_auc: Some(0.66),
             own_c: Some(0.63),
+            conversions: Default::default(),
         }
     }
 
@@ -1643,6 +1662,63 @@ mod tests {
         let err = read_container_bytes(&valid, &staging2, 10).expect_err("cap refused");
         assert_eq!(err.error_code(), "CONTAINER_TOO_LARGE");
         assert!(!staging2.exists());
+    }
+
+    /// A model's saved conversions ride the header (the package's map shape)
+    /// and come back as they were; a model without any writes no
+    /// `conversions` key (its export keeps its earlier bytes) and reads as
+    /// none; a header carrying a bad conversion is refused before anything
+    /// lands.
+    #[test]
+    fn header_carries_conversions_and_refuses_a_bad_one() {
+        use crate::modules::execution_engine::predictions::{Conversion, Conversions};
+        let root = scratch("conversions");
+        let plain = single_export(&root, "c0");
+        let mut plain_bytes = Vec::new();
+        write_container(&mut plain_bytes, &plain).expect("write");
+        let (h_off, h_len) = header_of(&plain_bytes);
+        let header_text = std::str::from_utf8(&plain_bytes[h_off..h_off + h_len]).unwrap();
+        assert!(!header_text.contains("conversions"), "no key when none is saved");
+        let restored =
+            read_container_bytes(&plain_bytes, &root.join("s-plain"), 1024 * 1024).expect("reads");
+        assert!(restored.models[0].header.facts.conversions.is_empty());
+
+        let map = Conversions::from([(
+            "death@238".to_string(),
+            Conversion {
+                kind: "logistic".to_string(),
+                a: -0.4,
+                b: 1.7,
+                mu: 0.9,
+                sd: 0.35,
+                n: 120,
+                rate: Some(0.4),
+            },
+        )]);
+        let mut with = single_export(&root, "c1");
+        with.models[0].facts.conversions = map.clone();
+        let mut bytes = Vec::new();
+        write_container(&mut bytes, &with).expect("write");
+        let restored =
+            read_container_bytes(&bytes, &root.join("s-with"), 1024 * 1024).expect("reads");
+        assert_eq!(restored.models[0].header.facts.conversions, map);
+
+        // Same-length byte patch: the kind becomes one the package does not
+        // know — the framing still holds, the header rule refuses it.
+        let needle = b"\"logistic\"";
+        let pos = bytes
+            .windows(needle.len())
+            .position(|w| w == needle)
+            .expect("the kind is in the header");
+        bytes[pos + 8] = b'X';
+        let staging = root.join("s-bad");
+        let err = read_container_bytes(&bytes, &staging, 1024 * 1024).expect_err("refused");
+        assert_eq!(err.error_code(), "INVALID_CONTAINER");
+        assert!(
+            err.to_string().contains("death@238"),
+            "the key is named: {err}"
+        );
+        assert!(!staging.exists(), "nothing lands");
     }
 
     /// The codec's constants and error vocabulary are the documented,

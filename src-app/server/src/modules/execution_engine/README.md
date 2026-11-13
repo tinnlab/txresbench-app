@@ -93,6 +93,22 @@ provenance, while the recorded column carries what the engine actually served
 after validation and — for a method with no native probability — after the
 conversion band (the raw file cannot be re-derived into it).
 
+Beside it, `output/<method_id>/conversions.json` records the risk→probability
+conversion that column was made with, in the TxResBench package's
+`model.conversions` shape (contract 2.0 `model.schema.json`: key `outcome` or
+`outcome@horizon`, value `{kind, a, b, mu, sd, n, rate}`). A train run records
+the map it fitted on the training scores (out-of-fold for a `fitted` method);
+the model store copies it into a saved model (the package's `save()` keeps the
+conversions with the model) and hands it back on the reuse asset
+(`TxrModelAsset.conversions`). A reuse run applies, in order: the method's own
+probability (`native`); a refit on the run's own patients when the run carries
+their outcomes (`recalibrated`); otherwise the saved model's conversion for the
+run's (outcome, horizon) (`converted` — the package's `predict()`). Without a
+matching saved conversion the column has no chances (`none`) and each note
+says why (a model saved before conversions were kept, or a conversion for
+another outcome/day). The predictions surface reports `flat_conversion` when
+the recorded conversion is the event-rate map.
+
 ## Files
 
 - `mod.rs` — the `AppModule` (`ModuleEntry` order 49), init wiring, the
@@ -155,7 +171,8 @@ conversion band (the raw file cannot be re-derived into it).
   per-method bundle writes + the sandbox call sequence (fit →
   training scores over the cohort — the 3-fold cross-fit for a `fitted`
   method — → the final predict over the surface), the conversion band
-  application (`prob_source` native/recalibrated/none, INV-3), the live
+  application (`prob_source` native/recalibrated/converted/none, INV-3; the
+applied map recorded as `conversions.json`), the live
   log/progress frames (the drainer appends to `txr_run_logs` + broadcasts
   the SSE frames), result capture (duration/exit code/digests), the
   produced-model facts (`save_models` only), the reuse path (one verified
