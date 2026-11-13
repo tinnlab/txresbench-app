@@ -162,6 +162,16 @@ describe('StartPage (TEST-INT-11, ITEM-4)', () => {
     expect(store().mode).toBe('predict')
   })
 
+  it('spaces each card\'s button from its Use example button, on one row', () => {
+    renderStart()
+    for (const path of ['pretrained', 'train', 'reuse']) {
+      const row = screen.getByTestId(`txr-intake-start-card-${path}-cta`).parentElement!
+      expect(within(row).getByTestId(`txr-use-example-${path}`)).toBeTruthy()
+      expect(row.style.gap, path).toBe('10px')
+      expect(row.style.flexWrap, path).not.toBe('wrap')
+    }
+  })
+
   it('links the banner clause to the study screen', () => {
     renderStart()
     fireEvent.click(screen.getByTestId('txr-intake-start-unsure'))
