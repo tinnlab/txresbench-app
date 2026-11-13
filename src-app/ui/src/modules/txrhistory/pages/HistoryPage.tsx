@@ -260,6 +260,8 @@ export function HistoryPage() {
                 loading={state.loading}
                 loadingMore={state.loadingMore}
                 error={state.error}
+                search={state.searchInput}
+                filter={state.filter}
                 expandedId={state.expandedId}
                 detail={state.detail}
                 detailLoading={state.detailLoading}

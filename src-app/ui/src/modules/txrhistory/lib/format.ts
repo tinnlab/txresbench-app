@@ -263,7 +263,9 @@ export function isTroubleRun(
  * already names the count ("Done, 3 of 5 methods failed"); this line says
  * WHY, with the word chosen by the counts' dominant state and the provider's
  * detail VERBATIM (never re-authored — a blank detail reads the sibling's
- * "no reason recorded" constant, a failure is never blank, INV-2).
+ * "no reason recorded" constant, a failure is never blank, INV-2). The
+ * bucket-prefix drop is the `reasonLineFor` rule (R3-results-9: "Stopped:
+ * stopped by the user" next to a chip that already names the stop).
  */
 export function troubleReasonLine(
   counts: TxrRunCounts,
@@ -273,9 +275,9 @@ export function troubleReasonLine(
     reason != null && reason.detail.trim().length > 0
       ? safeText(reason.detail)
       : NO_REASON_RECORDED
-  if (counts.failed > 0) return `Failed: ${detail}`
-  if (counts.cannot_run > 0) return `Could not run: ${detail}`
-  return `Stopped: ${detail}`
+  if (counts.failed > 0) return reasonLineFor('Failed', detail)
+  if (counts.cannot_run > 0) return reasonLineFor('Could not run', detail)
+  return reasonLineFor('Stopped', detail)
 }
 
 /**
@@ -323,6 +325,11 @@ export function endpointLabel(endpoint: TxrEndpoint, lookAheadDay: number): stri
  * failed row whose run recorded no reason (or only blank detail) reads
  * the sibling run module's constant — a failure is never blank (INV-2).
  *
+ * R3-results-9: a detail that already carries the bucket's word ("stopped
+ * by the user" next to the "Stopped" badge) drops the "Stopped: " prefix —
+ * "Stopped by the user" — the row never reads the same word twice in one
+ * line.
+ *
  * The `null`-vs-`undefined` rule (qa-fixes RES-01): the openapi generator
  * renders a nullable-and-optional provider field as the TS optional-only
  * shape (`TxrRunReason | undefined`), while the engine's `Option`
@@ -333,6 +340,18 @@ export function endpointLabel(endpoint: TxrEndpoint, lookAheadDay: number): stri
  * generator's shape is the documented collapse, the `txrrun` `toRunConfig`
  * bridge class; the provider-side fix is the regen's recorded owner).
  */
+
+/** The reason line of one bucket, with the prefix dropped when the detail
+ *  already starts with the bucket's word (R3-results-9). */
+function reasonLineFor(bucketWord: string, detail: string): string {
+  const lower = detail.trim().toLowerCase()
+  const stem = bucketWord.toLowerCase()
+  if (lower === stem || lower.startsWith(`${stem} `) || lower.startsWith(`${stem}:`)) {
+    return detail.trim().charAt(0).toUpperCase() + detail.trim().slice(1)
+  }
+  return `${bucketWord}: ${detail}`
+}
+
 export function reasonLine(bucket: TxrHistoryBucket, reason: TxrRunReason | null | undefined): string | null {
   // qa-fixes4 ITEM-1: the detail passes through the UI-side `safeText`
   // guard (the server sanitiser already made it plain; the guard is the
@@ -346,9 +365,9 @@ export function reasonLine(bucket: TxrHistoryBucket, reason: TxrRunReason | null
     case 'finished':
       return null
     case 'stopped':
-      return `Stopped: ${detail}`
+      return reasonLineFor('Stopped', detail)
     case 'failed':
-      return `Failed: ${detail}`
+      return reasonLineFor('Failed', detail)
   }
   const _unreachable: never = bucket
   return null
@@ -367,7 +386,11 @@ export const NO_REASON_RECORDED = 'no reason recorded'
  * (null — the run carries no recorded took figure); a null/absent
  * estimate attaches no parenthetical; an estimate that cannot be read
  * drops the parenthetical too (the recorded elapsed stands alone, never
- * a fabricated estimate).
+ * a fabricated estimate). R3-results-9: an estimate that reads the SAME
+ * duration as the elapsed in the estimate's own whole-minute rounding
+ * ("Took under a minute (under a minute)", "Took 2 minutes (estimated 2
+ * minutes)") attaches nothing — the parenthetical would restate the fact,
+ * not add it.
  */
 export function tookLine(
   elapsedSecs: number | null | undefined,
@@ -378,5 +401,11 @@ export function tookLine(
   if (elapsed === null) return null
   if (estimateSecs === undefined || estimateSecs === null) return elapsed
   const estimate = formatDurationWords(estimateSecs, { estimate: true })
-  return estimate === null ? elapsed : `${elapsed} (${estimate})`
+  if (estimate === null) return elapsed
+  // The comparison is on the ESTIMATE reading of both figures: an estimate
+  // of 118 s reads "estimated 2 minutes" beside a 120 s elapsed ("2
+  // minutes") — the same fact in the estimate's own rounding, and the
+  // parenthetical would restate it.
+  if (formatDurationWords(elapsedSecs, { estimate: true }) === estimate) return elapsed
+  return `${elapsed} (${estimate})`
 }

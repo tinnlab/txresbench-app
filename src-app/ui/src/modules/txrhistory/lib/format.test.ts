@@ -212,7 +212,25 @@ describe('isTroubleRun + troubleReasonLine (qa-fixes4 ITEM-2 — R3-results-3)',
         code: 'ABORTED',
         detail: 'stopped by the user',
       }),
-    ).toBe('Stopped: stopped by the user')
+    ).toBe('Stopped by the user')
+  })
+
+  // R3-results-9: a detail that already carries the bucket's word loses the
+  // "Stopped: " prefix (the status chip already says the word; the line
+  // keeps the provider's words and never reads the same word twice).
+  it('drops the bucket prefix when the detail already carries the bucket word (R3-results-9)', () => {
+    expect(
+      troubleReasonLine(counts({ finished: 4, failed: 1 }), {
+        code: 'FIT',
+        detail: 'failed to fit the model',
+      }),
+    ).toBe('Failed to fit the model')
+    expect(
+      troubleReasonLine(counts({ finished: 5, cannot_run: 1 }), {
+        code: 'CANT',
+        detail: 'could not run the method',
+      }),
+    ).toBe('Could not run the method')
   })
 
   it('never renders a blank part — the sibling constant stands in (INV-2)', () => {
@@ -263,6 +281,13 @@ describe('reasonLine (TEST-HIST-5 — the provider detail is VERBATIM)', () => {
     expect(reasonLine('failed', reason('   '))).toBe(`Failed: ${NO_REASON_RECORDED}`)
   })
 
+  // R3-results-9: "Stopped: stopped by the user" sat next to the "Stopped"
+  // badge — the prefix drops when the detail carries the bucket's word.
+  it('drops the prefix when the detail already carries the bucket word (R3-results-9)', () => {
+    expect(reasonLine('stopped', reason('stopped by the user'))).toBe('Stopped by the user')
+    expect(reasonLine('failed', reason('failed to fit the model'))).toBe('Failed to fit the model')
+  })
+
   it('treats a `null` reason like an absent one — the wire null IS the generator’s "no property" (RES-01)', () => {
     // The blocker: the engine's `Option` serializes the absent reason as
     // JSON `null` while the generated type renders it optional-only; the
@@ -297,6 +322,16 @@ describe('tookLine (TEST-HIST-5)', () => {
   it('drops the parenthetical when the estimate cannot be read', () => {
     expect(tookLine(190, -5)).toBe('3 minutes 10 seconds')
     expect(tookLine(190, Number.NaN)).toBe('3 minutes 10 seconds')
+  })
+
+  // R3-results-9: the estimate parenthetical restating the same duration
+  // ("under a minute (under a minute)", "2 minutes (estimated 2 minutes)")
+  // was a redundancy, not a fact — the estimate drops when it reads the
+  // same duration as the elapsed.
+  it('drops the parenthetical when the estimate reads the same duration (R3-results-9)', () => {
+    expect(tookLine(30, 45)).toBe('under a minute')
+    expect(tookLine(120, 118)).toBe('2 minutes')
+    expect(tookLine(45, 120)).toBe('under a minute (estimated 2 minutes)')
   })
 })
 

@@ -69,6 +69,30 @@ describe('titleFor (TEST-HIST-6 — the DEC-9 matrix)', () => {
     expect(titleFor(item({ method_count: 1, file_names: [] }))).toBe('1 method')
   })
 
+  // R3-results-9: the old engine recorded the reuse file twice, so the row
+  // read "Model … on a.csv + a.csv" — the name is the FILE, printed once.
+  it('prints each file name once (R3-results-9)', () => {
+    expect(
+      titleFor(
+        item({
+          mode: 'reuse',
+          file_names: ['predict-measurements.csv', 'predict-measurements.csv'],
+          models_used: [
+            { set_id: 'set-1', set_name: 'CRC cohort, day 56', model_id: 'm-1', model_name: 'm1' },
+          ],
+        }),
+      ),
+    ).toBe('Model CRC cohort, day 56 on predict-measurements.csv')
+    expect(
+      titleFor(
+        item({
+          method_count: 2,
+          file_names: ['patients.csv', 'patients.csv', 'measurements.csv'],
+        }),
+      ),
+    ).toBe('2 methods on patients.csv + measurements.csv')
+  })
+
   it('reads the board reuse title verbatim — one distinct set, grown models_used (GAP-HIST-2)', () => {
     expect(
       titleFor(

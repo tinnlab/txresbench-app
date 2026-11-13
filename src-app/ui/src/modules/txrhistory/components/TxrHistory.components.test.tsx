@@ -228,6 +228,8 @@ function listProps(over: Partial<Parameters<typeof TxrHistoryList>[0]> = {}) {
     loading: false,
     loadingMore: false,
     error: null as 'network' | null,
+    search: '',
+    filter: 'all' as 'all' | 'learned' | 'saved-model' | 'stopped-failed',
     expandedId: null as string | null,
     detail: null as TxrHistoryDetail | null,
     detailLoading: false,
@@ -312,6 +314,26 @@ describe('TxrHistoryList (TEST-HIST-7 — cards, empty, error, load more)', () =
     expect(view.getByTestId('txr-history-empty').textContent).toContain(
       'Runs you start appear here, newest first.',
     )
+  })
+
+  // R3-results-5: a search (or filter) with no match names the restriction —
+  // the fresh-history promise is not the story next to a query the user typed.
+  it('names the query when a search matches nothing (R3-results-5)', () => {
+    const view = render(
+      <TxrHistoryList {...listProps({ items: [], total: 0, search: 'zzzz' })} />,
+    )
+    expect(view.getByTestId('txr-history-empty').textContent).toContain("No run matches 'zzzz'")
+    expect(view.getByTestId('txr-history-empty').textContent).not.toContain('Nothing here yet')
+  })
+
+  it('names the filter when a filter matches nothing (R3-results-5)', () => {
+    const view = render(
+      <TxrHistoryList {...listProps({ items: [], total: 0, filter: 'stopped-failed' })} />,
+    )
+    expect(view.getByTestId('txr-history-empty').textContent).toContain(
+      "No runs match 'Stopped or failed'",
+    )
+    expect(view.getByTestId('txr-history-empty').textContent).not.toContain('Nothing here yet')
   })
 
   it('renders the failure state with a Retry that refires, never a blank page', () => {
@@ -1095,7 +1117,7 @@ describe('TxrConfirmDialog (TEST-HIST-7 — the three confirmations, INV-2)', ()
     const props = confirmProps({ onCopiesOff, onCancel })
     const view = render(<TxrConfirmDialog {...props} />)
     expect(view.getByTestId('txr-history-confirm-body-copies-off').textContent).toBe(
-      'New runs will not keep copies. Copies already stored are removed.',
+      'New runs will not keep copies. Copies already stored are removed, so those runs can no longer be repeated with the same files; their settings can still be used again.',
     )
     fireEvent.click(view.getByTestId('txr-history-confirm-cancel'))
     expect(onCancel).toHaveBeenCalledTimes(1)
@@ -1119,7 +1141,7 @@ describe('TxrConfirmDialog (TEST-HIST-7 — the three confirmations, INV-2)', ()
     const onCancel = vi.fn()
     const view = render(<TxrConfirmDialog {...confirmProps({ confirm: 'clear-all', onClearAll, onCancel })} />)
     expect(view.getByTestId('txr-history-confirm-body-clear-all').textContent).toBe(
-      'Clear the history list and the run folders without the files?',
+      'Every run is removed from the history. This cannot be undone. Saved models are kept. Choose whether the stored files are removed too.',
     )
     fireEvent.click(view.getByTestId('txr-history-confirm-clear-files'))
     expect(onClearAll).toHaveBeenCalledWith(true)

@@ -26,14 +26,25 @@ import type { CSSProperties } from 'react'
 import { Alert, Button, Dialog } from '@txresbench/kit'
 import type { TxrHistoryState } from '../stores/TxrHistory.store'
 
-/** The copies-off body (the plan's words, verbatim). */
-const COPIES_OFF_BODY = 'New runs will not keep copies. Copies already stored are removed.'
+/**
+ * The copies-off body (R3-results-10: the old sentence said what runs
+ * will NOT do and what IS removed, but never that the runs whose copies
+ * are removed can no longer be repeated — the "Run again" row fades to
+ * "Use these settings again" without saying why).
+ */
+const COPIES_OFF_BODY =
+  'New runs will not keep copies. Copies already stored are removed, so those runs can no longer be repeated with the same files; their settings can still be used again.'
 
 /** The copies-on body — the honest flip-back (removed copies are not restored). */
 const COPIES_ON_BODY = 'New runs will keep copies. Copies already removed are not restored.'
 
-/** The clear-all body (the plan's question, verbatim). */
-const CLEAR_ALL_BODY = 'Clear the history list and the run folders without the files?'
+/**
+ * The clear-all body (R3-results-10: the old question "…without the
+ * files?" was garbled and never said the action cannot be undone or that
+ * saved models are untouched — the two CTAs below carry the file choice).
+ */
+const CLEAR_ALL_BODY =
+  'Every run is removed from the history. This cannot be undone. Saved models are kept. Choose whether the stored files are removed too.'
 
 /** The delete-run body (qa-fixes4 ITEM-2 (f)): what deleting DOES, honestly
  *  (the run and its files and log are removed; saved models are kept — the

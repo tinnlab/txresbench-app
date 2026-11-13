@@ -15,6 +15,7 @@
 import type { CSSProperties } from 'react'
 import { Button, Skeleton } from '@txresbench/kit'
 import type { TxrHistoryDetail, TxrHistoryItem } from '@/api-client/types'
+import type { TxrHistoryFilter } from '../types'
 import { TxrHistoryCard } from './TxrHistoryCard'
 import { TxrHistoryEmpty } from './TxrHistoryEmpty'
 import { TxrHistoryError } from './TxrHistoryError'
@@ -55,6 +56,10 @@ export interface TxrHistoryListProps {
   loadingMore: boolean
   /** Any failed first-page call (the failure state — never a blank page). */
   error: 'network' | null
+  /** The toolbar's current search text (the empty state's no-match words). */
+  search: string
+  /** The current filter (the empty state's no-match words). */
+  filter: TxrHistoryFilter
   /** The one expanded row (the store's `expandedId`). */
   expandedId: string | null
   /** The expanded row's detail (the store's `detail`). */
@@ -84,6 +89,8 @@ export function TxrHistoryList({
   loading,
   loadingMore,
   error,
+  search,
+  filter,
   expandedId,
   detail,
   detailLoading,
@@ -114,7 +121,9 @@ export function TxrHistoryList({
     )
   }
   if (items.length === 0) {
-    return <TxrHistoryEmpty />
+    // R3-results-5: the empty state names the active restriction when there
+    // is one (a search with no match is not the fresh-history promise).
+    return <TxrHistoryEmpty search={search} filter={filter} />
   }
   return (
     <div>

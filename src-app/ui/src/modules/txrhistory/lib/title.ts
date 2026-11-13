@@ -43,13 +43,24 @@ function distinctSetNames(models: TxrHistoryItem['models_used']): string[] {
   return names
 }
 
+/** The distinct file names in the provider's order (R3-results-9 — the old
+ *  engine recorded the reuse file twice, so "Model … on a.csv + a.csv" read
+ *  the same file twice; the name is the FILE, printed once). */
+function distinctFileNames(names: readonly string[]): string[] {
+  const out: string[] = []
+  for (const name of names) {
+    if (!out.includes(name)) out.push(name)
+  }
+  return out
+}
+
 /**
  * The K card's title (board words, DEC-9). The board's own example
  * titles are DESIGN examples — this function renders whatever the run
  * record carries (INV-6).
  */
 export function titleFor(item: TxrHistoryItem): string {
-  const files = item.file_names.join(' + ')
+  const files = distinctFileNames(item.file_names).join(' + ')
   if (item.mode === 'reuse') {
     const setNames = distinctSetNames(item.models_used)
     if (setNames.length === 1) {
