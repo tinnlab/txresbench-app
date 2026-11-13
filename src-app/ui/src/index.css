@@ -252,15 +252,16 @@ html.txr-shell-mode-shell #root {
 }
 
 /* The macOS desktop window (the AppShell sets the class only there,
- * `isMacDesktop()` in core/platform.ts): the title bar is a transparent
- * overlay, so the traffic lights sit over the header's left end — the
- * close button's left edge at x = 20 (`traffic_light_position` in
- * src-app/desktop/tauri/src/lib.rs), three 14 px buttons 20 px apart, so
- * x = 20..74 (measured on macOS 27). The header starts its content after
- * them with a 20 px gap. Two classes and `!important` so the inset also
- * beats the 700 px rule's padding and the inline 28 px. */
+ * `isMacDesktop()` in core/platform.ts, full screen included — macOS
+ * slides the traffic lights back in at the top edge): the title bar is a
+ * transparent overlay, so the traffic lights sit over the header's left
+ * end (x = 20..74). The header starts its content after them, at
+ * `--txr-mac-content-start` (94 px). That property and its value come from
+ * ONE place, core/macTitleBar.json; the AppShell sets it on its root. Two
+ * classes and `!important` so the inset also beats the 700 px rule's
+ * padding and the inline 28 px. */
 .txr-shell-header.txr-shell-header-macos {
-  padding-left: 94px !important;
+  padding-left: var(--txr-mac-content-start) !important;
 }
 
 /* app-shell ITEM-1: the shell's skip link — the FIRST tab stop of the
@@ -286,6 +287,14 @@ html.txr-shell-mode-shell #root {
   top: 12px;
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
+}
+/* The macOS desktop window: at left 12 / top 12 the focused skip link would
+ * sit under the traffic lights (x 20..74, y 20..36), so it starts where the
+ * header's content does (`--txr-mac-content-start`, above) — the same left
+ * edge as the AppLayout screens' skip link there (`contentStart`). The Help
+ * page's skip link (below) moves the same way. */
+.txr-app-shell-macos .txr-shell-skip-link:focus-visible {
+  left: var(--txr-mac-content-start);
 }
 
 /* app-shell ITEM-1 — the DataTable byte: the app's ONE table. The header
@@ -806,6 +815,11 @@ html.txr-shell-mode-flow .txr-help-rail {
 .txr-help-skip-link:focus {
   left: 12px !important;
   top: 12px !important;
+}
+/* Clear of the traffic lights in the macOS desktop window (the shell's
+ * `txr-app-shell-macos`, see the shell skip link above). */
+.txr-app-shell-macos .txr-help-skip-link:focus {
+  left: var(--txr-mac-content-start) !important;
 }
 
 /* qa-fixes3 ITEM-2 (d): the choose-methods page at phone width. The ITEM-2

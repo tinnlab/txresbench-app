@@ -23,12 +23,21 @@ const UA = {
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
   iphone:
     'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+  // iPadOS Safari / WKWebView: the desktop user agent, word for word a Mac's.
+  ipad:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
 } as const
 
 type TauriWindow = { __TAURI__?: unknown }
 
-function setUserAgent(ua: string): void {
+// jsdom has no `navigator.maxTouchPoints`; it is defined per test (an own
+// property, removed after each test).
+function setUserAgent(ua: string, maxTouchPoints = 0): void {
   vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(ua)
+  Object.defineProperty(window.navigator, 'maxTouchPoints', {
+    value: maxTouchPoints,
+    configurable: true,
+  })
 }
 
 function setTauri(present: boolean): void {
@@ -39,6 +48,7 @@ function setTauri(present: boolean): void {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  delete (window.navigator as { maxTouchPoints?: number }).maxTouchPoints
   setTauri(false)
 })
 
@@ -66,8 +76,18 @@ describe('isMacOS', () => {
     expect(isMacOS()).toBe(false)
     setUserAgent(UA.linuxWebKitGtk)
     expect(isMacOS()).toBe(false)
-    setUserAgent(UA.iphone)
+    setUserAgent(UA.iphone, 5)
     expect(isMacOS()).toBe(false)
+  })
+
+  it('answers false for an iPad, whose user agent is a Mac\'s word for word', () => {
+    // The UA alone cannot tell them apart …
+    expect(UA.ipad).toMatch(/Macintosh/)
+    // … the touch points do: an iPad reports 5, a Mac 0.
+    setUserAgent(UA.ipad, 5)
+    expect(isMacOS()).toBe(false)
+    setUserAgent(UA.ipad, 0)
+    expect(isMacOS()).toBe(true)
   })
 })
 
@@ -81,6 +101,12 @@ describe('isMacDesktop', () => {
   it('is false in a browser on a Mac (the web build keeps its header)', () => {
     setTauri(false)
     setUserAgent(UA.macChrome)
+    expect(isMacDesktop()).toBe(false)
+  })
+
+  it('is false in a Tauri webview on an iPad', () => {
+    setTauri(true)
+    setUserAgent(UA.ipad, 5)
     expect(isMacDesktop()).toBe(false)
   })
 

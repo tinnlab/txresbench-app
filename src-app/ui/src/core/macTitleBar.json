@@ -1,0 +1,6 @@
+{
+  "trafficLightPosition": { "x": 20, "y": 26 },
+  "trafficLights": { "left": 20, "right": 74, "top": 20, "bottom": 36 },
+  "titleBarHeight": 56,
+  "contentStart": 94
+}
