@@ -20,6 +20,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom'
 import { StartPage } from './StartPage'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import { __resetFetchCacheForTests } from '../data/fetchCache'
+import type { LoadedFile } from '../types'
 
 const api = vi.hoisted(() => ({
   list: vi.fn(),
@@ -331,5 +332,108 @@ describe('ITEM-6 L1/L2/L3 — the banner link, the board dots, the distinct save
       store().measurements as NonNullable<ReturnType<typeof store>['measurements']>,
     )
     expect(store().exampleLoaded).toBe(false)
+  })
+})
+
+/** A long failure line: the case that broke the card's button row. */
+const LONG_ERROR =
+  'No method with a published environment can run on the example data on this computer, so the ' +
+  'example models could not be prepared. Check the method catalogue and try again.'
+
+const CARD_PATHS = ['pretrained', 'train', 'reuse'] as const
+
+/** A file the user loaded themselves (no example flag): Use example asks first. */
+function ownFile(name = 'mine.csv'): LoadedFile {
+  return {
+    source: { name, format: 'csv' },
+    table: {
+      source: { name, format: 'csv' },
+      header_row: 1,
+      columns: ['patient_id', 'day', 'marker', 'value', 'unit'],
+      rows: [['J1000', '0', 'M1', '1.2', 'a.u.']],
+    },
+    inspection: null,
+    problems: [],
+    prepared: false,
+    joinOffers: [],
+    vocabOffers: [],
+    columnOffers: [],
+  }
+}
+
+/** The data-testids of an element's children, in order. */
+const childIds = (el: Element) => Array.from(el.children).map(child => child.getAttribute('data-testid'))
+
+describe('the Use example message sits under the card\'s button row, across the card', () => {
+  it('a failure on each card: the error is the card\'s last row, after the buttons, never in the row', async () => {
+    api.example.mockRejectedValue(new Error(LONG_ERROR))
+    renderStart()
+    for (const path of CARD_PATHS) fireEvent.click(screen.getByTestId(`txr-use-example-${path}`))
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(3))
+
+    for (const path of CARD_PATHS) {
+      const card = screen.getByTestId(`txr-intake-start-card-${path}`)
+      const actions = screen.getByTestId(`txr-intake-start-card-${path}-actions`)
+      const row = screen.getByTestId(`txr-intake-start-card-${path}-buttons`)
+      const message = screen.getByTestId(`txr-use-example-message-${path}`)
+      const error = screen.getByTestId(`txr-use-example-error-${path}`)
+
+      // The actions block is the card's last child: the buttons row, then the message.
+      expect(card.lastElementChild, path).toBe(actions)
+      expect(actions.style.flexDirection, path).toBe('column')
+      expect(childIds(actions), path).toEqual([
+        `txr-intake-start-card-${path}-buttons`,
+        `txr-use-example-message-${path}`,
+      ])
+      // The message stretches with the column (no own width or alignment).
+      expect(message.style.alignSelf, path).toBe('')
+      expect(message.style.width, path).toBe('')
+      expect(message.contains(error), path).toBe(true)
+      expect(error.getAttribute('role'), path).toBe('alert')
+      expect(error.textContent, path).toBe(LONG_ERROR)
+      // The row holds the two buttons only.
+      expect(childIds(row), path).toEqual([
+        `txr-intake-start-card-${path}-cta`,
+        `txr-use-example-${path}`,
+      ])
+      expect(row.contains(error), path).toBe(false)
+      expect(screen.getByTestId(`txr-use-example-${path}`).textContent, path).toBe('Try again')
+    }
+  })
+
+  it('with no message the card ends with the buttons row alone', () => {
+    renderStart()
+    for (const path of CARD_PATHS) {
+      expect(childIds(screen.getByTestId(`txr-intake-start-card-${path}-actions`)), path).toEqual([
+        `txr-intake-start-card-${path}-buttons`,
+      ])
+    }
+  })
+
+  it('the confirm question and its two answers sit under the row, which keeps only the card\'s button', () => {
+    store().adoptFile('predictMeasurements', ownFile())
+    renderStart()
+    fireEvent.click(screen.getByTestId('txr-use-example-pretrained'))
+
+    const actions = screen.getByTestId('txr-intake-start-card-pretrained-actions')
+    const row = screen.getByTestId('txr-intake-start-card-pretrained-buttons')
+    expect(childIds(row)).toEqual(['txr-intake-start-card-pretrained-cta'])
+    expect(childIds(actions)).toEqual([
+      'txr-intake-start-card-pretrained-buttons',
+      'txr-use-example-message-pretrained',
+    ])
+    const message = screen.getByTestId('txr-use-example-message-pretrained')
+    expect(within(message).getByTestId('txr-use-example-confirm')).toBeTruthy()
+    expect(within(message).getByTestId('txr-use-example-confirm-yes')).toBeTruthy()
+    expect(within(message).getByTestId('txr-use-example-confirm-no')).toBeTruthy()
+
+    // "Keep my files" closes the question; the row gets its Use example back.
+    fireEvent.click(screen.getByTestId('txr-use-example-confirm-no'))
+    expect(screen.queryByTestId('txr-use-example-message-pretrained')).toBeNull()
+    expect(childIds(row)).toEqual([
+      'txr-intake-start-card-pretrained-cta',
+      'txr-use-example-pretrained',
+    ])
+    expect(store().predictMeasurements?.source.name).toBe('mine.csv')
   })
 })

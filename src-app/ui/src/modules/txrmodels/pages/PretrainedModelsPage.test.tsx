@@ -515,6 +515,23 @@ describe('PretrainedModelsPage — TEST-MOD-09 (screen D)', () => {
     expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('0 models selected')
   })
 
+  it('the bottom bar sits straight in the frame\u2019s bottom slot, never in a flex row that shrinks it', async () => {
+    renderPage()
+    await settle(0)
+    const bar = screen.getByTestId('txr-list-bottom-bar')
+    const slot = bar.closest<HTMLElement>('.txr-page-frame-bottom')
+    expect(slot).not.toBeNull()
+    expect(screen.getByTestId('txr-models-d-frame').contains(slot)).toBe(true)
+    expect(bar.closest('.txr-page-footer-bar')).toBeNull()
+    // Every box from the slot down to the bar is a block box: inside a flex
+    // row the bar is only as wide as its content (it stayed 672 px wide at
+    // the left of any wider window).
+    const between: HTMLElement[] = []
+    for (let el = bar.parentElement; el !== null && el !== slot; el = el.parentElement) between.push(el)
+    expect(between.map(el => el.getAttribute('data-testid'))).toEqual(['txr-models-d-bar'])
+    for (const el of [slot!, ...between]) expect(el.style.display).not.toBe('flex')
+  })
+
   it('the chips filter the rows (the source-level predicates), and the bottom-bar total is the DEC-7 sum', async () => {
     renderPage()
     await settle(0)

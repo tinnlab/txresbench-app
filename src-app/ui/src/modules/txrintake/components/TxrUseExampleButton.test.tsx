@@ -8,9 +8,9 @@
  * The ApiClient is mocked; the store is the real TxrIntake store.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
-import type { LoadedFile } from '../types'
+import type { IntakeIntent, LoadedFile } from '../types'
 import { TxrUseExampleButton } from './TxrUseExampleButton'
 
 const api = vi.hoisted(() => ({
@@ -139,5 +139,94 @@ describe('TxrUseExampleButton (TEST-QF3-2)', () => {
     fireEvent.click(screen.getByTestId('txr-use-example-train'))
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1))
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+
+/** A long failure line (the case that broke the Start cards' button row). */
+const LONG_ERROR =
+  'No method with a published environment can run on the example data on this computer, so the ' +
+  'example models could not be prepared. Check the method catalogue and try again.'
+
+/** A host that places the two parts apart: the action in its row, the message under it. */
+function SplitHost({ path, onDone }: { path: IntakeIntent; onDone?: () => void }) {
+  return (
+    <TxrUseExampleButton
+      path={path}
+      onDone={onDone}
+      layout={({ action, message }) => (
+        <div>
+          <div data-testid="host-row">{action}</div>
+          {message === null ? (
+            <span data-testid="host-no-message" />
+          ) : (
+            <div data-testid="host-below">{message}</div>
+          )}
+        </div>
+      )}
+    />
+  )
+}
+
+/** The row's children: the action alone (or nothing while the confirm is open). */
+const rowChildren = () => Array.from(screen.getByTestId('host-row').children)
+
+describe('TxrUseExampleButton — the layout split (the Start cards)', () => {
+  it('with nothing to say, the action is the button alone and the message is null', () => {
+    render(<SplitHost path="train" />)
+    expect(rowChildren().map(el => el.getAttribute('data-testid'))).toEqual(['txr-use-example-train'])
+    expect(screen.getByTestId('host-no-message')).toBeTruthy()
+  })
+
+  it('a failure puts the error line in the message, never beside the button', async () => {
+    api.example.mockRejectedValueOnce(new Error(LONG_ERROR))
+    render(<SplitHost path="train" />)
+    fireEvent.click(screen.getByTestId('txr-use-example-train'))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
+
+    const below = screen.getByTestId('host-below')
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toBe(LONG_ERROR)
+    expect(below.contains(alert)).toBe(true)
+    expect(within(below).getByTestId('txr-use-example-message-train').contains(alert)).toBe(true)
+    // The row holds the retry button and nothing else.
+    expect(rowChildren().map(el => el.getAttribute('data-testid'))).toEqual(['txr-use-example-train'])
+    expect(rowChildren()[0]!.textContent).toBe('Try again')
+    expect(screen.getByTestId('host-row').contains(alert)).toBe(false)
+  })
+
+  it('the reuse progress line is in the message while the example set trains', async () => {
+    api.exampleSet
+      .mockResolvedValueOnce({ state: 'creating', run_id: 'r1', run_status: 'running', methods: ['kelim'], set_id: undefined, error: undefined })
+      .mockResolvedValueOnce({ state: 'ready', set_id: 'set-3', methods: ['kelim'], run_id: undefined, run_status: undefined, error: undefined })
+    const onDone = vi.fn()
+    render(<SplitHost path="reuse" onDone={onDone} />)
+    fireEvent.click(screen.getByTestId('txr-use-example-reuse'))
+    await waitFor(() => expect(screen.getByTestId('txr-use-example-progress-reuse')).toBeTruthy())
+
+    const progress = screen.getByTestId('txr-use-example-progress-reuse')
+    expect(screen.getByTestId('host-below').contains(progress)).toBe(true)
+    expect(rowChildren().map(el => el.getAttribute('data-testid'))).toEqual(['txr-use-example-reuse'])
+    // The poll's real cadence is 1500 ms (see the progress case above).
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1), { timeout: 5000 })
+  })
+
+  it('the confirm question replaces the button and sits in the message with both answers', async () => {
+    state().adoptFile('predictMeasurements', ownFile())
+    const onDone = vi.fn()
+    render(<SplitHost path="pretrained" onDone={onDone} />)
+    fireEvent.click(screen.getByTestId('txr-use-example-pretrained'))
+
+    // The action is null while the question is open: the row is empty.
+    expect(rowChildren()).toHaveLength(0)
+    const below = screen.getByTestId('host-below')
+    expect(within(below).getByTestId('txr-use-example-confirm')).toBeTruthy()
+    expect(within(below).getByTestId('txr-use-example-confirm-yes')).toBeTruthy()
+    expect(within(below).getByTestId('txr-use-example-confirm-no')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('txr-use-example-confirm-yes'))
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1))
+    expect(screen.queryByTestId('txr-use-example-confirm')).toBeNull()
+    expect(rowChildren().map(el => el.getAttribute('data-testid'))).toEqual(['txr-use-example-pretrained'])
+    expect(screen.getByTestId('host-no-message')).toBeTruthy()
   })
 })

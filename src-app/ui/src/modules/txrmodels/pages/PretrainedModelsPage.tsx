@@ -70,7 +70,6 @@ import { predictFilesPath, runningPath } from '@/modules/txrrun'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
-import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { modelsPath } from '../routes'
 import { Alert, Button } from '@txresbench/kit'
 import { usePretrained } from '../data/usePretrained'
@@ -746,7 +745,11 @@ export function PretrainedModelsPage() {
                   {footnote}
                 </>,
               )}
-              bottom={<PageFooterBar testId="txr-models-d-bar">{parts.bottomBar}</PageFooterBar>}
+              // The shared bar carries its own bar look and goes straight into
+              // the bottom slot, as the choose-methods page's run bar does: not
+              // inside PageFooterBar, a flex row that would shrink it to its
+              // content's width at the left of a wide window.
+              bottom={<div data-testid="txr-models-d-bar">{parts.bottomBar}</div>}
             />
             <TxrModelCardDialog
               cardId={dialog.startsWith('card:') ? dialog.slice(5) : null}
