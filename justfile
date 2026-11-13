@@ -13,8 +13,14 @@ default:
 # (create + migrate + delete; txresbench-test-harness) — no database cluster, no
 # Postgres needed. Per-test file isolation makes parallel safe; keep
 # --test-threads modest on a shared host.
+#
+# TXR_TEST_SCRATCH relocates the execution_engine fixture run dirs: its
+# assertion "run dirs never live under the repo" is only satisfiable with the
+# scratch OUTSIDE the checkout, so the recipe defaults it to the build area
+# (CARGO_TARGET_DIR, else a sibling `target/` of the checkout — never /tmp;
+# `tests/execution_engine/mod.rs` + `execution_engine/README.md` runbook).
 test THREADS="4":
-    cd {{server_dir}} && CONFIG_FILE=config/dev.yaml cargo test --test integration_tests -- --test-threads={{THREADS}}
+    cd {{server_dir}} && CONFIG_FILE=config/dev.yaml TXR_TEST_SCRATCH="${TXR_TEST_SCRATCH:-${CARGO_TARGET_DIR:-{{justfile_directory()}}/../target}/txr-integration-scratch}" cargo test --test integration_tests -- --test-threads={{THREADS}}
 
 # Backend unit tests (no external deps beyond a compile DB).
 test-unit:

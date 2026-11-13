@@ -49,7 +49,7 @@ It is a **deep tree, not 5 flat commands**: `check-invariants` fans out to 5 sub
 `check-guards` to 4 more (guard-integrity controls + method-env-images + no-format-crates);
 `ui npm run check` is itself a 14-step chain (`src-app/ui/package.json:11`).
 
-- Backend integration: `just test THREADS="4"` (`justfile:16`) · unit: `just test-unit`
+- Backend integration: `just test 4` (positional `THREADS`, default 4; `justfile:22`) · unit: `just test-unit`
   (`justfile:20`)
 
 **Baseline before blaming your branch.** Re-run the same leg on a clean checkout of your base and
