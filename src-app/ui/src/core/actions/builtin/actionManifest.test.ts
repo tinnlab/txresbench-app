@@ -6,7 +6,9 @@
 // run inside `npm run check`.
 //
 // TxResBench strip: the user/group/session-settings actions were removed with the auth and
-// account-management modules they served; the settings actions that remain are asserted here.
+// account-management modules they served, and the sandbox/jobs/provenance/workstore settings
+// actions with their single-cell modules. The manifest carries the app-owned surface that
+// remains (9 actions), pinned here so a skipped regen cannot silently drift the two sides.
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -16,31 +18,41 @@ const manifest = JSON.parse(
   readFileSync(resolve(process.cwd(), '../server/src/modules/mcp/frontend-actions.json'), 'utf8'),
 ) as { actions: { id: string; permission: string; mutating: boolean }[] }
 
-const EXPECTED: Record<string, string> = {
-  'sandbox.updateSettings': 'sandbox::settings::manage',
-  'jobs.updateSettings': 'jobs::settings::manage',
-  'provenance.updateSettings': 'provenance::settings::manage',
-  'workstore.updateSettings': 'workstore::settings::manage',
-  'mcp.updateSettings': 'mcp::settings::manage',
+const EXPECTED: Record<string, { permission: string; mutating: boolean }> = {
+  'app.navigate': { permission: 'mcp::use', mutating: true },
+  'nav.aiAccess': { permission: 'mcp::use', mutating: true },
+  'views.list': { permission: 'mcp::use', mutating: false },
+  'view.describe': { permission: 'mcp::use', mutating: false },
+  'selection.get': { permission: 'mcp::use', mutating: false },
+  'mcp.updateSettings': { permission: 'mcp::settings::manage', mutating: true },
+  'features.setGlobalFlag': { permission: 'features::manage', mutating: true },
+  'features.setAccountFlag': { permission: 'features::manage', mutating: true },
+  'features.clearAccountOverride': { permission: 'features::manage', mutating: true },
 }
 
-const ALLOWLISTED = [
-  'modules/sandbox/components/ResourceLimitsCard.tsx',
-  'modules/jobs/pages/JobSettingsPage.tsx',
-  'modules/provenance/components/ProvenanceSettingsCard.tsx',
+// No removed-module path may sit in the allowlist. Its remaining entries are
+// pre-strip identity/account files, so only absence-of-single-cell is asserted.
+const FORBIDDEN = [
+  'modules/sandbox/',
+  'modules/jobs/',
+  'modules/provenance/',
+  'modules/workstore/',
+  'modules/workbench/',
+  'modules/datasets/',
+  'modules/project/',
 ]
 
-describe('TEST-10 / TEST-16 — manifest carries the settings actions and coverage is enforced on migrated files', () => {
-  it('manifest carries the TxResBench action surface (46 actions)', () => {
-    expect(manifest.actions.length).toBeGreaterThanOrEqual(46)
+describe('TEST-10 / TEST-16 — manifest carries the kept action surface and coverage stays enforced', () => {
+  it('manifest carries the TxResBench action surface (9 actions)', () => {
+    expect(manifest.actions.length).toBeGreaterThanOrEqual(9)
   })
 
-  for (const [id, permission] of Object.entries(EXPECTED)) {
-    it(`manifest carries ${id} with permission ${permission}, mutating`, () => {
+  for (const [id, { permission, mutating }] of Object.entries(EXPECTED)) {
+    it(`manifest carries ${id} with permission ${permission}, mutating=${mutating}`, () => {
       const entry = manifest.actions.find(a => a.id === id)
       expect(entry, `${id} missing from manifest`).toBeTruthy()
       expect(entry?.permission).toBe(permission)
-      expect(entry?.mutating).toBe(true)
+      expect(entry?.mutating).toBe(mutating)
     })
   }
 
@@ -48,9 +60,9 @@ describe('TEST-10 / TEST-16 — manifest carries the settings actions and covera
     resolve(process.cwd(), 'scripts/action-coverage-allowlist.txt'),
     'utf8',
   )
-  for (const file of ALLOWLISTED) {
-    it(`coverage allowlist includes ${file}`, () => {
-      expect(allowlist).toContain(file)
+  for (const prefix of FORBIDDEN) {
+    it(`coverage allowlist has no ${prefix} entry (module removed)`, () => {
+      expect(allowlist).not.toContain(prefix)
     })
   }
 })

@@ -37,7 +37,6 @@ import { resolveWorktreeRoot } from '@txresbench/gallery/scripts/lib/run-key.mjs
 
 import { DEAD_ORIGIN_SIGNATURE, classifyOrigin, originBanner, originIsOurs } from './harness-origin.mjs'
 import { readOrigins } from './harness-preflight.mjs'
-import { narrowedOut, narrowingBanner } from './tag-narrowing.mjs'
 
 /** Pull every string a failure can hide its cause in. `error.message` alone misses
  *  the timed-out case, where the navigation error is only in the stack/value. */
@@ -140,22 +139,8 @@ export default class HarnessWatchdogReporter {
       // eslint-disable-next-line no-console
       console.error(`[watchdog] NOT watching any origin: ${this.originsError.message}`)
     }
-    // WHAT THIS RUN LEFT OUT, printed AFTER the totals. The config prints the same
-    // narrowing at load, but that scrolls off the top of a twenty-minute run and the
-    // thing a reader acts on is the last screen — `N passed`, which is the number that
-    // gets pasted into a report as if it were the suite. This puts the exclusion beside
-    // it, so the totals cannot be read as full coverage without also reading what is
-    // missing from them.
-    //
-    // It reads the RUNNING CONFIG'S OWN `grepInvert` rather than an env var, because
-    // this reporter is shared by all four configs and only one of them narrows. Keying
-    // on `TXR_E2E_REAL_COMPUTE` would have made the viz/gallery/visual runs — which
-    // exclude nothing — print an exclusion notice, and a disclaimer that appears on runs
-    // it does not describe is one readers learn to skip. Whatever a config declares is
-    // what gets announced; a config that declares no narrowing says nothing.
-    for (const { tag, testDir } of this.narrowings) {
-      // eslint-disable-next-line no-console
-      console.warn(narrowingBanner(narrowedOut({ testDir, tag })))
-    }
+    // STRIP (single-cell): the tag-narrowing disclosure left with `tag-narrowing.mjs`
+    // (ITEM-4) — no kept config declares a `grepInvert`, so there is nothing to
+    // announce in `onEnd` anymore.
   }
 }

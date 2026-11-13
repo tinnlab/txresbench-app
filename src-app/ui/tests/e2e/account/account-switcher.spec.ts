@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { loginAsOwner } from '../project/_helpers'
+import { loginAsOwner } from '../_helpers'
 
 // TEST-9 [covers ITEM-3/4]: the account switcher's HIDDEN-AT-ONE rule, end-to-end.
 //

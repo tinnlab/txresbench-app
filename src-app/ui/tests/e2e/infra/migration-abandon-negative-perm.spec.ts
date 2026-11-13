@@ -5,7 +5,7 @@ import {
   MEMBER_PASSWORD,
   ownerToken,
   waitUntilOffLoginScreen,
-} from '../project/_helpers'
+} from '../_helpers'
 
 // TEST-10 [negative-perm][positive-control] (#65) — the "Cancel / revert migration" control is part
 // of the same saas-only, `infra::settings::manage`-gated live-cutover card. The e2e harness drives

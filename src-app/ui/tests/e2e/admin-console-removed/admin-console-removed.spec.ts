@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { loginAsOwner, ownerToken } from '../project/_helpers'
+import { loginAsOwner, ownerToken } from '../_helpers'
 
 // Acceptance specs for the removal of the redundant `/settings/admin-console`
 // landing hub (#42 shell). The hub was deleted because it only re-listed the

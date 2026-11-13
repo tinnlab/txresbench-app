@@ -5,7 +5,7 @@ import {
   MEMBER_PASSWORD,
   ownerToken,
   waitUntilOffLoginScreen,
-} from '../project/_helpers'
+} from '../_helpers'
 
 // TEST-8 [acceptance][invariant: INV-2][negative-perm][positive-control] (#44).
 //

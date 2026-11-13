@@ -5,12 +5,10 @@ import { CommandPalette } from './CommandPalette'
 import { closeCommandPalette, isCommandPaletteOpen, openCommandPalette } from './paletteState'
 // Side-effect imports: register txr's real user actions (PLAN.md ITEM-2)
 // into the global action registry (`@/core/actions/defineAction`). The
-// FOUNDATION action (`app.navigate`) + `project.openProject` are already
+// FOUNDATION action (`app.navigate`) is already
 // registered by `modules/actions/module.tsx` (slice 1); this module is the
-// import site for every action added THIS slice.
-import '@/core/actions/builtin/projectActions'
+// import site for the settings navigation added THIS slice.
 import '@/core/actions/builtin/navActions'
-import '@/core/actions/builtin/jobsActions'
 
 // `modules/command-palette` — the HUMAN half of the AI-controllable-actions
 // vocabulary (PLAN.md ITEM-1/3; ARCHITECTURE.md Layer 1). Mounts a global

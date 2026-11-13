@@ -28,13 +28,14 @@
  *   2. NO PER-TEST FILTERS — no `cargo test --test integration_tests` invocation in
  *      the justfile names an individual test function. (This is the literal
  *      `check-domain` defect: it named 3 functions, and `domain_surface` has 28.)
- *   3. TAG NARROWING DISCLOSED — a playwright config that narrows a run by TAG
- *      (`grepInvert: /@acceptance/`) must announce the narrowing, derive the excluded
- *      set rather than hardcode spec paths, and have a recipe that positively selects
- *      the tag. Checks 1-2 ask "is this unit run at all"; this asks the question a
- *      narrowed run makes it possible to get wrong — "does this run's OUTPUT admit it
- *      covered less than the suite". The shipped defect: `@acceptance` was excluded by
- *      default and the banner named 1 of the 5 spec files carrying it, with no count.
+ *   3. TAG NARROWING DISCLOSED — REMOVED in ITEM-4 with its subject. The
+ *      `@acceptance` tag's only spec files were the removed processor platform's
+ *      (provenance / datasets / 14-declarative-qc …); the tag matches nothing now, so
+ *      the check's own fail-closed floor (`MIN_NARROWED_TESTS`) would fire on a scan
+ *      that was correctly empty. The check's no-vacuous-pass rule ("if a narrowing was
+ *      genuinely removed, delete this check") applies. The playwright config, the
+ *      `tag-narrowing.mjs` derivation + banner and the `verify-acceptance` recipe left
+ *      with it; a future host-gated tier reintroduces all three together.
  *
  * ## The checks REMOVED with the strip node (ITEM-2)
  *
@@ -61,7 +62,6 @@ import { fileURLToPath } from 'node:url'
 // The ONE derivation of "which tests does tag X narrow out", shared with the banner
 // `playwright.config.ts` prints. Importing it rather than re-scanning here is the point:
 // a guard with its own private copy of the fact can pass while the disclosure is wrong.
-import { narrowedOut } from '../src-app/ui/scripts/tag-narrowing.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
@@ -184,141 +184,6 @@ for (const inv of invocations) {
           `Filter the MODULE (\`${owner}\`) instead.`,
       )
     }
-  }
-}
-
-// ───────── 5. every TAG NARROWING is disclosed, and disclosed by DERIVATION ──────
-//
-// The same rule as check 2, one level up. Check 2 stops a runner scoping to a hand-list
-// of test FUNCTIONS. This stops a runner narrowing by TAG and then describing what it
-// narrowed with a hand-list of spec PATHS — which is what happened:
-// `playwright.config.ts` excluded `@acceptance` and printed a banner naming
-// `REAL_COMPUTE_SPECS`, one hardcoded path. Five spec files carried the tag. So a
-// default run disclosed a fifth of its own exclusion, with no count, and read as green
-// — the third time in a week a narrowed run in this repo was mistaken for a full one
-// (an e2e dir that collected zero tests; a module filter that ran 3 of 28; this).
-//
-// The rule: a config MAY narrow by tag. It may NOT hold a literal list of the spec
-// files that tag lives in — that list is a snapshot and it degrades in silence. It must
-// derive the set (`ui/scripts/tag-narrowing.mjs`), and the tag must be positively
-// selected by some justfile recipe, or the narrowed-out tests are run by nothing at all.
-
-const UI_DIR = path.join(ROOT, 'src-app/ui')
-const MIN_NARROWED_TESTS = 1
-
-/** The justfile's executable lines — comments stripped, so prose about a recipe can
- *  never stand in for the recipe. */
-const justCommands = just.split('\n').filter((l) => !/^\s*#/.test(l))
-
-/** JS/TS source with `//` and block comments removed. Every check below asks whether the
- *  config DOES something; a comment saying it does must not answer for it. */
-const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-
-if (existsSync(UI_DIR)) {
-  const configs = readdirSync(UI_DIR).filter((f) => /^playwright(\..+)?\.config\.ts$/.test(f))
-  let sawNarrowing = false
-
-  for (const cfgName of configs) {
-    const cfg = readFileSync(path.join(UI_DIR, cfgName), 'utf8')
-    // `grepInvert: … /@tag/ …` / `grep: … /@tag/ …` — the narrowing as DECLARED, read
-    // from code with comments stripped. These configs discuss their own narrowing at
-    // length; reading the prose would keep this check firing against a config that had
-    // genuinely stopped narrowing and only kept the explanation.
-    const tags = new Set()
-    for (const m of stripComments(cfg).matchAll(/\bgrep(?:Invert)?\s*:[^\n]*?\/(@[A-Za-z0-9_-]+)\//g)) {
-      tags.add(m[1])
-    }
-    if (!tags.size) continue
-    sawNarrowing = true
-
-    for (const tag of [...tags].sort()) {
-      // (a) the tagged tests actually exist. A tag matching nothing means the exclusion
-      //     silently excludes nothing (or the tag was renamed on one side) — either way
-      //     the disclosure below is describing a set nobody can see.
-      //
-      //     Counted through the SAME derivation the banner prints, deliberately: the
-      //     first draft of this check re-scanned for files merely MENTIONING the tag and
-      //     answered 8 where the banner answered 5 (comments name it too). Two
-      //     derivations of one fact is how the guard and the thing it guards come to
-      //     disagree — the same reason `cell-filter.yaml` reads its taken-set once.
-      const tagged = narrowedOut({ testDir: 'tests/e2e', tag }).files
-
-      if (tagged.length < MIN_NARROWED_TESTS) {
-        fail(
-          'tag-narrowing',
-          `${cfgName} narrows by \`${tag}\` but NO spec file carries it — the exclusion ` +
-            `describes an empty set. Either the tag was renamed on one side, or this scan ` +
-            `collapsed; do not lower the floor.`,
-        )
-        continue
-      }
-
-      // (b) the disclosure is DERIVED, not remembered. A config that narrows must not
-      //     also carry a literal spec path: that is the hand-list, and the one that was
-      //     there named 1 of 5.
-      // Comments stripped here too, but for the opposite reason to (c)/(d): a comment
-      // QUOTING a spec path is documentation, not a hand-list, and failing the build on
-      // it would push authors to stop explaining the narrowing at all.
-      const literalPaths = [
-        ...stripComments(cfg).matchAll(/['"`](tests\/e2e\/[^'"`]*\.spec\.ts)['"`]/g),
-      ].map((m) => m[1])
-      if (literalPaths.length) {
-        fail(
-          'tag-narrowing',
-          `${cfgName} narrows by \`${tag}\` AND hardcodes spec path(s) ` +
-            `[${literalPaths.join(', ')}]. ${tagged.length} spec file(s) carry the tag, so that ` +
-            `list is already ${tagged.length - literalPaths.length} short. Derive the excluded ` +
-            `set with \`scripts/tag-narrowing.mjs\` instead of naming files here.`,
-        )
-      }
-
-      // (c) it is disclosed at all — the config announces its own narrowing.
-      //
-      //     Matched on a CALL (`narrowingBanner(`) in non-comment source, not on the
-      //     identifier appearing anywhere. Same negative-control lesson as (d): the
-      //     block above this one describes `narrowedOut()` in prose, so a bare
-      //     `/narrowedOut/` test stayed green with the call deleted and only the
-      //     COMMENT left behind.
-      if (!/\bnarrowingBanner\s*\(/.test(stripComments(cfg))) {
-        fail(
-          'tag-narrowing',
-          `${cfgName} narrows by \`${tag}\` but never announces it. A run that covers less ` +
-            `must say so in its own output, or its totals read as full coverage.`,
-        )
-      }
-
-      // (d) something POSITIVELY selects the tag, or the excluded tests run nowhere.
-      //
-      //     Searched over the justfile's COMMAND lines only. The first draft searched the
-      //     whole file and passed on a `# \`--grep @acceptance\` — POSITIVE selection`
-      //     COMMENT: prose describing a recipe satisfied the check that the recipe exists.
-      //     Caught by running the negative control (delete the real selector) and watching
-      //     the guard stay green — which is the only reason it is not still in here.
-      //     Tightened again after the SECOND control: the recipe's own fail-closed
-      //     diagnostic string ("did --grep @acceptance match nothing?") lives on a
-      //     command line, so stripping comments was not enough. The check now demands an
-      //     actual INVOCATION — `playwright test … --grep <tag>` on one line.
-      if (
-        !justCommands.some(
-          (l) => /playwright\s+test/.test(l) && new RegExp(`--grep\\s+'?${tag}'?`).test(l),
-        )
-      ) {
-        fail(
-          'tag-narrowing',
-          `${cfgName} excludes \`${tag}\` and no justfile recipe positively selects it ` +
-            `(\`--grep '${tag}'\`) — ${tagged.length} spec file(s) would be run by nothing.`,
-        )
-      }
-    }
-  }
-
-  if (!sawNarrowing) {
-    fail(
-      'floor',
-      `no playwright config declares a \`grep\`/\`grepInvert\` tag narrowing — this check ` +
-        `scanned ${configs.length} config(s) and verified nothing. If a narrowing was genuinely ` +
-        `removed, delete this check; do not let it pass vacuously.`,
-    )
   }
 }
 

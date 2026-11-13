@@ -118,19 +118,6 @@ const ALLOW_LIST: { entity: string; side: 'published' | 'subscribed'; reason: st
       'write paths, but the FE account stores that subscribed were removed with the ' +
       'account UI. Remove when an account UI subscribes.',
   },
-  {
-    entity: 'provenance_verification',
-    side: 'published',
-    reason:
-      'PUBLISH-ONLY, deliberately. `provenance/verify/runner.rs:226` emits it on a ' +
-      "verification's terminal state and `server/tests/provenance/verify_test.rs:350` " +
-      'asserts the frame arrives on the owner stream — an end-to-end-tested server ' +
-      'capability. The CLIENT half does not exist yet: `Provenance.verify` has zero ' +
-      'frontend call sites and `ProvenanceSettingsCard.tsx:119` still reads "Reserved for ' +
-      'upcoming re-run verification". Deleting the emit would delete a tested capability ' +
-      'to satisfy a symmetry rule; this entry keeps the missing half visible instead. ' +
-      'Remove it when the verification UI lands and subscribes.',
-  },
 ]
 
 // ── production Noop-sink allowances ─────────────────────────────────────────────────
@@ -141,25 +128,21 @@ const ALLOW_LIST: { entity: string; side: 'published' | 'subscribed'; reason: st
 // and the whole channel was dead — a mutation that swapped the real sink back to the Noop
 // left the parity check green. So an `Arc::new(Noop*SyncSink)` anywhere in production
 // server code FAILS unless it is listed here with a reason.
-const ALLOWED_NOOP_SINK_SITES: { file: string; reason: string }[] = [
-  {
-    file: 'modules/jobs/seams.rs',
-    reason:
-      'The DEFENSIVE FALLBACK inside `sync_sink()` — `SYNC.get().cloned().unwrap_or_else(|| ' +
-      'Arc::new(NoopJobSyncSink))` — for a process that never called `install_seams` (unit ' +
-      'tests, and any future binary that does not boot `JobsModule`). It is NOT an install: ' +
-      '`JobsModule::init` sets the OnceLock to `RealJobSyncSink` before any emit can run.',
-  },
-]
+// STRIP: the jobs seam allowance left with the job-sync wiring the strip
+// removed — the production scan now finds zero Noop sinks in the kept tree.
+const ALLOWED_NOOP_SINK_SITES: { file: string; reason: string }[] = []
 
 // ── scan-floor guards (ITEM-37 house rule) ──────────────────────────────────────────
 //
 // Both scans FAIL CLOSED. A rename that moved the sources out from under a root would
 // otherwise produce an empty set on one side and a wall of "unpublished channel"
 // failures — or, worse, an empty set on BOTH and a green run proving nothing.
-const MIN_ENTITIES = 15
-const MIN_PUBLISH_SITES = 30
-const MIN_SUBSCRIPTION_SITES = 20
+// STRIP: re-measured on the ITEM-4 tree — 9 enum variants, 32 publish
+// sites, 4 subscription sites — and the floors were lowered to the ≈2/3 margin, the
+// house convention (the previous 15/30/20 were anchored to the pre-strip counts).
+const MIN_ENTITIES = 6
+const MIN_PUBLISH_SITES = 21
+const MIN_SUBSCRIPTION_SITES = 2
 
 function walk(dir: string, exts: string[], out: string[] = []): string[] {
   let entries

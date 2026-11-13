@@ -238,9 +238,7 @@ build:
 #   recipe            testDir              server(s) it drives
 #   ---------------   ------------------   -------------------------------------
 #   e2e               tests/e2e            cargo backend + vite preview, per-worktree ports
-#   e2e-viz           tests/viz-e2e        @txresbench/viz showcase, per-worktree port (backend-free)
 #   e2e-gallery       tests/gallery-e2e    component gallery, per-worktree port (backend-free)
-#   e2e-visual        tests/visual         component gallery, per-worktree port (backend-free)
 #
 # WHY the split is a directory move and not a `testIgnore`: until now the viz specs
 # lived at `tests/e2e/visualization/`, INSIDE `playwright.config.ts`'s
@@ -262,12 +260,11 @@ build:
 # killer. Needs `npx playwright install chromium` once.
 #
 # SCOPE — this is the BACKEND suite only (`tests/e2e/`). It does NOT include the
-# backend-free viz / gallery / visual suites; run `just e2e-all` for everything.
-# Nor does it include the `@acceptance` tests (`just verify-acceptance`) or the
-# `TXR_E2E_REAL_COMPUTE`-gated specs, which register zero tests without a
-# sandbox-executable host — `just e2e-inventory` prints exactly what is missing.
+# backend-free gallery suite (`just e2e-gallery`). Nor does it include the
+# `@acceptance` tests or the `TXR_E2E_REAL_COMPUTE`-gated specs, which register
+# zero tests without a sandbox-executable host.
 #
-# BACKEND e2e (tests/e2e) — cargo backend + vite preview. NOT viz/gallery/visual.
+# BACKEND e2e (tests/e2e) — cargo backend + vite preview. NOT gallery.
 #
 # PORTS + DATABASE: per-worktree AND per-run. Both legs walk the shared bind-verified,
 # sentinel-proved resolver (`ui/scripts/resolve-harness-port.mjs`), and the DATABASE +
@@ -278,19 +275,6 @@ build:
 # overrides the SEARCH, never the PROOF. These were the fixed literals :3155/:4173.
 e2e:
     cd {{ui_dir}} && npm run test:e2e
-
-# The viz module's e2e (`tests/viz-e2e/`). BACKEND-FREE: boots only the @txresbench/viz
-# showcase and drives it under software-WebGL (swiftshader). This suite is 95 tests —
-# before the routing fix it had NO invocation anywhere in the repo.
-#
-# PORT: per-worktree, derived from the run key and bind-verified, with a `/__worktree`
-# sentinel so a server is only ever reused when it PROVES it is this worktree's (was the
-# fixed :1421/:1422, which two worktrees silently shared — see the PORT block in
-# `playwright.viz.config.ts`). `VIZ_E2E_PORT` / `VIZ_BENCH_PORT` pin them.
-#
-# VIZ e2e (tests/viz-e2e) — backend-free; @txresbench/viz showcase, per-worktree port.
-e2e-viz:
-    cd {{ui_dir}} && npm run test:e2e:viz
 
 # The component-gallery e2e (`tests/gallery-e2e/`). BACKEND-FREE: gallery vite on a
 # PER-WORKTREE port derived from the run key (was the fixed :1487, which two worktrees
@@ -308,68 +292,23 @@ e2e-viz:
 e2e-gallery:
     cd {{ui_dir}} && npm run test:e2e:gallery
 
-# The Layer-A VISUAL suite (`tests/visual/`), the same config `npm run gate:ui`
-# drives. BACKEND-FREE: gallery vite on the per-worktree derived port
-# (GALLERY_PORT=<n> to pin it).
-#
-# VISUAL Layer-A e2e (tests/visual) — backend-free; component gallery, per-worktree port.
-e2e-visual:
-    cd {{ui_dir}} && npm run test:e2e:visual
-
-# The @txresbench/viz PACKAGE's own e2e — 20 `tests/e2e/*.e2e.mjs` browser specs that drive
-# the showcase directly with `playwright.chromium`, NOT under a playwright.config. Its
-# `run-all.mjs` already globs the DIRECTORY on purpose ("the gate must be the DIRECTORY,
-# not a list") and refuses to report success on an empty set — but `npm --workspace
-# @txresbench/viz run test:e2e` was invoked by no recipe and no other script, so all 20 were in
-# the same un-runnable state as the viz playwright suite. Same class, different runner.
-#
-# Unlike the playwright suites this has no `webServer`, so the recipe boots the showcase
-# itself and tears it down on every exit path.
-#
-# PORT: defaults to this worktree's DERIVED showcase port, not a literal. It used to
-# default to the fixed :1421 — the same port `playwright.viz.config.ts` pinned — so this
-# recipe collided both with a sibling worktree AND with the viz playwright suite in its
-# own tree. Pass `PORT=<n>` to pin one.
-#
-# VIZ-PACKAGE e2e (libs/viz/tests/e2e) — 20 *.e2e.mjs against a booted showcase.
-e2e-viz-package PORT="":
-    #!/usr/bin/env bash
-    set -uo pipefail
-    PORT="{{PORT}}"
-    if [ -z "$PORT" ]; then
-      PORT="$(cd {{ui_dir}} && node scripts/resolve-viz-port.mjs dev)"
-    fi
-    cd {{justfile_directory()}}/src-app/libs/viz
-    npx vite --port "$PORT" --strictPort &
-    vite_pid=$!
-    trap 'kill "$vite_pid" 2>/dev/null || true' EXIT
-    ready=0
-    for _ in $(seq 1 90); do
-      if curl -sf "http://localhost:$PORT/viz-showcase.html" >/dev/null 2>&1; then ready=1; break; fi
-      sleep 1
-    done
-    if [ "$ready" -ne 1 ]; then
-      echo "e2e-viz-package: showcase never came up on :$PORT — refusing to run against nothing"
-      exit 1
-    fi
-    node tests/e2e/run-all.mjs "http://localhost:$PORT"
-
-# EVERY e2e suite, in one invocation. Runs all five to completion (a failing suite does
+# EVERY e2e suite, in one invocation. Runs all to completion (a failing suite does
 # not mask the ones after it) and reports a per-suite exit table, failing if any failed.
 # This is the recipe that makes "the default run covers everything" true; `just e2e`
 # alone deliberately does not.
 #
-# ALL FIVE e2e suites in one run, with a per-suite exit table.
+# STRIP (single-cell): the viz / viz-package / visual tiers left with the removed
+# @txresbench/viz lib, the workbench/jobs pane specs and the visual harness — the
+# remaining tiers are backend + gallery.
+#
+# ALL e2e suites in one run, with a per-suite exit table.
 e2e-all:
     #!/usr/bin/env bash
     set -uo pipefail
-    declare -a names=(backend viz gallery visual viz-package)
+    declare -a names=(backend gallery)
     declare -a cmds=(
       "cd {{ui_dir}} && npm run test:e2e"
-      "cd {{ui_dir}} && npm run test:e2e:viz"
       "cd {{ui_dir}} && npm run test:e2e:gallery"
-      "cd {{ui_dir}} && npm run test:e2e:visual"
-      "just --justfile {{justfile()}} e2e-viz-package"
     )
     declare -a codes=()
     for i in "${!names[@]}"; do
@@ -383,103 +322,10 @@ e2e-all:
       echo "  ${names[$i]}: exit ${codes[$i]}"
       [ "${codes[$i]}" -ne 0 ] && rc=1
     done
-    # `just e2e-all` is still not the whole universe: acceptance + REAL_COMPUTE
-    # specs need a sandbox-executable host. Say so rather than let the reader infer
-    # that a green here means everything ran.
-    #
-    # The COUNT is derived from the specs on disk, not typed here. The prose version of
-    # this line ("NOT included: @acceptance") was true and useless: it named a category
-    # without a size, so a reader comparing "all green" against it had no way to tell
-    # whether one test sat out or fifty. The number is the part that makes the omission
-    # feel like an omission.
-    node -e '
-      import("./src-app/ui/scripts/tag-narrowing.mjs").then(m => {
-        const n = m.narrowedOut({ testDir: "tests/e2e" })
-        console.log(`  NOT included: ${n.tests.length} ${n.tag} test(s) in ${n.files.length} spec ` +
-          `file(s) — \`just verify-acceptance\`,`)
-        console.log("  plus the TXR_E2E_REAL_COMPUTE-gated specs — see `just e2e-inventory`.")
-      })
-    ' || echo "  NOT included: @acceptance + TXR_E2E_REAL_COMPUTE specs (count unavailable)"
+    # STRIP (single-cell): the @acceptance + TXR_E2E_REAL_COMPUTE tiers left with
+    # their single-cell subjects, so e2e-all now covers the whole kept suite — there
+    # is nothing excluded to disclose.
     exit $rc
-
-# WHAT ACTUALLY RUNS — the honest inventory. Per config: the specs on disk, the
-# tests Playwright COLLECTS, and (the part that hides) the spec files that collect
-# ZERO tests because they are wrapped in a host-capability `if`. `--list` boots no
-# server, so this is cheap and safe to run anywhere.
-#
-# What each runner ACTUALLY collects, incl. spec files that collect ZERO tests.
-e2e-inventory:
-    cd {{ui_dir}} && node scripts/e2e-inventory.mjs
-
-# THE ACCEPTANCE GATE — the invocation `playwright.config.ts` and
-# `tests/e2e/provenance/filter-save-records-recipe.spec.ts` both point the reader at.
-# It did not exist (R4C-04); both references were dangling.
-#
-# It runs exactly ONE thing: the `@acceptance`-tagged spec(s), positively selected.
-#
-#  1. `TXR_E2E_REAL_COMPUTE=1` — drops `playwright.config.ts`'s `grepInvert: /@acceptance/`,
-#     so the tagged specs are COLLECTED here. They commit a GENUINE `cell.filter` sandbox
-#     run, so a default run on a sandbox-less host excludes them BY TAG — an exclusion that
-#     lives in the config + this invocation, in one greppable place, rather than inside the
-#     spec. On THIS host the spec cannot opt out: it must actually pass.
-#     Requires a sandbox-executable host (bwrap + a staged analysis rootfs).
-#  2. `--grep @acceptance` — POSITIVE selection, so what ran is recorded in the invocation
-#     itself instead of left to an undisclosed caller filter. (R6-D3: round 4b reported
-#     `passed=10` as this recipe's result; that cannot have been the unfiltered suite, and
-#     the filter that produced it was never written down.)
-#  3. A JUnit XML report (`PLAYWRIGHT_JUNIT`), parsed FAIL-CLOSED. `tests == 0`, a
-#     `<testsuites>` with no attributes, a `<testsuite>`-only document and an unreadable
-#     report are each a hard FAIL. Before R6-D2 all four printed `collected=0 … passed=0`
-#     and exited 0 — the gate could pass having executed NOTHING. That is exactly the
-#     hazard (1) and (2) now depend on it to close: a `--grep` that selects nothing must
-#     not read as green. A non-zero `skipped` also FAILS — under TXR_E2E_REAL_COMPUTE a
-#     skip means a capability this host was supposed to have is missing.
-#
-# R6-D1 — REMOVED from this recipe: `TXR_TEST_NO_SKIP=1`, `TXR_TEST_SKIP_LEDGER`, and the
-# "skip ledger is 0 lines" assertion, which the header used to advertise as two of three
-# defences. Both env vars are read ONLY by `server/tests/dataset/hardening_common.rs` — the
-# RUST integration-test binary — which `npx playwright test` never spawns. The ledger was
-# therefore empty BY CONSTRUCTION and "0 lines" was a tautology, not a measurement. The
-# mechanism itself is still load-bearing for `cargo test` invocations of the Rust tier and
-# is untouched; only this recipe's false claim to be exercising it is gone. (See the
-# round-6 correction in `.lifecycle/filter-provenance/FIX_ROUND-4.md` §6.2. NOTE the
-# consequence: `TXR_TEST_NO_SKIP=1` once again has NO invoker anywhere in the repo —
-# R3-94/R3-116's original finding — because this recipe never really was one.)
-#
-# Ports/DB are ISOLATED PER WORKTREE AND PER RUN with no flags at all — the resolver
-# picks a bind-verified port for each leg and the database name is keyed on it. Pin a
-# leg only for a one-off (`E2E_BACKEND` is DERIVED from the resolved port; setting it
-# to a disagreeing value is a hard startup failure rather than a silent split):
-#   E2E_BACKEND_PORT=3660 E2E_APP_PORT=3661 just verify-acceptance
-verify-acceptance:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    junit="{{justfile_directory()}}/target/acceptance-junit.xml"
-    mkdir -p "$(dirname "$junit")"
-    rm -f "$junit"
-    cd {{ui_dir}}
-    set +e
-    TXR_E2E_REAL_COMPUTE=1 PLAYWRIGHT_JUNIT="$junit" \
-      npx playwright test --grep '@acceptance' --workers=1
-    pw_exit=$?
-    set -e
-    echo "[verify-acceptance] playwright exit: $pw_exit"
-    # (3) machine-readable counts from the junit report — FAIL CLOSED.
-    if [ ! -f "$junit" ]; then echo "[verify-acceptance] FAIL: no junit report at $junit"; exit 1; fi
-    node -e '
-      const fs=require("fs");const p=process.argv[1];let x;
-      try{x=fs.readFileSync(p,"utf8")}catch(e){console.error(`[verify-acceptance] FAIL: junit report unreadable (${p}): ${e.message}`);process.exit(1)}
-      const m=/<testsuites[^>]*>/.exec(x);
-      if(!m){console.error(`[verify-acceptance] FAIL: no <testsuites> element in ${p} — this gate counts only that shape and refuses to infer a result from an unrecognised report.`);process.exit(1)}
-      const g=n=>{const r=new RegExp(n+"=\"(\\d+)\"").exec(m[0]);return r?+r[1]:null};
-      const tests=g("tests");
-      if(tests===null){console.error("[verify-acceptance] FAIL: <testsuites> carries no tests attribute — nothing in this report proves a test executed.");process.exit(1)}
-      const fail=g("failures")??0,err=g("errors")??0,skip=g("skipped")??0;
-      console.log(`[verify-acceptance] collected=${tests} failed=${fail} errors=${err} skipped=${skip} passed=${tests-fail-err-skip}`);
-      if(tests<1){console.error("[verify-acceptance] FAIL: 0 tests executed — an empty selection is not a pass (did --grep @acceptance match nothing?)");process.exit(1)}
-      if(skip>0){console.error(`[verify-acceptance] FAIL: ${skip} playwright skip(s) under TXR_E2E_REAL_COMPUTE=1 — a skip is not a pass`);process.exit(1)}
-    ' "$junit"
-    exit $pw_exit
 
 # Gallery A7 boot canary — render-every-surface runtime-health (backend-free).
 # Boot the gallery server first: `just gallery` (bg), then run this. Needs

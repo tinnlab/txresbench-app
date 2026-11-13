@@ -7,7 +7,7 @@ import {
   MEMBER_PASSWORD,
   ownerToken,
   waitUntilOffLoginScreen,
-} from '../project/_helpers'
+} from '../_helpers'
 
 // #57 — the account-detail page authz gate, proven end-to-end with a real restricted
 // user + a positive control. The harness drives the DEFAULT (saas-OFF) build, so

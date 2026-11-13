@@ -1,13 +1,13 @@
-// Two stores that refreshed themselves instead of the channel.
+// A store that refreshed itself instead of the channel.
 //
-// `Notifications.markRead/readAll/remove` and `Provenance.recordCapture` each ended with
-// a private inline `load()` / `reloadCurrent()`. Each has exactly ONE subscriber today,
-// so neither was a HOLE — nothing on screen was stale. They were DRIFT: the acting tab
-// refreshed by one mechanism (a call at the mutation site) and every other device by
-// another (`sync:<entity>` → refetch), which is the precise shape that produced the
-// project-sidebar bug (`c4ce3b4e`) and the dataset-catalog bug (`a3a44296`). In both of
-// those the second consumer arrived later, and the mutation site was not updated,
-// because nothing about a private reload says "there is a channel you are bypassing".
+// `Notifications.markRead/readAll/remove` each ended with a private inline `load()`.
+// It has exactly ONE subscriber today, so it was not a HOLE — nothing on screen was
+// stale. It was DRIFT: the acting tab refreshed by one mechanism (a call at the
+// mutation site) and every other device by another (`sync:<entity>` → refetch), which
+// is the precise shape that produced the project-sidebar bug (`c4ce3b4e`) and the
+// dataset-catalog bug (`a3a44296`). In both of those the second consumer arrived later,
+// and the mutation site was not updated, because nothing about a private reload says
+// "there is a channel you are bypassing".
 //
 // The fix is the same one `localEcho.ts` argues for: the echo IS the acting tab's
 // refresh path, so a store cannot tell a local mutation from a remote one, and the next
@@ -16,6 +16,9 @@
 // These cases assert BOTH halves — the surface still refreshes (outcome), and the frame
 // that makes it refresh went on the shared channel (wire parity). The outcome alone
 // passes against the inline reload; the parity assertion is what distinguishes them.
+//
+// STRIP (single-cell): the `Provenance.recordCapture` half left with the removed
+// provenance module; the notification half remains.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -50,12 +53,6 @@ const notifDelete = vi.fn(async ({ id }: { id: string }) => {
   notifRows = notifRows.filter(r => r.id !== id)
 })
 
-// ── provenance ──────────────────────────────────────────────────────────────────────
-const recordAction = vi.fn(async (_args?: unknown) => ({ run_id: 'run-9' }))
-const provRuns = vi.fn(async (_args?: unknown) => ({ runs: [], total: 0, page: 1, per_page: 20 }))
-const provGraph = vi.fn(async (_args?: unknown) => ({ nodes: [], edges: [] }))
-const provVerifications = vi.fn(async (_args?: unknown) => ({ verifications: [] }))
-
 vi.mock('@/api-client', () => ({
   ApiClient: {
     Notification: {
@@ -64,12 +61,6 @@ vi.mock('@/api-client', () => ({
       markAllRead: () => markAllRead(),
       delete: (...a: unknown[]) => notifDelete(...(a as [never])),
     },
-    Provenance: {
-      recordAction: (...a: unknown[]) => recordAction(...(a as [never])),
-      runs: (...a: unknown[]) => provRuns(...(a as [never])),
-      graph: (...a: unknown[]) => provGraph(...(a as [never])),
-      verifications: (...a: unknown[]) => provVerifications(...(a as [never])),
-    },
   },
 }))
 
@@ -77,10 +68,8 @@ vi.mock('@txresbench/kit', () => ({ message: { info: () => {}, error: () => {}, 
 
 const { useEventBusStore } = await import('@txresbench/framework/events')
 const { useNotificationsStore } = await import('@/modules/notification/Notifications.store')
-const { useProvenanceStore } = await import('@/modules/provenance/stores/Provenance.store')
 
 const notifs = () => useNotificationsStore.getState()
-const prov = () => useProvenanceStore.getState()
 
 /** Record frames on the entity under test while `fn` runs. */
 async function capture(
@@ -107,7 +96,7 @@ beforeEach(async () => {
     { id: 'n-1', read_at: null },
     { id: 'n-2', read_at: null },
   ]
-  for (const m of [notifList, markRead, markAllRead, notifDelete, recordAction, provRuns, provGraph, provVerifications]) {
+  for (const m of [notifList, markRead, markAllRead, notifDelete]) {
     m.mockClear()
   }
   useNotificationsStore.setState({ items: [], unread: 0, loading: false, isInitialized: false, toastedIds: [] })
@@ -145,23 +134,3 @@ describe('the notification inbox', () => {
   })
 })
 
-describe('recording a provenance capture', () => {
-  it('announces the run on the shared channel, naming the run the server created', async () => {
-    const seen = await capture(['sync:provenance'], () =>
-      prov().recordCapture('p-1', 'a-1', 'selection.column', { kind: 'column' }, 'label'),
-    )
-    // The id is the SERVER's `run_id`, read off the response — not the project id, and
-    // not a value the caller already had. A mutant that echoes `projectId` here dies.
-    expect(seen).toEqual([{ type: 'sync:provenance', action: 'create', id: 'run-9' }])
-  })
-
-  it('does not announce a capture that FAILED', async () => {
-    recordAction.mockRejectedValueOnce(new Error('403 forbidden'))
-    const seen = await capture(['sync:provenance'], async () => {
-      await expect(
-        prov().recordCapture('p-1', 'a-1', 'selection.column', { kind: 'column' }),
-      ).rejects.toThrow()
-    })
-    expect(seen).toEqual([])
-  })
-})

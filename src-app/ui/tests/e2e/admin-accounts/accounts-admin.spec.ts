@@ -4,7 +4,7 @@ import {
   createMember,
   loginAsOwner,
   ownerToken,
-} from '../project/_helpers'
+} from '../_helpers'
 
 // #44 + #57 — Accounts admin LIST + per-account DETAIL page. An admin lists ALL
 // accounts (incl. an org they are NOT a member of), creates an organization (it

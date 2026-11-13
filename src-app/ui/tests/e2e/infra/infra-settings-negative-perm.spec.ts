@@ -5,7 +5,7 @@ import {
   MEMBER_PASSWORD,
   ownerToken,
   waitUntilOffLoginScreen,
-} from '../project/_helpers'
+} from '../_helpers'
 
 // TEST-23 [negative-perm][positive-control] (#63) — the Infrastructure admin page is a
 // saas-only, `infra::settings::manage`-gated surface. The e2e harness drives the DEFAULT
