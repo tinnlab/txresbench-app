@@ -15,13 +15,14 @@ use uuid::Uuid;
 
 use super::{owner_token, pool};
 use crate::common::TestServer;
+use txresbench::modules::execution_engine::envmanifest;
 use txresbench::modules::execution_engine::orchestrator::{
     self, EnvProvider, MethodExecutor, MethodRunContext, MethodOutcome, ProducedModelFacts,
 };
 use txresbench::modules::execution_engine::repository::TxrRepository;
 use txresbench::modules::execution_engine::runtime::RunRuntime;
 use txresbench::modules::execution_engine::types::{
-    TxrCoverage, TxrMethodState, TxrProbSource, TxrTask,
+    TxrCoverage, TxrMethodState, TxrProbSource, TxrRunReason, TxrTask,
 };
 use txresbench::modules::file_validator::assets::ASSETS;
 use txresbench::modules::file_validator::types::{
@@ -92,11 +93,14 @@ impl EnvProvider for FakeExampleEnv {
     fn cancel(&self, _env_id: &str) {}
 }
 
-/// The scripted method executor: records the runs, waits a moment (so the
-/// `creating` state is observable), and writes a REAL model tree under the
-/// run dir — the store's save path copies it like any produced model.
+/// The scripted method executor: records the runs, runs the pick's bundle
+/// preflight over the context the drive hands it (see `execute`), waits a
+/// moment (so the `creating` state is observable), and writes a REAL model
+/// tree under the run dir — the store's save path copies it like any
+/// produced model.
 struct ModelFakeExecutor {
     runs: Mutex<Vec<String>>,
+    refused: Mutex<Vec<String>>,
     delay: Duration,
 }
 
@@ -104,12 +108,17 @@ impl ModelFakeExecutor {
     fn new(delay: Duration) -> Self {
         Self {
             runs: Mutex::new(Vec::new()),
+            refused: Mutex::new(Vec::new()),
             delay,
         }
     }
 
     fn ran(&self) -> Vec<String> {
         self.runs.lock().expect("lock").clone()
+    }
+
+    fn refused(&self) -> Vec<String> {
+        self.refused.lock().expect("lock").clone()
     }
 }
 
@@ -120,6 +129,34 @@ impl MethodExecutor for ModelFakeExecutor {
             .lock()
             .expect("lock")
             .push(ctx.method_id.clone());
+        // The bundle preflight over the drive's own context (the run's
+        // canonical sides, its config, the plan's min_draws, the lane CPU
+        // count): a refusal fails the method with its `BUNDLE_*` code. This
+        // is the same preflight the pick applies, so it catches the pick's
+        // input or config drifting from what the drive hands the executor;
+        // that the preflight matches `execute_train` itself is checked by
+        // the unit test `call_bundle_preflight_matches_the_executor_bundle_stage`.
+        let facts = envmanifest::facts_for(&ctx.method_id)
+            .ok_or_else(|| AppError::internal_error(format!("unknown method {}", ctx.method_id)))?;
+        if let Err(e) = orchestrator::call_bundle_preflight(&ctx, facts)? {
+            self.refused
+                .lock()
+                .expect("lock")
+                .push(format!("{}: {e}", ctx.method_id));
+            return Ok(MethodOutcome {
+                state: TxrMethodState::Failed,
+                reason: Some(TxrRunReason {
+                    code: e.code().to_string(),
+                    detail: e.to_string(),
+                }),
+                exit_code: None,
+                duration_ms: None,
+                prob_source: None,
+                coverage: None,
+                task: None,
+                model: None,
+            });
+        }
         tokio::time::sleep(self.delay).await;
         // The real executor writes the call input (contract 2.0 params.json)
         // into `bundles/<method>/` before the fit; the store's save path
@@ -286,23 +323,29 @@ fn example_family_is_deterministic_and_passes_the_validator() {
 
 /// TEST-QF3-1 (b) — the fast-method pick: deterministic, at most 3, each with
 /// a published environment, saving models, a `CanRun` verdict on the example
-/// inventory, and a catalogue estimate under 30 s at the example's patient
-/// count.
-#[test]
-fn pick_is_deterministic_three_fast_saving_methods() {
-    let validation = example::example_validation().expect("validates");
-    let inventory = validation.inventory;
-    let patients = validation.patients.as_ref().map(|p| p.rows).unwrap_or(0);
-    let a = example::pick_fast_methods(&inventory, patients);
-    let b = example::pick_fast_methods(&inventory, patients);
+/// inventory, every bundle the run's train call builds built without a
+/// refusal on the example run's own canonical input, and a catalogue
+/// estimate under 30 s at the example's patient count; the cached pick the
+/// endpoint serves is the same list.
+#[tokio::test]
+async fn pick_is_deterministic_three_fast_saving_methods() {
+    let inputs = example::example_run_inputs().expect("the example canonicalizes");
+    let patients = inputs.patients();
+    let a = example::pick_fast_methods(&inputs);
+    let b = example::pick_fast_methods(&inputs);
     assert_eq!(a, b, "the pick is deterministic");
+    assert_eq!(
+        example::example_methods().await.expect("cached pick"),
+        a,
+        "the endpoint's cached pick"
+    );
     assert_eq!(a.len(), EXAMPLE_METHOD_CAP.min(3), "pick: {a:?}");
     assert!(!a.is_empty(), "the shipped catalogue yields at least one fast method");
     let cat = catalogue();
     let verdicts = eligibility_for(
         cat,
         &EligibilityRequest::Inventory {
-            inventory: inventory.clone(),
+            inventory: inputs.validation.inventory.clone(),
         },
     );
     for id in &a {
@@ -311,18 +354,28 @@ fn pick_is_deterministic_three_fast_saving_methods() {
         assert!(method.saves_model, "{id} saves a model");
         let verdict = verdicts.methods.iter().find(|m| &m.id == id).expect("verdict");
         assert_eq!(verdict.status, EligibilityStatus::CanRun, "{id}");
+        // The run's own bundle stage (the train/test bundles `execute_train`
+        // builds, then the cross-fit or cohort bundles) on the example run's
+        // canonical sides, with the run's settings and the method's min_draws.
+        if let Err(e) = inputs.preflight(method) {
+            panic!("{id} is refused by the run's bundle stage: {e}");
+        }
         let seconds = estimate_seconds_for(method, patients, REFERENCE_CPUS);
         assert!(
             seconds < EXAMPLE_METHOD_SECONDS_MAX,
             "{id} estimates {seconds}s < {EXAMPLE_METHOD_SECONDS_MAX}s"
         );
     }
-    // The published-env, CAN-run set is way larger than the cap (the cap is
-    // exercised, not a filter that happens to return everything).
+    // The published-env, CAN-run, bundle-buildable set is larger than the cap
+    // (the cap is exercised, not a filter that happens to return everything).
     let runnable: Vec<_> = verdicts
         .methods
         .iter()
         .filter(|m| m.status == EligibilityStatus::CanRun && runtime_env_available(&m.id))
+        .filter(|m| {
+            let method = cat.method(&m.id).expect("catalogue method");
+            inputs.preflight(method).is_ok()
+        })
         .collect();
     assert!(
         runnable.len() > EXAMPLE_METHOD_CAP,
@@ -335,6 +388,7 @@ async fn poll_ready(
     pool: &sqlx::SqlitePool,
     seams: &ExampleRunSeams,
     owner: Uuid,
+    executor: &ModelFakeExecutor,
 ) -> ExampleSetResponse {
     for _ in 0..600 {
         let resp = example::ensure_example_set(pool, seams, owner)
@@ -343,7 +397,11 @@ async fn poll_ready(
         match resp.state {
             ExampleSetState::Ready => return resp,
             ExampleSetState::Creating => tokio::time::sleep(Duration::from_millis(50)).await,
-            ExampleSetState::Failed => panic!("the example failed: {:?}", resp.error),
+            ExampleSetState::Failed => panic!(
+                "the example failed: {:?}; refused at the bundle stage: {:?}",
+                resp.error,
+                executor.refused()
+            ),
         }
     }
     panic!("the example set did not become ready in time");
@@ -403,7 +461,7 @@ async fn example_set_is_created_once_and_recreated_after_deletion() {
 
     // Poll until ready; the set is a REAL set with the reserved name and one
     // model per picked method.
-    let ready = poll_ready(&pool, &seams, owner).await;
+    let ready = poll_ready(&pool, &seams, owner, &executor_clone).await;
     let set_id = ready.set_id.expect("set id");
     let repo = ModelStoreRepository::new(pool.clone());
     let set = repo.get_set(set_id).await.expect("get set").expect("exists");
@@ -428,6 +486,11 @@ async fn example_set_is_created_once_and_recreated_after_deletion() {
     let (runs, total) = run_repo.list_run_summaries(50, 0).await.expect("runs");
     assert_eq!(total, 1, "one example run so far ({runs:?})");
     assert_eq!(executor_clone.ran().len(), 3, "the picked three ran once");
+    assert!(
+        executor_clone.refused().is_empty(),
+        "no picked method is refused at the bundle stage: {:?}",
+        executor_clone.refused()
+    );
 
     // Delete the set (the route's cascade: rows + prune + training dir), then
     // call again — it recreates: a fresh run, a different set id.
@@ -448,7 +511,7 @@ async fn example_set_is_created_once_and_recreated_after_deletion() {
         .await
         .expect("ensure");
     assert_eq!(recreated.state, ExampleSetState::Creating, "{recreated:?}");
-    let ready2 = poll_ready(&pool, &seams, owner).await;
+    let ready2 = poll_ready(&pool, &seams, owner, &executor_clone).await;
     let set2 = ready2.set_id.expect("new set id");
     assert_ne!(set2, set_id, "deleting + calling again recreates a NEW set");
     let (_, total2) = run_repo.list_run_summaries(50, 0).await.expect("runs");

@@ -784,8 +784,7 @@ impl MethodExecutor for StackMethodExecutor {
             }
         };
         let spec = super::predictions::PredictionSpec::new(facts);
-        let threads = per_method_cpus(ctx.cpus, ctx.config.at_a_time);
-        let settings = bundle::BundleSettings::for_run(&ctx.config, threads);
+        let settings = method_bundle_settings(&ctx.config, ctx.cpus);
         let limits = crate::modules::sandbox::settings_cache::get(&self.pool).await;
         let timeout_secs = (limits.timeout_secs.max(1) as u64) * 2;
 
@@ -820,38 +819,19 @@ impl StackMethodExecutor {
             .clone()
             .expect("train mode always carries the train side");
 
-        // The per-method marker set (ITEM-4): a refusal is terminal with the
+        // The marker set, the train bundle and the test bundle over the
+        // predict surface ([`method_bundles`]): a refusal is terminal with the
         // typed `BUNDLE_*` code — the method never runs on the wrong markers.
-        let selection = match bundle::method_marker_set(
+        let MethodBundles {
+            selection,
+            train: train_bundle,
+            test: test_bundle,
+        } = match method_bundles(
             &train,
-            &facts.markers,
-            facts.required_markers.as_ref(),
-        ) {
-            Ok(s) => s,
-            Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-        };
-        let train_bundle =
-            match bundle::train_bundle_with_markers(&train, settings, ctx.min_draws, &selection) {
-                Ok(b) => b,
-                Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-            };
-        // The predict surface: the separate predict file when given, else the
-        // training cohort (path 2's heatmap rows are the uploaded patients —
-        // the prediction surface is the cohort when no predict file is
-        // mounted; DRIFT-1 ITEM-9 #1).
-        let (predict_bundle, predict_patients): (
-            Arc<CanonicalBundle>,
-            Option<&[CanonicalPatient]>,
-        ) = match &ctx.predict {
-            Some(p) => (p.clone(), None),
-            None => (train.clone(), Some(&train.patients)),
-        };
-        let test_bundle = match bundle::test_bundle_with_markers(
-            predict_patients,
-            &predict_bundle,
+            ctx.predict.as_deref(),
+            facts,
             settings,
             ctx.min_draws,
-            &selection,
         ) {
             Ok(b) => b,
             Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
@@ -920,19 +900,11 @@ impl StackMethodExecutor {
                     super::predictions::CROSS_FIT_FOLDS,
                 );
                 for k in 0..super::predictions::CROSS_FIT_FOLDS {
-                    let (rest, fold) = split_folds(&train, &train_bundle.patient_ids, &folds, k);
-                    let sub_bundle = match bundle::train_bundle_with_markers(
-                        &rest,
-                        settings,
-                        ctx.min_draws,
-                        &selection,
-                    ) {
-                        Ok(b) => b,
-                        Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-                    };
-                    let fold_test = match bundle::test_bundle_with_markers(
-                        Some(&fold.patients),
-                        &fold,
+                    let (sub_bundle, fold_test) = match crossfit_fold_bundles(
+                        &train,
+                        &train_bundle.patient_ids,
+                        &folds,
+                        k,
                         settings,
                         ctx.min_draws,
                         &selection,
@@ -1023,16 +995,11 @@ impl StackMethodExecutor {
                 // One call over the training cohort (engine.cpp's
                 // `test_from_train`): the model's scores of the patients it
                 // was trained on — the conversion band's training side.
-                let cohort_test = match bundle::test_bundle_with_markers(
-                    Some(&train.patients),
-                    &train,
-                    settings,
-                    ctx.min_draws,
-                    &selection,
-                ) {
-                    Ok(b) => b,
-                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-                };
+                let cohort_test =
+                    match cohort_test_bundle(&train, settings, ctx.min_draws, &selection) {
+                        Ok(b) => b,
+                        Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                    };
                 let score = self
                     .predict_call(
                         ctx,
@@ -1302,31 +1269,14 @@ impl StackMethodExecutor {
         } else if let Some(train) = reuse_train {
             // A data-carrying reuse run: the conversion is re-fitted from the
             // model's scores over the run's own cohort (the honest
-            // training-side band).
-            let selection2 = match bundle::method_marker_set(
-                &train,
-                &facts.markers,
-                facts.required_markers.as_ref(),
-            ) {
-                Ok(s) => s,
-                Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-            };
-            let train_bundle = match bundle::train_bundle_with_markers(
-                &train,
-                settings,
-                ctx.min_draws,
-                &selection2,
-            ) {
-                Ok(b) => b,
-                Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-            };
-            let cohort_test = match bundle::test_bundle_with_markers(
-                Some(&train.patients),
-                &train,
-                settings,
-                ctx.min_draws,
-                &selection2,
-            ) {
+            // training-side band). The cohort's marker set, train bundle and
+            // test bundle over the cohort itself are exactly a train call's
+            // first bundles with no predict file ([`method_bundles`]).
+            let MethodBundles {
+                train: train_bundle,
+                test: cohort_test,
+                ..
+            } = match method_bundles(&train, None, facts, settings, ctx.min_draws) {
                 Ok(b) => b,
                 Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
             };
@@ -1541,6 +1491,156 @@ impl StackMethodExecutor {
             ))),
         }
     }
+}
+
+/// The bundle settings of one method call of a run (the ONE derivation the
+/// executor, the example pick and the tests share): the run config's
+/// fields, with `threads` = the per-method lane CPU count over the run's
+/// detected `cpus` (DEC-12; it only reaches `params.json`).
+pub(crate) fn method_bundle_settings(config: &RunConfig, cpus: u32) -> bundle::BundleSettings {
+    bundle::BundleSettings::for_run(config, per_method_cpus(cpus, config.at_a_time))
+}
+
+/// [`train_bundle_preflight`] over a train call's own context: its canonical
+/// sides, its `min_draws` and the settings `execute` builds from it
+/// ([`method_bundle_settings`]). The outer `Err` is a context that is not a
+/// train call (no train side — an internal error, not a bundle verdict);
+/// `Ok(Ok(()))` means the call is not refused with a `BUNDLE_*` code, and
+/// `Ok(Err(_))` is the refusal.
+pub fn call_bundle_preflight(
+    ctx: &MethodRunContext,
+    facts: &Method,
+) -> Result<Result<(), bundle::BundleError>, AppError> {
+    let train = ctx.train.as_deref().ok_or_else(|| {
+        AppError::internal_error(format!(
+            "method {}: the bundle preflight needs a train call's context (no train side)",
+            ctx.method_id
+        ))
+    })?;
+    Ok(train_bundle_preflight(
+        train,
+        ctx.predict.as_deref(),
+        facts,
+        &method_bundle_settings(&ctx.config, ctx.cpus),
+        ctx.min_draws,
+    ))
+}
+
+/// The bundles a train-mode call builds before its first method call: the
+/// per-method marker set (ITEM-4), the train bundle and the test bundle over
+/// the predict surface.
+pub(crate) struct MethodBundles {
+    pub selection: bundle::MarkerSelection,
+    pub train: bundle::TrainBundle,
+    pub test: bundle::TestBundle,
+}
+
+/// Build a train-mode call's [`MethodBundles`] (the `execute_train` stage;
+/// pure). The predict surface is the separate predict file when given, else
+/// the training cohort (path 2's heatmap rows are the uploaded patients —
+/// the prediction surface is the cohort when no predict file is mounted;
+/// DRIFT-1 ITEM-9 #1).
+pub(crate) fn method_bundles(
+    train: &CanonicalBundle,
+    predict: Option<&CanonicalBundle>,
+    facts: &Method,
+    settings: &bundle::BundleSettings,
+    min_draws: u32,
+) -> Result<MethodBundles, bundle::BundleError> {
+    let selection =
+        bundle::method_marker_set(train, &facts.markers, facts.required_markers.as_ref())?;
+    let train_bundle = bundle::train_bundle_with_markers(train, settings, min_draws, &selection)?;
+    let (predict_bundle, predict_patients): (&CanonicalBundle, Option<&[CanonicalPatient]>) =
+        match predict {
+            Some(p) => (p, None),
+            None => (train, Some(&train.patients)),
+        };
+    let test_bundle = bundle::test_bundle_with_markers(
+        predict_patients,
+        predict_bundle,
+        settings,
+        min_draws,
+        &selection,
+    )?;
+    Ok(MethodBundles {
+        selection,
+        train: train_bundle,
+        test: test_bundle,
+    })
+}
+
+/// One cross-fit fold's bundles (engine.cpp): the train bundle over the
+/// cohort minus fold `k` and the test bundle over fold `k`.
+fn crossfit_fold_bundles(
+    train: &CanonicalBundle,
+    cohort_ids: &[String],
+    folds: &[usize],
+    k: usize,
+    settings: &bundle::BundleSettings,
+    min_draws: u32,
+    selection: &bundle::MarkerSelection,
+) -> Result<(bundle::TrainBundle, bundle::TestBundle), bundle::BundleError> {
+    let (rest, fold) = split_folds(train, cohort_ids, folds, k);
+    let sub_bundle = bundle::train_bundle_with_markers(&rest, settings, min_draws, selection)?;
+    let fold_test = bundle::test_bundle_with_markers(
+        Some(&fold.patients),
+        &fold,
+        settings,
+        min_draws,
+        selection,
+    )?;
+    Ok((sub_bundle, fold_test))
+}
+
+/// The non-fitted conversion input (engine.cpp's `test_from_train`): the
+/// test bundle over the training cohort itself.
+fn cohort_test_bundle(
+    train: &CanonicalBundle,
+    settings: &bundle::BundleSettings,
+    min_draws: u32,
+    selection: &bundle::MarkerSelection,
+) -> Result<bundle::TestBundle, bundle::BundleError> {
+    bundle::test_bundle_with_markers(Some(&train.patients), train, settings, min_draws, selection)
+}
+
+/// Every bundle a train-mode call builds, built without running anything —
+/// [`method_bundles`], then (when the conversion band needs scores) the
+/// cross-fit folds' bundles for a fitted method or the cohort test bundle
+/// otherwise, through the same helpers `execute_train` calls. `Ok` means the
+/// call cannot be refused with a `BUNDLE_*` code on these inputs; the method
+/// itself can still fail when it runs.
+pub(crate) fn train_bundle_preflight(
+    train: &CanonicalBundle,
+    predict: Option<&CanonicalBundle>,
+    facts: &Method,
+    settings: &bundle::BundleSettings,
+    min_draws: u32,
+) -> Result<(), bundle::BundleError> {
+    let bundles = method_bundles(train, predict, facts, settings, min_draws)?;
+    if needs_list(facts, &bundles.train.outcomes, settings).is_empty() {
+        return Ok(());
+    }
+    if facts.fitted {
+        let folds = super::predictions::crossfit_folds(
+            bundles.train.patient_ids.len(),
+            TxrLimits::SEED as u64,
+            super::predictions::CROSS_FIT_FOLDS,
+        );
+        for k in 0..super::predictions::CROSS_FIT_FOLDS {
+            crossfit_fold_bundles(
+                train,
+                &bundles.train.patient_ids,
+                &folds,
+                k,
+                settings,
+                min_draws,
+                &bundles.selection,
+            )?;
+        }
+    } else {
+        cohort_test_bundle(train, settings, min_draws, &bundles.selection)?;
+    }
+    Ok(())
 }
 
 /// The `needs` list (engine.cpp): every learned (outcome, horizon) the method
@@ -3196,6 +3296,20 @@ pub fn read_memory_total_bytes() -> Option<u64> {
 // classification (CONS-EE-11/11b — one code path with the screens, DEC-15)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// The run's one validate + canonicalize pass over its tables
+/// ([`canonicalize_run`]): the validation response (whose `inventory` the
+/// classification judges) and the canonical sides the method calls build
+/// their bundles from.
+pub(crate) struct CanonicalRun {
+    pub validated: crate::modules::file_validator::types::ValidationResponse,
+    pub train: Option<Arc<CanonicalBundle>>,
+    pub predict: Option<Arc<CanonicalBundle>>,
+    pub predict_patients: Option<Arc<[CanonicalPatient]>>,
+    /// The predict side's distinct patient count (qa-fixes2 R2-04 — the
+    /// validator's measurements summary, never the row count).
+    pub predict_patient_count: Option<u32>,
+}
+
 /// The prepared facts of a run: the canonical sides + the classified plans +
 /// the validator's marker count.
 pub struct PreparedRun {
@@ -3252,14 +3366,35 @@ fn prepare_run(
     method_ids: &[String],
     assets: &[super::types::TxrModelAsset],
 ) -> Result<PreparedRun, AppError> {
-    use crate::modules::file_validator::{bundle, validate};
+    let canonical = canonicalize_run(input, config, run_mode)?;
+    let plans = classify(
+        run_mode,
+        method_ids,
+        assets,
+        &canonical.validated.inventory,
+        config,
+    )?;
+    Ok(PreparedRun {
+        markers: canonical.validated.markers.len(),
+        train: canonical.train,
+        predict: canonical.predict,
+        predict_patients: canonical.predict_patients,
+        // qa-fixes2 R2-04: the predict side's distinct patient count (the
+        // validator's measurements summary) — the K row's "Predicted N
+        // patients" fact; None when the run has no predict file.
+        predict_patient_count: canonical.predict_patient_count,
+        plans,
+    })
+}
 
-    // One validate per run over the RUN's table set. The mode disambiguates
-    // the pair (train: patients + measurements; reuse: predict patients +
-    // predict measurements — the run's only side). The inventory the
-    // eligibility engine sees is the SAME object the screens rendered — one
-    // code path (DEC-15).
-    let (mode, patients, measurements) = match run_mode {
+/// The validation mode and tables of the RUN's table set. The mode
+/// disambiguates the pair (train: patients + measurements; reuse: predict
+/// patients + predict measurements — the run's only side).
+fn run_tables(
+    input: &super::types::TxrRunInput,
+    run_mode: super::types::TxrRunMode,
+) -> (ValidationMode, Option<&ParsedTable>, &ParsedTable) {
+    match run_mode {
         super::types::TxrRunMode::Train => (
             ValidationMode::Files,
             input.patients.as_ref(),
@@ -3275,17 +3410,65 @@ fn prepare_run(
                 None => (ValidationMode::Predict, None, meas),
             }
         }
-    };
-    let vreq = validation_request(
+    }
+}
+
+/// Whether the run's pass builds a train side: a FILES-mode table set
+/// ([`canonicalize_run`] builds the train side exactly then).
+pub(crate) fn run_has_train_side(
+    input: &super::types::TxrRunInput,
+    run_mode: super::types::TxrRunMode,
+) -> bool {
+    run_tables(input, run_mode).0 == ValidationMode::Files
+}
+
+/// The run's validation request over the RUN's table set ([`run_tables`]).
+/// The inventory the eligibility engine sees is the SAME object the screens
+/// rendered — one code path (DEC-15).
+fn run_validation_request(
+    input: &super::types::TxrRunInput,
+    config: &RunConfig,
+    run_mode: super::types::TxrRunMode,
+) -> ValidationRequest {
+    let (mode, patients, measurements) = run_tables(input, run_mode);
+    validation_request(
         mode,
         patients,
         measurements,
         &input.joins,
         &input.mapping,
         config.decision_day,
-    );
+    )
+}
+
+/// The run's one validation (the first step of [`canonicalize_run`]),
+/// without building the canonical sides — for a caller that needs only the
+/// validator's verdict on a run request's tables (the example saved set).
+pub(crate) fn validate_run(
+    input: &super::types::TxrRunInput,
+    config: &RunConfig,
+    run_mode: super::types::TxrRunMode,
+) -> Result<crate::modules::file_validator::types::ValidationResponse, AppError> {
+    crate::modules::file_validator::validate::validate(&run_validation_request(
+        input, config, run_mode,
+    ))
+    .map_err(validation_error_to_app)
+}
+
+/// The run's validate + canonicalize pass (the first half of `prepare_run`,
+/// also used by the example saved set, so it judges exactly the tables and
+/// canonical sides the run will use).
+pub(crate) fn canonicalize_run(
+    input: &super::types::TxrRunInput,
+    config: &RunConfig,
+    run_mode: super::types::TxrRunMode,
+) -> Result<CanonicalRun, AppError> {
+    use crate::modules::file_validator::{bundle, validate};
+
+    // One validate per run over the RUN's table set.
+    let vreq = run_validation_request(input, config, run_mode);
+    let mode = vreq.mode;
     let validated = validate::validate(&vreq).map_err(validation_error_to_app)?;
-    let marker_count = validated.markers.len();
 
     // The canonical sides. In FILES mode (train, or reuse with a predict
     // patients table) the run-side bundle is the TRAIN one and the predict
@@ -3351,17 +3534,12 @@ fn prepare_run(
         _ => None,
     };
 
-    let plans = classify(run_mode, method_ids, assets, &validated.inventory, config)?;
-    Ok(PreparedRun {
+    Ok(CanonicalRun {
+        validated,
         train: train_canonical,
         predict: predict_canonical,
         predict_patients,
-        // qa-fixes2 R2-04: the predict side's distinct patient count (the
-        // validator's measurements summary) — the K row's "Predicted N
-        // patients" fact; None when the run has no predict file.
         predict_patient_count,
-        plans,
-        markers: marker_count,
     })
 }
 
@@ -4361,6 +4539,123 @@ fn cancel_env(env: &Arc<dyn EnvProvider>, base_id: &str, layer_id: &str) {
 // merged chains with scripted fixtures (TESTS.md note (bb) precedent).
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Engine fixtures that other modules' tests drive: the REAL train executor
+/// over a scripted sandbox, with the context the drive builds. Another
+/// module's tests exercise the engine path through this, so the engine's own
+/// tests do not depend on that module.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::tests::{
+        executor_ctx, make_method_dirs, merged_pool, test_data_dir, FakeStackRunSeam,
+    };
+    use super::*;
+
+    /// One planned method of [`train_with_scripted_sandbox`].
+    pub(crate) struct ScriptedMethod {
+        pub method_id: String,
+        /// Whether the plan's target is a train call (`RunTarget::TrainMethod`).
+        pub train_target: bool,
+        /// The plan's `cannot_run` flag and reason (`classify`).
+        pub cannot_run: bool,
+        pub reason: Option<TxrRunReason>,
+        /// The plan's `min_draws` (the context's).
+        pub min_draws: u32,
+        /// [`call_bundle_preflight`] over the call's context.
+        pub preflight: Result<(), bundle::BundleError>,
+        /// The real executor's verdict.
+        pub outcome: MethodOutcome,
+        /// The scripted sandbox's calls, in order.
+        pub calls: Vec<MethodRunMode>,
+    }
+
+    /// The prepared canonical sides + every planned method's run.
+    pub(crate) struct ScriptedTrainRun {
+        pub train: Option<Arc<CanonicalBundle>>,
+        pub predict: Option<Arc<CanonicalBundle>>,
+        pub methods: Vec<ScriptedMethod>,
+    }
+
+    /// Prepare a train request through the run's own `prepare_run`, then run
+    /// every planned method through the real `StackMethodExecutor::execute`
+    /// with the context `run_method` builds (the plan's `min_draws`, the run
+    /// config, the detected CPU count, the prepared sides) and a scripted
+    /// sandbox. A plan the host cannot run (no published env) is still
+    /// executed — the bundle stage and the calls do not depend on the env —
+    /// and its `cannot_run` facts are reported.
+    pub(crate) async fn train_with_scripted_sandbox(
+        req: &CreateRunRequest,
+        data_dir: &str,
+    ) -> ScriptedTrainRun {
+        assert_eq!(
+            req.mode,
+            crate::modules::execution_engine::types::TxrRunMode::Train,
+            "a train request"
+        );
+        let _g = rootfs::scoped_data_root(test_data_dir(data_dir));
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            req.mode,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the request prepares");
+        let pool = merged_pool().await;
+        let mut methods = Vec::new();
+        for plan in &prepared.plans {
+            let facts = envmanifest::facts_for(&plan.method_id).expect("a catalogue method");
+            let seam = FakeStackRunSeam::new();
+            let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
+            let run_dir = rootfs::data_root().join(&plan.method_id);
+            make_method_dirs(&run_dir, &plan.method_id);
+            let (mut ctx, _cancel) = executor_ctx(
+                &run_dir,
+                &plan.method_id,
+                prepared.train.clone(),
+                prepared.predict.clone(),
+                prepared.predict_patients.clone(),
+                req.config.save_models,
+                match &plan.target {
+                    RunTarget::TrainMethod => RunTarget::TrainMethod,
+                    RunTarget::ReuseModel { asset } => RunTarget::ReuseModel {
+                        asset: asset.clone(),
+                    },
+                },
+            );
+            ctx.label = plan.label.clone();
+            ctx.version = plan.version.clone();
+            ctx.group = plan.group.clone();
+            ctx.min_draws = plan.min_draws;
+            ctx.config = req.config.clone();
+            ctx.cpus = detect_cpus();
+            let preflight = call_bundle_preflight(&ctx, facts).expect("a train call's context");
+            let outcome = exec.execute(ctx).await.expect("an executor verdict");
+            let calls = seam
+                .calls
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .map(|c| c.mode)
+                .collect();
+            methods.push(ScriptedMethod {
+                method_id: plan.method_id.clone(),
+                train_target: matches!(plan.target, RunTarget::TrainMethod),
+                cannot_run: plan.cannot_run,
+                reason: plan.reason.clone(),
+                min_draws: plan.min_draws,
+                preflight,
+                outcome,
+                calls,
+            });
+        }
+        ScriptedTrainRun {
+            train: prepared.train,
+            predict: prepared.predict,
+            methods,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -4562,7 +4857,7 @@ mod tests {
     /// The full app chain (the jobs + sandbox settings tables the admission
     /// wrapper reads; the four module tables are a subset — the merged chain
     /// is the integration harness's template DB shape, TESTS.md note (bb)).
-    async fn merged_pool() -> SqlitePool {
+    pub(super) async fn merged_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -4592,7 +4887,7 @@ mod tests {
 
     /// The per-test app data root (under the worktree's gitignored `target/`
     /// — run dirs never touch the repo).
-    fn test_data_dir(name: &str) -> PathBuf {
+    pub(super) fn test_data_dir(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join("target")
@@ -5573,8 +5868,8 @@ mod tests {
     /// executor handed the sandbox, + the request's own understanding of its
     /// task (the mount + the fit-model-out request).
     #[derive(Debug, Clone, PartialEq)]
-    struct SeamCall {
-        mode: MethodRunMode,
+    pub(super) struct SeamCall {
+        pub(super) mode: MethodRunMode,
         /// The `ModelMount{host, digest}` of a reuse call (None for a fit).
         mount: Option<(String, String)>,
         /// The fit writes its `/model` into this dir (None for a reuse call).
@@ -5593,14 +5888,14 @@ mod tests {
     /// mount, writes a `/model` tree on fit — the bwrap-free executor half
     /// (the ITEM-8 FakeEnv/FakeExecutor pattern; TEST-EE-18's loopback-free
     /// fixture.
-    struct FakeStackRunSeam {
-        calls: Arc<Mutex<Vec<SeamCall>>>,
+    pub(super) struct FakeStackRunSeam {
+        pub(super) calls: Arc<Mutex<Vec<SeamCall>>>,
         /// `Some` = the next call fails with this `(exit_code, timed_out)`.
         fail: Arc<Mutex<Option<(i32, bool)>>>,
     }
 
     impl FakeStackRunSeam {
-        fn new() -> Arc<Self> {
+        pub(super) fn new() -> Arc<Self> {
             Arc::new(Self {
                 calls: Arc::new(Mutex::new(Vec::new())),
                 fail: Arc::new(Mutex::new(None)),
@@ -5750,7 +6045,7 @@ mod tests {
     /// The cancel SENDER is returned alongside, and the caller keeps it alive
     /// for the `execute` call (a dropped sender makes `cancel.changed()`
     /// error immediately, which the executor reads as an abort).
-    fn executor_ctx(
+    pub(super) fn executor_ctx(
         run_dir: &Path,
         method_id: &str,
         train: Option<Arc<CanonicalBundle>>,
@@ -5804,7 +6099,7 @@ mod tests {
     }
 
     /// The executor's per-method dir skeleton (bundles/output/models).
-    fn make_method_dirs(run_dir: &Path, method_id: &str) -> (PathBuf, PathBuf, PathBuf) {
+    pub(super) fn make_method_dirs(run_dir: &Path, method_id: &str) -> (PathBuf, PathBuf, PathBuf) {
         let bundles = run_dir.join("bundles").join(method_id);
         let outputs = run_dir.join("output").join(method_id);
         let models = run_dir.join("models").join(method_id);
@@ -5939,6 +6234,540 @@ mod tests {
             .filter(|c| c.mode == MethodRunMode::FitOnly)
             .count();
         assert_eq!(fold_fits, predictions::CROSS_FIT_FOLDS);
+        drop(calls);
+    }
+
+    // ── the bundle preflight against the executor's own bundle stage ──────
+
+    /// The cohort fixture's train side cut to its first `n` patients (sorted
+    /// ids) — a canonical subset like a cross-fit fold's.
+    fn first_cohort_patients(train: &CanonicalBundle, n: usize) -> CanonicalBundle {
+        let mut ids: Vec<&str> = train
+            .patients
+            .iter()
+            .map(|p| p.patient_id.as_str())
+            .collect();
+        ids.sort_unstable();
+        let keep: std::collections::HashSet<&str> = ids.into_iter().take(n).collect();
+        subset_canonical(train, &keep)
+    }
+
+    /// A fitted catalogue method plus a cohort size where the method's first
+    /// bundles build but a cross-fit fold's rest set learns no outcome — a
+    /// search over the catalogue and the sizes, so the case does not hang on
+    /// one method's facts.
+    fn crossfit_refusal_case(
+        train: &CanonicalBundle,
+        settings: &bundle::BundleSettings,
+    ) -> Option<(String, CanonicalBundle)> {
+        let cat = crate::modules::method_catalogue::catalogue::catalogue();
+        let refused = Err(bundle::BundleError::NoLearnableOutcome {
+            min: bundle::MIN_TRAINING_PATIENTS,
+        });
+        (bundle::MIN_TRAINING_PATIENTS..train.patients.len()).find_map(|n| {
+            let cut = first_cohort_patients(train, n);
+            cat.methods
+                .iter()
+                .filter(|m| m.fitted)
+                .find(|m| {
+                    method_bundles(&cut, None, m, settings, m.min_draws).is_ok()
+                        && train_bundle_preflight(&cut, None, m, settings, m.min_draws) == refused
+                })
+                .map(|m| (m.id.clone(), cut.clone()))
+        })
+    }
+
+    /// The bundle preflight ([`call_bundle_preflight`], the example pick's
+    /// filter) answers what the train executor's bundle stage does: in every
+    /// case the preflight's refusal is the method's failure reason (same code,
+    /// same detail) and a preflight `Ok` is a call not refused with a
+    /// `BUNDLE_*` code. The cases cover each leg on the cohort fixture: the
+    /// marker rule, the train bundle (draw minimum, covariates), the test
+    /// bundle over a separate predict file (covariates without a predict
+    /// patients table, a missing marker) and a cross-fit fold refused after
+    /// the main fit call.
+    #[tokio::test]
+    async fn call_bundle_preflight_matches_the_executor_bundle_stage() {
+        use crate::modules::file_validator::types::CanonCell;
+
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-preflight-parity"));
+        let pool = merged_pool().await;
+        let base = "ctdna-tf-four-group";
+        let train = executor_prepared(base)
+            .await
+            .train
+            .expect("the cohort fixture's train side");
+        let config = RunConfig {
+            decision_day: 56.0,
+            look_ahead_day: 238.0,
+            save_models: true,
+            ..Default::default()
+        };
+        let settings = method_bundle_settings(&config, detect_cpus());
+        let cat = crate::modules::method_catalogue::catalogue::catalogue();
+
+        // A method the cohort's one marker cannot satisfy.
+        let marker_refused = cat
+            .methods
+            .iter()
+            .find(|m| {
+                bundle::method_marker_set(&train, &m.markers, m.required_markers.as_ref()).is_err()
+            })
+            .expect("a method whose marker rule the one-marker cohort fails");
+        let marker_code = bundle::method_marker_set(
+            &train,
+            &marker_refused.markers,
+            marker_refused.required_markers.as_ref(),
+        )
+        .expect_err("refused")
+        .code();
+
+        let mut no_covariates = (*train).clone();
+        for p in &mut no_covariates.patients {
+            p.covariates.clear();
+        }
+        let no_covariates = Arc::new(no_covariates);
+        let mut with_covariates = (*train).clone();
+        for (i, p) in with_covariates.patients.iter_mut().enumerate() {
+            p.covariates = vec![("age".to_string(), CanonCell::Number(40.0 + i as f64))];
+        }
+        let with_covariates = Arc::new(with_covariates);
+        let base_facts = envmanifest::facts_for(base).expect("facts");
+        let main = bundle::method_marker_set(
+            &train,
+            &base_facts.markers,
+            base_facts.required_markers.as_ref(),
+        )
+        .expect("the base method's marker set")
+        .mains()[0]
+            .clone();
+        let mut without_marker = (*train).clone();
+        without_marker.values.retain(|v| v.feature != main);
+        let (crossfit, small) = crossfit_refusal_case(&train, &settings)
+            .expect("a fitted method refused only at its cross-fit folds");
+
+        let covariates_on = RunConfig {
+            covariates: true,
+            ..config.clone()
+        };
+        struct Case {
+            name: &'static str,
+            method: String,
+            train: Arc<CanonicalBundle>,
+            predict: Option<Arc<CanonicalBundle>>,
+            config: RunConfig,
+            min_draws: Option<u32>,
+            expect: Option<&'static str>,
+        }
+        let case = |name, method: &str, train: &Arc<CanonicalBundle>| Case {
+            name,
+            method: method.to_string(),
+            train: train.clone(),
+            predict: None,
+            config: config.clone(),
+            min_draws: None,
+            expect: None,
+        };
+        let cases = vec![
+            case("the base method on the cohort", base, &train),
+            Case {
+                expect: Some(marker_code),
+                ..case("the marker rule", &marker_refused.id, &train)
+            },
+            Case {
+                min_draws: Some(10_000),
+                expect: Some("BUNDLE_NO_TRAINING_PATIENT"),
+                ..case("the draw minimum", base, &train)
+            },
+            Case {
+                config: covariates_on.clone(),
+                expect: Some("BUNDLE_COVARIATES_MISSING"),
+                ..case(
+                    "covariates without a covariate column",
+                    base,
+                    &no_covariates,
+                )
+            },
+            Case {
+                config: covariates_on.clone(),
+                ..case(
+                    "covariates over the cohort as the predict surface",
+                    base,
+                    &with_covariates,
+                )
+            },
+            Case {
+                predict: Some(with_covariates.clone()),
+                config: covariates_on.clone(),
+                expect: Some("BUNDLE_TEST_COVARIATES_MISSING"),
+                ..case(
+                    "covariates over a predict file without a patients table",
+                    base,
+                    &with_covariates,
+                )
+            },
+            Case {
+                predict: Some(train.clone()),
+                ..case("a predict file", base, &train)
+            },
+            Case {
+                predict: Some(Arc::new(without_marker)),
+                expect: Some("BUNDLE_TEST_MARKER_MISSING"),
+                ..case("a predict file without the trained marker", base, &train)
+            },
+            Case {
+                expect: Some("BUNDLE_NO_LEARNABLE_OUTCOME"),
+                ..case(
+                    "a cross-fit fold too small to learn",
+                    &crossfit,
+                    &Arc::new(small),
+                )
+            },
+        ];
+
+        for (i, case) in cases.into_iter().enumerate() {
+            let name = case.name;
+            let facts = envmanifest::facts_for(&case.method).expect("a catalogue method");
+            let seam = FakeStackRunSeam::new();
+            let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
+            let run_dir = rootfs::data_root().join(format!("case-{i}"));
+            make_method_dirs(&run_dir, &case.method);
+            let (mut ctx, _cancel) = executor_ctx(
+                &run_dir,
+                &case.method,
+                Some(case.train),
+                case.predict,
+                None,
+                case.config.save_models,
+                RunTarget::TrainMethod,
+            );
+            ctx.config = case.config;
+            ctx.cpus = detect_cpus();
+            ctx.min_draws = case.min_draws.unwrap_or(facts.min_draws);
+            let preflight = call_bundle_preflight(&ctx, facts).expect("a train call's context");
+            let outcome = exec.execute(ctx).await.expect("an executor verdict");
+            let reason = outcome.reason.clone();
+            match &preflight {
+                Ok(()) => assert!(
+                    reason
+                        .as_ref()
+                        .map_or(true, |r| !r.code.starts_with("BUNDLE_")),
+                    "{name}: preflight Ok but the executor refused {reason:?}"
+                ),
+                Err(e) => {
+                    assert_eq!(outcome.state, TxrMethodState::Failed, "{name}");
+                    let r = reason.expect("a failure reason");
+                    assert_eq!(
+                        (r.code.as_str(), r.detail.clone()),
+                        (e.code(), e.to_string()),
+                        "{name}"
+                    );
+                }
+            }
+            assert_eq!(
+                preflight.as_ref().err().map(|e| e.code()),
+                case.expect,
+                "{name}: the case reaches the leg it names"
+            );
+            let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+            if name == "a cross-fit fold too small to learn" {
+                // The fold bundles are built between calls, as before: the
+                // main fit ran, then the first fold's bundle was refused.
+                assert_eq!(calls.len(), 1, "{name}: only the main fit ran");
+                assert_eq!(calls[0].mode, MethodRunMode::FitOnly, "{name}");
+            } else if preflight.is_err() {
+                assert!(calls.is_empty(), "{name}: refused before any call");
+            }
+        }
+    }
+
+    /// A context without a train side (e.g. a predict-only reuse call) is an
+    /// internal error from the preflight, never a panic.
+    #[tokio::test]
+    async fn call_bundle_preflight_without_a_train_side_is_an_error() {
+        let method = "ctdna-tf-four-group";
+        let (ctx, _cancel) = executor_ctx(
+            &test_data_dir("preflight-no-train"),
+            method,
+            None,
+            None,
+            None,
+            false,
+            RunTarget::TrainMethod,
+        );
+        let facts = envmanifest::facts_for(method).expect("facts");
+        let err = call_bundle_preflight(&ctx, facts).expect_err("no train side");
+        assert_eq!(err.status_code(), 500, "{err}");
+        assert!(err.to_string().contains("no train side"), "{err}");
+    }
+
+    // ── reuse: the data-carrying conversion builds a train call's bundles ──
+
+    /// A Files-mode reuse request over the cohort (the run's own patients
+    /// table + a predict file): the reuse call scores the predict file, and
+    /// the conversion is re-fitted from the model's scores over the cohort.
+    fn cohort_reuse_request(asset_dir: &Path, digest: &str, method_id: &str) -> CreateRunRequest {
+        CreateRunRequest {
+            mode: TxrRunMode::Reuse,
+            input: TxrRunInput {
+                patients: Some(cohort_patients_table()),
+                measurements: cohort_measurements_table(),
+                predict_measurements: Some(cohort_measurements_table()),
+                joins: Vec::new(),
+                mapping: Vec::new(),
+                keep_copies: false,
+            },
+            config: RunConfig {
+                at_a_time: 2,
+                decision_day: 56.0,
+                look_ahead_day: 238.0,
+                ..Default::default()
+            },
+            method_ids: Vec::new(),
+            model_ids: vec![crate::modules::execution_engine::types::TxrModelAsset {
+                model_id: "m-1".to_string(),
+                host_dir: asset_dir.display().to_string(),
+                tree_sha256: digest.to_string(),
+                method_id: method_id.to_string(),
+                method_version: "2.0.0".to_string(),
+                env: TxrMethodEnv {
+                    base_digest: "c".repeat(64),
+                    layer_digest: "d".repeat(64),
+                },
+                contract: "2.0".to_string(),
+            }],
+        }
+    }
+
+    /// A model asset tree under `run_dir` + its digest.
+    fn fixture_asset(run_dir: &Path) -> (PathBuf, String) {
+        let asset_dir = run_dir.join("asset-model");
+        std::fs::create_dir_all(&asset_dir).unwrap();
+        std::fs::write(asset_dir.join("model.rds"), "fixture-model").unwrap();
+        let digest = crate::modules::sandbox::stack::tree_sha256(&asset_dir).unwrap();
+        (asset_dir, digest)
+    }
+
+    /// The reuse fixture's prepared sides with the predict file cut to the
+    /// cohort's first 12 patients, so the predict surface and the cohort
+    /// score different patient sets (the conversion's cohort call must score
+    /// the cohort, never the predict file).
+    fn reuse_sides_with_a_smaller_predict_file(
+        prepared: &PreparedRun,
+    ) -> (Arc<CanonicalBundle>, Arc<CanonicalBundle>) {
+        let train = prepared
+            .train
+            .clone()
+            .expect("a Files-mode reuse carries the cohort");
+        let predict = prepared.predict.as_deref().expect("the predict file");
+        // The predict file has no patients table; cut it by the cohort's ids.
+        let mut ids: Vec<&str> = train
+            .patients
+            .iter()
+            .map(|p| p.patient_id.as_str())
+            .collect();
+        ids.sort_unstable();
+        let keep: std::collections::HashSet<&str> = ids.into_iter().take(12).collect();
+        let predict = Arc::new(subset_canonical(predict, &keep));
+        (train, predict)
+    }
+
+    /// The data-carrying reuse conversion builds the cohort's bundles with
+    /// [`method_bundles`] (marker set → train bundle → test bundle over the
+    /// cohort itself, no predict file): its cohort call receives exactly that
+    /// train bundle's params and that test bundle's scored rows — the cohort's
+    /// patients, not the (smaller) predict file's — and the conversion is
+    /// re-fitted (Recalibrated).
+    #[tokio::test]
+    async fn executor_reuse_with_cohort_converts_over_the_train_call_bundles() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse-cohort"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        make_method_dirs(&run_dir, "m-1");
+        let method = "ctdna-tf-four-group";
+        let req = cohort_reuse_request(&asset_dir, &digest, method);
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Reuse,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the reuse fixture validates");
+        let (train, predict) = reuse_sides_with_a_smaller_predict_file(&prepared);
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "m-1",
+            Some(train.clone()),
+            Some(predict.clone()),
+            prepared.predict_patients.clone(),
+            false,
+            RunTarget::ReuseModel {
+                asset: req.model_ids[0].clone(),
+            },
+        );
+        ctx.config = req.config.clone();
+        let facts = envmanifest::facts_for(method).expect("facts");
+        let expected = method_bundles(
+            &train,
+            None,
+            facts,
+            &method_bundle_settings(&ctx.config, ctx.cpus),
+            ctx.min_draws,
+        )
+        .expect("the cohort's train call bundles build");
+        let mut cohort_ids: Vec<String> = train
+            .patients
+            .iter()
+            .map(|p| p.patient_id.clone())
+            .collect();
+        cohort_ids.sort();
+        let mut predict_ids: Vec<String> = predict
+            .values
+            .iter()
+            .map(|v| v.patient_id.clone())
+            .collect();
+        predict_ids.sort();
+        predict_ids.dedup();
+        assert!(
+            predict_ids.len() < cohort_ids.len(),
+            "the predict file is smaller"
+        );
+
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.state,
+            TxrMethodState::Finished,
+            "{:?}",
+            outcome.reason
+        );
+        assert_eq!(
+            outcome.prob_source,
+            Some(TxrProbSource::Recalibrated),
+            "a risk-only reuse with the cohort re-fits the conversion"
+        );
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(calls.len(), 2, "the predict-surface call + the cohort call");
+        assert!(calls.iter().all(|c| c.mode == MethodRunMode::ReuseModel));
+        assert_eq!(calls[0].scored, predict_ids, "the predict surface");
+        assert_eq!(
+            calls[1].scored, cohort_ids,
+            "the cohort, not the predict file"
+        );
+        assert_ne!(calls[1].scored, calls[0].scored);
+        assert_eq!(
+            calls[1].scored, expected.test.scored,
+            "the cohort test bundle"
+        );
+        assert_eq!(
+            calls[1].params, expected.train.params,
+            "the cohort train bundle"
+        );
+        drop(calls);
+    }
+
+    /// A refusal while building the reuse conversion's cohort bundles is
+    /// [`method_bundles`]' refusal (no predict file), code and detail. The
+    /// case, with covariates on: the cohort's measurements carry a patient
+    /// (`X99`) that its patients table does not, and the predict file is a
+    /// smaller set of table patients. The predict-surface call runs; then the
+    /// cohort's test bundle — over the cohort with its own patients table —
+    /// scores `X99` and is refused `BUNDLE_TEST_PATIENT_UNKNOWN`. A cohort
+    /// test bundle built over the predict file instead would be refused
+    /// differently (no predict patients table).
+    #[tokio::test]
+    async fn executor_reuse_cohort_refusal_is_the_train_call_bundle_refusal() {
+        use crate::modules::file_validator::types::{CanonCell, CanonicalValue};
+
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse-cohort-refusal"));
+        let pool = merged_pool().await;
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        make_method_dirs(&run_dir, "m-1");
+        let method = "ctdna-tf-four-group";
+        let req = cohort_reuse_request(&asset_dir, &digest, method);
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Reuse,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the reuse fixture validates");
+        let (train, predict) = reuse_sides_with_a_smaller_predict_file(&prepared);
+
+        // Covariates on every table patient; X99 has draws but no table row.
+        let mut cohort = (*train).clone();
+        for (i, p) in cohort.patients.iter_mut().enumerate() {
+            p.covariates = vec![("age".to_string(), CanonCell::Number(40.0 + i as f64))];
+        }
+        let first = cohort.patients[0].patient_id.clone();
+        let unknown: Vec<CanonicalValue> = cohort
+            .values
+            .iter()
+            .filter(|v| v.patient_id == first)
+            .map(|v| CanonicalValue {
+                patient_id: "X99".to_string(),
+                ..v.clone()
+            })
+            .collect();
+        cohort.values.extend(unknown);
+        let predict_patients: Arc<[CanonicalPatient]> =
+            Arc::from(cohort.patients.clone().into_boxed_slice());
+        let cohort = Arc::new(cohort);
+
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "m-1",
+            Some(cohort.clone()),
+            Some(predict),
+            Some(predict_patients),
+            false,
+            RunTarget::ReuseModel {
+                asset: req.model_ids[0].clone(),
+            },
+        );
+        ctx.config = RunConfig {
+            covariates: true,
+            ..req.config.clone()
+        };
+        let facts = envmanifest::facts_for(method).expect("facts");
+        let refusal = method_bundles(
+            &cohort,
+            None,
+            facts,
+            &method_bundle_settings(&ctx.config, ctx.cpus),
+            ctx.min_draws,
+        )
+        .err()
+        .expect("the cohort's test bundle refuses X99");
+        assert_eq!(
+            refusal,
+            bundle::BundleError::TestPatientWithoutCovariateRow {
+                patient_id: "X99".to_string()
+            }
+        );
+
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(outcome.state, TxrMethodState::Failed);
+        let reason = outcome.reason.expect("a failure reason");
+        assert_eq!(
+            (reason.code.as_str(), reason.detail),
+            (refusal.code(), refusal.to_string())
+        );
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            calls.len(),
+            1,
+            "the reuse call ran before the cohort refusal"
+        );
+        assert_eq!(calls[0].mode, MethodRunMode::ReuseModel);
+        assert!(!calls[0].scored.contains(&"X99".to_string()));
         drop(calls);
     }
 
