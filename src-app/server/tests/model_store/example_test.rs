@@ -138,7 +138,7 @@ impl MethodExecutor for ModelFakeExecutor {
         // the unit test `call_bundle_preflight_matches_the_executor_bundle_stage`.
         let facts = envmanifest::facts_for(&ctx.method_id)
             .ok_or_else(|| AppError::internal_error(format!("unknown method {}", ctx.method_id)))?;
-        if let Err(e) = orchestrator::call_bundle_preflight(&ctx, facts) {
+        if let Err(e) = orchestrator::call_bundle_preflight(&ctx, facts)? {
             self.refused
                 .lock()
                 .expect("lock")

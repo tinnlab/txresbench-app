@@ -1503,23 +1503,27 @@ pub(crate) fn method_bundle_settings(config: &RunConfig, cpus: u32) -> bundle::B
 
 /// [`train_bundle_preflight`] over a train call's own context: its canonical
 /// sides, its `min_draws` and the settings `execute` builds from it
-/// ([`method_bundle_settings`]). `Ok` means the call is not refused with a
-/// `BUNDLE_*` code.
+/// ([`method_bundle_settings`]). The outer `Err` is a context that is not a
+/// train call (no train side — an internal error, not a bundle verdict);
+/// `Ok(Ok(()))` means the call is not refused with a `BUNDLE_*` code, and
+/// `Ok(Err(_))` is the refusal.
 pub fn call_bundle_preflight(
     ctx: &MethodRunContext,
     facts: &Method,
-) -> Result<(), bundle::BundleError> {
-    let train = ctx
-        .train
-        .as_deref()
-        .expect("a train call always carries the train side");
-    train_bundle_preflight(
+) -> Result<Result<(), bundle::BundleError>, AppError> {
+    let train = ctx.train.as_deref().ok_or_else(|| {
+        AppError::internal_error(format!(
+            "method {}: the bundle preflight needs a train call's context (no train side)",
+            ctx.method_id
+        ))
+    })?;
+    Ok(train_bundle_preflight(
         train,
         ctx.predict.as_deref(),
         facts,
         &method_bundle_settings(&ctx.config, ctx.cpus),
         ctx.min_draws,
-    )
+    ))
 }
 
 /// The bundles a train-mode call builds before its first method call: the
@@ -4532,6 +4536,8 @@ pub(crate) mod test_support {
     /// One planned method of [`train_with_scripted_sandbox`].
     pub(crate) struct ScriptedMethod {
         pub method_id: String,
+        /// Whether the plan's target is a train call (`RunTarget::TrainMethod`).
+        pub train_target: bool,
         /// The plan's `cannot_run` flag and reason (`classify`).
         pub cannot_run: bool,
         pub reason: Option<TxrRunReason>,
@@ -4592,7 +4598,12 @@ pub(crate) mod test_support {
                 prepared.predict.clone(),
                 prepared.predict_patients.clone(),
                 req.config.save_models,
-                RunTarget::TrainMethod,
+                match &plan.target {
+                    RunTarget::TrainMethod => RunTarget::TrainMethod,
+                    RunTarget::ReuseModel { asset } => RunTarget::ReuseModel {
+                        asset: asset.clone(),
+                    },
+                },
             );
             ctx.label = plan.label.clone();
             ctx.version = plan.version.clone();
@@ -4600,7 +4611,7 @@ pub(crate) mod test_support {
             ctx.min_draws = plan.min_draws;
             ctx.config = req.config.clone();
             ctx.cpus = detect_cpus();
-            let preflight = call_bundle_preflight(&ctx, facts);
+            let preflight = call_bundle_preflight(&ctx, facts).expect("a train call's context");
             let outcome = exec.execute(ctx).await.expect("an executor verdict");
             let calls = seam
                 .calls
@@ -4611,6 +4622,7 @@ pub(crate) mod test_support {
                 .collect();
             methods.push(ScriptedMethod {
                 method_id: plan.method_id.clone(),
+                train_target: matches!(plan.target, RunTarget::TrainMethod),
                 cannot_run: plan.cannot_run,
                 reason: plan.reason.clone(),
                 min_draws: plan.min_draws,
@@ -6293,6 +6305,11 @@ mod tests {
         .expect_err("refused")
         .code();
 
+        let mut no_covariates = (*train).clone();
+        for p in &mut no_covariates.patients {
+            p.covariates.clear();
+        }
+        let no_covariates = Arc::new(no_covariates);
         let mut with_covariates = (*train).clone();
         for (i, p) in with_covariates.patients.iter_mut().enumerate() {
             p.covariates = vec![("age".to_string(), CanonCell::Number(40.0 + i as f64))];
@@ -6348,7 +6365,11 @@ mod tests {
             Case {
                 config: covariates_on.clone(),
                 expect: Some("BUNDLE_COVARIATES_MISSING"),
-                ..case("covariates without a covariate column", base, &train)
+                ..case(
+                    "covariates without a covariate column",
+                    base,
+                    &no_covariates,
+                )
             },
             Case {
                 config: covariates_on.clone(),
@@ -6406,7 +6427,7 @@ mod tests {
             ctx.config = case.config;
             ctx.cpus = detect_cpus();
             ctx.min_draws = case.min_draws.unwrap_or(facts.min_draws);
-            let preflight = call_bundle_preflight(&ctx, facts);
+            let preflight = call_bundle_preflight(&ctx, facts).expect("a train call's context");
             let outcome = exec.execute(ctx).await.expect("an executor verdict");
             let reason = outcome.reason.clone();
             match &preflight {
@@ -6441,6 +6462,26 @@ mod tests {
                 assert!(calls.is_empty(), "{name}: refused before any call");
             }
         }
+    }
+
+    /// A context without a train side (e.g. a predict-only reuse call) is an
+    /// internal error from the preflight, never a panic.
+    #[tokio::test]
+    async fn call_bundle_preflight_without_a_train_side_is_an_error() {
+        let method = "ctdna-tf-four-group";
+        let (ctx, _cancel) = executor_ctx(
+            &test_data_dir("preflight-no-train"),
+            method,
+            None,
+            None,
+            None,
+            false,
+            RunTarget::TrainMethod,
+        );
+        let facts = envmanifest::facts_for(method).expect("facts");
+        let err = call_bundle_preflight(&ctx, facts).expect_err("no train side");
+        assert_eq!(err.status_code(), 500, "{err}");
+        assert!(err.to_string().contains("no train side"), "{err}");
     }
 
     // ── reuse: the data-carrying conversion builds a train call's bundles ──
