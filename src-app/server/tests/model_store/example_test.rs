@@ -93,11 +93,11 @@ impl EnvProvider for FakeExampleEnv {
     fn cancel(&self, _env_id: &str) {}
 }
 
-/// The scripted method executor: records the runs, applies the real
-/// executor's bundle stage to the context the drive hands it, waits a moment
-/// (so the `creating` state is observable), and writes a REAL model tree
-/// under the run dir — the store's save path copies it like any produced
-/// model.
+/// The scripted method executor: records the runs, runs the pick's bundle
+/// preflight over the context the drive hands it (see `execute`), waits a
+/// moment (so the `creating` state is observable), and writes a REAL model
+/// tree under the run dir — the store's save path copies it like any
+/// produced model.
 struct ModelFakeExecutor {
     runs: Mutex<Vec<String>>,
     refused: Mutex<Vec<String>>,
