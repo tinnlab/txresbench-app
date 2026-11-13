@@ -29,6 +29,7 @@ import {
   hasErrorProblems,
   inspectRequest,
   measurementsStatus,
+  missingColumns,
   parsePickedFile,
   patientsStatus,
   predictMeasurementsStatus,
@@ -445,7 +446,11 @@ describe('ITEM-6 (global QA intake fixes) — F1 events, F2 mapping, F3 empty, F
   })
 
   it('the mapping step suggests obvious renamed columns only (F2)', () => {
-    // The report's renamed file: pid, study_day, analyte, result, units.
+    // The report's renamed file: pid, study_day, analyte, result, units —
+    // the unit's obvious spelling is offered too now (R2-4: the round-3
+    // review counted the missing `units → unit` offer as the defect; the
+    // validator reads both spellings, so declining is safe and accepting
+    // states the mapping the user asked about).
     expect(
       resolveColumnRenames(['pid', 'study_day', 'analyte', 'result', 'units'], 'measurements'),
     ).toEqual([
@@ -453,10 +458,12 @@ describe('ITEM-6 (global QA intake fixes) — F1 events, F2 mapping, F3 empty, F
       { from: 'study_day', to: 'day' },
       { from: 'analyte', to: 'marker' },
       { from: 'result', to: 'value' },
+      { from: 'units', to: 'unit' },
     ])
-    // `units` is the SERVER's own alias (UNIT_ALIASES) — no overlap: the
-    // app never re-offers a spelling the validator already reads.
-    expect(resolveColumnRenames(['units'], 'measurements')).toEqual([])
+    expect(resolveColumnRenames(['units'], 'measurements')).toEqual([
+      { from: 'units', to: 'unit' },
+    ])
+    // A canonical column never offers (the validator's own name is the one).
     expect(resolveColumnRenames(['patient_id', 'day', 'marker', 'value'], 'measurements')).toEqual([])
     expect(resolveColumnRenames(['pid'], 'patients')).toEqual([
       { from: 'pid', to: 'patient_id' },
@@ -530,6 +537,33 @@ describe('ITEM-6 (global QA intake fixes) — F1 events, F2 mapping, F3 empty, F
     expect(problems.some(p => p.code === 'A02')).toBe(false)
     expect(problems.some(p => p.code === 'A01')).toBe(true)
     expect(problems.some(p => p.code === 'R03')).toBe(true)
+  })
+
+  it('names the missing required columns in the canonical order (R3-intake-6)', () => {
+    const r02 = (column: string): FileProblem => ({
+      code: 'R02',
+      severity: 'error',
+      row: 1,
+      column,
+      message: `required column \`${column}\` is missing from the measurements table`,
+    })
+    const others = [
+      r02('value'),
+      r02('patient_id'),
+      errorProblem(4),
+      { ...warningProblem, code: 'R18' as FileProblem['code'] },
+      r02('day'),
+      r02('marker'),
+    ]
+    expect(missingColumns(others, 'measurements')).toEqual(['patient_id', 'day', 'marker', 'value'])
+    // The patients table's own required set, and no R02 → nothing to name.
+    const patients = [
+      { ...r02('os_days'), message: '…patients table' },
+      { ...r02('patient_id'), message: '…patients table' },
+    ]
+    expect(missingColumns(patients, 'patients')).toEqual(['patient_id', 'os_days'])
+    expect(missingColumns([errorProblem(4)], 'measurements')).toEqual([])
+    expect(missingColumns([], 'measurements')).toEqual([])
   })
 
   it('the median follow-up renders whole or one-decimal (F6)', () => {

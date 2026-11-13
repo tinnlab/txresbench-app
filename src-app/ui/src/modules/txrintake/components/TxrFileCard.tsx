@@ -35,6 +35,7 @@
  */
 
 import type { CSSProperties } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Button, Spinner } from '@txresbench/kit'
 import { useStore } from 'zustand'
 import type { FileTableKind } from '@/api-client/types'
@@ -42,6 +43,7 @@ import {
   fileHasNoDataRows,
   hasErrorProblems,
   measurementsStatus,
+  missingColumns,
   patientsStatus,
   predictMeasurementsStatus,
 } from '../lib/flow'
@@ -225,6 +227,9 @@ const EXAMPLE_HEAD: CSSProperties = {
   borderBottom: '1px solid var(--txr-border)',
   fontWeight: 600,
   fontSize: 12.5,
+  // F9: the header takes the natural column width (a wrapped header would
+  // pinch the column and re-introduce the phone squeeze).
+  whiteSpace: 'nowrap',
   // app-shell ITEM-2: the preview table's header sticks inside its OWN
   // bounded box (the audit's "each preview table has its own bounded region
   // with a sticky header") — the box is the table's scrollport, so the
@@ -237,6 +242,9 @@ const EXAMPLE_ENTRY: CSSProperties = {
   padding: '4px 10px',
   borderBottom: '1px solid var(--txr-surface-raised)',
   fontSize: 12.5,
+  // F9: a preview cell never wraps mid-word — the natural column width is
+  // the scrollbox's, never a squeezed 3-line id (the phone report's cut).
+  whiteSpace: 'nowrap',
 }
 const EXAMPLE_CODE: CSSProperties = {
   ...EXAMPLE_ENTRY,
@@ -365,6 +373,11 @@ export function TxrFileCard(props: TxrFileCardProps) {
   // ITEM-6 F5d: the red box counts and lists ERROR problems; warnings are
   // notes ("N notes"), even under an error — one severity per box.
   const errorCount = errorsOnly.length
+  // R3-intake-6: the one line naming the canonical columns the renamed-file
+  // case is missing — visible beside the offers AND after they are declined
+  // (the grouped R02 lines repeat the same fact per column inside a wall of
+  // per-row counts; the suggestions never show the canonical names).
+  const missing = missingColumns(errorsOnly, kind)
   const hasOffers =
     (file?.joinOffers.length ?? 0) > 0 ||
     (file?.vocabOffers.length ?? 0) > 0 ||
@@ -511,6 +524,14 @@ export function TxrFileCard(props: TxrFileCardProps) {
                       : ''}
                   </div>
                 )}
+                {missing.length > 0 ? (
+                  <div
+                    data-testid={`txr-intake-file-missing-columns-${kind}`}
+                    style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-danger)' }}
+                  >
+                    Missing columns: {missing.join(', ')}
+                  </div>
+                ) : null}
                 {showProblemDetails ? (
                   <>
                     <TxrProblemList kind={kind} problems={errorsOnly} />
@@ -607,39 +628,91 @@ function RoleTable({ roles }: { roles: RoleRow[] }) {
  *  app-shell ITEM-2: the box is the preview's OWN bounded region — a fixed
  *  max height with overflow on BOTH axes and the sticky header above, so a
  *  tall preview scrolls inside its box and the header never leaves it (the
- *  audit's /files + /predict-files byte; the card never grows the page). */
+ *  audit's /files + /predict-files byte; the card never grows the page).
+ *  qa-fixes4 F9: the cells are NOWRAP (a patient id never wraps mid-word and
+ *  a wide unit column never squeezes the id column into 3 lines — the
+ *  phone preview's cut columns), the box keeps the table's NATURAL width so
+ *  every column is reachable, and an overflow shadow hints that the box
+ *  scrolls sideways (the round-3 report's "cut at 'os_e' with no scroll
+ *  hint"). */
 function FirstRows({ columns, rows }: { columns: string[]; rows: (string | null)[][] }) {
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [scrollsSideways, setScrollsSideways] = useState(false)
+  useEffect(() => {
+    const box = boxRef.current
+    if (box === null) return
+    const measure = () => {
+      setScrollsSideways(box.scrollWidth > box.clientWidth + 1)
+    }
+    measure()
+    box.addEventListener('scroll', measure)
+    // jsdom has no ResizeObserver (the ScrollRegion precedent); the scroll
+    // listener + the initial measure still drive the hint.
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(measure)
+      observer.observe(box)
+      return () => {
+        box.removeEventListener('scroll', measure)
+        observer.disconnect()
+      }
+    }
+    return () => {
+      box.removeEventListener('scroll', measure)
+    }
+  }, [columns])
   return (
-    // ITEM-6 F9: the table scrolls INSIDE its box (the last column of the
-    // patients preview used to clip at the card edge with no way to see it —
-    // "response_da" cut mid-word; the box's own overflow keeps the page
-    // fixed and the hint-comma inside cells no longer hides the tail).
-    <div
-      className="txr-intake-first-rows"
-      style={{ overflow: 'auto', borderRadius: 8, maxHeight: 280, maxWidth: '100%' }}
-    >
-      <table style={EXAMPLE_TABLE}>
-        <thead>
-          <tr>
-            {columns.map(column => (
-              <th key={column} scope="col" style={EXAMPLE_HEAD}>
-                {column}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <tr key={index}>
-              {columns.map((column, cindex) => (
-                <td key={column} style={cindex === 0 ? EXAMPLE_CODE : EXAMPLE_ENTRY}>
-                  {row[cindex] ?? ''}
-                </td>
+    <div style={{ position: 'relative' }}>
+      {/* ITEM-6 F9: the table scrolls INSIDE its box (the last column of the
+          patients preview used to clip at the card edge with no way to see it —
+          "response_da" cut mid-word; the box's own overflow keeps the page
+          fixed and the hint-comma inside cells no longer hides the tail). */}
+      <div
+        ref={boxRef}
+        className="txr-intake-first-rows"
+        style={{ overflow: 'auto', borderRadius: 8, maxHeight: 280, maxWidth: '100%' }}
+      >
+        <table style={EXAMPLE_TABLE}>
+          <thead>
+            <tr>
+              {columns.map(column => (
+                <th key={column} scope="col" style={EXAMPLE_HEAD}>
+                  {column}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={index}>
+                {columns.map((column, cindex) => (
+                  <td key={column} style={cindex === 0 ? EXAMPLE_CODE : EXAMPLE_ENTRY}>
+                    {row[cindex] ?? ''}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {/* F9: the sideways-scroll hint — a right-edge fade over the box row
+          (the viewer only when the box actually overflows its width). */}
+      {scrollsSideways ? (
+        <div
+          data-testid="txr-intake-first-rows-scroll-hint"
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: 44,
+            pointerEvents: 'none',
+            background:
+              'linear-gradient(to left, var(--txr-surface) 0%, var(--txr-surface) 12%, transparent 100%)',
+            borderRadius: '0 8px 8px 0',
+          }}
+        />
+      ) : null}
     </div>
   )
 }
