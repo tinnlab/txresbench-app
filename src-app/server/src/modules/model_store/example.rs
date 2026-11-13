@@ -7,16 +7,20 @@
 //! 1. The METHODS are chosen deterministically from the real catalogue
 //!    ([`pick_fast_methods`]): the host-arch methods with a published
 //!    environment (`runtime_env_available`), `saves_model`, a `CanRun`
-//!    verdict on the example training data's own inventory, a marker set
-//!    the run's bundle builder accepts on the example's canonical rows
-//!    (the engine's own [`bundle::method_marker_set`] — the example carries
-//!    three main markers, so a `single` method without a fixed marker list
-//!    would be refused `BUNDLE_MARKER_COUNT_UNMET` before it starts), and a
-//!    catalogue estimate under 30 s (the plan's "3 that run in under 30 s
-//!    each"); fastest-first, id tie-break, capped at 3. The pick is a PURE
-//!    function of the embedded catalogue + the embedded example — no
-//!    calibration, no host-CPU dependence, so every machine's first call
-//!    trains the same methods.
+//!    verdict on the example training data's own inventory, every bundle
+//!    the run's train call builds built without a refusal
+//!    ([`orchestrator::train_bundle_preflight`] — the engine's own marker
+//!    set, train/test bundles and cross-fit bundles; the example carries
+//!    three main markers, so e.g. a `single` method without a fixed marker
+//!    list would be refused `BUNDLE_MARKER_COUNT_UNMET` before it starts),
+//!    and a catalogue estimate under 30 s (the plan's "3 that run in under
+//!    30 s each"); fastest-first, id tie-break, capped at 3. The pick judges
+//!    the data the run trains on: [`example_run_inputs`] canonicalizes
+//!    [`example_run_request`]'s own tables and config through
+//!    [`orchestrator::canonicalize_run`] (the run's `prepare_run` pass). It
+//!    is a function of the embedded catalogue + the embedded example + the
+//!    host's published env set only — no calibration, no host-CPU
+//!    dependence — and is computed once per process ([`example_methods`]).
 //! 2. The RUN is a real run through the engine's normal path
 //!    ([`orchestrator::start_run`], seam-injected so the test harness can
 //!    script the env/executor) over the embedded example training tables —
@@ -45,13 +49,14 @@
 //! ### Determinism
 //!
 //! The example family is byte-identical on every call (the generator commits
-//! seeded bytes; the assets are `include_bytes!`), the method pick is a pure
-//! function of those bytes, and the run's seed is the engine's single fixed
+//! seeded bytes; the assets are `include_bytes!`), the method pick is a
+//! function of those bytes and the host's published env set, and the run's
+//! seed is the engine's single fixed
 //! contract seed — so a recreated set trains the same methods on the same
 //! data. What differs per machine is only the environment contents the run
 //! downloads (the digest-pinned published layers).
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use axum::http::StatusCode;
 use sqlx::SqlitePool;
@@ -59,21 +64,24 @@ use uuid::Uuid;
 
 use txresbench_core::AppError;
 
-use crate::modules::execution_engine::bundle;
-use crate::modules::execution_engine::orchestrator::{self, EnvProvider, MethodExecutor};
+use crate::modules::execution_engine::bundle::BundleSettings;
+use crate::modules::execution_engine::orchestrator::{
+    self, detect_cpus, per_method_cpus, EnvProvider, MethodExecutor,
+};
 use crate::modules::execution_engine::runtime::RunRuntime;
 use crate::modules::execution_engine::types::{
     CreateRunRequest, RunConfig, TxrRunInput, TxrRunMode, TxrRunStatus,
 };
+use crate::modules::file_validator::assets;
 use crate::modules::file_validator::types::{
-    CanonicalBundle, ParsedTable, ParsedTableSource, TableFormat, ValidationMode, ValidationRequest,
+    CanonicalBundle, ParsedTable, ParsedTableSource, ProblemSeverity, TableFormat,
+    ValidationResponse,
 };
-use crate::modules::file_validator::{assets, canonical_bundle, validate};
 use crate::modules::method_catalogue::catalogue::catalogue;
 use crate::modules::method_catalogue::eligibility::{
     eligibility_for, estimate_seconds_for, runtime_env_available, REFERENCE_CPUS,
 };
-use crate::modules::method_catalogue::types::{EligibilityRequest, EligibilityStatus};
+use crate::modules::method_catalogue::types::{Catalogue, EligibilityRequest, EligibilityStatus};
 use crate::modules::model_store::repository::{ExampleStateRow, ModelStoreRepository};
 use crate::modules::model_store::types::{ExampleSetResponse, ExampleSetState};
 
@@ -109,37 +117,123 @@ pub struct ExampleRunSeams {
     pub executor: Arc<dyn MethodExecutor>,
 }
 
-/// The deterministic fast-method pick (pure; the test seam of the real
-/// catalogue). The verdicts are the PURE eligibility engine over the example
-/// validation's inventory; the runtime-env + saves_model filters implement
-/// the plan's "methods that have a published environment"; the marker filter
-/// is the run's own per-method marker rule ([`bundle::method_marker_set`])
-/// over the example's canonical rows (`train` — the same bundle the run
-/// builds from the same request), so a picked method is never refused
-/// `BUNDLE_MARKER_COUNT_UNMET`/`BUNDLE_NO_MAIN_MARKER` before it starts; the
-/// estimate is the catalogue's (`REFERENCE_CPUS` — host-independent).
-pub fn pick_fast_methods(
-    inventory: &crate::modules::method_catalogue::types::InventoryEligibilityRequest,
-    patients: u32,
-    train: &CanonicalBundle,
-) -> Vec<String> {
-    pick_fast_methods_with(inventory, patients, train, runtime_env_available)
+/// The example run's inputs exactly as the run sees them: the validation
+/// and canonical sides [`orchestrator::canonicalize_run`] (the run's own
+/// `prepare_run` pass) builds from [`example_run_request`]'s tables and
+/// config — ONE builder, so the pick judges the data the run trains on.
+pub struct ExampleRunInputs {
+    pub validation: ValidationResponse,
+    pub train: Arc<CanonicalBundle>,
+    pub predict: Option<Arc<CanonicalBundle>>,
+    pub config: RunConfig,
+}
+
+impl ExampleRunInputs {
+    /// The example's training patient count (the estimate's `patients`).
+    pub fn patients(&self) -> u32 {
+        self.validation
+            .patients
+            .as_ref()
+            .map(|p| p.rows)
+            .unwrap_or(0)
+    }
+}
+
+fn validation_failed(message: impl Into<String>) -> AppError {
+    AppError::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "EXAMPLE_VALIDATION_FAILED",
+        message.into(),
+    )
+}
+
+/// Canonicalize the example run's request through the run's own pass (the
+/// ONE validation the endpoint pins: zero errors and at most the normal A04
+/// notes, asserted here and in the material test — a generator change that
+/// breaks the example fails before any endpoint serves it).
+pub fn example_run_inputs() -> Result<ExampleRunInputs, AppError> {
+    let request = example_run_request(&[]);
+    let canonical = orchestrator::canonicalize_run(&request.input, &request.config, request.mode)
+        .map_err(|e| {
+        validation_failed(format!("the embedded example data does not validate: {e}"))
+    })?;
+    let errors: Vec<_> = canonical
+        .validated
+        .problems
+        .iter()
+        .filter(|p| p.severity == ProblemSeverity::Error)
+        .collect();
+    if !errors.is_empty() {
+        return Err(validation_failed(format!(
+            "the embedded example data carries {} error(s): {:?}",
+            errors.len(),
+            errors
+                .iter()
+                .map(|p| format!("{}: {}", p.code.code(), p.message))
+                .collect::<Vec<_>>()
+        )));
+    }
+    let train = canonical
+        .train
+        .ok_or_else(|| validation_failed("the example run carries no training side"))?;
+    Ok(ExampleRunInputs {
+        validation: canonical.validated,
+        train,
+        predict: canonical.predict,
+        config: request.config,
+    })
+}
+
+/// The example training pair + the validator's verdict (the run's own
+/// validation of [`example_run_request`]'s tables).
+pub fn example_validation() -> Result<ValidationResponse, AppError> {
+    example_run_inputs().map(|inputs| inputs.validation)
+}
+
+/// The bundle settings a method call of a run with `config` builds its
+/// bundles with (the executor's `BundleSettings::for_run` over the run
+/// config and the per-method lane CPU count; `threads` only reaches
+/// `params.json`, never a refusal).
+pub fn run_bundle_settings(config: &RunConfig) -> BundleSettings {
+    BundleSettings::for_run(config, per_method_cpus(detect_cpus(), config.at_a_time))
+}
+
+/// The deterministic fast-method pick (the test seam of the real catalogue).
+/// The verdicts are the PURE eligibility engine over the example run's
+/// inventory; the runtime-env + saves_model filters implement the plan's
+/// "methods that have a published environment"; the bundle filter is
+/// [`orchestrator::train_bundle_preflight`] — every bundle the run's train
+/// call builds (marker set, train/test, cross-fit), built by the engine's
+/// own functions with the run's settings and the method's `min_draws`, so a
+/// picked method is never refused with a `BUNDLE_*` code; the estimate is
+/// the catalogue's (`REFERENCE_CPUS` — host-independent).
+pub fn pick_fast_methods(inputs: &ExampleRunInputs) -> Vec<String> {
+    pick_fast_methods_with(inputs, runtime_env_available)
 }
 
 /// [`pick_fast_methods`] with the published-environment predicate injected
-/// (production passes the host-arch [`runtime_env_available`]; the unit
-/// tests pass a fixed arch so the pick is checked on any host).
-fn pick_fast_methods_with(
-    inventory: &crate::modules::method_catalogue::types::InventoryEligibilityRequest,
-    patients: u32,
-    train: &CanonicalBundle,
+/// (production passes the host-arch [`runtime_env_available`]; the tests
+/// pass a fixed arch so the pick is checked on any host).
+pub(crate) fn pick_fast_methods_with(
+    inputs: &ExampleRunInputs,
     env_available: impl Fn(&str) -> bool,
 ) -> Vec<String> {
-    let cat = catalogue();
+    pick_from(catalogue(), inputs, env_available)
+}
+
+/// The pick over a given catalogue (production: the embedded one; the tests
+/// inject a modified copy to reach a method only the bundle stage refuses).
+fn pick_from(
+    cat: &Catalogue,
+    inputs: &ExampleRunInputs,
+    env_available: impl Fn(&str) -> bool,
+) -> Vec<String> {
+    let patients = inputs.patients();
+    let settings = run_bundle_settings(&inputs.config);
     let verdicts = eligibility_for(
         cat,
         &EligibilityRequest::Inventory {
-            inventory: inventory.clone(),
+            inventory: inputs.validation.inventory.clone(),
         },
     );
     let mut candidates: Vec<(f64, String)> = verdicts
@@ -154,15 +248,21 @@ fn pick_fast_methods_with(
             if !method.saves_model {
                 return None;
             }
-            // The run's own marker rule on the example rows: a method whose
-            // marker set does not resolve would fail before it starts.
-            if bundle::method_marker_set(train, &method.markers, method.required_markers.as_ref())
-                .is_err()
-            {
+            let seconds = estimate_seconds_for(method, patients, REFERENCE_CPUS);
+            if seconds >= EXAMPLE_METHOD_SECONDS_MAX {
                 return None;
             }
-            let seconds = estimate_seconds_for(method, patients, REFERENCE_CPUS);
-            (seconds < EXAMPLE_METHOD_SECONDS_MAX).then_some((seconds, m.id))
+            // The run's own bundle stage on the example rows: a method it
+            // would refuse fails before (or between) its calls.
+            orchestrator::train_bundle_preflight(
+                &inputs.train,
+                inputs.predict.as_deref(),
+                method,
+                &settings,
+                method.min_draws,
+            )
+            .ok()?;
+            Some((seconds, m.id))
         })
         .collect();
     candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
@@ -173,10 +273,37 @@ fn pick_fast_methods_with(
         .collect()
 }
 
+/// The pick, computed once per process. Every input is fixed for the
+/// process lifetime: the embedded example bytes, the embedded catalogue, the
+/// env manifest (itself loaded once, `envmanifest::MANIFEST`) and the host
+/// arch (a compile-time constant) — so the cached list is the list a fresh
+/// computation returns, and the endpoint's polls (every 1.5 s while the set
+/// trains) never re-parse the example or re-run eligibility under
+/// [`ENSURE_LOCK`]. An example that does not validate is kept as its
+/// `(status, code, message)` and answered as the same error on every call.
+static EXAMPLE_PICK: LazyLock<Result<Vec<String>, (u16, String, String)>> = LazyLock::new(|| {
+    #[cfg(test)]
+    tests::PICK_COMPUTATIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    example_run_inputs()
+        .map(|inputs| pick_fast_methods(&inputs))
+        .map_err(|e| (e.status_code(), e.error_code().to_string(), e.to_string()))
+});
+
+/// The example's method pick ([`EXAMPLE_PICK`]).
+pub fn example_methods() -> Result<Vec<String>, AppError> {
+    EXAMPLE_PICK.clone().map_err(|(status, code, message)| {
+        AppError::new(
+            StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            code,
+            message,
+        )
+    })
+}
+
 /// The embedded example training tables as parsed tables (the browser-decode
 /// equivalent — the committed bytes are unquoted, verified by the assets
 /// check; this is the ONE CSV split the server does for its own assets).
-fn parsed_example(bytes: &'static [u8], name: &str) -> ParsedTable {
+pub(crate) fn parsed_example(bytes: &'static [u8], name: &str) -> ParsedTable {
     let text = std::str::from_utf8(bytes).expect("the embedded example is utf-8");
     let mut lines = text.split('\n').filter(|l| !l.is_empty());
     let header = lines.next().expect("the example has a header line");
@@ -204,75 +331,6 @@ fn parsed_example(bytes: &'static [u8], name: &str) -> ParsedTable {
         columns,
         rows,
     }
-}
-
-/// The example training pair as the validator's request (Files mode, no
-/// joins/mapping, the default parameters) — the ONE request both the
-/// validation and the canonical rows are built from.
-fn example_validation_request() -> ValidationRequest {
-    ValidationRequest {
-        mode: ValidationMode::Files,
-        patients: Some(parsed_example(
-            assets::ASSETS.patients_example,
-            EXAMPLE_PATIENTS_NAME,
-        )),
-        measurements: parsed_example(
-            assets::ASSETS.measurements_example,
-            EXAMPLE_MEASUREMENTS_NAME,
-        ),
-        joins: Vec::new(),
-        mapping: Vec::new(),
-        parameters: Default::default(),
-    }
-}
-
-/// The example training pair + the validator's verdict (the ONE validation
-/// the endpoint pins: zero errors and at most the normal A04 notes, asserted
-/// here and in the material test — a generator change that breaks the example
-/// fails before any endpoint serves it).
-pub fn example_validation() -> Result<crate::modules::file_validator::types::ValidationResponse, AppError> {
-    let request = example_validation_request();
-    let response = validate(&request).map_err(|e| {
-        AppError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "EXAMPLE_VALIDATION_FAILED",
-            format!("the embedded example data does not validate: {e}"),
-        )
-    })?;
-    let errors: Vec<_> = response
-        .problems
-        .iter()
-        .filter(|p| p.severity == crate::modules::file_validator::types::ProblemSeverity::Error)
-        .collect();
-    if !errors.is_empty() {
-        return Err(AppError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "EXAMPLE_VALIDATION_FAILED",
-            format!(
-                "the embedded example data carries {} error(s): {:?}",
-                errors.len(),
-                errors
-                    .iter()
-                    .map(|p| format!("{}: {}", p.code.code(), p.message))
-                    .collect::<Vec<_>>()
-            ),
-        ));
-    }
-    Ok(response)
-}
-
-/// The example training pair's canonical rows — the train-side bundle the
-/// run builds from the same tables (`canonical_bundle` over the same
-/// Files-mode request: no joins, no mapping; the canonical rows do not
-/// depend on the decision day), the input of the pick's marker rule.
-pub fn example_canonical_bundle() -> Result<CanonicalBundle, AppError> {
-    canonical_bundle(&example_validation_request()).map_err(|e| {
-        AppError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "EXAMPLE_VALIDATION_FAILED",
-            format!("the embedded example data does not build its canonical rows: {e}"),
-        )
-    })
 }
 
 /// The example run request (the normal engine's input snapshot: the embedded
@@ -337,12 +395,9 @@ async fn inner(
 ) -> Result<ExampleSetResponse, AppError> {
     let repo = ModelStoreRepository::new(pool.clone());
 
-    // The inventory + the fast-method pick (pure; recomputed per call — the
-    // catalogue and the assets are immutable).
-    let validation = example_validation()?;
-    let patients = validation.patients.as_ref().map(|p| p.rows).unwrap_or(0);
-    let train = example_canonical_bundle()?;
-    let methods = pick_fast_methods(&validation.inventory, patients, &train);
+    // The fast-method pick (computed once per process — the catalogue, the
+    // assets and the env manifest are immutable).
+    let methods = example_methods()?;
 
     // The state row (may be None).
     let state_row = repo.example_state().await.map_err(|e| typed_error("EXAMPLE_STATE_READ", e.to_string()))?;
@@ -579,22 +634,24 @@ async fn store_save(
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tests — the pick applies the run's own marker rule
+// Tests — the pick applies the run's own bundle stage to the run's own data
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::modules::execution_engine::bundle::{BundleError, MarkerSelection};
-    use crate::modules::execution_engine::envmanifest::{env_for_arch, EnvArch};
-    use crate::modules::method_catalogue::types::{InventoryEligibilityRequest, MarkerKind};
+    use std::collections::HashSet;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// The pick's inputs, exactly as [`inner`] computes them.
-    fn example_inputs() -> (InventoryEligibilityRequest, u32, CanonicalBundle) {
-        let validation = example_validation().expect("the example validates");
-        let patients = validation.patients.as_ref().map(|p| p.rows).unwrap_or(0);
-        let train = example_canonical_bundle().expect("the example builds its canonical rows");
-        (validation.inventory, patients, train)
+    use super::*;
+    use crate::modules::execution_engine::bundle::{self, BundleError, MarkerSelection};
+    use crate::modules::execution_engine::envmanifest::{env_for_arch, EnvArch};
+    use crate::modules::method_catalogue::types::MarkerKind;
+
+    /// How many times [`EXAMPLE_PICK`]'s initializer ran in this process.
+    pub(super) static PICK_COMPUTATIONS: AtomicUsize = AtomicUsize::new(0);
+
+    fn inputs() -> ExampleRunInputs {
+        example_run_inputs().expect("the example canonicalizes through the run's pass")
     }
 
     /// The committed manifest's amd64 env set (the published arch), so the
@@ -604,16 +661,23 @@ mod tests {
         env_for_arch(id, EnvArch::Amd64).is_some()
     }
 
+    fn json<T: serde::Serialize>(v: &T) -> serde_json::Value {
+        serde_json::to_value(v).expect("serializes")
+    }
+
     /// Every method the pick returns — on the host arch and on the committed
-    /// amd64 env set — gets a marker set from the run's own rule
-    /// ([`bundle::method_marker_set`], the call `execute_train` makes first)
-    /// on the example's canonical rows; the amd64 pick is not empty, so the
-    /// assertion is never vacuous.
+    /// amd64 env set — gets its train and test bundles built exactly as
+    /// `execute_train` builds them ([`orchestrator::method_bundles`], the
+    /// function it calls, with the run's settings and the method's
+    /// `min_draws`), and passes the full bundle preflight (the cross-fit or
+    /// cohort bundles too). The amd64 pick is not empty, so this is never
+    /// vacuous.
     #[test]
-    fn every_picked_method_passes_the_run_marker_rule_on_the_example() {
-        let (inventory, patients, train) = example_inputs();
-        let host = pick_fast_methods(&inventory, patients, &train);
-        let amd64 = pick_fast_methods_with(&inventory, patients, &train, amd64_env);
+    fn every_picked_method_builds_every_run_bundle_on_the_example() {
+        let inputs = inputs();
+        let settings = run_bundle_settings(&inputs.config);
+        let host = pick_fast_methods(&inputs);
+        let amd64 = pick_fast_methods_with(&inputs, amd64_env);
         assert!(
             !amd64.is_empty(),
             "the committed amd64 env set yields at least one example method"
@@ -621,19 +685,37 @@ mod tests {
         assert!(amd64.len() <= EXAMPLE_METHOD_CAP, "{amd64:?}");
         assert_eq!(
             amd64,
-            pick_fast_methods_with(&inventory, patients, &train, amd64_env),
+            pick_fast_methods_with(&inputs, amd64_env),
             "the pick is deterministic"
         );
         let cat = catalogue();
         for id in host.iter().chain(amd64.iter()) {
             let method = cat.method(id).expect("a picked id is a catalogue method");
-            let selection = bundle::method_marker_set(
-                &train,
-                &method.markers,
-                method.required_markers.as_ref(),
+            let built = orchestrator::method_bundles(
+                &inputs.train,
+                inputs.predict.as_deref(),
+                method,
+                &settings,
+                method.min_draws,
             )
-            .unwrap_or_else(|e| panic!("{id} is refused by the run's marker rule: {e}"));
-            assert!(!selection.mains().is_empty(), "{id} receives a marker");
+            .unwrap_or_else(|e| panic!("{id}: the run's bundle stage refuses it: {e}"));
+            assert!(
+                !built.selection.mains().is_empty(),
+                "{id} receives a marker"
+            );
+            assert!(!built.train.outcomes.is_empty(), "{id} learns an outcome");
+            assert!(
+                !built.test.scored.is_empty(),
+                "{id} scores the predict surface"
+            );
+            orchestrator::train_bundle_preflight(
+                &inputs.train,
+                inputs.predict.as_deref(),
+                method,
+                &settings,
+                method.min_draws,
+            )
+            .unwrap_or_else(|e| panic!("{id}: a later bundle of the call is refused: {e}"));
         }
     }
 
@@ -643,9 +725,10 @@ mod tests {
     /// pick's filters (the methods the pick used to return).
     #[test]
     fn a_single_marker_method_without_a_fixed_list_is_not_picked_on_the_three_marker_example() {
-        let (inventory, patients, train) = example_inputs();
+        let inputs = inputs();
+        let settings = run_bundle_settings(&inputs.config);
         assert_eq!(
-            MarkerSelection::all(&train).mains(),
+            MarkerSelection::all(&inputs.train).mains(),
             ["M1", "M2", "M3"],
             "the example carries three main markers"
         );
@@ -654,7 +737,7 @@ mod tests {
         let verdicts = eligibility_for(
             cat,
             &EligibilityRequest::Inventory {
-                inventory: inventory.clone(),
+                inventory: inputs.validation.inventory.clone(),
             },
         );
         let single_without_list: Vec<String> = verdicts
@@ -666,7 +749,7 @@ mod tests {
                 m.saves_model
                     && m.markers.kind == MarkerKind::Single
                     && m.required_markers.is_none()
-                    && estimate_seconds_for(m, patients, REFERENCE_CPUS)
+                    && estimate_seconds_for(m, inputs.patients(), REFERENCE_CPUS)
                         < EXAMPLE_METHOD_SECONDS_MAX
             })
             .map(|m| m.id.clone())
@@ -678,7 +761,13 @@ mod tests {
         );
         for id in &single_without_list {
             let method = cat.method(id).expect("catalogue method");
-            match bundle::method_marker_set(&train, &method.markers, None) {
+            match orchestrator::train_bundle_preflight(
+                &inputs.train,
+                inputs.predict.as_deref(),
+                method,
+                &settings,
+                method.min_draws,
+            ) {
                 Err(BundleError::MarkerCountUnmet { expected: 1, names }) => {
                     assert_eq!(names, ["M1", "M2", "M3"], "{id}");
                 }
@@ -686,13 +775,249 @@ mod tests {
             }
         }
 
-        let host = pick_fast_methods(&inventory, patients, &train);
-        let amd64 = pick_fast_methods_with(&inventory, patients, &train, amd64_env);
+        let host = pick_fast_methods(&inputs);
+        let amd64 = pick_fast_methods_with(&inputs, amd64_env);
         for id in host.iter().chain(amd64.iter()) {
             assert!(
                 !single_without_list.contains(id),
                 "{id} is a single-marker method without a fixed list — the run refuses it"
             );
         }
+    }
+
+    /// The preflight the pick filters on is the whole bundle stage, not only
+    /// the marker rule: a picked method whose marker set resolves but whose
+    /// draw minimum no example patient meets is refused with the run's
+    /// `BUNDLE_NO_TRAINING_PATIENT`, and covariates on over patients without
+    /// a covariate column with `BUNDLE_COVARIATES_MISSING`.
+    #[test]
+    fn the_pick_preflight_refuses_the_bundle_stage_beyond_the_marker_rule() {
+        let inputs = inputs();
+        let settings = run_bundle_settings(&inputs.config);
+        let amd64 = pick_fast_methods_with(&inputs, amd64_env);
+        let id = amd64.first().expect("the amd64 pick is not empty");
+        let mut method = catalogue().method(id).expect("catalogue method").clone();
+        assert!(
+            bundle::method_marker_set(
+                &inputs.train,
+                &method.markers,
+                method.required_markers.as_ref()
+            )
+            .is_ok(),
+            "{id}: the marker rule alone accepts it"
+        );
+
+        method.min_draws = 10_000;
+        assert_eq!(
+            orchestrator::train_bundle_preflight(
+                &inputs.train,
+                inputs.predict.as_deref(),
+                &method,
+                &settings,
+                method.min_draws,
+            ),
+            Err(BundleError::NoTrainingPatient { min_draws: 10_000 }),
+            "{id} with an unmet draw minimum"
+        );
+
+        // Covariates on over a copy of the example rows whose patients carry
+        // no covariate column (the example itself has age/sex/stage).
+        let method = catalogue().method(id).expect("catalogue method");
+        let covariate_settings = BundleSettings {
+            covariates: true,
+            ..settings.clone()
+        };
+        let mut no_covariates = (*inputs.train).clone();
+        for patient in &mut no_covariates.patients {
+            patient.covariates.clear();
+        }
+        assert_eq!(
+            orchestrator::train_bundle_preflight(
+                &no_covariates,
+                inputs.predict.as_deref(),
+                method,
+                &covariate_settings,
+                method.min_draws,
+            ),
+            Err(BundleError::CovariatesWithoutColumns),
+            "{id} with covariates on and no covariate column"
+        );
+    }
+
+    /// The pick's data is the run's data: the inputs come from
+    /// [`example_run_request`] through the run's own canonicalization, and
+    /// the request for the picked methods canonicalizes to the same train
+    /// and predict sides and carries the same config (the method list never
+    /// changes the data).
+    #[test]
+    fn the_pick_judges_the_run_s_own_canonical_input() {
+        let inputs = inputs();
+        let picked = pick_fast_methods_with(&inputs, amd64_env);
+        let request = example_run_request(&picked);
+        assert_eq!(request.method_ids, picked);
+        assert_eq!(request.config, inputs.config, "the run's config");
+        let run = orchestrator::canonicalize_run(&request.input, &request.config, request.mode)
+            .expect("the run canonicalizes its request");
+        let run_train = run.train.expect("a train run has a training side");
+        assert_eq!(
+            json(&*run_train),
+            json(&*inputs.train),
+            "the same train side"
+        );
+        assert_eq!(
+            run.predict.as_deref().map(json),
+            inputs.predict.as_deref().map(json),
+            "the same predict side"
+        );
+        assert_eq!(
+            json(&run.validated.inventory),
+            json(&inputs.validation.inventory),
+            "the same inventory the run's classification judges"
+        );
+    }
+
+    /// The cached pick is the pick of a fresh computation on this host, and
+    /// it is computed once: however many calls (the endpoint's polls) read
+    /// it, the initializer ran one time in this process.
+    #[test]
+    fn the_cached_pick_is_computed_once_and_equals_a_fresh_pick() {
+        let cached = example_methods().expect("the example validates");
+        for _ in 0..20 {
+            assert_eq!(example_methods().expect("again"), cached);
+        }
+        assert_eq!(
+            PICK_COMPUTATIONS.load(Ordering::SeqCst),
+            1,
+            "the pick is computed once per process, not per call"
+        );
+        assert_eq!(
+            cached,
+            pick_fast_methods(&inputs()),
+            "the cache holds a fresh pick"
+        );
+    }
+
+    /// The example rows cut to the first `n` patients (sorted ids) — a
+    /// canonical subset like the run's cross-fit folds.
+    fn first_patients(train: &CanonicalBundle, n: usize) -> CanonicalBundle {
+        let mut ids: Vec<&str> = train
+            .patients
+            .iter()
+            .map(|p| p.patient_id.as_str())
+            .collect();
+        ids.sort_unstable();
+        let keep: HashSet<&str> = ids.into_iter().take(n).collect();
+        CanonicalBundle {
+            patients: train
+                .patients
+                .iter()
+                .filter(|p| keep.contains(p.patient_id.as_str()))
+                .cloned()
+                .collect(),
+            values: train
+                .values
+                .iter()
+                .filter(|v| keep.contains(v.patient_id.as_str()))
+                .cloned()
+                .collect(),
+            features: train.features.clone(),
+        }
+    }
+
+    /// A method the bundle stage refuses is not picked, even when it passes
+    /// every other filter including the marker rule and its first train/test
+    /// bundles ([`orchestrator::method_bundles`]). On the real catalogue and
+    /// the real example no method is refused past the marker rule, so the
+    /// case is built: the training rows are cut to 12 patients (enough for
+    /// the full-cohort train bundle, too few for a cross-fit fold's rest
+    /// set), and the first amd64 pick is marked `fitted` in a copy of the
+    /// catalogue, so its call would build the cross-fit bundles and be
+    /// refused `BUNDLE_NO_LEARNABLE_OUTCOME` between its calls. That method
+    /// leaves the pick; unmodified, it stays in.
+    #[test]
+    fn a_method_the_bundle_stage_refuses_is_not_picked() {
+        let full = inputs();
+        let settings = run_bundle_settings(&full.config);
+        let target = pick_fast_methods_with(&full, amd64_env)
+            .into_iter()
+            .next()
+            .expect("the amd64 pick is not empty");
+
+        let cut = ExampleRunInputs {
+            validation: full.validation.clone(),
+            train: Arc::new(first_patients(&full.train, 12)),
+            predict: full.predict.clone(),
+            config: full.config.clone(),
+        };
+        let mut cat = catalogue().clone();
+        let entry = cat
+            .methods
+            .iter_mut()
+            .find(|m| m.id == target)
+            .expect("the picked method is in the catalogue");
+        assert!(
+            !entry.fitted,
+            "{target}: the case needs a method that is not fitted yet"
+        );
+        entry.fitted = true;
+        let fitted = cat.method(&target).expect("the modified method").clone();
+
+        // Every other filter keeps it.
+        let verdicts = eligibility_for(
+            &cat,
+            &EligibilityRequest::Inventory {
+                inventory: cut.validation.inventory.clone(),
+            },
+        );
+        let verdict = verdicts
+            .methods
+            .iter()
+            .find(|m| m.id == target)
+            .expect("a verdict for the method");
+        assert_eq!(verdict.status, EligibilityStatus::CanRun, "{target}");
+        assert!(amd64_env(&target) && fitted.saves_model, "{target}");
+        assert!(
+            estimate_seconds_for(&fitted, cut.patients(), REFERENCE_CPUS)
+                < EXAMPLE_METHOD_SECONDS_MAX,
+            "{target} stays under the time budget"
+        );
+        assert!(
+            orchestrator::method_bundles(
+                &cut.train,
+                cut.predict.as_deref(),
+                &fitted,
+                &settings,
+                fitted.min_draws
+            )
+            .is_ok(),
+            "{target}: the marker set and the first train/test bundles build"
+        );
+
+        // The bundle stage refuses it, so the pick leaves it out.
+        assert_eq!(
+            orchestrator::train_bundle_preflight(
+                &cut.train,
+                cut.predict.as_deref(),
+                &fitted,
+                &settings,
+                fitted.min_draws,
+            ),
+            Err(BundleError::NoLearnableOutcome {
+                min: bundle::MIN_TRAINING_PATIENTS
+            }),
+            "{target}: a cross-fit fold's rest set learns no outcome"
+        );
+        let picked = pick_from(&cat, &cut, amd64_env);
+        assert!(
+            !picked.contains(&target),
+            "{target} is refused, not picked: {picked:?}"
+        );
+        assert!(!picked.is_empty(), "the other candidates are still picked");
+
+        // Control: the same rows with the unmodified catalogue keep it.
+        assert!(
+            pick_from(catalogue(), &cut, amd64_env).contains(&target),
+            "{target} is picked when its call builds no cross-fit bundles"
+        );
     }
 }

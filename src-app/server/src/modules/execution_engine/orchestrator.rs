@@ -820,38 +820,19 @@ impl StackMethodExecutor {
             .clone()
             .expect("train mode always carries the train side");
 
-        // The per-method marker set (ITEM-4): a refusal is terminal with the
+        // The marker set, the train bundle and the test bundle over the
+        // predict surface ([`method_bundles`]): a refusal is terminal with the
         // typed `BUNDLE_*` code — the method never runs on the wrong markers.
-        let selection = match bundle::method_marker_set(
+        let MethodBundles {
+            selection,
+            train: train_bundle,
+            test: test_bundle,
+        } = match method_bundles(
             &train,
-            &facts.markers,
-            facts.required_markers.as_ref(),
-        ) {
-            Ok(s) => s,
-            Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-        };
-        let train_bundle =
-            match bundle::train_bundle_with_markers(&train, settings, ctx.min_draws, &selection) {
-                Ok(b) => b,
-                Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-            };
-        // The predict surface: the separate predict file when given, else the
-        // training cohort (path 2's heatmap rows are the uploaded patients —
-        // the prediction surface is the cohort when no predict file is
-        // mounted; DRIFT-1 ITEM-9 #1).
-        let (predict_bundle, predict_patients): (
-            Arc<CanonicalBundle>,
-            Option<&[CanonicalPatient]>,
-        ) = match &ctx.predict {
-            Some(p) => (p.clone(), None),
-            None => (train.clone(), Some(&train.patients)),
-        };
-        let test_bundle = match bundle::test_bundle_with_markers(
-            predict_patients,
-            &predict_bundle,
+            ctx.predict.as_deref(),
+            facts,
             settings,
             ctx.min_draws,
-            &selection,
         ) {
             Ok(b) => b,
             Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
@@ -920,19 +901,11 @@ impl StackMethodExecutor {
                     super::predictions::CROSS_FIT_FOLDS,
                 );
                 for k in 0..super::predictions::CROSS_FIT_FOLDS {
-                    let (rest, fold) = split_folds(&train, &train_bundle.patient_ids, &folds, k);
-                    let sub_bundle = match bundle::train_bundle_with_markers(
-                        &rest,
-                        settings,
-                        ctx.min_draws,
-                        &selection,
-                    ) {
-                        Ok(b) => b,
-                        Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-                    };
-                    let fold_test = match bundle::test_bundle_with_markers(
-                        Some(&fold.patients),
-                        &fold,
+                    let (sub_bundle, fold_test) = match crossfit_fold_bundles(
+                        &train,
+                        &train_bundle.patient_ids,
+                        &folds,
+                        k,
                         settings,
                         ctx.min_draws,
                         &selection,
@@ -1023,16 +996,11 @@ impl StackMethodExecutor {
                 // One call over the training cohort (engine.cpp's
                 // `test_from_train`): the model's scores of the patients it
                 // was trained on — the conversion band's training side.
-                let cohort_test = match bundle::test_bundle_with_markers(
-                    Some(&train.patients),
-                    &train,
-                    settings,
-                    ctx.min_draws,
-                    &selection,
-                ) {
-                    Ok(b) => b,
-                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
-                };
+                let cohort_test =
+                    match cohort_test_bundle(&train, settings, ctx.min_draws, &selection) {
+                        Ok(b) => b,
+                        Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                    };
                 let score = self
                     .predict_call(
                         ctx,
@@ -1541,6 +1509,123 @@ impl StackMethodExecutor {
             ))),
         }
     }
+}
+
+/// The bundles a train-mode call builds before its first method call: the
+/// per-method marker set (ITEM-4), the train bundle and the test bundle over
+/// the predict surface.
+pub struct MethodBundles {
+    pub selection: bundle::MarkerSelection,
+    pub train: bundle::TrainBundle,
+    pub test: bundle::TestBundle,
+}
+
+/// Build a train-mode call's [`MethodBundles`] (the `execute_train` stage;
+/// pure). The predict surface is the separate predict file when given, else
+/// the training cohort (path 2's heatmap rows are the uploaded patients —
+/// the prediction surface is the cohort when no predict file is mounted;
+/// DRIFT-1 ITEM-9 #1).
+pub fn method_bundles(
+    train: &CanonicalBundle,
+    predict: Option<&CanonicalBundle>,
+    facts: &Method,
+    settings: &bundle::BundleSettings,
+    min_draws: u32,
+) -> Result<MethodBundles, bundle::BundleError> {
+    let selection =
+        bundle::method_marker_set(train, &facts.markers, facts.required_markers.as_ref())?;
+    let train_bundle = bundle::train_bundle_with_markers(train, settings, min_draws, &selection)?;
+    let (predict_bundle, predict_patients): (&CanonicalBundle, Option<&[CanonicalPatient]>) =
+        match predict {
+            Some(p) => (p, None),
+            None => (train, Some(&train.patients)),
+        };
+    let test_bundle = bundle::test_bundle_with_markers(
+        predict_patients,
+        predict_bundle,
+        settings,
+        min_draws,
+        &selection,
+    )?;
+    Ok(MethodBundles {
+        selection,
+        train: train_bundle,
+        test: test_bundle,
+    })
+}
+
+/// One cross-fit fold's bundles (engine.cpp): the train bundle over the
+/// cohort minus fold `k` and the test bundle over fold `k`.
+fn crossfit_fold_bundles(
+    train: &CanonicalBundle,
+    cohort_ids: &[String],
+    folds: &[usize],
+    k: usize,
+    settings: &bundle::BundleSettings,
+    min_draws: u32,
+    selection: &bundle::MarkerSelection,
+) -> Result<(bundle::TrainBundle, bundle::TestBundle), bundle::BundleError> {
+    let (rest, fold) = split_folds(train, cohort_ids, folds, k);
+    let sub_bundle = bundle::train_bundle_with_markers(&rest, settings, min_draws, selection)?;
+    let fold_test = bundle::test_bundle_with_markers(
+        Some(&fold.patients),
+        &fold,
+        settings,
+        min_draws,
+        selection,
+    )?;
+    Ok((sub_bundle, fold_test))
+}
+
+/// The non-fitted conversion input (engine.cpp's `test_from_train`): the
+/// test bundle over the training cohort itself.
+fn cohort_test_bundle(
+    train: &CanonicalBundle,
+    settings: &bundle::BundleSettings,
+    min_draws: u32,
+    selection: &bundle::MarkerSelection,
+) -> Result<bundle::TestBundle, bundle::BundleError> {
+    bundle::test_bundle_with_markers(Some(&train.patients), train, settings, min_draws, selection)
+}
+
+/// Every bundle a train-mode call builds, built without running anything —
+/// [`method_bundles`], then (when the conversion band needs scores) the
+/// cross-fit folds' bundles for a fitted method or the cohort test bundle
+/// otherwise, through the same helpers `execute_train` calls. `Ok` means the
+/// call cannot be refused with a `BUNDLE_*` code on these inputs; the method
+/// itself can still fail when it runs.
+pub fn train_bundle_preflight(
+    train: &CanonicalBundle,
+    predict: Option<&CanonicalBundle>,
+    facts: &Method,
+    settings: &bundle::BundleSettings,
+    min_draws: u32,
+) -> Result<(), bundle::BundleError> {
+    let bundles = method_bundles(train, predict, facts, settings, min_draws)?;
+    if needs_list(facts, &bundles.train.outcomes, settings).is_empty() {
+        return Ok(());
+    }
+    if facts.fitted {
+        let folds = super::predictions::crossfit_folds(
+            bundles.train.patient_ids.len(),
+            TxrLimits::SEED as u64,
+            super::predictions::CROSS_FIT_FOLDS,
+        );
+        for k in 0..super::predictions::CROSS_FIT_FOLDS {
+            crossfit_fold_bundles(
+                train,
+                &bundles.train.patient_ids,
+                &folds,
+                k,
+                settings,
+                min_draws,
+                &bundles.selection,
+            )?;
+        }
+    } else {
+        cohort_test_bundle(train, settings, min_draws, &bundles.selection)?;
+    }
+    Ok(())
 }
 
 /// The `needs` list (engine.cpp): every learned (outcome, horizon) the method
@@ -3196,6 +3281,20 @@ pub fn read_memory_total_bytes() -> Option<u64> {
 // classification (CONS-EE-11/11b — one code path with the screens, DEC-15)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// The run's one validate + canonicalize pass over its tables
+/// ([`canonicalize_run`]): the validation response (whose `inventory` the
+/// classification judges) and the canonical sides the method calls build
+/// their bundles from.
+pub struct CanonicalRun {
+    pub validated: crate::modules::file_validator::types::ValidationResponse,
+    pub train: Option<Arc<CanonicalBundle>>,
+    pub predict: Option<Arc<CanonicalBundle>>,
+    pub predict_patients: Option<Arc<[CanonicalPatient]>>,
+    /// The predict side's distinct patient count (qa-fixes2 R2-04 — the
+    /// validator's measurements summary, never the row count).
+    pub predict_patient_count: Option<u32>,
+}
+
 /// The prepared facts of a run: the canonical sides + the classified plans +
 /// the validator's marker count.
 pub struct PreparedRun {
@@ -3252,6 +3351,35 @@ fn prepare_run(
     method_ids: &[String],
     assets: &[super::types::TxrModelAsset],
 ) -> Result<PreparedRun, AppError> {
+    let canonical = canonicalize_run(input, config, run_mode)?;
+    let plans = classify(
+        run_mode,
+        method_ids,
+        assets,
+        &canonical.validated.inventory,
+        config,
+    )?;
+    Ok(PreparedRun {
+        markers: canonical.validated.markers.len(),
+        train: canonical.train,
+        predict: canonical.predict,
+        predict_patients: canonical.predict_patients,
+        // qa-fixes2 R2-04: the predict side's distinct patient count (the
+        // validator's measurements summary) — the K row's "Predicted N
+        // patients" fact; None when the run has no predict file.
+        predict_patient_count: canonical.predict_patient_count,
+        plans,
+    })
+}
+
+/// The run's validate + canonicalize pass (the first half of `prepare_run`,
+/// public so a caller that builds a run request — the example saved set —
+/// judges exactly the tables and canonical sides the run will use).
+pub fn canonicalize_run(
+    input: &super::types::TxrRunInput,
+    config: &RunConfig,
+    run_mode: super::types::TxrRunMode,
+) -> Result<CanonicalRun, AppError> {
     use crate::modules::file_validator::{bundle, validate};
 
     // One validate per run over the RUN's table set. The mode disambiguates
@@ -3285,7 +3413,6 @@ fn prepare_run(
         config.decision_day,
     );
     let validated = validate::validate(&vreq).map_err(validation_error_to_app)?;
-    let marker_count = validated.markers.len();
 
     // The canonical sides. In FILES mode (train, or reuse with a predict
     // patients table) the run-side bundle is the TRAIN one and the predict
@@ -3351,17 +3478,12 @@ fn prepare_run(
         _ => None,
     };
 
-    let plans = classify(run_mode, method_ids, assets, &validated.inventory, config)?;
-    Ok(PreparedRun {
+    Ok(CanonicalRun {
+        validated,
         train: train_canonical,
         predict: predict_canonical,
         predict_patients,
-        // qa-fixes2 R2-04: the predict side's distinct patient count (the
-        // validator's measurements summary) — the K row's "Predicted N
-        // patients" fact; None when the run has no predict file.
         predict_patient_count,
-        plans,
-        markers: marker_count,
     })
 }
 
@@ -5940,6 +6062,422 @@ mod tests {
             .count();
         assert_eq!(fold_fits, predictions::CROSS_FIT_FOLDS);
         drop(calls);
+    }
+
+    // ── "Use example" through the real train executor + the pick's preflight
+    //    against the executor's own bundle stage ────────────────────────────
+
+    /// The drive's `MethodRunContext` for a train plan (`run_method`'s
+    /// construction: the plan's facts and `min_draws`, the run's config, the
+    /// detected CPU count, the prepared canonical sides), with the executor
+    /// fixture's env facts.
+    fn drive_ctx(
+        run_dir: &Path,
+        plan: &MethodPlan,
+        config: &RunConfig,
+        prepared: &PreparedRun,
+    ) -> (MethodRunContext, watch::Sender<bool>) {
+        let (mut ctx, cancel) = executor_ctx(
+            run_dir,
+            &plan.method_id,
+            prepared.train.clone(),
+            prepared.predict.clone(),
+            prepared.predict_patients.clone(),
+            config.save_models,
+            RunTarget::TrainMethod,
+        );
+        ctx.label = plan.label.clone();
+        ctx.version = plan.version.clone();
+        ctx.group = plan.group.clone();
+        ctx.min_draws = plan.min_draws;
+        ctx.config = config.clone();
+        ctx.cpus = detect_cpus();
+        (ctx, cancel)
+    }
+
+    /// The bundle settings `execute` builds for a context.
+    fn ctx_settings(ctx: &MethodRunContext) -> bundle::BundleSettings {
+        bundle::BundleSettings::for_run(
+            &ctx.config,
+            per_method_cpus(ctx.cpus, ctx.config.at_a_time),
+        )
+    }
+
+    /// The example pick on this host plus the pick on the committed amd64 env
+    /// set (the published arch), so the check is never empty on a host whose
+    /// arch has no published environments.
+    fn example_pick_any_arch(
+        inputs: &crate::modules::model_store::example::ExampleRunInputs,
+    ) -> Vec<String> {
+        use crate::modules::model_store::example;
+        let mut picked = example::pick_fast_methods(inputs);
+        let amd64 = example::pick_fast_methods_with(inputs, |id| {
+            envmanifest::env_for_arch(id, envmanifest::EnvArch::Amd64).is_some()
+        });
+        for id in amd64 {
+            if !picked.contains(&id) {
+                picked.push(id);
+            }
+        }
+        picked
+    }
+
+    fn canonical_json(b: &CanonicalBundle) -> serde_json::Value {
+        serde_json::to_value(b).expect("a canonical bundle serializes")
+    }
+
+    /// "Use example" trains: every method the example pick returns goes
+    /// through the run's own `prepare_run` over `example_run_request`, then
+    /// the REAL train executor with the context the drive builds (only the
+    /// sandbox is scripted) — no `BUNDLE_*` refusal, every method finishes
+    /// with a produced model. The pick judged the same canonical sides
+    /// `prepare_run` hands the executor, under the same config.
+    #[tokio::test]
+    async fn every_example_pick_trains_through_the_real_executor() {
+        use crate::modules::model_store::example;
+
+        let inputs = example::example_run_inputs().expect("the example canonicalizes");
+        let picked = example_pick_any_arch(&inputs);
+        assert!(!picked.is_empty(), "the amd64 pick is not empty");
+
+        let req = example::example_run_request(&picked);
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            req.mode,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the example run prepares");
+        assert_eq!(req.config, inputs.config, "the pick used the run's config");
+        assert_eq!(
+            canonical_json(prepared.train.as_deref().expect("a train side")),
+            canonical_json(&inputs.train),
+            "the pick judged the run's train side"
+        );
+        assert_eq!(
+            prepared.predict.as_deref().map(canonical_json),
+            inputs.predict.as_deref().map(canonical_json),
+            "the pick judged the run's predict side"
+        );
+        assert_eq!(prepared.plans.len(), picked.len());
+
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-example-pick"));
+        let pool = merged_pool().await;
+        for plan in &prepared.plans {
+            let id = plan.method_id.clone();
+            assert!(matches!(plan.target, RunTarget::TrainMethod), "{id}");
+            let facts = envmanifest::facts_for(&id).expect("a catalogue method");
+            assert_eq!(
+                plan.min_draws, facts.min_draws,
+                "{id}: the plan's min_draws"
+            );
+            // Only a host without a published env for the method plans it
+            // `cannot_run`, and then for the env — never a data reason.
+            assert_eq!(
+                plan.cannot_run,
+                !eligibility::runtime_env_available(&id),
+                "{id}: {:?}",
+                plan.reason
+            );
+            if plan.cannot_run {
+                let reason = plan.reason.as_ref().expect("a cannot_run reason");
+                assert!(
+                    ["ENV_IMAGE_MISSING", "ENV_UNKNOWN"].contains(&reason.code.as_str()),
+                    "{id}: {reason:?}"
+                );
+            }
+
+            let seam = FakeStackRunSeam::new();
+            let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
+            let run_dir = rootfs::data_root().join(&id);
+            make_method_dirs(&run_dir, &id);
+            let (ctx, _cancel) = drive_ctx(&run_dir, plan, &req.config, &prepared);
+            let settings = ctx_settings(&ctx);
+            assert_eq!(
+                orchestrator_preflight(&ctx, facts, &settings),
+                Ok(()),
+                "{id}: the pick's preflight over the drive's context"
+            );
+            let outcome = exec.execute(ctx).await.expect("an executor verdict");
+            assert!(outcome.reason.is_none(), "{id}: {:?}", outcome.reason);
+            assert_eq!(outcome.state, TxrMethodState::Finished, "{id}");
+            assert!(
+                outcome.model.is_some(),
+                "{id}: save_models → a produced model"
+            );
+            let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(
+                calls.first().map(|c| c.mode),
+                Some(MethodRunMode::FitOnly),
+                "{id}"
+            );
+        }
+    }
+
+    /// [`train_bundle_preflight`] over a context's own train/predict sides,
+    /// settings and `min_draws`.
+    fn orchestrator_preflight(
+        ctx: &MethodRunContext,
+        facts: &Method,
+        settings: &bundle::BundleSettings,
+    ) -> Result<(), bundle::BundleError> {
+        train_bundle_preflight(
+            ctx.train.as_deref().expect("a train context"),
+            ctx.predict.as_deref(),
+            facts,
+            settings,
+            ctx.min_draws,
+        )
+    }
+
+    /// The pick's filter ([`train_bundle_preflight`]) answers what the train
+    /// executor's bundle stage does. In every case the preflight's refusal is
+    /// the method's failure reason (same code, same detail) and a preflight
+    /// `Ok` is a call that is not refused with a `BUNDLE_*` code. The cases
+    /// cover each leg on the example data: the marker rule, the train bundle
+    /// (draw minimum, covariates), the test bundle over a separate predict
+    /// file (covariates without a predict patients table, a missing marker)
+    /// and a cross-fit fold refused after the main fit call.
+    #[tokio::test]
+    async fn train_bundle_preflight_matches_the_executor_bundle_stage() {
+        use crate::modules::file_validator::assets::ASSETS;
+        use crate::modules::model_store::example;
+
+        let inputs = example::example_run_inputs().expect("the example canonicalizes");
+        let train = inputs.train.clone();
+        let picked = example_pick_any_arch(&inputs)
+            .into_iter()
+            .next()
+            .expect("the example pick is not empty");
+        let cat = crate::modules::method_catalogue::catalogue::catalogue();
+        let single = cat
+            .methods
+            .iter()
+            .find(|m| {
+                m.markers.kind == crate::modules::method_catalogue::types::MarkerKind::Single
+                    && m.required_markers.is_none()
+                    && m.saves_model
+            })
+            .expect("a single-marker method without a fixed list")
+            .id
+            .clone();
+        // The example's predict file through the run's canonicalization.
+        let mut with_predict = example::example_run_request(&[]);
+        with_predict.input.predict_measurements = Some(example::parsed_example(
+            ASSETS.predict_measurements_example,
+            "predict-measurements.csv",
+        ));
+        let predict =
+            canonicalize_run(&with_predict.input, &with_predict.config, with_predict.mode)
+                .expect("the example predict file canonicalizes")
+                .predict
+                .expect("a predict side");
+        let first_main = bundle::method_marker_set(
+            &train,
+            &envmanifest::facts_for(&picked).expect("facts").markers,
+            envmanifest::facts_for(&picked)
+                .expect("facts")
+                .required_markers
+                .as_ref(),
+        )
+        .expect("the picked method's marker set")
+        .mains()[0]
+            .clone();
+        let mut predict_without_marker = (*predict).clone();
+        predict_without_marker
+            .values
+            .retain(|v| v.feature != first_main);
+
+        let mut no_covariates = (*train).clone();
+        for p in &mut no_covariates.patients {
+            p.covariates.clear();
+        }
+        let mut ids: Vec<String> = train
+            .patients
+            .iter()
+            .map(|p| p.patient_id.clone())
+            .collect();
+        ids.sort();
+        let twelve: std::collections::HashSet<&str> =
+            ids.iter().take(12).map(|s| s.as_str()).collect();
+        let small = subset_canonical(&train, &twelve);
+        // A fitted catalogue method whose first bundles build on the 12
+        // patients but whose cross-fit folds (2/3 of them) learn nothing.
+        let example_settings = bundle::BundleSettings::for_run(
+            &inputs.config,
+            per_method_cpus(detect_cpus(), inputs.config.at_a_time),
+        );
+        let crossfit = cat
+            .methods
+            .iter()
+            .find(|m| {
+                m.fitted
+                    && m.saves_model
+                    && method_bundles(&small, None, m, &example_settings, m.min_draws).is_ok()
+                    && train_bundle_preflight(&small, None, m, &example_settings, m.min_draws)
+                        == Err(bundle::BundleError::NoLearnableOutcome {
+                            min: bundle::MIN_TRAINING_PATIENTS,
+                        })
+            })
+            .expect("a fitted method refused only at its cross-fit folds")
+            .id
+            .clone();
+
+        let covariates_on = RunConfig {
+            covariates: true,
+            ..inputs.config.clone()
+        };
+        struct Case {
+            name: &'static str,
+            method: String,
+            train: Arc<CanonicalBundle>,
+            predict: Option<Arc<CanonicalBundle>>,
+            config: RunConfig,
+            min_draws: Option<u32>,
+            expect: Option<&'static str>,
+        }
+        let cases = vec![
+            Case {
+                name: "the picked method on the example",
+                method: picked.clone(),
+                train: train.clone(),
+                predict: None,
+                config: inputs.config.clone(),
+                min_draws: None,
+                expect: None,
+            },
+            Case {
+                name: "the marker rule",
+                method: single.clone(),
+                train: train.clone(),
+                predict: None,
+                config: inputs.config.clone(),
+                min_draws: None,
+                expect: Some("BUNDLE_MARKER_COUNT_UNMET"),
+            },
+            Case {
+                name: "the draw minimum",
+                method: picked.clone(),
+                train: train.clone(),
+                predict: None,
+                config: inputs.config.clone(),
+                min_draws: Some(7),
+                expect: Some("BUNDLE_NO_TRAINING_PATIENT"),
+            },
+            Case {
+                name: "covariates without a covariate column",
+                method: picked.clone(),
+                train: Arc::new(no_covariates),
+                predict: None,
+                config: covariates_on.clone(),
+                min_draws: None,
+                expect: Some("BUNDLE_COVARIATES_MISSING"),
+            },
+            Case {
+                name: "covariates over the cohort as the predict surface",
+                method: picked.clone(),
+                train: train.clone(),
+                predict: None,
+                config: covariates_on.clone(),
+                min_draws: None,
+                expect: None,
+            },
+            Case {
+                name: "covariates over a predict file without a patients table",
+                method: picked.clone(),
+                train: train.clone(),
+                predict: Some(predict.clone()),
+                config: covariates_on.clone(),
+                min_draws: None,
+                expect: Some("BUNDLE_TEST_COVARIATES_MISSING"),
+            },
+            Case {
+                name: "a predict file",
+                method: picked.clone(),
+                train: train.clone(),
+                predict: Some(predict.clone()),
+                config: inputs.config.clone(),
+                min_draws: None,
+                expect: None,
+            },
+            Case {
+                name: "a predict file without a trained marker",
+                method: picked.clone(),
+                train: train.clone(),
+                predict: Some(Arc::new(predict_without_marker)),
+                config: inputs.config.clone(),
+                min_draws: None,
+                expect: Some("BUNDLE_TEST_MARKER_MISSING"),
+            },
+            Case {
+                name: "a cross-fit fold too small to learn",
+                method: crossfit.clone(),
+                train: Arc::new(small),
+                predict: None,
+                config: inputs.config.clone(),
+                min_draws: None,
+                expect: Some("BUNDLE_NO_LEARNABLE_OUTCOME"),
+            },
+        ];
+
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-preflight-parity"));
+        let pool = merged_pool().await;
+        for (i, case) in cases.into_iter().enumerate() {
+            let name = case.name;
+            let facts = envmanifest::facts_for(&case.method).expect("a catalogue method");
+            let seam = FakeStackRunSeam::new();
+            let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
+            let run_dir = rootfs::data_root().join(format!("case-{i}"));
+            make_method_dirs(&run_dir, &case.method);
+            let (mut ctx, _cancel) = executor_ctx(
+                &run_dir,
+                &case.method,
+                Some(case.train),
+                case.predict,
+                None,
+                case.config.save_models,
+                RunTarget::TrainMethod,
+            );
+            ctx.config = case.config;
+            ctx.cpus = detect_cpus();
+            ctx.min_draws = case.min_draws.unwrap_or(facts.min_draws);
+            let settings = ctx_settings(&ctx);
+            let preflight = orchestrator_preflight(&ctx, facts, &settings);
+            let outcome = exec.execute(ctx).await.expect("an executor verdict");
+            let reason = outcome.reason.clone();
+            match &preflight {
+                Ok(()) => assert!(
+                    reason
+                        .as_ref()
+                        .map_or(true, |r| !r.code.starts_with("BUNDLE_")),
+                    "{name}: preflight Ok but the executor refused {reason:?}"
+                ),
+                Err(e) => {
+                    assert_eq!(outcome.state, TxrMethodState::Failed, "{name}");
+                    let r = reason.expect("a failure reason");
+                    assert_eq!(
+                        (r.code.as_str(), r.detail.clone()),
+                        (e.code(), e.to_string()),
+                        "{name}"
+                    );
+                }
+            }
+            assert_eq!(
+                preflight.as_ref().err().map(|e| e.code()),
+                case.expect,
+                "{name}: the case reaches the leg it names"
+            );
+            let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+            if name == "a cross-fit fold too small to learn" {
+                // The fold bundle is built between calls, as before: the
+                // main fit ran, then fold 1's bundle was refused.
+                assert_eq!(calls.len(), 1, "{name}: only the main fit ran");
+                assert_eq!(calls[0].mode, MethodRunMode::FitOnly, "{name}");
+            } else if preflight.is_err() {
+                assert!(calls.is_empty(), "{name}: refused before any call");
+            }
+        }
     }
 
     #[tokio::test]
