@@ -66,20 +66,22 @@ check:
     LEGS
 
 
-# RETIRED (processor-ui-language ITEM-40, slice A). This recipe ran
-# `npm --prefix src-app/libs/workbench-api test` because `npm run check` roots vitest at
-# `ui/`, so that package's in-src suites were collected by NOTHING (R3-99: 277 tests under no
-# runner — "a guard nobody invokes is not a guard"). ITEM-1 collapses the package into
-# `ui/src/modules/workbench/core`, which removes the reason the separate recipe existed: the
-# suites are now inside `ui`, and `ui`'s own `test:unit:node` glob was widened to cover
-# `src/modules/workbench/core/` to keep running them under the SAME `node --test` idiom they
-# were written for (they use `node:test`, which vitest does not execute). The core/extensions
-# layering later split `core/` into a framework-free half (api/columns/contributions/criteria/
-# datatypes/form/loader/manifest/mcp — node:test) and a React/vitest half (spec/runtime/render/
-# shell/gallery), so the glob now NAMES the node-runnable subtrees instead of using `core/**`,
-# which would have swept vitest files into the plain-node runner.
-# Verified at the move: `npm run test:unit:node` reports 326 tests = 277 (this package) + 49
-# (ui's pre-existing node suites), zero lost. See DEC-K.
+# RETIRED (processor-ui-language ITEM-40, slice A). This recipe ran a per-package
+# `npm test` because `npm run check` roots vitest at `ui/`, so that package's in-src
+# suites were collected by NOTHING (R3-99: 277 tests under no runner — "a guard nobody
+# invokes is not a guard"). ITEM-1 collapses the package into
+# `ui/src/modules/workbench/core`, which removes the reason the separate recipe existed:
+# the suites are now inside `ui`, and `ui`'s own `test:unit:node` glob was widened to
+# cover `src/modules/workbench/core/` to keep running them under the SAME `node --test`
+# idiom they were written for (they use `node:test`, which vitest does not execute). The
+# core/extensions layering later split `core/` into a framework-free half
+# (api/columns/contributions/criteria/datatypes/form/loader/manifest/mcp — node:test) and
+# a React/vitest half (spec/runtime/render/shell/gallery), so the glob now NAMES the
+# node-runnable subtrees instead of using `core/**`, which would have swept vitest files
+# into the plain-node runner.
+# Verified at the move: `npm run test:unit:node` reports 326 tests = 277 (this package)
+# + 49 (ui's pre-existing node suites), zero lost. See DEC-K. The workbench half left
+# with the single-cell platform (strip node ITEM-4); this recipe stays RETIRED.
 
 
 # The committed architectural-invariant guards. All three shipped as executable scripts
@@ -88,15 +90,18 @@ check:
 # pytest suites before `check-py`. They are cheap (git-grep over tracked files), so they
 # belong in the default gate rather than in a reader's good intentions.
 #
-# NOT WIRED: `scripts/check-no-study-domain-literals.sh`. It FAILS TODAY, and the failure
-# is PRE-EXISTING ON MAIN, not branch-introduced: its `stud(y|ies)` regex is
-# case-insensitive, so it matches the `EXTENSIBILITY_STUDY` design-doc citations
-# throughout `src-app/libs/viz/src/viz-core/**` — an acronym in a comment, not the
-# retired `study` domain. Verified: `git show 06d99c65:…/option/types.ts | grep -c
-# EXTENSIBILITY_STUDY` = 2 at the merge-base, and this branch touches ZERO files under
-# `libs/viz`. Wiring it would gate every future change on an unrelated pre-existing
-# failure. The fix belongs to that guard's owner: either exclude the `EXTENSIBILITY_STUDY`
-# token or make the domain regex case-sensitive/word-bounded. Tracked, not silently dropped.
+# NOT WIRED: `scripts/check-no-study-domain-literals.sh`. It is RED TODAY, and the
+# redness is PRE-EXISTING, not branch-introduced: its `stud(y|ies)` regex is
+# case-insensitive, so it matches three legitimate uses — the "in this study"
+# prose quoted from published papers in `src-app/server/data` (the method-env
+# catalogue's licence fields), the OFL licence texts shipped under
+# `src-app/ui/src/assets/fonts/`, and the app's own `txr-study-*` CSS classes at
+# `src-app/ui/src/index.css` (the board spec calls screen B "Your study"; the
+# guard's txr-module exclusion covers `src/modules/txr*`, not the root stylesheet).
+# Wiring it would gate every future change on that pre-existing failure. The fix
+# belongs to that guard's owner: allowlist the three measured classes (they are not
+# `study`-domain residuals, and the two legit families are as real now as when this
+# was written). Tracked, not silently dropped.
 # #295 ADDED `check-pub-orphans-controls`, the orphan guard's OWN negative controls, in the
 # load-bearing position `check-packages` and `check-guards` already document: a gate edited
 # without its controls still passing is a gate whose PASS is worth nothing. #295 cleared this
@@ -114,13 +119,11 @@ check:
 # no real tree (only synthetic ones), so they can never redden for an ordinary new orphan and
 # misattribute a TREE problem to the GUARD.
 #
-# The strip node (ITEM-2) REMOVED the single-cell legs of this aggregate:
-# `check-kinds-zero-core.sh` + `check-no-legacy-wire.sh` (processor kind and workstore
-# wire guards — their subjects are deleted with the processor packages and the
-# workstore module, ITEM-2/3) and `check-design-citations` + its controls (their
-# subject `docs/design` mostly went; the guard's allowlist split was the only
-# alternative, and ITEM-5 owns the survivor-doc citations). The remaining six legs
-# are the tree-property and enforcement guards of the kept surface.
+# The strip node (ITEM-2) REMOVED the single-cell legs of this aggregate together
+# with their subjects (the processor kind + workstore wire guards and the
+# design-citations guard whose subject docs mostly went; the strip node's drift
+# ledger records the removals). The remaining six legs are the tree-property and
+# enforcement guards of the kept surface.
 check-invariants:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -162,14 +165,12 @@ check-invariants:
 # A failure here is now exactly what it says it is — a format-parsing crate became
 # linkable into the server, i.e. INV-1 is violated.
 # Do NOT weaken it to go green — `check-guard-integrity.sh` will notice, and the
-# integration test `workstore::dependency_guard_test` asserts the design-named families
-# are still on the denylist.
+# integration suite asserts the design-named families are still on the denylist.
 #
-# The strip node (ITEM-2) removed the single-cell guards from this aggregate:
-# `check-recipe-pins*` and `check-derived-vocabulary*` (env-rootfs pin recipes +
-# processor-vocabulary guard — both subjects deleted in ITEM-2) and
-# `check-env-loop.sh --fast` (the analysis-rootfs local env loop). The remaining
-# four legs are the kept enforcement guards.
+# The strip node (ITEM-2) removed the single-cell guards from this aggregate
+# together with their subjects (env-rootfs pin recipes + the processor-vocabulary
+# guard, and the analysis-rootfs local env loop). The remaining four legs are the
+# kept enforcement guards.
 check-guards:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -297,9 +298,9 @@ e2e-gallery:
 # This is the recipe that makes "the default run covers everything" true; `just e2e`
 # alone deliberately does not.
 #
-# STRIP (single-cell): the viz / viz-package / visual tiers left with the removed
-# @txresbench/viz lib, the workbench/jobs pane specs and the visual harness — the
-# remaining tiers are backend + gallery.
+# STRIP (single-cell): the viz / pane / visual tiers left with the single-cell
+# platform (the sourcing viz lib, the workbench/jobs pane specs and the visual
+# harness) — the remaining tiers are backend + gallery.
 #
 # ALL e2e suites in one run, with a per-suite exit table.
 e2e-all:
@@ -344,7 +345,7 @@ gallery-runtime:
 
 # PRE-LAND FRONTEND GATE (run this on the branch worktree before landing).
 # Diff-triggered: does nothing unless the diff vs `origin/main` touches
-# src-app/ui/ or src-app/libs/. When it does, it
+# src-app/ui/. When it does, it
 # boots the gallery and runs the runtime-health pass, failing on any gating HIGH
 # finding (console error / pageerror / failed request / crash / WCAG-AA contrast).
 # Unlike `gallery-runtime` above this is NOT --report-only: it gates.
