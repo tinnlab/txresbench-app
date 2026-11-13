@@ -50,7 +50,7 @@ import { shellModeClass, useShellMode } from '../lib/shellMode'
  * Native full screen keeps all of it: macOS slides the title bar and the
  * traffic lights back in when the pointer reaches the top edge, so the
  * strip must stay clear there too. The browser build and the Windows/Linux
- * windows (native or decorum title bars) render the shell unchanged.
+ * windows (native title bars) render the shell unchanged.
  */
 export interface AppShellProps {
   children: ReactNode
