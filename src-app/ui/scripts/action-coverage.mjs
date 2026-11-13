@@ -77,7 +77,9 @@ function listSourceFiles(dir, out = []) {
  * incidents happened in this round alone. The floor is a COMMITTED constant, so
  * shrinking coverage requires an explicit, reviewable edit.
  */
-const MIN_SOURCE_FILES = 400
+// STRIP (single-cell): 400 -> 200 — the removed single-cell modules/core/libs
+// took the scan set from 715 non-test TS/TSX files to 300.
+const MIN_SOURCE_FILES = 200
 
 // Test-only floor override (the `LINT_LAYER_BOUNDARY_MIN_FILES` precedent). The floor
 // above stays a COMMITTED LITERAL — this only lets a suite that deliberately points

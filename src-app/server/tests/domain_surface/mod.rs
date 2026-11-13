@@ -3496,12 +3496,20 @@ fn the_shared_baseline_is_a_worklist_not_amnesia() {
     // deliberately RE-baselined rather than pruned, precisely to avoid that). The
     // removal-documenting PROSE survives as that file's surviving `prose` entry in the
     // baseline, so the history is not erased — only the executable residue is.
-    for must in ["S3"] {
-        assert!(
-            server_findings.contains(must),
-            "the server side of the baseline must still carry the {must} residue; has {server_findings:?}"
-        );
-    }
+    // S3 LEFT this list at the strip's ITEM-4 baseline re-base, on the S2
+    // precedent above and with the same burden of proof. S3's whole server-side
+    // CODE residue was one module's record-parser pair (the two token entries
+    // the file's own S3 doc comment above names) plus that module's
+    // export-doc prose row — the module is `provenance`, which left with the
+    // registry walk in ITEM-3, and the pruning pass (ITEM-4) took the residue
+    // to zero with the file. This is a finding COMPLETED, not a finding pruned
+    // on the strength of a re-tag: the entries left ONLY because their carrier
+    // left.
+    assert!(
+        !server_findings.contains("S3"),
+        "S3 has server-side CODE residue again — the record-parser vocabulary is back in \
+         app-core. Put S3 back in the must-list above in the same commit, with the reason."
+    );
     assert!(
         !server_findings.contains("DEC-M"),
         "DEC-M has server-side CODE residue again — the `cell_count`/`gene_count` wire \

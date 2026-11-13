@@ -32,7 +32,7 @@
  * never set these in normal use):
  *   COLLECT_ACTIONS_SRC_ROOT      — replaces `<ui>/src` as the scan root
  *   COLLECT_ACTIONS_MANIFEST_PATH — replaces the committed manifest path
- *   COLLECT_ACTIONS_MIN_SOURCE_FILES / COLLECT_ACTIONS_MIN_VIEWSPEC_FILES
+ *   COLLECT_ACTIONS_MIN_SOURCE_FILES
  *                                 — lower the ITEM-37 scan floors so a tiny synthetic
  *                                   fixture can exercise the RULES. The floors
  *                                   themselves are proved by `guard-floors.test.mjs`,
@@ -41,7 +41,6 @@
 
 import { build } from 'esbuild'
 import { z } from 'zod'
-import YAML from 'yaml'
 import { readFileSync, writeFileSync, unlinkSync, readdirSync, existsSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -66,15 +65,12 @@ const MANIFEST_PATH = process.env.COLLECT_ACTIONS_MANIFEST_PATH
   ? path.resolve(process.env.COLLECT_ACTIONS_MANIFEST_PATH)
   : path.resolve(UI_ROOT, '..', 'server', 'src', 'modules', 'mcp', 'frontend-actions.json')
 
-// processor-registry ITEM-10: the root under which declarative `view_spec`
-// YAMLs live (`<root>/<processor>/ui/*.yaml`). A processor SHIPS its UI + its
-// own actions as data; the collector merges those actions into the SAME AI
-// manifest as hand-written `defineAction`s (permission-gated, gate-checked,
-// AI-drivable). Overridable so the collector test can point at a self-contained
-// fixture dir. Tolerant of a missing root (none exist yet).
-const VIEWSPEC_ROOT = process.env.COLLECT_ACTIONS_VIEWSPEC_ROOT
-  ? path.resolve(process.env.COLLECT_ACTIONS_VIEWSPEC_ROOT)
-  : path.resolve(UI_ROOT, '..', 'packages')
+// STRIP (single-cell): the declarative `view_spec` population was the
+// processor-registry (ITEM-10) vocabulary — `<root>/<processor>/ui/*.yaml`
+// under `src-app/packages`, registered at runtime by the removed workbench
+// (`workbench/core/runtime/interpreter.ts`). The processor packages and the
+// workbench left with the single-cell platform, so the collector now emits the
+// hand-written `defineAction` population only.
 
 const TSCONFIG_PATH = path.join(UI_ROOT, 'tsconfig.json')
 const DEFINE_ACTION_PATH = path.join(SRC_ROOT, 'core', 'actions', 'defineAction.ts')
@@ -269,129 +265,8 @@ function toParamsSchema(zodType) {
   }
 }
 
-// ── Declarative view_spec action collection (ITEM-10) ────────────────────────
+function buildManifest(registeredActions) {
 
-const ID_SEP = '::' // must match `workbench/core/spec/ids.ts` namespaceActionId
-
-/** `${viewSpecId}::${actionId}` — the global registry id, identical to the
- *  runtime `namespaceActionId` so the manifest id == the registered id. */
-function namespaceActionId(viewSpecId, actionId) {
-  const prefix = `${viewSpecId}${ID_SEP}`
-  return actionId.startsWith(prefix) ? actionId : `${prefix}${actionId}`
-}
-
-/** Map a view_spec param type declaration (a loose string like `string` /
- *  `number` / `[number, number]` / `map<…>`, or a nested object) to a JSON
- *  Schema fragment. Unknown/complex decls degrade to an open `{}` (any). */
-function paramJsonType(decl) {
-  if (decl && typeof decl === 'object') return { type: 'object' }
-  const s = String(decl).trim()
-  if (s === 'string') return { type: 'string' }
-  if (s === 'number' || s === 'integer' || s === 'float') return { type: 'number' }
-  if (s === 'boolean' || s === 'bool') return { type: 'boolean' }
-  if (s[0] === '[' || s.startsWith('array') || s.startsWith('list')) return { type: 'array' }
-  if (s.startsWith('map') || s.startsWith('object') || s.startsWith('record')) return { type: 'object' }
-  return {}
-}
-
-/** Build the `params_schema` for a declared action: `view_id` is always a
- *  required instance target (kind:"instance" contract — `validateInstanceShape`),
- *  plus each declared param. */
-function viewSpecParamsSchema(declared) {
-  const properties = { view_id: { type: 'string' } }
-  const required = ['view_id']
-  for (const [name, decl] of Object.entries(declared ?? {})) {
-    if (name === 'view_id') continue
-    properties[name] = paramJsonType(decl)
-    required.push(name)
-  }
-  return { type: 'object', required, additionalProperties: false, properties }
-}
-
-/** One manifest entry (final shape) for a declared action. Returns `null` when
- *  the action opts out of the AI surface (`surfaces.ai === false`). */
-function viewSpecActionEntry(viewSpecId, action) {
-  if (action?.surfaces && action.surfaces.ai === false) return null
-  const out = {
-    id: namespaceActionId(viewSpecId, action.id),
-    title: action.title ?? action.id,
-    kind: 'instance',
-    context: action.context ?? 'global',
-    mutating: action.mutating ?? false,
-    stateful: action.stateful ?? false,
-    permission: action.permission,
-  }
-  if (action.description) out.description = action.description
-  out.params_schema = viewSpecParamsSchema(action.params)
-  return out
-}
-
-/** The synthesized `<view>.describe` read-action entry (ITEM-11) — AI-only, so
- *  the manifest stays in lock-step with what `registerViewSpecActions` registers
- *  at runtime. */
-function describeEntry(spec) {
-  return {
-    id: `${spec.id}${ID_SEP}describe`,
-    title: `Describe ${spec.title ?? spec.id}`,
-    kind: 'instance',
-    context: 'global',
-    mutating: false,
-    stateful: false,
-    permission: spec.permission,
-    description: `Read the live state + derived values of the "${spec.title ?? spec.id}" view.`,
-    params_schema: { type: 'object', required: ['view_id'], additionalProperties: false, properties: { view_id: { type: 'string' } } },
-  }
-}
-
-/** Recursively list `<root>/<processor>/ui/*.yaml` files. Tolerant of a missing
- *  root (returns `[]`). */
-function listViewSpecFiles(root) {
-  if (!existsSync(root) || !statSync(root).isDirectory()) return []
-  const out = []
-  for (const proc of readdirSync(root, { withFileTypes: true })) {
-    if (!proc.isDirectory() || proc.name.startsWith('.')) continue
-    const uiDir = path.join(root, proc.name, 'ui')
-    if (!existsSync(uiDir) || !statSync(uiDir).isDirectory()) continue
-    for (const f of readdirSync(uiDir, { withFileTypes: true })) {
-      if (f.isFile() && /\.ya?ml$/.test(f.name)) out.push(path.join(uiDir, f.name))
-    }
-  }
-  return out.sort()
-}
-
-/** Parse every view_spec YAML under `root` and return its merged manifest
- *  entries (each declared action + a synthesized `<view>.describe`). A YAML
- *  file may hold multiple `---`-separated docs; each doc is either a flat
- *  `ViewSpec` or `{ view: ViewSpec }`. */
-function collectViewSpecActions(root) {
-  const entries = []
-  for (const file of listViewSpecFiles(root)) {
-    const docs = YAML.parseAllDocuments(readFileSync(file, 'utf8'))
-    for (const doc of docs) {
-      // FAIL LOUD on a malformed view_spec: `parseAllDocuments` collects syntax
-      // errors on `doc.errors` rather than throwing, so an unchecked doc would
-      // silently drop its actions from the manifest while `--check` still passed.
-      if (doc.errors && doc.errors.length > 0) {
-        throw new Error(
-          `[collect-actions] malformed view_spec ${file}: ` +
-            doc.errors.map(e => e.message).join('; '),
-        )
-      }
-      const raw = doc.toJSON()
-      const spec = raw && typeof raw === 'object' && raw.view ? raw.view : raw
-      if (!spec || typeof spec !== 'object' || typeof spec.id !== 'string') continue
-      for (const action of spec.actions ?? []) {
-        if (!action || typeof action.id !== 'string') continue
-        const entry = viewSpecActionEntry(spec.id, action)
-        if (entry) entries.push(entry)
-      }
-      entries.push(describeEntry(spec))
-    }
-  }
-  return entries
-}
-
-function buildManifest(registeredActions, extraEntries = []) {
   const defineActionEntries = registeredActions
     // W1 ITEM-5: an action can opt OUT of the AI capability manifest with
     // `surfaces:{ai:false}` (keeps it in the ⌘K palette, drops it from what
@@ -425,24 +300,19 @@ function buildManifest(registeredActions, extraEntries = []) {
       out.params_schema = toParamsSchema(entry.params)
       return out
     })
-  // ITEM-10: merge declarative view_spec actions alongside the hand-written
-  // ones — one AI manifest, one permission gate, one parity artifact. Ids must be
-  // globally UNIQUE: a view_spec action id that collides with a defineAction id (or a
-  // duplicate within either source) would ship two entries the backend can't tell
-  // apart. Fail loud rather than emit an ambiguous manifest.
-  const merged = [...defineActionEntries, ...extraEntries]
+  // Ids must be globally UNIQUE: a duplicate id would ship two entries the
+  // backend can't tell apart. Fail loud rather than emit an ambiguous manifest.
   const byId = new Map()
-  for (const entry of merged) {
+  for (const entry of defineActionEntries) {
     if (byId.has(entry.id)) {
       throw new Error(
-        `[collect-actions] duplicate action id "${entry.id}" — an id is registered ` +
-          'twice (a defineAction and a view_spec action, or two view_spec actions). ' +
+        `[collect-actions] duplicate action id "${entry.id}" — an id is registered twice. ` +
           'Action ids must be globally unique.',
       )
     }
     byId.set(entry.id, entry)
   }
-  const actions = merged.sort((a, b) => a.id.localeCompare(b.id))
+  const actions = defineActionEntries.sort((a, b) => a.id.localeCompare(b.id))
   return { version: 1, actions }
 }
 
@@ -532,14 +402,15 @@ function serialize(manifest) {
 }
 
 /**
- * ITEM-37 — FAIL CLOSED on a collapsed scan set. `SRC_ROOT` / `VIEWSPEC_ROOT` are
- * HARD-CODED roots; a rename that moves the subject out from under them makes the
+ * ITEM-37 — FAIL CLOSED on a collapsed scan set. `SRC_ROOT` is
+ * a HARD-CODED root; a rename that moves the subject out from under it makes the
  * walk yield (almost) nothing and this guard reports OK having checked nothing.
  * Four such live fail-open incidents happened in this round alone. The floors are
  * COMMITTED constants, so shrinking coverage requires an explicit, reviewable edit.
  */
-const MIN_SOURCE_FILES = 400
-const MIN_VIEWSPEC_FILES = 2
+// STRIP (single-cell): 400 -> 200 — the removed single-cell modules/core/libs
+// took the scan set from 715 non-test TS/TSX files to 300.
+const MIN_SOURCE_FILES = 200
 
 // Test-only floor overrides (the `LINT_LAYER_BOUNDARY_MIN_FILES` precedent). The
 // floors above stay COMMITTED LITERALS — these only let a suite that deliberately
@@ -549,9 +420,6 @@ const MIN_VIEWSPEC_FILES = 2
 // still fires): the guard fails closed by default, and relaxing it takes an edit as
 // visible as lowering the constant.
 const SOURCE_FILE_FLOOR = Number(process.env.COLLECT_ACTIONS_MIN_SOURCE_FILES ?? MIN_SOURCE_FILES)
-const VIEWSPEC_FILE_FLOOR = Number(
-  process.env.COLLECT_ACTIONS_MIN_VIEWSPEC_FILES ?? MIN_VIEWSPEC_FILES,
-)
 
 function assertScanFloor(count, floor, what, root) {
   if (count >= floor) return
@@ -603,39 +471,8 @@ async function main() {
     process.exit(1)
   }
 
-  assertScanFloor(
-    listViewSpecFiles(VIEWSPEC_ROOT).length,
-    VIEWSPEC_FILE_FLOOR,
-    'processor view_spec yaml(s)',
-    VIEWSPEC_ROOT,
-  )
-  const viewSpecEntries = collectViewSpecActions(VIEWSPEC_ROOT)
-  // DOMAIN_AUDIT S1 — TWO populations, TWO destinations.
-  //
-  // The view_spec actions are still COLLECTED here, because the build-time gates
-  // below are worth keeping over them: global id uniqueness against every
-  // `defineAction`, a real known `Permissions` value, and the `kind:"instance"`
-  // shape. They are no longer EMITTED into the committed manifest: at RUNTIME the
-  // browser session registers them (`workbench/core/runtime/interpreter.ts`'s
-  // `registerViewSpecActions`) and REPORTS them to the server
-  // (`core/actions/capabilityReport.ts` → `POST /api/mcp/agent/capabilities`),
-  // which stores what it is given. Baking them in made the AI capability set a
-  // compile-time snapshot while the processor set is runtime-discovered — so a
-  // package dropped in at runtime contributed datatypes and converters but zero
-  // AI capabilities, and adding an AI capability for a new domain meant
-  // recompiling the server. A SERVER-side scan of the same YAML replaced the bake
-  // for a while and is also gone: it was a second, deliberately-partial parse of
-  // a schema the FE runtime owns.
-  //
-  // `frontend-actions.json` is therefore the APP-OWNED half only: the shell's
-  // navigation / project / dataset / pane / job / provenance actions, which do
-  // ship with the binary and are correctly compile-time.
-  const gated = buildManifest(registeredActions, viewSpecEntries)
-  const viewSpecIds = new Set(viewSpecEntries.map(e => e.id))
-  const manifest = {
-    version: gated.version,
-    actions: gated.actions.filter(a => !viewSpecIds.has(a.id)),
-  }
+  const gated = buildManifest(registeredActions)
+  const manifest = gated
 
   const knownPermissions = readKnownPermissions()
   const permissionProblems = validatePermissions(gated, knownPermissions)

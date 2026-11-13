@@ -53,8 +53,16 @@ const NODE_TEST_IMPORT = /(?:from|require\s*\()\s*['"]node:test['"]/
  * Live split at the time of this ratchet, computed from `listNodeTestFiles()` itself
  * rather than counted by hand: **32 under `src/` + 21 under `scripts/` = 53**.
  * Raise it whenever suites are added; lowering it takes an explicit, reviewable edit.
+ *
+ * STRIP (single-cell): ITEM-2/ITEM-4 removed the suites whose subjects left
+ * (processor-package guards, coercion-parity, viz/declarative/visual tiers, the
+ * workbench layer-boundary + positional-declaration lints …), so the live count is
+ * now **2 under `src/` + 16 under `scripts/` = 18**, re-measured from
+ * `listNodeTestFiles()` on the ITEM-4 branch. The floor is lowered to the measured
+ * value — a floor above the live count would be a permanently red guard, and the
+ * ratchet's job (no silent loss BELOW the floor) is unchanged.
  */
-export const MIN_NODE_TEST_FILES = 53
+export const MIN_NODE_TEST_FILES = 18
 
 function walk(dir, out = []) {
   if (!existsSync(dir)) return out
