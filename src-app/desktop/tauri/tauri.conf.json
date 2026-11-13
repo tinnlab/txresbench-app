@@ -5,9 +5,9 @@
   "version": "0.1.0",
   "identifier": "org.tinnlab.txresbench",
   "build": {
-    "beforeDevCommand": "npm run dev --workspace=@txresbench/ui",
+    "beforeDevCommand": "npm run fetch-oras && npm run dev --workspace=@txresbench/ui",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "npm run build --workspace=@txresbench/ui",
+    "beforeBuildCommand": "npm run fetch-oras && npm run build --workspace=@txresbench/ui",
     "frontendDist": "../../ui/dist"
   },
   "app": {
@@ -28,6 +28,7 @@
       "icons/icon.ico"
     ],
     "resources": ["resources/pretrained-bundled"],
+    "externalBin": ["binaries/oras"],
     "createUpdaterArtifacts": true
   },
   "plugins": {

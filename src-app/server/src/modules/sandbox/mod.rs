@@ -62,12 +62,13 @@
 //!    must NOT be masked (an over-mount on any `/proc/...` path — e.g. the NVIDIA
 //!    container toolkit's `/proc/driver/nvidia/params` — locks the tree against an
 //!    unprivileged `mount -t proc`); run with `--security-opt systempaths=unconfined`.
-//! 4. **`oras`** (txr env fetch only) — looked up in `<app_data>/bin` first, then
-//!    `PATH`. Downloading method environments is the ONLY network use the desktop
-//!    app has; a method run itself is `--unshare-net` (no loopback, no egress) and
-//!    the fetched bytes are verified against their pinned sha256 before they are
-//!    mounted. Missing `oras` degrades the txr env status, never a run against the
-//!    host filesystem.
+//! 4. **`oras`** (txr env fetch only) — looked up next to the app executable
+//!    first (the desktop bundle ships it there as a Tauri sidecar), then in
+//!    `<app_data>/bin`, then on `PATH`. Downloading method environments is the
+//!    ONLY network use the desktop app has; a method run itself is
+//!    `--unshare-net` (no loopback, no egress) and the fetched bytes are verified
+//!    against their pinned sha256 before they are mounted. Missing `oras`
+//!    degrades the txr env status, never a run against the host filesystem.
 //!
 //! For a local dev box, the dev-box sandbox prep step applies 2 + 3 idempotently.
 //! `scripts/txr-sandbox-preflight.sh` is the same checklist WITHOUT the fixes —
@@ -75,8 +76,10 @@
 //! four host tools (bwrap, squashfuse, fusermount3, oras), `user_allow_other`
 //! and the fresh-`/proc` probe, each with its exact one-line remediation and a
 //! non-zero exit when something required is missing. Its tool resolution
-//! matches [`method_env::tool_bin`] (`<app_data>/bin` first, then `PATH`), so
-//! what it reports is what `GET /api/sandbox/envs`' `stack.tool_bins` reports.
+//! checks `<app_data>/bin`, then `PATH` — the last two steps of
+//! [`method_env::tool_bin`], which looks next to the app executable first; the
+//! script does not know the app's install location, so a bundled sidecar is
+//! reported by `GET /api/sandbox/envs`' `stack.tool_bins`, not by the script.
 
 pub mod backend;
 pub mod cgroup;

@@ -41,6 +41,10 @@ src-app/desktop/tauri/resources/pretrained-bundled/*
 src-app/desktop/tauri/resources/sandbox-vm-runtime/*
 !src-app/desktop/tauri/resources/sandbox-vm-runtime/.gitkeep
 
+# The oras sidecar (bundle.externalBin): scripts/fetch-oras.mjs downloads and
+# verifies the pinned oras release binary at build time; never committed.
+src-app/desktop/tauri/binaries/
+
 # Node
 node_modules
 node_modules/
