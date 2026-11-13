@@ -379,8 +379,24 @@ describe('RunningPage — the run states (TEST-RUN-23)', () => {
     expect(state().runError).toBe('not-found')
     expect(state().streaming).toBe(false)
     expect(streamRun).not.toHaveBeenCalled()
+    // qa-fixes4 ITEM-2 (e): the proper not-found page — the plan's words,
+    // the History way out, and the plan's document title.
+    expect(screen.getByTestId('txr-run-not-found').textContent).toContain(
+      'We could not find this run',
+    )
+    expect(document.title).toBe('Run not found — TxResBench')
     const history = screen.getByTestId('txr-run-history').getAttribute('href')
     expect(history).toBe(historyPath())
+  })
+
+  it('ITEM-2 (e): a malformed run id (the server\'s 400) is the not-found page, never the network error', async () => {
+    getRun.mockRejectedValue(Object.assign(new Error('HTTP error! status: 400'), { status: 400 }))
+    renderAt('does-not-exist')
+    await screen.findByTestId('txr-run-not-found')
+    expect(state().runError).toBe('not-found')
+    expect(screen.queryByTestId('txr-run-load-error')).toBeNull()
+    expect(screen.queryByTestId('txr-run-retry')).toBeNull()
+    expect(document.title).toBe('Run not found — TxResBench')
   })
 
   it('renders the network error state with a retry that re-loads the run', async () => {
@@ -430,13 +446,12 @@ describe('RunningPage — the terminal run (qa-fixes ITEM-3 RP-1)', () => {
     // live-run statement and is dropped).
     expect(router.state.location.pathname).toBe('/analysis/run-1/running')
     expect(screen.queryByTestId('txr-run-leave-note')).toBeNull()
-    // Stop all and the lane pick are disabled (a finished run has no controls).
-    expect(screen.getByTestId('txr-run-stop-all').hasAttribute('disabled')).toBe(true)
-    for (const option of within(
-      screen.getByTestId('txr-run-at-a-time-control'),
-    ).getAllByRole('tab')) {
-      expect(option.getAttribute('aria-disabled')).toBe('true')
-    }
+    // qa-fixes4 ITEM-2 (d, R3-methods-4): a finished run's screen shows
+    // NO run controls — the disabled Stop all and the lane pick are gone
+    // (they were re-exposed by the app-shell move of Stop all to the
+    // bottom bar).
+    expect(screen.queryByTestId('txr-run-stop-all')).toBeNull()
+    expect(screen.queryByTestId('txr-run-at-a-time-control')).toBeNull()
     // R2-1/R2-2: a terminal run's time line reads the elapsed it TOOK — no
     // stale "about N minutes left", and the estimate's honesty word rides
     // the end (the fixture's estimate is the rough kind).

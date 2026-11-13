@@ -136,6 +136,35 @@ const STATE_BLOCK: CSSProperties = {
   gap: 14,
 }
 
+/** The not-found block (qa-fixes4 ITEM-2 (e): the sibling results page's
+ *  left-aligned not-found shape — the old kit Result ran in a narrow
+ *  column at the left of a wide page). */
+const NOT_FOUND_BLOCK: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  gap: 10,
+  maxWidth: 460,
+}
+
+const NOT_FOUND_TITLE: CSSProperties = {
+  margin: 0,
+  fontFamily: "'Source Serif 4', Georgia, serif",
+  fontWeight: 600,
+  fontSize: 22,
+  lineHeight: 1.3,
+}
+
+const NOT_FOUND_LINE: CSSProperties = { margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }
+
+const NOT_FOUND_LINK: CSSProperties = {
+  fontSize: 14,
+  fontWeight: 600,
+  padding: 0,
+  height: 'auto',
+  color: 'var(--txr-brand)',
+}
+
 /** The leave-and-continue note (the board's footer line under the table:
  *  the run keeps going when this screen is left; the note is the page's
  *  always-rendered wiring, not the panel's). */
@@ -206,23 +235,25 @@ function LoadingRun() {
 }
 
 function NotFoundRun({ history }: { history: string }) {
+  // qa-fixes4 ITEM-2 (e, methods-r3 R3-methods-7): a missing run is not a
+  // connection problem — the block is the app's not-found voice, LEFT
+  // aligned like the sibling results page's not-found state (the old kit
+  // Result sat in a narrow column), with the History way out.
   return (
     <main data-testid="txr-run" style={PAGE_OUTER}>
       <PageFrame
         body={
           <ScrollRegion label="Run">
             <div style={STATE_BLOCK}>
-              <Result
-                status="404"
-                data-testid="txr-run-not-found"
-                title="This analysis run could not be found"
-                subtitle="It may have been removed, or the link is outdated."
-                extra={
-                  <Link data-testid="txr-run-history" to={history}>
-                    History
-                  </Link>
-                }
-              />
+              <div data-testid="txr-run-not-found" style={NOT_FOUND_BLOCK}>
+                <h2 style={NOT_FOUND_TITLE}>We could not find this run</h2>
+                <p style={NOT_FOUND_LINE}>
+                  It may have been removed, or the link is outdated.
+                </p>
+                <Link data-testid="txr-run-history" to={history} style={NOT_FOUND_LINK}>
+                  History
+                </Link>
+              </div>
             </div>
           </ScrollRegion>
         }
@@ -300,11 +331,12 @@ export function RunningPage() {
     runStatus,
     terminal ? finishedCount : null,
   )
-  // R2-G1: the tab/title byte is the page's own h1 once the run is known
-  // ("Running N methods", "Finished N methods"…); before that the status
-  // word alone ("Running …"). A run record carries no name field, so the
-  // title is derived exactly like the page heading — never invented.
-  useDocumentTitle(run === null ? 'Running' : title)
+  // R2-G1 + qa-fixes4 ITEM-2 (e): the tab/title byte is the page's own h1
+  // once the run is known ("Running N methods", "Finished N methods"…
+  // and "Run not found" for a missing run — the plan's document-title pin).
+  // A run record carries no name field, so the title is derived exactly
+  // like the page heading — never invented.
+  useDocumentTitle(run === null ? (runError === 'not-found' ? 'Run not found' : 'Running') : title)
 
   // The LIVE elapsed (RP-2): the run's own snapshot at load (the detail's
   // `elapsed_secs`; the `started_at` anchor for a run whose snapshot had no

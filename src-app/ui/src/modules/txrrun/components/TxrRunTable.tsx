@@ -206,12 +206,17 @@ export function TxrRunTable({
       </div>
       <div style={FOOTER}>
         <span style={SPACER} />
-        <TxrAtATimeControl
-          value={atATime}
-          onChange={onAtATime}
-          busy={terminal}
-          error={atATimeError}
-        />
+        {/* qa-fixes4 ITEM-2 (d, methods-r3 R3-methods-4): a finished run
+            hides the at-a-time control entirely — a disabled lane picker
+            under a done run claims a live run. */}
+        {!terminal ? (
+          <TxrAtATimeControl
+            value={atATime}
+            onChange={onAtATime}
+            busy={terminal}
+            error={atATimeError}
+          />
+        ) : null}
       </div>
     </section>
   )
@@ -235,11 +240,15 @@ export function TxrRunStopAllControl({
   onStopAll: () => void
   /** A run-level action in flight (Stop all's own call): button busy. */
   stopping: boolean
-  /** The run is over (terminal status): disabled. */
+  /** The run is over (terminal status): the control is GONE — a finished
+   *  run's screen never offers run controls (qa-fixes4 ITEM-2 (d): the
+   *  disabled "Stop all" of the round-3 report was the regression; the
+   *  plan hides it). */
   terminal: boolean
   /** Stop all's failure line (the run-level action error). */
   actionError: string | null
 }) {
+  if (terminal) return null
   return (
     <>
       <Confirm

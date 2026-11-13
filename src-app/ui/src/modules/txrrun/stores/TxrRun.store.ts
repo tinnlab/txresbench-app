@@ -484,7 +484,12 @@ const TxrRunDef = defineStore('TxrRun', {
         if (gen !== generation) return
         set({
           loading: false,
-          runError: errorStatus(error) === 404 ? 'not-found' : 'network',
+          // qa-fixes4 ITEM-2 (e): the server answers 400 for a NON-UUID
+          // path segment ("/analysis/does-not-exist/running") and 404 for
+          // an unknown valid id — BOTH are the not-found truth (R3-methods-7:
+          // the old network branch told a user with a stale link that the
+          // app was down).
+          runError: errorStatus(error) === 404 || errorStatus(error) === 400 ? 'not-found' : 'network',
         })
         return
       }

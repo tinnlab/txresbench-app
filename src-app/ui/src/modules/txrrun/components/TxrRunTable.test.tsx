@@ -122,13 +122,9 @@ describe('TxrRunTable — Stop all lives on the page\'s bottom bar (app-shell IT
     expect(screen.queryByTestId('txr-run-action-error')).toBeNull()
   })
 
-  it('a terminal run (RP-1) disables the lane pick — no live-run controls on a finished run', () => {
+  it('a terminal run (RP-1) hides the lane pick — no live-run controls on a finished run (qa-fixes4 ITEM-2 (d))', () => {
     renderTable({ terminal: true })
-    for (const option of within(
-      screen.getByTestId('txr-run-at-a-time-control'),
-    ).getAllByRole('tab')) {
-      expect(option.getAttribute('aria-disabled')).toBe('true')
-    }
+    expect(screen.queryByTestId('txr-run-at-a-time-control')).toBeNull()
   })
 })
 
@@ -164,7 +160,7 @@ describe('TxrRunStopAllControl — the confirm gate (TEST-RUN-21, DEC-10; ITEM-2
     expect(onStopAll).not.toHaveBeenCalled()
   })
 
-  it('a run-level action in flight turns the button busy (kit loading: aria-busy, focus kept); a terminal run disables it', () => {
+  it('a run-level action in flight turns the button busy (kit loading: aria-busy, focus kept); a terminal run hides it (qa-fixes4 ITEM-2 (d))', () => {
     renderControl({ stopping: true })
     const busy = screen.getByTestId('txr-run-stop-all')
     expect(busy.getAttribute('aria-busy')).toBe('true')
@@ -172,7 +168,7 @@ describe('TxrRunStopAllControl — the confirm gate (TEST-RUN-21, DEC-10; ITEM-2
     expect(busy.hasAttribute('disabled')).toBe(false)
     cleanup()
     renderControl({ terminal: true })
-    expect(screen.getByTestId('txr-run-stop-all').hasAttribute('disabled')).toBe(true)
+    expect(screen.queryByTestId('txr-run-stop-all')).toBeNull()
   })
 
   it('renders the run-level action error — a failed control is never silent', () => {
