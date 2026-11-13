@@ -291,7 +291,13 @@ describe('txrrun module (TEST-RUN-01)', () => {
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a
     // hard-coded light hex — a light flash before the app loads).
-          p !== 'src-app/ui/src/modules/session/SessionGuard.tsx',
+          p !== 'src-app/ui/src/modules/session/SessionGuard.tsx' &&
+          // qa-fixes4 ITEM-4 (its DRIFT-1): the session bootstrap's retry/
+          // error state (R3-intake-8) — the store's retry ladder + the
+          // store/guard tests; the guard file itself is the ITEM-7-sanctioned
+          // tokenization file above.
+          p !== 'src-app/ui/src/modules/session/Session.store.ts' &&
+          p !== 'src-app/ui/src/modules/session/Session.test.tsx',
       ),
     ).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
@@ -470,7 +476,13 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.test.ts' &&
 
-          p !== 'src-app/ui/src/modules/session/SessionGuard.tsx',
+          p !== 'src-app/ui/src/modules/session/SessionGuard.tsx' &&
+          // qa-fixes4 ITEM-4 (its DRIFT-1): the session bootstrap's retry/
+          // error state (R3-intake-8) — the store's retry ladder + the
+          // store/guard tests; the guard file itself is the ITEM-7-sanctioned
+          // tokenization file above.
+          p !== 'src-app/ui/src/modules/session/Session.store.ts' &&
+          p !== 'src-app/ui/src/modules/session/Session.test.tsx',
       ),
     ).toEqual([])
   })

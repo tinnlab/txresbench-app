@@ -436,6 +436,12 @@ describe('txrhelp module (TEST-HELP-4)', () => {
     // surface is tokenized with the pages (its own ink was a
     // hard-coded light hex — a light flash before the app loads).
           p !== 'src-app/ui/src/modules/session/SessionGuard.tsx' &&
+          // qa-fixes4 ITEM-4 (its DRIFT-1): the session bootstrap's retry/
+          // error state (R3-intake-8) — the store's retry ladder + the
+          // store/guard tests; the guard file itself is the ITEM-7-sanctioned
+          // tokenization file above.
+          p !== 'src-app/ui/src/modules/session/Session.store.ts' &&
+          p !== 'src-app/ui/src/modules/session/Session.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrhistory/module.test.ts' &&
           !p.startsWith('src-app/ui/src/modules/txrrun/') &&
           !p.startsWith('src-app/ui/src/modules/txrresults/') &&

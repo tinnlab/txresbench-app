@@ -7,12 +7,16 @@ import { Session } from '@/modules/session/Session.store'
  * SessionGuard — the single gate between the browser and every protected route.
  *
  * TxResBench has no login screen: the guard only waits for the local session
- * mint + `/me` (see Session.store). Until then a centering spinner; on failure a
- * direct, actionable message (the server is a local process — the failure is
- * almost always "the app's server is not running").
+ * mint + `/me` (see Session.store). While the mint runs the page says what
+ * it is doing ("Starting the app…", and the still-trying line once the mint
+ * is slow — R3-intake-8: a failing or slow `POST /api/session/local` must
+ * never leave a bare "Loading…" the user cannot act on); the store retries
+ * the mint automatically (3 tries, backoff) and after the last try the
+ * guard shows "We could not start the app" with the plain reason and a
+ * Retry button.
  */
 export function SessionGuard({ children }: { children: ReactNode }) {
-  const { ready, error } = Session
+  const { ready, error, minting, slow } = Session
 
   // Backstop kick: `session/module.tsx::initialize` starts the mint, but a route
   // that mounts without a module-initialize (remounts, deep links) must still
@@ -37,9 +41,9 @@ export function SessionGuard({ children }: { children: ReactNode }) {
           textAlign: 'center',
         }}
       >
-        <h1 style={{ margin: 0, fontSize: 22 }}>TxResBench could not start</h1>
+        <h1 style={{ margin: 0, fontSize: 22 }}>We could not start the app</h1>
         <p data-allow-custom-color style={{ margin: 0, color: 'var(--txr-text-2)', maxWidth: 520 }}>
-          The app's local service did not answer. Start it and reload this page.
+          The app did not answer after 3 tries. The reason:
         </p>
         <pre
           data-allow-custom-color
@@ -63,7 +67,7 @@ export function SessionGuard({ children }: { children: ReactNode }) {
             void Session.initSession()
           }}
         >
-          Try again
+          Retry
         </Button>
       </div>
     )
@@ -75,14 +79,26 @@ export function SessionGuard({ children }: { children: ReactNode }) {
         data-testid="session-loading"
         style={{
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
           minHeight: '100dvh',
+          gap: 8,
+          padding: 24,
+          textAlign: 'center',
         }}
       >
         <span aria-label="Loading" style={{ fontSize: 13, color: 'var(--txr-muted)' }}>
-          Loading…
+          {minting ? 'Starting the app…' : 'Loading…'}
         </span>
+        {slow ? (
+          <span
+            data-testid="session-slow"
+            style={{ fontSize: 12.5, color: 'var(--txr-muted)' }}
+          >
+            This is taking longer than usual. Still trying.
+          </span>
+        ) : null}
       </div>
     )
   }
