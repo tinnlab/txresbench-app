@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarTrigger } from '@txresbench/kit'
 import { FiMenu } from 'react-icons/fi'
+import { MAC_TITLE_BAR_CSS_VARS } from '@/core/macTitleBar'
 import { isMacDesktop } from '@/core/platform'
 import { TxrThemeToggle } from '../TxrThemeToggle'
 import { shellModeClass, useShellMode } from '../lib/shellMode'
@@ -35,13 +36,21 @@ import { shellModeClass, useShellMode } from '../lib/shellMode'
  * The macOS desktop window draws no title bar of its own (Tauri's overlay
  * title bar, sdk/desktop/harness/src/window.rs): the traffic lights sit
  * over the header's left end and the page receives every mouse event, so
- * there the header IS the title bar. It gets the `txr-shell-header-macos`
- * class (index.css keeps the traffic lights' strip clear) and
- * `data-tauri-drag-region="deep"`: Tauri's drag script then moves the
- * window from any non-interactive spot of the header (links and buttons
- * stay clickable) and a double-click zooms it. The browser build and the
- * Windows/Linux windows (native or decorum title bars) render the header
- * unchanged.
+ * there the header IS the title bar. In that window (`isMacDesktop()`) the
+ * header gets the `txr-shell-header-macos` class (index.css keeps the
+ * traffic lights' strip clear) and `data-tauri-drag-region="deep"`: Tauri's
+ * drag script then moves the window from any non-interactive spot of the
+ * header (links and buttons stay clickable) and a double-click zooms it.
+ * The shell root gets `txr-app-shell-macos`, which moves the focused skip
+ * links (the shell's and the Help page's) clear of the traffic lights, and
+ * the title-bar geometry as CSS custom properties
+ * (`MAC_TITLE_BAR_CSS_VARS`, from core/macTitleBar.json) that those rules
+ * and the header inset read.
+ *
+ * Native full screen keeps all of it: macOS slides the title bar and the
+ * traffic lights back in when the pointer reaches the top edge, so the
+ * strip must stay clear there too. The browser build and the Windows/Linux
+ * windows (native or decorum title bars) render the shell unchanged.
  */
 export interface AppShellProps {
   children: ReactNode
@@ -84,7 +93,7 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <div
-      className={`txr-shell txr-app-shell txr-app-shell-${mode}`}
+      className={`txr-shell txr-app-shell txr-app-shell-${mode}${macTitleBar ? ' txr-app-shell-macos' : ''}`}
       style={{
         minHeight: '100dvh',
         display: 'flex',
@@ -94,6 +103,7 @@ export function AppShell({ children }: AppShellProps) {
         fontFamily: "'Source Sans 3', system-ui, sans-serif",
         fontSize: 15,
         lineHeight: 1.5,
+        ...(macTitleBar ? MAC_TITLE_BAR_CSS_VARS : null),
       }}
     >
       {/* The skip link is the FIRST tab stop (before the brand): a keyboard

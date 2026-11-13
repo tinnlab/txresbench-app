@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ThemeContext, type ThemeContextValue } from '@txresbench/shell'
+import { MAC_TITLE_BAR } from '@/core/macTitleBar'
 import { TxrShell } from './TxrLayout'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -167,7 +168,7 @@ describe('AppShell header on the macOS desktop window', () => {
   const WINDOWS_UA =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0'
 
-  function renderHeader({ tauri, ua }: { tauri: boolean; ua: string }) {
+  function renderShell({ tauri, ua }: { tauri: boolean; ua: string }) {
     vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(ua)
     const w = window as unknown as { __TAURI__?: unknown }
     if (tauri) w.__TAURI__ = { core: { invoke: vi.fn() } }
@@ -181,7 +182,14 @@ describe('AppShell header on the macOS desktop window', () => {
         </ThemeContext.Provider>
       </MemoryRouter>,
     )
-    return view.container.querySelector<HTMLElement>('.txr-shell-header')!
+    return {
+      shell: view.container.querySelector<HTMLElement>('.txr-shell')!,
+      header: view.container.querySelector<HTMLElement>('.txr-shell-header')!,
+    }
+  }
+
+  function renderHeader(opts: { tauri: boolean; ua: string }) {
+    return renderShell(opts).header
   }
 
   afterEach(() => {
@@ -206,27 +214,70 @@ describe('AppShell header on the macOS desktop window', () => {
     expect(header.querySelector('[data-tauri-drag-region]')).toBeNull()
   })
 
+  it('marks the shell root so the focused skip links move clear of the traffic lights', () => {
+    const { shell } = renderShell({ tauri: true, ua: MAC_UA })
+    expect(shell.classList.contains('txr-app-shell-macos')).toBe(true)
+  })
+
+  it('sets the title-bar geometry from core/macTitleBar.json on the shell root, once', () => {
+    const { shell, header } = renderShell({ tauri: true, ua: MAC_UA })
+    expect(shell.style.getPropertyValue('--txr-mac-content-start')).toBe(`${MAC_TITLE_BAR.contentStart}px`)
+    // The text starts past the zoom button, with a gap.
+    expect(MAC_TITLE_BAR.contentStart).toBeGreaterThan(MAC_TITLE_BAR.trafficLights.right)
+    // The traffic lights are centred on the header, which is the title bar's height.
+    expect(header.style.height).toBe(`${MAC_TITLE_BAR.titleBarHeight}px`)
+    expect((MAC_TITLE_BAR.trafficLights.top + MAC_TITLE_BAR.trafficLights.bottom) / 2).toBe(
+      MAC_TITLE_BAR.titleBarHeight / 2,
+    )
+  })
+
   it('leaves the header unchanged in a browser on a Mac', () => {
-    const header = renderHeader({ tauri: false, ua: MAC_UA })
+    const { shell, header } = renderShell({ tauri: false, ua: MAC_UA })
     expect(header.hasAttribute('data-tauri-drag-region')).toBe(false)
     expect(header.className).toBe('txr-shell-header')
     expect(header.style.padding).toBe('0px 28px')
+    expect(shell.classList.contains('txr-app-shell-macos')).toBe(false)
+    expect(shell.style.getPropertyValue('--txr-mac-content-start')).toBe('')
   })
 
   it('leaves the header unchanged in the Windows desktop window', () => {
-    const header = renderHeader({ tauri: true, ua: WINDOWS_UA })
+    const { shell, header } = renderShell({ tauri: true, ua: WINDOWS_UA })
     expect(header.hasAttribute('data-tauri-drag-region')).toBe(false)
     expect(header.className).toBe('txr-shell-header')
+    expect(shell.classList.contains('txr-app-shell-macos')).toBe(false)
   })
 
-  it('index.css clears the traffic lights (close button at x = 20, three buttons, a gap) at every width', () => {
+  it('index.css clears the traffic lights at every width with the geometry source, not a copy of it', () => {
     const index = readFileSync(resolve(HERE, '../../index.css'), 'utf8')
     const rule = /\.txr-shell-header\.txr-shell-header-macos\s*\{([^}]*)\}/.exec(index)
     expect(rule).not.toBeNull()
-    const inset = /padding-left:\s*(\d+)px\s*!important/.exec(rule![1])
-    expect(inset).not.toBeNull()
-    // 20 (the inset in src-app/desktop/tauri/src/lib.rs) + ~54 (the three
-    // buttons) — anything at or below 74 puts the brand under the zoom button.
-    expect(Number(inset![1])).toBeGreaterThan(74)
+    expect(rule![1]).toMatch(/padding-left:\s*var\(--txr-mac-content-start\)\s*!important/)
+  })
+
+  it('index.css moves both focused skip links to the same left edge as the header content, on the macOS window only', () => {
+    const index = readFileSync(resolve(HERE, '../../index.css'), 'utf8')
+    // The web positions stay as they were.
+    expect(/\.txr-shell-skip-link:focus-visible\s*\{[^}]*left: 12px/.test(index)).toBe(true)
+    expect(/\.txr-help-skip-link:focus\s*\{[^}]*left: 12px !important/.test(index)).toBe(true)
+    // Under the shell's macOS class they start at the shared content edge
+    // (the AppLayout screens' skip link uses the same `contentStart`).
+    expect(index).toMatch(
+      /\.txr-app-shell-macos \.txr-shell-skip-link:focus-visible\s*\{[^}]*left:\s*var\(--txr-mac-content-start\);/,
+    )
+    expect(index).toMatch(
+      /\.txr-app-shell-macos \.txr-help-skip-link:focus\s*\{[^}]*left:\s*var\(--txr-mac-content-start\) !important/,
+    )
+  })
+
+  it('index.css carries no copy of the macOS geometry: every macOS rule reads the custom property', () => {
+    const index = readFileSync(resolve(HERE, '../../index.css'), 'utf8')
+    // Every rule whose SELECTOR (not a comment before it) names a macOS class.
+    const macRules = [...index.matchAll(/([^{}]*)\{([^}]*)\}/g)]
+      .filter(m => /macos/.test(m[1].split('*/').pop()!))
+      .map(m => m[2])
+    expect(macRules.length).toBe(3)
+    for (const body of macRules) {
+      expect(body).not.toMatch(/\b\d+px\b/)
+    }
   })
 })
