@@ -73,12 +73,25 @@ async fn get_status(
     Ok((
         StatusCode::OK,
         Json(SandboxStatus {
-            availability: init_status(),
+            availability: analysis_availability(init_status()),
             rootfs: rootfs::status(),
             env_registry_base: super::env_image::registry_base_display().to_string(),
             env_moving_tag: super::env_image::moving_tag(),
         }),
     ))
+}
+
+/// The ANALYSIS sandbox's availability (`/sandbox/execute`), which this route
+/// reports. The analysis sandbox runs bwrap on the host, so it exists on Linux
+/// only; on macOS the module is `Ready` for STACKED method runs (the per-run
+/// VM, reported by `/sandbox/envs`' `stack` section) while the analysis
+/// sandbox stays unsupported.
+fn analysis_availability(module: SandboxAvailability) -> SandboxAvailability {
+    if cfg!(target_os = "linux") || module != SandboxAvailability::Ready {
+        module
+    } else {
+        SandboxAvailability::HostUnsupported
+    }
 }
 
 fn get_status_docs(op: TransformOperation) -> TransformOperation {

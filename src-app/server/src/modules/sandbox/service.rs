@@ -16,9 +16,9 @@ use txresbench_core::AppError;
 
 use super::stack::{MethodRunMode, MethodRunRequest, MethodRunResult, ModelMount};
 use super::types::ExtraMount;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use super::backend::{ProgressFrame, ProgressSink};
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::sync::Arc;
 
 /// Resolve the effective wall-clock timeout: a client value is clamped to the
@@ -397,7 +397,479 @@ pub async fn run_method_in_stack(
     ))
 }
 
-#[cfg(not(target_os = "linux"))]
+/// Run ONE benchmark method in its own stacked sandbox — macOS (PROV-SS-1).
+///
+/// The same contract as the Linux seam above, and the same order of checks
+/// up to the images (caller boundaries, the saved model, the images). The
+/// layer checks come later than on Linux: the layer can only be read inside
+/// the VM, and the VM's shares are fixed at boot, so they run once the run's
+/// dirs and inputs are staged and the VM is up. What differs is where the
+/// images are mounted: macOS can neither mount
+/// squashfs nor run bwrap, so the base + layer images boot a per-run Linux VM
+/// as read-only disks ([`super::mac_vm_run`]), the layer checks (manifest,
+/// entry parents, wrapper command) run inside it with the same `stack` rules,
+/// and the SAME stacked bwrap argv — built with guest paths — runs there.
+///
+/// Everything the VM reads is a private per-run copy, verified where it has a
+/// pin: the two images are cloned (copy-on-write on APFS) and digest-verified
+/// (INV-1), and the read-only inputs are readable copies, a saved model's copy
+/// being the one digest-verified (INV-4) — nothing in the cache can change or
+/// vanish under a booting VM. Everything the workload writes — `/output`, a
+/// fit's `/model`, its home dir — is streamed back into host dirs before the
+/// model digest is taken. One macOS difference: those outputs live in guest
+/// RAM until the command exits, so they count against the run's memory limit.
+#[cfg(target_os = "macos")]
+pub async fn run_method_in_stack(
+    pool: &SqlitePool,
+    req: &MethodRunRequest,
+    mounts: &[ExtraMount],
+    job_id: Uuid,
+    sink: Option<Arc<dyn ProgressSink>>,
+) -> Result<MethodRunResult, AppError> {
+    use super::mac_vm_run::{self as vm, MethodVm, VmSpec};
+    use super::method_env::{EnvKind, ProvidedMount};
+    use super::types::{CgroupMode, HardeningCapabilities, MountMode, PidNsMode, SandboxContext, SeccompMode};
+    use std::path::{Path, PathBuf};
+
+    /// Room in guest RAM for everything the workload writes (outputs + home)
+    /// until it is streamed back; added to the VM's RAM.
+    const OUTPUT_BUDGET_MIB: u32 = 2048;
+
+    let state = super::config::get_state().ok_or_else(|| {
+        unavailable(format!(
+            "the method sandbox is not available ({:?})",
+            super::config::init_status()
+        ))
+    })?;
+    let limits = super::settings_cache::get(pool).await;
+
+    // ── caller-data boundaries, before any filesystem / VM work ─────────────
+    super::stack::validate_oci_ref(&req.base.oci_ref)?;
+    super::stack::validate_oci_ref(&req.layer.oci_ref)?;
+    validate_model_contract(req.mode, &req.model, &req.model_out_dir)?;
+
+    // ── the verified model (INV-4), BEFORE any environment work ────────────
+    // As on Linux, a wrong or tampered pin is refused before an image is
+    // touched. What is verified is the model's STAGED copy — the readable
+    // per-run copy the VM reads (see the input staging below) — so the files
+    // checked are the files bound, hashed once. As on Linux, the pin covers
+    // the model's regular files; symlinks in it are not part of the pin.
+    let (input_stage, staged_model) = {
+        let model = req.model.as_ref().map(|m| (m.host_path.clone(), m.tree_sha256.clone()));
+        tokio::task::spawn_blocking(move || {
+            let mut stage = vm::RoStage::new()?;
+            let staged = match &model {
+                Some((host, pin)) => {
+                    if !host.is_dir() {
+                        return Err(unavailable(format!(
+                            "the saved model {} is not a directory; on macOS run inputs reach \
+                             the method VM as shared directories",
+                            host.display()
+                        )));
+                    }
+                    let copy = stage.stage(host)?;
+                    super::stack::verify_model_tree(&copy, pin)?;
+                    Some(copy)
+                }
+                None => None,
+            };
+            Ok::<_, AppError>((stage, staged))
+        })
+        .await
+        .map_err(|e| unavailable(format!("model staging task join: {e}")))??
+    };
+    let model_verified = staged_model.is_some();
+
+    // ── fetch / verify base + layer (INV-1), then private verified copies ───
+    // On macOS `mount_dir` is the cached squashfs IMAGE (nothing is mounted on
+    // the host — `method_env::ready_artifact_path`). The VM must not boot the
+    // cache file itself: a prune or a replacement between a check and the boot
+    // would go unnoticed. Each image is cloned into the run's private dir and
+    // the CLONE is verified; that is what the VM attaches.
+    let budget = limits.staging_budget();
+    let (base, layer, image_stage, base_image, layer_image) = {
+        let base_ref = req.base.clone();
+        let layer_ref = req.layer.clone();
+        tokio::task::spawn_blocking(move || {
+            let manager = super::method_env::manager();
+            let base = manager.ensure(&base_ref, EnvKind::Base, budget)?;
+            let layer = manager.ensure(&layer_ref, EnvKind::Layer, budget)?;
+            let mut stage = vm::RoStage::for_images()?;
+            let mut private_copy =
+                |artifact: &ProvidedMount, what: &str| -> Result<PathBuf, AppError> {
+                    if !artifact.mount_dir.is_file() {
+                        return Err(unavailable(format!(
+                            "the {what} environment at {} is not an image file; on macOS a \
+                             method environment must be a squashfs image the method VM can \
+                             attach (a pre-mounted environment dir cannot be used)",
+                            artifact.mount_dir.display()
+                        )));
+                    }
+                    stage.stage_file(&artifact.mount_dir)
+                };
+            // The cache file's identity before and after cloning: if it did not
+            // change and this process already verified it, the clone holds
+            // the verified bytes and needs no second full hash.
+            let base_before = vm::image_identity(&base.mount_dir);
+            let layer_before = vm::image_identity(&layer.mount_dir);
+            let base_image = private_copy(&base, "base")?;
+            let layer_image = private_copy(&layer, "layer")?;
+            let unchanged = |before: Option<vm::ImageIdentity>, src: &Path| {
+                before.filter(|id| vm::image_identity(src).as_ref() == Some(id))
+            };
+            let base_id = unchanged(base_before, &base.mount_dir);
+            let layer_id = unchanged(layer_before, &layer.mount_dir);
+            let needs_hash = |id: Option<vm::ImageIdentity>, digest: &str| {
+                !id.is_some_and(|id| vm::verified_before(digest, id))
+            };
+            let hash_base = needs_hash(base_id, &base_ref.digest);
+            let hash_layer = needs_hash(layer_id, &layer_ref.digest);
+            // Verify the clones that need it, both at once (each is a full
+            // read of the image).
+            let (b, l) = std::thread::scope(|scope| {
+                let b = scope.spawn(|| {
+                    if hash_base {
+                        super::method_env::verify_image_file(&base_image, &base_ref.digest)
+                    } else {
+                        Ok(())
+                    }
+                });
+                let l = scope.spawn(|| {
+                    if hash_layer {
+                        super::method_env::verify_image_file(&layer_image, &layer_ref.digest)
+                    } else {
+                        Ok(())
+                    }
+                });
+                (b.join(), l.join())
+            });
+            for verdict in [b, l] {
+                verdict.map_err(|_| unavailable("image verification stopped unexpectedly"))??;
+            }
+            for (id, digest) in [(base_id, &base_ref.digest), (layer_id, &layer_ref.digest)] {
+                if let Some(id) = id {
+                    vm::record_verified(digest, id);
+                }
+            }
+            Ok::<_, AppError>((base, layer, stage, base_image, layer_image))
+        })
+        .await
+        .map_err(|e| unavailable(format!("method env staging task join: {e}")))?
+    }?;
+
+    // ── workspace (0700) + staging (ITEM-17: outside the workspace) ─────────
+    let workspace = state.workspace_root.join(job_id.to_string());
+    create_private_dir(&workspace)?;
+    let staging = super::outputs::staging_dir(&state.staging_root, job_id);
+    create_private_dir(&staging)?;
+    for (dir, what) in [
+        (&req.outputs_dir, "outputs dir"),
+        (&req.bundle_dir, "bundle dir"),
+    ] {
+        ensure_staging_dir(&workspace, dir, what)?;
+    }
+    if let Some(mdir) = &req.model_out_dir {
+        ensure_staging_dir(&workspace, mdir, "model-out dir")?;
+    }
+    if !req.bundle_dir.is_dir() {
+        return Err(AppError::new(
+            axum::http::StatusCode::BAD_REQUEST,
+            RUN_BUNDLE_MISSING_CODE,
+            format!(
+                "the input bundle at {} does not exist; write the contract-shaped \
+                 bundle (params.json, train/, test/) before running",
+                req.bundle_dir.display()
+            ),
+        ));
+    }
+    create_private_dir(&req.outputs_dir)?;
+    if let Some(mdir) = &req.model_out_dir {
+        create_private_dir(mdir)?;
+    }
+
+    // ── the run's mounts: the request's own dirs, caller mounts first ───────
+    let mut run_mounts: Vec<ExtraMount> = Vec::with_capacity(mounts.len() + 2);
+    run_mounts.extend(mounts.iter().cloned());
+    push_mount_if_absent(&mut run_mounts, ExtraMount {
+        host_path: req.bundle_dir.clone(),
+        sandbox_path: "/input".into(),
+        mode: MountMode::ReadOnly,
+    });
+    push_mount_if_absent(&mut run_mounts, ExtraMount {
+        host_path: req.outputs_dir.clone(),
+        sandbox_path: "/output".into(),
+        mode: MountMode::ReadWrite,
+    });
+    if let Some(mount) = fit_model_mount(req.mode, &req.model_out_dir) {
+        push_mount_if_absent(&mut run_mounts, mount);
+    }
+
+    // ── record BOTH digests before the method runs (INV-6) ──────────────────
+    super::env_image::write_run_env_digest(&workspace, base.digest.as_deref());
+    super::stack::write_run_layer_digest(&workspace, layer.digest.as_deref());
+
+    // ── read-only inputs → readable per-run copies (off the executor) ───────
+    // virtio-fs shows the guest the host's owner + modes, and the sandboxed
+    // uid is not the host user, so a private host dir is unreadable inside;
+    // the copies are readable, the host's modes are never loosened. Share i
+    // is `/host-mounts/<i>` in the guest.
+    let identity = super::sandbox::SyntheticIdentity::ensure(&state.workspace_root)?;
+    let identity_dir = identity
+        .passwd()
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| unavailable("the synthetic identity files have no parent dir"))?;
+    let mut ro_hosts: Vec<(PathBuf, String)> = run_mounts
+        .iter()
+        .filter(|m| matches!(m.mode, MountMode::ReadOnly))
+        .map(|m| (m.host_path.clone(), m.sandbox_path.clone()))
+        .collect();
+    let model_share = req.model.as_ref().map(|m| {
+        ro_hosts.push((m.host_path.clone(), super::stack::MODEL_SANDBOX_PATH.to_string()));
+        ro_hosts.len() - 1
+    });
+    ro_hosts.push((identity_dir, "the synthetic identity".to_string()));
+    let identity_share = ro_hosts.len() - 1;
+    let (input_stage, ro_shares) = tokio::task::spawn_blocking(move || {
+        let mut stage = input_stage;
+        let mut staged = Vec::with_capacity(ro_hosts.len());
+        for (i, (host, sandbox_path)) in ro_hosts.iter().enumerate() {
+            // The saved model was staged and verified first (INV-4, above).
+            if Some(i) == model_share {
+                if let Some(copy) = &staged_model {
+                    staged.push(copy.clone());
+                    continue;
+                }
+            }
+            // virtio-fs shares directories only.
+            if !host.is_dir() {
+                return Err(unavailable(format!(
+                    "the read-only mount {} for {sandbox_path} is not a directory; on macOS \
+                     run inputs reach the method VM as shared directories",
+                    host.display()
+                )));
+            }
+            staged.push(stage.stage(host)?);
+        }
+        Ok::<_, AppError>((stage, staged))
+    })
+    .await
+    .map_err(|e| unavailable(format!("input staging task join: {e}")))??;
+    let share_guest = |i: usize| PathBuf::from(format!("{}/{i}", vm::GUEST_EXTRA_MOUNTS_DIR));
+
+    // ── host mounts → guest paths ───────────────────────────────────────────
+    // RO mounts take their staged shares in order; everything the workload
+    // writes is a guest-local dir the agent streams back (libkrun's virtio-fs
+    // refuses file creation from the sandboxed uid).
+    let mut collect_artifacts: Vec<String> = Vec::new();
+    let mut artifact_dirs: Vec<vm::OutputDir> = Vec::new();
+    let mut guest_mounts: Vec<ExtraMount> = Vec::with_capacity(run_mounts.len());
+    let mut ro_index = 0usize;
+    for m in &run_mounts {
+        let host_path = match m.mode {
+            MountMode::ReadOnly => {
+                ro_index += 1;
+                share_guest(ro_index - 1)
+            }
+            MountMode::ReadWrite => {
+                let guest = format!("{}/{}", vm::GUEST_ARTIFACTS_OUT_DIR, collect_artifacts.len());
+                collect_artifacts.push(guest.clone());
+                artifact_dirs.push(vm::OutputDir {
+                    host: m.host_path.clone(),
+                    sandbox_path: m.sandbox_path.clone(),
+                });
+                PathBuf::from(guest)
+            }
+        };
+        guest_mounts.push(ExtraMount {
+            host_path,
+            sandbox_path: m.sandbox_path.clone(),
+            mode: m.mode.clone(),
+        });
+    }
+    let guest_model_mount = model_share.map(|i| ExtraMount {
+        host_path: share_guest(i),
+        sandbox_path: super::stack::MODEL_SANDBOX_PATH.into(),
+        mode: MountMode::ReadOnly,
+    });
+    let guest_identity = share_guest(identity_share);
+    let guest_identity_file =
+        |host: &Path| -> PathBuf { guest_identity.join(host.file_name().unwrap_or_default()) };
+    // The home dir: bwrap creates the dotfile-mask mount points there and the
+    // workload may keep caches in it. It is guest-local SCRATCH, never copied
+    // back: it is not a run output, so nothing in it can fail a run, slow the
+    // copy-back, or reach the run's records in the host workspace.
+    let guest_home = format!("{}/home", vm::GUEST_ARTIFACTS_OUT_DIR);
+
+    // ── size + boot the run's VM, read the layer plan inside it ─────────────
+    let host_cpus = std::thread::available_parallelism()
+        .map(|n| n.get() as u32)
+        .unwrap_or(1);
+    let host_mib = vm::host_memory_bytes()
+        .map(|b| u32::try_from(b / (1024 * 1024)).unwrap_or(u32::MAX))
+        .unwrap_or(8192);
+    let mem_cap_mib = u32::try_from(limits.memory_max_bytes.max(0) / (1024 * 1024)).unwrap_or(u32::MAX);
+    // Guest RAM: the workload's memory cap (2 GiB when none is set) + room for
+    // the guest kernel and agent + the output budget, never more than 3/4 of
+    // the Mac's RAM.
+    let ram_ceiling = (host_mib / 4 * 3).max(1024);
+    let ram_mib = (if mem_cap_mib == 0 { 2048 } else { mem_cap_mib })
+        .saturating_add(512 + OUTPUT_BUDGET_MIB)
+        .clamp(1024, ram_ceiling);
+    // The cgroup limit must fit inside the VM, or the guest kernel's OOM
+    // killer (which can take the agent) fires before the cgroup's. With no cap
+    // configured, the VM's usable RAM is the limit (0 would mean zero bytes).
+    let usable = u64::from(ram_mib.saturating_sub(512).max(512)) * 1024 * 1024;
+    let cgroup_memory_max = match limits.memory_max_bytes.max(0) as u64 {
+        0 => usable,
+        cap => cap.min(usable),
+    };
+    let spec = VmSpec {
+        num_vcpus: req.n_cpu.clamp(1, host_cpus.clamp(1, 255)) as u8,
+        ram_mib,
+        base_disk: base_image,
+        layer_disk: layer_image,
+        ro_shares,
+    };
+    let method_vm = MethodVm::boot(&spec).await?;
+    let (layer_entries, command) = method_vm.read_layer_plan().await?;
+
+    // ── the stacked argv, with guest paths ──────────────────────────────────
+    let caps = HardeningCapabilities {
+        bwrap_path: PathBuf::from(vm::GUEST_BWRAP_PATH),
+        // bwrap's PID namespace works in the guest kernel; cgroup + seccomp
+        // are applied by the agent.
+        pid_namespace: PidNsMode::Strict,
+        cgroup: CgroupMode::None,
+        seccomp: SeccompMode::NotLinked,
+    };
+    let guest_ctx = SandboxContext {
+        job_id,
+        workspace: PathBuf::from(&guest_home),
+    };
+    // The guest agent compiles the shared seccomp policy itself (static
+    // libseccomp in the guest), so the filter is always on in the VM — it does
+    // not depend on whether the host build enables its optional
+    // `sandbox_seccomp` support, which links a Linux-only library.
+    let seccomp_fd = Some(vm::GUEST_SECCOMP_FD);
+    let fifo = sink.is_some().then_some(sandbox_vm_protocol::PROGRESS_GUEST_FIFO_PATH);
+    let argv = super::stack::build_stacked_bwrap_argv(
+        &caps,
+        &guest_ctx,
+        Path::new(vm::GUEST_BASE_MOUNT),
+        Path::new(vm::GUEST_LAYER_MOUNT),
+        &layer_entries,
+        &command,
+        &guest_identity_file(identity.passwd()),
+        &guest_identity_file(identity.group()),
+        &guest_identity_file(identity.mask()),
+        seccomp_fd,
+        &limits,
+        &guest_mounts,
+        guest_model_mount.as_ref(),
+        req.n_cpu,
+        fifo,
+        req.mode.sigbench_mode(),
+    )?;
+
+    // ── run: live log frames + milestones, streamed outputs, timeout ────────
+    let effective_timeout = clamp_timeout(req.timeout_secs, limits.timeout_secs);
+    let exec = sandbox_vm_protocol::ExecRequest {
+        protocol_version: sandbox_vm_protocol::PROTOCOL_VERSION,
+        request_id: 1,
+        bwrap_path: vm::GUEST_BWRAP_PATH.to_string(),
+        argv,
+        timeout_ms: effective_timeout.saturating_mul(1000),
+        seccomp_fd,
+        cgroup: Some(sandbox_vm_protocol::CgroupLimits {
+            memory_max_bytes: cgroup_memory_max,
+            memory_swap_max_bytes: limits.memory_swap_max_bytes.max(0) as u64,
+            pids_max: limits.pids_max.max(0) as u64,
+            cpu_max: limits.cpu_max.clone(),
+        }),
+        progress: sink.is_some(),
+        collect_artifacts,
+        // One tmpfs holds every output dir and the home (the whole output
+        // budget is shared); files come back in chunks, and anything that
+        // cannot be sent fails the run instead of leaving partial outputs.
+        artifacts: sandbox_vm_protocol::ArtifactOptions {
+            tmpfs_size: Some(format!("{OUTPUT_BUDGET_MIB}m")),
+            tmpfs_root: Some(vm::GUEST_ARTIFACTS_OUT_DIR.to_string()),
+            scratch_dirs: vec![guest_home.clone()],
+            // The outputs' logical sizes may not exceed the budget either: a
+            // sparse file takes almost no tmpfs space but would come back as
+            // its full size. The agent reports what is over, and the host
+            // enforces the same total.
+            total_cap_bytes: u64::from(OUTPUT_BUDGET_MIB) * 1024 * 1024,
+        },
+    };
+    // The command's own budget (+ grace); the copy-back after it is bounded by
+    // inactivity instead (`MethodVm::exec`).
+    let command_budget = std::time::Duration::from_secs(effective_timeout.saturating_add(60));
+    let mut outcome = method_vm
+        .exec(exec, command_budget, sink.as_ref(), &artifact_dirs)
+        .await?;
+    drop(method_vm);
+    // Outputs that did not come back: a run that otherwise succeeded is
+    // refused (never kept with partial outputs); a run that failed keeps its
+    // own exit code and stderr, with the missing outputs added to stderr.
+    if !outcome.incomplete.is_empty() {
+        if outcome.exit_code == 0 && !outcome.timed_out {
+            return Err(vm::outputs_incomplete(&outcome.incomplete, &outcome.stderr_tail));
+        }
+        let note = format!(
+            "\n[txresbench] the method's outputs could not all be copied back from the method VM: {}\n",
+            outcome.incomplete.join("; ")
+        );
+        outcome.stderr.extend_from_slice(note.as_bytes());
+    }
+    // Symlinks that point outside their output dir are not written on the
+    // host (host code reading the outputs would follow them); the run keeps
+    // its result and says which links were left out.
+    if !outcome.left_out_symlinks.is_empty() {
+        tracing::warn!(
+            links = ?outcome.left_out_symlinks,
+            "method VM: output symlinks outside their output dir were not recreated"
+        );
+        let note = format!(
+            "\n[txresbench] {} output symlink(s) point outside their output dir and were not \
+             recreated on the host: {}\n",
+            outcome.left_out_symlinks.len(),
+            outcome.left_out_symlinks.join("; ")
+        );
+        outcome.stderr.extend_from_slice(note.as_bytes());
+    }
+    drop(image_stage);
+    drop(input_stage);
+
+    // ── the fit's /model digest (DEC-6), over the files written back ────────
+    let model_out_digest = match &req.model_out_dir {
+        Some(d) if d.is_dir() => Some(super::stack::tree_sha256(d)?),
+        _ => None,
+    };
+    let base_env_digest =
+        super::env_image::read_run_env_digest(&workspace).unwrap_or_default();
+    let layer_env_digest =
+        super::stack::read_run_layer_digest(&workspace).unwrap_or_default();
+
+    Ok(map_run_result(
+        StackRunOutcome {
+            exit_code: outcome.exit_code,
+            stdout: super::sandbox::lossy_string_with_marker(outcome.stdout, outcome.stdout_truncated),
+            stderr: super::sandbox::lossy_string_with_marker(outcome.stderr, outcome.stderr_truncated),
+            stdout_truncated: outcome.stdout_truncated,
+            stderr_truncated: outcome.stderr_truncated,
+            timed_out: outcome.timed_out,
+            duration_ms: outcome.duration_ms,
+        },
+        base_env_digest,
+        layer_env_digest,
+        model_verified,
+        model_out_digest,
+    ))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 pub async fn run_method_in_stack(
     _pool: &SqlitePool,
     _req: &MethodRunRequest,
@@ -405,7 +877,7 @@ pub async fn run_method_in_stack(
     _job_id: Uuid,
     _sink: Option<std::sync::Arc<dyn super::backend::ProgressSink>>,
 ) -> Result<MethodRunResult, AppError> {
-    Err(unavailable("the method sandbox is Linux-only"))
+    Err(unavailable("the method sandbox runs on Linux and Apple Silicon macOS only"))
 }
 
 /// The fit-mode `/model` mount (DEC-6): the request's `model_out_dir` bound
@@ -414,7 +886,7 @@ pub async fn run_method_in_stack(
 /// trained model into the caller's staging tree. `None` for a reuse run (its
 /// verification + read-only bind is the separate [`ModelMount`] path — never
 /// both, enforced by [`validate_model_contract`]). Pure + testable.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn fit_model_mount(
     mode: MethodRunMode,
     model_out_dir: &Option<std::path::PathBuf>,
@@ -436,7 +908,7 @@ fn fit_model_mount(
 /// client-chosen path — the REST route builds its request from the staging
 /// tree). Creation is the caller's staging responsibility — this only refuses
 /// the violating shape before any bind.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn ensure_staging_dir(
     workspace: &std::path::Path,
     dir: &std::path::Path,
@@ -462,7 +934,7 @@ fn ensure_staging_dir(
 /// caller's mount list is authoritative for a path it names (the engine hands
 /// `/input` + `/output` itself), while the request's own dirs stay the
 /// guarantee for the paths it did NOT name.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn push_mount_if_absent(mounts: &mut Vec<ExtraMount>, mount: ExtraMount) {
     if mounts.iter().any(|m| m.sandbox_path == mount.sandbox_path) {
         return;
@@ -474,7 +946,7 @@ fn push_mount_if_absent(mounts: &mut Vec<ExtraMount>, mount: ExtraMount) {
 /// carrier of GAP-2: [`ProgressFrame`] is the sink trait's only data shape,
 /// so a log line rides it with a log phase, `pct: None`, the line text as the
 /// message). Pure + testable.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn log_frame(phase: &str, line: &str) -> ProgressFrame {
     ProgressFrame {
         phase: phase.to_string(),
@@ -486,8 +958,8 @@ fn log_frame(phase: &str, line: &str) -> ProgressFrame {
 /// Forward one raw output line to the sink (trimmed of its line terminators,
 /// never of leading whitespace — log panes keep indentation). Empty lines are
 /// dropped from the live stream but still captured in the returned buffer.
-#[cfg(target_os = "linux")]
-fn forward_log_line(
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) fn forward_log_line(
     line: &[u8],
     sink: Option<&dyn ProgressSink>,
     phase: &'static str,
@@ -608,8 +1080,8 @@ where
 
 /// Append up to the capture cap; mark truncation when more bytes existed
 /// (the capture is capped, the drain is not — the child can finish).
-#[cfg(target_os = "linux")]
-fn append_capped(buf: &mut Vec<u8>, chunk: &[u8], truncated: &mut bool) {
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) fn append_capped(buf: &mut Vec<u8>, chunk: &[u8], truncated: &mut bool) {
     let remain = super::sandbox::OUTPUT_CAP_BYTES.saturating_sub(buf.len());
     if chunk.len() > remain {
         *truncated = true;
@@ -749,7 +1221,7 @@ fn drain_method_fifo(path: &std::path::Path, stop: std::sync::Arc<std::sync::ato
 }
 
 /// Create a directory with 0700 perms (owner-only). On non-Unix, best-effort.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn create_private_dir(path: &std::path::Path) -> Result<(), AppError> {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new()
