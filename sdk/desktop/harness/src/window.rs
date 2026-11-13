@@ -161,9 +161,12 @@ pub fn create_main_window(app_handle: &tauri::AppHandle, config: &WindowConfig) 
         color: None,
     });
 
-    // Windows + Linux: native decorations.
-    //  - Windows then overlays decorum's custom titlebar (preserves Aero
-    //    snapping, snap layouts that a pure HTML titlebar can't replicate).
+    // Windows + Linux: native decorations. The OS draws the title bar: the
+    // minimize, maximize/restore and close buttons, the drag area, and on
+    // Windows Aero snap and the snap-layouts flyout on the maximize button.
+    //  - Windows: DWM's own title bar. Nothing may hide it after the build
+    //    (the test at the end of this file): the page draws no window buttons
+    //    of its own, so a hidden title bar leaves the window without them.
     //  - Linux relies entirely on the WM's server-side decorations
     //    (xfwm4 / Mutter / KWin) for border + shadow + close/min/max
     //    trio. XFCE / GNOME / KDE all default to right-aligned buttons,
@@ -247,14 +250,52 @@ pub fn create_main_window(app_handle: &tauri::AppHandle, config: &WindowConfig) 
         }
     }
 
-    // Post-build: Windows overlay
-    #[cfg(target_os = "windows")]
-    {
-        use tauri::Manager;
-        use tauri_plugin_decorum::WebviewWindowExt;
-        let main_window = app_handle.get_webview_window("main").unwrap();
-        main_window.create_overlay_titlebar().unwrap();
+    tracing::info!("Main window created successfully");
+}
+
+#[cfg(test)]
+mod tests {
+    /// This file's code without its tests (the tests below name what the
+    /// code must not contain).
+    fn window_code() -> &'static str {
+        const SRC: &str = include_str!("window.rs");
+        SRC.split("#[cfg(test)]")
+            .next()
+            .expect("window.rs has code before its test module")
     }
 
-    tracing::info!("Main window created successfully");
+    /// The Windows main window keeps its native title bar, so it has the
+    /// minimize, maximize/restore and close buttons, title-bar dragging and
+    /// snap. The window used to be built with decorations and then handed to
+    /// tauri-plugin-decorum's `create_overlay_titlebar()`, which hides the
+    /// native title bar at once but draws its own buttons only on the
+    /// plugin's page-load event; the plugin was never registered
+    /// (`tauri_plugin_decorum::init()`), so the window showed no buttons at
+    /// all. The page has no window buttons of its own, so nothing may hide
+    /// the native title bar on Windows or Linux.
+    #[test]
+    fn windows_and_linux_main_window_keeps_the_native_title_bar() {
+        let code = window_code();
+        let builder = code
+            .split("#[cfg(any(target_os = \"windows\", target_os = \"linux\"))]")
+            .nth(1)
+            .and_then(|rest| rest.split("#[cfg(").next())
+            .expect("the Windows + Linux main-window builder is gone from window.rs");
+        assert!(
+            builder.contains(".decorations(true)"),
+            "the Windows + Linux main window must be built with native decorations",
+        );
+        assert!(
+            !builder.contains(".decorations(false)"),
+            "the Windows + Linux main window must not drop its native decorations",
+        );
+        for hide in ["create_overlay_titlebar", "set_decorations(false)"] {
+            assert!(
+                !code.contains(hide),
+                "window.rs calls `{hide}`: it hides the native title bar and \
+                 its minimize / maximize / close buttons, and nothing in the \
+                 page replaces them",
+            );
+        }
+    }
 }
