@@ -99,7 +99,7 @@ const STATE_WORD: CSSProperties = { ...COLUMN_LOOK, fontWeight: 600, whiteSpace:
 
 /** The progress column: track + fill (the board's 7 px rounded bar).
  *  qa-fixes4 ITEM-3 (methods-r3 R2-9): on the phone's stacked card the
- *  cell is a flex row, and the track must be a flex item that TAKES the
+ *  card column is a flex row, and the track must be a flex item that TAKES the
  *  leftover — the old auto-width track resolved the fill's percentage
  *  against an indefinite width and collapsed to 0 px (the report's "no
  *  bar at all" on the phone cards while the desktop showed a grey

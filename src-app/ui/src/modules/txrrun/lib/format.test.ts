@@ -301,7 +301,7 @@ describe('formatRowTime + methodLabelOf (qa-fixes RES-01 null-vs-undefined)', ()
   it('a finished row reads the engine\'s own elapsed_secs FIRST — the same count the log line words (qa-fixes4 ITEM-3, methods-r3 R3-methods-8)', () => {
     // The round-3 pair: duration_ms 6286 (→ "6 s" by rounding) against the
     // engine's log/elapsed 7 — the row now reads elapsed_secs so the table
-    // cell and the log quote are one count.
+    // read and the log quote are one count.
     expect(formatRowTime(row('finished', { elapsed_secs: 7, duration_ms: 6286 }))).toBe(
       'done in 7 s',
     )

@@ -291,7 +291,7 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
  * `Option` counters serialize their absent value as JSON `null` while the
  * generated types render them optional-only (the qa-fixes RES-01
  * null-vs-undefined rule) — a `duration_ms: null` wire value must read an
- * empty cell, never "done in —".
+ * empty read, never "done in —".
  */
 export function formatRowTime(r: TxrRunMethod, nowMs: number | null = null): string {
   switch (r.state) {
@@ -311,7 +311,7 @@ export function formatRowTime(r: TxrRunMethod, nowMs: number | null = null): str
     case 'finished':
       // R3-methods-8 (qa-fixes4 ITEM-3): the engine's own log line words the
       // method's seconds as its `elapsed_secs` ("done in 7s"), so the row
-      // reads THAT fact first — the table cell and the log quote are one
+      // reads THAT fact first — the table read and the log quote are one
       // count. An old row whose engine record has no elapsed falls back to
       // `duration_ms` (the R2-4 pin's word).
       return r.elapsed_secs == null
@@ -487,7 +487,7 @@ function sameLogLine(a: TxrRunLogLine, b: TxrRunLogLine): boolean {
  * The period chosen is the one whose repeated run is LONGEST (a
  * `A,A,B,A,A,B` stream is the (A,A,B) block, never A,A-then-standalone),
  * so a run never fragments into a smaller coincidence; a line with no
- * repeat is a plain entry. The collapse is a VIEW feature: the engine's
+ * repeat is a plain entry. The collapse is a VIEW presentation: the engine's
  * raw lines stay in the store, in `total` and in the copy's own facts —
  * what is folded is the reading, not the log.
  */
@@ -529,7 +529,7 @@ export function collapseRepeatedLines(lines: readonly TxrRunLogLine[]): TxrColla
 
 /** One line of the panel's COLLAPSED view: the board's line shape + the
  *  repeated run's "×N" badge on the run's first line — the SAME text the
- *  copy writes (the collapse is a view feature: what the user sees is
+ *  copy writes (the collapse is a view presentation: what the user sees is
  *  what the paste gets, exactly like the technical filter). */
 export function formatCollapsedLogLine(
   entry: TxrCollapsedLogLine,

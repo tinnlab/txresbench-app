@@ -147,8 +147,8 @@ describe('TxrRunRow — the per-state row facts (TEST-RUN-20)', () => {
     // a flex item that takes the row's leftover (the report's no-bar phone
     // cards while the desktop showed a grey track). The pin is the inline
     // flex + fallback width on the track; the browser tier measured the
-    // rendered box (the card cell's own phone width rule is the index.css
-    // half of the fix — the cell's inline 26 % column width shrank it to
+    // rendered box (the card column's own phone width rule is the index.css
+    // half of the fix — the column's inline 26 % width shrank it to
     // 58 px and left the track 0 px).
     expect(within(rowEl).getByTestId('txr-run-bar-track-method-a').style.width).toBe('100%')
     // jsdom's style serializer expands the shorthand basis to "0px".
@@ -200,7 +200,7 @@ describe('TxrRunRow — the per-state row facts (TEST-RUN-20)', () => {
       )
       expect(within(rowEl).getByTestId('txr-run-state-method-a').textContent).toBe(state)
       // The stopped row ran for 47 s → its elapsed; the skipped row never
-      // ran → no time cell at all, never the engine's duration_ms ("done
+      // ran → no time read at all, never the engine's duration_ms ("done
       // in …" on a row that never started is a lie).
       expect(
         within(rowEl).queryByTestId('txr-run-time-method-a')?.textContent ?? null,

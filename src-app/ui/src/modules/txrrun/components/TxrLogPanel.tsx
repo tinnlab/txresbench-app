@@ -22,7 +22,7 @@
  * The repeated lines are COLLAPSED (`lib/format.ts`'s
  * `collapseRepeatedLines`): the R methods' `colClasses` warning block is
  * printed once with "×N" on its last line instead of two or three
- * identical 3-line blocks; the collapse is a view feature (the copy
+ * identical 3-line blocks; the collapse is a view presentation (the copy
  * carries the collapsed view, like the technical filter), the raw lines
  * stay in the store and in the count line's facts.
  *

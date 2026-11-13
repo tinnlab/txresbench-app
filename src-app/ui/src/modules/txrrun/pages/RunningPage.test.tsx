@@ -293,7 +293,7 @@ describe('RunningPage — the run id and the header facts (TEST-RUN-23)', () => 
     const line = await screen.findByTestId('txr-run-time-line')
     expect(line.textContent).toBe('about 2 minutes left · 1 min 40 s elapsed · rough estimate')
     // The rows read the same wall clock: the run started 100 s ago, so the
-    // header and the row cell count the same seconds (both wall-clock).
+    // header and the row's time read the same seconds (both wall-clock).
     act(() => {
       vi.advanceTimersByTime(10_000)
     })

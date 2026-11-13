@@ -440,9 +440,9 @@ test.describe('txr-run-e-narrow-390 / txr-run-f-narrow-390 — the mobile width 
     expect(Math.abs(state!.x - time!.x), 'State and Time start at the same x').toBeLessThanOrEqual(1)
     expect(Math.abs(track!.x - time!.x), 'Progress and Time start at the same x').toBeLessThanOrEqual(1)
     // The report's "no bar at all" on the phone cards: the track must have
-    // a real width — the stacked cell's inline 26 % column width shrank
-    // the card cell to a 58 px column and the flexible track took 0 px of
-    // it; the phone rule makes the cell the full row (index.css), so the
+    // a real width — the stacked column's inline 26 % width shrank
+    // the card column to 58 px and left the flexible track 0 px of
+    // it; the phone rule makes the column the full row (index.css), so the
     // track takes the leftover after the 76 px label column.
     expect(track!.width, 'the grey track is visible').toBeGreaterThan(0)
     // The follow-up edge: the finished row's bar is full (the desktop and
