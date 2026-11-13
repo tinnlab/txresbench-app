@@ -128,6 +128,11 @@ pub struct ExampleRunInputs {
     pub train: Arc<CanonicalBundle>,
     pub predict: Option<Arc<CanonicalBundle>>,
     pub config: RunConfig,
+    /// The bundle settings the run's method calls build with
+    /// ([`orchestrator::method_bundle_settings`] over the run config and the
+    /// CPU count the run detects at start) — computed once with the inputs,
+    /// so a pick derives them once, not per candidate.
+    pub(crate) settings: BundleSettings,
 }
 
 impl ExampleRunInputs {
@@ -136,13 +141,6 @@ impl ExampleRunInputs {
     /// uses (`compute_estimate`), never the patients table's row count.
     pub fn patients(&self) -> u32 {
         self.train.patients.len() as u32
-    }
-
-    /// The bundle settings the run's method calls build with
-    /// ([`orchestrator::method_bundle_settings`] over the run config and the
-    /// CPU count the run detects at start).
-    pub(crate) fn bundle_settings(&self) -> BundleSettings {
-        orchestrator::method_bundle_settings(&self.config, detect_cpus())
     }
 
     /// The pick's bundle filter for one method: every bundle the run's train
@@ -155,7 +153,7 @@ impl ExampleRunInputs {
             &self.train,
             self.predict.as_deref(),
             method,
-            &self.bundle_settings(),
+            &self.settings,
             method.min_draws,
         )
     }
@@ -196,30 +194,55 @@ fn not_valid(e: AppError) -> AppError {
     validation_failed(format!("the embedded example data does not validate: {e}"))
 }
 
+fn no_training_side() -> AppError {
+    validation_failed("the example run carries no training side")
+}
+
+/// The example's one rule on the run's shape, shared by
+/// [`example_run_inputs`] and [`example_validation`]: the run's pass must
+/// build a train side ([`orchestrator::run_has_train_side`]).
+fn require_training_side(request: &CreateRunRequest) -> Result<(), AppError> {
+    if orchestrator::run_has_train_side(&request.input, request.mode) {
+        Ok(())
+    } else {
+        Err(no_training_side())
+    }
+}
+
 /// Canonicalize the example run's request through the run's own pass
-/// ([`orchestrator::canonicalize_run`]), checked by [`error_free`].
+/// ([`orchestrator::canonicalize_run`]), checked by
+/// [`require_training_side`] and [`error_free`].
 pub fn example_run_inputs() -> Result<ExampleRunInputs, AppError> {
-    let request = example_run_request(&[]);
+    run_inputs_of(example_run_request(&[]))
+}
+
+fn run_inputs_of(request: CreateRunRequest) -> Result<ExampleRunInputs, AppError> {
+    require_training_side(&request)?;
     let canonical = orchestrator::canonicalize_run(&request.input, &request.config, request.mode)
         .map_err(not_valid)?;
     let validation = error_free(canonical.validated)?;
-    let train = canonical
-        .train
-        .ok_or_else(|| validation_failed("the example run carries no training side"))?;
+    let train = canonical.train.ok_or_else(no_training_side)?;
+    let settings = orchestrator::method_bundle_settings(&request.config, detect_cpus());
     Ok(ExampleRunInputs {
         validation,
         train,
         predict: canonical.predict,
         config: request.config,
+        settings,
     })
 }
 
 /// The example training pair + the validator's verdict: the run's own
 /// validation of [`example_run_request`]'s tables
 /// ([`orchestrator::validate_run`], the first step of the run's pass),
-/// without building the canonical sides.
+/// without building the canonical sides — checked by the same
+/// [`require_training_side`] and [`error_free`] as [`example_run_inputs`].
 pub fn example_validation() -> Result<ValidationResponse, AppError> {
-    let request = example_run_request(&[]);
+    validation_of(&example_run_request(&[]))
+}
+
+fn validation_of(request: &CreateRunRequest) -> Result<ValidationResponse, AppError> {
+    require_training_side(request)?;
     orchestrator::validate_run(&request.input, &request.config, request.mode)
         .map_err(not_valid)
         .and_then(error_free)
@@ -260,34 +283,56 @@ fn pick_from(
     })
 }
 
-/// The cheap filters, fastest first with an id tie-break: a `CanRun`
-/// verdict, a published environment, `saves_model` and a catalogue estimate
-/// under [`EXAMPLE_METHOD_SECONDS_MAX`].
+/// The cheap filters, fastest first with an id tie-break
+/// ([`runnable_methods`], then [`rank_fast`]).
 fn fast_candidates<'c>(
     cat: &'c Catalogue,
     inputs: &ExampleRunInputs,
     env_available: impl Fn(&str) -> bool,
 ) -> Vec<(f64, &'c Method)> {
-    let patients = inputs.patients();
-    let verdicts = eligibility_for(
+    rank_fast(
+        &runnable_methods(cat, inputs, env_available),
+        inputs.patients(),
+    )
+}
+
+/// The methods with a `CanRun` verdict on the inputs' inventory (the one
+/// eligibility run), a published environment and `saves_model`.
+fn runnable_methods<'c>(
+    cat: &'c Catalogue,
+    inputs: &ExampleRunInputs,
+    env_available: impl Fn(&str) -> bool,
+) -> Vec<&'c Method> {
+    eligibility_for(
         cat,
         &EligibilityRequest::Inventory {
             inventory: inputs.validation.inventory.clone(),
         },
-    );
-    let mut candidates: Vec<(f64, &Method)> = verdicts
-        .methods
-        .into_iter()
-        .filter(|m| m.status == EligibilityStatus::CanRun)
-        .filter(|m| env_available(&m.id))
-        .filter_map(|m| {
-            let method = cat
-                .method(&m.id)
-                .expect("every verdict id is a catalogue method");
-            let seconds = estimate_seconds_for(method, patients, REFERENCE_CPUS);
-            (method.saves_model && seconds < EXAMPLE_METHOD_SECONDS_MAX)
-                .then_some((seconds, method))
+    )
+    .methods
+    .into_iter()
+    .filter(|m| m.status == EligibilityStatus::CanRun)
+    .filter(|m| env_available(&m.id))
+    .map(|m| {
+        cat.method(&m.id)
+            .expect("every verdict id is a catalogue method")
+    })
+    .filter(|method| method.saves_model)
+    .collect()
+}
+
+/// The methods whose catalogue estimate at `patients` is under
+/// [`EXAMPLE_METHOD_SECONDS_MAX`], fastest first with an id tie-break.
+fn rank_fast<'c>(methods: &[&'c Method], patients: u32) -> Vec<(f64, &'c Method)> {
+    let mut candidates: Vec<(f64, &Method)> = methods
+        .iter()
+        .map(|method| {
+            (
+                estimate_seconds_for(method, patients, REFERENCE_CPUS),
+                *method,
+            )
         })
+        .filter(|(seconds, _)| *seconds < EXAMPLE_METHOD_SECONDS_MAX)
         .collect();
     candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then_with(|| a.1.id.cmp(&b.1.id)));
     candidates
@@ -855,7 +900,7 @@ mod tests {
     #[test]
     fn every_picked_method_builds_every_run_bundle_on_the_example() {
         let inputs = inputs();
-        let settings = inputs.bundle_settings();
+        let settings = inputs.settings.clone();
         let host = pick_fast_methods(&inputs);
         let amd64 = pick_fast_methods_with(&inputs, amd64_env);
         assert!(
@@ -995,7 +1040,7 @@ mod tests {
     #[test]
     fn a_single_marker_method_without_a_fixed_list_is_not_picked_on_the_three_marker_example() {
         let inputs = inputs();
-        let settings = inputs.bundle_settings();
+        let settings = inputs.settings.clone();
         assert_eq!(
             MarkerSelection::all(&inputs.train).mains(),
             ["M1", "M2", "M3"],
@@ -1062,7 +1107,7 @@ mod tests {
     #[test]
     fn the_pick_preflight_refuses_the_bundle_stage_beyond_the_marker_rule() {
         let inputs = inputs();
-        let settings = inputs.bundle_settings();
+        let settings = inputs.settings.clone();
         let amd64 = pick_fast_methods_with(&inputs, amd64_env);
         let id = amd64.first().expect("the amd64 pick is not empty");
         let mut method = catalogue().method(id).expect("catalogue method").clone();
@@ -1153,6 +1198,39 @@ mod tests {
             json(&example_validation().expect("the example validates")),
             json(&inputs().validation)
         );
+    }
+
+    /// Both paths refuse the same way when the run's pass would build no
+    /// train side: a predict-only request (reuse mode, no patients table)
+    /// gets the same typed error from the inputs and the validation.
+    #[test]
+    fn inputs_and_validation_agree_when_the_run_has_no_training_side() {
+        let mut request = example_run_request(&[]);
+        request.mode = TxrRunMode::Reuse;
+        request.input.patients = None;
+        assert!(!orchestrator::run_has_train_side(
+            &request.input,
+            request.mode
+        ));
+        let from_inputs = match run_inputs_of(request.clone()) {
+            Ok(_) => panic!("a run without a train side has no example inputs"),
+            Err(e) => e,
+        };
+        let from_validation = validation_of(&request).expect_err("the same refusal");
+        assert_eq!(from_inputs.error_code(), "EXAMPLE_VALIDATION_FAILED");
+        assert_eq!(
+            (from_inputs.error_code(), from_inputs.to_string()),
+            (from_validation.error_code(), from_validation.to_string())
+        );
+        assert!(
+            from_inputs.to_string().contains("no training side"),
+            "{from_inputs}"
+        );
+
+        // The real request passes the rule on both paths.
+        let real = example_run_request(&[]);
+        assert!(orchestrator::run_has_train_side(&real.input, real.mode));
+        assert!(validation_of(&real).is_ok() && run_inputs_of(real).is_ok());
     }
 
     /// The cached pick is the pick of a fresh computation on this host, and
@@ -1334,24 +1412,24 @@ mod tests {
                 "{arch}: the preflight follows the pick order"
             );
             if lazy.len() == EXAMPLE_METHOD_CAP {
-                assert_eq!(
-                    preflighted.last(),
-                    lazy.last(),
-                    "{arch}: the preflight stops at the cap"
-                );
+                // It stops at the cap: the last preflight is the last pick,
+                // so every candidate after it is never preflighted.
+                let last = order
+                    .iter()
+                    .position(|id| Some(id) == lazy.last())
+                    .expect("the last pick is a candidate");
+                assert_eq!(preflighted.len(), last + 1, "{arch}: stops at the cap");
+                if last + 1 < order.len() {
+                    assert!(
+                        preflighted.len() < order.len(),
+                        "{arch}: candidates after the last pick are skipped"
+                    );
+                }
+            } else {
+                // Fewer passes than the cap: every candidate was tried.
+                assert_eq!(preflighted, order, "{arch}: every candidate tried");
             }
         }
-        let amd64 = fast_candidates(catalogue(), &inputs, amd64_env);
-        let mut runs = 0;
-        let _ = first_passing(amd64.clone(), |m| {
-            runs += 1;
-            inputs.preflight(m).is_ok()
-        });
-        assert!(
-            runs < amd64.len(),
-            "the amd64 candidates outnumber the preflights the cap needs ({runs} of {})",
-            amd64.len()
-        );
     }
 
     /// The example rows cut to the first `n` patients (sorted ids) — a
@@ -1389,44 +1467,47 @@ mod tests {
             train: Arc::new(first_patients(&full.train, n)),
             predict: full.predict.clone(),
             config: full.config.clone(),
+            settings: full.settings.clone(),
         }
     }
 
     /// A picked method that a cross-fit fold would refuse once it is
-    /// `fitted`: a search over cohort sizes and the (unmodified) amd64 pick
-    /// on the cut rows, for a method that is not fitted, whose marker set
-    /// and first train/test bundles build, but whose call — marked `fitted`
-    /// in a copy of the catalogue — is refused `BUNDLE_NO_LEARNABLE_OUTCOME`
-    /// at a cross-fit fold's rest set.
-    fn crossfit_refused_case(
-        full: &ExampleRunInputs,
-    ) -> Option<(ExampleRunInputs, Catalogue, String)> {
+    /// `fitted`: for each cohort size (ascending, stopping at the first that
+    /// gives the case), the unmodified amd64 pick on the cut rows — from ONE
+    /// eligibility run, since the cut leaves the inventory unchanged — and,
+    /// for each picked method that is not fitted, a copy of just that method
+    /// marked `fitted` whose marker set and first train/test bundles build
+    /// but whose call is refused `BUNDLE_NO_LEARNABLE_OUTCOME` at a
+    /// cross-fit fold's rest set. Returns the cut inputs and the modified
+    /// method.
+    fn crossfit_refused_case(full: &ExampleRunInputs) -> Option<(ExampleRunInputs, Method)> {
         let refused = Err(BundleError::NoLearnableOutcome {
             min: bundle::MIN_TRAINING_PATIENTS,
         });
-        for n in bundle::MIN_TRAINING_PATIENTS..full.train.patients.len() {
+        let runnable = runnable_methods(catalogue(), full, amd64_env);
+        (bundle::MIN_TRAINING_PATIENTS..full.train.patients.len()).find_map(|n| {
             let cut = cut_inputs(full, n);
-            for id in pick_from(catalogue(), &cut, amd64_env) {
-                let mut cat = catalogue().clone();
-                let entry = cat.methods.iter_mut().find(|m| m.id == id)?;
-                if entry.fitted {
-                    continue;
-                }
-                entry.fitted = true;
-                let fitted = cat.method(&id)?;
-                let first_bundles = orchestrator::method_bundles(
-                    &cut.train,
-                    cut.predict.as_deref(),
-                    fitted,
-                    &cut.bundle_settings(),
-                    fitted.min_draws,
-                );
-                if first_bundles.is_ok() && cut.preflight(fitted) == refused {
-                    return Some((cut, cat, id));
-                }
-            }
-        }
-        None
+            let picked = first_passing(rank_fast(&runnable, cut.patients()), |m| {
+                cut.preflight(m).is_ok()
+            });
+            let fitted = picked
+                .iter()
+                .map(|id| catalogue().method(id).expect("a picked method"))
+                .filter(|m| !m.fitted)
+                .find_map(|m| {
+                    let mut fitted = m.clone();
+                    fitted.fitted = true;
+                    let first_bundles = orchestrator::method_bundles(
+                        &cut.train,
+                        cut.predict.as_deref(),
+                        &fitted,
+                        &cut.settings,
+                        fitted.min_draws,
+                    );
+                    (first_bundles.is_ok() && cut.preflight(&fitted) == refused).then_some(fitted)
+                })?;
+            Some((cut, fitted))
+        })
     }
 
     /// A method the bundle stage refuses is not picked, even when it passes
@@ -1442,8 +1523,14 @@ mod tests {
     #[test]
     fn a_method_the_bundle_stage_refuses_is_not_picked() {
         let full = inputs();
-        let (cut, cat, target) = crossfit_refused_case(&full)
+        let (cut, modified) = crossfit_refused_case(&full)
             .expect("a picked method that a cross-fit fold refuses once fitted");
+        let target = modified.id.clone();
+        let mut cat = catalogue().clone();
+        *cat.methods
+            .iter_mut()
+            .find(|m| m.id == target)
+            .expect("the picked method is in the catalogue") = modified;
         let fitted = cat.method(&target).expect("the modified method");
 
         // Every other filter keeps it.
