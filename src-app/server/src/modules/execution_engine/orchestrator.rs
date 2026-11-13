@@ -6548,11 +6548,36 @@ mod tests {
         (asset_dir, digest)
     }
 
+    /// The reuse fixture's prepared sides with the predict file cut to the
+    /// cohort's first 12 patients, so the predict surface and the cohort
+    /// score different patient sets (the conversion's cohort call must score
+    /// the cohort, never the predict file).
+    fn reuse_sides_with_a_smaller_predict_file(
+        prepared: &PreparedRun,
+    ) -> (Arc<CanonicalBundle>, Arc<CanonicalBundle>) {
+        let train = prepared
+            .train
+            .clone()
+            .expect("a Files-mode reuse carries the cohort");
+        let predict = prepared.predict.as_deref().expect("the predict file");
+        // The predict file has no patients table; cut it by the cohort's ids.
+        let mut ids: Vec<&str> = train
+            .patients
+            .iter()
+            .map(|p| p.patient_id.as_str())
+            .collect();
+        ids.sort_unstable();
+        let keep: std::collections::HashSet<&str> = ids.into_iter().take(12).collect();
+        let predict = Arc::new(subset_canonical(predict, &keep));
+        (train, predict)
+    }
+
     /// The data-carrying reuse conversion builds the cohort's bundles with
     /// [`method_bundles`] (marker set → train bundle → test bundle over the
     /// cohort itself, no predict file): its cohort call receives exactly that
-    /// train bundle's params and that test bundle's scored rows, and the
-    /// conversion is re-fitted (Recalibrated).
+    /// train bundle's params and that test bundle's scored rows — the cohort's
+    /// patients, not the (smaller) predict file's — and the conversion is
+    /// re-fitted (Recalibrated).
     #[tokio::test]
     async fn executor_reuse_with_cohort_converts_over_the_train_call_bundles() {
         let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse-cohort"));
@@ -6572,16 +6597,13 @@ mod tests {
             &req.model_ids,
         )
         .expect("the reuse fixture validates");
-        let train = prepared
-            .train
-            .clone()
-            .expect("a Files-mode reuse carries the cohort");
+        let (train, predict) = reuse_sides_with_a_smaller_predict_file(&prepared);
         let (mut ctx, _cancel) = executor_ctx(
             &run_dir,
             "m-1",
-            prepared.train,
-            prepared.predict,
-            prepared.predict_patients,
+            Some(train.clone()),
+            Some(predict.clone()),
+            prepared.predict_patients.clone(),
             false,
             RunTarget::ReuseModel {
                 asset: req.model_ids[0].clone(),
@@ -6597,6 +6619,23 @@ mod tests {
             ctx.min_draws,
         )
         .expect("the cohort's train call bundles build");
+        let mut cohort_ids: Vec<String> = train
+            .patients
+            .iter()
+            .map(|p| p.patient_id.clone())
+            .collect();
+        cohort_ids.sort();
+        let mut predict_ids: Vec<String> = predict
+            .values
+            .iter()
+            .map(|v| v.patient_id.clone())
+            .collect();
+        predict_ids.sort();
+        predict_ids.dedup();
+        assert!(
+            predict_ids.len() < cohort_ids.len(),
+            "the predict file is smaller"
+        );
 
         let outcome = exec.execute(ctx).await.expect("verdict");
         assert_eq!(
@@ -6613,6 +6652,12 @@ mod tests {
         let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(calls.len(), 2, "the predict-surface call + the cohort call");
         assert!(calls.iter().all(|c| c.mode == MethodRunMode::ReuseModel));
+        assert_eq!(calls[0].scored, predict_ids, "the predict surface");
+        assert_eq!(
+            calls[1].scored, cohort_ids,
+            "the cohort, not the predict file"
+        );
+        assert_ne!(calls[1].scored, calls[0].scored);
         assert_eq!(
             calls[1].scored, expected.test.scored,
             "the cohort test bundle"
@@ -6625,33 +6670,25 @@ mod tests {
     }
 
     /// A refusal while building the reuse conversion's cohort bundles is
-    /// [`method_bundles`]' refusal, code and detail. The case: a cohort with
-    /// two markers and a predict file with one, for a single-marker method
-    /// with no native probability — the predict side's marker set builds, so
-    /// the reuse call runs, then the cohort's marker set is refused.
+    /// [`method_bundles`]' refusal (no predict file), code and detail. The
+    /// case, with covariates on: the cohort's measurements carry a patient
+    /// (`X99`) that its patients table does not, and the predict file is a
+    /// smaller set of table patients. The predict-surface call runs; then the
+    /// cohort's test bundle — over the cohort with its own patients table —
+    /// scores `X99` and is refused `BUNDLE_TEST_PATIENT_UNKNOWN`. A cohort
+    /// test bundle built over the predict file instead would be refused
+    /// differently (no predict patients table).
     #[tokio::test]
     async fn executor_reuse_cohort_refusal_is_the_train_call_bundle_refusal() {
-        use crate::modules::file_validator::types::{CanonicalFeature, CanonicalValue};
-        use crate::modules::method_catalogue::types::MarkerKind;
+        use crate::modules::file_validator::types::{CanonCell, CanonicalValue};
 
         let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse-cohort-refusal"));
         let pool = merged_pool().await;
         let run_dir = rootfs::data_root();
         let (asset_dir, digest) = fixture_asset(&run_dir);
         make_method_dirs(&run_dir, "m-1");
-        let cat = crate::modules::method_catalogue::catalogue::catalogue();
-        let method = cat
-            .methods
-            .iter()
-            .find(|m| {
-                let spec = run_task(m, super::super::types::TxrEndpoint::Pfs, 238.0);
-                m.markers.kind == MarkerKind::Single
-                    && m.required_markers.is_none()
-                    && m.saves_model
-                    && !predictions::own_probability(&m.own_outputs, spec.outcome, spec.horizon)
-            })
-            .expect("a single-marker method without a native probability");
-        let req = cohort_reuse_request(&asset_dir, &digest, &method.id);
+        let method = "ctdna-tf-four-group";
+        let req = cohort_reuse_request(&asset_dir, &digest, method);
         let prepared = prepare_run(
             &req.input,
             &req.config,
@@ -6660,50 +6697,61 @@ mod tests {
             &req.model_ids,
         )
         .expect("the reuse fixture validates");
+        let (train, predict) = reuse_sides_with_a_smaller_predict_file(&prepared);
 
-        // The cohort gains a second marker; the predict file keeps one.
-        let mut two_markers = (*prepared.train.clone().expect("the cohort")).clone();
-        let second: Vec<CanonicalValue> = two_markers
+        // Covariates on every table patient; X99 has draws but no table row.
+        let mut cohort = (*train).clone();
+        for (i, p) in cohort.patients.iter_mut().enumerate() {
+            p.covariates = vec![("age".to_string(), CanonCell::Number(40.0 + i as f64))];
+        }
+        let first = cohort.patients[0].patient_id.clone();
+        let unknown: Vec<CanonicalValue> = cohort
             .values
             .iter()
+            .filter(|v| v.patient_id == first)
             .map(|v| CanonicalValue {
-                feature: "M2".to_string(),
+                patient_id: "X99".to_string(),
                 ..v.clone()
             })
             .collect();
-        two_markers.values.extend(second);
-        two_markers.features.push(CanonicalFeature {
-            feature: "M2".to_string(),
-            unit: None,
-            marker_id: None,
-            is_detection_companion: false,
-        });
-        let two_markers = Arc::new(two_markers);
+        cohort.values.extend(unknown);
+        let predict_patients: Arc<[CanonicalPatient]> =
+            Arc::from(cohort.patients.clone().into_boxed_slice());
+        let cohort = Arc::new(cohort);
 
         let seam = FakeStackRunSeam::new();
         let exec = StackMethodExecutor::with_seam(pool, seam.clone());
         let (mut ctx, _cancel) = executor_ctx(
             &run_dir,
             "m-1",
-            Some(two_markers.clone()),
-            prepared.predict,
-            prepared.predict_patients,
+            Some(cohort.clone()),
+            Some(predict),
+            Some(predict_patients),
             false,
             RunTarget::ReuseModel {
                 asset: req.model_ids[0].clone(),
             },
         );
-        ctx.config = req.config.clone();
+        ctx.config = RunConfig {
+            covariates: true,
+            ..req.config.clone()
+        };
+        let facts = envmanifest::facts_for(method).expect("facts");
         let refusal = method_bundles(
-            &two_markers,
+            &cohort,
             None,
-            method,
+            facts,
             &method_bundle_settings(&ctx.config, ctx.cpus),
             ctx.min_draws,
         )
         .err()
-        .expect("the two-marker cohort refuses a single-marker method");
-        assert_eq!(refusal.code(), "BUNDLE_MARKER_COUNT_UNMET");
+        .expect("the cohort's test bundle refuses X99");
+        assert_eq!(
+            refusal,
+            bundle::BundleError::TestPatientWithoutCovariateRow {
+                patient_id: "X99".to_string()
+            }
+        );
 
         let outcome = exec.execute(ctx).await.expect("verdict");
         assert_eq!(outcome.state, TxrMethodState::Failed);
@@ -6719,6 +6767,7 @@ mod tests {
             "the reuse call ran before the cohort refusal"
         );
         assert_eq!(calls[0].mode, MethodRunMode::ReuseModel);
+        assert!(!calls[0].scored.contains(&"X99".to_string()));
         drop(calls);
     }
 
