@@ -112,7 +112,10 @@ export interface TxrSelectListLayoutParts {
   toolbar: ReactNode
   /** The row stream (the host puts it inside the frame's ScrollRegion). */
   rows: ReactNode
-  /** The counters + Run bar (the host pins it in the frame's fixed bottom). */
+  /** The counters + Run bar (the host pins it in the frame's fixed bottom).
+   *  The bar carries its own bar look: put it straight into the frame's
+   *  bottom slot (a block box), never inside a flex row such as
+   *  PageFooterBar, which shrinks it to its content's width. */
   bottomBar: ReactNode
 }
 

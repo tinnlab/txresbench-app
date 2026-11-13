@@ -858,3 +858,21 @@ html.txr-shell-mode-flow .txr-help-rail {
     min-height: 44px;
   }
 }
+
+/* The "Use example" button keeps its width while loading
+ * (TxrUseExampleButton). The kit Button renders its spinner BEFORE the label,
+ * in the flow, so a busy button grew by the spinner and its gap, and on the
+ * Start cards the button row reached the card border. While busy the spinner
+ * leaves the flow and sits centred over the label's place; the label stays
+ * in the flow, invisible, and holds the width. */
+.txr-use-example-button[aria-busy='true'] {
+  position: relative;
+}
+.txr-use-example-button[aria-busy='true'] > svg.animate-spin {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+}
+.txr-use-example-button[aria-busy='true'] > .txr-use-example-label {
+  visibility: hidden;
+}

@@ -79,7 +79,6 @@ import { Alert, Button } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
-import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { TxrUseExampleButton } from '@/modules/txrintake'
 import { useAnalysisOutcome } from '../data/useAnalysisOutcome'
 import { buildSavedRows, buildSavedSections } from '../lib/rows'
@@ -712,7 +711,11 @@ export function SavedModelsPage() {
                   {footnote}
                 </>,
               )}
-              bottom={<PageFooterBar testId="txr-models-i-bar">{parts.bottomBar}</PageFooterBar>}
+              // The shared bar carries its own bar look and goes straight into
+              // the bottom slot, as the choose-methods page's run bar does: not
+              // inside PageFooterBar, a flex row that would shrink it to its
+              // content's width at the left of a wide window.
+              bottom={<div data-testid="txr-models-i-bar">{parts.bottomBar}</div>}
             />
             {dialogs}
           </>

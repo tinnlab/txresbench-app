@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
@@ -159,9 +159,18 @@ const RECOMMENDED_BADGE: CSSProperties = {
   whiteSpace: 'nowrap',
 }
 
-const CARD_BUTTON_ROW: CSSProperties = {
+/** A card's actions: the button row, then the "Use example" message (if any)
+ *  as the last row, at the card's full width. `marginTop: auto` keeps the
+ *  buttons at the card's bottom. */
+const CARD_ACTIONS: CSSProperties = {
   marginTop: 'auto',
   paddingTop: 10,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+}
+
+const CARD_BUTTON_ROW: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   // Space between the card's button and "Use example"; they stay on one row.
@@ -210,6 +219,39 @@ const WEB_URL_NOTICE: CSSProperties = {
   margin: '0 0 -8px',
   color: 'var(--txr-muted)',
   fontSize: 13.5,
+}
+
+/**
+ * A card's actions: the card's own button and "Use example" on one row,
+ * and under that row whatever "Use example" has to say (the confirm
+ * question, the progress line, the error), across the card. Inside the
+ * row a long message would widen the "Use example" slot and stretch its
+ * button.
+ */
+function CardActions({
+  path,
+  primary,
+  onExampleDone,
+}: {
+  path: IntakeIntent
+  primary: ReactNode
+  onExampleDone: () => void
+}) {
+  return (
+    <TxrUseExampleButton
+      path={path}
+      onDone={onExampleDone}
+      layout={({ action, message }) => (
+        <div data-testid={`txr-intake-start-card-${path}-actions`} style={CARD_ACTIONS}>
+          <div data-testid={`txr-intake-start-card-${path}-buttons`} style={CARD_BUTTON_ROW}>
+            {primary}
+            {action}
+          </div>
+          {message}
+        </div>
+      )}
+    />
+  )
 }
 
 export function StartPage() {
@@ -280,16 +322,19 @@ export function StartPage() {
                       Each model shows where it was learned and how well it transferred to other cohorts
                     </li>
                   </ul>
-                  <div style={CARD_BUTTON_ROW}>
-                    <Button
-                      data-testid="txr-intake-start-card-pretrained-cta"
-                      style={PRIMARY_BUTTON}
-                      onClick={() => pickPath('pretrained')}
-                    >
-                      Add the patients to predict
-                    </Button>
-                    <TxrUseExampleButton path="pretrained" onDone={() => exampleDone('pretrained')} />
-                  </div>
+                  <CardActions
+                    path="pretrained"
+                    onExampleDone={() => exampleDone('pretrained')}
+                    primary={
+                      <Button
+                        data-testid="txr-intake-start-card-pretrained-cta"
+                        style={PRIMARY_BUTTON}
+                        onClick={() => pickPath('pretrained')}
+                      >
+                        Add the patients to predict
+                      </Button>
+                    }
+                  />
                 </section>
 
                 <section style={CARD_PLAIN} data-testid="txr-intake-start-card-train">
@@ -311,16 +356,19 @@ export function StartPage() {
                     </li>
                     <li style={CARD_BULLET}>Save the trained models to reuse them</li>
                   </ul>
-                  <div style={CARD_BUTTON_ROW}>
-                    <Button
-                      data-testid="txr-intake-start-card-train-cta"
-                      style={OUTLINE_BUTTON}
-                      onClick={() => pickPath('train')}
-                    >
-                      Add my data
-                    </Button>
-                    <TxrUseExampleButton path="train" onDone={() => exampleDone('train')} />
-                  </div>
+                  <CardActions
+                    path="train"
+                    onExampleDone={() => exampleDone('train')}
+                    primary={
+                      <Button
+                        data-testid="txr-intake-start-card-train-cta"
+                        style={OUTLINE_BUTTON}
+                        onClick={() => pickPath('train')}
+                      >
+                        Add my data
+                      </Button>
+                    }
+                  />
                 </section>
 
                 <section style={CARD_PLAIN} data-testid="txr-intake-start-card-reuse">
@@ -335,20 +383,23 @@ export function StartPage() {
                       Checks that the new patients have the markers the model needs
                     </li>
                   </ul>
-                  <div style={CARD_BUTTON_ROW}>
-                    {/* qa-fixes ITEM-6 L3: the board labels BOTH flows "Add the
-                        patients to predict" — the pretrained card's words — so the
-                        saved-model path was indistinguishable at a glance; the
-                        plain sentence names the flow this button starts. */}
-                    <Button
-                      data-testid="txr-intake-start-card-reuse-cta"
-                      style={OUTLINE_BUTTON}
-                      onClick={() => pickPath('reuse')}
-                    >
-                      Predict with a model I saved
-                    </Button>
-                    <TxrUseExampleButton path="reuse" onDone={() => exampleDone('reuse')} />
-                  </div>
+                  <CardActions
+                    path="reuse"
+                    onExampleDone={() => exampleDone('reuse')}
+                    primary={
+                      // qa-fixes ITEM-6 L3: the board labels BOTH flows "Add the
+                      // patients to predict" — the pretrained card's words — so the
+                      // saved-model path was indistinguishable at a glance; the
+                      // plain sentence names the flow this button starts.
+                      <Button
+                        data-testid="txr-intake-start-card-reuse-cta"
+                        style={OUTLINE_BUTTON}
+                        onClick={() => pickPath('reuse')}
+                      >
+                        Predict with a model I saved
+                      </Button>
+                    }
+                  />
                 </section>
               </div>
 
