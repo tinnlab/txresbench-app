@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // scripts/build-wsl-rootfs.test.mjs — the controls for `scripts/build-wsl-rootfs.sh` that need no Docker:
-// its argument and notices refusals (they stop before any build step), the notices section it checks
-// packages against, and the pinned build images it shares with the macOS guest root.
+// its argument and notices refusals (they stop before any build step), the Windows-only bundling of
+// its output (tauri.windows.conf.json, .gitignore, .gitkeep), the notices section it checks packages
+// against, and the pinned build images it shares with the macOS guest root.
 //
 // The builds themselves (both arches: the tarball's file list and modes, wsl.conf, the markers, the
 // agent's CPU and static linking, MANIFEST.json, the notices refusal after a real userland assembly,
@@ -20,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(REPO, 'scripts/build-wsl-rootfs.sh');
+const TAURI = path.join(REPO, 'src-app/desktop/tauri');
 const HEADING = '## WSL runtime (Windows builds only)';
 
 const TMPDIRS = [];
@@ -35,6 +37,31 @@ function scratch(prefix) {
 function run(args, env = {}) {
   const res = spawnSync('sh', [SCRIPT, ...args], { encoding: 'utf8', env: { ...process.env, ...env } });
   return { status: res.status, out: res.stdout + res.stderr };
+}
+
+/** The tauri.<platform>.conf.json merge Tauri applies (tauri-utils `config::parse::read_from`): a JSON
+ *  Merge Patch (RFC 7396) of the platform file over tauri.conf.json, so a platform file's array REPLACES
+ *  the base array. */
+function mergePatch(target, patch) {
+  if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) return patch;
+  const out = target !== null && typeof target === 'object' && !Array.isArray(target) ? { ...target } : {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) delete out[k];
+    else out[k] = mergePatch(out[k], v);
+  }
+  return out;
+}
+/** The merged bundle config for a target (`macos`, `windows`, `linux`); without one, tauri.conf.json's. */
+function bundleFor(platform) {
+  const base = JSON.parse(fs.readFileSync(path.join(TAURI, 'tauri.conf.json'), 'utf8'));
+  const file = platform && path.join(TAURI, `tauri.${platform}.conf.json`);
+  const merged = file && fs.existsSync(file) ? mergePatch(base, JSON.parse(fs.readFileSync(file, 'utf8'))) : base;
+  return merged.bundle;
+}
+
+function git(...args) {
+  const res = spawnSync('git', ['-C', REPO, ...args], { encoding: 'utf8' });
+  return { status: res.status, out: res.stdout.trim() };
 }
 
 function loadThirdParty(probe) {
@@ -93,6 +120,38 @@ test('a notices file without the WSL package list is refused before any build st
   const missing = run(['x86_64', '--notices', path.join(dir, 'absent.md')]);
   assert.equal(missing.status, 1, missing.out);
   assert.match(missing.out, /no notices file at .*absent\.md/);
+});
+
+// ── bundling: Windows only ───────────────────────────────────────────────────
+
+test('the Windows bundle adds resources/wsl-runtime and keeps every base resource', () => {
+  const base = bundleFor();
+  const win = bundleFor('windows');
+  assert.deepEqual(win.resources, [...base.resources, 'resources/wsl-runtime']);
+  // the platform file changes nothing else in the bundle
+  assert.deepEqual({ ...win, resources: undefined }, { ...base, resources: undefined });
+  const winFile = JSON.parse(fs.readFileSync(path.join(TAURI, 'tauri.windows.conf.json'), 'utf8'));
+  assert.deepEqual(Object.keys(winFile).sort(), ['$schema', 'bundle']);
+  assert.deepEqual(Object.keys(winFile.bundle), ['resources']);
+});
+
+test('the macOS and Linux bundles do not carry the WSL runtime', () => {
+  for (const platform of ['macos', 'linux', undefined]) {
+    const resources = bundleFor(platform).resources ?? [];
+    assert.ok(!resources.some((r) => r.includes('wsl')), `${platform}: ${resources}`);
+  }
+  // the macOS bundle is exactly what main ships
+  assert.deepEqual(bundleFor('macos').resources, ['resources/pretrained-bundled', 'resources/sandbox-vm-runtime']);
+});
+
+test('only the .gitkeep of resources/wsl-runtime is tracked; the build outputs are ignored', () => {
+  assert.equal(git('ls-files', 'src-app/desktop/tauri/resources/wsl-runtime').out,
+    'src-app/desktop/tauri/resources/wsl-runtime/.gitkeep');
+  for (const f of ['txresbench-wsl.tar', 'MANIFEST.json']) {
+    const res = git('check-ignore', '-q', `src-app/desktop/tauri/resources/wsl-runtime/${f}`);
+    assert.equal(res.status, 0, `${f} is ignored`);
+  }
+  assert.notEqual(git('check-ignore', '-q', 'src-app/desktop/tauri/resources/wsl-runtime/.gitkeep').status, 0);
 });
 
 test('the build writes into the Windows bundle resource by default', () => {
