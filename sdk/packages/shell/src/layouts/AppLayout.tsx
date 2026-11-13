@@ -16,6 +16,9 @@ import 'overlayscrollbars/overlayscrollbars.css'
 import { ModuleSystem } from '@txresbench/framework/stores'
 import { appLayoutSeam } from '../app-store-seams'
 import { LazyComponentRenderer } from '../components/LazyComponentRenderer'
+import { WindowTitleBarHost } from '../components/WindowTitleBar'
+import { WindowChromeContext } from '../hooks/useWindowChrome'
+import { skipLinkStyleFor, windowChromeOrNull, type WindowChrome } from '../hooks/windowChrome'
 
 /**
  * SEAM: `AppLayout` is an app-registered module store the shell reads through a
@@ -44,6 +47,15 @@ export interface AppLayoutProps {
   children: React.ReactNode
   LeftSidebar: ComponentType
   SidebarToggleButton: ComponentType
+  /**
+   * The host window draws its title bar inside the page (macOS under an
+   * overlay title bar): what its own controls take from the page's top-left
+   * corner (`hooks/windowChrome.ts`). The AppLayout then keeps its subtree
+   * clear of them and provides the window's drag region on every screen
+   * (the page's header bar, or its own strip when the page renders none).
+   * Handed to this subtree only (`useWindowChrome()`). Omit it on the web.
+   */
+  windowChrome?: WindowChrome
 }
 
 /**
@@ -61,8 +73,10 @@ export function AppLayout({
   children,
   LeftSidebar,
   SidebarToggleButton,
+  windowChrome: windowChromeProp,
 }: AppLayoutProps) {
   const appLayout = appLayoutSeam.get() as AppLayoutSeam
+  const windowChrome = windowChromeOrNull(windowChromeProp)
   // The app shell is bg-card, but the iOS status/nav bars sample the CANVAS —
   // the <body> background — which is --background app-wide. The shell covers the
   // body, so painting the body --card changes nothing visible; it only makes the
@@ -447,6 +461,7 @@ export function AppLayout({
   // effect needed.
 
   return (
+    <WindowChromeContext.Provider value={windowChrome}>
     <div className={cn(
       'w-screen flex bg-card',
       // Native document-scroll (opt-in): relax the fixed-height/overflow clamp
@@ -454,10 +469,15 @@ export function AppLayout({
       nativeScroll ? 'min-h-dvh overflow-x-clip' : 'h-full overflow-hidden',
     )}>
       {/* Keyboard skip link — first focusable element; jumps past the
-          sidebar nav straight to the main content landmark. */}
+          sidebar nav straight to the main content landmark. Where the
+          window's own controls sit over the page (`windowChrome`, e.g. the
+          macOS traffic lights) it takes focus at `contentStart`, past them;
+          the inline left only matters once focus shows the link. */}
       <a
         href="#main-content"
+        data-testid="app-layout-skip-link"
         className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2 focus:px-3 focus:py-1 focus:rounded focus:bg-card focus:shadow"
+        style={skipLinkStyleFor(windowChrome)}
       >
         Skip to content
       </a>
@@ -544,6 +564,10 @@ export function AppLayout({
         'flex-1 min-w-0 flex flex-col relative bg-card',
         nativeScroll ? 'overflow-x-clip' : 'overflow-hidden',
       )}>
+        {/* The window's title bar on every screen (`windowChrome` only):
+            the page's header bar, or this host's own strip while the page
+            renders none. */}
+        <WindowTitleBarHost windowChrome={windowChrome}>
         {/* App-wide banners (e.g. the admin "update available" notice).
             Contributed via the `appBanners` slot, so bundles that don't load a
             contributor (e.g. desktop drops server-update) render nothing. */}
@@ -578,6 +602,7 @@ export function AppLayout({
             {children}
           </section>
         </div>
+        </WindowTitleBarHost>
         {!isSidebarCollapsed && (
           <div
             // Generic semantic hook for build overrides (e.g. the
@@ -592,6 +617,7 @@ export function AppLayout({
         )}
       </main>
     </div>
+    </WindowChromeContext.Provider>
   )
 }
 

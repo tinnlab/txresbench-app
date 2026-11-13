@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { appLayoutChrome } from '../app-store-seams'
 import { cn } from '@txresbench/kit/lib/utils'
 import { useHeaderLeftInset } from '../hooks/useHeaderLeftInset'
+import { useRegisterHeaderBar, useWindowChrome } from '../hooks/useWindowChrome'
+import { titleBarHeightFor, windowDragRegionAttr } from '../hooks/windowChrome'
 
 /**
  * SEAM: `AppLayout` is an app-registered module store the shell reads through a
@@ -36,6 +38,12 @@ export const HeaderBarContainer = ({
   const appLayout = appLayoutChrome()
   const { nativeScroll } = appLayout
   const headerLeftInset = useHeaderLeftInset()
+  // Inside an AppLayout whose window draws its title bar in the page
+  // (`windowChrome`): this bar IS the title bar — `titleBarHeight` tall (the
+  // window controls are centred on it), the drag region, and counted so the
+  // AppLayout does not draw its own strip above it.
+  const windowChrome = useWindowChrome()
+  useRegisterHeaderBar()
 
   // Native document-scroll (mobile Settings): direction-based header —
   //  • default / scrolling DOWN → position:relative → header wipes away with
@@ -112,6 +120,10 @@ export const HeaderBarContainer = ({
       )}
       <div
       data-testid="app-header-bar"
+      // A desktop window whose title bar is drawn by the page (the enclosing
+      // AppLayout's `windowChrome`): the bar drags the window from any
+      // non-interactive spot; links and buttons stay clickable.
+      data-tauri-drag-region={windowDragRegionAttr(windowChrome)}
       className={cn(
         'w-full flex px-3 border-b border-border box-border py-0',
         nativeScroll
@@ -128,6 +140,8 @@ export const HeaderBarContainer = ({
         paddingLeft: headerLeftInset,
         paddingRight: 12,
         zIndex: nativeScroll ? 30 : 2,
+        // The window's title-bar height (the class's `h-[50px]` otherwise).
+        ...(windowChrome && !nativeScroll ? { height: titleBarHeightFor(windowChrome) } : null),
         ...(nativeScroll
           ? {
               // Box is 45px tall so its bottom border lands on the 50px line
