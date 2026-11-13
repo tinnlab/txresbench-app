@@ -186,6 +186,15 @@ libsqlite3-sys = { version = "0.30.1", features = ["bundled"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 
+# The macOS method VM's host↔guest wire protocol (`sandbox::mac_vm_run`):
+# frames to and from the SDK guest agent. macOS-only; the Linux seam runs
+# bwrap on the host and never talks to a VM.
+[target.'cfg(target_os = "macos")'.dependencies]
+sandbox-vm-protocol = { path = "../../sdk/crates/sandbox-vm-protocol" }
+# Folding output file names the way APFS compares them (Unicode-normalisation-
+# and case-insensitive) when the method VM's outputs are written back.
+unicode-normalization = "0.1"
+
 [dependencies.sandbox-seccomp]
 path = "../../sdk/crates/sandbox-seccomp"
 optional = true

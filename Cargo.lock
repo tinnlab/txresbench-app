@@ -4950,6 +4950,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sandbox-vm-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6853,6 +6861,7 @@ dependencies = [
  "regex",
  "reqwest 0.12.28",
  "sandbox-seccomp",
+ "sandbox-vm-protocol",
  "schemars 0.9.0",
  "serde",
  "serde_json",
@@ -6875,6 +6884,7 @@ dependencies = [
  "txresbench-identity",
  "txresbench-notification",
  "txresbench-test-harness",
+ "unicode-normalization",
  "uuid",
  "zip 6.0.0",
 ]

@@ -3,9 +3,9 @@
 //! strip-single-cell ITEM-3: the streaming sandbox SPAWN (run_analysis_streaming,
 //! `StreamGuards`) was removed with the processor pipeline; the shared line
 //! codecs [`parse_progress_line`]/[`parse_milestone_line`] stay — the stacked
-//! method run's FIFO drain (service.rs) parses with them.
-
-#![cfg(target_os = "linux")]
+//! method run's FIFO drain (service.rs) parses with them, and so does the macOS
+//! method VM's run seam (mac_vm_run.rs), which receives the same lines from the
+//! guest agent. Built on every platform for that reason.
 
 use super::backend::{MilestoneFrame, ProgressFrame};
 

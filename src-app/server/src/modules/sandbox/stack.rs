@@ -731,7 +731,7 @@ fn path_bytes(p: &Path) -> Vec<u8> {
 /// The layer-root file listing the layer's bind entries (PROV-SS-2, DEC-14).
 /// Produced by the `method-env-images` publisher — this node only READS it; the
 /// same file is what ITEM-7's fixture layers carry.
-const LAYER_MANIFEST_FILE: &str = "layer-manifest.json";
+pub const LAYER_MANIFEST_FILE: &str = "layer-manifest.json";
 
 /// The layer's root `layer-manifest.json` is missing, unreadable, or not a
 /// JSON array of strings (PROV-SS-2: "a malformed manifest is
@@ -765,14 +765,20 @@ pub fn layer_entries_from_manifest(layer_mount: &Path) -> Result<Vec<String>, Ap
             format!("read {}: {e}", path.display()),
         )
     })?;
-    let entries: Vec<String> = serde_json::from_slice(&bytes).map_err(|e| {
+    parse_layer_manifest(&bytes, &path.display().to_string())
+}
+
+/// The pure half of [`layer_entries_from_manifest`]: parse + validate the
+/// bytes of a layer's `layer-manifest.json`. `source` names the file in the
+/// error message. The macOS run seam reads the file inside the method VM (the
+/// layer is mounted there, never on the host) and validates it here, so both
+/// platforms apply one rule.
+pub fn parse_layer_manifest(bytes: &[u8], source: &str) -> Result<Vec<String>, AppError> {
+    let entries: Vec<String> = serde_json::from_slice(bytes).map_err(|e| {
         AppError::new(
             StatusCode::BAD_REQUEST,
             ENV_LAYER_MANIFEST_INVALID_CODE,
-            format!(
-                "{} is not a JSON array of mount-entry strings: {e}",
-                path.display()
-            ),
+            format!("{source} is not a JSON array of mount-entry strings: {e}"),
         )
     })?;
     validate_layer_entries(&entries)?;
@@ -789,29 +795,65 @@ pub fn layer_entries_from_manifest(layer_mount: &Path) -> Result<Vec<String>, Ap
 /// is mounted. The `/` parent of `/opt` / `/code` is the mount root itself and
 /// always exists.
 pub fn assert_entry_parents_exist(base_dir: &Path, entries: &[String]) -> Result<(), AppError> {
+    assert_entry_parents_with(entries, &base_dir.display().to_string(), |rel| {
+        base_dir.join(rel).is_dir()
+    })
+}
+
+/// The base-relative parent of one layer entry, or `None` when the parent is
+/// the mount root itself (`/opt`, `/code` — always present). Errors with
+/// [`ENV_LAYER_ENTRY_INVALID_CODE`] when the parent is not absolute.
+fn entry_parent_rel(entry: &str) -> Result<Option<&Path>, AppError> {
+    let parent = Path::new(entry).parent().unwrap_or(Path::new("/"));
+    if parent == Path::new("/") {
+        return Ok(None);
+    }
+    parent.strip_prefix("/").map(Some).map_err(|_| {
+        AppError::new(
+            StatusCode::BAD_REQUEST,
+            ENV_LAYER_ENTRY_INVALID_CODE,
+            format!("the parent of layer entry {entry:?} is not absolute"),
+        )
+    })
+}
+
+/// The base-relative parent dirs [`assert_entry_parents_with`] will probe, in
+/// entry order (root parents skipped). The macOS run seam asks the method VM
+/// about exactly these paths in one call, then answers the probe from the
+/// result.
+pub fn entry_parent_dirs(entries: &[String]) -> Result<Vec<PathBuf>, AppError> {
+    let mut out = Vec::new();
     for entry in entries {
-        let parent = Path::new(entry).parent().unwrap_or(Path::new("/"));
-        if parent == Path::new("/") {
-            continue;
+        if let Some(rel) = entry_parent_rel(entry)? {
+            out.push(rel.to_path_buf());
         }
-        let rel = parent.strip_prefix("/").map_err(|_| {
-            AppError::new(
-                StatusCode::BAD_REQUEST,
-                ENV_LAYER_ENTRY_INVALID_CODE,
-                format!("the parent of layer entry {entry:?} is not absolute"),
-            )
-        })?;
-        let probe = base_dir.join(rel);
-        if !probe.is_dir() {
+    }
+    Ok(out)
+}
+
+/// The DEC-14 parent check with the existence probe injected: `is_dir(rel)`
+/// answers whether `<base>/<rel>` is a directory; `base_display` names the
+/// base in the error. The Linux seam probes the mounted base on the host
+/// ([`assert_entry_parents_exist`]); the macOS seam answers from the method VM,
+/// where the base is mounted.
+pub fn assert_entry_parents_with(
+    entries: &[String],
+    base_display: &str,
+    is_dir: impl Fn(&Path) -> bool,
+) -> Result<(), AppError> {
+    for entry in entries {
+        let Some(rel) = entry_parent_rel(entry)? else {
+            continue;
+        };
+        if !is_dir(rel) {
             return Err(AppError::new(
                 StatusCode::BAD_REQUEST,
                 ENV_LAYER_ENTRY_INVALID_CODE,
                 format!(
-                    "the parent {} of layer entry {entry:?} does not exist in the base \
-                     rootfs at {} (DEC-14: an entry may overlay an existing base path, \
-                     never invent one)",
-                    parent.display(),
-                    base_dir.display()
+                    "the parent /{} of layer entry {entry:?} does not exist in the base \
+                     rootfs at {base_display} (DEC-14: an entry may overlay an existing base \
+                     path, never invent one)",
+                    rel.display(),
                 ),
             ));
         }
@@ -838,9 +880,25 @@ pub fn assert_entry_parents_exist(base_dir: &Path, entries: &[String]) -> Result
 /// 3. [`METHOD_ENTRYPOINT_MISSING_CODE`] — nothing runnable in the layer.
 pub fn method_entry_command(layer_mount: &Path) -> Result<String, AppError> {
     let code = layer_mount.join("code");
-    let language = std::fs::read(code.join("method.json"))
-        .ok()
-        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+    let method_json = std::fs::read(code.join("method.json")).ok();
+    method_entry_command_with(
+        method_json.as_deref(),
+        |script| code.join(script).is_file(),
+        &layer_mount.display().to_string(),
+    )
+}
+
+/// The pure half of [`method_entry_command`]: `method_json` is the bytes of
+/// `<layer>/code/method.json` when it could be read, `has_script(name)` answers
+/// whether `<layer>/code/<name>` is a regular file, and `layer_display` names
+/// the layer in the error. The macOS run seam reads both inside the method VM.
+pub fn method_entry_command_with(
+    method_json: Option<&[u8]>,
+    has_script: impl Fn(&str) -> bool,
+    layer_display: &str,
+) -> Result<String, AppError> {
+    let language = method_json
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok())
         .and_then(|v| v.get("language").and_then(|l| l.as_str()).map(str::to_string));
 
     if let Some(lang) = language {
@@ -853,7 +911,7 @@ pub fn method_entry_command(layer_mount: &Path) -> Result<String, AppError> {
             None
         };
         if let Some((exe, script)) = named {
-            if code.join(script).is_file() {
+            if has_script(script) {
                 return Ok(format!("{exe} /code/{script}"));
             }
             return Err(AppError::new(
@@ -867,8 +925,8 @@ pub fn method_entry_command(layer_mount: &Path) -> Result<String, AppError> {
         }
     }
 
-    for (exe, script) in [("Rscript", "run.R"), ("python3", "run.py"), ("bash", "run.sh")] {
-        if code.join(script).is_file() {
+    for (exe, script) in METHOD_ENTRY_SCRIPTS {
+        if has_script(script) {
             return Ok(format!("{exe} /code/{script}"));
         }
     }
@@ -876,12 +934,16 @@ pub fn method_entry_command(layer_mount: &Path) -> Result<String, AppError> {
         StatusCode::BAD_REQUEST,
         METHOD_ENTRYPOINT_MISSING_CODE,
         format!(
-            "the layer at {} carries no /code/run.R, /code/run.py or /code/run.sh (and no \
-             parseable method.json language); nothing to run",
-            layer_mount.display()
+            "the layer at {layer_display} carries no /code/run.R, /code/run.py or /code/run.sh \
+             (and no parseable method.json language); nothing to run"
         ),
     ))
 }
+
+/// The wrapper scripts [`method_entry_command_with`] recognises, in presence
+/// order, with the interpreter each runs under.
+pub const METHOD_ENTRY_SCRIPTS: [(&str, &str); 3] =
+    [("Rscript", "run.R"), ("python3", "run.py"), ("bash", "run.sh")];
 
 /// Write `<workspace>/[`RUN_LAYER_ENV_DIGEST_FILE`]` — the method-LAYER digest
 /// sidecar, the sibling of the shipped `env-digest` (base) — INV-6.
