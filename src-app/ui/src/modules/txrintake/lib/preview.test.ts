@@ -157,23 +157,25 @@ describe('buildStudyPreviewRequest (TEST-INT-2)', () => {
   })
 })
 
-describe('fitCounts + panel copy (TEST-INT-2/13, R2-1)', () => {
+describe('fitCounts + panel copy (TEST-INT-2/13, R2-1 + R3-intake-1)', () => {
   it('derives the count split from the response totals', () => {
     const r = response([
       method('m-a', 'can_run', []),
       method('m-b', 'can_run_some', [{ code: 'MIN_DRAWS_UNMET' }]),
       method('m-c', 'cannot_run', [{ code: 'MARKER_GROUP_MISSING' }]),
     ])
-    expect(fitCounts(r)).toEqual({ total: 3, fit: 2, some: 1, leftOut: 1, noEnv: 0 })
+    expect(fitCounts(r)).toEqual({ total: 3, fit: 2, some: 1, leftOut: 1, noEnvFit: 0 })
   })
 
-  it('separates the environment fact from the answer causes (R2-1)', () => {
+  it('separates the environment fact from the answer causes (R2-1, and the closed arithmetic R3-intake-1)', () => {
     // 359 methods: 41 can run, 4 env-absent with NO other reasons (they fit
     // the study — the env line says they cannot start), 53 answer-caused
     // left-outs, 261 env-absent with an answer cause too — the runtime
     // stage reclassifies every env-absent method to cannot_run with
     // ENV_IMAGE_MISSING pushed first, so `total_no_env` counts exactly
-    // those 265; the left-out count is the answer-only remainder.
+    // those 265; the left-out count is EVERY answer cause (the 53 plus the
+    // 261 mixed ones — the old split left the mixed methods in neither
+    // count, so the heading and the headline disagreed).
     const r = response(
       [
         ...Array.from({ length: 41 }, (_, i) => method(`fit-${i}`, 'can_run', [])),
@@ -199,24 +201,28 @@ describe('fitCounts + panel copy (TEST-INT-2/13, R2-1)', () => {
     )
     const counts = fitCounts(r)
     // fit = 41 runnable + 4 env-only (their answers fit; the env line is the
-    // separate fact); leftOut = 53 answer causes; noEnv = 265.
-    expect(counts).toEqual({ total: 359, fit: 45, some: 0, leftOut: 53, noEnv: 265 })
-    // The two independently-true sentences: the fit headline and the env
-    // line overlap only on the env-only answer fitters (45 − (359 − 53 − 265)).
-    expect(counts.fit - (counts.total - counts.leftOut - counts.noEnv)).toBe(4)
+    // separate fact); leftOut = all 314 answer causes (53 + 261); the closed
+    // arithmetic fit + leftOut === total; noEnvFit = the env-only fitters.
+    expect(counts).toEqual({ total: 359, fit: 45, some: 0, leftOut: 314, noEnvFit: 4 })
+    expect(counts.fit + counts.leftOut).toBe(counts.total)
   })
 
   it('renders the board headline + left-out copy from the split, never a literal count', () => {
-    const fit: FitCounts = { total: 39, fit: 26, some: 4, leftOut: 13, noEnv: 0 }
+    const fit: FitCounts = { total: 39, fit: 26, some: 4, leftOut: 13, noEnvFit: 0 }
     expect(fitHeading(fit)).toBe('26 of 39 methods fit')
     expect(leftOutHeading(fit)).toBe('13 methods are left out')
     expect(someFitLine(fit)).toBe('4 can run for some patients')
   })
 
-  it('noEnv positive leaves the heading as the answer causes (R2-1)', () => {
-    const fit: FitCounts = { total: 359, fit: 45, some: 0, leftOut: 53, noEnv: 265 }
-    expect(fitHeading(fit)).toBe('45 of 359 methods fit')
-    expect(leftOutHeading(fit)).toBe('53 methods are left out')
+  it('noEnvFit positive leaves the heading as the answer causes (R2-1 + R3-intake-1)', () => {
+    const fit: FitCounts = { total: 359, fit: 176, some: 0, leftOut: 183, noEnvFit: 171 }
+    expect(fitHeading(fit)).toBe('176 of 359 methods fit')
+    expect(leftOutHeading(fit)).toBe('183 methods are left out')
+  })
+
+  it('speaks the true grammar for one left-out method (R3-intake-1)', () => {
+    const fit: FitCounts = { total: 359, fit: 358, some: 0, leftOut: 1, noEnvFit: 0 }
+    expect(leftOutHeading(fit)).toBe('1 method is left out')
   })
 })
 
@@ -278,8 +284,8 @@ describe('descriptiveSentence (TEST-INT-2/examples)', () => {
   })
 })
 
-describe('excludedMethods (TEST-INT-2, R2-1)', () => {
-  it('lists only the cannot_run verdicts with an ANSWER cause, in response order', () => {
+describe('excludedMethods (TEST-INT-2, R2-1 + R3-intake-1)', () => {
+  it('lists the cannot_run verdicts with an ANSWER cause, in response order', () => {
     const r = response([
       method('m-a', 'can_run', []),
       method('m-b', 'cannot_run', [{ code: 'MARKER_GROUP_MISSING' }], {
@@ -298,22 +304,28 @@ describe('excludedMethods (TEST-INT-2, R2-1)', () => {
     expect(excludedMethods(r, FORMATTERS)[1]).toEqual({ id: 'm-c', reasonText: 'needs 3 or more draws' })
   })
 
-  it('leaves the ENV_IMAGE_MISSING verdicts to the panel env line (R2-1)', () => {
+  it('leaves the env-ONLY verdicts to the panel env line; a mixed verdict lists its ANSWER cause (R3-intake-1)', () => {
     const r = response(
       [
         method('env-only', 'cannot_run', [{ code: 'ENV_IMAGE_MISSING' }]),
         method('env-ans', 'cannot_run', [
           { code: 'ENV_IMAGE_MISSING' },
           { code: 'MARKER_GROUP_MISSING' },
-        ]),
+        ], {
+          missing_groups: [{ group_id: 'methylation-sequencing', display_name: 'Methylation' }],
+        }),
         method('answer', 'cannot_run', [{ code: 'MARKER_GROUP_MISSING' }]),
       ],
       { total_no_env: 2 },
     )
-    expect(excludedMethods(r, FORMATTERS).map(m => m.id)).toEqual(['answer'])
-    // The shared E-vocabulary line for a env reason that reaches the line
-    // (the safety net: the panel never lists these rows, the reason text is
-    // still true if a consumer does).
+    expect(excludedMethods(r, FORMATTERS).map(m => m.id)).toEqual(['env-ans', 'answer'])
+    expect(excludedMethods(r, FORMATTERS)[0]).toEqual({
+      id: 'env-ans',
+      reasonText: 'needs markers from: Methylation',
+    })
+    // The direct line of an env-only method stays the shared E-vocabulary
+    // sentence (the safety net: the panel never lists these rows, the reason
+    // text is still true if a consumer does).
     const envOnly = method('env-only', 'cannot_run', [{ code: 'ENV_IMAGE_MISSING' }])
     expect(excludedReasonLine(envOnly, FORMATTERS)).toBe('no published environment available')
   })

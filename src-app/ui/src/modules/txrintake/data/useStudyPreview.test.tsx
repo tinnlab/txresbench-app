@@ -133,7 +133,7 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
     const { result } = renderHook(() => useStudyPreview(ANSWERED, GROUPS))
     expect(result.current.loading).toBe(true)
     await settle()
-    expect(result.current.fit).toEqual({ total: 2, fit: 1, some: 0, leftOut: 1, noEnv: 0 })
+    expect(result.current.fit).toEqual({ total: 2, fit: 1, some: 0, leftOut: 1, noEnvFit: 0 })
     expect(result.current.excluded).toEqual([{ id: 'm-b', reasonText: 'needs 4 or more draws' }])
     expect(result.current.methods.get('m-b')?.status).toBe('cannot_run')
     expect(result.current.error).toBeNull()
@@ -145,7 +145,7 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
       .mockImplementationOnce(
         () => new Promise<EligibilityResponse>(resolve => (resolveFirst = resolve)),
       )
-      .mockResolvedValueOnce(response({ total_fit: 0, total_cannot: 2 }))
+      .mockResolvedValueOnce(response())
 
     const initialProps = { answers: { ...EMPTY_ANSWERS, disease: 'lung' } as StudyAnswers, groups: GROUPS }
     const { rerender, result } = renderHook(
@@ -167,12 +167,14 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
     })
     expect(result.current.fit?.fit).not.toBe(9)
 
-    // The NEWEST response lands and wins.
+    // The NEWEST response lands and wins (its own derivation: one answer
+    // cause out of the two methods — the totals overrides above are not the
+    // panel's source, the per-method reasons are; the stale one is dropped).
     await act(async () => {
       await Promise.resolve()
     })
-    expect(result.current.fit?.fit).toBe(0)
-    expect(result.current.fit?.leftOut).toBe(2)
+    expect(result.current.fit?.fit).toBe(1)
+    expect(result.current.fit?.leftOut).toBe(1)
   })
 
   it('surfaces an API error with no panel data', async () => {

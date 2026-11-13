@@ -31,6 +31,7 @@ import {
   formatMethodCoverage,
   formatMethodNeedsLine,
   formatMissingItem,
+  formatNoEnvLine,
   formatReasonLine,
   formatReasonLines,
   formatRunHeadline,
@@ -294,6 +295,13 @@ describe('pluralize / runLabel', () => {
     expect(runLabel('model', 3)).toBe('Run 3 models')
     expect(runLabel('method', 1)).toBe('Run 1 method')
     expect(runLabel('model', 1)).toBe('Run 1 model')
+  })
+})
+
+describe('formatNoEnvLine (R3-intake-1)', () => {
+  it('reads the env-absent subset of the fit count, not a second total over the catalogue', () => {
+    expect(formatNoEnvLine(171)).toBe('171 of them cannot run yet')
+    expect(formatNoEnvLine(1)).toBe('1 of them cannot run yet')
   })
 })
 

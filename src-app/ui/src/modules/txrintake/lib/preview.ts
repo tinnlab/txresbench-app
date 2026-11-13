@@ -7,15 +7,26 @@
  * - `buildStudyPreviewRequest` — the exact PROV-MC-5 preview body (DEC-5):
  *   ALL marker-group ids present with explicit booleans (unchecked =
  *   `false`; absent keys are unambiguous under either reading of the
- *   provider's shape), the schedule answers verbatim, and `last_draw_day`
- *   defaulting to `56` when unanswered (ONE value, three uses: the B panel,
- *   the C/N validation parameters, the E run default).
- * - `fitCounts` — `{total, fit, some, leftOut, noEnv}` from the response:
+ *   provider's shape) and the schedule answers verbatim. An UNANSWERED
+ *   schedule question is OMITTED from the body — R3-intake-2: the old
+ *   request sent the board's first options (`always`/`1`/`56`) when
+ *   unanswered, so an untouched question narrowed the fit count as if the
+ *   user had answered it ("merely ticking 'Chance of response' excluded
+ *   every method needing 2+ draws"); the provider reads an absent field as
+ *   "any" (no constraint), and the panel then answers only what was asked.
+ *   The E run / validation defaults are the store's own parameters, not
+ *   this body (DEC-5's "one value, three uses" is the store's decision day).
+ * - `fitCounts` — `{total, fit, some, leftOut, noEnvFit}` from the response:
  *   the board's fit / left-out split with the environment fact STRIPPED
  *   (R2-1: a method without a published environment is a deployment fact,
- *   not a study answer — `noEnv` is its own count, `leftOut` counts the
- *   answer causes only, and `fit` is the board's inclusive headline count
- *   whose arithmetic is pinned by the tests).
+ *   not a study answer). `fit` counts the methods with NO answer cause
+ *   (env-absent ones included), `leftOut` counts the methods the ANSWERS
+ *   exclude — `fit + leftOut === total`, the one closed arithmetic the
+ *   review demanded (the old split left 182 methods unaccounted for: the
+ *   heading said "1 methods are left out" beside "176 of 359 fit"), and
+ *   `noEnvFit` is the env-absent subset of `fit` ("N of them cannot run
+ *   yet" — the deployment fact about the SAME methods, never a second
+ *   count over the whole catalogue).
  * - `hasStudyAnswers` — the B panel's gate (R2-1): with nothing answered
  *   the panel shows the invite line and the hook sends no unanswered
  *   request (the old panel reported a count from all-groups-false +
@@ -24,13 +35,15 @@
  *   literal template, data-filled ("for colorectal cancer, risk by a day,
  *   with ctDNA, blood counts and LDH"). Answers-not-given render no clause;
  *   nothing here ever renders a count.
- * - `excludedMethods` — the "N methods are left out" list: the `cannot_run`
- *   verdicts with an ANSWER cause (the ENV_IMAGE_MISSING verdicts are the
- *   panel's separate env line — 300 identical "no published environment"
- *   rows would drown the reasons, R2-5's spirit), in response order, one
- *   reason line per method through the CONS-UI-INTAKE-9 formatters (the
- *   injected txrlist surface), with the module's own lines for the cases
- *   the shared E-vocabulary cannot render on B (see `excludedReasonLine`).
+ * - `excludedMethods` — the "N methods are left out" list: every method
+ *   with an ANSWER cause (a non-environment reason — R3-intake-1: the old
+ *   list dropped the env-absent methods whose second reason was the
+ *   answer's, leaving the heading to disagree with the count), in response
+ *   order, ONE reason line per method: the first NON-ENVIRONMENT reason
+ *   (the environment fact has its own line), through the
+ *   CONS-UI-INTAKE-9 formatters (the injected txrlist surface), with the
+ *   module's own lines for the cases the shared E-vocabulary cannot render
+ *   on B (see `excludedReasonLine`).
  */
 
 import type {
@@ -89,58 +102,70 @@ export interface FitCounts {
   /** The catalogue size the panel's "of M" reads. */
   total: number
   /**
-   * The board's fit count — methods that FIT THE STUDY ANSWERS (R2-1):
+   * The board's fit count — methods with NO answer cause (R2-1 + R3-intake-1):
    * the runnable ones plus the env-absent methods whose ONLY reason is the
    * environment (their study verdict is nothing but "can't start yet"; the
-   * env line right below states that fact). The board's own arithmetic is
-   * inclusive here (some-fit methods are inside the headline count and
-   * `some` is the subset note beneath it).
+   * `noEnvFit` line right below states that fact). The board's own
+   * arithmetic is inclusive here (some-fit methods are inside the headline
+   * count and `some` is the subset note beneath it).
    */
   fit: number
   /** `total_some` — methods that can run for some patients. */
   some: number
   /**
-   * The answer-caused left-out count (`total_cannot − total_no_env`): the
-   * methods whose ANSWERS exclude them. Never polluted by the environment
-   * fact (R2-1: a method with no published environment was reported as
-   * "doesn't fit with these answers" — the env line is its own fact).
+   * The answer-caused left-out count: the methods whose ANSWERS exclude
+   * them (a non-environment reason), env-absent ones with an answer cause
+   * INCLUDED — their non-environment reason is the answer's, and the list
+   * below shows it (R3-intake-1: the old split left it unaccounted, and
+   * `fit + leftOut` was not `total`). The environment fact alone is never
+   * a left-out cause (R2-1 — the env line is its own fact).
    */
   leftOut: number
-  /** `total_no_env` — methods with no published environment (the env line). */
-  noEnv: number
+  /**
+   * The env-absent subset of `fit` — the "N of them cannot run yet" line
+   * (R3-intake-1: the old env line counted "N of M" over the whole
+   * catalogue and contradicted the headline; this is the deployment fact
+   * about the SAME methods that fit, stated only when relevant).
+   */
+  noEnvFit: number
 }
 
 /**
  * Derive the panel's count split from the provider's response. The
- * per-method classification is exact: an env-absent method carries
- * `ENV_IMAGE_MISSING` (pushed first by the runtime stage) and
- * `total_no_env` counts exactly those; among the rest, `cannot_run` means
- * the answers exclude it; everything else fits. `fit` counts the
- * answer-fitting env-absent methods too (`reasons.length === 1`) — they
- * answer the study question with the env line's "can't start" as the
- * separate fact.
+ * per-method classification is exact: an answer cause is ANY non-environment
+ * reason (the runtime stage pushes `ENV_IMAGE_MISSING` FIRST, so a method
+ * whose answers also exclude it carries both and counts as left-out — the
+ * answer's reason is the one the list shows); among the rest, everything
+ * fits (env-absent ones are the `noEnvFit` subset — the env line's fact).
+ * The closed arithmetic `fit + leftOut === total` is the panel's one story
+ * (R3-intake-1: the old split's `total_cannot − total_no_env` left the
+ * env+answer methods in neither count, so the heading and the count
+ * disagreed).
  */
 export function fitCounts(response: EligibilityResponse): FitCounts {
-  const noEnv = response.total_no_env
-  const leftOut = response.total_cannot - noEnv
-  const envOnlyAnswerFit = response.methods.filter(
-    method => hasEnvReason(method) && method.reasons.length === 1,
-  ).length
+  const answerCaused = response.methods.filter(m => m.status === 'cannot_run' && hasAnswerCause(m)).length
+  const noEnvFit = response.methods.filter(m => hasEnvReason(m) && !hasAnswerCause(m)).length
   return {
     total: response.methods.length,
-    fit: response.methods.length - leftOut - noEnv + envOnlyAnswerFit,
+    fit: response.methods.length - answerCaused,
     some: response.total_some,
-    leftOut,
-    noEnv,
+    leftOut: answerCaused,
+    noEnvFit,
   }
 }
 
-/** Whether a method's first cause is the environment (the runtime stage's
+/** Whether a method's causes include the environment (the runtime stage's
  *  `cantRun` reclassification — the reason is pushed FIRST by
  *  `with_runtime_env`, so a mixed method reads as "no published
  *  environment", the fact that keeps it from starting). */
 function hasEnvReason(method: MethodEligibility): boolean {
   return method.reasons.some(reason => reason.code === 'ENV_IMAGE_MISSING')
+}
+
+/** Whether a method's causes include an answer fact (any non-environment
+ *  reason — a missing marker group, too few draws, a task mismatch …). */
+function hasAnswerCause(method: MethodEligibility): boolean {
+  return method.reasons.some(reason => reason.code !== 'ENV_IMAGE_MISSING')
 }
 
 /** One excluded-method row (the id + the one reason line the list shows). */
@@ -266,24 +291,38 @@ const PREVIEW_SHARED_CODES: ReadonlySet<string> = new Set([
  * One excluded method's reason line. The B panel has NO per-patient data, so
  * the shared templates that read coverage counts would render the preview's
  * 1-patient stand-in facts ("0 of 1 have them") — a lie the board never
- * shows ("needs 3 or more draws"). The schedule rule therefore renders the
- * board's B line from `min_draws.required`; an inventory-only code
- * (`DECISION_DAY_UNMET`, impossible from a preview but possible in a
- * fixture) and any foreign code fall to the module's constant line.
- * Everything else is the shared E-vocabulary line — one vocabulary for the
- * codes both screens render (DEC-8).
+ * shows ("needs 3 or more draws"). The rendered cause is the first
+ * NON-ENVIRONMENT reason (R3-intake-1: the runtime stage pushes the
+ * environment fact first, and a mixed method's answer cause is what the
+ * list is about — the env fact has its own line, "N of them cannot run
+ * yet"). The schedule rule therefore renders the board's B line from
+ * `min_draws.required`; an inventory-only code (`DECISION_DAY_UNMET`,
+ * impossible from a preview but possible in a fixture) and anything outside
+ * the shared set fall to the module's constant line.
  */
 export function excludedReasonLine(
   method: MethodEligibility,
   formatters: TxrPreviewFormatters,
 ): string {
-  const code = method.reasons[0]?.code
-  if (code === undefined) return PREVIEW_REASON_FALLBACK
+  const code = method.reasons.find(reason => reason.code !== 'ENV_IMAGE_MISSING')?.code
+  if (code === undefined) {
+    // A method whose ONLY cause is the environment never reaches the list
+    // (the env line is its fact); the direct line still tells its truth —
+    // the shared E-vocabulary sentence, never a blank.
+    return formatters.formatReasonLine(
+      toRunStatus(method.status),
+      method.reasons,
+      method.coverage,
+      method.min_draws,
+      method.missing_markers,
+      method.missing_groups,
+    )
+  }
   if (code === 'MIN_DRAWS_UNMET') return `needs ${method.min_draws.required} or more draws`
   if (!PREVIEW_SHARED_CODES.has(code)) return PREVIEW_REASON_FALLBACK
   return formatters.formatReasonLine(
     toRunStatus(method.status),
-    method.reasons,
+    method.reasons.filter(reason => reason.code !== 'ENV_IMAGE_MISSING'),
     method.coverage,
     method.min_draws,
     method.missing_markers,
@@ -294,24 +333,23 @@ export function excludedReasonLine(
 /**
  * The "N methods are left out" list: every `cannot_run` verdict with an
  * ANSWER cause in the response's order (the provider emits deterministic
- * order), one reason line per method. The ENV_IMAGE_MISSING verdicts are
- * NOT in it — R2-1 separates the environment fact: those methods read the
- * panel's "N of M methods have no published environment and can't start"
- * line (their row reason would be the one sentence repeated hundreds of
- * times, the wall the R2-5 fix removes from the file cards) and the
- * choose-methods screen lists them one by one. `can_run_some` methods are
- * NOT in it either — B labels the heads "N of M fit" and "N are left out",
- * and a method that can run for some patients is neither; the preview can
- * also mark one `can_run_some` with NO reason at all (the "sometimes
- * before-treatment" case), which the board's every-row-has-a-reason list
- * cannot render. The board's visible clip + the truthful "Show all N"
- * affordance live in the page (`EXCLUDED_LIST_LIMIT`).
+ * order), one reason line per method. The ENV_ONLY verdicts are NOT in it —
+ * R2-1 separates the environment fact: those methods fit the answers and
+ * read the panel's "N of them cannot run yet" line (their row reason would
+ * be the one sentence repeated hundreds of times, the wall the R2-5 fix
+ * removes from the file cards) and the choose-methods screen lists them one
+ * by one. A method with BOTH causes (env + answer) IS in it — its answer
+ * reason is what the heading counts (R3-intake-1), and its env fact is the
+ * separate line. `can_run_some` methods are NOT in it either — B labels the
+ * heads "N of M fit" and "N are left out", and a method that can run for
+ * some patients is neither. The board's visible clip + the truthful "Show
+ * all N" affordance live in the page (`EXCLUDED_LIST_LIMIT`).
  */
 export function excludedMethods(
   response: EligibilityResponse,
   formatters: TxrPreviewFormatters,
 ): ExcludedMethod[] {
   return response.methods
-    .filter(method => method.status === 'cannot_run' && !hasEnvReason(method))
+    .filter(method => method.status === 'cannot_run' && hasAnswerCause(method))
     .map(method => ({ id: method.id, reasonText: excludedReasonLine(method, formatters) }))
 }

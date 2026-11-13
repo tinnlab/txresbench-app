@@ -324,13 +324,18 @@ export function formatMethodCoverage(coverage: TxrCoverageFacts): string {
 
 /**
  * The no-environment honesty line (CM-1, one vocabulary for the method list
- * AND the screen-B panel): "N of M methods have no published environment and
- * can't start." The count is `total_no_env` — the catalogue methods with no
- * published environment (the list still shows them; the statement is the
- * deployment fact, stated plainly, never a raw code).
+ * AND the screen-B panel): "N of them cannot run yet." Rendered directly
+ * under the fit headline ("176 of 359 methods fit your study"), "them" is
+ * the SAME methods that fit — the deployment fact about that count, never a
+ * second count over the whole catalogue (R3-intake-1: the old "N of M
+ * methods have no published environment and can't start" contradicted the
+ * headline and left the two numbers untellable as one story). The count is
+ * the env-absent subset of the fit count; the line is shown only when it is
+ * non-zero. The location-neutral rule (ITEM-2) keeps the sentence's "yet"
+ * instead of "on this computer" — the owner's copy guard pins the phrase.
  */
-export function formatNoEnvLine(noEnv: number, total: number): string {
-  return `${noEnv} of ${total} methods have no published environment and can't start.`
+export function formatNoEnvLine(noEnvFit: number): string {
+  return `${noEnvFit} of them cannot run yet`
 }
 
 /** The itemLabel plural: "method" → "methods" (the singular for n === 1). */

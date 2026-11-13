@@ -488,7 +488,9 @@ export function StudyPage() {
                           <span style={{ fontWeight: 600, color: 'var(--txr-muted)' }}>…</span>
                         )}
                         <span style={PANEL_SUFFIX}>
-                          {panel.fit !== null ? ` of ${panel.fit.total} methods fit` : ' methods fit'}
+                          {panel.fit !== null
+                            ? ` of ${panel.fit.total} methods fit your study`
+                            : ' methods fit your study'}
                         </span>
                       </div>
                       <p style={PANEL_SENTENCE} data-testid="txr-intake-panel-sentence">
@@ -502,9 +504,9 @@ export function StudyPage() {
                   )}
                 </div>
 
-                {answered && panel.fit !== null && panel.fit.noEnv > 0 ? (
+                {answered && panel.fit !== null && panel.fit.noEnvFit > 0 ? (
                   <p data-testid="txr-intake-panel-no-env" style={PANEL_NO_ENV}>
-                    {formatNoEnvLine(panel.fit.noEnv, panel.fit.total)}
+                    {formatNoEnvLine(panel.fit.noEnvFit)}
                   </p>
                 ) : null}
 

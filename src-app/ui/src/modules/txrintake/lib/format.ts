@@ -134,9 +134,12 @@ export function fitHeading(fit: Readonly<{ total: number; fit: number }>): strin
 }
 
 /** The excluded-list heading ("N methods are left out" — board copy; N is
- *  the ANSWER-caused count, R2-1 — the environment fact has its own line). */
+ *  the ANSWER-caused count, R2-1 — the environment fact has its own line).
+ *  The count is live and the grammar truthful: "1 method is left out"
+ *  (R3-intake-1 — the old byte "1 methods are left out" held the wrong
+ *  grammar and its count disagreed with the headline's). */
 export function leftOutHeading(fit: Readonly<{ leftOut: number }>): string {
-  return `${fit.leftOut} methods are left out`
+  return `${fit.leftOut} ${fit.leftOut === 1 ? 'method is' : 'methods are'} left out`
 }
 
 /**
