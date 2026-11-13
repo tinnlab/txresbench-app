@@ -3387,17 +3387,14 @@ fn prepare_run(
     })
 }
 
-/// The run's validation request over the RUN's table set. The mode
+/// The validation mode and tables of the RUN's table set. The mode
 /// disambiguates the pair (train: patients + measurements; reuse: predict
-/// patients + predict measurements — the run's only side). The inventory
-/// the eligibility engine sees is the SAME object the screens rendered —
-/// one code path (DEC-15).
-fn run_validation_request(
+/// patients + predict measurements — the run's only side).
+fn run_tables(
     input: &super::types::TxrRunInput,
-    config: &RunConfig,
     run_mode: super::types::TxrRunMode,
-) -> ValidationRequest {
-    let (mode, patients, measurements) = match run_mode {
+) -> (ValidationMode, Option<&ParsedTable>, &ParsedTable) {
+    match run_mode {
         super::types::TxrRunMode::Train => (
             ValidationMode::Files,
             input.patients.as_ref(),
@@ -3413,7 +3410,27 @@ fn run_validation_request(
                 None => (ValidationMode::Predict, None, meas),
             }
         }
-    };
+    }
+}
+
+/// Whether the run's pass builds a train side: a FILES-mode table set
+/// ([`canonicalize_run`] builds the train side exactly then).
+pub(crate) fn run_has_train_side(
+    input: &super::types::TxrRunInput,
+    run_mode: super::types::TxrRunMode,
+) -> bool {
+    run_tables(input, run_mode).0 == ValidationMode::Files
+}
+
+/// The run's validation request over the RUN's table set ([`run_tables`]).
+/// The inventory the eligibility engine sees is the SAME object the screens
+/// rendered — one code path (DEC-15).
+fn run_validation_request(
+    input: &super::types::TxrRunInput,
+    config: &RunConfig,
+    run_mode: super::types::TxrRunMode,
+) -> ValidationRequest {
+    let (mode, patients, measurements) = run_tables(input, run_mode);
     validation_request(
         mode,
         patients,
