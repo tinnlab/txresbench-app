@@ -15,7 +15,6 @@ use uuid::Uuid;
 
 use super::{owner_token, pool};
 use crate::common::TestServer;
-use txresbench::modules::execution_engine::bundle::BundleSettings;
 use txresbench::modules::execution_engine::envmanifest;
 use txresbench::modules::execution_engine::orchestrator::{
     self, EnvProvider, MethodExecutor, MethodRunContext, MethodOutcome, ProducedModelFacts,
@@ -137,21 +136,7 @@ impl MethodExecutor for ModelFakeExecutor {
         // become ready on a method the real run would refuse.
         let facts = envmanifest::facts_for(&ctx.method_id)
             .ok_or_else(|| AppError::internal_error(format!("unknown method {}", ctx.method_id)))?;
-        let settings = BundleSettings::for_run(
-            &ctx.config,
-            orchestrator::per_method_cpus(ctx.cpus, ctx.config.at_a_time),
-        );
-        let train = ctx
-            .train
-            .as_deref()
-            .ok_or_else(|| AppError::internal_error("the example run carries a train side"))?;
-        if let Err(e) = orchestrator::train_bundle_preflight(
-            train,
-            ctx.predict.as_deref(),
-            facts,
-            &settings,
-            ctx.min_draws,
-        ) {
+        if let Err(e) = orchestrator::call_bundle_preflight(&ctx, facts) {
             self.refused
                 .lock()
                 .expect("lock")
@@ -344,7 +329,6 @@ fn example_family_is_deterministic_and_passes_the_validator() {
 fn pick_is_deterministic_three_fast_saving_methods() {
     let inputs = example::example_run_inputs().expect("the example canonicalizes");
     let patients = inputs.patients();
-    let settings = example::run_bundle_settings(&inputs.config);
     let a = example::pick_fast_methods(&inputs);
     let b = example::pick_fast_methods(&inputs);
     assert_eq!(a, b, "the pick is deterministic");
@@ -371,23 +355,8 @@ fn pick_is_deterministic_three_fast_saving_methods() {
         // The run's own bundle stage (the train/test bundles `execute_train`
         // builds, then the cross-fit or cohort bundles) on the example run's
         // canonical sides, with the run's settings and the method's min_draws.
-        if let Err(e) = orchestrator::method_bundles(
-            &inputs.train,
-            inputs.predict.as_deref(),
-            method,
-            &settings,
-            method.min_draws,
-        ) {
+        if let Err(e) = inputs.preflight(method) {
             panic!("{id} is refused by the run's bundle stage: {e}");
-        }
-        if let Err(e) = orchestrator::train_bundle_preflight(
-            &inputs.train,
-            inputs.predict.as_deref(),
-            method,
-            &settings,
-            method.min_draws,
-        ) {
-            panic!("{id} is refused by a later bundle of the run: {e}");
         }
         let seconds = estimate_seconds_for(method, patients, REFERENCE_CPUS);
         assert!(
@@ -403,14 +372,7 @@ fn pick_is_deterministic_three_fast_saving_methods() {
         .filter(|m| m.status == EligibilityStatus::CanRun && runtime_env_available(&m.id))
         .filter(|m| {
             let method = cat.method(&m.id).expect("catalogue method");
-            orchestrator::train_bundle_preflight(
-                &inputs.train,
-                inputs.predict.as_deref(),
-                method,
-                &settings,
-                method.min_draws,
-            )
-            .is_ok()
+            inputs.preflight(method).is_ok()
         })
         .collect();
     assert!(
