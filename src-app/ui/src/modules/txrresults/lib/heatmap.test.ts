@@ -116,6 +116,7 @@ function columnOf(methodId: string): TxrHeatmapColumn {
     values: [],
     notes: [],
     constantValue: null,
+    flatConversion: false,
   }
 }
 
@@ -244,6 +245,16 @@ describe('buildColumns (the one wire bridge, PROV-UR-4)', () => {
     const cols = buildColumns(mixedPredictions(), 'pfs')
     const c = cols[2]
     expect(c.probSource).toBeNull()
+  })
+
+  it("carries 'converted' and the engine's flat-conversion fact (absent = not flat)", () => {
+    const p = uniformPredictions()
+    p.methods[1] = { ...p.methods[1], prob_source: 'converted', flat_conversion: true }
+    const [a, b] = buildColumns(p, 'pfs')
+    expect(b.probSource).toBe('converted')
+    expect(b.flatConversion).toBe(true)
+    // An older response without the field: not flat.
+    expect(a.flatConversion).toBe(false)
   })
 
   it('normalizes a null task through the run endpoint fallback', () => {

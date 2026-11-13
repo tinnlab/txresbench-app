@@ -84,6 +84,7 @@ function methodCol(index: number, groupLabel: string): TxrHeatmapColumn {
     values: [],
     notes: [],
     constantValue: null,
+    flatConversion: false,
   }
 }
 

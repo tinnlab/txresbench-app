@@ -7,12 +7,12 @@
  *
  * The component is presentational: the page passes the open state (the
  * store's `chanceDialogOpen`), the close handler, the run's outcome day
- * facts and the prob-source counts (`buildColumns` already mapped
+ * facts and the columns' prob-source facts (`buildColumns` already mapped
  * `prob_source: 'none'` → null, so the nulls are simply not counted).
  */
 import type { CSSProperties } from 'react'
 import { Dialog } from '@txresbench/kit'
-import type { TxrOutcomeKey } from '../types'
+import type { TxrHeatmapColumn, TxrOutcomeKey } from '../types'
 
 /** The dialog's title (`Results.dc.html`'s aside link text). */
 export const CHANCE_DIALOG_TITLE = 'How the chance is calculated'
@@ -37,24 +37,50 @@ export interface TxrChanceSummary {
  * - the lead spells the outcome phrase + the day (a closed mapping over
  *   `TxrOutcomeKey`; the response day is the caller's label-day resolution,
  *   the same rule the outcome tabs use);
- * - the calibration sentence counts `recalibrated` vs the rest: none → the
- *   "as trained" sentence; some → the honest "N of M were recalibrated on
- *   your patients" (a `'none'` prob_source — mapped to null by
- *   `buildColumns` — is a column with no provenance and is not counted as
- *   recalibrated, so its count is simply absent from the sentence's M).
+ * - the calibration sentence counts the provenance mix: no `recalibrated`
+ *   and no `converted` column → the "as trained" sentence; otherwise the
+ *   honest "N of M were recalibrated on your patients" and/or "N of M turn
+ *   their score into a chance with the conversion learned when the model was
+ *   trained" (a saved model's training conversion), plus the flat-result
+ *   sentence for the columns whose conversion is the event-rate map (a
+ *   `'none'` prob_source — mapped to null by `buildColumns` — is a column
+ *   with no provenance and is counted in neither).
  */
 export function chanceExplanationOf(
   endpoint: TxrOutcomeKey,
   horizon: number,
-  sources: ReadonlyArray<'native' | 'recalibrated' | null>,
+  columns: ReadonlyArray<Pick<TxrHeatmapColumn, 'probSource' | 'flatConversion'>>,
 ): TxrChanceSummary {
-  const recalibrated = sources.filter(s => s === 'recalibrated').length
+  const total = columns.length
+  const recalibrated = columns.filter(c => c.probSource === 'recalibrated').length
+  const converted = columns.filter(c => c.probSource === 'converted').length
+  const flat = columns.filter(
+    c => c.flatConversion && (c.probSource === 'recalibrated' || c.probSource === 'converted'),
+  ).length
   const lead = `Each method's chance of ${CHANCE_OUTCOME_PHRASE[endpoint]} by day ${horizon} is its own estimate for that patient, made from the markers in their measurements.`
-  const calibration =
-    recalibrated === 0
-      ? `None of these chances were recalibrated on your data: they are the methods' estimates as trained.`
-      : `${recalibrated} of the ${sources.length} methods were recalibrated on your patients before making these chances.`
-  return { lead, calibration }
+  if (recalibrated === 0 && converted === 0) {
+    return {
+      lead,
+      calibration: `None of these chances were recalibrated on your data: they are the methods' estimates as trained.`,
+    }
+  }
+  const parts: string[] = []
+  if (recalibrated > 0) {
+    parts.push(
+      `${recalibrated} of the ${total} methods were recalibrated on your patients before making these chances.`,
+    )
+  }
+  if (converted > 0) {
+    parts.push(
+      `${converted} of the ${total} methods turn their score into a chance with the conversion learned when the model was trained.`,
+    )
+  }
+  if (flat > 0) {
+    parts.push(
+      `For ${flat} of the ${total} methods the score did not track the outcome in the training data, so every patient gets the same chance: the event rate.`,
+    )
+  }
+  return { lead, calibration: parts.join(' ') }
 }
 
 const PARAGRAPHS: CSSProperties = {
@@ -72,8 +98,8 @@ export interface TxrChanceDialogProps {
   endpoint: TxrOutcomeKey
   /** The day the run reports (`look_ahead_day` / `label_day` resolved by the page). */
   horizon: number
-  /** The finished columns' prob-source mix (`'recalibrated'` count is the fact). */
-  probSources: ReadonlyArray<'native' | 'recalibrated' | null>
+  /** The explained columns' prob-source facts (provenance + the flat-result flag). */
+  columns: ReadonlyArray<Pick<TxrHeatmapColumn, 'probSource' | 'flatConversion'>>
 }
 
 export function TxrChanceDialog({
@@ -81,9 +107,9 @@ export function TxrChanceDialog({
   onOpenChange,
   endpoint,
   horizon,
-  probSources,
+  columns,
 }: TxrChanceDialogProps) {
-  const summary = chanceExplanationOf(endpoint, horizon, probSources)
+  const summary = chanceExplanationOf(endpoint, horizon, columns)
   return (
     <Dialog
       open={open}

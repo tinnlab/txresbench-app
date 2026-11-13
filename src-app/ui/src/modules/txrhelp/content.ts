@@ -374,7 +374,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         kind: 'bullets',
         items: [
           'The outcome tabs say what the chance is of; N is the run\'s horizon or response day.',
-          'What a method predicts natively differs — a call, a probability or a risk score. The app turns each into the same chance column; when the run has data to calibrate on, the risk is recalibrated on your patients. The provenance is shown per column ("How the chance is calculated"). A method that cannot be converted says so instead of inventing a number.',
+          'What a method predicts natively differs — a call, a probability or a risk score. The app turns each into the same chance column; when the run has data to calibrate on, the risk is recalibrated on your patients, and a saved model used on new patients applies the score-to-chance conversion learned when it was trained. The provenance is shown per column ("How the chance is calculated"). A method that cannot be converted says so instead of inventing a number.',
           'The Average column is the mean of the row\'s chances; Sort orders by it. The "Methods" dropdown narrows the columns.',
           'The actions are "Download all predictions (CSV)", "Save the models (N)" for a finished run, and "New analysis".',
           'You can leave while the run continues; every finished method is already in the table, and History keeps the run.',

@@ -452,17 +452,37 @@ export function formatCoverage(
   return `Scored for ${scored} of ${eligible} ${eligible === 1 ? 'patient' : 'patients'}`
 }
 
-/** The prob-source sentence of the method facts card (qa-fixes RES-11/05). */
+/** Why a column has no chances (the engine's `prob_source: none`): a saved
+ * model reused on new patients without a score-to-chance conversion for the
+ * run's outcome and day (saved before conversions were kept, or kept for
+ * another outcome/day — the per-patient note names which). */
+export const NO_CHANCE_REASON =
+  'the saved model has no score-to-chance conversion for this outcome and day'
+
+/** The flat-result sentence: the conversion is the event-rate map (the
+ * engine's `flat_conversion`), so every patient has the same chance. */
+export const FLAT_CONVERSION_LINE =
+  "This method's score did not track the outcome in the training data, so every patient gets the same chance: the event rate."
+
+/** The prob-source sentence of the method facts card (qa-fixes RES-11/05),
+ * plus the flat-result sentence when the column's conversion is flat. */
 export function formatProbSourceLine(
-  source: 'native' | 'recalibrated' | null,
+  source: 'native' | 'recalibrated' | 'converted' | null,
+  flatConversion = false,
 ): string {
+  const flat = flatConversion && (source === 'recalibrated' || source === 'converted')
+  const withFlat = (line: string) => (flat ? `${line} ${FLAT_CONVERSION_LINE}` : line)
   switch (source) {
     case 'native':
       return "The chances are the method's own estimates, as it was trained."
     case 'recalibrated':
-      return 'The chances were recalibrated on your patients before being shown.'
+      return withFlat('The chances were recalibrated on your patients before being shown.')
+    case 'converted':
+      return withFlat(
+        'The method gives a score; the chances use the score-to-chance conversion learned when the model was trained.',
+      )
     case null:
-      return 'No chances are shown: this predict-only reuse has no training data to convert the scores into chances.'
+      return `No chances are shown: ${NO_CHANCE_REASON}.`
   }
 }
 
@@ -493,17 +513,24 @@ export function txrRunFailed(run: {
 
 /**
  * The no-chance note (qa-fixes2 R2-03): a finished method whose column
- * carries no chances (the engine's `prob_source: none` — a predict-only
- * reuse has no training data to fit the conversion) renders a wall of
- * blank cells with no explanation. The note names the columns plainly,
- * with the SAME words as the method page's prob-source line; null when
- * the view has no such column.
+ * carries no chances (the engine's `prob_source: none` — a saved model
+ * reused on new patients without a score-to-chance conversion for the run's
+ * outcome and day) renders a wall of blank cells with no explanation. The
+ * note names the columns plainly, with the SAME words as the method page's
+ * prob-source line; null when the view has no such column.
  */
 export function formatNoChanceNote(
-  columns: ReadonlyArray<{ label: string; probSource: 'native' | 'recalibrated' | null }>,
+  columns: ReadonlyArray<{
+    label: string
+    probSource: 'native' | 'recalibrated' | 'converted' | null
+  }>,
 ): string | null {
   const noChance = columns.filter(c => c.probSource === null)
   if (noChance.length === 0) return null
   const names = noChance.map(c => c.label).join(', ')
-  return `No chances are shown for ${names}: this predict-only reuse has no training data to convert the scores into chances.`
+  const reason =
+    noChance.length === 1
+      ? NO_CHANCE_REASON
+      : 'the saved models have no score-to-chance conversion for this outcome and day'
+  return `No chances are shown for ${names}: ${reason}.`
 }

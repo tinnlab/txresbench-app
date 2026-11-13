@@ -24,9 +24,10 @@
 //! `dataset`, `drafts`, `extensions`, `project`, `provenance` and `workstore`
 //! modules and their migrations, plus ITEM-3's ownership files
 //! (202608040013/…014) — the kept chain is the SDK 7 files plus the kept
-//! modules' 31 files: `jobs` (6), `sandbox` (3), `mcp` (2), `features` (1),
-//! `file` (1), `account` (6), `execution_engine` (7), `model_store` (3),
-//! `history_store` (2) — 38 files total, pinned below.
+//! modules' 32 files: `jobs` (6), `sandbox` (3), `mcp` (2), `features` (1),
+//! `file` (1), `account` (6), `execution_engine` (7), `model_store` (4 — the
+//! 4th is the saved models' conversions column), `history_store` (2) — 39
+//! files total, pinned below.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -49,7 +50,7 @@ const APP_CHAIN_GROUPS: &[(&str, usize)] = &[
     ("file", 1),
     ("account", 6),
     ("execution_engine", 7),
-    ("model_store", 3),
+    ("model_store", 4),
     ("history_store", 2),
 ];
 
@@ -114,10 +115,10 @@ const SDK_CHAIN_FILES: &[&str] = &[
     "202609090010_users_email_lowercase_invariant.sql",
 ];
 
-/// Every file the ported chain ships (SDK 7 + the kept modules' 31: jobs 6,
+/// Every file the ported chain ships (SDK 7 + the kept modules' 32: jobs 6,
 /// sandbox 3, mcp 2, features 1, file 1, account 6, execution_engine 7,
-/// model_store 3, history_store 2), in the version-sorted order the merged
-/// chain applies them — the complete 38-file SQLite chain.
+/// model_store 4, history_store 2), in the version-sorted order the merged
+/// chain applies them — the complete 39-file SQLite chain.
 pub(crate) const CHAIN_FILES: &[&str] = &[
     "202607140050_auth_schema.sql",
     "202607140125_file_schema.sql",
@@ -157,6 +158,7 @@ pub(crate) const CHAIN_FILES: &[&str] = &[
     "202610260010_txr_run_retention.sql",
     "202610260011_txr_timing_samples.sql",
     "202610270001_txr_example_set.sql",
+    "202611130001_txr_models_conversions.sql",
 ];
 
 static UNIQUE: AtomicU64 = AtomicU64::new(0);
@@ -268,7 +270,7 @@ pub(crate) async fn applied_version_count(pool: &SqlitePool) -> i64 {
 }
 
 /// TEST-14 (the kept modules): the ported chain (SDK 7 + kept app modules
-/// 31) composes to exactly its thirty-eight files, applies to a scratch
+/// 32) composes to exactly its thirty-nine files, applies to a scratch
 /// SQLite 3.46 file with zero errors, yields the kept chain's table set,
 /// and re-applies as a no-op.
 #[tokio::test]
@@ -276,7 +278,7 @@ async fn ported_chain_applies_from_scratch_and_reapplies_as_noop() {
     let scratch = Scratch::new("full-chain");
     let merged = compose_sqlite_chain(scratch.path());
 
-    // The composed set is exactly the thirty-eight ported files — the FULL
+    // The composed set is exactly the thirty-nine ported files — the FULL
     // stripped SQLite chain.
     assert_eq!(merged_sql_files(&merged), CHAIN_FILES);
 
@@ -530,11 +532,11 @@ async fn email_invariant_refuses_case_collisions_in_legacy_data() {
     // The full chain now REFUSES: the functional unique index cannot be
     // created over the case-twin rows, the transaction rolls back, and the
     // migration is not recorded — the operator decides which account survives.
-    // The refusal lands at 202609090010 (the 26th of the 38 files: it sorts
+    // The refusal lands at 202609090010 (the 26th of the 39 files: it sorts
     // above every SDK and kept-app file, but BELOW the execution_engine /
     // model_store / history_store files), so the six pre-applied SDK files
     // plus the nineteen kept-app files between them and the invariant are
-    // applied and only the invariant file itself is not: 25 of 38. The
+    // applied and only the invariant file itself is not: 25 of 39. The
     // mid-chain migrations reference only kept tables (`users`, `accounts`,
     // `groups`, the jobs/sandbox/mcp/files tables) — the full chain is
     // applied below — so no test-side stubs stand in any more (ITEM-26

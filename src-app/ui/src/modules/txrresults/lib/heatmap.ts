@@ -168,6 +168,7 @@ export function buildColumns(
       groupLabel: m.group_label,
       task: normalizeTask(m.task, endpoint),
       probSource: m.prob_source === 'none' ? null : m.prob_source,
+      flatConversion: m.flat_conversion === true,
       coverage: m.coverage,
       values,
       notes: asArrayOf(m.notes),

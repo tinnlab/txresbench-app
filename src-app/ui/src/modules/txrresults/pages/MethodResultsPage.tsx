@@ -663,7 +663,7 @@ export function MethodResultsPage() {
         onOpenChange={open => TxrResults.openChanceDialog(open)}
         endpoint={activeColumn?.task ?? endpointKey}
         horizon={activeColumn?.task === 'response' ? responseDay : horizon}
-        probSources={activeColumn ? [activeColumn.probSource] : allColumns.map(c => c.probSource)}
+        columns={activeColumn ? [activeColumn] : allColumns}
       />
     </main>
   )

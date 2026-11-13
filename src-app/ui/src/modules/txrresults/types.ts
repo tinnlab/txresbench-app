@@ -36,7 +36,11 @@ export type TxrSortKey = 'average-desc' | 'disagree' | 'patient'
  * the engine's per-patient coverage record, `null` when the method carried
  * none. `constantValue` is the 0–1 value the column gives EVERY patient
  * (null when the column varies or has no value at all — a "gave one chance
- * for everyone" flag, qa-fixes RES-03).
+ * for everyone" flag, qa-fixes RES-03). `probSource` is the engine's
+ * provenance (`converted` = a saved model's training conversion; null = no
+ * chances); `flatConversion` is the engine's "the conversion is the flat
+ * event-rate map" fact (the score did not track the outcome in the data it
+ * was fitted on).
  */
 export interface TxrHeatmapColumn {
   methodId: string
@@ -44,7 +48,8 @@ export interface TxrHeatmapColumn {
   group: string
   groupLabel: string
   task: TxrOutcomeKey
-  probSource: 'native' | 'recalibrated' | null
+  probSource: 'native' | 'recalibrated' | 'converted' | null
+  flatConversion: boolean
   coverage: { scored: number; eligible: number; fraction: number } | null
   /** Aligned to `values`: a null value is an abstain, its note is the aligned entry. */
   values: (number | null)[]
