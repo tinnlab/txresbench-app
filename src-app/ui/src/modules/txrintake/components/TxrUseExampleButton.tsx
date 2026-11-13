@@ -118,6 +118,9 @@ export function TxrUseExampleButton({ path, onDone, label, style, layout }: TxrU
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<ExampleSetResponse | null>(null)
+  // A click on "Try again" keeps that label while the retry loads, so the
+  // button keeps the width it had (see the label below).
+  const [retrying, setRetrying] = useState(false)
   const cancelled = useRef(false)
 
   useEffect(() => {
@@ -127,8 +130,9 @@ export function TxrUseExampleButton({ path, onDone, label, style, layout }: TxrU
     }
   }, [])
 
-  const start = async (): Promise<void> => {
+  const start = async (retry: boolean): Promise<void> => {
     setBusy(true)
+    setRetrying(retry)
     setError(null)
     setProgress(null)
     try {
@@ -141,28 +145,39 @@ export function TxrUseExampleButton({ path, onDone, label, style, layout }: TxrU
       setError(err instanceof Error ? err.message : 'The example could not be loaded. Try again.')
     } finally {
       setBusy(false)
+      setRetrying(false)
     }
   }
 
   const onClick = (): void => {
+    const retry = error !== null
     setError(null)
     if (occupied) {
       setConfirming(true)
       return
     }
-    void start()
+    void start(retry)
   }
 
   // The confirm question REPLACES the button while it is open.
+  // Loading keeps the button's width: the kit Button puts its spinner BEFORE
+  // the label, which widened the button by the spinner and its gap and pushed
+  // the Start cards' button rows to the card border. While busy, index.css
+  // (`.txr-use-example-button`) centres the spinner over the label's place
+  // and hides the label, which still holds the width. The name is the
+  // aria-label, so hiding the label changes nothing for a screen reader.
   const action: ReactNode = confirming ? null : (
     <Button
       data-testid={`txr-use-example-${path}`}
       aria-label={ACCESSIBLE_NAMES[path]}
+      className="txr-use-example-button"
       style={{ ...BUTTON, ...style }}
       loading={busy}
       onClick={onClick}
     >
-      {error !== null ? 'Try again' : (label ?? LABEL)}
+      <span className="txr-use-example-label">
+        {error !== null || retrying ? 'Try again' : (label ?? LABEL)}
+      </span>
     </Button>
   )
 
@@ -177,7 +192,7 @@ export function TxrUseExampleButton({ path, onDone, label, style, layout }: TxrU
           style={BUTTON}
           onClick={() => {
             setConfirming(false)
-            void start()
+            void start(false)
           }}
         >
           {CONFIRM_BUTTONS.yes}
