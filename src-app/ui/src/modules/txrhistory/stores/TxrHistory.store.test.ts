@@ -76,6 +76,7 @@ const api = vi.hoisted(() => {
       }),
     ),
     clearRuns: vi.fn(async (_q: unknown): Promise<void> => undefined),
+    deleteRun: vi.fn(async (_q: unknown): Promise<void> => undefined),
     updateAnalysisConfig: vi.fn(async (_body: unknown): Promise<void> => undefined),
   }
 })
@@ -93,6 +94,7 @@ vi.mock('@/api-client', () => ({
       rerunRun: api.rerunRun,
       listRunLogs: api.listRunLogs,
       clearRuns: api.clearRuns,
+      deleteRun: api.deleteRun,
       updateAnalysisConfig: api.updateAnalysisConfig,
     },
   },
@@ -109,6 +111,7 @@ function item(id: string, over: Partial<TxrHistoryItem> = {}): TxrHistoryItem {
   return {
     id,
     bucket: 'finished',
+    counts: { finished: 3, failed: 0, stopped: 0, skipped: 0, cannot_run: 0, running: 0, downloading: 0, waiting: 0 },
     mode: 'train',
     created_at: '2026-11-05T10:02:00Z',
     method_count: 3,
@@ -489,6 +492,31 @@ describe('TxrHistory store (TEST-HIST-2/3/4)', () => {
     state().closeConfirm()
     await state().clearAllHistory(false)
     expect(api.clearRuns).not.toHaveBeenCalled()
+  })
+
+  it('deleteRun (ITEM-2 f): confirmation-gated, deletes the run with its files and reloads the list', async () => {
+    api.listHistory.mockResolvedValueOnce(page(0))
+    state().openConfirm('delete-run', 'run-1')
+    expect(state().confirmRunId).toBe('run-1')
+    const ok = await state().deleteRun()
+    expect(ok).toBe(true)
+    expect(api.deleteRun).toHaveBeenCalledTimes(1)
+    expect(api.deleteRun).toHaveBeenCalledWith({ id: 'run-1', delete_files: true })
+    expect(api.deleteRun.mock.invocationCallOrder[0]).toBeLessThan(
+      api.listHistory.mock.invocationCallOrder[0],
+    )
+    expect(state().confirm).toBeNull()
+    expect(state().confirmRunId).toBeNull()
+    expect(state().working).toBeNull()
+  })
+
+  it('deleteRun is a NO-OP without the confirmation, and a failed delete reports false (never silent)', async () => {
+    await state().deleteRun()
+    expect(api.deleteRun).not.toHaveBeenCalled()
+    state().openConfirm('delete-run', 'run-9')
+    api.deleteRun.mockRejectedValueOnce(new Error('boom'))
+    expect(await state().deleteRun()).toBe(false)
+    expect(api.deleteRun).toHaveBeenCalledWith({ id: 'run-9', delete_files: true })
   })
 
   it('clearAllHistory follows the delete_files choice and reloads', async () => {

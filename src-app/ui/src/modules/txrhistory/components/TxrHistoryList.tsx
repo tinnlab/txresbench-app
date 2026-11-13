@@ -75,6 +75,7 @@ export interface TxrHistoryListProps {
   onReveal?: (runId: string) => void
   onLog?: (runId: string) => void
   onOpenSet?: (setId: string) => void
+  onDelete?: (runId: string) => void
 }
 
 export function TxrHistoryList({
@@ -98,6 +99,7 @@ export function TxrHistoryList({
   onReveal,
   onLog,
   onOpenSet,
+  onDelete,
 }: TxrHistoryListProps) {
   if (error !== null) {
     return <TxrHistoryError onRetry={onRetry} />
@@ -134,6 +136,7 @@ export function TxrHistoryList({
             onReveal={onReveal}
             onLog={onLog}
             onOpenSet={onOpenSet}
+            onDelete={onDelete}
           />
         ))}
       </ul>

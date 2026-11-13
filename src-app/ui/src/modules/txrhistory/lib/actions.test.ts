@@ -45,6 +45,7 @@ describe('actionsFor (TEST-HIST-6)', () => {
       download: true,
       reveal: true,
       log: true,
+      deleteRun: true,
     })
   })
 
@@ -57,6 +58,7 @@ describe('actionsFor (TEST-HIST-6)', () => {
       download: true,
       reveal: true,
       log: true,
+      deleteRun: true,
     })
   })
 
@@ -87,6 +89,12 @@ describe('actionsFor (TEST-HIST-6)', () => {
   it('removes reveal when not desktop (the PROV-UR-7 gate — web mode renders the path text)', () => {
     expect(actionsFor(facts(), { isDesktop: false }).reveal).toBe(false)
     expect(actionsFor(facts(), { isDesktop: true }).reveal).toBe(true)
+  })
+
+  it('ITEM-2 (f): "Delete this run" is desktop-only (the web demo hides delete — its spec section 3)', () => {
+    expect(actionsFor(facts(), { isDesktop: true }).deleteRun).toBe(true)
+    expect(actionsFor(facts(), { isDesktop: false }).deleteRun).toBe(false)
+    expect(actionsFor(facts({ bucket: 'running' }), { isDesktop: true }).deleteRun).toBe(true)
   })
 
   it('follows the download flag for "Download predictions"', () => {

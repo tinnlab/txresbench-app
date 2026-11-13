@@ -22,6 +22,9 @@
  *   instead, so `reveal` is false there (TEST-HIST-6).
  * - "Show the log" is every row's affordance — the log dialog's data is
  *   the engine's run log, independent of the run's state.
+ * - "Delete this run" (qa-fixes4 ITEM-2 (f)) is desktop-only — the
+ *   web/demo mode hides delete entirely (the server blocks the route
+ *   there too); the confirmation is the destructive gate (INV-2).
  *
  * Pure: no route navigation, no client call — the page binds the flags to
  * the providers' builders/actions.
@@ -51,5 +54,6 @@ export function actionsFor(item: TxrActionFacts, options: { isDesktop: boolean }
     download: item.can_download,
     reveal: !running && options.isDesktop,
     log: true,
+    deleteRun: options.isDesktop,
   }
 }

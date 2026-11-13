@@ -68,6 +68,13 @@ export interface TxrHistoryActions {
   download: boolean
   reveal: boolean
   log: boolean
+  /**
+   * qa-fixes4 ITEM-2 (f, results-r3 R3-results-4): "Delete this run" —
+   * desktop mode only (the web demo runs in a browser where `isDesktop()`
+   * is false, so the same gate carries the demo-mode spec's "delete and
+   * clear-all hidden"; the server blocks the route in demo mode anyway).
+   */
+  deleteRun: boolean
 }
 
 /**

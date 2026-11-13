@@ -35,11 +35,18 @@ const COPIES_ON_BODY = 'New runs will keep copies. Copies already removed are no
 /** The clear-all body (the plan's question, verbatim). */
 const CLEAR_ALL_BODY = 'Clear the history list and the run folders without the files?'
 
+/** The delete-run body (qa-fixes4 ITEM-2 (f)): what deleting DOES, honestly
+ *  (the run and its files and log are removed; saved models are kept — the
+ *  model-store's rows are not this run's, D14's separate tree). */
+const DELETE_RUN_BODY =
+  'This run and its files and log are removed. Saved models are kept.'
+
 /** The confirm CTAs' labels (the board's own words where the board carries
  *  them; the dialog's verbs are the link labels' own words). */
 const KEEP_COPIES_ON_LABEL = 'Keep copies'
 const CLEAR_FILES_LABEL = 'Clear history and remove files'
 const KEEP_FILES_LABEL = 'Clear history, keep files'
+const DELETE_RUN_LABEL = 'Delete this run'
 
 /** The danger look (the board's danger red over the kit button). */
 const DANGER_BUTTON: CSSProperties = {
@@ -66,6 +73,9 @@ export interface TxrConfirmDialogProps {
   /** The clear-all CTA with the `delete_files` choice (the store's
    *  `clearAllHistory(deleteFiles)`). */
   onClearAll: (deleteFiles: boolean) => void
+  /** The delete-run CTA (the store's `deleteRun` — the run id is the
+   *  store's `confirmRunId`, the row the dialog opened for). */
+  onDeleteRun: () => void
 }
 
 export function TxrConfirmDialog({
@@ -75,6 +85,7 @@ export function TxrConfirmDialog({
   onCopiesOff,
   onCopiesOn,
   onClearAll,
+  onDeleteRun,
 }: TxrConfirmDialogProps) {
   const open = confirm !== null
   const title =
@@ -82,7 +93,9 @@ export function TxrConfirmDialog({
       ? 'Clear all history?'
       : confirm === 'copies-on'
         ? 'Keep copies of my files?'
-        : 'Do not keep copies of my files?'
+        : confirm === 'delete-run'
+          ? 'Delete this run?'
+          : 'Do not keep copies of my files?'
   return (
     <Dialog
       data-testid="txr-history-confirm"
@@ -120,6 +133,15 @@ export function TxrConfirmDialog({
                 {CLEAR_FILES_LABEL}
               </Button>
             </>
+          ) : confirm === 'delete-run' ? (
+            <Button
+              data-testid="txr-history-confirm-delete-run"
+              style={DANGER_BUTTON}
+              disabled={working}
+              onClick={onDeleteRun}
+            >
+              {DELETE_RUN_LABEL}
+            </Button>
           ) : confirm === 'copies-on' ? (
             <Button
               data-testid="txr-history-confirm-copies-on"
@@ -142,13 +164,15 @@ export function TxrConfirmDialog({
     >
       <Alert
         data-testid={`txr-history-confirm-body-${confirm ?? 'closed'}`}
-        tone={confirm === 'clear-all' ? 'error' : 'warning'}
+        tone={confirm === 'clear-all' || confirm === 'delete-run' ? 'error' : 'warning'}
       >
         {confirm === 'clear-all'
           ? CLEAR_ALL_BODY
           : confirm === 'copies-on'
             ? COPIES_ON_BODY
-            : COPIES_OFF_BODY}
+            : confirm === 'delete-run'
+              ? DELETE_RUN_BODY
+              : COPIES_OFF_BODY}
       </Alert>
     </Dialog>
   )
