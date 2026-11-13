@@ -948,6 +948,32 @@ These crates are needed by the SDK crates this repository carries that the deskt
 
 The method environments are container images fetched from the txresbench-env pipeline (per-language base images + per-method layers), never linked into the application. The installed R and Python packages keep their own licences; the env-image build records them in the images and the methods used by TxResBench carry their own licence statements.
 
+## macOS method-VM runtime (Apple Silicon builds only)
+
+The macOS app ships `sandbox-vm-runtime.tar` (built by `scripts/build-macos-vm-runtime.sh`), which runs each method inside a small Linux virtual machine. The app unpacks it into its data folder on first use; its `MANIFEST` records the exact versions, source archives and checksums of what it contains. The Linux and Windows builds do not include it.
+
+- **libkrun 1.19.7** — Apache-2.0 — https://github.com/containers/libkrun — built from source without GPU support; the Rust crates compiled into it are under MIT, Apache-2.0, BSD, ISC, Zlib or Unlicense terms (its Cargo.lock).
+- **libkrunfw 5.6.2** — GPL-2.0-only AND LGPL-2.1-only — https://github.com/containers/libkrunfw — the Linux kernel the virtual machine boots (GPL-2.0-only) inside a small library (LGPL-2.1-only). The corresponding source (kernel version, patches and configuration) is published with the release: https://github.com/containers/libkrunfw/releases/tag/v5.6.2
+- **The guest agent and the VM launcher** — built from this repository's `sdk/crates/sandbox-guest-agent` and `sdk/crates/sandbox-vm-launcher`. The agent statically links musl (MIT) and libseccomp (LGPL-2.1-or-later; its source is linked below and the agent's source is in this repository); its Rust crates (tokio, tokio-vsock, vsock, nix, tracing, serde and their dependencies) are under MIT and/or Apache-2.0 terms.
+- **The guest userland: Alpine Linux 3.20 packages**, each under its own licence; sources: https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.20-stable
+  - alpine-baselayout, alpine-baselayout-data — GPL-2.0-only
+  - alpine-keys — MIT
+  - bubblewrap — LGPL-2.0-or-later
+  - busybox, busybox-binsh — GPL-2.0-only
+  - libcap2 — BSD-3-Clause OR GPL-2.0-only
+  - libcap-ng — GPL-2.0-or-later AND LGPL-2.1-or-later
+  - libeconf — MIT
+  - libncursesw, ncurses-terminfo-base — X11
+  - libseccomp — LGPL-2.1-or-later
+  - linux-pam — BSD-3-Clause
+  - musl — MIT
+  - skalibs, utmps-libs — ISC
+  - sqlite-libs — public domain (blessing)
+  - zlib — Zlib
+  - util-linux, util-linux-misc and its split packages (agetty, blkid, cfdisk, dmesg, findmnt, flock, fstrim, hexdump, logger, losetup, lsblk, mcookie, mount, partx, runuser, setarch, setpriv, sfdisk, umount, uuidgen, wipefs, libblkid, libfdisk, libmount, libsmartcols, libuuid) — per file: GPL-2.0-or-later, GPL-2.0-only, GPL-3.0-or-later, GPL-1.0-or-later, LGPL-2.1-or-later, LGPL-1.0-only, BSD-3-Clause, BSD-4-Clause-UC, MIT or public domain
+
+Licence texts: GPL-2.0 https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt, LGPL-2.1 https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt, LGPL-2.0 https://www.gnu.org/licenses/old-licenses/lgpl-2.0.txt, GPL-3.0 https://www.gnu.org/licenses/gpl-3.0.txt.
+
 ## Licence texts
 
 Full texts are reproduced below for the licences under which the bundled components are released (MIT, Apache-2.0, MPL-2.0); the other licence families are referenced by their canonical URLs and apply per component as listed above.

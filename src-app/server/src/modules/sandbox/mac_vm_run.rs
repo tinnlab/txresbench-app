@@ -28,10 +28,12 @@
 //! The VM boots in about half a second, so there is no warm pool: each run
 //! gets a fresh VM, and dropping [`MethodVm`] kills it.
 //!
-//! The runtime is found through `TXR_SANDBOX_VM_LAUNCHER` and
-//! `TXR_SANDBOX_GUEST_ROOT`, else the
-//! launcher next to the app binary and the guest root under
-//! `<app_data>/sandbox-vm/guest-root`.
+//! The runtime (launcher, libkrun, libkrunfw, guest root) ships inside the
+//! Mac app as one archive (scripts/build-macos-vm-runtime.sh), unpacked into
+//! `<app_data>/sandbox-vm/runtime-<sha12>/` on first use. For development,
+//! `TXR_SANDBOX_VM_LAUNCHER` and `TXR_SANDBOX_GUEST_ROOT` point at other
+//! builds; without either, the launcher next to the app binary and the guest
+//! root under `<app_data>/sandbox-vm/guest-root` are used.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -137,25 +139,178 @@ fn env_path(key: &str) -> Option<PathBuf> {
     std::env::var_os(key).filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
-/// The VM launcher binary: `TXR_SANDBOX_VM_LAUNCHER`, else next to the app's
-/// own executable (where a bundled sidecar lands).
-pub fn launcher_path() -> PathBuf {
-    env_path(LAUNCHER_ENV).unwrap_or_else(|| {
-        std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(|dir| dir.join(LAUNCHER_BIN)))
-            .unwrap_or_else(|| PathBuf::from(LAUNCHER_BIN))
-    })
+/// The VM runtime the app ships (scripts/build-macos-vm-runtime.sh): one archive holding
+/// `bin/<launcher>`, `lib/` (libkrun, libkrunfw) and `share/guest-root/`, with its sha256 in a
+/// sibling `<archive>.sha256`. `TXR_SANDBOX_VM_RUNTIME` names it; else it is looked up in the app
+/// bundle's Resources ([`bundled_runtime_archive_from`]).
+const RUNTIME_ENV: &str = "TXR_SANDBOX_VM_RUNTIME";
+const RUNTIME_RESOURCE_DIR: &str = "sandbox-vm-runtime";
+const RUNTIME_ARCHIVE: &str = "sandbox-vm-runtime.tar";
+/// Written last into an unpacked runtime, holding the archive's sha256: a runtime dir without it
+/// is unfinished and never used.
+const RUNTIME_COMPLETE: &str = ".complete";
+
+/// The unpacked shipped runtime, set by [`probe_host`] when the app carries one.
+static RUNTIME_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Where the app bundle keeps the runtime archive, given the running executable:
+/// `<App>.app/Contents/MacOS/<exe>` →
+/// `<App>.app/Contents/Resources/resources/sandbox-vm-runtime/sandbox-vm-runtime.tar` (tauri.conf.json
+/// lists `resources/sandbox-vm-runtime`; Tauri keeps that relative path under Resources).
+fn bundled_runtime_archive_from(exe: &Path) -> Option<PathBuf> {
+    let contents = exe.parent()?.parent()?;
+    Some(contents.join("Resources").join("resources").join(RUNTIME_RESOURCE_DIR).join(RUNTIME_ARCHIVE))
 }
 
-/// The guest root (agent + bwrap + busybox userland): `TXR_SANDBOX_GUEST_ROOT`,
-/// else `<app_data>/sandbox-vm/guest-root`.
+fn runtime_archive() -> Option<PathBuf> {
+    env_path(RUNTIME_ENV)
+        .or_else(|| std::env::current_exe().ok().and_then(|exe| bundled_runtime_archive_from(&exe)))
+        .filter(|p| p.is_file())
+}
+
+/// Unpack the shipped runtime `archive` into `<root>/sandbox-vm/runtime-<sha12>/` once, and return
+/// that dir. The archive must match the sha256 in `<archive>.sha256`; it is unpacked into a temporary
+/// dir, checked, marked complete, then renamed into place, so a half-unpacked runtime is never used.
+/// Runtimes from earlier app versions are removed.
+pub(crate) fn ensure_runtime_in(root: &Path, archive: &Path) -> Result<PathBuf, String> {
+    let sha_file = PathBuf::from(format!("{}.sha256", archive.display()));
+    let expected = std::fs::read_to_string(&sha_file)
+        .map_err(|e| format!("cannot read {}: {e}", sha_file.display()))?
+        .trim()
+        .to_ascii_lowercase();
+    if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!("{} does not hold a sha256", sha_file.display()));
+    }
+    let base = root.join("sandbox-vm");
+    let dir = base.join(format!("runtime-{}", &expected[..12]));
+    let complete = |d: &Path| {
+        std::fs::read_to_string(d.join(RUNTIME_COMPLETE)).map(|s| s.trim() == expected).unwrap_or(false)
+    };
+    if !complete(&dir) {
+        let actual = sha256_file(archive).map_err(|e| format!("cannot read {}: {e}", archive.display()))?;
+        if actual != expected {
+            return Err(format!(
+                "{} does not match its checksum (sha256 {actual}, expected {expected})",
+                archive.display()
+            ));
+        }
+        std::fs::create_dir_all(&base).map_err(|e| format!("create {}: {e}", base.display()))?;
+        let tmp = base.join(format!(".runtime-unpack-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).map_err(|e| format!("create {}: {e}", tmp.display()))?;
+        let unpacked = (|| {
+            let out = std::process::Command::new("/usr/bin/tar")
+                .arg("-xf")
+                .arg(archive)
+                .arg("-C")
+                .arg(&tmp)
+                .output()
+                .map_err(|e| format!("cannot run tar: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "unpacking {} failed: {}",
+                    archive.display(),
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+            // macOS's tar copies the archive's quarantine flag (set when the app was downloaded) onto every
+            // unpacked file, and Gatekeeper would then refuse to start the launcher or load its libraries.
+            // The runtime is the app's own, checked against its sha256 above: clear the flag on what runs
+            // on this Mac (bin/, lib/). The guest root is only read by the VM, where Gatekeeper plays no
+            // part, and holds read-only dirs (/var/empty) whose flags cannot be changed. `-s` acts on
+            // symlinks themselves, never on what they point to.
+            for sub in ["bin", "lib"] {
+                let part = tmp.join(sub);
+                if !part.exists() {
+                    continue;
+                }
+                let out = std::process::Command::new("/usr/bin/xattr")
+                    .args(["-drs", "com.apple.quarantine"])
+                    .arg(&part)
+                    .output()
+                    .map_err(|e| format!("cannot run xattr: {e}"))?;
+                if !out.status.success() {
+                    return Err(format!(
+                        "clearing the download quarantine from the VM runtime's {sub}/ failed: {}",
+                        String::from_utf8_lossy(&out.stderr).trim()
+                    ));
+                }
+            }
+            if !tmp.join("bin").join(LAUNCHER_BIN).is_file() || !tmp.join("share/guest-root").is_dir() {
+                return Err(format!("{} has no bin/{LAUNCHER_BIN} or share/guest-root", archive.display()));
+            }
+            std::fs::write(tmp.join(RUNTIME_COMPLETE), &expected).map_err(|e| format!("mark complete: {e}"))
+        })();
+        if let Err(why) = unpacked {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return Err(why);
+        }
+        if dir.exists() {
+            // An unfinished runtime left by an interrupted unpack.
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+        if let Err(e) = std::fs::rename(&tmp, &dir) {
+            let _ = std::fs::remove_dir_all(&tmp);
+            // Another process may have finished the same runtime first.
+            if !complete(&dir) {
+                return Err(format!("install {}: {e}", dir.display()));
+            }
+        }
+    }
+    // Runtimes of earlier app versions are no longer used.
+    if let Ok(entries) = std::fs::read_dir(&base) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            if path != dir && name.to_string_lossy().starts_with("runtime-") {
+                let _ = std::fs::remove_dir_all(&path);
+            }
+        }
+    }
+    Ok(dir)
+}
+
+fn sha256_file(path: &Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut f = std::fs::File::open(path)?;
+    let mut h = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        h.update(&buf[..n]);
+    }
+    Ok(hex::encode(h.finalize()))
+}
+
+/// The VM launcher binary: `TXR_SANDBOX_VM_LAUNCHER`, else the shipped runtime's, else next to
+/// the app's own executable.
+pub fn launcher_path() -> PathBuf {
+    launcher_path_from(env_path(LAUNCHER_ENV), RUNTIME_DIR.get().map(PathBuf::as_path), std::env::current_exe().ok())
+}
+
+fn launcher_path_from(env: Option<PathBuf>, runtime: Option<&Path>, exe: Option<PathBuf>) -> PathBuf {
+    env.or_else(|| runtime.map(|r| r.join("bin").join(LAUNCHER_BIN)))
+        .or_else(|| exe.and_then(|exe| exe.parent().map(|dir| dir.join(LAUNCHER_BIN))))
+        .unwrap_or_else(|| PathBuf::from(LAUNCHER_BIN))
+}
+
+/// The guest root (agent + bwrap + busybox userland): `TXR_SANDBOX_GUEST_ROOT`, else the shipped
+/// runtime's, else `<app_data>/sandbox-vm/guest-root`.
 pub fn guest_root_path() -> PathBuf {
-    env_path(GUEST_ROOT_ENV).unwrap_or_else(|| {
-        crate::modules::rootfs::data_root()
-            .join("sandbox-vm")
-            .join("guest-root")
-    })
+    guest_root_path_from(
+        env_path(GUEST_ROOT_ENV),
+        RUNTIME_DIR.get().map(PathBuf::as_path),
+        &crate::modules::rootfs::data_root(),
+    )
+}
+
+fn guest_root_path_from(env: Option<PathBuf>, runtime: Option<&Path>, data_root: &Path) -> PathBuf {
+    env.or_else(|| runtime.map(|r| r.join("share").join("guest-root")))
+        .unwrap_or_else(|| data_root.join("sandbox-vm").join("guest-root"))
 }
 
 /// The boot probe: `Ok` with the host capabilities when this Mac can run
@@ -165,10 +320,19 @@ pub fn probe_host() -> Result<HostCapabilities, String> {
     if std::env::consts::ARCH != "aarch64" {
         return Err("method VMs need an Apple Silicon Mac (libkrun runs arm64 guests only)".into());
     }
+    // The runtime the app ships, unless both pieces are pointed elsewhere (development).
+    if env_path(LAUNCHER_ENV).is_none() || env_path(GUEST_ROOT_ENV).is_none() {
+        if let Some(archive) = runtime_archive() {
+            let dir = ensure_runtime_in(&crate::modules::rootfs::data_root(), &archive)
+                .map_err(|why| format!("the bundled VM runtime could not be prepared: {why}"))?;
+            let _ = RUNTIME_DIR.set(dir);
+        }
+    }
     let launcher = launcher_path();
     if !launcher.is_file() {
         return Err(format!(
-            "the VM launcher is missing at {} (set {LAUNCHER_ENV})",
+            "the VM launcher is missing at {} (build the app's VM runtime with \
+                 scripts/build-macos-vm-runtime.sh, or set {LAUNCHER_ENV})",
             launcher.display()
         ));
     }
@@ -1808,6 +1972,172 @@ mod tests {
         let copy = stage.stage_file(&src).unwrap();
         assert!(copy.starts_with(data.0.join("tmp").join("txr-vm-images")), "{}", copy.display());
         assert_eq!(std::fs::read(&copy).unwrap(), b"image");
+    }
+
+    #[test]
+    fn the_runtime_archive_is_looked_up_in_the_app_bundle_resources() {
+        let exe = Path::new("/Applications/TxResBench.app/Contents/MacOS/txresbench-desktop");
+        assert_eq!(
+            bundled_runtime_archive_from(exe).unwrap(),
+            Path::new("/Applications/TxResBench.app/Contents/Resources/resources/sandbox-vm-runtime/sandbox-vm-runtime.tar")
+        );
+    }
+
+    #[test]
+    fn env_vars_win_then_the_shipped_runtime_then_the_old_defaults() {
+        let runtime = Path::new("/data/sandbox-vm/runtime-abc");
+        let exe = Some(PathBuf::from("/A.app/Contents/MacOS/app"));
+        let env = Some(PathBuf::from("/dev/launcher"));
+        assert_eq!(launcher_path_from(env.clone(), Some(runtime), exe.clone()), PathBuf::from("/dev/launcher"));
+        assert_eq!(launcher_path_from(None, Some(runtime), exe.clone()), runtime.join("bin").join(LAUNCHER_BIN));
+        assert_eq!(launcher_path_from(None, None, exe), PathBuf::from("/A.app/Contents/MacOS").join(LAUNCHER_BIN));
+        let data = Path::new("/data");
+        assert_eq!(guest_root_path_from(env.clone(), Some(runtime), data), PathBuf::from("/dev/launcher"));
+        assert_eq!(guest_root_path_from(None, Some(runtime), data), runtime.join("share/guest-root"));
+        assert_eq!(guest_root_path_from(None, None, data), data.join("sandbox-vm/guest-root"));
+    }
+
+    /// A runtime archive like the build script's (bin/<launcher>, share/guest-root/), with its .sha256.
+    fn runtime_archive_fixture(dir: &Path, with_launcher: bool, tag: &str) -> PathBuf {
+        let stage = dir.join(format!("stage-{tag}"));
+        std::fs::create_dir_all(stage.join("bin")).unwrap();
+        std::fs::create_dir_all(stage.join("share/guest-root/etc")).unwrap();
+        std::fs::write(stage.join("share/guest-root/etc/tag"), tag).unwrap();
+        if with_launcher {
+            std::fs::write(stage.join("bin").join(LAUNCHER_BIN), "#!/bin/sh\n").unwrap();
+        }
+        let archive = dir.join(format!("{tag}.tar"));
+        let ok = std::process::Command::new("/usr/bin/tar")
+            .arg("-cf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(&stage)
+            .arg(".")
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        let sha = sha256_file(&archive).unwrap();
+        std::fs::write(format!("{}.sha256", archive.display()), format!("{sha}\n")).unwrap();
+        archive
+    }
+
+    #[test]
+    fn the_shipped_runtime_is_unpacked_once_then_reused() {
+        let t = TempDir::new();
+        let data = t.0.join("data");
+        let archive = runtime_archive_fixture(&t.0, true, "v1");
+        let dir = ensure_runtime_in(&data, &archive).unwrap();
+        assert!(dir.join("bin").join(LAUNCHER_BIN).is_file());
+        assert_eq!(std::fs::read_to_string(dir.join("share/guest-root/etc/tag")).unwrap(), "v1");
+        assert!(dir.join(RUNTIME_COMPLETE).is_file());
+        // A complete runtime is reused as it is, not unpacked again.
+        std::fs::remove_file(dir.join("share/guest-root/etc/tag")).unwrap();
+        assert_eq!(ensure_runtime_in(&data, &archive).unwrap(), dir);
+        assert!(!dir.join("share/guest-root/etc/tag").exists(), "unpacked a second time");
+        // No temporary unpack dir is left behind.
+        let left: Vec<_> = std::fs::read_dir(data.join("sandbox-vm")).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(left.len(), 1, "{left:?}");
+    }
+
+    fn has_quarantine(path: &Path) -> bool {
+        std::process::Command::new("/usr/bin/xattr")
+            .args(["-s", "-p", "com.apple.quarantine"])
+            .arg(path)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    }
+
+    #[test]
+    fn a_downloaded_runtime_archive_unpacks_without_the_quarantine_flag() {
+        let t = TempDir::new();
+        let data = t.0.join("data");
+        // Like the real runtime: a launcher, a library, and a guest root with an absolute symlink that
+        // points nowhere on the Mac and a read-only empty dir (Alpine's /var/empty).
+        let stage = t.0.join("stage-q");
+        std::fs::create_dir_all(stage.join("bin")).unwrap();
+        std::fs::create_dir_all(stage.join("lib")).unwrap();
+        std::fs::create_dir_all(stage.join("share/guest-root/bin")).unwrap();
+        std::fs::create_dir_all(stage.join("share/guest-root/var/empty")).unwrap();
+        std::fs::write(stage.join("bin").join(LAUNCHER_BIN), "#!/bin/sh\n").unwrap();
+        std::fs::write(stage.join("lib/libkrun.1.dylib"), "lib").unwrap();
+        std::os::unix::fs::symlink("/bin/busybox-not-on-this-mac", stage.join("share/guest-root/bin/sh")).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(stage.join("share/guest-root/var/empty"), std::fs::Permissions::from_mode(0o555))
+            .unwrap();
+        let archive = t.0.join("q.tar");
+        assert!(std::process::Command::new("/usr/bin/tar")
+            .arg("-cf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(&stage)
+            .arg(".")
+            .status()
+            .unwrap()
+            .success());
+        std::fs::write(format!("{}.sha256", archive.display()), sha256_file(&archive).unwrap()).unwrap();
+        // What a browser download leaves on the app's files.
+        assert!(std::process::Command::new("/usr/bin/xattr")
+            .args(["-w", "com.apple.quarantine", "0081;00000000;Safari;"])
+            .arg(&archive)
+            .status()
+            .unwrap()
+            .success());
+        assert!(has_quarantine(&archive));
+        let dir = ensure_runtime_in(&data, &archive).unwrap();
+        assert!(!has_quarantine(&dir.join("bin").join(LAUNCHER_BIN)), "the launcher kept the quarantine flag");
+        assert!(!has_quarantine(&dir.join("lib/libkrun.1.dylib")), "a library kept the quarantine flag");
+        assert!(std::fs::symlink_metadata(dir.join("share/guest-root/bin/sh")).unwrap().file_type().is_symlink());
+        assert!(dir.join("share/guest-root/var/empty").is_dir());
+        // A later version replaces this runtime: the read-only dir does not block removing it.
+        let v2 = runtime_archive_fixture(&t.0, true, "v2");
+        let next = ensure_runtime_in(&data, &v2).unwrap();
+        assert!(!dir.exists() && next.exists());
+    }
+
+    #[test]
+    fn a_runtime_archive_that_does_not_match_its_checksum_is_refused() {
+        let t = TempDir::new();
+        let data = t.0.join("data");
+        let archive = runtime_archive_fixture(&t.0, true, "v1");
+        std::fs::write(format!("{}.sha256", archive.display()), "0".repeat(64)).unwrap();
+        let err = ensure_runtime_in(&data, &archive).unwrap_err();
+        assert!(err.contains("does not match its checksum"), "{err}");
+        assert!(!data.join("sandbox-vm").join(format!("runtime-{}", "0".repeat(12))).exists());
+        // A missing or malformed .sha256 is refused too.
+        std::fs::write(format!("{}.sha256", archive.display()), "not-a-hash").unwrap();
+        assert!(ensure_runtime_in(&data, &archive).unwrap_err().contains("does not hold a sha256"));
+    }
+
+    #[test]
+    fn a_runtime_archive_without_the_launcher_is_refused_and_leaves_nothing() {
+        let t = TempDir::new();
+        let data = t.0.join("data");
+        let archive = runtime_archive_fixture(&t.0, false, "broken");
+        let err = ensure_runtime_in(&data, &archive).unwrap_err();
+        assert!(err.contains(LAUNCHER_BIN), "{err}");
+        let left: Vec<_> = std::fs::read_dir(data.join("sandbox-vm")).unwrap().flatten().collect();
+        assert!(left.is_empty(), "{left:?}");
+    }
+
+    #[test]
+    fn a_new_runtime_replaces_unfinished_and_older_ones() {
+        let t = TempDir::new();
+        let data = t.0.join("data");
+        let v1 = runtime_archive_fixture(&t.0, true, "v1");
+        let old = ensure_runtime_in(&data, &v1).unwrap();
+        let v2 = runtime_archive_fixture(&t.0, true, "v2");
+        // An interrupted earlier unpack of v2: the dir exists but was never marked complete.
+        let sha2 = std::fs::read_to_string(format!("{}.sha256", v2.display())).unwrap();
+        let unfinished = data.join("sandbox-vm").join(format!("runtime-{}", &sha2.trim()[..12]));
+        std::fs::create_dir_all(unfinished.join("bin")).unwrap();
+        let dir = ensure_runtime_in(&data, &v2).unwrap();
+        assert_eq!(dir, unfinished);
+        assert_eq!(std::fs::read_to_string(dir.join("share/guest-root/etc/tag")).unwrap(), "v2");
+        assert!(dir.join("bin").join(LAUNCHER_BIN).is_file());
+        assert!(!old.exists(), "the earlier version's runtime is removed");
     }
 
     #[test]
