@@ -428,6 +428,114 @@ test('route Start: a Use example error is the card\'s last row, under the button
   }
 })
 
+/** Control the example-file fetch from the test: `window.__txrExampleFetch`
+ *  'hang' never answers (the button stays busy), 'fail' answers 500. */
+async function controlExampleFetch(page: import('@playwright/test').Page, mode: 'hang' | 'fail') {
+  await page.evaluate(start => {
+    const w = window as unknown as { __txrExampleFetch?: string; __txrExampleWrapped?: boolean }
+    w.__txrExampleFetch = start
+    if (w.__txrExampleWrapped === true) return
+    w.__txrExampleWrapped = true
+    const original = window.fetch.bind(window)
+    window.fetch = (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (new URL(url, window.location.origin).pathname.startsWith('/api/file-validation/examples/')) {
+        if (w.__txrExampleFetch === 'hang') return new Promise<Response>(() => {})
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: 'The example could not be loaded.' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        )
+      }
+      return original(input, init)
+    }
+  }, mode)
+}
+
+/** One card's Use example button width, its button row's right edge and the
+ *  card's inner border edge (the padding box's right side). Edges are measured
+ *  from the card's left edge: a click may scroll the page sideways where the
+ *  row overflows (390 px). */
+async function startCardRow(page: import('@playwright/test').Page, path: string) {
+  return page.evaluate(p => {
+    const q = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`)!
+    const card = q(`txr-intake-start-card-${p}`)
+    const outer = card.getBoundingClientRect()
+    const borderInner = outer.width - parseFloat(getComputedStyle(card).borderRightWidth)
+    const button = q(`txr-use-example-${p}`)
+    const box = button.getBoundingClientRect()
+    const primary = q(`txr-intake-start-card-${p}-cta`).getBoundingClientRect()
+    return {
+      width: box.width,
+      rowRight: Math.max(box.right, primary.right) - outer.left,
+      borderInner,
+      busy: button.getAttribute('aria-busy') === 'true',
+      label: button.textContent,
+    }
+  }, path)
+}
+
+test('route Start: Use example keeps its width while loading (and Try again while it retries); the row stays off the card border', async ({
+  page,
+}) => {
+  const paths = ['pretrained', 'train', 'reuse'] as const
+  const open = async (size: { width: number; height: number }) => {
+    await page.setViewportSize(size)
+    await page.goto(`${GALLERY}txr-shell-route-start`, { waitUntil: 'domcontentloaded' })
+    await page.waitForTimeout(SETTLE)
+    if (size.width > 640) await sizeFrame(page, size.height)
+  }
+  // 1440: the usual desktop card (349 px, the page's max width); 1236: the
+  // narrowest three-column card (340 px); 1024: two columns; 390: the phone
+  // flow, where the row is wider than the card even idle (FOLLOW-UPS 44), so
+  // only the width is checked there.
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 1236, height: 900 },
+    { width: 1024, height: 768 },
+    { width: 390, height: 844 },
+  ]) {
+    const phone = size.width <= 640
+    // Idle → loading, all three cards on one page (each click hangs).
+    await open(size)
+    await controlExampleFetch(page, 'hang')
+    for (const path of paths) {
+      const at = `${path}@${size.width}`
+      const idle = await startCardRow(page, path)
+      await page.getByTestId(`txr-use-example-${path}`).click()
+      await expect(page.getByTestId(`txr-use-example-${path}`)).toHaveAttribute('aria-busy', 'true')
+      const busy = await startCardRow(page, path)
+      expect(Math.abs(busy.width - idle.width), `${at} loading keeps the button width`).toBeLessThanOrEqual(0.5)
+      expect(Math.abs(busy.rowRight - idle.rowRight), `${at} loading keeps the row's right edge`).toBeLessThanOrEqual(0.5)
+      if (!phone) {
+        // The complaint: the busy row came within 3 px of the border (349 px
+        // cards) or crossed it (340 px cards).
+        expect(busy.borderInner - busy.rowRight, `${at} the busy row stays off the card border`).toBeGreaterThanOrEqual(8)
+      }
+    }
+    // "Try again" → its retry: one fresh page per card (the pretrained and
+    // reuse paths share the in-flight predict-file fetch).
+    for (const path of paths) {
+      const at = `${path}@${size.width} retry`
+      await open(size)
+      await controlExampleFetch(page, 'fail')
+      await page.getByTestId(`txr-use-example-${path}`).click()
+      await expect(page.getByTestId(`txr-use-example-error-${path}`)).toBeVisible()
+      const idle = await startCardRow(page, path)
+      expect(idle.label, at).toBe('Try again')
+      await controlExampleFetch(page, 'hang')
+      await page.getByTestId(`txr-use-example-${path}`).click()
+      await expect(page.getByTestId(`txr-use-example-${path}`)).toHaveAttribute('aria-busy', 'true')
+      const busy = await startCardRow(page, path)
+      expect(Math.abs(busy.width - idle.width), `${at} the retry keeps the Try again width`).toBeLessThanOrEqual(0.5)
+      if (!phone) {
+        expect(busy.borderInner - busy.rowRight, `${at} the busy row stays off the card border`).toBeGreaterThanOrEqual(8)
+      }
+    }
+  }
+})
+
 // ── ITEM-3: the part-2 route bytes ──────────────────────────────────────────
 
 test('route Results: the heatmap corner header sticks to the region, the patient column pins while the table scrolls horizontally, the count + actions stay in the fixed bottom bar', async ({

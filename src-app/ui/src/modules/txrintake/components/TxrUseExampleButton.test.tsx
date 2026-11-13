@@ -230,3 +230,76 @@ describe('TxrUseExampleButton — the layout split (the Start cards)', () => {
     expect(screen.getByTestId('host-no-message')).toBeTruthy()
   })
 })
+
+/** A promise the test settles by hand (the example fetch stays pending until then). */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+/** The button's own label node: the width holder index.css keeps in the flow while busy. */
+const labelOf = (button: HTMLElement) =>
+  Array.from(button.children).find(child => child.classList.contains('txr-use-example-label')) ?? null
+
+describe('TxrUseExampleButton — loading keeps the button width', () => {
+  it('while loading the label stays in place (hidden by index.css) and the kit spinner is a direct child', async () => {
+    const pending = deferred<string>()
+    api.example.mockReturnValue(pending.promise)
+    render(<TxrUseExampleButton path="train" />)
+    const button = screen.getByTestId('txr-use-example-train')
+    expect(button.classList.contains('txr-use-example-button')).toBe(true)
+    expect(labelOf(button)?.textContent).toBe('Use example')
+    expect(button.getAttribute('aria-busy')).toBeNull()
+
+    fireEvent.click(button)
+    await waitFor(() => expect(button.getAttribute('aria-busy')).toBe('true'))
+    // The index.css rule reads exactly this shape: the busy button, the
+    // kit's spinner as a direct `svg.animate-spin` child, the label span.
+    expect(button.querySelector(':scope > svg.animate-spin')).not.toBeNull()
+    expect(labelOf(button)?.textContent).toBe('Use example')
+    expect(button.textContent).toBe('Use example')
+    // The name does not depend on the hidden label.
+    expect(screen.getByRole('button', { name: 'Use example data: learn from my data' })).toBe(button)
+    pending.resolve(PATIENTS_CSV)
+  })
+
+  it('a retry keeps "Try again" while it loads, and the label returns to "Use example" after a success', async () => {
+    api.example.mockRejectedValueOnce(new Error('net down'))
+    const onDone = vi.fn()
+    render(<TxrUseExampleButton path="pretrained" onDone={onDone} />)
+    const button = screen.getByTestId('txr-use-example-pretrained')
+    fireEvent.click(button)
+    await waitFor(() => expect(labelOf(button)?.textContent).toBe('Try again'))
+
+    const pending = deferred<string>()
+    api.example.mockReturnValueOnce(pending.promise)
+    fireEvent.click(button)
+    await waitFor(() => expect(button.getAttribute('aria-busy')).toBe('true'))
+    // The error line is gone, but the label the button had stays (same width).
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(labelOf(button)?.textContent).toBe('Try again')
+
+    await act(async () => pending.resolve(PREDICT_CSV))
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1))
+    expect(button.getAttribute('aria-busy')).toBeNull()
+    expect(labelOf(button)?.textContent).toBe('Use example')
+  })
+
+  it('a retry that fails again ends on "Try again" with the error line', async () => {
+    // The pretrained path fetches ONE file per attempt (train fetches two).
+    api.example.mockRejectedValueOnce(new Error('net down')).mockRejectedValueOnce(new Error('still down'))
+    render(<TxrUseExampleButton path="pretrained" />)
+    const button = screen.getByTestId('txr-use-example-pretrained')
+    fireEvent.click(button)
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('net down'))
+    fireEvent.click(button)
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('still down'))
+    expect(button.getAttribute('aria-busy')).toBeNull()
+    expect(labelOf(button)?.textContent).toBe('Try again')
+  })
+})
