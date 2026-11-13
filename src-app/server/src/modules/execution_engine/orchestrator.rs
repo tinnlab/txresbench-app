@@ -421,6 +421,14 @@ pub struct ProducedModelFacts {
 #[async_trait]
 pub trait MethodExecutor: Send + Sync {
     async fn execute(&self, ctx: MethodRunContext) -> Result<MethodOutcome, AppError>;
+
+    /// Why no method can run on this machine at all, if that is known before
+    /// a run starts (Windows: WSL 2 is missing or too old); `None` = methods
+    /// can be tried. "Use example" says it instead of starting a run that
+    /// cannot run.
+    fn runner_unavailable(&self) -> Option<String> {
+        None
+    }
 }
 
 /// ITEM-9's live channel back into the drive: one method's wrapper log lines
@@ -803,6 +811,11 @@ enum CallOutcome {
 
 #[async_trait]
 impl MethodExecutor for StackMethodExecutor {
+    #[cfg(target_os = "windows")]
+    fn runner_unavailable(&self) -> Option<String> {
+        crate::modules::sandbox::wsl_run::runner_unavailable()
+    }
+
     async fn execute(&self, ctx: MethodRunContext) -> Result<MethodOutcome, AppError> {
         let method_id = ctx.method_id.clone();
         // `ctx.method_id` is the plan id — for reuse plans that is the MODEL
