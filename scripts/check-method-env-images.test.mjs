@@ -60,6 +60,14 @@
 //            is deterministic and refuses a rootfs without what the stacked
 //            run needs; --stage-bases never builds and stages only from the
 //            image with the recorded digest (a stub `docker`, no daemon).
+//   TEST-14  the publisher's bases: `--base` publishes a base with the same
+//            byte checks, guard, overwrite refusal, verbatim push, resolve
+//            witness and signing as a layer, plus a listing check of what the
+//            stacked run needs; a layer publish refuses until its base is
+//            published and refuses a manifest without `bases`; `--registry`
+//            accepts only 127.0.0.1:<port> / [::1]:<port>, and then every
+//            oras call is plain HTTP to that host with no login and no cosign
+//            (stub oras/cosign, no network).
 //   TEST-12  the layer cover (`closed_cover`) on small base/method trees: a
 //            method's Python and R packages under /opt/txr-layer are the ONE
 //            entry /opt/txr-layer (beside /code), including a package the base
@@ -609,19 +617,26 @@ function publisher(args = [], env = {}) {
   });
 }
 
-/** Write the stub tool dir. `resolveDigest` is what `oras resolve` answers;
- *  returns { dir, bin, log, env } where env carries the PATH + the stub's log
- *  path. The returned `dir` is the ONLY thing the caller may clean up. */
-function makeStubs(resolveDigest) {
+/** Write the stub tool dir. `resolveDigest` is what `oras resolve` answers,
+ *  unless `resolveMap` names the resolved ref (its last argument): then the
+ *  map's digest is the answer (an empty string = the tag is absent). Returns
+ *  { dir, bin, log, env } where env carries the PATH + the stub's log path.
+ *  The returned `dir` is the ONLY thing the caller may clean up. */
+function makeStubs(resolveDigest, resolveMap = {}) {
   const dir = mkdtemp('mei-pubstub-');
   const log = path.join(dir, 'calls.log');
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin);
+  const mapFile = path.join(dir, 'resolve.map');
+  fs.writeFileSync(mapFile, Object.entries(resolveMap).map(([ref, d]) => `${ref} ${d}\n`).join(''));
   fs.writeFileSync(path.join(bin, 'oras'), `#!/usr/bin/env sh
 echo "oras $*" >> "$ORAS_STUB_LOG"
 case "$1" in
   login) cat >/dev/null ;;
-  resolve) echo "$ORAS_STUB_RESOLVE" ;;
+  resolve)
+    for a in "$@"; do ref="$a"; done
+    hit=$(awk -v r="$ref" '$1 == r { print $2; exit }' "$ORAS_STUB_RESOLVE_MAP")
+    if [ -n "$hit" ]; then echo "$hit"; else echo "$ORAS_STUB_RESOLVE"; fi ;;
 esac
 exit 0
 `);
@@ -634,6 +649,7 @@ exit 0
   const env = {
     ORAS_STUB_LOG: log,
     ORAS_STUB_RESOLVE: resolveDigest,
+    ORAS_STUB_RESOLVE_MAP: mapFile,
     PATH: `${bin}:${process.env.PATH}`,
   };
   return { dir, bin, log, env };
@@ -736,8 +752,11 @@ test('TEST-9d the publisher refuses to overwrite a tag holding different bytes',
 
 test('TEST-9e the full stubbed sequence publishes and verifies the digest', (t) => {
   const { staging, methodsDir, manifestPath } = fixture();
-  const entry = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).envs[0];
-  const { dir: stubDir, log, env } = makeStubs(entry.digest);
+  const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const entry = m.envs[0];
+  const pyBase = m.bases.find((b) => b.base_id === 'base-py' && b.arch === 'amd64');
+  const baseRef = `${pyBase.oci_ref}:${pyBase.tag}`;
+  const { dir: stubDir, log, env } = makeStubs(entry.digest, { [baseRef]: pyBase.digest });
   t.after(() => fs.rmSync(stubDir, { recursive: true, force: true }));
   const r = publisher([
     '--env', 'fixture-a',
@@ -754,12 +773,13 @@ test('TEST-9e the full stubbed sequence publishes and verifies the digest', (t) 
   assert.deepEqual(c, [
     `oras login ghcr.io -u stub-user --password-stdin`,
     `oras resolve ghcr.io/tinnlab/txr-method-env-layers/fixture-a:${entry.tag}`,
+    `oras resolve ${baseRef}`,
     `oras blob push ghcr.io/tinnlab/txr-method-env-layers/fixture-a layer.squashfs`,
     `oras blob push ghcr.io/tinnlab/txr-method-env-layers/fixture-a ${path.join(staging, 'publish', 'empty-config.json')}`,
     `oras manifest push ghcr.io/tinnlab/txr-method-env-layers/fixture-a:${entry.tag} ${path.join(staging, 'layers', 'fixture-a-amd64', 'oci-manifest.json')}`,
     `oras resolve ghcr.io/tinnlab/txr-method-env-layers/fixture-a:${entry.tag}`,
     `cosign sign --yes ghcr.io/tinnlab/txr-method-env-layers/fixture-a@${entry.digest}`,
-  ], `the publish sequence must be login → resolve → blob → blob → manifest → resolve → sign:\n${c.join('\n')}`);
+  ], `the publish sequence must be login → resolve → base resolve → blob → blob → manifest → resolve → sign:\n${c.join('\n')}`);
 });
 
 test('TEST-9f the publisher verifies the staged bytes are the entry bytes', () => {
@@ -1395,4 +1415,228 @@ test('TEST-13k --stage-bases stages each base from the image with the recorded d
   assert.equal(w.status, 0, w.stderr);
   const m = JSON.parse(fs.readFileSync(path.join(base, 'staged.json'), 'utf8'));
   assert.equal(m.bases.length, 2);
+});
+
+// ── TEST-14: the publisher's bases and the loopback rehearsal ─────────────────
+
+function baseOf(manifestPath, baseId = 'base-py', arch = 'amd64') {
+  const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  return m.bases.find((b) => b.base_id === baseId && b.arch === arch);
+}
+
+const CREDS = { GHCR_TOKEN: 'stub-token', GHCR_USER: 'stub-user' };
+
+test('TEST-14a the --base dry run checks every local byte and names only ghcr.io', () => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  const b = baseOf(manifestPath);
+  const r = publisher([
+    '--base', 'base-py', '--dry-run',
+    '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir,
+  ]);
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  const out = r.stdout + r.stderr;
+  assert.match(out, /guard {5}: manifest \+ regen parity OK/);
+  assert.match(out, /verify {4}: base content OK/);
+  const dir = path.join(staging, 'bases', 'base-py-amd64');
+  for (const line of [
+    `+ oras resolve ${b.oci_ref}:${b.tag}`,
+    `+ oras blob push ${b.oci_ref} ${path.join(dir, 'base.squashfs')}`,
+    `+ oras blob push ${b.oci_ref} ${path.join(staging, 'publish', 'empty-config.json')}`,
+    `+ oras manifest push ${b.oci_ref}:${b.tag} ${path.join(dir, 'oci-manifest.json')}`,
+    `+ cosign sign --yes ${b.oci_ref}@${b.digest}`,
+  ]) {
+    assert.ok(out.includes(line), `missing "${line}" in:\n${out}`);
+  }
+  const hosts = [...out.matchAll(/([a-z0-9.-]+\.[a-z]{2,})[:/]/g)].map((x) => x[1]);
+  for (const h of hosts) assert.equal(h, 'ghcr.io', `unexpected host in the publish sequence: ${h}`);
+});
+
+test('TEST-14b --base refuses bytes, records and manifests that are not the contract', () => {
+  const cases = [
+    ['a tampered base file', (fx) => {
+      fs.writeFileSync(path.join(fx.staging, 'bases', 'base-py-amd64', 'base.squashfs'), Buffer.alloc(4096, 9));
+    }, 1, /sha256 .* != manifest squashfs_sha256/],
+    ['tampered OCI manifest bytes', (fx) => {
+      fs.appendFileSync(path.join(fx.staging, 'bases', 'base-py-amd64', 'oci-manifest.json'), ' ');
+    }, 1, /oci-manifest\.json digest .* != manifest digest/],
+    ['a record that disagrees', (fx) => {
+      const p = path.join(fx.staging, 'bases', 'base-py-amd64', 'artifact.json');
+      const rec = JSON.parse(fs.readFileSync(p, 'utf8'));
+      fs.writeFileSync(p, JSON.stringify({ ...rec, source_ref: 'ghcr.io/tinnlab/txresbench-base-py:9.9' }));
+    }, 1, /record source_ref .* != manifest/],
+    ['a manifest without bases', (fx) => {
+      const m = JSON.parse(fs.readFileSync(fx.manifestPath, 'utf8'));
+      delete m.bases;
+      fs.writeFileSync(fx.manifestPath, JSON.stringify(m, null, 2) + '\n');
+    }, 1, /has no bases list/],
+  ];
+  for (const [what, breakIt, status, re] of cases) {
+    const fx = fixture();
+    breakIt(fx);
+    const r = publisher([
+      '--base', 'base-py', '--dry-run',
+      '--manifest', fx.manifestPath, '--staging-dir', fx.staging, '--methods-dir', fx.methodsDir,
+    ]);
+    assert.equal(r.status, status, `${what}: ${r.stderr}\n${r.stdout}`);
+    assert.match(r.stderr, re, `${what}: ${r.stderr}`);
+  }
+  const fx = fixture();
+  const flags = ['--manifest', fx.manifestPath, '--staging-dir', fx.staging, '--dry-run'];
+  assert.equal(publisher(['--base', 'base-x', ...flags]).status, 2, 'an unknown base id');
+  assert.equal(publisher(['--base', 'base-r', '--arch', 'arm64', ...flags], { ALLOW_EMULATED_BUILD: '1' }).status, 2,
+    'a base the manifest does not hold');
+  const both = publisher(['--base', 'base-py', '--env', 'fixture-a', ...flags]);
+  assert.equal(both.status, 2);
+  assert.match(both.stderr, /exclusive/);
+});
+
+test('TEST-14c --base refuses a base without what the stacked run needs, before any login', (t) => {
+  // A truthful record over a base that lacks /usr/bin/prlimit: the writer
+  // trusts records; the publisher reads the bytes.
+  const fx = fixture();
+  fs.rmSync(path.join(fx.staging, 'bases', 'base-py-amd64'), { recursive: true, force: true });
+  const root = path.join(fx.base, 'broken-base-root');
+  writeBaseRoot(root, 'base-py', { omit: ['usr/bin/prlimit'] });
+  stagedBaseRecord(fx.staging, 'base-py', 'amd64', root);
+  const w = gen(['--fixture', fx.staging, '--methods-dir', fx.methodsDir, '--manifest', fx.manifestPath]);
+  assert.equal(w.status, 0, w.stderr);
+  const { dir: stubDir, log, env } = makeStubs('');
+  t.after(() => fs.rmSync(stubDir, { recursive: true, force: true }));
+  const r = publisher([
+    '--base', 'base-py',
+    '--manifest', fx.manifestPath, '--staging-dir', fx.staging, '--methods-dir', fx.methodsDir,
+  ], { ...env, ...CREDS });
+  assert.equal(r.status, 1, `${r.stderr}\n${r.stdout}`);
+  assert.match(r.stderr, /has no \/usr\/bin\/prlimit/);
+  assert.ok(!fs.existsSync(log) || calls(log).length === 0, 'no oras or cosign call was made');
+});
+
+test('TEST-14d --base refuses a tag that already holds other bytes', (t) => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  const b = baseOf(manifestPath);
+  const other = 'sha256:' + '42'.repeat(32);
+  const { dir: stubDir, log, env } = makeStubs(other);
+  t.after(() => fs.rmSync(stubDir, { recursive: true, force: true }));
+  const r = publisher([
+    '--base', 'base-py',
+    '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir,
+  ], { ...env, ...CREDS });
+  assert.equal(r.status, 1, `${r.stderr}\n${r.stdout}`);
+  assert.match(r.stderr, /already exists at/);
+  assert.ok(r.stderr.includes(other) && r.stderr.includes(b.digest), r.stderr);
+  assert.ok(!calls(log).some((l) => /oras (blob|manifest) push/.test(l)), 'nothing was pushed');
+});
+
+test('TEST-14e the full stubbed base sequence publishes and verifies the digest', (t) => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  const b = baseOf(manifestPath);
+  const { dir: stubDir, log, env } = makeStubs(b.digest);
+  t.after(() => fs.rmSync(stubDir, { recursive: true, force: true }));
+  const r = publisher([
+    '--base', 'base-py',
+    '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir,
+  ], { ...env, ...CREDS });
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  assert.match(r.stdout, new RegExp(`published : ${b.oci_ref}:${b.tag} @ ${b.digest}`));
+  assert.deepEqual(calls(log), [
+    'oras login ghcr.io -u stub-user --password-stdin',
+    `oras resolve ${b.oci_ref}:${b.tag}`,
+    `oras blob push ${b.oci_ref} base.squashfs`,
+    `oras blob push ${b.oci_ref} ${path.join(staging, 'publish', 'empty-config.json')}`,
+    `oras manifest push ${b.oci_ref}:${b.tag} ${path.join(staging, 'bases', 'base-py-amd64', 'oci-manifest.json')}`,
+    `oras resolve ${b.oci_ref}:${b.tag}`,
+    `cosign sign --yes ${b.oci_ref}@${b.digest}`,
+  ]);
+});
+
+test('TEST-14f a layer publish refuses until its base is published, then goes on', (t) => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const entry = m.envs[0];
+  const b = baseOf(manifestPath);
+  const layerRef = `${entry.oci_ref}:${entry.tag}`;
+  const baseRef = `${b.oci_ref}:${b.tag}`;
+  const args = ['--env', 'fixture-a', '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir];
+  // The base tag is absent (and the layer tag too): refused, nothing pushed.
+  let stub = makeStubs('');
+  t.after(() => fs.rmSync(stub.dir, { recursive: true, force: true }));
+  let r = publisher(args, { ...stub.env, ...CREDS });
+  assert.equal(r.status, 1, `${r.stderr}\n${r.stdout}`);
+  assert.match(r.stderr, /publish the base first/);
+  assert.match(r.stderr, /--base base-py --arch amd64/);
+  assert.ok(!calls(stub.log).some((l) => /oras (blob|manifest) push/.test(l)), 'nothing was pushed');
+  // The base tag names other bytes: refused the same way.
+  stub = makeStubs('', { [baseRef]: 'sha256:' + '42'.repeat(32) });
+  t.after(() => fs.rmSync(stub.dir, { recursive: true, force: true }));
+  r = publisher(args, { ...stub.env, ...CREDS });
+  assert.equal(r.status, 1, `${r.stderr}\n${r.stdout}`);
+  assert.match(r.stderr, /publish the base first/);
+  // The base is published: the layer goes on (the stub answers both tags by
+  // ref, so the post-push witness sees the layer digest).
+  stub = makeStubs('', { [baseRef]: b.digest, [layerRef]: entry.digest });
+  t.after(() => fs.rmSync(stub.dir, { recursive: true, force: true }));
+  r = publisher(args, { ...stub.env, ...CREDS });
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  assert.match(r.stdout, /is published/);
+  assert.ok(calls(stub.log).some((l) => l === `oras manifest push ${layerRef} ${path.join(staging, 'layers', 'fixture-a-amd64', 'oci-manifest.json')}`));
+});
+
+test('TEST-14g a layer publish refuses a manifest without bases', () => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  const p = withMutated(manifestPath, (m) => { delete m.bases; });
+  const r = publisher([
+    '--env', 'fixture-a', '--dry-run',
+    '--manifest', p, '--staging-dir', staging, '--methods-dir', methodsDir,
+  ]);
+  assert.equal(r.status, 1, `${r.stderr}\n${r.stdout}`);
+  assert.match(r.stderr, /has no bases list/);
+  assert.match(r.stderr, /could never run/);
+});
+
+test('TEST-14h --registry accepts only 127.0.0.1:<port> and [::1]:<port>', () => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  const args = (reg) => ['--base', 'base-py', '--dry-run', '--registry', reg,
+    '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir];
+  for (const ok of ['127.0.0.1:5055', '[::1]:5055', '127.0.0.1:65535']) {
+    const r = publisher(args(ok));
+    assert.equal(r.status, 0, `${ok}: ${r.stderr}`);
+  }
+  for (const bad of ['ghcr.io', 'localhost:5055', '10.0.0.1:5055', '127.0.0.2:5055', '127.0.0.1',
+    '127.0.0.1:0', '127.0.0.1:70000', '127.0.0.1:5055/x', 'http://127.0.0.1:5055', '[::1]']) {
+    const r = publisher(args(bad));
+    assert.equal(r.status, 2, `${bad} must be refused: ${r.stdout}`);
+    assert.match(r.stderr, /--registry/);
+  }
+});
+
+test('TEST-14i a loopback publish is plain HTTP to the loopback host, with no login and no cosign', (t) => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const b = baseOf(manifestPath);
+  const entry = m.envs[0];
+  const reg = '127.0.0.1:5055';
+  const local = (ref) => ref.replace(/^ghcr\.io\//, `${reg}/`);
+  const stub = makeStubs('', {
+    [local(`${b.oci_ref}:${b.tag}`)]: b.digest,
+    [local(`${entry.oci_ref}:${entry.tag}`)]: entry.digest,
+  });
+  t.after(() => fs.rmSync(stub.dir, { recursive: true, force: true }));
+  // No credentials in the environment: a loopback publish never reads them.
+  const env = { ...process.env, ...stub.env };
+  delete env.GHCR_TOKEN;
+  delete env.GHCR_USER;
+  const common = ['--registry', reg, '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir];
+  let r = publisher(['--base', 'base-py', ...common], env);
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  r = publisher(['--env', 'fixture-a', ...common], env);
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  const c = calls(stub.log);
+  assert.ok(c.length >= 8, c.join('\n'));
+  for (const line of c) {
+    assert.match(line, /^oras (resolve|blob push|manifest push) --plain-http /, `plain HTTP oras only: ${line}`);
+    assert.ok(line.includes(`${reg}/tinnlab/`), `loopback host: ${line}`);
+    assert.doesNotMatch(line, /ghcr\.io/, `never ghcr.io: ${line}`);
+  }
+  assert.ok(c.includes(`oras resolve --plain-http ${local(`${b.oci_ref}:${b.tag}`)}`), 'the base-first check went to the loopback');
+  assert.match(r.stdout, /SIGNING SKIPPED: loopback rehearsal/);
 });
