@@ -52,7 +52,22 @@ async fn build_app(
     // same answer. Desktop mode sets an `enabled: false` state — the module
     // set and every route behave exactly as before (the layers below are
     // installed only when enabled).
-    crate::modules::demo::set_state(crate::modules::demo::DemoState::from_config(demo));
+    //
+    // A demo boot also REQUIRES its recorded-results bundle (ITEM-2): the
+    // loader validates the manifest (schema, the recorded example hashes
+    // against the embedded example data) and an invalid or missing bundle is
+    // a hard refusal — the demo never starts "without data", it names the
+    // path and the recorder instead.
+    let bundle = if demo.enabled {
+        let path = modules::demo::bundle::resolve_path(demo, &modules::rootfs::data_root());
+        Some(modules::demo::bundle::load(&path)?)
+    } else {
+        None
+    };
+    crate::modules::demo::set_state(crate::modules::demo::DemoState::from_config(
+        demo,
+        bundle,
+    ));
 
     let pool = database::initialize_database(config).await?;
     let jwt = Arc::new(JwtService::try_new(config.jwt.clone())?);

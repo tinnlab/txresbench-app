@@ -249,6 +249,19 @@ async fn post_inspect(
     body: RequestJson<FileInspectionRequest, InspectErrorCode>,
 ) -> ApiResult<Json<FileInspection>> {
     let request = body.into_inner();
+    // demo-mode ITEM-2 — the example-hash guard: in demo mode ONLY the
+    // example tables may be inspected (by canonical content hash against the
+    // bundle's recorded hashes); anything else is 403 DEMO_MODE before any
+    // inspection work. Desktop (demo off) has no bundle and passes through.
+    if crate::modules::demo::enabled()
+        && !crate::modules::demo::bundle::inspect_allowed(
+            crate::modules::demo::bundle(),
+            request.kind,
+            &request.table,
+        )
+    {
+        return Err(crate::modules::demo::blocked_error().to_api_error());
+    }
     // The engine is pure and the table can be large — blocking work stays off
     // the tokio worker (the module pattern).
     let response = spawn_blocking(move || inspect(&request))
@@ -312,6 +325,21 @@ async fn post_validate(
     body: RequestJson<ValidationRequest, ValidateErrorCode>,
 ) -> ApiResult<Json<ValidationResponse>> {
     let request = body.into_inner();
+    // demo-mode ITEM-2 — the example-hash guard: in demo mode validate
+    // accepts ONLY the example table set (the training pair in `files` mode,
+    // the predict table in `predict` mode), by canonical content hash against
+    // the bundle's recorded hashes; anything else is 403 DEMO_MODE before any
+    // validation work. Desktop (demo off) has no bundle and passes through.
+    if crate::modules::demo::enabled()
+        && !crate::modules::demo::bundle::validate_allowed(
+            crate::modules::demo::bundle(),
+            request.mode,
+            request.patients.as_ref(),
+            &request.measurements,
+        )
+    {
+        return Err(crate::modules::demo::blocked_error().to_api_error());
+    }
     // The parameter check runs here, before the engine (TEST-FV-30).
     check_parameters(&request.parameters)?;
     let response = spawn_blocking(move || validate(&request))

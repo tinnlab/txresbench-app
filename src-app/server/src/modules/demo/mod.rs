@@ -35,13 +35,15 @@
 //!
 //! ## Item ownership
 //!
-//! ITEM-1 delivers the switch + allowlist + anonymous sessions + limits. The
-//! ADAPTATIONS the allowlist classifies (bundle-backed runs/eligibility/
-//! example-hash file validation, generated save names beyond the route-level
-//! override, retention, pages) land with ITEM-2..7; this module deliberately
-//! contains no clone/replay logic.
+//! ITEM-1 delivers the switch + allowlist + anonymous sessions + limits;
+//! ITEM-2 the recorded-results bundle (format, boot-loaded and validated
+//! [`bundle`], the inspect/validate example-hash guard). The ADAPTATIONS the
+//! allowlist classifies (bundle-backed runs/eligibility, generated save
+//! names beyond the route-level override, retention, pages) land with
+//! ITEM-3..7; this module deliberately contains no clone/replay logic.
 
 pub mod allowlist;
+pub mod bundle;
 pub mod copy;
 pub mod session;
 
@@ -80,10 +82,17 @@ pub struct DemoState {
     /// The RESOLVED notice text (the config's key mapped through
     /// [`copy::notice_text`]).
     pub notice: String,
+    /// The recorded-results bundle (ITEM-2). `Some` in EVERY demo boot — the
+    /// loader refuses to start demo mode without a valid bundle, so ITEM-3's
+    /// replay can rely on it being present; `None` only in desktop mode.
+    pub bundle: Option<std::sync::Arc<bundle::DemoBundle>>,
 }
 
 impl DemoState {
-    pub fn from_config(demo: &config::DemoConfig) -> Self {
+    pub fn from_config(
+        demo: &config::DemoConfig,
+        bundle: Option<std::sync::Arc<bundle::DemoBundle>>,
+    ) -> Self {
         Self {
             enabled: demo.enabled,
             download_url: demo.download_url.clone(),
@@ -92,6 +101,7 @@ impl DemoState {
             max_bytes: demo.max_bytes,
             replay_speed: demo.replay_speed,
             notice: copy::notice_text(&demo.notice),
+            bundle,
         }
     }
 }
@@ -114,6 +124,21 @@ pub fn state() -> Option<&'static DemoState> {
 /// True when demo mode is on — the ONE predicate every demo branch reads.
 pub fn enabled() -> bool {
     state().is_some_and(|s| s.enabled)
+}
+
+/// The boot-installed demo bundle (ITEM-2). `None` in desktop mode; always
+/// `Some` on a demo boot (the loader refuses an invalid one — ITEM-2's
+/// contract; ITEM-3's replay may rely on it).
+pub fn bundle() -> Option<&'static bundle::DemoBundle> {
+    state().and_then(|s| s.bundle.as_deref())
+}
+
+/// The ONE demo-blocked error buildable from a handler (file-validation's
+/// adapted routes return it from inside the handler — the gate's whole-
+/// middleware 403 covers every other surface): spec-exact bytes, identical
+/// to [`demo_blocked_response`].
+pub fn blocked_error() -> AppError {
+    AppError::forbidden("DEMO_MODE", DEMO_BLOCKED_MESSAGE)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

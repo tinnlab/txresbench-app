@@ -12,6 +12,8 @@
 //!   across two sessions, stop/skip ownership, the body-size cap and the
 //!   per-session rate limit.
 
+use std::path::PathBuf;
+
 use serde_json::Value;
 
 use crate::common::{TestOptions, TestServer};
@@ -464,6 +466,174 @@ async fn demo_rate_limit_is_configured_not_disabled() {
         statuses.contains(&429),
         "the configured demo limiter must 429 a burst; got {statuses:?}"
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ITEM-2 — the demo bundle: boot validation, the boot refusal, and the
+// inspect/validate example-hash guard (TEST-DM-2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Parse the example CSV text (the bytes the examples endpoint serves) into
+/// the request table shape — the same decode the browser performs.
+fn table_from_csv_text(text: &str, name: &str) -> Value {
+    let mut lines = text.split('\n').filter(|l| !l.is_empty());
+    let columns: Vec<String> = lines.next().unwrap().split(',').map(|c| c.to_string()).collect();
+    let rows: Vec<Vec<Option<String>>> = lines
+        .map(|l| l.split(',').map(|c| if c.is_empty() { None } else { Some(c.to_string()) }).collect())
+        .collect();
+    serde_json::json!({
+        "columns": columns,
+        "header_row": 1,
+        "rows": rows,
+        "source": {"format": "csv", "name": name},
+    })
+}
+
+/// Fetch one example table through the same endpoint the UI's Use-example
+/// flow calls (allowed in demo mode — the downloads stay).
+async fn fetch_example(server: &TestServer, token: &str, kind: &str) -> Value {
+    let raw = server
+        .client
+        .get(server.api_url(&format!("/file-validation/examples/{kind}")))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    table_from_csv_text(&raw, &format!("{kind}-example.csv"))
+}
+
+/// ITEM-2: in demo mode the bundle hashes gate inspect/validate — only the
+/// example tables pass (200), a single changed value field is 403 DEMO_MODE.
+#[tokio::test]
+async fn inspect_and_validate_only_accept_the_example_tables() {
+    let server = TestServer::spawn_with(TestOptions { demo: true, ..Default::default() }).await;
+    let (token, _) = mint_demo_session(&server).await;
+
+    let patients = fetch_example(&server, &token, "patients").await;
+    let measurements = fetch_example(&server, &token, "measurements").await;
+    let predict = fetch_example(&server, &token, "predict-measurements").await;
+
+    // inspect: the three example tables pass (the predict screen inspects its
+    // one file AS kind measurements).
+    for (kind, table) in [
+        ("patients", &patients),
+        ("measurements", &measurements),
+        ("measurements", &predict),
+    ] {
+        let resp = server
+            .client
+            .post(server.api_url("/file-validation/inspect"))
+            .bearer_auth(&token)
+            .json(&serde_json::json!({ "kind": kind, "table": table }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), 200, "inspect {kind} with the example table");
+    }
+
+    // A table that is NOT the example: one changed value field.
+    let mut changed = patients.clone();
+    changed["rows"][0][1] = serde_json::json!("9999");
+    let resp = server
+        .client
+        .post(server.api_url("/file-validation/inspect"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({ "kind": "patients", "table": changed }))
+        .send()
+        .await
+        .unwrap();
+    assert_demo_403(resp, "inspect with a non-example table").await;
+
+    // validate: files mode accepts the training pair.
+    let resp = server
+        .client
+        .post(server.api_url("/file-validation/validate"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "mode": "files",
+            "patients": patients,
+            "measurements": measurements,
+            "joins": [],
+            "mapping": [],
+            "parameters": {"decision_day": 56, "baseline_max_day": 0},
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 200, "validate files mode with the example pair");
+
+    // predict mode accepts the predict table only — the training measurements
+    // table is not it.
+    let resp = server
+        .client
+        .post(server.api_url("/file-validation/validate"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "mode": "predict",
+            "patients": Value::Null,
+            "measurements": measurements,
+            "joins": [],
+            "mapping": [],
+            "parameters": {"decision_day": 56, "baseline_max_day": 0},
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_demo_403(resp, "validate predict mode with the training measurements table").await;
+
+    // files mode with the predict table in the measurements slot is refused too.
+    let resp = server
+        .client
+        .post(server.api_url("/file-validation/validate"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "mode": "files",
+            "patients": patients,
+            "measurements": predict,
+            "joins": [],
+            "mapping": [],
+            "parameters": {"decision_day": 56, "baseline_max_day": 0},
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_demo_403(resp, "validate files mode with the predict table").await;
+}
+
+/// ITEM-2: demo mode REFUSES to boot without a bundle — the loader's
+/// contract is the boot contract; a missing bundle is never "a demo with no
+/// data". The harness spawns the real server subprocess; a refused boot must
+/// fail the spawn (the readiness loop never sees a healthy server).
+#[tokio::test]
+async fn demo_mode_refuses_to_boot_without_a_bundle() {
+    use txresbench_test_harness::{TestHarness, Variant};
+
+    let harness = TestHarness::new(
+        crate::common::CytoHarnessApp,
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+        Variant::Server,
+    );
+    let opts = TestOptions {
+        demo: true,
+        demo_missing_bundle: true,
+        ..Default::default()
+    };
+    // The spawn panics after the readiness ceiling when the server refuses to
+    // start; run it on the current runtime so the panic lands in the
+    // JoinHandle instead of the test thread.
+    let handle = tokio::task::spawn(async move { harness.start(opts).await });
+    let joined = match tokio::time::timeout(std::time::Duration::from_secs(120), handle).await {
+        Ok(joined) => joined,
+        Err(_) => panic!("the refused demo boot did not fail within 120s"),
+    };
+    let err = match joined {
+        Ok(_server) => panic!("a demo boot without a bundle must not succeed"),
+        Err(err) => err,
+    };
+    assert!(err.is_panic(), "the spawn failed with a panic: {err:?}");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

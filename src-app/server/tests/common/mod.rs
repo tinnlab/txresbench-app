@@ -132,6 +132,20 @@ pub struct TestOptions {
     /// switch on, exactly the deployment shape.
     pub demo: bool,
 
+    /// Point the spawned server's demo bundle at this directory
+    /// (`TXR_DEMO_BUNDLE` — demo-mode ITEM-2; the manifest + table files must
+    /// already exist, a test builds the fixture before the spawn). `None`
+    /// (default) leaves the env unset → the loader's default
+    /// `<data_dir>/demo-bundle`, which this harness provisions with a minimal
+    /// VALID fixture for every demo-mode spawn (a demo boot refuses an
+    /// invalid bundle, so ITEM-1's demo tests boot against the fixture).
+    pub demo_bundle_dir: Option<PathBuf>,
+
+    /// Withhold the harness's default valid bundle fixture (demo-mode
+    /// ITEM-2): a demo spawn with this set has NO bundle anywhere, so the
+    /// boot REFUSES — the refusal test's knob.
+    pub demo_missing_bundle: bool,
+
     /// Extra top-level YAML appended to the rendered config (demo-mode
     /// ITEM-1: a test that tunes `demo.max_bytes` or the notice key passes
     /// its snippet here). Appended AFTER the `jwt:` block, so it may add NEW
@@ -143,6 +157,114 @@ pub struct TestOptions {
     /// observe a 429 bucket sets 1 req/s, burst 2). Rendered INSIDE the
     /// rendered `server:` block, so the block is never duplicated.
     pub rate_limit: Option<(u64, u32)>,
+}
+
+/// The harness's minimal VALID demo bundle fixture (demo-mode ITEM-2): a
+/// version-1 manifest whose recorded example hashes are the REAL embedded
+/// assets' (computed in-process with the library's canonical function —
+/// never a hard-coded value that would go stale), one recorded configuration
+/// + one method with parseable train/reuse tables. Written under the server's
+/// own data dir, so a demo spawn finds it at the default path without an env
+/// var. The ITEM-2 scenario tests pass their OWN fixture instead (via
+/// [`TestOptions::demo_bundle_dir`]).
+fn write_demo_bundle_fixture(bundle_dir: &Path) {
+    use txresbench::modules::demo::bundle::{
+        FORMAT_TAG, FORMAT_VERSION, asset_table_facts, csv_bytes_content_hash,
+    };
+    use txresbench::modules::file_validator::assets;
+
+    let table_hash = |bytes: &[u8]| csv_bytes_content_hash(bytes);
+    let (patients_rows, patients_cols) = asset_table_facts(assets::ASSETS.patients_example);
+    let (measurements_rows, measurements_cols) =
+        asset_table_facts(assets::ASSETS.measurements_example);
+    let (predict_rows, predict_cols) =
+        asset_table_facts(assets::ASSETS.predict_measurements_example);
+    let manifest = serde_json::json!({
+        "format": FORMAT_TAG,
+        "version": FORMAT_VERSION,
+        "generated_at": "2026-11-14T00:00:00Z",
+        "dataset_id": "example",
+        "tables": {
+            "patients": {"content_hash": table_hash(assets::ASSETS.patients_example), "rows": patients_rows, "columns": patients_cols},
+            "measurements": {"content_hash": table_hash(assets::ASSETS.measurements_example), "rows": measurements_rows, "columns": measurements_cols},
+            "predict_measurements": {"content_hash": table_hash(assets::ASSETS.predict_measurements_example), "rows": predict_rows, "columns": predict_cols},
+        },
+        "configurations": [{
+            "id": "pfs_d56_h238",
+            "endpoint": "pfs",
+            "decision_day": 56.0,
+            "look_ahead_day": 238.0,
+            "covariates": false,
+            "logs": [{"method_id": "kelim", "stream": "engine", "content": "started"}],
+        }],
+        "methods": [{
+            "method_id": "kelim",
+            "records": [{
+                "configuration_id": "pfs_d56_h238",
+                "seconds": 12.5,
+                "train": {
+                    "table": "train/pfs_d56_h238/kelim.csv",
+                    "label": "kelim",
+                    "group": "kinetics",
+                    "group_label": "Kinetics",
+                    "task": "pfs",
+                    "prob_source": "native",
+                    "flat_conversion": false,
+                    "coverage": {"scored": 94, "eligible": 94, "fraction": 1.0},
+                    "rows": 94,
+                },
+                "model": {
+                    "name": "kelim",
+                    "method_version": "1.0.0",
+                    "group": "kinetics",
+                    "group_label": "Kinetics",
+                    "task": "pfs",
+                    "trained_on_patients": 94,
+                    "trained_at": "2026-11-14T00:00:00Z",
+                    "decision_day": 56.0,
+                    "endpoint": "pfs",
+                    "horizon": 238.0,
+                    "size_bytes": 1024,
+                    "embeds_training_data": false,
+                    "own_auc": 0.71,
+                    "marker_count": 3,
+                    "marker_kind": "all",
+                    "uses_covariates": false,
+                },
+                "reuse": {
+                    "table": "reuse/pfs_d56_h238/kelim.csv",
+                    "label": "kelim",
+                    "group": "kinetics",
+                    "group_label": "Kinetics",
+                    "task": "pfs",
+                    "prob_source": "native",
+                    "flat_conversion": false,
+                    "coverage": {"scored": 15, "eligible": 15, "fraction": 1.0},
+                    "rows": 15,
+                },
+            }],
+        }],
+    });
+    std::fs::create_dir_all(bundle_dir).expect("demo bundle dir");
+    std::fs::write(
+        bundle_dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest).expect("demo fixture manifest"),
+    )
+    .expect("write demo fixture manifest");
+    std::fs::create_dir_all(bundle_dir.join("train/pfs_d56_h238")).expect("train dir");
+    let train: String = (0..94).map(|i| format!("J{i:04},0.5,\n")).collect();
+    std::fs::write(
+        bundle_dir.join("train/pfs_d56_h238/kelim.csv"),
+        format!("patient_id,probability,note\n{train}"),
+    )
+    .expect("write train table");
+    std::fs::create_dir_all(bundle_dir.join("reuse/pfs_d56_h238")).expect("reuse dir");
+    let reuse: String = (0..15).map(|i| format!("J1{i:03},0.5,\n")).collect();
+    std::fs::write(
+        bundle_dir.join("reuse/pfs_d56_h238/kelim.csv"),
+        format!("patient_id,probability,note\n{reuse}"),
+    )
+    .expect("write reuse table");
 }
 
 impl HarnessApp for CytoHarnessApp {
@@ -160,6 +282,16 @@ impl HarnessApp for CytoHarnessApp {
     }
 
     fn plan_spawn(&self, opts: &Self::Options, facts: &SpawnFacts) -> SpawnPlan {
+        // demo-mode ITEM-2: a demo boot requires a valid bundle, so every
+        // demo-mode spawn gets the harness's minimal valid fixture (unless
+        // the test provides its own, or opts out with `demo_missing_bundle`
+        // to prove the refusal). The fixture is written BEFORE the spawn;
+        // the server resolves it at the default `<data_dir>/demo-bundle`
+        // path, the deployment shape minus the env override.
+        let default_bundle_dir = facts.data_dir.join("demo-bundle");
+        if opts.demo && !opts.demo_missing_bundle {
+            write_demo_bundle_fixture(&default_bundle_dir);
+        }
         // The sqlite leg hands the app the per-test FILE's connection URL (the
         // harness copied it from the migrated template and owns its lifecycle);
         // `database.url` is exactly the config key `ServerConfig` resolves.
@@ -312,6 +444,9 @@ jwt:
                 }
                 if opts.demo {
                     env.push(("TXR_DEMO".to_string(), "1".to_string()));
+                }
+                if let Some(dir) = &opts.demo_bundle_dir {
+                    env.push(("TXR_DEMO_BUNDLE".to_string(), dir.display().to_string()));
                 }
                 env
             },
