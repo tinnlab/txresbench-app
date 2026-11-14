@@ -4,7 +4,10 @@
  */
 import { useDemoModeStore, type DemoMode } from '../DemoMode.store'
 
-/** Put the store into a settled mode (the boot read's answer). */
+/** Put the store into a settled mode (the boot read's answer).
+ *  `noticeDismissed` is NOT reset unless asked — the gallery surfaces must
+ *  preserve the birth read (the sessionStorage close), so a reload with a
+ *  dismissed session stays dismissed. */
 export function seedDemoMode(
   mode: DemoMode,
   over: { downloadUrl?: string; notice?: string; noticeDismissed?: boolean } = {},
@@ -17,7 +20,7 @@ export function seedDemoMode(
     notice: over.notice ?? (mode === 'demo' ? 'Runs and models here are shared with everyone who visits the demo.' : ''),
     historyLimit: 50,
     modelLimit: 50,
-    noticeDismissed: over.noticeDismissed ?? false,
+    noticeDismissed: over.noticeDismissed ?? useDemoModeStore.getState().noticeDismissed,
   })
 }
 

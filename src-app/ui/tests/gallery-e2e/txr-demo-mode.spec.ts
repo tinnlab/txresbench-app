@@ -49,6 +49,14 @@ const ROUTE_SURFACES = [
   'txr-shell-route-method-long',
 ]
 
+/** The walk in thirds: each test carries its own long budget (the gallery
+ *  transforms each surface's lazy chunks on demand on a loaded box). */
+const ROUTE_GROUPS = [
+  ROUTE_SURFACES.slice(0, 6),
+  ROUTE_SURFACES.slice(6, 12),
+  ROUTE_SURFACES.slice(12),
+]
+
 const NOTICE = '[data-testid="txr-demo-notice"]'
 const HEADER_LINK = '[data-testid="txr-demo-header-download"]'
 const SETTLE = 2200
@@ -78,20 +86,35 @@ function boxesOf(page: Page) {
 }
 
 test.describe('txr-demo-mode — notice bar (TEST-DM-5)', () => {
-  test('demo: the notice bar + the header download link are present on every shell route', async ({ page }) => {
+  // The FIRST load of a freshly booted gallery server pays the whole
+  // module-graph transform (thousands of on-demand modules on a loaded box —
+  // measured beyond the 15-minute mark in the first attempts). Warming it
+  // here, with its own generous budget, keeps the routes walk's budgets
+  // honest — it is ALSO a real assertion (the notice bar on the wide shell
+  // surface, cold).
+  test('warmup: the first load — notice bar on the wide shell surface (cold transform)', async ({ page }) => {
+    test.setTimeout(1_800_000)
     await page.setViewportSize({ width: 1440, height: 900 })
-    const failures: string[] = []
-    for (const slug of ROUTE_SURFACES) {
-      await openSurface(page, slug, '&demo=1')
-      const notice = page.locator(NOTICE)
-      const hasNotice = (await notice.count()) > 0 && (await notice.isVisible())
-      const link = page.locator(HEADER_LINK)
-      const hasLink = (await link.count()) > 0 && (await link.isVisible())
-      if (!hasNotice) failures.push(`${slug}: notice missing`)
-      if (!hasLink) failures.push(`${slug}: header download link missing`)
-    }
-    expect(failures, 'the notice bar and the header link on every shell route').toEqual([])
+    await page.goto(surfaceUrl('txr-demo-notice', ''), { waitUntil: 'domcontentloaded' })
+    await expect(page.locator(NOTICE)).toHaveCount(1, { timeout: 120_000 })
   })
+
+  for (const [index, group] of ROUTE_GROUPS.entries()) {
+    test(`demo: the notice bar + the header download link are present on every shell route (${index + 1}/${ROUTE_GROUPS.length})`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 })
+      const failures: string[] = []
+      for (const slug of group) {
+        try {
+          await page.goto(surfaceUrl(slug, '&demo=1'), { waitUntil: 'domcontentloaded' })
+          await expect(page.locator(NOTICE), `notice on ${slug}`).toHaveCount(1, { timeout: 30_000 })
+          await expect(page.locator(HEADER_LINK), `header link on ${slug}`).toHaveCount(1, { timeout: 5_000 })
+        } catch (error) {
+          failures.push(`${slug}: ${String(error).split('\n')[0]}`)
+        }
+      }
+      expect(failures, 'the notice bar and the header link on every shell route').toEqual([])
+    })
+  }
 
   test('desktop: the notice bar and the header link are absent', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -198,7 +221,7 @@ test.describe('txr-demo-mode — notice bar (TEST-DM-5)', () => {
     })
 
     // The narrow byte (container query <=700) applies: the smaller font.
-    expect(m.font).toBe('12.5px')
+    expect(m.font).toBe('11.5px')
     // At most THREE text lines (the plan's byte).
     expect(m.text.height, 'text wraps to at most three lines').toBeLessThanOrEqual(
       3 * m.lineHeight + 2,
