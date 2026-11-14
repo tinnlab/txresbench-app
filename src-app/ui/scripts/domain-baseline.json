@@ -1768,6 +1768,13 @@
     }
   },
   "testCode": {
+    "server/tests/demo/mod.rs": {
+      "features": {
+        "count": 1,
+        "finding": "FALSE-POSITIVE",
+        "note": "The ITEM-4 retention integration test builds the saved-model repository's own record (the txr_models.features wire key — the recorded marker-set requirement list of the kept TxResBench saved-model contract; the same kept-vocabulary disposition as the standing model_store admissions and the modules/demo/models.rs one). The 1 testCode hit is the struct-literal field name of the model-store test fixture shape."
+      }
+    },
     "server/tests/domain_surface/mod.rs": {
       "10x": {
         "count": 5,

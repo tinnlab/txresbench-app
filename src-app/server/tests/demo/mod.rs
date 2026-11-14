@@ -1359,3 +1359,341 @@ async fn demo_example_set_is_seeded_from_the_bundle() {
         .unwrap();
     assert_eq!(pred["patients"].as_array().unwrap().len(), 15);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ITEM-4 — the shared-pool retention: the usage counters, the run limit with
+// the pinned example run, the model-set limit with the pinned example set
+// (TEST-DM-4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// ITEM-4: `GET /api/txr/history/usage` in demo mode answers the
+/// shared-pool counters (the plan's shape: runs/run_limit/models/model_limit/
+/// pinned_runs/pinned_models/shared) — the boot-seeded example run is PINNED
+/// and not counted; a visitor run is counted.
+#[tokio::test]
+async fn demo_usage_reports_the_retention_counters() {
+    let server = TestServer::spawn_with(TestOptions { demo: true, ..Default::default() }).await;
+    let (token, _) = mint_demo_session(&server).await;
+
+    let resp = server
+        .client
+        .get(server.api_url("/txr/history/usage"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 200, "usage in demo mode");
+    let usage: Value = resp.json().await.unwrap();
+    assert_eq!(usage["runs"], 0, "no visitor run yet: {usage}");
+    assert_eq!(usage["run_limit"], 50);
+    assert_eq!(usage["models"], 0, "no saves yet: {usage}");
+    assert_eq!(usage["model_limit"], 50);
+    assert!(
+        usage["pinned_runs"].as_u64().unwrap() >= 1,
+        "the boot-seeded example run is pinned: {usage}"
+    );
+    assert_eq!(usage["pinned_models"], 0);
+    assert_eq!(usage["shared"], true, "the shared-pool flag");
+
+    // A visitor run is counted; the pinned side stays.
+    let (patients, measurements, _) = fetch_example_pair(&server, &token).await;
+    let resp = server
+        .client
+        .post(server.api_url("/txr/runs"))
+        .bearer_auth(&token)
+        .json(&train_run_request(&patients, &measurements, &["kelim"], 56.0, 238.0, "pfs"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202, "create a visitor run");
+    let run_id = resp.json::<Value>().await.unwrap()["id"].as_str().unwrap().to_string();
+    wait_run_terminal(&server, &token, &run_id, 20).await;
+    let usage: Value = server
+        .client
+        .get(server.api_url("/txr/history/usage"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(usage["runs"], 1, "the visitor run is counted: {usage}");
+    assert!(usage["pinned_runs"].as_u64().unwrap() >= 1, "{usage}");
+}
+
+/// ITEM-4: with `history_limit` 4, six finished visitor runs leave only the
+/// newest four (the two oldest are evicted — rows gone, dirs pruned), the
+/// boot-seeded PINNED example run survives, and the run list never shows a
+/// gap in the newest side.
+#[tokio::test]
+async fn demo_retention_evicts_the_oldest_runs_beyond_the_limit() {
+    let server = TestServer::spawn_with(TestOptions {
+        demo: true,
+        extra_config_yaml: Some("demo:\n  history_limit: 4\n".to_string()),
+        ..Default::default()
+    })
+    .await;
+    let (token, cookie) = mint_demo_session(&server).await;
+    let (patients, measurements, _) = fetch_example_pair(&server, &token).await;
+
+    let mut created = Vec::new();
+    for i in 0..6 {
+        let resp = server
+            .client
+            .post(server.api_url("/txr/runs"))
+            .bearer_auth(&token)
+            .header("cookie", &cookie)
+            .json(&train_run_request(&patients, &measurements, &["kelim"], 56.0, 238.0, "pfs"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), 202, "create run {i}");
+        let id = resp.json::<Value>().await.unwrap()["id"].as_str().unwrap().to_string();
+        wait_run_terminal(&server, &token, &id, 30).await;
+        created.push(id);
+    }
+
+    // The enforcement runs after the 6th insert (fire-and-forget): wait for
+    // the shared pool to settle at 4 kept visitor runs + the pinned one.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        let runs: Value = server
+            .client
+            .get(server.api_url("/txr/runs"))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let ids: Vec<&str> = runs["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["id"].as_str().unwrap())
+            .collect();
+        if runs["total"].as_u64().unwrap() == 5 {
+            for old in &created[..2] {
+                assert!(!ids.contains(&old.as_str()), "the oldest runs are evicted");
+            }
+            for new in &created[2..] {
+                assert!(ids.contains(&new.as_str()), "the newest runs stay: {new}");
+            }
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the retention did not settle: {runs}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    // The evicted runs are gone through the API: history 404 + the 50-limit
+    // usage counter shows the truth.
+    let resp = server
+        .client
+        .get(server.api_url(&format!("/txr/runs/{}", created[0])))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 404, "the evicted run is gone");
+    let usage: Value = server
+        .client
+        .get(server.api_url("/txr/history/usage"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(usage["runs"], 4, "4 counted runs: {usage}");
+    assert_eq!(usage["run_limit"], 4);
+    assert!(usage["pinned_runs"].as_u64().unwrap() >= 1, "{usage}");
+}
+
+/// ITEM-4: with `model_limit` 2, a demo save + one older set (seeded
+/// through the repository — the save name is minute-generated, so the API
+/// cannot create two sets in one minute) leave the NEWEST non-pinned set and
+/// evict the older one WHOLE (its model too); the PINNED example set (the
+/// `models/example` seeding) survives untouched.
+#[tokio::test]
+async fn demo_retention_evicts_the_oldest_model_sets() {
+    let server = TestServer::spawn_with(TestOptions {
+        demo: true,
+        extra_config_yaml: Some("demo:\n  model_limit: 1\n".to_string()),
+        ..Default::default()
+    })
+    .await;
+    let (token, cookie) = mint_demo_session(&server).await;
+
+    // The pinned example set first (the demo seeds it from the bundle).
+    let resp = server
+        .client
+        .post(server.api_url("/txr/models/example"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 200, "example set");
+    let example_set = resp.json::<Value>().await.unwrap()["set_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // One finished train run to save from.
+    let (patients, measurements, _) = fetch_example_pair(&server, &token).await;
+    let resp = server
+        .client
+        .post(server.api_url("/txr/runs"))
+        .bearer_auth(&token)
+        .header("cookie", &cookie)
+        .json(&train_run_request(&patients, &measurements, &["kelim"], 56.0, 238.0, "pfs"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202);
+    let run_id = resp.json::<Value>().await.unwrap()["id"].as_str().unwrap().to_string();
+    wait_run_terminal(&server, &token, &run_id, 20).await;
+
+    // A demo save: set A (newest). Its generated name is minute-precision.
+    let resp = server
+        .client
+        .post(server.api_url("/txr/models/save"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "run_id": run_id,
+            "method_ids": ["kelim"],
+            "target": {"set_name": "visitor name"},
+            "keep_training_files": false,
+            "also_export": false,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 201, "first save");
+    let set_a = resp.json::<Value>().await.unwrap()["set"]["id"].as_str().unwrap().to_string();
+
+    // An OLDER set (set B) through the repository — backdated, so the
+    // retention's oldest-first rule must evict IT, never the new save.
+    use txresbench::modules::model_store::repository::{ModelStoreRepository, NewModel};
+    let pool = sqlx::SqlitePool::connect(server.database_url()).await.unwrap();
+    let repo = ModelStoreRepository::new(pool.clone());
+    let set_b = repo
+        .insert_set("an older demo set", None, Some("example"), false, None)
+        .await
+        .expect("old set insert");
+    sqlx::query("UPDATE txr_model_sets SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-100000 seconds') WHERE id = ?")
+        .bind(set_b.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let digest = "d".repeat(64);
+    repo.insert_model(&NewModel {
+        set_id: Some(set_b.id),
+        name: "old model".into(),
+        method_id: "kelim".into(),
+        method_version: "1.0.0".into(),
+        group: "kinetics".into(),
+        group_label: "Kinetics".into(),
+        task: Some("pfs".into()),
+        provenance: "run".into(),
+        imported_from: None,
+        pretrained_catalogue_id: None,
+        pretrained_catalogue_version: None,
+        licence: None,
+        tree_sha256: digest.clone(),
+        dir: format!("/nonexistent/trees/{digest}"),
+        size_bytes: 1024,
+        contract: "2.0".into(),
+        env_base_digest: None,
+        env_layer_digest: None,
+        trained_on_patients: Some(94),
+        trained_at: None,
+        decision_day: 56.0,
+        endpoint: "pfs".into(),
+        horizon: 238.0,
+        features: serde_json::json!(["M1", "M2"]),
+        required_markers: None,
+        marker_facts: serde_json::json!({"kind": "single", "count": 3}),
+        covariates: serde_json::json!({"catalogue": "optional", "used": false}),
+        embeds_training_data: false,
+        own_auc: Some(0.71),
+        own_c: None,
+        conversions: serde_json::json!({}),
+    })
+    .await
+    .expect("old model insert");
+
+    // Now 2 counted models > limit 1; the next run insert triggers the
+    // enforcement pass, which must evict the OLDEST set (B) whole.
+    let resp = server
+        .client
+        .post(server.api_url("/txr/runs"))
+        .bearer_auth(&token)
+        .header("cookie", &cookie)
+        .json(&train_run_request(&patients, &measurements, &["kelim"], 56.0, 238.0, "pfs"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202, "trigger run");
+    let trigger_id = resp.json::<Value>().await.unwrap()["id"].as_str().unwrap().to_string();
+    wait_run_terminal(&server, &token, &trigger_id, 20).await;
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        let sets: Value = server
+            .client
+            .get(server.api_url("/txr/model-sets"))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let ids: Vec<&str> = sets["sets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["id"].as_str().unwrap())
+            .collect();
+        if !ids.contains(&set_b.id.to_string().as_str()) && ids.contains(&set_a.as_str())
+            && ids.contains(&example_set.as_str())
+        {
+            assert_eq!(sets["sets"].as_array().unwrap().len(), 2, "{sets}");
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "the retention did not settle: {sets}");
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+
+    // The pinned example set is whole (its one model survived the sweep) and
+    // the counters tell the truth.
+    let models: Value = server
+        .client
+        .get(server.api_url(&format!("/txr/models?set_id={example_set}")))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(models["models"].as_array().unwrap().len(), 1, "the example set is whole");
+    let usage: Value = server
+        .client
+        .get(server.api_url("/txr/history/usage"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(usage["models"], 1, "{usage}");
+    assert_eq!(usage["model_limit"], 1);
+    assert_eq!(usage["pinned_models"], 1, "the example set's model is pinned: {usage}");
+}
