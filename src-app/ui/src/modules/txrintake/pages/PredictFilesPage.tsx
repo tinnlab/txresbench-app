@@ -25,7 +25,9 @@ import { fetchTemplateCsv, downloadText, templateFilename } from '../lib/downloa
 import { ROUTE_CONVENTIONS } from '../module'
 import { TxrFileCard } from '../components/TxrFileCard'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
-import { CLEAR_EXAMPLE_LABEL, EXAMPLE_BANNER } from '../lib/example'
+import { CLEAR_EXAMPLE_LABEL, EXAMPLE_BANNER, runExampleFlow } from '../lib/example'
+import { ExampleFileCard } from '@/modules/demo/components/ExampleFileCard'
+import { useAppMode } from '@/modules/demo'
 import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../types'
 
 /**
@@ -231,6 +233,7 @@ function loadedFrom(
 
 export function PredictFilesPage() {
   const navigate = useNavigate()
+  const { isDemo } = useAppMode()
   const [searchParams] = useSearchParams()
   const file = useStore(useTxrIntakeStore, s => s.predictMeasurements)
   const intent = useStore(useTxrIntakeStore, s => s.intent)
@@ -253,6 +256,34 @@ export function PredictFilesPage() {
   const [cardError, setCardError] = useState<string | null>(null)
   const [validateError, setValidateError] = useState<string | null>(null)
   const [retryTick, setRetryTick] = useState(0)
+
+  // demo-mode ITEM-6 — the audit's /predict-files row: same as /files with
+  // the example prediction table (one card, the drop zone gone). The
+  // example predict table is adopted at mount when the flow has not filled
+  // the slot (a direct visit), then the page's own predict-mode
+  // inspect/validate round runs exactly as for a user drop.
+  const [demoLoading, setDemoLoading] = useState(false)
+  const [demoError, setDemoError] = useState<string | null>(null)
+  const loadDemo = useCallback(async () => {
+    setDemoLoading(true)
+    setDemoError(null)
+    try {
+      await runExampleFlow(intent === 'reuse' ? 'reuse' : 'pretrained')
+    } catch (err) {
+      setDemoError(
+        err instanceof Error ? err.message : 'The example table could not be loaded.',
+      )
+    } finally {
+      setDemoLoading(false)
+    }
+  }, [intent])
+  useEffect(() => {
+    // A failed attempt STAYS failed (the error line + its Retry): without
+    // this the state flips (loading true→false) and the effect re-adopts on
+    // its own — a silent auto-retry loop behind the user's back.
+    if (!isDemo || file !== null || demoLoading || demoError !== null) return
+    void loadDemo()
+  }, [isDemo, file, demoLoading, demoError, loadDemo])
 
   /** One flow at a time (a drop's parse/inspect, or a validation round). */
   const flowBusy = useRef(false)
@@ -482,23 +513,30 @@ export function PredictFilesPage() {
                 gap: 10,
               }}
             >
-              {exampleLoaded ? (
-                <p data-testid="txr-intake-example-loaded" style={{ ...INTRO, margin: 0 }}>
-                  {EXAMPLE_BANNER} —{' '}
-                  <Button
-                    data-testid="txr-intake-clear-example"
-                    variant="link"
-                    style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
-                    onClick={clearExamples}
-                  >
-                    {CLEAR_EXAMPLE_LABEL}
-                  </Button>{' '}
-                  to start with your own.
-                </p>
-              ) : (
-                <span style={INTRO}></span>
+              {/* demo-mode ITEM-6: the example card replaces the drop zone
+                  and picker; the Clear-example + Use-example row is the
+                  desktop byte, hidden here. */}
+              {isDemo ? null : (
+                <>
+                  {exampleLoaded ? (
+                    <p data-testid="txr-intake-example-loaded" style={{ ...INTRO, margin: 0 }}>
+                      {EXAMPLE_BANNER} —{' '}
+                      <Button
+                        data-testid="txr-intake-clear-example"
+                        variant="link"
+                        style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
+                        onClick={clearExamples}
+                      >
+                        {CLEAR_EXAMPLE_LABEL}
+                      </Button>{' '}
+                      to start with your own.
+                    </p>
+                  ) : (
+                    <span style={INTRO}></span>
+                  )}
+                  <TxrUseExampleButton path={intent === 'reuse' ? 'reuse' : 'pretrained'} />
+                </>
               )}
-              <TxrUseExampleButton path={intent === 'reuse' ? 'reuse' : 'pretrained'} />
             </div>
           </div>
         }
@@ -506,24 +544,59 @@ export function PredictFilesPage() {
           <ScrollRegion label="Your file" className="txr-predict-files-region">
             <div className="txr-intake-page-body" style={BODY_CONTENT}>
               <div style={MAIN_COLUMN}>
-                <TxrFileCard
-                  kind="measurements"
-                  mode="predict"
-                  file={file}
-                  busy={busy}
-                  error={cardError}
-                  isExample={exampleSlots.predictMeasurements}
-                  onPick={picked => void handlePick('measurements', picked)}
-                  onRemove={handleRemove}
-                  onAcceptJoin={acceptJoin}
-                  onRejectJoin={rejectJoin}
-                  onAcceptVocab={acceptVocab}
-                  onRejectVocab={rejectVocab}
-                  onAcceptColumn={acceptColumn}
-                  onRejectColumn={rejectColumn}
-                  onDownloadTemplate={() => void downloadCsv('template')}
-                  onDownloadExample={() => void downloadCsv('example')}
-                />
+                {isDemo ? (
+                  <>
+                    {demoError !== null ? (
+                      <div
+                        role="alert"
+                        data-testid="txr-demo-example-error"
+                        style={PAGE_ERROR}
+                      >
+                        {demoError}{' '}
+                        <Button
+                          data-testid="txr-demo-example-retry"
+                          variant="link"
+                          style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
+                          onClick={() => void loadDemo()}
+                        >
+                          Try again
+                        </Button>
+                      </div>
+                    ) : null}
+                    {file === null && demoError === null ? (
+                      <p data-testid="txr-demo-example-loading" style={{ ...INTRO, margin: 0 }}>
+                        Loading the example table…
+                      </p>
+                    ) : (
+                      <ExampleFileCard
+                        kind="predict"
+                        rows={file?.table.rows.length ?? 0}
+                        markers={validation?.markers.map(marker => marker.key) ?? []}
+                        onDownloadTemplate={() => void downloadCsv('template')}
+                        onDownloadExample={() => void downloadCsv('example')}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <TxrFileCard
+                    kind="measurements"
+                    mode="predict"
+                    file={file}
+                    busy={busy}
+                    error={cardError}
+                    isExample={exampleSlots.predictMeasurements}
+                    onPick={picked => void handlePick('measurements', picked)}
+                    onRemove={handleRemove}
+                    onAcceptJoin={acceptJoin}
+                    onRejectJoin={rejectJoin}
+                    onAcceptVocab={acceptVocab}
+                    onRejectVocab={rejectVocab}
+                    onAcceptColumn={acceptColumn}
+                    onRejectColumn={rejectColumn}
+                    onDownloadTemplate={() => void downloadCsv('template')}
+                    onDownloadExample={() => void downloadCsv('example')}
+                  />
+                )}
               </div>
 
               <aside style={ASIDE} data-testid="txr-intake-aside">

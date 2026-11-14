@@ -29,6 +29,7 @@ import type {
 import type { LoadedFile } from '../types'
 import { FilesPage } from './FilesPage'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
+import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 
 // jsdom 25 ships no File.text(); the browser does. The polyfill reads the
 // jsdom impl buffer (Symbol(impl) -> `_buffer`) so the REAL browser decode
@@ -229,6 +230,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  resetDemoMode()
   vi.restoreAllMocks()
 })
 
@@ -577,5 +579,63 @@ describe('ITEM-6 F2/F3/F4/F12 — the mapping step, the no-data-rows gate, the p
     const call = api.inspect.mock.calls[0][0] as FileInspectionRequest
     expect(call.table.columns).toEqual(['patient_id', 'day', 'marker', 'value', 'unit'])
     expect(call.table.rows).toHaveLength(2)
+  })
+})
+
+describe('demo mode (ITEM-6) — the example cards replace the upload surface', () => {
+  it('auto-adopts the example pair; no drop zone, no file input, no Clear example; downloads stay', async () => {
+    seedDemoMode('demo')
+    api.example.mockImplementation(({ kind }: { kind: string }) =>
+      Promise.resolve(kind === 'patients' ? PATIENTS_CSV : MEASUREMENTS_CSV),
+    )
+    api.validate.mockResolvedValue(validationFixture({ problems: [] }))
+    renderFiles()
+
+    await screen.findByTestId('txr-example-card-patients')
+    const patientsCard = screen.getByTestId('txr-example-card-patients')
+    expect(within(patientsCard).getByText('2 rows')).toBeTruthy()
+    expect(within(patientsCard).getByText('Example')).toBeTruthy()
+    expect(within(patientsCard).getByText('Download the template (CSV)')).toBeTruthy()
+    expect(within(patientsCard).getByText('Download the full example (CSV)')).toBeTruthy()
+    const measurementsCard = screen.getByTestId('txr-example-card-measurements')
+    expect(within(measurementsCard).getByText('2 rows · 2 markers: ldh, cea')).toBeTruthy()
+
+    // The upload surface is gone, not merely hidden behind a control.
+    expect(screen.queryByTestId('txr-intake-file-card-patients')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-file-card-measurements')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-file-drop-patients')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-file-drop-measurements')).toBeNull()
+    expect(document.querySelector('input[type=file]')).toBeNull()
+    // No way to empty the only content demo offers.
+    expect(screen.queryByTestId('txr-intake-clear-example')).toBeNull()
+    expect(screen.queryByTestId('txr-use-example-train')).toBeNull()
+
+    // The adopted example runs the page's own inspect/validate round and
+    // the Continue gate opens.
+    await waitFor(() => {
+      expect(api.inspect).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      expect(api.validate).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      expect(continueButton().disabled).toBe(false)
+    })
+  })
+
+  it('a failed example adoption shows the error + retry, and retry recovers', async () => {
+    seedDemoMode('demo')
+    api.example
+      .mockRejectedValueOnce(new Error('no example'))
+      .mockImplementation(({ kind }: { kind: string }) =>
+        Promise.resolve(kind === 'patients' ? PATIENTS_CSV : MEASUREMENTS_CSV),
+      )
+    api.validate.mockResolvedValue(validationFixture({ problems: [] }))
+    renderFiles()
+
+    expect(await screen.findByTestId('txr-demo-example-error')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('txr-demo-example-retry'))
+    await screen.findByTestId('txr-example-card-patients')
+    expect(screen.queryByTestId('txr-demo-example-error')).toBeNull()
   })
 })

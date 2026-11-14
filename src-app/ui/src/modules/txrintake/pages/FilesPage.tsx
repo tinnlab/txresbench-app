@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@txresbench/kit'
@@ -25,7 +25,9 @@ import { fetchTemplateCsv, downloadText, templateFilename } from '../lib/downloa
 import { ROUTE_CONVENTIONS } from '../module'
 import { TxrFileCard } from '../components/TxrFileCard'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
-import { CLEAR_EXAMPLE_LABEL, EXAMPLE_BANNER } from '../lib/example'
+import { CLEAR_EXAMPLE_LABEL, EXAMPLE_BANNER, runExampleFlow } from '../lib/example'
+import { ExampleFileCard } from '@/modules/demo/components/ExampleFileCard'
+import { useAppMode } from '@/modules/demo'
 import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../types'
 
 /**
@@ -161,6 +163,7 @@ function loadedFrom(
 
 export function FilesPage() {
   const navigate = useNavigate()
+  const { isDemo } = useAppMode()
   const patients = useStore(useTxrIntakeStore, s => s.patients)
   const measurements = useStore(useTxrIntakeStore, s => s.measurements)
   const joins = useStore(useTxrIntakeStore, s => s.joins)
@@ -176,6 +179,41 @@ export function FilesPage() {
   const [cardErrors, setCardErrors] = useState<Partial<Record<Slot, string>>>({})
   const [validateError, setValidateError] = useState<string | null>(null)
   const [retryTick, setRetryTick] = useState(0)
+
+  // demo-mode ITEM-6 — the audit's /files row: the drop zone and the picker
+  // are REPLACED by the two example cards, and no upload is possible (the
+  // server's inspect/validate guard admits the example tables only). The
+  // example tables are the page's one content: adopted at mount when the
+  // flow has not filled them yet (a direct /files visit), then the page's
+  // own inspect/validate round runs exactly as for a user drop.
+  const [demoLoading, setDemoLoading] = useState(false)
+  const [demoError, setDemoError] = useState<string | null>(null)
+  const loadDemo = useCallback(async () => {
+    setDemoLoading(true)
+    setDemoError(null)
+    try {
+      await runExampleFlow('train')
+    } catch (err) {
+      setDemoError(
+        err instanceof Error ? err.message : 'The example tables could not be loaded.',
+      )
+    } finally {
+      setDemoLoading(false)
+    }
+  }, [])
+  useEffect(() => {
+    // A failed attempt STAYS failed (the error line + its Retry): without
+    // this the state flips (loading true→false) and the effect re-adopts on
+    // its own — a silent auto-retry loop behind the user's back.
+    if (!isDemo || patients !== null || demoLoading || demoError !== null) return
+    void loadDemo()
+  }, [isDemo, patients, demoLoading, demoError, loadDemo])
+
+  /** The example tables' marker names (the validator's own resolved set). */
+  const measurementMarkers = useMemo(
+    () => (validation?.markers ?? []).map(marker => marker.key),
+    [validation],
+  )
 
   /** One flow at a time (a drop's parse/inspect, or a validation round). */
   const flowBusy = useRef(false)
@@ -422,66 +460,119 @@ export function FilesPage() {
                 gap: 10,
               }}
             >
-              {exampleLoaded ? (
-                <p data-testid="txr-intake-example-loaded" style={{ ...INTRO, margin: 0 }}>
-                  {EXAMPLE_BANNER} —{' '}
-                  <Button
-                    data-testid="txr-intake-clear-example"
-                    variant="link"
-                    style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
-                    onClick={clearExamples}
-                  >
-                    {CLEAR_EXAMPLE_LABEL}
-                  </Button>{' '}
-                  to start with your own.
-                </p>
-              ) : (
-                <span style={INTRO}></span>
+              {/* demo-mode ITEM-6: the example cards replace drop zones and
+                  pickers; "Clear example" (which would empty the only
+                  content demo mode offers) and the Use-example button are
+                  desktop bytes, hidden here. */}
+              {isDemo ? null : (
+                <>
+                  {exampleLoaded ? (
+                    <p data-testid="txr-intake-example-loaded" style={{ ...INTRO, margin: 0 }}>
+                      {EXAMPLE_BANNER} —{' '}
+                      <Button
+                        data-testid="txr-intake-clear-example"
+                        variant="link"
+                        style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
+                        onClick={clearExamples}
+                      >
+                        {CLEAR_EXAMPLE_LABEL}
+                      </Button>{' '}
+                      to start with your own.
+                    </p>
+                  ) : (
+                    <span style={INTRO}></span>
+                  )}
+                  <TxrUseExampleButton path="train" />
+                </>
               )}
-              <TxrUseExampleButton path="train" />
             </div>
           </div>
         }
         body={
           <ScrollRegion label="Your files" className="txr-files-region">
             <div className="txr-intake-page-body" style={REGION_CONTENT}>
-              <TxrFileCard
-                kind="patients"
-                mode="study"
-                file={patients}
-                busy={busySlot === 'patients'}
-                error={cardErrors.patients ?? null}
-                isExample={exampleSlots.patients}
-                onPick={file => void handlePick('patients', file)}
-                onRemove={() => handleRemove('patients')}
-                onAcceptJoin={acceptJoin}
-                onRejectJoin={rejectJoin}
-                onAcceptVocab={acceptVocab}
-                onRejectVocab={rejectVocab}
-                onAcceptColumn={acceptColumn}
-                onRejectColumn={rejectColumn}
-                onDownloadTemplate={() => void downloadCsv('patients', 'template')}
-                onDownloadExample={() => void downloadCsv('patients', 'example')}
-              />
+              {isDemo ? (
+                <>
+                  {demoError !== null ? (
+                    <div
+                      role="alert"
+                      data-testid="txr-demo-example-error"
+                      style={PAGE_ERROR}
+                    >
+                      {demoError}{' '}
+                      <Button
+                        data-testid="txr-demo-example-retry"
+                        variant="link"
+                        style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
+                        onClick={() => void loadDemo()}
+                      >
+                        Try again
+                      </Button>
+                    </div>
+                  ) : null}
+                  {patients === null && demoError === null ? (
+                    <p data-testid="txr-demo-example-loading" style={{ ...INTRO, margin: 0 }}>
+                      Loading the example tables…
+                    </p>
+                  ) : (
+                    <>
+                      <ExampleFileCard
+                        kind="patients"
+                        rows={patients?.table.rows.length ?? 0}
+                        onDownloadTemplate={() => void downloadCsv('patients', 'template')}
+                        onDownloadExample={() => void downloadCsv('patients', 'example')}
+                      />
+                      <ExampleFileCard
+                        kind="measurements"
+                        rows={measurements?.table.rows.length ?? 0}
+                        markers={measurementMarkers}
+                        onDownloadTemplate={() => void downloadCsv('measurements', 'template')}
+                        onDownloadExample={() => void downloadCsv('measurements', 'example')}
+                      />
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <TxrFileCard
+                    kind="patients"
+                    mode="study"
+                    file={patients}
+                    busy={busySlot === 'patients'}
+                    error={cardErrors.patients ?? null}
+                    isExample={exampleSlots.patients}
+                    onPick={file => void handlePick('patients', file)}
+                    onRemove={() => handleRemove('patients')}
+                    onAcceptJoin={acceptJoin}
+                    onRejectJoin={rejectJoin}
+                    onAcceptVocab={acceptVocab}
+                    onRejectVocab={rejectVocab}
+                    onAcceptColumn={acceptColumn}
+                    onRejectColumn={rejectColumn}
+                    onDownloadTemplate={() => void downloadCsv('patients', 'template')}
+                    onDownloadExample={() => void downloadCsv('patients', 'example')}
+                  />
 
-              <TxrFileCard
-                kind="measurements"
-                mode="study"
-                file={measurements}
-                busy={busySlot === 'measurements'}
-                error={cardErrors.measurements ?? null}
-                isExample={exampleSlots.measurements}
-                onPick={file => void handlePick('measurements', file)}
-                onRemove={() => handleRemove('measurements')}
-                onAcceptJoin={acceptJoin}
-                onRejectJoin={rejectJoin}
-                onAcceptVocab={acceptVocab}
-                onRejectVocab={rejectVocab}
-                onAcceptColumn={acceptColumn}
-                onRejectColumn={rejectColumn}
-                onDownloadTemplate={() => void downloadCsv('measurements', 'template')}
-                onDownloadExample={() => void downloadCsv('measurements', 'example')}
-              />
+                  <TxrFileCard
+                    kind="measurements"
+                    mode="study"
+                    file={measurements}
+                    busy={busySlot === 'measurements'}
+                    error={cardErrors.measurements ?? null}
+                    isExample={exampleSlots.measurements}
+                    onPick={file => void handlePick('measurements', file)}
+                    onRemove={() => handleRemove('measurements')}
+                    onAcceptJoin={acceptJoin}
+                    onRejectJoin={rejectJoin}
+                    onAcceptVocab={acceptVocab}
+                    onRejectVocab={rejectVocab}
+                    onAcceptColumn={acceptColumn}
+                    onRejectColumn={rejectColumn}
+                    onDownloadTemplate={() => void downloadCsv('measurements', 'template')}
+                    onDownloadExample={() => void downloadCsv('measurements', 'example')}
+                  />
+                </>
+              )}
             </div>
           </ScrollRegion>
         }

@@ -80,9 +80,12 @@ export interface ExampleFileCardProps {
   markers?: string[]
   /** Optional download affordance (the example table download stays in demo). */
   onDownloadExample?: () => void
+  /** Optional template download (the audit's "template and example downloads
+   *  stay" — the demo card replaces the drop zone, not the downloads). */
+  onDownloadTemplate?: () => void
 }
 
-export function ExampleFileCard({ kind, rows, markers, onDownloadExample }: ExampleFileCardProps) {
+export function ExampleFileCard({ kind, rows, markers, onDownloadExample, onDownloadTemplate }: ExampleFileCardProps) {
   const { ready, isDemo } = useAppMode()
   if (!ready || !isDemo) return null
 
@@ -106,15 +109,29 @@ export function ExampleFileCard({ kind, rows, markers, onDownloadExample }: Exam
       <p data-testid={`txr-example-card-facts-${kind}`} style={FACTS}>
         {facts.join(' · ')}
       </p>
-      {onDownloadExample ? (
-        <Button
-          variant="link"
-          data-testid={`txr-example-card-download-${kind}`}
-          style={{ alignSelf: 'flex-start', padding: 0 }}
-          onClick={onDownloadExample}
-        >
-          Download the full example (CSV)
-        </Button>
+      {onDownloadTemplate !== undefined || onDownloadExample !== undefined ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', alignItems: 'baseline' }}>
+          {onDownloadTemplate !== undefined ? (
+            <Button
+              variant="link"
+              data-testid={`txr-example-card-download-template-${kind}`}
+              style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
+              onClick={onDownloadTemplate}
+            >
+              Download the template (CSV)
+            </Button>
+          ) : null}
+          {onDownloadExample !== undefined ? (
+            <Button
+              variant="link"
+              data-testid={`txr-example-card-download-${kind}`}
+              style={{ padding: 0 }}
+              onClick={onDownloadExample}
+            >
+              Download the full example (CSV)
+            </Button>
+          ) : null}
+        </div>
       ) : null}
     </section>
   )
