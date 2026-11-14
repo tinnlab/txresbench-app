@@ -664,3 +664,698 @@ fn demo_save_request_rewrites_to_a_generated_name() {
     }
     assert_eq!(out.also_export, true);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ITEM-3 — the demo runner (TEST-DM-3): clone + replay, stop/skip/at-a-time/
+// rerun, restart finish, the reuse flow, the model seams, the 400s.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The recorded example pairs the demo accepts (the Q screen's example flow).
+async fn fetch_example_pair(server: &TestServer, token: &str) -> (Value, Value, Value) {
+    let patients = fetch_example(server, token, "patients").await;
+    let measurements = fetch_example(server, token, "measurements").await;
+    let predict = fetch_example(server, token, "predict-measurements").await;
+    (patients, measurements, predict)
+}
+
+/// The recorded train-run request (the recorder's own shape).
+fn train_run_request(
+    patients: &Value,
+    measurements: &Value,
+    method_ids: &[&str],
+    decision_day: f64,
+    look_ahead_day: f64,
+    endpoint: &str,
+) -> Value {
+    serde_json::json!({
+        "mode": "train",
+        "input": {
+            "patients": patients,
+            "measurements": measurements,
+            "predict_measurements": Value::Null,
+            "joins": [],
+            "mapping": [],
+            "keep_copies": true,
+        },
+        "config": {
+            "endpoint": endpoint,
+            "decision_day": decision_day,
+            "look_ahead_day": look_ahead_day,
+            "covariates": false,
+            "at_a_time": 2,
+            "cpus": Value::Null,
+            "save_models": false,
+            "label_day": Value::Null,
+        },
+        "method_ids": method_ids,
+    })
+}
+
+/// Poll one run's detail until `finished`/`failed`/`stopped` (or timeout).
+async fn wait_run_terminal(
+    server: &TestServer,
+    token: &str,
+    run_id: &str,
+    secs: u64,
+) -> Value {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    loop {
+        let resp = server
+            .client
+            .get(server.api_url(&format!("/txr/runs/{run_id}")))
+            .bearer_auth(token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), 200, "run detail");
+        let body: Value = resp.json().await.unwrap();
+        let status = body["status"].as_str().unwrap().to_string();
+        if matches!(status.as_str(), "finished" | "failed" | "stopped") {
+            return body;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "run {run_id} did not turn terminal (still {status})"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+}
+
+/// ITEM-3: the whole demo flow over a demo server with NO registry and NO
+/// bwrap — create a replay run, watch it finish, read the cloned predictions
+/// + CSV + logs, save + resolve the recorded models, run the reuse and read
+/// its cloned results, and exercise the bundle-backed eligibility/estimate.
+#[tokio::test]
+async fn demo_replay_runs_the_whole_flow() {
+    let server = TestServer::spawn_with(TestOptions { demo: true, ..Default::default() }).await;
+    let (token, cookie) = mint_demo_session(&server).await;
+    let (patients, measurements, predict) = fetch_example_pair(&server, &token).await;
+
+    // ── the train replay run ────────────────────────────────────────────────
+    let resp = server
+        .client
+        .post(server.api_url("/txr/runs"))
+        .bearer_auth(&token)
+        .header("cookie", &cookie)
+        .json(&train_run_request(&patients, &measurements, &["kelim"], 56.0, 238.0, "pfs"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202, "create replay run");
+    let created: Value = resp.json().await.unwrap();
+    let run_id = created["id"].as_str().unwrap().to_string();
+    assert_eq!(created["status"], "preparing", "the run starts preparing");
+    assert_eq!(created["counts"]["waiting"], 1);
+    assert_eq!(created["config"]["decision_day"], 56.0);
+
+    // The intermediate state is observable (waiting -> running -> finished).
+    let mut saw_running = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        let resp = server
+            .client
+            .get(server.api_url(&format!("/txr/runs/{run_id}")))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap();
+        let body: Value = resp.json().await.unwrap();
+        if body["status"] == "running" {
+            saw_running = true;
+        }
+        if body["status"] == "finished" {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "replay did not finish in 20s: {}",
+            body["status"]
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    assert!(saw_running, "the replay passes through running");
+
+    let done = wait_run_terminal(&server, &token, &run_id, 20).await;
+    assert_eq!(done["status"], "finished");
+    let method = &done["methods"][0];
+    assert_eq!(method["method_id"], "kelim");
+    assert_eq!(method["state"], "finished");
+    assert_eq!(method["task"], "pfs");
+    assert_eq!(method["prob_source"], "native");
+    assert_eq!(method["coverage"]["scored"], 94);
+    assert_eq!(method["exit_code"], 0);
+    // No environment download, no sandbox: the row never carried manifest
+    // bytes to download and the env facts are the RECORDED digest pins.
+    assert_eq!(method["bytes_total"], Value::Null);
+    assert!(method["elapsed_secs"].as_u64().unwrap() >= 1, "the recorded 12.5 s floor is 1.5 s");
+
+    // The recorded log line streams (the fixture's engine line + the demo's).
+    let logs: Value = server
+        .client
+        .get(server.api_url(&format!("/txr/runs/{run_id}/logs")))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let contents: Vec<&str> = logs["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["content"].as_str().unwrap())
+        .collect();
+    assert!(
+        contents.iter().any(|c| c.contains("started")),
+        "the recorded engine line streams: {contents:?}"
+    );
+    assert!(contents.iter().any(|c| c.contains("run finished")));
+
+    // The cloned predictions equal the bundle's recorded column.
+    let pred: Value = server
+        .client
+        .get(server.api_url(&format!("/txr/runs/{run_id}/predictions")))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(pred["endpoint"], "pfs");
+    assert_eq!(pred["horizon"], 238.0);
+    assert_eq!(pred["patients"].as_array().unwrap().len(), 94);
+    let col = &pred["methods"][0];
+    assert_eq!(col["method_id"], "kelim");
+    assert_eq!(col["probabilities"][0], 0.5);
+    assert_eq!(col["coverage"]["scored"], 94);
+
+    // The CSV download works (409-free, per-patient rows).
+    let csv = server
+        .client
+        .get(server.api_url(&format!("/txr/runs/{run_id}/predictions.csv")))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(csv.status().as_u16(), 200, "predictions CSV download");
+    let csv_text = csv.text().await.unwrap();
+    assert!(csv_text.starts_with("patient_id,"), "{csv_text}");
+    assert_eq!(csv_text.lines().count(), 95, "header + 94 patients");
+
+    // ── save + resolve: records pointing at the bundle's model metadata ────
+    let saved: Value = server
+        .client
+        .post(server.api_url("/txr/models/save"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "run_id": run_id,
+            "method_ids": ["kelim"],
+            "target": {"set_name": "ignored visitor name"},
+            "keep_training_files": false,
+            "also_export": true,
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(saved["set"]["name"].as_str().unwrap().starts_with("Demo models "), "{saved}");
+    assert_eq!(saved["models"][0]["method_id"], "kelim");
+    assert_eq!(saved["models"][0]["size_bytes"], 1024, "the recorded size");
+    assert!(saved.get("export").is_none(), "export is off in the demo");
+    let model_id = saved["models"][0]["id"].as_str().unwrap().to_string();
+
+    let resolved: Value = server
+        .client
+        .post(server.api_url("/txr/models/resolve"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({ "model_ids": [model_id] }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(resolved["assets"][0]["method_id"], "kelim", "{resolved}");
+
+    // ── the reuse replay run (cloned reuse results) ────────────────────────
+    let reuse_req = serde_json::json!({
+        "mode": "reuse",
+        "input": {
+            "patients": Value::Null,
+            "measurements": predict,
+            "predict_measurements": predict,
+            "joins": [],
+            "mapping": [],
+            "keep_copies": true,
+        },
+        "config": {
+            "endpoint": "pfs",
+            "decision_day": 56.0,
+            "look_ahead_day": 238.0,
+            "covariates": false,
+            "at_a_time": 2,
+            "cpus": Value::Null,
+            "save_models": false,
+            "label_day": Value::Null,
+        },
+        "model_ids": resolved["assets"],
+    });
+    let resp = server
+        .client
+        .post(server.api_url("/txr/runs"))
+        .bearer_auth(&token)
+        .header("cookie", &cookie)
+        .json(&reuse_req)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202, "create reuse replay");
+    let reuse_id = resp.json::<Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let reuse_done = wait_run_terminal(&server, &token, &reuse_id, 20).await;
+    assert_eq!(reuse_done["status"], "finished");
+    assert_eq!(reuse_done["mode"], "reuse");
+    let reuse_pred: Value = server
+        .client
+        .get(server.api_url(&format!("/txr/runs/{reuse_id}/predictions")))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(reuse_pred["patients"].as_array().unwrap().len(), 15, "the reuse cohort");
+    assert_eq!(reuse_pred["methods"][0]["probabilities"][0], 0.5);
+    // The reuse method row carries the SAVED MODEL id + the catalogue label.
+    assert_ne!(
+        reuse_done["methods"][0]["method_id"],
+        "kelim",
+        "a reuse row's id is the model's, the label the catalogue's"
+    );
+    assert_eq!(reuse_done["methods"][0]["label"], "kelim");
+
+    // ── eligibility + estimate: the bundle answers ─────────────────────────
+    let elig: Value = server
+        .client
+        .post(server.api_url("/methods/eligibility"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "inventory": {
+                "patients": 94,
+                "decision_day": 56,
+                "baseline_max_day": 0,
+                "markers": [],
+                "covariates": [],
+                "outcomes": {"has_responder": true, "has_response_day": true, "has_event": true, "has_survival_day": true},
+            }
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let kelim = elig["methods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"] == "kelim")
+        .expect("kelim verdict");
+    assert_eq!(kelim["status"], "can_run");
+    assert_eq!(kelim["estimated_seconds"], 1.5, "12.5 s / 10 floored at 1.5");
+    assert!(elig["total_cannot"].as_u64().unwrap() > 100, "the rest is cannot_run");
+
+    let est: Value = server
+        .client
+        .post(server.api_url("/methods/estimate"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "method_ids": ["kelim"],
+            "patients": 94,
+            "at_a_time": 2,
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(est["methods"][0]["id"], "kelim");
+    assert_eq!(est["methods"][0]["estimated_seconds"], 1.5);
+    assert_eq!(est["methods"][0]["estimate_quality"], "measured");
+
+    // ── rerun replays again ────────────────────────────────────────────────
+    let resp = server
+        .client
+        .post(server.api_url(&format!("/txr/runs/{run_id}/rerun")))
+        .bearer_auth(&token)
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202, "rerun replay");
+    let rerun_id = resp.json::<Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let rerun = wait_run_terminal(&server, &token, &rerun_id, 20).await;
+    assert_eq!(rerun["status"], "finished");
+}
+
+/// ITEM-3: method / configuration / table outside the bundle are refused
+/// (400 for the unrecorded, 403 DEMO_MODE for a table that is not the
+/// example).
+#[tokio::test]
+async fn demo_replay_refuses_outside_the_bundle() {
+    let server = TestServer::spawn_with(TestOptions { demo: true, ..Default::default() }).await;
+    let (token, _) = mint_demo_session(&server).await;
+    let (patients, measurements, _) = fetch_example_pair(&server, &token).await;
+
+    // An unrecorded METHOD is a plain 400.
+    let resp = server
+        .client
+        .post(server.api_url("/txr/runs"))
+        .bearer_auth(&token)
+        .json(&train_run_request(&patients, &measurements, &["landmark-cox-current"], 56.0, 238.0, "pfs"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 400, "unrecorded method refused");
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["error_code"], "DEMO_UNRECORDED");
+    assert!(body["error"].to_string().contains("no recorded results"));
+
+    // An unrecorded CONFIGURATION is a plain 400.
+    let resp = server
+        .client
+        .post(server.api_url("/txr/runs"))
+        .bearer_auth(&token)
+        .json(&train_run_request(&patients, &measurements, &["kelim"], 90.0, 238.0, "pfs"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 400, "unrecorded configuration refused");
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["error_code"], "DEMO_CONFIG_UNRECORDED");
+
+    // A NON-example table is 403 DEMO_MODE (the class of the inspect/validate
+    // guard).
+    let mut changed = measurements.clone();
+    changed["rows"][0][1] = serde_json::json!("9999");
+    let resp = server
+        .client
+        .post(server.api_url("/txr/runs"))
+        .bearer_auth(&token)
+        .json(&train_run_request(&patients, &changed, &["kelim"], 56.0, 238.0, "pfs"))
+        .send()
+        .await
+        .unwrap();
+    assert_demo_403(resp, "run with a non-example table").await;
+}
+
+/// ITEM-3: stop/skip act on the replay — the run stops, the stopped method
+/// stays stopped, and a skipping a waiting method turns it skipped.
+#[tokio::test]
+async fn demo_replay_stop_and_skip_act_on_the_replay() {
+    let server = TestServer::spawn_with(TestOptions {
+        demo: true,
+        // One slow replay so the controls land while the run is live.
+        extra_config_yaml: Some("demo:\n  replay_speed: 1.0\n".to_string()),
+        ..Default::default()
+    })
+    .await;
+    let (token, cookie) = mint_demo_session(&server).await;
+    let (patients, measurements, _) = fetch_example_pair(&server, &token).await;
+
+    // Create; the replay takes ~14 s (12.5 s at 1x); stop it after ~1.5 s.
+    let resp = server
+        .client
+        .post(server.api_url("/txr/runs"))
+        .bearer_auth(&token)
+        .header("cookie", &cookie)
+        .json(&train_run_request(&patients, &measurements, &["kelim"], 56.0, 238.0, "pfs"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202, "create slow replay");
+    let run_id = resp.json::<Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
+    let resp = server
+        .client
+        .post(server.api_url(&format!("/txr/runs/{run_id}/stop")))
+        .bearer_auth(&token)
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202, "stop the replay");
+    let stopped = wait_run_terminal(&server, &token, &run_id, 20).await;
+    assert_eq!(stopped["status"], "stopped");
+    let method = &stopped["methods"][0];
+    assert_eq!(method["state"], "stopped", "a stopped method stays stopped");
+    assert_eq!(method["reason"]["code"], "ABORTED");
+    // The user's stop line.
+    let logs: Value = server
+        .client
+        .get(server.api_url(&format!("/txr/runs/{run_id}/logs")))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(logs["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|l| l["content"] == "stopped by the user"));
+    // A stopped run is idempotent + never resumes.
+    let resp = server
+        .client
+        .post(server.api_url(&format!("/txr/runs/{run_id}/stop")))
+        .bearer_auth(&token)
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202, "stopped stop is idempotent");
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let again = wait_run_terminal(&server, &token, &run_id, 5).await;
+    assert_eq!(again["status"], "stopped", "never resumes after stop");
+
+    // ── skip: a waiting method becomes skipped, the run finishes ───────────
+    let resp = server
+        .client
+        .post(server.api_url("/txr/runs"))
+        .bearer_auth(&token)
+        .header("cookie", &cookie)
+        .json(&train_run_request(&patients, &measurements, &["kelim"], 56.0, 238.0, "pfs"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202, "create second replay");
+    let run2 = resp.json::<Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // Skip within the waiting lead (the run is created in preparing and the
+    // method waits 0.4 + 0.3 s before running).
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let resp = server
+        .client
+        .post(server.api_url(&format!("/txr/runs/{run2}/methods/kelim/skip")))
+        .bearer_auth(&token)
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202, "skip the waiting method");
+    let skipped = wait_run_terminal(&server, &token, &run2, 20).await;
+    assert_eq!(skipped["status"], "finished");
+    assert_eq!(skipped["methods"][0]["state"], "skipped");
+    assert!(skipped["methods"][0]["prob_source"].is_null(), "a skipped method has no column");
+    assert_eq!(skipped["counts"]["skipped"], 1);
+    assert_eq!(skipped["counts"]["finished"], 0);
+    // A run with nothing finished has no predictions (honest 409).
+    let resp = server
+        .client
+        .get(server.api_url(&format!("/txr/runs/{run2}/predictions")))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 409, "no predictions for a skipped-only run");
+
+    // ── stop ONE method: the method stops + ABORTED, the run keeps going ────
+    let resp = server
+        .client
+        .post(server.api_url("/txr/runs"))
+        .bearer_auth(&token)
+        .header("cookie", &cookie)
+        .json(&train_run_request(&patients, &measurements, &["kelim"], 56.0, 238.0, "pfs"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202, "create third replay");
+    let run3 = resp.json::<Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // Wait for the method to turn running, then stop it mid-window.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        let detail: Value = server
+            .client
+            .get(server.api_url(&format!("/txr/runs/{run3}")))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if detail["methods"][0]["state"] == "running" {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the method never ran: {detail}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let resp = server
+        .client
+        .post(server.api_url(&format!("/txr/runs/{run3}/methods/kelim/stop")))
+        .bearer_auth(&token)
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202, "stop one method");
+    let stopped3 = wait_run_terminal(&server, &token, &run3, 20).await;
+    assert_eq!(
+        stopped3["status"], "finished",
+        "the run finishes with the stopped method"
+    );
+    assert_eq!(stopped3["methods"][0]["state"], "stopped");
+    assert_eq!(stopped3["methods"][0]["reason"]["code"], "ABORTED");
+    assert_eq!(stopped3["counts"]["stopped"], 1);
+    assert_eq!(stopped3["counts"]["finished"], 0);
+    let resp = server
+        .client
+        .get(server.api_url(&format!("/txr/runs/{run3}/predictions")))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 409, "no predictions for a stop-only run");
+}
+
+/// ITEM-3: the example set is seeded from the bundle (no training run, no
+/// sandbox); a reuse of it clones the bundle's reuse results.
+#[tokio::test]
+async fn demo_example_set_is_seeded_from_the_bundle() {
+    let server = TestServer::spawn_with(TestOptions { demo: true, ..Default::default() }).await;
+    let (token, _) = mint_demo_session(&server).await;
+    let (_, _, predict) = fetch_example_pair(&server, &token).await;
+
+    let resp = server
+        .client
+        .post(server.api_url("/txr/models/example"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 200, "example set");
+    let example: Value = resp.json().await.unwrap();
+    assert_eq!(example["state"], "ready", "{example}");
+    let set_id = example["set_id"].as_str().unwrap().to_string();
+
+    // The set lists the recorded model.
+    let models: Value = server
+        .client
+        .get(server.api_url(&format!("/txr/models?set_id={set_id}")))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(models["models"].as_array().unwrap().len(), 1);
+    let model_id = models["models"][0]["id"].as_str().unwrap().to_string();
+
+    let resolved: Value = server
+        .client
+        .post(server.api_url("/txr/models/resolve"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({ "model_ids": [model_id] }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(resolved["assets"][0]["method_id"], "kelim");
+
+    // The reuse replay of the example set on the example predict file.
+    let resp = server
+        .client
+        .post(server.api_url("/txr/runs"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "mode": "reuse",
+            "input": {
+                "patients": Value::Null,
+                "measurements": predict,
+                "predict_measurements": predict,
+                "joins": [],
+                "mapping": [],
+                "keep_copies": true,
+            },
+            "config": {
+                "endpoint": "pfs",
+                "decision_day": 56.0,
+                "look_ahead_day": 238.0,
+                "covariates": false,
+                "at_a_time": 2,
+                "cpus": Value::Null,
+                "save_models": false,
+                "label_day": Value::Null,
+            },
+            "model_ids": resolved["assets"],
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 202, "reuse of the example set");
+    let reuse_id = resp.json::<Value>().await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let done = wait_run_terminal(&server, &token, &reuse_id, 20).await;
+    assert_eq!(done["status"], "finished");
+    let pred: Value = server
+        .client
+        .get(server.api_url(&format!("/txr/runs/{reuse_id}/predictions")))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(pred["patients"].as_array().unwrap().len(), 15);
+}

@@ -1012,18 +1012,36 @@ async fn drive_replay(
         }
         match ctl.phase(&step.method_id) {
             PHASE_STOPPED => {
-                apply_stop_transitions(&repo, run_id, &ctl).await;
-                runtime.close_run(run_id);
-                unregister_replay(run_id);
-                return;
+                // A per-method stop (the engine's typing: the run keeps the
+                // other methods; a RUN stop travels the watch channel).
+                patch_step_stopped(&repo, run_id, &step.method_id).await;
+                i += 1;
+                continue 'steps;
             }
             PHASE_SKIPPED => {
+                patch_step_skipped(&repo, run_id, &step.method_id).await;
                 i += 1;
                 continue 'steps;
             }
             _ => {}
         }
         ctl.set_phase(&step.method_id, PHASE_RUNNING);
+        // A skip/stop can land between the check above and this flip; the
+        // flip must not swallow it — the row was already written by the
+        // requesting arm, so the phase map is the authority.
+        match ctl.phase(&step.method_id) {
+            PHASE_SKIPPED => {
+                patch_step_skipped(&repo, run_id, &step.method_id).await;
+                i += 1;
+                continue 'steps;
+            }
+            PHASE_STOPPED => {
+                patch_step_stopped(&repo, run_id, &step.method_id).await;
+                i += 1;
+                continue 'steps;
+            }
+            _ => {}
+        }
         let started_at = Utc::now();
         if let Err(e) = patch_step_running(&repo, run_id, step, started_at).await {
             fail(&repo, run_id, e.to_string()).await;
@@ -1066,10 +1084,14 @@ async fn drive_replay(
                 return;
             }
             if ctl.phase(&step.method_id) == PHASE_STOPPED {
-                apply_stop_transitions(&repo, run_id, &ctl).await;
-                runtime.close_run(run_id);
-                unregister_replay(run_id);
-                return;
+                // A per-method stop: leave the window, the finish fence
+                // below writes the stopped row and the run keeps going.
+                break;
+            }
+            if ctl.phase(&step.method_id) == PHASE_SKIPPED {
+                patch_step_skipped(&repo, run_id, &step.method_id).await;
+                i += 1;
+                continue 'steps;
             }
             // The phase beats (the F screen's phase column: env/fit/predict).
             let phase = match b {
@@ -1113,35 +1135,11 @@ async fn drive_replay(
             }
         }
 
-        // The finish: if a concurrent stop reached the method, it stays
+        // The finish: if a per-method stop reached the method, it stays
         // stopped (the plan's "a stopped method stays stopped"); the run
         // keeps going with its other methods.
         if ctl.phase(&step.method_id) == PHASE_STOPPED {
-            let finished_at = Utc::now();
-            let _ = repo
-                .patch_method(
-                    run_id,
-                    &step.method_id,
-                    &MethodPatch {
-                        state: Some(TxrMethodState::Stopped),
-                        reason: Some(TxrRunReason::from_engine(
-                            EngineReasonCode::Aborted,
-                            "stopped by the user",
-                        )),
-                        finished_at: Some(finished_at),
-                        ..Default::default()
-                    },
-                )
-                .await;
-            let _ = repo
-                .append_log(
-                    run_id,
-                    Some(&step.method_id),
-                    TxrLogStream::Engine,
-                    "stopped by the user",
-                )
-                .await;
-            let _ = repo.update_run_counts(run_id, &repo.method_counts(run_id).await.unwrap_or_else(|_| empty_counts())).await;
+            patch_step_stopped(&repo, run_id, &step.method_id).await;
             ctl.set_phase(&step.method_id, PHASE_STOPPED);
             i += 1;
             continue 'steps;
@@ -1314,6 +1312,53 @@ async fn patch_step_finished(
     .await?;
     let counts = repo.method_counts(run_id).await?;
     repo.update_run_counts(run_id, &counts).await
+}
+
+/// The "method skipped" patch (row + counts). Idempotent: the skip arm
+/// writes it at request time (so the UI sees it at once) and the driving
+/// task re-writes it at the next beat boundary (so a skip that landed in
+/// the in-memory phase window still lands in the DB).
+async fn patch_step_skipped(repo: &TxrRepository, run_id: Uuid, method_id: &str) {
+    let _ = repo
+        .patch_method(
+            run_id,
+            method_id,
+            &MethodPatch {
+                state: Some(TxrMethodState::Skipped),
+                finished_at: Some(Utc::now()),
+                ..Default::default()
+            },
+        )
+        .await;
+    let counts = repo.method_counts(run_id).await.unwrap_or_else(|_| empty_counts());
+    let _ = repo.update_run_counts(run_id, &counts).await;
+}
+
+/// The "method stopped" patch (row + counts + the user line) — the ENGINE's
+/// per-method stop typing: waiting/running → stopped + ABORTED, the run
+/// keeps its other methods' results (a run-level stop is the watch channel,
+/// `apply_stop_transitions`).
+async fn patch_step_stopped(repo: &TxrRepository, run_id: Uuid, method_id: &str) {
+    let _ = repo
+        .patch_method(
+            run_id,
+            method_id,
+            &MethodPatch {
+                state: Some(TxrMethodState::Stopped),
+                reason: Some(TxrRunReason::from_engine(
+                    EngineReasonCode::Aborted,
+                    "stopped by the user",
+                )),
+                finished_at: Some(Utc::now()),
+                ..Default::default()
+            },
+        )
+        .await;
+    let counts = repo.method_counts(run_id).await.unwrap_or_else(|_| empty_counts());
+    let _ = repo.update_run_counts(run_id, &counts).await;
+    let _ = repo
+        .append_log(run_id, Some(method_id), TxrLogStream::Engine, "stopped by the user")
+        .await;
 }
 
 fn method_frame_of(step: &ReplayStep, state: TxrMethodState) -> TxrRunMethodFrame {
@@ -1490,6 +1535,9 @@ pub async fn stop_replay_method(
     .await?;
     let counts = repo.method_counts(run_id).await?;
     repo.update_run_counts(run_id, &counts).await?;
+    let _ = repo
+        .append_log(run_id, Some(method_id), TxrLogStream::Engine, "stopped by the user")
+        .await;
     Ok(())
 }
 
@@ -1522,6 +1570,7 @@ pub async fn skip_replay_method(
     }
     if let Some(ctl) = replay_for(run_id) {
         ctl.set_phase(method_id, PHASE_SKIPPED);
+        patch_step_skipped(&repo, run_id, method_id).await;
         return Ok(());
     }
     repo.patch_method(
@@ -1917,5 +1966,150 @@ mod tests {
         let err = prepare_steps(&bundle, &outside, config).expect_err("unrecorded method refused");
         assert_eq!(err.status_code(), 400);
         assert!(err.to_string().contains("no recorded results"), "{}", err);
+    }
+
+    /// The restart rule: an interrupted demo run (a live row + marker) is
+    /// FINISHED by the boot sweep in one pass from the recorded facts — a
+    /// waiting method gets the bundle's column + model facts and the run
+    /// turns `finished` (the recorded seconds are known, so "resumes" is a
+    /// fast-forward). A live non-demo run is left to the engine's reconcile.
+    #[tokio::test]
+    async fn boot_sweep_finishes_an_interrupted_replay() {
+        use crate::modules::execution_engine::types::TxrRunFileNames;
+
+        let root = std::env::temp_dir().join(format!("demo-replay-boot-sweep-{}", Uuid::new_v4()));
+        let demo_dir = root.join("demo-run");
+        let plain_dir = root.join("plain-run");
+        std::fs::create_dir_all(&demo_dir).unwrap();
+        std::fs::create_dir_all(&plain_dir).unwrap();
+        let db_path = root.join("txr.sqlite");
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&db_path)
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("test sqlite connects");
+        static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations-merged");
+        MIGRATOR
+            .run(&pool)
+            .await
+            .expect("merged migrations apply");
+
+        let bundle = test_bundle();
+        let repo = TxrRepository::new(pool.clone());
+        let summary = || TxrRunInputSummary {
+            patients: Some(94),
+            predict_patients: Some(15),
+            markers: 3,
+            events: Some(630),
+            file_names: TxrRunFileNames {
+                patients: Some("patients.csv".into()),
+                measurements: "measurements.csv".into(),
+                predict_measurements: Some("predict.csv".into()),
+            },
+        };
+
+        // The interrupted demo run: one method still waiting.
+        let run_id = Uuid::new_v4();
+        repo.insert_run(&NewRun {
+            id: run_id,
+            created_at: None,
+            status: TxrRunStatus::Running,
+            mode: TxrRunMode::Train,
+            config: RunConfig::default(),
+            input_summary: summary(),
+            model_ids: vec![],
+            method_count: 1,
+            counts: empty_counts(),
+            dir: demo_dir.display().to_string(),
+            memory_total_bytes: None,
+            cpus: None,
+            seed: 1,
+            estimate: None,
+        })
+        .await
+        .unwrap();
+        repo.insert_method(&NewMethod {
+            id: Uuid::new_v4(),
+            run_id,
+            method_id: "kelim".into(),
+            label: "kelim".into(),
+            version: "1.0.0".into(),
+            group: "kinetics".into(),
+            state: TxrMethodState::Waiting,
+            bytes_total: Some(1024),
+        })
+        .await
+        .unwrap();
+        write_marker(
+            &demo_dir,
+            &ReplayMarker {
+                format: REPLAY_FORMAT_TAG.to_string(),
+                version: REPLAY_VERSION,
+                run_id,
+                configuration_id: "pfs_d56_h238".to_string(),
+                mode: TxrRunMode::Train,
+            },
+        )
+        .unwrap();
+
+        // A live NON-demo run (no marker): the engine's reconcile owns it.
+        let plain_id = Uuid::new_v4();
+        repo.insert_run(&NewRun {
+            id: plain_id,
+            created_at: None,
+            status: TxrRunStatus::Preparing,
+            mode: TxrRunMode::Train,
+            config: RunConfig::default(),
+            input_summary: summary(),
+            model_ids: vec![],
+            method_count: 1,
+            counts: empty_counts(),
+            dir: plain_dir.display().to_string(),
+            memory_total_bytes: None,
+            cpus: None,
+            seed: 1,
+            estimate: None,
+        })
+        .await
+        .unwrap();
+
+        let runtime = Arc::new(RunRuntime::new());
+        let n = finish_interrupted_replays(&pool, &runtime, Some(&bundle), 2.0)
+            .await
+            .expect("the sweep runs");
+        assert_eq!(n, 1, "only the demo run is swept");
+
+        let run = repo.get_run(run_id).await.unwrap().expect("demo run still there");
+        assert_eq!(run.status().unwrap(), TxrRunStatus::Finished);
+        assert!(run.predictions_ready, "the finished fast-forward has predictions");
+        let method = repo.get_method(run_id, "kelim").await.unwrap().unwrap();
+        assert_eq!(method.state().unwrap(), TxrMethodState::Finished);
+        assert_eq!(method.task.as_deref(), Some("pfs"));
+        assert_eq!(method.prob_source.as_deref(), Some("native"));
+        assert_eq!(method.coverage_scored, Some(94));
+        assert_eq!(method.coverage_eligible, Some(94));
+        assert_eq!(method.trained_on_patients, Some(94));
+        assert_eq!(method.model_dir, None, "no model tree in the fixture run dir");
+        let counts = repo.method_counts(run_id).await.unwrap();
+        assert_eq!(counts.finished, 1);
+        assert_eq!(counts.waiting, 0);
+        let logs = repo.logs_tail(run_id, 5).await.unwrap();
+        assert!(
+            logs.iter().any(|l| l.content.contains("finished on restart")),
+            "the fast-forward leaves its log line"
+        );
+
+        let plain = repo.get_run(plain_id).await.unwrap().unwrap();
+        assert_eq!(
+            plain.status().unwrap(),
+            TxrRunStatus::Preparing,
+            "a non-demo live run is never touched by the demo sweep"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
     }
 }
