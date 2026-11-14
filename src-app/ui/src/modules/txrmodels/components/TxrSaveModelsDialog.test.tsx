@@ -293,4 +293,20 @@ describe('TxrSaveModelsDialog qa-fixes ITEM-4 (RES-13/14/15)', () => {
     await waitFor(() => expect(screen.getByTestId('txr-models-save-body')).toBeDefined())
     expect(screen.queryByTestId('txr-models-save-trained-on')).toBeNull()
   })
+
+  // qa-fixes4 ITEM-6 (results-r3 R3-results-12): the board's inline pair —
+  // ONE paragraph with the bold lead in the body, never two labelled lines
+  // whose colons sit alone ("What is saved:" on a line of its own).
+  it('reads the What is saved / Not saved pair as one board paragraph', async () => {
+    renderDialog()
+    await waitFor(() => expect(screen.getByTestId('txr-models-save-body')).toBeDefined())
+    const ruled = screen.getByTestId('txr-models-save-ruled')
+    expect(ruled.textContent).toBe(
+      "What is saved: each trained model, its settings, the markers and units it needs, and how it did on your data. Not saved: your patients' tables.",
+    )
+    // The bold leads are IN the body — no element holds a colon alone.
+    expect(ruled.querySelectorAll('b')).toHaveLength(2)
+    expect(ruled.querySelectorAll('b')[0].textContent).toBe('What is saved:')
+    expect(ruled.querySelectorAll('b')[1].textContent).toBe('Not saved:')
+  })
 })

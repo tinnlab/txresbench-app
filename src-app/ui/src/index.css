@@ -139,6 +139,17 @@ html.dark .os-theme-dark {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
 }
 
+/* qa-fixes4 ITEM-6 (results-r3 R3-results-12): the dialog title is the
+ * page-heading face. The kit Dialog renders its title in the body face
+ * (Source Sans), while every page heading is the serif — the save dialog
+ * title sat beside serif section heads in a different family (the report's
+ * f5-dlg2). The slot selector is the shadcn DialogTitle's own data-slot
+ * (`sdk/packages/kit/src/shadcn/dialog.tsx`); the dialog body text stays
+ * Source Sans (the board's own body). */
+[data-slot='dialog-title'] {
+  font-family: 'Source Serif 4', Georgia, serif;
+}
+
 /* app-shell ITEM-1 (DEC-1/DEC-2): the shell's TWO modes by window size.
  * The document rules follow the `txr-shell-mode-*` class the AppShell puts
  * on <html> — the same media expression the shell's own hook follows
@@ -405,6 +416,29 @@ html.txr-shell-mode-shell #root {
   }
   .txr-results-filter {
     flex: 1 1 100%;
+  }
+  /* qa-fixes4 ITEM-6 (results-r3 R3-results-11): the heatmap/bars card is
+   * the board's own overflow-x container. The phone (flow mode) lets the
+   * document flow and the region's box clips at the card's edge — the
+   * report's chance value cut to "8" and the method headers wrapped
+   * mid-word. Below 640 px the card scrolls sideways inside itself (the J
+   * table precedent — the R2-03 "table without a value column" and the
+   * one-method tab keep the same box), so nothing is cut without a
+   * scrollport. The sticky patient column sticks to this box; the desktop
+   * and shell-mode layouts keep the region as the scrollport. */
+  .txr-results-table-box {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  /* qa-fixes4 ITEM-6 (results-r3 R3-results-11): the outcome and method
+   * tab strips wrap below 640 px instead of clipping at the viewport edge
+   * (the report's "tab strip truncated" — the strips' native carousel
+   * reaches the right-hand tabs only by swiping, a no-cue affordance).
+   * Wrapped rows show every tab; the pill triggers ride their own row and
+   * the strip's overflow-x stays as the safety for a label longer than the
+   * page. */
+  .txr-results-page [data-slot='tabs-list'] {
+    flex-wrap: wrap;
   }
 }
 

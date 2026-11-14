@@ -533,7 +533,7 @@ export function ModelsPage() {
                         {trainedOn}
                       </span>
                     </td>
-                    <td data-label="Made" style={lastTd}>{formatMade(model.created_at, model.provenance)}</td>
+                    <td data-label="Made" style={{ ...lastTd, whiteSpace: 'nowrap' }}>{formatMade(model.created_at, model.provenance)}</td>
                     <td
                       data-label="Actions"
                       style={{

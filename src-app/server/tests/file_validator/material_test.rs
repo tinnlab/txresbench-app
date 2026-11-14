@@ -232,10 +232,12 @@ fn generator_fixture_parity_and_committed_example_are_synthetic_only() {
         }
     }
 
-    // The committed example parses + validates with ZERO ERRORS — the two
-    // A04 warnings per example marker (unit `a.u.`: the classifier's honest
-    // no-scale-assumption verdict, DEC-10) are the expected ones,
-    // counted by name (DRIFT-1 ITEM-5 unresolved #3).
+    // The committed example parses + validates with ZERO ERRORS and ZERO
+    // warnings: the unit `a.u.` is the example family's own dimensionless
+    // scale (ITEM-6/G6 — the classifier knows it: a ratio family, never
+    // "not a unit we recognise"), so the old three per-marker A04 notes
+    // (M1/M2/M3) are gone; the code disclosure is the UI's list chrome,
+    // not a problem. Counted by name (DRIFT-1 ITEM-5 unresolved #3).
     let request = json!({
         "mode": "files",
         "patients": csv_to_table("patients.csv", &repo.join("data/file-validator/examples/patients.csv")),
@@ -261,14 +263,13 @@ fn generator_fixture_parity_and_committed_example_are_synthetic_only() {
     assert!(errors.is_empty(), "the example has no errors: {errors:?}");
     assert_eq!(
         warnings.len(),
-        3,
-        "the three no-scale-assumption warnings (M1/M2/M3, a.u.): {warnings:?}"
+        0,
+        "the example carries no warning notes (a.u. is a known ratio family): {warnings:?}"
     );
-    assert!(warnings.iter().all(|p| p.code.code() == "A04"));
 
     // The predict table validates in the measurements-only (`predict`) mode
-    // with the same zero errors + the per-marker A04 notes (TEST-QF3-1: the
-    // example family passes the validator with at most the normal notes).
+    // with the same zero errors + zero notes (TEST-QF3-1: the example
+    // family passes the validator clean).
     let predict_request = json!({
         "mode": "predict",
         "measurements": csv_to_table("predict-measurements.csv", &repo.join("data/file-validator/examples/predict-measurements.csv")),
@@ -293,8 +294,8 @@ fn generator_fixture_parity_and_committed_example_are_synthetic_only() {
     assert!(predict_errors.is_empty(), "the predict example has no errors: {predict_errors:?}");
     assert_eq!(
         predict_warnings.len(),
-        3,
-        "the same three per-marker A04 notes: {predict_warnings:?}"
+        0,
+        "the predict example carries no notes: {predict_warnings:?}"
     );
 }
 

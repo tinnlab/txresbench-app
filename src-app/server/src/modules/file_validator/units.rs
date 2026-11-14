@@ -58,6 +58,11 @@ const DETECTION_SPELLINGS: &[&str] = &[
     "det",
     "pos",
     "neg",
+    // ITEM-6 (G6, help-r2 R2-G6): a `__detected` call column's 0/1 unit —
+    // the deposit's binary presence flag (the old example's
+    // "ctDNA_mean_MTM_per_ml__detected" carried unit '0/1').
+    "0/1",
+    "1/0",
 ];
 
 /// The exact normalized spellings of a ratio/dimensionless unit column.
@@ -70,6 +75,13 @@ const RATIO_SPELLINGS: &[&str] = &[
     "relative",
     "unitless",
     "dimensionless",
+    // ITEM-6 (G6): arbitrary units — the example family's own unit
+    // (a.u.), a dimensionless scale that never warned the app's bundled
+    // data before.
+    "a.u.",
+    "au",
+    "arbitrary units",
+    "arbitrary unit",
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -115,8 +127,25 @@ pub fn normalize_unit(text: &str) -> String {
 // The family classifier (PROV-MC-4's seven families; conservative by design)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// The classifier's reading of a normalized unit: the parenthetical human
+/// gloss is dropped ("MTM/mL (mean tumor molecules per mL of plasma)" reads
+/// "mtm/ml", "a.u. (arbitrary units)" reads "a.u."). ITEM-6 (G6): the
+/// publishers' units carry the explanation in brackets, and the old
+/// example's own unit ("MTM/mL (mean tumor molecules per mL of plasma)")
+/// fell to family `none` — a warning for the app's own data. The STRIPPED
+/// reading is the family classification only: the `Matches` text compare
+/// never strips (a urine and a plasma unit whose parentheticals differ
+/// must not read identical).
+fn strip_unit_gloss(normalized: &str) -> &str {
+    match normalized.find('(') {
+        Some(i) => normalized[..i].trim(),
+        None => normalized,
+    }
+}
+
 /// The small family classifier (DEC-10, PROV-FV-5's seam). Recognition rule,
-/// on the normalized string: a `%`-bearing or percent word is `percent`; an
+/// on the normalized (gloss-stripped) string: a `%`-bearing or percent word
+/// is `percent`; an
 /// exact detection spelling is `detection`; an exact ratio spelling is
 /// `ratio`; a `<numerator>/<volume>` concentration is `concentration_molar`
 /// (molar numerator), `concentration_mass` (mass numerator) or `count` (any
@@ -127,17 +156,20 @@ pub fn infer_unit_family(unit: &str) -> UnitFamily {
     if normalized.is_empty() {
         return UnitFamily::None;
     }
-    if normalized.contains('%') || matches!(normalized.as_str(), "percent" | "pct" | "percentage")
-    {
+    let bare = strip_unit_gloss(&normalized);
+    if bare.is_empty() {
+        return UnitFamily::None;
+    }
+    if bare.contains('%') || matches!(bare, "percent" | "pct" | "percentage") {
         return UnitFamily::Percent;
     }
-    if DETECTION_SPELLINGS.contains(&normalized.as_str()) {
+    if DETECTION_SPELLINGS.contains(&bare) {
         return UnitFamily::Detection;
     }
-    if RATIO_SPELLINGS.contains(&normalized.as_str()) {
+    if RATIO_SPELLINGS.contains(&bare) {
         return UnitFamily::Ratio;
     }
-    let parts: Vec<&str> = normalized.split('/').map(str::trim).collect();
+    let parts: Vec<&str> = bare.split('/').map(str::trim).collect();
     match parts.as_slice() {
         [numerator, denominator] if VOLUME_SYMBOLS.contains(denominator) => {
             if MOLAR_SYMBOLS.contains(numerator) {
@@ -428,12 +460,51 @@ mod tests {
             ("fold change", Ratio),
             ("detected", Detection),
             ("positive", Detection),
-            ("a.u.", None),
+            // ITEM-6 (G6): the example family's arbitrary-unit column and a
+            // detection flag's 0/1 column are known families — the
+            // app's own data never read "not a unit we recognise".
+            ("a.u.", Ratio),
+            ("A.U.", Ratio),
+            ("0/1", Detection),
+            ("1/0", Detection),
             ("furlongs", None),
             ("", None),
         ] {
             assert_eq!(infer_unit_family(unit), expect, "unit {unit:?}");
         }
+    }
+
+    #[test]
+    fn test_fv14_gloss_stripping_classifies_the_parenthesised_units() {
+        use UnitFamily::*;
+        // The old example's own unit (help-r2 G6): the parenthetical gloss
+        // must not push the per-volume count to family `none`.
+        assert_eq!(
+            infer_unit_family("MTM/mL (mean tumor molecules per mL of plasma)"),
+            Count
+        );
+        assert_eq!(
+            infer_unit_family("U/mL (urine)"),
+            Count,
+            "the glossed spelling classifies like the bare one"
+        );
+        assert_eq!(infer_unit_family("a.u. (arbitrary units)"), Ratio);
+        // The raw-text MAtches compare never strips: a urine and a plasma
+        // unit whose parentheticals differ do NOT read identical — but they
+        // do agree on the same family (the honest warning wording carries
+        // the "same kind, not the same one" verdict).
+        assert_eq!(
+            compare_unit_to_canonical("U/L (urine)", "U/L (plasma)", UnitFamily::None),
+            UnitAgreement::Family(Count)
+        );
+        assert_eq!(
+            compare_unit_to_canonical("MTM/mL (mean tumor molecules per mL of plasma)", "MTM/mL", UnitFamily::Count),
+            // The same family (the catalogue's ctDNA_MTM fact: count) — the
+            // honest "same kind of unit but not the same one" warning, never
+            // a silent match and never an unclassified one.
+            UnitAgreement::Family(Count),
+            "the glossed per-volume unit is the count family against the entry's declared family"
+        );
     }
 
     #[test]

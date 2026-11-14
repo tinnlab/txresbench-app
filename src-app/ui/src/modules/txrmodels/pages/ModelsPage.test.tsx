@@ -275,6 +275,10 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     const row = screen.getByTestId(`txr-models-row-${fixtureModelId(11)}`)
     const labels = [...row.querySelectorAll('th, td')].map(cell => cell.getAttribute('data-label'))
     expect(labels).toEqual(['Model', 'Method', 'Predicts', 'Decision day', 'Trained on', 'Made', 'Actions'])
+    // qa-fixes4 ITEM-6 (results-r3 R3-results-12): the Made entry is one
+    // date ("10 Nov 2026") — never wrapped across lines ("10 Nov / 2026").
+    const made = row.querySelector('td[data-label="Made"]') as HTMLElement
+    expect(made.style.whiteSpace).toBe('nowrap')
   })
 
   it('posts the multipart import and refreshes the list (success), and surfaces a failure inline', async () => {

@@ -587,6 +587,11 @@ describe('SavedModelsPage — TEST-MOD-10 (screen I)', () => {
     expect(screen.getByTestId('txr-models-i-empty').textContent).toContain(
       'Add the patients\u2019 measurements you want to predict first.',
     )
+    // G4: the direct visit is not a naked line + button — the note says
+    // which models this screen lists and why the file unlocks it.
+    expect(screen.getByTestId('txr-models-i-empty-note').textContent).toContain(
+      'The models you saved from your runs are listed here',
+    )
     // RES-20: a direct visit is not ON step 4 (the flow has not reached
     // it) and counts nothing — the step line and the "…" totals are gone.
     expect(screen.queryByText('Step 4 of 4')).toBeNull()
