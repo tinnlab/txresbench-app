@@ -325,25 +325,6 @@ export function formatRowTime(r: TxrRunMethod, nowMs: number | null = null): str
 }
 
 /**
- * The R2-5 start-up noise predicate (the setlocale / R-startup lines that
- * opened the "All methods" log with one warning per method): the engine's
- * own log content for the locale warnings a sandboxed method's shell and
- * R runtime print on start. These lines are TRUE output — the "Show
- * technical output" switch in the log panel reveals them — but they are
- * not progress, and a log that opens with 7 warning lines per method hides
- * the run's own lines behind them. Matched on the line content (the
- * engine authors no per-line kind field): `setlocale` (the bash warning),
- * `Setting LC_*` (R's per-locale messages) and the R start-up warning
- * banner. Plain-voice rule: this is the run screen's own copy layer, the
- * lines stay in the store and in the copy text when the switch is on.
- */
-const TECHNICAL_NOISE: RegExp = /setlocale|Setting LC_|During startup - Warning/i
-
-export function isTechnicalLogNoise(line: TxrRunLogLine): boolean {
-  return TECHNICAL_NOISE.test(line.content)
-}
-
-/**
  * The F row's progress-bar value (0–100): a finished row reads 100 (the
  * work is done — the board's completed bar), a failed row reads 100 (it
  * ran to its end — the board's failure bar; its reason is the detail

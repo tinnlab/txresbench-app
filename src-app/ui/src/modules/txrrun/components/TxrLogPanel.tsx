@@ -60,11 +60,14 @@ import {
   collapseRepeatedLines,
   filterLogLines,
   formatCollapsedLogLine,
-  isTechnicalLogNoise,
   LOG_EMPTY_ALL,
   LOG_EMPTY_METHOD,
   type TxrLogMethodRef,
 } from '../lib/format'
+// The ONE start-up-noise predicate (qa-fixes4 ITEM-6, R2-10 rest): the
+// results dialog hides the same setlocale lines the panel hides — the
+// shell resident (the runStatus precedent).
+import { isTechnicalLogNoise } from '@/modules/txrshell/lib/logNoise'
 
 /** The panel's own render cap (the store's tail bound is the same number). */
 export const LOG_PANEL_RENDER_CAP = 200

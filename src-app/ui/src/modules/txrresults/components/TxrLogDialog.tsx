@@ -27,12 +27,16 @@
  * are ui-run's): "Run log" for the whole run, the mono method id for one
  * method; recorded as design-gap copy, one-line changeable.
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useStore } from 'zustand'
-import { Button, Dialog, message } from '@txresbench/kit'
+import { Button, Dialog, message, Switch } from '@txresbench/kit'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import type { TxrRunLogLine } from '@/api-client/types'
+// R2-10 rest: the ONE start-up-noise predicate — the running panel and the
+// K dialog hide the same setlocale lines (the shell resident, the
+// runStatus precedent; a txrrun import would close the module cycle).
+import { isTechnicalLogNoise } from '@/modules/txrshell/lib/logNoise'
 
 const MONO_FONT = "'Source Code Pro', ui-monospace, monospace"
 
@@ -72,6 +76,13 @@ export function TxrLogDialog() {
   const methodId = state.logDialogFor ?? null
   const lines = linesFor(state.liveLogs, methodId)
   const preRef = useRef<HTMLPreElement>(null)
+  // R2-10 rest: the setlocale / R start-up noise is hidden by default (the
+  // running panel's rule — a log that opens with one warning per method
+  // hides the run's own lines); the switch is presentation state, the
+  // lines stay the store's, and Copy copies the VISIBLE view.
+  const [showTechnical, setShowTechnical] = useState(false)
+  const filtered = lines.filter(l => (showTechnical ? true : !isTechnicalLogNoise(l)))
+  const hiddenTechnical = lines.length - filtered.length
 
   // Backfill on open and on a method switch: continue from the last line the
   // store already holds (a re-open after a live tail continues, first open
@@ -88,10 +99,10 @@ export function TxrLogDialog() {
   useEffect(() => {
     const el = preRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [lines.length])
+  }, [filtered.length])
 
   const copyLog = (): void => {
-    const text = logTextOf(lines)
+    const text = logTextOf(filtered)
     if (text.length === 0) return
     void navigator.clipboard
       ?.writeText(text)
@@ -110,13 +121,13 @@ export function TxrLogDialog() {
       title={methodId === null ? 'Run log' : `Log: ${methodId}`}
       data-testid="txr-log-dialog"
       size="lg"
-      footer={
+          footer={
         <div className="flex justify-end gap-2">
           <Button
             data-testid="txr-log-dialog-copy"
             variant="outline"
             onClick={copyLog}
-            disabled={lines.length === 0}
+            disabled={filtered.length === 0}
           >
             Copy the log
           </Button>
@@ -130,8 +141,22 @@ export function TxrLogDialog() {
           </div>
         ) : null}
         <pre ref={preRef} data-testid="txr-log-dialog-pre">
-          {lines.length > 0 ? logTextOf(lines) : ''}
+          {filtered.length > 0 ? logTextOf(filtered) : ''}
         </pre>
+        {hiddenTechnical > 0 ? (
+          <div data-testid="txr-log-dialog-technical-count" style={{ fontSize: 12, color: 'var(--txr-muted)' }}>
+            {hiddenTechnical} technical lines hidden
+          </div>
+        ) : null}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <Switch
+            data-testid="txr-log-dialog-technical"
+            aria-label="Show technical output"
+            checked={showTechnical}
+            onCheckedChange={setShowTechnical}
+          />
+          <span>Show technical output</span>
+        </div>
       </div>
     </Dialog>
   )

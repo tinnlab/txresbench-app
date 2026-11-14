@@ -463,6 +463,19 @@ describe('ResultsPage (TEST-UR-6 — store wiring, states, actions)', () => {
     expect(view.getByTestId('test-location').textContent).toBe('/')
   })
 
+  // ITEM-6 (R3-results-8): a MALFORMED run id answers 400 — the page shows
+  // the run-not-found state (and its title), never the server advice.
+  it('renders the not-found state and title for a malformed id (400)', async () => {
+    api.getRun.mockRejectedValueOnce(httpError(400))
+    const view = renderPage()
+    await waitFor(() => expect(view.getByTestId('txr-results-not-found')).toBeTruthy())
+    expect(view.queryByTestId('txr-results-error')).toBeNull()
+    expect(view.getByTestId('txr-results-not-found').textContent).toContain(
+      'This analysis run could not be found',
+    )
+    expect(document.title).toBe('Run not found — TxResBench')
+  })
+
   it('renders the error state on a detail network failure and retry re-runs load', async () => {
     api.getRun.mockRejectedValueOnce(new Error('server unreachable'))
     const view = renderPage()

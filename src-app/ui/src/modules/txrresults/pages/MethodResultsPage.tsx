@@ -12,7 +12,7 @@ import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, compareReport, divergentPatients, sortByFirstMethod, viewOf } from '../lib/heatmap'
 import { compareResultsPath, methodResultsPath, downloadPredictionsCsv } from '../index'
-import { formatConstantNote, formatMixedOutcomeNote, formatNoChanceNote, txrRunFailed } from '../lib/format'
+import { formatConstantNote, formatEmptyColumnsNote, formatGroupedChanceNote, formatMixedOutcomeNote, txrRunFailed } from '../lib/format'
 import { troubleRowsOf } from '../lib/trouble'
 import { subtitleFactsOf, TxrResultsBar, TxrResultsHeader } from '../components/TxrResultsHeader'
 import { TxrRunTrouble } from '../components/TxrRunTrouble'
@@ -238,8 +238,20 @@ export function MethodResultsPage() {
   // the Compare tab; a method id that names no finished method is the
   // method-not-found state (qa-fixes RES-12 — the old compare-tab fallback
   // left the URL claiming a page it did not render).
+  // ITEM-6 (R3-results-7): a reuse run's method ids are the SAVED MODEL's
+  // uuid (the tab strip works — its hrefs carry the uuids) while the page
+  // shows the model NAME; a typed/bookmarked link carrying the visible name
+  // resolves to the column with that label (a human-typed link is a name,
+  // never an integer format the user can be expected to know).
   const activeColumn = useMemo(
-    () => allColumns.find(c => c.methodId === methodId) ?? null,
+    () => {
+      if (methodId === undefined || methodId === null) return null
+      return (
+        allColumns.find(c => c.methodId === methodId) ??
+        allColumns.find(c => c.label === methodId) ??
+        null
+      )
+    },
     [allColumns, methodId],
   )
   const isCompareTab = methodId === undefined || methodId === null
@@ -268,9 +280,15 @@ export function MethodResultsPage() {
   }, [methodId])
   // R2-G1: the tab/title byte is the page's own h1 — the Compare-methods tab
   // on `/compare`, the method column's label on a method tab (the same word
-  // the page renders under the method tabs), "Method" while it loads.
+  // the page renders under the method tabs), "Method" while it loads. A run
+  // that cannot be found (404 — or a malformed id's 400, ITEM-6 R3-results-8)
+  // reads the running page's own "Run not found" title (ITEM-2e's byte).
   useDocumentTitle(
-    isCompareTab ? 'Compare methods' : (methodTitle ?? activeColumn?.label ?? 'Method'),
+    runError === 'not-found'
+      ? 'Run not found'
+      : isCompareTab
+        ? 'Compare methods'
+        : (methodTitle ?? activeColumn?.label ?? 'Method'),
   )
   // The H base view: the one-method tab's OWN column (its task is the
   // method's — the outcome tabs yield to it, RES-11), else the active
@@ -363,13 +381,28 @@ export function MethodResultsPage() {
     () => (baseView ? formatConstantNote(baseView.columns) : null),
     [baseView],
   )
-  // R2-03: a no-chance column (prob_source none — the predict-only reuse
-  // case) is a dashed wall with no explanation; the note names it with the
-  // page's own prob-source words (the one-method tab's column set is the
-  // active method's, the compare tab's is the view's).
+  // R3-results-13: a column with only 2–3 distinct chances (cfmedip's
+  // three-group call) reads like a constant beside a graded scale; the note
+  // names the groups ("this method gives three groups").
+  // ITEM-6 (R2-03): an empty column (every value null) is not a dash wall.
+  // The one-method tab of an empty method names it (the note + the aside,
+  // no bars table — the method page's own words); the compare tab names
+  // every column the view dropped.
+  const activeEmpty =
+    activeColumn !== null && activeColumn.values.every(value => value === null)
+  const groupedNote = useMemo(
+    () =>
+      formatGroupedChanceNote(
+        activeColumn && !activeEmpty ? [activeColumn] : (baseView?.columns ?? []),
+      ),
+    [activeColumn, activeEmpty, baseView],
+  )
   const noChanceNote = useMemo(
-    () => formatNoChanceNote(activeColumn ? [activeColumn] : (baseView?.columns ?? [])),
-    [activeColumn, baseView],
+    () =>
+      formatEmptyColumnsNote(
+        activeColumn ? (activeEmpty ? [activeColumn] : []) : (baseView?.emptyColumns ?? []),
+      ),
+    [activeColumn, activeEmpty, baseView],
   )
   const mixedNote = useMemo(
     () =>
@@ -548,7 +581,7 @@ export function MethodResultsPage() {
   }
 
   const activeColumnMethod = activeColumn ? { ...activeColumn } : null
-  const tableColumns = activeColumnMethod ? [activeColumnMethod] : baseView.columns
+  const tableColumns = activeColumnMethod && !activeEmpty ? [activeColumnMethod] : baseView.columns
   const saveEntry =
     saveOneMethodId !== null
       ? ({ mode: 'one', methodId: saveOneMethodId } as const)
@@ -607,17 +640,24 @@ export function MethodResultsPage() {
             <div style={REGION_CONTENT}>
               <div style={CONTENT_ROW}>
                 <section className="txr-h-table-section" style={TABLE_SECTION}>
-                  <TxrBarsTable
-                    columns={tableColumns}
-                    rows={tableRows}
-                    totalCount={totalCount}
-                    outcome={activeColumn?.task ?? outcomeTab}
-                    horizon={(activeColumn?.task ?? outcomeTab) === 'response' ? responseDay : horizon}
-                    onShowAll={() => TxrResults.setPatientLimit(-1)}
-                  />
+                  {activeEmpty ? null : (
+                    <TxrBarsTable
+                      columns={tableColumns}
+                      rows={tableRows}
+                      totalCount={totalCount}
+                      outcome={activeColumn?.task ?? outcomeTab}
+                      horizon={(activeColumn?.task ?? outcomeTab) === 'response' ? responseDay : horizon}
+                      onShowAll={() => TxrResults.setPatientLimit(-1)}
+                    />
+                  )}
                   {constantNote !== null ? (
                     <p data-testid="txr-results-constant-note" style={{ ...NOTE_LINE, marginTop: 8 }}>
                       {constantNote}
+                    </p>
+                  ) : null}
+                  {groupedNote !== null ? (
+                    <p data-testid="txr-results-grouped-note" style={{ ...NOTE_LINE, marginTop: 8 }}>
+                      {groupedNote}
                     </p>
                   ) : null}
                   {noChanceNote !== null ? (

@@ -287,6 +287,13 @@ describe('txrrun module (TEST-RUN-01)', () => {
           // resident precedent is ITEM-1's safeText in the shell).
           p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.test.ts' &&
+          // qa-fixes4 ITEM-6 (results-r3 R2-10 rest): the ONE start-up
+          // noise predicate — `txrshell/lib/logNoise.ts` + its unit test
+          // (the panel's predicate left this module's lib: the results
+          // dialog hides the same lines and a txrrun import would close a
+          // module cycle — the runStatus precedent).
+          p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.test.ts' &&
 
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a
@@ -475,6 +482,12 @@ describe('txrrun module (TEST-RUN-01)', () => {
           // resident precedent is ITEM-1's safeText in the shell).
           p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.test.ts' &&
+          // qa-fixes4 ITEM-6 (results-r3 R2-10 rest): the ONE start-up
+          // noise predicate — `txrshell/lib/logNoise.ts` + its unit test
+          // (the panel's predicate left this module's lib — the runStatus
+          // precedent).
+          p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.test.ts' &&
 
           p !== 'src-app/ui/src/modules/session/SessionGuard.tsx' &&
           // qa-fixes4 ITEM-4 (its DRIFT-1): the session bootstrap's retry/

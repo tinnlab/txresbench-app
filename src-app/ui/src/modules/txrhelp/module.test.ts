@@ -431,6 +431,11 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           // resident precedent is ITEM-1's safeText in the shell).
           p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.test.ts' &&
+          // qa-fixes4 ITEM-6 (results-r3 R2-10 rest): the ONE start-up
+          // noise predicate — `txrshell/lib/logNoise.ts` + its unit test
+          // (the runStatus precedent; the sibling log surfaces import it).
+          p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.test.ts' &&
 
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a

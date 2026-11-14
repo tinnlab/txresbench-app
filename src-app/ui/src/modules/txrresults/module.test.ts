@@ -276,6 +276,13 @@ describe('txrresults module (TEST-UR-13)', () => {
           // resident precedent is ITEM-1's safeText in the shell).
           p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.test.ts' &&
+          // qa-fixes4 ITEM-6 (results-r3 R2-10 rest): the ONE start-up
+          // noise predicate — `txrshell/lib/logNoise.ts` + its unit test
+          // (the log dialog hides the same setlocale lines the running
+          // panel hides; a txrrun import back would close a module cycle —
+          // the runStatus precedent).
+          p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.test.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.test.tsx' ,
 
       ),

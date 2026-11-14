@@ -25,7 +25,7 @@ import { TxrLogDialog } from '../components/TxrLogDialog'
 import { TxrRunTrouble } from '../components/TxrRunTrouble'
 import { TxrRunFailedState } from '../components/TxrRunFailedState'
 import { troubleRowsOf } from '../lib/trouble'
-import { formatChanceMissingNote, formatConstantNote, formatMixedOutcomeNote, formatNoChanceNote, txrRunFailed } from '../lib/format'
+import { formatChanceMissingNote, formatConstantNote, formatEmptyColumnsNote, formatGroupedChanceNote, formatMixedOutcomeNote, txrRunFailed } from '../lib/format'
 
 /**
  * Screen G — the run's predictions (board `BusyResults.dc.html`): the
@@ -179,10 +179,14 @@ export function ResultsPage() {
   const [downloadFailed, setDownloadFailed] = useState(false)
   // R2-G1: the tab/title byte is the page's own h1 (the header's
   // "Predictions for N patients"; "Predictions" while the run loads). A run
-  // record carries no name field, so the title is the page's own words, not
-  // an invented run name (the report's "Predictions - TxResBench" byte).
+  // that cannot be found (404 — or a malformed id's 400, ITEM-6 R3-results-8)
+  // reads the running page's own "Run not found" title (ITEM-2e's byte).
   useDocumentTitle(
-    predictions === null ? 'Predictions' : formatPredictionsTitle(predictions.patients.length),
+    runError === 'not-found'
+      ? 'Run not found'
+      : predictions === null
+        ? 'Predictions'
+        : formatPredictionsTitle(predictions.patients.length),
   )
 
   // Load on mount + on a run-id change; the store resets first and drops
@@ -240,6 +244,13 @@ export function ResultsPage() {
     () => (view ? formatConstantNote(view.columns) : null),
     [view],
   )
+  // R3-results-13: a column with only 2–3 distinct chances (cfmedip's
+  // three-group call) reads like a constant beside a graded scale; the note
+  // names the groups ("this method gives three groups").
+  const groupedNote = useMemo(
+    () => (view ? formatGroupedChanceNote(view.columns) : null),
+    [view],
+  )
   // R2-10 (qa-fixes2): when a finished method has no prediction column (the
   // engine found no recorded chance column for it), the header's true
   // "N of M methods finished" counts more than the table shows — the note
@@ -270,11 +281,12 @@ export function ResultsPage() {
         : null,
     [view, allColumns, outcomeTab, horizon, labelDay],
   )
-  // R2-03: a finished method with no chances (prob_source none — the
-  // predict-only reuse case) fills its column with "–"; the note names the
-  // columns and says why (the method page's own words).
+  // ITEM-6 (R2-03): the finished columns the view DROPPED (every value null
+  // — a predict-only reuse's no-chance column, or a method that abstained
+  // for every patient) are never a dash wall: the one line names them with
+  // each column's own reason (the method page's own words).
   const noChanceNote = useMemo(
-    () => (view ? formatNoChanceNote(view.columns) : null),
+    () => (view ? formatEmptyColumnsNote(view.emptyColumns) : null),
     [view],
   )
 
@@ -480,6 +492,11 @@ export function ResultsPage() {
               {constantNote !== null ? (
                 <p data-testid="txr-results-constant-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
                   {constantNote}
+                </p>
+              ) : null}
+              {groupedNote !== null ? (
+                <p data-testid="txr-results-grouped-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
+                  {groupedNote}
                 </p>
               ) : null}
             </div>

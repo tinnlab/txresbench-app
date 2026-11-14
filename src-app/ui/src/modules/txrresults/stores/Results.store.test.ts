@@ -245,6 +245,15 @@ describe('load(runId) (PROV-UR-2; DEC-3/18)', () => {
     expect(getPredictions).not.toHaveBeenCalled()
   })
 
+  // ITEM-6 (R3-results-8): a malformed run id answers 400 — the SAME
+  // not-found truth (the "check the server" advice was wrong for a bad id).
+  it('classifies a 400 (malformed id) as not-found', async () => {
+    getRun.mockRejectedValue(Object.assign(new Error('HTTP error! status: 400'), { status: 400 }))
+    await state().load('zzz')
+    expect(state().runError).toBe('not-found')
+    expect(streamRun).not.toHaveBeenCalled()
+  })
+
   it('classifies a non-404 failure as network (error + retry state), still no stream', async () => {
     getRun.mockRejectedValue(new Error('connection refused'))
     await state().load('run-1')

@@ -43,7 +43,6 @@ import {
   formatRowTime,
   formatSecs,
   formatTimeLeft,
-  isTechnicalLogNoise,
   methodLabelOf,
 } from './format'
 
@@ -368,24 +367,6 @@ describe('estimateQualityWord (qa-fixes2 R2-3)', () => {
     expect(estimateQualityWord('estimate')).toBe('rough estimate')
     expect(estimateQualityWord(null)).toBeNull()
     expect(estimateQualityWord(undefined)).toBeNull()
-  })
-})
-
-describe('isTechnicalLogNoise (qa-fixes2 R2-5)', () => {
-  const line = (content: string): TxrRunLogLine => ({
-    seq: 1,
-    content,
-    stream: 'stderr',
-    created_at: '2026-11-06T05:00:00Z',
-  })
-
-  it('names the setlocale / R start-up lines as technical output — never the run\'s own lines', () => {
-    expect(isTechnicalLogNoise(line('/bin/bash: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)'))).toBe(true)
-    expect(isTechnicalLogNoise(line('During startup - Warning messages:'))).toBe(true)
-    expect(isTechnicalLogNoise(line('1: Setting LC_CTYPE failed, using "C"'))).toBe(true)
-    expect(isTechnicalLogNoise(line('7: Setting LC_MEASUREMENT failed'))).toBe(true)
-    expect(isTechnicalLogNoise(line('cox-baseline-delta done in 12s'))).toBe(false)
-    expect(isTechnicalLogNoise(line('fitting the model'))).toBe(false)
   })
 })
 

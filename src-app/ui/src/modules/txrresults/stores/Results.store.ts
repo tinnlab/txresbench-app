@@ -430,7 +430,11 @@ const TxrResultsDef = defineStore('TxrResults', {
         })
       } catch (error) {
         if (gen !== generation) return
-        set({ runError: errorStatus(error) === 404 ? 'not-found' : 'network' })
+        // qa-fixes4 ITEM-6 (R3-results-8): a 400 (a malformed run id) is the
+        // same not-found truth as a 404 — "the app server is not running"
+        // was the wrong advice for a bad id (the ITEM-2e running-page rule).
+        const status = errorStatus(error)
+        set({ runError: status === 404 || status === 400 ? 'not-found' : 'network' })
         return
       }
       await refreshPredictions()
