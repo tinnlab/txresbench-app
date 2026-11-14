@@ -1388,6 +1388,23 @@ async fn update_analysis_config(
     Extension(pool): Extension<SqlitePool>,
     body: BodyJson<TxrAppConfig, ConfigBodyCode>,
 ) -> ApiResult<()> {
+    // demo-mode ITEM-6 — the allowlist's "allowed, adapted" arm of the
+    // spec: "PUT /api/txr/analysis-config (recorded configurations only)".
+    // The demo page shows the recorded setup and never writes; this arm
+    // enforces the same rule against a direct caller: a configuration the
+    // bundle does not record is a plain 400, a recorded one is accepted
+    // and NOT STORED — the sticky row is desktop-only (a shared pool's
+    // sticky config is one visitor's opinion behind everyone's back).
+    if crate::modules::demo::enabled() {
+        if let Some(config) = body.into_inner().config.as_ref() {
+            let bundle = crate::modules::demo::bundle().ok_or_else(|| {
+                AppError::internal_error("a demo config was updated outside demo mode")
+            })?;
+            crate::modules::demo::replay::match_configuration(bundle, config)
+                .map_err(|e| e.to_api_error())?;
+        }
+        return Ok((StatusCode::NO_CONTENT, ()));
+    }
     TxrRepository::new(pool)
         .put_analysis_config(&body.into_inner())
         .await

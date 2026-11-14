@@ -443,6 +443,65 @@ async fn demo_body_limit_rejects_oversized_bodies() {
     );
 }
 
+/// ITEM-6 — `PUT /api/txr/analysis-config` (the allowlist's Adapted row) is
+/// enforced server-side: a RECORDED configuration is accepted but NOT stored
+/// (the shared pool's sticky row is a visitor's opinion behind everyone's
+/// back — the demo pages read the recorded setup), an unrecorded one is a
+/// plain 400 `DEMO_CONFIG_UNRECORDED`, and the GET stays the empty answer.
+#[tokio::test]
+async fn demo_analysis_config_accepts_recorded_only_and_stores_nothing() {
+    let server = TestServer::spawn_with(TestOptions { demo: true, ..Default::default() }).await;
+    let (token, _) = mint_demo_session(&server).await;
+
+    let config = |endpoint: &str, decision_day: f64| {
+        serde_json::json!({
+            "config": {
+                "endpoint": endpoint,
+                "decision_day": decision_day,
+                "look_ahead_day": 238.0,
+                "covariates": false,
+                "at_a_time": 3,
+                "cpus": Value::Null,
+                "save_models": false,
+                "label_day": Value::Null,
+            },
+        })
+    };
+
+    let resp = server
+        .client
+        .put(server.api_url("/txr/analysis-config"))
+        .bearer_auth(&token)
+        .json(&config("pfs", 56.0))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 204, "recorded configuration accepted");
+
+    // Nothing was stored — the shared pool's sticky row is not a thing here.
+    let resp = server
+        .client
+        .get(server.api_url("/txr/analysis-config"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    let body: Value = resp.json().await.unwrap();
+    assert!(body["config"].is_null(), "no sticky row in the shared pool: {body}");
+
+    let resp = server
+        .client
+        .put(server.api_url("/txr/analysis-config"))
+        .bearer_auth(&token)
+        .json(&config("pfs", 28.0))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 400, "unrecorded configuration refused");
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["error_code"], "DEMO_CONFIG_UNRECORDED", "{body}");
+}
+
 /// The demo per-IP + per-session rate limit is ON and CONFIGURED (never
 /// disabled): a burst beyond the configured burst size answers 429 — the
 /// framework's configured limiter (the demo boot honors `server.rate_limit`

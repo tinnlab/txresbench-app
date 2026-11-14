@@ -5,6 +5,8 @@ import { useStore } from 'zustand'
 import { methodResultsPath, resultsPath } from '@/modules/txrresults/routes'
 import { Alert, Button, Result, Skeleton } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { useAppMode } from '@/modules/demo'
+import { DEMO_RUNNING_LABEL } from '@/modules/demo/copy'
 import type { TxrRunBucket } from '../types'
 import {
   bucketOf,
@@ -308,6 +310,7 @@ export function RunningPage() {
   const location = useLocation()
   const state = useStore(useTxrRun)
   const { run, runError, tab } = state
+  const { isDemo } = useAppMode()
 
   // Load on mount + on a run-id change: the store resets first and drops
   // the previous run's in-flight work (no cross-run bleed — the store's
@@ -488,6 +491,16 @@ export function RunningPage() {
                 data-testid="txr-run-resumed-notice"
                 tone="info"
                 title={RESUMED_NOTICE_LINE}
+              />
+            ) : null}
+            {/* demo-mode ITEM-6 (the audit's /analysis/:id/running row): the
+                label line — the run's states and controls are the replay's,
+                the results are the recorded ones. */}
+            {isDemo && run !== null ? (
+              <Alert
+                data-testid="txr-run-demo-label"
+                tone="info"
+                title={DEMO_RUNNING_LABEL}
               />
             ) : null}
             <TxrRunHeader

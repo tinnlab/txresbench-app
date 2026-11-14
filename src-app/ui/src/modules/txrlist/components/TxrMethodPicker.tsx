@@ -346,14 +346,20 @@ export function TxrMethodPicker({
             value={sort}
             onValueChange={value => setSort(value as TxrMethodSort)}
           />
-          <Button
-            data-testid="txr-method-cannot-toggle"
-            variant="outline"
-            aria-pressed={cannotOpen}
-            onClick={openCannot}
-          >
-            {cannotOpen ? 'Hide methods that can\'t run' : "Show methods that can't run"}
-          </Button>
+          {/* demo-mode ITEM-6: the E page hands the picker the recorded
+              methods only (list = bundle methods only), so there is no
+              cannot-run section and the toggle is a dead control — it
+              renders only when there is a section to open. */}
+          {cannot.length > 0 ? (
+            <Button
+              data-testid="txr-method-cannot-toggle"
+              variant="outline"
+              aria-pressed={cannotOpen}
+              onClick={openCannot}
+            >
+              {cannotOpen ? 'Hide methods that can\'t run' : "Show methods that can't run"}
+            </Button>
+          ) : null}
         </div>
       </>
     )
