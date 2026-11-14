@@ -11,9 +11,10 @@
 
 The desktop app runs each benchmark method inside the txresbench sandbox. The
 shipped sandbox mounts ONE per-domain env rootfs; the app's design replaces
-that with a **stack**: a trimmed **per-language base rootfs** (R or Python,
-built and published by the `sandbox-stacked` node) plus one small
-**per-method layer** below. The clinician downloads the base once per language
+that with a **stack**: a **per-language base rootfs** (R or Python, packed by
+the same generator from the benchmark base image every layer of that language
+was computed against, §6.3) plus one small **per-method layer** below. The
+clinician downloads the base once per language
 and one small layer per method — the board's per-method download rows
 ("downloading 160 of 250 MB", a design example) instead of a full environment
 per method.
@@ -42,6 +43,7 @@ items:
 | manifest JSON Schema | `src-app/server/data/method-env-images.schema.json` | this node (hand-written, versioned) |
 | data README | `src-app/server/data/README.md` | this node |
 | OCI artifact | `ghcr.io/tinnlab/txr-method-env-layers/<env_id>:<method_version>-<arch>` | `scripts/publish-method-env-images.sh`, owner-gated |
+| base OCI artifact (§6.3) | `ghcr.io/tinnlab/txresbench-env/base-{py,r}:<contract>-<arch>-<sha12>` | the generator stages it, `scripts/publish-method-env-images.sh --base` publishes it, owner-gated |
 | build/publish/verify scripts | `scripts/generate-method-env-images.py`, `scripts/publish-method-env-images.sh`, `scripts/lib/method-env-verify.sh` | ITEM-2/5/7 |
 | regen-parity guard | `scripts/check-method-env-images.sh` (+ `.test.mjs`) | ITEM-4 |
 
@@ -83,8 +85,39 @@ Per entry:
 | `layer_schema` | `1` (§5) | `1` |
 
 `base_ref`, `base_digest`, `contract` and `licence` are provenance facts, not
-runtime fetch targets: the runtime's base ref is `sandbox-stacked`'s artifact
-(`ghcr.io/tinnlab/txresbench-env/…`), paired by digest (see §7).
+runtime fetch targets: the runtime's base ref is the app-side base artifact
+(`ghcr.io/tinnlab/txresbench-env/…`, §6.3), paired by digest (see §7).
+`base_digest` is the Docker base image's digest — never the hash of a file
+the app downloads.
+
+### §2.1a The `bases` list
+
+The manifest's top-level `bases` holds one record per app-side base and arch,
+sorted by `(base_id, arch)`:
+
+| field | definition | example |
+|---|---|---|
+| `base_id` | `base-py` \| `base-r` (the repository component; the env id the app's env manager keys the base under) | `base-py` |
+| `arch` | `amd64` \| `arm64` | `arm64` |
+| `oci_ref` | `ghcr.io/tinnlab/txresbench-env/<base_id>` | `ghcr.io/tinnlab/txresbench-env/base-py` |
+| `tag` | `<contract>-<arch>-<first 12 hex of squashfs_sha256>`, immutable: one tag per distinct base file | `2.0-arm64-e10454500239` |
+| `digest` | OCI content digest of the base's artifact manifest bytes (§6.3) | `sha256:…` |
+| `squashfs_sha256` | sha256 of the published `base.squashfs` — the pin the app verifies the downloaded, staged or cached base against | 64 hex |
+| `size_bytes` | `base.squashfs` byte length | `115597312` |
+| `source_ref` | the benchmark base image the squashfs was packed from | `ghcr.io/tinnlab/txresbench-base-py:2.0` |
+| `source_digest` | that image's digest | `sha256:8c0d…` |
+| `contract` | equals `base_contract` | `2.0` |
+
+An entry stacks on the base `("base-" + family(language), arch)`. A manifest
+with `bases` must give every entry its base, the entry's `base_ref` /
+`base_digest` must equal the base's `source_ref` / `source_digest` (§7), and
+no base may go unused; the app refuses to boot otherwise
+(`MANIFEST_BASE_MISSING` / `MANIFEST_BASE_PAIRING` / `MANIFEST_BASE_INVALID`).
+`bases` is optional until the committed manifest is regenerated with bases:
+a manifest without it predates the base publisher, and the app then reads
+`base_digest` as the base pin, which fails closed on a real download. After
+that regeneration `bases` becomes required (`schema_version` 2) and the old
+reading is removed.
 
 ### §2.2 `wrapper_code_sha256` — the byte convention
 
@@ -449,19 +482,78 @@ manifest file exactly as stored — no re-marshal, no clock, no key
 reordering. The `oras resolve == digest` verify closes the loop on the
 registry side. Recorded in .lifecycle PLAN note (r) and DRIFT-1 ITEM-5.
 
+### §6.3 The base artifact
+
+`ghcr.io/tinnlab/txresbench-env/<base_id>`, artifact type
+`application/vnd.txr.method-env.base.v1`, exactly one file `base.squashfs`,
+immutable tag `<contract>-<arch>-<sha12>` (§2.1a), cosign-signed like a layer.
+The construction is §6.1's with the base's type, file and annotations:
+
+```
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "artifactType": "application/vnd.txr.method-env.base.v1",
+  "config": { <the empty config descriptor of §6.1> },
+  "layers": [
+    {
+      "mediaType": "application/vnd.txr.method-env.base.v1",
+      "digest": "sha256:<squashfs_sha256>",
+      "size": <size_bytes>,
+      "annotations": { "org.opencontainers.image.title": "base.squashfs" }
+    }
+  ],
+  "annotations": {
+    "org.opencontainers.image.source": "https://github.com/tinnlab/txresbench",
+    "com.txr.base_id": "<base_id>",
+    "com.txr.arch": "<arch>",
+    "com.txr.contract": "<contract>",
+    "com.txr.trimmed-from-ref": "<source_ref>",
+    "com.txr.trimmed-from-digest": "<source_digest>",
+    "com.txr.base_sha256": "<squashfs_sha256>"
+  }
+}
+```
+
+Same serialization rules as §6.1; the writer stages the bytes as
+`<staging>/bases/<base_id>-<arch>/oci-manifest.json` and the publisher pushes
+them verbatim (§6.2).
+
+The generator packs the base from the SAME cached base rootfs the layers'
+deltas were computed against (same image digest), once per language and arch
+per build dir: after each method build, or with `--stage-bases` for layer
+records already staged (from the cache, or from the local image only when its
+digest is the records' `base_digest`; never pulled or rebuilt, since a rebuilt
+image has another digest and would not pair). The rootfs is not trimmed.
+Before packing, the rootfs must hold what the stacked run needs:
+`/opt/txr-layer` (and `/opt/txr-layer/R-library` for base-r),
+`/usr/bin/prlimit` and `/usr/bin/bash` (the sandbox binds the base's `/usr` and
+makes `/bin` a link to `usr/bin` itself). The pack uses the layer's compressor
+flags plus `-no-xattrs -all-time 315532800 -mkfs-time 315532800`: the
+extracted rootfs carries extraction times, so without fixed times two packs of
+one rootfs differ; with them one rootfs packs to the same bytes (for one
+squashfs-tools/zstd build). The pin never depends on that: it is the hash of
+the staged file, and the publisher pushes exactly that file.
+
+Build dir layout: `<out>/bases/<base_id>-<arch>/{base.squashfs, artifact.json,
+oci-manifest.json}` next to `<out>/layers/`; the rootfs cache lives under
+`<out>/base-cache/`.
+
 ## §7 Base pairing — no silent substitution (INV-3, DEC-4)
 
 The layer is a delta over a **specific** benchmark base. The manifest records
-that identity (`base_ref`, `base_digest`). The app-side trimmed per-language
-base (`sandbox-stacked`'s artifact) **must** be a trim of that exact benchmark
-base and must carry the OCI annotation
+that identity (`base_ref`, `base_digest`). The app-side per-language base
+(§6.3) **must** be packed from that exact benchmark base: its `bases` record
+carries `source_ref` / `source_digest`, and its artifact carries the OCI
+annotation
 
 ```
 com.txr.trimmed-from-digest = <base_digest>
 ```
 
-The runtime refuses a stack where the two disagree — a typed error naming
-both digests. `base_ref` is not a runtime fetch target (the runtime's base
+The app refuses at manifest load a stack where the two disagree
+(`MANIFEST_BASE_PAIRING`, naming both values); the generator's writer and the
+manifest guard refuse it before that. `base_ref` is not a runtime fetch target (the runtime's base
 ref is `sandbox-stacked`'s `ghcr.io/tinnlab/txresbench-env/…` namespace): the
 pairing is the digest anchor, never the name. This is the invariant that makes
 "a mismatch never mounts silently" a checkable property.
@@ -518,7 +610,9 @@ commit (12 hex), entries sorted by `env_id` (then `arch` within an id), no
 wall-clock field, no temp paths. The writer (the same
 `scripts/generate-method-env-images.py`, ITEM-3) assembles entries from
 the staged `artifact.json` records plus the index facts (`contract`) and
-`method.json` (`licence`, verbatim — TEST-11) and refuses (naming the
+`method.json` (`licence`, verbatim — TEST-11), pairs each entry with its
+staged base record (`<staging>/bases/`, §6.3; an entry without its base, or
+with another base image, is refused) and refuses (naming the
 record) any record whose env_id ≠ method_id, tag ≠ `<version>-<arch>`,
 oci_ref/base_ref prefix, digest/sha256 shape, arch or language is off, or
 whose index entry is missing or not `runnable` (DEC-8). Modes:
@@ -526,6 +620,8 @@ whose index entry is missing or not `runnable` (DEC-8). Modes:
 - `--manifest <path>` after a build run writes the manifest (and stages
   each entry's `oci-manifest.json`); `--fixture <dir> --manifest <path>`
   writes from a fixture staging dir without building (the tests' mode).
+- `--stage-bases --out <dir> --arch <arch>` stages the bases of layer records
+  already in `<dir>` without building anything (§6.3).
 - `--check` assembles only and byte-compares against `--manifest`
   (default `src-app/server/data/method-env-images.json`); a difference
   exits 1 naming the first differing key (`envs[3].licence`,
@@ -560,9 +656,9 @@ prefix, uniqueness, sorted order, no status/placeholder text.
 
 ## §12 Non-goals
 
-- The trimmed per-language base image and its recipe: `sandbox-stacked`
-  (this node records the base the layer was computed against and the pairing
-  anchor the base must carry).
+- The per-language base image recipe: the benchmark repository
+  (`tinnlab/txresbench`, `base-images/`). This node records the base the layer
+  was computed against and packs + pins the app-side base from it (§6.3).
 - The fetch/verify/mount machinery, download-state machine and progress:
   `sandbox-stacked` / `execution-engine`.
 - The method catalogue and its env id emission: `method-catalogue`

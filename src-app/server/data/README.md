@@ -19,8 +19,12 @@ the schema in the same change.
 The manifest and schema are the contract `execution-engine`'s runtime reads
 (embed via `include_dir!` or read from disk in dev builds): the runtime
 fetches `oci_ref@digest`, verifies `layer_sha256` before mounting, and shows
-`size_bytes` before the download starts. Design reference:
-`docs/method-env-layer-artifacts.md`.
+`size_bytes` before the download starts. The base each entry stacks on is the
+manifest's `bases` record for its language and arch: the runtime fetches it by
+its `tag` and verifies `squashfs_sha256` (an entry's `base_digest` is the
+Docker base image's digest, provenance only). `bases` is optional until the
+committed file is regenerated with bases; the committed file has none yet.
+Design reference: `docs/method-env-layer-artifacts.md` (§2.1a, §6.3, §7).
 
 Regeneration (on the publisher's machine; the generator reads the methods
 repository at build time only and never at run time):

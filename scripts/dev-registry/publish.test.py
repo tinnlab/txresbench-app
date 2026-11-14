@@ -399,5 +399,57 @@ class RealMethodsCase(unittest.TestCase):
             self.assertTrue(entry["digest"].startswith("sha256:"), entry["env_id"])
 
 
+
+class StageFixtureCase(unittest.TestCase):
+    """--stage-fixture: the bases scenario's build dir in the generator's
+    format, written by the generator's own base pack, assembles into a
+    manifest whose `bases` record pins the base FILE (never the provenance
+    digest) and pairs with the layer."""
+
+    GENERATOR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                             "generate-method-env-images.py")
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="txr-dev-stage-test-", dir=TEST_TMP_ROOT)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_stage_fixture_writes_a_generator_build_dir_with_a_paired_base(self):
+        stage = os.path.join(self.tmpdir, "stage")
+        self.assertEqual(publish.main(["--stage-fixture", stage]), 0)
+        arch = publish.ARCH
+        base_dir = os.path.join(stage, "bases", "base-py-" + arch)
+        with open(os.path.join(base_dir, "artifact.json")) as f:
+            base = json.load(f)
+        self.assertEqual(base["kind"], "base")
+        self.assertEqual(base["squashfs_sha256"], sha256_file(os.path.join(base_dir, "base.squashfs")))
+        self.assertEqual(base["tag"], "2.0-%s-%s" % (arch, base["squashfs_sha256"][:12]))
+        layer_dir = os.path.join(stage, "layers", "%s-%s" % (publish.FIXTURE_B_METHOD_ID, arch))
+        with open(os.path.join(layer_dir, "artifact.json")) as f:
+            layer = json.load(f)
+        self.assertEqual(layer["layer_sha256"], sha256_file(os.path.join(layer_dir, "layer.squashfs")))
+        self.assertEqual(layer["base_digest"], base["source_digest"])
+
+        manifest = os.path.join(self.tmpdir, "manifest.json")
+        r = subprocess.run([sys.executable, self.GENERATOR, "--fixture", stage,
+                            "--methods-dir", os.path.join(stage, "methods"),
+                            "--manifest", manifest], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(manifest) as f:
+            doc = json.load(f)
+        self.assertEqual([(b["base_id"], b["arch"]) for b in doc["bases"]], [("base-py", arch)])
+        b, e = doc["bases"][0], doc["envs"][0]
+        self.assertEqual(e["env_id"], publish.FIXTURE_B_METHOD_ID)
+        self.assertEqual(b["squashfs_sha256"], base["squashfs_sha256"])
+        self.assertEqual(e["base_digest"], b["source_digest"], "the pairing (design §7)")
+        self.assertNotEqual(e["base_digest"], "sha256:" + b["squashfs_sha256"],
+                            "the provenance digest is never the file pin")
+        listing = subprocess.run(["unsquashfs", "-lln", os.path.join(base_dir, "base.squashfs")],
+                                 capture_output=True, text=True, check=True).stdout
+        for rel in ("opt/txr-layer", "usr/bin/prlimit", "usr/bin/bash"):
+            self.assertIn("squashfs-root/" + rel, listing)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
