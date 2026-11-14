@@ -216,7 +216,10 @@ esac
 # ── the loopback rehearsal target (never another host) ────────────────────────
 # Exactly `127.0.0.1:<port>` or `[::1]:<port>`, port 1-65535, nothing after it.
 if [ -n "$LOOPBACK" ]; then
-  if ! printf '%s' "$LOOPBACK" | grep -Eq '^(127\.0\.0\.1|\[::1\]):[0-9]{1,5}$'; then
+  # A bash match on the whole value: grep would match line by line, so a value
+  # with a line break could pass on its first line.
+  loopback_re='^(127\.0\.0\.1|\[::1\]):[0-9]{1,5}$'
+  if ! [[ $LOOPBACK =~ $loopback_re ]]; then
     echo "publish: --registry must be 127.0.0.1:<port> or [::1]:<port> (a loopback rehearsal" >&2
     echo "registry); got '$LOOPBACK'. Publishing anywhere else is the ghcr.io release path." >&2
     exit 2
