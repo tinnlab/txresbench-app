@@ -14,7 +14,7 @@
 //!   3. **The merged composition is exactly the module set.** The REAL
 //!      composer with build.rs's source lists (module glob root + the three
 //!      SDK crates' `migrations/` dirs) produces exactly the union of the
-//!      module files — 39 — and byte-identical copies.
+//!      module files — 40 — and byte-identical copies.
 //!   4. **No PG-dialect construct survives in the executable SQL.** The
 //!      port rules (DEC-12, PROV-sqlite-store-4) are checked on the
 //!      comment-stripped, string-literal-stripped SQL: no `::` casts, no
@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 /// `workstore` modules no longer ship chains).
 const MIGRATION_MODULES: &[&str] = &[
     "account",
+    "demo", // demo-mode ITEM-1: the anonymous-visitor + run-owner rows
     "execution_engine",
     "features",
     "file",
@@ -200,7 +201,7 @@ fn final_layout_has_one_sqlite_chain_and_no_pg_dialect() {
         expected_files.extend(sql_files(&sdk_crate_migrations(crate_name)));
     }
     expected_files.sort();
-    assert_eq!(expected_files.len(), 39, "the complete SQLite chain is 39 files");
+    assert_eq!(expected_files.len(), 40, "the complete SQLite chain is 40 files");
 
     let mut merged_files: Vec<PathBuf> = std::fs::read_dir(&merged)
         .expect("merged dir")

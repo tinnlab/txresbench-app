@@ -6211,6 +6211,27 @@
         ]
       }
     },
+    "/api/app/mode": {
+      "get": {
+        "tags": [
+          "app"
+        ],
+        "description": "The app's mode at boot: `desktop` (default) or `demo`. Public (no auth) — the UI reads it once at boot and must render nothing mode-specific until it is known.",
+        "operationId": "App.mode",
+        "responses": {
+          "200": {
+            "description": "The wire shape of `GET /api/app/mode` (the spec's section 2 switch).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppModeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/mcp/agent/result": {
       "post": {
         "tags": [
@@ -7916,6 +7937,33 @@
           }
         }
       },
+      "AppModeResponse": {
+        "description": "The wire shape of `GET /api/app/mode` (the spec's section 2 switch).",
+        "type": "object",
+        "properties": {
+          "download_url": {
+            "description": "The download page URL; empty in desktop mode (the UI shows the link\n only when non-empty).",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/DemoLimits"
+          },
+          "mode": {
+            "description": "`\"desktop\"` (the default) or `\"demo\"`.",
+            "type": "string"
+          },
+          "notice": {
+            "description": "The resolved notice text; empty in desktop mode.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "download_url",
+          "limits",
+          "notice"
+        ]
+      },
       "AuthProviderResponse": {
         "description": "Admin-view summary of an auth provider. The `config` JSONB is\n returned with `client_secret` and any sensitive key contents\n MASKED — see handlers.rs::mask_provider_config.",
         "type": "object",
@@ -8272,6 +8320,25 @@
         "required": [
           "deleted",
           "affected_user_links"
+        ]
+      },
+      "DemoLimits": {
+        "type": "object",
+        "properties": {
+          "history": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "models": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "history",
+          "models"
         ]
       },
       "DownloadCancelQuery": {

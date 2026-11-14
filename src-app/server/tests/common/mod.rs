@@ -126,6 +126,23 @@ pub struct TestOptions {
     /// bundled install source (TEST-PC-07/23) writes its fixture `.txr` here
     /// before the spawn.
     pub pretrained_bundled_dir: Option<PathBuf>,
+
+    /// Spawn the server in DEMO MODE (`TXR_DEMO=1`; demo-mode ITEM-1). All
+    /// other knobs are unchanged — the demo boot is the same binary with the
+    /// switch on, exactly the deployment shape.
+    pub demo: bool,
+
+    /// Extra top-level YAML appended to the rendered config (demo-mode
+    /// ITEM-1: a test that tunes `demo.max_bytes` or the notice key passes
+    /// its snippet here). Appended AFTER the `jwt:` block, so it may add NEW
+    /// top-level keys only — it must not repeat `server:`/`database:` (the
+    /// demo tests use [`rate_limit`] for the server block).
+    pub extra_config_yaml: Option<String>,
+
+    /// The `server.rate_limit` block (demo-mode ITEM-1: a test that must
+    /// observe a 429 bucket sets 1 req/s, burst 2). Rendered INSIDE the
+    /// rendered `server:` block, so the block is never duplicated.
+    pub rate_limit: Option<(u64, u32)>,
 }
 
 impl HarnessApp for CytoHarnessApp {
@@ -161,6 +178,7 @@ server:
   port: {server_port}
   api_prefix: "/api"
   trust_forwarded_headers: false
+{rate_limit}
 
 logging:
   level: "warn"
@@ -172,10 +190,20 @@ jwt:
   audience: "txresbench-api"
   access_token_expiry_hours: 24
   refresh_token_expiry_days: 30
+{extra}
 "#,
             data_dir = facts.data_dir.display(),
             database_url = facts.database_url,
             server_port = facts.server_port,
+            rate_limit = opts
+                .rate_limit
+                .map(|(per_second, burst)| {
+                    format!(
+                        "  rate_limit:\n    per_second: {per_second}\n    burst_size: {burst}\n"
+                    )
+                })
+                .unwrap_or_default(),
+            extra = opts.extra_config_yaml.clone().unwrap_or_default(),
         );
 
         if let Some(slot) = &opts.observed_database_name {
@@ -281,6 +309,9 @@ jwt:
                         "TXR_BUNDLED_MODELS_DIR".to_string(),
                         dir.display().to_string(),
                     ));
+                }
+                if opts.demo {
+                    env.push(("TXR_DEMO".to_string(), "1".to_string()));
                 }
                 env
             },

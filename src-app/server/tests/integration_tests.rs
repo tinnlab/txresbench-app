@@ -4,6 +4,11 @@
 //! parallelism safe).
 
 mod common;
+// The demo-mode suites (demo-mode ITEM-1 + later items): mode switch, the
+// route allowlist (every route classified; framework routes blocked; the
+// blocked mutations), the anonymous session + shared pool, the run-creator
+// ownership rule and the limits — over a real spawned demo server.
+mod demo;
 // The SQLite suites: the chain-apply harness is live from the port item that
 // builds it; the runtime/seam suites arrive with the items they cover. The
 // chain tests need no external DB — they apply the ported chain to scratch

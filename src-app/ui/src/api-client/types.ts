@@ -310,6 +310,20 @@ export interface AnalysisParameters {
   decision_day?: number
 }
 
+/** The wire shape of `GET /api/app/mode` (the spec's section 2 switch). */
+export interface AppModeResponse {
+  /**
+   * The download page URL; empty in desktop mode (the UI shows the link
+   *  only when non-empty).
+   */
+  download_url: string
+  limits: DemoLimits
+  /** `"desktop"` (the default) or `"demo"`. */
+  mode: string
+  /** The resolved notice text; empty in desktop mode. */
+  notice: string
+}
+
 /**
  * Admin-view summary of an auth provider. The `config` JSONB is
  *  returned with `client_secret` and any sensitive key contents
@@ -495,6 +509,11 @@ export interface DeleteEnvQuery {
 export interface DeleteProviderResponse {
   affected_user_links: number
   deleted: boolean
+}
+
+export interface DemoLimits {
+  history: number
+  models: number
 }
 
 /**
@@ -4071,6 +4090,7 @@ export type ApiEndpointParameters = {
   'Account.resendInvitation': { account_id: string; invitation_id: string }
   'Account.revokeInvitation': { account_id: string; invitation_id: string }
   'Account.setMemberRole': { account_id: string; user_id: string } & SetRoleRequest
+  'App.mode': void
   'Auth.changePassword': ChangePasswordRequest
   'Auth.getSessionSettings': void
   'Auth.linkAccount': LinkAccountRequest
@@ -4204,6 +4224,7 @@ export type ApiEndpointResponses = {
   'Account.resendInvitation': ResendInvitationResponse
   'Account.revokeInvitation': void
   'Account.setMemberRole': AccountMember
+  'App.mode': AppModeResponse
   'Auth.changePassword': void
   'Auth.getSessionSettings': SessionSettings
   'Auth.linkAccount': AuthResponse

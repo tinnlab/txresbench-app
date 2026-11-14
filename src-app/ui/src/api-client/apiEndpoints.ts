@@ -17,6 +17,7 @@ export const ApiEndpoints = {
   'Account.resendInvitation': 'POST /api/accounts/{account_id}/invitations/{invitation_id}/resend',
   'Account.revokeInvitation': 'DELETE /api/accounts/{account_id}/invitations/{invitation_id}',
   'Account.setMemberRole': 'PATCH /api/accounts/{account_id}/members/{user_id}',
+  'App.mode': 'GET /api/app/mode',
   'Auth.changePassword': 'POST /api/auth/password',
   'Auth.getSessionSettings': 'GET /api/auth/session-settings',
   'Auth.linkAccount': 'POST /api/auth/link-account',
