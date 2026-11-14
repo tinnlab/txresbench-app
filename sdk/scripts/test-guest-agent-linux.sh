@@ -15,7 +15,9 @@
 # Usage:  sh sdk/scripts/test-guest-agent-linux.sh [arm64|amd64]     (default: arm64)
 #   Build output and the cargo registry live in the Docker volume
 #   ${TXR_AGENT_TEST_VOLUME:-txr-guest-agent-test}; `docker volume rm` it when done.
-#   On an Apple Silicon Mac, amd64 runs under emulation (slow).
+#   On an Apple Silicon Mac, amd64 runs under emulation (slow), and the emulator refuses
+#   seccomp filters: the e2e tests that run bwrap with --seccomp fail there with
+#   "prctl(PR_SET_SECCOMP) reported EINVAL". Run amd64 on an x86_64 Linux host for a full pass.
 set -eu
 
 die() { echo "test-guest-agent-linux: $*" >&2; exit 1; }
