@@ -28,3 +28,32 @@ export const DEMO_HEADER_DOWNLOAD = 'Download the app'
 
 /** The disabled-control reason (the plan's inline reason / tooltip). */
 export const DEMO_DISABLED_REASON = 'Not available in the demo'
+
+// ── ITEM-6 page copy (the audit table's CHANGE column, part 1) ────────────────
+// The sentences the ITEM-6 pages show in demo mode. Same rules as above: one
+// place, location-neutral, the audit's words where it names them.
+
+/** The Start page's primary card action in demo (the audit's "Use the
+ *  example data" byte). */
+export const DEMO_START_PRIMARY = 'Use the example data'
+
+/** The Start page's bottom hint (the audit's "bottom hint explains the
+ *  demo"). */
+export const DEMO_START_HINT =
+  'This is a demo: you can use the example data only, and the runs and models here are shared with everyone who visits. The desktop app is for your own data.'
+
+/** The study panel's note when the answers leave the example setup (the
+ *  audit's "the demo uses the example study" byte + the no-change clause). */
+export const DEMO_STUDY_NOTE =
+  'The demo uses the example study, so these answers do not change the methods the demo offers.'
+
+/** The settings card's note (the spec's named sentence, verbatim). */
+export const DEMO_SETTINGS_NOTE = 'the demo uses the example setup'
+
+/** The run button's suffix in demo (the audit's "Run N methods (demo)"). */
+export const DEMO_RUN_BUTTON_SUFFIX = ' (demo)'
+
+/** The running page's label (the audit's "Demo run - results are the
+ *  recorded ones"). */
+export const DEMO_RUNNING_LABEL = 'Demo run - results are the recorded ones'
+

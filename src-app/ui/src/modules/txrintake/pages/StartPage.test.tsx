@@ -20,6 +20,8 @@ import { MemoryRouter, useLocation } from 'react-router-dom'
 import { StartPage } from './StartPage'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import { __resetFetchCacheForTests } from '../data/fetchCache'
+import { seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
+import { DEMO_START_HINT, DEMO_START_PRIMARY } from '@/modules/demo/copy'
 import type { LoadedFile } from '../types'
 
 const api = vi.hoisted(() => ({
@@ -435,5 +437,42 @@ describe('the Use example message sits under the card\'s button row, across the 
       'txr-use-example-pretrained',
     ])
     expect(store().predictMeasurements?.source.name).toBe('mine.csv')
+  })
+})
+
+describe('demo mode (ITEM-6) — the card example actions are the primary', () => {
+  it('the three card CTAs read "Use the example data"; the plain path buttons are gone', () => {
+    seedDemoMode('demo')
+    renderStart()
+    for (const path of ['train', 'pretrained', 'reuse']) {
+      expect(screen.getByTestId(`txr-use-example-${path}`).textContent).toBe(DEMO_START_PRIMARY)
+      expect(screen.getByTestId(`txr-use-example-${path}`).getAttribute('aria-label')).toMatch(/Use example data/)
+    }
+    // The plain CTAs are replaced, not hidden twice: their testids are gone.
+    expect(screen.queryByTestId('txr-intake-start-card-train-cta')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-start-card-pretrained-cta')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-start-card-reuse-cta')).toBeNull()
+    expect(screen.getByTestId('txr-intake-start-example-hint').textContent).toBe(DEMO_START_HINT)
+  })
+
+  it("the demo primary action fills the flow and lands on the path's file step", async () => {
+    seedDemoMode('demo')
+    renderStart()
+    fireEvent.click(screen.getByTestId('txr-use-example-train'))
+    await waitFor(() => {
+      expect(routeAt()).toBe('/files')
+    })
+    expect(store().intent).toBe('train')
+    expect(store().exampleLoaded).toBe(true)
+    expect(store().exampleSlots.patients).toBe(true)
+  })
+
+  it('desktop renders the plain CTAs and the old banner hint (untouched byte)', () => {
+    seedDemoMode('desktop')
+    renderStart()
+    expect(screen.getByTestId('txr-intake-start-card-train-cta').textContent).toBe('Add my data')
+    expect(screen.getByTestId('txr-intake-start-card-pretrained-cta').textContent).toBe('Add the patients to predict')
+    expect(screen.getByTestId('txr-intake-start-card-reuse-cta').textContent).toBe('Predict with a model I saved')
+    expect(screen.getByText(/Prefer to try it first/)).toBeTruthy()
   })
 })

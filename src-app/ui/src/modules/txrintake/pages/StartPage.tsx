@@ -8,6 +8,8 @@ import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { TxrIntake } from '../stores/TxrIntake.store'
 import { useRunnableMethodCount } from '../data/useRunnableMethodCount'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
+import { useAppMode } from '@/modules/demo'
+import { DEMO_START_HINT, DEMO_START_PRIMARY } from '@/modules/demo/copy'
 import type { IntakeIntent } from '../types'
 
 /**
@@ -227,24 +229,34 @@ const WEB_URL_NOTICE: CSSProperties = {
  * question, the progress line, the error), across the card. Inside the
  * row a long message would widen the "Use example" slot and stretch its
  * button.
+ *
+ * Demo mode (demo-mode ITEM-6): the audit's "the 'Add my data' / 'Add the
+ * patients to predict' buttons read 'Use the example data'; the qa-fixes3
+ * 'Use example' buttons are the primary action" — the plain CTA is
+ * replaced by the use-example button (the primary look + the audit's
+ * label), and the one button owns the card's flow action.
  */
 function CardActions({
   path,
   primary,
   onExampleDone,
+  demo = false,
 }: {
   path: IntakeIntent
   primary: ReactNode
   onExampleDone: () => void
+  demo?: boolean
 }) {
   return (
     <TxrUseExampleButton
       path={path}
       onDone={onExampleDone}
+      label={demo ? DEMO_START_PRIMARY : undefined}
+      style={demo ? PRIMARY_BUTTON : undefined}
       layout={({ action, message }) => (
         <div data-testid={`txr-intake-start-card-${path}-actions`} style={CARD_ACTIONS}>
           <div data-testid={`txr-intake-start-card-${path}-buttons`} style={CARD_BUTTON_ROW}>
-            {primary}
+            {demo ? null : primary}
             {action}
           </div>
           {message}
@@ -257,6 +269,7 @@ function CardActions({
 export function StartPage() {
   const navigate = useNavigate()
   const { count } = useRunnableMethodCount()
+  const { isDemo } = useAppMode()
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('What do you want to do?')
 
@@ -325,6 +338,7 @@ export function StartPage() {
                   <CardActions
                     path="pretrained"
                     onExampleDone={() => exampleDone('pretrained')}
+                    demo={isDemo}
                     primary={
                       <Button
                         data-testid="txr-intake-start-card-pretrained-cta"
@@ -359,6 +373,7 @@ export function StartPage() {
                   <CardActions
                     path="train"
                     onExampleDone={() => exampleDone('train')}
+                    demo={isDemo}
                     primary={
                       <Button
                         data-testid="txr-intake-start-card-train-cta"
@@ -386,6 +401,7 @@ export function StartPage() {
                   <CardActions
                     path="reuse"
                     onExampleDone={() => exampleDone('reuse')}
+                    demo={isDemo}
                     primary={
                       // qa-fixes ITEM-6 L3: the board labels BOTH flows "Add the
                       // patients to predict" — the pretrained card's words — so the
@@ -413,8 +429,14 @@ export function StartPage() {
                 </span>
                 <span style={BANNER_SPACER} />
                 <span data-testid="txr-intake-start-example-hint">
-                  Prefer to try it first? <b>Use example</b> on any card fills the whole flow with the
-                  example data — replace it with your own files at any time.
+                  {isDemo ? (
+                    DEMO_START_HINT
+                  ) : (
+                    <>
+                      Prefer to try it first? <b>Use example</b> on any card fills the whole flow with
+                      the example data — replace it with your own files at any time.
+                    </>
+                  )}
                 </span>
               </div>
 

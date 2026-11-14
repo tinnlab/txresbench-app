@@ -24,6 +24,9 @@ import {
 import { descriptiveSentence, hasStudyAnswers, PREVIEW_ANSWER_INVITE } from '../lib/preview'
 import { formatNoEnvLine } from '@/modules/txrlist/lib/format'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
+import { isExampleStudy } from '../lib/example'
+import { useAppMode } from '@/modules/demo'
+import { DEMO_STUDY_NOTE } from '@/modules/demo/copy'
 import type { DiseaseId, OutcomeId, TreatmentId } from '../types'
 
 /**
@@ -222,6 +225,10 @@ const PANEL_ERROR: CSSProperties = { margin: 0, color: 'var(--txr-danger)', font
 /** The environment honesty line (CM-1's plain-voice rule, R2-1's separation). */
 const PANEL_NO_ENV: CSSProperties = { margin: 0, fontSize: 12.5, color: 'var(--txr-warning)' }
 
+/** The demo-study note (demo-mode ITEM-6: the answers left the example
+ *  setup — the note names it, and the eligible set does not move). */
+const DEMO_NOTE: CSSProperties = { margin: 0, fontSize: 13, color: 'var(--txr-muted)' }
+
 /** The "What you will upload" box (board: bordered white card). */
 const UPLOAD_BOX: CSSProperties = {
   padding: '14px 16px',
@@ -293,6 +300,7 @@ export function StudyPage() {
   const patchParameters = useStore(useTxrIntakeStore, s => s.patchParameters)
   const { groups, loading: groupsLoading, error: groupsError } = useMarkers()
   const panel = useStudyPreview(study, groups)
+  const { isDemo } = useAppMode()
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('Tell us about your study')
   const [showAllExcluded, setShowAllExcluded] = useState(false)
@@ -513,6 +521,15 @@ export function StudyPage() {
                 {answered && panel.fit !== null && panel.fit.some > 0 ? (
                   <p style={PANEL_SOME_LINE} data-testid="txr-intake-panel-some">
                     {someFitLine(panel.fit)}
+                  </p>
+                ) : null}
+
+                {/* demo-mode ITEM-6: the demo's verdicts answer from the
+                    bundle — the count and the methods are the recorded ones,
+                    and answers outside the example setup say so. */}
+                {isDemo && answered && !isExampleStudy(study) ? (
+                  <p data-testid="txr-intake-panel-demo-note" style={DEMO_NOTE}>
+                    {DEMO_STUDY_NOTE}
                   </p>
                 ) : null}
 

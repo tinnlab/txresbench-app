@@ -65,6 +65,22 @@ export const EXAMPLE_STUDY: StudyAnswers = {
   lastDrawDay: 56,
 }
 
+/** Is `study` exactly the example family's answers? (demo-mode ITEM-6: the
+ *  study panel shows the "the demo uses the example study" note once the
+ *  answers leave this setup — the server's demo verdicts answer from the
+ *  bundle regardless, so the note is the honest UI half.) */
+export function isExampleStudy(study: StudyAnswers): boolean {
+  return (
+    study.disease === EXAMPLE_STUDY.disease &&
+    study.treatment === EXAMPLE_STUDY.treatment &&
+    study.outcome === EXAMPLE_STUDY.outcome &&
+    (study.markerGroups ?? null) === null &&
+    study.beforeTreatment === EXAMPLE_STUDY.beforeTreatment &&
+    study.drawsDuringTreatment === EXAMPLE_STUDY.drawsDuringTreatment &&
+    study.lastDrawDay === EXAMPLE_STUDY.lastDrawDay
+  )
+}
+
 /** The example's last draw — the decision-day value of the example (DEC-5's
  *  grid: day 56 is the value the store and the engine default to). */
 export const EXAMPLE_DECISION_DAY = 56
