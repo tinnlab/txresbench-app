@@ -47,7 +47,19 @@
 #        - entries strictly sorted by (env_id, arch) (DEC-15's byte
 #          determinism is only reachable from a deterministic order);
 #        - zero entries ARE accepted (the ITEM-1 seed manifest `envs: []` is
-#          the committed state until ITEM-6's regeneration — PLAN note e).
+#          the committed state until ITEM-6's regeneration — PLAN note e);
+#        - the optional `bases` list (the app-side base artifacts; optional
+#          until the committed manifest is regenerated with bases). When it
+#          is present: each record follows its construction (`base_id`
+#          base-py | base-r, `oci_ref` = ghcr.io/tinnlab/txresbench-env/
+#          <base_id>, `tag` = `<contract>-<arch>-<first 12 hex of
+#          squashfs_sha256>`, `contract` == `base_contract`, `source_ref` =
+#          the txresbench-base image of the same family at that contract,
+#          pin shapes, size > 0), no duplicate (base_id, arch), sorted; EVERY
+#          entry has the base of its language and arch, and its
+#          `base_ref`/`base_digest` equal that base's `source_ref`/
+#          `source_digest` (design §7's pairing); no base goes unused. A
+#          manifest without `bases` is checked exactly as before.
 #   3. NO PLACEHOLDER TEXT (INV-2: a published file carries data only). Every
 #      STRING value is scanned for status/placeholder vocabulary (TODO, TBD,
 #      FIXME, XXX, PLACEHOLDER, STUB, LOREM, TKTK, NOT YET, TO BE FILLED, IN
@@ -355,12 +367,85 @@ for i in range(1, len(keys)):
              f"{keys[i - 1][0]}-{keys[i - 1][1]} — entries must be sorted by "
              "(env_id, arch) (DEC-15 determinism)")
 
+# ── 2b. The `bases` list (absent = a manifest from before the base publisher,
+# checked exactly as before). Each failure names the base or the entry.
+bases = manifest.get("bases") if isinstance(manifest, dict) else None
+if bases is not None:
+    if not isinstance(bases, list):
+        fail("field 'bases' is not an array")
+    base_prefix = "ghcr.io/tinnlab/txresbench-env"
+    family_of = {"base-py": "py", "base-r": "r"}
+    base_of_lang = {"Python": "base-py", "R": "base-r"}
+    by_key = {}
+    prev = None
+    for i, b in enumerate(bases):
+        if not isinstance(b, dict):
+            fail(f"bases[{i}] is not an object")
+        bid, barch = b.get("base_id"), b.get("arch")
+        ref = f"bases[{i}] {bid}-{barch}"
+        if bid not in family_of:
+            fail(f"{ref}: base_id {bid!r} is not base-py or base-r")
+        if barch not in ("amd64", "arm64"):
+            fail(f"{ref}: arch {barch!r} not in amd64/arm64")
+        key = (bid, barch)
+        if key in by_key:
+            fail(f"{ref}: duplicate (base_id, arch) — one base per language and arch")
+        if prev is not None and key < prev:
+            fail(f"{ref} sorts before bases[{i - 1}] {prev[0]}-{prev[1]} — bases "
+                 "must be sorted by (base_id, arch)")
+        prev = key
+        by_key[key] = b
+        if b.get("oci_ref") != f"{base_prefix}/{bid}":
+            fail(f"{ref}: oci_ref {b.get('oci_ref')!r} != {base_prefix}/<base_id>")
+        sha = b.get("squashfs_sha256")
+        if not isinstance(sha, str) or not hex64.match(sha):
+            fail(f"{ref}: squashfs_sha256 {sha!r} is not 64 lowercase hex")
+        for field in ("digest", "source_digest"):
+            if not isinstance(b.get(field), str) or not key_re.match(b.get(field)):
+                fail(f"{ref}: {field} {b.get(field)!r} is not sha256:<64 hex>")
+        if not isinstance(b.get("size_bytes"), int) or b.get("size_bytes") < 1:
+            fail(f"{ref}: size_bytes {b.get('size_bytes')!r} is not a positive integer")
+        contract = b.get("contract")
+        if contract != manifest.get("base_contract"):
+            fail(f"{ref}: contract {contract!r} != the manifest's base_contract "
+                 f"{manifest.get('base_contract')!r}")
+        want_tag = f"{contract}-{barch}-{sha[:12]}"
+        if b.get("tag") != want_tag:
+            fail(f"{ref}: tag {b.get('tag')!r} != {want_tag!r} "
+                 "(<contract>-<arch>-<first 12 hex of squashfs_sha256>)")
+        sm = base_ref_re.match(b.get("source_ref") or "")
+        if not sm or sm.group(1) != family_of[bid] or sm.group(2) != contract:
+            fail(f"{ref}: source_ref {b.get('source_ref')!r} is not "
+                 f"ghcr.io/tinnlab/txresbench-base-{family_of[bid]}:{contract} "
+                 "(the image the base was packed from)")
+    used = set()
+    for i, e in enumerate(envs):
+        key = (base_of_lang.get(e.get("language")), e.get("arch"))
+        ref = f"envs[{i}] {e.get('env_id')}-{e.get('arch')}"
+        b = by_key.get(key)
+        if b is None:
+            fail(f"{ref}: no {key[0]}-{key[1]} record in bases — a manifest with "
+                 "bases must give every entry its base")
+        for e_field, b_field in (("base_ref", "source_ref"),
+                                 ("base_digest", "source_digest")):
+            if e.get(e_field) != b.get(b_field):
+                fail(f"{ref}: {e_field} {e.get(e_field)!r} != {key[0]}-{key[1]}'s "
+                     f"{b_field} {b.get(b_field)!r} — the layer was built on another "
+                     "base image (design §7 pairing)")
+        used.add(key)
+    for key in by_key:
+        if key not in used:
+            fail(f"bases {key[0]}-{key[1]}: no entry uses this base")
+
 if verbose:
     for e in envs:
         print(f"check-method-env-images: ok  {e.get('env_id')}-{e.get('arch')} "
               f"{e.get('method_version')} {e.get('size_bytes')} B")
+n_bases = "no bases list" if bases is None else (
+    f"{len(bases)} base{'' if len(bases) == 1 else 's'}")
 print(f"check-method-env-images: OK — {len(envs)} env entr{'y' if len(envs) == 1 else 'ies'} "
-      f"conform to {os.path.basename(schema_path)} and the structural rules")
+      f"conform to {os.path.basename(schema_path)} and the structural rules "
+      f"({n_bases})")
 PYEOF
 
 # ── 4. Regen parity leg (publisher-machine check; see header). ─────────────────
