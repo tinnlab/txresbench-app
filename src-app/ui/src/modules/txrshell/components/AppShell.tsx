@@ -7,6 +7,7 @@ import { MAC_TITLE_BAR_CSS_VARS } from '@/core/macTitleBar'
 import { isMacDesktop } from '@/core/platform'
 import { TxrThemeToggle } from '../TxrThemeToggle'
 import { shellModeClass, useShellMode } from '../lib/shellMode'
+import { DemoHeaderDownload, DemoNoticeBar } from '@/modules/demo'
 
 /**
  * txrshell — AppShell (app-shell ITEM-1, DEC-1/DEC-2).
@@ -157,6 +158,9 @@ export function AppShell({ children }: AppShellProps) {
           className="txr-shell-actions"
           style={{ display: 'flex', alignItems: 'center', gap: 22 }}
         >
+          {/* Demo mode only (ITEM-5): the header's download link. Absent in
+              desktop and while the boot mode read is pending. */}
+          <DemoHeaderDownload />
           <nav aria-label="Main" className="txr-shell-nav" style={{ display: 'flex', gap: 4, fontSize: 14 }}>
             {SHELL_NAV_ITEMS.map(item => (
               <NavLink
@@ -199,6 +203,12 @@ export function AppShell({ children }: AppShellProps) {
           <TxrThemeToggle />
         </div>
       </header>
+      {/* Demo mode only (ITEM-5): the notice bar sits BETWEEN the header and
+          the routed area — a flex child of the shell column with flex: none,
+          so the body shrinks by its height and the bar never overlaps either
+          (the plan's "the page layout leaves its height"). Absent in desktop
+          and while the boot mode read is pending. */}
+      <DemoNoticeBar />
       {/* The routed area: the shell's skip-link target. In shell mode it is
           the ONE scroller before the pages own their regions (ITEM-2/3); in
           flow mode the document scrolls and this div is plain content. */}

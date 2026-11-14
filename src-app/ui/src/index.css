@@ -262,6 +262,108 @@ html.txr-shell-mode-shell #root {
   }
 }
 
+/* Demo-mode ITEM-5 — the notice bar directly under the header.
+ *
+ * The shell renders the bar as a flex child of its column BETWEEN the header
+ * and the routed area, and the bar is `flex: none`: the routed area shrinks
+ * by the bar's height, so the bar can never overlap the header or the page
+ * content (the plan's "the page layout leaves its height"). Colored through
+ * the app tokens — the accent tint + brand ink are the one light/dark pair
+ * both themes carry, so the banner works in both with no new palette.
+ *
+ * Wide: ONE row — icon, the text (flexible, at least its basis), the actions
+ * on the right. Narrow: the BAR's rows stack — the text lines first (at most
+ * three, the plan's byte), the buttons below it; the icon yields to keep the
+ * text's width and the close button joins the action row.
+ *
+ * The narrow byte is a CONTAINER query, not a media query — its subject is
+ * the shell's actual width (the bar lives inside .txr-app-shell, which is
+ * `container-type: inline-size`). In the real app the shell's width IS the
+ * viewport, so the two coincide; in the dev gallery the shell is mounted at
+ * a frame width, and the byte follows the frame — the bar's own wrap count
+ * is what the plan measures, independent of the browser chrome. */
+.txr-app-shell {
+  container-type: inline-size;
+}
+.txr-demo-notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  flex: none;
+  padding: 10px 28px;
+  background: var(--txr-accent-soft);
+  border-bottom: 1px solid var(--txr-border);
+  color: var(--txr-brand-ink);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.txr-demo-notice-icon {
+  flex: none;
+  font-size: 18px;
+}
+.txr-demo-notice-text {
+  flex: 1 1 420px;
+  margin: 0;
+  min-width: 0;
+}
+.txr-demo-notice-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  margin-left: auto;
+}
+.txr-demo-notice-help {
+  color: var(--txr-brand-ink);
+  font-weight: 600;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+.txr-demo-notice-close {
+  color: var(--txr-brand-ink);
+}
+.txr-demo-notice-close:hover {
+  background: var(--txr-accent-softer);
+}
+@container (max-width: 700px) {
+  .txr-demo-notice {
+    padding: 10px 12px;
+    font-size: 12.5px;
+  }
+  .txr-demo-notice-icon {
+    display: none;
+  }
+  .txr-demo-notice-actions {
+    margin-left: 0;
+  }
+}
+
+/* Demo-mode ITEM-5 — the header's "Download the app" link (demo only: the
+ * component renders nothing in desktop and before the boot mode read
+ * settles). A link in the header's action row: the nav-link feet (font,
+ * padding, hover tint), underlined so it reads as a link, nowrap so the
+ * ONE 56 px header row never wraps it. */
+.txr-demo-header-download {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--txr-brand-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.txr-demo-header-download:hover {
+  background: var(--txr-accent-soft);
+}
+@media (max-width: 700px) {
+  .txr-demo-header-download {
+    font-size: 13px;
+    padding: 6px 4px;
+  }
+}
+
 /* The macOS desktop window (the AppShell sets the class only there,
  * `isMacDesktop()` in core/platform.ts, full screen included — macOS
  * slides the traffic lights back in at the top edge): the title bar is a

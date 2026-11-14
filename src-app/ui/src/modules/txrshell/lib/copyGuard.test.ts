@@ -87,6 +87,10 @@ const MODULES = [
   'txrmodels',
   'txrhistory',
   'txrhelp',
+  // demo-mode ITEM-5: the demo module carries user-visible copy (the notice
+  // bar, the disabled-control reason, the example cards) and must obey the
+  // same location-neutral rule — the guard covers it like any txr module.
+  'demo',
 ] as const
 
 /** Extra user-visible sources the sweep named (relative to the repo root). */
