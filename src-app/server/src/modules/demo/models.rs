@@ -71,7 +71,7 @@ fn recorded_input(run_dir: &Path) -> Result<CreateRunRequest, AppError> {
     })
 }
 
-/// The example data's own marker column keys (the feature facts a recorded
+/// The example data's own marker column keys (the marker facts a recorded
 /// model was trained on — the validator's inventory over the recorded input;
 /// the example data's column keys are its stable markers).
 fn example_marker_ids(
@@ -156,7 +156,7 @@ fn new_model_from_bundle(
         endpoint: endpoint.to_string(),
         horizon: model.horizon,
         features: serde_json::to_value(marker_ids)
-            .map_err(|e| AppError::internal_error(format!("features: {e}")))?,
+            .map_err(|e| AppError::internal_error(format!("marker facts: {e}")))?,
         required_markers: cat
             .required_markers
             .clone()

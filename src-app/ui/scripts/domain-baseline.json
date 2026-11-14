@@ -1053,6 +1053,13 @@
         "finding": "GENERIC",
         "note": "The demo-mode route-policy table names the framework's kept furniture by its real path: /admin/features is the runtime feature-flags admin subsystem (issue 40), not the genomic 'features' the domain lattice means. Same disposition as the standing features-module admissions; the 3 code hits are the route path strings the gate must match."
       }
+    },
+    "server/src/modules/demo/models.rs": {
+      "features": {
+        "count": 1,
+        "finding": "FALSE-POSITIVE",
+        "note": "The demo save writes the saved-model registry's own wire key (the txr_models.features column — the recorded marker-set requirement list of the kept TxResBench saved-model contract, the same kept-vocabulary disposition as the standing model_store admissions); the file's other two 'feature(s)' occurrences were reworded to 'marker facts'. The 1 code hit is the struct-literal field name."
+      }
     }
   },
   "prose": {
