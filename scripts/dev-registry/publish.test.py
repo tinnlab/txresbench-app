@@ -400,6 +400,35 @@ class RealMethodsCase(unittest.TestCase):
 
 
 
+class HostPythonCase(unittest.TestCase):
+    """The dev base copies the host's own system python3, whatever its
+    minor version, not a hard-coded 3.10 (a bookworm box has 3.11 only, and a
+    fixture base built there would have no python3 at all)."""
+
+    def test_version_follows_the_python3_link(self):
+        d = tempfile.mkdtemp(dir=TEST_TMP_ROOT)
+        try:
+            link = os.path.join(d, "python3")
+            os.symlink("/usr/bin/python3.11", link)
+            self.assertEqual(publish._host_python_version(link), "3.11")
+            os.unlink(link)
+            os.symlink("/usr/bin/python3.10", link)
+            self.assertEqual(publish._host_python_version(link), "3.10")
+        finally:
+            shutil.rmtree(d)
+
+    def test_no_link_falls_back_to_3_10(self):
+        d = tempfile.mkdtemp(dir=TEST_TMP_ROOT)
+        try:
+            self.assertEqual(publish._host_python_version(os.path.join(d, "absent")), "3.10")
+        finally:
+            shutil.rmtree(d)
+
+    def test_paths_follow_the_version(self):
+        self.assertEqual(publish.PY_BIN, "/usr/bin/python" + publish.PY_VERSION)
+        self.assertEqual(publish.PY_STDLIB, "/usr/lib/python" + publish.PY_VERSION)
+
+
 class StageFixtureCase(unittest.TestCase):
     """--stage-fixture: the bases scenario's build dir in the generator's
     format, written by the generator's own base pack, assembles into a
