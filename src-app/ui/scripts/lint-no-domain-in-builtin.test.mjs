@@ -1385,7 +1385,10 @@ test('[TEST-43][ITEM-30] the server scan set reaches every `server/src/modules/*
   //   STRIP (single-cell) ITEM-3: retired the single-cell module directories with their
   //   modules (drafts, dataset, datatype, extensions, project, provenance, workstore) and
   //   trimmed nothing else — 17 -> 16, again in lockstep with the Rust twin.
-  assert.equal(modules.length, 16, 'the module count is a POSITIVE expectation: a new module must be consciously admitted, and a deleted one consciously retired')
+  //   DEMO-MODE ITEM-1 (its DRIFT-1): +1 (`demo` — the mode switch, the route-policy table
+  //   and the anonymous-session rows) = 17, again in lockstep with the Rust twin's
+  //   EXPECT_MODULES 16 -> 17.
+  assert.equal(modules.length, 17, 'the module count is a POSITIVE expectation: a new module must be consciously admitted, and a deleted one consciously retired')
   const covered = new Set(
     scanned
       .map(p => path.relative(serverRoot, p).split(path.sep)[0])
