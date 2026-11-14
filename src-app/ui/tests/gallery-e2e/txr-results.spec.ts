@@ -356,29 +356,32 @@ test.describe('txr-results-g-nochance — a finished method with no chances (R2-
     const heatmap = page.getByTestId('txr-heatmap')
     await expect(heatmap).toBeVisible()
 
-    // ── R2-03: a finished method whose column carries no chances (a
-    //    predict-only reuse — the engine recorded scores, never converted
-    //    them) is a wall of blanks THE NOTE EXPLAINS — naming the column with
-    //    the method page's own words. ──
+    // ── R2-03 (qa-fixes4 ITEM-6): a finished method whose column carries
+    //    no chances (a predict-only reuse — the engine recorded scores,
+    //    never converted them) is NOT rendered: no blank wall, no empty
+    //    column — the ONE line names the method with the method page's own
+    //    words, and the row still shows its patient id. ──
     const note = page.getByTestId('txr-results-no-chance-note')
     await expect(note).toBeVisible()
     await expect(note).toHaveText(
       'No chances are shown for ctdna-clearance-time-pattern: this predict-only reuse has no training data to convert the scores into chances.',
     )
-    // The no-chance column's cell is a plain blank (no chance to render),
-    // and the row still shows its patient id.
-    await expect(page.getByTestId('txr-heatmap-cell-ctdna-clearance-time-pattern').first()).toHaveText(
-      '',
-    )
+    // The dropped column has no header and no value boxes — the fix's whole
+    // point.
+    await expect(
+      page.getByTestId('txr-heatmap-header-ctdna-clearance-time-pattern'),
+    ).toHaveCount(0)
+    await expect(
+      page.getByTestId('txr-heatmap-cell-ctdna-clearance-time-pattern').first(),
+    ).toHaveCount(0)
     await expect(page.getByTestId('txr-heatmap-row-S0001')).toContainText('S0001')
 
-    // ── R2-11: the pfs tab is ONE method column, so the Average column is
-    //    redundant (the column's value IS the average) and gone: one header
-    //    cell + the patient header, no Average header, no average cell. ──
-    await expect(heatmap.locator('[data-testid^="txr-heatmap-header-"]')).toHaveCount(1)
-    await expect(page.getByTestId('txr-heatmap-header-ctdna-clearance-time-pattern')).toBeVisible()
-    const rowCells = page.getByTestId('txr-heatmap-row-S0001').locator('td')
-    await expect(rowCells).toHaveCount(1)
+    // ── R2-11: the pfs tab now renders NO method column (the only one was
+    //    dropped), so neither the Average nor any method header is left: no
+    //    method headers, no average. ──
+    await expect(heatmap.locator('[data-testid^="txr-heatmap-header-"]')).toHaveCount(0)
+    const rowValues = page.getByTestId('txr-heatmap-row-S0001').locator('td')
+    await expect(rowValues).toHaveCount(0)
 
     // ── the response tab: its own one-method column, the note gone (the
     //    chances ARE there), still no Average — and a real chance renders. ──

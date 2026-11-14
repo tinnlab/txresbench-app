@@ -299,6 +299,13 @@ function sortRows(rows: TxrHeatmapRow[], sort: TxrSortKey): TxrHeatmapRow[] {
  * heatmap's column order is the run's, whatever the picker selected), and the
  * row window applies AFTER the sort so "Show all M" never reorders.
  *
+ * qa-fixes4 ITEM-6 (R2-03): a column whose every value is null is DROPPED
+ * from the view (a predict-only reuse's no-chance column is a dash wall,
+ * not a column) and reported in `emptyColumns` — the page's one line names
+ * the dropped methods and WHY. The drop applies to every multi-column view;
+ * the one-method tab routes the count separately (the page keeps the
+ * method's own page and renders its note instead of a dash table).
+ *
  * `averageBy` (DEC-5): `'provider'` exactly when the view IS the unfiltered
  * default — no group/method filter AND no column was excluded by the outcome
  * tab (then the engine's response-level `average` covers exactly the visible
@@ -313,12 +320,14 @@ export function viewOf(
 ): TxrHeatmapView {
   const groups = activeSet(opts.groups)
   const methodIds = activeSet(opts.methodIds)
-  const columns = cols.filter(
+  const filtered = cols.filter(
     c =>
       c.task === opts.outcome &&
       (groups === null || groups.has(c.group)) &&
       (methodIds === null || methodIds.has(c.methodId)),
   )
+  const emptyColumns = filtered.filter(c => c.values.every(v => v === null))
+  const columns = filtered.filter(c => !emptyColumns.includes(c))
   const outcomeFilteredAny = cols.some(c => c.task !== opts.outcome)
   const averageBy: TxrHeatmapView['averageBy'] =
     groups === null && methodIds === null && !outcomeFilteredAny ? 'provider' : 'recomputed'
@@ -352,6 +361,7 @@ export function viewOf(
     shownCount: capped.length,
     totalCount: ordered.length,
     averageBy,
+    emptyColumns,
   }
 }
 

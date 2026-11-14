@@ -100,6 +100,7 @@ function viewFixture(
 ): TxrHeatmapView {
   return {
     columns,
+    emptyColumns: columns.filter(c => c.values.every(value => value === null)),
     rows: rows.map(
       (r): TxrHeatmapRow => ({
         patientId: r.patientId,
@@ -410,6 +411,22 @@ describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => 
     expect(getComputedStyle(header).fontFamily).toContain('Source Code Pro')
     const second = screen.getByTestId('txr-heatmap-header-method-2')
     expect(second.textContent).toContain('Static risk')
+  })
+
+  it('keeps the method header whole-word and gives the card its own phone scroll box (R3-results-11)', () => {
+    const { view } = smallView()
+    render(<TxrHeatmapTable view={view} />)
+    // The 112 px minimum: a method id breaks at hyphens/words, never
+    // MID-WORD ("clearanc" / "e-three-") — `break-word` is the pin, not
+    // `anywhere` (the 80 px column's byte that split the id).
+    const header = screen.getByTestId('txr-heatmap-header-method-1')
+    const style = getComputedStyle(header)
+    expect(parseFloat(style.minWidth)).toBeGreaterThanOrEqual(112)
+    expect(style.overflowWrap).toBe('break-word')
+    // The phone box: the class the index.css phone rules make the card's
+    // own scrollport (the region stays the desktop scroller — the box
+    // keeps no inline overflow, the ITEM-3 pin above).
+    expect(screen.getByTestId('txr-heatmap').className).toContain('txr-results-table-box')
   })
 
   it('renders the mono patient id column and the fixed 36 px row pitch', () => {

@@ -33,7 +33,9 @@ import {
   compareCardTitle,
   formatChanceMissingNote,
   formatConstantNote,
-  formatNoChanceNote,
+  formatEmptyColumnReason,
+  formatEmptyColumnsNote,
+  formatGroupedChanceNote,
   formatCounts,
   formatCoverage,
   formatDecisionDay,
@@ -342,6 +344,29 @@ describe('qa-fixes ITEM-4 — the names, legend and plain-voice notes (RES-03/04
     expect(formatConstantNote([])).toBeNull()
   })
 
+  // R3-results-13: a column with 2–3 distinct chances reads like a constant
+  // beside a graded scale; the note names the groups.
+  it('names a grouped column plainly (R3-results-13: "this method gives three groups")', () => {
+    expect(
+      formatGroupedChanceNote([
+        {
+          label: 'cfmedip-ctdna-clearance-three-group',
+          values: [0.82, 0.35, 0.06, 0.82, 0.35, 0.06],
+        },
+        { label: 'cox-baseline-delta', values: [0.3, 0.5, 0.75, 0.6, 0.45, null, 0.8] },
+      ]),
+    ).toBe(
+      'cfmedip-ctdna-clearance-three-group gives three distinct chances (6%, 35% and 82%) — its chances are its three groups.',
+    )
+    expect(
+      formatGroupedChanceNote([
+        { label: 'binary-call', values: [0, 1, 0, 1, 0, 1] },
+      ]),
+    ).toBe('binary-call gives two distinct chances (0% and 100%) — its chances are its two groups.')
+    expect(formatGroupedChanceNote([{ label: 'graded', values: [0.1, 0.2, 0.3, 0.4] }])).toBeNull()
+    expect(formatGroupedChanceNote([])).toBeNull()
+  })
+
   it('says plainly when a finished method has no chance column (qa-fixes2 R2-10 — the "6 of 6" header vs "All 5" table)', () => {
     const finished = [{ methodId: 'ctdna-clearance', label: 'ctdna-clearance' }]
     const five = ['cfmedip-ctdna-clearance-three-group', 'cox-baseline-delta', 'ctdna-anytime-detectability', 'ctdna-week4-rise-or-emergence', 'landmark-cox-current'].map(id => ({ methodId: id }))
@@ -415,12 +440,13 @@ describe('txrRunFailed (R2-02/RES-02 failed-run truth)', () => {
   })
 })
 
-describe('formatNoChanceNote (R2-03 no-chance wall of blanks)', () => {
+describe('formatEmptyColumnsNote (ITEM-6 — R2-03: no dash walls, one line)', () => {
+  // The note is fed the DROPPED columns (every value null — the view's
+  // `emptyColumns`); a value-bearing column is never in the set.
   it('names the single no-chance column with the prob-source words', () => {
     expect(
-      formatNoChanceNote([
-        { label: 'Model A', probSource: 'native' },
-        { label: 'Model B', probSource: null },
+      formatEmptyColumnsNote([
+        { label: 'Model B', probSource: null, notes: [] },
       ]),
     ).toBe(
       'No chances are shown for Model B: this predict-only reuse has no training data to convert the scores into chances.',
@@ -429,23 +455,46 @@ describe('formatNoChanceNote (R2-03 no-chance wall of blanks)', () => {
 
   it('names several columns, plural', () => {
     expect(
-      formatNoChanceNote([
-        { label: 'Model A', probSource: null },
-        { label: 'Model B', probSource: null },
-        { label: 'Model C', probSource: 'recalibrated' },
+      formatEmptyColumnsNote([
+        { label: 'Model A', probSource: null, notes: [] },
+        { label: 'Model B', probSource: null, notes: [] },
       ]),
     ).toBe(
       'No chances are shown for Model A, Model B: this predict-only reuse has no training data to convert the scores into chances.',
     )
   })
 
-  it('is null when every column carries chances', () => {
+  it('an all-abstain column reads its own uniform note (the honest why)', () => {
     expect(
-      formatNoChanceNote([
-        { label: 'Model A', probSource: 'native' },
-        { label: 'Model B', probSource: 'recalibrated' },
+      formatEmptyColumnsNote([
+        {
+          label: 'Model C',
+          probSource: 'native',
+          notes: [null, 'fewer than 3 draws by day 56', 'fewer than 3 draws by day 56'],
+        },
       ]),
-    ).toBeNull()
-    expect(formatNoChanceNote([])).toBeNull()
+    ).toBe('No chances are shown for Model C: fewer than 3 draws by day 56.')
+    // Differing notes never fabricate one reason.
+    expect(
+      formatEmptyColumnsNote([
+        { label: 'Model C', probSource: 'native', notes: ['no day 0 draw', 'no day 30 draw'] },
+      ]),
+    ).toBe('No chances are shown for Model C: no chances were produced for any patient.')
+  })
+
+  it('groups one sentence per distinct reason, in column order', () => {
+    expect(
+      formatEmptyColumnsNote([
+        { label: 'Model A', probSource: null, notes: [] },
+        { label: 'Model B', probSource: null, notes: [] },
+        { label: 'Model C', probSource: 'native', notes: ['fewer than 3 draws by day 56'] },
+      ]),
+    ).toBe(
+      'No chances are shown for Model A, Model B: this predict-only reuse has no training data to convert the scores into chances. No chances are shown for Model C: fewer than 3 draws by day 56.',
+    )
+  })
+
+  it('is null when the view dropped nothing', () => {
+    expect(formatEmptyColumnsNote([])).toBeNull()
   })
 })

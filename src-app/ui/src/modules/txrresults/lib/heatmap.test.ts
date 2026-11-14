@@ -445,6 +445,44 @@ describe('viewOf (the sorted/filtered/windowed projection, DEC-5/6/12)', () => {
     expect(v.totalCount).toBe(7)
     expect(v.rows.map(r => r.patientId)).toEqual(['S0001', 'S0002', 'S0003'])
   })
+
+  // ITEM-6 (R2-03): a column whose every value is null is dropped from the
+  // view (never a dash wall) and reported in `emptyColumns` — the page's one
+  // line names it. A column with SOME values stays (a partially-null column
+  // is not an empty one).
+  it('drops all-null columns and reports them (ITEM-6 — R2-03)', () => {
+    const predictions = uniformPredictions()
+    predictions.methods.push({
+      method_id: 'no-chance-model',
+      label: 'No chance model',
+      group: 'static_risk',
+      group_label: 'Static risk',
+      task: 'pfs',
+      prob_source: 'none',
+      coverage: { scored: 0, eligible: 7, fraction: 0 },
+      probabilities: wireArray<number>([null, null, null, null, null, null, null]),
+      notes: wireArray<string>(['no native probability', 'no native probability', null]),
+    })
+    const cols = buildColumns(predictions, 'pfs')
+    const v = viewOf(cols, predictions, {
+      outcome: 'pfs',
+      groups: null,
+      methodIds: null,
+      search: '',
+      sort: 'patient',
+      limit: -1,
+    })
+    expect(v.columns.map(c => c.methodId)).toEqual(['landmark-cox-current', 'cox-cutpoint-risk'])
+    expect(v.emptyColumns.map(c => c.methodId)).toEqual(['no-chance-model'])
+    // The rows align to the dropped view: no empty slot remains.
+    expect(v.rows[0].cells).toEqual([0.9, 0.3])
+  })
+
+  it('keeps a column with some values (a partially-null column is not an empty one)', () => {
+    const v = view({ sort: 'patient' })
+    expect(v.columns).toHaveLength(2)
+    expect(v.emptyColumns).toHaveLength(0)
+  })
 })
 
 describe('compareReport (the card numbers, DEC-7)', () => {

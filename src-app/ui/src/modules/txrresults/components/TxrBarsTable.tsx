@@ -155,7 +155,7 @@ export function TxrBarsTable({
 }: TxrBarsTableProps) {
   return (
     <div>
-      <div style={TABLE_BOX}>
+      <div style={TABLE_BOX} className="txr-results-table-box">
         <table data-testid="txr-bars" className="txr-bars" style={TABLE}>
           <thead>
             <tr>

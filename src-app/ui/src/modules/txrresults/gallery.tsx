@@ -250,7 +250,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-results-g-nochance',
       title: 'Results — a finished method with no chances (R2-03/R2-11)',
-      note: 'qa-fixes2 ITEM-7\'s re-verification shape: a predict-only reuse run whose pfs method finished with no chances (prob_source none) — the wall of blanks with the note naming the column — and one-method outcome tabs (the Average column is redundant when the column IS the average and is gone). Two tabs, one column each.',
+      note: 'qa-fixes2 ITEM-7\'s re-verification shape, qa-fixes4 ITEM-6\'s fix: a predict-only reuse run whose pfs method finished with no chances (prob_source none) — the empty column is not rendered; the one line under the table names the method and why (the method page\'s own words) — and one-method outcome tabs (the Average column is redundant when the column IS the average and is gone). Two tabs, one column each.',
       path: '/analysis/:runId/results',
       initialPath: `/analysis/${TXR_RUN_NOCHANCE.id}/results`,
       component: ResultsStory,

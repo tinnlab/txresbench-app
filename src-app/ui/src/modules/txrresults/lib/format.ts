@@ -411,6 +411,43 @@ export function formatConstantNote(
 }
 
 /**
+ * The grouped-chance note (results-r3 R3-results-13): a method whose column
+ * carries only 2–3 DISTINCT values (cfmedip's three-category clearance call
+ * — 82 %, 35 % and 6 %) reads like a constant next to a graded scale. The
+ * note names the column and its groups, in the report's plain hint ("this
+ * method gives three groups"); null when no column is grouped (the
+ * one-value constant case stays the constant note's, RES-03).
+ */
+export function formatGroupedChanceNote(
+  columns: ReadonlyArray<{ label: string; values: ReadonlyArray<number | null> }>,
+): string | null {
+  const grouped: Array<{ label: string; distinct: number[] }> = []
+  for (const column of columns) {
+    const distinct: number[] = []
+    for (const value of column.values) {
+      if (value === null || !Number.isFinite(value)) continue
+      if (!distinct.some(existing => Math.abs(existing - value) < 1e-9)) {
+        distinct.push(value)
+      }
+    }
+    if (distinct.length >= 2 && distinct.length <= 3) {
+      grouped.push({ label: column.label, distinct })
+    }
+  }
+  if (grouped.length === 0) return null
+  const parts = grouped.map(group => {
+    const values = formatPatientList(
+      group.distinct
+        .sort((a, b) => a - b)
+        .map(value => formatPct(value * 100) ?? ''),
+    )
+    const numberWord = group.distinct.length === 2 ? 'two' : 'three'
+    return `${group.label} gives ${numberWord} distinct chances (${values}) — its chances are its ${numberWord} groups`
+  })
+  return `${parts.join('; ')}.`
+}
+
+/**
  * The missing-chance note (qa-fixes2 R2-10): the table is built from the
  * engine's prediction columns, and a finished method with no recorded
  * chance column is absent from them — the header's "N of M methods
@@ -488,18 +525,60 @@ export function txrRunFailed(run: {
 }
 
 /**
- * The no-chance note (qa-fixes2 R2-03): a finished method whose column
- * carries no chances (the engine's `prob_source: none` — a predict-only
- * reuse has no training data to fit the conversion) renders a wall of
- * blank cells with no explanation. The note names the columns plainly,
- * with the SAME words as the method page's prob-source line; null when
- * the view has no such column.
+ * The predict-only reuse reason (qa-fixes2 R2-03 → qa-fixes4 ITEM-6): the
+ * SAME words as the method page's prob-source line — the one reason a
+ * finished method's column carries no chance at all.
  */
-export function formatNoChanceNote(
-  columns: ReadonlyArray<{ label: string; probSource: 'native' | 'recalibrated' | null }>,
+export const NO_CHANCE_REASON =
+  'this predict-only reuse has no training data to convert the scores into chances.'
+
+/** The fallback reason of an all-abstain column whose notes differ per patient. */
+const EMPTY_COLUMN_REASON_FALLBACK = 'no chances were produced for any patient'
+
+/**
+ * The per-column reason of a DROPPED empty column (qa-fixes4 ITEM-6, R2-03):
+ * `prob_source: none` reads the reuse sentence; an all-abstain column reads
+ * its own uniform note (the one sentence every patient's abstain shares —
+ * "fewer than 3 draws by day 56 for every patient" — the honest "why" of
+ * the empty column); differing notes read the fallback (never a fabricated
+ * single reason).
+ */
+export function formatEmptyColumnReason(
+  column: { probSource: 'native' | 'recalibrated' | null; notes: ReadonlyArray<string | null> },
+): string {
+  if (column.probSource === null) return NO_CHANCE_REASON
+  const notes = [
+    ...new Set(
+      column.notes.filter((note): note is string => note !== null && note.trim().length > 0),
+    ),
+  ]
+  if (notes.length === 1) return ensureSentenceEnd(notes[0])
+  return ensureSentenceEnd(EMPTY_COLUMN_REASON_FALLBACK)
+}
+
+/**
+ * The one line under the table naming EVERY dropped empty column and its
+ * reason (qa-fixes4 ITEM-6 — R2-03's "blank columns plus a note" becomes
+ * "no columns, one line): "No chances are shown for A, B: <reason>." — one
+ * sentence per distinct reason, in the columns' order; null when nothing
+ * was dropped. The names are the columns' display labels.
+ */
+export function formatEmptyColumnsNote(
+  columns: ReadonlyArray<{
+    label: string
+    probSource: 'native' | 'recalibrated' | null
+    notes: ReadonlyArray<string | null>
+  }>,
 ): string | null {
-  const noChance = columns.filter(c => c.probSource === null)
-  if (noChance.length === 0) return null
-  const names = noChance.map(c => c.label).join(', ')
-  return `No chances are shown for ${names}: this predict-only reuse has no training data to convert the scores into chances.`
+  if (columns.length === 0) return null
+  const byReason = new Map<string, string[]>()
+  for (const column of columns) {
+    const reason = formatEmptyColumnReason(column)
+    const names = byReason.get(reason) ?? []
+    names.push(column.label)
+    byReason.set(reason, names)
+  }
+  return [...byReason.entries()]
+    .map(([reason, names]) => `No chances are shown for ${names.join(', ')}: ${reason}`)
+    .join(' ')
 }

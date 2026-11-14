@@ -240,12 +240,16 @@ const METHOD_HEADER: CSSProperties = {
   borderBottom: '1px solid var(--txr-border)',
   textAlign: 'center',
   verticalAlign: 'bottom',
-  minWidth: 78,
+  // ITEM-6 (results-r3 R3-results-11): the 78 px column split method ids
+  // MID-WORD ("clearanc / e-three-") on the phone; 112 px + `break-word`
+  // breaks at hyphens/words only (a long id reads "ctdna-clearance-" /
+  // "three-group", never "clearanc" / "e-three-").
+  minWidth: 112,
   fontFamily: MONO_FONT,
   fontSize: 11,
   fontWeight: 500,
   lineHeight: 1.25,
-  overflowWrap: 'anywhere',
+  overflowWrap: 'break-word',
 }
 
 const METHOD_HEADER_LABEL: CSSProperties = {
@@ -418,6 +422,7 @@ export function TxrHeatmapTable({ view }: TxrHeatmapTableProps) {
       <div
         ref={boxRef}
         data-testid="txr-heatmap"
+        className="txr-results-table-box"
         style={SCROLL_BOX}
       >
         {totalCount === 0 ? (
