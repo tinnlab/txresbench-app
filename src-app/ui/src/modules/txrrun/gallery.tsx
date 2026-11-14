@@ -433,6 +433,14 @@ export const gallery: ModuleGallery = {
       initialPath: '/analysis/run-not-found/running',
       component: lazy(() => Promise.resolve({ default: () => <FStoryView runId="run-not-found" /> })),
     },
+    {
+      slug: 'txr-run-f-logrepeat',
+      title: 'Running (screen F) — the real clock and the repeated-log collapse (qa-fixes4 ITEM-3)',
+      note: 'The LIVE run whose `started_at` is the fixture load moment minus 30 s: the header\'s elapsed reads the wall clock (ITEM-3 a, methods-r3 R3-methods-3) and the time-left counts its real seconds ("about N s left" — R2-2\'s leftover, never the constant "under a minute left"); the log carries the identical R `colClasses` warning block three times (R3-methods-5) — the panel shows the block ONCE with the ×9 badge and the honest "9 repeated lines collapsed" count. The Working tab\'s definition sits beside the chip (RP-10). The browser spec `txr-run.spec.ts` (qa-fixes4 ITEM-7) pins all of it.',
+      path: '/analysis/:runId/running',
+      initialPath: '/analysis/run-f-logrepeat/running',
+      component: lazy(() => Promise.resolve({ default: () => <FStoryView runId="run-f-logrepeat" /> })),
+    },
     // app-shell ITEM-2 — the route byte: each page inside the REAL shell
     // (the audit section-4 legs over these surfaces: `txr-shell-routes.spec.ts`).
     {

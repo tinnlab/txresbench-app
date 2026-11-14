@@ -146,6 +146,19 @@ test.describe('txr-run-e — choose the methods and settings (TEST-RUN-24, qa-fi
       "12 methods can't run on this data",
     )
 
+    // qa-fixes4 ITEM-7 (methods-r3 R2-6): a cannot-row whose verdict carries
+    // the env absence AND a file reason renders EVERY reason, one line each
+    // — the env fact first, the fixable data fact never hidden behind it.
+    // (The chip opens the lists view AND expands its group.)
+    await page.getByTestId('txr-method-reason-environment').click()
+    await expect(page.getByTestId('txr-method-cannot-row-cea-ldh-ratio-call')).toBeVisible()
+    await expect(
+      page.getByTestId('txr-method-cannot-reason-cea-ldh-ratio-call-0'),
+    ).toHaveText('no published environment available')
+    await expect(
+      page.getByTestId('txr-method-cannot-reason-cea-ldh-ratio-call-1'),
+    ).toHaveText('needs LDH, not in your file')
+
     // ── the recommended set is ticked on arrival; the ITEM-2 run bar reads it ──
     await expect(page.getByTestId('txr-run-bar-count')).toHaveText('8 methods selected')
     await expect(page.getByTestId('txr-run-bar-notice')).toHaveText(RESEARCH_NOTICE)
@@ -475,6 +488,55 @@ test.describe('txr-run-e-narrow-390 / txr-run-f-narrow-390 — the mobile width 
     // The lines box itself is bounded (the panel's flex column: the pre
     // fills its slot and scrolls inside — never the 9,100 px report).
     expect(lines!.height, 'the lines box fits the viewport').toBeLessThanOrEqual(844)
+  })
+})
+
+test.describe('txr-run-f-logrepeat — the real clock and the repeated-log collapse (qa-fixes4 ITEM-3)', () => {
+  test('the header counts down from the estimate; the R-warning block collapses ×9; RP-10 definition on screen', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-run-f-logrepeat`)
+    await expect(page.getByTestId('txr-run-header')).toBeVisible()
+    await expect(page.getByTestId('txr-run-title')).toHaveText('Running 6 methods')
+
+    // ── the clock (ITEM-3 a / R2-2): the header elapsed reads the run's
+    //    wall clock and the time-left is REAL seconds — the old constant
+    //    "under a minute left" is gone; the story's started_at is 30 s ago
+    //    with a 60 s estimate, so the line reads its seconds (the ranges
+    //    absorb the test's own wall time). ──
+    const timeLine = page.getByTestId('txr-run-time-line')
+    await expect(timeLine).toContainText(/s elapsed/)
+    await expect(timeLine).toContainText(/about \d+ s left/)
+    const lineText = (await timeLine.textContent()) ?? ''
+    const elapsed = /(\d+) s elapsed/.exec(lineText)
+    expect(elapsed, `time line: ${lineText}`).not.toBeNull()
+    expect(Number(elapsed![1])).toBeGreaterThanOrEqual(25)
+    expect(Number(elapsed![1])).toBeLessThanOrEqual(55)
+    const left = /about (\d+) s left/.exec(lineText)
+    expect(left, `time line: ${lineText}`).not.toBeNull()
+    expect(Number(left![1])).toBeGreaterThanOrEqual(5)
+    expect(Number(left![1])).toBeLessThanOrEqual(35)
+
+    // RP-10: the Working tab's definition is on screen beside the chip on
+    // arrival — never a bare "Working N" with no hint.
+    await expect(page.getByTestId('txr-run-tab-working-definition')).toHaveText(
+      'Waiting, downloading or running',
+    )
+
+    // ── the repeated R-warning block (R3-methods-5): one block with the
+    //    ×9 badge and the honest folded count, and NO start-up lines were
+    //    hidden (the block is the engine's own reading, not setlocale). ──
+    await page.getByTestId('txr-run-log-open').click()
+    await expect(page.getByTestId('txr-run-log')).toBeVisible()
+    const lines = page.getByTestId('txr-run-log-lines')
+    await expect(lines).toContainText('[cox-timevarying-slope] Warning message: ×9')
+    await expect(lines).toContainText("not all columns named in 'colClasses' exist")
+    await expect(lines).toContainText('fitting on 132 patient rows')
+    await expect(page.getByTestId('txr-run-log-count')).toHaveText(
+      'Showing 11 of 11 lines · 6 repeated lines collapsed',
+    )
+    await expect(page.getByTestId('txr-run-log-technical-count')).toHaveCount(0)
+    await expect(page.getByTestId('txr-run-log-repeated-count')).toBeVisible()
   })
 })
 
