@@ -1612,7 +1612,8 @@ test('TEST-14h --registry accepts only 127.0.0.1:<port> and [::1]:<port>', () =>
     assert.equal(r.status, 0, `${ok}: ${r.stderr}`);
   }
   for (const bad of ['ghcr.io', 'localhost:5055', '10.0.0.1:5055', '127.0.0.2:5055', '127.0.0.1',
-    '127.0.0.1:0', '127.0.0.1:70000', '127.0.0.1:5055/x', 'http://127.0.0.1:5055', '[::1]']) {
+    '127.0.0.1:0', '127.0.0.1:70000', '127.0.0.1:5055/x', 'http://127.0.0.1:5055', '[::1]',
+    '127.0.0.1:5055\nghcr.io:443']) {
     const r = publisher(args(bad));
     assert.equal(r.status, 2, `${bad} must be refused: ${r.stdout}`);
     assert.match(r.stderr, /--registry/);
