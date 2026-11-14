@@ -44,7 +44,16 @@ pub struct BootParts {
 /// extensions + CORS + rate-limit) without serving. Shared by both entrypoints.
 async fn build_app(
     config: &ServerConfig,
+    demo: &config::DemoConfig,
 ) -> Result<(axum::Router, Arc<SqlitePool>, Arc<JwtService>), BoxErr> {
+    // Demo mode is a runtime setting of THIS process: install the resolved
+    // state once, BEFORE module init, so every module/layer that consults it
+    // (`localsession`, `model_store`, `execution_engine`, the gate) reads the
+    // same answer. Desktop mode sets an `enabled: false` state — the module
+    // set and every route behave exactly as before (the layers below are
+    // installed only when enabled).
+    crate::modules::demo::set_state(crate::modules::demo::DemoState::from_config(demo));
+
     let pool = database::initialize_database(config).await?;
     let jwt = Arc::new(JwtService::try_new(config.jwt.clone())?);
 
@@ -209,7 +218,68 @@ async fn build_app(
     let app = app.layer(axum::Extension(file_ctx));
     let app = app.layer(create_cors_layer(config));
     // `None` absent-default: config omitting `rate_limit` (desktop) → no limiter.
-    let app = apply_rate_limit_layer(app, config, None);
+    // In demo mode the framework limiter is CONFIGURED always — the plan's
+    // "use the framework's rate-limit module, configured, not disabled": an
+    // operator's `server.rate_limit` block is honored; an absent block gets the
+    // documented demo defaults rather than no limiter at all.
+    let app = if demo.enabled {
+        let (per_second, burst_size) = modules::demo::demo_rate_burst(config);
+        apply_rate_limit_layer(app, config, Some((per_second, burst_size)))
+    } else {
+        apply_rate_limit_layer(app, config, None)
+    };
+
+    // ── the demo-only layers (installed ONLY in demo mode — desktop mode gets
+    //    none of them, so its behavior is byte-for-byte unchanged) ────────────
+    // Order (axum: last layered = outermost): the GATE outermost, so a blocked
+    // route answers 403 DEMO_MODE before any auth/permission layer can answer
+    // 401; then the per-session governor; then the body-size cap.
+    let app = if demo.enabled {
+        // The request-body size cap (demo.max_bytes): visitors may only post
+        // the small example tables, so a generous cap still bounds a hostile
+        // payload. Deliberately a WIRE-level middleware (tower-http
+        // RequestBodyLimitLayer), not the extractor-level `DefaultBodyLimit`
+        // layer: the adapted inspect/validate routes carry route-level
+        // `DefaultBodyLimit::disable()` (they parse big body schemas), which
+        // would override a global extractor default and leave the ONE
+        // visitor-content surface uncapped in demo mode. The middleware wraps
+        // the body stream itself, so `disable()` cannot repeal the demo cap.
+        let app = app.layer(tower_http::limit::RequestBodyLimitLayer::new(
+            demo.max_bytes as usize,
+        ));
+        // The per-session governor: the same tower-governor module the
+        // framework's limiter uses, keyed on the demo session cookie (falling
+        // back to the peer IP), so a browser is bounded per SESSION and an
+        // un-cookied client per IP — the plan's paired limits.
+        let (per_second, burst_size) = modules::demo::demo_rate_burst(config);
+        let governor_conf = Arc::new(
+            tower_governor::governor::GovernorConfigBuilder::default()
+                .per_second(per_second)
+                .burst_size(burst_size)
+                .key_extractor(modules::demo::SessionOrPeerKeyExtractor)
+                .finish()
+                .expect("Failed to build demo session governor config"),
+        );
+        let app = app.layer(tower_governor::GovernorLayer {
+            config: governor_conf,
+        });
+        // The route allowlist gate = the ONE enforcement point of the demo
+        // policy (see `modules::demo`). Captured-by-closure (not
+        // `from_fn_with_state`): the middleware needs no per-router state at
+        // all — the gate state is a plain value the closure owns.
+        let gate = modules::demo::GateState::new(
+            modules::demo::state().expect("demo state installed at boot"),
+            (*pool).clone(),
+            config,
+        );
+        let gate_layer = axum::middleware::from_fn(move |req, next| {
+            let gate = gate.clone();
+            async move { modules::demo::demo_gate(gate, req, next).await }
+        });
+        app.layer(gate_layer)
+    } else {
+        app
+    };
 
     Ok((app, pool, jwt))
 }
@@ -222,7 +292,9 @@ pub async fn boot_in_background(config: ServerConfig) -> Result<BootParts, BoxEr
     // the discovered config's `secrets.storage_key`). First-wins OnceCell. `None` ⇒
     // compat mode. (The CLI serve/worker binary inits in `main` with the explicit path.)
     txresbench_framework::secrets::init_storage_key(config::resolve_storage_key(None));
-    let (app, pool, jwt) = build_app(&config).await?;
+    // Demo mode for the desktop entrypoint: env + config file only (no CLI).
+    let demo = config::resolve_demo_config(false, None);
+    let (app, pool, jwt) = build_app(&config, &demo).await?;
     let listener = tokio::net::TcpListener::bind(config.server_address()).await?;
     let addr = listener.local_addr()?;
     tracing::info!(
@@ -245,8 +317,11 @@ pub async fn boot_in_background(config: ServerConfig) -> Result<BootParts, BoxEr
 
 /// Blocking entrypoint for the CLI binary: boot, serve (graceful shutdown on
 /// Ctrl-C/SIGTERM), then tear the embedded database down.
-pub async fn serve_blocking(config: ServerConfig) -> Result<(), BoxErr> {
-    let (app, _pool, _jwt) = build_app(&config).await?;
+pub async fn serve_blocking(
+    config: ServerConfig,
+    demo: config::DemoConfig,
+) -> Result<(), BoxErr> {
+    let (app, _pool, _jwt) = build_app(&config, &demo).await?;
     let listener = tokio::net::TcpListener::bind(config.server_address()).await?;
     let addr = listener.local_addr()?;
     println!("TxResBench listening on http://{}/api", addr);

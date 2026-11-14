@@ -15,6 +15,12 @@ pub mod err_sanitiser;
 // along with their registrations (single-user local app — see dev/docs/app-build-strip.md).
 pub mod account;
 pub mod localsession;
+// TxResBench: demo mode (web service) — the `demo:` switch, `GET
+// /api/app/mode`, the route allowlist gate, the anonymous-visitor sessions
+// and the demo limits. Default OFF (desktop unchanged); the module's own
+// tables (`txr_demo_sessions`, `txr_demo_run_sessions`) are module-owned
+// migrations applied at boot like every module's.
+pub mod demo;
 // The runtime toggles subsystem (Admin Console epic #40) — a general admin
 // capability in every build (mirrors `admin`). Its migration is discovered by
 // build.rs like every other module's.
