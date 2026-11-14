@@ -363,9 +363,14 @@ html.txr-shell-mode-shell #root {
   background: var(--txr-accent-soft);
 }
 @media (max-width: 700px) {
+  /* The header's ONE 56 px row byte (qa-fixes3 ITEM-6) wins: at <=700 the
+     nav row is a menu, and the download link yields into the MENU too (the
+     AppShell renders it as the menu's last item) — the header keeps the
+     brand + menu + theme switch single row, never the four-item row that
+     overflows a 390 px shell. The notice bar's own download button is
+     always visible below the text. */
   .txr-demo-header-download {
-    font-size: 13px;
-    padding: 6px 4px;
+    display: none !important;
   }
 }
 

@@ -7,6 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
+import { Button } from '@txresbench/kit'
 import { DisabledBecauseDemo } from './DisabledBecauseDemo'
 import { DEMO_DISABLED_REASON } from '../copy'
 import { resetDemoMode, seedDemoMode } from '../test-utils/demoSeed'
@@ -19,7 +20,7 @@ describe('DisabledBecauseDemo (ITEM-5)', () => {
     seedDemoMode('demo')
     render(
       <DisabledBecauseDemo>
-        <button type="button">Upload</button>
+        <Button data-testid="fixture-upload">Upload</Button>
       </DisabledBecauseDemo>,
     )
     const control = screen.getByText('Upload')
@@ -35,7 +36,7 @@ describe('DisabledBecauseDemo (ITEM-5)', () => {
     seedDemoMode('demo')
     render(
       <DisabledBecauseDemo reason="Only the example data can be used in the demo">
-        <button type="button">Change files</button>
+        <Button data-testid="fixture-change">Change files</Button>
       </DisabledBecauseDemo>,
     )
     const control = screen.getByText('Change files')
@@ -49,7 +50,7 @@ describe('DisabledBecauseDemo (ITEM-5)', () => {
     seedDemoMode('desktop')
     render(
       <DisabledBecauseDemo>
-        <button type="button">Upload</button>
+        <Button data-testid="fixture-upload">Upload</Button>
       </DisabledBecauseDemo>,
     )
     const control = screen.getByText('Upload')
@@ -62,7 +63,7 @@ describe('DisabledBecauseDemo (ITEM-5)', () => {
   it('pending mode: the control is untouched too (no flash)', () => {
     render(
       <DisabledBecauseDemo>
-        <button type="button">Upload</button>
+        <Button data-testid="fixture-upload">Upload</Button>
       </DisabledBecauseDemo>,
     )
     const control = screen.getByText('Upload')

@@ -487,7 +487,12 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'src-app/ui/src/modules/session/gallery.tsx' &&
           !p.startsWith('src-app/ui/src/modules/txrintake/') &&
           !p.startsWith('src-app/ui/src/modules/txrrun/') &&
-          !p.startsWith('src-app/ui/src/modules/txrresults/'),
+          !p.startsWith('src-app/ui/src/modules/txrresults/') &&
+          // demo-mode ITEM-5 (its DRIFT-1): the new `demo` module dir
+          // (the app-mode store, the notice bar + the mode-gated
+          // components) — new auto-discovered modules are additions, not
+          // global edits (the txrhistory/txrhelp convention).
+          !p.startsWith('src-app/ui/src/modules/demo/'),
       ),
     ).toEqual([])
   })

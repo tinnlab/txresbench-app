@@ -491,7 +491,10 @@ describe('txrhistory module (TEST-HIST-1)', () => {
           !p.startsWith('src-app/ui/src/modules/txrrun/') &&
           !p.startsWith('src-app/ui/src/modules/txrresults/') &&
           !p.startsWith('src-app/ui/src/modules/txrmodels/') &&
-          !p.startsWith('src-app/ui/src/modules/txrintake/'),
+          !p.startsWith('src-app/ui/src/modules/txrintake/') &&
+          // demo-mode ITEM-5 (its DRIFT-1): the new `demo` module dir —
+          // additions, not global edits (the sibling-dir convention).
+          !p.startsWith('src-app/ui/src/modules/demo/'),
       ),
     ).toEqual([])
   })
