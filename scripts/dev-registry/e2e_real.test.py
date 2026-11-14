@@ -187,7 +187,8 @@ class ExampleModeTest(unittest.TestCase):
         ]:
             self.assertIn(needle, text)
         # The step order: the example table calls precede the validate calls;
-        # the estimate follows the eligibility; the set call follows both.
+        # the app's own pick (the set call) is read after the eligibility and
+        # before the estimate, which is asked for that pick.
         paths = server.paths()
         self.assertLess(
             paths.index("GET /file-validation/examples/predict-measurements"),
@@ -195,11 +196,11 @@ class ExampleModeTest(unittest.TestCase):
         )
         self.assertLess(
             paths.index("POST /methods/eligibility"),
-            paths.index("POST /methods/estimate"),
+            paths.index("POST /txr/models/example"),
         )
         self.assertLess(
-            paths.index("POST /methods/estimate"),
             paths.index("POST /txr/models/example"),
+            paths.index("POST /methods/estimate"),
         )
 
     def test_empty_pretrained_catalogue_is_an_honest_skip(self):
@@ -212,7 +213,7 @@ class ExampleModeTest(unittest.TestCase):
         self.assertIn("PASS  16 summary", text)
 
     def test_failed_example_set_is_an_honest_skip(self):
-        server = ScriptedServer(example_states=("creating", "failed"))
+        server = ScriptedServer(example_states=("creating", "creating", "failed"))
         code, report = self.run_main(server)
         text = self.read_report(report)
         self.assertEqual(code, 0, text)

@@ -81,11 +81,17 @@ EXAMPLE_SET_TIMEOUT_SECS = 45 * 60
 #: DRIFT record: sorted by the catalogue estimate seconds, then by id; the
 #: pick is recomputed per call from the embedded catalogue, so a catalogue
 #: change would break this pin loudly — the pin is the point).
+#: The pick of a host whose published environment set covers the catalogue's fast
+#: methods. The run asks the APP for its pick (POST /txr/models/example) and uses
+#: that: the app picks only methods that can run on THIS host's environments, which
+#: on the dev registry (a handful of published methods) is a different set.
 EXAMPLE_PICK = [
     "kelim",
     "regression-growth-equation",
     "ctdna-clearance-timing-three-group",
 ]
+#: The pick the run uses; replaced by the app's own pick at the estimate step.
+picked = {"methods": list(EXAMPLE_PICK)}
 #: The six published methods (ITEM-2's REAL_METHODS, after ITEM-3's
 #: correction: `linear-response-score` is gate-failed, absent from the app's
 #: catalogue AND its shipped env manifest — it was removed from the dev
@@ -391,17 +397,20 @@ def run_example_steps(app, token, lines, step):
         # set's own pick (POST /txr/models/example returns it; here the
         # estimate is asked for the picked methods, so the harness pins the
         # same numbers the run bar would render).
+        st, asked = _http(app, "POST", "/txr/models/example", {}, token)
+        assert st // 100 == 2 and asked.get("methods"), asked
+        picked["methods"] = list(asked["methods"])
         st, body = _http(
             app, "POST", "/methods/estimate",
             {
-                "method_ids": EXAMPLE_PICK,
+                "method_ids": picked["methods"],
                 "patients": EXAMPLE_TRAINING_PATIENTS,
                 "cpus": 2,
             },
             token,
         )
         assert st // 100 == 2, body
-        assert len(body.get("methods", [])) == 3, body
+        assert len(body.get("methods", [])) == len(picked["methods"]), body
         for method in body["methods"]:
             assert method.get("estimated_seconds", 0) > 0, method
         return f"pick estimate: total {body['total_seconds']:.0f}s"
@@ -425,7 +434,7 @@ def run_example_steps(app, token, lines, step):
         assert len(body["methods"]) <= 3, body
         # The ITEM-3 deterministic pick (sorted equality: the estimate
         # seconds + id order is the catalogue's, the id set is the pin).
-        assert sorted(body["methods"]) == sorted(EXAMPLE_PICK), body["methods"]
+        assert sorted(body["methods"]) == sorted(picked["methods"]), body["methods"]
         return (f"example set call: state {state}, pick {body['methods']}")
     step("E3 example set (call 1)", s_e3_set)
 
