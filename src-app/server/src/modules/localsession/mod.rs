@@ -19,7 +19,8 @@ use aide::axum::ApiRouter;
 use aide::transform::TransformOperation;
 use axum::Extension;
 use axum::Json;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use linkme::distributed_slice;
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -31,6 +32,8 @@ use txresbench_auth::user::{GroupRepository, UserRepository};
 use txresbench_auth::User;
 use txresbench_core::{ApiResult, AppError};
 use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+
+use crate::modules::demo;
 
 /// The single local owner's identity (mirrors the desktop harness's
 /// `SingleUserStrategy::desktop_default`).
@@ -125,9 +128,29 @@ pub async fn mint_owner_session(pool: &SqlitePool, jwt: &JwtService) -> Result<L
 async fn create_local_session(
     Extension(pool): Extension<SqlitePool>,
     Extension(jwt): Extension<Arc<JwtService>>,
-) -> ApiResult<Json<LocalSession>> {
+    headers: HeaderMap,
+) -> ApiResult<Response> {
+    // DEMO MODE (ITEM-1): no owner exists — the mint is the ANONYMOUS visitor
+    // session (random id + cookie + the demo role with only the allowed
+    // capabilities). The response shape is the same `LocalSession` the owner
+    // mint returns, so the UI's single-user session flow is unchanged; the
+    // Set-Cookie carries the session id to the browser (the rate limiter and
+    // the run-control ownership gate read it per request).
+    if demo::enabled() {
+        let mint = demo::session::mint_anonymous_session(&pool, &jwt, &headers)
+            .await
+            .map_err(|e| e.to_api_error())?;
+        let mut response = (StatusCode::OK, Json(mint.session)).into_response();
+        response.headers_mut().append(
+            axum::http::header::SET_COOKIE,
+            mint.cookie,
+        );
+        return Ok((StatusCode::OK, response));
+    }
+
     ensure_owner(&pool).await?;
-    Ok((StatusCode::OK, Json(mint_owner_session(&pool, &jwt).await?)))
+    let session = mint_owner_session(&pool, &jwt).await?;
+    Ok((StatusCode::OK, Json(session).into_response()))
 }
 
 pub struct LocalSessionModule;

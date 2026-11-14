@@ -63,7 +63,7 @@ use aide::axum::ApiRouter;
 use aide::transform::TransformOperation;
 use aide::OperationInput;
 use axum::extract::{FromRequest, Path as AxumPath, Query};
-use axum::http::{header, StatusCode};
+use axum::http::{HeaderMap, header, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::{Extension, Json};
 use futures_util::stream::Stream;
@@ -340,15 +340,26 @@ async fn create_run(
     state: Extension<TxrRouteState>,
     auth: RequirePermissions<(JobsUse,)>,
     Extension(pool): Extension<SqlitePool>,
+    headers: HeaderMap,
     body: BodyJson<CreateRunRequest, CreateBodyCode>,
 ) -> ApiResult<Json<TxrRunSummary>> {
     let summary = orchestrator::start_run(
-        pool,
+        pool.clone(),
         state.runtime.clone(),
         state.env.clone(),
         state.executor.clone(),
         auth.user.id,
         body.into_inner(),
+    )
+    .await
+    .map_err(|e| e.to_api_error())?;
+    // Demo mode (ITEM-1): "a run records the session that created it" — the
+    // demo gate answers 403 DEMO_MODE for stop/skip by any other session.
+    // Desktop mode: no demo cookie ⇒ the stamp is a no-op.
+    crate::modules::demo::session::stamp_run(
+        &pool,
+        summary.id,
+        crate::modules::demo::session::read_session_id(&headers),
     )
     .await
     .map_err(|e| e.to_api_error())?;
@@ -797,15 +808,24 @@ async fn rerun_run(
     state: Extension<TxrRouteState>,
     auth: RequirePermissions<(JobsUse,)>,
     Extension(pool): Extension<SqlitePool>,
+    headers: HeaderMap,
     AxumPath(id): AxumPath<Uuid>,
 ) -> ApiResult<Json<TxrRunSummary>> {
     let summary = orchestrator::rerun_run(
-        pool,
+        pool.clone(),
         state.runtime.clone(),
         state.env.clone(),
         state.executor.clone(),
         auth.user.id,
         id,
+    )
+    .await
+    .map_err(|e| e.to_api_error())?;
+    // The rerun is a NEW run owned by the SAME session (demo rule).
+    crate::modules::demo::session::stamp_run(
+        &pool,
+        summary.id,
+        crate::modules::demo::session::read_session_id(&headers),
     )
     .await
     .map_err(|e| e.to_api_error())?;

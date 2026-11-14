@@ -227,6 +227,7 @@ async fn save_models(
     Extension(pool): Extension<SqlitePool>,
     Json(req): Json<SaveModelsRequest>,
 ) -> ApiResult<Json<ModelSaveResponse>> {
+    let req = crate::modules::model_store::demo_save_request(req);
     let resp = store::save_from_run(&pool, &req).await.map_err(e)?;
     Ok((StatusCode::CREATED, Json(resp)))
 }
