@@ -221,7 +221,7 @@ struct Agent {
     out: mpsc::Receiver<Vec<u8>>,
     stdout_bytes: Vec<u8>,
     decoder: Decoder,
-    stderr: std::thread::JoinHandle<String>,
+    stderr: mpsc::Receiver<String>,
 }
 
 impl Agent {
@@ -262,12 +262,7 @@ impl Agent {
                 }
             }
         });
-        let mut stderr = child.stderr.take().unwrap();
-        let stderr = std::thread::spawn(move || {
-            let mut s = String::new();
-            let _ = stderr.read_to_string(&mut s);
-            s
-        });
+        let stderr = read_to_end_in_background(child.stderr.take().unwrap());
         let stdin = child.stdin.take();
         Agent {
             child,
@@ -342,9 +337,29 @@ impl Agent {
         }
         self.stdout_bytes.extend_from_slice(&rest);
         self.decoder.feed(&rest);
-        let stderr = self.stderr.join().unwrap();
+        let stderr = stderr_after_exit(&self.stderr);
         (status.code(), rest, stderr)
     }
+}
+
+/// Read a child's pipe to its end on a thread; the text arrives on the channel.
+fn read_to_end_in_background(mut pipe: impl Read + Send + 'static) -> mpsc::Receiver<String> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = pipe.read_to_string(&mut s);
+        let _ = tx.send(s);
+    });
+    rx
+}
+
+/// The agent's stderr once it has exited. Still open seconds later means a
+/// process the agent started (squashfuse, the command) outlived it: a
+/// failure, reported instead of waiting forever.
+fn stderr_after_exit(stderr: &mpsc::Receiver<String>) -> String {
+    stderr
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the agent's stderr is still open 10 s after it exited: a process it started outlived it")
 }
 
 fn exec_request(script: &str) -> ExecRequest {
@@ -901,6 +916,7 @@ fn e2e_non_blocking_stdin_and_stdout_still_carry_the_exchange() {
         .stderr(Stdio::piped())
         .spawn()
         .expect("start the agent");
+    let stderr = read_to_end_in_background(child.stderr.take().unwrap());
     let mut to_agent = std::fs::File::from(host_out);
     let mut from_agent = std::fs::File::from(host_in);
     // Nothing to read at first: a non-blocking read would fail right away.
@@ -924,8 +940,7 @@ fn e2e_non_blocking_stdin_and_stdout_still_carry_the_exchange() {
     }
     drop(to_agent);
     let status = child.wait().unwrap();
-    let mut stderr = String::new();
-    child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+    let stderr = stderr_after_exit(&stderr);
     assert_eq!(status.code(), Some(0), "{stderr}");
     assert_eq!(stdout_text(&frames, true), "over a non-blocking pipe\n");
     assert!(frames.contains(&Frame::Exit(ExitStatus {
