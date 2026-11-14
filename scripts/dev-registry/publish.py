@@ -42,7 +42,7 @@ HONESTY
 -------
 This is a dev/QA approximation, not the published-layer pipeline:
 
-  * the base is the HOST R 4.1 / python3.10 and the HOST package libraries
+  * the base is the HOST R 4.1 / python3 (3.10 there) and the HOST package libraries
     (the published base is R 4.4.2 / Python 3.11 with pinned versions), so the
     layer SDK is the host's, and method wrappers run against the host
     versions' API surface;
@@ -208,9 +208,19 @@ GENERATOR_VERSION = "0.1.0-dev"
 DEFAULT_METHODS_DIR = "/data/share/pbya/sigtrans/methods"
 DEFAULT_PACKAGE_DIR = "/data/share/pbya/sigtrans/package"
 
+def _host_python_version(link="/usr/bin/python3"):
+    """The host system python3's <major>.<minor>, read from what
+    /usr/bin/python3 points at (3.10 on the box this publisher was written on,
+    3.11 on Debian bookworm). Falls back to 3.10 when there is no such link."""
+    m = re.match(r"^/usr/bin/python(3\.[0-9]+)$", os.path.realpath(link))
+    return m.group(1) if m else "3.10"
+
+
 #: Host paths that are part of the base rootfs assembly.
-PY_STDLIB = "/usr/lib/python3.10"
-PY_USER_SITE = "/home/pbya/.local/lib/python3.10/site-packages"
+PY_VERSION = _host_python_version()
+PY_BIN = "/usr/bin/python%s" % PY_VERSION
+PY_STDLIB = "/usr/lib/python%s" % PY_VERSION
+PY_USER_SITE = "/home/pbya/.local/lib/python%s/site-packages" % PY_VERSION
 R_SYSTEM_LIB = "/usr/lib/R"
 R_PERSONAL_LIB = "/home/pbya/R/x86_64-pc-linux-gnu-library/4.1"
 
@@ -405,15 +415,15 @@ def build_base_py(rootfs_dir, fixture=False):
     shared-library closure."""
     import pkgutil
 
-    if os.path.exists("/usr/bin/python3.10"):
-        copy_into(rootfs_dir, "/usr/bin/python3.10")
+    if os.path.exists(PY_BIN):
+        copy_into(rootfs_dir, PY_BIN)
         copy_into(rootfs_dir, "/usr/bin/python3")
     copy_into(rootfs_dir, PY_STDLIB)
     for top in CORE_TOOLS:
         copy_tool_real(rootfs_dir, top)
 
     if not fixture:
-        site = "usr/local/lib/python3.10/dist-packages"
+        site = "usr/local/lib/python%s/dist-packages" % PY_VERSION
         tgt = os.path.join(rootfs_dir, site)
         os.makedirs(tgt, exist_ok=True)
         for name in os.listdir(PY_USER_SITE):
@@ -451,7 +461,7 @@ def build_base_py(rootfs_dir, fixture=False):
     # closure of every copied ELF + the named bins; bins are absolute host
     # paths, so probe them directly.
     libs = ldd_closure(rootfs_dir, [t for t in CORE_TOOLS] +
-                       ["/usr/bin/python3.10"] + ([] if fixture else []))
+                       [PY_BIN] + ([] if fixture else []))
     for host, rel in libs.items():
         copy_into(rootfs_dir, host, rel)
     normalize_modes(rootfs_dir)
