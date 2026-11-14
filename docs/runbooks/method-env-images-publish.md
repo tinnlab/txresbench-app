@@ -22,10 +22,12 @@ What each step owns, and who may run it:
 
 | step | tool | who |
 |---|---|---|
-| build a layer | `scripts/generate-method-env-images.py` | worker or owner (the pipeline) |
+| build a layer (and stage its base) | `scripts/generate-method-env-images.py` | worker or owner (the pipeline) |
+| stage the bases of already-built layers | `scripts/generate-method-env-images.py --stage-bases` | worker or owner |
 | assemble + commit the manifest | the same generator (`--manifest`) | worker (ITEM-6 commits it) |
 | validate the committed manifest | `scripts/check-method-env-images.sh` | the gate (every commit) |
-| publish a layer | `scripts/publish-method-env-images.sh` | **owner only** |
+| publish a base, then layers | `scripts/publish-method-env-images.sh --base` / `--env` | **owner only** |
+| rehearse a publish on a local registry | `scripts/publish-method-env-images.sh --registry 127.0.0.1:<port>` | worker or owner |
 | behavioral verify of a layer | `scripts/lib/method-env-verify.sh` | the publish path (ITEM-7) |
 
 The layer artifacts follow a **digest-pinned** contract (DEC-7, owner
@@ -44,6 +46,7 @@ via a new app build that embeds the regenerated manifest (see §6).
 | the methods repository (read-only build input) | `/data/share/pbya/sigtrans/methods` (overridable: `TXR_METHODS_DIR`) | which methods exist, their versions, licences, contract, `runnable` flag |
 | the layer builder | `scripts/generate-method-env-images.py` | builds each method's own Dockerfile, computes the delta over its per-language base, emits the squashfs layer |
 | the staged layer | `<build-dir>/layers/<env_id>-<arch>/{layer.squashfs, artifact.json, oci-manifest.json}` | the artifact and the record the manifest writer consumes |
+| the staged base | `<build-dir>/bases/<base_id>-<arch>/{base.squashfs, artifact.json, oci-manifest.json}` (rootfs cache: `<build-dir>/base-cache/`) | the per-language base every layer of that language and arch stacks on (design §6.3) |
 | the env manifest (the contract) | `src-app/server/data/method-env-images.json` (+ `.schema.json`) | the runtime's fetch/verify source; generated, never hand-edited (INV-5) |
 | the manifest guard | `scripts/check-method-env-images.sh` | schema + structural validation + regen parity |
 | the publisher | `scripts/publish-method-env-images.sh` | verify the staged bytes → login → push → verify the digest → sign |
@@ -70,17 +73,19 @@ publish-method-env-images.sh --env <id>              (owner-gated: THIS runbook)
 ghcr.io/tinnlab/txr-method-env-layers/<id>:<version>-<arch>
 ```
 
-Publish order matters: **base images first, layers second.** The layer is a
+Publish order matters: **bases first, layers second.** The layer is a
 delta over the benchmark base image and records `base_ref`/`base_digest` as
-provenance (DEC-4); the generator needs that base pullable (or builds it from
-`dev/code/benchmark/docker-images/base-{r,py}/`). The app-side trimmed base
-the runtime actually stacks is `sandbox-stacked`'s artifact and is paired by
-the `com.txr.trimmed-from-digest` anchor — publishing layers is not
-publishing bases.
+provenance (DEC-4); the generator needs that base image pullable (or builds it
+from `dev/code/benchmark/docker-images/base-{r,py}/`), and packs the app-side
+base from it into `<build-dir>/bases/` (design §6.3). The manifest's `bases`
+list pins each base file (`squashfs_sha256`) and pairs it with the layers by
+`source_digest` == `base_digest`. The publisher refuses a layer until its base
+tag resolves to the base record's digest, and refuses a manifest without a
+`bases` list (one from before the base publisher: its layers could never run).
 
 ---
 
-## 3. Publishing one layer
+## 3. Publishing a base, then one layer
 
 Prerequisites: `docker` (for any build), `oras` ≥ 1.2 (needs the `blob push`
 and `manifest push` subcommands), `cosign` ≥ 2.4 (unless `--skip-sign`), and
@@ -100,24 +105,35 @@ scripts/check-method-env-images.sh --manifest <manifest> \
   --staging-dir "$TXR_ENV_BUILD_DIR"
 
 # 3. always rehearse first — it prints every command and verifies every byte
+scripts/publish-method-env-images.sh --base base-py --dry-run \
+  --manifest <manifest> --staging-dir "$TXR_ENV_BUILD_DIR"
 scripts/publish-method-env-images.sh --env <id> --dry-run \
   --manifest <manifest> --staging-dir "$TXR_ENV_BUILD_DIR"
 
-# 4. publish
+# 4. publish the base the layer stacks on (once per language and arch), then the layer
+scripts/publish-method-env-images.sh --base base-py \
+  --manifest <manifest> --staging-dir "$TXR_ENV_BUILD_DIR"
 scripts/publish-method-env-images.sh --env <id> \
   --manifest <manifest> --staging-dir "$TXR_ENV_BUILD_DIR"
 ```
 
-One invocation publishes exactly one (env, arch) artifact. `--env` is
+Layers built before this staging step (no `<build-dir>/bases/`) get their bases
+with `generate-method-env-images.py --stage-bases --out <build-dir> --arch
+<arch>` on the machine that built them (it needs the base image with the
+recorded digest, or the generator's base cache), then a fresh `--manifest`.
+
+One invocation publishes exactly one artifact: `--env <id>` (one (env, arch)
+layer) or `--base <base-py|base-r>` (one (base, arch) base). One of them is
 required — nothing defaults across ~95 methods, and publishing the wrong
-`<id>` under an immutable version tag is not a recoverable mistake.
+artifact under an immutable tag is not a recoverable mistake.
 
 ### What the publisher verifies before anything reaches the registry
 
-1. The manifest entry exists and the staged artifact's bytes are the entry's
-   bytes: `sha256(layer.squashfs) == layer_sha256`, the size matches,
+1. The manifest entry (or `bases` record) exists and the staged artifact's
+   bytes are its bytes: `sha256(layer.squashfs) == layer_sha256` (a base:
+   `sha256(base.squashfs) == squashfs_sha256`), the size matches,
    `sha256(oci-manifest.json) == digest` (the pinned construction, design
-   §6.1), and the build record agrees field-for-field with the entry.
+   §6.1/§6.3), and the build record agrees field-for-field.
 2. The manifest satisfies the repo's own guard **including the regen-parity
    leg against the same staging dir** — a manifest whose records no longer
    reassemble is not published from.
@@ -129,12 +145,34 @@ required — nothing defaults across ~95 methods, and publishing the wrong
    sentinel — a failure refuses the publish. The stacked-equivalence claim
    (layer + base == the full method image, EX-7) is the
    `tests/sandbox/method_env_layer_test.rs` arbiter, not part of the publish
-   gate.
+   gate. A base instead must list `/opt/txr-layer` (and
+   `/opt/txr-layer/R-library` for base-r), `/usr/bin/prlimit` and
+   `/usr/bin/bash` (`unsquashfs -lln`).
 4. The version tag does not already hold **different bytes** — version tags
    are immutable (DEC-2), so a conflict refuses, naming both digests. An
    existing identical digest is a safe no-op republish.
-5. After the push, `oras resolve` must still name the recorded digest — the
+5. A layer's base is already published: its base record's tag resolves to
+   that record's `digest`.
+6. After the push, `oras resolve` must still name the recorded digest — the
    registry-visible witness.
+
+### Rehearsing on a local registry
+
+```sh
+python3 scripts/dev-registry/registry.py --port 5055 --dir <a dir outside the repo> &
+scripts/publish-method-env-images.sh --registry 127.0.0.1:5055 --base base-py \
+  --manifest <manifest> --staging-dir "$TXR_ENV_BUILD_DIR"
+scripts/publish-method-env-images.sh --registry 127.0.0.1:5055 --env <id> \
+  --manifest <manifest> --staging-dir "$TXR_ENV_BUILD_DIR"
+```
+
+`--registry` takes exactly `127.0.0.1:<port>` or `[::1]:<port>` (no hostnames,
+not even `localhost`). Every oras call then goes to that host over plain HTTP
+(`ghcr.io/` in the manifest's refs replaced by the loopback host, the same
+mapping as the app's debug `TXR_METHOD_ENV_REGISTRY`); no login, no
+credentials, no signing. The checks are the release path's. A debug app
+started with `TXR_METHOD_ENV_REGISTRY=127.0.0.1:5055` and
+`TXR_ENV_MANIFEST=<manifest>` then downloads from it.
 
 ### Why the push is `blob push` + `manifest push`, not `oras push`
 
@@ -192,9 +230,13 @@ existing tag with different bytes refuses instead of silently shadowing.
 
 ITEM-6's full generation run produces the staged records and the committed
 manifest for every runnable method (amd64; arm64 from a native arm64 host).
-Publishing is then one invocation per method:
+Publishing is then one invocation per base, then one per method:
 
 ```sh
+for base in base-py base-r; do
+  scripts/publish-method-env-images.sh --base "$base" \
+    --manifest src-app/server/data/method-env-images.json || break
+done
 for id in <the ids from the manifest — or the generator's summary list>; do
   scripts/publish-method-env-images.sh --env "$id" \
     --manifest src-app/server/data/method-env-images.json \
@@ -239,10 +281,18 @@ python3 scripts/generate-method-env-images.py --only <id> --manifest <manifest>
 # validate (gate; the publisher runs it too)
 scripts/check-method-env-images.sh --manifest <manifest> --staging-dir <dir>
 
+# stage the bases of layers already in a build dir
+python3 scripts/generate-method-env-images.py --stage-bases --out <dir> --arch <arch>
+
 # rehearse — prints the whole sequence, verifies every local byte, no network
+scripts/publish-method-env-images.sh --base base-py --dry-run
 scripts/publish-method-env-images.sh --env <id> --dry-run
 
-# publish (owner-gated; requires GHCR_TOKEN + GHCR_USER)
+# rehearse for real on a local registry (plain HTTP, no login, no signing)
+scripts/publish-method-env-images.sh --registry 127.0.0.1:5055 --base base-py
+
+# publish (owner-gated; requires GHCR_TOKEN + GHCR_USER): bases first
+scripts/publish-method-env-images.sh --base base-py
 scripts/publish-method-env-images.sh --env <id>
 
 # skip signing — only against a runtime with verification disabled
