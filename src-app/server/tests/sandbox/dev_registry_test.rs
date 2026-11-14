@@ -123,7 +123,10 @@ async fn dev_registry_acceptance_child() {
     assert_eq!(entry.oci_ref, "ghcr.io/tinnlab/txr-method-env-layers/txr-dev-fixture");
 
     // ── 2. the engine's own ref builders ───────────────────────────────────
-    let base_ref = txresbench::modules::execution_engine::orchestrator::base_env_ref(entry);
+    let base_ref = txresbench::modules::execution_engine::orchestrator::base_env_ref(
+        entry,
+        txresbench::modules::execution_engine::envmanifest::base_artifact_for(entry),
+    );
     let layer_ref = txresbench::modules::execution_engine::orchestrator::layer_env_ref(entry);
     assert_eq!(base_ref.oci_ref, "ghcr.io/tinnlab/txresbench-env/base-py");
     assert_eq!(base_ref.tag.as_deref(), Some("2.0-amd64"));
