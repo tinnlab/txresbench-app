@@ -112,6 +112,21 @@ pub struct DemoBundle {
     pub tables: BundleTables,
     pub configurations: Vec<BundleConfiguration>,
     pub methods: Vec<BundleMethod>,
+    /// The DIRECTORY the bundle was loaded from (the table paths in the
+    /// manifest are relative to it). NOT part of the manifest file: set by
+    /// [`load`], skipped by serde on both directions.
+    #[serde(skip)]
+    pub bundle_dir: PathBuf,
+}
+
+impl DemoBundle {
+    /// The (new) bundle without its directory fact (the manifest-only view —
+    /// the recorder's unit tests + the loader's validation reads never need
+    /// the dir; [`load`] is the one place that sets it).
+    pub(crate) fn with_dir(mut self, dir: PathBuf) -> Self {
+        self.bundle_dir = dir;
+        self
+    }
 }
 
 /// The example tables' recorded content hashes (the guard's reference).
@@ -635,7 +650,7 @@ pub fn load(dir: &Path) -> Result<Arc<DemoBundle>, BundleError> {
         ))
     })?;
     validate(&bundle, dir)?;
-    Ok(Arc::new(bundle))
+    Ok(Arc::new(bundle.with_dir(dir.to_path_buf())))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -802,7 +817,7 @@ mod tests {
         let (p_rows, p_cols) = facts(assets.patients_example);
         let (m_rows, m_cols) = facts(assets.measurements_example);
         let (r_rows, r_cols) = facts(assets.predict_measurements_example);
-        DemoBundle {
+        let mut bundle = DemoBundle {
             format: FORMAT_TAG.to_string(),
             version: FORMAT_VERSION,
             generated_at: Utc::now(),
@@ -826,7 +841,10 @@ mod tests {
             },
             configurations: Vec::new(),
             methods: Vec::new(),
-        }
+            bundle_dir: std::path::PathBuf::new(),
+        };
+        bundle.bundle_dir = std::path::PathBuf::new();
+        bundle
     }
 
     /// The example table helper: parse the asset bytes into a `ParsedTable`

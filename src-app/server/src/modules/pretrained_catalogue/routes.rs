@@ -521,6 +521,17 @@ async fn check_eligibility(
         entries.push(entry);
     }
 
+    if crate::modules::demo::enabled() {
+        // Demo mode (ITEM-3): the verdicts are the bundle's — an entry whose
+        // catalogue method the bundle recorded can run; the rest are
+        // NOT_RUNNABLE (the "Included in the demo" cards, no download).
+        let response = crate::modules::demo::eligibility::pretrained_eligibility(
+            crate::modules::demo::bundle().expect("a demo boot carries the bundle"),
+            &entries,
+        );
+        return Ok((StatusCode::OK, Json(response)));
+    }
+
     // The bundle-presence input (the one file check the pure engine leaves
     // to the route): a requested entry with a bundled asset whose file
     // verifies is asset-available with zero network (INV-8).

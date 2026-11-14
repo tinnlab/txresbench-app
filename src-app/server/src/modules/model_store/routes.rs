@@ -228,7 +228,25 @@ async fn save_models(
     Json(req): Json<SaveModelsRequest>,
 ) -> ApiResult<Json<ModelSaveResponse>> {
     let req = crate::modules::model_store::demo_save_request(req);
-    let resp = store::save_from_run(&pool, &req).await.map_err(e)?;
+    let resp = if crate::modules::demo::enabled() {
+        // Demo mode (ITEM-3): the save of a DEMO run creates records pointing
+        // at the bundle's model metadata; a desktop run in the shared DB
+        // keeps the store's own path (its real trees are there).
+        let run = crate::modules::execution_engine::repository::TxrRepository::new(pool.clone())
+            .get_run(req.run_id)
+            .await
+            .map_err(e)?;
+        let is_demo = run
+            .as_ref()
+            .is_some_and(|r| crate::modules::demo::replay::is_demo_run(std::path::Path::new(&r.dir)));
+        if is_demo {
+            crate::modules::demo::models::save_from_bundle(&pool, &req).await.map_err(e)?
+        } else {
+            store::save_from_run(&pool, &req).await.map_err(e)?
+        }
+    } else {
+        store::save_from_run(&pool, &req).await.map_err(e)?
+    };
     Ok((StatusCode::CREATED, Json(resp)))
 }
 
@@ -551,6 +569,18 @@ async fn check_eligibility(
     Json(req): Json<ModelEligibilityRequest>,
 ) -> ApiResult<Json<ModelEligibilityResponse>> {
     req.validate().map_err(request_err)?;
+    if crate::modules::demo::enabled() {
+        // Demo mode (ITEM-3): the verdicts are the bundle's — a model whose
+        // method is recorded can run; the others are NOT_RUNNABLE.
+        let resp = crate::modules::demo::eligibility::models_eligibility(
+            &pool,
+            crate::modules::demo::bundle().expect("a demo boot carries the bundle"),
+            &req,
+        )
+        .await
+        .map_err(e)?;
+        return Ok((StatusCode::OK, Json(resp)));
+    }
     let resp = eligibility::eligible(&pool, &req.model_ids, &req.inventory)
         .await
         .map_err(e)?;
@@ -574,6 +604,15 @@ async fn example_set(
     Extension(pool): Extension<SqlitePool>,
     Extension(state): Extension<ExampleRunState>,
 ) -> ApiResult<Json<ExampleSetResponse>> {
+    if crate::modules::demo::enabled() {
+        // Demo mode (ITEM-3): the example set is SEEDED from the bundle's
+        // recorded models — no training run, no sandbox (the shared demo
+        // pool is never allowed to start a real one).
+        let resp = crate::modules::demo::models::ensure_example_set(&pool)
+            .await
+            .map_err(e)?;
+        return Ok((StatusCode::OK, Json(resp)));
+    }
     let resp = example::ensure_example_set(&pool, &state.seams(), auth.user.id)
         .await
         .map_err(e)?;

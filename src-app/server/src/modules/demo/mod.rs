@@ -45,6 +45,9 @@
 pub mod allowlist;
 pub mod bundle;
 pub mod copy;
+pub mod eligibility;
+pub mod models;
+pub mod replay;
 pub mod session;
 
 use std::sync::OnceLock;
@@ -331,9 +334,15 @@ impl AppModule for DemoModule {
         "Demo mode: /api/app/mode + the route allowlist + anonymous visitor sessions (web service)."
     }
 
-    fn init(&mut self, _ctx: &ModuleContext) -> Result<(), Box<dyn std::error::Error>> {
-        // The state is installed by `lib.rs` BEFORE module init (the module's
-        // own init has nothing to do; the route + gate read the global).
+    fn init(&mut self, ctx: &ModuleContext) -> Result<(), Box<dyn std::error::Error>> {
+        // The state is installed by `lib.rs` BEFORE module init (the route +
+        // gate read the global). ITEM-3's boot sweep owns the interrupted
+        // demo replays: spawned here (detached, idempotent) — desktop mode
+        // is the no-op arm (`spawn_boot_sweep` returns immediately).
+        replay::spawn_boot_sweep(
+            (*ctx.db_pool).clone(),
+            crate::modules::execution_engine::runtime::global().clone(),
+        );
         Ok(())
     }
 

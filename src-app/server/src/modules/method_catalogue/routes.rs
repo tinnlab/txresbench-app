@@ -246,6 +246,15 @@ async fn post_eligibility(
     Extension(pool): Extension<SqlitePool>,
     Json(body): Json<EligibilityRequest>,
 ) -> ApiResult<Json<EligibilityResponse>> {
+    if crate::modules::demo::enabled() {
+        // Demo mode (ITEM-3): the verdicts are the bundle's — recorded
+        // methods can run (recorded seconds), the others are NOT_RUNNABLE.
+        let response = crate::modules::demo::eligibility::methods_eligibility(
+            crate::modules::demo::bundle().expect("a demo boot carries the bundle"),
+            &body,
+        );
+        return Ok((StatusCode::OK, Json(response)));
+    }
     let calibration = load_calibration(&pool).await;
     let response = tokio::task::spawn_blocking(move || {
         eligibility_for_runtime_calibrated(catalogue::catalogue(), &body, &calibration)
@@ -280,6 +289,16 @@ async fn post_estimate(
     Extension(pool): Extension<SqlitePool>,
     Json(body): Json<EstimateRequest>,
 ) -> ApiResult<Json<EstimateResponse>> {
+    if crate::modules::demo::enabled() {
+        // Demo mode (ITEM-3): the estimates are the recorded seconds /
+        // replay speed; a method outside the bundle is a plain 400.
+        let response = crate::modules::demo::eligibility::methods_estimate(
+            crate::modules::demo::bundle().expect("a demo boot carries the bundle"),
+            &body,
+        )
+        .map_err(|e| e.to_api_error())?;
+        return Ok((StatusCode::OK, Json(response)));
+    }
     let calibration = load_calibration(&pool).await;
     let response = tokio::task::spawn_blocking(move || {
         estimate_for_runtime_calibrated(catalogue::catalogue(), &body, &calibration)

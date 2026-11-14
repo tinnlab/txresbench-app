@@ -343,16 +343,31 @@ async fn create_run(
     headers: HeaderMap,
     body: BodyJson<CreateRunRequest, CreateBodyCode>,
 ) -> ApiResult<Json<TxrRunSummary>> {
-    let summary = orchestrator::start_run(
-        pool.clone(),
-        state.runtime.clone(),
-        state.env.clone(),
-        state.executor.clone(),
-        auth.user.id,
-        body.into_inner(),
-    )
-    .await
-    .map_err(|e| e.to_api_error())?;
+    let req = body.into_inner();
+    let summary = if crate::modules::demo::enabled() {
+        // Demo mode (ITEM-3): a normal run record filled by CLONING the
+        // recorded bundle's results and replaying the states — no sandbox,
+        // no environment fetch, no method code. A method/configuration
+        // outside the bundle is a plain 400.
+        crate::modules::demo::replay::create_replay(
+            pool.clone(),
+            state.runtime.clone(),
+            req,
+        )
+        .await
+        .map_err(|e| e.to_api_error())?
+    } else {
+        orchestrator::start_run(
+            pool.clone(),
+            state.runtime.clone(),
+            state.env.clone(),
+            state.executor.clone(),
+            auth.user.id,
+            req,
+        )
+        .await
+        .map_err(|e| e.to_api_error())?
+    };
     // Demo mode (ITEM-1): "a run records the session that created it" — the
     // demo gate answers 403 DEMO_MODE for stop/skip by any other session.
     // Desktop mode: no demo cookie ⇒ the stamp is a no-op.
@@ -712,9 +727,16 @@ async fn stop_run(
     Extension(pool): Extension<SqlitePool>,
     AxumPath(id): AxumPath<Uuid>,
 ) -> ApiResult<()> {
-    orchestrator::stop_run(pool, state.runtime.clone(), id)
-        .await
-        .map_err(|e| e.to_api_error())?;
+    if crate::modules::demo::enabled() {
+        // Demo mode (ITEM-3): the stop acts on the REPLAY.
+        crate::modules::demo::replay::stop_replay(pool, state.runtime.clone(), id)
+            .await
+            .map_err(|e| e.to_api_error())?;
+    } else {
+        orchestrator::stop_run(pool, state.runtime.clone(), id)
+            .await
+            .map_err(|e| e.to_api_error())?;
+    }
     Ok((StatusCode::ACCEPTED, ()))
 }
 
@@ -737,9 +759,15 @@ async fn stop_method(
     Extension(pool): Extension<SqlitePool>,
     AxumPath((id, method_id)): AxumPath<(Uuid, String)>,
 ) -> ApiResult<()> {
-    orchestrator::stop_method(pool, id, &method_id)
-        .await
-        .map_err(|e| e.to_api_error())?;
+    if crate::modules::demo::enabled() {
+        crate::modules::demo::replay::stop_replay_method(pool, id, &method_id)
+            .await
+            .map_err(|e| e.to_api_error())?;
+    } else {
+        orchestrator::stop_method(pool, id, &method_id)
+            .await
+            .map_err(|e| e.to_api_error())?;
+    }
     Ok((StatusCode::ACCEPTED, ()))
 }
 
@@ -761,9 +789,15 @@ async fn skip_method(
     Extension(pool): Extension<SqlitePool>,
     AxumPath((id, method_id)): AxumPath<(Uuid, String)>,
 ) -> ApiResult<()> {
-    orchestrator::skip_method(pool, id, &method_id)
-        .await
-        .map_err(|e| e.to_api_error())?;
+    if crate::modules::demo::enabled() {
+        crate::modules::demo::replay::skip_replay_method(pool, id, &method_id)
+            .await
+            .map_err(|e| e.to_api_error())?;
+    } else {
+        orchestrator::skip_method(pool, id, &method_id)
+            .await
+            .map_err(|e| e.to_api_error())?;
+    }
     Ok((StatusCode::ACCEPTED, ()))
 }
 
@@ -785,9 +819,15 @@ async fn set_at_a_time(
     AxumPath(id): AxumPath<Uuid>,
     body: BodyJson<TxrAtATimeRequest, AtATimeBodyCode>,
 ) -> ApiResult<Json<TxrRunSummary>> {
-    let summary = orchestrator::set_at_a_time_run(pool, id, body.value.at_a_time)
-        .await
-        .map_err(|e| e.to_api_error())?;
+    let summary = if crate::modules::demo::enabled() {
+        crate::modules::demo::replay::set_at_a_time_replay(pool, id, body.value.at_a_time)
+            .await
+            .map_err(|e| e.to_api_error())?
+    } else {
+        orchestrator::set_at_a_time_run(pool, id, body.value.at_a_time)
+            .await
+            .map_err(|e| e.to_api_error())?
+    };
     Ok((StatusCode::OK, Json(summary)))
 }
 
@@ -811,16 +851,24 @@ async fn rerun_run(
     headers: HeaderMap,
     AxumPath(id): AxumPath<Uuid>,
 ) -> ApiResult<Json<TxrRunSummary>> {
-    let summary = orchestrator::rerun_run(
-        pool.clone(),
-        state.runtime.clone(),
-        state.env.clone(),
-        state.executor.clone(),
-        auth.user.id,
-        id,
-    )
-    .await
-    .map_err(|e| e.to_api_error())?;
+    let summary = if crate::modules::demo::enabled() {
+        // Demo mode (ITEM-3): the rerun replays the recorded setup again
+        // (the same run-input record the engine's rerun reads).
+        crate::modules::demo::replay::rerun_replay(pool.clone(), state.runtime.clone(), id)
+            .await
+            .map_err(|e| e.to_api_error())?
+    } else {
+        orchestrator::rerun_run(
+            pool.clone(),
+            state.runtime.clone(),
+            state.env.clone(),
+            state.executor.clone(),
+            auth.user.id,
+            id,
+        )
+        .await
+        .map_err(|e| e.to_api_error())?
+    };
     // The rerun is a NEW run owned by the SAME session (demo rule).
     crate::modules::demo::session::stamp_run(
         &pool,
