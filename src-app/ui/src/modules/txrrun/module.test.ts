@@ -304,7 +304,10 @@ describe('txrrun module (TEST-RUN-01)', () => {
           // store/guard tests; the guard file itself is the ITEM-7-sanctioned
           // tokenization file above.
           p !== 'src-app/ui/src/modules/session/Session.store.ts' &&
-          p !== 'src-app/ui/src/modules/session/Session.test.tsx',
+          p !== 'src-app/ui/src/modules/session/Session.test.tsx' &&
+          // qa-fixes4 ITEM-7 (its DRIFT-1): the session bootstrap's gallery story + special route
+          // (the failing-mint browser leg, R3-intake-8) — the ITEM-4-sanctioned files' sibling.
+          p !== 'src-app/ui/src/modules/session/gallery.tsx',
       ),
     ).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
@@ -495,7 +498,10 @@ describe('txrrun module (TEST-RUN-01)', () => {
           // store/guard tests; the guard file itself is the ITEM-7-sanctioned
           // tokenization file above.
           p !== 'src-app/ui/src/modules/session/Session.store.ts' &&
-          p !== 'src-app/ui/src/modules/session/Session.test.tsx',
+          p !== 'src-app/ui/src/modules/session/Session.test.tsx' &&
+          // qa-fixes4 ITEM-7 (its DRIFT-1): the session bootstrap's gallery story + special route
+          // (the failing-mint browser leg, R3-intake-8) — the ITEM-4-sanctioned files' sibling.
+          p !== 'src-app/ui/src/modules/session/gallery.tsx',
       ),
     ).toEqual([])
   })

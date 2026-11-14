@@ -482,6 +482,9 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           // tokenization file above.
           p !== 'src-app/ui/src/modules/session/Session.store.ts' &&
           p !== 'src-app/ui/src/modules/session/Session.test.tsx' &&
+          // qa-fixes4 ITEM-7 (its DRIFT-1): the session bootstrap's gallery story + special route
+          // (the failing-mint browser leg, R3-intake-8) — the ITEM-4-sanctioned files' sibling.
+          p !== 'src-app/ui/src/modules/session/gallery.tsx' &&
           !p.startsWith('src-app/ui/src/modules/txrintake/') &&
           !p.startsWith('src-app/ui/src/modules/txrrun/') &&
           !p.startsWith('src-app/ui/src/modules/txrresults/'),

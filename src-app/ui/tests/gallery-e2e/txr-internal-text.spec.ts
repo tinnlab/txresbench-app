@@ -108,3 +108,77 @@ for (const surface of [
     await expect(page.locator('body')).not.toContainText('/data/')
   })
 }
+
+// ── qa-fixes4 ITEM-7: the leak scan over EVERY route (the plan's ITEM-1
+//    browser test spoke of "every route"; the four leak stories prove the
+//    GUARD, this walk proves the ROUTES — one live story per user route,
+//    the same text-node walker, no leak ever renders). ──
+
+/** The route bank: one seeded gallery story per user-visible route, with
+ *  the surface root the story settles on (the walk is the walker's own —
+ *  the wait is only "the page rendered"). */
+const ROUTE_BANK: Array<{ slug: string; surface: string }> = [
+  { slug: 'txr-intake-use-example', surface: 'txr-intake-start' }, // /
+  { slug: 'txr-intake-b', surface: 'txr-intake-panel-fit-count' }, // /study
+  { slug: 'txr-intake-c', surface: 'txr-intake-file-card-patients' }, // /files
+  { slug: 'txr-intake-n', surface: 'txr-intake-file-card-measurements' }, // /predict-files
+  { slug: 'txr-run-e', surface: 'txr-run-summary' }, // /choose-methods
+  { slug: 'txr-run-f', surface: 'txr-run-header' }, // /analysis/:id/running
+  { slug: 'txr-results-g', surface: 'txr-results-header' }, // /analysis/:id/results
+  { slug: 'txr-results-h-compare', surface: 'txr-results-subtitle' }, // compare
+  { slug: 'txr-results-h', surface: 'txr-results-subtitle' }, // the one-method page
+  { slug: 'txr-history-populated', surface: 'txr-history' }, // /history
+  { slug: 'txr-models-j', surface: 'txr-models-j' }, // /models
+  { slug: 'txr-models-d', surface: 'txr-models-d' }, // /pretrained-models
+  { slug: 'txr-models-i', surface: 'txr-models-i' }, // /saved-models
+  { slug: 'txr-help', surface: 'txr-help' }, // /help
+]
+
+test.describe('every route — no internal path, placeholder or tool name (ITEM-1 leak scan)', () => {
+  for (const { slug, surface } of ROUTE_BANK) {
+    test(`${slug} — the route renders clean`, async ({ page }) => {
+      const pageErrors: string[] = []
+      page.on('pageerror', error => pageErrors.push(error.message))
+      await page.goto(`${GALLERY}${slug}`)
+      await expect(page.getByTestId(surface)).toBeVisible()
+      // The route's own load settle (requests in flight when the root
+      // appeared — the walk must read the SETTLED page).
+      await page.waitForTimeout(750)
+
+      const hits = await leakingTextNodes(page)
+      expect(hits, `leaking text nodes: ${JSON.stringify(hits)}`).toEqual([])
+      expect(pageErrors, 'no uncaught page error on the route').toEqual([])
+    })
+  }
+})
+
+// ── qa-fixes4 ITEM-7: the R3-intake-8 session bootstrap in a real browser
+//    (the store's retry ladder is unit-tested; THIS leg proves the guard's
+//    states render — the error is honest, never a bare endless Loading). ──
+
+test.describe('txr-session-guard — the mint fails, retries and ends honest (R3-intake-8)', () => {
+  test('the 3-try ladder, "We could not start the app" + Retry, and the retry re-arms the ladder', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-session-guard`)
+
+    // The guard's honest error state after the ladder (the 500 route).
+    await expect(page.getByTestId('session-error')).toBeVisible({ timeout: 60_000 })
+    await expect(
+      page.getByRole('heading', { name: 'We could not start the app' }),
+    ).toBeVisible()
+    await expect(page.getByTestId('session-retry')).toBeVisible()
+    // The plain reason is on screen (never a blank error state).
+    await expect(page.getByTestId('session-error')).toContainText('fixture session failure')
+    // No leak in the error state.
+    expect(await leakingTextNodes(page)).toEqual([])
+
+    // Retry re-arms the ladder: the loading line says what is happening
+    // (never a bare "Loading…" with no state), then the honest error
+    // returns (the endpoint still answers 500).
+    await page.getByTestId('session-retry').click()
+    await expect(page.getByTestId('session-loading')).toBeVisible()
+    await expect(page.getByText('Starting the app…')).toBeVisible()
+    await expect(page.getByTestId('session-error')).toBeVisible({ timeout: 60_000 })
+  })
+})

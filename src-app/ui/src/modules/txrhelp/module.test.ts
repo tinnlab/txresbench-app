@@ -447,6 +447,9 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           // tokenization file above.
           p !== 'src-app/ui/src/modules/session/Session.store.ts' &&
           p !== 'src-app/ui/src/modules/session/Session.test.tsx' &&
+          // qa-fixes4 ITEM-7 (its DRIFT-1): the session bootstrap's gallery story + special route
+          // (the failing-mint browser leg, R3-intake-8) — the ITEM-4-sanctioned files' sibling.
+          p !== 'src-app/ui/src/modules/session/gallery.tsx' &&
           p !== 'src-app/ui/src/modules/txrhistory/module.test.ts' &&
           !p.startsWith('src-app/ui/src/modules/txrrun/') &&
           !p.startsWith('src-app/ui/src/modules/txrresults/') &&
@@ -514,6 +517,11 @@ describe('txrhelp module (TEST-HELP-4)', () => {
       // bytes (the same stale-pin class as `src/lib/txr-files/parse.test.ts`,
       // which sits outside every sweep).
       'src-app/ui/tests/gallery-e2e/file-validator-parse.spec.ts',
+      // The qa-fixes4 ITEM-7 re-verification spec (its own DRIFT-1): the
+      // every-route leak walk + the session-guard browser leg (the ITEM-1
+      // leak tier's own ROOT file — the ITEM-1 item's spec is swept here by
+      // THIS item's edits, its own-sweep rule).
+      'src-app/ui/tests/gallery-e2e/txr-internal-text.spec.ts',
       // The qa-fixes ITEM-8 re-verification repairs (its own DRIFT-1): the
       // stale pins + latent defects the full-backend run found and repaired
       // — the cannot-run time needle that predates ITEM-2's CM-4 (txr-list
