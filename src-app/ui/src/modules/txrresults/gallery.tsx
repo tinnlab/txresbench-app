@@ -65,6 +65,7 @@ import {
   TXR_RUN_G_LONG,
   TXR_RUN_H_LONG,
   TXR_RUN_FAILED_LEAK,
+  TXR_RUN_TROUBLE,
   TXR_RUNS,
   TXR_CSV,
   TXR_LOGS,
@@ -213,6 +214,14 @@ export const gallery: ModuleGallery = {
       note: 'The board\'s live state: most methods finished, the last one still running. The mock stream replays the frame script — the last method\'s transition + progress + log lines arrive, then its `prediction` frame adds the final column (INV-1) and the terminal status closes the live tail.',
       path: '/analysis/:runId/results',
       initialPath: `/analysis/${TXR_RUN_RUNNING.id}/results`,
+      component: ResultsStory,
+    },
+    {
+      slug: 'txr-results-g-trouble',
+      title: 'Results — 203 methods could not run, ONE summary card (qa-fixes4 ITEM-2)',
+      note: 'The many-cannot run (results-r3 R3-results-3): 6 methods finished, 203 could not run for the SAME environment reason — the page shows ONE summary card ("203 methods could not run: their environments are not available yet.") with the expandable per-method list and the TRUE tail ("The other 6 methods are shown."), and the header reads the truthful status word. The browser spec `txr-results.spec.ts` (qa-fixes4 ITEM-7) pins the card, the list, the tail and the head.',
+      path: '/analysis/:runId/results',
+      initialPath: `/analysis/${TXR_RUN_TROUBLE.id}/results`,
       component: ResultsStory,
     },
     {

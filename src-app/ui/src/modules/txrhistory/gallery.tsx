@@ -73,7 +73,11 @@ import {
   TXHISTORY_RUN_BOARD_TRAIN,
   TXHISTORY_RUN_COPIES_CLEARED,
   TXHISTORY_RUN_LEAK,
+  TXHISTORY_RUN_MANY_CANNOT,
+  TXHISTORY_RUN_PARTIAL,
+  TXHISTORY_RUN_PARTIAL_STOPPED,
   TXHISTORY_RUN_RUNNING,
+  TXHISTORY_RUN_STOPPED_ALL,
   TXHISTORY_USAGE,
   fixtureHistoryPage,
   fixtureLogsFor,
@@ -285,6 +289,33 @@ function seedError(): void {
       throw new Error('fixture history failure')
     },
     'History.getUsage': () => fixtureUsage(0, 0),
+  })
+}
+
+/**
+ * The ITEM-2 truth view (qa-fixes4 ITEM-7's per-defect-group browser tier):
+ * the four engine-counts rows the ITEM-2 item added to the fixture family —
+ * the partial-failure run ("Done, 3 of 5 methods failed"), the many-cannot
+ * run ("Done, 203 of 209 methods could not run"), the Stop-all run
+ * ("Stopped by you (2 skipped)") and the partially-stopped finished run
+ * ("Done, 2 of 6 methods were stopped or skipped"). The browser spec
+ * `txr-history.spec.ts` pins the four status words, the reason lines and
+ * the partial-finished warning-amber tone.
+ */
+function seedTruth(): void {
+  TxrHistory.reset()
+  extendCassette({
+    'History.listHistory': (ctx: MockRequestContext) =>
+      fixtureHistoryPage(
+        [
+          TXHISTORY_RUN_MANY_CANNOT,
+          TXHISTORY_RUN_PARTIAL,
+          TXHISTORY_RUN_PARTIAL_STOPPED,
+          TXHISTORY_RUN_STOPPED_ALL,
+        ],
+        ctx.query,
+      ),
+    'History.getUsage': () => fixtureUsage(4, 420 * 1024 * 1024),
   })
 }
 
@@ -590,6 +621,15 @@ export const gallery: ModuleGallery = {
           ),
         }),
       ),
+      fullHeight: true,
+    },
+    {
+      slug: 'txr-history-truth',
+      title: 'History — the truthful status words (qa-fixes4 ITEM-2)',
+      note: 'The four engine-counts rows of the ITEM-2 family: the partial-failure run, the many-cannot run, the Stop-all run and the partially-stopped finished run — the K status chips read the ONE truthful vocabulary ("Done, 3 of 5 methods failed" / "Done, 203 of 209 methods could not run" / "Stopped by you (2 skipped)" / "Done, 2 of 6 methods were stopped or skipped") with the reason line beside the chip and the partial-finished amber tone. The browser spec `txr-history.spec.ts` (qa-fixes4 ITEM-7) pins the words, the tones and the demo-mode-hidden per-run delete.',
+      path: '/*',
+      initialPath: '/history',
+      component: lazy(() => Promise.resolve({ default: () => <HistoryStory seed={seedTruth} /> })),
       fullHeight: true,
     },
     {

@@ -581,6 +581,101 @@ test.describe('txr-history-log-dialog — the terminal snapshot (TEST-HIST-13)',
   })
 })
 
+test.describe('txr-history-truth — the truthful status words (qa-fixes4 ITEM-2)', () => {
+  /** The four ITEM-2 fixture rows, in the story's seed order. */
+  const TRUTH_IDS = [FX_ID(10), FX_ID(7), FX_ID(12), FX_ID(11)]
+
+  test('the engine-counts rows read the one vocabulary, the reason line and the amber tone', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-history-truth`)
+    await expect(page.getByTestId('txr-history')).toBeVisible()
+    await expect(page.getByTestId('txr-history-list')).toBeVisible()
+    expect(await rowOrder(page)).toEqual(
+      TRUTH_IDS.map(id => `txr-history-row-${id}`),
+    )
+
+    // The 203-cannot run (results-r3 R3-results-3 97b25262): the K chip
+    // names the true count — never a plain "Done" over 203 missing methods.
+    await expect(page.getByTestId(`txr-history-status-${FX_ID(10)}`)).toHaveText(
+      'Done, 203 of 209 methods could not run',
+    )
+    await expect(page.getByTestId(`txr-history-subtitle-${FX_ID(10)}`)).toHaveText(
+      'Could not run: the method environment is not available yet',
+    )
+
+    // The partial-failure run (e89047e9): "Done, 3 of 5 methods failed" +
+    // the first terminal reason on the one line.
+    await expect(page.getByTestId(`txr-history-status-${FX_ID(7)}`)).toHaveText(
+      'Done, 3 of 5 methods failed',
+    )
+    await expect(page.getByTestId(`txr-history-subtitle-${FX_ID(7)}`)).toHaveText(
+      'Failed: the method needs a different number of markers than the file has',
+    )
+
+    // The finished run with one stopped + one skipped (8eb11087): the
+    // unfinished count is named; the reason line drops the bucket word it
+    // repeats next to the chip (R3-results-9).
+    await expect(page.getByTestId(`txr-history-status-${FX_ID(12)}`)).toHaveText(
+      'Done, 2 of 6 methods were stopped or skipped',
+    )
+    await expect(page.getByTestId(`txr-history-subtitle-${FX_ID(12)}`)).toHaveText(
+      'Stopped by the user',
+    )
+
+    // The Stop-all run (dd62a064): the stopped bucket names the skipped
+    // waiting methods.
+    await expect(page.getByTestId(`txr-history-status-${FX_ID(11)}`)).toHaveText(
+      'Stopped by you (2 skipped)',
+    )
+    await expect(page.getByTestId(`txr-history-subtitle-${FX_ID(11)}`)).toHaveText(
+      'Stopped by the user',
+    )
+
+    // The partial-finished tone is the warning amber (ITEM-2 DRIFT #4) —
+    // read against the theme's own variable, never a hard-coded hex.
+    const warning = await page.evaluate(() => {
+      const raw = getComputedStyle(document.documentElement)
+        .getPropertyValue('--txr-warning')
+        .trim()
+      const hex = /^#([0-9a-f]{6})$/i.exec(raw)
+      if (hex === null) return raw
+      const n = parseInt(hex[1]!, 16)
+      return `rgb(${n >> 16}, ${(n >> 8) & 0xff}, ${n & 0xff})`
+    })
+    expect(warning, 'the theme must define --txr-warning').not.toBe('')
+    for (const id of [FX_ID(10), FX_ID(7), FX_ID(12)]) {
+      await expect(page.getByTestId(`txr-history-status-${id}`)).toHaveCSS('color', warning)
+    }
+    // The genuinely stopped row keeps the muted tone (the amber is the
+    // partial-finished token only).
+    await expect(page.getByTestId(`txr-history-status-${FX_ID(11)}`)).not.toHaveCSS(
+      'color',
+      warning,
+    )
+
+    // The per-run delete is DEMO-HIDDEN in web mode (demo-mode spec §3 —
+    // the round-3 "Delete a run to free the space" promise has a control
+    // only on the desktop shell; the desktop half of the gate is the unit
+    // tier's: `actionsFor` + the store's deleteRun confirm path — a
+    // `__TAURI__` stub in this host trips the gallery's Tauri bridge, so
+    // the browser-half pin stays the demo-mode visibility truth).
+    await expect(page.getByTestId(`txr-history-delete-${FX_ID(10)}`)).toHaveCount(0)
+  })
+})
+
+test.describe('txr-history-search — the no-match state names the query (R3-results-5)', () => {
+  test('a search with no match is not the fresh-history promise', async ({ page }) => {
+    await page.goto(`${GALLERY}txr-history-search`)
+    await expect(page.getByTestId('txr-history-list')).toBeVisible()
+
+    await page.getByTestId('txr-history-search').fill('zzzz')
+    await expect(page.locator('[data-testid^="txr-history-row-"]')).toHaveCount(0)
+    await expect(page.getByText(/No run matches/)).toBeVisible()
+    await expect(page.getByText(/No run matches/)).toContainText('zzzz')
+  })
+})
+
 test.describe('txr-history-narrow-390 — the mobile width (TEST-HIST-14)', () => {
   // qa-fixes2 ITEM-7 recorded that this story measured the 1280 page (the
   // pane was 390 but the page's phone media rules answer the WINDOW width) —
