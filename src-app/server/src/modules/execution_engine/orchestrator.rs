@@ -154,29 +154,38 @@ pub fn layer_env_ref(entry: &envmanifest::ManifestEntry) -> EnvRef {
     }
 }
 
-/// The BASE ref: the entry `language` mapped onto the sandbox's own base repo
-/// (`ghcr.io/tinnlab/txresbench-env/base-<family>` — the only spelling the
-/// provider's `validate_oci_ref` accepts; the manifest's `base_ref` is the
-/// BENCHMARK namespace, provenance only), pinned by the immutable base tag
-/// `<contract>-<arch>` and verified against the payload digest — the manifest
-/// `base_digest` recorded by the app-side base publisher (ITEM-2 note: for
-/// the qa-hardening dev publisher that value is the dev base squashfs sha256;
-/// see DRIFT-1 ITEM-2 — the published manifest's benchmark base digest is a
-/// provenance anchor, never a fetch target, and the digest-addressed spelling
-/// cannot work because an OCI manifest digest never equals the payload hash
-/// it references).
-pub fn base_env_ref(entry: &envmanifest::ManifestEntry) -> EnvRef {
-    let digest = entry
-        .base_digest
-        .strip_prefix("sha256:")
-        .unwrap_or(&entry.base_digest);
-    EnvRef {
-        oci_ref: format!(
-            "{TXR_BASE_REGISTRY_PREFIX}/base-{}",
-            entry.language.base_family()
-        ),
-        digest: digest.to_string(),
-        tag: Some(format!("{}-{}", entry.contract, entry.arch.as_str())),
+/// The BASE ref. With a base record (the manifest's `bases`), the record's
+/// own `oci_ref` + immutable tag `<contract>-<arch>-<sha12>`, verified against
+/// the record's `squashfs_sha256` — the hash of the published base file.
+/// Without one (a manifest from before the base publisher), the old
+/// construction: the language mapped onto the sandbox's base repo
+/// (`ghcr.io/tinnlab/txresbench-env/base-<family>`), tag `<contract>-<arch>`,
+/// pinned by the entry's `base_digest` read as a file hash. That value is a
+/// Docker image digest, so a real download of such a base fails
+/// `ENV_VERIFY_FAILED` (fails closed); only the qa-hardening dev publisher's
+/// manifests put a file hash there. The pin is [`envmanifest::base_pin`] in
+/// both cases. The manifest's `base_ref` stays provenance only, and a
+/// digest-addressed ref is not used: an OCI manifest digest never equals the
+/// payload hash it references.
+pub fn base_env_ref(
+    entry: &envmanifest::ManifestEntry,
+    base: Option<&envmanifest::BaseArtifact>,
+) -> EnvRef {
+    let digest = envmanifest::base_pin(entry, base).to_string();
+    match base {
+        Some(b) => EnvRef {
+            oci_ref: b.oci_ref.clone(),
+            digest,
+            tag: Some(b.tag.clone()),
+        },
+        None => EnvRef {
+            oci_ref: format!(
+                "{TXR_BASE_REGISTRY_PREFIX}/base-{}",
+                entry.language.base_family()
+            ),
+            digest,
+            tag: Some(format!("{}-{}", entry.contract, entry.arch.as_str())),
+        },
     }
 }
 
@@ -4418,7 +4427,7 @@ async fn ensure_method_env(
             ));
         }
     };
-    let base = base_env_ref(entry);
+    let base = base_env_ref(entry, envmanifest::base_artifact_for(entry));
     let layer = layer_env_ref(entry);
     let base_digest = base.digest.clone();
     let layer_digest = layer.digest.clone();
@@ -5266,7 +5275,7 @@ mod tests {
         assert_eq!(layer.digest, entry.layer_sha256);
         assert_eq!(layer.tag.as_deref(), Some("1.0.0-amd64"));
 
-        let base = base_env_ref(&entry);
+        let base = base_env_ref(&entry, None);
         assert_eq!(
             base.oci_ref,
             format!("{TXR_BASE_REGISTRY_PREFIX}/base-r"),
@@ -5285,6 +5294,38 @@ mod tests {
              manifest digest that equals the payload hash, which no OCI registry can serve"
         );
         assert_eq!(base_env_id(&entry), "base-r");
+
+        // With a base record (a manifest carrying `bases`): the record's ref,
+        // its <contract>-<arch>-<sha12> tag and the base FILE's sha256 —
+        // never the entry's Docker image digest.
+        let squashfs_sha256 = "c".repeat(64);
+        let record = envmanifest::BaseArtifact {
+            base_id: "base-r".to_string(),
+            arch: envmanifest::EnvArch::Amd64,
+            oci_ref: format!("{TXR_BASE_REGISTRY_PREFIX}/base-r"),
+            tag: format!("2.0-amd64-{}", &squashfs_sha256[..12]),
+            digest: format!("sha256:{}", "a".repeat(64)),
+            squashfs_sha256: squashfs_sha256.clone(),
+            size_bytes: 300 * 1024 * 1024,
+            source_ref: entry.base_ref.clone(),
+            source_digest: entry.base_digest.clone(),
+            contract: "2.0".to_string(),
+        };
+        let base = base_env_ref(&entry, Some(&record));
+        assert_eq!(base.oci_ref, record.oci_ref);
+        assert_eq!(base.digest, squashfs_sha256, "the base file's own sha256 is the pin");
+        assert_ne!(
+            base.digest,
+            entry.base_digest.strip_prefix("sha256:").unwrap(),
+            "the Docker image digest (provenance) is never the file pin"
+        );
+        assert_eq!(base.tag.as_deref(), Some(record.tag.as_str()));
+        assert_eq!(
+            envmanifest::base_pin(&entry, Some(&record)),
+            base.digest,
+            "one pin reading for the run and the saved-model check"
+        );
+        assert_eq!(envmanifest::base_pin(&entry, None), "f".repeat(64));
     }
 
     #[test]

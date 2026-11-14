@@ -16,6 +16,15 @@
 //!    (design §7) makes the pairing the DIGEST anchor, and the sandbox module
 //!    owns the app's base namespace; the entry's language field is what the
 //!    engine maps to the app's own base image at run start (ITEM-8).
+//!    The optional top-level `bases` list holds the app-side base artifacts
+//!    (one per base and arch): their tag, the sha256 of the base squashfs
+//!    file the download is verified against, and the Docker base image they
+//!    were built from. A manifest with `bases` must give every entry its
+//!    base, and the entry's `base_ref`/`base_digest` must equal that base's
+//!    `source_ref`/`source_digest` (design §7's pairing, checked at load). A
+//!    manifest without `bases` predates the base publisher; its base pin is
+//!    the old `base_digest` reading ([`base_pin`]), kept until the committed
+//!    manifest is regenerated with bases.
 //! 2. the committed method catalogue (PROV-MC-1, `method_catalogue`) — the
 //!    group/tasks/draws/fitted facts the run rows + per-method classification
 //!    read (CONS-EE-9/9c). [`facts_for`] is the ONE shim: later items never
@@ -113,6 +122,16 @@ impl EnvLanguage {
             EnvLanguage::Python => "py",
         }
     }
+
+    /// The app-side base id of this language (`base-<family>`): the base
+    /// repository's last path component and the env id the env manager keys
+    /// the base under.
+    pub fn base_id(self) -> &'static str {
+        match self {
+            EnvLanguage::R => "base-r",
+            EnvLanguage::Python => "base-py",
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -132,10 +151,27 @@ pub struct EnvManifest {
     pub generator_version: String,
     pub source_revision: String,
     pub base_contract: String,
+    /// The app-side base artifacts. `None` = a manifest from before the base
+    /// publisher (no base record; the old pin reading applies). `Some` must
+    /// cover every entry (checked at load), so `Some([])` with entries is a
+    /// refusal, never a half state.
+    #[serde(default)]
+    pub bases: Option<Vec<BaseArtifact>>,
     pub envs: Vec<ManifestEntry>,
 }
 
 impl EnvManifest {
+    /// The base record `entry` stacks on: `(base-<family>, arch)`. `None` for
+    /// a manifest without `bases` (validated manifests with `bases` always
+    /// have one).
+    pub fn base_for_entry(&self, entry: &ManifestEntry) -> Option<&BaseArtifact> {
+        let id = entry.language.base_id();
+        self.bases
+            .as_ref()?
+            .iter()
+            .find(|b| b.base_id == id && b.arch == entry.arch)
+    }
+
     /// The entry for `method_id` at `arch` — the identity key is
     /// `(method_id, arch)` (CONS-EE-8c: `env_id == method_id`, and one entry
     /// per published arch), validated unique at load.
@@ -177,8 +213,11 @@ pub struct ManifestEntry {
     /// namespace is the `sandbox` module's); the pairing identity is
     /// [`ManifestEntry::base`]'s digest.
     pub base_ref: String,
-    /// The digested pairing anchor (`sha256:<64hex>`, mirrored into the base
-    /// image's `com.txr.trimmed-from-digest` annotation).
+    /// The digest of the Docker base image the delta was computed against
+    /// (`sha256:<64hex>`): provenance and the pairing anchor, never the hash
+    /// of a downloaded file. A base record pairs with this entry when its
+    /// `source_digest` equals it (the base artifact carries it as
+    /// `com.txr.trimmed-from-digest`).
     pub base_digest: String,
     /// The container-contract version the method runs under (recorded on run
     /// rows + produced models for provenance).
@@ -210,6 +249,40 @@ impl ManifestEntry {
 pub struct BaseRefFacts<'a> {
     pub name: &'a str,
     pub digest: &'a str,
+}
+
+/// One app-side base artifact (a `bases[]` record): the per-language base
+/// squashfs the stacked run mounts under every layer of that language and
+/// arch. Published at `<oci_ref>:<tag>` by
+/// `scripts/publish-method-env-images.sh --base`, staged by the generator.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BaseArtifact {
+    /// `base-r` | `base-py` — the repository component and the env id the
+    /// env manager keys the base under.
+    pub base_id: String,
+    pub arch: EnvArch,
+    /// `<TXR_BASE_REGISTRY_PREFIX>/<base_id>` (checked at load).
+    pub oci_ref: String,
+    /// The immutable tag `<contract>-<arch>-<first 12 hex of squashfs_sha256>`
+    /// (checked at load): each distinct base file gets its own tag.
+    pub tag: String,
+    /// The OCI content digest of the base's artifact manifest bytes
+    /// (`sha256:<64hex>`; the publisher's resolve check).
+    pub digest: String,
+    /// sha256 of the published base squashfs — the pin the downloaded,
+    /// staged or cached base file is verified against (`EnvRef.digest`).
+    pub squashfs_sha256: String,
+    /// The base squashfs byte length.
+    pub size_bytes: u64,
+    /// The Docker base image the squashfs was packed from (equals the
+    /// paired entries' `base_ref`).
+    pub source_ref: String,
+    /// That image's digest (equals the paired entries' `base_digest`).
+    pub source_digest: String,
+    /// The container-contract version (equals the manifest's
+    /// `base_contract`).
+    pub contract: String,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,6 +339,25 @@ pub enum ManifestLoadError {
     SizeZero { env_id: String },
     /// `contract` is not a `<major>.<minor>` version string.
     ContractInvalid { env_id: String, contract: String },
+    /// A `bases[]` record breaks its own construction (`base` =
+    /// `<base_id>-<arch>`; `why` names the rule): an unknown base id, an
+    /// `oci_ref` outside the base namespace, a malformed pin, a tag that is
+    /// not `<contract>-<arch>-<sha12>`, a contract other than the manifest's,
+    /// a zero size, a duplicate, an unsorted list, or a base no entry uses.
+    BaseInvalid { base: String, why: String },
+    /// The manifest has `bases`, but none for this entry's
+    /// `(base-<family>, arch)` — the entry's base cannot be downloaded.
+    BaseMissing { env_id: String, arch: EnvArch, base_id: String },
+    /// The entry and its base record disagree on the Docker base image
+    /// (`field` is `base_ref` or `base_digest`): the layer was computed
+    /// against another base than the one the app would stack it on.
+    BasePairing {
+        env_id: String,
+        arch: EnvArch,
+        field: String,
+        entry_value: String,
+        base_value: String,
+    },
 }
 
 impl ManifestLoadError {
@@ -286,6 +378,9 @@ impl ManifestLoadError {
             ManifestLoadError::BadBaseRef { .. } => "MANIFEST_BASE_REF",
             ManifestLoadError::SizeZero { .. } => "MANIFEST_SIZE_ZERO",
             ManifestLoadError::ContractInvalid { .. } => "MANIFEST_CONTRACT",
+            ManifestLoadError::BaseInvalid { .. } => "MANIFEST_BASE_INVALID",
+            ManifestLoadError::BaseMissing { .. } => "MANIFEST_BASE_MISSING",
+            ManifestLoadError::BasePairing { .. } => "MANIFEST_BASE_PAIRING",
         }
     }
 }
@@ -360,6 +455,31 @@ impl fmt::Display for ManifestLoadError {
             ManifestLoadError::ContractInvalid { env_id, contract } => write!(
                 f,
                 "MANIFEST_CONTRACT: env `{env_id}` contract {contract:?} is not <major>.<minor>"
+            ),
+            ManifestLoadError::BaseInvalid { base, why } => write!(
+                f,
+                "MANIFEST_BASE_INVALID: base `{base}`: {why}"
+            ),
+            ManifestLoadError::BaseMissing {
+                env_id,
+                arch,
+                base_id,
+            } => write!(
+                f,
+                "MANIFEST_BASE_MISSING: env `{env_id}` ({}) has no `{base_id}` base record",
+                arch.as_str()
+            ),
+            ManifestLoadError::BasePairing {
+                env_id,
+                arch,
+                field,
+                entry_value,
+                base_value,
+            } => write!(
+                f,
+                "MANIFEST_BASE_PAIRING: env `{env_id}` ({}) {field} {entry_value:?} != its base \
+                 record's {base_value:?}",
+                arch.as_str()
             ),
         }
     }
@@ -556,6 +676,130 @@ fn validate_manifest(m: &EnvManifest) -> Result<(), ManifestLoadError> {
             });
         }
     }
+    validate_bases(m)
+}
+
+/// The `bases` checks (a manifest without `bases` has none to run). Each
+/// record must follow its construction; every entry must have its base, and
+/// the entry's Docker base image facts must equal the record's (design §7's
+/// pairing); no record may go unused. The host is never spelled here: the
+/// namespace check reuses the sandbox module's compiled base prefix.
+fn validate_bases(m: &EnvManifest) -> Result<(), ManifestLoadError> {
+    let Some(bases) = &m.bases else {
+        return Ok(());
+    };
+    let is_digest = |v: &str| {
+        v.strip_prefix("sha256:")
+            .is_some_and(crate::modules::sandbox::stack::is_sha256_hex)
+    };
+    let mut prev: Option<(&str, EnvArch)> = None;
+    for b in bases {
+        let invalid = |why: String| ManifestLoadError::BaseInvalid {
+            base: format!("{}-{}", b.base_id, b.arch.as_str()),
+            why,
+        };
+        let key = (b.base_id.as_str(), b.arch);
+        if let Some(p) = prev {
+            if key == p {
+                return Err(invalid("appears twice".to_string()));
+            }
+            if key < p {
+                return Err(invalid("bases are not sorted by (base_id, arch)".to_string()));
+            }
+        }
+        prev = Some(key);
+
+        let family = match b.base_id.as_str() {
+            "base-r" => "r",
+            "base-py" => "py",
+            other => return Err(invalid(format!("base_id {other:?} is not base-r or base-py"))),
+        };
+        let expected_ref = format!(
+            "{}/{}",
+            crate::modules::sandbox::stack::TXR_BASE_REGISTRY_PREFIX,
+            b.base_id
+        );
+        if b.oci_ref != expected_ref {
+            return Err(invalid(format!(
+                "oci_ref {:?} is not {expected_ref:?}",
+                b.oci_ref
+            )));
+        }
+        if !crate::modules::sandbox::stack::is_sha256_hex(&b.squashfs_sha256) {
+            return Err(invalid("squashfs_sha256 is not 64 lowercase hex".to_string()));
+        }
+        for (field, value) in [("digest", &b.digest), ("source_digest", &b.source_digest)] {
+            if !is_digest(value) {
+                return Err(invalid(format!("{field} is not sha256:<64 hex>")));
+            }
+        }
+        if b.size_bytes == 0 {
+            return Err(invalid("size_bytes is 0".to_string()));
+        }
+        if !is_major_minor(&b.contract) || b.contract != m.base_contract {
+            return Err(invalid(format!(
+                "contract {:?} is not the manifest's base_contract {:?}",
+                b.contract, m.base_contract
+            )));
+        }
+        let expected_tag = format!(
+            "{}-{}-{}",
+            b.contract,
+            b.arch.as_str(),
+            &b.squashfs_sha256[..12]
+        );
+        if b.tag != expected_tag {
+            return Err(invalid(format!(
+                "tag {:?} is not {expected_tag:?} (<contract>-<arch>-<first 12 hex of \
+                 squashfs_sha256>)",
+                b.tag
+            )));
+        }
+        let source_repo = b.source_ref.rsplit('/').next().unwrap_or("");
+        if source_repo != format!("txresbench-base-{family}:{}", b.contract) {
+            return Err(invalid(format!(
+                "source_ref {:?} is not the txresbench-base-{family}:{} image",
+                b.source_ref, b.contract
+            )));
+        }
+    }
+
+    for e in &m.envs {
+        let Some(b) = m.base_for_entry(e) else {
+            return Err(ManifestLoadError::BaseMissing {
+                env_id: e.env_id.clone(),
+                arch: e.arch,
+                base_id: e.language.base_id().to_string(),
+            });
+        };
+        for (field, entry_value, base_value) in [
+            ("base_ref", &e.base_ref, &b.source_ref),
+            ("base_digest", &e.base_digest, &b.source_digest),
+        ] {
+            if entry_value != base_value {
+                return Err(ManifestLoadError::BasePairing {
+                    env_id: e.env_id.clone(),
+                    arch: e.arch,
+                    field: field.to_string(),
+                    entry_value: entry_value.clone(),
+                    base_value: base_value.clone(),
+                });
+            }
+        }
+    }
+
+    for b in bases {
+        let used = m
+            .envs
+            .iter()
+            .any(|e| e.arch == b.arch && e.language.base_id() == b.base_id);
+        if !used {
+            return Err(ManifestLoadError::BaseInvalid {
+                base: format!("{}-{}", b.base_id, b.arch.as_str()),
+                why: "no env entry uses this base".to_string(),
+            });
+        }
+    }
     Ok(())
 }
 
@@ -617,6 +861,30 @@ pub fn env_for_arch(method_id: &str, arch: EnvArch) -> Option<&'static ManifestE
 /// §7 digest anchor; TEST-EE-04 round-trips `base_digest`).
 pub fn base_for(env_id: &str) -> Option<BaseRefFacts<'static>> {
     env_for(env_id).map(|e| e.base())
+}
+
+/// The base record of a boot-validated manifest entry, or `None` when the
+/// manifest carries no `bases` (the boot check guarantees one otherwise).
+pub fn base_artifact_for(entry: &ManifestEntry) -> Option<&'static BaseArtifact> {
+    manifest().base_for_entry(entry)
+}
+
+/// The 64-hex pin a base file is verified against, for `entry` and its base
+/// record. With a record it is the record's `squashfs_sha256`. Without one
+/// (a manifest from before the base publisher) it is the old reading, the
+/// entry's `base_digest` without its `sha256:` prefix: a Docker image digest
+/// never equals a file hash, so a real download fails `ENV_VERIFY_FAILED`
+/// exactly as before (fails closed). The run's base ref
+/// ([`super::orchestrator::base_env_ref`]) and the saved-model digest check
+/// both read the pin here, so they cannot drift apart.
+pub fn base_pin<'a>(entry: &'a ManifestEntry, base: Option<&'a BaseArtifact>) -> &'a str {
+    match base {
+        Some(b) => &b.squashfs_sha256,
+        None => entry
+            .base_digest
+            .strip_prefix("sha256:")
+            .unwrap_or(&entry.base_digest),
+    }
 }
 
 /// The layer byte size for the F screen's download rows
@@ -1009,5 +1277,181 @@ mod tests {
         let entry = env_for("landmark-cox-current").expect("manifest entry");
         assert_eq!(facts.id, entry.method_id);
         assert_eq!(facts.version, entry.method_version);
+    }
+
+    // ── the optional `bases` list (the app-side base artifacts) ────────────
+
+    /// The fixture entries' shared Docker base image digest
+    /// (`fixture_env_json`'s `base_digest`).
+    const FIXTURE_BASE_IMAGE: &str =
+        "sha256:4c7af1b2d7bf29f0712f950315dc8368211374832204583a37a92c0c77dfae65";
+    /// The base-py file hash of the fixture (base-r uses [`R_FILE`]).
+    const PY_FILE: &str = "e10454500239e35a7558c3346c8237dbf6b7e1198cbb25c31bce90a81c38e8df";
+    const R_FILE: &str = "ac281482df61024bdf3fc7e0cbb89bed5f8b97a12535ba3242e26eab7474fdd1";
+
+    /// One `bases[]` record, well formed for its (base_id, arch, file hash).
+    fn base_json(base_id: &str, arch: &str, file_sha: &str) -> String {
+        let family = base_id.strip_prefix("base-").unwrap_or("x");
+        format!(
+            r#"{{
+                "base_id": "{base_id}", "arch": "{arch}",
+                "oci_ref": "ghcr.io/tinnlab/txresbench-env/{base_id}",
+                "tag": "2.0-{arch}-{short}",
+                "digest": "sha256:7153c0b1b85cf5089bb9fe80a2f9ac708e11b3e79d5cb74bd06ba5752a9d12cf",
+                "squashfs_sha256": "{file_sha}",
+                "size_bytes": 115597312,
+                "source_ref": "ghcr.io/tinnlab/txresbench-base-{family}:2.0",
+                "source_digest": "{FIXTURE_BASE_IMAGE}",
+                "contract": "2.0"
+            }}"#,
+            short = &file_sha[..12],
+        )
+    }
+
+    /// The two-entry fixture (alpha-rule R amd64, beta-model Python arm64)
+    /// with the given `bases` list text.
+    fn manifest_with_bases(bases: &str) -> Vec<u8> {
+        format!(
+            r#"{{
+                "schema_version": 1,
+                "generator_version": "0.3.0",
+                "source_revision": "5db3b60f727d",
+                "base_contract": "2.0",
+                "bases": [ {bases} ],
+                "envs": [ {a}, {b} ]
+            }}"#,
+            a = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0"),
+            b = fixture_env_json("beta-model", "arm64", "Python", "1.2.3"),
+        )
+        .into_bytes()
+    }
+
+    /// The valid `bases` text for the fixture (sorted: base-py < base-r).
+    fn valid_bases() -> String {
+        format!(
+            "{}, {}",
+            base_json("base-py", "arm64", PY_FILE),
+            base_json("base-r", "amd64", R_FILE)
+        )
+    }
+
+    fn bases_err(bases: &str) -> ManifestLoadError {
+        parse_manifest(&manifest_with_bases(bases)).expect_err("the bases must be refused")
+    }
+
+    #[test]
+    fn bases_round_trip_and_give_each_entry_its_file_pin() {
+        let m = parse_manifest(&manifest_with_bases(&valid_bases())).expect("valid bases parse");
+        let alpha = m.find("alpha-rule", EnvArch::Amd64).expect("alpha");
+        let beta = m.find("beta-model", EnvArch::Arm64).expect("beta");
+        let ab = m.base_for_entry(alpha).expect("alpha's base");
+        assert_eq!((ab.base_id.as_str(), ab.arch), ("base-r", EnvArch::Amd64));
+        assert_eq!(ab.tag, format!("2.0-amd64-{}", &R_FILE[..12]));
+        assert_eq!(ab.size_bytes, 115_597_312);
+        assert_eq!(base_pin(alpha, Some(ab)), R_FILE, "the file hash, not the image digest");
+        let bb = m.base_for_entry(beta).expect("beta's base");
+        assert_eq!((bb.base_id.as_str(), bb.arch), ("base-py", EnvArch::Arm64));
+        assert_eq!(base_pin(beta, Some(bb)), PY_FILE);
+        // The entries' provenance fields are untouched.
+        assert_eq!(alpha.base_digest, FIXTURE_BASE_IMAGE);
+    }
+
+    #[test]
+    fn a_manifest_without_bases_keeps_the_old_pin_reading() {
+        let m = parse_manifest(&fixture_manifest_bytes()).expect("no bases parses");
+        assert_eq!(m.bases, None);
+        let alpha = m.find("alpha-rule", EnvArch::Amd64).expect("alpha");
+        assert_eq!(m.base_for_entry(alpha), None);
+        assert_eq!(
+            base_pin(alpha, None),
+            FIXTURE_BASE_IMAGE.strip_prefix("sha256:").unwrap(),
+            "the old reading: base_digest without its prefix (fails closed on a real download)"
+        );
+    }
+
+    #[test]
+    fn an_entry_without_its_base_is_refused() {
+        let err = bases_err(&base_json("base-py", "arm64", PY_FILE));
+        assert_eq!(err.code(), "MANIFEST_BASE_MISSING");
+        assert!(
+            matches!(&err, ManifestLoadError::BaseMissing { env_id, base_id, .. }
+                if env_id == "alpha-rule" && base_id == "base-r"),
+            "{err}"
+        );
+        // An empty list is not "no bases": it covers nothing.
+        assert_eq!(bases_err("").code(), "MANIFEST_BASE_MISSING");
+    }
+
+    #[test]
+    fn a_base_built_from_another_image_is_refused_naming_both() {
+        let other = "sha256:8c0d9b07d361aa641cf89e32714899dd0b8af4df3247490345310e6a2d22a963";
+        let bases = valid_bases().replacen(FIXTURE_BASE_IMAGE, other, 1);
+        let err = bases_err(&bases);
+        assert_eq!(err.code(), "MANIFEST_BASE_PAIRING");
+        let text = err.to_string();
+        assert!(text.contains(FIXTURE_BASE_IMAGE) && text.contains(other), "{text}");
+        assert!(text.contains("base_digest"), "{text}");
+
+        let bases = valid_bases().replacen(
+            "ghcr.io/tinnlab/txresbench-base-r:2.0",
+            "ghcr.io/other/txresbench-base-r:2.0",
+            1,
+        );
+        let err = bases_err(&bases);
+        assert_eq!(err.code(), "MANIFEST_BASE_PAIRING");
+        assert!(err.to_string().contains("base_ref"), "{err}");
+    }
+
+    #[test]
+    fn a_malformed_base_record_is_refused() {
+        let py = base_json("base-py", "arm64", PY_FILE);
+        let r = base_json("base-r", "amd64", R_FILE);
+        let short_py = &PY_FILE[..12];
+        let cases: Vec<(&str, String)> = vec![
+            ("bad file hash", format!("{}, {r}", py.replace(PY_FILE, &"Z".repeat(64)))),
+            ("bad digest", format!(
+                "{}, {r}",
+                py.replace("sha256:7153c0b1b85cf5089bb9fe80a2f9ac708e11b3e79d5cb74bd06ba5752a9d12cf", "nope")
+            )),
+            ("bad source_digest", format!(
+                "{py}, {}",
+                r.replace(FIXTURE_BASE_IMAGE, "sha256:abc")
+            )),
+            ("tag without the file hash", format!(
+                "{}, {r}",
+                py.replace(&format!("2.0-arm64-{short_py}"), "2.0-arm64")
+            )),
+            ("tag with another hash", format!(
+                "{}, {r}",
+                py.replace(&format!("2.0-arm64-{short_py}"), "2.0-arm64-000000000000")
+            )),
+            ("oci_ref outside the base namespace", format!(
+                "{}, {r}",
+                py.replace("ghcr.io/tinnlab/txresbench-env/base-py", "ghcr.io/tinnlab/txr-method-env-layers/base-py")
+            )),
+            ("unknown base id", format!("{}, {r}", py.replace("\"base_id\": \"base-py\"", "\"base_id\": \"base-x\""))),
+            ("contract other than base_contract", format!(
+                "{}, {r}",
+                py.replace("\"contract\": \"2.0\"", "\"contract\": \"2.1\"")
+            )),
+            ("zero size", format!("{}, {r}", py.replace("115597312", "0"))),
+            ("source_ref of the other family", format!(
+                "{}, {r}",
+                py.replace("txresbench-base-py:2.0", "txresbench-base-r:2.0")
+            )),
+            ("duplicate", format!("{py}, {py}, {r}")),
+            ("unsorted", format!("{r}, {py}")),
+            ("unused base", format!("{py}, {r}, {}", base_json("base-r", "arm64", R_FILE))),
+        ];
+        for (what, bases) in cases {
+            let err = bases_err(&bases);
+            assert_eq!(err.code(), "MANIFEST_BASE_INVALID", "{what}: {err}");
+        }
+    }
+
+    #[test]
+    fn an_unknown_field_in_a_base_record_is_a_parse_refusal() {
+        let bases = valid_bases().replacen("\"contract\": \"2.0\"", "\"contract\": \"2.0\", \"extra\": 1", 1);
+        assert_eq!(bases_err(&bases).code(), "MANIFEST_EMBED_INVALID");
     }
 }

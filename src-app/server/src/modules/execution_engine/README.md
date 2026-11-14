@@ -46,7 +46,15 @@ binary cannot interpret is a boot refusal, never a degraded silent state.
 The manifest's `base_ref` is the pairing-anchor NAME, never a fetch target:
 the layer design (§7 of `docs/method-env-layer-artifacts.md`) makes
 the digest the identity (`com.txr.trimmed-from-digest`), and the app's own
-base namespace is the `sandbox` module's. A method whose manifest entry is
+base namespace is the `sandbox` module's. The base the app downloads is the
+manifest's `bases` record for the entry's language and arch: its tag, and the
+`squashfs_sha256` the base file is verified against (`envmanifest::base_pin`,
+read by `orchestrator::base_env_ref` and the saved-model digest check). The
+loader refuses a manifest whose `bases` miss an entry, or whose entry
+`base_ref`/`base_digest` differ from its base's `source_ref`/`source_digest`.
+A manifest without `bases` (the committed one, until it is regenerated) keeps
+the old reading: `base_digest` as the file pin, which fails closed on a real
+download because it is a Docker image digest. A method whose manifest entry is
 missing stays a per-method `cannot_run` at run start; its reason is the
 eligibility verdict's own code `ENV_IMAGE_MISSING` (ITEM-2 — one vocabulary
 with the screens, CONS-EE-10), with `ENV_UNKNOWN` remaining the
