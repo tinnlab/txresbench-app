@@ -245,6 +245,15 @@ describe('load(runId) (PROV-UR-2; DEC-3/18)', () => {
     expect(getPredictions).not.toHaveBeenCalled()
   })
 
+  // ITEM-6 (R3-results-8): a malformed run id answers 400 — the SAME
+  // not-found truth (the "check the server" advice was wrong for a bad id).
+  it('classifies a 400 (malformed id) as not-found', async () => {
+    getRun.mockRejectedValue(Object.assign(new Error('HTTP error! status: 400'), { status: 400 }))
+    await state().load('zzz')
+    expect(state().runError).toBe('not-found')
+    expect(streamRun).not.toHaveBeenCalled()
+  })
+
   it('classifies a non-404 failure as network (error + retry state), still no stream', async () => {
     getRun.mockRejectedValue(new Error('connection refused'))
     await state().load('run-1')
@@ -255,6 +264,23 @@ describe('load(runId) (PROV-UR-2; DEC-3/18)', () => {
   it('maps a 409 predictions response to unavailable (the empty-heatmap state) and still streams', async () => {
     getPredictions.mockRejectedValue(Object.assign(new Error('HTTP error! status: 409'), { status: 409 }))
     await state().load('run-1')
+    expect(state().predictionsError).toBe('unavailable')
+    expect(state().predictions).toBeNull()
+    expect(state().runError).toBeNull()
+    expect(streamRun).toHaveBeenCalled()
+  })
+
+  it('ITEM-2 (d): a run with NO finished method never requests predictions (the two 409 console errors are gone)', async () => {
+    getRun.mockResolvedValue({
+      ...runDetail('run-1'),
+      status: 'stopped',
+      counts: { ...runDetail('run-1').counts, finished: 0, stopped: 6, running: 0 },
+      predictions_ready: false,
+    })
+    getPredictions.mockRejectedValue(new Error('must not be called'))
+    await state().load('run-1')
+    expect(getPredictions).not.toHaveBeenCalled()
+    // The empty-heatmap state is set locally from the run's own counts.
     expect(state().predictionsError).toBe('unavailable')
     expect(state().predictions).toBeNull()
     expect(state().runError).toBeNull()

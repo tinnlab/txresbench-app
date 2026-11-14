@@ -51,7 +51,9 @@
  * shell (ITEM-1) and the footer (ITEM-4), pinned against the board
  * verbatim by TEST-HIST-6.
  */
-import type { TxrEndpoint, TxrHistoryBucket, TxrRunMode, TxrRunReason } from '@/api-client/types'
+import { safeText } from '@/modules/txrshell/lib/safeText'
+import { runStatusWord, type RunCountsLike } from '@/modules/txrshell/lib/runStatus'
+import type { TxrEndpoint, TxrHistoryBucket, TxrRunCounts, TxrRunMode, TxrRunReason } from '@/api-client/types'
 import type { TxrChipTone } from '../types'
 
 /**
@@ -64,10 +66,10 @@ export const HISTORY_SUBTITLE =
 
 /**
  * The footer usage line's trailing sentence: "… uses N MB of stored files.
- * Delete a run to free the space." — the size figure and the
- * path segment are the provider's (`TxrHistoryUsage`), composed by the
- * footer component; this constant keeps the storage line verbatim in one
- * place.
+ * Delete a run to free the space." — the size figure is the provider's
+ * (`TxrHistoryUsage`; qa-fixes4 ITEM-1: the `data_dir` path segment is
+ * no longer composed at all), set by the footer component; this constant
+ * keeps the storage line verbatim in one place.
  */
 export const HISTORY_USAGE_TRAIL = 'of stored files. Delete a run to free the space.'
 
@@ -165,20 +167,50 @@ export function formatDate(iso: string, options: FormatDateOptions = {}): string
  * and Failed in the failure red. The map is complete over the provider's
  * four buckets; a bucket a future regen adds fails THIS switch at
  * typecheck, and the runtime fallback keeps the failure visible.
+ *
+ * qa-fixes4 ITEM-2: the word is the shared truthful vocabulary
+ * (`txrshell/lib/runStatus` — the same words the results-page header
+ * renders) over the engine's OWN per-state counts ("Done" only when every
+ * method finished; "Done, 3 of 5 methods failed"; "Stopped by you
+ * (2 skipped)"). A row whose counts the wire does not carry (a pre-ITEM-2
+ * server) falls back to the four bucket words — the truth it cannot
+ * compute is never invented.
  */
-export function statusLabel(bucket: TxrHistoryBucket): { text: string; tone: string } {
-  switch (bucket) {
-    case 'running':
-      return { text: 'Running', tone: 'var(--txr-brand-ink)' }
-    case 'finished':
-      return { text: 'Done', tone: 'var(--txr-success)' }
-    case 'stopped':
-      return { text: 'Stopped', tone: 'var(--txr-muted)' }
-    case 'failed':
-      return { text: 'Failed', tone: 'var(--txr-danger)' }
+export function statusLabel(
+  bucket: TxrHistoryBucket,
+  counts: TxrRunCounts | null | undefined,
+  methodCount: number,
+): { text: string; tone: string } {
+  // The DEC-9 per-bucket palette, with one ITEM-2 override: a `finished`
+  // bucket whose methods did NOT all finish is the "some/partly" truth and
+  // reads the warning amber, never the family green (a plain "Done" is the
+  // only green; the board's palette has no other "partly" token). The
+  // stopped/failed/running buckets keep their own hues — the amber is the
+  // partial-finished token only.
+  const tone =
+    bucket === 'finished' && isTroubleRun(bucket, counts, methodCount)
+      ? 'var(--txr-warning)'
+      : STATUS_TONES[bucket]
+  if (counts === undefined || counts === null) {
+    return { text: PLAIN_STATUS_WORDS[bucket], tone }
   }
-  const _unreachable: never = bucket
-  return { text: 'Failed', tone: 'var(--txr-danger)' }
+  return { text: runStatusWord(bucket, counts, methodCount), tone }
+}
+
+/** The four bucket words (the pre-ITEM-2 fallback — the DEC-9 palette). */
+const PLAIN_STATUS_WORDS: Record<TxrHistoryBucket, string> = {
+  running: 'Running',
+  finished: 'Done',
+  stopped: 'Stopped',
+  failed: 'Failed',
+}
+
+/** The per-bucket tones (unchanged — the palette is the board's). */
+const STATUS_TONES: Record<TxrHistoryBucket, string> = {
+  running: 'var(--txr-brand-ink)',
+  finished: 'var(--txr-success)',
+  stopped: 'var(--txr-muted)',
+  failed: 'var(--txr-danger)',
 }
 
 /**
@@ -204,6 +236,48 @@ export function displayBucketOf(item: {
 }): TxrHistoryBucket {
   if (item.bucket === 'finished' && !item.can_reopen) return 'failed'
   return item.bucket
+}
+
+/**
+ * qa-fixes4 ITEM-2 (R3-results-3): whether the run's COUNT truth still has
+ * methods that did not finish — a `finished` bucket whose counts report
+ * unmet methods is not all-done ("Done, 3 of 5 methods failed" / "…could
+ * not run" / "…were stopped or skipped"). A row without the engine's
+ * counts (a pre-ITEM-2 server) cannot compute the truth and reads false —
+ * the four bucket words stay the fallback. `failed`/`stopped` are always
+ * trouble (their own truth), `running` is not.
+ */
+export function isTroubleRun(
+  bucket: TxrHistoryBucket,
+  counts: TxrRunCounts | null | undefined,
+  methodCount: number,
+): boolean {
+  if (bucket === 'failed' || bucket === 'stopped') return true
+  if (bucket !== 'finished') return false
+  if (counts === undefined || counts === null || methodCount <= 0) return false
+  return counts.finished < methodCount
+}
+
+/**
+ * The one-line reason of a PARTIAL run (qa-fixes4 ITEM-2): the status chip
+ * already names the count ("Done, 3 of 5 methods failed"); this line says
+ * WHY, with the word chosen by the counts' dominant state and the provider's
+ * detail VERBATIM (never re-authored — a blank detail reads the sibling's
+ * "no reason recorded" constant, a failure is never blank, INV-2). The
+ * bucket-prefix drop is the `reasonLineFor` rule (R3-results-9: "Stopped:
+ * stopped by the user" next to a chip that already names the stop).
+ */
+export function troubleReasonLine(
+  counts: TxrRunCounts,
+  reason: TxrRunReason | null | undefined,
+): string {
+  const detail =
+    reason != null && reason.detail.trim().length > 0
+      ? safeText(reason.detail)
+      : NO_REASON_RECORDED
+  if (counts.failed > 0) return reasonLineFor('Failed', detail)
+  if (counts.cannot_run > 0) return reasonLineFor('Could not run', detail)
+  return reasonLineFor('Stopped', detail)
 }
 
 /**
@@ -251,6 +325,11 @@ export function endpointLabel(endpoint: TxrEndpoint, lookAheadDay: number): stri
  * failed row whose run recorded no reason (or only blank detail) reads
  * the sibling run module's constant — a failure is never blank (INV-2).
  *
+ * R3-results-9: a detail that already carries the bucket's word ("stopped
+ * by the user" next to the "Stopped" badge) drops the "Stopped: " prefix —
+ * "Stopped by the user" — the row never reads the same word twice in one
+ * line.
+ *
  * The `null`-vs-`undefined` rule (qa-fixes RES-01): the openapi generator
  * renders a nullable-and-optional provider field as the TS optional-only
  * shape (`TxrRunReason | undefined`), while the engine's `Option`
@@ -261,17 +340,34 @@ export function endpointLabel(endpoint: TxrEndpoint, lookAheadDay: number): stri
  * generator's shape is the documented collapse, the `txrrun` `toRunConfig`
  * bridge class; the provider-side fix is the regen's recorded owner).
  */
+
+/** The reason line of one bucket, with the prefix dropped when the detail
+ *  already starts with the bucket's word (R3-results-9). */
+function reasonLineFor(bucketWord: string, detail: string): string {
+  const lower = detail.trim().toLowerCase()
+  const stem = bucketWord.toLowerCase()
+  if (lower === stem || lower.startsWith(`${stem} `) || lower.startsWith(`${stem}:`)) {
+    return detail.trim().charAt(0).toUpperCase() + detail.trim().slice(1)
+  }
+  return `${bucketWord}: ${detail}`
+}
+
 export function reasonLine(bucket: TxrHistoryBucket, reason: TxrRunReason | null | undefined): string | null {
+  // qa-fixes4 ITEM-1: the detail passes through the UI-side `safeText`
+  // guard (the server sanitiser already made it plain; the guard is the
+  // never-render-a-path second line).
   const detail =
-    reason != null && reason.detail.trim().length > 0 ? reason.detail : NO_REASON_RECORDED
+    reason != null && reason.detail.trim().length > 0
+      ? safeText(reason.detail)
+      : NO_REASON_RECORDED
   switch (bucket) {
     case 'running':
     case 'finished':
       return null
     case 'stopped':
-      return `Stopped: ${detail}`
+      return reasonLineFor('Stopped', detail)
     case 'failed':
-      return `Failed: ${detail}`
+      return reasonLineFor('Failed', detail)
   }
   const _unreachable: never = bucket
   return null
@@ -290,7 +386,11 @@ export const NO_REASON_RECORDED = 'no reason recorded'
  * (null — the run carries no recorded took figure); a null/absent
  * estimate attaches no parenthetical; an estimate that cannot be read
  * drops the parenthetical too (the recorded elapsed stands alone, never
- * a fabricated estimate).
+ * a fabricated estimate). R3-results-9: an estimate that reads the SAME
+ * duration as the elapsed in the estimate's own whole-minute rounding
+ * ("Took under a minute (under a minute)", "Took 2 minutes (estimated 2
+ * minutes)") attaches nothing — the parenthetical would restate the fact,
+ * not add it.
  */
 export function tookLine(
   elapsedSecs: number | null | undefined,
@@ -301,5 +401,11 @@ export function tookLine(
   if (elapsed === null) return null
   if (estimateSecs === undefined || estimateSecs === null) return elapsed
   const estimate = formatDurationWords(estimateSecs, { estimate: true })
-  return estimate === null ? elapsed : `${elapsed} (${estimate})`
+  if (estimate === null) return elapsed
+  // The comparison is on the ESTIMATE reading of both figures: an estimate
+  // of 118 s reads "estimated 2 minutes" beside a 120 s elapsed ("2
+  // minutes") — the same fact in the estimate's own rounding, and the
+  // parenthetical would restate it.
+  if (formatDurationWords(elapsedSecs, { estimate: true }) === estimate) return elapsed
+  return `${elapsed} (${estimate})`
 }

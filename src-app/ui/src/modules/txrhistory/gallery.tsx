@@ -72,7 +72,12 @@ import {
   TXHISTORY_RUN_BOARD_REUSE,
   TXHISTORY_RUN_BOARD_TRAIN,
   TXHISTORY_RUN_COPIES_CLEARED,
+  TXHISTORY_RUN_LEAK,
+  TXHISTORY_RUN_MANY_CANNOT,
+  TXHISTORY_RUN_PARTIAL,
+  TXHISTORY_RUN_PARTIAL_STOPPED,
   TXHISTORY_RUN_RUNNING,
+  TXHISTORY_RUN_STOPPED_ALL,
   TXHISTORY_USAGE,
   fixtureHistoryPage,
   fixtureLogsFor,
@@ -287,6 +292,33 @@ function seedError(): void {
   })
 }
 
+/**
+ * The ITEM-2 truth view (qa-fixes4 ITEM-7's per-defect-group browser tier):
+ * the four engine-counts rows the ITEM-2 item added to the fixture family —
+ * the partial-failure run ("Done, 3 of 5 methods failed"), the many-cannot
+ * run ("Done, 203 of 209 methods could not run"), the Stop-all run
+ * ("Stopped by you (2 skipped)") and the partially-stopped finished run
+ * ("Done, 2 of 6 methods were stopped or skipped"). The browser spec
+ * `txr-history.spec.ts` pins the four status words, the reason lines and
+ * the partial-finished warning-amber tone.
+ */
+function seedTruth(): void {
+  TxrHistory.reset()
+  extendCassette({
+    'History.listHistory': (ctx: MockRequestContext) =>
+      fixtureHistoryPage(
+        [
+          TXHISTORY_RUN_MANY_CANNOT,
+          TXHISTORY_RUN_PARTIAL,
+          TXHISTORY_RUN_PARTIAL_STOPPED,
+          TXHISTORY_RUN_STOPPED_ALL,
+        ],
+        ctx.query,
+      ),
+    'History.getUsage': () => fixtureUsage(4, 420 * 1024 * 1024),
+  })
+}
+
 /** The copy-cleared view: the one honest row, the retention preference off
  *  (the footer's "Keep copies" link), the settings-again seam ready. */
 function seedCopiesCleared(): void {
@@ -300,6 +332,20 @@ function seedCopiesCleared(): void {
       recordRequest('Txr.updateAnalysisConfig', ctx)
       return undefined
     },
+  })
+}
+
+/** The ITEM-1 leak view: the one failed row whose reason is the report's
+ *  leaked wording (tool name + absolute path) — the card's reason line
+ *  must render the guarded generic sentence and nothing else (a text node
+ *  with the tool name or an absolute path is a regression). */
+function seedLeak(): void {
+  TxrHistory.reset()
+  extendCassette({
+    'History.listHistory': (ctx: MockRequestContext) =>
+      fixtureHistoryPage([TXHISTORY_RUN_LEAK], ctx.query),
+    'History.getUsage': () => fixtureUsage(1, 12 * 1024 * 1024),
+    'History.getPreferences': () => ({ keep_file_copies: true }),
   })
 }
 
@@ -459,6 +505,19 @@ export const gallery: ModuleGallery = {
       fullHeight: true,
     },
     {
+      slug: 'txr-history-leak',
+      title: 'History — a failed row whose raw reason is internal text (ITEM-1 guard)',
+      note: 'qa-fixes4 ITEM-1 (results-r3 R3-results-2): the fixture reason is the report\'s leaked wording (tool name + absolute path); the card\'s reason line passes the `safeText` guard and the browser spec `txr-internal-text.spec.ts` asserts no text node leaks it — and the footer\'s usage line reads count · size with no data dir.',
+      path: '/*',
+      initialPath: '/history',
+      component: lazy(() =>
+        Promise.resolve({
+          default: () => <HistoryStory seed={seedLeak} />,
+        }),
+      ),
+      fullHeight: true,
+    },
+    {
       slug: 'txr-history-clear-all-confirm',
       title: 'History — the clear-all confirmation',
       note: 'The two-choice clear-all dialog open over the populated list: the question body, the "Clear history and remove files" / "Clear history, keep files" choices, Cancel — the spec asserts `clearRuns` fires only after a choice (INV-2).',
@@ -562,6 +621,15 @@ export const gallery: ModuleGallery = {
           ),
         }),
       ),
+      fullHeight: true,
+    },
+    {
+      slug: 'txr-history-truth',
+      title: 'History — the truthful status words (qa-fixes4 ITEM-2)',
+      note: 'The four engine-counts rows of the ITEM-2 family: the partial-failure run, the many-cannot run, the Stop-all run and the partially-stopped finished run — the K status chips read the ONE truthful vocabulary ("Done, 3 of 5 methods failed" / "Done, 203 of 209 methods could not run" / "Stopped by you (2 skipped)" / "Done, 2 of 6 methods were stopped or skipped") with the reason line beside the chip and the partial-finished amber tone. The browser spec `txr-history.spec.ts` (qa-fixes4 ITEM-7) pins the words, the tones and the demo-mode-hidden per-run delete.',
+      path: '/*',
+      initialPath: '/history',
+      component: lazy(() => Promise.resolve({ default: () => <HistoryStory seed={seedTruth} /> })),
       fullHeight: true,
     },
     {

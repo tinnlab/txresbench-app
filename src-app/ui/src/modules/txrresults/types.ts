@@ -89,6 +89,14 @@ export interface TxrHeatmapView {
   shownCount: number
   totalCount: number
   averageBy: 'provider' | 'recomputed'
+  /**
+   * qa-fixes4 ITEM-6 (R2-03): the finished columns the view DROPPED — every
+   * value null (a predict-only reuse's no-chance column, or a method that
+   * abstained for every patient). They are never rendered as dash walls;
+   * the page names them (with each column's own reason) in the one line
+   * under the table.
+   */
+  emptyColumns: TxrHeatmapColumn[]
 }
 
 /**

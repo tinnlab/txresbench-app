@@ -74,7 +74,7 @@ use uuid::Uuid;
 use txresbench_core::AppError;
 
 use crate::modules::execution_engine::repository::{produced_models, MethodRow, RunRow, TxrRepository};
-use crate::modules::execution_engine::types::{TxrRunFileNames, TxrRunStatus};
+use crate::modules::execution_engine::types::{TxrRunFileNames, TxrRunMode, TxrRunStatus};
 use crate::modules::history_store::types::{
     HistoryLimits, TxrHistoryBucket, TxrHistoryCopies, TxrHistoryDetail, TxrHistoryEstimate,
     TxrHistoryFileSize, TxrHistoryItem, TxrHistoryMethodRef, TxrHistoryModelRef,
@@ -461,9 +461,15 @@ impl HistoryRepository {
 
         let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
         let context = self.page_context(&ids).await?;
+        // qa-fixes4 ITEM-6 (R2-04's old-rows half): a reuse row created
+        // before qa-fixes2 still records the measurements ROW count in
+        // `predicted`; the true patient count derives from the run dir's
+        // stored input copy (the map is per-row; an absent copy keeps the
+        // recorded value — the walk stays off the tokio worker).
+        let corrected = self.corrected_predict_patient_counts(&rows).await?;
         let items = rows
             .iter()
-            .map(|row| self.assemble_item(row, &context))
+            .map(|row| self.assemble_item(row, &context, corrected.get(&row.id).copied()))
             .collect::<Result<Vec<_>, AppError>>()?;
         Ok(TxrHistoryPage {
             items,
@@ -594,15 +600,20 @@ impl HistoryRepository {
 
     /// One shaped K row from the run row + the page context (the assembly —
     /// every wire fact is a projection of a stored fact; the capability
-    /// booleans are computed by the DEC-6 rule only).
+    /// booleans are computed by the DEC-6 rule only). `corrected_predicted`
+    /// is the ITEM-6 derivation (the count from the stored input copy) and
+    /// wins over the recorded `predict_patients` when present — the old
+    /// rows' recorded value was the measurements ROW count.
     fn assemble_item(
         &self,
         row: &RunRow,
         context: &PageContext,
+        corrected_predicted: Option<u32>,
     ) -> Result<TxrHistoryItem, AppError> {
         let status = row.status()?;
         let mode = row.mode()?;
         let bucket = bucket_for(status);
+        let counts = row.counts()?;
         let summary = row.summarize(Vec::new())?;
         let estimate = row.estimate()?;
         let file_names = file_name_list(&summary.input_summary.file_names);
@@ -613,6 +624,7 @@ impl HistoryRepository {
             id: row.id,
             mode,
             bucket,
+            counts,
             created_at: row.created_at,
             started_at: row.started_at,
             finished_at: row.finished_at,
@@ -623,7 +635,7 @@ impl HistoryRepository {
             method_count: row.method_count as u32,
             file_names: file_names.clone(),
             learned_from: summary.input_summary.patients,
-            predicted: summary.input_summary.predict_patients,
+            predicted: corrected_predicted.or(summary.input_summary.predict_patients),
             markers: summary.input_summary.markers,
             endpoint: summary.config.endpoint,
             decision_day: summary.config.decision_day,
@@ -658,6 +670,50 @@ impl HistoryRepository {
             dir: row.dir.clone(),
             markers_saved: produced > 0,
         })
+    }
+
+    // ── the ITEM-6 predicted-count correction (R2-04's old-rows half) ────────
+
+    /// The corrected `predicted` per row of one page/detail set: a REUSE row
+    /// whose recorded `predict_patients` is the measurements ROW count (the
+    /// pre-qa-fixes2 wire meaning — 630 for 94 patients) is corrected from
+    /// the run dir's stored input copy. The read-only seam rule holds: no
+    /// row is ever written here; the derivation runs on the blocking pool
+    /// (a ~40 KB CSV parse per reuse row of the page), and a row whose copy
+    /// is gone or unreadable keeps the recorded value — nothing is invented.
+    async fn corrected_predict_patient_counts(
+        &self,
+        rows: &[RunRow],
+    ) -> Result<HashMap<Uuid, u32>, AppError> {
+        let mut targets: Vec<(Uuid, String, TxrRunFileNames)> = Vec::new();
+        for row in rows {
+            if row.mode()? != TxrRunMode::Reuse {
+                continue;
+            }
+            let summary = row.summarize(Vec::new())?;
+            if summary.input_summary.predict_patients.is_none() {
+                continue;
+            }
+            targets.push((
+                row.id,
+                row.dir.clone(),
+                summary.input_summary.file_names.clone(),
+            ));
+        }
+        if targets.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let derived = tokio::task::spawn_blocking(move || {
+            targets
+                .into_iter()
+                .filter_map(|(id, dir, names)| {
+                    predict_patient_count_from_input(&dir, &names).map(|count| (id, count))
+                })
+                .collect::<Vec<(Uuid, u32)>>()
+        })
+        .await
+        .map_err(|e| AppError::internal_error(format!("run-input patient-count join: {e}")))?;
+        Ok(derived.into_iter().collect())
     }
 
     // ── the detail (PROV-HS-3) ───────────────────────────────────────────────
@@ -710,6 +766,10 @@ impl HistoryRepository {
         .await
         .map_err(|e| AppError::internal_error(format!("run-dir walk join: {e}")))?;
 
+        // The ITEM-6 correction (the same derivation the list applies — a
+        // stale-recorded `predicted` never renders, whatever surface reads it).
+        let corrected = self.corrected_predict_patient_counts(std::slice::from_ref(&row)).await?;
+
         Ok(Some(TxrHistoryDetail {
             id: row.id,
             mode,
@@ -722,7 +782,10 @@ impl HistoryRepository {
             method_count: row.method_count as u32,
             file_names: file_names.clone(),
             learned_from: summary.input_summary.patients,
-            predicted: summary.input_summary.predict_patients,
+            predicted: corrected
+                .get(&row.id)
+                .copied()
+                .or(summary.input_summary.predict_patients),
             markers: summary.input_summary.markers,
             endpoint: summary.config.endpoint,
             decision_day: summary.config.decision_day,
@@ -921,6 +984,42 @@ fn push_size(out: &mut Vec<TxrHistoryFileSize>, name: String, path: &Path) {
             size_bytes: meta.len(),
         });
     }
+}
+
+/// The predict-side DISTINCT patient count derived from the run dir's
+/// stored input copy (qa-fixes4 ITEM-6 — R2-04's old-rows half): rows
+/// created before qa-fixes2 record the measurements ROW count in
+/// `predict_patients` (630 for a 94-patient file). The run dir keeps the
+/// input copies under the CANONICAL names (`copy_file_sizes`' convention:
+/// the predict side's copy is `predict-measurements.csv`; a reuse run
+/// whose summary names no predict file reads the measurements copy — the
+/// same table). The engine's OWN csv codec parses it (one codec for the
+/// whole tree); a missing copy (copies were cleared), an unparseable file
+/// or a table without a `patient_id` column yields `None` — the recorded
+/// value then stands, never a fabricated count (INV-3).
+fn predict_patient_count_from_input(dir: &str, file_names: &TxrRunFileNames) -> Option<u32> {
+    let copy_name = if file_names.predict_measurements.is_some() {
+        "predict-measurements.csv"
+    } else {
+        "measurements.csv"
+    };
+    let text = std::fs::read_to_string(Path::new(dir).join("input").join(copy_name)).ok()?;
+    let table = crate::modules::execution_engine::bundle::parse_csv(&text).ok()?;
+    let ids = table.col("patient_id")?;
+    let mut seen: Vec<&str> = Vec::new();
+    for id in ids {
+        let id = id.trim();
+        if id.is_empty() {
+            continue;
+        }
+        if !seen.contains(&id) {
+            seen.push(id);
+        }
+    }
+    if seen.is_empty() {
+        return None;
+    }
+    Some(seen.len() as u32)
 }
 
 /// The sanitized stem of an uploaded name + `.csv` — the input-copy file NAME
@@ -1844,6 +1943,164 @@ mod tests {
         // COMPLETE-record rule is the provider's, pinned here).
         let produced = produced_models(&seed.pool, seed.run_a).await.expect("produced seam");
         assert_eq!(produced.len() as u32, a.models_made.produced);
+    }
+
+    /// qa-fixes4 ITEM-6 (TEST-QF4-6 — R2-04's old-rows half): a REUSE row
+    /// whose recorded `predict_patients` is the measurements ROW count (630)
+    /// reads the DISTINCT patient count derived from the run dir's stored
+    /// input copy (90 patients); a row whose copy is gone (cleared) keeps the
+    /// recorded value — the honest fallback, never a fabricated count.
+    #[tokio::test]
+    async fn old_reuse_rows_read_the_patient_count_derived_from_the_stored_input() {
+        let seed = seed_world("derive").await;
+        let engine = TxrRepository::new(seed.pool.clone());
+        let id = Uuid::new_v4();
+        let dir = std::env::temp_dir().join(format!("history-store-derive-{id}"));
+        let dir_text = dir.display().to_string();
+        // The stored input copy: 90 DISTINCT patients across 630 rows (the
+        // recorded count is the row count — the old wire meaning).
+        std::fs::create_dir_all(dir.join("input")).expect("input dir");
+        let mut csv = String::from("patient_id,day,marker,value,unit\n");
+        for i in 0..90 {
+            for _ in 0..7 {
+                csv.push_str(&format!("P{i:03},0,m1,1,a.u.\n"));
+            }
+        }
+        std::fs::write(dir.join("input").join("predict-measurements.csv"), csv)
+            .expect("input copy");
+        let reuse_ids = crate::modules::execution_engine::types::TxrRunFileNames {
+            patients: None,
+            measurements: "predict-measurements.csv".to_string(),
+            predict_measurements: Some("predict-measurements.csv".to_string()),
+        };
+        seed_run(
+            &engine,
+            id,
+            chrono::DateTime::<Utc>::from_timestamp(1_800_000_000, 0).expect("stamp"),
+            TxrRunStatus::Finished,
+            crate::modules::execution_engine::types::TxrRunMode::Reuse,
+            input_summary(None, Some(630), 2, reuse_ids.clone()),
+            Vec::new(),
+            1,
+            dir_text,
+            None,
+        )
+        .await;
+        // The second reuse row: the SAME stale stored count, but the input
+        // copy is missing (copies cleared) — the recorded value stands.
+        let id_missing = Uuid::new_v4();
+        let dir_missing = std::env::temp_dir()
+            .join(format!("history-store-derive-missing-{id_missing}"))
+            .display()
+            .to_string();
+        seed_run(
+            &engine,
+            id_missing,
+            chrono::DateTime::<Utc>::from_timestamp(1_800_000_000, 0).expect("stamp"),
+            TxrRunStatus::Finished,
+            crate::modules::execution_engine::types::TxrRunMode::Reuse,
+            input_summary(None, Some(630), 2, reuse_ids),
+            Vec::new(),
+            1,
+            dir_missing,
+            None,
+        )
+        .await;
+
+        let page = HistoryRepository::new(seed.pool.clone())
+            .page(&query(None, None, None))
+            .await
+            .expect("page");
+        let derived_row = page.items.iter().find(|i| i.id == id).expect("derived row");
+        assert_eq!(derived_row.predicted, Some(90), "the distinct-patient count");
+        let missing_row = page
+            .items
+            .iter()
+            .find(|i| i.id == id_missing)
+            .expect("missing-copy row");
+        assert_eq!(missing_row.predicted, Some(630), "no copy → the recorded value");
+        // A train row's recorded prediction stands, and a null one is
+        // untouched (not even derived) — derivation is reuse-only.
+        let run_a_row = page.items.iter().find(|i| i.id == seed.run_a).expect("run_a row");
+        assert_eq!(run_a_row.predicted, Some(38), "train row reads its recorded value");
+        let run_c_row = page.items.iter().find(|i| i.id == seed.run_c).expect("run_c row");
+        assert_eq!(run_c_row.predicted, None, "train row with null prediction stays null");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// qa-fixes4 ITEM-2 (TEST-QF4-2): the K row's `counts` is the engine's
+    /// OWN stored per-state accounting (the run's `txr_runs.counts` JSON,
+    /// the same value the F/G headers read), so the K status can say
+    /// "Done" only when every method finished and name the stopped/skipped
+    /// counts. The stop-all shape (4 stopped + 2 skipped) is the round-3
+    /// report's own (methods-r3 R3-methods-10).
+    #[tokio::test]
+    async fn item_counts_are_the_engine_stored_counts() {
+        let seed = seed_world("counts").await;
+        let engine = TxrRepository::new(seed.pool.clone());
+        let id = Uuid::new_v4();
+        let dir = std::env::temp_dir()
+            .join(format!("history-store-counts-{id}"))
+            .display()
+            .to_string();
+        seed_run(
+            &engine,
+            id,
+            chrono::DateTime::<Utc>::from_timestamp(1_800_000_000, 0).expect("stamp"),
+            TxrRunStatus::Stopped,
+            crate::modules::execution_engine::types::TxrRunMode::Train,
+            input_summary(
+                Some(94),
+                None,
+                5,
+                crate::modules::execution_engine::types::TxrRunFileNames {
+                    patients: Some("patients.csv".to_string()),
+                    measurements: "measurements.csv".to_string(),
+                    predict_measurements: None,
+                },
+            ),
+            Vec::new(),
+            6,
+            dir,
+            None,
+        )
+        .await;
+        for method in ["m1", "m2", "m3", "m4"] {
+            seed_method(&engine, id, method, TxrMethodState::Stopped, None).await;
+        }
+        for method in ["m5", "m6"] {
+            seed_method(&engine, id, method, TxrMethodState::Skipped, None).await;
+        }
+        // The engine's counting writer (`counts` column) — the test seeds the
+        // run row and the method rows separately, then records the counts
+        // exactly as `finish_run` would.
+        let counts = TxrRunCounts {
+            stopped: 4,
+            skipped: 2,
+            ..counts()
+        };
+        let counts_json = serde_json::to_value(counts).expect("counts serialize");
+        sqlx::query!(
+            "UPDATE txr_runs SET counts = $2 WHERE id = $1",
+            id,
+            counts_json
+        )
+        .execute(&seed.pool)
+        .await
+        .expect("counts recorded");
+
+        let repo = HistoryRepository::new(seed.pool.clone());
+        let page = repo.page(&query(None, None, Some("stopped"))).await.expect("page");
+        let item = page
+            .items
+            .iter()
+            .find(|i| i.id == id)
+            .expect("the stop-all run is on the page");
+        assert_eq!(item.bucket, TxrHistoryBucket::Stopped);
+        assert_eq!(item.method_count, 6);
+        assert_eq!(item.counts.stopped, 4);
+        assert_eq!(item.counts.skipped, 2);
+        assert_eq!(item.counts.finished, 0);
     }
 
     #[tokio::test]

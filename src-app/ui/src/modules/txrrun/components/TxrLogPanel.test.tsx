@@ -304,7 +304,7 @@ describe('TxrLogPanel (TEST-RUN-22)', () => {
     expect(pre.textContent).not.toContain('setlocale')
     expect(pre.textContent).not.toContain('Setting LC_CTYPE')
     expect(screen.getByTestId('txr-run-log-count').textContent).toBe(
-      'Showing 1 of 4 lines · 3 technical lines hidden',
+      'Showing 1 of 4 lines · 3 start-up lines hidden',
     )
 
     // The switch is a kit Switch — the panel's own presentation state.
@@ -316,5 +316,72 @@ describe('TxrLogPanel (TEST-RUN-22)', () => {
     expect(screen.getByTestId('txr-run-log-lines').textContent).toContain('setlocale')
     expect(screen.getByTestId('txr-run-log-lines').textContent).toContain('Setting LC_CTYPE')
     expect(screen.getByTestId('txr-run-log-count').textContent).toBe('Showing 4 of 4 lines')
+  })
+
+  it('collapses a repeated R warning block once with the ×N badge and says so (qa-fixes4 ITEM-3, methods-r3 R3-methods-5)', async () => {
+    // The round-3 log: the SAME 3-line colClasses warning printed twice for
+    // one method (its 6 lines), then the method's own progress line.
+    const lines = [
+      line(1, 'cox-baseline-delta', 'Warning message:'),
+      line(2, 'cox-baseline-delta', 'In read.table(file = file, header = header, sep = sep, quote = quote,  :'),
+      line(3, 'cox-baseline-delta', "  not all columns named in 'colClasses' exist"),
+      line(4, 'cox-baseline-delta', 'Warning message:'),
+      line(5, 'cox-baseline-delta', 'In read.table(file = file, header = header, sep = sep, quote = quote,  :'),
+      line(6, 'cox-baseline-delta', "  not all columns named in 'colClasses' exist"),
+      line(7, 'cox-baseline-delta', 'fitting on 151 patients'),
+    ]
+    cleanup()
+    render(<TxrLogPanel {...makeProps({ lines, total: 7 })} />)
+    const pre = screen.getByTestId('txr-run-log-lines')
+    const body = pre.textContent ?? ''
+    // The block shows once, its first line carrying the ×6 badge (the 6
+    // raw warning lines became one block).
+    expect(body).toContain('[cox-baseline-delta] Warning message: ×6')
+    expect(body).toContain("  not all columns named in 'colClasses' exist")
+    expect(body).toContain('fitting on 151 patients')
+    expect(body.split('\n')).toHaveLength(4)
+    // The count line names the fold honestly (7 raw lines, 3 shown again).
+    expect(screen.getByTestId('txr-run-log-count').textContent).toBe(
+      'Showing 7 of 7 lines · 3 repeated lines collapsed',
+    )
+  })
+
+  it('the copy writes the same collapsed view (display and paste one text)', async () => {
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
+    const lines = [
+      line(1, 'dynforest', 'same line'),
+      line(2, 'dynforest', 'same line'),
+      line(3, 'dynforest', 'same line'),
+      line(4, 'dynforest', 'fitting'),
+    ]
+    cleanup()
+    render(<TxrLogPanel {...makeProps({ lines, total: 4 })} />)
+    fireEvent.click(screen.getByTestId('txr-run-log-copy'))
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          '10:02:00 [dynforest] same line ×3',
+          '10:02:00 [dynforest] fitting',
+        ].join('\n'),
+      ),
+    )
+  })
+
+  it('the controls sit directly ABOVE the lines box (qa-fixes4 ITEM-3, methods-r3 R3-methods-6)', () => {
+    render(<TxrLogPanel {...makeProps()} />)
+    const aside = screen.getByTestId('txr-run-log')
+    const children = Array.from(aside.children)
+    const positions = [
+      'txr-run-log-filters',
+      'txr-run-log-controls',
+      'txr-run-log-lines',
+    ].map(id => children.indexOf(screen.getByTestId(id)))
+    expect(positions[0]).toBeGreaterThanOrEqual(0)
+    expect(positions[0]).toBeLessThan(positions[1])
+    expect(positions[1]).toBeLessThan(positions[2])
   })
 })

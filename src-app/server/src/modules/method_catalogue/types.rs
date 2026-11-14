@@ -499,18 +499,24 @@ pub struct MarkerVocabularyResponse {
 
 /// Screen B's preview body: which marker groups the user picked, and the
 /// draw-schedule answers (before-treatment values, draws during treatment, last
-/// draw day).
+/// draw day). Every schedule field is OPTIONAL (R3-intake-2): an unanswered
+/// question is absent, and the preview treats an absent answer as "any" —
+/// it never assumes a value the user did not give (the old client sent the
+/// board's first options when unanswered, so an untouched question narrowed
+/// the fit count).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PreviewEligibilityRequest {
     /// group id → checked. Absent groups count as unchecked.
     pub marker_groups: BTreeMap<String, bool>,
     /// `always` | `sometimes` (whether the treating clinician always has a
-    /// before-treatment sample).
-    pub before_treatment: String,
+    /// before-treatment sample). Absent = not answered = no constraint.
+    pub before_treatment: Option<String>,
     /// The number of on-treatment draws the user will record (1|2|4).
-    pub draws_during_treatment: u32,
+    /// Absent = not answered = any draw count (the minimum-draws verdict is
+    /// not applied).
+    pub draws_during_treatment: Option<u32>,
     /// The last draw day the schedule reaches (28|42|56|84).
-    pub last_draw_day: f64,
+    pub last_draw_day: Option<f64>,
 }
 
 /// A standard identifier of a file marker column (`(system, id)`).

@@ -32,6 +32,7 @@ function item(over: Partial<TxrHistoryItem> = {}): TxrHistoryItem {
   return {
     id: 'run-1',
     bucket: 'finished',
+    counts: { finished: 3, failed: 0, stopped: 0, skipped: 0, cannot_run: 0, running: 0, downloading: 0, waiting: 0 },
     mode: 'train',
     created_at: '2026-11-05T10:02:00Z',
     method_count: 3,
@@ -66,6 +67,30 @@ describe('titleFor (TEST-HIST-6 — the DEC-9 matrix)', () => {
     expect(titleFor(item({ file_names: [] }))).toBe('3 methods')
     expect(titleFor(item({ method_count: 1, file_names: ['synth-a.csv'] }))).toBe('1 method on synth-a.csv')
     expect(titleFor(item({ method_count: 1, file_names: [] }))).toBe('1 method')
+  })
+
+  // R3-results-9: the old engine recorded the reuse file twice, so the row
+  // read "Model … on a.csv + a.csv" — the name is the FILE, printed once.
+  it('prints each file name once (R3-results-9)', () => {
+    expect(
+      titleFor(
+        item({
+          mode: 'reuse',
+          file_names: ['predict-measurements.csv', 'predict-measurements.csv'],
+          models_used: [
+            { set_id: 'set-1', set_name: 'CRC cohort, day 56', model_id: 'm-1', model_name: 'm1' },
+          ],
+        }),
+      ),
+    ).toBe('Model CRC cohort, day 56 on predict-measurements.csv')
+    expect(
+      titleFor(
+        item({
+          method_count: 2,
+          file_names: ['patients.csv', 'patients.csv', 'measurements.csv'],
+        }),
+      ),
+    ).toBe('2 methods on patients.csv + measurements.csv')
   })
 
   it('reads the board reuse title verbatim — one distinct set, grown models_used (GAP-HIST-2)', () => {

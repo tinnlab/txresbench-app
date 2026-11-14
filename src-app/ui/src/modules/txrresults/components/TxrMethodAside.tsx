@@ -2,32 +2,29 @@
  * TxrMethodAside — the H screen's explanatory column (`Results.dc.html`'s
  * aside): the "Read these with care" card (the board's sentence, with the
  * cohort size from the run — never a board number), the
- * "How the chance is calculated" link that opens `TxrChanceDialog`, the
- * "Saved in <dir>" line with the desktop-gated "Open the folder" action
- * (the board's `Documents/TxResBench/…` path is a design example; the run's
- * real `dir` renders as-is, INV-5), and — for the one-method tab — the
- * method's own facts card (qa-fixes RES-11): the coverage ("Scored for 68 of
- * 94 patients"), the prob-source sentence (a `none` column explains that no
- * chances are shown — RES-05) and the "Show the log" link.
+ * "How the chance is calculated" link that opens `TxrChanceDialog`, and —
+ * for the one-method tab — the method's own facts card (qa-fixes RES-11):
+ * the coverage ("Scored for 68 of 94 patients"), the prob-source sentence
+ * (a `none` column explains that no chances are shown — RES-05) and the
+ * "Show the log" link.
  *
- * The open-folder seam (INV-6, PROV-UR-7): the button renders ONLY under
- * `isDesktop()` — the pure `@/core/platform` predicate — and reports the
- * click through `onOpenFolder(dir)`; the reveal invoke itself is ITEM-10's
- * `lib/reveal.ts` (`revealRunDir`), which the page wires here. In web mode
- * the path text renders with no button (the positive control TEST-UR-16
- * names: the path present, the button absent — a desktop gate, not a
- * never-rendered line). A rejection is swallowed by the page's reveal
- * helper, so the path-only rendering stays.
+ * qa-fixes4 ITEM-1 (results-r3 R3-results-2): the board's "Saved in
+ * <dir>" line + its "Open the folder" action are GONE from the aside. The
+ * run directory is an internal host fact (the report's screenshots show
+ * the live machine's absolute path) and must never be user-visible, in
+ * web mode and desktop mode alike; the reveal command stays for the
+ * History details' desktop-only action (`txrhistory/TxrHistoryActions`),
+ * which never shows a path.
  *
- * The component is presentational: `dir`/`trainedOn` are the run's facts,
- * the two callbacks are the page's wiring (store actions today, the reveal
- * seam at ITEM-10).
+ * The component is presentational: `trainedOn` is the run's fact, the
+ * callbacks are the page's wiring (store actions today, the reveal seam
+ * at ITEM-10 — the open-folder line's removal leaves
+ * `lib/reveal.ts` consumed by ui-history only).
  */
 import type { CSSProperties } from 'react'
 import { Button } from '@txresbench/kit'
-import { isDesktop } from '@/core/platform'
 import type { TxrHeatmapColumn } from '../types'
-import { formatCoverage, formatProbSourceLine, formatSavedIn } from '../lib/format'
+import { formatCoverage, formatProbSourceLine } from '../lib/format'
 
 const CARD: CSSProperties = {
   border: '1px solid var(--txr-border)',
@@ -46,19 +43,6 @@ const FACT_LINE: CSSProperties = { fontSize: 13.5, color: 'var(--txr-text-2)' }
 
 const LINK: CSSProperties = { fontSize: 13.5, color: 'var(--txr-brand)', padding: 0 }
 
-const SAVED_IN: CSSProperties = {
-  fontSize: 13.5,
-  color: 'var(--txr-muted)',
-  display: 'flex',
-  flexWrap: 'wrap',
-  alignItems: 'center',
-  gap: 6,
-}
-
-const MONO_FONT = "'Source Code Pro', ui-monospace, monospace"
-
-const PATH_SPAN: CSSProperties = { fontFamily: MONO_FONT, fontSize: 12.5, overflowWrap: 'anywhere' }
-
 /** The care-card sentence (the board's words; the cohort size is the run's fact). */
 export function formatCareSentence(trainedOn: number | null): string {
   const cohort =
@@ -69,14 +53,10 @@ export function formatCareSentence(trainedOn: number | null): string {
 }
 
 export interface TxrMethodAsideProps {
-  /** `run.dir` — the line's path (the aside omits the line when absent). */
-  dir: string | null
   /** `run.input_summary.patients` — the care card's cohort size (omitted when null). */
   trainedOn: number | null
   /** Opens `TxrChanceDialog` (the aside's "How the chance is calculated" link). */
   onOpenChance: () => void
-  /** "Open the folder" — the page's reveal wiring (ITEM-10: `revealRunDir`). */
-  onOpenFolder: (dir: string) => void
   /**
    * The one-method tab's column (qa-fixes RES-11): the aside then renders
    * the method facts card (coverage, prob source, log link) above the care
@@ -88,14 +68,11 @@ export interface TxrMethodAsideProps {
 }
 
 export function TxrMethodAside({
-  dir,
   trainedOn,
   onOpenChance,
-  onOpenFolder,
   method,
   onShowLog,
 }: TxrMethodAsideProps) {
-  const savedIn = formatSavedIn(dir)
   const coverage = method?.coverage ?? null
   const coverageLine = coverage ? formatCoverage(coverage.scored, coverage.eligible) : null
   return (
@@ -138,23 +115,6 @@ export function TxrMethodAside({
           How the chance is calculated
         </Button>
       </div>
-      {savedIn !== null ? (
-        <div data-testid="txr-results-saved-in" style={SAVED_IN}>
-          <span>Saved in</span>
-          <span style={PATH_SPAN}>{savedIn}</span>
-          {isDesktop() ? (
-            <Button
-              data-testid="txr-results-open-folder"
-              variant="link"
-              className="p-0"
-              style={{ fontSize: 13.5, color: 'var(--txr-brand)' }}
-              onClick={() => onOpenFolder(dir ?? '')}
-            >
-              Open the folder
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   )
 }

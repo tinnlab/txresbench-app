@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::modules::execution_engine::types::{
-    TxrEndpoint, TxrRunMethod, TxrRunMode, TxrRunReason,
+    TxrEndpoint, TxrRunCounts, TxrRunMethod, TxrRunMode, TxrRunReason,
 };
 use crate::modules::method_catalogue::types::TimingQuality;
 
@@ -146,6 +146,12 @@ pub struct TxrHistoryItem {
     pub mode: TxrRunMode,
     /// The DEC-4 bucket the K list filters/renders on.
     pub bucket: TxrHistoryBucket,
+    /// The engine's own per-state method counts (the run's `txr_runs.counts`
+    /// JSON verbatim — qa-fixes4 ITEM-2: the K row's status is truthful
+    /// ("Done" only when every method finished; the partial word names the
+    /// failed count), and the counts are the ENGINE's single accounting, the
+    /// same fact the F/G headers render).
+    pub counts: TxrRunCounts,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
@@ -557,6 +563,16 @@ mod tests {
             id: Uuid::nil(),
             mode: TxrRunMode::Train,
             bucket: TxrHistoryBucket::Finished,
+            counts: TxrRunCounts {
+                waiting: 0,
+                downloading: 0,
+                running: 0,
+                finished: 2,
+                failed: 0,
+                stopped: 0,
+                skipped: 0,
+                cannot_run: 0,
+            },
             created_at: DateTime::<Utc>::from_timestamp(0, 0).expect("epoch"),
             started_at: None,
             finished_at: None,
@@ -591,6 +607,7 @@ mod tests {
         let json = serde_json::to_value(&item).expect("serialize");
         assert_eq!(json["mode"], "train");
         assert_eq!(json["bucket"], "finished");
+        assert_eq!(json["counts"]["finished"], 2);
         assert_eq!(json["endpoint"], "pfs");
         assert_eq!(json["reason"]["code"], "REQUIRED_MARKER_MISSING");
         assert_eq!(json["reason"]["detail"], "marker LDH is missing from the measurements");

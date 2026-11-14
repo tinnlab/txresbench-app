@@ -34,36 +34,34 @@
  *   `set_id` filter — with the "Showing the set '<name>' · Show all"
  *   affordance that clears the param (screen K's set links target
  *   `modelsPath(setId)`);
- * - the footnotes: "Models are stored in <mono path>" with the
- *   `isDesktop()`-gated "Open the folder" (CONS-UM-15's
- *   `revealRunDir(models_dir)` — the one desktop command, reused never
- *   duplicated; web mode keeps the path text, the button absent — the
- *   positive control) + the board's deletion note verbatim;
+ * - the footnotes: "Models are kept so you can use them for new
+ *   patients." (qa-fixes4 ITEM-1, results-r3 R3-results-2: the board's
+ *   "Models are stored in <path>" line + its "Open the folder" are gone —
+ *   the models root is an internal host fact; the copy says what is kept,
+ *   not where) + the board's deletion note verbatim;
  * - states: a first read in flight → the muted loading line; a failed
  *   read → the error line + Retry (the last response is kept on a
  *   transient error — the table never clears to nothing); an empty
  *   inventory → "No models yet." + the Open-a-model-file CTA; an empty
  *   search or set view → the honest no-match line.
  *
- * Copy rule (INV-4): the models-folder path and every count/name are the
- * engine's facts; the board's `Documents/TxResBench/models/` path and the
- * board's rows are design examples, never constants — the footnote renders
- * the provider's `models_dir` (pathless when the response has none,
- * DEC-11).
+ * Copy rule (INV-4): every count/name is the engine's fact; the board's
+ * `Documents/TxResBench/models/` path and the board's rows are design
+ * examples, never constants — the footnote renders no path at all (the
+ * provider's `models_dir` remains in the API response; only its rendering
+ * was removed, qa-fixes4 ITEM-1).
  */
 import { useCallback, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiClient } from '@/api-client'
 import type { ModelSummary } from '@/api-client/types'
-import { isDesktop } from '@/core/platform'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { useTxrIntakeStore } from '@/modules/txrintake'
 import { predictFilesPath } from '@/modules/txrrun'
-import { revealRunDir } from '@/modules/txrresults'
 import { Alert, Button, Input } from '@txresbench/kit'
 import { useModelInventory } from '../data/useModelInventory'
 import { downloadModelExport } from '../lib/export'
@@ -195,13 +193,6 @@ const MONO: CSSProperties = {
 /** The muted fallback word ("not recorded" — the board's grey span). */
 const MUTED: CSSProperties = { color: 'var(--txr-muted)' }
 
-/** The mono path span of the stored-in footnote. */
-const PATH_SPAN: CSSProperties = {
-  fontFamily: "'Source Code Pro', ui-monospace, monospace",
-  fontSize: 12.5,
-  overflowWrap: 'anywhere',
-}
-
 /** The footnotes row (the board's muted two spans). */
 const FOOTNOTES: CSSProperties = {
   display: 'flex',
@@ -212,7 +203,7 @@ const FOOTNOTES: CSSProperties = {
   color: 'var(--txr-muted)',
 }
 
-/** The stored-in caption + path + open-folder (one flowing line). */
+/** The kept-models footnote (one flowing line). */
 const STORED_LINE: CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
@@ -290,7 +281,6 @@ export function ModelsPage() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const models = inventory.response?.models ?? []
-  const modelsDir = inventory.response?.models_dir ?? null
 
   /** The set-focus name (the rows' own `set_name`; the URL id is the honest
    *  fallback for a set with no rows — a deleted set must not fabricate a
@@ -543,7 +533,7 @@ export function ModelsPage() {
                         {trainedOn}
                       </span>
                     </td>
-                    <td data-label="Made" style={lastTd}>{formatMade(model.created_at, model.provenance)}</td>
+                    <td data-label="Made" style={{ ...lastTd, whiteSpace: 'nowrap' }}>{formatMade(model.created_at, model.provenance)}</td>
                     <td
                       data-label="Actions"
                       style={{
@@ -595,22 +585,7 @@ export function ModelsPage() {
           <PageFooterBar testId="txr-models-j-footer-bar">
             <div style={FOOTNOTES}>
               <span data-testid="txr-models-j-stored-line" style={STORED_LINE}>
-                <span>Models are stored in</span>
-                {modelsDir !== null ? (
-                  <span data-testid="txr-models-j-models-path" style={PATH_SPAN}>
-                    {modelsDir}
-                  </span>
-                ) : null}
-                {isDesktop() && modelsDir !== null ? (
-                  <Button
-                    data-testid="txr-models-open-folder"
-                    variant="link"
-                    style={{ fontSize: 13.5, color: 'var(--txr-brand)' }}
-                    onClick={() => void revealRunDir(modelsDir)}
-                  >
-                    Open the folder
-                  </Button>
-                ) : null}
+                <span>Models are kept so you can use them for new patients.</span>
               </span>
               <span>Deleting a model removes its file. Results already made with it are kept in History.</span>
             </div>

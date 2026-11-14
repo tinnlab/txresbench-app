@@ -211,15 +211,18 @@ export interface LoadedFileView {
  * the validator already reads): `pid` / `subject id` / `subjectid` for the
  * patient key, `study day` / `visit day` for the draw day, `analyte` /
  * `marker name` for the marker, `result` / `reading` / `measurement` for the
- * value and `uom` / `unit of measure` for the unit. Nothing here is
- * auto-applied: the offer row carries the confirmation.
+ * value and `uom` / `unit of measure` / `units` for the unit. Nothing here
+ * is auto-applied: the offer row carries the confirmation.
  *
- * R2-4 note (evidence, no entry): a `units` header needs NO suggestion — the
- * validator's alias table already reads it (`rules.rs` `UNIT_ALIASES =
- * ["unit", "units"]`; pinned by its alias-resolution test and by the
- * fixture resolver below), so the unit is used, never "silently dropped".
- * Adding `units → unit` here would offer a rename for a column the provider
- * already reads.
+ * R2-4 (qa-fixes4 ITEM-4): `units` gained the offer after round 3. The
+ * validator's own `UNIT_ALIASES` also reads `units` (rules.rs), so the
+ * column was never silently dropped — but the round-3 review still counted
+ * the missing offer as the defect (the renamed-file mapping step offered
+ * pid/study_day/analyte/result and not the unit's own obvious spelling), and
+ * the owner's plan asks for the offer. The offer is harmless either way:
+ * accepting renames to `unit` (the validator reads both), declining keeps
+ * the validator's own reading — and the mapping step now names the unit
+ * column like the other four.
  */
 export const COLUMN_RENAMES: Readonly<Record<FileTableKind, Readonly<Record<string, string>>>> = {
   patients: {
@@ -242,15 +245,17 @@ export const COLUMN_RENAMES: Readonly<Record<FileTableKind, Readonly<Record<stri
     measurement: 'value',
     uom: 'unit',
     'unit of measure': 'unit',
+    units: 'unit',
   },
 }
 
 /**
- * The column-renaming suggestions of one table (ITEM-6 F2): for each column
+ * The canonical column-renaming suggestions of one table (ITEM-6 F2): for each column
  * whose FOLDED spelling has an obvious canonical match, an offer. A column
- * already read by the validator (or already canonical) never offers — the
- * server's alias resolution is the validator's, this map is the suggestions
- * for everything it cannot read. The optional `dismissed` set is the page's
+ * already canonical never offers; a spelling the validator itself reads is
+ * offered only when the plan names the case (`units → unit`, R2-4 — the
+ * offer states the mapping the round-3 review expected, and both spellings
+ * validate). The optional `dismissed` set is the page's
  * "not now" record (the same convention as the join/vocab resolvers).
  */
 export function resolveColumnRenames(
@@ -441,6 +446,43 @@ export function cardProblems(
     if (sideOf(problem) === kind) out.push(problem)
   }
   return out
+}
+
+/** The required-role order of each table — the ORDER the "Missing columns"
+ *  line reads (R3-intake-6, the same sets the server's R02 check enforces). */
+const MISSING_COLUMN_ORDER: Record<FileTableKind, readonly string[]> = {
+  patients: ['patient_id', 'pfs_days', 'pfs_event', 'os_days', 'os_event'],
+  measurements: ['patient_id', 'day', 'marker', 'value'],
+}
+
+/**
+ * The canonical names of a problem set's missing required columns
+ * (R3-intake-6): every R02 verdict names ONE canonical column in its
+ * `column` field (the server's `check_required_columns` pins the byte), so
+ * the red card can state "Missing columns: patient_id, day, marker, value"
+ * — the one line a user whose headers were renamed still needs after the
+ * suggestions are accepted or declined (the grouped R02 lines repeat the
+ * same fact per column inside a wall of per-row counts). The names render
+ * in the required-role order; a column outside the order renders last, in
+ * problem order (a future check's name still shows, never silently lost).
+ */
+export function missingColumns(
+  problems: readonly FileProblem[],
+  kind: FileTableKind,
+): string[] {
+  const order = MISSING_COLUMN_ORDER[kind]
+  const found = new Set<string>()
+  for (const problem of problems) {
+    if (problem.code !== 'R02') continue
+    const column = problem.column
+    if (column !== undefined && column !== null && column.length > 0 && !found.has(column)) {
+      found.add(column)
+    }
+  }
+  return [
+    ...order.filter(column => found.has(column)),
+    ...[...found].filter(column => !order.includes(column)),
+  ]
 }
 
 /** One card's green box: the heading line + the detail line (board strings). */

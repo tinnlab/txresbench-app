@@ -232,7 +232,7 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     await waitFor(() => {
       expect(screen.getByText(`${CAN_RUN + SOME}`)).toBeTruthy()
     })
-    expect(screen.getByText(`of ${TOTAL} methods fit`)).toBeTruthy()
+    expect(screen.getByText(`of ${TOTAL} methods fit your study`)).toBeTruthy()
     expect(screen.getByText(`${CANNOT} methods are left out`)).toBeTruthy()
     expect(screen.getByText(`${SOME} can run for some patients`)).toBeTruthy()
     const excluded = within(screen.getByTestId('txr-intake-panel-excluded'))
@@ -354,7 +354,7 @@ describe('ITEM-6 S1/S2/S4 — the panel spacing, the id wrapping, the flush Show
     await answerFirst('txr-intake-study-group-ctdna')
     await waitFor(() => {
       expect(screen.getByTestId('txr-intake-panel-fit-count').textContent).toBe(
-        `${CAN_RUN + SOME} of ${TOTAL} methods fit`,
+        `${CAN_RUN + SOME} of ${TOTAL} methods fit your study`,
       )
     })
   })
@@ -429,30 +429,45 @@ describe('R2-1 — the environment fact separated from the answer causes', () =>
       // fitter — the 13 answer left-outs and the 2 env methods are their
       // own lines).
       expect(screen.getByTestId('txr-intake-panel-fit-count').textContent).toBe(
-        `${TOTAL - CANNOT + 1} of ${TOTAL + ENV} methods fit`,
+        `${TOTAL - CANNOT + 1} of ${TOTAL + ENV} methods fit your study`,
       )
     })
     // The env sentence is the list's own line (one vocabulary, R2-1's
-    // "can't run yet" separation).
+    // "can't run yet" separation): the env-absent subset of the FIT count
+    // (only env-only-method fits; the mixed env-method is left out by its
+    // answer cause), never a second count over the catalogue (R3-intake-1).
     expect(screen.getByTestId('txr-intake-panel-no-env').textContent).toBe(
-      `${ENV} of ${TOTAL + ENV} methods have no published environment and can't start.`,
+      `1 of them cannot run yet`,
     )
-    // "Left out" counts the ANSWER causes only; the env rows are not in the
-    // list (their cause is the env line).
-    expect(screen.getByText(`${CANNOT} methods are left out`)).toBeTruthy()
+    // "Left out" counts EVERY answer cause (the 13 answer-rows plus the
+    // mixed env method's marker-group cause — the closed arithmetic with
+    // the headline, R3-intake-1); the env-ONLY row is NOT in the list (its
+    // cause is the env line).
+    expect(screen.getByText(`${CANNOT + 1} methods are left out`)).toBeTruthy()
     const excluded = within(screen.getByTestId('txr-intake-panel-excluded'))
-    expect(excluded.queryByText('asm-best-change-rule')).toBeNull()
+    expect(excluded.getByText('asm-best-change-rule')).toBeTruthy()
+    expect(excluded.getByText('needs markers from: Methylation')).toBeTruthy()
     expect(excluded.queryByText('env-only-method')).toBeNull()
     expect(excluded.getAllByText('needs 3 or more draws').length).toBeGreaterThan(0)
   })
 
   it('ticking a marker group that excludes runnable methods moves the count', async () => {
     // The fixture's answer-caused left-outs drop the count as the answers
-    // change (the count reacts to answers, not to the env overlay).
+    // change (the count reacts to answers, not to the env overlay). The
+    // second response flips TWO previously-fitting methods to answer-caused
+    // left-outs (the panel derives the split from the per-method reasons —
+    // the response's totals are the same classification's aggregate, not a
+    // separate source).
     const first = eligibilityResponse()
     const answered = eligibilityResponse()
     answered.total_fit = CAN_RUN - 2
     answered.total_cannot = CANNOT + 2
+    for (let i = 0; i < 2; i += 1) {
+      const flipper = answered.methods.find(m => m.status === 'can_run')
+      if (flipper === undefined) throw new Error('fixture: no runnable method to flip')
+      flipper.status = 'cannot_run'
+      flipper.reasons = [{ code: 'MIN_DRAWS_UNMET' }]
+    }
     api.eligibility
       .mockResolvedValueOnce(first)
       .mockResolvedValueOnce(answered)
@@ -460,16 +475,16 @@ describe('R2-1 — the environment fact separated from the answer causes', () =>
     await answerFirst('txr-intake-study-group-ctdna')
     await waitFor(() => {
       expect(screen.getByTestId('txr-intake-panel-fit-count').textContent).toContain(
-        `of ${TOTAL} methods fit`,
+        `of ${TOTAL} methods fit your study`,
       )
     })
     expect(screen.getByTestId('txr-intake-panel-fit-count').textContent).toBe(
-      `${TOTAL - CANNOT} of ${TOTAL} methods fit`,
+      `${TOTAL - CANNOT} of ${TOTAL} methods fit your study`,
     )
     fireEvent.click(screen.getByTestId('txr-intake-study-outcome-progression-by-day'))
     await waitFor(() => {
       expect(screen.getByTestId('txr-intake-panel-fit-count').textContent).toBe(
-        `${TOTAL - CANNOT - 2} of ${TOTAL} methods fit`,
+        `${TOTAL - CANNOT - 2} of ${TOTAL} methods fit your study`,
       )
     })
     expect(screen.getByText(`${CANNOT + 2} methods are left out`)).toBeTruthy()

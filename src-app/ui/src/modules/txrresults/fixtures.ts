@@ -176,6 +176,19 @@ export const TXR_CANNOT_SPEC: FxMethodSpec = {
 /** The cannot-run banner's reason (the engine's sentence style, DEC-15). */
 export const TXR_CANNOT_REASON = { code: 'REQUIRED_MARKER_MISSING', detail: 'LDH is not in your measurements.' }
 
+/**
+ * qa-fixes4 ITEM-1: the leak story's reason — a producer's raw internal
+ * text (tool name + absolute path), EXACTLY the shape the round-3 report
+ * screenshotted (results-r3 R3-results-2). The UI's `safeText` guard (and
+ * the browser spec `txr-internal-text.spec.ts`) prove it is never
+ * rendered. Deliberate fixture seed: the copy-guard's allow-list carries
+ * this line with its reason (fixture data, never user-visible copy).
+ */
+export const TXR_LEAK_REASON = {
+  code: 'ENV_IMAGE_TOOL_MISSING',
+  detail: 'oras is not installed (looked in /data/txr-live/bin and PATH)',
+}
+
 /** The cannot story's two finished methods (one per outcome tab — the mixed case). */
 export const TXR_CANNOT_FINISHED: FxMethodSpec[] = [TXR_G_SPECS[11], TXR_G_SPECS[8]]
 
@@ -588,6 +601,52 @@ export const TXR_RUN_H_LONG: TxrRunDetail = runDetail({
   ],
 })
 
+/** The leak story's run: a terminal FAILED run (no predictions — the honest
+ *  failure state of screens G/H, qa-fixes2 R2-02) whose method reason is the
+ *  report's leaked text (ITEM-1). */
+export const TXR_RUN_FAILED_LEAK: TxrRunDetail = runDetail({
+  id: 'run-leak-1',
+  dir: 'Documents/TxResBench/analysis-fx-1009',
+  status: 'failed',
+  elapsed_secs: 95,
+  outcome: { endpoint: 'pfs', horizon: TXR_HORIZON, task_is_mixed: false },
+  methods: [
+    methodRow(TXR_CANNOT_SPEC, 'failed', {
+      reason: { ...TXR_LEAK_REASON },
+      elapsed_secs: 95,
+      phase: 'env',
+    }),
+  ],
+})
+
+/**
+ * qa-fixes4 ITEM-2 (results-r3 R3-results-3, the run 97b25262): the
+ * many-cannot run — 6 methods finished, 203 could not run for the SAME
+ * ENV_UNKNOWN reason. The results page must show ONE summary card (never
+ * 203 per-method banners) with the true "The other 6 methods are shown."
+ * tail. The browser spec `txr-results.spec.ts` (qa-fixes4 ITEM-7) pins the
+ * card, the expandable list, the header status word and the head's count.
+ */
+export const TXR_RUN_TROUBLE: TxrRunDetail = runDetail({
+  id: 'run-trouble',
+  dir: 'Documents/TxResBench/analysis-fx-1013',
+  status: 'finished',
+  elapsed_secs: 8 * 60 + 12,
+  finished_at: '2026-09-03T08:58:12Z',
+  methods: [
+    ...TXR_G_SPECS.slice(0, 6).map((spec, m) =>
+      methodRow(spec, 'finished', { coverage: { scored: TXR_G_PATIENTS, eligible: TXR_G_PATIENTS, fraction: 1 }, elapsed_secs: 40 + m }),
+    ),
+    ...Array.from({ length: 203 }, (_unused, i) =>
+      methodRow({ ...TXR_G_SPECS[11], methodId: `trouble-cannot-${i + 1}` }, 'cannot_run', {
+        reason: { code: 'ENV_UNKNOWN', detail: 'the method environment is not available yet' },
+        coverage: { scored: 0, eligible: TXR_G_PATIENTS, fraction: 0 },
+      }),
+    ),
+  ],
+  counts: { finished: 6, failed: 0, stopped: 0, skipped: 0, cannot_run: 203, running: 0, downloading: 0, waiting: 0 },
+})
+
 /** Every cassette-served run detail, keyed by run id (the mock's `getRun` table). */
 export const TXR_RUNS: Record<string, TxrRunDetail> = {
   [TXR_RUN_G.id]: TXR_RUN_G,
@@ -600,6 +659,8 @@ export const TXR_RUNS: Record<string, TxrRunDetail> = {
   [TXR_RUN_EMPTY.id]: TXR_RUN_EMPTY,
   [TXR_RUN_G_LONG.id]: TXR_RUN_G_LONG,
   [TXR_RUN_H_LONG.id]: TXR_RUN_H_LONG,
+  [TXR_RUN_FAILED_LEAK.id]: TXR_RUN_FAILED_LEAK,
+  [TXR_RUN_TROUBLE.id]: TXR_RUN_TROUBLE,
 }
 
 /** Every cassette-served predictions response, keyed by run id. */
@@ -613,6 +674,7 @@ export const TXR_PREDICTIONS: Record<string, TxrPredictionsResponse> = {
   [TXR_RUN_NOCHANCE.id]: fxNochancePredictions(TXR_RUN_NOCHANCE.id),
   [TXR_RUN_G_LONG.id]: fxGPredictions(TXR_RUN_G_LONG.id, TXR_G_METHODS, TXR_G_LONG_PATIENTS),
   [TXR_RUN_H_LONG.id]: fxHPredictions(TXR_RUN_H_LONG.id, TXR_H_LONG_PATIENTS),
+  [TXR_RUN_TROUBLE.id]: fxGPredictions(TXR_RUN_TROUBLE.id, 6),
 }
 
 /** The grown twin of the running story: the 12th column is present. */

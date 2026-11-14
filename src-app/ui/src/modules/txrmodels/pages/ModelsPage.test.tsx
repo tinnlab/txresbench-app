@@ -25,10 +25,11 @@
  * - Rename → PATCH (`renameModel({id, name})`); Delete → the confirm
  *   dialog whose copy is the board's deletion promise verbatim, then
  *   DELETE; both refresh the inventory;
- * - the footnotes; `txr-models-open-folder` present in the mocked-desktop
- *   render and calling `revealRunDir(models_root)`; in the mocked-web
- *   render the button ABSENT while the models-path TEXT is still present
- *   (the positive control — a desktop gate, not a never-rendered line);
+ * - the footnotes; qa-fixes4 ITEM-1 (results-r3 R3-results-2): the
+ *   board's "Models are stored in <path> · Open the folder" line is GONE —
+ *   the footnote renders the kept-models sentence, and neither the path
+ *   nor the folder button exists in web or mocked-desktop mode (the
+ *   models root is an internal host fact);
  * - the `?set=` focus: the provider's `set_id` filter + the "Showing the
  *   set … · Show all" affordance (DEC-19, CONS-HIST-16);
  * - the states: the first-load line, the error + Retry, the empty state
@@ -274,6 +275,10 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     const row = screen.getByTestId(`txr-models-row-${fixtureModelId(11)}`)
     const labels = [...row.querySelectorAll('th, td')].map(cell => cell.getAttribute('data-label'))
     expect(labels).toEqual(['Model', 'Method', 'Predicts', 'Decision day', 'Trained on', 'Made', 'Actions'])
+    // qa-fixes4 ITEM-6 (results-r3 R3-results-12): the Made entry is one
+    // date ("10 Nov 2026") — never wrapped across lines ("10 Nov / 2026").
+    const made = row.querySelector('td[data-label="Made"]') as HTMLElement
+    expect(made.style.whiteSpace).toBe('nowrap')
   })
 
   it('posts the multipart import and refreshes the list (success), and surfaces a failure inline', async () => {
@@ -369,39 +374,33 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     expect(api.listModels.mock.calls.length).toBe(3)
   })
 
-  it('renders the footnotes: the stored-in path + the deletion note; web mode has no folder button, the path text stays', async () => {
+  it('renders the kept-models footnote + the deletion note; no path and no folder button in web mode (qa-fixes4 ITEM-1)', async () => {
     renderPage()
     await settle(0)
-    expect(screen.getByTestId('txr-models-j-stored-line')).toBeTruthy()
-    expect(screen.getByTestId('txr-models-j-models-path').textContent).toBe(
-      '/home/txr-fixture/models',
+    expect(screen.getByTestId('txr-models-j-stored-line').textContent).toBe(
+      'Models are kept so you can use them for new patients.',
     )
     expect(
       screen.getByText('Deleting a model removes its file. Results already made with it are kept in History.'),
     ).toBeTruthy()
-    // The positive control: the button absent in web mode — the gate, not
-    // a never-rendered line.
+    // The models root never renders (web mode or not) — the fix is a
+    // removal, not a gate.
+    expect(screen.queryByTestId('txr-models-j-models-path')).toBeNull()
     expect(screen.queryByTestId('txr-models-open-folder')).toBeNull()
   })
 
-  it('desktop mode renders the open-folder button and reveals the models root', async () => {
+  it('desktop mode also renders no path and no folder button (qa-fixes4 ITEM-1)', async () => {
     ;(window as unknown as { __TAURI__?: unknown }).__TAURI__ = {
       core: { invoke: invokeSpy },
     }
     renderPage()
     await settle(0)
-    const button = screen.getByTestId('txr-models-open-folder')
-    expect(button.textContent).toBe('Open the folder')
-    await act(async () => {
-      fireEvent.click(button)
-      await Promise.resolve()
-    })
-    expect(invokeSpy).toHaveBeenCalledWith('reveal_in_file_manager', {
-      path: '/home/txr-fixture/models',
-    })
+    expect(screen.queryByTestId('txr-models-j-models-path')).toBeNull()
+    expect(screen.queryByTestId('txr-models-open-folder')).toBeNull()
+    expect(invokeSpy).not.toHaveBeenCalled()
   })
 
-  it('a pathless list response renders the footnotes without the path and without the folder button', async () => {
+  it('a pathless list response renders the same kept-models footnote', async () => {
     api.listModels.mockResolvedValue({
       models: [],
       total: 0,
@@ -410,7 +409,9 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     await settle(0)
     expect(screen.queryByTestId('txr-models-j-models-path')).toBeNull()
     expect(screen.queryByTestId('txr-models-open-folder')).toBeNull()
-    expect(screen.getByTestId('txr-models-j-stored-line').textContent).toBe('Models are stored in')
+    expect(screen.getByTestId('txr-models-j-stored-line').textContent).toBe(
+      'Models are kept so you can use them for new patients.',
+    )
   })
 
   it('reads the ?set= focus, filters by it, shows the clear affordance and clears the param', async () => {

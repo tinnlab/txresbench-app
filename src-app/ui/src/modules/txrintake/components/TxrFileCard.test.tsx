@@ -206,6 +206,25 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     expect(screen.queryByText('The columns we look for are on the left.')).toBeNull()
   })
 
+  it('the first-rows box keeps entry words whole and hints the sideways scroll (F9)', () => {
+    const file = loadedPatients()
+    renderCard({ file })
+    const box = document.querySelector('.txr-intake-first-rows') as HTMLElement | null
+    expect(box).toBeTruthy()
+    // Every entry (and the header) is nowrap — the patient id never breaks
+    // into three lines and a wide unit column never squeezes a neighbor.
+    const entries = [...box!.querySelectorAll('th, td')] as HTMLElement[]
+    expect(entries.length).toBeGreaterThan(0)
+    expect(entries.every(entry => entry.style.whiteSpace === 'nowrap')).toBe(true)
+    // No overflow in jsdom's 0-width box → no hint; when the box really
+    // overflows, the hint appears (the report's "cut with no scroll hint").
+    expect(screen.queryByTestId('txr-intake-first-rows-scroll-hint')).toBeNull()
+    Object.defineProperty(box, 'clientWidth', { configurable: true, value: 120 })
+    Object.defineProperty(box, 'scrollWidth', { configurable: true, value: 300 })
+    fireEvent.scroll(box!)
+    expect(screen.getByTestId('txr-intake-first-rows-scroll-hint')).toBeTruthy()
+  })
+
   it('fires the download callbacks from the two links', () => {
     const callbacks = renderCard()
     fireEvent.click(screen.getByTestId('txr-intake-download-template-patients'))
@@ -474,6 +493,39 @@ describe('ITEM-6 F2/F5/F11 - the mapping offer, the honest problem box, the alig
     )
     expect(items[0].textContent).toBe('required column os_days is missing from the patients table')
     expect(items[1].textContent).toBe('Row 14: week 4 is not a number in the day column')
+  })
+
+  it('the red box names the missing columns in the canonical order (R3-intake-6)', () => {
+    const missingDay: FileProblem = {
+      code: 'R02',
+      severity: 'error',
+      row: 1,
+      column: 'day',
+      message: 'required column `day` is missing from the measurements table',
+    }
+    const missingPatient: FileProblem = {
+      code: 'R02',
+      severity: 'error',
+      row: 1,
+      column: 'patient_id',
+      message: 'required column `patient_id` is missing from the measurements table',
+    }
+    const file = loadedPatients({
+      problems: [missingDay, missingPatient, row14Problem],
+      inspection: inspectionFixture({ problems: [missingDay, missingPatient] }),
+    })
+    seedValidation(
+      patientsValidation({
+        problems: [missingDay, missingPatient, row14Problem],
+        measurements: { rows: 630, patients: 94, distinct_draw_days: [0, 43] },
+      }),
+    )
+    renderCard({ kind: 'measurements', file })
+    // The one line names the canonical columns the check wants, in the
+    // required-role order — beside the suggestions and after they are gone.
+    expect(screen.getByTestId('txr-intake-file-missing-columns-measurements').textContent).toBe(
+      'Missing columns: patient_id, day',
+    )
   })
 
   it('the red box counts ERROR problems only and moves warnings to the notes group (F5d)', () => {

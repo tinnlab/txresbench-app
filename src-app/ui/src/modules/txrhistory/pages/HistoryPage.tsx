@@ -95,6 +95,7 @@ const ALERT_ROW: CSSProperties = { flexGrow: 0 }
 const DOWNLOAD_FAILED = 'The predictions could not be downloaded. Try again.'
 const RERUN_FAILED = 'The run could not be started again. Try again.'
 const SETTINGS_AGAIN_FAILED = 'The settings could not be saved. Try again.'
+const DELETE_FAILED = 'The run could not be deleted. Try again.'
 
 /**
  * The fresh trio the mount + focus refresh runs (DEC-11): the store's
@@ -197,6 +198,21 @@ export function HistoryPage() {
 
   const handleClearAll = (): void => TxrHistory.openConfirm('clear-all')
 
+  // qa-fixes4 ITEM-2 (f): the per-run delete (desktop-gated — the demo-mode
+  // spec's "delete hidden" is the same `isDesktop` fact; the dialog is the
+  // destructive gate). The id travels with the confirmation (the store's
+  // gate-only action — INV-2).
+  const handleDelete = (runId: string): void => {
+    TxrHistory.openConfirm('delete-run', runId)
+  }
+
+  const handleDeleteConfirmed = (): void => {
+    setActionError(null)
+    void TxrHistory.deleteRun().then(ok => {
+      if (!ok) setActionError(DELETE_FAILED)
+    })
+  }
+
   const handleLog = (runId: string): void => {
     void TxrHistory.openLog(runId, null)
   }
@@ -244,6 +260,8 @@ export function HistoryPage() {
                 loading={state.loading}
                 loadingMore={state.loadingMore}
                 error={state.error}
+                search={state.searchInput}
+                filter={state.filter}
                 expandedId={state.expandedId}
                 detail={state.detail}
                 detailLoading={state.detailLoading}
@@ -259,6 +277,7 @@ export function HistoryPage() {
                 onReveal={handleReveal}
                 onLog={handleLog}
                 onOpenSet={handleOpenSet}
+                onDelete={handleDelete}
               />
             </div>
           </ScrollRegion>
@@ -290,6 +309,7 @@ export function HistoryPage() {
         onClearAll={deleteFiles => {
           void TxrHistory.clearAllHistory(deleteFiles)
         }}
+        onDeleteRun={handleDeleteConfirmed}
       />
       <TxrHistoryLogDialog
         open={state.logDialog !== null}

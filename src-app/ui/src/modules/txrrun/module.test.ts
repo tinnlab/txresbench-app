@@ -280,11 +280,34 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/ui/src/modules/txrshell/lib/shellMode.test.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/scrollCache.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/scrollCache.test.ts' &&
+          // qa-fixes4 ITEM-2 (its DRIFT-1): the ONE shared truthful
+          // run-status vocabulary — `txrshell/lib/runStatus.ts` + its unit
+          // test (the K chip and the G/H header speak the same words; a
+          // txrhistory import back would close a module cycle — the
+          // resident precedent is ITEM-1's safeText in the shell).
+          p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.test.ts' &&
+          // qa-fixes4 ITEM-6 (results-r3 R2-10 rest): the ONE start-up
+          // noise predicate — `txrshell/lib/logNoise.ts` + its unit test
+          // (the panel's predicate left this module's lib: the results
+          // dialog hides the same lines and a txrrun import would close a
+          // module cycle — the runStatus precedent).
+          p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.test.ts' &&
 
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a
     // hard-coded light hex — a light flash before the app loads).
-          p !== 'src-app/ui/src/modules/session/SessionGuard.tsx',
+          p !== 'src-app/ui/src/modules/session/SessionGuard.tsx' &&
+          // qa-fixes4 ITEM-4 (its DRIFT-1): the session bootstrap's retry/
+          // error state (R3-intake-8) — the store's retry ladder + the
+          // store/guard tests; the guard file itself is the ITEM-7-sanctioned
+          // tokenization file above.
+          p !== 'src-app/ui/src/modules/session/Session.store.ts' &&
+          p !== 'src-app/ui/src/modules/session/Session.test.tsx' &&
+          // qa-fixes4 ITEM-7 (its DRIFT-1): the session bootstrap's gallery story + special route
+          // (the failing-mint browser leg, R3-intake-8) — the ITEM-4-sanctioned files' sibling.
+          p !== 'src-app/ui/src/modules/session/gallery.tsx',
       ),
     ).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
@@ -374,7 +397,15 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/server/tests/model_store/mod.rs' &&
           // qa-fixes2 ITEM-7 (R2-04): the K row's `predicted` doc grows
           // the distinct-patient meaning — history_store/types.rs.
-          p !== 'src-app/server/src/modules/history_store/types.rs',
+          p !== 'src-app/server/src/modules/history_store/types.rs' &&
+          // qa-fixes4 ITEM-2 (its DRIFT-1): the history list item carries the
+          // engine's OWN per-state counts (TxrHistoryItem.counts, assembled
+          // from txr_runs.counts — history_store/repository.rs;
+          // history_store/types.rs above); the Stop-all shape's stopped/
+          // skipped rows again surface through the same execution_engine
+          // run-record pick (execution_engine/repository.rs, already
+          // sanctioned above).
+          p !== 'src-app/server/src/modules/history_store/repository.rs',
       ),
     ).toEqual([])
     // The ITEM-13 provider-file exception (DRIFT-1 #3) — the ui-list
@@ -447,8 +478,30 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/ui/src/modules/txrshell/lib/shellMode.test.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/scrollCache.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/scrollCache.test.ts' &&
+          // qa-fixes4 ITEM-2 (its DRIFT-1): the ONE shared truthful
+          // run-status vocabulary — `txrshell/lib/runStatus.ts` + its unit
+          // test (the K chip and the G/H header speak the same words; a
+          // txrhistory import back would close a module cycle — the
+          // resident precedent is ITEM-1's safeText in the shell).
+          p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/runStatus.test.ts' &&
+          // qa-fixes4 ITEM-6 (results-r3 R2-10 rest): the ONE start-up
+          // noise predicate — `txrshell/lib/logNoise.ts` + its unit test
+          // (the panel's predicate left this module's lib — the runStatus
+          // precedent).
+          p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/logNoise.test.ts' &&
 
-          p !== 'src-app/ui/src/modules/session/SessionGuard.tsx',
+          p !== 'src-app/ui/src/modules/session/SessionGuard.tsx' &&
+          // qa-fixes4 ITEM-4 (its DRIFT-1): the session bootstrap's retry/
+          // error state (R3-intake-8) — the store's retry ladder + the
+          // store/guard tests; the guard file itself is the ITEM-7-sanctioned
+          // tokenization file above.
+          p !== 'src-app/ui/src/modules/session/Session.store.ts' &&
+          p !== 'src-app/ui/src/modules/session/Session.test.tsx' &&
+          // qa-fixes4 ITEM-7 (its DRIFT-1): the session bootstrap's gallery story + special route
+          // (the failing-mint browser leg, R3-intake-8) — the ITEM-4-sanctioned files' sibling.
+          p !== 'src-app/ui/src/modules/session/gallery.tsx',
       ),
     ).toEqual([])
   })

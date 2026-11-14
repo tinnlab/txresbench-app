@@ -133,6 +133,12 @@ impl RunRow {
             None => Ok(None),
         }
     }
+
+    /// The row's per-state method counts (`txr_runs.counts` — the engine's
+    /// ONE accounting, the same stored value `summarize` serves).
+    pub fn counts(&self) -> Result<TxrRunCounts, AppError> {
+        json_parse(&self.counts, "txr_runs.counts")
+    }
 }
 
 /// Parse the stored RunConfig JSON (the detail + predictions routes read the

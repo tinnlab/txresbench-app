@@ -27,6 +27,7 @@
  * from the results subtitle's precise "11 minutes 20 seconds"; no cross-node
  * seam is created for it.
  */
+import { safeText } from '@/modules/txrshell/lib/safeText'
 import type { TxrOutcomeKey } from '../types'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -177,6 +178,16 @@ export function formatTaskLabel(key: TxrOutcomeKey, horizon: number): string {
 
 /** The facts the G/H header subtitle formats (PROV-UR-5). */
 export interface TxrSubtitleFacts {
+  /**
+   * qa-fixes4 ITEM-2 (a): the run's status word on the SAME vocabulary as
+   * the K status chip (the shared `txrshell/lib/runStatus` builder) — a
+   * terminal run's subtitle leads with it ("Failed", "Stopped by you
+   * (2 skipped)", "Done, 3 of 5 methods failed", "Done") and the counts
+   * segment ("N of M methods finished") is omitted beside it — the status
+   * word carries the same fact in the K vocabulary. Null/absent for a live
+   * run (the counts segment stays, DEC-4).
+   */
+  status?: string | null
   /** `run.counts.finished` — methods that reached `finished`. */
   finished: number | null
   /** The run's selected-method count (`run.counts` total or `method_ids.length`). */
@@ -222,7 +233,9 @@ export function formatDecisionDay(day: number | null): string | null {
  * The full subtitle, segment-wise: each segment is omitted when its datum is
  * null (no empty runs in the sentence — a run with no elapsed time yet
  * reads the counts, learned-from and decision-day segments only), and the
- * segments join with the board's " · " separator. For a fully-populated run
+ * segments join with the board's " · " separator. A terminal run's STATUS
+ * word (ITEM-2 (a), the K vocabulary) leads and replaces the counts
+ * segment — the same fact, the K words. For a fully-populated live run
  * the board's verbatim bytes are:
  *
  * `<n> of <m> methods finished · learned from <p> patients · decision day <d> · took <s> minutes <z> seconds`
@@ -230,10 +243,12 @@ export function formatDecisionDay(day: number | null): string | null {
 export function formatSubtitle(facts: TxrSubtitleFacts): string {
   const segments: string[] = []
   const counts = formatCounts(facts.finished, facts.total)
+  const status = facts.status ?? null
+  if (status !== null) segments.push(status)
+  else if (counts !== null) segments.push(counts)
   const learned = formatLearnedFrom(facts.trainedOn)
   const day = formatDecisionDay(facts.decisionDay)
   const took = formatTook(facts.tookSeconds)
-  if (counts !== null) segments.push(counts)
   if (learned !== null) segments.push(learned)
   if (day !== null) segments.push(day)
   if (took !== null) segments.push(`took ${took}`)
@@ -274,31 +289,12 @@ export function formatReasonText(
 ): string {
   void code
   const d = detail?.trim()
-  if (d && d.length > 0) return ensureSentenceEnd(d)
+  // qa-fixes4 ITEM-1: the UI-side `safeText` guard is the second line
+  // behind the server's API-boundary sanitiser — a leaked absolute path /
+  // the app-data token is never rendered (the browser regression
+  // test feeds a leaked detail through this exact formatter).
+  if (d && d.length > 0) return ensureSentenceEnd(safeText(d))
   return ensureSentenceEnd(REASON_FALLBACK)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// `formatSavedIn` — the "Saved in <path>" display path
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * The run directory as the H aside's "Saved in" line shows it (the board's
- * mono span, `Results.dc.html`: "Documents/TxResBench/analysis-2026-10-21-1002/").
- * The engine's `run.dir` is the absolute path the run lives at (D01's hidden
- * app-data folder); this formatter returns it trimmed, with exactly one
- * trailing slash so the folder presentation matches the board's span. A
- * null/empty/whitespace dir → `null` (the aside omits the line — never a
- * blank path). The board's "Documents/TxResBench/…" shortening is a design
- * example; the real configured path renders as-is.
- */
-export function formatSavedIn(dir: string | null | undefined): string | null {
-  if (dir === null || dir === undefined) return null
-  const trimmed = dir.trim()
-  if (trimmed.length === 0) return null
-  const withoutSlash = trimmed.replace(/\/+$/, '')
-  if (withoutSlash.length === 0) return '/'
-  return `${withoutSlash}/`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -415,6 +411,43 @@ export function formatConstantNote(
 }
 
 /**
+ * The grouped-chance note (results-r3 R3-results-13): a method whose column
+ * carries only 2–3 DISTINCT values (cfmedip's three-category clearance call
+ * — 82 %, 35 % and 6 %) reads like a constant next to a graded scale. The
+ * note names the column and its groups, in the report's plain hint ("this
+ * method gives three groups"); null when no column is grouped (the
+ * one-value constant case stays the constant note's, RES-03).
+ */
+export function formatGroupedChanceNote(
+  columns: ReadonlyArray<{ label: string; values: ReadonlyArray<number | null> }>,
+): string | null {
+  const grouped: Array<{ label: string; distinct: number[] }> = []
+  for (const column of columns) {
+    const distinct: number[] = []
+    for (const value of column.values) {
+      if (value === null || !Number.isFinite(value)) continue
+      if (!distinct.some(existing => Math.abs(existing - value) < 1e-9)) {
+        distinct.push(value)
+      }
+    }
+    if (distinct.length >= 2 && distinct.length <= 3) {
+      grouped.push({ label: column.label, distinct })
+    }
+  }
+  if (grouped.length === 0) return null
+  const parts = grouped.map(group => {
+    const values = formatPatientList(
+      group.distinct
+        .sort((a, b) => a - b)
+        .map(value => formatPct(value * 100) ?? ''),
+    )
+    const numberWord = group.distinct.length === 2 ? 'two' : 'three'
+    return `${group.label} gives ${numberWord} distinct chances (${values}) — its chances are its ${numberWord} groups`
+  })
+  return `${parts.join('; ')}.`
+}
+
+/**
  * The missing-chance note (qa-fixes2 R2-10): the table is built from the
  * engine's prediction columns, and a finished method with no recorded
  * chance column is absent from them — the header's "N of M methods
@@ -512,25 +545,68 @@ export function txrRunFailed(run: {
 }
 
 /**
- * The no-chance note (qa-fixes2 R2-03): a finished method whose column
- * carries no chances (the engine's `prob_source: none` — a saved model
- * reused on new patients without a score-to-chance conversion for the run's
- * outcome and day) renders a wall of blank cells with no explanation. The
- * note names the columns plainly, with the SAME words as the method page's
- * prob-source line; null when the view has no such column.
+ * The plural wording of the no-chance reason (qa-fixes4 ITEM-6 on top of the
+ * conversion semantics): several saved models, none with a score-to-chance
+ * conversion for the run's outcome and day. One column reads
+ * `NO_CHANCE_REASON`.
  */
-export function formatNoChanceNote(
+export const NO_CHANCE_REASON_PLURAL =
+  'the saved models have no score-to-chance conversion for this outcome and day'
+
+/** The fallback reason of an all-abstain column whose notes differ per patient. */
+const EMPTY_COLUMN_REASON_FALLBACK = 'no chances were produced for any patient'
+
+/**
+ * The per-column reason of a DROPPED empty column (qa-fixes4 ITEM-6, R2-03):
+ * `prob_source: none` reads the reuse sentence; an all-abstain column reads
+ * its own uniform note (the one sentence every patient's abstain shares —
+ * "fewer than 3 draws by day 56 for every patient" — the honest "why" of
+ * the empty column); differing notes read the fallback (never a fabricated
+ * single reason).
+ */
+export function formatEmptyColumnReason(
+  column: { probSource: 'native' | 'recalibrated' | 'converted' | null; notes: ReadonlyArray<string | null> },
+): string {
+  if (column.probSource === null) return ensureSentenceEnd(NO_CHANCE_REASON)
+  const notes = [
+    ...new Set(
+      column.notes.filter((note): note is string => note !== null && note.trim().length > 0),
+    ),
+  ]
+  if (notes.length === 1) return ensureSentenceEnd(notes[0])
+  return ensureSentenceEnd(EMPTY_COLUMN_REASON_FALLBACK)
+}
+
+/**
+ * The one line under the table naming EVERY dropped empty column and its
+ * reason (qa-fixes4 ITEM-6 — R2-03's "blank columns plus a note" becomes
+ * "no columns, one line): "No chances are shown for A, B: <reason>." — one
+ * sentence per distinct reason, in the columns' order; null when nothing
+ * was dropped. The names are the columns' display labels.
+ */
+export function formatEmptyColumnsNote(
   columns: ReadonlyArray<{
     label: string
     probSource: 'native' | 'recalibrated' | 'converted' | null
+    notes: ReadonlyArray<string | null>
   }>,
 ): string | null {
-  const noChance = columns.filter(c => c.probSource === null)
-  if (noChance.length === 0) return null
-  const names = noChance.map(c => c.label).join(', ')
-  const reason =
-    noChance.length === 1
-      ? NO_CHANCE_REASON
-      : 'the saved models have no score-to-chance conversion for this outcome and day'
-  return `No chances are shown for ${names}: ${reason}.`
+  if (columns.length === 0) return null
+  const byReason = new Map<string, string[]>()
+  for (const column of columns) {
+    const reason = formatEmptyColumnReason(column)
+    const names = byReason.get(reason) ?? []
+    names.push(column.label)
+    byReason.set(reason, names)
+  }
+  const noConversion = ensureSentenceEnd(NO_CHANCE_REASON)
+  return [...byReason.entries()]
+    .map(([reason, names]) => {
+      const said =
+        reason === noConversion && names.length > 1
+          ? ensureSentenceEnd(NO_CHANCE_REASON_PLURAL)
+          : reason
+      return `No chances are shown for ${names.join(', ')}: ${said}`
+    })
+    .join(' ')
 }

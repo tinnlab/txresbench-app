@@ -22,6 +22,7 @@ import type {
   TxrHistoryItem,
   TxrHistoryPreferences,
   TxrHistoryUsage,
+  TxrRunCounts,
   TxrRunLogLine,
 } from '@/api-client/types'
 import { formatDate } from '../lib/format'
@@ -90,6 +91,7 @@ function item(id: string, over: Partial<TxrHistoryItem> = {}): TxrHistoryItem {
   return {
     id,
     bucket: 'finished',
+    counts: { finished: 3, failed: 0, stopped: 0, skipped: 0, cannot_run: 0, running: 0, downloading: 0, waiting: 0 },
     mode: 'train',
     created_at: '2026-11-01T05:00:00Z',
     method_count: 3,
@@ -226,6 +228,8 @@ function listProps(over: Partial<Parameters<typeof TxrHistoryList>[0]> = {}) {
     loading: false,
     loadingMore: false,
     error: null as 'network' | null,
+    search: '',
+    filter: 'all' as 'all' | 'learned' | 'saved-model' | 'stopped-failed',
     expandedId: null as string | null,
     detail: null as TxrHistoryDetail | null,
     detailLoading: false,
@@ -310,6 +314,26 @@ describe('TxrHistoryList (TEST-HIST-7 — cards, empty, error, load more)', () =
     expect(view.getByTestId('txr-history-empty').textContent).toContain(
       'Runs you start appear here, newest first.',
     )
+  })
+
+  // R3-results-5: a search (or filter) with no match names the restriction —
+  // the fresh-history promise is not the story next to a query the user typed.
+  it('names the query when a search matches nothing (R3-results-5)', () => {
+    const view = render(
+      <TxrHistoryList {...listProps({ items: [], total: 0, search: 'zzzz' })} />,
+    )
+    expect(view.getByTestId('txr-history-empty').textContent).toContain("No run matches 'zzzz'")
+    expect(view.getByTestId('txr-history-empty').textContent).not.toContain('Nothing here yet')
+  })
+
+  it('names the filter when a filter matches nothing (R3-results-5)', () => {
+    const view = render(
+      <TxrHistoryList {...listProps({ items: [], total: 0, filter: 'stopped-failed' })} />,
+    )
+    expect(view.getByTestId('txr-history-empty').textContent).toContain(
+      "No runs match 'Stopped or failed'",
+    )
+    expect(view.getByTestId('txr-history-empty').textContent).not.toContain('Nothing here yet')
   })
 
   it('renders the failure state with a Retry that refires, never a blank page', () => {
@@ -406,6 +430,7 @@ describe('TxrHistoryCard (TEST-HIST-7 — the collapsed row and the expanded blo
   it('a stopped row reads the red reason line instead of the facts line (verbatim detail)', () => {
     const stopped = item('run-1', {
       bucket: 'stopped',
+      counts: { ...(item('x').counts as unknown as TxrRunCounts), stopped: 1 },
       reason: { code: 'REQUIRED_MARKER_MISSING', detail: 'marker LDH is missing from the measurements' },
     })
     const view = render(
@@ -414,8 +439,57 @@ describe('TxrHistoryCard (TEST-HIST-7 — the collapsed row and the expanded blo
     const line = view.getByTestId('txr-history-subtitle-run-1')
     expect(line.textContent).toBe('Stopped: marker LDH is missing from the measurements')
     expect(colorHex(line.style.color)).toBe('var(--txr-danger)')
-    expect(view.getByTestId('txr-history-status-run-1').textContent).toBe('Stopped')
+    // qa-fixes4 ITEM-2 (a): a stopped run reads the truthful stop word.
+    expect(view.getByTestId('txr-history-status-run-1').textContent).toBe('Stopped by you')
     expect(view.getByTestId('txr-history-status-run-1').style.color).toBe('var(--txr-muted)')
+  })
+
+  it('ITEM-2 (R3-results-3): a partial run (3 of 5 failed) reads the truthful status and the one-line reason', () => {
+    const partial = item('run-1', {
+      counts: { ...(item('x').counts as unknown as TxrRunCounts), finished: 2, failed: 3 },
+      method_count: 5,
+      can_reopen: true,
+      reason: {
+        code: 'BUNDLE_MARKER_COUNT_UNMET',
+        detail: 'the method needs a different number of markers than the file has',
+      },
+    })
+    const view = render(
+      <TxrHistoryCard item={partial} expanded={false} detail={null} detailLoading={false} isDesktop onToggle={vi.fn()} />,
+    )
+    expect(view.getByTestId('txr-history-status-run-1').textContent).toBe(
+      'Done, 3 of 5 methods failed',
+    )
+    expect(view.getByTestId('txr-history-status-run-1').style.color).toBe('var(--txr-warning)')
+    expect(view.getByTestId('txr-history-subtitle-run-1').textContent).toBe(
+      'Failed: the method needs a different number of markers than the file has',
+    )
+    expect(colorHex(view.getByTestId('txr-history-subtitle-run-1').style.color)).toBe('var(--txr-danger)')
+  })
+
+  it('ITEM-2: the 203-of-209 cannot-run run and the Stop-all run name their counts', () => {
+    const many = item('run-1', {
+      counts: { ...(item('x').counts as unknown as TxrRunCounts), finished: 6, cannot_run: 203 },
+      method_count: 209,
+    })
+    const viewMany = render(
+      <TxrHistoryCard item={many} expanded={false} detail={null} detailLoading={false} isDesktop onToggle={vi.fn()} />,
+    )
+    expect(viewMany.getByTestId('txr-history-status-run-1').textContent).toBe(
+      'Done, 203 of 209 methods could not run',
+    )
+    cleanup()
+
+    const stopAll = item('run-1', {
+      bucket: 'stopped',
+      counts: { ...(item('x').counts as unknown as TxrRunCounts), stopped: 4, skipped: 2 },
+      method_count: 6,
+      reason: { code: 'ABORTED', detail: 'stopped by the user' },
+    })
+    const viewStop = render(
+      <TxrHistoryCard item={stopAll} expanded={false} detail={null} detailLoading={false} isDesktop onToggle={vi.fn()} />,
+    )
+    expect(viewStop.getByTestId('txr-history-status-run-1').textContent).toBe('Stopped by you (2 skipped)')
   })
 
   it('a reuse run reads the neutral chip + the Predicted line', () => {
@@ -679,7 +753,7 @@ describe('TxrHistoryDetailBlock + the composition helpers (TEST-HIST-7 — the f
 })
 
 describe('TxrHistoryFooter (TEST-HIST-7 — usage line + the two retention links)', () => {
-  it('renders the usage line from the usage record: count · mono data dir · bytes · the promise trail', () => {
+  it('renders the usage line from the usage record: count · bytes · the promise trail, no data dir (qa-fixes4 ITEM-1)', () => {
     const view = render(
       <TxrHistoryFooter
         usage={usage()}
@@ -692,7 +766,11 @@ describe('TxrHistoryFooter (TEST-HIST-7 — usage line + the two retention links
       />,
     )
     const line = view.getByTestId('txr-history-usage')
-    expect(line.textContent).toBe('3 runs · /data/txresbench uses 327 MB of stored files. Delete a run to free the space.')
+    // results-r3 R3-results-2: the `/data/txresbench` segment is gone —
+    // the data root is an internal host fact; what remains is the board's
+    // storage line without the path.
+    expect(line.textContent).toBe('3 runs · uses 327 MB of stored files. Delete a run to free the space.')
+    expect(line.textContent).not.toContain('/data/txresbench')
   })
 
   it('falls back to the list total for the count and omits the bytes/path segments when usage is unavailable', () => {
@@ -861,6 +939,23 @@ describe('TxrHistoryActions (TEST-HIST-7 — the per-capability action variants)
     expect(view.getByTestId('txr-history-log-run-1')).toBeTruthy() // the log is every row's
   })
 
+  it('ITEM-2 (f): desktop offers "Delete this run" (the footer\'s promise is true); web mode hides it', () => {
+    const onDelete = vi.fn()
+    const view = render(
+      <TxrHistoryActions item={item('run-1')} runId="run-1" isDesktop onDelete={onDelete} />,
+    )
+    const del = view.getByTestId('txr-history-delete-run-1')
+    expect(del.textContent).toBe('Delete this run')
+    fireEvent.click(del)
+    expect(onDelete).toHaveBeenCalledWith('run-1')
+    cleanup()
+
+    const web = render(
+      <TxrHistoryActions item={item('run-1')} runId="run-1" isDesktop={false} onDelete={onDelete} />,
+    )
+    expect(web.queryByTestId('txr-history-delete-run-1')).toBeNull()
+  })
+
   it('no download affordance when the run cannot download (can_download false)', () => {
     const view = render(
       <TxrHistoryActions item={item('run-1', { can_download: false })} runId="run-1" isDesktop />,
@@ -1006,12 +1101,13 @@ describe('TxrHistoryLogDialog (TEST-HIST-7 — the terminal snapshot)', () => {
 
 describe('TxrConfirmDialog (TEST-HIST-7 — the three confirmations, INV-2)', () => {
   const confirmProps = (over: Partial<Parameters<typeof TxrConfirmDialog>[0]> = {}) => ({
-    confirm: 'copies-off' as 'copies-off' | 'copies-on' | 'clear-all' | null,
+    confirm: 'copies-off' as 'copies-off' | 'copies-on' | 'clear-all' | 'delete-run' | null,
     working: false,
     onCancel: vi.fn(),
     onCopiesOff: vi.fn(),
     onCopiesOn: vi.fn(),
     onClearAll: vi.fn(),
+    onDeleteRun: vi.fn(),
     ...over,
   })
 
@@ -1021,7 +1117,7 @@ describe('TxrConfirmDialog (TEST-HIST-7 — the three confirmations, INV-2)', ()
     const props = confirmProps({ onCopiesOff, onCancel })
     const view = render(<TxrConfirmDialog {...props} />)
     expect(view.getByTestId('txr-history-confirm-body-copies-off').textContent).toBe(
-      'New runs will not keep copies. Copies already stored are removed.',
+      'New runs will not keep copies. Copies already stored are removed, so those runs can no longer be repeated with the same files; their settings can still be used again.',
     )
     fireEvent.click(view.getByTestId('txr-history-confirm-cancel'))
     expect(onCancel).toHaveBeenCalledTimes(1)
@@ -1045,7 +1141,7 @@ describe('TxrConfirmDialog (TEST-HIST-7 — the three confirmations, INV-2)', ()
     const onCancel = vi.fn()
     const view = render(<TxrConfirmDialog {...confirmProps({ confirm: 'clear-all', onClearAll, onCancel })} />)
     expect(view.getByTestId('txr-history-confirm-body-clear-all').textContent).toBe(
-      'Clear the history list and the run folders without the files?',
+      'Every run is removed from the history. This cannot be undone. Saved models are kept. Choose whether the stored files are removed too.',
     )
     fireEvent.click(view.getByTestId('txr-history-confirm-clear-files'))
     expect(onClearAll).toHaveBeenCalledWith(true)

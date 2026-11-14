@@ -1192,10 +1192,14 @@ fn run(bin: &str, args: &[&str], timeout: Duration) -> Result<String, AppError> 
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| {
+            // qa-fixes4 ITEM-1: the old text named the tool binary path and
+            // the host tools — internal facts a user must never see (the
+            // boundary sanitiser is the backstop; the sentence itself is
+            // plain now; the failure detail stays in the log).
             AppError::new(
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 "ENV_IMAGE_TOOL_MISSING",
-                format!("failed to run `{bin}` (host dependency; install oras/cosign): {e}"),
+                format!("The method environment is not available yet ({e})"),
             )
         })?;
 

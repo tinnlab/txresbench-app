@@ -541,6 +541,13 @@ pub fn check_required_columns_in(
 /// are also R02-required, so this verdict fires alongside the per-column R02
 /// errors and names the file-level reason; `responder`/`response_day` optional
 /// per the owner decision (D48).
+///
+/// The message lists EVERY required column (qa-fixes4 ITEM-5, help-r3's
+/// accuracy table): following the advice must fix the R02 errors too — the old
+/// "or responder + response_day" ending invited a set the board does not
+/// require, and a patient table with only responder/response_day still carries
+/// four R02 errors (the R02 check, not this one, is the authority on what the
+/// board requires).
 pub fn check_outcome_columns(model: &CanonicalModel) -> Vec<FileProblem> {
     let Some(shape) = &model.patients_shape else {
         return Vec::new();
@@ -562,7 +569,7 @@ pub fn check_outcome_columns(model: &CanonicalModel) -> Vec<FileProblem> {
         ProblemSeverity::Error,
         Some(shape.header_row),
         None,
-        "no outcome column: none of pfs_days/pfs_event, os_days/os_event or responder/response_day is present in the patients table".to_string(),
+        "no outcome column: the patients table has none of the outcome columns the app requires — the required columns are patient_id, pfs_days, pfs_event, os_days and os_event (responder and response_day are extra)".to_string(),
     )]
 }
 
@@ -2071,6 +2078,13 @@ mod tests {
         assert_eq!(a02.len(), 1, "one A02: {problems:?}");
         assert_eq!(a02[0].severity, ProblemSeverity::Error);
         assert!(a02[0].message.contains("outcome"), "{}", a02[0].message);
+        // qa-fixes4 ITEM-5 (help-r3 accuracy): the message lists EVERY
+        // required column — following the advice must leave no R02 — and
+        // names `responder`/`response_day` as extra, never as a substitute.
+        for column in ["patient_id", "pfs_days", "pfs_event", "os_days", "os_event"] {
+            assert!(a02[0].message.contains(column), "lists {column}: {}", a02[0].message);
+        }
+        assert!(a02[0].message.contains("extra"), "{}", a02[0].message);
         // The four board outcome columns being required (owner D48) means the
         // per-column R02 errors accompany the verdict.
         let r02: Vec<_> = problems
@@ -2082,6 +2096,59 @@ mod tests {
         assert!(
             problems.iter().all(|p| p.code != ProblemCode::R14OutcomeAvailable),
             "{problems:?}"
+        );
+    }
+
+    /// qa-fixes4 ITEM-5, TEST-QF4-5 (the help-r3 accuracy probe): a patient
+    /// table built by FOLLOWING the A02 advice (the message's required column
+    /// set) validates with no A02 and no R02 — the advice and the R02 rule
+    /// agree. And the report's "R02 only responder" shape (patient_id +
+    /// responder/response_day, none of the board columns) keeps its four R02s:
+    /// the optional set is never a substitute for the required one.
+    #[test]
+    fn test_fv5_following_a02_advice_leaves_no_r02() {
+        let mut m = valid_model();
+        m.patients_shape = Some(TableShape::new(
+            1,
+            vec![
+                "patient_id".into(),
+                "pfs_days".into(),
+                "pfs_event".into(),
+                "os_days".into(),
+                "os_event".into(),
+            ],
+        ));
+        m.patients = vec![patient(Some("P1"), Some("100"), Some("1"), Some("200"), Some("0"), 2)];
+        let problems = validate_model(&m);
+        assert!(
+            problems.iter().all(|p| p.code != ProblemCode::A02RequiredColumnNotFound),
+            "no A02 after following the advice: {problems:?}"
+        );
+        assert!(
+            problems.iter().all(|p| p.code != ProblemCode::R02RequiredColumns),
+            "no R02 after following the advice: {problems:?}"
+        );
+
+        // The report's probe: only the optional responder set → R02 x4.
+        let mut m = valid_model();
+        m.patients_shape = Some(TableShape::new(
+            1,
+            vec![
+                "patient_id".into(),
+                "responder".into(),
+                "response_day".into(),
+            ],
+        ));
+        m.patients = vec![patient(Some("P1"), None, None, None, None, 2)];
+        let problems = validate_model(&m);
+        let r02: Vec<_> = problems
+            .iter()
+            .filter(|p| p.code == ProblemCode::R02RequiredColumns)
+            .collect();
+        assert_eq!(r02.len(), 4, "the four board columns still required: {problems:?}");
+        assert!(
+            problems.iter().all(|p| p.code != ProblemCode::A02RequiredColumnNotFound),
+            "the responder set is an outcome set for A02: {problems:?}"
         );
     }
 

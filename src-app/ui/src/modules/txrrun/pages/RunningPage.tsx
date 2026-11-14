@@ -39,11 +39,14 @@ import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
  * base next to the table.
  *
  * qa-fixes ITEM-3 (RP-1/2/3): the ELAPSED fact is the run's own
- * `elapsed_secs` snapshot at load plus a one-second client tick (the run's
- * `started_at` is on the same machine — no clock skew) while the run is
+ * `started_at` against the page's wall clock (qa-fixes4 ITEM-3,
+ * R3-methods-3 — the same clock the rows' Time column reads, so the
+ * header and the rows cannot drift; a run without a start falls back to
+ * the snapshot's `elapsed_secs` + one second's tick) while the run is
  * live, and the time-left line uses that LIVE elapsed, so "about N minutes
- * left" counts down instead of freezing (INV-4: the estimate is still the
- * engine's own, minus elapsed; nothing is re-scheduled here). The page is
+ * left" counts down and the sub-minute remainder reads its real seconds
+ * (INV-4: the estimate is still the engine's own, minus elapsed; nothing
+ * is re-scheduled here). The page is
  * bounded (the E page's definite-height frame — CM-2) so the table and the
  * log panel live inside it and scroll IN THEMSELVES; the per-state counter
  * strip shows every engine state and the tab chips are one bucket per state
@@ -136,6 +139,35 @@ const STATE_BLOCK: CSSProperties = {
   gap: 14,
 }
 
+/** The not-found block (qa-fixes4 ITEM-2 (e): the sibling results page's
+ *  left-aligned not-found shape — the old kit Result ran in a narrow
+ *  column at the left of a wide page). */
+const NOT_FOUND_BLOCK: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  gap: 10,
+  maxWidth: 460,
+}
+
+const NOT_FOUND_TITLE: CSSProperties = {
+  margin: 0,
+  fontFamily: "'Source Serif 4', Georgia, serif",
+  fontWeight: 600,
+  fontSize: 22,
+  lineHeight: 1.3,
+}
+
+const NOT_FOUND_LINE: CSSProperties = { margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }
+
+const NOT_FOUND_LINK: CSSProperties = {
+  fontSize: 14,
+  fontWeight: 600,
+  padding: 0,
+  height: 'auto',
+  color: 'var(--txr-brand)',
+}
+
 /** The leave-and-continue note (the board's footer line under the table:
  *  the run keeps going when this screen is left; the note is the page's
  *  always-rendered wiring, not the panel's). */
@@ -206,23 +238,25 @@ function LoadingRun() {
 }
 
 function NotFoundRun({ history }: { history: string }) {
+  // qa-fixes4 ITEM-2 (e, methods-r3 R3-methods-7): a missing run is not a
+  // connection problem — the block is the app's not-found voice, LEFT
+  // aligned like the sibling results page's not-found state (the old kit
+  // Result sat in a narrow column), with the History way out.
   return (
     <main data-testid="txr-run" style={PAGE_OUTER}>
       <PageFrame
         body={
           <ScrollRegion label="Run">
             <div style={STATE_BLOCK}>
-              <Result
-                status="404"
-                data-testid="txr-run-not-found"
-                title="This analysis run could not be found"
-                subtitle="It may have been removed, or the link is outdated."
-                extra={
-                  <Link data-testid="txr-run-history" to={history}>
-                    History
-                  </Link>
-                }
-              />
+              <div data-testid="txr-run-not-found" style={NOT_FOUND_BLOCK}>
+                <h2 style={NOT_FOUND_TITLE}>We could not find this run</h2>
+                <p style={NOT_FOUND_LINE}>
+                  It may have been removed, or the link is outdated.
+                </p>
+                <Link data-testid="txr-run-history" to={history} style={NOT_FOUND_LINK}>
+                  History
+                </Link>
+              </div>
             </div>
           </ScrollRegion>
         }
@@ -300,39 +334,36 @@ export function RunningPage() {
     runStatus,
     terminal ? finishedCount : null,
   )
-  // R2-G1: the tab/title byte is the page's own h1 once the run is known
-  // ("Running N methods", "Finished N methods"…); before that the status
-  // word alone ("Running …"). A run record carries no name field, so the
-  // title is derived exactly like the page heading — never invented.
-  useDocumentTitle(run === null ? 'Running' : title)
+  // R2-G1 + qa-fixes4 ITEM-2 (e): the tab/title byte is the page's own h1
+  // once the run is known ("Running N methods", "Finished N methods"…
+  // and "Run not found" for a missing run — the plan's document-title pin).
+  // A run record carries no name field, so the title is derived exactly
+  // like the page heading — never invented.
+  useDocumentTitle(run === null ? (runError === 'not-found' ? 'Run not found' : 'Running') : title)
 
-  // The LIVE elapsed (RP-2): the run's own snapshot at load (the detail's
-  // `elapsed_secs`; the `started_at` anchor for a run whose snapshot had no
-  // elapsed — the server and the page are the same machine) plus a
-  // one-second client tick while the run is live, so the elapsed reads and
-  // the time-left counts down. The anchor is fixed per run id (a status or
-  // method frame re-patches `run` — the anchor must not be re-read, the
-  // tick must not be reset); a terminal run reads the engine's final
-  // `elapsed_secs` and stops ticking.
+  // The LIVE elapsed (RP-2; qa-fixes4 ITEM-3, methods-r3 R3-methods-3):
+  // the run's own `started_at` against the page's wall clock — the SAME
+  // clock the rows' Time column reads (`Date.now()` − each row's
+  // `started_at`), so the header and the per-row times move together
+  // instead of the header lagging behind a one-second counter (the old
+  // snapshot-plus-tick read the run's `elapsed_secs` snapshot at load and
+  // beat a `setInterval` counter that drifts when timers are delayed — the
+  // reported "header 9 s while the row says 11 s" and "21 s at a 30 s
+  // run"). No clock skew applies (the shell and the engine share the
+  // machine; the desktop shell hosts the engine in-process). A run the
+  // engine gave no `started_at` (a `creating`/`preparing` snapshot, an old
+  // record) falls back to its `elapsed_secs` snapshot + the one-second
+  // tick. A terminal run reads the engine's final `elapsed_secs` and stops
+  // ticking.
   const [elapsedTick, setElapsedTick] = useState(0)
   useEffect(() => {
     setElapsedTick(0)
   }, [run?.id])
-  // The anchor is fixed per run id: a status or method frame re-patches the
-  // run object, and re-reading the anchor there would reset the tick every
-  // frame — the snapshot's elapsed (or the started_at anchor) is taken ONCE
-  // per run, at the load that delivered it.
-  const elapsedAnchor = useMemo(() => {
-    if (run === null) return null
-    return (
-      run.elapsed_secs ??
-      (run.started_at !== undefined
-        ? Math.max(0, (Date.now() - Date.parse(run.started_at)) / 1000)
-        : null)
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the RUN
-    // ID only (the run object is re-patched by every frame).
-  }, [run?.id])
+  // The snapshot fallback is fixed per run id: a status or method frame
+  // re-patches the run object, and re-reading the snapshot there would
+  // reset the tick every frame — the value is taken ONCE per run, at the
+  // load that delivered it (the `started_at`-based path never reads it).
+  const elapsedSnapshot = useMemo(() => run?.elapsed_secs ?? null, [run?.id])
   useEffect(() => {
     if (run === null || terminal) return
     const id = window.setInterval(() => setElapsedTick(t => t + 1), 1000)
@@ -341,8 +372,12 @@ export function RunningPage() {
   const liveElapsedSecs = useMemo(() => {
     if (run === null) return null
     if (terminal) return run.elapsed_secs ?? null
-    return elapsedAnchor === null ? null : elapsedAnchor + elapsedTick
-  }, [run, terminal, elapsedAnchor, elapsedTick])
+    if (run.started_at != null) {
+      const start = Date.parse(run.started_at)
+      if (Number.isFinite(start)) return (Date.now() - start) / 1000
+    }
+    return elapsedSnapshot === null ? null : elapsedSnapshot + elapsedTick
+  }, [run, terminal, elapsedSnapshot, elapsedTick])
   // R2-1/R2-2: the time-left segment belongs to a LIVE run only — a terminal
   // run's header reads "took 17 s" (the elapsed segment's terminal word),
   // never the stale "about 2 minutes left" of the estimate the run started
@@ -466,28 +501,37 @@ export function RunningPage() {
             <TxrCountsStrip counts={run.counts} />
             <div data-testid="txr-run-tabs" style={TAB_ROW}>
               {TABS.map(entry => (
-                <Button
+                <span
                   key={entry.id}
-                  data-testid={`txr-run-tab-${entry.id}`}
-                  variant="outline"
-                  className="rounded-full font-normal"
-                  style={tab === entry.id ? ACTIVE_TAB : TAB_CHIP}
-                  aria-pressed={tab === entry.id}
-                  title={entry.definition}
-                  onClick={() => TxrRun.setTab(entry.id)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
-                  {entry.label} {bucketCounts[entry.id]}
-                </Button>
+                  <Button
+                    data-testid={`txr-run-tab-${entry.id}`}
+                    variant="outline"
+                    className="rounded-full font-normal"
+                    style={tab === entry.id ? ACTIVE_TAB : TAB_CHIP}
+                    aria-pressed={tab === entry.id}
+                    title={entry.definition}
+                    onClick={() => TxrRun.setTab(entry.id)}
+                  >
+                    {entry.label} {bucketCounts[entry.id]}
+                  </Button>
+                  {/* qa-fixes4 ITEM-3 (methods-r3 RP-10): the Working chip's
+                      definition is ALWAYS on screen beside it — a bare
+                      "Working 6" chip left a reader guessing what the
+                      bucket holds (the old render-on-active line appeared
+                      only after the tab was clicked). */}
+                  {entry.id === 'working' && entry.definition !== undefined ? (
+                    <span
+                      data-testid="txr-run-tab-working-definition"
+                      style={{ fontSize: 12.5, color: 'var(--txr-muted)' }}
+                    >
+                      {entry.definition}
+                    </span>
+                  ) : null}
+                </span>
               ))}
               <span style={{ flexGrow: 1 }} />
-              {tab === 'working' ? (
-                <span
-                  data-testid="txr-run-tab-working-definition"
-                  style={{ fontSize: 12.5, color: 'var(--txr-muted)' }}
-                >
-                  {TABS.find(t => t.id === 'working')?.definition}
-                </span>
-              ) : null}
               {!state.logOpen ? (
                 <Button
                   data-testid="txr-run-log-open"

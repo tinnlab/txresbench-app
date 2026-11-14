@@ -569,7 +569,7 @@ export function txrValidateResponse(body: FixtureValidationBody): ValidationResp
         code: 'A04',
         severity: 'warning',
         column: column.key,
-        message: `column \`${column.key}\` unit '${column.unit}' is not a recognizable unit family — no scale assumption is made`,
+        message: `column \`${column.key}\` unit '${column.unit}' is not a unit we recognise — scales are not compared`,
       })
     }
   }

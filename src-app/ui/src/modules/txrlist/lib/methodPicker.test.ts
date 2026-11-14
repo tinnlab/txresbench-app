@@ -43,6 +43,7 @@ function card(over: Partial<TxrMethodCard> & { id: string }): TxrMethodCard {
       coverageLine: 'all 151 patients',
       reasonCode: null,
       reasonLine: 'all 151 patients',
+      reasonLines: ['all 151 patients'],
       reasonFix: '',
       disabled: false,
     },
@@ -62,7 +63,7 @@ const RUNNABLE = [
 
 describe('runnableCards / recommendedSelection (the plan: up to 8, at most 3 per family, best benchmark first)', () => {
   it('a cannot card is never runnable', () => {
-    const cannot = card({ id: 'x', run: { status: 'cannot', coverageLine: '', reasonCode: 'ENV_IMAGE_MISSING', reasonLine: 'no published environment available', reasonFix: 'This method is not available yet.', disabled: true } })
+    const cannot = card({ id: 'x', run: { status: 'cannot', coverageLine: '', reasonCode: 'ENV_IMAGE_MISSING', reasonLine: 'no published environment available', reasonLines: ['no published environment available'], reasonFix: 'This method is not available yet.', disabled: true } })
     expect(runnableCards([...RUNNABLE, cannot]).map(c => c.id)).not.toContain('x')
   })
 
@@ -140,9 +141,9 @@ describe('sortCards / filterMethodCards', () => {
 describe('reasonGroups (the per-reason partition of the cannot cards)', () => {
   it('partitions the cannot cards by their first reason in the fixed order', () => {
     const cannot = [
-      card({ id: 'n1', run: { status: 'cannot', coverageLine: '', reasonCode: 'ENV_IMAGE_MISSING', reasonLine: 'no published environment available', reasonFix: '', disabled: true } }),
-      card({ id: 'n2', run: { status: 'cannot', coverageLine: '', reasonCode: 'REQUIRED_MARKER_MISSING', reasonLine: 'needs LDH', reasonFix: '', disabled: true } }),
-      card({ id: 'n3', run: { status: 'cannot', coverageLine: '', reasonCode: 'MIN_DRAWS_UNMET', reasonLine: 'needs draws', reasonFix: '', disabled: true } }),
+      card({ id: 'n1', run: { status: 'cannot', coverageLine: '', reasonCode: 'ENV_IMAGE_MISSING', reasonLine: 'no published environment available', reasonLines: ['no published environment available'], reasonFix: '', disabled: true } }),
+      card({ id: 'n2', run: { status: 'cannot', coverageLine: '', reasonCode: 'REQUIRED_MARKER_MISSING', reasonLine: 'needs LDH', reasonLines: ['needs LDH'], reasonFix: '', disabled: true } }),
+      card({ id: 'n3', run: { status: 'cannot', coverageLine: '', reasonCode: 'MIN_DRAWS_UNMET', reasonLine: 'needs draws', reasonLines: ['needs draws'], reasonFix: '', disabled: true } }),
     ]
     const groups = reasonGroups([...RUNNABLE, ...cannot])
     expect(groups.map(g => g.key)).toEqual(['environment', 'marker', 'draws'])
@@ -152,7 +153,7 @@ describe('reasonGroups (the per-reason partition of the cannot cards)', () => {
   })
 
   it('an unknown reason code lands in the catch-all group (never dropped)', () => {
-    const foreign = card({ id: 'z', run: { status: 'cannot', coverageLine: '', reasonCode: 'FOREIGN_CODE', reasonLine: 'cannot run with this file', reasonFix: '', disabled: true } })
+    const foreign = card({ id: 'z', run: { status: 'cannot', coverageLine: '', reasonCode: 'FOREIGN_CODE', reasonLine: 'cannot run with this file', reasonLines: ['cannot run with this file'], reasonFix: '', disabled: true } })
     const groups = reasonGroups([foreign])
     expect(groups[0].key).toBe('other')
     expect(groups[0].cards[0].id).toBe('z')

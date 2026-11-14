@@ -58,6 +58,7 @@ import { TXRLIST_STATUS_COLORS } from '@/modules/txrlist/components/TxrListRow'
 // `Circular dependency detected` (the cycle the qa-fixes2 ITEM-3 plan
 // already recorded for `txrrun`).
 import { TxrUseExampleButton } from '@/modules/txrintake/components/TxrUseExampleButton'
+import { TxrIntake } from '@/modules/txrintake/stores/TxrIntake.store'
 import {
   ELIGIBILITY_STATUSES,
   HELP_SECTIONS,
@@ -69,13 +70,36 @@ import {
   problemGroupOf,
 } from '../content'
 import { helpPath } from '../routes'
-import type { FileCardContent, HelpBlock, HelpProblemEntry, ProblemGroup, StepCard } from '../types'
+import type { FileCardContent, HelpBlock, HelpProblemEntry, ProblemGroup, QuickStartCard, StepCard } from '../types'
 
 /** The intake route the example action lands on (the one-click promise of
  *  qa-fixes3 ITEM-4: the file step whose own flow validates the adopted
  *  tables; the destination literals mirror the Start screen's own). */
 const EXAMPLE_FILES_ROUTE = '/files'
 const EXAMPLE_PREDICT_FILES_ROUTE = '/predict-files'
+
+/**
+ * The quick-start card's intent (qa-fixes4 ITEM-5, R3-help-6): the card
+ * ids ARE the three ways in (pretrained/learn/saved — the Start screen's
+ * own vocabulary), and the intent is the flow's mode. The two predict
+ * cards share one destination; the intent is what makes the destination
+ * tell the pretrained path from the saved-model path. The union is a
+ * LOCAL three-literal copy (the types.ts byte, and the same reason: the
+ * module never imports the intake module's types — a reverse import
+ * would be the manifest cycle; structural typing makes it assignable).
+ */
+type QuickStartIntent = 'pretrained' | 'train' | 'reuse'
+
+function intentOf(id: QuickStartCard['id']): QuickStartIntent {
+  switch (id) {
+    case 'saved':
+      return 'reuse'
+    case 'learn':
+      return 'train'
+    case 'pretrained':
+      return 'pretrained'
+  }
+}
 
 /** The page's flex spine (the frame fills the routed area; the palette is
  *  the page's own — R2-H6: the kit token layer's near-black dark
@@ -173,7 +197,12 @@ function RegionBridge({ regionRef }: { regionRef: React.RefObject<HTMLDivElement
   return null
 }
 
-/** Highlight the query matches inside a text (the search's highlighter). */
+/** Highlight the query matches inside a text (the search's highlighter).
+ *  qa-fixes4 ITEM-5 (help-r3 R3-help-4): the highlight is the app's
+ *  selection identity — the pale accent tint with the brand ink — never
+ *  the amber warning token: the old `--txr-warning` background is the dark
+ *  amber, and dark text on it fails the 4.5:1 floor in light mode (the
+ *  report's "dark text on dark brown/olive"). */
 function Highlight({ text, query }: { text: string; query: string }) {
   const q = query.trim()
   if (q.length === 0) return <>{text}</>
@@ -182,7 +211,14 @@ function Highlight({ text, query }: { text: string; query: string }) {
   return (
     <>
       {text.slice(0, index)}
-      <mark style={{ background: 'var(--txr-warning)', color: 'var(--txr-text)' }}>
+      <mark
+        style={{
+          background: 'var(--txr-accent-soft)',
+          color: 'var(--txr-brand-ink)',
+          borderRadius: 3,
+          padding: '0 1px',
+        }}
+      >
         {text.slice(index, index + q.length)}
       </mark>
       {text.slice(index + q.length)}
@@ -264,16 +300,99 @@ function Callout({ tone, text, query }: { tone: 'tip' | 'note' | 'watch'; text: 
   )
 }
 
+/** The sideways-scroll cue on a table box (qa-fixes4 ITEM-5, help-r3
+ *  R3-help-2): while the box overflows its width, a right-edge fade AND a
+ *  one-line "scrolls sideways" caption say the column table continues —
+ *  the round-3 phone reader saw the Meaning column cut at the box edge
+ *  with no cue at all (R2-H4 / R3-help-2), and the sibling F9 preview's
+ *  own hint pattern (the fade only) did not satisfy the plan's "'scroll'
+ *  hint". The fade + caption render ONLY while the box actually
+ *  overflows, so a desktop reader sees neither. */
+function ScrollHintBox({
+  testId,
+  ariaLabel,
+  caption,
+  children,
+}: {
+  testId?: string
+  ariaLabel: string
+  caption: string
+  children: ReactNode
+}) {
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [sideways, setSideways] = useState(false)
+  useEffect(() => {
+    const box = boxRef.current
+    if (box === null) return
+    const measure = () => {
+      setSideways(box.scrollWidth > box.clientWidth + 1)
+    }
+    measure()
+    box.addEventListener('scroll', measure)
+    // jsdom has no ResizeObserver (the ScrollRegion precedent); the scroll
+    // listener + the initial measure still drive the hint.
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(measure)
+      observer.observe(box)
+      return () => {
+        box.removeEventListener('scroll', measure)
+        observer.disconnect()
+      }
+    }
+    return () => {
+      box.removeEventListener('scroll', measure)
+    }
+  }, [])
+  return (
+    <div style={{ position: 'relative' }}>
+      <div
+        ref={boxRef}
+        data-testid={testId}
+        tabIndex={0}
+        aria-label={ariaLabel}
+        style={{ overflowX: 'auto', maxWidth: '100%', marginBottom: 10, borderRadius: 8 }}
+      >
+        {children}
+      </div>
+      {sideways ? (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: 44,
+            pointerEvents: 'none',
+            background:
+              'linear-gradient(to left, var(--txr-surface) 0%, var(--txr-surface) 12%, transparent 100%)',
+            borderRadius: '0 8px 8px 0',
+          }}
+        />
+      ) : null}
+      {sideways ? (
+        <p
+          data-testid={`${testId ?? 'txr-help-table'}-scroll-hint`}
+          style={{ margin: '-4px 0 10px', fontSize: 12.5, color: 'var(--txr-muted)' }}
+        >
+          {caption}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 /** One column table with a sticky header, zebra rows, mono name chips and
  *  required/optional pills; scrolls inside its own box when wider (the
- *  browser tier asserts both). */
+ *  browser tier asserts both). qa-fixes4 ITEM-5 (R3-help-2): the box's
+ *  overflow is signalled — the fade + caption above — so the Meaning
+ *  column is never an undiscovered cut column at the phone width. */
 function ColumnTable({ card, query }: { card: FileCardContent; query: string }) {
   return (
-    <div
-      data-testid={`txr-help-filetable-${card.file}`}
-      tabIndex={0}
-      aria-label={`${card.title} column table`}
-      style={{ overflowX: 'auto', maxWidth: '100%', marginBottom: 10, borderRadius: 8 }}
+    <ScrollHintBox
+      testId={`txr-help-filetable-${card.file}`}
+      ariaLabel={`${card.title} column table`}
+      caption="The table scrolls sideways — the Meaning and Example columns are to the right."
     >
       <table
         style={{
@@ -393,7 +512,7 @@ function ColumnTable({ card, query }: { card: FileCardContent; query: string }) 
           ))}
         </tbody>
       </table>
-    </div>
+    </ScrollHintBox>
   )
 }
 
@@ -526,6 +645,14 @@ function Stepper({ steps, query }: { steps: StepCard[]; query: string }) {
               data-testid={`txr-help-step-screen-${step.number}`}
               style={{
                 ...PILL,
+                // qa-fixes4 ITEM-5 (help-r3 R3-help-1): the pill's never-wrap
+                // rule is lifted HERE — a long screen name wrapped the card
+                // and pushed the page wider than the viewport at 768-1024
+                // px (the round-3 "chip ends at x=1260 while its card ends
+                // at 1244"). The chip wraps INSIDE the card now; every other
+                // pill keeps the board's no-wrap byte.
+                whiteSpace: 'normal',
+                maxWidth: '100%',
                 alignSelf: 'flex-start',
                 background: 'var(--txr-accent-soft)',
                 color: 'var(--txr-brand-ink)',
@@ -588,7 +715,11 @@ function Statuses() {
         </div>
       </div>
       <div>
-        <h3 style={STATUS_GROUP_HEADING}>What a method\'s row says while a run is going</h3>
+        {/* qa-fixes4 ITEM-5 (help-r3 R3-help-3): JSX text is NOT a JS
+            string — `\'` renders as a LITERAL backslash (the report's
+            "What a method\'s row says"). The apostrophe is written
+            plainly. */}
+        <h3 style={STATUS_GROUP_HEADING}>What a method's row says while a run is going</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {RUN_STATE_MEANINGS.map(item => (
             <div key={item.state} style={STATUS_LINE}>
@@ -645,7 +776,10 @@ function Block({ block, query }: { block: HelpBlock; query: string }) {
       )
     case 'table':
       return (
-        <div style={{ overflowX: 'auto', maxWidth: '100%', marginBottom: 8 }}>
+        <ScrollHintBox
+          ariaLabel="Status or comparison table"
+          caption="The table scrolls sideways."
+        >
           <table
             style={{
               borderCollapse: 'collapse',
@@ -697,7 +831,7 @@ function Block({ block, query }: { block: HelpBlock; query: string }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollHintBox>
       )
     case 'callout':
       return <Callout tone={block.tone} text={block.text} query={query} />
@@ -822,7 +956,12 @@ function ProblemEntry({
 
 /** The troubleshooting accordion: grouped by severity (error, warning,
  *  error-or-warning, not reported) — the groups ARE the catalogue's facts.
- *  The search query narrows the entries; a deep link expands its entry. */
+ *  The search query narrows the entries; a deep link expands its entry.
+ *  qa-fixes4 ITEM-5 (help-r3 R3-help-4): every MATCHING entry is expanded
+ *  while a search is active — the old narrow left a body-only match
+ *  collapsed, so the reader saw a title with no sign of why it matched.
+ *  The user's own open set is untouched underneath; clearing the search
+ *  returns to it. */
 function Troubleshooting({
   query,
   expanded,
@@ -856,7 +995,7 @@ function Troubleshooting({
                 key={entry.code}
                 entry={entry}
                 query={query}
-                open={expanded.has(entry.code)}
+                open={q !== '' || expanded.has(entry.code)}
                 onToggle={onToggle}
               />
             ))}
@@ -1088,22 +1227,13 @@ export function HelpPage() {
 
   return (
     <main style={PAGE_OUTER} data-testid="txr-help">
-      <a
-        href="#txr-help-content"
-        className="txr-help-skip-link"
-        style={{
-          position: 'absolute',
-          left: -9999,
-          top: 0,
-          background: 'var(--txr-brand)',
-          color: 'var(--txr-on-brand)',
-          padding: '8px 14px',
-          borderRadius: 8,
-          zIndex: 60,
-        }}
-      >
-        Skip to content
-      </a>
+      {/* qa-fixes4 ITEM-5 (help-r3 R3-help-5): the page's own skip link is
+          GONE. The shell's AppShell renders the ONE "Skip to content" link
+          as the document's first tab stop (it precedes the brand in the
+          DOM and targets the routed area, `#txr-main`); this page's copy
+          sat AFTER the header in the tab order (the report's 7th stop) and
+          merely skipped the header it had already passed. One link, one
+          target, first. */}
       <PageFrame
         testId="txr-help-frame"
         top={
@@ -1138,7 +1268,7 @@ export function HelpPage() {
             className="txr-help-region"
             testId="txr-help-region"
           >
-            <div id="txr-help-content" style={REGION_CONTENT}>
+            <div id="txr-help-content" className="txr-help-region-content" style={REGION_CONTENT}>
               <div style={PAGE_INNER}>
                 <RegionBridge regionRef={regionRef} />
                 {quickStartVisible ? (
@@ -1170,8 +1300,7 @@ export function HelpPage() {
                           flexDirection: 'column',
                           gap: 6,
                         }}
-                      >
-                        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--txr-muted)' }}>
+                      >                        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--txr-muted)' }}>
                           {card.eyebrow}
                         </div>
                         <h2 style={{ margin: 0, fontFamily: "'Source Serif 4', Georgia, serif", fontWeight: 600, fontSize: 16.5, lineHeight: 1.25 }}>
@@ -1189,7 +1318,23 @@ export function HelpPage() {
                           >
                             {card.screen}
                           </span>
-                          <Link to={card.route} data-testid={`txr-help-quickstart-cta-${card.id}`} style={{ color: 'var(--txr-brand)', fontWeight: 600, fontSize: 13.5 }}>
+                          <Link
+                            to={card.route}
+                            className="txr-help-link"
+                            data-testid={`txr-help-quickstart-cta-${card.id}`}
+                            onClick={() => {
+                              // qa-fixes4 ITEM-5 (help-r3 R3-help-6): the
+                              // two predict cards both land on the same
+                              // file screen — the card must tell the flow
+                              // WHICH path (the Start screen's own card
+                              // picker's byte: set the intent first, then
+                              // the flow it leads to; otherwise the screen
+                              // could not say whether pretrained or saved
+                              // models follow).
+                              TxrIntake.setIntent(intentOf(card.id))
+                            }}
+                            style={{ color: 'var(--txr-brand)', fontWeight: 600, fontSize: 13.5 }}
+                          >
                             {card.cta} →
                           </Link>
                           {/* qa-fixes3 ITEM-5: the card's one-line example action —
@@ -1210,7 +1355,24 @@ export function HelpPage() {
                       </section>
                     ))}
                   </div>
-                ) : null}
+                ) : (
+                  // qa-fixes4 ITEM-5 (help-r3 R3-help-4, polish): the
+                  // quick-start row is filtered out with the sections — the
+                  // old page made it vanish with NO notice. One line says
+                  // what happened (and how to get it back).
+                  <p
+                    data-testid="txr-help-quickstart-hidden"
+                    style={{
+                      maxWidth: 1048,
+                      margin: '0 auto 18px',
+                      fontSize: 13,
+                      color: 'var(--txr-muted)',
+                    }}
+                  >
+                    The quick-start cards are hidden while you search. Clear the search to see them
+                    again.
+                  </p>
+                )}
 
                 <div className="txr-help-grid">
                   {railVisible ? (
@@ -1219,10 +1381,11 @@ export function HelpPage() {
                         On this page
                       </p>
                       <ul style={{ display: 'flex', flexDirection: 'column', gap: 1, margin: 0, padding: 0, listStyle: 'none' }}>
-                        {HELP_SECTIONS.map(section => (
+                        {sectionsVisible.map(section => (
                           <li key={section.id}>
                             <Link
                               to={helpPath(section.id)}
+                              className="txr-help-link"
                               data-testid={`txr-help-toc-${section.id}`}
                               aria-current={activeSection === section.id ? 'true' : undefined}
                               onClick={() => setContentsOpen(false)}
@@ -1258,10 +1421,11 @@ export function HelpPage() {
                           </CollapsibleTrigger>
                           <CollapsibleContent>
                             <ul style={{ display: 'flex', flexDirection: 'column', gap: 1, margin: '6px 0 0', padding: '6px 8px', listStyle: 'none', border: '1px solid var(--txr-border)', borderRadius: 8, background: 'var(--txr-surface)' }}>
-                              {HELP_SECTIONS.map(section => (
+                              {sectionsVisible.map(section => (
                                 <li key={section.id}>
                                   <Link
                                     to={helpPath(section.id)}
+                                    className="txr-help-link"
                                     data-testid={`txr-help-contents-link-${section.id}`}
                                     onClick={() => setContentsOpen(false)}
                                     style={{ display: 'block', padding: '4px 8px', borderRadius: 6, fontSize: 13, color: 'var(--txr-text-2)', textDecoration: 'none' }}
@@ -1300,8 +1464,8 @@ export function HelpPage() {
                         No match for “{query}” in the Help pages.{' '}
                         <Button variant="link" data-testid="txr-help-clear-search" onClick={() => setQuery('')}>
                           Clear the search
-                        </Button>
-                        . Try a problem code such as R07, or a word like “duplicate”.
+                        </Button>{' '}
+                        and try a problem code such as R07, or a word like “duplicate”.
                       </div>
                     ) : null}
                   </div>

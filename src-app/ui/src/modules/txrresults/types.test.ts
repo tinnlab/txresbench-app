@@ -63,6 +63,7 @@ describe('txrresults view-model types (PROV-UR-3)', () => {
   it('pins the view model shape (the filtered/sorted projection + averageBy)', () => {
     expectTypeOf<TxrHeatmapView>().toEqualTypeOf<{
       columns: TxrHeatmapColumn[]
+      emptyColumns: TxrHeatmapColumn[]
       rows: TxrHeatmapRow[]
       shownCount: number
       totalCount: number

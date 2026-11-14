@@ -38,6 +38,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { Button, Descriptions, Dialog, Skeleton, type DescriptionsItem } from '@txresbench/kit'
 import type { ModelDetail, RequiredMarkers } from '@/api-client/types'
+import { safeText } from '@/modules/txrshell/lib/safeText'
 import { useModelDetail } from '../data/useModelDetail'
 import {
   UNRECORDED,
@@ -105,14 +106,15 @@ function requiredMarkersNode(required: RequiredMarkers | undefined): ReactNode {
   )
 }
 
-/** The record's warnings: the provider's fact line, code as the fallback
- *  (a warning always carries a detail per the shape; the fallback keeps
- *  the row honest — never blank). */
+/** The record's warnings: the provider's fact line (through the ITEM-1
+ *  `safeText` guard — a leaked path is never rendered), code as the
+ *  fallback (a warning always carries a detail per the shape; the fallback
+ *  keeps the row honest — never blank). */
 function warningNode(detail: ModelDetail): ReactNode {
   const warnings = detail.warnings ?? []
   if (warnings.length === 0) return UNRECORDED
   const lines = warnings.map(warning => {
-    const text = warning.detail?.trim() ?? ''
+    const text = safeText(warning.detail?.trim() ?? '')
     return text.length > 0 ? text : warning.code
   })
   return <pre style={BLOCK}>{lines.join('\n')}</pre>

@@ -34,14 +34,15 @@ import {
   STATE_LABEL,
   STATE_TONE,
   bucketOf,
+  collapseRepeatedLines,
   estimateQualityWord,
   formatBytes,
+  formatCollapsedLogLine,
   formatLogLine,
   formatProgress,
   formatRowTime,
   formatSecs,
   formatTimeLeft,
-  isTechnicalLogNoise,
   methodLabelOf,
 } from './format'
 
@@ -176,9 +177,15 @@ describe('formatTimeLeft (TEST-RUN-04)', () => {
     expect(formatTimeLeft({ schedule_seconds: 60 }, 0)).toBe('about 1 minute left')
   })
 
-  it('clamps at zero — an overrun never reads negative — under a minute at the floor', () => {
-    expect(formatTimeLeft({ schedule_seconds: 300 }, 320)).toBe('under a minute left')
-    expect(formatTimeLeft({ schedule_seconds: 30 }, 0)).toBe('under a minute left')
+  it('a sub-minute remainder reads its real seconds — never the constant "under a minute left" (qa-fixes4 ITEM-3, methods-r3 R2-2 leftover)', () => {
+    expect(formatTimeLeft({ schedule_seconds: 540 }, 520)).toBe('about 20 s left')
+    expect(formatTimeLeft({ schedule_seconds: 30 }, 0)).toBe('about 30 s left')
+    expect(formatTimeLeft({ schedule_seconds: 60 }, 1)).toBe('about 59 s left')
+  })
+
+  it('an overrun reads "finishing up" — the estimate\'s schedule elapsed, the run is finalizing (never a negative)', () => {
+    expect(formatTimeLeft({ schedule_seconds: 300 }, 320)).toBe('finishing up')
+    expect(formatTimeLeft({ schedule_seconds: 300 }, 300)).toBe('finishing up')
   })
 
   it('returns null with no estimate and treats a missing elapsed as a just-started run', () => {
@@ -236,6 +243,32 @@ describe('formatProgress (TEST-RUN-04)', () => {
     expect(missing).toBe('no reason recorded')
   })
 
+  it('an env-missing row reads the list\'s one sentence, not the engine\'s stored detail (qa-fixes4 ITEM-3, methods-r3 R3-methods-9)', () => {
+    // The engine stores the OLD pre-vocabulary sentence under the shared
+    // ENV_IMAGE_MISSING code (orchestrator: "no published environment for
+    // method \"<id>\""); the method list says "no published environment
+    // available" for the same code — the row reads the list's words.
+    const oldWording = {
+      code: 'ENV_IMAGE_MISSING',
+      detail: 'no published environment for method "bayes-pt-cure-joint"',
+    }
+    expect(formatProgress(row('cannot_run', { reason: oldWording }), null)).toBe(
+      'no published environment available',
+    )
+    expect(formatProgress(row('failed', { reason: oldWording }), null)).toBe(
+      'no published environment available',
+    )
+    // A non-env code keeps the engine's stored words (the row's own fact).
+    expect(
+      formatProgress(
+        row('cannot_run', {
+          reason: { code: 'REQUIRED_MARKER_MISSING', detail: 'LDH is not in your measurements.' },
+        }),
+        null,
+      ),
+    ).toBe('LDH is not in your measurements.')
+  })
+
   it('renders an empty detail line for the terminal non-error states and waiting', () => {
     expect(formatProgress(row('waiting'), null)).toBe('')
     expect(formatProgress(row('finished'), null)).toBe('')
@@ -262,6 +295,17 @@ describe('formatRowTime + methodLabelOf (qa-fixes RES-01 null-vs-undefined)', ()
     expect(formatRowTime(row('finished'))).toBe('')
     // The elapsed guard reads null the same way (no duration mark, not a dash).
     expect(formatRowTime(row('running', { elapsed_secs: null as unknown as number }))).toBe('')
+  })
+
+  it('a finished row reads the engine\'s own elapsed_secs FIRST — the same count the log line words (qa-fixes4 ITEM-3, methods-r3 R3-methods-8)', () => {
+    // The round-3 pair: duration_ms 6286 (→ "6 s" by rounding) against the
+    // engine's log/elapsed 7 — the row now reads elapsed_secs so the table
+    // read and the log quote are one count.
+    expect(formatRowTime(row('finished', { elapsed_secs: 7, duration_ms: 6286 }))).toBe(
+      'done in 7 s',
+    )
+    // No elapsed (an old row): the duration_ms fallback keeps the R2-4 word.
+    expect(formatRowTime(row('finished', { duration_ms: 112_000 }))).toBe('done in 1 min 52 s')
   })
 
   it('a skipped row never reads a done line (it never ran) and a stopped row reads its elapsed (RP-7)', () => {
@@ -326,22 +370,101 @@ describe('estimateQualityWord (qa-fixes2 R2-3)', () => {
   })
 })
 
-describe('isTechnicalLogNoise (qa-fixes2 R2-5)', () => {
-  const line = (content: string): TxrRunLogLine => ({
-    seq: 1,
+describe('collapseRepeatedLines + formatCollapsedLogLine (qa-fixes4 ITEM-3, methods-r3 R3-methods-5)', () => {
+  const line = (seq: number, method_id: string | undefined, content: string): TxrRunLogLine => ({
+    seq,
+    method_id,
+    stream: method_id === undefined ? 'engine' : 'stdout',
     content,
-    stream: 'stderr',
-    created_at: '2026-11-06T05:00:00Z',
+    created_at: '2026-11-06T10:02:12Z',
+  })
+  const METHODS = [{ method_id: 'm', label: 'm' }]
+
+  it('a twice-printed 3-line warning block collapses to one block with the ×6 badge on its first line', () => {
+    const lines = [
+      line(1, 'm', 'Warning message:'),
+      line(2, 'm', 'In read.table(file = file, header = header, sep = sep, quote = quote,  :'),
+      line(3, 'm', "  not all columns named in 'colClasses' exist"),
+      line(4, 'm', 'Warning message:'),
+      line(5, 'm', 'In read.table(file = file, header = header, sep = sep, quote = quote,  :'),
+      line(6, 'm', "  not all columns named in 'colClasses' exist"),
+    ]
+    const collapsed = collapseRepeatedLines(lines)
+    expect(collapsed).toHaveLength(3)
+    // Each line printed twice; the run's badge counts its 6 raw lines.
+    expect(collapsed.map(e => e.count)).toEqual([2, 2, 2])
+    expect(collapsed.map(e => e.runLength)).toEqual([6, 6, 6])
+    expect(collapsed.map(e => e.runStart)).toEqual([true, false, false])
+    // The × badge rides the run's first line (clock omitted — the test
+    // host's local TZ shifts the rendered hour; the suffix is the fact).
+    expect(fmt(collapsed[0]).endsWith('Warning message: ×6')).toBe(true)
+    expect(fmt(collapsed[1])).toContain(
+      'In read.table(file = file, header = header, sep = sep, quote = quote,  :',
+    )
+    expect(fmt(collapsed[2])).toContain("  not all columns named in 'colClasses' exist")
   })
 
-  it('names the setlocale / R start-up lines as technical output — never the run\'s own lines', () => {
-    expect(isTechnicalLogNoise(line('/bin/bash: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)'))).toBe(true)
-    expect(isTechnicalLogNoise(line('During startup - Warning messages:'))).toBe(true)
-    expect(isTechnicalLogNoise(line('1: Setting LC_CTYPE failed, using "C"'))).toBe(true)
-    expect(isTechnicalLogNoise(line('7: Setting LC_MEASUREMENT failed'))).toBe(true)
-    expect(isTechnicalLogNoise(line('cox-baseline-delta done in 12s'))).toBe(false)
-    expect(isTechnicalLogNoise(line('fitting the model'))).toBe(false)
+  it('an identical line repeated N times collapses to one line ×N', () => {
+    const lines = [
+      line(1, 'm', 'same'),
+      line(2, 'm', 'same'),
+      line(3, 'm', 'same'),
+    ]
+    const collapsed = collapseRepeatedLines(lines)
+    expect(collapsed).toHaveLength(1)
+    expect(collapsed[0].count).toBe(3)
+    expect(collapsed[0].runLength).toBe(3)
+    expect(fmt(collapsed[0]).endsWith('same ×3')).toBe(true)
   })
+
+  it('a truncated tail is never claimed as a repeat: [A,B,A,B,A] reads A,B ×4 then A', () => {
+    const lines = [
+      line(1, 'm', 'A'),
+      line(2, 'm', 'B'),
+      line(3, 'm', 'A'),
+      line(4, 'm', 'B'),
+      line(5, 'm', 'A'),
+    ]
+    const collapsed = collapseRepeatedLines(lines)
+    expect(collapsed).toHaveLength(3)
+    expect(collapsed.map(e => e.count)).toEqual([2, 2, 1])
+    expect(collapsed.map(e => e.runLength)).toEqual([4, 4, 1])
+    expect(collapsed.map(e => e.runStart)).toEqual([true, false, false])
+  })
+
+  it('the longest repeated run wins — a stream that is also A,A never fragments (A,A,B,A,A,B stays the (A,A,B) block)', () => {
+    const lines = [
+      line(1, 'm', 'A'),
+      line(2, 'm', 'A'),
+      line(3, 'm', 'B'),
+      line(4, 'm', 'A'),
+      line(5, 'm', 'A'),
+      line(6, 'm', 'B'),
+    ]
+    const collapsed = collapseRepeatedLines(lines)
+    expect(collapsed).toHaveLength(3)
+    expect(collapsed[0].count).toBe(2)
+    expect(collapsed[0].runLength).toBe(6)
+    expect(collapsed[0].runStart).toBe(true)
+  })
+
+  it('a first-pair match is never a repeat: [A,A,A,B] reads A ×3 then B', () => {
+    const lines = [line(1, 'm', 'A'), line(2, 'm', 'A'), line(3, 'm', 'A'), line(4, 'm', 'B')]
+    const collapsed = collapseRepeatedLines(lines)
+    expect(collapsed.map(e => e.count)).toEqual([3, 1])
+    expect(collapsed.map(e => e.runLength)).toEqual([3, 1])
+  })
+
+  it('the same text from two methods is NOT a repeat (identity is method + content)', () => {
+    const lines = [line(1, 'm1', 'same'), line(2, 'm2', 'same')]
+    const collapsed = collapseRepeatedLines(lines)
+    expect(collapsed).toHaveLength(2)
+    expect(collapsed.map(e => e.count)).toEqual([1, 1])
+  })
+
+  function fmt(entry: ReturnType<typeof collapseRepeatedLines>[number]): string {
+    return formatCollapsedLogLine(entry, METHODS)
+  }
 })
 
 describe('RESEARCH_NOTICE + the lib copy scan (TEST-RUN-05, INV-5)', () => {

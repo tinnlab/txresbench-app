@@ -105,7 +105,11 @@ export interface TxrHistoryState {
   logTotal: number
   logLoading: boolean
   /** The open confirmation, one at a time (INV-2: the destructive gate). */
-  confirm: 'copies-off' | 'copies-on' | 'clear-all' | null
+  confirm: 'copies-off' | 'copies-on' | 'clear-all' | 'delete-run' | null
+  /** The run id the delete-run confirmation opened for (qa-fixes4 ITEM-2
+   *  (f) — the row is `detail`-bound at open time, and a confirmation may
+   *  outlive an expand toggle; the wire id is the gate's own record). */
+  confirmRunId: string | null
   /** The in-flight action: the run id (`rerun`), `'preferences'` or
    *  `'clear-all'` — the buttons' busy state, never a double fire. */
   working: string | null
@@ -131,6 +135,7 @@ const DEFAULT_STATE: TxrHistoryState = {
   logTotal: 0,
   logLoading: false,
   confirm: null,
+  confirmRunId: null,
   working: null,
 }
 
@@ -394,11 +399,11 @@ const TxrHistoryDef = defineStore('TxrHistory', {
       set({ logDialog: null, logLines: [], logTotal: 0, logLoading: false })
     }
 
-    const openConfirm = (kind: NonNullable<TxrHistoryState['confirm']>): void => {
-      set({ confirm: kind })
+    const openConfirm = (kind: NonNullable<TxrHistoryState['confirm']>, runId?: string): void => {
+      set({ confirm: kind, ...(kind === 'delete-run' ? { confirmRunId: runId ?? null } : {}) })
     }
 
-    const closeConfirm = (): void => set({ confirm: null })
+    const closeConfirm = (): void => set({ confirm: null, confirmRunId: null })
 
     /**
      * The retention-preference transition (DEC-13). The confirmation state
@@ -441,6 +446,33 @@ const TxrHistoryDef = defineStore('TxrHistory', {
         await reload()
       } catch {
         /* the confirmation was consumed; a retry re-opens the dialog */
+      } finally {
+        set({ working: null })
+      }
+    }
+
+    /**
+     * "Delete this run" (qa-fixes4 ITEM-2 (f)): the per-run delete that
+     * makes the footer's "Delete a run to free the space" true. The
+     * confirmation state is the gate (the id it opened for is the record —
+     * NEVER a `detail`-style re-read); the engine stops a live drive first
+     * and deletes the run's rows (cascade) + the run dir. A failed delete
+     * consumes the confirmation (a retry re-opens it) and surfaces the
+     * page's action error — never a silent no-op (INV-2).
+     */
+    const deleteRun = async (): Promise<boolean> => {
+      if (get().confirm !== 'delete-run') return false
+      const runId = get().confirmRunId
+      set({ confirm: null, confirmRunId: null })
+      if (runId === null) return false
+      set({ working: 'delete-run' })
+      try {
+        await ApiClient.Txr.deleteRun({ id: runId, delete_files: true })
+        await reload()
+        set({ expandedId: null, detail: null })
+        return true
+      } catch {
+        return false
       } finally {
         set({ working: null })
       }
@@ -517,6 +549,7 @@ const TxrHistoryDef = defineStore('TxrHistory', {
       closeConfirm,
       setKeepCopies,
       clearAllHistory,
+      deleteRun,
       rerun,
       useSettingsAgain,
       reset,

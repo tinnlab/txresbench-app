@@ -41,6 +41,9 @@ const LINKS_ROW: CSSProperties = { display: 'flex', gap: 16, flexWrap: 'wrap', m
 /** The link look (the board's 13.5 px action links). */
 const LINK: CSSProperties = { fontSize: 13.5, fontWeight: 600, padding: 0, height: 'auto' }
 
+/** The delete link's danger look (the footer's clear-all red). */
+const DANGER_LINK: CSSProperties = { ...LINK, color: 'var(--txr-danger)' }
+
 export interface TxrHistoryActionsProps {
   /** The row facts the resolution reads (the item's pick — the detail
    *  satisfies the same pick, so the expanded block passes the loaded
@@ -57,6 +60,9 @@ export interface TxrHistoryActionsProps {
   onDownload?: (runId: string) => void
   onReveal?: (runId: string) => void
   onLog?: (runId: string) => void
+  /** "Delete this run" clicked (qa-fixes4 ITEM-2 (f) — the desktop-gated
+   *  per-run delete; the confirm dialog is the destructive gate). */
+  onDelete?: (runId: string) => void
 }
 
 export function TxrHistoryActions({
@@ -70,6 +76,7 @@ export function TxrHistoryActions({
   onDownload,
   onReveal,
   onLog,
+  onDelete,
 }: TxrHistoryActionsProps) {
   const actions = actionsFor(item, { isDesktop })
   return (
@@ -145,6 +152,16 @@ export function TxrHistoryActions({
             onClick={() => onLog?.(runId)}
           >
             Show the log
+          </Button>
+        ) : null}
+        {actions.deleteRun ? (
+          <Button
+            data-testid={`txr-history-delete-${runId}`}
+            variant="link"
+            style={DANGER_LINK}
+            onClick={() => onDelete?.(runId)}
+          >
+            Delete this run
           </Button>
         ) : null}
       </div>

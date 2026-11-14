@@ -236,4 +236,16 @@ describe('TxrSaveOneDialog (TEST-MOD-14)', () => {
     )
     expect(screen.getByTestId('txr-models-saveone-confirm').hasAttribute('disabled')).toBe(true)
   })
+
+  // qa-fixes4 ITEM-6 (results-r3 R3-results-12): the board's inline pair —
+  // ONE paragraph with the bold lead in the body (SaveOne's singular words).
+  it('reads the What is saved / Not saved pair as one board paragraph', async () => {
+    renderDialog()
+    await waitFor(() => expect(screen.getByTestId('txr-models-saveone-body')).toBeDefined())
+    const ruled = screen.getByTestId('txr-models-saveone-ruled')
+    expect(ruled.textContent).toBe(
+      "What is saved: the trained model, its settings, the markers and units it needs, and how it did on your data. Not saved: your patients' tables.",
+    )
+    expect(ruled.querySelectorAll('b')).toHaveLength(2)
+  })
 })

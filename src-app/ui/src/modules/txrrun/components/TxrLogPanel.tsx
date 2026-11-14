@@ -14,6 +14,18 @@
  * sees is what the paste gets). An empty lines area reads one of the
  * module's empty-state lines (never a blank box).
  *
+ * qa-fixes4 ITEM-3 (methods-r3 R3-methods-5/6): the controls (the method
+ * filter, "Show technical output", "Follow the newest line", "Copy the
+ * log") sit ABOVE the lines box — a bounded panel keeps them in view, and
+ * a panel that ever outgrew its slot (the phone stack's 9,100 px pre of
+ * the round-3 build) could still not push the controls below the fold.
+ * The repeated lines are COLLAPSED (`lib/format.ts`'s
+ * `collapseRepeatedLines`): the R methods' `colClasses` warning block is
+ * printed once with "×N" on its last line instead of two or three
+ * identical 3-line blocks; the collapse is a view presentation (the copy
+ * carries the collapsed view, like the technical filter), the raw lines
+ * stay in the store and in the count line's facts.
+ *
  * Ownership per the frozen props: the panel reads ONLY its props (the
  * store's `liveLogs`/`logTotal`/`logFilter`/`logFollow`/`logOpen` flow
  * through the page) and reports the user's intentions (`onFilter` /
@@ -45,13 +57,17 @@ import type { CSSProperties } from 'react'
 import { Button, message, Select, Switch } from '@txresbench/kit'
 import type { TxrRunLogLine } from '@/api-client/types'
 import {
+  collapseRepeatedLines,
   filterLogLines,
-  formatLogText,
-  isTechnicalLogNoise,
+  formatCollapsedLogLine,
   LOG_EMPTY_ALL,
   LOG_EMPTY_METHOD,
   type TxrLogMethodRef,
 } from '../lib/format'
+// The ONE start-up-noise predicate (qa-fixes4 ITEM-6, R2-10 rest): the
+// results dialog hides the same setlocale lines the panel hides — the
+// shell resident (the runStatus precedent).
+import { isTechnicalLogNoise } from '@/modules/txrshell/lib/logNoise'
 
 /** The panel's own render cap (the store's tail bound is the same number). */
 export const LOG_PANEL_RENDER_CAP = 200
@@ -127,10 +143,14 @@ const PRE: CSSProperties = {
 /** The 'Showing N of M lines' count (the capped tail's honest count line). */
 const COUNT: CSSProperties = { fontSize: 12, color: 'var(--txr-muted)' }
 
-/** The follow/copy row (the board's footer row). */
+/** The follow/copy row (the board's footer row — qa-fixes4 ITEM-3,
+ *  R3-methods-6: the controls sit DIRECTLY ABOVE the lines box, so a
+ *  bounded panel always keeps them in view; the board's below-the-pre
+ *  placement is what left them 3,621 px down a 6,759 px pre). */
 const FOOTER: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
+  flexWrap: 'wrap',
   gap: 10,
   fontSize: 13,
   color: 'var(--txr-text-2)',
@@ -186,8 +206,21 @@ export function TxrLogPanel({
   const filtered = filterLogLines(lines, filter)
   const visible = showTechnical ? filtered : filtered.filter(l => !isTechnicalLogNoise(l))
   const hiddenTechnical = filtered.length - visible.length
-  const rendered = visible.slice(-LOG_PANEL_RENDER_CAP)
-  const text = rendered.length > 0 ? formatLogText(rendered, methods) : null
+  // R3-methods-5: the repeated blocks are collapsed BEFORE the render cap,
+  // so a twice-printed 3-line warning occupies one block and never pushes
+  // the run's own lines out of the box.
+  const collapsed = collapseRepeatedLines(visible)
+  const rendered = collapsed.slice(-LOG_PANEL_RENDER_CAP)
+  const shownRaw = rendered.reduce((n, entry) => n + entry.count, 0)
+  // The raw lines the collapse folded out of the rendered view (a 3-line
+  // block printed twice = 3 entries showing 6 raw lines → 3 absorbed).
+  const repeatedRaw = shownRaw - rendered.length
+  const text =
+    rendered.length > 0
+      ? rendered
+          .map(entry => formatCollapsedLogLine(entry, methods))
+          .join('\n')
+      : null
 
   // Backfill history on open and on a method switch (the store's loadLogs
   // merges by seq — a re-open continues, a first open starts at the page).
@@ -198,12 +231,13 @@ export function TxrLogPanel({
     // keyed on the OPEN/METHOD transition exactly (the sibling dialog's rule).
   }, [open, filter])
 
-  // Follow the newest line (the JobDetail log idiom: pin on the line count;
-  // turning follow on pins immediately with the current tail).
+  // Follow the newest line (the JobDetail log idiom: pin on the raw line
+  // count — a stream that appends one more copy of a repeated block grows
+  // the run's count, not the collapsed entry count).
   useEffect(() => {
     const el = preRef.current
     if (el !== null && follow) el.scrollTop = el.scrollHeight
-  }, [rendered.length, follow])
+  }, [shownRaw, follow])
 
   const copyLog = (): void => {
     if (text === null) return
@@ -245,20 +279,10 @@ export function TxrLogPanel({
           />
         </div>
       </div>
-      <pre ref={preRef} data-testid="txr-run-log-lines" style={PRE}>
-        {text ?? (filter === null ? LOG_EMPTY_ALL : LOG_EMPTY_METHOD)}
-      </pre>
-      {total > 0 ? (
-        <div data-testid="txr-run-log-count" style={COUNT}>
-          Showing {rendered.length} of {total} lines
-          {!showTechnical && hiddenTechnical > 0 ? (
-            <span data-testid="txr-run-log-technical-count">
-              {' · '}
-              {hiddenTechnical} technical lines hidden
-            </span>
-          ) : null}
-        </div>
-      ) : null}
+      {/* qa-fixes4 ITEM-3 (R3-methods-6): the controls row sits DIRECTLY
+          ABOVE the lines box — the filter, the technical switch, follow and
+          copy are all in view, whatever the panel's height; the board's
+          below-the-pre row is what left them 3,621 px down a 6,759 px pre. */}
       <div data-testid="txr-run-log-controls" style={FOOTER}>
         <Switch
           data-testid="txr-run-log-technical"
@@ -286,6 +310,26 @@ export function TxrLogPanel({
           Copy the log
         </Button>
       </div>
+      <pre ref={preRef} data-testid="txr-run-log-lines" style={PRE}>
+        {text ?? (filter === null ? LOG_EMPTY_ALL : LOG_EMPTY_METHOD)}
+      </pre>
+      {total > 0 ? (
+        <div data-testid="txr-run-log-count" style={COUNT}>
+          Showing {shownRaw} of {total} lines
+          {!showTechnical && hiddenTechnical > 0 ? (
+            <span data-testid="txr-run-log-technical-count">
+              {' · '}
+              {hiddenTechnical} start-up lines hidden
+            </span>
+          ) : null}
+          {repeatedRaw > 0 ? (
+            <span data-testid="txr-run-log-repeated-count">
+              {' · '}
+              {repeatedRaw} repeated lines collapsed
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </aside>
   )
 }

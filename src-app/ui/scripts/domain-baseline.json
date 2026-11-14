@@ -1682,13 +1682,6 @@
         "cells": 1
       }
     },
-    "ui/src/modules/txrresults/lib/format.ts": {
-      "finding": "FALSE-POSITIVE",
-      "note": "kept TxResBench results-table vocabulary: cells is a grid/row cell, a table column or a sample row of the txr results/shell UI (cell renderers, data-testids, heatmap cells). Same disposition as the dock grid-cells FALSE-POSITIVE already recorded: a UI grid cell, not a single-cell datum.",
-      "tokens": {
-        "cells": 1
-      }
-    },
     "ui/src/modules/txrresults/lib/heatmap.ts": {
       "finding": "FALSE-POSITIVE",
       "note": "kept TxResBench results-table vocabulary: cells is a grid/row cell, a table column or a sample row of the txr results/shell UI (cell renderers, data-testids, heatmap cells). Same disposition as the dock grid-cells FALSE-POSITIVE already recorded: a UI grid cell, not a single-cell datum.",
@@ -2293,11 +2286,6 @@
         "count": 2,
         "finding": "R4-TESTS-E2E",
         "note": "Playwright spec spelling the kept surface it drives: cell is a grid cell, a table column or a method descriptor the txr UI renders. Recorded, not fixed."
-      },
-      "cells": {
-        "count": 2,
-        "finding": "R4-TESTS-E2E",
-        "note": "Playwright spec spelling the kept surface it drives: cells is a grid cell, a table column or a method descriptor the txr UI renders. Recorded, not fixed."
       }
     },
     "ui/tests/gallery-e2e/txr-shell-primitives.spec.ts": {
@@ -2371,7 +2359,7 @@
     },
     "ui/src/modules/txrresults/lib/heatmap.test.ts": {
       "cells": {
-        "count": 21,
+        "count": 22,
         "finding": "R4-TESTS-UNIT",
         "note": "ui/src unit test spelling the kept surface it asserts: cells is a table cell, a feature column, a method metadata term or a kept action id. Recorded, not fixed."
       }
@@ -2657,13 +2645,6 @@
       "note": "Playwright spec spelling the kept surface it drives: cell is a grid cell, a table column or a method descriptor the txr UI renders. Recorded, not fixed.",
       "tokens": {
         "cell": 1
-      }
-    },
-    "ui/tests/gallery-e2e/txr-results.spec.ts": {
-      "finding": "R4-TESTS-E2E",
-      "note": "Playwright spec spelling the kept surface it drives: cell is a grid cell, a table column or a method descriptor the txr UI renders. Recorded, not fixed.",
-      "tokens": {
-        "cell": 3
       }
     },
     "ui/tests/gallery-e2e/txr-theme-phone.spec.ts": {

@@ -208,6 +208,8 @@ export interface TxrHistoryDetailBlockProps {
   onLog?: (runId: string) => void
   /** A named set link clicked (the page navigates `modelsPath(setId)`). */
   onOpenSet?: (setId: string) => void
+  /** "Delete this run" clicked (qa-fixes4 ITEM-2 (f) — desktop-gated). */
+  onDelete?: (runId: string) => void
 }
 
 export function TxrHistoryDetailBlock({
@@ -221,6 +223,7 @@ export function TxrHistoryDetailBlock({
   onReveal,
   onLog,
   onOpenSet,
+  onDelete,
 }: TxrHistoryDetailBlockProps) {
   const filesText = detail.file_names.join(', ')
   const copiesNote = detail.copies.kept ? COPIES_KEPT_NOTE : COPIES_CLEARED_NOTE
@@ -285,6 +288,7 @@ export function TxrHistoryDetailBlock({
         onDownload={onDownload}
         onReveal={onReveal}
         onLog={onLog}
+        onDelete={onDelete}
       />
     </div>
   )

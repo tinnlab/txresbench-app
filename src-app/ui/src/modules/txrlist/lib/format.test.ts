@@ -31,7 +31,9 @@ import {
   formatMethodCoverage,
   formatMethodNeedsLine,
   formatMissingItem,
+  formatNoEnvLine,
   formatReasonLine,
+  formatReasonLines,
   formatRunHeadline,
   formatTotalTime,
   pluralize,
@@ -41,6 +43,8 @@ import {
 } from './format'
 
 const SOME = (code: TxrReasonCode): { code: TxrReasonCode }[] => [{ code }]
+const SOMES = (...codes: TxrReasonCode[]): { code: TxrReasonCode }[] =>
+  codes.map(code => ({ code }))
 const COVERAGE = (eligible: number, total: number): TxrCoverageFacts => ({ eligible, total })
 const MISSING_LDH = [{ display_name: 'LDH' }]
 
@@ -179,6 +183,28 @@ describe('formatReasonLine', () => {
     expect(formatReasonLine('cannot', SOME('UNIT_MISMATCH'), COVERAGE(0, 38), minDraws, [])).toBe('units do not match')
   })
 
+  it('formatReasonLines keeps EVERY reason — the env fact first, the data reasons beside it (qa-fixes4 ITEM-3, methods-r3 R2-6)', () => {
+    // The runtime-env stage pushes ENV_IMAGE_MISSING first; the file reasons
+    // follow. One line per reason, provider order, never first-only.
+    expect(
+      formatReasonLines(
+        'cannot',
+        SOMES('ENV_IMAGE_MISSING', 'REQUIRED_MARKER_MISSING', 'MIN_DRAWS_UNMET'),
+        COVERAGE(0, 151),
+        minDraws,
+        MISSING_LDH,
+      ),
+    ).toEqual([
+      'no published environment available',
+      'needs LDH, not in your file',
+      'needs 3 or more draws; 120 of 151 have them',
+    ])
+    // No reasons: the coverage line (the pre-R2-6 byte), never empty.
+    expect(formatReasonLines('cannot', [], COVERAGE(0, 151), minDraws, [])).toEqual([
+      '0 of 151 patients',
+    ])
+  })
+
   it('renders MARKER_GROUP_MISSING from the missing groups', () => {
     expect(
       formatReasonLine('cannot', SOME('MARKER_GROUP_MISSING'), COVERAGE(38, 38), minDraws, [], [
@@ -269,6 +295,13 @@ describe('pluralize / runLabel', () => {
     expect(runLabel('model', 3)).toBe('Run 3 models')
     expect(runLabel('method', 1)).toBe('Run 1 method')
     expect(runLabel('model', 1)).toBe('Run 1 model')
+  })
+})
+
+describe('formatNoEnvLine (R3-intake-1)', () => {
+  it('reads the env-absent subset of the fit count, not a second total over the catalogue', () => {
+    expect(formatNoEnvLine(171)).toBe('171 of them cannot run yet')
+    expect(formatNoEnvLine(1)).toBe('1 of them cannot run yet')
   })
 })
 

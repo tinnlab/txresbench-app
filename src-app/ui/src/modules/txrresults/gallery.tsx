@@ -64,6 +64,8 @@ import {
   TXR_RUN_RUNNING,
   TXR_RUN_G_LONG,
   TXR_RUN_H_LONG,
+  TXR_RUN_FAILED_LEAK,
+  TXR_RUN_TROUBLE,
   TXR_RUNS,
   TXR_CSV,
   TXR_LOGS,
@@ -215,12 +217,36 @@ export const gallery: ModuleGallery = {
       component: ResultsStory,
     },
     {
+      slug: 'txr-results-g-trouble',
+      title: 'Results — 203 methods could not run, ONE summary card (qa-fixes4 ITEM-2)',
+      note: 'The many-cannot run (results-r3 R3-results-3): 6 methods finished, 203 could not run for the SAME environment reason — the page shows ONE summary card ("203 methods could not run: their environments are not available yet.") with the expandable per-method list and the TRUE tail ("The other 6 methods are shown."), and the header reads the truthful status word. The browser spec `txr-results.spec.ts` (qa-fixes4 ITEM-7) pins the card, the list, the tail and the head.',
+      path: '/analysis/:runId/results',
+      initialPath: `/analysis/${TXR_RUN_TROUBLE.id}/results`,
+      component: ResultsStory,
+    },
+    {
       slug: 'txr-results-g-cannot',
       title: 'Results — a method that could not run',
       note: 'The cannot-run banner (mono method id + the engine reason + "The other N methods are shown.") with "Show the log" opening the module log dialog (backfill + live tail), on a mixed-task run (two outcome tabs).',
       path: '/analysis/:runId/results',
       initialPath: `/analysis/${TXR_RUN_CANNOT.id}/results`,
       component: ResultsStory,
+    },
+    {
+      slug: 'txr-results-g-leak',
+      title: 'Results — a failed run whose raw reasons are internal text (ITEM-1 guard)',
+      note: 'qa-fixes4 ITEM-1 (results-r3 R3-results-2): the terminal failed run with NO finished method — the fixture reason is the report\'s leaked wording (the env tool + an absolute path + the token shape). The page must show the honest failure block with the GUARDED generic reason, and no text node may contain the tool name, a path or the token; the browser spec `txr-internal-text.spec.ts` asserts exactly that over this story, the H twin and the history/running twins.',
+      path: '/analysis/:runId/results',
+      initialPath: `/analysis/${TXR_RUN_FAILED_LEAK.id}/results`,
+      component: ResultsStory,
+    },
+    {
+      slug: 'txr-results-h-leak',
+      title: 'Results one method — the same failed run on the H frame (ITEM-1 guard)',
+      note: 'qa-fixes4 ITEM-1: the H frame (one-method URL) over the failed leak run — the same honest failure block, same guard, and no saved-in/open-folder line on this page (the aside\'s path line is gone too).',
+      path: '/analysis/:runId/results/methods/:methodId',
+      initialPath: `/analysis/${TXR_RUN_FAILED_LEAK.id}/results/methods/${TXR_RUN_FAILED_LEAK.methods[0].method_id}`,
+      component: MethodsStory,
     },
     {
       slug: 'txr-results-g-partial',
@@ -233,7 +259,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-results-g-nochance',
       title: 'Results — a finished method with no chances (R2-03/R2-11)',
-      note: 'qa-fixes2 ITEM-7\'s re-verification shape: a predict-only reuse run whose pfs method finished with no chances (prob_source none) — the wall of blanks with the note naming the column — and one-method outcome tabs (the Average column is redundant when the column IS the average and is gone). Two tabs, one column each.',
+      note: 'qa-fixes2 ITEM-7\'s re-verification shape, qa-fixes4 ITEM-6\'s fix: a predict-only reuse run whose pfs method finished with no chances (prob_source none) — the empty column is not rendered; the one line under the table names the method and why (the method page\'s own words) — and one-method outcome tabs (the Average column is redundant when the column IS the average and is gone). Two tabs, one column each.',
       path: '/analysis/:runId/results',
       initialPath: `/analysis/${TXR_RUN_NOCHANCE.id}/results`,
       component: ResultsStory,
@@ -426,6 +452,14 @@ export const txrMockRoutes: TxrMockRouteEntry[] = [
     op: 'getPredictions',
     route: {
       test: (path: string) => path === `/api/txr/runs/${TXR_RUN_EMPTY.id}/predictions`,
+      respond: () => jsonResponse({ error: 'PREDICTIONS_UNAVAILABLE' }, 409),
+    },
+  },
+  {
+    op: 'getPredictions',
+    route: {
+      test: (path: string) =>
+        path === `/api/txr/runs/${TXR_RUN_FAILED_LEAK.id}/predictions`,
       respond: () => jsonResponse({ error: 'PREDICTIONS_UNAVAILABLE' }, 409),
     },
   },

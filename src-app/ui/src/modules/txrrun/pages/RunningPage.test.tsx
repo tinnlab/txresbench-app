@@ -185,8 +185,12 @@ beforeEach(() => {
   sseHandlers = undefined
   // The F page's one-second elapsed tick (RP-2): fake timers make the clock
   // deterministic; `shouldAdvanceTime` keeps the real-async helpers
-  // (`findByTestId`, waitFor) progressing.
-  vi.useFakeTimers({ shouldAdvanceTime: true })
+  // (`findByTestId`, waitFor) progressing. qa-fixes4 ITEM-3
+  // (R3-methods-3): the LIVE elapsed reads the run's `started_at` against
+  // this clock, so `now` is pinned 100 s after the fixture's run start
+  // (00:00:40Z) — the header reads "1 min 40 s elapsed" at load, exactly
+  // the engine's snapshot figure the fixture carries.
+  vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date('2026-11-06T00:02:20Z') })
   listRunLogs.mockResolvedValue({ lines: [], next_seq: 0, total: 0 })
   stopRun.mockResolvedValue(undefined)
   stopMethod.mockResolvedValue(undefined)
@@ -261,9 +265,9 @@ describe('RunningPage — the run id and the header facts (TEST-RUN-23)', () => 
   it('ticks the elapsed from the run\'s own snapshot and counts the time-left down (RP-2)', async () => {
     renderAt('run-1')
     await screen.findByTestId('txr-run-time-line')
-    // Live: 100 s snapshot + 5 s of page time → ≥ 1 min 45 s elapsed, and
-    // the time-left is the estimate minus that live elapsed (it moved off
-    // the frozen "1 min 40 s").
+    // Live: 100 s at the pinned clock + 5 s of page time → ≥ 1 min 45 s
+    // elapsed, and the time-left is the estimate minus that live elapsed
+    // (it moved off the frozen "1 min 40 s").
     act(() => {
       vi.advanceTimersByTime(5000)
     })
@@ -272,6 +276,31 @@ describe('RunningPage — the run id and the header facts (TEST-RUN-23)', () => 
       const match = text.match(/^about 2 minutes left · (\d+) min (\d+) s elapsed · rough estimate$/)
       expect(match).not.toBeNull()
       expect(Number(match![1]) * 60 + Number(match![2])).toBeGreaterThanOrEqual(105)
+    })
+  })
+
+  it('reads the header elapsed from started_at, not the load-time snapshot (qa-fixes4 ITEM-3, methods-r3 R3-methods-3)', async () => {
+    // The round-3 defect: the header lagged the real clock — the snapshot's
+    // elapsed at load drove a one-second counter that drifts when timers are
+    // delayed ("21 s elapsed" at t=28.7 of a 30 s run). A STALE snapshot on
+    // the wire must not freeze the header either: the clock is pinned 100 s
+    // after the run's started_at, so the header reads 1 min 40 s even
+    // though the snapshot (a frame that arrived 50 s ago) says 50.
+    const detail = runDetail('run-1')
+    detail.elapsed_secs = 50
+    getRun.mockResolvedValue(detail)
+    renderAt('run-1')
+    const line = await screen.findByTestId('txr-run-time-line')
+    expect(line.textContent).toBe('about 2 minutes left · 1 min 40 s elapsed · rough estimate')
+    // The rows read the same wall clock: the run started 100 s ago, so the
+    // header and the row's time read the same seconds (both wall-clock).
+    act(() => {
+      vi.advanceTimersByTime(10_000)
+    })
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('txr-run-time-line').textContent).toBe(
+        'about 2 minutes left · 1 min 50 s elapsed · rough estimate',
+      )
     })
   })
 
@@ -365,6 +394,16 @@ describe('RunningPage — the F tabs (ITEM-9, RP-3)', () => {
     expect(screen.getByTestId('txr-run-tab-working').getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByTestId('txr-run-tab-all').getAttribute('aria-pressed')).toBe('false')
   })
+
+  it('the Working chip\'s definition is on screen even before the tab is active (qa-fixes4 ITEM-3, methods-r3 RP-10)', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-tabs')
+    // The report's chip read "Working 6 / 0" with no hint; the definition
+    // now sits beside the chip always (the old render was active-tab-only).
+    expect(screen.getByTestId('txr-run-tab-working-definition').textContent).toBe(
+      'Waiting, downloading or running',
+    )
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -379,8 +418,24 @@ describe('RunningPage — the run states (TEST-RUN-23)', () => {
     expect(state().runError).toBe('not-found')
     expect(state().streaming).toBe(false)
     expect(streamRun).not.toHaveBeenCalled()
+    // qa-fixes4 ITEM-2 (e): the proper not-found page — the plan's words,
+    // the History way out, and the plan's document title.
+    expect(screen.getByTestId('txr-run-not-found').textContent).toContain(
+      'We could not find this run',
+    )
+    expect(document.title).toBe('Run not found — TxResBench')
     const history = screen.getByTestId('txr-run-history').getAttribute('href')
     expect(history).toBe(historyPath())
+  })
+
+  it('ITEM-2 (e): a malformed run id (the server\'s 400) is the not-found page, never the network error', async () => {
+    getRun.mockRejectedValue(Object.assign(new Error('HTTP error! status: 400'), { status: 400 }))
+    renderAt('does-not-exist')
+    await screen.findByTestId('txr-run-not-found')
+    expect(state().runError).toBe('not-found')
+    expect(screen.queryByTestId('txr-run-load-error')).toBeNull()
+    expect(screen.queryByTestId('txr-run-retry')).toBeNull()
+    expect(document.title).toBe('Run not found — TxResBench')
   })
 
   it('renders the network error state with a retry that re-loads the run', async () => {
@@ -430,13 +485,12 @@ describe('RunningPage — the terminal run (qa-fixes ITEM-3 RP-1)', () => {
     // live-run statement and is dropped).
     expect(router.state.location.pathname).toBe('/analysis/run-1/running')
     expect(screen.queryByTestId('txr-run-leave-note')).toBeNull()
-    // Stop all and the lane pick are disabled (a finished run has no controls).
-    expect(screen.getByTestId('txr-run-stop-all').hasAttribute('disabled')).toBe(true)
-    for (const option of within(
-      screen.getByTestId('txr-run-at-a-time-control'),
-    ).getAllByRole('tab')) {
-      expect(option.getAttribute('aria-disabled')).toBe('true')
-    }
+    // qa-fixes4 ITEM-2 (d, R3-methods-4): a finished run's screen shows
+    // NO run controls — the disabled Stop all and the lane pick are gone
+    // (they were re-exposed by the app-shell move of Stop all to the
+    // bottom bar).
+    expect(screen.queryByTestId('txr-run-stop-all')).toBeNull()
+    expect(screen.queryByTestId('txr-run-at-a-time-control')).toBeNull()
     // R2-1/R2-2: a terminal run's time line reads the elapsed it TOOK — no
     // stale "about N minutes left", and the estimate's honesty word rides
     // the end (the fixture's estimate is the rough kind).

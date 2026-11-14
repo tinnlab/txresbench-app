@@ -58,6 +58,11 @@ const DETECTION_SPELLINGS: &[&str] = &[
     "det",
     "pos",
     "neg",
+    // ITEM-6 (G6, help-r2 R2-G6): a `__detected` call column's 0/1 unit —
+    // the deposit's binary presence flag (the old example's
+    // "ctDNA_mean_MTM_per_ml__detected" carried unit '0/1').
+    "0/1",
+    "1/0",
 ];
 
 /// The exact normalized spellings of a ratio/dimensionless unit column.
@@ -70,6 +75,13 @@ const RATIO_SPELLINGS: &[&str] = &[
     "relative",
     "unitless",
     "dimensionless",
+    // ITEM-6 (G6): arbitrary units — the example family's own unit
+    // (a.u.), a dimensionless scale that never warned the app's bundled
+    // data before.
+    "a.u.",
+    "au",
+    "arbitrary units",
+    "arbitrary unit",
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -115,8 +127,25 @@ pub fn normalize_unit(text: &str) -> String {
 // The family classifier (PROV-MC-4's seven families; conservative by design)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// The classifier's reading of a normalized unit: the parenthetical human
+/// gloss is dropped ("MTM/mL (mean tumor molecules per mL of plasma)" reads
+/// "mtm/ml", "a.u. (arbitrary units)" reads "a.u."). ITEM-6 (G6): the
+/// publishers' units carry the explanation in brackets, and the old
+/// example's own unit ("MTM/mL (mean tumor molecules per mL of plasma)")
+/// fell to family `none` — a warning for the app's own data. The STRIPPED
+/// reading is the family classification only: the `Matches` text compare
+/// never strips (a urine and a plasma unit whose parentheticals differ
+/// must not read identical).
+fn strip_unit_gloss(normalized: &str) -> &str {
+    match normalized.find('(') {
+        Some(i) => normalized[..i].trim(),
+        None => normalized,
+    }
+}
+
 /// The small family classifier (DEC-10, PROV-FV-5's seam). Recognition rule,
-/// on the normalized string: a `%`-bearing or percent word is `percent`; an
+/// on the normalized (gloss-stripped) string: a `%`-bearing or percent word
+/// is `percent`; an
 /// exact detection spelling is `detection`; an exact ratio spelling is
 /// `ratio`; a `<numerator>/<volume>` concentration is `concentration_molar`
 /// (molar numerator), `concentration_mass` (mass numerator) or `count` (any
@@ -127,17 +156,20 @@ pub fn infer_unit_family(unit: &str) -> UnitFamily {
     if normalized.is_empty() {
         return UnitFamily::None;
     }
-    if normalized.contains('%') || matches!(normalized.as_str(), "percent" | "pct" | "percentage")
-    {
+    let bare = strip_unit_gloss(&normalized);
+    if bare.is_empty() {
+        return UnitFamily::None;
+    }
+    if bare.contains('%') || matches!(bare, "percent" | "pct" | "percentage") {
         return UnitFamily::Percent;
     }
-    if DETECTION_SPELLINGS.contains(&normalized.as_str()) {
+    if DETECTION_SPELLINGS.contains(&bare) {
         return UnitFamily::Detection;
     }
-    if RATIO_SPELLINGS.contains(&normalized.as_str()) {
+    if RATIO_SPELLINGS.contains(&bare) {
         return UnitFamily::Ratio;
     }
-    let parts: Vec<&str> = normalized.split('/').map(str::trim).collect();
+    let parts: Vec<&str> = bare.split('/').map(str::trim).collect();
     match parts.as_slice() {
         [numerator, denominator] if VOLUME_SYMBOLS.contains(denominator) => {
             if MOLAR_SYMBOLS.contains(numerator) {
@@ -324,7 +356,11 @@ pub fn unit_mixed_problem(column: &str, facts: &MarkerUnitFacts) -> Option<FileP
 
 /// The A04 WARNING for a vocabulary-matched marker whose unit does not match
 /// the vocabulary's unit (DEC-10: `family` and no-agreement verdicts are
-/// warnings; the message says which).
+/// warnings; the message says which). The wording is plain words
+/// (R3-intake-4): the old "differs from the vocabulary unit" / "recognizable
+/// unit family" phrasing was clinician jargon on a green-adjacent card — the
+/// fact is one sentence: the unit is not the known one, so scales are not
+/// compared.
 pub fn unit_mismatch_problem(
     column: &str,
     user_unit: &str,
@@ -332,25 +368,23 @@ pub fn unit_mismatch_problem(
     agreement: UnitAgreement,
 ) -> FileProblem {
     let agreement_text = match agreement {
-        UnitAgreement::Family(_) => "the unit agrees only by unit family",
-        UnitAgreement::Unknown => {
-            "the unit is not recognized, so the scale cannot be compared"
+        UnitAgreement::Family(_) => {
+            "it is the same kind of unit but not the same one, so scales are not compared"
         }
+        UnitAgreement::Unknown => "we do not recognise this unit, so scales are not compared",
         UnitAgreement::Matches => {
             "the unit matches — no problem"
         }
     };
     // The vocabulary entry's canonical unit is not always recorded: an empty
-    // string rendered inside the quotes would read "vocabulary unit ''" — a
+    // string rendered inside the quotes would read "the known unit ''" — a
     // bug-shaped blank (qa-fixes ITEM-5, RES-24). The empty case names the
-    // vocabulary without quoting a non-fact.
+    // known unit without quoting a non-fact.
     let message = if canonical_unit.trim().is_empty() {
-        format!(
-            "column `{column}` unit '{user_unit}' differs from the vocabulary unit: {agreement_text}"
-        )
+        format!("column `{column}` unit '{user_unit}' is not the known unit: {agreement_text}")
     } else {
         format!(
-            "column `{column}` unit '{user_unit}' differs from the vocabulary unit '{canonical_unit}': {agreement_text}"
+            "column `{column}` unit '{user_unit}' is not the known unit '{canonical_unit}': {agreement_text}"
         )
     };
     FileProblem::new(
@@ -371,7 +405,7 @@ pub fn unit_unclassified_problem(column: &str, unit: &str) -> FileProblem {
         None,
         Some(column.to_string()),
         format!(
-            "column `{column}` unit '{unit}' is not a recognizable unit family — no scale assumption is made"
+            "column `{column}` unit '{unit}' is not a unit we recognise — scales are not compared"
         ),
     )
 }
@@ -384,9 +418,7 @@ pub fn unit_absent_problem(column: &str) -> FileProblem {
         ProblemSeverity::Warning,
         None,
         Some(column.to_string()),
-        format!(
-            "column `{column}` carries no unit — the scale cannot be checked against the vocabulary"
-        ),
+        format!("column `{column}` has no unit — scales are not compared"),
     )
 }
 
@@ -428,12 +460,51 @@ mod tests {
             ("fold change", Ratio),
             ("detected", Detection),
             ("positive", Detection),
-            ("a.u.", None),
+            // ITEM-6 (G6): the example family's arbitrary-unit column and a
+            // detection flag's 0/1 column are known families — the
+            // app's own data never read "not a unit we recognise".
+            ("a.u.", Ratio),
+            ("A.U.", Ratio),
+            ("0/1", Detection),
+            ("1/0", Detection),
             ("furlongs", None),
             ("", None),
         ] {
             assert_eq!(infer_unit_family(unit), expect, "unit {unit:?}");
         }
+    }
+
+    #[test]
+    fn test_fv14_gloss_stripping_classifies_the_parenthesised_units() {
+        use UnitFamily::*;
+        // The old example's own unit (help-r2 G6): the parenthetical gloss
+        // must not push the per-volume count to family `none`.
+        assert_eq!(
+            infer_unit_family("MTM/mL (mean tumor molecules per mL of plasma)"),
+            Count
+        );
+        assert_eq!(
+            infer_unit_family("U/mL (urine)"),
+            Count,
+            "the glossed spelling classifies like the bare one"
+        );
+        assert_eq!(infer_unit_family("a.u. (arbitrary units)"), Ratio);
+        // The raw-text MAtches compare never strips: a urine and a plasma
+        // unit whose parentheticals differ do NOT read identical — but they
+        // do agree on the same family (the honest warning wording carries
+        // the "same kind, not the same one" verdict).
+        assert_eq!(
+            compare_unit_to_canonical("U/L (urine)", "U/L (plasma)", UnitFamily::None),
+            UnitAgreement::Family(Count)
+        );
+        assert_eq!(
+            compare_unit_to_canonical("MTM/mL (mean tumor molecules per mL of plasma)", "MTM/mL", UnitFamily::Count),
+            // The same family (the catalogue's ctDNA_MTM fact: count) — the
+            // honest "same kind of unit but not the same one" warning, never
+            // a silent match and never an unclassified one.
+            UnitAgreement::Family(Count),
+            "the glossed per-volume unit is the count family against the entry's declared family"
+        );
     }
 
     #[test]
@@ -527,7 +598,11 @@ mod tests {
         assert_eq!(family.code, ProblemCode::A04UnitDiffers);
         assert_eq!(family.severity, ProblemSeverity::Warning);
         assert!(family.message.contains("U/mL"), "{}", family.message);
-        assert!(family.message.contains("only by unit family"), "{}", family.message);
+        assert!(
+            family.message.contains("same kind of unit but not the same one"),
+            "{}",
+            family.message
+        );
 
         let unknown = unit_mismatch_problem(
             "unit",
@@ -536,12 +611,21 @@ mod tests {
             UnitAgreement::Unknown,
         );
         assert_eq!(unknown.code, ProblemCode::A04UnitDiffers);
-        assert!(unknown.message.contains("is not recognized"), "{}", unknown.message);
+        assert!(
+            unknown.message.contains("we do not recognise this unit"),
+            "{}",
+            unknown.message
+        );
 
         let unclassified = unit_unclassified_problem("unit", "furlongs");
         assert_eq!(unclassified.code, ProblemCode::A04UnitDiffers);
         assert_eq!(unclassified.severity, ProblemSeverity::Warning);
         assert!(unclassified.message.contains("furlongs"), "{}", unclassified.message);
+        assert!(
+            unclassified.message.contains("not a unit we recognise"),
+            "{}",
+            unclassified.message
+        );
     }
 
     #[test]
@@ -554,12 +638,12 @@ mod tests {
         assert_eq!(problem.code, ProblemCode::A04UnitDiffers);
         assert_eq!(problem.severity, ProblemSeverity::Warning);
         assert!(
-            problem.message.contains("unit 'ng/mL' differs from the vocabulary unit"),
+            problem.message.contains("is not the known unit"),
             "{}",
             problem.message
         );
         assert!(
-            problem.message.contains("is not recognized"),
+            problem.message.contains("we do not recognise this unit"),
             "{}",
             problem.message
         );

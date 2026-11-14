@@ -89,8 +89,7 @@ const MONO: CSSProperties = {
 /** The muted lines' look. */
 const SUBLINE: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)' }
 
-/** The ruled-copy label + body looks. */
-const SAVED_LABEL: CSSProperties = { fontWeight: 600, margin: '0 0 2px' }
+/** The ruled-copy body's look. */
 const RULED_TEXT: CSSProperties = { margin: '0 0 8px', fontSize: 12.5, color: 'var(--txr-text-2)' }
 
 /** The error line's look (the dialog's own muted red). */
@@ -313,10 +312,13 @@ export function TxrSaveOneDialog({ runId, methodId, onClose, onSaved }: TxrSaveO
           )}
 
           <div>
-            <p style={SAVED_LABEL}>{WHAT_IS_SAVED_LABEL}</p>
-            <p style={RULED_TEXT}>{SAVE_ONE_WHAT_IS_SAVED_TEXT}</p>
-            <p style={SAVED_LABEL}>{NOT_SAVED_LABEL}</p>
-            <p style={RULED_TEXT}>{NOT_SAVED_TEXT}</p>
+            {/* ITEM-6 (results-r3 R3-results-12): the board's inline pair —
+                ONE paragraph, bold lead in the body, never two labelled
+                lines with a colon alone. */}
+            <p data-testid="txr-models-saveone-ruled" style={RULED_TEXT}>
+              <b>{WHAT_IS_SAVED_LABEL}</b> {SAVE_ONE_WHAT_IS_SAVED_TEXT}{' '}
+              <b>{NOT_SAVED_LABEL}</b> {NOT_SAVED_TEXT}
+            </p>
           </div>
 
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>

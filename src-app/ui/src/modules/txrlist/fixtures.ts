@@ -146,6 +146,11 @@ export const TXRLIST_INVENTORY: InventoryEligibilityRequest = {
 interface FxVerdictFacts {
   /** The first reason's code (can rows carry none — the coverage line). */
   reason?: ReasonCode
+  /** The FULL wire reason set (qa-fixes4 ITEM-7): a row a server verdict
+   *  carries BOTH the env absence and a file reason on (R2-6 — the env
+   *  fact first, the data fact beside it; a bare `reason` is the
+   *  single-reason courtesy shape). */
+  reasons?: ReasonCode[]
   coverage?: Coverage
   minDraws?: MinDraws
   missingMarkers?: Array<{ display_name: string }>
@@ -225,7 +230,7 @@ const FX_METHODS: FxMethodSpec[] = [
   // ── synthetic siblings — response call ──
   { id: 'relchange-threshold', year: 2019, language: 'R', group: 'response-call', groupLabel: 'Response call', status: 'can_run_some', seconds: 45, reason: 'DECISION_DAY_UNMET', coverage: C120, minDraws: DRAWS_3_OF_151, missingMarkers: [{ display_name: 'CEA' }] },
   { id: 'psa-response-velocity-two-group', year: 2020, language: 'R', group: 'response-call', groupLabel: 'Response call', status: 'can_run_some', seconds: 45, reason: 'MIN_DRAWS_UNMET', coverage: C120, minDraws: DRAWS_3_OF_151 },
-  { id: 'cea-ldh-ratio-call', year: 2019, language: 'R', group: 'response-call', groupLabel: 'Response call', status: 'cannot_run', seconds: 45, reason: 'REQUIRED_MARKER_MISSING', coverage: { eligible: 0, total: 151, fraction: 0 }, minDraws: { required: 0, met: 0, unmet_patients: 151 }, missingMarkers: LDH },
+  { id: 'cea-ldh-ratio-call', year: 2019, language: 'R', group: 'response-call', groupLabel: 'Response call', status: 'cannot_run', seconds: 45, reason: 'REQUIRED_MARKER_MISSING', reasons: ['ENV_IMAGE_MISSING', 'REQUIRED_MARKER_MISSING'], coverage: { eligible: 0, total: 151, fraction: 0 }, minDraws: { required: 0, met: 0, unmet_patients: 151 }, missingMarkers: LDH },
   { id: 'afp-lr1-response', year: 2018, language: 'R', group: 'response-call', groupLabel: 'Response call', status: 'cannot_run', seconds: 45, reason: 'REQUIRED_MARKER_MISSING', coverage: { eligible: 0, total: 151, fraction: 0 }, minDraws: { required: 0, met: 0, unmet_patients: 151 }, missingMarkers: [{ display_name: 'AFP' }] },
   { id: 'rdw-chem', year: 2021, language: 'R', group: 'response-call', groupLabel: 'Response call', status: 'cannot_run', seconds: 45, reason: 'DETECTION_CALL_MISSING', coverage: { eligible: 0, total: 151, fraction: 0 }, minDraws: { required: 0, met: 0, unmet_patients: 151 } },
   { id: 'ctdna-nondetect-rule', year: 2016, language: 'R', group: 'response-call', groupLabel: 'Response call', status: 'cannot_run', seconds: 45, reason: 'DETECTION_CALL_MISSING', coverage: { eligible: 0, total: 151, fraction: 0 }, minDraws: { required: 0, met: 0, unmet_patients: 151 } },
@@ -290,9 +295,10 @@ function verdict(spec: FxMethodSpec): MethodEligibility {
   return {
     id: spec.id,
     status: spec.status,
-    reasons: spec.reason
-      ? [{ code: spec.reason, group_id: spec.missingGroups?.length ? spec.missingGroups[0].display_name : undefined }]
-      : [],
+    reasons: (spec.reasons ?? (spec.reason ? [spec.reason] : [])).map(code => ({
+      code,
+      group_id: spec.missingGroups?.length ? spec.missingGroups[0].display_name : undefined,
+    })),
     missing_markers: (spec.missingMarkers ?? []).map((m, i) => ({
       id: `${spec.id}-missing-${i}`,
       id_system: 'fixture',

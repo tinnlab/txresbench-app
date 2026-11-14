@@ -7,17 +7,18 @@
  *
  * - the summary renders the response: the saved count ("N models saved"),
  *   the quoted set name + the total size (the Σ of the saved rows'
- *   `size_bytes` through `formatBytes`), and the "in …" where-segment
- *   with the REAL models root (`ModelListResponse.models_dir` — the
- *   board's Documents/TxResBench/models/ path is a design example, INV-4)
- *   — the pathless fallback omits the where-segment, and a models-dir
- *   fetch failure degrades the same way;
+ *   `size_bytes` through `formatBytes`). qa-fixes4 ITEM-1 (results-r3
+ *   R3-results-2): the board's "in …" where-segment is GONE — the dialog
+ *   never fetches `models_dir` and never renders the models root (it is
+ *   an internal host fact), whatever the list response carries;
  * - the three actions: "Predict new patients with them" sets the intake
  *   intent to `reuse` and navigates `/predict-files`; "See my models"
  *   navigates `/models`; "Done" closes;
  * - the lead paragraph is the board's words verbatim.
  *
- * Response + dir payloads are the module's synthetic fixtures (INV-4).
+ * Response + dir payloads are the module's synthetic fixtures (INV-4);
+ * the listed `listModels` mock stays only because the old test suite
+ * asserted the where-segment — the dialog itself never calls it.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -66,12 +67,17 @@ afterEach(() => {
 })
 
 describe('TxrSavedDialog (TEST-MOD-15)', () => {
-  it('renders the response summary with the real models root', async () => {
+  it('renders the response summary (set name + size); the where-segment is gone (qa-fixes4 ITEM-1)', async () => {
     renderDialog()
     await waitFor(() =>
       expect(screen.getByTestId('txr-models-saved-summary').textContent).toBe(
-        '\u201cMy fixtures, day 60\u201d \u00b7 27 MB \u00b7 in /home/txr-fixture/models',
+        '\u201cMy fixtures, day 60\u201d \u00b7 27 MB',
       ),
+    )
+    // The models root is never rendered and never fetched: the dialog's
+    // summary carries no path even though the mocked list response does.
+    expect(screen.getByTestId('txr-models-saved-summary').textContent).not.toContain(
+      '/home/txr-fixture/models',
     )
     expect(screen.getByTestId('txr-models-saved-lead').textContent).toBe(
       "They are listed under Models. To use them, add new patients' measurements and pick the models you want.",
@@ -79,7 +85,7 @@ describe('TxrSavedDialog (TEST-MOD-15)', () => {
     expect(screen.getByRole('dialog').textContent).toContain('7 models saved')
   })
 
-  it('omits the where-segment when the server reports no models root', async () => {
+  it('omits the size when the saved rows carry no readable size (the summary keeps set name + size only)', async () => {
     api.listModels.mockResolvedValue({ total: 0, models: [], models_dir: null })
     const { onClose } = renderDialog()
     await act(async () => {
@@ -119,7 +125,7 @@ describe('TxrSavedDialog (TEST-MOD-15)', () => {
     expect(screen.getByTestId('route-probe').textContent).toBe('/results')
   })
 
-  it('a models-dir fetch failure degrades to the pathless summary', async () => {
+  it('never fetches the models root for the summary (qa-fixes4 ITEM-1)', async () => {
     api.listModels.mockRejectedValue(new Error('offline'))
     renderDialog()
     await act(async () => {
@@ -128,5 +134,6 @@ describe('TxrSavedDialog (TEST-MOD-15)', () => {
     expect(screen.getByTestId('txr-models-saved-summary').textContent).toBe(
       '\u201cMy fixtures, day 60\u201d \u00b7 27 MB',
     )
+    expect(api.listModels).not.toHaveBeenCalled()
   })
 })

@@ -190,6 +190,7 @@ export function fixtureRun(k: number, over: Partial<TxrHistoryItem> = {}): TxrHi
   return {
     id: fixtureRunId(k),
     bucket: 'finished',
+    counts: { ...FX_COUNTS },
     mode: 'train',
     created_at: fxTimestamp(k),
     method_count: 3,
@@ -228,6 +229,7 @@ export const TXHISTORY_RUN_BOARD_TRAIN = fixtureRun(1, {
 /** The running row (the "Open the running run" action's run). */
 export const TXHISTORY_RUN_RUNNING = fixtureRun(2, {
   bucket: 'running',
+  counts: { ...FX_COUNTS, finished: 0, running: 2 },
   created_at: '2026-06-18T09:45:00Z',
   method_count: 2,
   methods: fxRowMethods(2),
@@ -284,6 +286,7 @@ export const TXHISTORY_RUN_BOARD_TRAIN_ONE = fixtureRun(4, {
 /** The board's fourth row (the failed run — the reason line verbatim). */
 export const TXHISTORY_RUN_BOARD_FAILED = fixtureRun(5, {
   bucket: 'failed',
+  counts: { ...FX_COUNTS, finished: 0, failed: 1 },
   created_at: '2026-06-14T16:48:00Z',
   method_count: 1,
   methods: [fxMethodRow('relchange-threshold')],
@@ -325,6 +328,121 @@ export const TXHISTORY_RUN_COPIES_CLEARED = fixtureRun(6, {
   can_rerun: false,
   elapsed_secs: 45,
   estimate_total_seconds: undefined,
+})
+
+/**
+ * qa-fixes4 ITEM-1 (results-r3 R3-results-2, the help-r3 location row): the
+ * leak story's failed row — the reason is the report's own leaked wording
+ * (tool name + absolute path). The card's reason line passes `safeText`,
+ * and the browser spec `txr-internal-text.spec.ts` asserts no text node
+ * leaks the tool name or the path on `/history`. Deliberate fixture seed:
+ * the copy-guard's allow-list carries this line with its reason (fixture
+ * data, never user-visible copy).
+ */
+export const TXHISTORY_RUN_LEAK = fixtureRun(9, {
+  bucket: 'failed',
+  counts: { ...FX_COUNTS, finished: 0, failed: 1 },
+  created_at: '2026-06-19T08:02:00Z',
+  method_count: 1,
+  methods: [fxMethodRow('relchange-threshold')],
+  file_names: ['breast_panel.csv'],
+  learned_from: undefined,
+  predicted: undefined,
+  reason: {
+    code: 'ENV_IMAGE_TOOL_MISSING',
+    detail: 'oras is not installed (looked in /data/txr-live/bin and PATH)',
+  },
+  markers_saved: false,
+  copies_kept: true,
+  can_rerun: true,
+  can_reopen: false,
+  can_download: false,
+  models_made: { produced: 0, saved_sets: [] },
+  elapsed_secs: undefined,
+  estimate_total_seconds: undefined,
+})
+
+/**
+ * qa-fixes4 ITEM-2 (results-r3 R3-results-3, the run e89047e9): a finished
+ * run, 3 of its 5 methods failed — the K row must NOT read the board's
+ * plain "Done"; the truthful word is "Done, 3 of 5 methods failed" with the
+ * first failed method's reason line (the plan's ITEM-2 (a) specimen).
+ */
+export const TXHISTORY_RUN_PARTIAL = fixtureRun(7, {
+  bucket: 'finished',
+  counts: { ...FX_COUNTS, finished: 2, failed: 3, running: 0, waiting: 0 },
+  method_count: 5,
+  methods: [
+    fxMethodRow('landmark-cox-current'),
+    fxMethodRow('cox-cutpoint-risk'),
+    fxMethodRow('relchange-threshold'),
+  ],
+  reason: {
+    code: 'BUNDLE_MARKER_COUNT_UNMET',
+    detail: 'the method needs a different number of markers than the file has',
+  },
+  can_reopen: true,
+  can_download: true,
+  elapsed_secs: 132,
+  estimate_total_seconds: 190,
+})
+
+/**
+ * qa-fixes4 ITEM-2 (results-r3 R3-results-3, the run 97b25262): a finished
+ * run, 203 of its 209 methods could not run (no published environment) —
+ * one K row that says the truth ("Done, 203 of 209 methods could not run")
+ * and the one first terminal reason, never a plain "Done" over 203 missing
+ * methods.
+ */
+export const TXHISTORY_RUN_MANY_CANNOT = fixtureRun(10, {
+  bucket: 'finished',
+  counts: { ...FX_COUNTS, finished: 6, cannot_run: 203, running: 0, waiting: 0 },
+  method_count: 209,
+  methods: [fxMethodRow('landmark-cox-current')],
+  reason: {
+    code: 'ENV_UNKNOWN',
+    detail: 'the method environment is not available yet',
+  },
+  can_reopen: true,
+  can_download: true,
+  elapsed_secs: 216,
+  estimate_total_seconds: 300,
+})
+
+/**
+ * qa-fixes4 ITEM-2 (methods-r3 R3-methods-10, the run dd62a064): the
+ * Stop-all run — the run is stopped, 4 of its 6 methods were stopped and
+ * the 2 waiting ones were skipped. The K status word is "Stopped by you
+ * (2 skipped)".
+ */
+export const TXHISTORY_RUN_STOPPED_ALL = fixtureRun(11, {
+  bucket: 'stopped',
+  counts: { ...FX_COUNTS, finished: 0, stopped: 4, skipped: 2, running: 0, waiting: 0 },
+  method_count: 6,
+  methods: [fxMethodRow('landmark-cox-current')],
+  reason: { code: 'ABORTED', detail: 'stopped by the user' },
+  can_reopen: false,
+  can_download: false,
+  elapsed_secs: 19,
+  estimate_total_seconds: 240,
+})
+
+/**
+ * qa-fixes4 ITEM-2 (results-r3 R3-results-3, the run 8eb11087): a run that
+ * finished with 4 of 6 methods and one stopped + one skipped (the user
+ * stopped a method mid-run) — the K word names the unfinished count
+ * ("Done, 2 of 6 methods were stopped or skipped").
+ */
+export const TXHISTORY_RUN_PARTIAL_STOPPED = fixtureRun(12, {
+  bucket: 'finished',
+  counts: { ...FX_COUNTS, finished: 4, stopped: 1, skipped: 1, running: 0, waiting: 0 },
+  method_count: 6,
+  methods: [fxMethodRow('landmark-cox-current')],
+  reason: { code: 'ABORTED', detail: 'stopped by the user' },
+  can_reopen: true,
+  can_download: true,
+  elapsed_secs: 61,
+  estimate_total_seconds: 240,
 })
 
 /**

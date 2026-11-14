@@ -36,7 +36,7 @@
  */
 import type { EligibilityResponse, EligibilityStatus, MethodSummary } from '@/api-client/types'
 import type { TxrMethodCard, TxrMethodNeeds } from '../types'
-import { formatCoverage, formatMethodCoverage, formatReasonLine } from '../lib/format'
+import { formatCoverage, formatMethodCoverage, formatReasonLines } from '../lib/format'
 
 /** The provider's three verdict codes → the three board status codes. */
 function toRunStatus(status: EligibilityStatus): TxrMethodCard['run']['status'] {
@@ -125,6 +125,14 @@ function reasonFixOf(code: string | null, missingMarkers: ReadonlyArray<{ displa
 
 /** The defensive card for a catalogue method the eligibility response does not know. */
 function unavailableCard(summary: MethodSummary): TxrMethodCard {
+  const reasonLines = formatReasonLines(
+    'cannot',
+    [{ code: 'NOT_RUNNABLE' }],
+    { eligible: 0, total: 0 },
+    { required: 0, met: 0, unmet_patients: 0 },
+    [],
+    [],
+  )
   return {
     key: summary.id,
     id: summary.id,
@@ -144,14 +152,8 @@ function unavailableCard(summary: MethodSummary): TxrMethodCard {
       status: 'cannot',
       coverageLine: formatMethodCoverage({ eligible: 0, total: 0 }),
       reasonCode: 'NOT_RUNNABLE',
-      reasonLine: formatReasonLine(
-        'cannot',
-        [{ code: 'NOT_RUNNABLE' }],
-        { eligible: 0, total: 0 },
-        { required: 0, met: 0, unmet_patients: 0 },
-        [],
-        [],
-      ),
+      reasonLine: reasonLines[0],
+      reasonLines,
       reasonFix: reasonFixOf('NOT_RUNNABLE'),
       disabled: true,
     },
@@ -176,9 +178,13 @@ export function buildMethodCards(
     if (verdict === undefined) return unavailableCard(summary)
     const status = toRunStatus(verdict.status)
     const reasonCode = verdict.reasons.length > 0 ? verdict.reasons[0].code : null
-    const reasonLine =
+    // R2-6 (qa-fixes4 ITEM-3): the row carries EVERY reason's line — the
+    // env fact first, the file's data reasons beside it — so an unrunnable
+    // row reads "no published environment available · needs LDH, not in
+    // your file" instead of hiding the fixable fact behind the first one.
+    const reasonLines =
       verdict.reasons.length > 0
-        ? formatReasonLine(
+        ? formatReasonLines(
             status,
             verdict.reasons,
             verdict.coverage,
@@ -186,7 +192,8 @@ export function buildMethodCards(
             verdict.missing_markers,
             verdict.missing_groups,
           )
-        : formatCoverage(verdict.coverage)
+        : [formatCoverage(verdict.coverage)]
+    const reasonLine = reasonLines[0] ?? 'cannot run with this file'
     return {
       key: summary.id,
       id: summary.id,
@@ -213,6 +220,7 @@ export function buildMethodCards(
         coverageLine: formatMethodCoverage(verdict.coverage),
         reasonCode,
         reasonLine,
+        reasonLines,
         reasonFix: reasonFixOf(reasonCode, verdict.missing_markers),
         disabled: status === 'cannot',
       },

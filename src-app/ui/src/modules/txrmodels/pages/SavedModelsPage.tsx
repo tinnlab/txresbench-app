@@ -153,6 +153,13 @@ const FOOTNOTE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 /** The not-ready state's line (no validated file — never a half list). */
 const EMPTY_LINE = 'Add the patients\u2019 measurements you want to predict first.'
 
+/** The not-ready state's note: which models this screen lists (G4 — the
+ *  direct visit used to be one bare line + a button; the saved-models list's
+ *  own story is the sets you saved, and the file gate is the step that
+ *  unlocks it; the D screen's sibling note is its published-catalogue twin). */
+const EMPTY_NOTE =
+  'The models you saved from your runs are listed here once the file checks out: each shows its training run and which patients it can score.'
+
 /** The not-ready state's CTA — the step that unlocks this one (RES-20: the
  *  old "Go to the start" landed on the landing page, not the predict-files
  *  step the flow needs next). */
@@ -647,6 +654,9 @@ export function SavedModelsPage() {
               }}
             >
               <p style={CHECK_LINE}>{EMPTY_LINE}</p>
+              <p data-testid="txr-models-i-empty-note" style={CHECK_LINE}>
+                {EMPTY_NOTE}
+              </p>
               <Button
                 data-testid="txr-models-i-empty-cta"
                 variant="outline"

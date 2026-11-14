@@ -33,7 +33,9 @@ import {
   compareCardTitle,
   formatChanceMissingNote,
   formatConstantNote,
-  formatNoChanceNote,
+  formatEmptyColumnReason,
+  formatEmptyColumnsNote,
+  formatGroupedChanceNote,
   formatCounts,
   formatCoverage,
   formatDecisionDay,
@@ -44,7 +46,6 @@ import {
   formatPct,
   formatProbSourceLine,
   formatReasonText,
-  formatSavedIn,
   formatSharedTopSentence,
   formatSubtitle,
   formatTaskLabel,
@@ -52,6 +53,7 @@ import {
   txrRunFailed,
 } from './format'
 import { chanceExplanationOf } from '../components/TxrChanceDialog'
+import { SAFE_TEXT_GENERIC } from '@/modules/txrshell/lib/safeText'
 
 describe('formatTook (the subtitle duration)', () => {
   it('renders the boarded precise durations (TEST-UR-3 pins)', () => {
@@ -169,6 +171,40 @@ describe('the subtitle segment builders (PROV-UR-5)', () => {
       formatSubtitle({ finished: null, total: null, trainedOn: null, decisionDay: null, tookSeconds: null }),
     ).toBe('')
   })
+
+  it('ITEM-2 (a): a terminal run\'s status word leads and replaces the counts segment (the K vocabulary)', () => {
+    expect(
+      formatSubtitle({
+        status: 'Done, 3 of 5 methods failed',
+        finished: 2,
+        total: 5,
+        trainedOn: 120,
+        decisionDay: 56,
+        tookSeconds: 680,
+      }),
+    ).toBe('Done, 3 of 5 methods failed · learned from 120 patients · decision day 56 · took 11 minutes 20 seconds')
+    expect(
+      formatSubtitle({
+        status: 'Failed',
+        finished: 0,
+        total: 6,
+        trainedOn: null,
+        decisionDay: 56,
+        tookSeconds: null,
+      }),
+    ).toBe('Failed · decision day 56')
+    // A null status keeps the live counts segment.
+    expect(
+      formatSubtitle({
+        status: null,
+        finished: 2,
+        total: 5,
+        trainedOn: null,
+        decisionDay: null,
+        tookSeconds: null,
+      }),
+    ).toBe('2 of 5 methods finished')
+  })
 })
 
 describe('formatReasonText (the cannot-run banner sentence, DEC-15)', () => {
@@ -199,27 +235,19 @@ describe('formatReasonText (the cannot-run banner sentence, DEC-15)', () => {
   it('omits no sentence for any prior detail', () => {
     expect(formatReasonText('REQUIRED_MARKER_MISSING', 'LDH is not in your measurements')).toMatch(/\.$/)
   })
-})
 
-describe('formatSavedIn (the aside display path)', () => {
-  it('renders the run directory trimmed, with the board trailing slash', () => {
-    expect(formatSavedIn('/home/u1/.txresbench/analysis-2033-06-12-abcd1234')).toBe(
-      '/home/u1/.txresbench/analysis-2033-06-12-abcd1234/',
+  it('refuses to render an internal path or <app_data> detail (qa-fixes4 ITEM-1)', () => {
+    // The UI-side safeText guard (the server sanitiser's second line): a
+    // leaked absolute path or app-data token never reaches the screen.
+    expect(formatReasonText('ENV_TOOL_MISSING', 'oras is not installed (looked in /data/tmp/bin and PATH)')).toBe(
+      `${SAFE_TEXT_GENERIC}.`,
     )
-    expect(formatSavedIn('/home/u1/.txresbench/analysis-2033-06-12-abcd1234/')).toBe(
-      '/home/u1/.txresbench/analysis-2033-06-12-abcd1234/',
+    expect(formatReasonText('ENV_TOOL_MISSING', 'oras is not installed (looked in <app_data>/bin and PATH)')).toBe(
+      `${SAFE_TEXT_GENERIC}.`,
     )
-    expect(formatSavedIn('  /home/u1/.txresbench/analysis-2033-06-12-abcd1234/  ')).toBe(
-      '/home/u1/.txresbench/analysis-2033-06-12-abcd1234/',
+    expect(formatReasonText('ENV_UNKNOWN', 'no published environment on /usr/local/methods')).toBe(
+      `${SAFE_TEXT_GENERIC}.`,
     )
-    expect(formatSavedIn('/')).toBe('/')
-  })
-
-  it('returns null for a null, empty or whitespace path (the aside omits the line)', () => {
-    expect(formatSavedIn(null)).toBeNull()
-    expect(formatSavedIn(undefined)).toBeNull()
-    expect(formatSavedIn('')).toBeNull()
-    expect(formatSavedIn('   ')).toBeNull()
   })
 })
 
@@ -317,6 +345,29 @@ describe('qa-fixes ITEM-4 — the names, legend and plain-voice notes (RES-03/04
     expect(formatConstantNote([])).toBeNull()
   })
 
+  // R3-results-13: a column with 2–3 distinct chances reads like a constant
+  // beside a graded scale; the note names the groups.
+  it('names a grouped column plainly (R3-results-13: "this method gives three groups")', () => {
+    expect(
+      formatGroupedChanceNote([
+        {
+          label: 'cfmedip-ctdna-clearance-three-group',
+          values: [0.82, 0.35, 0.06, 0.82, 0.35, 0.06],
+        },
+        { label: 'cox-baseline-delta', values: [0.3, 0.5, 0.75, 0.6, 0.45, null, 0.8] },
+      ]),
+    ).toBe(
+      'cfmedip-ctdna-clearance-three-group gives three distinct chances (6%, 35% and 82%) — its chances are its three groups.',
+    )
+    expect(
+      formatGroupedChanceNote([
+        { label: 'binary-call', values: [0, 1, 0, 1, 0, 1] },
+      ]),
+    ).toBe('binary-call gives two distinct chances (0% and 100%) — its chances are its two groups.')
+    expect(formatGroupedChanceNote([{ label: 'graded', values: [0.1, 0.2, 0.3, 0.4] }])).toBeNull()
+    expect(formatGroupedChanceNote([])).toBeNull()
+  })
+
   it('says plainly when a finished method has no chance column (qa-fixes2 R2-10 — the "6 of 6" header vs "All 5" table)', () => {
     const finished = [{ methodId: 'ctdna-clearance', label: 'ctdna-clearance' }]
     const five = ['cfmedip-ctdna-clearance-three-group', 'cox-baseline-delta', 'ctdna-anytime-detectability', 'ctdna-week4-rise-or-emergence', 'landmark-cox-current'].map(id => ({ methodId: id }))
@@ -412,12 +463,13 @@ describe('txrRunFailed (R2-02/RES-02 failed-run truth)', () => {
   })
 })
 
-describe('formatNoChanceNote (R2-03 no-chance wall of blanks)', () => {
+describe('formatEmptyColumnsNote (ITEM-6 — R2-03: no dash walls, one line)', () => {
+  // The note is fed the DROPPED columns (every value null — the view's
+  // `emptyColumns`); a value-bearing column is never in the set.
   it('names the single no-chance column with the prob-source words', () => {
     expect(
-      formatNoChanceNote([
-        { label: 'Model A', probSource: 'native' },
-        { label: 'Model B', probSource: null },
+      formatEmptyColumnsNote([
+        { label: 'Model B', probSource: null, notes: [] },
       ]),
     ).toBe(
       'No chances are shown for Model B: the saved model has no score-to-chance conversion for this outcome and day.',
@@ -426,24 +478,47 @@ describe('formatNoChanceNote (R2-03 no-chance wall of blanks)', () => {
 
   it('names several columns, plural', () => {
     expect(
-      formatNoChanceNote([
-        { label: 'Model A', probSource: null },
-        { label: 'Model B', probSource: null },
-        { label: 'Model C', probSource: 'recalibrated' },
+      formatEmptyColumnsNote([
+        { label: 'Model A', probSource: null, notes: [] },
+        { label: 'Model B', probSource: null, notes: [] },
       ]),
     ).toBe(
       'No chances are shown for Model A, Model B: the saved models have no score-to-chance conversion for this outcome and day.',
     )
   })
 
-  it('is null when every column carries chances', () => {
+  it('an all-abstain column reads its own uniform note (the honest why)', () => {
     expect(
-      formatNoChanceNote([
-        { label: 'Model A', probSource: 'native' },
-        { label: 'Model B', probSource: 'recalibrated' },
+      formatEmptyColumnsNote([
+        {
+          label: 'Model C',
+          probSource: 'native',
+          notes: [null, 'fewer than 3 draws by day 56', 'fewer than 3 draws by day 56'],
+        },
       ]),
-    ).toBeNull()
-    expect(formatNoChanceNote([])).toBeNull()
+    ).toBe('No chances are shown for Model C: fewer than 3 draws by day 56.')
+    // Differing notes never fabricate one reason.
+    expect(
+      formatEmptyColumnsNote([
+        { label: 'Model C', probSource: 'native', notes: ['no day 0 draw', 'no day 30 draw'] },
+      ]),
+    ).toBe('No chances are shown for Model C: no chances were produced for any patient.')
+  })
+
+  it('groups one sentence per distinct reason, in column order', () => {
+    expect(
+      formatEmptyColumnsNote([
+        { label: 'Model A', probSource: null, notes: [] },
+        { label: 'Model B', probSource: null, notes: [] },
+        { label: 'Model C', probSource: 'native', notes: ['fewer than 3 draws by day 56'] },
+      ]),
+    ).toBe(
+      'No chances are shown for Model A, Model B: the saved models have no score-to-chance conversion for this outcome and day. No chances are shown for Model C: fewer than 3 draws by day 56.',
+    )
+  })
+
+  it('is null when the view dropped nothing', () => {
+    expect(formatEmptyColumnsNote([])).toBeNull()
   })
 })
 

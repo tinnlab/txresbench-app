@@ -12866,22 +12866,31 @@
         ]
       },
       "PreviewEligibilityRequest": {
-        "description": "Screen B's preview body: which marker groups the user picked, and the\n draw-schedule answers (before-treatment values, draws during treatment, last\n draw day).",
+        "description": "Screen B's preview body: which marker groups the user picked, and the\n draw-schedule answers (before-treatment values, draws during treatment, last\n draw day). Every schedule field is OPTIONAL (R3-intake-2): an unanswered\n question is absent, and the preview treats an absent answer as \"any\" —\n it never assumes a value the user did not give (the old client sent the\n board's first options when unanswered, so an untouched question narrowed\n the fit count).",
         "type": "object",
         "properties": {
           "before_treatment": {
-            "description": "`always` | `sometimes` (whether the treating clinician always has a\n before-treatment sample).",
-            "type": "string"
+            "description": "`always` | `sometimes` (whether the treating clinician always has a\n before-treatment sample). Absent = not answered = no constraint.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "draws_during_treatment": {
-            "description": "The number of on-treatment draws the user will record (1|2|4).",
-            "type": "integer",
+            "description": "The number of on-treatment draws the user will record (1|2|4).\n Absent = not answered = any draw count (the minimum-draws verdict is\n not applied).",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "uint32",
             "minimum": 0
           },
           "last_draw_day": {
             "description": "The last draw day the schedule reaches (28|42|56|84).",
-            "type": "number",
+            "type": [
+              "number",
+              "null"
+            ],
             "format": "double"
           },
           "marker_groups": {
@@ -12893,10 +12902,7 @@
           }
         },
         "required": [
-          "marker_groups",
-          "before_treatment",
-          "draws_during_treatment",
-          "last_draw_day"
+          "marker_groups"
         ]
       },
       "PreviewQuery": {
@@ -13866,12 +13872,12 @@
             "const": "profile"
           },
           {
-            "description": "An account the user is a member of changed (created/renamed/deleted).\n Owner-scoped. **Vocabulary only in A1** — the `account` module emits it\n once sync-wired by A4 (`publish_account` + the `Accounts` store); until\n then the FE `sync:account` subscription is a no-op. `id` is the account id.",
+            "description": "An account the user is a member of changed (created/renamed/deleted).\n Owner-scoped. `id` is the account id.",
             "type": "string",
             "const": "account"
           },
           {
-            "description": "An account-membership row changed (a member added/removed, or a role\n change). Owner-scoped. **Vocabulary only in A1** — emitted once sync-wired\n by A4; the FE `sync:account_member` subscription refetches the member list.\n `id` is the account id (the changed membership's account).",
+            "description": "An account-membership row changed (a member added/removed, or a role\n change). Owner-scoped. `id` is the account id (the changed membership's\n account).",
             "type": "string",
             "const": "account_member"
           },
@@ -14541,6 +14547,14 @@
             "description": "The retention flag (the retention row's `copies_kept`; a run without\n a row reads `true` — INV-2's conservative default).",
             "type": "boolean"
           },
+          "counts": {
+            "description": "The engine's own per-state method counts (the run's `txr_runs.counts`\n JSON verbatim — qa-fixes4 ITEM-2: the K row's status is truthful\n (\"Done\" only when every method finished; the partial word names the\n failed count), and the counts are the ENGINE's single accounting, the\n same fact the F/G headers render).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TxrRunCounts"
+              }
+            ]
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -14682,6 +14696,7 @@
           "id",
           "mode",
           "bucket",
+          "counts",
           "created_at",
           "method_count",
           "file_names",

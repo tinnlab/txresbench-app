@@ -139,6 +139,17 @@ html.dark .os-theme-dark {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
 }
 
+/* qa-fixes4 ITEM-6 (results-r3 R3-results-12): the dialog title is the
+ * page-heading face. The kit Dialog renders its title in the body face
+ * (Source Sans), while every page heading is the serif — the save dialog
+ * title sat beside serif section heads in a different family (the report's
+ * f5-dlg2). The slot selector is the shadcn DialogTitle's own data-slot
+ * (`sdk/packages/kit/src/shadcn/dialog.tsx`); the dialog body text stays
+ * Source Sans (the board's own body). */
+[data-slot='dialog-title'] {
+  font-family: 'Source Serif 4', Georgia, serif;
+}
+
 /* app-shell ITEM-1 (DEC-1/DEC-2): the shell's TWO modes by window size.
  * The document rules follow the `txr-shell-mode-*` class the AppShell puts
  * on <html> — the same media expression the shell's own hook follows
@@ -427,6 +438,29 @@ html.txr-shell-mode-shell #root {
   .txr-results-filter {
     flex: 1 1 100%;
   }
+  /* qa-fixes4 ITEM-6 (results-r3 R3-results-11): the heatmap/bars card is
+   * the board's own overflow-x container. The phone (flow mode) lets the
+   * document flow and the region's box clips at the card's edge — the
+   * report's chance value cut to "8" and the method headers wrapped
+   * mid-word. Below 640 px the card scrolls sideways inside itself (the J
+   * table precedent — the R2-03 "table without a value column" and the
+   * one-method tab keep the same box), so nothing is cut without a
+   * scrollport. The sticky patient column sticks to this box; the desktop
+   * and shell-mode layouts keep the region as the scrollport. */
+  .txr-results-table-box {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  /* qa-fixes4 ITEM-6 (results-r3 R3-results-11): the outcome and method
+   * tab strips wrap below 640 px instead of clipping at the viewport edge
+   * (the report's "tab strip truncated" — the strips' native carousel
+   * reaches the right-hand tabs only by swiping, a no-cue affordance).
+   * Wrapped rows show every tab; the pill triggers ride their own row and
+   * the strip's overflow-x stays as the safety for a label longer than the
+   * page. */
+  .txr-results-page [data-slot='tabs-list'] {
+    flex-wrap: wrap;
+  }
 }
 
 
@@ -481,8 +515,38 @@ html.txr-shell-mode-shell #root {
   .txr-run-table tr.txr-run-row td[data-label='Time'] {
     text-align: left !important;
   }
+  /* qa-fixes4 ITEM-3 (methods-r3 R2-9): the desktop column keeps its
+     proportional width inline (26 % of the row's width) — in the stacked
+     card that same width SHRINKS the cell to a narrow 58 px column (a
+     block-level flex box with a definite width does not fill the row),
+     and the track's flexible width resolved against the squeezed
+     container → no bar at all on the phone cards. The card cell is the
+     full row (the label + value flex row takes what it needs), and the
+     track takes the leftover after the 76 px label column (its
+     `flex: 1 1 0` + `width: 100 %` in TxrRunRow). */
+  .txr-run-table tr.txr-run-row td[data-label='Progress'] {
+    width: auto !important;
+  }
   .txr-run-table tr.txr-run-row td[data-label='Actions'] {
     align-items: flex-start !important;
+  }
+}
+
+/* qa-fixes4 ITEM-2 (c, methods-r3 R3-methods-11 / results-r3 R3-results-1):
+ * the trouble row lines — the summary cards' expandable lists AND the
+ * terminal failure state's rows — stack at phone width: the method id,
+ * the state word, the reason and "Show the log" each get their own line
+ * (the reason never collapses into a one-word-per-line column and never
+ * overlaps the log link; the desktop row's baseline alignment is overridden
+ * for the stacked layout only). */
+@media (max-width: 640px) {
+  .txr-results-trouble-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 2px !important;
+  }
+  .txr-results-trouble-row .txr-results-trouble-reason {
+    flex: 0 0 auto !important;
   }
 }
 @media (min-width: 641px) {
@@ -796,6 +860,44 @@ html.txr-shell-mode-flow .txr-help-rail {
   border-radius: 6px;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
 }
+/* qa-fixes4 ITEM-5 (help-r3 R3-help-5): the page body's links carry the
+ * SAME ring the shell header's links and the kit controls paint — the old
+ * Help links (rail, contents, quick-start CTA) were left with the
+ * browser's thin 1 px default outline next to the header's 3 px ring. No
+ * default outline, a 3 px `--ring` shadow at 50 %, the link's 6 px
+ * radius — the identical byte, so a keyboard user sees one focus style
+ * across the header and the article. `:focus-visible`, never `:focus`. */
+.txr-help-link {
+  border-radius: 6px;
+}
+.txr-help-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
+}
+/* qa-fixes4 ITEM-5 (help-r3 R3-help-5, the owner byte): the theme switch's
+ * touch target at the narrow width — the icon-only button measured
+ * 34x30 px; 44x44 px is the floor. The header is 56 px tall, so the
+ * button fits. */
+@media (max-width: 700px) {
+  .txr-theme-toggle {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+}
+/* qa-fixes4 ITEM-5 (help-r3 R3-help-6, polish): the floating "Top" chip is
+ * a phone-width 44 px target, and the article's bottom padding grows so
+ * the LAST lines are not under it when the reader reaches the end. */
+@media (max-width: 640px) {
+  .txr-help-backtop {
+    right: 10px !important;
+    bottom: 10px !important;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .txr-help-region-content {
+    padding-bottom: 104px !important;
+  }
+}
 /* The phone layout of the Help page: the stepper and the quick-start row
  * stack under 640 px (the board's phone breakpoint; the grid's own
  * two-column switch is at 1024 px in the layout block above). Nothing may
@@ -810,18 +912,38 @@ html.txr-shell-mode-flow .txr-help-rail {
   }
 }
 
-/* qa-fixes2 ITEM-3: the Help page's skip link — off-screen until it takes
- * focus (the component parks it at left:-9999; focus brings it into view). */
-.txr-help-skip-link:focus {
-  left: 12px !important;
-  top: 12px !important;
-}
-/* Clear of the traffic lights in the macOS desktop window (the shell's
- * `txr-app-shell-macos`, see the shell skip link above). */
-.txr-app-shell-macos .txr-help-skip-link:focus {
-  left: var(--txr-mac-content-start) !important;
-}
+/* qa-fixes2 ITEM-3: the Help page's skip link is GONE (qa-fixes4 ITEM-5,
+ * R3-help-5): the shell's AppShell owns the ONE skip link, and this page's
+ * old rule (off-screen until focus) died with the element it styled. */
 
+/* qa-fixes4 ITEM-3 (methods-r3 R2-7): the E screen's run bar at the phone
+ * width. SHELL mode (>=768x520) pins the frame's bottom slot by the
+ * frame's own 100 % height; below it the app is FLOW mode (the phone /
+ * web-demo byte — the document scrolls, the shell header sticks at the
+ * top) and the frame grows to the content, so the bar used to sit AFTER
+ * the whole method list (the round-3 report: the Run button at y=1141
+ * against an 844 px viewport — position: static). A STICKY bottom bar
+ * does not pin here: the flow shell's own document wrapper carries
+ * `overflow-x-hidden`, which makes THAT wrapper the scroll container
+ * (overflow-y resolves to auto) — a sticky bar anchors to the wrapper's
+ * 100 %-tall scrollport, not the viewport, so it does not move while the
+ * document scrolls (measured: the bar stayed at the document end). The
+ * bar is FIXED to the viewport's bottom edge instead (never off-screen
+ * below 768 px, where the shell is always FLOW), and the frame carries
+ * the bar's own height as bottom padding so the list's last rows are
+ * never hidden behind it (the fixed bar overlays the padding only). */
+@media (max-width: 767px) {
+  .txr-run-page .txr-page-frame-bottom {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+  }
+  .txr-run-page .txr-page-frame {
+    padding-bottom: 238px;
+  }
+}
 /* qa-fixes3 ITEM-2 (d): the choose-methods page at phone width. The ITEM-2
  * plan's phone layout: the files summary and the settings are COLLAPSIBLE
  * cards (collapsed by default — their own inline styles implement the

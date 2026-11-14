@@ -47,6 +47,9 @@ import type {
   TxrRunProgressFrame,
   TimingQuality,
 } from '@/api-client/types'
+import { safeText } from '@/modules/txrshell/lib/safeText'
+// The ONE env-missing sentence (the list's CM-1 wording — R3-methods-9).
+import { NO_PUBLISHED_ENVIRONMENT_REASON } from '@/modules/txrlist/lib/format'
 import type { TxrRunBucket } from '../types'
 
 /**
@@ -157,20 +160,25 @@ export function formatSecs(secs: number | null): string {
 /**
  * The F header's time-left line (DEC-3): the run's own create-time
  * estimate minus the elapsed seconds (a missing elapsed counts as 0 — a
- * just-started run), floored at 0 (an overrun never reads negative),
- * rounded to whole minutes and announced as "about" — the estimate is the
- * engine's packed schedule, never re-computed here (INV-4). A `null`
- * estimate (the run carries none — a provider failure / an empty queued
- * set; PROV-EE-3) → `null`, so the header omits the segment entirely
- * rather than fabricating a zero.
+ * just-started run), announced as "about" — the estimate is the engine's
+ * packed schedule, never re-computed here (INV-4). qa-fixes4 ITEM-3
+ * (methods-r3 R2-2 leftover): the line is a REAL figure that counts down —
+ * a sub-minute remainder reads its own seconds ("about 20 s left", never
+ * the constant "under a minute left") and a run whose estimate's schedule
+ * has fully elapsed reads "finishing up" (the overrun is the run's own
+ * finalizing, no longer a promise of more work). A `null` estimate (the
+ * run carries none — a provider failure / an empty queued set;
+ * PROV-EE-3) → `null`, so the header omits the segment entirely rather
+ * than fabricating a zero.
  */
 export function formatTimeLeft(
   estimate: { schedule_seconds: number } | null,
   elapsedSecs: number | null,
 ): string | null {
   if (estimate === null) return null
-  const remaining = Math.max(0, estimate.schedule_seconds - (elapsedSecs ?? 0))
-  if (remaining < 60) return 'under a minute left'
+  const remaining = estimate.schedule_seconds - (elapsedSecs ?? 0)
+  if (remaining <= 0) return 'finishing up'
+  if (remaining < 60) return `about ${Math.max(1, Math.round(remaining))} s left`
   const minutes = Math.round(remaining / 60)
   return `about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} left`
 }
@@ -231,10 +239,24 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
       return formatBytes(r.bytes_downloaded, total)
     }
     case 'running':
-      return progress?.message ?? ''
+      // qa-fixes4 ITEM-1: the frame's message passes the UI-side `safeText`
+      // guard too (a producer's path would never be rendered).
+      return safeText(progress?.message ?? '')
     case 'failed':
     case 'cannot_run':
-      return r.reason?.detail ?? 'no reason recorded'
+      // qa-fixes4 ITEM-3 (methods-r3 R3-methods-9): the reason CODE is the
+      // one closed vocabulary and its fact has ONE sentence — an
+      // `ENV_IMAGE_MISSING` row reads the list's "no published environment
+      // available" (CM-1's plain reason), never the engine's stored
+      // pre-vocabulary detail ("no published environment for method
+      // <id>" — the same fact, two wordings). Any other code keeps the
+      // engine's stored detail verbatim; a row the engine recorded no
+      // reason for reads the constant below — a failure is never blank
+      // (INV-2).
+      if (r.reason?.code === 'ENV_IMAGE_MISSING') {
+        return NO_PUBLISHED_ENVIRONMENT_REASON
+      }
+      return safeText(r.reason?.detail ?? 'no reason recorded')
     default:
       return ''
   }
@@ -250,8 +272,12 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
  * (qa-fixes2 R2-4 — the column was empty during the run because the rows
  * only carry an engine snapshot, and a sub-minute run never saw one), a
  * completed row reads "done in M min S s" (the board's log line's words at
- * the row's own duration, `duration_ms`), a failed / cannot-run row reads
- * its elapsed (the board's "5 s"), and a stopped row reads the elapsed it
+ * the row's own duration — qa-fixes4 ITEM-3, methods-r3 R3-methods-8: the
+ * row reads the engine's `elapsed_secs` FIRST, the same seconds fact the
+ * engine's own log line words, so the row cell and the log quote can never
+ * disagree; `duration_ms` is the fallback for an old row the engine gave no
+ * elapsed), a failed / cannot-run row reads its elapsed (the board's "5 s"),
+ * and a stopped row reads the elapsed it
  * reached (it ran for a while before the user cleared it). A SKIPPED row
  * reads nothing: it never ran (qa-fixes ITEM-3, RP-7 — its "done in …"
  * was the engine's duration_ms of a row that never started). Waiting rows
@@ -265,7 +291,7 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
  * `Option` counters serialize their absent value as JSON `null` while the
  * generated types render them optional-only (the qa-fixes RES-01
  * null-vs-undefined rule) — a `duration_ms: null` wire value must read an
- * empty cell, never "done in —".
+ * empty read, never "done in —".
  */
 export function formatRowTime(r: TxrRunMethod, nowMs: number | null = null): string {
   switch (r.state) {
@@ -283,31 +309,19 @@ export function formatRowTime(r: TxrRunMethod, nowMs: number | null = null): str
     case 'stopped':
       return r.elapsed_secs == null ? '' : formatSecs(r.elapsed_secs)
     case 'finished':
-      return r.duration_ms == null
-        ? ''
-        : `done in ${formatSecs(r.duration_ms / 1000)}`
+      // R3-methods-8 (qa-fixes4 ITEM-3): the engine's own log line words the
+      // method's seconds as its `elapsed_secs` ("done in 7s"), so the row
+      // reads THAT fact first — the table read and the log quote are one
+      // count. An old row whose engine record has no elapsed falls back to
+      // `duration_ms` (the R2-4 pin's word).
+      return r.elapsed_secs == null
+        ? r.duration_ms == null
+          ? ''
+          : `done in ${formatSecs(r.duration_ms / 1000)}`
+        : `done in ${formatSecs(r.elapsed_secs)}`
     default:
       return ''
   }
-}
-
-/**
- * The R2-5 start-up noise predicate (the setlocale / R-startup lines that
- * opened the "All methods" log with one warning per method): the engine's
- * own log content for the locale warnings a sandboxed method's shell and
- * R runtime print on start. These lines are TRUE output — the "Show
- * technical output" switch in the log panel reveals them — but they are
- * not progress, and a log that opens with 7 warning lines per method hides
- * the run's own lines behind them. Matched on the line content (the
- * engine authors no per-line kind field): `setlocale` (the bash warning),
- * `Setting LC_*` (R's per-locale messages) and the R start-up warning
- * banner. Plain-voice rule: this is the run screen's own copy layer, the
- * lines stay in the store and in the copy text when the switch is on.
- */
-const TECHNICAL_NOISE: RegExp = /setlocale|Setting LC_|During startup - Warning/i
-
-export function isTechnicalLogNoise(line: TxrRunLogLine): boolean {
-  return TECHNICAL_NOISE.test(line.content)
 }
 
 /**
@@ -415,4 +429,93 @@ export function filterLogLines(
 ): TxrRunLogLine[] {
   if (methodId === null) return [...lines]
   return lines.filter(line => line.method_id === methodId)
+}
+
+/**
+ * One entry of the panel's collapsed view (qa-fixes4 ITEM-3, methods-r3
+ * R3-methods-5): a line shown once plus the repeat facts of the run it
+ * belongs to.
+ */
+export interface TxrCollapsedLogLine {
+  line: TxrRunLogLine
+  /** The raw lines THIS entry stands for (a block each of whose lines
+   *  printed `N` times; `1` = a single line) — the viewing count sums to
+   *  the raw lines shown. */
+  count: number
+  /** The whole run's raw line count (the "×N" badge's N; 1 = no repeat). */
+  runLength: number
+  /** The entry is the run's FIRST line — the "×N" badge's place. */
+  runStart: boolean
+}
+
+/** The two collision facts one repeated run must be identical on (a line's
+ *  identity in the log is WHICH method printed it + WHAT it says — the
+ *  same text from two methods is two log lines, not a repeat). */
+function sameLogLine(a: TxrRunLogLine, b: TxrRunLogLine): boolean {
+  return a.content === b.content && a.method_id === b.method_id
+}
+
+/**
+ * The F log panel's repeated-line collapse (qa-fixes4 ITEM-3, methods-r3
+ * R3-methods-5 — "repeat R warnings are collapsed into 'x6'"): a maximal
+ * run of lines that is one short sequence printed again (the engine's R
+ * methods print the identical 3-line `colClasses` warning block twice or
+ * three times; a line can also repeat verbatim) renders ONCE — the run's
+ * last line carries the "×N" marker with N = the run's raw line count, so
+ * a twice-printed 3-line warning reads its block once and ends in "×6"
+ * and a line printed six times reads "×6" too.
+ *
+ * The period chosen is the one whose repeated run is LONGEST (a
+ * `A,A,B,A,A,B` stream is the (A,A,B) block, never A,A-then-standalone),
+ * so a run never fragments into a smaller coincidence; a line with no
+ * repeat is a plain entry. The collapse is a VIEW presentation: the engine's
+ * raw lines stay in the store, in `total` and in the copy's own facts —
+ * what is folded is the reading, not the log.
+ */
+export function collapseRepeatedLines(lines: readonly TxrRunLogLine[]): TxrCollapsedLogLine[] {
+  const out: TxrCollapsedLogLine[] = []
+  let i = 0
+  while (i < lines.length) {
+    // The longest run from i that repeats its own prefix (the smallest
+    // period that ties). Periodicity is checked position by position — a
+    // run is a repetition only when EVERY position agrees with its
+    // p-ago twin, so a [A,A,A,B] stream never claims the A-run for p=2
+    // (A,A vs A,B) even though its first pair matches.
+    let bestLen = 1
+    let bestPeriod = 1
+    for (let p = 1; p * 2 <= lines.length - i; p += 1) {
+      let k = 0
+      while (i + k < lines.length && sameLogLine(lines[i + (k % p)], lines[i + k])) {
+        k += 1
+      }
+      const repeat = Math.floor(k / p) * p
+      if (repeat >= 2 * p && (repeat > bestLen || (repeat === bestLen && p < bestPeriod))) {
+        bestLen = repeat
+        bestPeriod = p
+      }
+    }
+    if (bestLen === 1) {
+      out.push({ line: lines[i], count: 1, runLength: 1, runStart: false })
+      i += 1
+      continue
+    }
+    const repeat = bestLen / bestPeriod
+    for (let k = 0; k < bestPeriod; k += 1) {
+      out.push({ line: lines[i + k], count: repeat, runLength: bestLen, runStart: k === 0 })
+    }
+    i += bestLen
+  }
+  return out
+}
+
+/** One line of the panel's COLLAPSED view: the board's line shape + the
+ *  repeated run's "×N" badge on the run's first line — the SAME text the
+ *  copy writes (the collapse is a view presentation: what the user sees is
+ *  what the paste gets, exactly like the technical filter). */
+export function formatCollapsedLogLine(
+  entry: TxrCollapsedLogLine,
+  methods: ReadonlyArray<TxrLogMethodRef>,
+): string {
+  const base = formatLogLine(entry.line, methods)
+  return entry.runStart && entry.runLength > 1 ? `${base} ×${entry.runLength}` : base
 }

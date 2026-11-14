@@ -15,8 +15,9 @@ const MethodResultsPage = lazyWithPreload(() =>
  * continues, cannot-run banners, search/sort/method filters, per-patient
  * averages, download-all CSV, save-models entry) and screen H (one run's
  * method detail: method tablist, outcome tabs, patient × method bar table,
- * the two-method compare card, the explanatory cards, the saved-in / open
- * folder line, `Results.dc.html` and `SaveOne.dc.html`).
+ * the two-method compare card, the explanatory cards (`Results.dc.html` and
+ * `SaveOne.dc.html`). qa-fixes4 ITEM-1: the board's saved-in / open-folder
+ * line is not rendered (the run dir is an internal host fact).
  *
  * The module consumes ONLY the execution engine's run surfaces
  * (`ApiClient.Txr.*` — run detail, SSE stream, logs, predictions, CSV

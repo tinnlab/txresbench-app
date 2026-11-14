@@ -63,6 +63,7 @@ function card(over: Partial<TxrMethodCard> & { id: string }): TxrMethodCard {
       coverageLine: 'all 151 patients',
       reasonCode: null,
       reasonLine: 'all 151 patients',
+      reasonLines: ['all 151 patients'],
       reasonFix: '',
       disabled: false,
     },
@@ -95,6 +96,7 @@ const CANNOT: TxrMethodCard[] = [
       coverageLine: '',
       reasonCode: 'REQUIRED_MARKER_MISSING',
       reasonLine: 'needs LDH, not in your file',
+      reasonLines: ['needs LDH, not in your file'],
       reasonFix: 'Add a column named LDH',
       disabled: true,
     },
@@ -109,6 +111,7 @@ const CANNOT: TxrMethodCard[] = [
       coverageLine: '',
       reasonCode: 'ENV_IMAGE_MISSING',
       reasonLine: 'no published environment available',
+      reasonLines: ['no published environment available'],
       reasonFix: 'This method is not available yet.',
       disabled: true,
     },
@@ -301,6 +304,38 @@ describe('show-more and the can\'t-run section', () => {
     )
     expect(screen.getByTestId('txr-method-cannot-row-c1').textContent).toContain(
       'Add a column named LDH',
+    )
+  })
+
+  it('an unrunnable row shows the DATA reason beside the environment reason (qa-fixes4 ITEM-3, methods-r3 R2-6)', () => {
+    // The verdict carries the env fact AND the file's missing-marker fact;
+    // the row must render both — the old first-reason-only line hid what
+    // the user could fix behind "no published environment available".
+    const envAndData = card({
+      id: 'c3',
+      title: 'Env and missing data',
+      group: 'response-call',
+      groupLabel: 'Response call',
+      run: {
+        status: 'cannot',
+        coverageLine: '',
+        reasonCode: 'ENV_IMAGE_MISSING',
+        reasonLine: 'no published environment available',
+        reasonLines: ['no published environment available', 'needs LDH, not in your file'],
+        reasonFix: 'This method is not available yet.',
+        disabled: true,
+      },
+    })
+    renderPicker([...CARDS, ...CANNOT, envAndData])
+    fireEvent.click(screen.getByTestId('txr-method-reason-environment'))
+    const row = screen.getByTestId('txr-method-cannot-row-c3')
+    expect(row.textContent).toContain('no published environment available')
+    expect(row.textContent).toContain('needs LDH, not in your file')
+    expect(screen.getByTestId('txr-method-cannot-reason-c3-0').textContent).toBe(
+      'no published environment available',
+    )
+    expect(screen.getByTestId('txr-method-cannot-reason-c3-1').textContent).toBe(
+      'needs LDH, not in your file',
     )
   })
 

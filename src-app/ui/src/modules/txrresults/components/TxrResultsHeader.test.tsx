@@ -26,8 +26,9 @@ import type {
   TxrRunMethod,
 } from '@/api-client/types'
 import { buildColumns } from '../lib/heatmap'
+import { troubleRowsOf, type TxrTroubleRow } from '../lib/trouble'
 import { TxrResultsBar, TxrResultsHeader } from './TxrResultsHeader'
-import { TxrCannotRunBanner } from './TxrCannotRunBanner'
+import { TxrRunTrouble } from './TxrRunTrouble'
 import { TxrOutcomeTabs } from './TxrOutcomeTabs'
 import { TxrMethodFilterBar } from './TxrMethodFilterBar'
 
@@ -419,27 +420,26 @@ describe('TxrResultsBar (app-shell ITEM-3 — the fixed bottom bar: count + acti
   })
 })
 
-describe('TxrCannotRunBanner (TEST-UR-4 — one banner per cannot-run method)', () => {
+describe('TxrRunTrouble (qa-fixes4 ITEM-2 — the truthful trouble summary)', () => {
   const run = runFixture()
-  const cannot = run.methods.filter(m => m.state === 'cannot_run')
+  const trouble = troubleRowsOf(run.methods.filter(m => m.state === 'cannot_run'))
 
-  it('renders one banner per cannot-run method with id, reason and the other-N sentence', () => {
+  it('a single cannot-run method keeps the board banner with the TRUE other-N count', () => {
     const view = render(
-      <TxrCannotRunBanner methods={cannot} total={run.methods.length} onShowLog={vi.fn()} />,
+      <TxrRunTrouble rows={trouble} finishedCount={FINISHED_IDS.length} onShowLog={vi.fn()} />,
     )
     const banner = view.getByTestId(`txr-results-cannot-${CANNOT_RUN_ID}`)
     expect(banner.textContent).toContain(CANNOT_RUN_ID)
     expect(banner.textContent).toContain('could not run: LDH is not in your measurements.')
-    // The board's "The other 11 methods are shown." — 12 methods, this one excluded.
-    expect(banner.textContent).toContain(
-      `The other ${run.methods.length - 1} methods are shown.`,
-    )
+    // ITEM-2 (b): the other-N is the TRUE finished count (11 finished here),
+    // never the board's "12 minus one" over a run with unmet methods.
+    expect(banner.textContent).toContain(`The other ${FINISHED_IDS.length} methods are shown.`)
   })
 
   it('the show-log action reports the method id, and only it is focusable', () => {
     const onShowLog = vi.fn()
     const view = render(
-      <TxrCannotRunBanner methods={cannot} total={run.methods.length} onShowLog={onShowLog} />,
+      <TxrRunTrouble rows={trouble} finishedCount={FINISHED_IDS.length} onShowLog={onShowLog} />,
     )
     const show = view.getByTestId(`txr-results-show-log-${CANNOT_RUN_ID}`)
     expect(show.textContent).toBe('Show the log')
@@ -449,9 +449,14 @@ describe('TxrCannotRunBanner (TEST-UR-4 — one banner per cannot-run method)', 
 
   it('renders the readable fallback sentence when the reason detail is empty', () => {
     const view = render(
-      <TxrCannotRunBanner
-        methods={[{ method_id: CANNOT_RUN_ID, reason: { code: 'SOME_FUTURE', detail: '' } }]}
-        total={run.methods.length}
+      <TxrRunTrouble
+        rows={[{
+          methodId: CANNOT_RUN_ID,
+          label: CANNOT_RUN_ID,
+          state: 'cannot_run' as const,
+          reason: { code: 'SOME_FUTURE', detail: '' },
+        }]}
+        finishedCount={11}
         onShowLog={vi.fn()}
       />,
     )
@@ -459,11 +464,74 @@ describe('TxrCannotRunBanner (TEST-UR-4 — one banner per cannot-run method)', 
     expect(banner.textContent).toContain('could not run: see the log for the reason.')
   })
 
+  it('ITEM-2 (b): 203 same-reason cannot-run methods are ONE summary card with the true tail, one toggle, expandable list, never 203 cards', () => {
+    const many = Array.from({ length: 203 }, (_, i) => ({
+      methodId: `env-missing-${i}`,
+      label: `env-missing-${i}`,
+      state: 'cannot_run' as const,
+      reason: { code: 'ENV_UNKNOWN', detail: 'the method environment is not available yet' },
+    }))
+    const view = render(
+      <TxrRunTrouble rows={many} finishedCount={6} onShowLog={vi.fn()} />,
+    )
+    const card = view.getByTestId('txr-results-trouble-summary-cannot_run-ENV_UNKNOWN')
+    expect(card.textContent).toContain(
+      '203 methods could not run: their environments are not available yet.',
+    )
+    expect(card.textContent).toContain('The other 6 methods are shown.')
+    // ONE card — the 203 per-method banners are gone.
+    expect(view.container.querySelectorAll('[data-testid^="txr-results-cannot-"]')).toHaveLength(0)
+    expect(view.container.querySelectorAll('[data-testid^="txr-results-trouble-summary-"]')).toHaveLength(1)
+    // The per-method reasons are behind the toggle (the list is the plan's
+    // expandable list, not 203 visible cards).
+    fireEvent.click(view.getByTestId('txr-results-trouble-toggle-cannot_run-ENV_UNKNOWN'))
+    const list = view.getByTestId('txr-results-trouble-list-cannot_run-ENV_UNKNOWN')
+    expect(list.querySelectorAll('[data-testid^="txr-results-trouble-row-"]')).toHaveLength(203)
+    expect(list.textContent).toContain('the method environment is not available yet')
+  })
+
+  it('ITEM-2 (R3-results-3): failed and stopped/skipped rows get their own grouped cards (3 failed → one card; a stopped run lists all methods)', () => {
+    const failed = Array.from({ length: 3 }, (_, i) => ({
+      methodId: `bundled-${i}`,
+      label: `bundled-${i}`,
+      state: 'failed' as const,
+      reason: { code: 'BUNDLE_MARKER_COUNT_UNMET', detail: 'the method needs a different number of markers than the file has' },
+    }))
+    const view = render(<TxrRunTrouble rows={failed} finishedCount={2} onShowLog={vi.fn()} />)
+    const card = view.getByTestId('txr-results-trouble-summary-failed-BUNDLE_MARKER_COUNT_UNMET')
+    expect(card.textContent).toContain(
+      '3 methods failed: the method needs a different number of markers than the file has.',
+    )
+    expect(card.textContent).toContain('The other 2 methods are shown.')
+
+    const stoppedSkipped: TxrTroubleRow[] = [
+      ...Array.from({ length: 4 }, (_, i) => ({
+        methodId: `stopped-${i}`,
+        label: `stopped-${i}`,
+        state: 'stopped' as const,
+        reason: { code: 'ABORTED', detail: 'stopped by the user' },
+      })),
+      ...Array.from({ length: 2 }, (_, i) => ({
+        methodId: `skipped-${i}`,
+        label: `skipped-${i}`,
+        state: 'skipped' as const,
+      })),
+    ]
+    const viewStop = render(<TxrRunTrouble rows={stoppedSkipped} finishedCount={0} onShowLog={vi.fn()} />)
+    const stoppedCard = viewStop.getByTestId('txr-results-trouble-summary-stopped-ABORTED')
+    expect(stoppedCard.textContent).toContain('4 methods were stopped: stopped by the user.')
+    const skippedCard = viewStop.getByTestId('txr-results-trouble-summary-skipped-none')
+    expect(skippedCard.textContent).toContain('2 methods were skipped.')
+    // Nothing finished — the false "other N" tail must not render.
+    expect(stoppedCard.textContent).not.toContain('The other')
+  })
+
   it('renders nothing when no method could not run', () => {
     const { container } = render(
-      <TxrCannotRunBanner methods={[]} total={run.methods.length} onShowLog={vi.fn()} />,
+      <TxrRunTrouble rows={[]} finishedCount={11} onShowLog={vi.fn()} />,
     )
     expect(container.querySelector('[data-testid^="txr-results-cannot-"]')).toBeNull()
+    expect(container.querySelector('[data-testid^="txr-results-trouble-summary-"]')).toBeNull()
   })
 })
 

@@ -93,9 +93,6 @@ const NAME_LABEL = 'Name of this set'
 /** The "Models to save" section head (the board's words). */
 const MODELS_LABEL = 'Models to save'
 
-/** The two "what is saved" leads' look. */
-const SAVED_LABEL: CSSProperties = { fontWeight: 600, margin: '0 0 2px' }
-
 /** The rule-of-copy body lines' look. */
 const RULED_TEXT: CSSProperties = { margin: '0 0 8px', fontSize: 12.5, color: 'var(--txr-text-2)' }
 
@@ -427,10 +424,13 @@ export function TxrSaveModelsDialog({
           ) : null}
 
           <div>
-            <p style={SAVED_LABEL}>{WHAT_IS_SAVED_LABEL}</p>
-            <p style={RULED_TEXT}>{SAVE_SET_WHAT_IS_SAVED_TEXT}</p>
-            <p style={SAVED_LABEL}>{NOT_SAVED_LABEL}</p>
-            <p style={RULED_TEXT}>{NOT_SAVED_TEXT}</p>
+            {/* ITEM-6 (results-r3 R3-results-12): the board's inline pair —
+                ONE paragraph, bold lead in the body ("**What is saved:** … **Not
+                saved:** …"), never two labelled lines with a colon alone. */}
+            <p data-testid="txr-models-save-ruled" style={RULED_TEXT}>
+              <b>{WHAT_IS_SAVED_LABEL}</b> {SAVE_SET_WHAT_IS_SAVED_TEXT}{' '}
+              <b>{NOT_SAVED_LABEL}</b> {NOT_SAVED_TEXT}
+            </p>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

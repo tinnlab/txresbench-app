@@ -154,6 +154,35 @@ describe('buildMethodCards — the screen-E catalogue × eligibility join', () =
     expect(cards[0].run.reasonFix).toBe('Add a column named LDH')
   })
 
+  it('an unrunnable row carries the DATA reason beside the environment reason (qa-fixes4 ITEM-3, methods-r3 R2-6)', () => {
+    // The runtime-env stage pushes ENV_IMAGE_MISSING FIRST; the file's
+    // reasons follow — the row must show both, never the env line alone.
+    const m = summary({ id: 'alpha', year: 2021, language: 'R' })
+    const cards = buildMethodCards(
+      [m],
+      eligibility([
+        verdict('alpha', {
+          status: 'cannot_run',
+          reasons: [
+            { code: 'ENV_IMAGE_MISSING' },
+            { code: 'REQUIRED_MARKER_MISSING' },
+            { code: 'MIN_DRAWS_UNMET' },
+          ],
+          missing_markers: [{ id: 'ldh', id_system: 'LOINC', display_name: 'LDH' }],
+          coverage: { eligible: 0, total: 151, fraction: 0 },
+          min_draws: { required: 3, met: 20, unmet_patients: 131 },
+        }),
+      ]),
+    )
+    expect(cards[0].run.reasonCode).toBe('ENV_IMAGE_MISSING')
+    expect(cards[0].run.reasonLine).toBe('no published environment available')
+    expect(cards[0].run.reasonLines).toEqual([
+      'no published environment available',
+      'needs LDH, not in your file',
+      'needs 3 or more draws; 20 of 151 have them',
+    ])
+  })
+
   it('a marker without a display name falls back to a constant fix (never blank)', () => {
     const m = summary({ id: 'alpha', year: 2021, language: 'R' })
     const cards = buildMethodCards(

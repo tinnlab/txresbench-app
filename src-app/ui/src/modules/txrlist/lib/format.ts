@@ -163,6 +163,22 @@ export function formatMissingItem(missing: ReadonlyArray<{ display_name?: string
  * - anything else (or an empty reasons list) → "cannot run with this
  *   file" — the constant fallback, never a blank line.
  */
+/**
+ * The ONE sentence a method whose environment is not published reads —
+ * the method list's reason and the F row's reason say the same words
+ * (qa-fixes4 ITEM-3, methods-r3 R3-methods-9): the row's stored engine
+ * detail is the old pre-vocabulary sentence ("no published environment
+ * for method <id>"), while the list said "no published environment
+ * available" for the SAME `ENV_IMAGE_MISSING` code — same fact, two
+ * wordings; the shared code is the key, the shared sentence is this one.
+ */
+export const NO_PUBLISHED_ENVIRONMENT_REASON = 'no published environment available'
+
+/**
+ * The row's one reason line (the FIRST reason only, fine-print plain).
+ *
+ * The sentence vocabulary (one words-per-code table, TEST-UL-13):
+ */
 export function formatReasonLine(
   status: TxrRunStatus,
   reasons: ReadonlyArray<{ code: TxrReasonCode }>,
@@ -197,7 +213,7 @@ export function formatReasonLine(
     case 'NOT_RUNNABLE':
       return 'not available with this build'
     case 'ENV_IMAGE_MISSING':
-      return 'no published environment available'
+      return NO_PUBLISHED_ENVIRONMENT_REASON
     case 'TASK_INCOMPATIBLE':
       return 'needs an outcome column your file lacks'
     case 'RESPONSE_LABEL_MISSING':
@@ -215,6 +231,31 @@ export function formatReasonLine(
   // fallback below, never a blank line.
   const _unreachable: never = code
   return 'cannot run with this file'
+}
+
+/**
+ * The row's FULL reason set, one plain line per reason (qa-fixes4 ITEM-3,
+ * methods-r3 R2-6): the eligibility verdict carries every cause — the
+ * runtime-env stage pushes `ENV_IMAGE_MISSING` FIRST and the file reasons
+ * (a missing marker, the drawn-day coverage, too few draws) FOLLOW it, so
+ * a row that reads only the first reason shows "no published environment
+ * available" and hides exactly what the user could change. The list keeps
+ * the provider's order — the environment fact reads first, the data
+ * reasons beside it — and an empty list falls back to the coverage line
+ * (the pre-R2-6 byte).
+ */
+export function formatReasonLines(
+  status: TxrRunStatus,
+  reasons: ReadonlyArray<{ code: TxrReasonCode }>,
+  coverage: TxrCoverageFacts,
+  minDraws: TxrMinDrawsFacts,
+  missingMarkers: ReadonlyArray<{ display_name?: string }>,
+  missingGroups: ReadonlyArray<{ display_name?: string }> = [],
+): string[] {
+  if (reasons.length === 0) return [formatCoverage(coverage)]
+  return reasons.map(r =>
+    formatReasonLine(status, [r], coverage, minDraws, missingMarkers, missingGroups),
+  )
 }
 
 /**
@@ -283,13 +324,19 @@ export function formatMethodCoverage(coverage: TxrCoverageFacts): string {
 
 /**
  * The no-environment honesty line (CM-1, one vocabulary for the method list
- * AND the screen-B panel): "N of M methods have no published environment and
- * can't start." The count is `total_no_env` — the catalogue methods with no
- * published environment (the list still shows them; the statement is the
- * deployment fact, stated plainly, never a raw code).
+ * AND the screen-B panel): "N of them cannot run yet." Rendered directly
+ * under the fit headline ("176 of 359 methods fit your study"), "them" is
+ * the SAME methods that fit — the deployment fact about that count, never a
+ * second count over the whole catalogue (R3-intake-1: the old "N of M
+ * methods have no published environment and can't start" contradicted the
+ * headline and left the two numbers untellable as one story). The count is
+ * the env-absent subset of the fit count; the line is shown only when it is
+ * non-zero. The location-neutral rule (ITEM-2) keeps the sentence's "yet"
+ * without the deployment-place clause the plan's copy carried — the owner's
+ * copy guard pins that phrase (see the qa-fixes4 DRIFT entry).
  */
-export function formatNoEnvLine(noEnv: number, total: number): string {
-  return `${noEnv} of ${total} methods have no published environment and can't start.`
+export function formatNoEnvLine(noEnvFit: number): string {
+  return `${noEnvFit} of them cannot run yet`
 }
 
 /** The itemLabel plural: "method" → "methods" (the singular for n === 1). */

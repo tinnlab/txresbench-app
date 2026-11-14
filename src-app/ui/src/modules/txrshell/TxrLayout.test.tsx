@@ -254,18 +254,14 @@ describe('AppShell header on the macOS desktop window', () => {
     expect(rule![1]).toMatch(/padding-left:\s*var\(--txr-mac-content-start\)\s*!important/)
   })
 
-  it('index.css moves both focused skip links to the same left edge as the header content, on the macOS window only', () => {
+  it('index.css moves the focused skip link to the same left edge as the header content, on the macOS window only', () => {
     const index = readFileSync(resolve(HERE, '../../index.css'), 'utf8')
     // The web positions stay as they were.
     expect(/\.txr-shell-skip-link:focus-visible\s*\{[^}]*left: 12px/.test(index)).toBe(true)
-    expect(/\.txr-help-skip-link:focus\s*\{[^}]*left: 12px !important/.test(index)).toBe(true)
     // Under the shell's macOS class they start at the shared content edge
     // (the AppLayout screens' skip link uses the same `contentStart`).
     expect(index).toMatch(
       /\.txr-app-shell-macos \.txr-shell-skip-link:focus-visible\s*\{[^}]*left:\s*var\(--txr-mac-content-start\);/,
-    )
-    expect(index).toMatch(
-      /\.txr-app-shell-macos \.txr-help-skip-link:focus\s*\{[^}]*left:\s*var\(--txr-mac-content-start\) !important/,
     )
   })
 
@@ -275,7 +271,7 @@ describe('AppShell header on the macOS desktop window', () => {
     const macRules = [...index.matchAll(/([^{}]*)\{([^}]*)\}/g)]
       .filter(m => /macos/.test(m[1].split('*/').pop()!))
       .map(m => m[2])
-    expect(macRules.length).toBe(3)
+    expect(macRules.length).toBe(2)
     for (const body of macRules) {
       expect(body).not.toMatch(/\b\d+px\b/)
     }

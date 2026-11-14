@@ -540,8 +540,116 @@ export const TXRRUN_RUN_F_FAILED: TxrRunDetail = runDetail({
       group_label: 'Static risk',
       reason: { code: 'REQUIRED_MARKER_MISSING', detail: 'LDH is not in your measurements.' },
     }),
+    // qa-fixes4 ITEM-3 (methods-r3 R3-methods-9): the env-missing row — the
+    // engine stores the OLD pre-vocabulary detail ("no published
+    // environment for method <id>") under the shared ENV_IMAGE_MISSING
+    // code (the orchestrator's own words); the row's detail line must read
+    // the LIST's sentence for the same code.
+    txrrunMethodRow('jm-mem-lq', 'cannot_run', {
+      group: 'response-call',
+      group_label: 'Response call',
+      reason: {
+        code: 'ENV_IMAGE_MISSING',
+        detail: 'no published environment for method "jm-mem-lq"',
+      },
+    }),
   ],
 })
+
+/**
+ * qa-fixes4 ITEM-1 (results-r3 R3-results-2): the F leak story's run — a
+ * TERMINAL failed snapshot (a direct URL at a terminal run renders the
+ * snapshot) whose reason is the report's own leaked wording (tool name +
+ * absolute path). The page's detail line passes `safeText`, and the
+ * browser spec `txr-internal-text.spec.ts` asserts no text node leaks the
+ * tool name or the path. Deliberate fixture seed: the copy-guard's
+ * allow-list carries this line with its reason (fixture data, never
+ * user-visible copy).
+ */
+export const TXRRUN_RUN_LEAK: TxrRunDetail = runDetail({
+  id: 'run-f-leak',
+  dir: 'Documents/TxResBench/analysis-fx-2005',
+  status: 'failed',
+  elapsed_secs: 95,
+  estimate: {
+    schedule_seconds: TXRRUN_SCHEDULE_SECONDS,
+    total_seconds: TXRRUN_SCHEDULE_SECONDS,
+    estimate_quality: 'measured',
+  },
+  log_lines: 2,
+  methods: [
+    txrrunMethodRow('baseline-ctdna-detectability', 'failed', {
+      group: 'static-risk',
+      group_label: 'Static risk',
+      phase: 'env',
+      elapsed_secs: 95,
+      reason: { code: 'ENV_IMAGE_TOOL_MISSING', detail: 'oras is not installed (looked in /data/txr-live/bin and PATH)' },
+    }),
+    txrrunMethodRow('cox-ctdna-status-rfs', 'cannot_run', {
+      group: 'static-risk',
+      group_label: 'Static risk',
+      reason: { code: 'REQUIRED_MARKER_MISSING', detail: 'LDH is not in your measurements.' },
+    }),
+  ],
+})
+
+/**
+ * qa-fixes4 ITEM-7 (the ITEM-3 browser tier): a LIVE run whose clock facts
+ * are real — `started_at` is the moment the fixture module loads minus
+ * 30 s, so the RunningPage's wall-clock elapsed (ITEM-3 (a), methods-r3
+ * R3-methods-3) and the countdown ("about N s left" — R2-2's leftover)
+ * render real figures instead of the synthetic past date's "finishing up".
+ * The log carries the R `colClasses` warning block THREE times (methods-r3
+ * R3-methods-5) — the panel's collapse must show the block once with the
+ * ×9 badge and the honest "9 repeated lines collapsed" count.
+ */
+export const TXRRUN_RUN_F_LOGREPEAT: TxrRunDetail = runDetail({
+  id: 'run-f-logrepeat',
+  dir: 'Documents/TxResBench/analysis-fx-2006',
+  status: 'running',
+  elapsed_secs: 30,
+  started_at: new Date(Date.now() - 30_000).toISOString(),
+  estimate: {
+    schedule_seconds: 60,
+    total_seconds: 60,
+    estimate_quality: 'measured',
+  },
+  log_lines: 11,
+  methods: [
+    txrrunMethodRow('direct-on', 'finished', { prob_source: 'native', phase: 'done', elapsed_secs: 22, duration_ms: 22000 }),
+    txrrunMethodRow('cox-timevarying-slope', 'downloading', { group: 'dynamic-risk', group_label: 'Dynamic risk' }),
+    txrrunMethodRow('dynforest', 'running', { group: 'dynamic-risk', group_label: 'Dynamic risk', phase: 'predict', elapsed_secs: 18 }),
+    txrrunMethodRow('flirti', 'waiting'),
+    txrrunMethodRow('baseline-ctdna-detectability', 'finished', { group: 'static-risk', group_label: 'Static risk', prob_source: 'native', phase: 'done', elapsed_secs: 26, duration_ms: 26000 }),
+    txrrunMethodRow('cox-ctdna-status-rfs', 'cannot_run', {
+      group: 'static-risk',
+      group_label: 'Static risk',
+      reason: { code: 'REQUIRED_MARKER_MISSING', detail: 'LDH is not in your measurements.' },
+    }),
+  ],
+})
+
+/** The R `colClasses` warning block (methods-r3 R3-methods-5's own bytes),
+ *  sequenced from `startSeq` — every copy of the block needs its OWN seqs:
+ *  the store's `mergeLogs` dedupes by seq, so reusing one seq set would
+ *  fold the copies away before the panel ever collapses them. */
+function fxRWarningBlock(startSeq: number): TxrRunLogLine[] {
+  return [
+    fxLogLine(startSeq, 'cox-timevarying-slope', 'Warning message:', 'stderr'),
+    fxLogLine(startSeq + 1, 'cox-timevarying-slope', 'In read.table(file = file, header = header, sep = sep, quote = quote, :', 'stderr'),
+    fxLogLine(startSeq + 2, 'cox-timevarying-slope', "not all columns named in 'colClasses' exist", 'stderr'),
+  ]
+}
+
+/** The log-repeat story's lines: the identical 3-line block THREE times
+ *  (the engine's per-method R noise) + two method lines after it. */
+export const TXRRUN_LOGS_REPEAT: TxrRunLogLine[] = [
+  ...fxRWarningBlock(0),
+  ...fxRWarningBlock(3),
+  ...fxRWarningBlock(6),
+  fxLogLine(9, null, '2 finished; 3 working', 'engine'),
+  fxLogLine(10, 'dynforest', 'fitting on 132 patient rows'),
+]
 
 /** Every cassette-served run detail, keyed by run id (the mock's getRun table). */
 export const TXRRUN_RUN_DETAILS: Record<string, TxrRunDetail> = {
@@ -549,6 +657,8 @@ export const TXRRUN_RUN_DETAILS: Record<string, TxrRunDetail> = {
   [TXRRUN_RUN_F_WORKING.id]: TXRRUN_RUN_F_WORKING,
   [TXRRUN_RUN_F_FINISHED.id]: TXRRUN_RUN_F_FINISHED,
   [TXRRUN_RUN_F_FAILED.id]: TXRRUN_RUN_F_FAILED,
+  [TXRRUN_RUN_LEAK.id]: TXRRUN_RUN_LEAK,
+  [TXRRUN_RUN_F_LOGREPEAT.id]: TXRRUN_RUN_F_LOGREPEAT,
 }
 
 /** The rows the stream route owns (the id-scoped mock route's claim). */
@@ -602,6 +712,7 @@ export const TXRRUN_LOGS: Record<string, TxrRunLogsResponse> = {
   [TXRRUN_RUN_F_WORKING.id]: { lines: TXRRUN_LOGS_F.slice(0, 2), next_seq: 2, total: 2 },
   [TXRRUN_RUN_F_FINISHED.id]: { lines: TXRRUN_LOGS_F_FINISHED, next_seq: 2, total: 2 },
   [TXRRUN_RUN_F_FAILED.id]: { lines: TXRRUN_LOGS_F_FAILED, next_seq: 2, total: 2 },
+  [TXRRUN_RUN_F_LOGREPEAT.id]: { lines: TXRRUN_LOGS_REPEAT, next_seq: 11, total: 11 },
 }
 
 // ── the SSE frame scripts (the mock stream's replay per run id) ─────────────

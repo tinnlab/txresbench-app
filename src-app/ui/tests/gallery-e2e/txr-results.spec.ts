@@ -24,7 +24,8 @@ import { expect, test, type Locator } from '@playwright/test'
  *     Average column);
  *     `txr-results-h` / `txr-results-h-compare`: method + outcome tabs, bar
  *     table, compare-card sentences, the divergent toggle, the chance dialog
- *     and the saved-in line; `txr-results-narrow-390`: no horizontal page
+ *     (the saved-in line is ITEM-1-GONE — the leak walker's proof);
+ *     `txr-results-narrow-390`: no horizontal page
  *     overflow + the header actions stay inside the viewport;
  *     `txr-results-not-found` / `txr-results-empty`: the two states render.
  *   · TEST-UR-15 (INV-2) — G: pinned patient column + sticky header
@@ -32,10 +33,12 @@ import { expect, test, type Locator } from '@playwright/test'
  *     switching with per-tab column sets, "Show all M"; H: the method
  *     tablist (Compare + per-method tabs), the bar table sorted by the first
  *     method, the compare card + divergent filter, the chance dialog.
- *   · TEST-UR-16 (INV-6) — the web-mode saved-in line renders the run
- *     directory path with NO open-folder button (`txr-results-open-folder`
- *     absent — the positive control: the path text IS present, so "absent"
- *     means "desktop-gated", never "not rendered"), and the run id in the
+ *   · TEST-UR-16 (INV-6, updated to the ITEM-1 truth by qa-fixes4 ITEM-7) —
+ *     the run's machine directory NEVER renders: `txr-results-saved-in` and
+ *     `txr-results-open-folder` are both absent (`toHaveCount(0)` — ITEM-1
+ *     removed the path line and its desktop-only reveal action; the
+ *     every-route leak walker in `txr-internal-text.spec.ts` is the
+ *     no-path regression proof), and the run id in the
  *     URL drives the page: the same component over different run ids renders
  *     each run's own content (the two H stories + the partial story each
  *     load their own run from their URL param — the store's reset-on-load +
@@ -79,12 +82,10 @@ const GALLERY = '/gallery.html?surface='
 // own budget rather than inheriting the config's 120 s fast-loop cap.
 test.setTimeout(600_000)
 
-/** The G story's subtitle (board bytes; the fixture's derived facts). */
+/** The G story's subtitle (board bytes; the fixture's derived facts —
+ *  ITEM-2 (a): a terminal run's subtitle leads with the K status word). */
 const G_SUBTITLE =
-  '12 of 12 methods finished · learned from 151 patients · decision day 56 · took 11 minutes 20 seconds'
-
-/** The H run's dir (the saved-in line's path — the story URL's run id). */
-const H_RUN_DIR = 'Documents/TxResBench/analysis-fx-1004'
+  'Done · learned from 151 patients · decision day 56 · took 11 minutes 20 seconds'
 
 /** The fixture's deterministic compare-card facts (see the header). */
 const SHARED_TOP_SENTENCE = 'Both methods put S0028, S0025 and S0022 among their five highest chances.'
@@ -320,7 +321,11 @@ test.describe('txr-results-g-running — live while the run continues (TEST-UR-1
       timeout: 30_000,
     })
     await expect(heatmap.locator('[data-testid^="txr-heatmap-header-"]')).toHaveCount(8)
-    await expect(page.getByTestId('txr-results-subtitle')).toContainText('12 of 12 methods finished')
+    // ITEM-2 (a): the terminal run's subtitle leads with the STATUS word in
+    // the K vocabulary — the counts segment is replaced, never doubled.
+    await expect(page.getByTestId('txr-results-subtitle')).toContainText(
+      'Done · learned from 151 patients',
+    )
   })
 })
 
@@ -347,6 +352,97 @@ test.describe('txr-results-g-cannot — a method that could not run (TEST-UR-14)
   })
 })
 
+test.describe('txr-results-g-trouble — 203 same-reason methods, ONE card (qa-fixes4 ITEM-2)', () => {
+  test('the summary card, the true tail, the expandable list, the header status word', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-results-g-trouble`)
+    await expect(page.getByTestId('txr-results')).toBeVisible()
+
+    // The header's status word is the SAME vocabulary as the K chip
+    // (ITEM-2 (a)) — never a plain counts segment over 203 failures.
+    await expect(page.getByTestId('txr-results-subtitle')).toContainText(
+      'Done, 203 of 209 methods could not run',
+    )
+
+    // ONE summary card — the 203 per-method banners are gone.
+    await expect(page.getByTestId('txr-results-cannot-trouble-cannot-1')).toHaveCount(0)
+    const card = page.getByTestId('txr-results-trouble-summary-cannot_run-ENV_UNKNOWN')
+    await expect(card).toBeVisible()
+    await expect(card).toContainText(
+      '203 methods could not run: their environments are not available yet.',
+    )
+    // The true "other N": the FINISHED count (the round-3 report read
+    // "The other 208 methods are shown" next to 6 finished — false).
+    await expect(card.getByTestId('txr-results-trouble-tail-cannot_run-ENV_UNKNOWN')).toHaveText(
+      'The other 6 methods are shown.',
+    )
+
+    // The per-method reasons live in the expandable list, not as cards.
+    await expect(page.getByTestId('txr-results-trouble-list-cannot_run-ENV_UNKNOWN')).toHaveCount(0)
+    await page
+      .getByTestId('txr-results-trouble-toggle-cannot_run-ENV_UNKNOWN')
+      .click()
+    const list = page.getByTestId('txr-results-trouble-list-cannot_run-ENV_UNKNOWN')
+    await expect(list).toBeVisible()
+    await expect(page.locator('[data-testid^="txr-results-trouble-row-"]')).toHaveCount(203)
+    const first = page.getByTestId('txr-results-trouble-row-trouble-cannot-1')
+    await expect(first).toContainText('trouble-cannot-1')
+    await expect(first).toContainText('cannot run')
+    await expect(first).toContainText('the method environment is not available yet')
+    await expect(first).toContainText('Show the log')
+    // Collapse again: the list is a disclosure, never a permanent wall.
+    await page.getByTestId('txr-results-trouble-toggle-cannot_run-ENV_UNKNOWN').click()
+    await expect(page.getByTestId('txr-results-trouble-list-cannot_run-ENV_UNKNOWN')).toHaveCount(0)
+
+    // The table still shows the six finished columns — the 203 cannot-run
+    // methods are never rendered as heatmap columns.
+    await expect(page.getByTestId('txr-heatmap-header-trouble-cannot-1')).toHaveCount(0)
+    await expect(page.getByTestId('txr-heatmap-header-trouble-cannot-203')).toHaveCount(0)
+  })
+})
+
+test.describe('txr-results-g-leak at 390 px — the failed-run rows stack (methods-r3 R3-methods-11)', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+  test('no horizontal page overflow; the reason finds its own row under the method name', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-results-g-leak`)
+    await expect(page.getByTestId('txr-results')).toBeVisible()
+
+    const row = page.getByTestId('txr-results-run-failed-cox-ctdna-status-rfs')
+    await expect(row).toBeVisible()
+
+    // The round-3 overflow: scrollWidth 458 > 390 on the failed-run page.
+    const overflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    expect(overflow, 'page horizontal overflow px').toBeLessThanOrEqual(1)
+
+    // The stacked layout: the reason's top sits below the method name's
+    // bottom (one word per line is gone — the reason wraps on its own
+    // line), and "Show the log" renders on its own line under the reason.
+    const name = row.getByText('cox-ctdna-status-rfs')
+    const reason = row.locator('.txr-results-trouble-reason')
+    const log = row.getByTestId('txr-results-failed-show-log-cox-ctdna-status-rfs')
+    const nameBox = await name.boundingBox()
+    const reasonBox = await reason.boundingBox()
+    const logBox = await log.boundingBox()
+    expect(nameBox, 'the method name box').not.toBeNull()
+    expect(reasonBox, 'the reason box').not.toBeNull()
+    expect(logBox, 'the log link box').not.toBeNull()
+    expect(
+      reasonBox!.y,
+      'the reason sits below the method name at 390 px',
+    ).toBeGreaterThanOrEqual(nameBox!.y + nameBox!.height - 1)
+    expect(
+      logBox!.y,
+      'the log link sits below the reason at 390 px',
+    ).toBeGreaterThanOrEqual(reasonBox!.y + reasonBox!.height - 1)
+  })
+})
+
 test.describe('txr-results-g-nochance — a finished method with no chances (R2-03, R2-11)', () => {
   test('the no-chance note names the column; one-method tabs hide the Average', async ({
     page,
@@ -356,29 +452,32 @@ test.describe('txr-results-g-nochance — a finished method with no chances (R2-
     const heatmap = page.getByTestId('txr-heatmap')
     await expect(heatmap).toBeVisible()
 
-    // ── R2-03: a finished method whose column carries no chances (a
-    //    predict-only reuse — the engine recorded scores, never converted
-    //    them) is a wall of blanks THE NOTE EXPLAINS — naming the column with
-    //    the method page's own words. ──
+    // ── R2-03 (qa-fixes4 ITEM-6): a finished method whose column carries
+    //    no chances (a predict-only reuse — the engine recorded scores,
+    //    never converted them) is NOT rendered: no blank wall, no empty
+    //    column — the ONE line names the method with the method page's own
+    //    words, and the row still shows its patient id. ──
     const note = page.getByTestId('txr-results-no-chance-note')
     await expect(note).toBeVisible()
     await expect(note).toHaveText(
       'No chances are shown for ctdna-clearance-time-pattern: this predict-only reuse has no training data to convert the scores into chances.',
     )
-    // The no-chance column's cell is a plain blank (no chance to render),
-    // and the row still shows its patient id.
-    await expect(page.getByTestId('txr-heatmap-cell-ctdna-clearance-time-pattern').first()).toHaveText(
-      '',
-    )
+    // The dropped column has no header and no value boxes — the fix's whole
+    // point.
+    await expect(
+      page.getByTestId('txr-heatmap-header-ctdna-clearance-time-pattern'),
+    ).toHaveCount(0)
+    await expect(
+      page.getByTestId('txr-heatmap-cell-ctdna-clearance-time-pattern').first(),
+    ).toHaveCount(0)
     await expect(page.getByTestId('txr-heatmap-row-S0001')).toContainText('S0001')
 
-    // ── R2-11: the pfs tab is ONE method column, so the Average column is
-    //    redundant (the column's value IS the average) and gone: one header
-    //    cell + the patient header, no Average header, no average cell. ──
-    await expect(heatmap.locator('[data-testid^="txr-heatmap-header-"]')).toHaveCount(1)
-    await expect(page.getByTestId('txr-heatmap-header-ctdna-clearance-time-pattern')).toBeVisible()
-    const rowCells = page.getByTestId('txr-heatmap-row-S0001').locator('td')
-    await expect(rowCells).toHaveCount(1)
+    // ── R2-11: the pfs tab now renders NO method column (the only one was
+    //    dropped), so neither the Average nor any method header is left: no
+    //    method headers, no average. ──
+    await expect(heatmap.locator('[data-testid^="txr-heatmap-header-"]')).toHaveCount(0)
+    const rowValues = page.getByTestId('txr-heatmap-row-S0001').locator('td')
+    await expect(rowValues).toHaveCount(0)
 
     // ── the response tab: its own one-method column, the note gone (the
     //    chances ARE there), still no Average — and a real chance renders. ──
@@ -445,15 +544,17 @@ test.describe('txr-results-h — one-method view + the web-mode reveal gate (TES
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('txr-chance-dialog')).toHaveCount(0)
 
-    // ── TEST-UR-16's web-mode gate: the path text IS present, the
-    //    desktop-only action is absent (positive control) ──
-    await expect(page.getByTestId('txr-results-saved-in')).toContainText('Saved in')
-    await expect(page.getByTestId('txr-results-saved-in')).toContainText(H_RUN_DIR)
+    // ── TEST-UR-16's web-mode gate, updated to the ITEM-1 truth: the
+    //    saved-in line (the run's machine directory) is GONE from every
+    //    page — the desktop-only reveal action is absent with it; the leak
+    //    walker (`txr-internal-text.spec.ts`, the every-route leg) is the
+    //    no-path regression proof. ──
+    await expect(page.getByTestId('txr-results-saved-in')).toHaveCount(0)
     await expect(page.getByTestId('txr-results-open-folder')).toHaveCount(0)
 
     // The G-board subtitle rides the H run's facts (the plan pins ONE subtitle).
     await expect(page.getByTestId('txr-results-subtitle')).toHaveText(
-      '2 of 2 methods finished · learned from 151 patients · decision day 56 · took 3 minutes 10 seconds',
+      'Done · learned from 151 patients · decision day 56 · took 3 minutes 10 seconds',
     )
   })
 })
@@ -585,7 +686,9 @@ test.describe('txr-results-narrow-390 — the mobile width (TEST-UR-14)', () => 
     await page.goto(`${GALLERY}txr-results-narrow-390`)
 
     await expect(page.getByTestId('txr-bars')).toBeVisible()
-    await expect(page.getByTestId('txr-results-saved-in')).toBeVisible()
+    // ITEM-1: the saved-in line is gone from the phone page too (the leak
+    // walker is the no-path regression proof).
+    await expect(page.getByTestId('txr-results-saved-in')).toHaveCount(0)
 
     // The 390 measurement idiom (the entry-list spec's): the gallery page
     // itself never overflows horizontally.

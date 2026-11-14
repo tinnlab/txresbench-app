@@ -54,7 +54,9 @@ test.describe('txr-shell — the theme switch under the real app (TEST-QF2-1, IT
     // prefers-color-scheme). The toggle answers to what is SHOWN, so the
     // assertions are relative to the measured state — never a hard-coded one.
     const before = await htmlDark(page)
-    const action = before ? 'Switch to light mode' : 'Switch to dark mode'
+    // qa-fixes4 ITEM-5: the name carries the CURRENT state ('(currently light)' /
+    // '(currently dark)') — the plan's words; the name contains the visible label.
+    const action = before ? 'Switch to light mode (currently dark)' : 'Switch to dark mode (currently light)'
     const stateLabel = before ? 'Dark' : 'Light'
     const other = before ? 'light' : 'dark'
 
@@ -69,7 +71,10 @@ test.describe('txr-shell — the theme switch under the real app (TEST-QF2-1, IT
     await expect
       .poll(async () => await htmlDark(page), 'html.dark must flip')
       .toBe(!before)
-    await expect(toggle).toHaveAttribute('aria-label', before ? 'Switch to dark mode' : 'Switch to light mode')
+    await expect(toggle).toHaveAttribute(
+      'aria-label',
+      before ? 'Switch to dark mode (currently light)' : 'Switch to light mode (currently dark)',
+    )
     await expect(toggle).toContainText(before ? 'Light' : 'Dark')
     const persisted = await page.evaluate(() =>
       JSON.parse(localStorage.getItem('config-client-storage') ?? '{}'),
@@ -83,7 +88,9 @@ test.describe('txr-shell — the theme switch under the real app (TEST-QF2-1, IT
     // the click left the pointer on the button and the press already
     // dismissed the tooltip, so a hover at the same point fires no new
     // pointerenter and the popup never reopens.
-    const nextAction = before ? 'Switch to dark mode' : 'Switch to light mode'
+    const nextAction = before
+      ? 'Switch to dark mode (currently light)'
+      : 'Switch to light mode (currently dark)'
     await page.mouse.move(10, 500)
     await toggle.hover()
     await expect(
@@ -107,7 +114,7 @@ test.describe('txr-shell — the theme switch under the real app (TEST-QF2-1, IT
       await expect(page.getByTestId('txr-theme-toggle')).toBeVisible()
       await expect(page.getByTestId('txr-theme-toggle')).toHaveAttribute(
         'aria-label',
-        before ? 'Switch to dark mode' : 'Switch to light mode',
+        before ? 'Switch to dark mode (currently light)' : 'Switch to light mode (currently dark)',
       )
     }
 
@@ -144,7 +151,7 @@ test.describe('txr-shell — the theme switch under the real app (TEST-QF2-1, IT
     await expect(toggle.locator('svg')).toBeVisible()
     // The accessible name survives the collapse — the icon-only control is
     // still named by the action.
-    await expect(toggle).toHaveAttribute('aria-label', /Switch to (dark|light) mode/)
+    await expect(toggle).toHaveAttribute('aria-label', /Switch to (dark|light) mode \(currently (dark|light)\)/)
     // The whole page stays within the viewport with the switch in the header.
     const overflow = await page.evaluate(
       () =>

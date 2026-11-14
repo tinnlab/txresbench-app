@@ -2449,18 +2449,26 @@ export interface PretrainedTransferSummary {
 /**
  * Screen B's preview body: which marker groups the user picked, and the
  *  draw-schedule answers (before-treatment values, draws during treatment, last
- *  draw day).
+ *  draw day). Every schedule field is OPTIONAL (R3-intake-2): an unanswered
+ *  question is absent, and the preview treats an absent answer as "any" —
+ *  it never assumes a value the user did not give (the old client sent the
+ *  board's first options when unanswered, so an untouched question narrowed
+ *  the fit count).
  */
 export interface PreviewEligibilityRequest {
   /**
    * `always` | `sometimes` (whether the treating clinician always has a
-   *  before-treatment sample).
+   *  before-treatment sample). Absent = not answered = no constraint.
    */
-  before_treatment: string
-  /** The number of on-treatment draws the user will record (1|2|4). */
-  draws_during_treatment: number
+  before_treatment?: string
+  /**
+   * The number of on-treatment draws the user will record (1|2|4).
+   *  Absent = not answered = any draw count (the minimum-draws verdict is
+   *  not applied).
+   */
+  draws_during_treatment?: number
   /** The last draw day the schedule reaches (28|42|56|84). */
-  last_draw_day: number
+  last_draw_day?: number
   /** group id → checked. Absent groups count as unchecked. */
   marker_groups: any
 }
@@ -2898,7 +2906,7 @@ export interface SyncConnectedData {
  *  `publish` call site (there is no central audience table — an owner-scoped
  *  entity broadcast to everyone would be a leak).
  */
-export type SyncEntity = 'notification' | 'profile' | 'session' | 'session_settings' | 'user' | 'group' | 'auth_provider' | 'account' | 'account_member'
+export type SyncEntity = 'notification' | 'profile' | 'account' | 'account_member' | 'session_settings' | 'user' | 'group' | 'auth_provider' | 'session'
 
 /** The change notification pushed to clients. Notify-and-refetch only. */
 export interface SyncEvent {
@@ -3180,6 +3188,14 @@ export interface TxrHistoryItem {
    *  a row reads `true` — INV-2's conservative default).
    */
   copies_kept: boolean
+  /**
+   * The engine's own per-state method counts (the run's `txr_runs.counts`
+   *  JSON verbatim — qa-fixes4 ITEM-2: the K row's status is truthful
+   *  ("Done" only when every method finished; the partial word names the
+   *  failed count), and the counts are the ENGINE's single accounting, the
+   *  same fact the F/G headers render).
+   */
+  counts: TxrRunCounts
   created_at: string
   decision_day: number
   /** The engine's run dir verbatim (`<data_root>/analysis-…-<id8>`). */

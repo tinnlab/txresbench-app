@@ -36,6 +36,7 @@ const api = vi.hoisted(() => ({
   streamRun: vi.fn(),
   listRunLogs: vi.fn(),
   downloadPredictions: vi.fn(),
+  catalogueDetail: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -45,6 +46,10 @@ vi.mock('@/api-client', () => ({
       streamRun: (...a: unknown[]) => api.streamRun(...a),
       listRunLogs: (...a: unknown[]) => api.listRunLogs(...a),
       downloadPredictions: (...a: unknown[]) => api.downloadPredictions(...a),
+    },
+    // qa-fixes4 ITEM-5 (R3-help-8): the document title's catalogue lookup.
+    MethodCatalogue: {
+      detail: (...a: unknown[]) => api.catalogueDetail(...a),
     },
   },
 }))
@@ -257,6 +262,10 @@ beforeEach(() => {
   api.streamRun.mockReset()
   api.listRunLogs.mockReset()
   api.downloadPredictions.mockReset()
+  // qa-fixes4 ITEM-5 (R3-help-8): the catalogue's short human name is the
+  // method tab's document title.
+  api.catalogueDetail.mockReset()
+  api.catalogueDetail.mockResolvedValue({ title: 'Landmark Cox model' })
   sseHandlers = null
   platform.desktop = false
   api.getRun.mockResolvedValue(runFixture())
@@ -324,17 +333,60 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
       'No response by day 56',
     )
     expect(view.getByTestId('txr-bars')).toBeTruthy()
+    // ITEM-6 (results-r3 R3-results-11): the bars card is the phone scroll
+    // box (the class the index.css phone rules target).
+    expect(view.getByTestId('txr-bars').parentElement?.className).toContain(
+      'txr-results-table-box',
+    )
     expect(view.getByTestId('txr-results-care').textContent).toContain(
       `learned on your ${PATIENTS.length + 160} patients`,
     )
-    expect(view.getByTestId('txr-results-saved-in').textContent).toContain(
-      '/home/u/.txresbench/analysis-2026-11-06-0000/',
-    )
-    expect(document.querySelector('[data-testid="txr-results-open-folder"]')).toBeNull()
+    // qa-fixes4 ITEM-1 (results-r3 R3-results-2): the aside's saved-in line
+    // and its open-folder action are GONE — the run dir is an internal host
+    // fact and appears nowhere on the compare/method pages, in web and
+    // desktop mode alike.
+    expect(view.queryByTestId('txr-results-saved-in')).toBeNull()
+    expect(view.queryByTestId('txr-results-open-folder')).toBeNull()
+    expect(view.container.textContent).not.toContain('/home/u/.txresbench/analysis-2026-11-06-0000/')
   })
 
-  it('selects the active method tab from the URL segment (compare / method / unknown method, no crash)', async () => {
-    const view = await renderLoaded()
+  it('resolves a reuse-run method link typed with the visible model NAME (R3-results-7)', async () => {
+    // A reuse run's method id is the saved model's uuid while the page shows
+    // the model name — a typed/bookmarked link carrying the name resolves.
+    const predictions = predictionsOf()
+    predictions.methods[0] = {
+      ...predictions.methods[0],
+      method_id: 'c151fec5-d8a0-4de1-95ee-4d9ad99c6b86',
+      label: 'My saved model',
+    }
+    // The array-arm read through the wire union artifact (the bare-number
+    // arm is the openapi-generator artifact — see the types.test.ts note).
+    const methodProb = predictions.methods[0].probabilities as unknown as Array<number | null>
+    predictions.average = wireArray<number>(PATIENTS.map((_, p) => methodProb[p] ?? 0))
+    api.getPredictions.mockResolvedValue(predictions)
+    const view = renderPage('/analysis/run-1/results/methods/My%20saved%20model')
+    await waitFor(() => expect(view.getByTestId('txr-results-method-heading')).toBeTruthy())
+    expect(view.queryByTestId('txr-results-method-not-found')).toBeNull()
+    expect(view.getByTestId('txr-results-method-heading').textContent).toContain('My saved model')
+  })
+
+  it('the document title of a method tab is the catalogue\'s short human name, not the wire id (R3-help-8)', async () => {
+    await act(async () => {
+      renderPage('/analysis/run-1/results/methods/lm-cox-a')
+    })
+    // The lookup is made for the method id.
+    expect(api.catalogueDetail).toHaveBeenCalledWith({ method_id: 'lm-cox-a' })
+    await waitFor(() => expect(document.title).toBe('Landmark Cox model — TxResBench'))
+
+    // A non-catalogue method (a saved model's id): the catalogue rejects,
+    // the title falls back to the column label — never a blank "Method".
+    api.catalogueDetail.mockRejectedValue(httpError(404))
+    const { unmount } = renderPage('/analysis/run-1/results/methods/lm-cox-a')
+    await waitFor(() => expect(document.title).toBe('lm-cox-a — TxResBench'))
+    unmount()
+  })
+
+  it('selects the active method tab from the URL segment (compare / method / unknown method, no crash)', async () => {    const view = await renderLoaded()
     expect(activeOf('txr-results-method-tab-compare')).toBe('active')
 
     cleanup()
@@ -556,17 +608,17 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
     expect(state().chanceDialogOpen).toBe(true)
   })
 
-  it('the saved-in line shows the run dir and the open-folder action only on desktop (mocked both ways)', async () => {
+  it('the saved-in line is gone in web AND desktop mode (qa-fixes4 ITEM-1)', async () => {
     const view = await renderLoaded()
+    expect(view.queryByTestId('txr-results-saved-in')).toBeNull()
     expect(view.queryByTestId('txr-results-open-folder')).toBeNull()
+    expect(view.container.textContent).not.toContain('/home/u/.txresbench/analysis-2026-11-06-0000/')
     cleanup()
     platform.desktop = true
     const desktop = await renderLoaded()
-    expect(desktop.getByTestId('txr-results-open-folder')).toBeTruthy()
-    fireEvent.click(desktop.getByTestId('txr-results-open-folder'))
-    expect(desktop.getByTestId('txr-results-saved-in').textContent).toContain(
-      '/home/u/.txresbench/analysis-2026-11-06-0000/',
-    )
+    expect(desktop.queryByTestId('txr-results-saved-in')).toBeNull()
+    expect(desktop.queryByTestId('txr-results-open-folder')).toBeNull()
+    expect(desktop.container.textContent).not.toContain('/home/u/.txresbench/analysis-2026-11-06-0000/')
   })
 
   it('the one-method header saves THIS model (finished + produced) and emits txr:save-one-model-requested', async () => {
@@ -676,6 +728,45 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
       expect.objectContaining({ id: 'run-1', limit: 200 }),
     )
     expect(api.listRunLogs.mock.calls[0][0]).not.toHaveProperty('method_id')
+  })
+
+  it('hides the start-up noise by default and reveals it behind Show technical output (R2-10 rest)', async () => {
+    const lines: TxrRunLogLine[] = [
+      { seq: 1, method_id: CANNOT_RUN_ID, stream: 'stderr', content: '/bin/bash: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)', created_at: '2026-11-06T00:01:00Z' },
+      { seq: 2, method_id: CANNOT_RUN_ID, stream: 'engine', content: 'LDH is not in your measurements', created_at: '2026-11-06T00:01:01Z' },
+    ]
+    api.listRunLogs.mockResolvedValue({ lines, next_seq: 3, total: 2 })
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
+    const view = await renderLoaded()
+    fireEvent.click(view.getByTestId('txr-results-show-log-cox-nomarker'))
+    await waitFor(() => {
+      expect(screen.getByTestId('txr-log-dialog')).toBeTruthy()
+    })
+    // The setlocale line is hidden; the run's own line stays; the count
+    // states the bound honestly (the K dialog's bytes).
+    await waitFor(() => {
+      const pre = screen.getByTestId('txr-log-dialog-pre')
+      expect(pre.textContent).not.toContain('setlocale')
+      expect(pre.textContent).toContain('LDH is not in your measurements')
+    })
+    expect(screen.getByTestId('txr-log-dialog-technical-count').textContent).toBe(
+      '1 technical lines hidden',
+    )
+    // The switch reveals it (and the copy follows the visible view).
+    const toggle = view.getByTestId('txr-log-dialog-technical')
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(toggle)
+    expect(screen.getByTestId('txr-log-dialog-pre').textContent).toContain('setlocale')
+    fireEvent.click(screen.getByTestId('txr-log-dialog-copy'))
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        '/bin/bash: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)\nLDH is not in your measurements',
+      ),
+    )
   })
 
   it('renders the 409 empty-heatmap state on the H route (banner + counts + disabled download)', async () => {
