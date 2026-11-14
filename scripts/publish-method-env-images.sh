@@ -75,7 +75,8 @@
 #      library exists the publisher prints an explicit skip-with-reason. A
 #      base: `unsquashfs -lln` must list what the stacked run needs —
 #      /opt/txr-layer (and /opt/txr-layer/R-library for base-r),
-#      /usr/bin/prlimit and /bin/bash (followed through the base's own links).
+#      /usr/bin/prlimit and /usr/bin/bash (the sandbox makes /bin a link to
+#      the base's usr/bin; links inside the base are followed).
 #   4. THE TAG IS NOT OVERWRITTEN WITH DIFFERENT BYTES — tags are immutable:
 #      if `oras resolve <oci_ref>:<tag>` already names a digest, it must equal
 #      the manifest's `digest`, or the publish REFUSES naming both. Same digest
@@ -545,7 +546,7 @@ if [ -n "$BASE_ID" ]; then
   # packing; this checks the bytes about to be published). Local, so it runs in
   # --dry-run too.
   command -v unsquashfs >/dev/null 2>&1 || { echo "publish: unsquashfs not found (squashfs-tools; needed to check a base)" >&2; exit 2; }
-  echo "+ unsquashfs -lln $SQUASHFS   # /opt/txr-layer, /usr/bin/prlimit, /bin/bash"
+  echo "+ unsquashfs -lln $SQUASHFS   # /opt/txr-layer, /usr/bin/prlimit, /usr/bin/bash"
   python3 - "$SQUASHFS" "$B_BASE_ID" <<'PYEOF' || { echo "refusing: $B_BASE_ID-$B_ARCH lacks what the stacked run needs (above)." >&2; exit 1; }
 import subprocess, sys
 path, base_id = sys.argv[1], sys.argv[2]
@@ -589,7 +590,7 @@ def resolve(rel):
         done.append(comp)
     return nodes.get("/".join(done))
 
-need = [("opt/txr-layer", "d"), ("usr/bin/prlimit", "-"), ("bin/bash", "-")]
+need = [("opt/txr-layer", "d"), ("usr/bin/prlimit", "-"), ("usr/bin/bash", "-")]
 if base_id == "base-r":
     need.insert(1, ("opt/txr-layer/R-library", "d"))
 missing = []

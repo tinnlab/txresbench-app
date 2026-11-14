@@ -64,7 +64,7 @@ language and arch, so the generator packs that base from the SAME cached
 rootfs the delta used (same image digest), once per build dir: after each
 method build (kept when already staged from the same image), or with
 --stage-bases for layer records already in --out. The pack is checked
-first (the sandbox needs /opt/txr-layer, /usr/bin/prlimit and /bin/bash;
+first (the sandbox needs /opt/txr-layer, /usr/bin/prlimit and /usr/bin/bash;
 base-r also /opt/txr-layer/R-library) and uses fixed timestamps, so one
 rootfs packs to the same bytes every time. The manifest's `bases` record
 pins the sha256 of the staged file; the app verifies the downloaded base
@@ -274,12 +274,14 @@ BASE_FILE = "base.squashfs"
 
 #: What every base must hold for the stacked run (checked before packing):
 #: the layer mount point (stack.rs METHOD_PACKAGES_DIR) and the two programs
-#: the sandbox argv runs (sandbox.rs: /usr/bin/prlimit, then /bin/bash).
+#: the sandbox argv runs (sandbox.rs: /usr/bin/prlimit, then /bin/bash). The
+#: sandbox binds the base's /usr and makes /bin a link to usr/bin itself, so
+#: /bin/bash is the base's usr/bin/bash, whatever the base's own /bin is.
 BASE_REQUIRED = {
     "base-py": (("opt/txr-layer", "dir"), ("usr/bin/prlimit", "file"),
-                ("bin/bash", "file")),
+                ("usr/bin/bash", "file")),
     "base-r": (("opt/txr-layer", "dir"), ("opt/txr-layer/R-library", "dir"),
-               ("usr/bin/prlimit", "file"), ("bin/bash", "file")),
+               ("usr/bin/prlimit", "file"), ("usr/bin/bash", "file")),
 }
 
 #: Every timestamp in a base squashfs (file times + the superblock's
@@ -1418,8 +1420,8 @@ def _assert_squashfs_ok(path: str) -> None:
 
 def _resolve_in_root(root: str, rel: str) -> str | None:
     """`rel` resolved inside `root` the way the mounted base resolves it:
-    every symlink is followed, an absolute target from the base's own root
-    (`bin -> usr/bin` and `/bin -> /usr/bin` both work). None when a
+    every symlink is followed, and an absolute target is taken from the
+    base's own root, never the host's. None when a
     component is missing or the chain does not end (40 hops)."""
     parts = [c for c in rel.split("/") if c]
     done: list[str] = []

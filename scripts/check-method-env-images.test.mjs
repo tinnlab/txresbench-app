@@ -250,8 +250,9 @@ const BASE_FIELDS = ['base_id', 'arch', 'oci_ref', 'tag', 'digest', 'squashfs_sh
   'size_bytes', 'source_ref', 'source_digest', 'contract'];
 
 /** A tiny base root holding what the stacked run needs: the layer mount
- *  point (+ the R library for base-r), prlimit and bash through the Debian
- *  `bin -> usr/bin` link. `omit` drops paths; `binLink` sets the link. */
+ *  point (+ the R library for base-r), /usr/bin/prlimit and /usr/bin/bash,
+ *  plus the Debian `bin -> usr/bin` link. `omit` drops paths; `binLink: null`
+ *  leaves the base without its own /bin (the sandbox makes /bin itself). */
 function writeBaseRoot(root, baseId, { omit = [], binLink = 'usr/bin' } = {}) {
   const files = {
     'opt/txr-layer/': null,
@@ -262,7 +263,7 @@ function writeBaseRoot(root, baseId, { omit = [], binLink = 'usr/bin' } = {}) {
   for (const rel of omit) delete files[rel];
   writeTree(root, files);
   fs.mkdirSync(path.join(root, 'usr', 'bin'), { recursive: true });
-  fs.symlinkSync(binLink, path.join(root, 'bin'));
+  if (binLink !== null) fs.symlinkSync(binLink, path.join(root, 'bin'));
 }
 
 /** Stage one base the way the generator does: a REAL base.squashfs and a
@@ -1315,7 +1316,7 @@ test('TEST-13i a base rootfs without what the stacked run needs is refused, nami
   const dir = mkdtemp('mei-basecheck-');
   const cases = [
     ['base-py', { omit: ['usr/bin/prlimit'] }, '/usr/bin/prlimit'],
-    ['base-py', { omit: ['usr/bin/bash'] }, '/bin/bash'],
+    ['base-py', { omit: ['usr/bin/bash'] }, '/usr/bin/bash'],
     ['base-py', { omit: ['opt/txr-layer/'] }, '/opt/txr-layer'],
     ['base-r', { omit: ['opt/txr-layer/R-library/'] }, '/opt/txr-layer/R-library'],
   ];
@@ -1327,10 +1328,19 @@ test('TEST-13i a base rootfs without what the stacked run needs is refused, nami
     assert.ok(res.error && res.error.includes(missing), `${missing}: ${JSON.stringify(res)}`);
     assert.ok(!fs.existsSync(path.join(out, 'base.squashfs')), 'nothing is packed');
   });
-  // An absolute `/bin -> /usr/bin` link resolves inside the base, not the host.
-  const root = path.join(dir, 'root-abs');
-  writeBaseRoot(root, 'base-r', { binLink: '/usr/bin' });
-  const res = pack(root, path.join(dir, 'out-abs'), 'base-r');
+  // A base without its own /bin passes: the sandbox binds the base's /usr and
+  // makes /bin a link to usr/bin itself (the dev publisher's bases look so).
+  let root = path.join(dir, 'root-nobin');
+  writeBaseRoot(root, 'base-r', { binLink: null });
+  let res = pack(root, path.join(dir, 'out-nobin'), 'base-r');
+  assert.ok(res.record, JSON.stringify(res));
+  // A link inside the base is followed from the base's own root, not the host.
+  root = path.join(dir, 'root-link');
+  writeBaseRoot(root, 'base-py', { omit: ['usr/bin/bash'] });
+  fs.mkdirSync(path.join(root, 'usr', 'libexec'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'usr', 'libexec', 'bash'), '#!/bin/sh\n');
+  fs.symlinkSync('/usr/libexec/bash', path.join(root, 'usr', 'bin', 'bash'));
+  res = pack(root, path.join(dir, 'out-link'), 'base-py');
   assert.ok(res.record, JSON.stringify(res));
 });
 
