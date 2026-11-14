@@ -247,6 +247,14 @@ fn replay_for(run_id: Uuid) -> Option<Arc<ReplayCtl>> {
         .cloned()
 }
 
+/// Is a replay still driven by THIS process? (The retention's live predicate
+/// half — the DB status is the other half; a run can be `finished` in the DB
+/// while its drive's last beats still land, and neither the retention nor a
+/// reaper may touch it yet.)
+pub(crate) fn is_replay_live(run_id: Uuid) -> bool {
+    replay_for(run_id).is_some()
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The recorded-facts helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -484,13 +492,18 @@ pub async fn create_replay(
     register_replay(ctl.clone());
     let run_stop = runtime.register_cancel(run_id);
     tokio::spawn(drive_replay(
-        pool,
+        pool.clone(),
         runtime,
         run_id,
         Arc::new(plan),
         ctl,
         run_stop,
     ));
+    // ITEM-4: after every run insert the shared-pool retention may evict the
+    // oldest non-pinned runs (fire-and-forget, serialized + idempotent — the
+    // create answer is not held up, and the just-created run is live, so it
+    // can never be the evictee).
+    super::retention::enforce_limits_detached(pool.clone());
     repo.get_run_summary(run_id)
         .await?
         .ok_or_else(|| AppError::internal_error("run row vanished after insert"))
@@ -556,13 +569,15 @@ pub async fn rerun_replay(
     register_replay(ctl.clone());
     let run_stop = runtime.register_cancel(new_id);
     tokio::spawn(drive_replay(
-        pool,
+        pool.clone(),
         runtime,
         new_id,
         Arc::new(plan),
         ctl,
         run_stop,
     ));
+    // ITEM-4: the retention pass (see `create_replay`).
+    super::retention::enforce_limits_detached(pool.clone());
     repo.get_run_summary(new_id)
         .await?
         .ok_or_else(|| AppError::internal_error("run row vanished after insert"))
@@ -622,6 +637,100 @@ fn demo_input_summary(req: &CreateRunRequest, config: &RunConfig) -> Result<TxrR
                 .map(|p| p.source.name.clone()),
         },
     })
+}
+
+/// Stage one replay run's FILES + method rows: the run dir + the input and
+/// replay records + the recorded chance columns + the stub model trees, then
+/// the per-method rows at `waiting` (the engine's classification-time state —
+/// the recorded facts land at FINISH, exactly as in the engine's own state
+/// machine). Shared by the create path (`stage_replay_run`: the run ROW is
+/// inserted `preparing` BEFORE this, like the engine does) and the boot seed
+/// (ITEM-4: the run row is inserted terminal AFTER, so the seed never looks
+/// live). The `steps`' stub-tree facts (dir + digest) are filled in.
+async fn stage_replay_files(
+    repo: &TxrRepository,
+    dir: &Path,
+    run_id: Uuid,
+    req: &CreateRunRequest,
+    config: &RunConfig,
+    config_id: &str,
+    bundle: &DemoBundle,
+    steps: &mut [ReplayStep],
+) -> Result<(), AppError> {
+    for sub in ["input", "bundles", "output", "logs", "models"] {
+        std::fs::create_dir_all(dir.join(sub))
+            .map_err(|e| AppError::internal_error(format!("create run subdir: {e}")))?;
+    }
+    write_run_input_record(dir, req, config)?;
+    write_marker(
+        dir,
+        &ReplayMarker {
+            format: REPLAY_FORMAT_TAG.to_string(),
+            version: REPLAY_VERSION,
+            run_id,
+            configuration_id: config_id.to_string(),
+            mode: req.mode,
+        },
+    )?;
+    // The recorded chance column becomes the engine's own artifact
+    // (`output/<row-method-id>/chance.csv`), so the predictions JSON +
+    // CSV + compare + method pages read the SAME file path the engine
+    // reads (their routes are unchanged).
+    for idx in 0..steps.len() {
+        let outcome = steps[idx].outcome_method_id.clone();
+        let model = steps[idx].model.clone();
+        let sid = steps[idx].method_id.clone();
+        let record = method_record(bundle, config_id, &outcome)
+            .expect("steps were checked at prepare");
+        let column = match req.mode {
+            TxrRunMode::Train => &record.train,
+            TxrRunMode::Reuse => record.reuse.as_ref().expect("reuse steps checked"),
+        };
+        let table_bytes = std::fs::read(bundle.bundle_dir.join(&column.table))
+            .map_err(|e| {
+                AppError::internal_error(format!(
+                    "read recorded table {}: {e}",
+                    column.table
+                ))
+            })?;
+        let out_dir = dir.join("output").join(&sid);
+        std::fs::create_dir_all(&out_dir)
+            .map_err(|e| AppError::internal_error(format!("create output dir: {e}")))?;
+        std::fs::write(out_dir.join("chance.csv"), &table_bytes)
+            .map_err(|e| AppError::internal_error(format!("write chance.csv: {e}")))?;
+
+        if req.mode == TxrRunMode::Train {
+            if let Some(model) = &model {
+                let tree = dir.join("models").join(&sid);
+                std::fs::create_dir_all(&tree)
+                    .map_err(|e| AppError::internal_error(format!("create model tree: {e}")))?;
+                write_stub_model_tree(&tree, model)?;
+                let digest = crate::modules::sandbox::stack::tree_sha256(&tree)
+                    .map_err(|e| {
+                        AppError::internal_error(format!("model tree digest: {e}"))
+                    })?;
+                let staged_step = &mut steps[idx];
+                staged_step.model_tree = Some(tree.clone());
+                staged_step.model_digest = Some(digest);
+            }
+        }
+        // The row is inserted in `waiting` now, exactly like the engine's
+        // classification; the recorded facts land at FINISH (the
+        // per-method transition writes them).
+        let step = &steps[idx];
+        repo.insert_method(&NewMethod {
+            id: Uuid::new_v4(),
+            run_id,
+            method_id: step.method_id.clone(),
+            label: step.label.clone(),
+            version: step.version.clone(),
+            group: step.group.clone(),
+            state: TxrMethodState::Waiting,
+            bytes_total: None,
+        })
+        .await?;
+    }
+    Ok(())
 }
 
 /// Stage one replay run: the run row + the run dir + the input/replay records
@@ -688,79 +797,8 @@ async fn stage_replay_run(
     .await?;
 
     let staged: Result<(), AppError> = async {
-        for sub in ["input", "bundles", "output", "logs", "models"] {
-            std::fs::create_dir_all(dir.join(sub))
-                .map_err(|e| AppError::internal_error(format!("create run subdir: {e}")))?;
-        }
-        write_run_input_record(&dir, req, &plan.config)?;
-        write_marker(
-            &dir,
-            &ReplayMarker {
-                format: REPLAY_FORMAT_TAG.to_string(),
-                version: REPLAY_VERSION,
-                run_id,
-                configuration_id: config.id.clone(),
-                mode: req.mode,
-            },
-        )?;
-        // The recorded chance column becomes the engine's own artifact
-        // (`output/<row-method-id>/chance.csv`), so the predictions JSON +
-        // CSV + compare + method pages read the SAME file path the engine
-        // reads (their routes are unchanged).
-        for idx in 0..plan.steps.len() {
-            let outcome = plan.steps[idx].outcome_method_id.clone();
-            let model = plan.steps[idx].model.clone();
-            let sid = plan.steps[idx].method_id.clone();
-            let record = method_record(bundle, &config.id, &outcome)
-                .expect("steps were checked at prepare");
-            let column = match req.mode {
-                TxrRunMode::Train => &record.train,
-                TxrRunMode::Reuse => record.reuse.as_ref().expect("reuse steps checked"),
-            };
-            let table_bytes = std::fs::read(bundle.bundle_dir.join(&column.table))
-                .map_err(|e| {
-                    AppError::internal_error(format!(
-                        "read recorded table {}: {e}",
-                        column.table
-                    ))
-                })?;
-            let out_dir = dir.join("output").join(&sid);
-            std::fs::create_dir_all(&out_dir)
-                .map_err(|e| AppError::internal_error(format!("create output dir: {e}")))?;
-            std::fs::write(out_dir.join("chance.csv"), &table_bytes)
-                .map_err(|e| AppError::internal_error(format!("write chance.csv: {e}")))?;
-
-            if req.mode == TxrRunMode::Train {
-                if let Some(model) = &model {
-                    let tree = dir.join("models").join(&sid);
-                    std::fs::create_dir_all(&tree)
-                        .map_err(|e| AppError::internal_error(format!("create model tree: {e}")))?;
-                    write_stub_model_tree(&tree, model)?;
-                    let digest = crate::modules::sandbox::stack::tree_sha256(&tree)
-                        .map_err(|e| {
-                            AppError::internal_error(format!("model tree digest: {e}"))
-                        })?;
-                    let staged_step = &mut plan.steps[idx];
-                    staged_step.model_tree = Some(tree.clone());
-                    staged_step.model_digest = Some(digest);
-                }
-            }
-            // The row is inserted in `waiting` now, exactly like the engine's
-            // classification; the recorded facts land at FINISH (the
-            // per-method transition writes them).
-            let step = &plan.steps[idx];
-            repo.insert_method(&NewMethod {
-                id: Uuid::new_v4(),
-                run_id,
-                method_id: step.method_id.clone(),
-                label: step.label.clone(),
-                version: step.version.clone(),
-                group: step.group.clone(),
-                state: TxrMethodState::Waiting,
-                bytes_total: None,
-            })
+        stage_replay_files(&repo, &dir, run_id, req, &plan.config, &config.id, bundle, &mut plan.steps)
             .await?;
-        }
         let counts = repo.method_counts(run_id).await?;
         repo.update_run_counts(run_id, &counts).await?;
         Ok(())
@@ -1228,7 +1266,9 @@ async fn drive_replay(
 }
 
 /// The recorded lines of the plan's configuration as append tuples
-/// (`append_logs`' tuple shape), in record order.
+/// (`append_logs`' tuple shape), in record order. The configuration comes
+/// from the drive's own plan — the global bundle lookup is only a
+/// convenience; the seed passes the configuration it already holds.
 fn plan_log_lines(plan: &ReplayPlan) -> Vec<(Option<String>, TxrLogStream, String)> {
     let Some(bundle) = super::bundle() else {
         return Vec::new();
@@ -1240,6 +1280,12 @@ fn plan_log_lines(plan: &ReplayPlan) -> Vec<(Option<String>, TxrLogStream, Strin
     else {
         return Vec::new();
     };
+    plan_log_lines_of(cfg)
+}
+
+/// The recorded lines of ONE configuration as append tuples (the shared
+/// shape behind `plan_log_lines`).
+fn plan_log_lines_of(cfg: &BundleConfiguration) -> Vec<(Option<String>, TxrLogStream, String)> {
     cfg.logs
         .iter()
         .map(|l| {
@@ -1797,6 +1843,211 @@ pub async fn finish_interrupted_replays(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The boot-seeded example runs (demo-mode ITEM-4: the pinned examples)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The BOOT-SEEDED example runs: one finished replay run per recorded
+/// configuration — the recorded setup's truth in History, so a first-time
+/// visitor always finds something, and the row is PINNED (a `txr_demo_seeded_
+/// runs` row = the pin mark + the idempotency record; never evicted, never
+/// counted).
+///
+/// The run is born TERMINAL: the run row (`finished`, the plan's counts) is
+/// written first (the method rows' FK), then the files + the method rows's
+/// recorded facts + the true counts + predictions-ready — so the seed never
+/// looks like an active run (the create path's RUN_ALREADY_ACTIVE window is
+/// closed by construction), and a crash mid-seed leaves at worst a terminal
+/// run with incomplete method rows, never a live one (the pin row is written
+/// LAST, so the next boot re-seeds; a leftover terminal interruption is the
+/// retention's business — unpinned, it is evictable beyond the limit). The
+/// seed runs pre-serving (`lib.rs::build_app`), so no request can race it.
+///
+/// Idempotent: the per-configuration primary key makes a restart a no-op.
+pub async fn seed_example_runs(
+    pool: &SqlitePool,
+    bundle: Option<&DemoBundle>,
+) -> Result<Vec<Uuid>, AppError> {
+    let Some(bundle) = bundle else {
+        return Ok(Vec::new());
+    };
+    let mut seeded = Vec::new();
+    for cfg in &bundle.configurations {
+        let exists: bool = sqlx::query_scalar!(
+            r#"SELECT EXISTS (SELECT 1 FROM txr_demo_seeded_runs
+                              WHERE configuration_id = $1) as "exists!: bool""#,
+            cfg.id,
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(AppError::database_error)?;
+        if exists {
+            continue;
+        }
+        let run_id = seed_one_run(pool, bundle, cfg).await?;
+        sqlx::query("INSERT INTO txr_demo_seeded_runs (configuration_id, run_id) VALUES ($1, $2)")
+            .bind(&cfg.id)
+            .bind(run_id)
+            .execute(pool)
+            .await
+            .map_err(AppError::database_error)?;
+        seeded.push(run_id);
+    }
+    Ok(seeded)
+}
+
+/// Seed one recorded configuration's example run (the callers' facts come
+/// from the bundle; the run turns `finished` in the same pass).
+async fn seed_one_run(
+    pool: &SqlitePool,
+    bundle: &DemoBundle,
+    cfg: &BundleConfiguration,
+) -> Result<Uuid, AppError> {
+    use crate::modules::execution_engine::types::{DEFAULT_AT_A_TIME, TxrRunInput};
+    use crate::modules::file_validator::types::{ParsedTable, ParsedTableSource, TableFormat};
+
+    /// The embedded example table as the request table shape (the SAME bytes
+    /// the loader validated the bundle against — a seeded run's input is
+    /// provably the recorded one).
+    fn example_table(bytes: &[u8], name: &str) -> ParsedTable {
+        let (columns, rows) = super::bundle::parse_asset_csv(bytes);
+        ParsedTable {
+            source: ParsedTableSource { name: name.to_string(), format: TableFormat::Csv },
+            header_row: 1,
+            columns,
+            rows,
+        }
+    }
+
+    /// The configuration's recorded method set, in bundle order.
+    fn recorded_method_ids(bundle: &DemoBundle, config_id: &str) -> Vec<String> {
+        bundle
+            .methods
+            .iter()
+            .filter(|m| m.records.iter().any(|r| r.configuration_id == config_id))
+            .map(|m| m.method_id.clone())
+            .collect()
+    }
+
+    let now = Utc::now();
+    let run_id = Uuid::new_v4();
+    let dir = orchestrator::run_dir_root().join(orchestrator::run_dir_name(now, run_id));
+    let run_config = RunConfig {
+        endpoint: cfg.endpoint,
+        decision_day: cfg.decision_day,
+        look_ahead_day: cfg.look_ahead_day,
+        covariates: cfg.covariates,
+        at_a_time: DEFAULT_AT_A_TIME,
+        cpus: None,
+        save_models: false,
+        label_day: None,
+    };
+    let req = CreateRunRequest {
+        mode: TxrRunMode::Train,
+        input: TxrRunInput {
+            patients: Some(example_table(
+                crate::modules::file_validator::assets::ASSETS.patients_example,
+                "patients-example.csv",
+            )),
+            measurements: example_table(
+                crate::modules::file_validator::assets::ASSETS.measurements_example,
+                "measurements-example.csv",
+            ),
+            predict_measurements: None,
+            joins: Vec::new(),
+            mapping: Vec::new(),
+            keep_copies: true,
+        },
+        config: run_config.clone(),
+        method_ids: recorded_method_ids(bundle, &cfg.id),
+        model_ids: Vec::new(),
+    };
+    let mut plan = ReplayPlan {
+        run_id,
+        dir: dir.clone(),
+        config_id: cfg.id.clone(),
+        config: run_config.clone(),
+        mode: req.mode,
+        replay_speed: replay_speed(),
+        steps: prepare_steps(bundle, &req, cfg)?,
+    };
+    let input_summary = demo_input_summary(&req, &run_config)?;
+    let repo = TxrRepository::new(pool.clone());
+
+    // 1. The run row FIRST (the method rows' FK) and born TERMINAL — the
+    //    create path's RUN_ALREADY_ACTIVE window is closed by construction —
+    //    with the plan's counts (all steps finished; the re-count below
+    //    confirms it).
+    let plan_counts = TxrRunCounts {
+        finished: plan.steps.len() as u32,
+        ..empty_counts()
+    };
+    repo.insert_run(&NewRun {
+        id: run_id,
+        created_at: Some(now),
+        status: TxrRunStatus::Finished,
+        mode: TxrRunMode::Train,
+        config: run_config.clone(),
+        input_summary,
+        model_ids: Vec::new(),
+        method_count: plan.steps.len() as u32,
+        counts: plan_counts.clone(),
+        dir: dir.display().to_string(),
+        memory_total_bytes: None,
+        cpus: Some(orchestrator::detect_cpus()),
+        seed: TxrLimits::SEED,
+        estimate: demo_estimate(&plan),
+    })
+    .await?;
+
+    // 2. Files + the method rows (waiting), then the recorded facts at
+    //    FINISH in one pass (the transition facts of a replayed window), then
+    //    the run row's true counts. A crash inside steps 1-3 leaves at worst a
+    //    terminal run with incomplete method rows — never a live one; the next
+    //    boot's seed (the pin row is written LAST) creates a fresh run and the
+    //    interruption is the retention's business (an unpinned terminal run is
+    //    evictable beyond the limit, never stuck).
+    stage_replay_files(&repo, &dir, run_id, &req, &run_config, &cfg.id, bundle, &mut plan.steps)
+        .await?;
+    let finished_at = Utc::now();
+    for step in &plan.steps {
+        let (base, layer) = recorded_env_digests(&step.outcome_method_id);
+        repo.patch_method(
+            run_id,
+            &step.method_id,
+            &MethodPatch {
+                state: Some(TxrMethodState::Finished),
+                phase: Some(TxrPhase::Done),
+                task: Some(step.task),
+                prob_source: Some(step.prob_source),
+                coverage_scored: Some(step.scored),
+                coverage_eligible: Some(step.eligible),
+                exit_code: Some(0),
+                duration_ms: Some((step.replay_seconds * 1000.0) as u64),
+                elapsed_secs: Some(step.replay_seconds.max(1.0) as u64),
+                finished_at: Some(finished_at),
+                model_out_digest: step.model_digest.clone(),
+                model_dir: step.model_tree.as_ref().map(|p| p.display().to_string()),
+                env_base_digest: Some(base),
+                env_layer_digest: Some(layer),
+                trained_on_patients: step.model.as_ref().and_then(|m| m.trained_on_patients),
+                size_bytes: step.model.as_ref().map(|m| m.size_bytes),
+                own_auc: step.model.as_ref().and_then(|m| m.own_auc),
+                ..Default::default()
+            },
+        )
+        .await?;
+    }
+    let counts = repo.method_counts(run_id).await?;
+    let elapsed: u64 = plan.steps.iter().map(|s| s.replay_seconds as u64).sum();
+    repo.finish_run(run_id, TxrRunStatus::Finished, elapsed, &counts, true, None)
+        .await?;
+
+    // 3. The recorded log lines (the panel order, one batch) + the pin row.
+    repo.append_logs(run_id, &plan_log_lines_of(cfg)).await?;
+    Ok(run_id)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Unit tests (the pure half; the full replay lives in the integration tier)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2109,6 +2360,181 @@ mod tests {
             TxrRunStatus::Preparing,
             "a non-demo live run is never touched by the demo sweep"
         );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // ── ITEM-4: the boot-seeded example runs ────────────────────────────────
+
+    /// A REAL fixture bundle (the loader-validated shape, table files
+    /// included) — the seed stages from the table FILES, so this is the
+    /// harness fixture's own construction, with the embedded assets' real
+    /// hashes.
+    fn fixture_bundle_with_files(root: &std::path::Path) -> std::sync::Arc<DemoBundle> {
+        use crate::modules::demo::bundle::{
+            asset_table_facts, csv_bytes_content_hash, FORMAT_TAG, FORMAT_VERSION, MANIFEST_FILE,
+        };
+        use crate::modules::file_validator::assets;
+
+        let table_hash = |bytes: &[u8]| csv_bytes_content_hash(bytes);
+        let (patients_rows, patients_cols) = asset_table_facts(assets::ASSETS.patients_example);
+        let (measurements_rows, measurements_cols) =
+            asset_table_facts(assets::ASSETS.measurements_example);
+        let (predict_rows, predict_cols) =
+            asset_table_facts(assets::ASSETS.predict_measurements_example);
+        let bundle_dir = root.join("bundle");
+        let manifest = serde_json::json!({
+            "format": FORMAT_TAG,
+            "version": FORMAT_VERSION,
+            "generated_at": "2026-11-14T00:00:00Z",
+            "dataset_id": "example",
+            "tables": {
+                "patients": {"content_hash": table_hash(assets::ASSETS.patients_example), "rows": patients_rows, "columns": patients_cols},
+                "measurements": {"content_hash": table_hash(assets::ASSETS.measurements_example), "rows": measurements_rows, "columns": measurements_cols},
+                "predict_measurements": {"content_hash": table_hash(assets::ASSETS.predict_measurements_example), "rows": predict_rows, "columns": predict_cols},
+            },
+            "configurations": [{
+                "id": "pfs_d56_h238",
+                "endpoint": "pfs",
+                "decision_day": 56.0,
+                "look_ahead_day": 238.0,
+                "covariates": false,
+                "logs": [{"method_id": null, "stream": "engine", "content": "run started"}],
+            }],
+            "methods": [{
+                "method_id": "kelim",
+                "records": [{
+                    "configuration_id": "pfs_d56_h238",
+                    "seconds": 12.5,
+                    "train": {
+                        "table": "train/pfs_d56_h238/kelim.csv",
+                        "label": "kelim",
+                        "group": "kinetics",
+                        "group_label": "Kinetics",
+                        "task": "pfs",
+                        "prob_source": "native",
+                        "flat_conversion": false,
+                        "coverage": {"scored": 94, "eligible": 94, "fraction": 1.0},
+                        "rows": 94,
+                    },
+                    "model": {
+                        "name": "kelim",
+                        "method_version": "1.0.0",
+                        "group": "kinetics",
+                        "group_label": "Kinetics",
+                        "task": "pfs",
+                        "trained_on_patients": 94,
+                        "trained_at": "2026-11-14T00:00:00Z",
+                        "decision_day": 56.0,
+                        "endpoint": "pfs",
+                        "horizon": 238.0,
+                        "size_bytes": 1024,
+                        "embeds_training_data": false,
+                        "own_auc": 0.71,
+                        "marker_count": 3,
+                        "marker_kind": "all",
+                        "uses_covariates": false,
+                    },
+                    "reuse": {
+                        "table": "reuse/pfs_d56_h238/kelim.csv",
+                        "label": "kelim",
+                        "group": "kinetics",
+                        "group_label": "Kinetics",
+                        "task": "pfs",
+                        "prob_source": "native",
+                        "flat_conversion": false,
+                        "coverage": {"scored": 15, "eligible": 15, "fraction": 1.0},
+                        "rows": 15,
+                    },
+                }],
+            }],
+        });
+        std::fs::create_dir_all(bundle_dir.join("train/pfs_d56_h238")).unwrap();
+        std::fs::create_dir_all(bundle_dir.join("reuse/pfs_d56_h238")).unwrap();
+        let train: String = (0..94).map(|i| format!("J{i:04},0.5,\n")).collect();
+        let reuse: String = (0..15).map(|i| format!("J1{i:03},0.5,\n")).collect();
+        std::fs::write(
+            bundle_dir.join(MANIFEST_FILE),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            bundle_dir.join("train/pfs_d56_h238/kelim.csv"),
+            format!("patient_id,probability,note\n{train}"),
+        )
+        .unwrap();
+        std::fs::write(
+            bundle_dir.join("reuse/pfs_d56_h238/kelim.csv"),
+            format!("patient_id,probability,note\n{reuse}"),
+        )
+        .unwrap();
+        crate::modules::demo::bundle::load(&bundle_dir).expect("the fixture bundle loads")
+    }
+
+    /// ITEM-4: the boot seed creates one FINISHED, PINNED run per recorded
+    /// configuration (born terminal — the RUN_ALREADY_ACTIVE window is closed
+    /// by construction), with the recorded column/model facts, the recorded
+    /// log lines and the idempotency pin; a second call is a no-op.
+    #[tokio::test]
+    async fn seed_example_runs_seeds_finished_pinned_runs_once() {
+        let root = std::env::temp_dir().join(format!("demo-seed-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let db_path = root.join("txr.sqlite");
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&db_path)
+            .create_if_missing(true)
+            .foreign_keys(true);
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("test sqlite connects");
+        static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations-merged");
+        MIGRATOR.run(&pool).await.expect("merged migrations apply");
+
+        let bundle = fixture_bundle_with_files(&root);
+        let repo = TxrRepository::new(pool.clone());
+
+        let seeded = seed_example_runs(&pool, Some(&*bundle)).await.expect("seed runs");
+        assert_eq!(seeded.len(), 1, "one recorded configuration = one seeded run");
+        let run_id = seeded[0];
+
+        // Born terminal + pinned + the recorded facts.
+        let run = repo.get_run(run_id).await.unwrap().expect("seeded run");
+        assert_eq!(run.status().unwrap(), TxrRunStatus::Finished);
+        assert!(run.predictions_ready);
+        assert_eq!(run.mode().unwrap(), TxrRunMode::Train);
+        let pinned = super::super::retention::is_pinned_run(&pool, run_id).await.unwrap();
+        assert!(pinned, "the seeded run is pinned");
+        let method = repo.get_method(run_id, "kelim").await.unwrap().expect("method row");
+        assert_eq!(method.state().unwrap(), TxrMethodState::Finished);
+        assert_eq!(method.task.as_deref(), Some("pfs"));
+        assert_eq!(method.prob_source.as_deref(), Some("native"));
+        assert_eq!(method.coverage_scored, Some(94));
+        assert_eq!(method.trained_on_patients, Some(94));
+        assert_eq!(method.own_auc, Some(0.71));
+        assert_eq!(method.model_dir.as_deref(), Some(format!("{}/models/kelim", &run.dir).as_str()));
+        let counts = repo.method_counts(run_id).await.unwrap();
+        assert_eq!(counts.finished, 1);
+        let logs = repo.logs_tail(run_id, 5).await.unwrap();
+        assert!(
+            logs.iter().any(|l| l.content.contains("run started")),
+            "the recorded log line is on the seeded run"
+        );
+        assert!(run.dir.contains("analysis-"), "a normal run dir: {}", run.dir);
+
+        // The recorded chance column is the engine's artifact path.
+        let chance = std::path::Path::new(&run.dir).join("output/kelim/chance.csv");
+        assert!(chance.exists(), "the recorded column is staged");
+
+        // Idempotent: a second call seeds nothing new.
+        let again = seed_example_runs(&pool, Some(&*bundle)).await.expect("second seed");
+        assert!(again.is_empty(), "no duplicate run");
+        let count: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM txr_runs")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1, "exactly one seeded run");
 
         std::fs::remove_dir_all(&root).ok();
     }

@@ -339,7 +339,10 @@ pub fn asset_table_facts(bytes: &[u8]) -> (u64, Vec<String>) {
 /// The asset CSV parse (split lines, split fields — the example assets are
 /// unquoted, verified by the file-validator material check; a change that
 /// breaks that assumption makes the demo refuse at boot, never mis-hash).
-fn parse_asset_csv(bytes: &[u8]) -> (Vec<String>, Vec<Vec<Option<String>>>) {
+/// `pub(crate)`: the boot seed (ITEM-4) builds the example tables' request
+/// shape from the EMBEDDED bytes — the SAME bytes the loader validated the
+/// bundle against — so a seeded run's input is provably the recorded one.
+pub(crate) fn parse_asset_csv(bytes: &[u8]) -> (Vec<String>, Vec<Vec<Option<String>>>) {
     let text = std::str::from_utf8(bytes).expect("the embedded example is utf-8");
     let mut lines = text.split('\n').filter(|l| !l.is_empty());
     let columns: Vec<String> = lines

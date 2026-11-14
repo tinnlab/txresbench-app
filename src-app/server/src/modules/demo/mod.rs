@@ -48,6 +48,7 @@ pub mod copy;
 pub mod eligibility;
 pub mod models;
 pub mod replay;
+pub mod retention;
 pub mod session;
 
 use std::sync::OnceLock;

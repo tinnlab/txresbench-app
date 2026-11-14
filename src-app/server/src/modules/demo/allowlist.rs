@@ -87,7 +87,10 @@ pub const ROUTE_POLICY: &[RouteRow] = &[
     RouteRow::allowed("GET", "/file-validation/templates/{kind}"),
     RouteRow::allowed("GET", "/txr/history"),
     RouteRow::allowed("GET", "/txr/history/preferences"),
-    RouteRow::allowed("GET", "/txr/history/usage"),
+    // ITEM-4: in demo mode this answers the shared-pool counters
+    // (`{runs, run_limit, models, model_limit, pinned_runs, pinned_models,
+    // shared}`) instead of the desktop byte figure — the adapted class.
+    RouteRow::adapted("GET", "/txr/history/usage"),
     RouteRow::allowed("GET", "/txr/history/{id}"),
     RouteRow::allowed("GET", "/txr/runs"),
     RouteRow::allowed("GET", "/txr/runs/{id}"),

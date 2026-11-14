@@ -296,6 +296,16 @@ async fn build_app(
         app
     };
 
+    // Demo-mode ITEM-4 (retention, global, pinned examples): the boot pass —
+    // seed the pinned example runs (one finished replay run per recorded
+    // configuration), enforce the shared-pool limits, sweep the orphan files
+    // of a crashed cleanup, reap the stale anonymous sessions, and arm the
+    // 10-minute job. Runs here, before the caller binds the listener, so the
+    // seeded runs are born terminal and no request can race them.
+    if demo.enabled {
+        modules::demo::retention::boot_pass((*pool).clone()).await;
+    }
+
     Ok((app, pool, jwt))
 }
 

@@ -52,14 +52,15 @@ const APP_CHAIN_GROUPS: &[(&str, usize)] = &[
     ("execution_engine", 7),
     ("model_store", 4),
     ("history_store", 2),
-    // demo-mode ITEM-1: the anonymous-visitor session rows + the run-owner
-    // rows (the stop/skip ownership rule) — one file, the module's first.
-    ("demo", 1),
+    // demo-mode ITEM-1 + ITEM-4: the anonymous-visitor session rows + the
+    // run-owner rows (the stop/skip ownership rule) and the boot-seeded
+    // example runs' pin/idempotency rows (the retention).
+    ("demo", 2),
 ];
 
 /// The table set the ported chain creates (SDK 12 + jobs 8 (incl.
 /// compute_meter) + sandbox 1 + mcp 2 + features 1 + account 5 +
-/// execution_engine 5 + model_store 3 + history_store 2 + demo 2 = 41),
+/// execution_engine 5 + model_store 3 + history_store 2 + demo 3 = 42),
 /// alphabetically. The strip removed the dataset/project/workstore/
 /// provenance/drafts tables with their modules — this set is exactly the
 /// tables the kept chain creates (verified against a real SQLite apply of
@@ -93,6 +94,7 @@ const TABLE_SET: &[&str] = &[
     "session_settings",
     "txr_app_config",
     "txr_demo_run_sessions",
+    "txr_demo_seeded_runs",
     "txr_demo_sessions",
     "txr_example_set",
     "txr_history_preferences",
@@ -120,10 +122,10 @@ const SDK_CHAIN_FILES: &[&str] = &[
     "202609090010_users_email_lowercase_invariant.sql",
 ];
 
-/// Every file the ported chain ships (SDK 7 + the kept modules' 33: jobs 6,
+/// Every file the ported chain ships (SDK 7 + the kept modules' 34: jobs 6,
 /// sandbox 3, mcp 2, features 1, file 1, account 6, execution_engine 7,
-/// model_store 4, history_store 2, demo 1), in the version-sorted order the
-/// merged chain applies them — the complete 40-file SQLite chain.
+/// model_store 4, history_store 2, demo 2), in the version-sorted order the
+/// merged chain applies them — the complete 41-file SQLite chain.
 pub(crate) const CHAIN_FILES: &[&str] = &[
     "202607140050_auth_schema.sql",
     "202607140125_file_schema.sql",
@@ -165,6 +167,7 @@ pub(crate) const CHAIN_FILES: &[&str] = &[
     "202610270001_txr_example_set.sql",
     "202611130001_txr_models_conversions.sql",
     "202611141001_txr_demo_sessions.sql",
+    "202611141002_txr_demo_seeded_runs.sql",
 ];
 
 static UNIQUE: AtomicU64 = AtomicU64::new(0);

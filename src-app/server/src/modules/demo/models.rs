@@ -317,6 +317,10 @@ pub async fn save_from_bundle(
     for row in &saved_rows {
         models.push(store::summary_from(row, Some(&set_name))?);
     }
+    // ITEM-4: after every model-set insert the shared-pool retention may
+    // evict the oldest non-pinned sets (fire-and-forget; the new set is the
+    // newest, so it can never be the evictee).
+    super::retention::enforce_limits_detached(pool.clone());
     Ok(ModelSaveResponse {
         set: store::set_summary_from(&set_summary_row),
         models,
@@ -408,6 +412,11 @@ pub async fn ensure_example_set(pool: &SqlitePool) -> Result<ExampleSetResponse,
             error: None,
         })
         .await;
+    // ITEM-4: the example set is the PINNED one (the state row's set id is
+    // the pin derivation) — the retention pass runs anyway so the other
+    // (non-pinned) sets beyond the limit are swept now, and the pass proves
+    // the pinned set survives.
+    super::retention::enforce_limits_detached(pool.clone());
     Ok(example_ready(Some(set_row.id)))
 }
 
