@@ -57,6 +57,19 @@ absent from the app's catalogue + shipped ENV manifest — a dev manifest
 entry for it is unreachable, so it is not published; `build_and_publish`
 now refuses any real `--methods` id outside the app's own ENV manifest.)
 
+## The bases scenario (the generator's manifest, the real publisher)
+
+`acceptance.sh` also runs the published-base path in the same registry:
+`publish.py --stage-fixture <dir>` writes a build dir in the generator's
+format (the fixture base, packed by the generator's own `pack_base`, plus a
+second fixture layer `txr-dev-fixture-b` and a fixture methods dir), the
+generator writes the manifest with its `bases` list, and the REAL publisher
+(`scripts/publish-method-env-images.sh --registry 127.0.0.1:<port>`, a real
+oras staged by `scripts/fetch-oras.mjs`) publishes the base, then the layer
+(a layer before its base is refused). The Rust child then downloads and
+verifies the published base against the record's `squashfs_sha256` and runs
+the layer on it. Without a real oras the scenario is skipped with a reason.
+
 ## Start the app against it (debug builds only)
 
 The app reaches the dev registry through the existing loopback registry-host
@@ -99,8 +112,10 @@ Visible, deliberate dev approximations (recorded in
    per-language stack lives in the base and the layer is the method's own
    wrapper bytes (`/code`, the schema marker, `/layer-manifest.json`, the
    `usr/` mount-readiness sentinel).
-3. **`base_digest` = sha256 of the dev base squashfs** (the app's
-   `EnvRef.digest` is a PAYLOAD-verify pin). The published manifest's
-   `base_digest` is the benchmark base image's manifest digest (provenance).
+3. **`base_digest` = sha256 of the dev base squashfs**, in a manifest without
+   a `bases` list (the app's old reading of `base_digest` as the base pin). A
+   manifest from the generator instead carries a `bases` list whose
+   `squashfs_sha256` is the base pin; its `base_digest` is the benchmark base
+   image's digest (provenance). See the bases scenario below.
 4. The squashfs compressor is the recipe's (`-comp zstd -b 1M -all-root`)
    but the default zstd level (the recipe's 22 is a release choice).

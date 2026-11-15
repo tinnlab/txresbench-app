@@ -38,6 +38,18 @@
 //!
 //! The real-method publish is the publisher's own tier (publish.test.py);
 //! this file is the app-side witness over the same registry.
+//!
+//! A second scenario (`TXR_ACCEPT_SCENARIO=bases`, the parent
+//! [`dev_registry_base_publish_fetch_verify_and_run`]) runs the same child
+//! over a manifest with a `bases` list: acceptance.sh stages the fixture base
+//! + a second fixture layer in the generator's build-dir format
+//! (`publish.py --stage-fixture`), writes the manifest with the generator,
+//! and publishes both with the REAL publisher
+//! (`publish-method-env-images.sh --registry <loopback>`) and a real oras.
+//! The child then checks that the base ref is the bases record's (its tag,
+//! its `squashfs_sha256` — never the entry's Docker image digest), that the
+//! app downloads and verifies the published base, that a wrong base pin is
+//! `ENV_VERIFY_FAILED`, and that the stacked run records the base file pin.
 
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
@@ -104,6 +116,8 @@ async fn dev_registry_acceptance_child() {
     let work = PathBuf::from(env("TXR_ACCEPT_WORK").expect("TXR_ACCEPT_WORK"));
     let registry = env("TXR_ACCEPT_REGISTRY").expect("registry");
     let _manifest_path = PathBuf::from(env("TXR_ACCEPT_MANIFEST").expect("manifest"));
+    let bases_scenario = env("TXR_ACCEPT_SCENARIO").as_deref() == Some("bases");
+    let fixture_id = if bases_scenario { "txr-dev-fixture-b" } else { "txr-dev-fixture" };
 
     let fail = |what: String| -> ! {
         eprintln!("PROBE_ERR {what}");
@@ -117,17 +131,37 @@ async fn dev_registry_acceptance_child() {
     let arch = txresbench::modules::execution_engine::envmanifest::EnvArch::host()
         .expect("host arch supported");
     let entry = manifest
-        .find("txr-dev-fixture", arch)
+        .find(fixture_id, arch)
         .ok_or_else(|| "no fixture entry in the dev manifest".to_string())
         .unwrap_or_else(|e| fail(e));
-    assert_eq!(entry.oci_ref, "ghcr.io/tinnlab/txr-method-env-layers/txr-dev-fixture");
+    assert_eq!(
+        entry.oci_ref,
+        format!("ghcr.io/tinnlab/txr-method-env-layers/{fixture_id}")
+    );
 
     // ── 2. the engine's own ref builders ───────────────────────────────────
-    let base_ref = txresbench::modules::execution_engine::orchestrator::base_env_ref(entry);
+    let base_record = txresbench::modules::execution_engine::envmanifest::base_artifact_for(entry);
+    let base_ref =
+        txresbench::modules::execution_engine::orchestrator::base_env_ref(entry, base_record);
     let layer_ref = txresbench::modules::execution_engine::orchestrator::layer_env_ref(entry);
     assert_eq!(base_ref.oci_ref, "ghcr.io/tinnlab/txresbench-env/base-py");
-    assert_eq!(base_ref.tag.as_deref(), Some("2.0-amd64"));
-    assert_eq!(base_ref.digest, entry.base_digest.strip_prefix("sha256:").unwrap());
+    let image_digest = entry.base_digest.strip_prefix("sha256:").unwrap().to_string();
+    let base_pin = if bases_scenario {
+        // The bases record is the base: its tag and its FILE hash.
+        let b = base_record.unwrap_or_else(|| fail("the bases manifest has no base record".into()));
+        assert_eq!(base_ref.tag.as_deref(), Some(b.tag.as_str()));
+        assert_eq!(base_ref.digest, b.squashfs_sha256);
+        assert_ne!(
+            base_ref.digest, image_digest,
+            "the entry's Docker image digest is provenance, never the file pin"
+        );
+        b.squashfs_sha256.clone()
+    } else {
+        assert!(base_record.is_none(), "the dev publisher's manifest has no bases list");
+        assert_eq!(base_ref.tag.as_deref(), Some("2.0-amd64"));
+        assert_eq!(base_ref.digest, image_digest);
+        image_digest.clone()
+    };
     assert_eq!(layer_ref.digest, entry.layer_sha256);
 
     // ── 3. the seam + the real OCI path (oras shim on PATH) ────────────────
@@ -159,7 +193,7 @@ async fn dev_registry_acceptance_child() {
         txresbench::modules::sandbox::method_env::MethodEnvState::Ready
     );
     assert!(base_status.mounted, "the base mount is live");
-    let layer_status = manager.status("txr-dev-fixture");
+    let layer_status = manager.status(fixture_id);
     assert_eq!(
         layer_status.state,
         txresbench::modules::sandbox::method_env::MethodEnvState::Ready
@@ -177,6 +211,20 @@ async fn dev_registry_acceptance_child() {
         )
         .expect_err("a wrong pin must refuse");
     assert_eq!(err.error_code(), "ENV_VERIFY_FAILED", "digest verification is never skipped");
+    if bases_scenario {
+        // The same for the base: the published base file is downloaded again
+        // under a wrong pin and refused before any cache entry or mount.
+        let mut bad_base = base_ref.clone();
+        bad_base.digest = "0".repeat(64);
+        let err = manager
+            .ensure(
+                &bad_base,
+                txresbench::modules::sandbox::method_env::EnvKind::Base,
+                std::time::Duration::from_secs(600),
+            )
+            .expect_err("a wrong base pin must refuse");
+        assert_eq!(err.error_code(), "ENV_VERIFY_FAILED", "the base download is verified");
+    }
 
     // ── 4. the stacked real run ────────────────────────────────────────────
     let caps = probes::probe_host_only().expect("bwrap on PATH (parent gated)");
@@ -236,7 +284,7 @@ async fn dev_registry_acceptance_child() {
     .unwrap_or_else(|e| fail(format!("stacked run: {e}")));
 
     assert_eq!(result.exit_code, 0, "stderr: {}", result.stderr);
-    assert_eq!(result.base_env_digest, entry.base_digest.strip_prefix("sha256:").unwrap());
+    assert_eq!(result.base_env_digest, base_pin);
     assert_eq!(result.layer_env_digest, entry.layer_sha256);
     let predictions =
         std::fs::read_to_string(outputs.join("predictions.csv")).unwrap_or_else(|e| fail(format!("predictions.csv: {e}")));
@@ -248,7 +296,7 @@ async fn dev_registry_acceptance_child() {
     let ws = data_dir.join("sandboxes").join(job.to_string());
     assert_eq!(
         std::fs::read_to_string(ws.join("env-digest")).expect("env-digest").trim(),
-        entry.base_digest.strip_prefix("sha256:").unwrap()
+        base_pin
     );
     assert_eq!(
         std::fs::read_to_string(ws.join("layer-env-digest"))
@@ -283,77 +331,109 @@ async fn dev_registry_acceptance_child() {
 /// the child with the dev-registry env, record skips honestly.
 #[tokio::test]
 async fn dev_registry_fetch_verify_mount_and_run() {
+    let name = stringify!(dev_registry_fetch_verify_mount_and_run);
     let Some(registry) = env("TXR_ACCEPT_REGISTRY") else {
         record_skip(
-            stringify!(dev_registry_fetch_verify_mount_and_run),
+            name,
             "dev-registry acceptance env not set (run scripts/dev-registry/acceptance.sh)",
         );
         return;
     };
     let Some(manifest) = env("TXR_ACCEPT_MANIFEST") else {
-        record_skip(stringify!(dev_registry_fetch_verify_mount_and_run), "TXR_ACCEPT_MANIFEST not set");
+        record_skip(name, "TXR_ACCEPT_MANIFEST not set");
         return;
     };
     let Some(oras_dir) = env("TXR_ACCEPT_ORAS_DIR") else {
-        record_skip(stringify!(dev_registry_fetch_verify_mount_and_run), "TXR_ACCEPT_ORAS_DIR not set");
+        record_skip(name, "TXR_ACCEPT_ORAS_DIR not set");
         return;
     };
     let Some(data_dir) = env("TXR_ACCEPT_DATA_DIR") else {
-        record_skip(stringify!(dev_registry_fetch_verify_mount_and_run), "TXR_ACCEPT_DATA_DIR not set");
+        record_skip(name, "TXR_ACCEPT_DATA_DIR not set");
         return;
     };
     let work = env("TXR_ACCEPT_WORK").unwrap_or_else(|| {
         format!("/data/pbya/txresbench-app-work/tmp-qa-hardening/accept-{}", Uuid::new_v4())
     });
+    spawn_child(name, "legacy", &registry, &manifest, &oras_dir, &data_dir, &work);
+}
 
+/// The bases scenario's parent: the manifest carries a `bases` list, the base
+/// and the layer were published by the real publisher with a real oras (the
+/// app pulls with that oras too).
+#[tokio::test]
+async fn dev_registry_base_publish_fetch_verify_and_run() {
+    let name = stringify!(dev_registry_base_publish_fetch_verify_and_run);
+    let Some(registry) = env("TXR_ACCEPT_REGISTRY") else {
+        record_skip(
+            name,
+            "dev-registry acceptance env not set (run scripts/dev-registry/acceptance.sh)",
+        );
+        return;
+    };
+    let Some(manifest) = env("TXR_ACCEPT_BASES_MANIFEST") else {
+        record_skip(name, "TXR_ACCEPT_BASES_MANIFEST not set (no real oras for the bases scenario)");
+        return;
+    };
+    let Some(oras_dir) = env("TXR_ACCEPT_REAL_ORAS_DIR") else {
+        record_skip(name, "TXR_ACCEPT_REAL_ORAS_DIR not set");
+        return;
+    };
+    let Some(data_dir) = env("TXR_ACCEPT_BASES_DATA_DIR") else {
+        record_skip(name, "TXR_ACCEPT_BASES_DATA_DIR not set");
+        return;
+    };
+    let work = env("TXR_ACCEPT_BASES_WORK").unwrap_or_else(|| {
+        format!("/data/pbya/txresbench-app-work/tmp-qa-hardening/accept-bases-{}", Uuid::new_v4())
+    });
+    spawn_child(name, "bases", &registry, &manifest, &oras_dir, &data_dir, &work);
+}
+
+/// Gate the host, then run the child scenario in its own process (the
+/// manager reads the registry seam off the PROCESS env, and the sandbox state
+/// is first-write-wins — the child-process pattern of this suite).
+fn spawn_child(
+    name: &str,
+    scenario: &str,
+    registry: &str,
+    manifest: &str,
+    oras_dir: &str,
+    data_dir: &str,
+    work: &str,
+) {
     // Host gates (the same facts the real-run legs here gate on).
     if !have("bwrap") || !have("squashfuse") || !have("fusermount") {
-        record_skip(
-            stringify!(dev_registry_fetch_verify_mount_and_run),
-            "host tools missing (bwrap/squashfuse/fusermount)",
-        );
+        record_skip(name, "host tools missing (bwrap/squashfuse/fusermount)");
         return;
     }
-    let (host, port_s) = registry.rsplit_once(':').unwrap_or((&registry, "0"));
+    let (host, port_s) = registry.rsplit_once(':').unwrap_or((registry, "0"));
     let port: u16 = port_s.parse().unwrap_or(0);
     if TcpStream::connect((host, port)).is_err() {
-        record_skip(
-            stringify!(dev_registry_fetch_verify_mount_and_run),
-            &format!("dev registry not reachable at {registry}"),
-        );
+        record_skip(name, &format!("dev registry not reachable at {registry}"));
         return;
     }
-    if !Path::new(&manifest).is_file() {
-        record_skip(
-            stringify!(dev_registry_fetch_verify_mount_and_run),
-            &format!("fixture manifest missing: {manifest}"),
-        );
+    if !Path::new(manifest).is_file() {
+        record_skip(name, &format!("fixture manifest missing: {manifest}"));
         return;
     }
-    if !Path::new(&oras_dir).is_dir() {
-        record_skip(
-            stringify!(dev_registry_fetch_verify_mount_and_run),
-            &format!("oras dir missing: {oras_dir}"),
-        );
+    if !Path::new(oras_dir).is_dir() {
+        record_skip(name, &format!("oras dir missing: {oras_dir}"));
         return;
     }
 
-    // The child drives the WHOLE scenario (the manager reads the registry
-    // seam off the PROCESS env, and the sandbox state is first-write-wins —
-    // the child-process pattern of this suite).
     let path = format!("{oras_dir}:{}", std::env::var("PATH").unwrap_or_default());
     let out = Command::new(std::env::current_exe().expect("test binary"))
         .arg(CHILD_TEST_PATH)
         .arg("--exact")
         .arg("--nocapture")
         .env(CHILD_MARKER, "1")
-        .env("TXR_APP_DATA_DIR", &data_dir)
-        .env("TXR_ACCEPT_REGISTRY", &registry)
-        .env("TXR_ACCEPT_MANIFEST", &manifest)
-        .env("TXR_ACCEPT_ORAS_DIR", &oras_dir)
-        .env("TXR_ACCEPT_WORK", &work)
-        .env("TXR_METHOD_ENV_REGISTRY", &registry)
-        .env("TXR_ENV_MANIFEST", &manifest)
+        .env("TXR_ACCEPT_SCENARIO", scenario)
+        .env("TXR_APP_DATA_DIR", data_dir)
+        .env("TXR_ACCEPT_REGISTRY", registry)
+        .env("TXR_ACCEPT_MANIFEST", manifest)
+        .env("TXR_ACCEPT_ORAS_DIR", oras_dir)
+        .env("TXR_ACCEPT_WORK", work)
+        .env("TXR_METHOD_ENV_REGISTRY", registry)
+        .env("TXR_ENV_MANIFEST", manifest)
         .env("PATH", &path)
         .output()
         .expect("spawn child");
@@ -367,10 +447,10 @@ async fn dev_registry_fetch_verify_mount_and_run() {
         .lines()
         .find(|l| l.contains("PROBE_SKIP"))
     {
-        record_skip(stringify!(dev_registry_fetch_verify_mount_and_run), line);
+        record_skip(name, line);
         return;
     }
     panic!(
-        "dev-registry acceptance failed\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+        "dev-registry acceptance ({scenario}) failed\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
     );
 }

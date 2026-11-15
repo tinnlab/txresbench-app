@@ -42,7 +42,7 @@ HONESTY
 -------
 This is a dev/QA approximation, not the published-layer pipeline:
 
-  * the base is the HOST R 4.1 / python3.10 and the HOST package libraries
+  * the base is the HOST R 4.1 / python3 (3.10 there) and the HOST package libraries
     (the published base is R 4.4.2 / Python 3.11 with pinned versions), so the
     layer SDK is the host's, and method wrappers run against the host
     versions' API surface;
@@ -67,12 +67,31 @@ real methods), --fixture (also build + push the tiny fixture artifacts used by
 the acceptance test), --no-push (build + stage only), --skip-real (fixture
 only), --manifest PATH (default <out>/method-env-images.dev.json), --fixture
 manifest <out>/method-env-images.fixture.json.
+
+THE BASES SCENARIO (--stage-fixture DIR)
+----------------------------------------
+    python3 scripts/dev-registry/publish.py --stage-fixture <dir>
+
+Builds nothing to push. It writes a build dir in the GENERATOR's format for
+the acceptance's bases scenario: the fixture base (the same host-assembled
+stdlib base as --fixture, plus /opt/txr-layer) packed by the generator's own
+`pack_base` into <dir>/bases/base-py-<arch>/, a second fixture layer
+(`txr-dev-fixture-b`) with its generator-format record under <dir>/layers/,
+and a fixture methods dir (<dir>/methods: index.json + method.json). The
+generator then writes the manifest (`--fixture <dir> --methods-dir
+<dir>/methods --manifest ...`), and the REAL publisher pushes both artifacts
+(`publish-method-env-images.sh --registry <loopback>`). There is no Docker
+image in the dev flow, so the base's source digest is a stand-in: the
+sha256 of the fixture rootfs's sorted path + content listing. It is
+deliberately NOT the squashfs hash, so the scenario proves the app pins the
+file, not the provenance value.
 """
 
 import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -171,6 +190,9 @@ def check_methods_in_app_manifest(method_ids):
 #: --skip-real`; the real publish is its own `--out`).
 FIXTURE_METHOD_ID = "txr-dev-fixture"
 FIXTURE_BASE_ID = "base-py"
+#: The bases scenario's fixture layer (--stage-fixture): its own env id, so it
+#: never shares an immutable tag with the --fixture layer in one registry.
+FIXTURE_B_METHOD_ID = "txr-dev-fixture-b"
 
 #: Contract family of the dev build (the app's manifest validator wants
 #: <major>.<minor> and the base tag derives from it).
@@ -186,9 +208,19 @@ GENERATOR_VERSION = "0.1.0-dev"
 DEFAULT_METHODS_DIR = "/data/share/pbya/sigtrans/methods"
 DEFAULT_PACKAGE_DIR = "/data/share/pbya/sigtrans/package"
 
+def _host_python_version(link="/usr/bin/python3"):
+    """The host system python3's <major>.<minor>, read from what
+    /usr/bin/python3 points at (3.10 on the box this publisher was written on,
+    3.11 on Debian bookworm). Falls back to 3.10 when there is no such link."""
+    m = re.match(r"^/usr/bin/python(3\.[0-9]+)$", os.path.realpath(link))
+    return m.group(1) if m else "3.10"
+
+
 #: Host paths that are part of the base rootfs assembly.
-PY_STDLIB = "/usr/lib/python3.10"
-PY_USER_SITE = "/home/pbya/.local/lib/python3.10/site-packages"
+PY_VERSION = _host_python_version()
+PY_BIN = "/usr/bin/python%s" % PY_VERSION
+PY_STDLIB = "/usr/lib/python%s" % PY_VERSION
+PY_USER_SITE = "/home/pbya/.local/lib/python%s/site-packages" % PY_VERSION
 R_SYSTEM_LIB = "/usr/lib/R"
 R_PERSONAL_LIB = "/home/pbya/R/x86_64-pc-linux-gnu-library/4.1"
 
@@ -383,15 +415,15 @@ def build_base_py(rootfs_dir, fixture=False):
     shared-library closure."""
     import pkgutil
 
-    if os.path.exists("/usr/bin/python3.10"):
-        copy_into(rootfs_dir, "/usr/bin/python3.10")
+    if os.path.exists(PY_BIN):
+        copy_into(rootfs_dir, PY_BIN)
         copy_into(rootfs_dir, "/usr/bin/python3")
     copy_into(rootfs_dir, PY_STDLIB)
     for top in CORE_TOOLS:
         copy_tool_real(rootfs_dir, top)
 
     if not fixture:
-        site = "usr/local/lib/python3.10/dist-packages"
+        site = "usr/local/lib/python%s/dist-packages" % PY_VERSION
         tgt = os.path.join(rootfs_dir, site)
         os.makedirs(tgt, exist_ok=True)
         for name in os.listdir(PY_USER_SITE):
@@ -429,7 +461,7 @@ def build_base_py(rootfs_dir, fixture=False):
     # closure of every copied ELF + the named bins; bins are absolute host
     # paths, so probe them directly.
     libs = ldd_closure(rootfs_dir, [t for t in CORE_TOOLS] +
-                       ["/usr/bin/python3.10"] + ([] if fixture else []))
+                       [PY_BIN] + ([] if fixture else []))
     for host, rel in libs.items():
         copy_into(rootfs_dir, host, rel)
     normalize_modes(rootfs_dir)
@@ -522,7 +554,7 @@ def build_layer(method_dir, out_dir, env_id=None):
     return sqfs, env_id
 
 
-def build_fixture_layer(out_dir):
+def build_fixture_layer(out_dir, env_id=FIXTURE_METHOD_ID):
     """The tiny fake method of TEST-QA-2: stdlib-only run.py writing the
     contract prediction row per /input/test/patients.csv patient."""
     method_dir = os.path.join(out_dir, "fixture-method")
@@ -530,7 +562,7 @@ def build_fixture_layer(out_dir):
         shutil.rmtree(method_dir)
     os.makedirs(method_dir)
     with open(os.path.join(method_dir, "method.json"), "w") as f:
-        json.dump({"id": FIXTURE_METHOD_ID, "version": "1.0.0", "language": "Python",
+        json.dump({"id": env_id, "version": "1.0.0", "language": "Python",
                    "group": "response-call", "min_draws": 1, "markers": "single"}, f)
     with open(os.path.join(method_dir, "run.py"), "w") as f:
         f.write(
@@ -549,7 +581,7 @@ def build_fixture_layer(out_dir):
             "        f.write('milestone|fit|started\\n')\n"
             "        f.write('milestone|fit|done\\n')\n"
         )
-    return build_layer(method_dir, out_dir, env_id=FIXTURE_METHOD_ID)
+    return build_layer(method_dir, out_dir, env_id=env_id)
 
 
 # ─────────────────────────────── OCI push ────────────────────────────────────
@@ -697,6 +729,110 @@ SOURCE_REVISION = source_revision()
 
 # ─────────────────────────────── the main flow ───────────────────────────────
 
+def _load_generator():
+    """The repo's own generator module, imported by path (its file name has
+    dashes) — the bases scenario packs its base with the generator's
+    `pack_base`, never a second implementation."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                        "generate-method-env-images.py")
+    spec = importlib.util.spec_from_file_location("txr_generator", path)
+    gen = importlib.util.module_from_spec(spec)
+    sys.modules["txr_generator"] = gen
+    spec.loader.exec_module(gen)
+    return gen
+
+
+def _tree_digest(root):
+    """sha256 over the sorted (path, content-hash | link target) listing of a
+    rootfs dir: the fixture base's stand-in for a Docker image digest."""
+    h = hashlib.sha256()
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for name in sorted(filenames + [d for d in dirnames
+                                         if os.path.islink(os.path.join(dirpath, d))]):
+            p = os.path.join(dirpath, name)
+            rel = os.path.relpath(p, root)
+            if os.path.islink(p):
+                h.update(("L %s %s\n" % (rel, os.readlink(p))).encode())
+            elif os.path.isfile(p):
+                h.update(("F %s %s\n" % (rel, sha256_file(p))).encode())
+    return "sha256:" + h.hexdigest()
+
+
+def stage_generator_fixture(stage_dir):
+    """--stage-fixture: the bases scenario's build dir in the generator's
+    format (see the module docstring). Returns the dir."""
+    stage_dir = os.path.abspath(stage_dir)
+    work = os.path.join(stage_dir, "work")
+    for sub in ("bases", "layers", "methods", "work"):
+        shutil.rmtree(os.path.join(stage_dir, sub), ignore_errors=True)
+    os.makedirs(work)
+    gen = _load_generator()
+    revision = SOURCE_REVISION if re.match(r"^[0-9a-f]{12}$", SOURCE_REVISION or "") \
+        else "000000000000"  # no methods checkout here: the fixture's own revision
+
+    # the base: the --fixture base rootfs + the layer mount point, packed by
+    # the generator (its checks and its fixed-time flags).
+    rootfs = os.path.join(work, "base-fixture-rootfs")
+    os.makedirs(rootfs)
+    build_base_py(rootfs, fixture=True)
+    os.makedirs(os.path.join(rootfs, "opt", "txr-layer"), exist_ok=True)
+    base_ref = "ghcr.io/tinnlab/txresbench-base-py:" + CONTRACT
+    source_digest = _tree_digest(rootfs)
+    base = gen.pack_base(rootfs, os.path.join(stage_dir, "bases", "%s-%s" % (FIXTURE_BASE_ID, ARCH)),
+                         base_id=FIXTURE_BASE_ID, arch=ARCH, source_ref=base_ref,
+                         source_digest=source_digest, source_ref_source="dev-fixture",
+                         source_digest_source="dev-fixture-tree")
+
+    # the layer: the fixture method under its own env id, with the record the
+    # generator's writer reads.
+    sqfs, env_id = build_fixture_layer(work, env_id=FIXTURE_B_METHOD_ID)
+    layer_dir = os.path.join(stage_dir, "layers", "%s-%s" % (env_id, ARCH))
+    os.makedirs(layer_dir)
+    shutil.copy2(sqfs, os.path.join(layer_dir, "layer.squashfs"))
+    method_dir = os.path.join(work, "fixture-method")
+    record = {
+        "record_schema_version": 1,
+        "generator_version": GENERATOR_VERSION,
+        "env_id": env_id,
+        "method_id": env_id,
+        "method_version": "1.0.0",
+        "language": "Python",
+        "arch": ARCH,
+        "oci_ref": "ghcr.io/tinnlab/%s/%s" % (LAYERS_REPO, env_id),
+        "tag": "1.0.0-" + ARCH,
+        "source_revision": revision,
+        "base_ref": base_ref,
+        "base_digest": source_digest,
+        "base_digest_source": "dev-fixture-tree",
+        "base_ref_source": "dev-fixture",
+        "layer_file": "layer.squashfs",
+        "layer_sha256": sha256_file(sqfs),
+        "size_bytes": os.path.getsize(sqfs),
+        "wrapper_code_sha256": wrapper_code_sha256(method_dir),
+        "layer_schema": 1,
+        "layer_manifest": ["/code"],
+        "run_file": "run.py",
+    }
+    with open(os.path.join(layer_dir, "artifact.json"), "w") as f:
+        json.dump(record, f, indent=2, sort_keys=True)
+        f.write("\n")
+
+    # the methods dir the writer reads index + licence facts from.
+    methods = os.path.join(stage_dir, "methods")
+    os.makedirs(os.path.join(methods, "methods", env_id))
+    with open(os.path.join(methods, "index.json"), "w") as f:
+        json.dump({"index_version": "dev-fixture", "contract_versions": [CONTRACT],
+                   "methods": [{"id": env_id, "version": "1.0.0", "language": "Python",
+                                "contract": CONTRACT, "runnable": True}]}, f)
+    with open(os.path.join(methods, "methods", env_id, "method.json"), "w") as f:
+        json.dump({"id": env_id, "language": "Python", "licence": "MIT (fixture)"}, f)
+    print("stage-fixture: %s (base %s, file sha256 %s…; layer %s)"
+          % (stage_dir, base["tag"], base["squashfs_sha256"][:16], env_id))
+    return stage_dir
+
+
 def build_and_publish(args):
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
@@ -841,7 +977,13 @@ def main(argv=None):
     parser.add_argument("--fixture", action="store_true")
     parser.add_argument("--skip-real", action="store_true")
     parser.add_argument("--no-push", action="store_true")
+    parser.add_argument("--stage-fixture", metavar="DIR", default=None,
+                        help="write the bases scenario's generator-format build dir "
+                             "to DIR (nothing is pushed)")
     args = parser.parse_args(argv)
+    if args.stage_fixture:
+        stage_generator_fixture(args.stage_fixture)
+        return 0
     args.methods = [m.strip() for m in args.methods.split(",") if m.strip()]
     args.out = os.path.abspath(args.out)
     args.manifest = args.manifest or os.path.join(args.out, "method-env-images.dev.json")

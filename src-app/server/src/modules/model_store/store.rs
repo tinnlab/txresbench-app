@@ -902,10 +902,11 @@ pub fn detail_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelDetail
             });
         }
         if let Some(entry) = crate::modules::execution_engine::envmanifest::env_for(&row.method_id) {
-            let current_base = entry
-                .base_digest
-                .strip_prefix("sha256:")
-                .unwrap_or(&entry.base_digest);
+            // The same pin the run's base ref verifies against (the base
+            // record's file hash, or the old reading for a manifest without
+            // `bases`).
+            use crate::modules::execution_engine::envmanifest::{base_artifact_for, base_pin};
+            let current_base = base_pin(entry, base_artifact_for(entry));
             let layer_mismatch = row
                 .env_layer_digest
                 .as_deref()

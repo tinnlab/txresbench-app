@@ -29,10 +29,12 @@ ownership-clean):
   - It does NOT push or sign: ITEM-5 (scripts/publish-method-env-images.sh).
   - It does NOT verify a published artifact behaviorally: ITEM-7
     (scripts/lib/method-env-verify.sh + the sandbox integration test).
-  - It does NOT build the app-side trimmed per-language base (sandbox-stacked)
-    and does NOT re-wrap or re-gate methods. The methods repository is a
-    read-only build-time input (CONS-method-env-images-1); the only network
-    use is the docker pull of a missing base image, which the build needs.
+  - It does NOT trim the per-language base and does NOT re-wrap or re-gate
+    methods. It packs the app-side base squashfs from the very base rootfs
+    the layers' deltas were computed against (see THE BASE ARTIFACT). The
+    methods repository is a read-only build-time input
+    (CONS-method-env-images-1); the only network use is the docker pull of
+    a missing base image, which the build needs.
 
 THE STAGED OUTPUT (one directory per (env, arch)):
 
@@ -42,10 +44,33 @@ THE STAGED OUTPUT (one directory per (env, arch)):
     oci-manifest.json  the exact OCI artifact manifest bytes (written by
                        the writer's --manifest mode; ITEM-5 pushes these
                        bytes, so its digest is the recorded `digest`)
-  <out>/bases/<base-digest16>-<arch>/
+  <out>/bases/<base_id>-<arch>/          (base_id: base-py | base-r)
+    base.squashfs      the app-side base the stacked run mounts under every
+                       layer of that language and arch (the OCI artifact's
+                       single file)
+    artifact.json      its record (kind "base")
+    oci-manifest.json  its exact OCI artifact manifest bytes (written by the
+                       writer's --manifest mode, like the layers')
+  <out>/base-cache/<base-digest16>-<arch>/
     rootfs/            the extracted base rootfs (reused across methods of
                        that language; the delta base index sits next to it)
   <out>/work/<env_id>-<arch>/   extraction scratch; removed unless --keep-rootfs
+
+THE BASE ARTIFACT
+-----------------
+Every layer is a delta over one Docker base image (its record's base_ref +
+base_digest). The app stacks the layer on the app-side base of the same
+language and arch, so the generator packs that base from the SAME cached
+rootfs the delta used (same image digest), once per build dir: after each
+method build (kept when already staged from the same image), or with
+--stage-bases for layer records already in --out. The pack is checked
+first (the sandbox needs /opt/txr-layer, /usr/bin/prlimit and /usr/bin/bash;
+base-r also /opt/txr-layer/R-library) and uses fixed timestamps, so one
+rootfs packs to the same bytes every time. The manifest's `bases` record
+pins the sha256 of the staged file; the app verifies the downloaded base
+against it, and checks at load that each entry's base_ref/base_digest equal
+its base's source_ref/source_digest (design §7). A build dir holds one base
+per language and arch: a layer built on another base image is refused.
 
 artifact.json is the ONLY hand-off from the build to the manifest writer. It
 records everything the writer cannot derive from the index: the precise base
@@ -104,6 +129,7 @@ USAGE
   python3 scripts/generate-method-env-images.py --out <dir> --manifest <path>   # build + write manifest
   python3 scripts/generate-method-env-images.py --check --out <dir>      # byte parity vs the committed file
   python3 scripts/generate-method-env-images.py --fixture <dir> --manifest <path>  # tests: assemble only
+  python3 scripts/generate-method-env-images.py --stage-bases --out <dir> --arch <a>  # bases for staged layers
 
   --arch            amd64 (default) | arm64; a cross-arch build is refused
                     unless ALLOW_EMULATED_BUILD=1 (mirror of
@@ -120,7 +146,13 @@ USAGE
                     or from --fixture records when --fixture is given).
   --check           assemble only and byte-compare against --manifest
                     (default src-app/server/data/method-env-images.json).
-  --fixture <dir>   read records from <dir>/layers (tests; never builds).
+  --fixture <dir>   read records from <dir>/layers and <dir>/bases (tests;
+                    never builds).
+  --stage-bases     build nothing; stage the base artifact of every language
+                    the --arch layer records in --out use, from the cached
+                    base rootfs, or from the LOCAL base image when its digest
+                    equals the records' base_digest (never pulled or rebuilt:
+                    a rebuilt base has another digest and would not pair).
   --source-revision <12hex>  expected source revision pin; every staged
                     record must carry it (an explicit pin, for the tests
                     and for a rebuild audited against a known revision).
@@ -168,7 +200,7 @@ LAYER_SCHEMA_VERSION = 1
 #: first code (this file) is 0.2.0. ITEM-3's writer records this string in
 #: the manifest's generator_version, so a bump here is a visible change —
 #: deliberate, never silent.
-GENERATOR_VERSION = "0.2.0"
+GENERATOR_VERSION = "0.3.0"
 
 #: The offline verification floor is sha256 (models.md's cached → verified →
 #: offline flow, DEC-5/7), so both the layer hash and the wrapper hash are
@@ -232,6 +264,40 @@ CONTRACT_RE = re.compile(r"^[0-9]+\.[0-9]+$")
 #: (DEC-17).
 OCI_REF_PREFIX = "ghcr.io/tinnlab/txr-method-env-layers"
 
+#: The app-side base artifacts (design §6.3): one per language and arch, in
+#: the sandbox's base namespace (stack.rs TXR_BASE_REGISTRY_PREFIX, spelled
+#: without a scheme like OCI_REF_PREFIX).
+BASE_OCI_REF_PREFIX = "ghcr.io/tinnlab/txresbench-env"
+BASE_ID_BY_LANG = {"R": "base-r", "Python": "base-py"}
+BASE_DIR_RE = re.compile(r"^(base-(?:r|py))-(amd64|arm64)$")
+BASE_FILE = "base.squashfs"
+
+#: What every base must hold for the stacked run (checked before packing):
+#: the layer mount point (stack.rs METHOD_PACKAGES_DIR) and the two programs
+#: the sandbox argv runs (sandbox.rs: /usr/bin/prlimit, then /bin/bash). The
+#: sandbox binds the base's /usr and makes /bin a link to usr/bin itself, so
+#: /bin/bash is the base's usr/bin/bash, whatever the base's own /bin is.
+BASE_REQUIRED = {
+    "base-py": (("opt/txr-layer", "dir"), ("usr/bin/prlimit", "file"),
+                ("usr/bin/bash", "file")),
+    "base-r": (("opt/txr-layer", "dir"), ("opt/txr-layer/R-library", "dir"),
+               ("usr/bin/prlimit", "file"), ("usr/bin/bash", "file")),
+}
+
+#: Every timestamp in a base squashfs (file times + the superblock's
+#: creation time): 1980-01-01T00:00:00Z. The extracted rootfs carries
+#: extraction times, so without a fixed time two packs of one rootfs differ;
+#: 1980 stays clear of tools that refuse pre-1980 times (zip).
+BASE_SQUASHFS_TIME = "315532800"
+
+#: The base pack flags: the layer's compressor flags + fixed times + no
+#: xattrs (the extracted rootfs carries none; the build host's must not leak).
+BASE_MKSQUASHFS_FLAGS = (
+    "-comp", "zstd", "-Xcompression-level", "22", "-b", "1M", "-noappend",
+    "-no-progress", "-all-root", "-no-xattrs",
+    "-all-time", BASE_SQUASHFS_TIME, "-mkfs-time", BASE_SQUASHFS_TIME,
+)
+
 #: Mirrors src-app/server/src/modules/sandbox/env_id.rs::is_valid_env_id.
 #: An id failing this is refused at the top of the build, not rescued.
 ENV_ID_RE = re.compile(r"^[a-z0-9._-]+$")
@@ -258,6 +324,14 @@ MANIFEST_SCHEMA_VERSION = 1
 #: single file's media type (the publisher's `oras push` spells the file as
 #: `layer.squashfs:<ARTIFACT_TYPE>`, exactly the framework's publish shape).
 ARTIFACT_TYPE = "application/vnd.txr.method-env.layer.v1"
+
+#: The base artifact's type (design §6.3) — the manifest's artifactType AND
+#: the single file's media type, like the layer's.
+BASE_ARTIFACT_TYPE = "application/vnd.txr.method-env.base.v1"
+
+#: The base artifact's source annotation: the repository holding the base
+#: image recipes (base-images/). Build-time annotation data only.
+BASE_SOURCE_URL = "https://github.com/tinnlab/txresbench"
 
 #: The OCI image manifest media type of the artifact manifest.
 OCI_MANIFEST_MEDIATYPE = "application/vnd.oci.image.manifest.v1+json"
@@ -1131,13 +1205,15 @@ def base_cache_key(base_digest: str | None, arch: str) -> str:
 
 
 def base_cache_dirs(out: str, base_digest: str | None, arch: str) -> tuple[str, str]:
-    root = os.path.join(out, "bases", base_cache_key(base_digest, arch))
+    # base-cache/, not bases/: bases/ holds only staged base artifacts, so its
+    # loader can refuse any dir without a record (like layers/).
+    root = os.path.join(out, "base-cache", base_cache_key(base_digest, arch))
     return root, os.path.join(root, "rootfs")
 
 
 def load_or_build_base_index(out: str, base_digest: str | None, arch: str,
                              base_rootfs: str) -> dict[str, tuple[int, str]]:
-    path = os.path.join(out, "bases", base_cache_key(base_digest, arch),
+    path = os.path.join(out, "base-cache", base_cache_key(base_digest, arch),
                         "index.json")
     if os.path.isfile(path):
         try:
@@ -1191,6 +1267,9 @@ def build_one(eid: str, entry: dict, args) -> dict:
         print("+ mksquashfs -comp zstd -Xcompression-level 22 -b 1M "
               "-noappend -no-progress -all-root")
         print("+ write layers/%s-%s/artifact.json" % (eid, args.arch))
+        print("+ stage bases/%s-%s/base.squashfs from the same base rootfs "
+              "(kept when already staged from the same image)"
+              % (BASE_ID_BY_LANG[index_language], args.arch))
         return {"env_id": eid, "dry_run": True}
 
     # 1. base: local -> pull -> benchmark-tree fallback.
@@ -1303,6 +1382,11 @@ def build_one(eid: str, entry: dict, args) -> dict:
         json.dump(record, f, indent=2, sort_keys=True)
         f.write("\n")
 
+    # 12. the app-side base this layer stacks on, packed from the SAME base
+    # rootfs the delta used (kept when this build dir already holds it).
+    stage_base(args.out, args.arch, index_language, base["ref"],
+               base["digest"], base["source"], base["digest_source"], b_root)
+
     if not args.keep_rootfs:
         shutil.rmtree(m_root, ignore_errors=True)
         for t in (m_tar,):
@@ -1330,6 +1414,199 @@ def _assert_squashfs_ok(path: str) -> None:
     if p.returncode != 0:
         raise BuildError(f"unsquashfs rejects the packed layer {path}: "
                          f"{p.stderr[-2000:]}")
+
+
+# ───────────────────────────── the base artifact ─────────────────────────────
+
+def _resolve_in_root(root: str, rel: str) -> str | None:
+    """`rel` resolved inside `root` the way the mounted base resolves it:
+    every symlink is followed, and an absolute target is taken from the
+    base's own root, never the host's. None when a
+    component is missing or the chain does not end (40 hops)."""
+    parts = [c for c in rel.split("/") if c]
+    done: list[str] = []
+    hops = 0
+    while parts:
+        comp = parts.pop(0)
+        if comp == ".":
+            continue
+        if comp == "..":
+            if done:
+                done.pop()
+            continue
+        host = os.path.join(root, *done, comp)
+        if os.path.islink(host):
+            hops += 1
+            if hops > 40:
+                return None
+            target = os.readlink(host)
+            if target.startswith("/"):
+                done = []
+            parts = [c for c in target.split("/") if c] + parts
+            continue
+        if not os.path.lexists(host):
+            return None
+        done.append(comp)
+    return os.path.join(root, *done)
+
+
+def base_rootfs_problems(rootfs: str, base_id: str) -> list[str]:
+    """The BASE_REQUIRED paths `rootfs` lacks (absolute spellings)."""
+    missing = []
+    for rel, kind in BASE_REQUIRED[base_id]:
+        host = _resolve_in_root(rootfs, rel)
+        ok = host is not None and (
+            os.path.isdir(host) if kind == "dir" else os.path.isfile(host))
+        if not ok:
+            missing.append("/" + rel)
+    return missing
+
+
+def base_tag(contract: str, arch: str, squashfs_sha256: str) -> str:
+    """The base's immutable tag: one tag per distinct base file."""
+    return f"{contract}-{arch}-{squashfs_sha256[:12]}"
+
+
+def pack_base(rootfs: str, base_dir: str, *, base_id: str, arch: str,
+              source_ref: str, source_digest: str, source_ref_source: str,
+              source_digest_source: str) -> dict:
+    """Check + pack one base rootfs into <base_dir>/base.squashfs and write
+    its record. The rootfs is only read (mksquashfs never writes its input),
+    so the delta cache it comes from stays intact."""
+    m = BASE_REF_RE.match(source_ref)
+    if not m or BASE_ID_BY_LANG[BASE_LANG_BY_KEY[m.group(1)]] != base_id:
+        raise BuildError(f"base {base_id}-{arch}: source {source_ref!r} is not "
+                         f"the txresbench-base image of {base_id}")
+    contract = m.group(2)
+    if not re.match(r"^sha256:[0-9a-f]{64}$", source_digest or ""):
+        raise BuildError(f"base {base_id}-{arch}: source digest "
+                         f"{source_digest!r} is not sha256:<64 hex>")
+    problems = base_rootfs_problems(rootfs, base_id)
+    if problems:
+        raise BuildError(
+            f"base {base_id}-{arch}: the rootfs of {source_ref} lacks "
+            f"{', '.join(problems)} — the stacked run needs them (the layer "
+            "mount point and the sandbox's prlimit + bash); fix the base "
+            "recipe, never the packed file")
+    os.makedirs(base_dir, exist_ok=True)
+    out = os.path.join(base_dir, BASE_FILE)
+    tmp = out + ".tmp"
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+    _run(["mksquashfs", rootfs, tmp, *BASE_MKSQUASHFS_FLAGS])
+    os.replace(tmp, out)
+    _assert_squashfs_ok(out)
+    sha = _sha256_of(out)
+    record = {
+        "record_schema_version": 1,
+        "kind": "base",
+        "generator_version": GENERATOR_VERSION,
+        "base_id": base_id,
+        "arch": arch,
+        "contract": contract,
+        "oci_ref": f"{BASE_OCI_REF_PREFIX}/{base_id}",
+        "tag": base_tag(contract, arch, sha),
+        "base_file": BASE_FILE,
+        "squashfs_sha256": sha,
+        "size_bytes": os.path.getsize(out),
+        "source_ref": source_ref,
+        "source_digest": source_digest,
+        "source_ref_source": source_ref_source,
+        "source_digest_source": source_digest_source,
+    }
+    rec_tmp = os.path.join(base_dir, "artifact.json.tmp")
+    with open(rec_tmp, "w") as f:
+        json.dump(record, f, indent=2, sort_keys=True)
+        f.write("\n")
+    os.replace(rec_tmp, os.path.join(base_dir, "artifact.json"))
+    print(f"  base: {base_id}-{arch} {record['size_bytes']:,} bytes, "
+          f"sha256 {sha[:16]}…, tag {record['tag']}")
+    return record
+
+
+def stage_base(out: str, arch: str, language: str, source_ref: str,
+               source_digest: str, source_ref_source: str,
+               source_digest_source: str, rootfs: str) -> dict:
+    """Stage the base of `language` at `arch` in the build dir, once: an
+    existing record from the same image whose file still matches is kept;
+    one from ANOTHER image is refused (a build dir pairs every layer of a
+    language and arch with one base)."""
+    base_id = BASE_ID_BY_LANG[language]
+    base_dir = os.path.join(out, "bases", f"{base_id}-{arch}")
+    rec_path = os.path.join(base_dir, "artifact.json")
+    if os.path.isfile(rec_path):
+        with open(rec_path) as f:
+            rec = json.load(f)
+        if rec.get("source_digest") != source_digest:
+            raise BuildError(
+                f"{base_dir} holds {base_id}-{arch} packed from "
+                f"{rec.get('source_digest')}, but this layer was built on "
+                f"{source_digest}: one base per language and arch per build "
+                "dir — use a new --out, or rebuild the other layers on this base")
+        f_path = os.path.join(base_dir, rec.get("base_file") or BASE_FILE)
+        if os.path.isfile(f_path) and _sha256_of(f_path) == rec.get("squashfs_sha256"):
+            return rec
+        print(f"info: {base_dir}: the staged file does not match its record; "
+              "packing again", file=sys.stderr)
+    return pack_base(rootfs, base_dir, base_id=base_id, arch=arch,
+                     source_ref=source_ref, source_digest=source_digest,
+                     source_ref_source=source_ref_source,
+                     source_digest_source=source_digest_source)
+
+
+def stage_bases_for_records(out: str, arch: str, dry_run: bool) -> int:
+    """--stage-bases: stage the base of every language the `arch` layer
+    records under <out>/layers use, without building anything. The base
+    rootfs comes from the delta cache, or from the LOCAL image when its
+    digest is the records' base_digest; it is never pulled or rebuilt (a
+    rebuilt base has another digest and would not pair with the layers)."""
+    records = [r for r in load_staged_records(out) if r.get("arch") == arch]
+    if not records:
+        print(f"stage-bases: no {arch} layer records under {out}/layers",
+              file=sys.stderr)
+        return 1
+    by_lang: dict[str, set] = {}
+    first: dict[str, dict] = {}
+    for r in records:
+        lang = r.get("language")
+        if lang not in BASE_ID_BY_LANG:
+            raise BuildError(f"record {_ref_of_record(r)}: language {lang!r}")
+        by_lang.setdefault(lang, set()).add((r.get("base_ref"), r.get("base_digest")))
+        first.setdefault(lang, r)
+    for lang in sorted(by_lang):
+        pairs = by_lang[lang]
+        if len(pairs) != 1:
+            raise BuildError(
+                f"the {lang} {arch} layers under {out} were built on different "
+                f"base images ({sorted(pairs)}); one base per language and arch "
+                "per build dir")
+        ref, digest = next(iter(pairs))
+        rec = first[lang]
+        print(f"=== {BASE_ID_BY_LANG[lang]}-{arch}: from {ref} @ {digest}")
+        cache, rootfs = base_cache_dirs(out, digest, arch)
+        if dry_run:
+            print(f"+ pack {rootfs if os.path.isdir(rootfs) else ref} -> "
+                  f"bases/{BASE_ID_BY_LANG[lang]}-{arch}/base.squashfs")
+            continue
+        if not os.path.isdir(rootfs):
+            if not image_exists(ref):
+                raise BuildError(
+                    f"{ref} is neither cached under {cache} nor a local image; "
+                    "stage the base where the layers were built")
+            got = pick_digest(image_repo_digests(ref), ref)
+            if got != digest:
+                raise BuildError(
+                    f"the local {ref} is {got}, but the layers were built on "
+                    f"{digest}: that image is gone — rebuild the layers and the "
+                    "base together")
+            os.makedirs(cache, exist_ok=True)
+            tar = os.path.join(cache, "base-rootfs.tar")
+            export_rootfs(ref, tar)
+            extract_tar(tar, rootfs)
+        stage_base(out, arch, lang, ref, digest,
+                   rec.get("base_ref_source") or "local",
+                   rec.get("base_digest_source") or "repo_digests", rootfs)
+    return 0
 
 
 # ───────────────────────── manifest writer (ITEM-3) ───────────────────────────
@@ -1369,6 +1646,120 @@ def load_staged_records(records_dir: str) -> list[dict]:
         records.append(rec)
     records.sort(key=lambda r: (r.get("env_id", ""), r.get("arch", "")))
     return records
+
+
+def load_staged_bases(records_dir: str) -> list[dict]:
+    """Every staged base record under <records_dir>/bases, sorted by
+    (base_id, arch). As strict as load_staged_records: a dir that is not
+    <base-py|base-r>-<arch>, or that has no record, is refused by name (the
+    rootfs cache lives under base-cache/, so nothing else belongs here)."""
+    bases = os.path.join(records_dir, "bases")
+    if not os.path.isdir(bases):
+        return []
+    out: list[dict] = []
+    for name in sorted(os.listdir(bases)):
+        d = os.path.join(bases, name)
+        if not os.path.isdir(d):
+            continue
+        m = BASE_DIR_RE.match(name)
+        if not m:
+            raise SystemExit(
+                f"{d} is not a staged base dir (<base-py|base-r>-<arch>); the "
+                "base rootfs cache lives under base-cache/ — move an older "
+                "build dir's bases/<digest>-<arch> cache there")
+        rec_path = os.path.join(d, "artifact.json")
+        if not os.path.isfile(rec_path):
+            raise SystemExit(f"staged base dir {d} has no artifact.json")
+        with open(rec_path) as f:
+            try:
+                rec = json.load(f)
+            except json.JSONDecodeError as e:
+                raise SystemExit(f"{rec_path} is not valid JSON: {e}") from e
+        if (not isinstance(rec, dict) or rec.get("record_schema_version") != 1
+                or rec.get("kind") != "base"):
+            raise SystemExit(f"{rec_path} is not a record_schema_version 1 base "
+                             "record — restage with the current generator")
+        if (rec.get("base_id"), rec.get("arch")) != (m.group(1), m.group(2)):
+            raise SystemExit(f"{rec_path} records {rec.get('base_id')}-"
+                             f"{rec.get('arch')}, not its dir {name}")
+        out.append(rec)
+    return out
+
+
+def validate_base_record(rec: dict) -> None:
+    """Writer-side checks of one base record (the guard and the app loader
+    re-check the emitted manifest); each refusal names the base."""
+    base_id, arch = rec.get("base_id", ""), rec.get("arch", "")
+    ref = f"{base_id}-{arch}"
+    if base_id not in BASE_ID_BY_LANG.values():
+        raise SystemExit(f"base {ref}: base_id is not base-py or base-r")
+    if arch not in ("amd64", "arm64"):
+        raise SystemExit(f"base {ref}: arch not in amd64/arm64")
+    if rec.get("oci_ref") != f"{BASE_OCI_REF_PREFIX}/{base_id}":
+        raise SystemExit(f"base {ref}: oci_ref {rec.get('oci_ref')!r} is not "
+                         f"{BASE_OCI_REF_PREFIX}/{base_id}")
+    sha = rec.get("squashfs_sha256", "")
+    if not re.match(r"^[0-9a-f]{64}$", sha):
+        raise SystemExit(f"base {ref}: squashfs_sha256 is not 64 lowercase hex")
+    if not isinstance(rec.get("size_bytes"), int) or rec["size_bytes"] < 1:
+        raise SystemExit(f"base {ref}: size_bytes is not a positive integer")
+    if rec.get("base_file") != BASE_FILE:
+        raise SystemExit(f"base {ref}: base_file is not {BASE_FILE}")
+    contract = rec.get("contract", "")
+    if not CONTRACT_RE.match(contract):
+        raise SystemExit(f"base {ref}: contract {contract!r} is not X.Y")
+    if rec.get("tag") != base_tag(contract, arch, sha):
+        raise SystemExit(f"base {ref}: tag {rec.get('tag')!r} is not "
+                         f"{base_tag(contract, arch, sha)!r}")
+    m = BASE_REF_RE.match(rec.get("source_ref", ""))
+    if (not m or BASE_ID_BY_LANG[BASE_LANG_BY_KEY[m.group(1)]] != base_id
+            or m.group(2) != contract):
+        raise SystemExit(f"base {ref}: source_ref {rec.get('source_ref')!r} is "
+                         f"not the txresbench-base image of {base_id} at {contract}")
+    if not re.match(r"^sha256:[0-9a-f]{64}$", rec.get("source_digest", "")):
+        raise SystemExit(f"base {ref}: source_digest is not sha256:<64 hex>")
+
+
+def oci_base_manifest_bytes(rec: dict) -> bytes:
+    """The EXACT OCI artifact manifest bytes of a base (design §6.3): the
+    layer construction of §6.1 with the base's artifact type, its single
+    file `base.squashfs`, and the base's annotations — the §7 pairing anchor
+    `com.txr.trimmed-from-digest` among them. The manifest's `bases[].digest`
+    is sha256 of THESE bytes; the publisher pushes them verbatim."""
+    manifest = {
+        "schemaVersion": 2,
+        "mediaType": OCI_MANIFEST_MEDIATYPE,
+        "artifactType": BASE_ARTIFACT_TYPE,
+        "config": {
+            "mediaType": "application/vnd.oci.empty.v1+json",
+            "digest": OCI_EMPTY_CONFIG_DIGEST,
+            "size": OCI_EMPTY_CONFIG_SIZE,
+        },
+        "layers": [
+            {
+                "mediaType": BASE_ARTIFACT_TYPE,
+                "digest": "sha256:" + rec["squashfs_sha256"],
+                "size": rec["size_bytes"],
+                "annotations": {"org.opencontainers.image.title": rec["base_file"]},
+            }
+        ],
+        "annotations": {
+            "org.opencontainers.image.source": BASE_SOURCE_URL,
+            "com.txr.base_id": rec["base_id"],
+            "com.txr.arch": rec["arch"],
+            "com.txr.contract": rec["contract"],
+            "com.txr.trimmed-from-ref": rec["source_ref"],
+            "com.txr.trimmed-from-digest": rec["source_digest"],
+            "com.txr.base_sha256": rec["squashfs_sha256"],
+        },
+    }
+    return json.dumps(manifest, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+#: The emitted `bases[]` record's fields, in the schema's order.
+BASE_ENTRY_FIELDS = ("base_id", "arch", "oci_ref", "tag", "digest",
+                     "squashfs_sha256", "size_bytes", "source_ref",
+                     "source_digest", "contract")
 
 
 def _ref_of_record(rec: dict) -> str:
@@ -1509,7 +1900,7 @@ def oci_artifact_manifest_bytes(rec: dict, contract: str) -> bytes:
 
 
 def assemble_manifest(records: list[dict], methods_dir: str,
-                      by_id: dict) -> tuple[dict, dict]:
+                      by_id: dict, base_records: list[dict]) -> tuple[dict, dict]:
     """One manifest from staged records (INV-5, DEC-15).
 
     Returns (manifest, entries_by_key) where the key is (env_id, arch) —
@@ -1573,11 +1964,49 @@ def assemble_manifest(records: list[dict], methods_dir: str,
         entries.append(entry)
         by_key[(entry["env_id"], entry["arch"])] = entry
     entries.sort(key=lambda e: (e["env_id"], e["arch"]))
+
+    # The bases: every entry pairs with the staged base of its language and
+    # arch (design §7: the layer's base image IS the base's source image);
+    # only the bases some entry uses are emitted.
+    staged: dict[tuple[str, str], dict] = {}
+    for b in base_records:
+        validate_base_record(b)
+        if b["contract"] != "2.0":
+            raise SystemExit(f"base {b['base_id']}-{b['arch']}: contract "
+                             f"{b['contract']!r} is not the base_contract 2.0")
+        staged[(b["base_id"], b["arch"])] = b
+    used: set[tuple[str, str]] = set()
+    for entry in entries:
+        key = (BASE_ID_BY_LANG[entry["language"]], entry["arch"])
+        b = staged.get(key)
+        ref = f"{entry['env_id']}-{entry['arch']}"
+        if b is None:
+            raise SystemExit(
+                f"record {ref}: no staged base {key[0]}-{key[1]} under "
+                "<dir>/bases — stage it (--stage-bases --out <dir> --arch "
+                f"{key[1]}); a layer without its base cannot run")
+        for e_field, b_field in (("base_ref", "source_ref"),
+                                 ("base_digest", "source_digest")):
+            if entry[e_field] != b[b_field]:
+                raise SystemExit(
+                    f"record {ref}: {e_field} {entry[e_field]} != the staged "
+                    f"{key[0]}-{key[1]}'s {b_field} {b[b_field]} — the layer was "
+                    "built on another base image (design §7); rebuild the layer "
+                    "and the base together")
+        used.add(key)
+    bases = []
+    for key in sorted(used):
+        b = staged[key]
+        emitted = {f: b[f] for f in BASE_ENTRY_FIELDS if f != "digest"}
+        emitted["digest"] = "sha256:" + HASH(oci_base_manifest_bytes(b)).hexdigest()
+        bases.append({f: emitted[f] for f in BASE_ENTRY_FIELDS})
+
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "generator_version": GENERATOR_VERSION,
         "source_revision": source_revision,
         "base_contract": "2.0",
+        "bases": bases,
         "envs": entries,
     }
     return manifest, by_key
@@ -1598,6 +2027,17 @@ def first_difference(committed: dict, assembled: dict) -> str | None:
     for key in ("generator_version", "source_revision", "base_contract"):
         if committed.get(key) != assembled.get(key):
             return key
+    c_bases, a_bases = committed.get("bases"), assembled.get("bases")
+    if not isinstance(c_bases, list) or not isinstance(a_bases, list):
+        if c_bases != a_bases:
+            return "bases"
+    else:
+        for i in range(max(len(c_bases), len(a_bases))):
+            if i >= len(c_bases) or i >= len(a_bases):
+                return f"bases[{i}].base_id"
+            for field in BASE_ENTRY_FIELDS:
+                if c_bases[i].get(field) != a_bases[i].get(field):
+                    return f"bases[{i}].{field}"
     c_envs = committed.get("envs", [])
     a_envs = assembled.get("envs", [])
     if len(c_envs) != len(a_envs):
@@ -1621,7 +2061,8 @@ def first_difference(committed: dict, assembled: dict) -> str | None:
 
 
 def check_manifest(records: list[dict], methods_dir: str, by_id: dict,
-                   manifest_path: str, pin: str | None) -> int:
+                   manifest_path: str, pin: str | None,
+                   base_records: list[dict]) -> int:
     """ITEM-3's --check: assemble from staged records (no build) and compare
     BYTE equality against the committed manifest; report the first differing
     key. Returns 0 (identical) or 1 (differ) — never throws for a diff.
@@ -1644,7 +2085,8 @@ def check_manifest(records: list[dict], methods_dir: str, by_id: dict,
                   f"but the pin is {pin} — regenerate at the pinned revision "
                   "(INV-5: one revision, one manifest)", file=sys.stderr)
             return 1
-    manifest, _by_key = assemble_manifest(records, methods_dir, by_id)
+    manifest, _by_key = assemble_manifest(records, methods_dir, by_id,
+                                          base_records)
     assembled_bytes = manifest_bytes(manifest)
     if assembled_bytes == committed_bytes:
         n = len(manifest["envs"])
@@ -1666,11 +2108,13 @@ def check_manifest(records: list[dict], methods_dir: str, by_id: dict,
 def _lookup(obj: dict, path: str | None):
     if path is None:
         return None
-    if path.startswith("envs["):
-        i = int(path.split("[", 1)[1].split("]", 1)[0])
-        field = path.split(".", 1)[1] if "." in path else None
-        entry = obj.get("envs", [])[i] if i < len(obj.get("envs", [])) else {}
-        return entry.get(field) if field else entry.get("env_id")
+    for top, default in (("envs", "env_id"), ("bases", "base_id")):
+        if path.startswith(top + "["):
+            i = int(path.split("[", 1)[1].split("]", 1)[0])
+            field = path.split(".", 1)[1] if "." in path else None
+            items = obj.get(top) or []
+            entry = items[i] if i < len(items) else {}
+            return entry.get(field) if field else entry.get(default)
     return obj.get(path)
 
 
@@ -1696,17 +2140,20 @@ def check_methods_dir_revision(methods_dir: str, source_revision: str) -> None:
 
 def write_manifest(records: list[dict], methods_dir: str, by_id: dict,
                    manifest_path: str, record_dirs: dict[str, str],
-                   pin: str | None) -> None:
-    """Assemble + write the manifest, then stage each entry's exact OCI
-    artifact manifest bytes next to its artifact record (ITEM-5 pushes those
-    bytes, so the recorded digest is by construction the pushed digest)."""
+                   pin: str | None, records_dir: str) -> None:
+    """Assemble + write the manifest, then stage each entry's and each
+    emitted base's exact OCI artifact manifest bytes next to its record
+    (ITEM-5 pushes those bytes, so the recorded digest is by construction
+    the pushed digest). The base records come from <records_dir>/bases."""
     if pin is not None:
         wrong = sorted({r["source_revision"] for r in records
                         if r.get("source_revision") != pin})
         if wrong:
             raise SystemExit(f"--source-revision {pin}: staged records carry "
                              f"{wrong} (one revision per staging dir)")
-    manifest, _by_key = assemble_manifest(records, methods_dir, by_id)
+    base_records = load_staged_bases(records_dir)
+    manifest, _by_key = assemble_manifest(records, methods_dir, by_id,
+                                          base_records)
     check_methods_dir_revision(methods_dir, manifest["source_revision"])
     parent = os.path.dirname(manifest_path)
     if parent:
@@ -1721,6 +2168,13 @@ def write_manifest(records: list[dict], methods_dir: str, by_id: dict,
         contract = str(index_entry.get("contract") or "") if index_entry else ""
         with open(os.path.join(layer_dir, "oci-manifest.json"), "wb") as f:
             f.write(oci_artifact_manifest_bytes(rec, contract))
+    staged = {(b["base_id"], b["arch"]): b for b in base_records}
+    for emitted in manifest["bases"]:
+        b = staged[(emitted["base_id"], emitted["arch"])]
+        base_dir = os.path.join(records_dir, "bases",
+                                f"{b['base_id']}-{b['arch']}")
+        with open(os.path.join(base_dir, "oci-manifest.json"), "wb") as f:
+            f.write(oci_base_manifest_bytes(b))
     print(f"manifest written: {manifest_path} ({len(manifest['envs'])} env "
           f"entr{'y' if len(manifest['envs']) == 1 else 'ies'}, revision "
           f"{manifest['source_revision']})")
@@ -1770,6 +2224,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--keep-rootfs", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force-base-build", action="store_true")
+    parser.add_argument("--stage-bases", action="store_true",
+                        help="build nothing: stage the base artifact of every "
+                             "language the --arch layer records in --out use "
+                             "(from the base cache or the local image with "
+                             "the recorded digest)")
     args = parser.parse_args(argv)
 
     if args.source_revision is not None and not SOURCE_REVISION_RE.match(
@@ -1796,7 +2255,8 @@ def main(argv: list[str]) -> int:
             return 1
         return check_manifest(records, args.methods_dir,
                               load_method_index(args.methods_dir),
-                              manifest_path, args.source_revision)
+                              manifest_path, args.source_revision,
+                              load_staged_bases(records_dir))
 
     if args.fixture:
         records = load_staged_records(args.fixture)
@@ -1807,8 +2267,20 @@ def main(argv: list[str]) -> int:
                        load_method_index(args.methods_dir),
                        manifest_path,
                        _record_dirs_of(args.fixture, records),
-                       args.source_revision)
+                       args.source_revision, args.fixture)
         return 0
+
+    if args.stage_bases:
+        if not args.out:
+            parser.error("--stage-bases needs --out <dir> (the build dir that "
+                         "holds the layer records)")
+        if args.arch not in ("amd64", "arm64"):
+            parser.error("--arch must be amd64 or arm64")
+        try:
+            return stage_bases_for_records(args.out, args.arch, args.dry_run)
+        except (BuildError, DockerStageError, OSError) as e:
+            print(f"\nFAIL stage-bases: {e}", file=sys.stderr)
+            return 1
 
     if not args.out:
         parser.error("--out is required (TXR_ENV_BUILD_DIR also works); the "
@@ -1854,7 +2326,7 @@ def main(argv: list[str]) -> int:
         else:
             write_manifest(records, args.methods_dir, by_id, manifest_path,
                            _record_dirs_of(args.out, records),
-                           args.source_revision)
+                           args.source_revision, args.out)
     return 0
 
 
