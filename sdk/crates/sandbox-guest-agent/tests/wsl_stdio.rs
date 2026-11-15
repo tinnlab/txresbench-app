@@ -174,8 +174,8 @@ impl Fixture {
         // They make `/` shared and add directories at `/`: only in the
         // throwaway container the script starts, never on a real system.
         assert!(
-            std::env::var_os(E2E_CONTAINER_ENV).is_some(),
-            "the e2e tests change this system's root mount; run them with sdk/scripts/test-guest-agent-linux.sh (it sets {E2E_CONTAINER_ENV})"
+            std::env::var_os(E2E_CONTAINER_ENV).is_some_and(|v| v == "1"),
+            "the e2e tests change this system's root mount; run them with sdk/scripts/test-guest-agent-linux.sh (it sets {E2E_CONTAINER_ENV}=1)"
         );
         // The distro's mounts may propagate (shared): make this namespace's
         // shared too, so a mount that escaped the agent's namespace shows here.

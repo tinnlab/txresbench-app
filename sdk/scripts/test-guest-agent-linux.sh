@@ -51,7 +51,8 @@ EOF
 
 # Everything that builds (cargo, every dependency's build script) runs in an
 # ordinary container. Only the e2e test binary runs --privileged: mount namespaces,
-# loop devices and /dev/fuse.
+# loop devices and /dev/fuse. This keeps build-time code unprivileged; it is not a
+# boundary, since the privileged step runs what that build produced.
 E2E_BIN_FILE=/build/e2e-bin-$ARCH
 docker run --rm --platform "linux/$ARCH" \
   -v "$SDK:/work/sdk:ro" -v "$VOLUME:/build" -w /work/sdk \
