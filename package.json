@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "fetch-oras": "node scripts/fetch-oras.mjs",
-    "check-wsl-runtime": "node scripts/check-wsl-runtime.mjs"
+    "verify-wsl-runtime": "node scripts/verify-wsl-runtime.mjs"
   },
   "workspaces": [
     "sdk/packages/*",

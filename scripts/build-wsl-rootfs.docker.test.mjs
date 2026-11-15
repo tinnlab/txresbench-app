@@ -10,7 +10,7 @@
 //   - MANIFEST.json: its keys, the tarball's sha256, the protocol range, every Alpine package of the root's
 //     apk database with its version and licence, exactly the packages the notices name, and the test cache
 //     the agent came from;
-//   - scripts/check-wsl-runtime.mjs (run before a Windows bundle) takes the pair, and refuses one whose
+//   - scripts/verify-wsl-runtime.mjs (run before a Windows bundle) takes the pair, and refuses one whose
 //     agent came from a test cache;
 //   - the notices refusal, after a real userland assembly, leaves the previous outputs alone;
 //   - a second build of the same tree, its agent built afresh without the cache, gives the same bytes;
@@ -42,7 +42,7 @@ import { fileURLToPath } from 'node:url';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(REPO, 'scripts/build-wsl-rootfs.sh');
 const HELPER = path.join(REPO, 'scripts/guest-root-common.sh');
-const CHECK = path.join(REPO, 'scripts/check-wsl-runtime.mjs');
+const CHECK = path.join(REPO, 'scripts/verify-wsl-runtime.mjs');
 const ARCHES = (process.env.TXR_WSL_ROOTFS_ARCHES || 'x86_64 aarch64').split(/\s+/).filter(Boolean);
 const ELF_MACHINE = { x86_64: 0x3e, aarch64: 0xb7 };
 const HEADING = '## WSL runtime (Windows builds only)';
@@ -120,7 +120,7 @@ function build(arch, outDir, extra = [], { cache = true } = {}) {
   return { status: res.status, out: res.stdout + res.stderr };
 }
 
-/** scripts/check-wsl-runtime.mjs over `dir` for `arch`. */
+/** scripts/verify-wsl-runtime.mjs over `dir` for `arch`. */
 function checkRuntime(dir, arch, env = {}) {
   const res = spawnSync(process.execPath, [CHECK, dir, '--arch', arch], {
     encoding: 'utf8',

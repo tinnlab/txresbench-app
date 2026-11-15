@@ -310,7 +310,7 @@ if command -v sha256sum >/dev/null 2>&1; then HOST_SHA=$(sha256sum "$RUN/$TARBAL
 [ "$(echo "$HOST_SHA" | cut -c1-64)" = "$SHA" ] || die "the archive's sha256 does not match what the container computed"
 
 # Last: replace the outputs. A tarball whose MANIFEST does not match it (an interrupted move, or two runs
-# into one directory) is refused before a Windows bundle is made (scripts/check-wsl-runtime.mjs) and by
+# into one directory) is refused before a Windows bundle is made (scripts/verify-wsl-runtime.mjs) and by
 # the app's sha256 check at import, so the pair can never be taken for valid by mistake.
 mv "$RUN/$TARBALL" "$OUT/$TARBALL"
 mv "$RUN/MANIFEST.json" "$OUT/MANIFEST.json"

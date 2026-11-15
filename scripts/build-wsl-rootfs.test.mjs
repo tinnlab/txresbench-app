@@ -3,7 +3,7 @@
 // its argument and notices refusals (they stop before any build step); with a stand-in `docker` on PATH,
 // the notices check in both directions and what each later step's failure leaves (the previous outputs,
 // no run directory); the Windows-only bundling of its output (tauri.windows.conf.json, .gitignore,
-// .gitkeep) and the check run before a Windows bundle (scripts/check-wsl-runtime.mjs, run in a git
+// .gitkeep) and the check run before a Windows bundle (scripts/verify-wsl-runtime.mjs, run in a git
 // checkout of its own); the notices section it checks packages against; and what it shares with the macOS
 // guest root (the pinned build images, and the agent build: what it unpacks, and its cache volumes).
 //
@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(REPO, 'scripts/build-wsl-rootfs.sh');
-const CHECK = path.join(REPO, 'scripts/check-wsl-runtime.mjs');
+const CHECK = path.join(REPO, 'scripts/verify-wsl-runtime.mjs');
 const HELPER = path.join(REPO, 'scripts/guest-root-common.sh');
 const TAURI = path.join(REPO, 'src-app/desktop/tauri');
 const HEADING = '## WSL runtime (Windows builds only)';
@@ -144,13 +144,13 @@ test('the Windows bundle adds resources/wsl-runtime and keeps every base resourc
 test('a Windows bundle is made only after the WSL runtime check passes', () => {
   const base = configFor().build;
   const win = configFor('windows').build;
-  assert.deepEqual(win, { ...base, beforeBundleCommand: 'npm run check-wsl-runtime' });
+  assert.deepEqual(win, { ...base, beforeBundleCommand: 'npm run verify-wsl-runtime' });
   for (const platform of ['macos', 'linux', undefined]) {
     assert.equal(configFor(platform).build.beforeBundleCommand, undefined, `${platform}: no WSL check`);
   }
   // the npm script resolves the way the build's own `npm run fetch-oras` does: from the root package.json
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
-  assert.equal(pkg.scripts['check-wsl-runtime'], 'node scripts/check-wsl-runtime.mjs');
+  assert.equal(pkg.scripts['verify-wsl-runtime'], 'node scripts/verify-wsl-runtime.mjs');
   assert.equal(pkg.scripts['fetch-oras'], 'node scripts/fetch-oras.mjs');
 });
 
@@ -486,7 +486,7 @@ function checkTree({ protocol = [3, 3], eol = '\n' } = {}) {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
     fs.writeFileSync(path.join(dir, rel), text);
   };
-  put('scripts/check-wsl-runtime.mjs', fs.readFileSync(CHECK));
+  put('scripts/verify-wsl-runtime.mjs', fs.readFileSync(CHECK));
   put('sdk/crates/sandbox-vm-protocol/src/lib.rs',
     [`pub const PROTOCOL_VERSION_MIN: u32 = ${protocol[0]};`, `pub const PROTOCOL_VERSION: u32 = ${protocol[1]};`, ''].join(eol));
   put('sdk/crates/sandbox-seccomp/src/lib.rs', '// compiled into the agent\n');
@@ -504,7 +504,7 @@ let sharedTree = null;
 const tree = () => (sharedTree ??= checkTree());
 
 function checkRun(args, env = {}, t = tree()) {
-  const res = spawnSync(process.execPath, [path.join(t.dir, 'scripts/check-wsl-runtime.mjs'), ...args], {
+  const res = spawnSync(process.execPath, [path.join(t.dir, 'scripts/verify-wsl-runtime.mjs'), ...args], {
     encoding: 'utf8',
     env: { ...process.env, TAURI_ENV_ARCH: '', TAURI_ENV_TARGET_TRIPLE: '', TXR_WSL_RUNTIME_ALLOW_DEV: '', ...env },
   });
@@ -599,11 +599,18 @@ test('the bundle check refuses a test-cache agent or a dirty tree unless the bun
   }
 });
 
+test('the bundle check and the build add no guard-shaped script: the guard-integrity check passes', () => {
+  // scripts/check-* are the repo's pinned guards; a new one there would have to be pinned as a guard
+  const res = spawnSync('bash', [path.join(REPO, 'scripts/check-guard-integrity.sh')], { encoding: 'utf8' });
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  assert.ok(!path.basename(CHECK).startsWith('check-'));
+});
+
 test('the bundle check refuses bad arguments with exit 2', () => {
   for (const args of [['--arch', 'arm64'], ['--arch'], ['--bogus']]) {
     const r = checkRun(args);
     assert.equal(r.status, 2, `${JSON.stringify(args)}: ${r.out}`);
-    assert.match(r.out, /usage: node scripts\/check-wsl-runtime\.mjs/);
+    assert.match(r.out, /usage: node scripts\/verify-wsl-runtime\.mjs/);
   }
 });
 
@@ -677,7 +684,7 @@ test('the bundle check refuses a runtime from a commit this checkout lacks, or w
   assert.match(noGit.out, /cannot read .* with git, to compare it with the runtime's commit [0-9a-f]{40}: spawnSync git ENOENT/);
   // the check in a tree that is not a git checkout (discovery stops at its parent)
   const plain = scratch('wsl-check-plain-');
-  for (const rel of ['scripts/check-wsl-runtime.mjs', 'sdk/crates/sandbox-vm-protocol/src/lib.rs']) {
+  for (const rel of ['scripts/verify-wsl-runtime.mjs', 'sdk/crates/sandbox-vm-protocol/src/lib.rs']) {
     fs.mkdirSync(path.dirname(path.join(plain, rel)), { recursive: true });
     fs.copyFileSync(path.join(tree().dir, rel), path.join(plain, rel));
   }
