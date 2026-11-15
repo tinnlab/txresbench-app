@@ -3,6 +3,14 @@
 # download rows the landing page renders (PROV-IR-10).
 #
 # WHAT IT DOES, IN THE ORDER THE RELEASE NEEDS IT:
+#   0. the wsl-runtime job builds the root file system of the Windows app's
+#      WSL distro (scripts/build-wsl-rootfs.sh x86_64) and checks it as the
+#      Windows bundle will; the Windows leg downloads it into
+#      src-app/desktop/tauri/resources/wsl-runtime before `tauri build`, whose
+#      bundle step refuses to go on without it (tauri.windows.conf.json
+#      beforeBundleCommand, scripts/verify-wsl-runtime.mjs). It is built on
+#      Linux because the build runs Linux containers, which GitHub's Windows
+#      runners cannot run;
 #   1. every matrix leg stages the bundled pretrained-model set
 #      (scripts/installer/bundle-pretrained-models.mjs, PROV-IR-4) before
 #      `tauri build` so each installer carries the verified models;
@@ -38,7 +46,45 @@ permissions:
   contents: write
 
 jobs:
+  # For the Windows leg's CPU: windows-latest is x64, and the leg passes no
+  # --target, so its bundle step checks for an x86_64 runtime. The runtime
+  # records this checkout's commit, the same one the Windows leg checks out,
+  # and the bundle step there compares the two. The build runs downloaded
+  # images and crates, so this job's token only reads, and is not left in the
+  # checkout.
+  wsl-runtime:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build the WSL runtime
+        run: sh scripts/build-wsl-rootfs.sh x86_64
+
+      - name: Check it as the Windows bundle will
+        run: node scripts/verify-wsl-runtime.mjs --arch x86_64
+
+      - name: Upload the WSL runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsl-runtime-x86_64
+          path: |
+            src-app/desktop/tauri/resources/wsl-runtime/txresbench-wsl.tar
+            src-app/desktop/tauri/resources/wsl-runtime/MANIFEST.json
+          if-no-files-found: error
+
+  # Every leg waits for wsl-runtime, not only the Windows one: the publish job
+  # needs all three legs, so a release cannot go out without the runtime anyway.
   build:
+    needs: wsl-runtime
     strategy:
       fail-fast: false
       matrix:
@@ -79,6 +125,13 @@ jobs:
 
       - name: Stage bundled models
         run: node scripts/installer/bundle-pretrained-models.mjs
+
+      - name: Fetch the WSL runtime
+        if: matrix.platform == 'windows-latest'
+        uses: actions/download-artifact@v4
+        with:
+          name: wsl-runtime-x86_64
+          path: src-app/desktop/tauri/resources/wsl-runtime
 
       - name: Resolve release tag
         id: tag

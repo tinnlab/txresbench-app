@@ -179,6 +179,134 @@ test('the build writes into the Windows bundle resource by default', () => {
   assert.match(src, /^TARBALL=txresbench-wsl\.tar$/m);
 });
 
+// ── the release workflow ─────────────────────────────────────────────────────
+// GitHub's Windows runners cannot run the build's Linux containers, so .github/workflows/release.yml builds
+// the runtime in a Linux job and the Windows leg downloads it before `tauri build`. The workflow cannot be
+// run from here; these tests read it.
+
+const WORKFLOW = path.join(REPO, '.github/workflows/release.yml');
+const RESOURCE = 'src-app/desktop/tauri/resources/wsl-runtime';
+
+/** The workflow's jobs, read from the layout release.yml is written in (2-space indents: jobs at 2, their
+ *  keys at 4, steps at "      - " with their keys at 8, `with:` keys at 10; `|` block scalars). Each job:
+ *  { keys: { 'runs-on': ..., needs: ... }, lines, steps: [{ uses, name, if, run, with: {...} }] }. */
+function workflowJobs() {
+  const lines = fs.readFileSync(WORKFLOW, 'utf8').split('\n');
+  const indent = (l) => l.length - l.trimStart().length;
+  const content = (l) => l.trim() !== '' && !l.trim().startsWith('#');
+  // a "key: value" line, or "key: |" followed by deeper lines
+  function scalar(i, keyIndent) {
+    const m = lines[i].trim().replace(/^- /, '').match(/^([A-Za-z0-9_-]+):(?: (.*))?$/);
+    if (m[2] !== '|') return { key: m[1], value: m[2] ?? '', next: i + 1 };
+    const body = [];
+    let j = i + 1;
+    for (; j < lines.length && (lines[j].trim() === '' || indent(lines[j]) > keyIndent); j++) body.push(lines[j].trim());
+    while (body.length && body[body.length - 1] === '') body.pop();
+    return { key: m[1], value: body.join('\n'), next: j };
+  }
+  const start = lines.indexOf('jobs:');
+  assert.ok(start >= 0, 'release.yml has a jobs: section');
+  const jobs = {};
+  let job = null;
+  let step = null;
+  for (let i = start + 1; i < lines.length; ) {
+    const l = lines[i];
+    if (!content(l)) { i++; continue; }
+    const d = indent(l);
+    if (d === 2) {
+      job = { keys: {}, lines: [], steps: [] };
+      jobs[l.trim().replace(/:$/, '')] = job;
+      step = null;
+      i++;
+      continue;
+    }
+    job.lines.push(l);
+    if (d === 4) {
+      const s = scalar(i, 4);
+      job.keys[s.key] = s.value;
+      i = s.key === 'steps' ? i + 1 : s.next;
+      continue;
+    }
+    if (d === 6 && l.trim().startsWith('- ') && job.keys.steps !== undefined) {
+      step = { with: {} };
+      job.steps.push(step);
+      const s = scalar(i, 8);
+      step[s.key] = s.value;
+      i = s.next;
+      continue;
+    }
+    if (step && d === 8) {
+      const s = scalar(i, 8);
+      if (s.key === 'with') {
+        let j = i + 1;
+        while (j < lines.length && (!content(lines[j]) || indent(lines[j]) >= 10)) {
+          if (!content(lines[j])) { j++; continue; }
+          const w = scalar(j, 10);
+          step.with[w.key] = w.value;
+          for (let k = j; k < w.next; k++) job.lines.push(lines[k]);
+          j = w.next;
+        }
+        i = j;
+      } else {
+        step[s.key] = s.value;
+        i = s.next;
+      }
+      continue;
+    }
+    i++;
+  }
+  return jobs;
+}
+
+test('the release builds the WSL runtime on Linux from its own unchanged checkout, and checks it as a release', () => {
+  const job = workflowJobs()['wsl-runtime'];
+  assert.ok(job, 'release.yml has a wsl-runtime job');
+  assert.match(job.keys['runs-on'], /^ubuntu-/, 'Linux: the build runs Linux containers');
+  // it runs downloaded images and crates: a read-only token, not kept in the checkout
+  assert.ok(job.lines.join('\n').includes('    permissions:\n      contents: read\n'), job.lines.join('\n'));
+  const s = job.steps;
+  const build = s.findIndex((x) => x.run === 'sh scripts/build-wsl-rootfs.sh x86_64');
+  const check = s.findIndex((x) => x.run === 'node scripts/verify-wsl-runtime.mjs --arch x86_64');
+  const upload = s.findIndex((x) => x.uses === 'actions/upload-artifact@v4');
+  assert.ok(build >= 0 && check > build && upload > check, JSON.stringify(s));
+  // only the checkout and Node come before the build: nothing changes the tree, so the runtime records the
+  // commit without "+dirty", and the checkout is of the commit the workflow runs for (no ref of its own)
+  assert.deepEqual(s.slice(0, build).map((x) => x.uses), ['actions/checkout@v4', 'actions/setup-node@v4']);
+  assert.deepEqual(s[0].with, { 'persist-credentials': 'false' });
+  assert.deepEqual(s[upload].with, {
+    name: 'wsl-runtime-x86_64',
+    path: `${RESOURCE}/txresbench-wsl.tar\n${RESOURCE}/MANIFEST.json`,
+    'if-no-files-found': 'error',
+  });
+});
+
+test('the Windows leg downloads the runtime into its bundle resource before `tauri build`, for its CPU', () => {
+  const jobs = workflowJobs();
+  const job = jobs.build;
+  assert.equal(job.keys.needs, 'wsl-runtime');
+  // windows-latest is an x64 runner and the leg names no --target, so Tauri's TAURI_ENV_ARCH, which the
+  // bundle check reads, is x86_64: the arch the wsl-runtime job builds
+  const legs = job.lines.join('\n').match(/- platform: windows[^\n]*\n\s+args: [^\n]*/g);
+  assert.deepEqual(legs, ['- platform: windows-latest\n            args: --bundles nsis']);
+  const s = job.steps;
+  assert.deepEqual(s[0], { uses: 'actions/checkout@v4', with: {} }, 'the same commit as the wsl-runtime job');
+  const fetch = s.findIndex((x) => x.uses === 'actions/download-artifact@v4');
+  const tauri = s.findIndex((x) => x.uses === 'tauri-apps/tauri-action@v0');
+  assert.ok(fetch >= 0 && tauri > fetch, JSON.stringify(s));
+  assert.equal(s[fetch].if, "matrix.platform == 'windows-latest'");
+  assert.deepEqual(s[fetch].with, { name: 'wsl-runtime-x86_64', path: RESOURCE });
+  // the directory the Windows bundle takes (tauri.windows.conf.json) and the one Tauri builds in
+  assert.ok(bundleFor('windows').resources.includes(path.relative('src-app/desktop/tauri', RESOURCE)));
+  assert.equal(s[tauri].with.projectPath, 'src-app/desktop/tauri');
+  // the one download of it
+  assert.equal(s.filter((x) => x.uses?.startsWith('actions/download-artifact')).length, 1);
+});
+
+test('the release sets neither the bundle check\'s development switch nor the agent build\'s test cache', () => {
+  const text = fs.readFileSync(WORKFLOW, 'utf8');
+  assert.doesNotMatch(text, /TXR_WSL_RUNTIME_ALLOW_DEV|TXR_GUEST_AGENT_CARGO_CACHE/);
+});
+
 // ── notices ──────────────────────────────────────────────────────────────────
 
 test('THIRD-PARTY-NOTICES.md carries the WSL runtime section exactly as the generator renders it', () => {
