@@ -489,9 +489,9 @@ enum ConnEnd {
     /// written; `host_left`: the host closed its side (or it broke) before
     /// the command ended, so the command was killed.
     Ran { delivered: bool, host_left: bool },
-    /// WSL mode: the command ended by itself, but the host closed its side
-    /// (or it broke) while the outputs were being sent back, before every
-    /// frame was sent.
+    /// WSL mode: the command ended (by itself or at its timeout), but the
+    /// host closed its side (or it broke) while the outputs were being sent
+    /// back, before every frame got out.
     LeftDuringCopyBack,
 }
 
@@ -804,11 +804,11 @@ where
                 biased;
                 delivered = &mut copy_back => Some(delivered),
                 _ = wait_host_eof(&mut rd) => {
-                    if marker_sent.load(std::sync::atomic::Ordering::Relaxed) {
-                        tokio::time::timeout(LAST_WRITE_GRACE, &mut copy_back).await.ok()
-                    } else {
-                        None
-                    }
+                    // The host has left: the run is complete only if the end
+                    // marker was sent and its write gets out within the grace.
+                    let complete = marker_sent.load(std::sync::atomic::Ordering::Relaxed)
+                        && matches!(tokio::time::timeout(LAST_WRITE_GRACE, &mut copy_back).await, Ok(true));
+                    complete.then_some(true)
                 }
             }
         }
@@ -1839,11 +1839,19 @@ mod tests {
         assert_eq!(end.unwrap(), ConnEnd::LeftDuringCopyBack);
     }
 
+    /// How [`SlowLastFlush`]'s flush after the end marker ends.
+    #[derive(Clone, Copy)]
+    enum LastFlush {
+        OkAfter(Duration),
+        FailsAfter(Duration),
+        Never,
+    }
+
     /// A writer that takes every write at once and, once it has taken the end
-    /// marker, finishes its next flush only after `last_flush` (never, if
-    /// `None`): a last write still on its way out.
+    /// marker, ends its next flush as `last_flush` says: a last write still on
+    /// its way out.
     struct SlowLastFlush {
-        last_flush: Option<Duration>,
+        last_flush: LastFlush,
         sent_end: Arc<std::sync::atomic::AtomicBool>,
         delay: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
     }
@@ -1867,11 +1875,14 @@ mod tests {
             if !self.sent_end.load(std::sync::atomic::Ordering::SeqCst) {
                 return std::task::Poll::Ready(Ok(()));
             }
-            let Some(limit) = self.last_flush else {
-                return std::task::Poll::Pending;
+            let (limit, fails) = match self.last_flush {
+                LastFlush::OkAfter(limit) => (limit, false),
+                LastFlush::FailsAfter(limit) => (limit, true),
+                LastFlush::Never => return std::task::Poll::Pending,
             };
             let delay = self.delay.get_or_insert_with(|| Box::pin(tokio::time::sleep(limit)));
-            std::future::Future::poll(delay.as_mut(), cx).map(Ok)
+            std::future::Future::poll(delay.as_mut(), cx)
+                .map(|()| if fails { Err(std::io::ErrorKind::BrokenPipe.into()) } else { Ok(()) })
         }
 
         fn poll_shutdown(
@@ -1886,7 +1897,8 @@ mod tests {
     async fn wsl_mode_waits_briefly_for_the_last_write_when_the_host_has_the_end_marker() {
         // The host closes stdin as soon as it has the end marker, which can be
         // before the agent's last write reports: still a complete run. A last
-        // write that never reports still ends the agent once the grace is up.
+        // write that fails, or never reports, means the host left during the
+        // copy back; the agent still ends once the grace is up.
         let run = |last_flush| async move {
             let (mut host, agent_rd) = duplex(64 * 1024);
             let sent_end = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1905,11 +1917,13 @@ mod tests {
                 .expect("handler task")
                 .unwrap()
         };
+        let half_a_second = Duration::from_millis(500);
         assert_eq!(
-            run(Some(Duration::from_millis(500))).await,
+            run(LastFlush::OkAfter(half_a_second)).await,
             ConnEnd::Ran { delivered: true, host_left: false }
         );
-        assert_eq!(run(None).await, ConnEnd::LeftDuringCopyBack);
+        assert_eq!(run(LastFlush::FailsAfter(half_a_second)).await, ConnEnd::LeftDuringCopyBack);
+        assert_eq!(run(LastFlush::Never).await, ConnEnd::LeftDuringCopyBack);
     }
 
     #[tokio::test]
