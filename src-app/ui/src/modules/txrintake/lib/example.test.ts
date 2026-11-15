@@ -191,6 +191,8 @@ describe('isExampleStudy (demo-mode ITEM-6)', () => {
 
   it('a null markerGroups key is the same as an absent one', () => {
     expect(isExampleStudy({ ...EXAMPLE_STUDY, markerGroups: null })).toBe(true)
-    expect(isExampleStudy({ ...EXAMPLE_STUDY, markerGroups: undefined })).toBe(true)
+    const withoutGroups: typeof EXAMPLE_STUDY = { ...EXAMPLE_STUDY, markerGroups: null }
+    delete (withoutGroups as { markerGroups?: unknown }).markerGroups
+    expect(isExampleStudy(withoutGroups)).toBe(true)
   })
 })
