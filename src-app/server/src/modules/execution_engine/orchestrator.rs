@@ -5037,14 +5037,9 @@ mod tests {
     }
 
     fn ref_env_id(r: &EnvRef) -> String {
-        r.oci_ref
-            .rsplit('/')
-            .next()
-            .unwrap_or(&r.oci_ref)
-            .split('@')
-            .next()
-            .unwrap_or(&r.oci_ref)
-            .to_string()
+        // Every layer is a tag of one package now, so the ref no longer names
+        // the env; the ref carries it.
+        r.env_id.clone()
     }
 
     impl EnvProvider for FakeEnv {
