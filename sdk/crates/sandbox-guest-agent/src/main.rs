@@ -577,7 +577,7 @@ where
     let (tx, mut frame_rx) = mpsc::unbounded_channel::<Frame>();
     // Returns the write half once every sender is gone, so the output
     // copy-back can write directly (with backpressure) after the run.
-    let writer = tokio::spawn(async move {
+    let mut writer = tokio::spawn(async move {
         let mut wr = wr;
         while let Some(frame) = frame_rx.recv().await {
             if wr.write_all(&encode(&frame)).await.is_err() {
@@ -758,20 +758,35 @@ where
     // queued, take the write half back, and write every chunk directly so a
     // large file never queues in memory.
     drop(tx);
-    let mut delivered = false;
-    if let Ok(Some(mut wr)) = writer.await {
-        // The command's status first, so a failed copy-back can never lose
-        // it; then the outputs; then the end marker.
-        if wr
-            .write_all(&encode(&Frame::Exit(ExitStatus { code, timed_out })))
-            .await
-            .is_ok()
-        {
-            send_artifacts_chunked(&req.collect_artifacts, req.artifacts.total_cap_bytes, &mut wr).await;
-            delivered = wr.write_all(&encode(&Frame::ArtifactsDone)).await.is_ok();
+    let copy_back = async {
+        let mut delivered = false;
+        if let Ok(Some(mut wr)) = (&mut writer).await {
+            // The command's status first, so a failed copy-back can never lose
+            // it; then the outputs; then the end marker.
+            if wr
+                .write_all(&encode(&Frame::Exit(ExitStatus { code, timed_out })))
+                .await
+                .is_ok()
+            {
+                send_artifacts_chunked(&req.collect_artifacts, req.artifacts.total_cap_bytes, &mut wr).await;
+                delivered = wr.write_all(&encode(&Frame::ArtifactsDone)).await.is_ok();
+            }
+            delivered &= wr.flush().await.is_ok();
         }
-        delivered &= wr.flush().await.is_ok();
-    }
+        delivered
+    };
+    // In WSL the host can also leave during the copy back, with stdout still
+    // open but unread: stop sending then too, as above.
+    let (delivered, host_left) = if guest == Guest::Wsl {
+        tokio::select! {
+            biased;
+            delivered = copy_back => (delivered, host_left),
+            _ = wait_host_eof(&mut rd) => (false, true),
+        }
+    } else {
+        (copy_back.await, host_left)
+    };
+    writer.abort();
     Ok(ConnEnd::Ran { delivered, host_left })
 }
 
@@ -1738,6 +1753,30 @@ mod tests {
         let mut req = echo_exec(vec!["-c", "head -c 1000000 /dev/zero; sleep 30"]);
         req.bwrap_path = "/bin/sh".into();
         host_wr.write_all(&encode(&Frame::Exec(req))).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        host_wr.shutdown().await.unwrap();
+        let end = tokio::time::timeout(Duration::from_secs(10), agent)
+            .await
+            .expect("the agent returned although nobody reads its output")
+            .expect("handler task");
+        assert_eq!(end.unwrap(), ConnEnd::Ran { delivered: false, host_left: true });
+    }
+
+    #[tokio::test]
+    async fn wsl_mode_stops_the_copy_back_when_the_host_leaves() {
+        // The command has ended with its output still queued, and the host
+        // stops writing but never reads: the copy back must not keep the
+        // agent waiting either. `exit 0` keeps sh from exec'ing head, so sh's
+        // command line, with its marker, lasts until the command ends.
+        let (host_side, agent_side) = duplex(64 * 1024);
+        let agent = tokio::spawn(handle_conn(agent_side, None, Guest::Wsl));
+        let (mut host_rd, mut host_wr) = tokio::io::split(host_side);
+        let mut req = echo_exec(vec!["-c", "n=2745; head -c 1000000 /dev/zero; exit 0"]);
+        req.bwrap_path = "/bin/sh".into();
+        host_wr.write_all(&encode(&Frame::Exec(req))).await.unwrap();
+        let mut first = [0u8; 1];
+        host_rd.read_exact(&mut first).await.unwrap();
+        assert!(gone_within("n=2745", Duration::from_secs(10)).await, "the command ended");
         tokio::time::sleep(Duration::from_millis(300)).await;
         host_wr.shutdown().await.unwrap();
         let end = tokio::time::timeout(Duration::from_secs(10), agent)
