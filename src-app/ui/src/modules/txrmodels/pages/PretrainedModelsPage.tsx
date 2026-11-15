@@ -58,9 +58,11 @@ import type {
   PretrainedEligibilityEntry,
   PretrainedSummary,
   RunConfig,
+  TxrModelAsset,
 } from '@/api-client/types'
 import type { IntakeSnapshot } from '@/modules/txrintake'
 import { buildTxrRunInput, useTxrIntakeStore } from '@/modules/txrintake'
+import { useAppMode } from '@/modules/demo'
 import {
   countSelected,
   formatTotalTime,
@@ -323,6 +325,10 @@ export function PretrainedModelsPage() {
   const dialog = useStore(useTxrModelsStore, s => s.dialog)
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('Choose the models to run')
+  // ITEM-7 (the audit's pretrained row): the cards are "Included in the
+  // demo" — nothing is downloaded or installed (the server blocks both),
+  // and a Run replays the recorded results of the card's method.
+  const { isDemo } = useAppMode()
 
   const { cards, loading: cardsLoading, error: cardsError, refetch } = usePretrained()
   const {
@@ -366,7 +372,7 @@ export function PretrainedModelsPage() {
     return m
   }, [cards, response])
 
-  const rows = useMemo(() => buildPretrainedRows(cards, response), [cards, response])
+  const rows = useMemo(() => buildPretrainedRows(cards, response, isDemo), [cards, response, isDemo])
 
   /** The sort facts (the comparators' input — the same structured facts
    *  the builders read; a null fact sorts last, DEC-9). */
@@ -458,11 +464,14 @@ export function PretrainedModelsPage() {
         if (cardRunnable(card, store.downloadState[card.id])) continue
         const entry = store.downloadState[card.id]
         if (entry?.status?.state === 'failed') continue // the human's Retry owns it
+        // ITEM-7: in the demo the cards are INCLUDED — the auto-download
+        // on selection is the desktop's own (its route is blocked here).
+        if (isDemo) continue
         void store.requestDownload(card.id)
       }
       store.setSelection(next)
     },
-    [selection, cardById],
+    [selection, cardById, isDemo],
   )
 
   const [runError, setRunError] = useState<string | null>(null)
@@ -483,29 +492,60 @@ export function PretrainedModelsPage() {
         setRunError('Select at least one model to run.')
         return
       }
-      const blocked = keys
-        .map(key => cardById.get(key.slice(ROW_KEY_PREFIX.length)))
-        .filter((card): card is PretrainedSummary => card !== undefined)
-        .filter(card => !cardRunnable(card, useTxrModelsStore.getState().downloadState[card.id]))
-      if (blocked.length > 0) {
-        setRunError(
-          blocked.some(card => {
-            const state = useTxrModelsStore.getState().downloadState[card.id]?.status?.state
-            return state === 'failed'
-          })
-            ? GATE_FAILED_LINE
-            : GATE_DOWNLOADING_LINE,
-        )
-        return
-      }
       if (creating.current) return
       creating.current = true
       setRunError(null)
       try {
+        const runCards = cards.filter(card => keys.includes(`${ROW_KEY_PREFIX}${card.id}`))
+        // ITEM-7 demo arm: the cards are included in the demo — no install,
+        // no resolve (both routes are blocked for the demo, and the recorded
+        // replay reads only the method facts). The run's record carries the
+        // card's own method identity; the eligibility verdict (the bundle's
+        // recorded set) is the can-run truth, so the install gate is skipped
+        // too.
+        if (isDemo) {
+          const input = buildTxrRunInput({
+            patients,
+            measurements,
+            predictMeasurements,
+            joins,
+            mapping,
+          } as unknown as IntakeSnapshot)
+          const run = await ApiClient.Txr.createRun({
+            mode: 'reuse',
+            input,
+            config: reuseConfig(
+              runCards[0] ?? cardsWithId0(cards),
+              parameters.decision_day,
+              atATime,
+            ),
+            model_ids: runCards.map(card => ({
+              model_id: card.id,
+              method_id: card.method_id,
+              method_version: card.method_version,
+            })) as unknown as TxrModelAsset[],
+          })
+          navigate(runningPath(run.id))
+          return
+        }
+        const blocked = keys
+          .map(key => cardById.get(key.slice(ROW_KEY_PREFIX.length)))
+          .filter((card): card is PretrainedSummary => card !== undefined)
+          .filter(card => !cardRunnable(card, useTxrModelsStore.getState().downloadState[card.id]))
+        if (blocked.length > 0) {
+          setRunError(
+            blocked.some(card => {
+              const state = useTxrModelsStore.getState().downloadState[card.id]?.status?.state
+              return state === 'failed'
+            })
+              ? GATE_FAILED_LINE
+              : GATE_DOWNLOADING_LINE,
+          )
+          return
+        }
         // install-if-needed: the installed ids for every selected card
         // (the run keys are the selection minus the disabled rows — the
         // same set the engine will see, never a stale key)
-        const runCards = cards.filter(card => keys.includes(`${ROW_KEY_PREFIX}${card.id}`))
         const installed: string[] = []
         for (const card of runCards) {
           installed.push(await installedModelId(card))
@@ -537,7 +577,7 @@ export function PretrainedModelsPage() {
         creating.current = false
       }
     },
-    [cards, patients, measurements, predictMeasurements, joins, mapping, parameters, atATime, navigate],
+    [cards, patients, measurements, predictMeasurements, joins, mapping, parameters, atATime, navigate, isDemo],
   )
 
   // ── The ITEM-3 frame composition ─────────────────────────────────────────

@@ -73,7 +73,8 @@ import type {
 } from '@/api-client/types'
 import type { IntakeSnapshot } from '@/modules/txrintake'
 import { buildTxrRunInput, TxrIntake, useTxrIntakeStore } from '@/modules/txrintake'
-import { countSelected, formatTotalTime, TxrSelectList } from '@/modules/txrlist'
+import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
+import { countSelected, formatTotalTime, TxrSelectList, type TxrListSection } from '@/modules/txrlist'
 import { predictFilesPath, runningPath } from '@/modules/txrrun'
 import { Alert, Button } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
@@ -265,6 +266,11 @@ export function SavedModelsPage() {
   const dialog = useStore(useTxrModelsStore, s => s.dialog)
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('Choose the saved models to run')
+  // ITEM-7: the demo's list is the shared pool's — the visible statement +
+  // the "n of 50 models" counter, and the set Rename/Delete actions are
+  // absent (the server blocks them; DEC-3).
+  const { isDemo } = useAppMode()
+  const demoUsage = useDemoUsage(isDemo)
 
   // The store's inventory mirror (ONE object — the intake's, DEC-6): the
   // mount call reads the intake store's validation, and a validation
@@ -361,6 +367,18 @@ export function SavedModelsPage() {
   const sections = useMemo(
     () => buildSavedSections(saved.sets, saved.summaries, eligResponse),
     [saved.sets, saved.summaries, eligResponse],
+  )
+
+  /** ITEM-7: the shared list's section actions (Rename / Delete the run's
+   *  models) are the desktop's own; the demo's sets are the shared pool's
+   *  and the server blocks both — the sections render their rows without
+   *  the action row. */
+  const sectionsForList = useMemo(
+    () =>
+      isDemo
+        ? sections.map(section => ({ ...section, actions: [] as TxrListSection['actions'] }))
+        : sections,
+    [sections, isDemo],
   )
 
   /** The sort facts (the comparators' input — the same structured facts
@@ -585,6 +603,13 @@ export function SavedModelsPage() {
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <TxrUseExampleButton path="reuse" onDone={() => navigate(predictFilesPath())} />
       </div>
+      {isDemo ? (
+        <DemoRetentionBlock
+          kind="models"
+          count={demoUsage.usage?.models ?? null}
+          limit={demoUsage.usage?.model_limit ?? 50}
+        />
+      ) : null}
       {toolbar !== null ? (
         <div className="txr-models-i-toolbar" data-testid="txr-models-i-toolbar" style={TOOLBAR_SLOT}>
           {toolbar}
@@ -676,7 +701,7 @@ export function SavedModelsPage() {
     <main data-testid="txr-models-i" style={PAGE_OUTER}>
       <TxrSelectList
         rows={shown}
-        sections={sections}
+        sections={sectionsForList}
         itemLabel="model"
         selected={selection}
         onSelectionChange={next => useTxrModelsStore.getState().setSelection(next)}

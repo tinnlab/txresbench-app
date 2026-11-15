@@ -28,6 +28,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { AppEvents } from '@txresbench/framework/events'
 import { useEventBusStore } from '@txresbench/framework/events'
 import type { TxrPredictionsResponse, TxrRunDetail, TxrRunLogLine, TxrRunMethod } from '@/api-client/types'
+import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import { MethodResultsPage } from './MethodResultsPage'
 
 const api = vi.hoisted(() => ({
@@ -828,5 +829,22 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
       await Promise.resolve()
     })
     await waitFor(() => expect(view.getByTestId('txr-results-method')).toBeTruthy())
+  })
+})
+
+describe('MethodResultsPage demo arm (TEST-DM-7, ITEM-7)', () => {
+  afterEach(() => resetDemoMode())
+
+  it('the compare and one-method pages carry the recorded-results line in demo; absent in desktop', async () => {
+    seedDemoMode('demo')
+    const view = await renderLoaded('/analysis/run-1/results/compare')
+    expect(view.getByTestId('txr-results-demo-label').textContent).toBe(
+      'These are recorded results of the example data',
+    )
+    view.unmount()
+    state().reset()
+    seedDemoMode('desktop')
+    const desktop = await renderLoaded('/analysis/run-1/results/methods/lm-cox-a')
+    expect(desktop.queryByTestId('txr-results-demo-label')).toBeNull()
   })
 })

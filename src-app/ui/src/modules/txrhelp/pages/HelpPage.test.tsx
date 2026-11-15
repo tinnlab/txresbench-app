@@ -15,6 +15,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { DEMO_HELP_TITLE, DEMO_POOL_STATEMENT } from '@/modules/demo/copy'
+import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import { HELP_SECTIONS, PROBLEM_HELP, QUICK_START } from '../content'
 import { helpPath } from '../routes'
 import { HelpPage } from './HelpPage'
@@ -300,5 +302,47 @@ describe('HelpPage render (TEST-HELP-3)', () => {
         expect(column.example, `${file}: ${column.name}`).toBe(expected)
       }
     }
+  })
+})
+
+describe('HelpPage demo arm (TEST-DM-7, ITEM-7)', () => {
+  beforeEach(() => {
+    seedDemoMode('demo', { downloadUrl: 'https://downloads.example.test/txresbench' })
+  })
+  afterEach(() => resetDemoMode())
+
+  it('renders "About this demo" as the FIRST section with the audit bytes: what you can/cannot do, the pool statement and the download link', () => {
+    renderHelp()
+    const section = screen.getByTestId('txr-help-section-demo')
+    expect(within(section).getByRole('heading', { level: 2 }).textContent).toBe(DEMO_HELP_TITLE)
+    expect(section.textContent).toContain('What you can do')
+    expect(section.textContent).toContain('What is not possible')
+    expect(section.textContent).toContain(DEMO_POOL_STATEMENT)
+    const link = within(section).getByTestId('txr-help-download')
+    expect(link.getAttribute('href')).toBe('https://downloads.example.test/txresbench')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    // The demo section precedes the authored sections (the audit's "at the
+    // top"; the section ids' DOM order is the page order).
+    const ids = (['demo', ...HELP_SECTIONS.map(s => s.id)] as const).map(id =>
+      document.getElementById(id),
+    )
+    expect(ids.every(el => el !== null)).toBe(true)
+    expect(
+      document.getElementById('demo')!.compareDocumentPosition(document.getElementById('overview')!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    // The TOC carries the demo section too (the notice bar's #demo anchor
+    // resolves in the rail).
+    const toc = screen.getByRole('navigation', { name: 'On this page' })
+    expect(within(toc).getByTestId('txr-help-toc-demo')).toBeTruthy()
+  })
+
+  it('desktop mode shows no demo section (and the #demo anchor is absent)', () => {
+    seedDemoMode('desktop', { downloadUrl: '' })
+    renderHelp()
+    expect(screen.queryByTestId('txr-help-section-demo')).toBeNull()
+    expect(screen.queryByTestId('txr-help-download')).toBeNull()
+    expect(screen.queryByTestId('txr-help-toc-demo')).toBeNull()
   })
 })

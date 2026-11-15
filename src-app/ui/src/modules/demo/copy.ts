@@ -101,8 +101,7 @@ export const DEMO_HELP_TITLE = 'About this demo'
 export const DEMO_HELP_LEAD =
   'This is a demo of TxResBench. You can try the whole flow with the example ' +
   'data only; the runs here replay recorded results, so the example stays ' +
-  'identical for every visitor. The demo runs on the computer that serves it ' +
-  'and nothing you do here is your own data.'
+  'identical for every visitor, and nothing you do here is your own data.'
 
 /** What the demo allows (the audit's "what is possible"). */
 export const DEMO_HELP_CAN = [
@@ -123,4 +122,16 @@ export const DEMO_HELP_CANNOT = [
 export const DEMO_HELP_PRIVACY =
   'The demo does not track you and uses no analytics. It has no sign-up; ' +
   'your browser gets an anonymous session, and the demo keeps no personal data.'
+
+/** The demo's generated set name (the audit's "the save dialog shows a
+ *  generated name (no text field)" byte; the server's own byte is ITEM-1's
+ *  `Demo models <UTC yyyy-mm-dd HH:MM>` — the same clock and format, so the
+ *  dialog's preview and the server's saved name agree to the minute). */
+export function demoGeneratedSetName(now: Date = new Date()): string {
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  const stamp =
+    `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}` +
+    ` ${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`
+  return `Demo models ${stamp}`
+}
 

@@ -52,6 +52,8 @@ import type {
   ValidationResponse,
 } from '@/api-client/types'
 import { useTxrIntakeStore } from '@/modules/txrintake'
+import { DEMO_PRETRAINED_CHIP } from '@/modules/demo/copy'
+import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import {
   TXRMODELS_INVENTORY,
   TXRMODELS_PRETRAINED,
@@ -851,5 +853,110 @@ describe('PretrainedModelsPage — the D Run flow (TEST-MOD-32 / CONS-UM-24 + 13
     await settle(0)
     expect(api.createRun).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
+  })
+})
+
+describe('PretrainedModelsPage demo arm (TEST-DM-7, ITEM-7)', () => {
+  /** The demo catalogue arm: one recorded method's card, not installed. */
+  function demoCard(): PretrainedSummary {
+    return {
+      id: 'pc-1',
+      version: '1.0.0',
+      kind: 'published-rule',
+      name: 'pc-1 rule',
+      description: 'Rule from the paper; colorectal',
+      method_id: 'kelim',
+      method_version: '2.1.0',
+      group: 'g-static-risk',
+      group_label: 'Static risk',
+      decision_day: 60,
+      endpoint: 'pfs',
+      horizon: 240,
+      paper: { journal: 'Ann Oncol', year: 2021, doi: '10.0000/pc-1' },
+      transfer: { metric: 'auc_rule', median: 0.71, n_cohorts: 3 },
+      warnings: [],
+      research_notice: true,
+      licence: 'MIT',
+      asset: {
+        bundled: false,
+        file: 'pc-1@1.0.0.txr',
+        sha256: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+        size_bytes: 4_600_000,
+      },
+      state: 'not_downloaded',
+      installed_model_id: undefined,
+    }
+  }
+
+  beforeEach(() => {
+    seedDemoMode('demo')
+    api.listModels.mockResolvedValue({
+      origin: 'embedded',
+      generated_at: '2026-11-29T09:00:00Z',
+      total: 1,
+      models: [demoCard()],
+    } as PretrainedListResponse)
+    api.eligibility.mockResolvedValue({
+      total_fit: 1,
+      total_some: 0,
+      total_cannot: 0,
+      models: [
+        {
+          id: 'pc-1',
+          status: 'can_run',
+          coverage: { eligible: 42, total: 42, fraction: 1 },
+          estimate_quality: 'estimate',
+          estimated_seconds: 45,
+          min_draws: { required: 1, met: 42, unmet_patients: 0 },
+          missing_markers: [],
+          reasons: [],
+        },
+      ],
+    } as PretrainedEligibilityResponse)
+  })
+  afterEach(() => resetDemoMode())
+
+  it('card rows read "Included in the demo", and Run replays the recorded method: no install, no resolve, no download', async () => {
+    renderPage()
+    await settle(0)
+    // The audit's chip byte replaces the Published/Learned pill.
+    expect(screen.getAllByText(DEMO_PRETRAINED_CHIP).length).toBeGreaterThan(0)
+    // Run with the demo arm: the recorded method's facts go straight into
+    // the create call (the card is INCLUDED, nothing is installed).
+    await selectRow('ps:pc-1')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.installModel).not.toHaveBeenCalled()
+    expect(api.resolveModels).not.toHaveBeenCalled()
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    const request = api.createRun.mock.calls[0][0] as {
+      mode: string
+      model_ids: Array<{ model_id: string; method_id: string; method_version: string }>
+    }
+    expect(request.mode).toBe('reuse')
+    expect(request.model_ids).toEqual([
+      { model_id: 'pc-1', method_id: 'kelim', method_version: '2.1.0' },
+    ])
+    expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
+  })
+
+  it('selecting a not-installed card starts NO download in demo (the auto-download is the desktop byte)', async () => {
+    renderPage()
+    await settle(0)
+    await selectRow('ps:pc-1')
+    expect(api.downloadModel).not.toHaveBeenCalled()
+  })
+
+  it('desktop mode keeps the Published/Learned chip and the auto-download on selection', async () => {
+    seedDemoMode('desktop')
+    renderPage()
+    await settle(0)
+    expect(screen.queryByText(DEMO_PRETRAINED_CHIP)).toBeNull()
+    await selectRow('ps:pc-1')
+    await settle(0)
+    expect(api.downloadModel).toHaveBeenCalled()
   })
 })

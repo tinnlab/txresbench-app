@@ -62,6 +62,7 @@ import {
   type TxrRunStatus,
 } from '@/modules/txrlist'
 import { formatPredicts, formatTrainedDateShort, UNRECORDED } from './format'
+import { DEMO_PRETRAINED_CHIP } from '@/modules/demo/copy'
 
 /** The provider's three verdict codes → the three board status codes. */
 function toRunStatus(status: EligibilityStatus): TxrRunStatus {
@@ -139,11 +140,15 @@ function savedSubtitle(model: ModelSummary): string {
 /**
  * The screen-D join: catalogue cards × pretrained eligibility verdicts →
  * `TxrListRow[]`, one row per card in catalogue order (the list order is
- * the catalogue's).
+ * the catalogue's). In demo mode (`demo: true` — the audit's ITEM-7 row)
+ * the chip reads "Included in the demo": the card is part of the demo's
+ * recorded set, its download/install are blocked, and it runs from the
+ * recorded results.
  */
 export function buildPretrainedRows(
   cards: PretrainedSummary[],
   eligibility: PretrainedEligibilityResponse | null,
+  demo = false,
 ): TxrListRow[] {
   const verdictById = new Map(
     (eligibility?.models ?? []).map(verdict => [verdict.id, verdict]),
@@ -151,8 +156,9 @@ export function buildPretrainedRows(
   return cards.map(card => {
     const verdict = verdictById.get(card.id)
     const name = `${card.id} \u00b7 day ${card.decision_day}`
-    const chip =
-      card.kind === 'published-rule'
+    const chip = demo
+      ? { label: DEMO_PRETRAINED_CHIP, tone: 'accent' as const }
+      : card.kind === 'published-rule'
         ? { label: 'Published', tone: 'neutral' as const }
         : { label: 'Learned here', tone: 'accent' as const }
     if (verdict === undefined) {
