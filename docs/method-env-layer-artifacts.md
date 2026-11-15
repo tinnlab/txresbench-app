@@ -42,8 +42,8 @@ items:
 | manifest | `src-app/server/data/method-env-images.json` | `scripts/generate-method-env-images.py` (ITEM-2/3) |
 | manifest JSON Schema | `src-app/server/data/method-env-images.schema.json` | this node (hand-written, versioned) |
 | data README | `src-app/server/data/README.md` | this node |
-| OCI artifact | `ghcr.io/tinnlab/txr-method-env-layers/<env_id>:<method_version>-<arch>` | `scripts/publish-method-env-images.sh`, owner-gated |
-| base OCI artifact (§6.3) | `ghcr.io/tinnlab/txresbench-env/base-{py,r}:<contract>-<arch>-<sha12>` | the generator stages it, `scripts/publish-method-env-images.sh --base` publishes it, owner-gated |
+| OCI artifact | `ghcr.io/tinnlab/txr-method-env-layers:<env_id>-<method_version>-<arch>` (one package, one tag per env and arch, §6) | `scripts/publish-method-env-images.sh`, owner-gated |
+| base OCI artifact (§6.3) | `ghcr.io/tinnlab/txresbench-env:<base_id>-<contract>-<arch>-<sha12>` (one package for both bases) | the generator stages it, `scripts/publish-method-env-images.sh --base` publishes it, owner-gated |
 | build/publish/verify scripts | `scripts/generate-method-env-images.py`, `scripts/publish-method-env-images.sh`, `scripts/lib/method-env-verify.sh` | ITEM-2/5/7 |
 | regen-parity guard | `scripts/check-method-env-images.sh` (+ `.test.mjs`) | ITEM-4 |
 
@@ -72,8 +72,8 @@ Per entry:
 | `method_version` | `index.json` `version` | `2.0.0` |
 | `language` | `R` \| `Python` (index.json `language`) | `R` |
 | `arch` | `amd64` \| `arm64` (D09: amd64 only for now) | `amd64` |
-| `oci_ref` | the artifact repo, no tag/digest | `ghcr.io/tinnlab/txr-method-env-layers/landmark-cox-current` |
-| `tag` | `<method_version>-<arch>`, immutable by publisher discipline | `2.0.0-amd64` |
+| `oci_ref` | the layer package, exactly `ghcr.io/tinnlab/txr-method-env-layers` (every layer is a tag of it), no tag/digest | `ghcr.io/tinnlab/txr-method-env-layers` |
+| `tag` | `<env_id>-<method_version>-<arch>`, immutable by publisher discipline | `landmark-cox-current-2.0.0-amd64` |
 | `digest` | OCI content digest (`sha256:`) of the artifact manifest | `sha256:9f1c…` |
 | `layer_sha256` | sha256 of the published `layer.squashfs` bytes | 64 hex |
 | `size_bytes` | `layer.squashfs` byte length | `123456789` |
@@ -97,10 +97,10 @@ sorted by `(base_id, arch)`:
 
 | field | definition | example |
 |---|---|---|
-| `base_id` | `base-py` \| `base-r` (the repository component; the env id the app's env manager keys the base under) | `base-py` |
+| `base_id` | `base-py` \| `base-r` (the env id the app's env manager keys the base under, and the start of its tag) | `base-py` |
 | `arch` | `amd64` \| `arm64` | `arm64` |
-| `oci_ref` | `ghcr.io/tinnlab/txresbench-env/<base_id>` | `ghcr.io/tinnlab/txresbench-env/base-py` |
-| `tag` | `<contract>-<arch>-<first 12 hex of squashfs_sha256>`, immutable: one tag per distinct base file | `2.0-arm64-e10454500239` |
+| `oci_ref` | the base package, exactly `ghcr.io/tinnlab/txresbench-env` | `ghcr.io/tinnlab/txresbench-env` |
+| `tag` | `<base_id>-<contract>-<arch>-<first 12 hex of squashfs_sha256>`, immutable: one tag per distinct base file | `base-py-2.0-arm64-e10454500239` |
 | `digest` | OCI content digest of the base's artifact manifest bytes (§6.3) | `sha256:…` |
 | `squashfs_sha256` | sha256 of the published `base.squashfs` — the pin the app verifies the downloaded, staged or cached base against | 64 hex |
 | `size_bytes` | `base.squashfs` byte length | `115597312` |
@@ -381,11 +381,25 @@ first). The generator's `METHOD_PACKAGES_DIR` and `stack.rs`
 
 ## §6 The OCI artifact (PROV-method-env-images-2)
 
-`ghcr.io/tinnlab/txr-method-env-layers/<env_id>` (DEC-2; distinct repo prefix
-so the layer artifacts are never read as benchmark method images), artifact
-type `application/vnd.txr.method-env.layer.v1`, exactly one file
-`layer.squashfs`, immutable tag `<method_version>-<arch>`, cosign-signed
-(provenance floor; the manifest's sha256 is the verification floor, DEC-5).
+`ghcr.io/tinnlab/txr-method-env-layers` (DEC-2; a package distinct from the
+benchmark method images, so the layer artifacts are never read as them),
+artifact type `application/vnd.txr.method-env.layer.v1`, exactly one file
+`layer.squashfs`, immutable tag `<env_id>-<method_version>-<arch>`,
+cosign-signed (provenance floor; the manifest's sha256 is the verification
+floor, DEC-5).
+
+ONE package holds every layer, one tag per env and arch. GHCR sets visibility
+and access per package, with no API for visibility, so one package per method
+(the earlier `ghcr.io/tinnlab/txr-method-env-layers/<env_id>` layout) meant
+hundreds of packages to make public by hand, and again for every new method;
+a tag pushed into a public package is public at once (verified on ghcr.io,
+2026-11-15). The artifact manifest bytes below carry neither the package nor
+the tag, so the move changed no digest. The app is told the env id by the
+caller (`EnvRef.env_id`, from the manifest entry or the base id): the tag
+cannot be split back into env id and version, because both may contain `-`.
+The download manager keys its ledger by that id and refuses a tag that does
+not start with `<env_id>-`; the pull is `<package>:<tag>` resolved, then
+`<package>@<digest>`.
 Annotations, exactly:
 
 | annotation | value |
@@ -484,9 +498,10 @@ registry side. Recorded in .lifecycle PLAN note (r) and DRIFT-1 ITEM-5.
 
 ### §6.3 The base artifact
 
-`ghcr.io/tinnlab/txresbench-env/<base_id>`, artifact type
-`application/vnd.txr.method-env.base.v1`, exactly one file `base.squashfs`,
-immutable tag `<contract>-<arch>-<sha12>` (§2.1a), cosign-signed like a layer.
+`ghcr.io/tinnlab/txresbench-env` (one package for both bases, like the layers'
+one package, §6), artifact type `application/vnd.txr.method-env.base.v1`,
+exactly one file `base.squashfs`, immutable tag
+`<base_id>-<contract>-<arch>-<sha12>` (§2.1a), cosign-signed like a layer.
 The construction is §6.1's with the base's type, file and annotations:
 
 ```
@@ -554,7 +569,7 @@ com.txr.trimmed-from-digest = <base_digest>
 The app refuses at manifest load a stack where the two disagree
 (`MANIFEST_BASE_PAIRING`, naming both values); the generator's writer and the
 manifest guard refuse it before that. `base_ref` is not a runtime fetch target (the runtime's base
-ref is `sandbox-stacked`'s `ghcr.io/tinnlab/txresbench-env/…` namespace): the
+ref is `sandbox-stacked`'s `ghcr.io/tinnlab/txresbench-env` package): the
 pairing is the digest anchor, never the name. This is the invariant that makes
 "a mismatch never mounts silently" a checkable property.
 

@@ -136,5 +136,5 @@ and the orchestrator runs the gate and merges.
 
 - **The method-env base is verified only at the method-env-images node.** The app trusts the
   method catalogue's digest pins (`sandbox/method_env.rs`) and the `check-method-env-images.sh`
-  verify script; the base `ghcr.io/tinnlab/txresbench-env/base-{py,r}` images and their contents
+  verify script; the base images (`ghcr.io/tinnlab/txresbench-env`, tags `base-{py,r}-…`) and their contents
   are not re-verified in this repository.

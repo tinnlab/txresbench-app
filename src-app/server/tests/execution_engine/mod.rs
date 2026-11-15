@@ -428,14 +428,7 @@ impl FakeEnv {
 }
 
 fn ref_env_id(r: &EnvRef) -> String {
-    r.oci_ref
-        .rsplit('/')
-        .next()
-        .unwrap_or(&r.oci_ref)
-        .split('@')
-        .next()
-        .unwrap_or(&r.oci_ref)
-        .to_string()
+    r.env_id.clone()
 }
 
 impl orchestrator::EnvProvider for FakeEnv {

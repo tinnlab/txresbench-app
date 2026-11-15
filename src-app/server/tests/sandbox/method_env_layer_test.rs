@@ -474,12 +474,14 @@ async fn stacked_layer_child() {
     let base_pin = sha256_hex(&std::fs::read(&base_sqfs).expect("read base fixture"));
     let layer_pin = sha256_hex(&std::fs::read(&layer_sqfs).expect("read layer fixture"));
     let base_ref = EnvRef {
-        oci_ref: format!("{TXR_BASE_REGISTRY_PREFIX}/{BASE_ID}"),
+        env_id: BASE_ID.to_string(),
+        oci_ref: TXR_BASE_REGISTRY_PREFIX.to_string(),
         digest: base_pin.clone(),
         tag: None,
     };
     let layer_ref = EnvRef {
-        oci_ref: format!("{TXR_LAYER_REGISTRY_PREFIX}/{FIXTURE_METHOD_ID}"),
+        env_id: FIXTURE_METHOD_ID.to_string(),
+        oci_ref: TXR_LAYER_REGISTRY_PREFIX.to_string(),
         digest: layer_pin.clone(),
         tag: None,
     };
@@ -603,7 +605,7 @@ fn push_and_pull_by_digest(work: &Path, pipeline: &Pipeline) {
          -p 5077:5000 registry:2 >/dev/null && sleep 2"
     ));
     let reg = "localhost:5077"; // dedicated port: never collide with a stray :5000
-    let repo = format!("{reg}/tinnlab/txr-method-env-layers/{FIXTURE_METHOD_ID}");
+    let repo = format!("{reg}/tinnlab/txr-method-env-layers");
     let entry_sha = pipeline.entry["layer_sha256"].as_str().expect("layer sha");
     let size = pipeline.entry["size_bytes"].as_u64().expect("size");
     let digest = pipeline.entry["digest"].as_str().expect("digest").to_string();

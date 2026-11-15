@@ -134,9 +134,16 @@ pub const RUN_LAYER_ENV_DIGEST_FILE: &str = "layer-env-digest";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct EnvRef {
-    /// Full OCI reference, e.g. `<prefix>/<env_id>[:<tag>][@sha256:<hex>]`
-    /// (prefixes from [`TXR_BASE_REGISTRY_PREFIX`] /
-    /// [`TXR_LAYER_REGISTRY_PREFIX`]; enforced by [`validate_oci_ref`]).
+    /// The env this artifact is: the method's env id for a layer, `base-py` /
+    /// `base-r` for a base. Every layer shares ONE package (and both bases
+    /// another), so the reference no longer names the env; the caller does,
+    /// and the download manager keys its ledger by it. A tag, when present,
+    /// must start with `<env_id>-` (the published tag shapes
+    /// `<env_id>-<version>-<arch>` and `<base_id>-<contract>-<arch>-<sha12>`).
+    pub env_id: String,
+    /// Full OCI reference, `<package>[:<tag>][@sha256:<hex>]`, where
+    /// `<package>` is [`TXR_BASE_REGISTRY_PREFIX`] or
+    /// [`TXR_LAYER_REGISTRY_PREFIX`] itself (enforced by [`validate_oci_ref`]).
     pub oci_ref: String,
     /// The pinned 64-hex sha256 of the squashfs layer the bytes are verified
     /// against.
@@ -248,10 +255,9 @@ pub struct MethodRunResult {
 /// Parsed, validated OCI reference (result of [`validate_oci_ref`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OciRefParts {
-    /// The matched compiled registry prefix (no scheme).
+    /// The matched compiled package (no scheme): the base package or the
+    /// layer package. Nothing follows it but a tag and/or a digest.
     pub registry_base: String,
-    /// The env-id repository component (single `is_valid_env_id` component).
-    pub repo: String,
     /// The `:tag` suffix, when present.
     pub tag: Option<String>,
     /// The `@sha256:` digest INNER component (64-hex, prefix stripped).
@@ -278,13 +284,15 @@ pub fn is_valid_oci_tag(tag: &str) -> bool {
 
 /// Validate + parse an OCI reference against the compiled txr registries.
 ///
-/// Accepted shape: `<prefix>/<env_id>[:<tag>][@sha256:<64hex>]` where `<prefix>`
-/// is [`TXR_BASE_REGISTRY_PREFIX`] or [`TXR_LAYER_REGISTRY_PREFIX`] and
-/// `<env_id>` is one `is_valid_env_id` component. Every other host, prefix,
-/// nested repo path, malformed tag/digest or empty component is refused with
-/// [`ENV_REF_HOST_UNALLOWED_CODE`] (TEST-03/TEST-14) — this is a RELEASE-TIME
-/// boundary: the pinned digests are verified by the caller, but a ref outside
-/// the compiled namespace must never even be parsed for a pull.
+/// Accepted shape: `<package>[:<tag>][@sha256:<64hex>]` where `<package>` is
+/// [`TXR_BASE_REGISTRY_PREFIX`] or [`TXR_LAYER_REGISTRY_PREFIX`] itself: every
+/// layer lives in the one layer package and both bases in the one base
+/// package, told apart by tag. Every other host, package, repository path
+/// below a package (the old one-package-per-env form included), malformed
+/// tag/digest is refused with [`ENV_REF_HOST_UNALLOWED_CODE`] (TEST-03/TEST-14)
+/// — this is a RELEASE-TIME boundary: the pinned digests are verified by the
+/// caller, but a ref outside the compiled packages must never even be parsed
+/// for a pull.
 pub fn validate_oci_ref(oci_ref: &str) -> Result<OciRefParts, AppError> {
     let refused = |why: &str| {
         Err(AppError::new(
@@ -317,23 +325,49 @@ pub fn validate_oci_ref(oci_ref: &str) -> Result<OciRefParts, AppError> {
     }
 
     for prefix in [TXR_BASE_REGISTRY_PREFIX, TXR_LAYER_REGISTRY_PREFIX] {
-        let Some(rest) = name.strip_prefix(prefix).and_then(|r| r.strip_prefix('/')) else {
-            continue;
-        };
-        if rest.contains('/') {
-            return refused("nested repository paths are not part of the txr env registries");
+        if name == prefix {
+            return Ok(OciRefParts {
+                registry_base: prefix.to_string(),
+                tag,
+                digest,
+            });
         }
-        if !is_valid_env_id(rest) {
-            return refused("the repository component is not a valid env id");
+        if name.strip_prefix(prefix).is_some_and(|r| r.starts_with('/')) {
+            return refused(
+                "a repository path below the txr env package is refused; every env is a tag \
+                 of the one package",
+            );
         }
-        return Ok(OciRefParts {
-            registry_base: prefix.to_string(),
-            repo: rest.to_string(),
-            tag,
-            digest,
-        });
     }
-    refused("host/prefix not in the compiled txr registries")
+    refused("host/package not in the compiled txr registries")
+}
+
+/// The env id + tag consistency check: a tag names `<env_id>-…` (layers
+/// `<env_id>-<version>-<arch>`, bases `<base_id>-<contract>-<arch>-<sha12>`),
+/// so a ref whose tag belongs to another env is refused with
+/// [`ENV_REF_HOST_UNALLOWED_CODE`] before any pull. The env id must itself be
+/// a valid env id. A ref without a tag (digest-only) has no tag to check; its
+/// bytes are verified against the pin like every other.
+pub fn validate_env_tag(env_id: &str, tag: Option<&str>) -> Result<(), AppError> {
+    let refused = |why: String| {
+        Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            ENV_REF_HOST_UNALLOWED_CODE,
+            why,
+        ))
+    };
+    if !is_valid_env_id(env_id) {
+        return refused(format!("the env id {env_id:?} is not a valid env id"));
+    }
+    if let Some(t) = tag {
+        let rest = t.strip_prefix(env_id).and_then(|r| r.strip_prefix('-'));
+        if !matches!(rest, Some(r) if !r.is_empty()) {
+            return refused(format!(
+                "the tag {t:?} does not belong to env {env_id:?} (expected {env_id}-<…>)"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn normalize_digest_part(d: &str) -> Result<String, AppError> {
@@ -1708,25 +1742,26 @@ mod tests {
         validate_layer_entries(&["/code".into(), "/usr/local".into()])
             .expect("the list validator accepts a valid list");
 
-        // OCI refs: the two compiled prefixes + valid env id + tag/digest pass.
+        // OCI refs: one of the two compiled packages itself + tag/digest pass.
         let ok_refs = [
-            "ghcr.io/tinnlab/txresbench-env/base-r:latest",
-            "ghcr.io/tinnlab/txr-method-env-layers/cox-delta:1.0.0",
-            "ghcr.io/tinnlab/txresbench-env/base-py@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "ghcr.io/tinnlab/txresbench-env:base-r-2.0-amd64-0123456789ab",
+            "ghcr.io/tinnlab/txr-method-env-layers:cox-delta-1.0.0-amd64",
+            "ghcr.io/tinnlab/txresbench-env@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "ghcr.io/tinnlab/txr-method-env-layers",
         ];
         for r in ok_refs {
             let parts = validate_oci_ref(r).unwrap_or_else(|e| panic!("{r} must be accepted: {e}"));
-            assert!(parts.repo == "base-r" || parts.repo == "cox-delta" || parts.repo == "base-py");
             assert!(
                 parts.registry_base == TXR_BASE_REGISTRY_PREFIX
                     || parts.registry_base == TXR_LAYER_REGISTRY_PREFIX
             );
         }
-        let p = validate_oci_ref("ghcr.io/tinnlab/txr-method-env-layers/cox-delta:1.0.0").unwrap();
-        assert_eq!(p.repo, "cox-delta");
-        assert_eq!(p.tag.as_deref(), Some("1.0.0"));
+        let p = validate_oci_ref("ghcr.io/tinnlab/txr-method-env-layers:cox-delta-1.0.0-amd64").unwrap();
+        assert_eq!(p.registry_base, TXR_LAYER_REGISTRY_PREFIX);
+        assert_eq!(p.tag.as_deref(), Some("cox-delta-1.0.0-amd64"));
         assert_eq!(p.digest, None);
-        let p = validate_oci_ref("ghcr.io/tinnlab/txresbench-env/base-py@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").unwrap();
+        let p = validate_oci_ref("ghcr.io/tinnlab/txresbench-env@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").unwrap();
+        assert_eq!(p.registry_base, TXR_BASE_REGISTRY_PREFIX);
         assert_eq!(
             p.digest.as_deref(),
             Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
@@ -1734,19 +1769,51 @@ mod tests {
 
         // Every other shape is refused ENV_REF_HOST_UNALLOWED.
         for bad in [
-            "quay.io/tinnlab/txresbench-env/base-r",   // other host
-            "ghcr.io/other-org/txresbench-env/base-r", // other org
-            "ghcr.io/tinnlab/other-prefix/base-r",     // other prefix
+            "quay.io/tinnlab/txresbench-env:base-r-2.0-amd64", // other host
+            "ghcr.io/other-org/txresbench-env:base-r-2.0-amd64", // other org
+            "ghcr.io/tinnlab/other-prefix:base-r-2.0-amd64", // other package
+            "ghcr.io/tinnlab/txresbench-env-x:base-r-2.0-amd64", // a longer package name
+            "ghcr.io/tinnlab/txresbench-env/base-r:2.0-amd64", // the old per-env package form
+            "ghcr.io/tinnlab/txr-method-env-layers/cox-delta:1.0.0", // the old per-env package form
             "ghcr.io/tinnlab/txresbench-env/base-r/x", // nested repo path
-            "ghcr.io/tinnlab/txresbench-env/Base-R",   // invalid env id (uppercase)
-            "ghcr.io/tinnlab/txresbench-env/base-r:tag/nested", // path-laden tag
-            "ghcr.io/tinnlab/txresbench-env/base-r:has space", // malformed tag
-            "ghcr.io/tinnlab/txresbench-env/base-r@md5:123", // non-sha256 digest
-            "ghcr.io/tinnlab/txresbench-env",          // no repo component
-            "http://ghcr.io/tinnlab/txresbench-env/base-r", // scheme-laden
+            "ghcr.io/tinnlab/txresbench-env:tag/nested", // path-laden tag
+            "ghcr.io/tinnlab/txresbench-env:has space", // malformed tag
+            "ghcr.io/tinnlab/txresbench-env@md5:123", // non-sha256 digest
+            "ghcr.io/tinnlab",                        // no package
+            "http://ghcr.io/tinnlab/txresbench-env:base-r-2.0-amd64", // scheme-laden
         ] {
             let err = validate_oci_ref(bad).expect_err(&format!("{bad} must be refused"));
             assert_eq!(err.error_code(), ENV_REF_HOST_UNALLOWED_CODE, "{bad}");
+        }
+
+        // The env id + tag consistency: the tag must be `<env_id>-<something>`.
+        for (env, tag) in [
+            ("cox-delta", Some("cox-delta-1.0.0-amd64")),
+            ("base-r", Some("base-r-2.0-amd64-0123456789ab")),
+            ("cox-delta", None),
+        ] {
+            validate_env_tag(env, tag).unwrap_or_else(|e| panic!("{env} {tag:?} must pass: {e}"));
+        }
+        for (env, tag) in [
+            ("cox-delta", Some("other-1.0.0-amd64")),  // another env's tag
+            ("cox", Some("cox-delta-1.0.0-amd64")),    // a prefix of another env only by luck: still `cox-…`
+            ("cox-delta", Some("cox-delta")),          // nothing after the env id
+            ("cox-delta", Some("cox-delta-")),         // an empty rest
+            ("cox-delta", Some("cox-deltax-1.0.0-amd64")), // no `-` after the env id
+            ("Base-R", Some("Base-R-2.0-amd64")),     // invalid env id
+            ("", None),                                // empty env id
+        ] {
+            let res = validate_env_tag(env, tag);
+            if env == "cox" {
+                // `cox-delta-1.0.0-amd64` does start with `cox-`: the tag check is a
+                // consistency guard, not the pin; the bytes are still verified
+                // against the entry's own sha256, and the manifest loader pins each
+                // entry's tag to exactly `<env_id>-<version>-<arch>`.
+                res.expect("a tag starting with `<env_id>-` passes the consistency check");
+                continue;
+            }
+            let err = res.expect_err(&format!("{env} {tag:?} must be refused"));
+            assert_eq!(err.error_code(), ENV_REF_HOST_UNALLOWED_CODE, "{env} {tag:?}");
         }
         assert!(
             is_valid_oci_tag("1.0.0") && is_valid_oci_tag("latest") && is_valid_oci_tag("x_y.9")

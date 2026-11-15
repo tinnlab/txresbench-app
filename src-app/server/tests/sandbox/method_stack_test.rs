@@ -522,12 +522,14 @@ async fn stacked_run_child() {
     let layer1_pin = sha256_hex(&std::fs::read(&layer1_sqfs).expect("read layer1 fixture"));
     let layer2_pin = sha256_hex(&std::fs::read(&layer2_sqfs).expect("read layer2 fixture"));
     let base_ref = EnvRef {
-        oci_ref: format!("{TXR_BASE_REGISTRY_PREFIX}/{BASE_ID}"),
+        env_id: BASE_ID.to_string(),
+        oci_ref: TXR_BASE_REGISTRY_PREFIX.to_string(),
         digest: base_pin.clone(),
         tag: None,
     };
     let layer_ref = |id: &str, pin: &str| EnvRef {
-        oci_ref: format!("{TXR_LAYER_REGISTRY_PREFIX}/{id}"),
+        env_id: id.to_string(),
+        oci_ref: TXR_LAYER_REGISTRY_PREFIX.to_string(),
         digest: pin.to_string(),
         tag: None,
     };
@@ -1066,15 +1068,15 @@ fn env_manager_pulls_verifies_mounts_via_loopback_registry() {
 
     let small_pin = publish(
         &work.join("small.squashfs"),
-        &format!("{reg}/tinnlab/txresbench-env/mst-small-x7"),
-        "v1",
+        &format!("{reg}/tinnlab/txresbench-env"),
+        "mst-small-x7-v1",
     );
-    let big_a_pin = publish(&big_a, &format!("{reg}/tinnlab/txresbench-env/mst-biga-x7"), "v1");
-    let big_b_pin = publish(&big_b, &format!("{reg}/tinnlab/txresbench-env/mst-bigb-x7"), "v1");
+    let big_a_pin = publish(&big_a, &format!("{reg}/tinnlab/txresbench-env"), "mst-biga-x7-v1");
+    let big_b_pin = publish(&big_b, &format!("{reg}/tinnlab/txresbench-env"), "mst-bigb-x7-v1");
     let small2_pin = publish(
         &work.join("small2-root.squashfs"),
-        &format!("{reg}/tinnlab/txresbench-env/mst-small2-x7"),
-        "v1",
+        &format!("{reg}/tinnlab/txresbench-env"),
+        "mst-small2-x7-v1",
     );
 
     let _data_guard = txresbench::modules::rootfs::scoped_data_root(&data);
@@ -1082,7 +1084,8 @@ fn env_manager_pulls_verifies_mounts_via_loopback_registry() {
 
     // ── positive path: ensure → ready + digest + mounted ────────────────────
     let small_ref = EnvRef {
-        oci_ref: format!("{reg}/tinnlab/txresbench-env/mst-small-x7:v1"),
+        env_id: "mst-small-x7".to_string(),
+        oci_ref: format!("{reg}/tinnlab/txresbench-env:mst-small-x7-v1"),
         digest: small_pin.clone(),
         tag: None,
     };
@@ -1108,17 +1111,20 @@ fn env_manager_pulls_verifies_mounts_via_loopback_registry() {
     //    digests (a same-digest request resolves to the cached mount and never
     //    occupies a slot — the observation would be vacuous). ────────────────
     let ref_a = EnvRef {
-        oci_ref: format!("{reg}/tinnlab/txresbench-env/mst-biga-x7:v1"),
+        env_id: "mst-biga-x7".to_string(),
+        oci_ref: format!("{reg}/tinnlab/txresbench-env:mst-biga-x7-v1"),
         digest: big_a_pin.clone(),
         tag: None,
     };
     let ref_b = EnvRef {
-        oci_ref: format!("{reg}/tinnlab/txresbench-env/mst-bigb-x7:v1"),
+        env_id: "mst-bigb-x7".to_string(),
+        oci_ref: format!("{reg}/tinnlab/txresbench-env:mst-bigb-x7-v1"),
         digest: big_b_pin.clone(),
         tag: None,
     };
     let small2_ref = EnvRef {
-        oci_ref: format!("{reg}/tinnlab/txresbench-env/mst-small2-x7:v1"),
+        env_id: "mst-small2-x7".to_string(),
+        oci_ref: format!("{reg}/tinnlab/txresbench-env:mst-small2-x7-v1"),
         digest: small2_pin.clone(),
         tag: None,
     };
@@ -1220,16 +1226,17 @@ fn env_manager_refuses_tampered_pulled_bytes() {
     let dir = work.join("layer-root");
     build_layer_rootfs(&dir, fixture_run_sh(), &["/code"]);
     squash(&dir, &work.join("layer.squashfs"));
-    let repo = format!("{reg}/tinnlab/txr-method-env-layers/mst-tamper-x7");
+    let repo = format!("{reg}/tinnlab/txr-method-env-layers");
     sh(&format!(
         "cd {} && oras push --plain-http --artifact-type application/vnd.txr.method-env.squashfs.v1 \
-         {repo}:v1 layer.squashfs:application/vnd.txr.method-env.squashfs.v1 >/dev/null",
+         {repo}:mst-tamper-x7-v1 layer.squashfs:application/vnd.txr.method-env.squashfs.v1 >/dev/null",
         work.display()
     ));
 
     let wrong_pin = "3".repeat(64);
     let ref_ = EnvRef {
-        oci_ref: format!("{repo}:v1"),
+        env_id: "mst-tamper-x7".to_string(),
+        oci_ref: format!("{repo}:mst-tamper-x7-v1"),
         digest: wrong_pin.clone(),
         tag: None,
     };
@@ -1294,13 +1301,13 @@ fn cancel_stops_an_inflight_pull_and_the_retry_lands_ready() {
         big_dir.join("data").display()
     ));
     squash(&big_dir, &work.join("big.squashfs"));
-    let repo = format!("{reg}/tinnlab/txresbench-env/mst-slow-x7");
+    let repo = format!("{reg}/tinnlab/txresbench-env");
     sh(&format!(
         "cd {} && oras push --plain-http --artifact-type application/vnd.txr.method-env.squashfs.v1 \
-         {repo}:v1 big.squashfs:application/vnd.txr.method-env.squashfs.v1 >/dev/null",
+         {repo}:mst-slow-x7-v1 big.squashfs:application/vnd.txr.method-env.squashfs.v1 >/dev/null",
         work.display()
     ));
-    let pin = sh_out(&format!("oras resolve --plain-http {repo}:v1"))
+    let pin = sh_out(&format!("oras resolve --plain-http {repo}:mst-slow-x7-v1"))
         .trim_start_matches("sha256:")
         .to_string();
 
@@ -1310,7 +1317,8 @@ fn cancel_stops_an_inflight_pull_and_the_retry_lands_ready() {
         bypass_air_gap_env: true,
     }));
     let ref_ = EnvRef {
-        oci_ref: format!("{repo}:v1"),
+        env_id: "mst-slow-x7".to_string(),
+        oci_ref: format!("{repo}:mst-slow-x7-v1"),
         digest: pin.clone(),
         tag: None,
     };
@@ -1462,8 +1470,8 @@ async fn route_matrix_gates_statuses_and_delete_prune() {
         // A bare ref is refused by DEC-3 BEFORE the tool lookup (a runtime
         // pull is never left on a bare ref — ENV_REPOSITORY_UNKNOWN); the
         // degradation arm needs a TAGGED ref so the failure is the tool one.
-        "base": { "oci_ref": format!("{TXR_BASE_REGISTRY_PREFIX}/mst-pre-env-q7:v1"), "digest": "3".repeat(64) },
-        "layer": { "oci_ref": format!("{TXR_LAYER_REGISTRY_PREFIX}/mst-pre-env-q7:v1"), "digest": "4".repeat(64) },
+        "base": { "env_id": "mst-pre-env-q7", "oci_ref": format!("{TXR_BASE_REGISTRY_PREFIX}:mst-pre-env-q7-v1"), "digest": "3".repeat(64) },
+        "layer": { "env_id": "mst-pre-env-q7", "oci_ref": format!("{TXR_LAYER_REGISTRY_PREFIX}:mst-pre-env-q7-v1"), "digest": "4".repeat(64) },
         "mode": "fit_predict",
         "bundle_dir": "/nonexistent-bundle",
         "outputs_dir": "/nonexistent-outputs",
