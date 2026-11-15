@@ -23,8 +23,10 @@
 #   --env <env_id>    the layer for one (env_id, arch), at `<oci_ref>:<tag>`:
 #                     oci_ref = the ONE layer package
 #                     ghcr.io/tinnlab/txr-method-env-layers, tag =
-#                     `<env_id>-<method_version>-<arch>` (DEC-2's IMMUTABLE tag;
-#                     the method is in the tag);
+#                     `<env_id>-<method_version>-<arch>-<first 12 hex of
+#                     layer_sha256>` (DEC-2's IMMUTABLE tag; the method and
+#                     its layer file are in the tag, so a rebuild at the same
+#                     version is a new tag);
 #   --base <base_id>  the base for one (base-py|base-r, arch), at the manifest
 #                     `bases[]` record's `<oci_ref>:<tag>`: oci_ref = the ONE
 #                     base package ghcr.io/tinnlab/txresbench-env, tag =
@@ -406,11 +408,12 @@ else
     echo "D05); publishing anywhere else would be unfetchable by the app." >&2
     exit 1
   fi
-  ENTRY_WANT_TAG="$ENTRY_ENV_ID-$ENTRY_METHOD_VERSION-$ENTRY_ARCH"
+  ENTRY_WANT_TAG="$ENTRY_ENV_ID-$ENTRY_METHOD_VERSION-$ENTRY_ARCH-${ENTRY_LAYER_SHA256:0:12}"
   if [ "$ENTRY_TAG" != "$ENTRY_WANT_TAG" ]; then
     echo "refusing: entry tag $ENTRY_TAG is not $ENTRY_WANT_TAG" >&2
-    echo "(<env_id>-<method_version>-<arch>: the method is in the tag of the one layer" >&2
-    echo "package, so another tag is another method's address)." >&2
+    echo "(<env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256>: the method and its" >&2
+    echo "layer file are in the tag of the one layer package, so another tag is another" >&2
+    echo "layer's address)." >&2
     exit 1
   fi
   if [ "$ENTRY_ARCH" != "$ARCH" ]; then
@@ -545,7 +548,8 @@ PYEOF
   [ "$REC_METHOD_VERSION" = "$ENTRY_METHOD_VERSION" ] || { echo "refusing: record method_version $REC_METHOD_VERSION != entry $ENTRY_METHOD_VERSION" >&2; rec_ok=0; }
   [ "$REC_ARCH" = "$ENTRY_ARCH" ] || { echo "refusing: record arch $REC_ARCH != entry $ENTRY_ARCH" >&2; rec_ok=0; }
   # The record's address: the entry's, or the pre-0.4.0 one-package-per-method
-  # form of the same layer (see check 2 in the header); nothing else.
+  # form of the same layer (see check 2 in the header); nothing else — the
+  # one-package tag without the layer hash is refused too.
   LEGACY_REF="$LAYER_OCI_REF/$ENTRY_ENV_ID"
   LEGACY_TAG="$ENTRY_METHOD_VERSION-$ENTRY_ARCH"
   if [ "$REC_OCI_REF" = "$ENTRY_OCI_REF" ] && [ "$REC_TAG" = "$ENTRY_TAG" ]; then

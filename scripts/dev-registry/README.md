@@ -85,7 +85,8 @@ cargo run
 
 * `TXR_METHOD_ENV_REGISTRY` — the HOST to fetch from instead of
   `ghcr.io`; the compiled packages stay — `tinnlab/txr-method-env-layers`
-  (every layer, tag `<env_id>-<method_version>-<arch>`) and
+  (every layer, tag `<env_id>-<method_version>-<arch>-<first 12 hex of the
+  layer sha256>`) and
   `tinnlab/txresbench-env` (both bases: tag `base-<family>-<contract>-<arch>`
   for a manifest without `bases`, which is what `publish.py` writes, and
   `<base_id>-<contract>-<arch>-<sha12>` from a manifest's `bases` record) —

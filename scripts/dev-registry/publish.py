@@ -14,7 +14,8 @@ The app pulls two artifact kinds from an OCI registry (the dev registry of
     at `/usr` (plus the `/opt`, `/etc/R`, `/etc/ssl/certs` etc. paths
     `sandbox::build_bwrap_argv` binds);
   * a per-method LAYER image, in the one layer package
-    `tinnlab/txr-method-env-layers` at tag `<env-id>-<version>-<arch>`, one
+    `tinnlab/txr-method-env-layers` at tag
+    `<env-id>-<version>-<arch>-<first 12 hex of the layer sha256>`, one
     squashfs carrying `/code` (the method's own wrapper bytes), the layer
     schema marker, `/layer-manifest.json` and the `usr/` mount-readiness
     sentinel — the artifact shape of `docs/method-env-layer-artifacts.md`
@@ -130,10 +131,11 @@ LAYER_PACKAGE = "%s/%s" % (NAMESPACE, LAYERS_REPO)
 LAYER_OCI_REF = "ghcr.io/" + LAYER_PACKAGE
 
 
-def layer_tag(env_id, version, arch):
-    """A layer's immutable tag in the one layer package (the method is in the
-    tag): `<env_id>-<version>-<arch>`."""
-    return "%s-%s-%s" % (env_id, version, arch)
+def layer_tag(env_id, version, arch, layer_sha256):
+    """A layer's immutable tag in the one layer package (the method and its
+    layer file are in the tag): `<env_id>-<version>-<arch>-<sha12>`, the
+    generator's own form."""
+    return "%s-%s-%s-%s" % (env_id, version, arch, layer_sha256[:12])
 
 
 #: The app-side base tag for a manifest WITHOUT a `bases` list (the dev
@@ -819,7 +821,7 @@ def stage_generator_fixture(stage_dir):
         "arch": ARCH,
         # the address the generator itself writes (one layer package)
         "oci_ref": gen.LAYER_OCI_REF,
-        "tag": gen.layer_tag(env_id, "1.0.0", ARCH),
+        "tag": gen.layer_tag(env_id, "1.0.0", ARCH, sha256_file(sqfs)),
         "source_revision": revision,
         "base_ref": base_ref,
         "base_digest": source_digest,
@@ -899,7 +901,7 @@ def build_and_publish(args):
             wrapper_sha = wrapper_code_sha256(method_dir)
             if conn is not None:
                 repo = LAYER_PACKAGE
-                tag = layer_tag(env_id, version, ARCH)
+                tag = layer_tag(env_id, version, ARCH, payload_sha)
                 manifest, digest, layer_sha, size = push_artifact(
                     conn, repo, tag, sqfs,
                     method_annotations(env_id, version, language, CONTRACT, base_ref, base_digest, payload_sha),
@@ -917,7 +919,7 @@ def build_and_publish(args):
                 "language": language,
                 "arch": ARCH,
                 "oci_ref": LAYER_OCI_REF,
-                "tag": layer_tag(env_id, version, ARCH),
+                "tag": layer_tag(env_id, version, ARCH, payload_sha),
                 "digest": manifest_digest,
                 "layer_sha256": layer_sha_pin,
                 "size_bytes": os.path.getsize(sqfs),
@@ -945,9 +947,10 @@ def build_and_publish(args):
                           base_annotations("py", CONTRACT, fixture_digest, sha256_file(sqfs)))
         layer_sqfs, env_id = build_fixture_layer(stage)
         wrapper_sha = wrapper_code_sha256(os.path.join(stage, "fixture-method"))
+        fixture_tag = layer_tag(env_id, "1.0.0", ARCH, sha256_file(layer_sqfs))
         if conn is not None:
             manifest, digest, layer_sha, size = push_artifact(
-                conn, LAYER_PACKAGE, layer_tag(env_id, "1.0.0", ARCH), layer_sqfs,
+                conn, LAYER_PACKAGE, fixture_tag, layer_sqfs,
                 method_annotations(env_id, "1.0.0", "Python", CONTRACT,
                                    "ghcr.io/tinnlab/txresbench-base-py:" + CONTRACT,
                                    fixture_digest, sha256_file(layer_sqfs)))
@@ -958,7 +961,7 @@ def build_and_publish(args):
             "language": "Python",
             "arch": ARCH,
             "oci_ref": LAYER_OCI_REF,
-            "tag": layer_tag(env_id, "1.0.0", ARCH),
+            "tag": fixture_tag,
             "digest": digest if conn is not None else "sha256:" + sha256_file(layer_sqfs),
             "layer_sha256": sha256_file(layer_sqfs),
             "size_bytes": os.path.getsize(layer_sqfs),

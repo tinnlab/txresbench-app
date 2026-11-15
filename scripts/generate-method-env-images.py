@@ -93,8 +93,9 @@ THE MANIFEST WRITER (ITEM-3)
 
 Entry fields come from the record (everything the build measured) plus the
 methods index (`contract`) and method.json (`licence`, verbatim — TEST-11);
-`oci_ref`/`tag` are derived from the record's env_id, method_version and arch
-(the one layer package, tag `<env_id>-<method_version>-<arch>`; a base:
+`oci_ref`/`tag` are derived from the record's env_id, method_version, arch and
+layer_sha256 (the one layer package, tag
+`<env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256>`; a base:
 the one base package, tag `<base_id>-<contract>-<arch>-<sha12>`). A record's
 own address must be that form or the one-package-per-method form a
 generator before 0.4.0 wrote, so a build dir staged before 0.4.0 still
@@ -205,8 +206,9 @@ LAYER_SCHEMA_VERSION = 1
 #: The generator's own version. 0.1.0 was the ITEM-1 design+schema step; the
 #: first code (this file) is 0.2.0. ITEM-3's writer records this string in
 #: the manifest's generator_version, so a bump here is a visible change —
-#: deliberate, never silent. 0.4.0: every layer in ONE package (the method in
-#: the tag) and both bases in ONE package (the base in the tag).
+#: deliberate, never silent. 0.4.0: every layer in ONE package (the method and
+#: the first 12 hex of its layer_sha256 in the tag) and both bases in ONE
+#: package (the base in the tag).
 GENERATOR_VERSION = "0.4.0"
 
 #: The offline verification floor is sha256 (models.md's cached → verified →
@@ -267,10 +269,11 @@ CONTRACT_RE = re.compile(r"^[0-9]+\.[0-9]+$")
 
 #: The ONE OCI package every method layer is published in (DEC-2's
 #: namespace): every entry's oci_ref is exactly this, and the method is in
-#: the tag, `<env_id>-<method_version>-<arch>` (layer_tag). One package for
-#: all layers, so a new method needs no new package (GHCR sets visibility
-#: per package, by hand). Spelled WITHOUT a scheme like the shipped stack.rs
-#: registry constant, so no new host enters the allowlist (DEC-17).
+#: the tag, `<env_id>-<method_version>-<arch>-<sha12>` (layer_tag). One
+#: package for all layers, so a new method needs no new package (GHCR sets
+#: visibility per package, by hand). Spelled WITHOUT a scheme like the
+#: shipped stack.rs registry constant, so no new host enters the allowlist
+#: (DEC-17).
 LAYER_OCI_REF = "ghcr.io/tinnlab/txr-method-env-layers"
 
 #: The ONE OCI package both app-side bases are published in (design §6.3,
@@ -284,9 +287,13 @@ BASE_OCI_REF = "ghcr.io/tinnlab/txresbench-env"
 OCI_TAG_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$")
 
 
-def layer_tag(env_id: str, method_version: str, arch: str) -> str:
-    """A layer's immutable tag in the one layer package."""
-    return f"{env_id}-{method_version}-{arch}"
+def layer_tag(env_id: str, method_version: str, arch: str,
+              layer_sha256: str) -> str:
+    """A layer's immutable tag in the one layer package. It ends with the
+    first 12 hex of the layer file's sha256 (like a base tag): a rebuild at
+    the same method version (another base, a package fix; layers are not
+    byte-reproducible) is a new tag, never an overwrite of the old one."""
+    return f"{env_id}-{method_version}-{arch}-{layer_sha256[:12]}"
 
 
 def legacy_layer_address(env_id: str, method_version: str,
@@ -1377,6 +1384,7 @@ def build_one(eid: str, entry: dict, args) -> dict:
     _assert_squashfs_ok(squashfs)
 
     # 11. artifact record (ITEM-3 consumes this file directly).
+    layer_sha256 = _sha256_of(squashfs)
     record = {
         "record_schema_version": 1,
         "generator_version": GENERATOR_VERSION,
@@ -1386,7 +1394,7 @@ def build_one(eid: str, entry: dict, args) -> dict:
         "language": index_language,
         "arch": args.arch,
         "oci_ref": LAYER_OCI_REF,
-        "tag": layer_tag(eid, version, args.arch),
+        "tag": layer_tag(eid, version, args.arch, layer_sha256),
         "source_revision": source_revision(args.methods_dir),
         "base_ref": base["ref"],
         "base_digest": base["digest"],
@@ -1394,7 +1402,7 @@ def build_one(eid: str, entry: dict, args) -> dict:
         "base_ref_source": base["source"],
         "built_image_tag": tag,
         "layer_file": "layer.squashfs",
-        "layer_sha256": _sha256_of(squashfs),
+        "layer_sha256": layer_sha256,
         "size_bytes": os.path.getsize(squashfs),
         "wrapper_code_sha256": wrapper_code_sha256(folder["dir"], folder["wrapper"]),
         "layer_schema": LAYER_SCHEMA_VERSION,
@@ -1834,28 +1842,6 @@ def validate_record_and_entry(rec: dict, entry: dict,
                          "env id (env_id.rs grammar)")
     if arch not in ("amd64", "arm64"):
         raise SystemExit(f"record {ref}: arch {arch!r} not in amd64/arm64")
-    if entry["oci_ref"] != LAYER_OCI_REF:
-        raise SystemExit(f"record {ref}: oci_ref {entry['oci_ref']!r} is not "
-                         f"{LAYER_OCI_REF} (the one layer package)")
-    if entry["tag"] != layer_tag(entry["env_id"], version, arch):
-        raise SystemExit(
-            f"record {ref}: tag {entry['tag']!r} != "
-            "'<env_id>-<method_version>-<arch>' (DEC-2; got version "
-            f"{version!r})")
-    if not OCI_TAG_RE.match(entry["tag"]):
-        raise SystemExit(
-            f"record {ref}: tag {entry['tag']!r} is not a valid OCI tag (at "
-            "most 128 characters of [A-Za-z0-9_.-], not starting with . or -)")
-    # The record's own address: the current form, or the form a generator
-    # before 0.4.0 wrote (one package per method); the entry carries the
-    # current form either way. Anything else is not this record's address.
-    legacy = legacy_layer_address(entry["env_id"], version, arch)
-    got = (rec.get("oci_ref"), rec.get("tag"))
-    if got not in ((entry["oci_ref"], entry["tag"]), legacy):
-        raise SystemExit(
-            f"record {ref}: record oci_ref/tag {got[0]!r} / {got[1]!r} is "
-            f"neither {entry['oci_ref']}:{entry['tag']} nor the pre-0.4.0 "
-            f"{legacy[0]}:{legacy[1]}")
     if not BASE_REF_RE.match(entry["base_ref"]):
         raise SystemExit(f"record {ref}: base_ref {entry['base_ref']!r} is not a "
                          "ghcr.io/tinnlab/txresbench-base-(r|py):<contract> ref")
@@ -1865,6 +1851,33 @@ def validate_record_and_entry(rec: dict, entry: dict,
         if not re.match(pat, entry[field]):
             raise SystemExit(f"record {ref}: {field} {entry[field]!r} is not the "
                              "required hex/digest shape")
+    # The address (after layer_sha256's shape: the tag carries its first 12
+    # hex).
+    if entry["oci_ref"] != LAYER_OCI_REF:
+        raise SystemExit(f"record {ref}: oci_ref {entry['oci_ref']!r} is not "
+                         f"{LAYER_OCI_REF} (the one layer package)")
+    if entry["tag"] != layer_tag(entry["env_id"], version, arch,
+                                 entry["layer_sha256"]):
+        raise SystemExit(
+            f"record {ref}: tag {entry['tag']!r} != "
+            "'<env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256>' "
+            f"(DEC-2; got version {version!r})")
+    if not OCI_TAG_RE.match(entry["tag"]):
+        raise SystemExit(
+            f"record {ref}: tag {entry['tag']!r} is not a valid OCI tag (at "
+            "most 128 characters of [A-Za-z0-9_.-], not starting with . or -)")
+    # The record's own address: the current form, or the form a generator
+    # before 0.4.0 wrote (one package per method, no hash in the tag); the
+    # entry carries the current form either way. Anything else — the
+    # one-package form without the hash included — is not this record's
+    # address.
+    legacy = legacy_layer_address(entry["env_id"], version, arch)
+    got = (rec.get("oci_ref"), rec.get("tag"))
+    if got not in ((entry["oci_ref"], entry["tag"]), legacy):
+        raise SystemExit(
+            f"record {ref}: record oci_ref/tag {got[0]!r} / {got[1]!r} is "
+            f"neither {entry['oci_ref']}:{entry['tag']} nor the pre-0.4.0 "
+            f"{legacy[0]}:{legacy[1]}")
     if not isinstance(entry["size_bytes"], int) or entry["size_bytes"] < 1:
         raise SystemExit(f"record {ref}: size_bytes {entry['size_bytes']!r} is "
                          "not a positive integer")
@@ -2012,7 +2025,8 @@ def assemble_manifest(records: list[dict], methods_dir: str,
             # per-method-package form (validate_record_and_entry checks it).
             "oci_ref": LAYER_OCI_REF,
             "tag": layer_tag(eid, rec.get("method_version", ""),
-                             rec.get("arch", "")),
+                             rec.get("arch", ""),
+                             str(rec.get("layer_sha256", ""))),
             "digest": "sha256:" + HASH(
                 oci_artifact_manifest_bytes(rec, contract)).hexdigest(),
             "layer_sha256": rec.get("layer_sha256", ""),

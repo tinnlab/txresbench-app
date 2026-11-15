@@ -40,9 +40,11 @@
 #          package (DEC-2's namespace, scheme-less per DEC-17 — no new
 #          allowlist host); the old one-package-per-method form
 #          `…/txr-method-env-layers/<env_id>` is refused;
-#        - `tag` = `<env_id>-<method_version>-<arch>` (DEC-2; the method is in
-#          the tag), a valid OCI tag (<= 128 characters), and no two entries
-#          share a tag (they share one package); `layer_schema` == 1
+#        - `tag` = `<env_id>-<method_version>-<arch>-<first 12 hex of
+#          layer_sha256>` (DEC-2; the method and its layer file are in the tag,
+#          so a rebuild at the same version is a new tag), a valid OCI tag
+#          (<= 128 characters), and no two entries share a tag (they share one
+#          package); `layer_schema` == 1
 #          (DEC-11), `contract` == the manifest's `base_contract`;
 #        - no duplicate (env_id, arch) — the per-arch entry key (PROV-1: one
 #          entry per method per published arch; amd64 + arm64 of one method is
@@ -348,10 +350,11 @@ for i, e in enumerate(envs):
         fail(f"{ref}: oci_ref {e.get('oci_ref')!r} != {layer_package} (DEC-2: the "
              "one layer package; the method is in the tag)")
     version = e.get("method_version")
-    want_tag = f"{eid}-{version}-{e.get('arch')}"
+    want_tag = f"{eid}-{version}-{e.get('arch')}-{e.get('layer_sha256')[:12]}"
     if e.get("tag") != want_tag:
         fail(f"{ref}: tag {e.get('tag')!r} != {want_tag!r} "
-             "('<env_id>-<method_version>-<arch>', DEC-2)")
+             "('<env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256>', "
+             "DEC-2)")
     if not oci_tag_re.match(want_tag):
         fail(f"{ref}: tag {want_tag!r} is not a valid OCI tag (at most 128 "
              "characters of [A-Za-z0-9_.-], not starting with . or -)")
@@ -371,7 +374,8 @@ for i, e in enumerate(envs):
              "(one entry per method per published arch)")
     seen[pair] = ref
     # Two DIFFERENT entries can spell one tag (an env id and a version may both
-    # hold `-`); they share one package, so the tag must name one entry.
+    # hold `-`, and two layer files can share their first 12 hex); they share
+    # one package, so the tag must name one entry.
     if e.get("tag") in seen_tags:
         fail(f"{ref}: tag {e.get('tag')!r} is also {seen_tags[e.get('tag')]}'s — "
              "every layer is in one package, so a tag names one entry")

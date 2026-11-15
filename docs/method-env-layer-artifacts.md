@@ -42,7 +42,7 @@ items:
 | manifest | `src-app/server/data/method-env-images.json` | `scripts/generate-method-env-images.py` (ITEM-2/3) |
 | manifest JSON Schema | `src-app/server/data/method-env-images.schema.json` | this node (hand-written, versioned) |
 | data README | `src-app/server/data/README.md` | this node |
-| OCI artifact | `ghcr.io/tinnlab/txr-method-env-layers:<env_id>-<method_version>-<arch>` (one package, one tag per env and arch, §6) | `scripts/publish-method-env-images.sh`, owner-gated |
+| OCI artifact | `ghcr.io/tinnlab/txr-method-env-layers:<env_id>-<method_version>-<arch>-<sha12>` (one package, one tag per layer file, §6) | `scripts/publish-method-env-images.sh`, owner-gated |
 | base OCI artifact (§6.3) | `ghcr.io/tinnlab/txresbench-env:<base_id>-<contract>-<arch>-<sha12>` (one package for both bases) | the generator stages it, `scripts/publish-method-env-images.sh --base` publishes it, owner-gated |
 | build/publish/verify scripts | `scripts/generate-method-env-images.py`, `scripts/publish-method-env-images.sh`, `scripts/lib/method-env-verify.sh` | ITEM-2/5/7 |
 | regen-parity guard | `scripts/check-method-env-images.sh` (+ `.test.mjs`) | ITEM-4 |
@@ -73,7 +73,7 @@ Per entry:
 | `language` | `R` \| `Python` (index.json `language`) | `R` |
 | `arch` | `amd64` \| `arm64` (D09: amd64 only for now) | `amd64` |
 | `oci_ref` | the layer package, exactly `ghcr.io/tinnlab/txr-method-env-layers` (every layer is a tag of it), no tag/digest | `ghcr.io/tinnlab/txr-method-env-layers` |
-| `tag` | `<env_id>-<method_version>-<arch>`, immutable by publisher discipline | `landmark-cox-current-2.0.0-amd64` |
+| `tag` | `<env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256>`, immutable by publisher discipline: one tag per distinct layer file | `landmark-cox-current-2.0.0-amd64-5ce304e213ac` |
 | `digest` | OCI content digest (`sha256:`) of the artifact manifest | `sha256:9f1c…` |
 | `layer_sha256` | sha256 of the published `layer.squashfs` bytes | 64 hex |
 | `size_bytes` | `layer.squashfs` byte length | `123456789` |
@@ -384,7 +384,9 @@ first). The generator's `METHOD_PACKAGES_DIR` and `stack.rs`
 `ghcr.io/tinnlab/txr-method-env-layers` (DEC-2; a package distinct from the
 benchmark method images, so the layer artifacts are never read as them),
 artifact type `application/vnd.txr.method-env.layer.v1`, exactly one file
-`layer.squashfs`, immutable tag `<env_id>-<method_version>-<arch>`,
+`layer.squashfs`, immutable tag `<env_id>-<method_version>-<arch>-<sha12>`
+(the first 12 hex of the layer file's sha256: layers are not byte-reproducible,
+so a rebuild at the same version gets its own tag instead of being refused),
 cosign-signed (provenance floor; the manifest's sha256 is the verification
 floor, DEC-5).
 
