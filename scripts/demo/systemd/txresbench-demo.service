@@ -1,0 +1,53 @@
+# txresbench-demo.service — sample systemd unit for the TxResBench demo.
+#
+# NOT CONFIGURED: this is the SAMPLE the deployment copies and edits. It
+# assumes the repo is checked out at /opt/txresbench, a dedicated user
+# `txrdemo` owns the data dir /var/lib/txresbench-demo, and the recorded
+# bundle (scripts/demo/record-demo-bundle.py's product) lives at
+# /var/lib/txresbench-demo/demo-bundle. See docs/demo-mode.md.
+#
+# The unit runs the demo server in the foreground (run-demo.sh execs the
+# binary), so this is Type=simple with Restart=on-failure. TLS terminates at
+# the reverse proxy (scripts/demo/nginx/), never here; the server keeps its
+# 127.0.0.1 bind and trusts the proxy's X-Forwarded-* headers (the generated
+# config sets server.trust_forwarded_headers: true).
+#
+# CAP_SH: on the sigtrans dev host the launcher caps through
+# /data/share/pbya/sigtrans/ops/cap.sh by default. On a deployment host set
+# CAP_SH= (empty) to run uncapped, or point it at your own wrapper.
+
+[Unit]
+Description=TxResBench demo (web-service demo mode)
+Documentation=file:/opt/txresbench/docs/demo-mode.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=txrdemo
+Group=txrdemo
+WorkingDirectory=/opt/txresbench
+# CAP_SH=                       # deployment host: run uncapped
+# CAP_CPUS is honored but never above 4 (the node's rule)
+Environment=CAP_CPUS=4
+Environment=TMPDIR_CAP=/var/lib/txresbench-demo/tmp
+ExecStart=/opt/txresbench/scripts/demo/run-demo.sh \
+    --host 127.0.0.1 \
+    --port 3100 \
+    --data-dir /var/lib/txresbench-demo \
+    --bundle /var/lib/txresbench-demo/demo-bundle \
+    --download-url https://github.com/tinnlab/txresbench-app/releases
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# The service reads/writes only its own data dir and the repo (read-only).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/txresbench-demo
+
+[Install]
+WantedBy=multi-user.target

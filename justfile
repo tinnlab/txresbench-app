@@ -307,6 +307,14 @@ e2e-gallery:
 e2e-demo:
     cd {{ui_dir}} && npm run test:e2e:demo
 
+# The demo-mode API proof (scripts/demo/e2e-demo.py, ITEM-8): boots its own
+# demo server and drives the three paths + the plan's five checks (blocked
+# sweep, shared pool, stop/skip ownership, 50/50 retention, no sandbox).
+# TXR_BINARY points at the built server; the proof needs the binary, the
+# repo's example assets and the server's allowlist table.
+e2e-demo-api:
+    python3 scripts/demo/e2e-demo.py --binary "{{env_var_or_default('TXR_BINARY', '')}}"
+
 # EVERY e2e suite, in one invocation. Runs all to completion (a failing suite does
 # not mask the ones after it) and reports a per-suite exit table, failing if any failed.
 # This is the recipe that makes "the default run covers everything" true; `just e2e`
