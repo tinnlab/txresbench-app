@@ -346,7 +346,7 @@ fn open_o_path(path: &Path) -> io::Result<OwnedFd> {
 }
 
 /// Clear `O_NONBLOCK` on an fd's open file description.
-fn set_blocking(fd: &OwnedFd) -> io::Result<()> {
+pub fn set_blocking(fd: &OwnedFd) -> io::Result<()> {
     // SAFETY: fcntl on an fd this process owns.
     let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
     if flags < 0 {
