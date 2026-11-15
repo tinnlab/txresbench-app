@@ -8512,8 +8512,12 @@
             "description": "The pinned 64-hex sha256 of the squashfs layer the bytes are verified\n against.",
             "type": "string"
           },
+          "env_id": {
+            "description": "The env this artifact is: the method's env id for a layer, `base-py` /\n `base-r` for a base. Every layer shares ONE package (and both bases\n another), so the reference no longer names the env; the caller does,\n and the download manager keys its ledger by it. A tag, when present,\n must start with `<env_id>-` (the published tag shapes\n `<env_id>-<version>-<arch>` and `<base_id>-<contract>-<arch>-<sha12>`).",
+            "type": "string"
+          },
           "oci_ref": {
-            "description": "Full OCI reference, e.g. `<prefix>/<env_id>[:<tag>][@sha256:<hex>]`\n (prefixes from [`TXR_BASE_REGISTRY_PREFIX`] /\n [`TXR_LAYER_REGISTRY_PREFIX`]; enforced by [`validate_oci_ref`]).",
+            "description": "Full OCI reference, `<package>[:<tag>][@sha256:<hex>]`, where\n `<package>` is [`TXR_BASE_REGISTRY_PREFIX`] or\n [`TXR_LAYER_REGISTRY_PREFIX`] itself (enforced by [`validate_oci_ref`]).",
             "type": "string"
           },
           "tag": {
@@ -8526,6 +8530,7 @@
         },
         "additionalProperties": false,
         "required": [
+          "env_id",
           "oci_ref",
           "digest"
         ]

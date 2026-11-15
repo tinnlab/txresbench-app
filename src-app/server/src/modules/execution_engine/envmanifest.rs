@@ -193,10 +193,12 @@ pub struct ManifestEntry {
     pub method_version: String,
     pub language: EnvLanguage,
     pub arch: EnvArch,
-    /// The layer artifact repo ref (scheme-less), the `EnvRef.oci_ref` the
-    /// engine passes to the sandbox env manager.
+    /// The layer package (scheme-less; every layer shares it), the
+    /// `EnvRef.oci_ref` the engine passes to the sandbox env manager: exactly
+    /// `TXR_LAYER_REGISTRY_PREFIX` (checked at load).
     pub oci_ref: String,
-    /// The immutable publish tag `<method_version>-<arch>` (checked at load).
+    /// The immutable publish tag `<env_id>-<method_version>-<arch>` (checked
+    /// at load): the env's own tag in the one layer package.
     pub tag: String,
     /// The OCI content digest of the artifact manifest (`sha256:<64hex>`);
     /// the publish-side pin of the `oci_ref@digest` fetch.
@@ -258,14 +260,16 @@ pub struct BaseRefFacts<'a> {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BaseArtifact {
-    /// `base-r` | `base-py` — the repository component and the env id the
-    /// env manager keys the base under.
+    /// `base-r` | `base-py` — the env id the env manager keys the base under
+    /// and the start of its tag.
     pub base_id: String,
     pub arch: EnvArch,
-    /// `<TXR_BASE_REGISTRY_PREFIX>/<base_id>` (checked at load).
+    /// The one base package, `TXR_BASE_REGISTRY_PREFIX` itself (checked at
+    /// load).
     pub oci_ref: String,
-    /// The immutable tag `<contract>-<arch>-<first 12 hex of squashfs_sha256>`
-    /// (checked at load): each distinct base file gets its own tag.
+    /// The immutable tag
+    /// `<base_id>-<contract>-<arch>-<first 12 hex of squashfs_sha256>` (checked
+    /// at load): each distinct base file gets its own tag.
     pub tag: String,
     /// The OCI content digest of the base's artifact manifest bytes
     /// (`sha256:<64hex>`; the publisher's resolve check).
@@ -319,17 +323,25 @@ pub enum ManifestLoadError {
     /// `layer_schema != [`LAYER_SCHEMA_VERSION`]` — the mount path's marker
     /// contract (a layer this build cannot mount must not be claimed ready).
     LayerSchema { env_id: String, found: u32 },
-    /// The tag is not `<method_version>-<arch>` (the schema's immutable
-    /// publish-tag construction).
+    /// The tag is not `<env_id>-<method_version>-<arch>` (the schema's
+    /// immutable publish-tag construction).
     TagMismatch { env_id: String, tag: String, expected: String },
+    /// The tag is not a valid OCI tag (`[A-Za-z0-9_][A-Za-z0-9._-]{0,127}`):
+    /// the env id is in the tag now, so a long id or a `+` in the version
+    /// would give a tag no registry can hold.
+    TagInvalid { env_id: String, tag: String },
+    /// Two entries spell one tag. Every layer is a tag of the one package, and
+    /// an env id and a version may both hold `-`, so two different entries
+    /// can construct the same tag; each tag must name one artifact.
+    DuplicateTag { env_id: String, tag: String, other: String },
     /// A digest/pin field is malformed: `layer_sha256` /
     /// `wrapper_code_sha256` must be bare 64-hex, `digest` / `base_digest`
     /// must be `sha256:<64-hex>` — these are the values the engine verifies
     /// bytes against and records on runs.
     BadPin { env_id: String, field: String },
-    /// `oci_ref` is outside the layer namespace or its repo component is not
-    /// `env_id` (the env manager keys state by the ref's repo component, so a
-    /// mismatching repo would silently miskey every download).
+    /// `oci_ref` is not the one layer package (`TXR_LAYER_REGISTRY_PREFIX`
+    /// itself): another host or package, or the old one-package-per-env form
+    /// `<package>/<env_id>`.
     BadLayerRef { env_id: String, oci_ref: String },
     /// `base_ref` is not a `txresbench-base-(r|py):<contract>` ref, or its
     /// language family disagrees with the entry's `language`.
@@ -373,6 +385,8 @@ impl ManifestLoadError {
             ManifestLoadError::EnvIdInvalid { .. } => "MANIFEST_ENV_ID_INVALID",
             ManifestLoadError::LayerSchema { .. } => "MANIFEST_LAYER_SCHEMA",
             ManifestLoadError::TagMismatch { .. } => "MANIFEST_TAG_MISMATCH",
+            ManifestLoadError::TagInvalid { .. } => "MANIFEST_TAG_INVALID",
+            ManifestLoadError::DuplicateTag { .. } => "MANIFEST_DUPLICATE_TAG",
             ManifestLoadError::BadPin { .. } => "MANIFEST_BAD_PIN",
             ManifestLoadError::BadLayerRef { .. } => "MANIFEST_LAYER_REF",
             ManifestLoadError::BadBaseRef { .. } => "MANIFEST_BASE_REF",
@@ -434,14 +448,24 @@ impl fmt::Display for ManifestLoadError {
                 "MANIFEST_TAG_MISMATCH: env `{env_id}` tag {tag:?} is not the immutable \
                  tag {expected:?}"
             ),
+            ManifestLoadError::TagInvalid { env_id, tag } => write!(
+                f,
+                "MANIFEST_TAG_INVALID: env `{env_id}` tag {tag:?} is not a valid OCI tag \
+                 (at most 128 characters of [A-Za-z0-9_.-], not starting with . or -)"
+            ),
+            ManifestLoadError::DuplicateTag { env_id, tag, other } => write!(
+                f,
+                "MANIFEST_DUPLICATE_TAG: env `{env_id}` tag {tag:?} is also env `{other}`'s; \
+                 every layer is a tag of one package, so a tag names one entry"
+            ),
             ManifestLoadError::BadPin { env_id, field } => write!(
                 f,
                 "MANIFEST_BAD_PIN: env `{env_id}` carries a malformed {field}"
             ),
             ManifestLoadError::BadLayerRef { env_id, oci_ref } => write!(
                 f,
-                "MANIFEST_LAYER_REF: env `{env_id}` layer ref {oci_ref:?} is outside the \
-                 layer namespace or names another repo"
+                "MANIFEST_LAYER_REF: env `{env_id}` layer ref {oci_ref:?} is not the layer \
+                 package (every layer is a tag of the one package)"
             ),
             ManifestLoadError::BadBaseRef { env_id, base_ref } => write!(
                 f,
@@ -565,6 +589,8 @@ fn validate_manifest(m: &EnvManifest) -> Result<(), ManifestLoadError> {
 
     let mut prev: Option<(&str, EnvArch)> = None;
     let mut seen: Vec<(&str, EnvArch)> = Vec::with_capacity(m.envs.len());
+    let mut seen_tags: std::collections::HashMap<&str, &str> =
+        std::collections::HashMap::with_capacity(m.envs.len());
     for e in &m.envs {
         if let Some((p_env, p_arch)) = prev {
             if (e.env_id.as_str(), e.arch) < (p_env, p_arch) {
@@ -604,12 +630,25 @@ fn validate_manifest(m: &EnvManifest) -> Result<(), ManifestLoadError> {
             });
         }
 
-        let expected_tag = format!("{}-{}", e.method_version, e.arch.as_str());
+        let expected_tag = format!("{}-{}-{}", e.env_id, e.method_version, e.arch.as_str());
         if e.tag != expected_tag {
             return Err(ManifestLoadError::TagMismatch {
                 env_id: e.env_id.clone(),
                 tag: e.tag.clone(),
                 expected: expected_tag,
+            });
+        }
+        if !crate::modules::sandbox::stack::is_valid_oci_tag(&e.tag) {
+            return Err(ManifestLoadError::TagInvalid {
+                env_id: e.env_id.clone(),
+                tag: e.tag.clone(),
+            });
+        }
+        if let Some(other) = seen_tags.insert(e.tag.as_str(), e.env_id.as_str()) {
+            return Err(ManifestLoadError::DuplicateTag {
+                env_id: e.env_id.clone(),
+                tag: e.tag.clone(),
+                other: other.to_string(),
             });
         }
 
@@ -632,9 +671,7 @@ fn validate_manifest(m: &EnvManifest) -> Result<(), ManifestLoadError> {
             }
         }
 
-        let layer_prefix = crate::modules::sandbox::stack::TXR_LAYER_REGISTRY_PREFIX;
-        let repo = e.oci_ref.rsplit('/').next().unwrap_or("");
-        if !e.oci_ref.starts_with(layer_prefix) || repo != e.env_id {
+        if e.oci_ref != crate::modules::sandbox::stack::TXR_LAYER_REGISTRY_PREFIX {
             return Err(ManifestLoadError::BadLayerRef {
                 env_id: e.env_id.clone(),
                 oci_ref: e.oci_ref.clone(),
@@ -714,11 +751,7 @@ fn validate_bases(m: &EnvManifest) -> Result<(), ManifestLoadError> {
             "base-py" => "py",
             other => return Err(invalid(format!("base_id {other:?} is not base-r or base-py"))),
         };
-        let expected_ref = format!(
-            "{}/{}",
-            crate::modules::sandbox::stack::TXR_BASE_REGISTRY_PREFIX,
-            b.base_id
-        );
+        let expected_ref = crate::modules::sandbox::stack::TXR_BASE_REGISTRY_PREFIX;
         if b.oci_ref != expected_ref {
             return Err(invalid(format!(
                 "oci_ref {:?} is not {expected_ref:?}",
@@ -743,15 +776,16 @@ fn validate_bases(m: &EnvManifest) -> Result<(), ManifestLoadError> {
             )));
         }
         let expected_tag = format!(
-            "{}-{}-{}",
+            "{}-{}-{}-{}",
+            b.base_id,
             b.contract,
             b.arch.as_str(),
             &b.squashfs_sha256[..12]
         );
         if b.tag != expected_tag {
             return Err(invalid(format!(
-                "tag {:?} is not {expected_tag:?} (<contract>-<arch>-<first 12 hex of \
-                 squashfs_sha256>)",
+                "tag {:?} is not {expected_tag:?} (<base_id>-<contract>-<arch>-<first 12 hex \
+                 of squashfs_sha256>)",
                 b.tag
             )));
         }
@@ -927,8 +961,8 @@ mod tests {
             r#"{{
                 "env_id": "{id}", "method_id": "{id}", "method_version": "{version}",
                 "language": "{language}", "arch": "{arch}",
-                "oci_ref": "ghcr.io/tinnlab/txr-method-env-layers/{id}",
-                "tag": "{version}-{arch}",
+                "oci_ref": "ghcr.io/tinnlab/txr-method-env-layers",
+                "tag": "{id}-{version}-{arch}",
                 "digest": "sha256:7153c0b1b85cf5089bb9fe80a2f9ac708e11b3e79d5cb74bd06ba5752a9d12cf",
                 "layer_sha256": "{layer_sha}",
                 "size_bytes": 4141056,
@@ -983,7 +1017,15 @@ mod tests {
             // CONS-EE-8c: one key — env_id == method_id.
             assert_eq!(e.env_id, e.method_id, "env_id must equal method_id");
             assert_eq!(e.layer_schema, LAYER_SCHEMA_VERSION, "layer schema 1");
-            assert_eq!(e.tag, format!("{}-{}", e.method_version, e.arch.as_str()));
+            assert_eq!(
+                e.tag,
+                format!("{}-{}-{}", e.env_id, e.method_version, e.arch.as_str())
+            );
+            assert_eq!(
+                e.oci_ref,
+                crate::modules::sandbox::stack::TXR_LAYER_REGISTRY_PREFIX,
+                "every layer is a tag of the one layer package"
+            );
             // The data facts the manifest exists to serve:
             assert!(e.size_bytes >= 1);
             assert!(crate::modules::sandbox::stack::is_sha256_hex(&e.layer_sha256));
@@ -998,10 +1040,10 @@ mod tests {
         assert_eq!(entry.contract, "2.0");
         assert_eq!(
             entry.tag,
-            format!("{}-{}", entry.method_version, entry.arch.as_str()),
+            format!("landmark-cox-current-{}-{}", entry.method_version, entry.arch.as_str()),
             "the immutable publish tag construction"
         );
-        assert_eq!(entry.oci_ref, "ghcr.io/tinnlab/txr-method-env-layers/landmark-cox-current");
+        assert_eq!(entry.oci_ref, "ghcr.io/tinnlab/txr-method-env-layers");
         assert_eq!(entry.base_ref, "ghcr.io/tinnlab/txresbench-base-r:2.0");
         // The size-bytes table the F screen's rows read (the manifest's
         // `size_bytes`; byte-exact value is regeneration data, asserted
@@ -1022,8 +1064,8 @@ mod tests {
         assert_eq!(alpha.size_bytes, 4_141_056);
         assert_eq!(alpha.base().digest, "sha256:4c7af1b2d7bf29f0712f950315dc8368211374832204583a37a92c0c77dfae65");
         assert_eq!(alpha.base().name, "ghcr.io/tinnlab/txresbench-base-r:2.0");
-        assert_eq!(alpha.oci_ref, "ghcr.io/tinnlab/txr-method-env-layers/alpha-rule");
-        assert_eq!(alpha.tag, "2.0.0-amd64");
+        assert_eq!(alpha.oci_ref, "ghcr.io/tinnlab/txr-method-env-layers");
+        assert_eq!(alpha.tag, "alpha-rule-2.0.0-amd64");
 
         // The arm64 entry lives beside the amd64 one (one env, per-arch
         // records), and its base family is the Python base.
@@ -1158,8 +1200,31 @@ mod tests {
 
     #[test]
     fn tag_mismatch_is_refused() {
-        let json = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0")
-            .replace("\"tag\": \"2.0.0-amd64\"", "\"tag\": \"2.0.0-arm64\"");
+        // Another arch, the old `<version>-<arch>` form without the env id, and
+        // another env's tag: each is refused.
+        for bad in ["alpha-rule-2.0.0-arm64", "2.0.0-amd64", "beta-model-2.0.0-amd64"] {
+            let json = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0").replace(
+                "\"tag\": \"alpha-rule-2.0.0-amd64\"",
+                &format!("\"tag\": \"{bad}\""),
+            );
+            let full = format!(
+                r#"{{
+                    "schema_version": 1, "generator_version": "0.2.0",
+                    "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                    "envs": [ {a} ]
+                }}"#,
+                a = json
+            );
+            let err = parse_manifest(full.as_bytes()).unwrap_err();
+            assert_eq!(err.code(), "MANIFEST_TAG_MISMATCH", "{bad}");
+        }
+    }
+
+    /// A tag no registry can hold (here a `+` in the version, which the
+    /// version grammar allows but an OCI tag does not) is refused at load.
+    #[test]
+    fn an_invalid_oci_tag_is_refused() {
+        let json = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0+build1");
         let full = format!(
             r#"{{
                 "schema_version": 1, "generator_version": "0.2.0",
@@ -1169,7 +1234,49 @@ mod tests {
             a = json
         );
         let err = parse_manifest(full.as_bytes()).unwrap_err();
-        assert_eq!(err.code(), "MANIFEST_TAG_MISMATCH");
+        assert_eq!(err.code(), "MANIFEST_TAG_INVALID");
+
+        // The length limit: the env id is in the tag, so a long id can break it.
+        let long_id = "x".repeat(130);
+        let json = fixture_env_json(&long_id, "amd64", "R", "2.0.0");
+        let full = format!(
+            r#"{{
+                "schema_version": 1, "generator_version": "0.2.0",
+                "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                "envs": [ {a} ]
+            }}"#,
+            a = json
+        );
+        let err = parse_manifest(full.as_bytes()).unwrap_err();
+        assert_eq!(err.code(), "MANIFEST_TAG_INVALID");
+    }
+
+    /// Two different entries that construct one tag (an env id and a version
+    /// may both hold `-`) are refused: in one package a tag names one entry.
+    #[test]
+    fn two_entries_spelling_one_tag_are_refused() {
+        let a = fixture_env_json("fx", "amd64", "R", "1.0.0-2.0.0");
+        let b = fixture_env_json("fx-1.0.0", "amd64", "R", "2.0.0");
+        let full = format!(
+            r#"{{
+                "schema_version": 1, "generator_version": "0.2.0",
+                "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                "envs": [ {a}, {b} ]
+            }}"#
+        );
+        let err = parse_manifest(full.as_bytes()).unwrap_err();
+        assert_eq!(err.code(), "MANIFEST_DUPLICATE_TAG", "{err}");
+        // Either entry alone loads.
+        for one in [&a, &b] {
+            let full = format!(
+                r#"{{
+                    "schema_version": 1, "generator_version": "0.2.0",
+                    "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                    "envs": [ {one} ]
+                }}"#
+            );
+            parse_manifest(full.as_bytes()).expect("one entry alone is fine");
+        }
     }
 
     #[test]
@@ -1203,18 +1310,29 @@ mod tests {
 
     #[test]
     fn bad_layer_ref_is_refused() {
-        let json = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0")
-            .replace("ghcr.io/tinnlab/txr-method-env-layers/alpha-rule", "ghcr.io/tinnlab/txr-method-env-layers/other-rule");
-        let full = format!(
-            r#"{{
-                "schema_version": 1, "generator_version": "0.2.0",
-                "source_revision": "5db3b60f727d", "base_contract": "2.0",
-                "envs": [ {a} ]
-            }}"#,
-            a = json
-        );
-        let err = parse_manifest(full.as_bytes()).unwrap_err();
-        assert_eq!(err.code(), "MANIFEST_LAYER_REF");
+        // The old one-package-per-env form, another package, a longer name
+        // that only starts with the package, and the base package.
+        for bad in [
+            "ghcr.io/tinnlab/txr-method-env-layers/alpha-rule",
+            "ghcr.io/tinnlab/other-layers",
+            "ghcr.io/tinnlab/txr-method-env-layers-x",
+            "ghcr.io/tinnlab/txresbench-env",
+        ] {
+            let json = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0").replace(
+                "\"oci_ref\": \"ghcr.io/tinnlab/txr-method-env-layers\"",
+                &format!("\"oci_ref\": \"{bad}\""),
+            );
+            let full = format!(
+                r#"{{
+                    "schema_version": 1, "generator_version": "0.2.0",
+                    "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                    "envs": [ {a} ]
+                }}"#,
+                a = json
+            );
+            let err = parse_manifest(full.as_bytes()).unwrap_err();
+            assert_eq!(err.code(), "MANIFEST_LAYER_REF", "{bad}");
+        }
     }
 
     #[test]
@@ -1295,8 +1413,8 @@ mod tests {
         format!(
             r#"{{
                 "base_id": "{base_id}", "arch": "{arch}",
-                "oci_ref": "ghcr.io/tinnlab/txresbench-env/{base_id}",
-                "tag": "2.0-{arch}-{short}",
+                "oci_ref": "ghcr.io/tinnlab/txresbench-env",
+                "tag": "{base_id}-2.0-{arch}-{short}",
                 "digest": "sha256:7153c0b1b85cf5089bb9fe80a2f9ac708e11b3e79d5cb74bd06ba5752a9d12cf",
                 "squashfs_sha256": "{file_sha}",
                 "size_bytes": 115597312,
@@ -1346,7 +1464,8 @@ mod tests {
         let beta = m.find("beta-model", EnvArch::Arm64).expect("beta");
         let ab = m.base_for_entry(alpha).expect("alpha's base");
         assert_eq!((ab.base_id.as_str(), ab.arch), ("base-r", EnvArch::Amd64));
-        assert_eq!(ab.tag, format!("2.0-amd64-{}", &R_FILE[..12]));
+        assert_eq!(ab.tag, format!("base-r-2.0-amd64-{}", &R_FILE[..12]));
+        assert_eq!(ab.oci_ref, "ghcr.io/tinnlab/txresbench-env", "the one base package");
         assert_eq!(ab.size_bytes, 115_597_312);
         assert_eq!(base_pin(alpha, Some(ab)), R_FILE, "the file hash, not the image digest");
         let bb = m.base_for_entry(beta).expect("beta's base");
@@ -1419,15 +1538,27 @@ mod tests {
             )),
             ("tag without the file hash", format!(
                 "{}, {r}",
-                py.replace(&format!("2.0-arm64-{short_py}"), "2.0-arm64")
+                py.replace(&format!("base-py-2.0-arm64-{short_py}"), "base-py-2.0-arm64")
             )),
             ("tag with another hash", format!(
                 "{}, {r}",
-                py.replace(&format!("2.0-arm64-{short_py}"), "2.0-arm64-000000000000")
+                py.replace(&format!("base-py-2.0-arm64-{short_py}"), "base-py-2.0-arm64-000000000000")
             )),
-            ("oci_ref outside the base namespace", format!(
+            ("tag without the base id (the old form)", format!(
                 "{}, {r}",
-                py.replace("ghcr.io/tinnlab/txresbench-env/base-py", "ghcr.io/tinnlab/txr-method-env-layers/base-py")
+                py.replace(&format!("base-py-2.0-arm64-{short_py}"), &format!("2.0-arm64-{short_py}"))
+            )),
+            ("tag of the other base", format!(
+                "{}, {r}",
+                py.replace(&format!("base-py-2.0-arm64-{short_py}"), &format!("base-r-2.0-arm64-{short_py}"))
+            )),
+            ("oci_ref outside the base package", format!(
+                "{}, {r}",
+                py.replace("\"oci_ref\": \"ghcr.io/tinnlab/txresbench-env\"", "\"oci_ref\": \"ghcr.io/tinnlab/txr-method-env-layers\"")
+            )),
+            ("oci_ref in the old per-base package form", format!(
+                "{}, {r}",
+                py.replace("\"oci_ref\": \"ghcr.io/tinnlab/txresbench-env\"", "\"oci_ref\": \"ghcr.io/tinnlab/txresbench-env/base-py\"")
             )),
             ("unknown base id", format!("{}, {r}", py.replace("\"base_id\": \"base-py\"", "\"base_id\": \"base-x\""))),
             ("contract other than base_contract", format!(

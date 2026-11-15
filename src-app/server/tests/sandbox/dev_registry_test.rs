@@ -134,9 +134,11 @@ async fn dev_registry_acceptance_child() {
         .find(fixture_id, arch)
         .ok_or_else(|| "no fixture entry in the dev manifest".to_string())
         .unwrap_or_else(|e| fail(e));
-    assert_eq!(
-        entry.oci_ref,
-        format!("ghcr.io/tinnlab/txr-method-env-layers/{fixture_id}")
+    assert_eq!(entry.oci_ref, "ghcr.io/tinnlab/txr-method-env-layers", "the one layer package");
+    assert!(
+        entry.tag.starts_with(&format!("{fixture_id}-")),
+        "the layer's tag names its env: {}",
+        entry.tag
     );
 
     // ── 2. the engine's own ref builders ───────────────────────────────────
@@ -144,7 +146,9 @@ async fn dev_registry_acceptance_child() {
     let base_ref =
         txresbench::modules::execution_engine::orchestrator::base_env_ref(entry, base_record);
     let layer_ref = txresbench::modules::execution_engine::orchestrator::layer_env_ref(entry);
-    assert_eq!(base_ref.oci_ref, "ghcr.io/tinnlab/txresbench-env/base-py");
+    assert_eq!(base_ref.oci_ref, "ghcr.io/tinnlab/txresbench-env", "the one base package");
+    assert_eq!(base_ref.env_id, "base-py");
+    assert_eq!(layer_ref.env_id, fixture_id);
     let image_digest = entry.base_digest.strip_prefix("sha256:").unwrap().to_string();
     let base_pin = if bases_scenario {
         // The bases record is the base: its tag and its FILE hash.
@@ -158,7 +162,7 @@ async fn dev_registry_acceptance_child() {
         b.squashfs_sha256.clone()
     } else {
         assert!(base_record.is_none(), "the dev publisher's manifest has no bases list");
-        assert_eq!(base_ref.tag.as_deref(), Some("2.0-amd64"));
+        assert_eq!(base_ref.tag.as_deref(), Some("base-py-2.0-amd64"));
         assert_eq!(base_ref.digest, image_digest);
         image_digest.clone()
     };

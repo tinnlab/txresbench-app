@@ -935,9 +935,9 @@ fn manifest_refs_are_scheme_less_allowlisted_and_typed_when_not() {
             !oci.contains("://"),
             "{oci} is scheme-less (the ref is data, never a host literal)"
         );
-        assert!(
-            oci.starts_with(TXR_LAYER_REGISTRY_PREFIX),
-            "{oci} on the allowlisted publish prefix"
+        assert_eq!(
+            oci, TXR_LAYER_REGISTRY_PREFIX,
+            "{oci} is the one allowlisted layer package"
         );
         let base = e["base_ref"].as_str().expect("base_ref");
         assert!(

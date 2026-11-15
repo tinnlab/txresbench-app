@@ -143,11 +143,13 @@ pub fn real_env_provider() -> Arc<dyn EnvProvider> {
 // EnvRef construction (CONS-EE-8 + ITEM-2 note (i))
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The method LAYER ref: the manifest's own `oci_ref` + the byte-verify pin
-/// (`layer_sha256` — the squashfs digest PROV-SS-1's `EnvRef.digest` is) + the
-/// immutable publish tag.
+/// The method LAYER ref: the manifest's own `oci_ref` (the one layer package)
+/// + the byte-verify pin (`layer_sha256` — the squashfs digest PROV-SS-1's
+/// `EnvRef.digest` is) + the immutable publish tag
+/// `<env_id>-<method_version>-<arch>`, keyed by the entry's env id.
 pub fn layer_env_ref(entry: &envmanifest::ManifestEntry) -> EnvRef {
     EnvRef {
+        env_id: entry.env_id.clone(),
         oci_ref: entry.oci_ref.clone(),
         digest: entry.layer_sha256.clone(),
         tag: Some(entry.tag.clone()),
@@ -155,12 +157,13 @@ pub fn layer_env_ref(entry: &envmanifest::ManifestEntry) -> EnvRef {
 }
 
 /// The BASE ref. With a base record (the manifest's `bases`), the record's
-/// own `oci_ref` + immutable tag `<contract>-<arch>-<sha12>`, verified against
-/// the record's `squashfs_sha256` — the hash of the published base file.
-/// Without one (a manifest from before the base publisher), the old
-/// construction: the language mapped onto the sandbox's base repo
-/// (`ghcr.io/tinnlab/txresbench-env/base-<family>`), tag `<contract>-<arch>`,
-/// pinned by the entry's `base_digest` read as a file hash. That value is a
+/// own `oci_ref` (the one base package) + immutable tag
+/// `<base_id>-<contract>-<arch>-<sha12>`, verified against the record's
+/// `squashfs_sha256` — the hash of the published base file. Without one (a
+/// manifest from before the base publisher), the old construction: the base
+/// package (`ghcr.io/tinnlab/txresbench-env`), tag
+/// `base-<family>-<contract>-<arch>`, pinned by the entry's `base_digest`
+/// read as a file hash. That value is a
 /// Docker image digest, so a real download of such a base fails
 /// `ENV_VERIFY_FAILED` (fails closed); only the qa-hardening dev publisher's
 /// manifests put a file hash there. The pin is [`envmanifest::base_pin`] in
@@ -172,25 +175,25 @@ pub fn base_env_ref(
     base: Option<&envmanifest::BaseArtifact>,
 ) -> EnvRef {
     let digest = envmanifest::base_pin(entry, base).to_string();
+    let env_id = base_env_id(entry);
     match base {
         Some(b) => EnvRef {
+            env_id,
             oci_ref: b.oci_ref.clone(),
             digest,
             tag: Some(b.tag.clone()),
         },
         None => EnvRef {
-            oci_ref: format!(
-                "{TXR_BASE_REGISTRY_PREFIX}/base-{}",
-                entry.language.base_family()
-            ),
+            oci_ref: TXR_BASE_REGISTRY_PREFIX.to_string(),
             digest,
-            tag: Some(format!("{}-{}", entry.contract, entry.arch.as_str())),
+            tag: Some(format!("{env_id}-{}-{}", entry.contract, entry.arch.as_str())),
+            env_id,
         },
     }
 }
 
-/// The base env id the manager keys the base artifact under (the ref's repo
-/// component).
+/// The base env id the manager keys the base artifact under (`base-py` /
+/// `base-r`; the base tag starts with it).
 pub fn base_env_id(entry: &envmanifest::ManifestEntry) -> String {
     format!("base-{}", entry.language.base_family())
 }
@@ -5257,8 +5260,8 @@ mod tests {
             method_version: "1.0.0".to_string(),
             language: envmanifest::EnvLanguage::R,
             arch: envmanifest::EnvArch::Amd64,
-            oci_ref: "ghcr.io/tinnlab/txr-method-env-layers/landmark-cox-current".to_string(),
-            tag: "1.0.0-amd64".to_string(),
+            oci_ref: "ghcr.io/tinnlab/txr-method-env-layers".to_string(),
+            tag: "landmark-cox-current-1.0.0-amd64".to_string(),
             digest: format!("sha256:{}", "d".repeat(64)),
             layer_sha256: "e".repeat(64),
             size_bytes: 250 * 1024 * 1024,
@@ -5271,15 +5274,16 @@ mod tests {
         };
 
         let layer = layer_env_ref(&entry);
+        assert_eq!(layer.env_id, "landmark-cox-current", "the layer is keyed by the entry's env id");
         assert_eq!(layer.oci_ref, entry.oci_ref);
         assert_eq!(layer.digest, entry.layer_sha256);
-        assert_eq!(layer.tag.as_deref(), Some("1.0.0-amd64"));
+        assert_eq!(layer.tag.as_deref(), Some("landmark-cox-current-1.0.0-amd64"));
 
         let base = base_env_ref(&entry, None);
+        assert_eq!(base.env_id, "base-r", "language → the base env id");
         assert_eq!(
-            base.oci_ref,
-            format!("{TXR_BASE_REGISTRY_PREFIX}/base-r"),
-            "language → the app's base repo, NEVER the benchmark base_ref (provenance only)"
+            base.oci_ref, TXR_BASE_REGISTRY_PREFIX,
+            "the app's one base package, NEVER the benchmark base_ref (provenance only)"
         );
         assert_eq!(
             base.digest,
@@ -5289,21 +5293,22 @@ mod tests {
         );
         assert_eq!(
             base.tag.as_deref(),
-            Some("2.0-amd64"),
-            "the immutable base tag <contract>-<arch> — a digest-addressed ref would need a \
-             manifest digest that equals the payload hash, which no OCI registry can serve"
+            Some("base-r-2.0-amd64"),
+            "the immutable base tag base-<family>-<contract>-<arch> — a digest-addressed ref \
+             would need a manifest digest that equals the payload hash, which no OCI registry \
+             can serve"
         );
         assert_eq!(base_env_id(&entry), "base-r");
 
         // With a base record (a manifest carrying `bases`): the record's ref,
-        // its <contract>-<arch>-<sha12> tag and the base FILE's sha256 —
-        // never the entry's Docker image digest.
+        // its <base_id>-<contract>-<arch>-<sha12> tag and the base FILE's
+        // sha256 — never the entry's Docker image digest.
         let squashfs_sha256 = "c".repeat(64);
         let record = envmanifest::BaseArtifact {
             base_id: "base-r".to_string(),
             arch: envmanifest::EnvArch::Amd64,
-            oci_ref: format!("{TXR_BASE_REGISTRY_PREFIX}/base-r"),
-            tag: format!("2.0-amd64-{}", &squashfs_sha256[..12]),
+            oci_ref: TXR_BASE_REGISTRY_PREFIX.to_string(),
+            tag: format!("base-r-2.0-amd64-{}", &squashfs_sha256[..12]),
             digest: format!("sha256:{}", "a".repeat(64)),
             squashfs_sha256: squashfs_sha256.clone(),
             size_bytes: 300 * 1024 * 1024,
@@ -5312,6 +5317,7 @@ mod tests {
             contract: "2.0".to_string(),
         };
         let base = base_env_ref(&entry, Some(&record));
+        assert_eq!(base.env_id, "base-r");
         assert_eq!(base.oci_ref, record.oci_ref);
         assert_eq!(base.digest, squashfs_sha256, "the base file's own sha256 is the pin");
         assert_ne!(
@@ -6169,11 +6175,13 @@ mod tests {
                 min_draws: 2,
                 env: EnvFacts {
                     base: crate::modules::sandbox::stack::EnvRef {
+                        env_id: "base-r".to_string(),
                         oci_ref: "ghcr.io/fixture/base-r@sha256:abc".to_string(),
                         digest: "c".repeat(64),
                         tag: None,
                     },
                     layer: crate::modules::sandbox::stack::EnvRef {
+                        env_id: "layer".to_string(),
                         oci_ref: "ghcr.io/fixture/layer".to_string(),
                         digest: "d".repeat(64),
                         tag: None,

@@ -600,9 +600,18 @@ export interface EnvRef {
    */
   digest: string
   /**
-   * Full OCI reference, e.g. `<prefix>/<env_id>[:<tag>][@sha256:<hex>]`
-   *  (prefixes from [`TXR_BASE_REGISTRY_PREFIX`] /
-   *  [`TXR_LAYER_REGISTRY_PREFIX`]; enforced by [`validate_oci_ref`]).
+   * The env this artifact is: the method's env id for a layer, `base-py` /
+   *  `base-r` for a base. Every layer shares ONE package (and both bases
+   *  another), so the reference no longer names the env; the caller does,
+   *  and the download manager keys its ledger by it. A tag, when present,
+   *  must start with `<env_id>-` (the published tag shapes
+   *  `<env_id>-<version>-<arch>` and `<base_id>-<contract>-<arch>-<sha12>`).
+   */
+  env_id: string
+  /**
+   * Full OCI reference, `<package>[:<tag>][@sha256:<hex>]`, where
+   *  `<package>` is [`TXR_BASE_REGISTRY_PREFIX`] or
+   *  [`TXR_LAYER_REGISTRY_PREFIX`] itself (enforced by [`validate_oci_ref`]).
    */
   oci_ref: string
   /** Optional tag; resolved only when the reference carries no `@digest`. */
