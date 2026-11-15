@@ -384,6 +384,14 @@ impl Decoder {
         self.buf.extend_from_slice(bytes);
     }
 
+    /// Whether any bytes are buffered: part of a frame, or a whole frame
+    /// `next_frame` has not taken yet. Right after `next_frame` returned
+    /// `Ok(None)`, it says whether a stream that ends now ended partway
+    /// through a frame.
+    pub fn has_buffered_bytes(&self) -> bool {
+        !self.buf.is_empty()
+    }
+
     /// Pop the next complete frame, if one is fully buffered. Returns
     /// `Ok(None)` when more bytes are needed.
     pub fn next_frame(&mut self) -> Result<Option<Frame>, ProtocolError> {
@@ -578,6 +586,21 @@ mod tests {
         assert_eq!(d.next_frame().unwrap(), Some(Frame::Exit(ExitStatus { code: 7, timed_out: false })));
         assert_eq!(d.next_frame().unwrap(), Some(Frame::ArtifactsDone));
         assert_eq!(d.next_frame().unwrap(), None);
+    }
+
+    #[test]
+    fn has_buffered_bytes_counts_part_and_untaken_frames() {
+        let full = encode(&Frame::Stdout(b"chunky".to_vec()));
+        let mut d = Decoder::new();
+        assert!(!d.has_buffered_bytes(), "nothing fed");
+        d.feed(&full[..3]);
+        assert!(d.has_buffered_bytes(), "part of the header");
+        d.feed(&full[3..full.len() - 1]);
+        assert!(d.has_buffered_bytes(), "all but the last payload byte");
+        d.feed(&full[full.len() - 1..]);
+        assert!(d.has_buffered_bytes(), "complete but not taken yet");
+        d.next_frame().unwrap().expect("the frame");
+        assert!(!d.has_buffered_bytes(), "every frame taken");
     }
 
     #[test]
