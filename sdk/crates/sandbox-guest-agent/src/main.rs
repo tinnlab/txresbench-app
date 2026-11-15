@@ -93,11 +93,11 @@ const EXTRA_MOUNT_TAG_PREFIX: &str = "host-mount-";
 #[cfg(target_os = "linux")]
 const VM_CGROUP_ROOT: &str = "/sys/fs/cgroup";
 
-/// Where the agent runs a command; the two differ only in what they may
-/// touch around it.
+/// Where the agent itself runs; the two differ only in what it may touch
+/// around a command. (Elsewhere in this crate "host" is the app's side.)
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Host {
+enum Guest {
     /// The method VM: the agent owns the whole guest.
     Vm,
     /// One run in the app's WSL distro, which every process in WSL shares.
@@ -105,15 +105,15 @@ enum Host {
 }
 
 #[cfg(target_os = "linux")]
-impl Host {
+impl Guest {
     /// Where per-exec cgroups go. WSL has none: its cgroup tree is shared by
     /// every process in WSL, and the agent's own cgroup cannot get
     /// controllers for children without stopping other processes from
     /// joining it; the prlimit in the argv applies.
     fn cgroup_root(self) -> Option<&'static str> {
         match self {
-            Host::Vm => Some(VM_CGROUP_ROOT),
-            Host::Wsl => None,
+            Guest::Vm => Some(VM_CGROUP_ROOT),
+            Guest::Wsl => None,
         }
     }
 
@@ -122,7 +122,7 @@ impl Host {
     /// may leave the processes inside WSL running; in the VM everything dies
     /// with the VM.
     fn own_process_group(self) -> bool {
-        self == Host::Wsl
+        self == Guest::Wsl
     }
 }
 
@@ -142,7 +142,7 @@ fn main() {
     let mode = match cli::parse_args(std::env::args_os().skip(1)) {
         Ok(mode) => mode,
         Err(why) => {
-            eprintln!("txresbench-sandbox-agent: {why}\n{}", cli::USAGE);
+            say(&format!("{why}\n{}", cli::USAGE));
             std::process::exit(cli::EXIT_BAD_ARGS);
         }
     };
@@ -151,6 +151,15 @@ fn main() {
         cli::Mode::PipeSelftest => std::process::exit(pipe_selftest()),
         cli::Mode::Stdio(args) => std::process::exit(stdio_main(&args)),
     }
+}
+
+/// One line on stderr. Unlike `eprintln!`, a closed stderr (the app's
+/// `wsl.exe` gone) is ignored instead of panicking, so the exit code stays
+/// the contract's.
+#[cfg(target_os = "linux")]
+fn say(msg: &str) {
+    use std::io::Write;
+    let _ = writeln!(std::io::stderr(), "txresbench-sandbox-agent: {msg}");
 }
 
 /// VM mode: the method VM's entrypoint.
@@ -210,7 +219,7 @@ fn stdio_main(args: &cli::StdioArgs) -> i32 {
     let stdio = match wsl_sys::take_protocol_stdio() {
         Ok(stdio) => stdio,
         Err(e) => {
-            eprintln!("txresbench-sandbox-agent: cannot use stdin/stdout for the protocol: {e}");
+            say(&format!("cannot use stdin/stdout for the protocol: {e}"));
             return cli::EXIT_TRANSPORT;
         }
     };
@@ -218,14 +227,14 @@ fn stdio_main(args: &cli::StdioArgs) -> i32 {
     // The mounts, on this one thread, before the runtime starts any other.
     let mut ops = wsl_sys::RealOps::default();
     if let Err(why) = wsl_mode::execute(&wsl_mode::mount_plan(args), &mut ops) {
-        eprintln!("txresbench-sandbox-agent: setup failed: {why}");
+        say(&format!("setup failed: {why}"));
         return cli::EXIT_SETUP;
     }
     let bpf = build_seccomp_bpf();
     let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(rt) => rt,
         Err(e) => {
-            eprintln!("txresbench-sandbox-agent: setup failed: starting the runtime: {e}");
+            say(&format!("setup failed: starting the runtime: {e}"));
             return cli::EXIT_SETUP;
         }
     };
@@ -244,10 +253,10 @@ async fn serve_stdio(stdio: wsl_sys::ProtocolStdio, bpf: Option<Arc<Vec<u8>>>) -
     let rd = tokio::fs::File::from_std(std::fs::File::from(stdio.input));
     let wr = tokio::fs::File::from_std(std::fs::File::from(stdio.output));
     tracing::info!("txresbench-sandbox-agent: serving one connection on stdin/stdout");
-    let end = handle_conn(tokio::io::join(rd, wr), bpf, Host::Wsl).await;
+    let end = handle_conn(tokio::io::join(rd, wr), bpf, Guest::Wsl).await;
     let (code, why) = stdio_exit(&end);
     if let Some(why) = why {
-        eprintln!("txresbench-sandbox-agent: {why}");
+        say(&why);
     }
     code
 }
@@ -265,6 +274,9 @@ fn stdio_exit(end: &std::io::Result<ConnEnd>) -> (i32, Option<String>) {
         Ok(ConnEnd::Ran { delivered: false, .. }) => {
             (cli::EXIT_TRANSPORT, Some("could not send every frame to the host".into()))
         }
+        Ok(ConnEnd::CutOffRequest) => {
+            (cli::EXIT_TRANSPORT, Some("the host closed the connection partway through its request".into()))
+        }
         Ok(ConnEnd::BadFrame) => (cli::EXIT_TRANSPORT, Some("the host sent a malformed frame".into())),
         Ok(ConnEnd::Refused) => {
             (cli::EXIT_TRANSPORT, Some("the request's protocol version is not served by this agent".into()))
@@ -279,8 +291,13 @@ fn pipe_selftest() -> i32 {
     use std::io::Write;
     use std::os::fd::AsFd;
     let copy = || -> std::io::Result<u64> {
-        let mut input = std::fs::File::from(std::io::stdin().as_fd().try_clone_to_owned()?);
-        let mut output = std::fs::File::from(std::io::stdout().as_fd().try_clone_to_owned()?);
+        let input = std::io::stdin().as_fd().try_clone_to_owned()?;
+        let output = std::io::stdout().as_fd().try_clone_to_owned()?;
+        // wsl.exe may hand over non-blocking pipes; the copy below blocks.
+        wsl_sys::set_blocking(&input)?;
+        wsl_sys::set_blocking(&output)?;
+        let mut input = std::fs::File::from(input);
+        let mut output = std::fs::File::from(output);
         let n = std::io::copy(&mut input, &mut output)?;
         output.flush()?;
         Ok(n)
@@ -288,7 +305,7 @@ fn pipe_selftest() -> i32 {
     match copy() {
         Ok(_) => cli::EXIT_OK,
         Err(e) => {
-            eprintln!("txresbench-sandbox-agent: pipe self-test failed: {e}");
+            say(&format!("pipe self-test failed: {e}"));
             cli::EXIT_TRANSPORT
         }
     }
@@ -341,7 +358,7 @@ where
     tracing::info!("agent: connection from {peer}");
     let bpf = bpf.clone();
     tokio::spawn(async move {
-        if let Err(e) = handle_conn(stream, bpf, Host::Vm).await {
+        if let Err(e) = handle_conn(stream, bpf, Guest::Vm).await {
             tracing::warn!("agent: connection handler error: {e}");
         }
     });
@@ -450,12 +467,14 @@ fn mount_fs(src: &str, target: &str, fstype: &str, flags: libc::c_ulong, data: O
     }
 }
 
-/// How one connection ended (VM mode only logs it; WSL mode exits with it).
+/// How one connection ended (VM mode drops it; WSL mode exits with it).
 #[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConnEnd {
     /// The host closed the connection before sending a request.
     NoRequest,
+    /// The host closed the connection in the middle of its request.
+    CutOffRequest,
     /// The host sent bytes that do not decode as a frame.
     BadFrame,
     /// The request's protocol version is not served; nothing ran.
@@ -471,7 +490,7 @@ enum ConnEnd {
 /// ([`handle_exec`]).
 // handle_conn calls install_seccomp + uses Linux-only APIs.
 #[cfg(target_os = "linux")]
-async fn handle_conn<S>(stream: S, bpf: Option<Arc<Vec<u8>>>, host: Host) -> std::io::Result<ConnEnd>
+async fn handle_conn<S>(stream: S, bpf: Option<Arc<Vec<u8>>>, guest: Guest) -> std::io::Result<ConnEnd>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -496,16 +515,17 @@ where
         }
         let n = rd.read(&mut buf).await?;
         if n == 0 {
-            return Ok(ConnEnd::NoRequest); // peer closed before sending a request
+            // Closed before a request, or partway through one.
+            return Ok(if decoder.has_partial_frame() { ConnEnd::CutOffRequest } else { ConnEnd::NoRequest });
         }
         decoder.feed(&buf[..n]);
     };
 
-    handle_exec(rd, wr, req, bpf, host).await
+    handle_exec(rd, wr, req, bpf, guest).await
 }
 
 /// Whether the frames queued so far all reached the stream: the writer task
-/// ended without a write error and a last flush succeeds.
+/// ended without a write or flush error and a last flush succeeds.
 #[cfg(target_os = "linux")]
 async fn writer_delivered<W: AsyncWrite + Unpin>(
     writer: tokio::task::JoinHandle<Option<W>>,
@@ -525,7 +545,7 @@ async fn handle_exec<R, W>(
     wr: W,
     req: sandbox_vm_protocol::ExecRequest,
     bpf: Option<Arc<Vec<u8>>>,
-    host: Host,
+    guest: Guest,
 ) -> std::io::Result<ConnEnd>
 where
     R: AsyncRead + Unpin + Send + 'static,
@@ -564,7 +584,12 @@ where
                 return None;
             }
         }
-        let _ = wr.flush().await;
+        // A file-backed stream (WSL mode's stdout) reports a failed write
+        // only on the next write or flush, once: the flush decides whether
+        // the last frame got out.
+        if wr.flush().await.is_err() {
+            return None;
+        }
         Some(wr)
     });
 
@@ -589,7 +614,7 @@ where
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    if host.own_process_group() {
+    if guest.own_process_group() {
         cmd.process_group(0);
     }
 
@@ -656,8 +681,8 @@ where
 
     // In-guest cgroup v2 (defense-in-depth; the prlimit wrapper in the argv is
     // the always-on backstop). Held until the end of the fn so Drop removes the
-    // cgroup after the child exits. WSL mode creates none (Host::cgroup_root).
-    let _cgroup = match (&req.cgroup, child.id(), host.cgroup_root()) {
+    // cgroup after the child exits. WSL mode creates none (Guest::cgroup_root).
+    let _cgroup = match (&req.cgroup, child.id(), guest.cgroup_root()) {
         (Some(limits), Some(pid), Some(root)) => match GuestCgroup::create(root, req.request_id, limits) {
             Ok(cg) => {
                 cg.attach(pid);
@@ -694,13 +719,13 @@ where
             Err(_) => (-1, false, false),
         },
         _ = tokio::time::sleep(budget) => {
-            stop_command(&mut child, host);
+            stop_command(&mut child, guest);
             let _ = child.wait().await;
             (-1, true, false)
         }
         _ = wait_host_eof(&mut rd) => {
             tracing::info!(request_id = req.request_id, "agent: host disconnected; killing command");
-            stop_command(&mut child, host);
+            stop_command(&mut child, guest);
             let _ = child.wait().await;
             (-1, false, true)
         }
@@ -718,6 +743,15 @@ where
     // bwrap child has exited so no further progress writes arrive, and
     // we don't want an orphaned reader holding the writer half of `tx`.
     drop(progress);
+
+    // In WSL the host leaving means the app is done with this run: send
+    // nothing more. A stdout that stays open but unread would block the copy
+    // back forever, keeping the agent, its mounts and any squashfuse alive.
+    if host_left && guest == Guest::Wsl {
+        drop(tx);
+        writer.abort();
+        return Ok(ConnEnd::Ran { delivered: false, host_left: true });
+    }
 
     // Send the outputs back (the host writes them into the real host output
     // dir — the host's own fs, which works): let the writer drain what is
@@ -1312,8 +1346,8 @@ fn install_seccomp(
 /// `--new-session`); the argv's `--unshare-pid` and `--die-with-parent` end
 /// them with bwrap.
 #[cfg(target_os = "linux")]
-fn stop_command(child: &mut tokio::process::Child, host: Host) {
-    if host.own_process_group() {
+fn stop_command(child: &mut tokio::process::Child, guest: Guest) {
+    if guest.own_process_group() {
         if let Some(pid) = child.id() {
             // SAFETY: plain syscall; the group is the child's own (setpgid at spawn).
             unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
@@ -1465,7 +1499,7 @@ mod tests {
         let (host_side, agent_side) = duplex(64 * 1024);
         let (mut host_rd, mut host_wr) = tokio::io::split(host_side);
         let agent_task = tokio::spawn(async move {
-            let _ = handle_conn(agent_side, None, Host::Vm).await;
+            let _ = handle_conn(agent_side, None, Guest::Vm).await;
         });
 
         host_wr
@@ -1504,9 +1538,15 @@ mod tests {
         Fut: std::future::Future<Output = ()>,
     {
         let (host_side, agent_side) = duplex(64 * 1024);
-        let agent = tokio::spawn(handle_conn(agent_side, None, Host::Wsl));
-        host(host_side).await;
-        agent.await.expect("handler task")
+        let agent = tokio::spawn(handle_conn(agent_side, None, Guest::Wsl));
+        // A process left behind holds the command's output open: without a
+        // limit, a missed kill shows up only as a test that waits for it.
+        tokio::time::timeout(Duration::from_secs(20), async move {
+            host(host_side).await;
+            agent.await.expect("handler task")
+        })
+        .await
+        .expect("the exchange ended within 20 s")
     }
 
     async fn read_until_done(host: &mut tokio::io::DuplexStream) {
@@ -1529,6 +1569,14 @@ mod tests {
         // Closed before any request.
         let end = conn_end(|host| async move { drop(host) }).await;
         assert_eq!(end.unwrap(), ConnEnd::NoRequest);
+
+        // Closed partway through the request.
+        let end = conn_end(|mut host| async move {
+            let exec = encode(&Frame::Exec(echo_exec(vec!["x"])));
+            host.write_all(&exec[..exec.len() / 2]).await.unwrap();
+        })
+        .await;
+        assert_eq!(end.unwrap(), ConnEnd::CutOffRequest);
 
         // Bytes that are not a frame.
         let end = conn_end(|mut host| async move {
@@ -1575,6 +1623,67 @@ mod tests {
         assert_eq!(end.unwrap(), ConnEnd::Ran { delivered: false, host_left: false });
     }
 
+    /// A writer that, like `tokio::fs::File` (WSL mode's stdout), takes every
+    /// write at once and reports a failed one only on the next write or
+    /// flush, once. The first `ok_writes` writes get out; the rest fail.
+    struct LateErrorWriter {
+        ok_writes: usize,
+        failed: bool,
+    }
+
+    impl tokio::io::AsyncWrite for LateErrorWriter {
+        fn poll_write(
+            mut self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            buf: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            if std::mem::take(&mut self.failed) {
+                return std::task::Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()));
+            }
+            match self.ok_writes {
+                0 => self.failed = true,
+                _ => self.ok_writes -= 1,
+            }
+            std::task::Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(
+            mut self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            if std::mem::take(&mut self.failed) {
+                return std::task::Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()));
+            }
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_last_frame_whose_write_fails_late_is_not_delivered() {
+        // A command that cannot start: Stderr, Exit and ArtifactsDone, one
+        // write each. Only the last write fails, and it is reported only on
+        // the writer's flush.
+        let run = |ok_writes| async move {
+            let (mut host, agent_rd) = duplex(64 * 1024);
+            let mut req = echo_exec(vec!["x"]);
+            req.bwrap_path = "/nonexistent/bwrap".into();
+            host.write_all(&encode(&Frame::Exec(req))).await.unwrap();
+            let stream = tokio::io::join(agent_rd, LateErrorWriter { ok_writes, failed: false });
+            let end = handle_conn(stream, None, Guest::Wsl).await.unwrap();
+            drop(host);
+            end
+        };
+        assert_eq!(run(3).await, ConnEnd::Ran { delivered: true, host_left: false });
+        assert_eq!(run(2).await, ConnEnd::Ran { delivered: false, host_left: false });
+    }
+
     /// Whether a process with `needle` in its command line exists.
     fn running(needle: &str) -> bool {
         std::fs::read_dir("/proc").unwrap().flatten().any(|e| {
@@ -1596,9 +1705,10 @@ mod tests {
     }
 
     /// A command that leaves a process behind in its process group: only a
-    /// kill of the whole group stops it.
+    /// kill of the whole group stops it. The shell's own command line holds
+    /// `sleep $n`, so `sleep <marker>` matches the background process only.
     fn shell_with_background(marker: &str) -> sandbox_vm_protocol::ExecRequest {
-        let mut req = echo_exec(vec!["-c", &format!("sleep {marker} & sleep 30")]);
+        let mut req = echo_exec(vec!["-c", &format!("n={marker}; sleep $n & sleep 30")]);
         req.bwrap_path = "/bin/sh".into();
         req
     }
@@ -1616,6 +1726,25 @@ mod tests {
         .await;
         assert!(matches!(end.unwrap(), ConnEnd::Ran { host_left: true, .. }));
         assert!(gone_within("sleep 2741", Duration::from_secs(5)).await, "the background process was killed");
+    }
+
+    #[tokio::test]
+    async fn wsl_mode_sends_nothing_more_once_the_host_left() {
+        // The host stops writing but never reads: a command whose output
+        // fills the pipe must not keep the agent waiting to send it.
+        let (host_side, agent_side) = duplex(64 * 1024);
+        let agent = tokio::spawn(handle_conn(agent_side, None, Guest::Wsl));
+        let (_host_rd, mut host_wr) = tokio::io::split(host_side);
+        let mut req = echo_exec(vec!["-c", "head -c 1000000 /dev/zero; sleep 30"]);
+        req.bwrap_path = "/bin/sh".into();
+        host_wr.write_all(&encode(&Frame::Exec(req))).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        host_wr.shutdown().await.unwrap();
+        let end = tokio::time::timeout(Duration::from_secs(10), agent)
+            .await
+            .expect("the agent returned although nobody reads its output")
+            .expect("handler task");
+        assert_eq!(end.unwrap(), ConnEnd::Ran { delivered: false, host_left: true });
     }
 
     #[tokio::test]
@@ -1637,6 +1766,7 @@ mod tests {
         assert_eq!(code(Ok(ConnEnd::NoRequest)), cli::EXIT_OK);
         assert_eq!(code(Ok(ConnEnd::Ran { delivered: true, host_left: false })), cli::EXIT_OK);
         for end in [
+            ConnEnd::CutOffRequest,
             ConnEnd::BadFrame,
             ConnEnd::Refused,
             ConnEnd::Ran { delivered: false, host_left: false },

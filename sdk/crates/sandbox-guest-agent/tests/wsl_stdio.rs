@@ -27,6 +27,8 @@ const AGENT: &str = env!("CARGO_BIN_EXE_txresbench-sandbox-agent");
 const SQUASHFUSE: &str = "/usr/bin/squashfuse";
 const ARTIFACTS_ROOT: &str = "/tmp/txresbench-artifacts-out";
 const WAIT: Duration = Duration::from_secs(30);
+/// Set by `sdk/scripts/test-guest-agent-linux.sh` in its throwaway container.
+const E2E_CONTAINER_ENV: &str = "TXR_GUEST_AGENT_E2E_CONTAINER";
 
 // ---- without root -------------------------------------------------------
 
@@ -70,13 +72,10 @@ fn pipe_selftest_echoes_every_byte_and_exits_0() {
         .expect("start the agent");
     let mut stdin = child.stdin.take().unwrap();
     let input = data.clone();
-    let writer = std::thread::spawn(move || {
-        stdin.write_all(&input).unwrap();
-    });
-    let mut echoed = Vec::new();
-    child.stdout.take().unwrap().read_to_end(&mut echoed).unwrap();
-    writer.join().unwrap();
-    let status = child.wait().unwrap();
+    let writer = std::thread::spawn(move || stdin.write_all(&input));
+    let echoed = all_chunks(&chunks_in_background(child.stdout.take().unwrap()));
+    let status = wait_exit(&mut child);
+    writer.join().unwrap().expect("the agent read all of its input");
     assert_eq!(status.code(), Some(0));
     assert!(
         echoed == data,
@@ -84,6 +83,56 @@ fn pipe_selftest_echoes_every_byte_and_exits_0() {
         echoed.len(),
         data.len()
     );
+}
+
+#[test]
+fn pipe_selftest_works_over_non_blocking_pipes() {
+    // wsl.exe may hand the agent non-blocking pipes; the self-test must still
+    // copy everything, not fail on the first empty read.
+    let (agent_in, host_out) = non_blocking_pipe();
+    let (host_in, agent_out) = non_blocking_pipe();
+    make_blocking(&host_out);
+    make_blocking(&host_in);
+    let mut child = Command::new(AGENT)
+        .arg("--pipe-selftest")
+        .stdin(Stdio::from(agent_in))
+        .stdout(Stdio::from(agent_out))
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start the agent");
+    let stderr = read_to_end_in_background(child.stderr.take().unwrap());
+    let echoed = chunks_in_background(std::fs::File::from(host_in));
+    // Nothing to read at first: a non-blocking read would fail right away.
+    std::thread::sleep(Duration::from_millis(300));
+    let mut to_agent = std::fs::File::from(host_out);
+    to_agent.write_all(b"over non-blocking pipes").unwrap();
+    drop(to_agent);
+    let echoed = all_chunks(&echoed);
+    let status = wait_exit(&mut child);
+    let stderr = stderr_after_exit(&stderr);
+    assert_eq!(status.code(), Some(0), "{stderr}");
+    assert_eq!(echoed, b"over non-blocking pipes");
+}
+
+#[test]
+fn a_closed_stderr_does_not_change_the_exit_code() {
+    // The app's wsl.exe gone: printing the reason fails, the exit code stays
+    // the contract's (2 bad arguments, 3 setup) instead of a panic's 101.
+    for (args, want) in [
+        (&["--bogus"][..], 2),
+        (&["--stdio", "--base", "/nonexistent/base.sqfs"], 3),
+    ] {
+        let (read_end, write_end) = non_blocking_pipe();
+        drop(read_end);
+        let mut child = Command::new(AGENT)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::from(write_end))
+            .spawn()
+            .expect("start the agent");
+        assert_eq!(wait_exit(&mut child).code(), Some(want), "{args:?}");
+    }
 }
 
 #[test]
@@ -121,6 +170,12 @@ impl Fixture {
             unsafe { libc::geteuid() },
             0,
             "the e2e tests need root (see the module doc)"
+        );
+        // They make `/` shared and add directories at `/`: only in the
+        // throwaway container the script starts, never on a real system.
+        assert!(
+            std::env::var_os(E2E_CONTAINER_ENV).is_some(),
+            "the e2e tests change this system's root mount; run them with sdk/scripts/test-guest-agent-linux.sh (it sets {E2E_CONTAINER_ENV})"
         );
         // The distro's mounts may propagate (shared): make this namespace's
         // shared too, so a mount that escaped the agent's namespace shows here.
@@ -247,21 +302,7 @@ impl Agent {
             .stderr(Stdio::piped())
             .spawn()
             .expect("start the agent");
-        let mut stdout = child.stdout.take().unwrap();
-        let (tx, out) = mpsc::channel();
-        std::thread::spawn(move || {
-            let mut buf = vec![0u8; 64 * 1024];
-            loop {
-                match stdout.read(&mut buf) {
-                    Ok(0) | Err(_) => return,
-                    Ok(n) => {
-                        if tx.send(buf[..n].to_vec()).is_err() {
-                            return;
-                        }
-                    }
-                }
-            }
-        });
+        let out = chunks_in_background(child.stdout.take().unwrap());
         let stderr = read_to_end_in_background(child.stderr.take().unwrap());
         let stdin = child.stdin.take();
         Agent {
@@ -339,6 +380,75 @@ impl Agent {
         self.decoder.feed(&rest);
         let stderr = stderr_after_exit(&self.stderr);
         (status.code(), rest, stderr)
+    }
+}
+
+/// A pipe (read end, write end), non-blocking on both ends.
+fn non_blocking_pipe() -> (std::os::fd::OwnedFd, std::os::fd::OwnedFd) {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    let mut fds = [0; 2];
+    assert_eq!(
+        unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) },
+        0
+    );
+    unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) }
+}
+
+fn make_blocking(fd: &std::os::fd::OwnedFd) {
+    use std::os::fd::AsRawFd;
+    let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+    assert_eq!(
+        unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags & !libc::O_NONBLOCK) },
+        0
+    );
+}
+
+/// Read a child's pipe on a thread; the chunks arrive on the channel, which
+/// closes at the pipe's end, so a test can wait with a deadline.
+fn chunks_in_background(mut pipe: impl Read + Send + 'static) -> mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            match pipe.read(&mut buf) {
+                Ok(0) | Err(_) => return,
+                Ok(n) => {
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+    rx
+}
+
+/// Everything until the pipe's end; fails after `WAIT` instead of hanging.
+fn all_chunks(chunks: &mpsc::Receiver<Vec<u8>>) -> Vec<u8> {
+    let deadline = Instant::now() + WAIT;
+    let mut all = Vec::new();
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match chunks.recv_timeout(left) {
+            Ok(chunk) => all.extend_from_slice(&chunk),
+            Err(mpsc::RecvTimeoutError::Disconnected) => return all,
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!("the pipe did not end within {WAIT:?}"),
+        }
+    }
+}
+
+/// The child's exit; fails (and kills it) after `WAIT` instead of hanging.
+fn wait_exit(child: &mut Child) -> std::process::ExitStatus {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            panic!("the agent did not exit within {WAIT:?}");
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
 }
 
@@ -827,7 +937,9 @@ fn e2e_stdin_closing_kills_the_command_s_whole_process_group() {
     // only by killing the process group.
     let mut req = exec_request("unused");
     req.bwrap_path = "/bin/sh".into();
-    req.argv = vec!["-c".into(), "sleep 3001 & sleep 3002".into()];
+    // sh's own command line holds `sleep $n`: `sleep 3001` matches only the
+    // background process, so the test waits until it really exists.
+    req.argv = vec!["-c".into(), "n=3001; sleep $n & sleep 3002".into()];
     req.seccomp_fd = None;
     req.progress = false;
     stdin_closed_mid_command(req, "sleep 3001");
@@ -887,28 +999,12 @@ fn e2e_a_missing_input_exits_3_before_anything_is_mounted() {
 #[test]
 #[ignore = "needs root in a privileged container: sdk/scripts/test-guest-agent-linux.sh"]
 fn e2e_non_blocking_stdin_and_stdout_still_carry_the_exchange() {
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
     let fx = Fixture::new();
     // Two pipes, non-blocking on both ends; ours are made blocking again.
-    let pipe = || {
-        let mut fds = [0; 2];
-        assert_eq!(
-            unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) },
-            0
-        );
-        unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) }
-    };
-    let blocking = |fd: &OwnedFd| {
-        let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
-        assert_eq!(
-            unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags & !libc::O_NONBLOCK) },
-            0
-        );
-    };
-    let (agent_in, host_out) = pipe();
-    let (host_in, agent_out) = pipe();
-    blocking(&host_out);
-    blocking(&host_in);
+    let (agent_in, host_out) = non_blocking_pipe();
+    let (host_in, agent_out) = non_blocking_pipe();
+    make_blocking(&host_out);
+    make_blocking(&host_in);
     let mut child = Command::new(AGENT)
         .args(fx.args())
         .stdin(Stdio::from(agent_in))
@@ -918,7 +1014,7 @@ fn e2e_non_blocking_stdin_and_stdout_still_carry_the_exchange() {
         .expect("start the agent");
     let stderr = read_to_end_in_background(child.stderr.take().unwrap());
     let mut to_agent = std::fs::File::from(host_out);
-    let mut from_agent = std::fs::File::from(host_in);
+    let from_agent = chunks_in_background(std::fs::File::from(host_in));
     // Nothing to read at first: a non-blocking read would fail right away.
     std::thread::sleep(Duration::from_millis(300));
     let mut req = exec_request("unused");
@@ -929,17 +1025,21 @@ fn e2e_non_blocking_stdin_and_stdout_still_carry_the_exchange() {
     to_agent.write_all(&encode(&Frame::Exec(req))).unwrap();
     let mut decoder = Decoder::new();
     let mut frames = Vec::new();
-    let mut buf = [0u8; 4096];
+    let deadline = Instant::now() + WAIT;
     while !frames.contains(&Frame::ArtifactsDone) {
-        let n = from_agent.read(&mut buf).unwrap();
-        assert!(n > 0, "the agent closed early: {frames:?}");
-        decoder.feed(&buf[..n]);
+        let left = deadline.saturating_duration_since(Instant::now());
+        let chunk = match from_agent.recv_timeout(left) {
+            Ok(chunk) => chunk,
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!("the agent closed early: {frames:?}"),
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!("no ArtifactsDone within {WAIT:?}: {frames:?}"),
+        };
+        decoder.feed(&chunk);
         while let Some(f) = decoder.next_frame().unwrap() {
             frames.push(f);
         }
     }
     drop(to_agent);
-    let status = child.wait().unwrap();
+    let status = wait_exit(&mut child);
     let stderr = stderr_after_exit(&stderr);
     assert_eq!(status.code(), Some(0), "{stderr}");
     assert_eq!(stdout_text(&frames, true), "over a non-blocking pipe\n");
