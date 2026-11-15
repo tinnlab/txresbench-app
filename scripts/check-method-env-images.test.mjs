@@ -68,6 +68,14 @@
 //            accepts only 127.0.0.1:<port> / [::1]:<port>, and then every
 //            oras call is plain HTTP to that host with no login and no cosign
 //            (stub oras/cosign, no network).
+//   TEST-15  one package for every layer and one for both bases: the writer
+//            emits `oci_ref` = the package and the env (base) in the tag;
+//            records staged before 0.4.0 (one package per method / base)
+//            assemble to the SAME manifest bytes and are published at the
+//            new address, and a record with any other address is refused;
+//            the guard refuses the old addresses, a tag of another entry, an
+//            over-long tag and two entries sharing a tag; the publisher
+//            refuses an entry or base that is not in the one-package form.
 //   TEST-12  the layer cover (`closed_cover`) on small base/method trees: a
 //            method's Python and R packages under /opt/txr-layer are the ONE
 //            entry /opt/txr-layer (beside /code), including a package the base
@@ -94,6 +102,10 @@ const GUARD = path.join(SCRIPTS_DIR, 'check-method-env-images.sh');
 const GENERATOR = path.join(SCRIPTS_DIR, 'generate-method-env-images.py');
 const PUBLISHER = path.join(SCRIPTS_DIR, 'publish-method-env-images.sh');
 const COMMITTED_MANIFEST = path.join(REPO, 'src-app/server/data/method-env-images.json');
+// The ONE package of every layer and the ONE package of both bases (the env
+// or base is in the tag), spelled independently of the generator.
+const LAYER_PACKAGE = 'ghcr.io/tinnlab/txr-method-env-layers';
+const BASE_PACKAGE = 'ghcr.io/tinnlab/txresbench-env';
 
 const TMPROOT = process.env.TMPDIR || os.tmpdir();
 const tmpDirs = [];
@@ -134,8 +146,8 @@ const RECORD_A = {
   method_version: '2.0.0',
   language: 'Python',
   arch: 'amd64',
-  oci_ref: 'ghcr.io/tinnlab/txr-method-env-layers/fixture-a',
-  tag: '2.0.0-amd64',
+  oci_ref: LAYER_PACKAGE,
+  tag: 'fixture-a-2.0.0-amd64',
   source_revision: REVISION,
   base_ref: 'ghcr.io/tinnlab/txresbench-base-py:2.0',
   base_digest: 'sha256:' + 'ab'.repeat(32),
@@ -157,7 +169,7 @@ const RECORD_B = {
   env_id: 'fixture-b',
   method_id: 'fixture-b',
   language: 'R',
-  oci_ref: 'ghcr.io/tinnlab/txr-method-env-layers/fixture-b',
+  tag: 'fixture-b-2.0.0-amd64',
   base_ref: 'ghcr.io/tinnlab/txresbench-base-r:2.0',
   layer_sha256: 'a07cd921df4d1ed80a6d0190210cedbfc4d6e09aaf433947b28e3f8f972057ea',
   wrapper_code_sha256: 'be460acb0ede00fcef1f12b19d837048ab4648d0d6f2920677be2b667a4233fb',
@@ -282,8 +294,8 @@ function stagedBaseRecord(staging, baseId, arch, root, overrides = {}) {
     base_id: baseId,
     arch,
     contract: '2.0',
-    oci_ref: `ghcr.io/tinnlab/txresbench-env/${baseId}`,
-    tag: `2.0-${arch}-${sha.slice(0, 12)}`,
+    oci_ref: BASE_PACKAGE,
+    tag: `${baseId}-2.0-${arch}-${sha.slice(0, 12)}`,
     base_file: 'base.squashfs',
     squashfs_sha256: sha,
     size_bytes: bytes.length,
@@ -347,8 +359,7 @@ const RECORD_D = {
   method_id: 'fixture-d',
   method_version: '1.5.0',
   arch: 'arm64',
-  oci_ref: 'ghcr.io/tinnlab/txr-method-env-layers/fixture-d',
-  tag: '1.5.0-arm64',
+  tag: 'fixture-d-1.5.0-arm64',
   wrapper_code_sha256: 'c4f0c7861fd6f6d66b2a90c8e35fc787a49e85bfef2c35d7b7270fd5c89cda25',
 };
 const INDEX_FULL = {
@@ -757,6 +768,8 @@ test('TEST-9e the full stubbed sequence publishes and verifies the digest', (t) 
   const entry = m.envs[0];
   const pyBase = m.bases.find((b) => b.base_id === 'base-py' && b.arch === 'amd64');
   const baseRef = `${pyBase.oci_ref}:${pyBase.tag}`;
+  assert.equal(entry.tag, 'fixture-a-2.0.0-amd64');
+  assert.equal(baseRef, `${BASE_PACKAGE}:base-py-2.0-amd64-${pyBase.squashfs_sha256.slice(0, 12)}`);
   const { dir: stubDir, log, env } = makeStubs(entry.digest, { [baseRef]: pyBase.digest });
   t.after(() => fs.rmSync(stubDir, { recursive: true, force: true }));
   const r = publisher([
@@ -773,13 +786,13 @@ test('TEST-9e the full stubbed sequence publishes and verifies the digest', (t) 
   const c = calls(log);
   assert.deepEqual(c, [
     `oras login ghcr.io -u stub-user --password-stdin`,
-    `oras resolve ghcr.io/tinnlab/txr-method-env-layers/fixture-a:${entry.tag}`,
+    `oras resolve ${LAYER_PACKAGE}:fixture-a-2.0.0-amd64`,
     `oras resolve ${baseRef}`,
-    `oras blob push ghcr.io/tinnlab/txr-method-env-layers/fixture-a layer.squashfs`,
-    `oras blob push ghcr.io/tinnlab/txr-method-env-layers/fixture-a ${path.join(staging, 'publish', 'empty-config.json')}`,
-    `oras manifest push ghcr.io/tinnlab/txr-method-env-layers/fixture-a:${entry.tag} ${path.join(staging, 'layers', 'fixture-a-amd64', 'oci-manifest.json')}`,
-    `oras resolve ghcr.io/tinnlab/txr-method-env-layers/fixture-a:${entry.tag}`,
-    `cosign sign --yes ghcr.io/tinnlab/txr-method-env-layers/fixture-a@${entry.digest}`,
+    `oras blob push ${LAYER_PACKAGE} layer.squashfs`,
+    `oras blob push ${LAYER_PACKAGE} ${path.join(staging, 'publish', 'empty-config.json')}`,
+    `oras manifest push ${LAYER_PACKAGE}:fixture-a-2.0.0-amd64 ${path.join(staging, 'layers', 'fixture-a-amd64', 'oci-manifest.json')}`,
+    `oras resolve ${LAYER_PACKAGE}:fixture-a-2.0.0-amd64`,
+    `cosign sign --yes ${LAYER_PACKAGE}@${entry.digest}`,
   ], `the publish sequence must be login → resolve → base resolve → blob → blob → manifest → resolve → sign:\n${c.join('\n')}`);
 });
 
@@ -814,12 +827,12 @@ test('TEST-10 the full-generation run emits exactly one entry per runnable metho
   const pairs = m.envs.map((e) => `${e.env_id}|${e.arch}`);
   assert.equal(new Set(pairs).size, pairs.length, 'no duplicate (env_id, arch)');
   for (const e of m.envs) {
-    assert.match(e.tag, new RegExp(`^${e.method_version}-(amd64|arm64)$`),
-      `${e.env_id}: per-arch tag <version>-<arch> (DEC-2), got ${e.tag}`);
+    assert.match(e.tag, new RegExp(`^${e.env_id}-${e.method_version}-(amd64|arm64)$`),
+      `${e.env_id}: per-arch tag <env_id>-<version>-<arch> (DEC-2), got ${e.tag}`);
   }
   const d = m.envs.find((e) => e.env_id === 'fixture-d');
   assert.equal(d.arch, 'arm64');
-  assert.equal(d.tag, '1.5.0-arm64');
+  assert.equal(d.tag, 'fixture-d-1.5.0-arm64');
   // deterministic order (DEC-15): strict (env_id, arch) ascending.
   const sorted = [...m.envs].sort((x, y) => {
     if (x.env_id !== y.env_id) return x.env_id < y.env_id ? -1 : 1;
@@ -841,8 +854,7 @@ test('TEST-10 the full-generation run emits exactly one entry per runnable metho
     env_id: 'fixture-c',
     method_id: 'fixture-c',
     method_version: '1.0.0',
-    oci_ref: 'ghcr.io/tinnlab/txr-method-env-layers/fixture-c',
-    tag: '1.0.0-amd64',
+    tag: 'fixture-c-1.0.0-amd64',
     layer_sha256: createHash('sha256').update(cBytes).digest('hex'),
     size_bytes: cBytes.length,
   }, null, 2));
@@ -869,7 +881,7 @@ test('TEST-11 every entry carries the provenance triplet and the verbatim licenc
     assert.match(e.digest, /^sha256:[0-9a-f]{64}$/);
     assert.match(e.base_digest, /^sha256:[0-9a-f]{64}$/);
     assert.match(e.layer_sha256, /^[0-9a-f]{64}$/);
-    assert.equal(e.oci_ref, `ghcr.io/tinnlab/txr-method-env-layers/${e.env_id}`);
+    assert.equal(e.oci_ref, LAYER_PACKAGE);
     assert.equal(e.contract, indexOf.get(e.env_id).contract);
     // the licence reproduced VERBATIM from method.json at generation time.
     const mj = JSON.parse(fs.readFileSync(
@@ -933,8 +945,7 @@ function verifyFixture({ withRun = true } = {}) {
     env_id: id,
     method_id: id,
     method_version: '1.0.0',
-    oci_ref: 'ghcr.io/tinnlab/txr-method-env-layers/fixture-v',
-    tag: '1.0.0-amd64',
+    tag: 'fixture-v-1.0.0-amd64',
   }, root, 'run.py', { withRun });
   stageFixtureBase(base, staging, 'base-py', 'amd64');
   const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', manifestPath]);
@@ -1160,7 +1171,8 @@ test('TEST-13a the writer emits bases and stages each base\'s exact OCI manifest
     assert.equal(bytes.toString('utf8'), expectedBaseOciBytes(rec), 'the pinned construction');
     assert.equal(b.digest, 'sha256:' + createHash('sha256').update(bytes).digest('hex'));
     assert.equal(b.squashfs_sha256, rec.squashfs_sha256);
-    assert.equal(b.tag, `2.0-${b.arch}-${rec.squashfs_sha256.slice(0, 12)}`);
+    assert.equal(b.oci_ref, BASE_PACKAGE);
+    assert.equal(b.tag, `${b.base_id}-2.0-${b.arch}-${rec.squashfs_sha256.slice(0, 12)}`);
     assert.equal(b.source_digest, BASE_SOURCE_DIGEST);
   }
   // Every entry keeps its provenance fields and pairs with its base.
@@ -1220,8 +1232,8 @@ test('TEST-13f the guard refuses every broken bases rule, naming it', () => {
     ['an empty bases list', (m) => { m.bases = []; }, /no base-py-amd64 record in bases/],
     ['an entry built on another image', (m) => { m.envs[0].base_digest = 'sha256:' + 'cd'.repeat(32); },
       /design §7 pairing/],
-    ['a tag with another hash', (m) => { m.bases[0].tag = '2.0-amd64-000000000000'; }, /tag/],
-    ['an oci_ref of another base', (m) => { m.bases[0].oci_ref = 'ghcr.io/tinnlab/txresbench-env/base-r'; },
+    ['a tag with another hash', (m) => { m.bases[0].tag = 'base-py-2.0-amd64-000000000000'; }, /tag/],
+    ['an oci_ref of another base', (m) => { m.bases[0].oci_ref = `${BASE_PACKAGE}/base-r`; },
       /oci_ref/],
     ['an unknown base id', (m) => { m.bases[0].base_id = 'base-x'; }, /base-x/],
     ['another contract', (m) => { m.bases[0].contract = '2.1'; }, /contract/],
@@ -1302,7 +1314,8 @@ test('TEST-13h one base rootfs packs to the same bytes every time', () => {
   const bytes = fs.readFileSync(path.join(dir, 'two', 'base.squashfs'));
   assert.equal(createHash('sha256').update(bytes).digest('hex'), second.record.squashfs_sha256);
   assert.equal(second.record.size_bytes, bytes.length);
-  assert.equal(second.record.tag, `2.0-amd64-${second.record.squashfs_sha256.slice(0, 12)}`);
+  assert.equal(second.record.oci_ref, BASE_PACKAGE);
+  assert.equal(second.record.tag, `base-py-2.0-amd64-${second.record.squashfs_sha256.slice(0, 12)}`);
   assert.equal(second.record.kind, 'base');
   assert.equal(second.record.source_digest, 'sha256:' + 'ab'.repeat(32));
   const rec = JSON.parse(fs.readFileSync(path.join(dir, 'two', 'artifact.json'), 'utf8'));
@@ -1650,4 +1663,239 @@ test('TEST-14i a loopback publish is plain HTTP to the loopback host, with no lo
   }
   assert.ok(c.includes(`oras resolve --plain-http ${local(`${b.oci_ref}:${b.tag}`)}`), 'the base-first check went to the loopback');
   assert.match(r.stdout, /SIGNING SKIPPED: loopback rehearsal/);
+});
+
+// ── TEST-15: one package for every layer, one for both bases ──────────────────
+
+/** Rewrite every staged record under `staging` to the address a generator
+ *  before 0.4.0 wrote (one package per method, one per base); every other
+ *  field and every staged file stays as it is. */
+function toLegacyRecords(staging) {
+  for (const name of fs.readdirSync(path.join(staging, 'layers'))) {
+    const p = path.join(staging, 'layers', name, 'artifact.json');
+    const r = JSON.parse(fs.readFileSync(p, 'utf8'));
+    fs.writeFileSync(p, JSON.stringify({
+      ...r, oci_ref: `${LAYER_PACKAGE}/${r.env_id}`, tag: `${r.method_version}-${r.arch}`,
+    }, null, 2));
+  }
+  for (const name of fs.readdirSync(path.join(staging, 'bases'))) {
+    const p = path.join(staging, 'bases', name, 'artifact.json');
+    const r = JSON.parse(fs.readFileSync(p, 'utf8'));
+    fs.writeFileSync(p, JSON.stringify({
+      ...r, oci_ref: `${BASE_PACKAGE}/${r.base_id}`,
+      tag: `${r.contract}-${r.arch}-${r.squashfs_sha256.slice(0, 12)}`,
+    }, null, 2));
+  }
+}
+
+function editRecord(file, fields) {
+  const r = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...r, ...fields }, null, 2));
+}
+
+/** Every staged oci-manifest.json, by its path under `staging`. */
+function stagedOciBytes(staging) {
+  const out = {};
+  for (const kind of ['layers', 'bases']) {
+    for (const name of fs.readdirSync(path.join(staging, kind))) {
+      const p = path.join(staging, kind, name, 'oci-manifest.json');
+      if (fs.existsSync(p)) out[`${kind}/${name}`] = fs.readFileSync(p, 'utf8');
+    }
+  }
+  return out;
+}
+
+test('TEST-15a the writer puts every layer in one package and both bases in one package', () => {
+  const { manifestPath } = fixtureFull();
+  const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  assert.deepEqual(m.envs.map((e) => [e.oci_ref, e.tag]), [
+    [LAYER_PACKAGE, 'fixture-a-2.0.0-amd64'],
+    [LAYER_PACKAGE, 'fixture-b-2.0.0-amd64'],
+    [LAYER_PACKAGE, 'fixture-d-1.5.0-arm64'],
+  ]);
+  for (const b of m.bases) {
+    assert.equal(b.oci_ref, BASE_PACKAGE);
+    assert.equal(b.tag, `${b.base_id}-${b.contract}-${b.arch}-${b.squashfs_sha256.slice(0, 12)}`);
+  }
+  assert.equal(m.generator_version, '0.4.0');
+});
+
+test('TEST-15b records staged before 0.4.0 assemble to the same manifest bytes', () => {
+  const { base, staging, methodsDir, manifestPath } = fixture();
+  const current = fs.readFileSync(manifestPath, 'utf8');
+  const currentOci = stagedOciBytes(staging);
+  toLegacyRecords(staging);
+  const rec = JSON.parse(fs.readFileSync(path.join(staging, 'layers', 'fixture-a-amd64', 'artifact.json'), 'utf8'));
+  assert.equal(rec.oci_ref, `${LAYER_PACKAGE}/fixture-a`, 'the record now carries the old form');
+  assert.equal(rec.tag, '2.0.0-amd64');
+  // Parity of the current-form manifest against the old-form records.
+  const check = gen(['--check', '--fixture', staging, '--methods-dir', methodsDir, '--manifest', manifestPath]);
+  assert.equal(check.status, 0, `${check.stderr}\n${check.stdout}`);
+  assert.match(check.stdout, /MANIFEST OK/);
+  // A fresh write from the old-form records: the same bytes, the same staged
+  // OCI manifest bytes (no address is in them), so the same digests.
+  const again = path.join(base, 'from-legacy.json');
+  const w = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', again]);
+  assert.equal(w.status, 0, w.stderr);
+  assert.equal(fs.readFileSync(again, 'utf8'), current);
+  assert.deepEqual(stagedOciBytes(staging), currentOci);
+  const g = guard(['--manifest', again, '--staging-dir', staging, '--methods-dir', methodsDir]);
+  assert.equal(g.status, 0, `${g.stderr}\n${g.stdout}`);
+});
+
+test('TEST-15c a staged record with any other address is refused, naming the record', () => {
+  const layer = (fx) => path.join(fx.staging, 'layers', 'fixture-a-amd64', 'artifact.json');
+  const pyBase = (fx) => path.join(fx.staging, 'bases', 'base-py-amd64', 'artifact.json');
+  const sha12 = (fx) => JSON.parse(fs.readFileSync(pyBase(fx), 'utf8')).squashfs_sha256.slice(0, 12);
+  const layerRefusal = /record fixture-a-amd64: record oci_ref\/tag/;
+  const baseRefusal = /base base-py-amd64: record oci_ref\/tag/;
+  const cases = [
+    ['the current package with the old tag',
+      (fx) => editRecord(layer(fx), { tag: '2.0.0-amd64' }), layerRefusal],
+    ['the old package with the current tag',
+      (fx) => editRecord(layer(fx), { oci_ref: `${LAYER_PACKAGE}/fixture-a` }), layerRefusal],
+    ['the old form of another method',
+      (fx) => editRecord(layer(fx), { oci_ref: `${LAYER_PACKAGE}/fixture-b`, tag: '2.0.0-amd64' }), layerRefusal],
+    ['the tag of another method',
+      (fx) => editRecord(layer(fx), { tag: 'fixture-b-2.0.0-amd64' }), layerRefusal],
+    ['the tag of another version',
+      (fx) => editRecord(layer(fx), { tag: 'fixture-a-2.0.1-amd64' }), layerRefusal],
+    ['the base package',
+      (fx) => editRecord(layer(fx), { oci_ref: BASE_PACKAGE }), layerRefusal],
+    ['a base with the old package and the current tag',
+      (fx) => editRecord(pyBase(fx), { oci_ref: `${BASE_PACKAGE}/base-py` }), baseRefusal],
+    ['a base with the old form of the other base',
+      (fx) => editRecord(pyBase(fx), { oci_ref: `${BASE_PACKAGE}/base-r`, tag: `2.0-amd64-${sha12(fx)}` }), baseRefusal],
+    ['a base with the tag of the other base',
+      (fx) => editRecord(pyBase(fx), { tag: `base-r-2.0-amd64-${sha12(fx)}` }), baseRefusal],
+    ['a base in the layer package',
+      (fx) => editRecord(pyBase(fx), { oci_ref: LAYER_PACKAGE }), baseRefusal],
+  ];
+  for (const [what, breakIt, re] of cases) {
+    const fx = fixture();
+    breakIt(fx);
+    const out = path.join(fx.base, 'must-not-write.json');
+    const r = gen(['--fixture', fx.staging, '--methods-dir', fx.methodsDir, '--manifest', out]);
+    assert.equal(r.status, 1, `${what}: ${r.stderr}\n${r.stdout}`);
+    assert.match(r.stderr, re, `${what}: ${r.stderr}`);
+    assert.ok(!fs.existsSync(out), `${what}: nothing is written`);
+  }
+});
+
+test('TEST-15d the guard refuses the old addresses, a tag of another entry and an over-long tag', () => {
+  const { manifestPath } = fixture();
+  const sha12 = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).bases[0].squashfs_sha256.slice(0, 12);
+  // A 117-character env id spells a 129-character tag (`-2.0.0-amd64` is 12).
+  const long = 'a'.repeat(117);
+  const cases = [
+    ['the old per-method package', (m) => { m.envs[0].oci_ref = `${LAYER_PACKAGE}/fixture-a`; }, /oci_ref/],
+    ['the old tag', (m) => { m.envs[0].tag = '2.0.0-amd64'; }, /tag/],
+    ['the tag of another method', (m) => { m.envs[0].tag = m.envs[1].tag; },
+      /tag 'fixture-b-2\.0\.0-amd64' != 'fixture-a-2\.0\.0-amd64'/],
+    ['the tag of another version', (m) => { m.envs[0].tag = 'fixture-a-2.0.1-amd64'; }, /tag/],
+    ['the tag of another arch', (m) => { m.envs[0].tag = 'fixture-a-2.0.0-arm64'; }, /tag/],
+    ['an entry in the base package', (m) => { m.envs[0].oci_ref = BASE_PACKAGE; }, /oci_ref/],
+    ['the old per-base package', (m) => { m.bases[0].oci_ref = `${BASE_PACKAGE}/base-py`; }, /oci_ref/],
+    ['the old base tag', (m) => { m.bases[0].tag = `2.0-amd64-${sha12}`; }, /tag/],
+    ['the tag of the other base', (m) => { m.bases[0].tag = `base-r-2.0-amd64-${sha12}`; },
+      /tag 'base-r-2\.0-amd64-[0-9a-f]{12}' != 'base-py-2\.0-amd64-/],
+    ['a base in the layer package', (m) => { m.bases[0].oci_ref = LAYER_PACKAGE; }, /oci_ref/],
+    ['a tag over 128 characters', (m) => {
+      Object.assign(m.envs[0], { env_id: long, method_id: long, tag: `${long}-2.0.0-amd64` });
+    }, /not a valid OCI tag/],
+  ];
+  for (const [what, mutate, re] of cases) {
+    const r = guard(['--manifest', withMutated(manifestPath, mutate)]);
+    assert.equal(r.status, 1, `${what} must be refused: ${r.stdout}`);
+    assert.match(r.stderr, re, `${what}: ${r.stderr}`);
+  }
+  // A 128-character tag is a valid OCI tag: the length rule is the OCI limit,
+  // nothing tighter.
+  const short = 'a'.repeat(116);
+  const ok = guard(['--manifest', withMutated(manifestPath, (m) => {
+    Object.assign(m.envs[0], { env_id: short, method_id: short, tag: `${short}-2.0.0-amd64` });
+  })]);
+  assert.equal(ok.status, 0, `${ok.stderr}\n${ok.stdout}`);
+});
+
+test('TEST-15e the guard refuses two entries that share a tag in the one package', () => {
+  // `fx` at 1.0.0-2.0.0 and `fx-1.0.0` at 2.0.0 both spell fx-1.0.0-2.0.0-amd64.
+  const { manifestPath } = fixture();
+  const p = withMutated(manifestPath, (m) => {
+    const a = m.envs[0];
+    m.envs = [
+      m.envs[1], // fixture-b sorts before fx
+      { ...a, env_id: 'fx', method_id: 'fx', method_version: '1.0.0-2.0.0', tag: 'fx-1.0.0-2.0.0-amd64' },
+      { ...a, env_id: 'fx-1.0.0', method_id: 'fx-1.0.0', method_version: '2.0.0', tag: 'fx-1.0.0-2.0.0-amd64' },
+    ];
+  });
+  const r = guard(['--manifest', p]);
+  assert.equal(r.status, 1, `${r.stdout}`);
+  assert.match(r.stderr, /envs\[2\] fx-1\.0\.0-amd64: tag 'fx-1\.0\.0-2\.0\.0-amd64' is also envs\[1\] fx-amd64's/);
+  // Without the second spelling the same manifest is accepted.
+  const one = withMutated(p, (m) => { m.envs.pop(); });
+  const ok = guard(['--manifest', one]);
+  assert.equal(ok.status, 0, `${ok.stderr}\n${ok.stdout}`);
+});
+
+test('TEST-15f the publisher publishes records staged before 0.4.0 at the one-package address', () => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  toLegacyRecords(staging);
+  const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const b = m.bases.find((x) => x.base_id === 'base-py');
+  const common = ['--dry-run', '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir];
+  const layer = publisher(['--env', 'fixture-a', ...common]);
+  assert.equal(layer.status, 0, `${layer.stderr}\n${layer.stdout}`);
+  assert.match(layer.stdout, new RegExp(
+    `record {4}: staged before 0\\.4\\.0 at ${LAYER_PACKAGE}/fixture-a:2\\.0\\.0-amd64; published at ${LAYER_PACKAGE}:fixture-a-2\\.0\\.0-amd64`));
+  assert.ok(layer.stdout.includes(`+ oras manifest push ${LAYER_PACKAGE}:fixture-a-2.0.0-amd64 `), layer.stdout);
+  assert.ok(layer.stdout.includes(`+ oras resolve ${BASE_PACKAGE}:${b.tag}`), layer.stdout);
+  const base = publisher(['--base', 'base-py', ...common]);
+  assert.equal(base.status, 0, `${base.stderr}\n${base.stdout}`);
+  assert.ok(base.stdout.includes(
+    `record    : staged before 0.4.0 at ${BASE_PACKAGE}/base-py:2.0-amd64-${b.squashfs_sha256.slice(0, 12)}; published at ${BASE_PACKAGE}:${b.tag}`),
+  base.stdout);
+  assert.ok(base.stdout.includes(`+ oras manifest push ${BASE_PACKAGE}:${b.tag} `), base.stdout);
+});
+
+test('TEST-15g the publisher refuses an address that is not the one-package form, before any push', (t) => {
+  const layerRec = (fx) => path.join(fx.staging, 'layers', 'fixture-a-amd64', 'artifact.json');
+  const baseRec = (fx) => path.join(fx.staging, 'bases', 'base-py-amd64', 'artifact.json');
+  const editManifest = (fx, fn) => {
+    const m = JSON.parse(fs.readFileSync(fx.manifestPath, 'utf8'));
+    fn(m);
+    fs.writeFileSync(fx.manifestPath, JSON.stringify(m, null, 2) + '\n');
+  };
+  const cases = [
+    ['--env', 'an entry in the old per-method package',
+      (fx) => editManifest(fx, (m) => { m.envs[0].oci_ref = `${LAYER_PACKAGE}/fixture-a`; }),
+      /entry oci_ref .* is not ghcr\.io\/tinnlab\/txr-method-env-layers \(the one layer package\)/],
+    ['--env', 'an entry with the tag of another method',
+      (fx) => editManifest(fx, (m) => { m.envs[0].tag = 'fixture-b-2.0.0-amd64'; }),
+      /entry tag fixture-b-2\.0\.0-amd64 is not fixture-a-2\.0\.0-amd64/],
+    ['--env', 'a record with the old form of another method',
+      (fx) => editRecord(layerRec(fx), { oci_ref: `${LAYER_PACKAGE}/fixture-b`, tag: '2.0.0-amd64' }),
+      /record oci_ref\/tag .*fixture-b:2\.0\.0-amd64 is neither entry/],
+    ['--base', 'a base in the old per-base package',
+      (fx) => editManifest(fx, (m) => { m.bases[0].oci_ref = `${BASE_PACKAGE}/base-py`; }),
+      /base oci_ref .* is not ghcr\.io\/tinnlab\/txresbench-env \(the one base package\)/],
+    ['--base', 'a base with the old tag',
+      (fx) => editManifest(fx, (m) => { m.bases[0].tag = m.bases[0].tag.replace(/^base-py-/, ''); }),
+      /base tag 2\.0-amd64-[0-9a-f]{12} is not base-py-2\.0-amd64-/],
+    ['--base', 'a base record of the other base',
+      (fx) => editRecord(baseRec(fx), { oci_ref: `${BASE_PACKAGE}/base-r` }),
+      /record oci_ref\/tag .*base-r:.* is neither manifest/],
+  ];
+  for (const [flag, what, breakIt, re] of cases) {
+    const fx = fixture();
+    breakIt(fx);
+    const stub = makeStubs('');
+    t.after(() => fs.rmSync(stub.dir, { recursive: true, force: true }));
+    const r = publisher([flag, flag === '--env' ? 'fixture-a' : 'base-py',
+      '--manifest', fx.manifestPath, '--staging-dir', fx.staging, '--methods-dir', fx.methodsDir,
+    ], { ...stub.env, ...CREDS });
+    assert.equal(r.status, 1, `${what}: ${r.stderr}\n${r.stdout}`);
+    assert.match(r.stderr, re, `${what}: ${r.stderr}`);
+    assert.ok(!fs.existsSync(stub.log) || calls(stub.log).length === 0, `${what}: no oras or cosign call`);
+  }
 });
