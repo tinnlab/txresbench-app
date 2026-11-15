@@ -12,12 +12,14 @@
 #                                        builds the guest agent as a static musl binary for <arch>
 #
 # The build images are pinned by the digest of each platform's own manifest. They are the linux/amd64 and
-# linux/arm64 entries of the multi-arch indexes
-#   alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-#   rust:1.90-alpine3.20@sha256:ef86f37c2819ebd1ecb1dbd7efda70c693cb013232688aa136a5a2f1e3b65e55
-# (pinning the per-platform manifest, not the index, lets one Docker image store hold both platforms).
+# linux/arm64 entries of the multi-arch indexes GUEST_ALPINE_INDEX and GUEST_RUST_INDEX below (pinning the
+# per-platform manifest, not the index, lets one Docker image store hold both platforms;
+# scripts/build-wsl-rootfs.docker.test.mjs checks the entries against the registry).
 # The apk package versions are not pinned: they come from the Alpine 3.20 repository at build time, and
 # each build records the versions it got.
+
+GUEST_ALPINE_INDEX=alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+GUEST_RUST_INDEX=rust:1.90-alpine3.20@sha256:ef86f37c2819ebd1ecb1dbd7efda70c693cb013232688aa136a5a2f1e3b65e55
 
 guest_arch_ok() {
   case "$1" in x86_64|aarch64) return 0 ;; *) return 1 ;; esac
@@ -63,21 +65,28 @@ guest_protocol_range() {
 #   <out-dir>/agent-build.txt            the toolchain and the linked Alpine package versions, one
 #                                        "name version" per line
 #
+# Only sdk/ is mounted, read-only: the build reads nothing else, and the repo's untracked files (a dev
+# config with secrets, say) stay out of a container whose crate build scripts have network. The two files
+# come back on the container's stdout, as a tar, so <out-dir> need not be shared with Docker.
+#
 # TXR_GUEST_AGENT_CARGO_CACHE=<prefix> keeps the cargo registry and target dir in the Docker volumes
-# <prefix>-registry and <prefix>-target between builds (for tests; the caller removes them). They are
-# mounted at the paths a build without them uses, so the binary does not depend on the cache.
+# <prefix>-registry and <prefix>-target between builds. It is for tests (the caller removes the volumes):
+# a release must not take its agent from a cache that outlives the build, so the WSL root's MANIFEST.json
+# records it and a Windows bundle refuses it (scripts/check-wsl-runtime.mjs). The volumes are mounted at
+# the paths a build without them uses, so the binary does not depend on the cache.
 guest_build_agent() {
   _root=$1 _arch=$2 _out=$3
   guest_arch_ok "$_arch" || { echo "guest_build_agent: unknown arch $_arch" >&2; return 1; }
   [ -d "$_out" ] || { echo "guest_build_agent: $_out is not a directory" >&2; return 1; }
   _triple=$_arch-unknown-linux-musl
   _rustflags_var=CARGO_TARGET_$(echo "$_triple" | tr 'a-z-' 'A-Z_')_RUSTFLAGS
-  set -- --rm --platform "$(guest_platform "$_arch")" -v "$_root:/work:ro" -v "$_out:/out" -w /work/sdk \
+  set -- --rm --init --platform "$(guest_platform "$_arch")" -v "$_root/sdk:/work/sdk:ro" -w /work/sdk \
     -e CARGO_TARGET_DIR=/tmp/cargo-target \
     -e "$_rustflags_var=-C target-feature=+crt-static" \
     -e LIBSECCOMP_LINK_TYPE=static -e LIBSECCOMP_LIB_PATH=/usr/lib \
     -e "GUEST_TRIPLE=$_triple"
   if [ -n "${TXR_GUEST_AGENT_CARGO_CACHE:-}" ]; then
+    echo "guest_build_agent: using the test cache volumes $TXR_GUEST_AGENT_CARGO_CACHE-registry and -target" >&2
     set -- "$@" -v "$TXR_GUEST_AGENT_CARGO_CACHE-registry:/usr/local/cargo/registry" \
       -v "$TXR_GUEST_AGENT_CARGO_CACHE-target:/tmp/cargo-target"
   fi
@@ -85,10 +94,19 @@ guest_build_agent() {
     set -e
     apk add -q libseccomp-dev libseccomp-static musl-dev build-base pkgconf >/dev/null
     cargo build --release --locked --target "$GUEST_TRIPLE" -p sandbox-guest-agent 1>&2
-    cp /tmp/cargo-target/$GUEST_TRIPLE/release/txresbench-sandbox-agent /out/txresbench-sandbox-agent
+    mkdir /tmp/agent-out
+    cp /tmp/cargo-target/$GUEST_TRIPLE/release/txresbench-sandbox-agent /tmp/agent-out/
     { rustc -V | cut -d" " -f1-2
       for p in libseccomp-static musl-dev; do
         echo "$p $(apk info -e -v "$p" | sed "s/^$p-//")"
-      done; } > /out/agent-build.txt' >&2 || return 1
-  [ -s "$_out/txresbench-sandbox-agent" ] || { echo "guest_build_agent: the build produced no binary" >&2; return 1; }
+      done; } > /tmp/agent-out/agent-build.txt
+    tar -C /tmp/agent-out -cf - txresbench-sandbox-agent agent-build.txt' > "$_out/agent.tar" || return 1
+  tar -xf "$_out/agent.tar" -C "$_out" && rm -f "$_out/agent.tar" || {
+    echo "guest_build_agent: cannot unpack the build's output" >&2
+    return 1
+  }
+  [ -s "$_out/txresbench-sandbox-agent" ] && [ -s "$_out/agent-build.txt" ] || {
+    echo "guest_build_agent: the build produced no binary" >&2
+    return 1
+  }
 }

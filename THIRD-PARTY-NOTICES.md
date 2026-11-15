@@ -1011,7 +1011,7 @@ Licence texts: GPL-2.0 https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt, LG
 
 The Windows app ships `txresbench-wsl.tar` (built by `scripts/build-wsl-rootfs.sh`), the root file system of the app's own WSL 2 distribution, in which each method runs. The app imports it with `wsl --import` on first use; its `MANIFEST.json` records the exact package versions, their licences and the archive's checksum. The Linux and macOS builds do not include it.
 
-- **The guest agent** — built from this repository's `sdk/crates/sandbox-guest-agent`. It statically links musl (MIT) and libseccomp (LGPL-2.1-or-later; its source is linked below and the agent's source is in this repository); its Rust crates (tokio, tokio-vsock, vsock, nix, tracing, serde and their dependencies) are under MIT and/or Apache-2.0 terms.
+- **The guest agent** — built from this repository's `sdk/crates/sandbox-guest-agent`. It statically links musl (MIT) and libseccomp (LGPL-2.1-or-later). libseccomp is Alpine Linux 3.20's `libseccomp-static`; each build records its version, and `musl-dev`'s, in `MANIFEST.json` under `build.agent_toolchain`. libseccomp's source: https://github.com/seccomp/libseccomp and, as Alpine builds it, https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.20-stable/main/libseccomp; the agent's source is in this repository. Its Rust crates (tokio, tokio-vsock, vsock, nix, tracing, serde and their dependencies) are under MIT and/or Apache-2.0 terms.
 - **The userland: Alpine Linux 3.20 packages**, each under its own licence; sources: https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.20-stable
   - alpine-baselayout, alpine-baselayout-data — GPL-2.0-only
   - alpine-keys — MIT
@@ -1027,7 +1027,7 @@ The Windows app ships `txresbench-wsl.tar` (built by `scripts/build-wsl-rootfs.s
   - zlib — Zlib
   - zstd-libs — BSD-3-Clause OR GPL-2.0-or-later
 
-Licence texts: GPL-2.0 https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt, LGPL-2.1 https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt, LGPL-2.0 https://www.gnu.org/licenses/old-licenses/lgpl-2.0.txt, BSD-2-Clause https://opensource.org/license/bsd-2-clause, BSD-3-Clause https://opensource.org/license/bsd-3-clause, 0BSD https://opensource.org/license/0bsd.
+Licence texts: GPL-2.0 https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt, LGPL-2.1 https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt, LGPL-2.0 https://www.gnu.org/licenses/old-licenses/lgpl-2.0.txt, BSD-2-Clause https://opensource.org/license/bsd-2-clause, BSD-3-Clause https://opensource.org/license/bsd-3-clause, 0BSD https://opensource.org/license/0bsd, Zlib https://opensource.org/license/zlib.
 
 ## Licence texts
 

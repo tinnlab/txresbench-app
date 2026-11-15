@@ -1,5 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBundleCommand": "npm run check-wsl-runtime"
+  },
   "bundle": {
     "resources": ["resources/pretrained-bundled", "resources/wsl-runtime"]
   }
