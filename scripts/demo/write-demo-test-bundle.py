@@ -87,9 +87,16 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     train_patients = [row[0] for row in read_table(os.path.join(args.assets, "patients.csv"))[1]]
-    predict_patients = [
-        row[0] for row in read_table(os.path.join(args.assets, "predict-measurements.csv"))[1]
-    ]
+    # The recorded prediction tables are chance-shaped, one row PER PATIENT
+    # (the engine's own chance column): the predict table's value rows are
+    # many per patient, so the patient list is the deduplicated first-seen
+    # order (ITEM-8's replay-equality proof caught the 269 value rows being
+    # recorded as 269 patient rows).
+    predict_patients = list(
+        dict.fromkeys(
+            row[0] for row in read_table(os.path.join(args.assets, "predict-measurements.csv"))[1]
+        )
+    )
 
     write_prediction_table(
         os.path.join(args.out, "train", CONFIG_ID, f"{METHOD_ID}.csv"),
