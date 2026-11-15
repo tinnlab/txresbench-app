@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// scripts/check-wsl-runtime.mjs — run before a Windows bundle is made (tauri.windows.conf.json
-// build.beforeBundleCommand, through `npm run check-wsl-runtime`). It refuses to bundle a WSL runtime the
+// scripts/verify-wsl-runtime.mjs — run before a Windows bundle is made (tauri.windows.conf.json
+// build.beforeBundleCommand, through `npm run verify-wsl-runtime`). It refuses to bundle a WSL runtime the
 // app would refuse at import, or one that a test, a dirty tree or another tree produced:
 //   - the directory holds txresbench-wsl.tar and MANIFEST.json (scripts/build-wsl-rootfs.sh writes both);
 //   - the tar's sha256 is the MANIFEST's, and the tar is a whole number of 512-byte tar blocks;
@@ -15,7 +15,10 @@
 //       file among them. The resource directory is ignored by git, so a runtime built from an older tree
 //       stays there across checkouts and pulls; this is what refuses it once sdk/ or the build changes.
 //
-//   node scripts/check-wsl-runtime.mjs [<dir>] [--arch x86_64|aarch64]
+// Not a scripts/check-*: those are the repo's pinned architectural guards (scripts/check-guard-integrity.sh),
+// which this, a check of a build's output, is not.
+//
+//   node scripts/verify-wsl-runtime.mjs [<dir>] [--arch x86_64|aarch64]
 //     <dir> defaults to src-app/desktop/tauri/resources/wsl-runtime
 // Exit 0 when the pair can be bundled, 1 with the reason otherwise, 2 on bad arguments.
 
@@ -36,11 +39,11 @@ const PROTOCOL_SRC = 'sdk/crates/sandbox-vm-protocol/src/lib.rs';
 const BUILD_INPUTS = ['sdk', 'scripts/build-wsl-rootfs.sh', 'scripts/guest-root-common.sh', 'THIRD-PARTY-NOTICES.md'];
 
 function fail(msg) {
-  console.error(`check-wsl-runtime: ${msg}`);
+  console.error(`verify-wsl-runtime: ${msg}`);
   process.exit(1);
 }
 function usage() {
-  console.error('usage: node scripts/check-wsl-runtime.mjs [<dir>] [--arch x86_64|aarch64]');
+  console.error('usage: node scripts/verify-wsl-runtime.mjs [<dir>] [--arch x86_64|aarch64]');
   process.exit(2);
 }
 function git(...args) {
@@ -139,4 +142,4 @@ if (process.env.TXR_WSL_RUNTIME_ALLOW_DEV !== '1') {
   }
 }
 
-console.log(`check-wsl-runtime: ${TARBALL} ${m.version} (${m.arch}, sha256 ${sha}) can be bundled`);
+console.log(`verify-wsl-runtime: ${TARBALL} ${m.version} (${m.arch}, sha256 ${sha}) can be bundled`);

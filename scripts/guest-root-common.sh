@@ -75,7 +75,7 @@ guest_protocol_range() {
 # <prefix>-target between builds. It is for tests (the caller removes the volumes): a release must not
 # take its agent from a cache that outlives the build. Only scripts/build-wsl-rootfs.sh passes one (from
 # TXR_GUEST_AGENT_CARGO_CACHE), and it records it in the WSL root's MANIFEST.json, where a Windows bundle
-# refuses it (scripts/check-wsl-runtime.mjs); the macOS guest root never builds from a cache. The volumes
+# refuses it (scripts/verify-wsl-runtime.mjs); the macOS guest root never builds from a cache. The volumes
 # are mounted at the paths a build without them uses, so the binary does not depend on the cache.
 guest_build_agent() {
   _root=$1 _arch=$2 _out=$3 _cache=${4:-}
