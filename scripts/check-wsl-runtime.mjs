@@ -30,7 +30,9 @@ const TARBALL = 'txresbench-wsl.tar';
 const ARCHES = ['x86_64', 'aarch64'];
 const PROTOCOL_SRC = 'sdk/crates/sandbox-vm-protocol/src/lib.rs';
 // Everything scripts/build-wsl-rootfs.sh reads from the tree (scripts/build-wsl-rootfs.test.mjs checks
-// this list against the script and its helper).
+// this list against the script and its helper). All of sdk/: cargo reads the workspace's manifests
+// wherever they are, and a narrower list could miss one; the cost is a rebuild after a change to sdk/ the
+// agent does not use.
 const BUILD_INPUTS = ['sdk', 'scripts/build-wsl-rootfs.sh', 'scripts/guest-root-common.sh', 'THIRD-PARTY-NOTICES.md'];
 
 function fail(msg) {
@@ -112,10 +114,15 @@ if (process.env.TXR_WSL_RUNTIME_ALLOW_DEV !== '1') {
   if (typeof commit !== 'string' || !/^[0-9a-f]{40}$/.test(commit)) {
     fail(`the runtime was built from ${JSON.stringify(commit)}, not a committed tree; rebuild from a clean checkout ${dev}`);
   }
-  const known = git('cat-file', '-e', `${commit}^{commit}`);
-  if (known.status !== 0) {
-    fail(`the runtime was built from commit ${commit}, which this checkout does not have` +
-      `${known.error ? ` (git: ${known.error.message})` : ''}; ${rebuild} ${dev}`);
+  // git must read this checkout first: no git, no .git, or a checkout git refuses (safe.directory) is
+  // not a missing commit, and a rebuild would not help
+  const repo = git('rev-parse', '--git-dir');
+  if (repo.status !== 0) {
+    fail(`cannot read ${REPO} with git, to compare it with the runtime's commit ${commit}: ` +
+      `${repo.error ? repo.error.message : repo.stderr.trim()} ${dev}`);
+  }
+  if (git('cat-file', '-e', `${commit}^{commit}`).status !== 0) {
+    fail(`the runtime was built from commit ${commit}, which this checkout does not have; ${rebuild} ${dev}`);
   }
   const changed = git('diff', '--quiet', '--no-ext-diff', '--no-textconv', commit, '--', ...BUILD_INPUTS);
   if (changed.status === 1) {

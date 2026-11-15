@@ -666,7 +666,7 @@ test('the bundle check takes a runtime from an older commit whose build inputs a
   assert.equal(checkRun([dir, '--arch', 'x86_64'], { TXR_WSL_RUNTIME_ALLOW_DEV: '1' }, t).status, 0);
 });
 
-test('the bundle check refuses a runtime from a commit this checkout lacks, or with no git to compare', () => {
+test('the bundle check refuses a runtime from a commit this checkout lacks, or with no git or no checkout to compare', () => {
   const foreign = runtimeDir({ edit: (m) => ({ ...m, build: { ...m.build, source_commit: 'b'.repeat(40) } }) });
   const r = checkRun([foreign, '--arch', 'x86_64']);
   assert.equal(r.status, 1, r.out);
@@ -674,7 +674,17 @@ test('the bundle check refuses a runtime from a commit this checkout lacks, or w
   assert.equal(checkRun([foreign, '--arch', 'x86_64'], { TXR_WSL_RUNTIME_ALLOW_DEV: '1' }).status, 0);
   const noGit = checkRun([runtimeDir(), '--arch', 'x86_64'], { PATH: scratch('wsl-check-nopath-') });
   assert.equal(noGit.status, 1, noGit.out);
-  assert.match(noGit.out, /which this checkout does not have \(git: spawnSync git ENOENT\)/);
+  assert.match(noGit.out, /cannot read .* with git, to compare it with the runtime's commit [0-9a-f]{40}: spawnSync git ENOENT/);
+  // the check in a tree that is not a git checkout (discovery stops at its parent)
+  const plain = scratch('wsl-check-plain-');
+  for (const rel of ['scripts/check-wsl-runtime.mjs', 'sdk/crates/sandbox-vm-protocol/src/lib.rs']) {
+    fs.mkdirSync(path.dirname(path.join(plain, rel)), { recursive: true });
+    fs.copyFileSync(path.join(tree().dir, rel), path.join(plain, rel));
+  }
+  const noCheckout = checkRun([runtimeDir(), '--arch', 'x86_64'], { GIT_CEILING_DIRECTORIES: path.dirname(plain) }, { dir: plain });
+  assert.equal(noCheckout.status, 1, noCheckout.out);
+  assert.match(noCheckout.out, /cannot read .* with git, to compare it with the runtime's commit [0-9a-f]{40}: fatal: not a git repository/);
+  assert.doesNotMatch(noCheckout.out, /which this checkout does not have/);
 });
 
 test('the bundle check compares every file of the tree the WSL build reads', () => {

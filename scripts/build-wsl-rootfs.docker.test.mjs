@@ -24,7 +24,8 @@
 // Needs Docker (linux/amd64 and linux/arm64) and network for the build's downloads; a build takes minutes,
 // so the tests run only with TXR_WSL_ROOTFS_DOCKER_TEST=1 (a `node --test` over every *.test.mjs skips
 // them). The agent's cargo registry and target dir live in Docker volumes named for this run
-// (txr-wsl-rootfs-test-<arch>-<run>-*), removed at the end; at the start, those a killed run left go too.
+// (txr-wsl-rootfs-test-<arch>-<host>-<pid>-<hex>-*), removed at the end; at the start, those a killed run
+// on this host left go too.
 //
 //   TXR_WSL_ROOTFS_DOCKER_TEST=1 TMPDIR=<scratch> node --test scripts/build-wsl-rootfs.docker.test.mjs
 //   TXR_WSL_ROOTFS_ARCHES="x86_64" ...    (default: "x86_64 aarch64")
@@ -46,7 +47,10 @@ const ARCHES = (process.env.TXR_WSL_ROOTFS_ARCHES || 'x86_64 aarch64').split(/\s
 const ELF_MACHINE = { x86_64: 0x3e, aarch64: 0xb7 };
 const HEADING = '## WSL runtime (Windows builds only)';
 const EPOCH = 1767225600;
-const RUN_ID = `${process.pid}-${crypto.randomBytes(3).toString('hex')}`;
+// The host's (or container's) name keeps apart the runs elsewhere that share this Docker: a pid means
+// something only in its own namespace (removeStaleVolumes).
+const HOST = os.hostname().replace(/[^A-Za-z0-9_.-]/g, '_');
+const RUN_ID = `${HOST}-${process.pid}-${crypto.randomBytes(3).toString('hex')}`;
 
 // Only on request: every test here builds, or reads what was built.
 const ENABLED = process.env.TXR_WSL_ROOTFS_DOCKER_TEST === '1';
@@ -64,12 +68,13 @@ process.on('exit', () => {
 after(() => {
   for (const v of VOLUMES) spawnSync('docker', ['volume', 'rm', '-f', v], { encoding: 'utf8' });
 });
-// A run killed before after() leaves its volumes behind: remove those whose run's process is gone (named
-// by cacheOf below; a volume a container still uses is not removed).
+// A run killed before after() leaves its volumes behind: remove this host's whose run's process is gone
+// (named by cacheOf below; a volume a container still uses is not removed).
 function removeStaleVolumes() {
   const ls = spawnSync('docker', ['volume', 'ls', '-q', '--filter', 'name=txr-wsl-rootfs-test-'], { encoding: 'utf8' });
+  const ours = new RegExp(`^txr-wsl-rootfs-test-(?:x86_64|aarch64)-${HOST.replaceAll('.', '\\.')}-([0-9]+)-[0-9a-f]{6}-(?:registry|target)$`);
   for (const v of (ls.stdout || '').split('\n')) {
-    const run = /^txr-wsl-rootfs-test-(?:x86_64|aarch64)-([0-9]+)-[0-9a-f]{6}-(?:registry|target)$/.exec(v);
+    const run = ours.exec(v);
     if (!run) continue;
     try {
       process.kill(Number(run[1]), 0);
