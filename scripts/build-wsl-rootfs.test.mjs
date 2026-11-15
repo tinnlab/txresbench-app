@@ -600,8 +600,9 @@ test('the bundle check refuses a test-cache agent or a dirty tree unless the bun
 });
 
 test('the bundle check and the build add no guard-shaped script: the guard-integrity check passes', () => {
-  // scripts/check-* are the repo's pinned guards; a new one there would have to be pinned as a guard
-  const res = spawnSync('bash', [path.join(REPO, 'scripts/check-guard-integrity.sh')], { encoding: 'utf8' });
+  // scripts/check-* are the repo's pinned guards; a new one there would have to be pinned as a guard. The
+  // script checks the repo of its working directory, so it runs in this one.
+  const res = spawnSync('bash', [path.join(REPO, 'scripts/check-guard-integrity.sh')], { encoding: 'utf8', cwd: REPO });
   assert.equal(res.status, 0, res.stdout + res.stderr);
   assert.ok(!path.basename(CHECK).startsWith('check-'));
 });
