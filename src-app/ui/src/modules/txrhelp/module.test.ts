@@ -560,6 +560,14 @@ describe('txrhelp module (TEST-HELP-4)', () => {
       // pinned bars, PageDown scrolls, and the 390x844 flow leg
       // (TEST-AS-2's browser half).
       'src-app/ui/tests/gallery-e2e/txr-shell-routes.spec.ts',
+      // demo-mode ITEM-6/7 (their own DRIFT-1 entries): the demo tier's
+      // two specs — the three-paths browser proof (ITEM-6; this item only
+      // touched the pretrained leg's comment) and the part-2 pages' tier
+      // (ITEM-7: the recorded-results line, the shared-pool statements +
+      // counters, the destructive controls' absence, the About-this-demo
+      // section, the measured light/dark + 390 legs).
+      'src-app/ui/tests/demo-e2e/txr-demo-pages.spec.ts',
+      'src-app/ui/tests/demo-e2e/txr-demo-pages-7.spec.ts',
     ])
     expect(testsTouched.length).toBeLessThanOrEqual(sanctionedTests.size)
     for (const file of testsTouched) {

@@ -119,7 +119,7 @@ test.describe('txr-demo-pages — the three paths, no upload (TEST-DM-6, ITEM-6)
     expect(pageErrors, `page errors on the reuse path: ${pageErrors.join('; ')}`).toEqual([])
   })
 
-  test('pretrained: Start → the example predict card (the path to the running page is ITEM-7 territory — the catalogue of this tree is empty)', async ({ page }) => {
+  test('pretrained: Start → the example predict card (the catalogue of this tree is empty — the demo arm is ITEM-7\'s, recorded in DRIFT-1 ITEM-7)', async ({ page }) => {
     await openApp(page)
     await page.getByTestId('txr-use-example-pretrained').click()
     await page.waitForURL('/predict-files', { timeout: 60_000 })

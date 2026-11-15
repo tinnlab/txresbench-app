@@ -79,14 +79,15 @@ test.describe('txr-demo-pages-7 — the part-2 pages (TEST-DM-6, ITEM-7)', () =>
     })
     await noHorizontalOverflow(page, 'results compare')
 
-    // History: the statement + the counter (this walk's run is the one
-    // non-pinned run), the desktop retention controls absent.
+    // History: the statement + the counter (the shared pool's figure — the
+    // walk's own run is among the counted ones), the desktop retention
+    // controls absent.
     await page.goto('/history', { waitUntil: 'domcontentloaded' })
     await expect(page.locator(NOTICE)).toHaveCount(1, { timeout: 60_000 })
     await expect(page.getByTestId('txr-demo-retention-statement')).toHaveText(STATEMENT, {
       timeout: 30_000,
     })
-    await expect(page.getByTestId('txr-demo-retention-counter')).toHaveText('1 of 50 runs', {
+    await expect(page.getByTestId('txr-demo-retention-counter')).toHaveText(/^\d+ of 50 runs$/, {
       timeout: 30_000,
     })
     expect(await page.locator('[data-testid="txr-history-copies-off"]').count()).toBe(0)
@@ -96,15 +97,15 @@ test.describe('txr-demo-pages-7 — the part-2 pages (TEST-DM-6, ITEM-7)', () =>
     expect(await page.locator('[data-testid="txr-history-list"]').count()).toBe(1)
     await noHorizontalOverflow(page, 'history')
 
-    // Models: the statement + the models counter (nothing saved yet — the
-    // example set is PINNED, so the counted figure is 0), the import and
+    // Models: the statement + the models counter (the shared pool's figure —
+    // the example set is PINNED, so only visitor saves count), the import and
     // the row's export/rename/delete absent.
     await page.goto('/models', { waitUntil: 'domcontentloaded' })
     await expect(page.locator(NOTICE)).toHaveCount(1, { timeout: 60_000 })
     await expect(page.getByTestId('txr-demo-retention-statement')).toHaveText(STATEMENT, {
       timeout: 30_000,
     })
-    await expect(page.getByTestId('txr-demo-retention-counter')).toHaveText('0 of 50 models', {
+    await expect(page.getByTestId('txr-demo-retention-counter')).toHaveText(/^\d+ of 50 models$/, {
       timeout: 30_000,
     })
     expect(await page.locator('[data-testid="txr-models-import"]').count()).toBe(0)
@@ -131,7 +132,7 @@ test.describe('txr-demo-pages-7 — the part-2 pages (TEST-DM-6, ITEM-7)', () =>
     await expect(page.getByTestId('txr-demo-retention-statement')).toHaveText(STATEMENT, {
       timeout: 30_000,
     })
-    await expect(page.getByTestId('txr-demo-retention-counter')).toHaveText('0 of 50 models', {
+    await expect(page.getByTestId('txr-demo-retention-counter')).toHaveText(/^\d+ of 50 models$/, {
       timeout: 30_000,
     })
     // The set's Rename/Delete actions are absent; the rows + the Run bar stay.
