@@ -8,7 +8,7 @@
 #   guest_alpine_image <arch>            the pinned Alpine image for <arch>
 #   guest_rust_image <arch>              the pinned Rust (Alpine) image for <arch>
 #   guest_protocol_range <repo-root>     sets GUEST_PROTOCOL_MIN and GUEST_PROTOCOL_MAX from the protocol crate
-#   guest_build_agent <repo-root> <arch> <out-dir>
+#   guest_build_agent <repo-root> <arch> <out-dir> [<cache-prefix>]
 #                                        builds the guest agent as a static musl binary for <arch>
 #
 # The build images are pinned by the digest of each platform's own manifest. They are the linux/amd64 and
@@ -67,15 +67,18 @@ guest_protocol_range() {
 #
 # Only sdk/ is mounted, read-only: the build reads nothing else, and the repo's untracked files (a dev
 # config with secrets, say) stay out of a container whose crate build scripts have network. The two files
-# come back on the container's stdout, as a tar, so <out-dir> need not be shared with Docker.
+# come back on the container's stdout, as a tar, so <out-dir> need not be shared with Docker. That tar is
+# from the least trusted step, so only an archive of exactly those two names is unpacked, and both must
+# come out as regular files: a symlink there would point the caller's copy at a file of the host.
 #
-# TXR_GUEST_AGENT_CARGO_CACHE=<prefix> keeps the cargo registry and target dir in the Docker volumes
-# <prefix>-registry and <prefix>-target between builds. It is for tests (the caller removes the volumes):
-# a release must not take its agent from a cache that outlives the build, so the WSL root's MANIFEST.json
-# records it and a Windows bundle refuses it (scripts/check-wsl-runtime.mjs). The volumes are mounted at
-# the paths a build without them uses, so the binary does not depend on the cache.
+# <cache-prefix> keeps the cargo registry and target dir in the Docker volumes <prefix>-registry and
+# <prefix>-target between builds. It is for tests (the caller removes the volumes): a release must not
+# take its agent from a cache that outlives the build. Only scripts/build-wsl-rootfs.sh passes one (from
+# TXR_GUEST_AGENT_CARGO_CACHE), and it records it in the WSL root's MANIFEST.json, where a Windows bundle
+# refuses it (scripts/check-wsl-runtime.mjs); the macOS guest root never builds from a cache. The volumes
+# are mounted at the paths a build without them uses, so the binary does not depend on the cache.
 guest_build_agent() {
-  _root=$1 _arch=$2 _out=$3
+  _root=$1 _arch=$2 _out=$3 _cache=${4:-}
   guest_arch_ok "$_arch" || { echo "guest_build_agent: unknown arch $_arch" >&2; return 1; }
   [ -d "$_out" ] || { echo "guest_build_agent: $_out is not a directory" >&2; return 1; }
   _triple=$_arch-unknown-linux-musl
@@ -85,10 +88,9 @@ guest_build_agent() {
     -e "$_rustflags_var=-C target-feature=+crt-static" \
     -e LIBSECCOMP_LINK_TYPE=static -e LIBSECCOMP_LIB_PATH=/usr/lib \
     -e "GUEST_TRIPLE=$_triple"
-  if [ -n "${TXR_GUEST_AGENT_CARGO_CACHE:-}" ]; then
-    echo "guest_build_agent: using the test cache volumes $TXR_GUEST_AGENT_CARGO_CACHE-registry and -target" >&2
-    set -- "$@" -v "$TXR_GUEST_AGENT_CARGO_CACHE-registry:/usr/local/cargo/registry" \
-      -v "$TXR_GUEST_AGENT_CARGO_CACHE-target:/tmp/cargo-target"
+  if [ -n "$_cache" ]; then
+    echo "guest_build_agent: using the test cache volumes $_cache-registry and -target" >&2
+    set -- "$@" -v "$_cache-registry:/usr/local/cargo/registry" -v "$_cache-target:/tmp/cargo-target"
   fi
   docker run "$@" "$(guest_rust_image "$_arch")" sh -c '
     set -e
@@ -101,12 +103,16 @@ guest_build_agent() {
         echo "$p $(apk info -e -v "$p" | sed "s/^$p-//")"
       done; } > /tmp/agent-out/agent-build.txt
     tar -C /tmp/agent-out -cf - txresbench-sandbox-agent agent-build.txt' > "$_out/agent.tar" || return 1
-  tar -xf "$_out/agent.tar" -C "$_out" && rm -f "$_out/agent.tar" || {
-    echo "guest_build_agent: cannot unpack the build's output" >&2
+  _names=$(tar -tf "$_out/agent.tar" | LC_ALL=C sort | tr '\n' ' ') &&
+    [ "$_names" = "agent-build.txt txresbench-sandbox-agent " ] &&
+    tar -xf "$_out/agent.tar" -C "$_out" txresbench-sandbox-agent agent-build.txt && rm -f "$_out/agent.tar" || {
+    echo "guest_build_agent: the build's output is not an archive of txresbench-sandbox-agent and agent-build.txt" >&2
     return 1
   }
-  [ -s "$_out/txresbench-sandbox-agent" ] && [ -s "$_out/agent-build.txt" ] || {
-    echo "guest_build_agent: the build produced no binary" >&2
-    return 1
-  }
+  for _f in txresbench-sandbox-agent agent-build.txt; do
+    [ -f "$_out/$_f" ] && [ ! -h "$_out/$_f" ] && [ -s "$_out/$_f" ] || {
+      echo "guest_build_agent: the build's $_f is not a regular file with content" >&2
+      return 1
+    }
+  done
 }

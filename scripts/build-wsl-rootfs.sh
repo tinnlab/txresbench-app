@@ -16,8 +16,8 @@
 #                                      guest root)
 #   /etc/txresbench-wsl-version        the build id
 # No device nodes, FIFOs or sockets (WSL mounts its own /dev), and no setuid or setgid file: everything in
-# the distro runs as root, so the bits are cleared. root has no password, and /etc/shadow's dates are the
-# build epoch's day (busybox's install stamps the build day there).
+# the distro runs as root, so the bits are cleared. root's password is locked ("*"), and /etc/shadow's dates
+# are the build epoch's day (busybox's install stamps the build day there).
 #
 # The build id is "<MIN>-<MAX>-<16 hex>": the hex starts the sha256 of the uncompressed, canonical archive
 # of the root without the version file (entries sorted by name, fixed mtime, numeric owners). The same
@@ -161,7 +161,7 @@ extra=$(printf '%s\n' "$check" | joined X)
 # ── 3. the guest agent ─────────────────────────────────────────────────────────────────────────────────
 log "building the guest agent (static $ARCH-musl, $RUST_IMAGE)"
 mkdir "$RUN/agent"
-guest_build_agent "$ROOT" "$ARCH" "$RUN/agent" || die "the guest agent build failed"
+guest_build_agent "$ROOT" "$ARCH" "$RUN/agent" "${TXR_GUEST_AGENT_CARGO_CACHE:-}" || die "the guest agent build failed"
 
 cat > "$RUN/wsl.conf" <<'EOF'
 # The TxResBench WSL distro (scripts/build-wsl-rootfs.sh). The app runs its methods here as root, through
@@ -212,7 +212,7 @@ for d in sandbox-rootfs sandbox-layer host-mounts workspace; do mkdir -m 0755 "/
 
 # busybox's install adds users with the build day as their password's last change, and Alpine leaves
 # root's password empty: the dates become the epoch's day, so the root does not depend on when it was
-# built, and root gets no password at all ("*").
+# built, and root's password is locked ("*": no password matches it).
 day=$((EPOCH / 86400))
 for f in /r/etc/shadow /r/etc/shadow-; do
   [ -f "$f" ] || continue
