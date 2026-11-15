@@ -5261,7 +5261,7 @@ mod tests {
             language: envmanifest::EnvLanguage::R,
             arch: envmanifest::EnvArch::Amd64,
             oci_ref: "ghcr.io/tinnlab/txr-method-env-layers".to_string(),
-            tag: "landmark-cox-current-1.0.0-amd64".to_string(),
+            tag: "landmark-cox-current-1.0.0-amd64-eeeeeeeeeeee".to_string(),
             digest: format!("sha256:{}", "d".repeat(64)),
             layer_sha256: "e".repeat(64),
             size_bytes: 250 * 1024 * 1024,
@@ -5277,7 +5277,7 @@ mod tests {
         assert_eq!(layer.env_id, "landmark-cox-current", "the layer is keyed by the entry's env id");
         assert_eq!(layer.oci_ref, entry.oci_ref);
         assert_eq!(layer.digest, entry.layer_sha256);
-        assert_eq!(layer.tag.as_deref(), Some("landmark-cox-current-1.0.0-amd64"));
+        assert_eq!(layer.tag.as_deref(), Some("landmark-cox-current-1.0.0-amd64-eeeeeeeeeeee"));
 
         let base = base_env_ref(&entry, None);
         assert_eq!(base.env_id, "base-r", "language → the base env id");

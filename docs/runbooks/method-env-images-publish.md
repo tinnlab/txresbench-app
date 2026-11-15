@@ -71,15 +71,18 @@ src-app/server/data/method-env-images.json          (generated, commit-time)
 publish-method-env-images.sh --env <id>              (owner-gated: THIS runbook)
    │  verify bytes → login → blob push → manifest push → resolve == digest → sign
    ▼
-ghcr.io/tinnlab/txr-method-env-layers:<id>-<version>-<arch>
+ghcr.io/tinnlab/txr-method-env-layers:<id>-<version>-<arch>-<sha12>
 ```
 
 Every layer is a tag of ONE package, `ghcr.io/tinnlab/txr-method-env-layers`,
-the method in the tag (`<env_id>-<method_version>-<arch>`); both bases are
-tags of ONE package, `ghcr.io/tinnlab/txresbench-env`
+the method and its layer file in the tag
+(`<env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256>`); both
+bases are tags of ONE package, `ghcr.io/tinnlab/txresbench-env`
 (`<base_id>-<contract>-<arch>-<sha12>`). GHCR sets visibility per package, by
 hand, and a new tag in a public package is public at once — so a new method
-needs no new package and no visibility change.
+needs no new package and no visibility change. Because the tag ends with the
+file's hash, a rebuild at the same version (layers are not byte-reproducible)
+gets its own tag; publishing the same bytes again is a no-op.
 
 Publish order matters: **bases first, layers second.** The layer is a
 delta over the benchmark base image and records `base_ref`/`base_digest` as
@@ -142,9 +145,9 @@ python3 scripts/generate-method-env-images.py --fixture "$TXR_ENV_BUILD_DIR" \
 ```
 
 The manifest gets the one-package addresses, derived from each record's
-env_id/method_version/arch (a base: base_id/contract/arch/sha256), and the same
-digests (the OCI manifest bytes carry no address). A record with any other
-address is refused.
+env_id/method_version/arch/layer_sha256 (a base: base_id/contract/arch/sha256),
+and the same digests (the OCI manifest bytes carry no address). A record with
+any other address is refused.
 
 One invocation publishes exactly one artifact: `--env <id>` (one (env, arch)
 layer) or `--base <base-py|base-r>` (one (base, arch) base). One of them is
@@ -154,7 +157,8 @@ artifact under an immutable tag is not a recoverable mistake.
 ### What the publisher verifies before anything reaches the registry
 
 1. The manifest entry (or `bases` record) exists, its `oci_ref` is the one
-   package and its `tag` is its own (`<env_id>-<method_version>-<arch>`; a
+   package and its `tag` is its own
+   (`<env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256>`; a
    base: `<base_id>-<contract>-<arch>-<sha12>`), and the staged artifact's
    bytes are its bytes: `sha256(layer.squashfs) == layer_sha256` (a base:
    `sha256(base.squashfs) == squashfs_sha256`), the size matches,
@@ -253,6 +257,64 @@ A new layer is a **generation event**, not a publish-time edit:
 
 The publisher's overwrite refusal is the safety net for a step-3 slip: an
 existing tag with different bytes refuses instead of silently shadowing.
+
+### Updating one method by hand
+
+For a maintainer working without an agent; every step is a script in this repo.
+
+1. If the method's code changed, bump its version in `txresbench-methods`
+   (`method.json` and `index.json`) and commit. Rebuilding the same version
+   (a package fix, a new base) is fine: the tag ends with the layer file's
+   hash, so the new build gets its own tag.
+2. Build the layer on a native host of its arch, into the build dir that holds
+   the other staged records:
+
+   ```sh
+   python3 scripts/generate-method-env-images.py --only <id> --arch <amd64|arm64> \
+     --methods-dir <methods checkout> --out "$TXR_ENV_BUILD_DIR"
+   ```
+
+   A manifest records ONE methods revision: if step 1 moved the methods
+   repository, the other records in the build dir are at the old revision and
+   the writer refuses the mix. Then rebuild them all at the new revision (the
+   same command without `--only`).
+3. Write the manifest from every staged record in the build dir (assemble
+   only, no docker; the build dir must hold a record for every entry, of every
+   arch), then run the guard with its parity leg:
+
+   ```sh
+   python3 scripts/generate-method-env-images.py --fixture "$TXR_ENV_BUILD_DIR" \
+     --methods-dir <methods checkout> --manifest src-app/server/data/method-env-images.json
+   scripts/check-method-env-images.sh --staging-dir "$TXR_ENV_BUILD_DIR" \
+     --methods-dir <methods checkout>
+   ```
+
+   (`--only <id> --manifest <path>` in step 2 would write a manifest of that
+   one method only.)
+4. Publish, rehearsing with `--dry-run` first: the base first if its tag is
+   new (`--base base-py|base-r --arch <arch>`), then the layer:
+
+   ```sh
+   scripts/publish-method-env-images.sh --env <id> --arch <arch> \
+     --staging-dir "$TXR_ENV_BUILD_DIR" --methods-dir <methods checkout>
+   ```
+
+5. Open a PR with the regenerated `src-app/server/data/method-env-images.json`;
+   the next app release carries it (§6).
+6. Never push a tag by hand with raw `oras` or `docker`: the publisher's checks
+   are what refuses an overwrite. Never re-use or delete a tag that an app
+   release still names: installed apps resolve that tag, then fetch the
+   recorded digest.
+7. A tag overwritten by mistake: GHCR keeps the old manifest as an untagged
+   version, so point the tag back at the digest the manifest records (the
+   entry's `digest`; a base: its `bases[]` record's `digest` in
+   `ghcr.io/tinnlab/txresbench-env`), then check it:
+
+   ```sh
+   echo "$GHCR_TOKEN" | oras login ghcr.io -u "$GHCR_USER" --password-stdin
+   oras tag ghcr.io/tinnlab/txr-method-env-layers@<digest> <tag>
+   oras resolve ghcr.io/tinnlab/txr-method-env-layers:<tag>   # must print <digest>
+   ```
 
 ---
 

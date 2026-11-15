@@ -20,8 +20,10 @@ The manifest and schema are the contract `execution-engine`'s runtime reads
 (embed via `include_dir!` or read from disk in dev builds): the runtime
 fetches `oci_ref@digest`, verifies `layer_sha256` before mounting, and shows
 `size_bytes` before the download starts. Every layer is in ONE package:
-`oci_ref` is `ghcr.io/tinnlab/txr-method-env-layers` and the method is in the
-tag, `<env_id>-<method_version>-<arch>`. The base each entry stacks on is the
+`oci_ref` is `ghcr.io/tinnlab/txr-method-env-layers` and the method and its
+layer file are in the tag,
+`<env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256>` (a rebuild at
+the same version is a new tag). The base each entry stacks on is the
 manifest's `bases` record for its language and arch: both bases are in ONE
 package, `oci_ref` `ghcr.io/tinnlab/txresbench-env`, tag
 `<base_id>-<contract>-<arch>-<sha12>`; the runtime fetches it by its `tag` and
@@ -32,7 +34,8 @@ asks for `ghcr.io/tinnlab/txresbench-env:base-<family>-<contract>-<arch>`).
 
 The committed file's `oci_ref`/`tag` were moved from the old
 one-package-per-method form (`…/txr-method-env-layers/<env_id>`, tag
-`<method_version>-<arch>`) by a mechanical rewrite of those two fields only:
+`<method_version>-<arch>`) to the form above by a mechanical rewrite of those
+two fields only:
 the OCI artifact manifest bytes carry no address, so every `digest` is
 unchanged, and `generator_version` still names the generator that emitted the
 rest of the file. The next regeneration replaces the file whole.

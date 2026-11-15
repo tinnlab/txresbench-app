@@ -105,8 +105,8 @@
         },
         "tag": {
           "type": "string",
-          "pattern": "^[a-z0-9._-]+-[0-9]+\\.[0-9]+\\.[0-9]+([-.+][0-9A-Za-z.-]+)?-(amd64|arm64)$",
-          "description": "The immutable publish tag <env_id>-<method_version>-<arch> in the layer package."
+          "pattern": "^[a-z0-9._-]+-[0-9]+\\.[0-9]+\\.[0-9]+([-.+][0-9A-Za-z.-]+)?-(amd64|arm64)-[0-9a-f]{12}$",
+          "description": "The immutable publish tag <env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256> in the layer package: a rebuild at the same version is a new tag."
         },
         "digest": {
           "type": "string",

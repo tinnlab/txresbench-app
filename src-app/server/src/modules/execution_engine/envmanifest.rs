@@ -197,8 +197,10 @@ pub struct ManifestEntry {
     /// `EnvRef.oci_ref` the engine passes to the sandbox env manager: exactly
     /// `TXR_LAYER_REGISTRY_PREFIX` (checked at load).
     pub oci_ref: String,
-    /// The immutable publish tag `<env_id>-<method_version>-<arch>` (checked
-    /// at load): the env's own tag in the one layer package.
+    /// The immutable publish tag
+    /// `<env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256>`
+    /// (checked at load): the env's own tag in the one layer package; each
+    /// distinct layer file gets its own tag.
     pub tag: String,
     /// The OCI content digest of the artifact manifest (`sha256:<64hex>`);
     /// the publish-side pin of the `oci_ref@digest` fetch.
@@ -323,8 +325,8 @@ pub enum ManifestLoadError {
     /// `layer_schema != [`LAYER_SCHEMA_VERSION`]` — the mount path's marker
     /// contract (a layer this build cannot mount must not be claimed ready).
     LayerSchema { env_id: String, found: u32 },
-    /// The tag is not `<env_id>-<method_version>-<arch>` (the schema's
-    /// immutable publish-tag construction).
+    /// The tag is not `<env_id>-<method_version>-<arch>-<first 12 hex of
+    /// layer_sha256>` (the schema's immutable publish-tag construction).
     TagMismatch { env_id: String, tag: String, expected: String },
     /// The tag is not a valid OCI tag (`[A-Za-z0-9_][A-Za-z0-9._-]{0,127}`):
     /// the env id is in the tag now, so a long id or a `+` in the version
@@ -630,7 +632,36 @@ fn validate_manifest(m: &EnvManifest) -> Result<(), ManifestLoadError> {
             });
         }
 
-        let expected_tag = format!("{}-{}-{}", e.env_id, e.method_version, e.arch.as_str());
+        for (field, value) in [("layer_sha256", &e.layer_sha256), ("wrapper_code_sha256", &e.wrapper_code_sha256)] {
+            if !crate::modules::sandbox::stack::is_sha256_hex(value) {
+                return Err(ManifestLoadError::BadPin {
+                    env_id: e.env_id.clone(),
+                    field: field.to_string(),
+                });
+            }
+        }
+        for (field, value) in [("digest", &e.digest), ("base_digest", &e.base_digest)] {
+            if !value.starts_with("sha256:")
+                || !crate::modules::sandbox::stack::is_sha256_hex(&value["sha256:".len()..])
+            {
+                return Err(ManifestLoadError::BadPin {
+                    env_id: e.env_id.clone(),
+                    field: field.to_string(),
+                });
+            }
+        }
+
+        // The tag names the env, its version, its arch and its FILE (after the
+        // pin checks: the first 12 hex of the validated layer_sha256), so a
+        // rebuild of one version gets its own tag and a tag never names two
+        // different files.
+        let expected_tag = format!(
+            "{}-{}-{}-{}",
+            e.env_id,
+            e.method_version,
+            e.arch.as_str(),
+            &e.layer_sha256[..12]
+        );
         if e.tag != expected_tag {
             return Err(ManifestLoadError::TagMismatch {
                 env_id: e.env_id.clone(),
@@ -650,25 +681,6 @@ fn validate_manifest(m: &EnvManifest) -> Result<(), ManifestLoadError> {
                 tag: e.tag.clone(),
                 other: other.to_string(),
             });
-        }
-
-        for (field, value) in [("layer_sha256", &e.layer_sha256), ("wrapper_code_sha256", &e.wrapper_code_sha256)] {
-            if !crate::modules::sandbox::stack::is_sha256_hex(value) {
-                return Err(ManifestLoadError::BadPin {
-                    env_id: e.env_id.clone(),
-                    field: field.to_string(),
-                });
-            }
-        }
-        for (field, value) in [("digest", &e.digest), ("base_digest", &e.base_digest)] {
-            if !value.starts_with("sha256:")
-                || !crate::modules::sandbox::stack::is_sha256_hex(&value["sha256:".len()..])
-            {
-                return Err(ManifestLoadError::BadPin {
-                    env_id: e.env_id.clone(),
-                    field: field.to_string(),
-                });
-            }
         }
 
         if e.oci_ref != crate::modules::sandbox::stack::TXR_LAYER_REGISTRY_PREFIX {
@@ -957,12 +969,13 @@ mod tests {
         let layer_sha = "5ce304e213ac6307d7e2d5991f432d0006805b2df9fb5f40f401905db8d0fc1a";
         let wrapper_sha = "bfe338c7cc0353db8ac93b0fffb7ea3e0aead14e181d33397bd4066c9aa92eaf";
         let base_family = if language == "R" { "r" } else { "py" };
+        let short = &layer_sha[..12];
         format!(
             r#"{{
                 "env_id": "{id}", "method_id": "{id}", "method_version": "{version}",
                 "language": "{language}", "arch": "{arch}",
                 "oci_ref": "ghcr.io/tinnlab/txr-method-env-layers",
-                "tag": "{id}-{version}-{arch}",
+                "tag": "{id}-{version}-{arch}-{short}",
                 "digest": "sha256:7153c0b1b85cf5089bb9fe80a2f9ac708e11b3e79d5cb74bd06ba5752a9d12cf",
                 "layer_sha256": "{layer_sha}",
                 "size_bytes": 4141056,
@@ -1019,7 +1032,13 @@ mod tests {
             assert_eq!(e.layer_schema, LAYER_SCHEMA_VERSION, "layer schema 1");
             assert_eq!(
                 e.tag,
-                format!("{}-{}-{}", e.env_id, e.method_version, e.arch.as_str())
+                format!(
+                    "{}-{}-{}-{}",
+                    e.env_id,
+                    e.method_version,
+                    e.arch.as_str(),
+                    &e.layer_sha256[..12]
+                )
             );
             assert_eq!(
                 e.oci_ref,
@@ -1040,7 +1059,12 @@ mod tests {
         assert_eq!(entry.contract, "2.0");
         assert_eq!(
             entry.tag,
-            format!("landmark-cox-current-{}-{}", entry.method_version, entry.arch.as_str()),
+            format!(
+                "landmark-cox-current-{}-{}-{}",
+                entry.method_version,
+                entry.arch.as_str(),
+                &entry.layer_sha256[..12]
+            ),
             "the immutable publish tag construction"
         );
         assert_eq!(entry.oci_ref, "ghcr.io/tinnlab/txr-method-env-layers");
@@ -1065,7 +1089,7 @@ mod tests {
         assert_eq!(alpha.base().digest, "sha256:4c7af1b2d7bf29f0712f950315dc8368211374832204583a37a92c0c77dfae65");
         assert_eq!(alpha.base().name, "ghcr.io/tinnlab/txresbench-base-r:2.0");
         assert_eq!(alpha.oci_ref, "ghcr.io/tinnlab/txr-method-env-layers");
-        assert_eq!(alpha.tag, "alpha-rule-2.0.0-amd64");
+        assert_eq!(alpha.tag, "alpha-rule-2.0.0-amd64-5ce304e213ac");
 
         // The arm64 entry lives beside the amd64 one (one env, per-arch
         // records), and its base family is the Python base.
@@ -1200,11 +1224,18 @@ mod tests {
 
     #[test]
     fn tag_mismatch_is_refused() {
-        // Another arch, the old `<version>-<arch>` form without the env id, and
-        // another env's tag: each is refused.
-        for bad in ["alpha-rule-2.0.0-arm64", "2.0.0-amd64", "beta-model-2.0.0-amd64"] {
+        // Another arch, the old `<version>-<arch>` form without the env id,
+        // another env's tag, the tag without the file hash, and another file's
+        // hash: each is refused.
+        for bad in [
+            "alpha-rule-2.0.0-arm64-5ce304e213ac",
+            "2.0.0-amd64",
+            "beta-model-2.0.0-amd64-5ce304e213ac",
+            "alpha-rule-2.0.0-amd64",
+            "alpha-rule-2.0.0-amd64-000000000000",
+        ] {
             let json = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0").replace(
-                "\"tag\": \"alpha-rule-2.0.0-amd64\"",
+                "\"tag\": \"alpha-rule-2.0.0-amd64-5ce304e213ac\"",
                 &format!("\"tag\": \"{bad}\""),
             );
             let full = format!(
