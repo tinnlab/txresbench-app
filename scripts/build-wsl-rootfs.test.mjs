@@ -3,8 +3,9 @@
 // its argument and notices refusals (they stop before any build step); with a stand-in `docker` on PATH,
 // the notices check in both directions and what each later step's failure leaves (the previous outputs,
 // no run directory); the Windows-only bundling of its output (tauri.windows.conf.json, .gitignore,
-// .gitkeep) and the check run before a Windows bundle (scripts/check-wsl-runtime.mjs); the notices
-// section it checks packages against; and the pinned build images it shares with the macOS guest root.
+// .gitkeep) and the check run before a Windows bundle (scripts/check-wsl-runtime.mjs, run in a git
+// checkout of its own); the notices section it checks packages against; and what it shares with the macOS
+// guest root (the pinned build images, and the agent build: what it unpacks, and its cache volumes).
 //
 // The builds themselves (both arches: the tarball's file list and modes, wsl.conf, the markers, the
 // agent's CPU and static linking, MANIFEST.json, the notices refusal after a real userland assembly,
@@ -25,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(REPO, 'scripts/build-wsl-rootfs.sh');
 const CHECK = path.join(REPO, 'scripts/check-wsl-runtime.mjs');
+const HELPER = path.join(REPO, 'scripts/guest-root-common.sh');
 const TAURI = path.join(REPO, 'src-app/desktop/tauri');
 const HEADING = '## WSL runtime (Windows builds only)';
 
@@ -243,7 +245,8 @@ test('the guest-root helper pins one image per arch by digest, and names the ind
 test('the macOS guest root builds its agent through the shared helper, for aarch64', () => {
   const src = fs.readFileSync(path.join(REPO, 'scripts/build-macos-vm-guest-root.sh'), 'utf8');
   assert.match(src, /^\. "\$ROOT\/scripts\/guest-root-common\.sh"$/m);
-  assert.match(src, /^guest_build_agent "\$ROOT" aarch64 "\$STAGE\.agent"/m);
+  // no cache argument: the macOS root never builds its agent from a cache
+  assert.match(src, /^guest_build_agent "\$ROOT" aarch64 "\$STAGE\.agent" \|\| die/m);
   assert.match(src, /^ALPINE_IMAGE=\$\(guest_alpine_image aarch64\)$/m);
   assert.doesNotMatch(src, /docker run --rm --platform linux\/arm64 -v "\$ROOT:\/work:ro"/, 'no second copy of the agent build');
 });
@@ -267,9 +270,11 @@ test('the agent protocol range is read from the protocol crate', () => {
 // ── the build's later steps, with a stand-in docker ──────────────────────────
 
 /** A fake `docker` on PATH: `docker info` succeeds, and each `docker run` is told apart by the step it is
- *  (the userland, the agent, the assembly) and acts as STUB_<STEP> says: ok (the default), fail, or for
+ *  (the userland, the agent, the assembly) and acts as STUB_<STEP> says: ok (the default), fail; for the
+ *  agent symlink (its binary is a symlink to $STUB_SECRET) or extra (a third file in its archive); for
  *  the assembly empty (writes nothing) or badsha (a result whose sha256 is not the tar's). Every run's step
- *  is appended to $STUB_LOG. The userland's apk database is $STUB_INSTALLED. */
+ *  is appended to $STUB_LOG; the agent build's arguments go to $STUB_ARGS when it is set, one per line.
+ *  The userland's apk database is $STUB_INSTALLED. */
 const STUB = `#!/bin/sh
 [ "$1" = info ] && exit 0
 [ "$1" = run ] || { echo "stub docker: $*" >&2; exit 1; }
@@ -293,10 +298,16 @@ esac
 case "$step" in
   userland) : > "$w/userland.tar"; cp "$STUB_INSTALLED" "$w/installed" ;;
   agent)
+    [ -n "\${STUB_ARGS:-}" ] && printf '%s\\n' "$@" > "$STUB_ARGS"
     d=$(mktemp -d)
     printf 'agent' > "$d/txresbench-sandbox-agent"
     echo 'rustc 1.90.0' > "$d/agent-build.txt"
-    tar -C "$d" -cf - txresbench-sandbox-agent agent-build.txt
+    names="txresbench-sandbox-agent agent-build.txt"
+    case "$mode" in
+      symlink) rm "$d/txresbench-sandbox-agent"; ln -s "$STUB_SECRET" "$d/txresbench-sandbox-agent" ;;
+      extra) echo extra > "$d/extra"; names="$names extra" ;;
+    esac
+    tar -C "$d" -cf - $names
     rm -rf "$d" ;;
   assemble)
     [ "$mode" = empty ] && exit 0
@@ -367,10 +378,15 @@ test('with every step succeeding, the outputs are replaced and the run directory
   assert.deepEqual(r.work, []);
 });
 
-test('a failing agent build or assembly keeps the previous outputs', () => {
+test('a failing step, or an agent build whose output is not its two regular files, keeps the previous outputs', () => {
   for (const [env, steps, want] of [
     [{ STUB_USERLAND: 'fail' }, ['userland'], /assembling the Alpine userland failed/],
     [{ STUB_AGENT: 'fail' }, ['userland', 'agent'], /the guest agent build failed/],
+    // the binary a symlink to a file of the host: not followed
+    [{ STUB_AGENT: 'symlink', STUB_SECRET: SCRIPT }, ['userland', 'agent'],
+      /the build's txresbench-sandbox-agent is not a regular file with content/],
+    [{ STUB_AGENT: 'extra' }, ['userland', 'agent'],
+      /the build's output is not an archive of txresbench-sandbox-agent and agent-build\.txt/],
     [{ STUB_ASSEMBLE: 'fail' }, ['userland', 'agent', 'assemble'], /assembling the root failed/],
     [{ STUB_ASSEMBLE: 'empty' }, ['userland', 'agent', 'assemble'], /the archive step wrote no output/],
     [{ STUB_ASSEMBLE: 'badsha' }, ['userland', 'agent', 'assemble'], /the archive's sha256 does not match what the container computed/],
@@ -417,19 +433,87 @@ test('the notices must name every package of the root with its licence, and noth
   assert.equal(stubBuild().status, 0);
 });
 
+test('the agent build takes cache volumes from its caller\'s argument only, not from the environment', () => {
+  // the WSL build passes TXR_GUEST_AGENT_CARGO_CACHE on, and records it in MANIFEST.json
+  assert.match(fs.readFileSync(SCRIPT, 'utf8'),
+    /^guest_build_agent "\$ROOT" "\$ARCH" "\$RUN\/agent" "\$\{TXR_GUEST_AGENT_CARGO_CACHE:-\}" \|\| die/m);
+  for (const [extra, cached] of [[[], false], [['txr-arg'], true]]) {
+    const dir = scratch('wsl-rootfs-agent-');
+    const bin = path.join(dir, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'docker'), STUB, { mode: 0o755 });
+    const out = path.join(dir, 'out');
+    fs.mkdirSync(out);
+    const res = spawnSync('sh', ['-c', `. "${HELPER}"; guest_build_agent "$@"`, 'sh', REPO, 'aarch64', out, ...extra], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        STUB_LOG: path.join(dir, 'steps'),
+        STUB_ARGS: path.join(dir, 'args'),
+        STUB_AGENT: 'ok',
+        TXR_GUEST_AGENT_CARGO_CACHE: 'txr-env',
+      },
+    });
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(fs.readdirSync(out).sort(), ['agent-build.txt', 'txresbench-sandbox-agent']);
+    const args = fs.readFileSync(path.join(dir, 'args'), 'utf8').split('\n');
+    assert.ok(args.includes(`${REPO}/sdk:/work/sdk:ro`), 'only sdk/ is mounted, read-only');
+    assert.ok(!args.some((a) => a.includes('txr-env')), args.join(' '));
+    assert.equal(args.includes('txr-arg-registry:/usr/local/cargo/registry'), cached, args.join(' '));
+    assert.equal(args.includes('txr-arg-target:/tmp/cargo-target'), cached, args.join(' '));
+    assert.equal(/using the test cache volumes/.test(res.stderr), cached, res.stderr);
+  }
+});
+
 // ── the check before a Windows bundle ────────────────────────────────────────
 
-function checkRun(args, env = {}) {
-  const res = spawnSync(process.execPath, [CHECK, ...args], {
+function treeGit(dir, ...args) {
+  const res = spawnSync('git', ['-C', dir, '-c', 'user.name=test', '-c', 'user.email=test@example.invalid',
+    '-c', 'commit.gpgsign=false', '-c', 'init.defaultBranch=main', '-c', 'core.hooksPath=/dev/null', ...args],
+  { encoding: 'utf8' });
+  assert.equal(res.status, 0, res.stderr);
+  return res.stdout.trim();
+}
+
+/** A git checkout of its own holding the bundle check and what it reads, committed: the build's inputs,
+ *  the protocol crate declaring `protocol` ([MIN, MAX]) with `eol` line ends, a file the build does not
+ *  read, and the resource directory with only its .gitkeep. The check finds its tree from its own path,
+ *  so it runs from its copy here. */
+function checkTree({ protocol = [3, 3], eol = '\n' } = {}) {
+  const dir = scratch('wsl-check-tree-');
+  const put = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    fs.writeFileSync(path.join(dir, rel), text);
+  };
+  put('scripts/check-wsl-runtime.mjs', fs.readFileSync(CHECK));
+  put('sdk/crates/sandbox-vm-protocol/src/lib.rs',
+    [`pub const PROTOCOL_VERSION_MIN: u32 = ${protocol[0]};`, `pub const PROTOCOL_VERSION: u32 = ${protocol[1]};`, ''].join(eol));
+  put('sdk/crates/sandbox-seccomp/src/lib.rs', '// compiled into the agent\n');
+  put('scripts/build-wsl-rootfs.sh', '# the build\n');
+  put('scripts/guest-root-common.sh', '# its helper\n');
+  put('THIRD-PARTY-NOTICES.md', '# notices\n');
+  put('src-app/desktop/tauri/resources/wsl-runtime/.gitkeep', '');
+  put('README.md', 'not read by the build\n');
+  treeGit(dir, 'init', '-q');
+  treeGit(dir, 'add', '-A');
+  treeGit(dir, 'commit', '-q', '-m', 'tree');
+  return { dir, put, head: () => treeGit(dir, 'rev-parse', 'HEAD') };
+}
+let sharedTree = null;
+const tree = () => (sharedTree ??= checkTree());
+
+function checkRun(args, env = {}, t = tree()) {
+  const res = spawnSync(process.execPath, [path.join(t.dir, 'scripts/check-wsl-runtime.mjs'), ...args], {
     encoding: 'utf8',
     env: { ...process.env, TAURI_ENV_ARCH: '', TAURI_ENV_TARGET_TRIPLE: '', TXR_WSL_RUNTIME_ALLOW_DEV: '', ...env },
   });
   return { status: res.status, out: res.stdout + res.stderr };
 }
 
-/** A runtime directory with a tarball of `blocks` tar blocks and the MANIFEST.json a release build writes,
- *  `edit` applied to it. */
-function runtimeDir({ blocks = 4, edit = (m) => m } = {}) {
+/** A runtime directory with a tarball of `blocks` tar blocks and the MANIFEST.json a release build of
+ *  `t`'s HEAD writes, `edit` applied to it. */
+function runtimeDir({ blocks = 4, edit = (m) => m, t = tree() } = {}) {
   const dir = scratch('wsl-runtime-');
   const tar = Buffer.alloc(blocks * 512);
   tar.write('a tar');
@@ -440,7 +524,7 @@ function runtimeDir({ blocks = 4, edit = (m) => m } = {}) {
     sha256: crypto.createHash('sha256').update(tar).digest('hex'),
     protocol: [3, 3],
     packages: [],
-    build: { agent_cargo_cache: null, source_commit: 'a'.repeat(40) },
+    build: { agent_cargo_cache: null, source_commit: t.head() },
   });
   fs.writeFileSync(path.join(dir, 'MANIFEST.json'), typeof manifest === 'string' ? manifest : JSON.stringify(manifest));
   return dir;
@@ -494,7 +578,7 @@ test('the bundle check refuses a missing, mismatched or foreign pair', () => {
     assert.equal(r.status, 1, r.out);
     assert.match(r.out, new RegExp(`${f.replace('.', '\\.')} is missing: build it with \`sh scripts/build-wsl-rootfs\\.sh x86_64\``));
   }
-  // the default directory is the Windows bundle's resource, which holds only .gitkeep in the tree
+  // the default directory is the Windows bundle's resource, in the check's own tree (here only .gitkeep)
   const def = checkRun(['--arch', 'x86_64']);
   assert.equal(def.status, 1, def.out);
   assert.match(def.out, /src-app\/desktop\/tauri\/resources\/wsl-runtime\/txresbench-wsl\.tar is missing/);
@@ -520,5 +604,89 @@ test('the bundle check refuses bad arguments with exit 2', () => {
     const r = checkRun(args);
     assert.equal(r.status, 2, `${JSON.stringify(args)}: ${r.out}`);
     assert.match(r.out, /usage: node scripts\/check-wsl-runtime\.mjs/);
+  }
+});
+
+test('the bundle check refuses a runtime whose protocol range leaves out this tree\'s PROTOCOL_VERSION, even for development', () => {
+  // the runtime serves 3..3; the tree's app speaks its PROTOCOL_VERSION (the second number)
+  for (const [protocol, eol, taken] of [[[3, 4], '\n', false], [[3, 2], '\n', false], [[2, 3], '\n', true], [[3, 3], '\r\n', true]]) {
+    const t = checkTree({ protocol, eol });
+    const dir = runtimeDir({ t });
+    for (const dev of ['', '1']) {
+      const r = checkRun([dir, '--arch', 'x86_64'], { TXR_WSL_RUNTIME_ALLOW_DEV: dev }, t);
+      const what = `${JSON.stringify([protocol, eol, dev])}: ${r.out}`;
+      if (taken) {
+        assert.equal(r.status, 0, what);
+      } else {
+        assert.equal(r.status, 1, what);
+        assert.match(r.out, new RegExp(`serves protocol 3\\.\\.3, and this tree's app speaks ${protocol[1]}: rebuild it`), what);
+      }
+    }
+  }
+  const t = checkTree();
+  const dir = runtimeDir({ t });
+  t.put('sdk/crates/sandbox-vm-protocol/src/lib.rs', 'pub const PROTOCOL_VERSION: u32 = three;\n');
+  const r = checkRun([dir, '--arch', 'x86_64'], { TXR_WSL_RUNTIME_ALLOW_DEV: '1' }, t);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /cannot read PROTOCOL_VERSION from .*sdk\/crates\/sandbox-vm-protocol\/src\/lib\.rs/);
+});
+
+test('the bundle check refuses a runtime built before a change to any of the build\'s inputs, committed or not', () => {
+  for (const rel of ['sdk/crates/sandbox-seccomp/src/lib.rs', 'scripts/build-wsl-rootfs.sh', 'scripts/guest-root-common.sh',
+    'THIRD-PARTY-NOTICES.md']) {
+    const t = checkTree();
+    const built = t.head();
+    const dir = runtimeDir({ t });
+    assert.equal(checkRun([dir, '--arch', 'x86_64'], {}, t).status, 0, `${rel}: taken before the change`);
+    fs.appendFileSync(path.join(t.dir, rel), 'a change\n');
+    const want = new RegExp(`the runtime was built from ${built}, and sdk, scripts/build-wsl-rootfs\\.sh, ` +
+      'scripts/guest-root-common\\.sh, THIRD-PARTY-NOTICES\\.md differ here');
+    const uncommitted = checkRun([dir, '--arch', 'x86_64'], {}, t);
+    assert.equal(uncommitted.status, 1, `${rel}: ${uncommitted.out}`);
+    assert.match(uncommitted.out, want);
+    treeGit(t.dir, 'commit', '-qam', 'a change');
+    const committed = checkRun([dir, '--arch', 'x86_64'], {}, t);
+    assert.equal(committed.status, 1, `${rel}: ${committed.out}`);
+    assert.match(committed.out, want);
+    assert.equal(checkRun([dir, '--arch', 'x86_64'], { TXR_WSL_RUNTIME_ALLOW_DEV: '1' }, t).status, 0, `${rel}: development`);
+  }
+});
+
+test('the bundle check takes a runtime from an older commit whose build inputs are the same, and refuses an untracked input', () => {
+  const t = checkTree();
+  const dir = runtimeDir({ t });
+  fs.appendFileSync(path.join(t.dir, 'README.md'), 'a change the build does not read\n');
+  treeGit(t.dir, 'commit', '-qam', 'not a build input');
+  const later = checkRun([dir, '--arch', 'x86_64'], {}, t);
+  assert.equal(later.status, 0, later.out);
+  t.put('sdk/crates/new-crate/src/lib.rs', '// not committed\n');
+  const untracked = checkRun([dir, '--arch', 'x86_64'], {}, t);
+  assert.equal(untracked.status, 1, untracked.out);
+  assert.match(untracked.out, /untracked files among the build's inputs \(sdk\/crates\/new-crate\/src\/lib\.rs\)/);
+  assert.equal(checkRun([dir, '--arch', 'x86_64'], { TXR_WSL_RUNTIME_ALLOW_DEV: '1' }, t).status, 0);
+});
+
+test('the bundle check refuses a runtime from a commit this checkout lacks, or with no git to compare', () => {
+  const foreign = runtimeDir({ edit: (m) => ({ ...m, build: { ...m.build, source_commit: 'b'.repeat(40) } }) });
+  const r = checkRun([foreign, '--arch', 'x86_64']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, new RegExp(`built from commit ${'b'.repeat(40)}, which this checkout does not have; rebuild it`));
+  assert.equal(checkRun([foreign, '--arch', 'x86_64'], { TXR_WSL_RUNTIME_ALLOW_DEV: '1' }).status, 0);
+  const noGit = checkRun([runtimeDir(), '--arch', 'x86_64'], { PATH: scratch('wsl-check-nopath-') });
+  assert.equal(noGit.status, 1, noGit.out);
+  assert.match(noGit.out, /which this checkout does not have \(git: spawnSync git ENOENT\)/);
+});
+
+test('the bundle check compares every file of the tree the WSL build reads', () => {
+  const inputs = JSON.parse(/^const BUILD_INPUTS = (\[.*\]);$/m.exec(fs.readFileSync(CHECK, 'utf8'))[1].replaceAll("'", '"'));
+  assert.ok(inputs.includes('scripts/build-wsl-rootfs.sh'), 'the build script itself');
+  const reads = new Set();
+  for (const m of fs.readFileSync(SCRIPT, 'utf8').matchAll(/\$ROOT\/([\w.\/-]+)/g)) reads.add(m[1]);
+  for (const m of fs.readFileSync(HELPER, 'utf8').matchAll(/\$(?:_root|1)\/([\w.\/-]+)/g)) reads.add(m[1]);
+  const outputs = ['src-app/desktop/tauri/resources/wsl-runtime', 'target'];
+  const read = [...reads].filter((r) => !outputs.includes(r));
+  assert.ok(read.includes('sdk') && read.includes('THIRD-PARTY-NOTICES.md'), JSON.stringify(read));
+  for (const r of read) {
+    assert.ok(inputs.some((i) => r === i || r.startsWith(`${i}/`)), `the build reads ${r}, which the bundle check does not compare`);
   }
 });

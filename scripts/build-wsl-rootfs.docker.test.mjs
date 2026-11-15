@@ -6,7 +6,7 @@
 //     tar, not compressed;
 //   - /etc/wsl.conf, /etc/txresbench-agent-protocol and /etc/txresbench-wsl-version;
 //   - the agent, bwrap, busybox and squashfuse are ELF binaries for the tarball's CPU; the agent is static;
-//   - /etc/shadow: no date but the epoch's day, and root has no password;
+//   - /etc/shadow: no date but the epoch's day, and root's password is locked;
 //   - MANIFEST.json: its keys, the tarball's sha256, the protocol range, every Alpine package of the root's
 //     apk database with its version and licence, exactly the packages the notices name, and the test cache
 //     the agent came from;
@@ -24,7 +24,7 @@
 // Needs Docker (linux/amd64 and linux/arm64) and network for the build's downloads; a build takes minutes,
 // so the tests run only with TXR_WSL_ROOTFS_DOCKER_TEST=1 (a `node --test` over every *.test.mjs skips
 // them). The agent's cargo registry and target dir live in Docker volumes named for this run
-// (txr-wsl-rootfs-test-<arch>-<run>-*), removed at the end.
+// (txr-wsl-rootfs-test-<arch>-<run>-*), removed at the end; at the start, those a killed run left go too.
 //
 //   TXR_WSL_ROOTFS_DOCKER_TEST=1 TMPDIR=<scratch> node --test scripts/build-wsl-rootfs.docker.test.mjs
 //   TXR_WSL_ROOTFS_ARCHES="x86_64" ...    (default: "x86_64 aarch64")
@@ -64,6 +64,23 @@ process.on('exit', () => {
 after(() => {
   for (const v of VOLUMES) spawnSync('docker', ['volume', 'rm', '-f', v], { encoding: 'utf8' });
 });
+// A run killed before after() leaves its volumes behind: remove those whose run's process is gone (named
+// by cacheOf below; a volume a container still uses is not removed).
+function removeStaleVolumes() {
+  const ls = spawnSync('docker', ['volume', 'ls', '-q', '--filter', 'name=txr-wsl-rootfs-test-'], { encoding: 'utf8' });
+  for (const v of (ls.stdout || '').split('\n')) {
+    const run = /^txr-wsl-rootfs-test-(?:x86_64|aarch64)-([0-9]+)-[0-9a-f]{6}-(?:registry|target)$/.exec(v);
+    if (!run) continue;
+    try {
+      process.kill(Number(run[1]), 0);
+      continue; // that run is still going
+    } catch (e) {
+      if (e.code !== 'ESRCH') continue;
+    }
+    spawnSync('docker', ['volume', 'rm', v], { encoding: 'utf8' });
+  }
+}
+if (ENABLED) removeStaleVolumes();
 function scratch(prefix) {
   const dir = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), prefix));
   TMPDIRS.push(dir);
@@ -303,7 +320,7 @@ for (const arch of ARCHES) {
     // every entry is root-owned except the shadow group's files of alpine-baselayout
     const notRoot = [...e.values()].filter((x) => x.uid !== 0 || x.gid !== 0).map((x) => `${x.name} ${x.uid}:${x.gid}`).sort();
     assert.deepEqual(notRoot, ['etc/shadow 0:42', 'etc/shadow- 0:42']);
-    // no build date in /etc/shadow (busybox's install writes one), and root has no password
+    // no build date in /etc/shadow (busybox's install writes one), and root's password is locked
     const day = String(Math.floor(EPOCH / 86400));
     for (const f of ['etc/shadow', 'etc/shadow-']) {
       for (const fields of shadow(e.get(f))) {
@@ -492,6 +509,11 @@ test(`${FIRST}: building the same tree again, the agent from nothing, gives the 
   const m2 = JSON.parse(fs.readFileSync(path.join(out2, 'MANIFEST.json'), 'utf8'));
   assert.equal(m2.build.agent_cargo_cache, null, 'no cache recorded');
   assert.deepEqual({ ...m2, build: { ...m2.build, agent_cargo_cache: b.manifest.build.agent_cargo_cache } }, b.manifest);
+  // This is a release build: the bundle check takes it as it is when the tree was committed (a run from a
+  // tree with changes gets "+dirty", which the check refuses).
+  const release = checkRuntime(out2, FIRST);
+  if (/^[0-9a-f]{40}$/.test(m2.build.source_commit)) assert.equal(release.status, 0, release.out);
+  else assert.match(release.out, /not a committed tree/);
 });
 
 // ── the pinned images ────────────────────────────────────────────────────────
