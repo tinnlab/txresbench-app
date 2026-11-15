@@ -153,9 +153,9 @@ fn main() {
     }
 }
 
-/// One line on stderr. Unlike `eprintln!`, a closed stderr (the app's
-/// `wsl.exe` gone) is ignored instead of panicking, so the exit code stays
-/// the contract's.
+/// A message on stderr, prefixed with the agent's name. Unlike `eprintln!`,
+/// a closed stderr (the app's `wsl.exe` gone) is ignored instead of
+/// panicking, so the exit code stays the contract's.
 #[cfg(target_os = "linux")]
 fn say(msg: &str) {
     use std::io::Write;
@@ -515,8 +515,9 @@ where
         }
         let n = rd.read(&mut buf).await?;
         if n == 0 {
-            // Closed before a request, or partway through one.
-            return Ok(if decoder.has_partial_frame() { ConnEnd::CutOffRequest } else { ConnEnd::NoRequest });
+            // Closed before a request, or partway through one: every whole
+            // frame has been taken, so buffered bytes are part of one.
+            return Ok(if decoder.has_buffered_bytes() { ConnEnd::CutOffRequest } else { ConnEnd::NoRequest });
         }
         decoder.feed(&buf[..n]);
     };
