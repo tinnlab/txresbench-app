@@ -137,8 +137,10 @@ fn a_closed_stderr_does_not_change_the_exit_code() {
 
 #[test]
 fn a_base_image_that_cannot_be_used_exits_3_with_the_reason_on_stderr() {
-    // As root this fails opening the image; without root, entering the
-    // namespace. Either way: exit 3, the reason on stderr, stdout untouched.
+    // Fully privileged, this fails opening the image; otherwise (no root, or
+    // root without CAP_SYS_ADMIN as in the script's build container),
+    // entering the namespace. Either way: exit 3, the reason on stderr,
+    // stdout untouched.
     let out = Command::new(AGENT)
         .args(["--stdio", "--base", "/nonexistent/base.sqfs"])
         .stdin(Stdio::null())
