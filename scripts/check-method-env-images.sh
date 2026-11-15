@@ -36,9 +36,13 @@
 #          benchmark base the delta was computed against — with the key
 #          CONSISTENT with `language` (r ↔ R, py ↔ Python) and its tag equal to
 #          the entry's `contract`;
-#        - `oci_ref` = `ghcr.io/tinnlab/txr-method-env-layers/<env_id>`
-#          (DEC-2's namespace, scheme-less per DEC-17 — no new allowlist host);
-#        - `tag` = `<method_version>-<arch>` (DEC-2), `layer_schema` == 1
+#        - `oci_ref` = `ghcr.io/tinnlab/txr-method-env-layers`, the ONE layer
+#          package (DEC-2's namespace, scheme-less per DEC-17 — no new
+#          allowlist host); the old one-package-per-method form
+#          `…/txr-method-env-layers/<env_id>` is refused;
+#        - `tag` = `<env_id>-<method_version>-<arch>` (DEC-2; the method is in
+#          the tag), a valid OCI tag (<= 128 characters), and no two entries
+#          share a tag (they share one package); `layer_schema` == 1
 #          (DEC-11), `contract` == the manifest's `base_contract`;
 #        - no duplicate (env_id, arch) — the per-arch entry key (PROV-1: one
 #          entry per method per published arch; amd64 + arm64 of one method is
@@ -51,9 +55,10 @@
 #        - the optional `bases` list (the app-side base artifacts; optional
 #          until the committed manifest is regenerated with bases). When it
 #          is present: each record follows its construction (`base_id`
-#          base-py | base-r, `oci_ref` = ghcr.io/tinnlab/txresbench-env/
-#          <base_id>, `tag` = `<contract>-<arch>-<first 12 hex of
-#          squashfs_sha256>`, `contract` == `base_contract`, `source_ref` =
+#          base-py | base-r, `oci_ref` = ghcr.io/tinnlab/txresbench-env, the
+#          ONE base package, `tag` = `<base_id>-<contract>-<arch>-<first 12
+#          hex of squashfs_sha256>`, the old one-package-per-base form
+#          refused, `contract` == `base_contract`, `source_ref` =
 #          the txresbench-base image of the same family at that contract,
 #          pin shapes, size > 0), no duplicate (base_id, arch), sorted; EVERY
 #          entry has the base of its language and arch, and its
@@ -296,10 +301,12 @@ if not isinstance(envs, list):
 key_re = re.compile(r"^sha256:[0-9a-f]{64}$")
 hex64 = re.compile(r"^[0-9a-f]{64}$")
 base_ref_re = re.compile(r"^ghcr\.io/tinnlab/txresbench-base-(r|py):([0-9]+\.[0-9]+)$")
-oci_prefix = "ghcr.io/tinnlab/txr-method-env-layers"
+layer_package = "ghcr.io/tinnlab/txr-method-env-layers"
+oci_tag_re = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$")
 lang_by_key = {"r": "R", "py": "Python"}
 
 seen = {}
+seen_tags = {}
 for i, e in enumerate(envs):
     if not isinstance(e, dict):
         fail(f"envs[{i}] is not an object")
@@ -337,11 +344,17 @@ for i, e in enumerate(envs):
             fail(f"{ref}: base_ref tag {bm.group(2)} != contract "
                  f"{e.get('contract')!r} (a layer computed against one contract "
                  "cannot be declared as another)")
-    if e.get("oci_ref") != f"{oci_prefix}/{eid}":
-        fail(f"{ref}: oci_ref {e.get('oci_ref')!r} != {oci_prefix}/<env_id> (DEC-2)")
+    if e.get("oci_ref") != layer_package:
+        fail(f"{ref}: oci_ref {e.get('oci_ref')!r} != {layer_package} (DEC-2: the "
+             "one layer package; the method is in the tag)")
     version = e.get("method_version")
-    if e.get("tag") != f"{version}-{e.get('arch')}":
-        fail(f"{ref}: tag {e.get('tag')!r} != '<method_version>-<arch>' (DEC-2)")
+    want_tag = f"{eid}-{version}-{e.get('arch')}"
+    if e.get("tag") != want_tag:
+        fail(f"{ref}: tag {e.get('tag')!r} != {want_tag!r} "
+             "('<env_id>-<method_version>-<arch>', DEC-2)")
+    if not oci_tag_re.match(want_tag):
+        fail(f"{ref}: tag {want_tag!r} is not a valid OCI tag (at most 128 "
+             "characters of [A-Za-z0-9_.-], not starting with . or -)")
     if e.get("layer_schema") != 1:
         fail(f"{ref}: layer_schema {e.get('layer_schema')!r} != 1 (DEC-11)")
     if e.get("contract") != manifest.get("base_contract"):
@@ -357,6 +370,12 @@ for i, e in enumerate(envs):
         fail(f"{ref}: duplicate (env_id, arch) — {seen[pair]} already declares it "
              "(one entry per method per published arch)")
     seen[pair] = ref
+    # Two DIFFERENT entries can spell one tag (an env id and a version may both
+    # hold `-`); they share one package, so the tag must name one entry.
+    if e.get("tag") in seen_tags:
+        fail(f"{ref}: tag {e.get('tag')!r} is also {seen_tags[e.get('tag')]}'s — "
+             "every layer is in one package, so a tag names one entry")
+    seen_tags[e.get("tag")] = ref
 
 # Sorted order (DEC-15): strict (env_id, arch) ascending, byte-determinism's
 # precondition.
@@ -373,7 +392,7 @@ bases = manifest.get("bases") if isinstance(manifest, dict) else None
 if bases is not None:
     if not isinstance(bases, list):
         fail("field 'bases' is not an array")
-    base_prefix = "ghcr.io/tinnlab/txresbench-env"
+    base_package = "ghcr.io/tinnlab/txresbench-env"
     family_of = {"base-py": "py", "base-r": "r"}
     base_of_lang = {"Python": "base-py", "R": "base-r"}
     by_key = {}
@@ -395,8 +414,9 @@ if bases is not None:
                  "must be sorted by (base_id, arch)")
         prev = key
         by_key[key] = b
-        if b.get("oci_ref") != f"{base_prefix}/{bid}":
-            fail(f"{ref}: oci_ref {b.get('oci_ref')!r} != {base_prefix}/<base_id>")
+        if b.get("oci_ref") != base_package:
+            fail(f"{ref}: oci_ref {b.get('oci_ref')!r} != {base_package} (the one "
+                 "base package; the base is in the tag)")
         sha = b.get("squashfs_sha256")
         if not isinstance(sha, str) or not hex64.match(sha):
             fail(f"{ref}: squashfs_sha256 {sha!r} is not 64 lowercase hex")
@@ -409,10 +429,10 @@ if bases is not None:
         if contract != manifest.get("base_contract"):
             fail(f"{ref}: contract {contract!r} != the manifest's base_contract "
                  f"{manifest.get('base_contract')!r}")
-        want_tag = f"{contract}-{barch}-{sha[:12]}"
+        want_tag = f"{bid}-{contract}-{barch}-{sha[:12]}"
         if b.get("tag") != want_tag:
             fail(f"{ref}: tag {b.get('tag')!r} != {want_tag!r} "
-                 "(<contract>-<arch>-<first 12 hex of squashfs_sha256>)")
+                 "(<base_id>-<contract>-<arch>-<first 12 hex of squashfs_sha256>)")
         sm = base_ref_re.match(b.get("source_ref") or "")
         if not sm or sm.group(1) != family_of[bid] or sm.group(2) != contract:
             fail(f"{ref}: source_ref {b.get('source_ref')!r} is not "

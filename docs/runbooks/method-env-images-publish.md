@@ -1,8 +1,9 @@
 # Runbook — publishing the per-method environment layers
 
 Owner: whoever is publishing a method environment layer to
-`ghcr.io/tinnlab/txr-method-env-layers/` after a build or a methods-revision
-bump. The publish step is **owner-gated by decision** (D10 in
+`ghcr.io/tinnlab/txr-method-env-layers` (one package for every layer) or a
+base to `ghcr.io/tinnlab/txresbench-env` (one package for both bases) after a
+build or a methods-revision bump. The publish step is **owner-gated by decision** (D10 in
 `.lifecycle/txresbench-app/OWNER-DECISIONS.md`: "Owner publishes, workers
 rehearse"): no worker, no CI, no GitHub Action publishes a layer — this
 document and `scripts/publish-method-env-images.sh` are the path.
@@ -70,8 +71,15 @@ src-app/server/data/method-env-images.json          (generated, commit-time)
 publish-method-env-images.sh --env <id>              (owner-gated: THIS runbook)
    │  verify bytes → login → blob push → manifest push → resolve == digest → sign
    ▼
-ghcr.io/tinnlab/txr-method-env-layers/<id>:<version>-<arch>
+ghcr.io/tinnlab/txr-method-env-layers:<id>-<version>-<arch>
 ```
+
+Every layer is a tag of ONE package, `ghcr.io/tinnlab/txr-method-env-layers`,
+the method in the tag (`<env_id>-<method_version>-<arch>`); both bases are
+tags of ONE package, `ghcr.io/tinnlab/txresbench-env`
+(`<base_id>-<contract>-<arch>-<sha12>`). GHCR sets visibility per package, by
+hand, and a new tag in a public package is public at once — so a new method
+needs no new package and no visibility change.
 
 Publish order matters: **bases first, layers second.** The layer is a
 delta over the benchmark base image and records `base_ref`/`base_digest` as
@@ -90,7 +98,7 @@ tag resolves to the base record's digest, and refuses a manifest without a
 Prerequisites: `docker` (for any build), `oras` ≥ 1.2 (needs the `blob push`
 and `manifest push` subcommands), `cosign` ≥ 2.4 (unless `--skip-sign`), and
 a GHCR token with `write:packages` for the
-`tinnlab/txr-method-env-layers` namespace.
+`tinnlab/txr-method-env-layers` and `tinnlab/txresbench-env` packages.
 
 ```sh
 export GHCR_USER=<your github username>
@@ -122,6 +130,22 @@ with `generate-method-env-images.py --stage-bases --out <build-dir> --arch
 <arch>` on the machine that built them (it needs the base image with the
 recorded digest, or the generator's base cache), then a fresh `--manifest`.
 
+A build dir staged by a generator before 0.4.0 (its records carry the old
+one-package-per-method address, `…/txr-method-env-layers/<env_id>` +
+`<method_version>-<arch>`, and the bases `…/txresbench-env/<base_id>` +
+`<contract>-<arch>-<sha12>`) needs no rebuild: assemble the manifest from it
+with the current generator, assemble-only (no docker), then publish as above —
+
+```sh
+python3 scripts/generate-method-env-images.py --fixture "$TXR_ENV_BUILD_DIR" \
+  --methods-dir <the methods checkout at the records' revision> --manifest <manifest>
+```
+
+The manifest gets the one-package addresses, derived from each record's
+env_id/method_version/arch (a base: base_id/contract/arch/sha256), and the same
+digests (the OCI manifest bytes carry no address). A record with any other
+address is refused.
+
 One invocation publishes exactly one artifact: `--env <id>` (one (env, arch)
 layer) or `--base <base-py|base-r>` (one (base, arch) base). One of them is
 required — nothing defaults across ~95 methods, and publishing the wrong
@@ -129,11 +153,17 @@ artifact under an immutable tag is not a recoverable mistake.
 
 ### What the publisher verifies before anything reaches the registry
 
-1. The manifest entry (or `bases` record) exists and the staged artifact's
+1. The manifest entry (or `bases` record) exists, its `oci_ref` is the one
+   package and its `tag` is its own (`<env_id>-<method_version>-<arch>`; a
+   base: `<base_id>-<contract>-<arch>-<sha12>`), and the staged artifact's
    bytes are its bytes: `sha256(layer.squashfs) == layer_sha256` (a base:
    `sha256(base.squashfs) == squashfs_sha256`), the size matches,
    `sha256(oci-manifest.json) == digest` (the pinned construction, design
-   §6.1/§6.3), and the build record agrees field-for-field.
+   §6.1/§6.3), and the build record agrees field-for-field. The record's own
+   `oci_ref`/`tag` may instead be the one-package-per-method (or per-base)
+   form of the same address that a generator before 0.4.0 wrote: a build dir
+   staged before 0.4.0 assembles, with the current generator, into a
+   one-package manifest with the same digests, and is published from as is.
 2. The manifest satisfies the repo's own guard **including the regen-parity
    leg against the same staging dir** — a manifest whose records no longer
    reassemble is not published from.

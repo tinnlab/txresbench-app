@@ -29,9 +29,10 @@ local publisher use):
   pointing at it);
 - ``GET /v2/<name>/tags/list`` — the repository's tags.
 
-Repository names may contain slashes; the registries the app knows are
-``tinnlab/txresbench-env`` (per-language trimmed bases) and
-``tinnlab/txr-method-env-layers/<method>`` (per-method layers).
+Repository names may contain slashes; the two packages the app knows are
+``tinnlab/txresbench-env`` (both per-language trimmed bases, the base in the
+tag) and ``tinnlab/txr-method-env-layers`` (every per-method layer, the method
+in the tag).
 
 Storage layout (content-addressed blobs + tag files, so a restart keeps all
 data):

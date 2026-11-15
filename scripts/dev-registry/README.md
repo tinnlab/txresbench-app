@@ -84,9 +84,12 @@ cargo run
 ```
 
 * `TXR_METHOD_ENV_REGISTRY` — the HOST to fetch from instead of
-  `ghcr.io`; the compiled `tinnlab/txresbench-env` and
-  `tinnlab/txr-method-env-layers` namespaces/repos stay, so the published
-  refs are exactly the app's refs. Read only under `#[cfg(debug_assertions)]`
+  `ghcr.io`; the compiled packages stay — `tinnlab/txr-method-env-layers`
+  (every layer, tag `<env_id>-<method_version>-<arch>`) and
+  `tinnlab/txresbench-env` (both bases: tag `base-<family>-<contract>-<arch>`
+  for a manifest without `bases`, which is what `publish.py` writes, and
+  `<base_id>-<contract>-<arch>-<sha12>` from a manifest's `bases` record) —
+  so the published refs are exactly the app's refs. Read only under `#[cfg(debug_assertions)]`
   — a release build always fetches from `ghcr.io`.
 * `TXR_ENV_MANIFEST` — a schema-v1 environment manifest replacing the
   embedded `src-app/server/data/method-env-images.json` (the dev publisher's
