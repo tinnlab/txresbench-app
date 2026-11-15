@@ -112,7 +112,8 @@ test.describe('txr-demo-pages-7 — the part-2 pages (TEST-DM-6, ITEM-7)', () =>
     expect(await page.locator('[data-testid^="txr-models-export-"]').count()).toBe(0)
     expect(await page.locator('[data-testid^="txr-models-rename-"]').count()).toBe(0)
     expect(await page.locator('[data-testid^="txr-models-delete-"]').count()).toBe(0)
-    expect(await page.locator('[data-testid^="txr-models-use-"]').count()).toBeGreaterThan(0)
+    // The import affordance is gone — no file input anywhere on the page.
+    expect(await page.locator('input[type=file]').count()).toBe(0)
     await noHorizontalOverflow(page, 'models')
 
     expect(pageErrors, `page errors: ${pageErrors.join('; ')}`).toEqual([])
@@ -149,6 +150,9 @@ test.describe('txr-demo-pages-7 — the part-2 pages (TEST-DM-6, ITEM-7)', () =>
     await expect(section.getByText('What you can do')).toBeVisible()
     await expect(section.getByText('What is not possible')).toBeVisible()
     await expect(section.getByText(STATEMENT)).toBeVisible()
+    // The spec's counter byte: the section's own "n of 50 runs / models" line.
+    await expect(section).toContainText('of 50 runs')
+    await expect(section).toContainText('of 50 models')
     const link = section.getByTestId('txr-help-download')
     await expect(link).toBeVisible()
     await expect(link).toHaveAttribute('href', 'https://downloads.example.test/txresbench')
@@ -173,20 +177,20 @@ test.describe('txr-demo-pages-7 — the part-2 pages (TEST-DM-6, ITEM-7)', () =>
         const block = page.getByTestId('txr-demo-retention')
         await expect(block).toBeVisible({ timeout: 30_000 })
         const notice = page.getByTestId('txr-demo-notice')
-        const [noticeBox, blockBox] = await Promise.all([
-          notice.boundingBox(),
-          block.boundingBox(),
-        ])
-        expect(noticeBox, `${path}: notice box`).not.toBeNull()
-        expect(blockBox, `${path}: retention box`).not.toBeNull()
+        const rectOf = async (locator: ReturnType<Page['locator']>) =>
+          locator.evaluate(el => {
+            const r = el.getBoundingClientRect()
+            return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }
+          })
+        const [noticeRect, blockRect] = await Promise.all([rectOf(notice), rectOf(block)])
         // The paragraph sits BELOW the notice bar — the shell's child order:
         // header → notice → routed area; the block is inside the routed area.
-        expect(blockBox!.top, `${path}: block below notice`).toBeGreaterThanOrEqual(
-          noticeBox!.bottom - 1,
+        expect(blockRect.top, `${path}: block below notice`).toBeGreaterThanOrEqual(
+          noticeRect.bottom - 1,
         )
         // The paragraph stays inside the viewport (no clipped counter).
-        expect(blockBox!.left, `${path}: block left`).toBeGreaterThanOrEqual(0)
-        expect(blockBox!.right, `${path}: block right`).toBeLessThanOrEqual(390 + 1)
+        expect(blockRect.left, `${path}: block left`).toBeGreaterThanOrEqual(0)
+        expect(blockRect.right, `${path}: block right`).toBeLessThanOrEqual(390 + 1)
       }
       await noHorizontalOverflow(page, `${path} @390 dark`)
     }

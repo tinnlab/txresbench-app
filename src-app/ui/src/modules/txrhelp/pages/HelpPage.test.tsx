@@ -311,13 +311,17 @@ describe('HelpPage demo arm (TEST-DM-7, ITEM-7)', () => {
   })
   afterEach(() => resetDemoMode())
 
-  it('renders "About this demo" as the FIRST section with the audit bytes: what you can/cannot do, the pool statement and the download link', () => {
+  it('renders "About this demo" as the FIRST section with the audit bytes: what you can/cannot do, the pool statement, the counters and the download link', () => {
     renderHelp()
     const section = screen.getByTestId('txr-help-section-demo')
     expect(within(section).getByRole('heading', { level: 2 }).textContent).toBe(DEMO_HELP_TITLE)
     expect(section.textContent).toContain('What you can do')
     expect(section.textContent).toContain('What is not possible')
     expect(section.textContent).toContain(DEMO_POOL_STATEMENT)
+    // The spec's counter byte (the section's own "n of 50" line — the
+    // figures come from the usage read; the byte is the sentence).
+    expect(section.textContent).toContain('of 50 runs')
+    expect(section.textContent).toContain('of 50 models')
     const link = within(section).getByTestId('txr-help-download')
     expect(link.getAttribute('href')).toBe('https://downloads.example.test/txresbench')
     expect(link.getAttribute('target')).toBe('_blank')

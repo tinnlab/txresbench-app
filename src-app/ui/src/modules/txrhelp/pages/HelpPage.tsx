@@ -41,7 +41,7 @@ import { Button, Input, Collapsible, CollapsibleContent, CollapsibleTrigger } fr
 import { FiAlertTriangle, FiArrowUp, FiCheckCircle, FiInfo } from 'react-icons/fi'
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
-import { useAppMode } from '@/modules/demo'
+import { useAppMode, useDemoUsage } from '@/modules/demo'
 import {
   DEMO_BANNER_PRIMARY_ACTION,
   DEMO_HELP_CAN,
@@ -51,6 +51,7 @@ import {
   DEMO_HELP_SECTION_ID,
   DEMO_HELP_TITLE,
   DEMO_POOL_STATEMENT,
+  formatDemoCounter,
 } from '@/modules/demo/copy'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
@@ -1100,8 +1101,10 @@ export function HelpPage() {
   // demo-mode ITEM-7 (the audit's /help row): the "About this demo" section
   // is the FIRST section in demo mode — its id is the notice bar's
   // `/help#demo` anchor, it joins the rail, the search and the spy like any
-  // other section, and it carries the download link.
+  // other section, and it carries the counters ("n of 50 runs / models" —
+  // the spec's /help counter byte) and the download link.
   const { isDemo, downloadUrl } = useAppMode()
+  const demoUsage = useDemoUsage(isDemo)
   const allSections = useMemo(() => {
     if (!isDemo) return HELP_SECTIONS
     return [
@@ -1115,6 +1118,12 @@ export function HelpPage() {
           { kind: 'caption', text: 'What is not possible' },
           { kind: 'bullets', items: [...DEMO_HELP_CANNOT] },
           { kind: 'paragraph', text: DEMO_POOL_STATEMENT },
+          {
+            kind: 'paragraph',
+            text:
+              `${formatDemoCounter(demoUsage.usage?.runs ?? null, demoUsage.usage?.run_limit ?? 50, 'runs')}` +
+              ` \u00b7 ${formatDemoCounter(demoUsage.usage?.models ?? null, demoUsage.usage?.model_limit ?? 50, 'models')}`,
+          },
           { kind: 'callout', tone: 'note', text: DEMO_HELP_PRIVACY },
           {
             kind: 'download',
@@ -1126,7 +1135,7 @@ export function HelpPage() {
       },
       ...HELP_SECTIONS,
     ] satisfies HelpSection[]
-  }, [isDemo, downloadUrl])
+  }, [isDemo, downloadUrl, demoUsage.usage])
 
   const [query, setQuery] = useState('')
   const [activeSection, setActiveSection] = useState(() =>

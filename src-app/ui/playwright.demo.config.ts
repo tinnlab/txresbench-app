@@ -75,7 +75,15 @@ const DERIVED_CONFIG = writeDerivedConfig({
   dbPath: DEMO_DB_FILE,
 })
 { const yaml = fs.readFileSync(DERIVED_CONFIG, 'utf8')
-  assertFactsAgree(yaml, { port: BACKEND_PORT, dbPath: DEMO_DB_FILE, path: DERIVED_CONFIG }) }
+  assertFactsAgree(yaml, { port: BACKEND_PORT, dbPath: DEMO_DB_FILE, path: DERIVED_CONFIG })
+  // ITEM-7: the derived config gains the demo block's download_url (e2e.yaml
+  // has no demo block — patchBlock refuses an absent one, so the tier
+  // appends the block; the server's own `demo:` parse is permissive and the
+  // SDK ignores extra top-level keys). The tier proves the download link
+  // bytes (the notice bar + the Help section) with a real fixture URL,
+  // like the gallery seed.
+  const demoBlock = '\ndemo:\n  download_url: https://downloads.example.test/txresbench\n  notice: demo_banner\n'
+  fs.writeFileSync(DERIVED_CONFIG, yaml + demoBlock, 'utf8') }
 
 process.env.HARNESS_ORIGINS = JSON.stringify([
   { label: 'demo e2e backend (cargo, TXR_DEMO=1)', port: Number(BACKEND_PORT), url: `${BACKEND_URL}/__worktree` },
