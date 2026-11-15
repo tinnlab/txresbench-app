@@ -2,7 +2,8 @@
   "name": "txresbench-root",
   "private": true,
   "scripts": {
-    "fetch-oras": "node scripts/fetch-oras.mjs"
+    "fetch-oras": "node scripts/fetch-oras.mjs",
+    "check-wsl-runtime": "node scripts/check-wsl-runtime.mjs"
   },
   "workspaces": [
     "sdk/packages/*",

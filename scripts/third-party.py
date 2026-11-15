@@ -958,9 +958,13 @@ def render_wsl_runtime() -> list[str]:
     lines.append("")
     lines.append(
         "- **The guest agent** — built from this repository's `sdk/crates/sandbox-guest-agent`. It statically "
-        "links musl (MIT) and libseccomp (LGPL-2.1-or-later; its source is linked below and the agent's source "
-        "is in this repository); its Rust crates (tokio, tokio-vsock, vsock, nix, tracing, serde and their "
-        "dependencies) are under MIT and/or Apache-2.0 terms."
+        "links musl (MIT) and libseccomp (LGPL-2.1-or-later). libseccomp is Alpine Linux "
+        f"{ALPINE_RELEASE}'s `libseccomp-static`; each build records its version, and `musl-dev`'s, in "
+        "`MANIFEST.json` under `build.agent_toolchain`. libseccomp's source: "
+        "https://github.com/seccomp/libseccomp and, as Alpine builds it, "
+        f"https://gitlab.alpinelinux.org/alpine/aports/-/tree/{ALPINE_RELEASE}-stable/main/libseccomp; the "
+        "agent's source is in this repository. Its Rust crates (tokio, tokio-vsock, vsock, nix, tracing, serde "
+        "and their dependencies) are under MIT and/or Apache-2.0 terms."
     )
     lines.append(
         f"- **The userland: Alpine Linux {ALPINE_RELEASE} packages**, each under its own licence; sources: "
@@ -975,7 +979,8 @@ def render_wsl_runtime() -> list[str]:
         "LGPL-2.0 https://www.gnu.org/licenses/old-licenses/lgpl-2.0.txt, "
         "BSD-2-Clause https://opensource.org/license/bsd-2-clause, "
         "BSD-3-Clause https://opensource.org/license/bsd-3-clause, "
-        "0BSD https://opensource.org/license/0bsd."
+        "0BSD https://opensource.org/license/0bsd, "
+        "Zlib https://opensource.org/license/zlib."
     )
     lines.append("")
     return lines

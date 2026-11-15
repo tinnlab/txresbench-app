@@ -6,23 +6,30 @@
 //     tar, not compressed;
 //   - /etc/wsl.conf, /etc/txresbench-agent-protocol and /etc/txresbench-wsl-version;
 //   - the agent, bwrap, busybox and squashfuse are ELF binaries for the tarball's CPU; the agent is static;
-//   - MANIFEST.json: its keys, the tarball's sha256, the protocol range, and every Alpine package of the
-//     root's apk database with its version and licence, each one named in the notices;
+//   - /etc/shadow: no date but the epoch's day, and root has no password;
+//   - MANIFEST.json: its keys, the tarball's sha256, the protocol range, every Alpine package of the root's
+//     apk database with its version and licence, exactly the packages the notices name, and the test cache
+//     the agent came from;
+//   - scripts/check-wsl-runtime.mjs (run before a Windows bundle) takes the pair, and refuses one whose
+//     agent came from a test cache;
 //   - the notices refusal, after a real userland assembly, leaves the previous outputs alone;
-//   - a second build of the same tree gives the same bytes;
+//   - a second build of the same tree, its agent built afresh without the cache, gives the same bytes;
 //   - in a Linux container of the tarball's platform, chrooted into the unpacked root: `bwrap --version`,
-//     `squashfuse --help`, the agent's `--pipe-selftest` (when the agent has it), and, privileged,
-//     squashfuse mounting a squashfs image as the agent's WSL mode does (`-o ro,allow_other`), which a
-//     bwrap sandbox then reads as uid 1001 in a user namespace (the root entered with pivot_root).
+//     `squashfuse --help`, the agent's `--pipe-selftest`, and, privileged, squashfuse mounting a squashfs
+//     image as the agent's WSL mode does (`-o ro,allow_other`), which a bwrap sandbox then reads as uid
+//     1001 in a user namespace (the root entered with pivot_root);
+//   - the pinned build images are the linux/amd64 and linux/arm64 entries of the indexes
+//     scripts/guest-root-common.sh names (read from the registry).
 //
-// Needs Docker (linux/amd64 and linux/arm64) and network for the build's downloads; a build takes minutes.
-// The agent's cargo registry and target dir live in the Docker volumes txr-wsl-rootfs-test-<arch>-*
-// during the run and are removed at the end.
+// Needs Docker (linux/amd64 and linux/arm64) and network for the build's downloads; a build takes minutes,
+// so the tests run only with TXR_WSL_ROOTFS_DOCKER_TEST=1 (a `node --test` over every *.test.mjs skips
+// them). The agent's cargo registry and target dir live in Docker volumes named for this run
+// (txr-wsl-rootfs-test-<arch>-<run>-*), removed at the end.
 //
-//   TMPDIR=<scratch> node --test scripts/build-wsl-rootfs.docker.test.mjs
+//   TXR_WSL_ROOTFS_DOCKER_TEST=1 TMPDIR=<scratch> node --test scripts/build-wsl-rootfs.docker.test.mjs
 //   TXR_WSL_ROOTFS_ARCHES="x86_64" ...    (default: "x86_64 aarch64")
 
-import test, { after } from 'node:test';
+import nodeTest, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -34,9 +41,20 @@ import { fileURLToPath } from 'node:url';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(REPO, 'scripts/build-wsl-rootfs.sh');
 const HELPER = path.join(REPO, 'scripts/guest-root-common.sh');
+const CHECK = path.join(REPO, 'scripts/check-wsl-runtime.mjs');
 const ARCHES = (process.env.TXR_WSL_ROOTFS_ARCHES || 'x86_64 aarch64').split(/\s+/).filter(Boolean);
 const ELF_MACHINE = { x86_64: 0x3e, aarch64: 0xb7 };
 const HEADING = '## WSL runtime (Windows builds only)';
+const EPOCH = 1767225600;
+const RUN_ID = `${process.pid}-${crypto.randomBytes(3).toString('hex')}`;
+
+// Only on request: every test here builds, or reads what was built.
+const ENABLED = process.env.TXR_WSL_ROOTFS_DOCKER_TEST === '1';
+const SKIP = 'builds the WSL root with Docker: set TXR_WSL_ROOTFS_DOCKER_TEST=1 to run it';
+function test(name, opts, fn) {
+  if (typeof opts === 'function') [opts, fn] = [{}, opts];
+  return nodeTest(name, ENABLED ? opts : { ...opts, skip: SKIP }, fn);
+}
 
 const TMPDIRS = [];
 const VOLUMES = [];
@@ -59,14 +77,32 @@ function sh(cmd, args = []) {
 }
 const platformOf = (arch) => sh(`. "${HELPER}"; guest_platform "$1"`, [arch]);
 const alpineImageOf = (arch) => sh(`. "${HELPER}"; guest_alpine_image "$1"`, [arch]);
+const rustImageOf = (arch) => sh(`. "${HELPER}"; guest_rust_image "$1"`, [arch]);
+const cacheOf = (arch) => `txr-wsl-rootfs-test-${arch}-${RUN_ID}`;
 
-function build(arch, outDir, extra = []) {
-  const cache = `txr-wsl-rootfs-test-${arch}`;
-  for (const v of [`${cache}-registry`, `${cache}-target`]) if (!VOLUMES.includes(v)) VOLUMES.push(v);
+/** One build into `outDir`. With `cache` (the default) the agent's cargo registry and target dir live in
+ *  this run's volumes; `cache: false` builds the agent from nothing, as a release does. */
+function build(arch, outDir, extra = [], { cache = true } = {}) {
+  const env = { ...process.env };
+  delete env.SOURCE_DATE_EPOCH; // the tests expect the script's own epoch
+  delete env.TXR_GUEST_AGENT_CARGO_CACHE;
+  if (cache) {
+    env.TXR_GUEST_AGENT_CARGO_CACHE = cacheOf(arch);
+    for (const v of [`${cacheOf(arch)}-registry`, `${cacheOf(arch)}-target`]) if (!VOLUMES.includes(v)) VOLUMES.push(v);
+  }
   const res = spawnSync('sh', [SCRIPT, arch, '--out-dir', outDir, '--work-dir', path.join(outDir, '..', 'work'), ...extra], {
     encoding: 'utf8',
-    env: { ...process.env, TXR_GUEST_AGENT_CARGO_CACHE: cache },
+    env,
     maxBuffer: 256 * 1024 * 1024,
+  });
+  return { status: res.status, out: res.stdout + res.stderr };
+}
+
+/** scripts/check-wsl-runtime.mjs over `dir` for `arch`. */
+function checkRuntime(dir, arch, env = {}) {
+  const res = spawnSync(process.execPath, [CHECK, dir, '--arch', arch], {
+    encoding: 'utf8',
+    env: { ...process.env, TXR_WSL_RUNTIME_ALLOW_DEV: '', ...env },
   });
   return { status: res.status, out: res.stdout + res.stderr };
 }
@@ -179,9 +215,14 @@ function noticesCover(text) {
   const covered = new Map();
   for (const l of noticeLines(text)) {
     const [names, licence] = l.slice(4).split(' — ');
-    for (const n of names.replace(/[(),]/g, ' ').split(/\s+/).filter(Boolean)) covered.set(n, licence);
+    for (const n of names.split(', ')) covered.set(n, licence);
   }
   return covered;
+}
+
+/** /etc/shadow's lines as field arrays. */
+function shadow(entry) {
+  return entry.data.toString('utf8').split('\n').filter(Boolean).map((l) => l.split(':'));
 }
 
 function apkDb(text) {
@@ -257,11 +298,21 @@ for (const arch of ARCHES) {
     for (const x of e.values()) {
       assert.equal(x.mode & 0o6000, 0, `${x.name} is not setuid/setgid`);
       assert.ok(['0', '1', '2', '5'].includes(x.type), `${x.name}: type ${x.type}`);
-      assert.equal(x.mtime, 1767225600, `${x.name} mtime`);
+      assert.equal(x.mtime, EPOCH, `${x.name} mtime`);
     }
     // every entry is root-owned except the shadow group's files of alpine-baselayout
     const notRoot = [...e.values()].filter((x) => x.uid !== 0 || x.gid !== 0).map((x) => `${x.name} ${x.uid}:${x.gid}`).sort();
     assert.deepEqual(notRoot, ['etc/shadow 0:42', 'etc/shadow- 0:42']);
+    // no build date in /etc/shadow (busybox's install writes one), and root has no password
+    const day = String(Math.floor(EPOCH / 86400));
+    for (const f of ['etc/shadow', 'etc/shadow-']) {
+      for (const fields of shadow(e.get(f))) {
+        assert.ok(fields[2] === '' || fields[2] === day, `${f}: ${fields[0]}'s last change is ${fields[2]}`);
+      }
+      const root = shadow(e.get(f)).find((x) => x[0] === 'root');
+      assert.ok(root && /^[*!]/.test(root[1]), `${f}: root's password is locked`);
+    }
+    assert.ok(shadow(e.get('etc/shadow')).some((x) => x[2] === day), 'the dates busybox wrote are the epoch\'s');
   });
 
   test(`${arch}: wsl.conf and the two markers`, () => {
@@ -269,10 +320,15 @@ for (const arch of ARCHES) {
     const e = b.entries;
     assert.deepEqual(ini(e.get('etc/wsl.conf').data.toString('utf8')), {
       interop: { enabled: 'false', appendWindowsPath: 'false' },
-      automount: { enabled: 'true' },
+      automount: { enabled: 'true', mountFsTab: 'false' },
+      network: { generateHosts: 'false', generateResolvConf: 'false' },
       boot: { systemd: 'false' },
-      user: { default: 'root' },
+      user: { default: 'nobody' },
     });
+    // the default user exists and cannot log in
+    const nobody = e.get('etc/passwd').data.toString('utf8').split('\n').find((l) => l.startsWith('nobody:'));
+    assert.match(nobody, /^nobody:x:65534:65534:[^:]*:[^:]*:\/sbin\/nologin$/);
+    assert.equal(e.get('sbin/nologin')?.link, '/bin/busybox');
     const [min, max] = protocolRange();
     assert.equal(e.get('etc/txresbench-agent-protocol').data.toString('utf8'), `${min} ${max}\n`);
     const version = e.get('etc/txresbench-wsl-version').data.toString('utf8');
@@ -305,16 +361,18 @@ for (const arch of ARCHES) {
     for (const n of ['busybox', 'bubblewrap', 'squashfuse', 'fuse3', 'musl', 'alpine-baselayout', 'alpine-keys']) {
       assert.ok(m.packages.some((p) => p.name === n), n);
     }
-    // each one named in the notices with the same licence
+    // each one named in the notices with the same licence, and the notices name nothing else
     const cover = noticesCover(fs.readFileSync(path.join(REPO, 'THIRD-PARTY-NOTICES.md'), 'utf8'));
     for (const p of m.packages) assert.equal(cover.get(p.name), p.license, `${p.name} in the notices`);
+    assert.deepEqual([...cover.keys()].sort(), m.packages.map((p) => p.name).sort());
     // the build record
     assert.deepEqual(Object.keys(m.build), ['alpine_image', 'alpine_repositories', 'rust_image', 'agent_toolchain',
-      'agent_sha256', 'archiver', 'source_commit']);
+      'agent_sha256', 'agent_cargo_cache', 'archiver', 'source_commit']);
+    assert.equal(m.build.agent_cargo_cache, cacheOf(arch), 'the test cache the agent came from');
     assert.equal(m.build.alpine_image, alpineImageOf(arch));
     assert.deepEqual(m.build.alpine_repositories,
       ['https://dl-cdn.alpinelinux.org/alpine/v3.20/main', 'https://dl-cdn.alpinelinux.org/alpine/v3.20/community']);
-    assert.match(m.build.rust_image, /^rust:1\.90-alpine3\.20@sha256:[0-9a-f]{64}$/);
+    assert.equal(m.build.rust_image, rustImageOf(arch));
     assert.equal(m.build.agent_sha256,
       crypto.createHash('sha256').update(b.entries.get('usr/bin/txresbench-sandbox-agent').data).digest('hex'));
     assert.match(m.build.agent_toolchain[0], /^rustc 1\.90\.\d+$/);
@@ -328,25 +386,37 @@ for (const arch of ARCHES) {
 
   test(`${arch}: the root's programs run in a Linux container (chroot)`, () => {
     const b = built[arch];
-    const hasSelftest = b.entries.get('usr/bin/txresbench-sandbox-agent').data.includes(Buffer.from('--pipe-selftest'));
     const res = docker(['run', '--rm', '--platform', platformOf(arch), '-v', `${b.out}:/in:ro`, alpineImageOf(arch), 'sh', '-c', `
       set -e
       mkdir /r && tar -xf /in/txresbench-wsl.tar -C /r
       chroot /r /usr/bin/bwrap --version
-      chroot /r /usr/bin/squashfuse --help 2>&1 | head -n 1 || true
+      # --help exits non-zero; its first line names the program and its version
+      chroot /r /usr/bin/squashfuse --help > /tmp/help 2>&1 || true
+      sed -n 1p /tmp/help
       chroot /r /bin/busybox uname -m
-      if [ "${hasSelftest ? 1 : 0}" = 1 ]; then
-        head -c 300000 /dev/urandom > /tmp/in
-        chroot /r /usr/bin/txresbench-sandbox-agent --pipe-selftest < /tmp/in > /tmp/out
-        cmp /tmp/in /tmp/out && echo selftest-ok
-      fi`]);
+      head -c 300000 /dev/urandom > /tmp/in
+      chroot /r /usr/bin/txresbench-sandbox-agent --pipe-selftest < /tmp/in > /tmp/out
+      cmp /tmp/in /tmp/out && echo selftest-ok`]);
     assert.equal(res.status, 0, res.out);
     const lines = res.out.split('\n');
     assert.match(lines[0], /^bubblewrap \d+\.\d+\.\d+$/);
-    assert.match(res.out, /squashfuse/i);
-    assert.ok(lines.includes(arch), res.out);
-    if (hasSelftest) assert.ok(lines.includes('selftest-ok'), res.out);
-    else console.log(`# ${arch}: this tree's agent has no --pipe-selftest (the WSL mode branch adds it); not run`);
+    assert.match(lines[1], /^squashfuse \d+\.\d+\.\d+ \(c\)/, 'squashfuse starts: its libraries load');
+    assert.equal(lines[2], arch);
+    assert.ok(lines.includes('selftest-ok'), res.out);
+  });
+
+  test(`${arch}: the bundle check takes the pair, and refuses an agent from the test cache`, () => {
+    const b = built[arch];
+    const dev = checkRuntime(b.out, arch, { TXR_WSL_RUNTIME_ALLOW_DEV: '1' });
+    assert.equal(dev.status, 0, dev.out);
+    assert.match(dev.out, new RegExp(`${b.manifest.version} \\(${arch}, sha256 ${b.manifest.sha256}\\) can be bundled`));
+    const release = checkRuntime(b.out, arch);
+    assert.equal(release.status, 1, release.out);
+    assert.match(release.out, /the agent was built from the test cache/);
+    const other = arch === 'x86_64' ? 'aarch64' : 'x86_64';
+    const wrong = checkRuntime(b.out, other, { TXR_WSL_RUNTIME_ALLOW_DEV: '1' });
+    assert.equal(wrong.status, 1, wrong.out);
+    assert.match(wrong.out, new RegExp(`the WSL runtime is for ${arch}, the bundle for ${other}`));
   });
 
   test(`${arch}: squashfuse mounts a squashfs image and a bwrap sandbox reads it (privileged, pivot_root)`, () => {
@@ -409,13 +479,35 @@ test(`${FIRST}: a package missing from the notices, or listed with another licen
   }
 });
 
-test(`${FIRST}: building the same tree again gives the same tarball and MANIFEST`, { timeout: 60 * 60 * 1000 }, () => {
+test(`${FIRST}: building the same tree again, the agent from nothing, gives the same tarball and MANIFEST`, { timeout: 90 * 60 * 1000 }, () => {
   const b = built[FIRST];
   assert.ok(b, 'built');
+  // No cache: the agent is compiled again from a fresh registry and target dir, as a release build does.
   const out2 = path.join(b.dir, 'out2');
-  const res = build(FIRST, out2);
+  const res = build(FIRST, out2, [], { cache: false });
   assert.equal(res.status, 0, res.out.slice(-4000));
+  assert.doesNotMatch(res.out, /using the test cache volumes/);
   const tar2 = fs.readFileSync(path.join(out2, 'txresbench-wsl.tar'));
   assert.equal(crypto.createHash('sha256').update(tar2).digest('hex'), b.manifest.sha256);
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(out2, 'MANIFEST.json'), 'utf8')), b.manifest);
+  const m2 = JSON.parse(fs.readFileSync(path.join(out2, 'MANIFEST.json'), 'utf8'));
+  assert.equal(m2.build.agent_cargo_cache, null, 'no cache recorded');
+  assert.deepEqual({ ...m2, build: { ...m2.build, agent_cargo_cache: b.manifest.build.agent_cargo_cache } }, b.manifest);
+});
+
+// ── the pinned images ────────────────────────────────────────────────────────
+
+test('the pinned build images are the linux/amd64 and linux/arm64 entries of the indexes the helper names', () => {
+  const indexes = sh(`. "${HELPER}"; echo "$GUEST_ALPINE_INDEX"; echo "$GUEST_RUST_INDEX"`).split('\n');
+  const pinned = { [indexes[0]]: alpineImageOf, [indexes[1]]: rustImageOf };
+  for (const [index, imageOf] of Object.entries(pinned)) {
+    const res = spawnSync('docker', ['buildx', 'imagetools', 'inspect', '--raw', index], { encoding: 'utf8' });
+    assert.equal(res.status, 0, res.stderr);
+    const list = JSON.parse(res.stdout);
+    for (const [arch, [os, cpu]] of [['x86_64', ['linux', 'amd64']], ['aarch64', ['linux', 'arm64']]]) {
+      const entry = list.manifests.find((x) => x.platform?.os === os && x.platform?.architecture === cpu);
+      assert.ok(entry, `${index} has ${os}/${cpu}`);
+      const [repo] = index.split('@');
+      assert.equal(imageOf(arch), `${repo}@${entry.digest}`, `${arch}: the ${os}/${cpu} entry of ${index}`);
+    }
+  }
 });
