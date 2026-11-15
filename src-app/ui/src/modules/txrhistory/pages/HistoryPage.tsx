@@ -51,6 +51,7 @@ import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
+import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
 import { modelsPath } from '@/modules/txrmodels'
 import { downloadPredictionsCsv, resultsPath, revealRunDir } from '@/modules/txrresults'
 import { chooseMethodsPath, runningPath } from '@/modules/txrrun'
@@ -115,6 +116,12 @@ export function HistoryPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('History')
+  // ITEM-7: the demo's footer is the shared-pool statement + the "n of 50
+  // runs" counter (the audit's CLEAR visible paragraph); the desktop footer
+  // (keep-copies links, storage usage, clear-all) is a second surface the
+  // demo does not offer — the shared pool's retention is automatic.
+  const { isDemo } = useAppMode()
+  const demoUsage = useDemoUsage(isDemo)
 
   // Mount + every `window` focus: the fresh trio. The listener is removed
   // on unmount (no leak — TEST-HIST-8); a run finishing while K is open
@@ -284,15 +291,27 @@ export function HistoryPage() {
         }
         bottom={
           <PageFooterBar testId="txr-history-footer-bar">
-            <TxrHistoryFooter
-              usage={state.usage}
-              total={state.total}
-              preferences={state.preferences}
-              working={state.working !== null}
-              onCopiesOff={handleCopiesOff}
-              onCopiesOn={handleCopiesOn}
-              onClearAll={handleClearAll}
-            />
+            {isDemo ? (
+              // ITEM-7: the demo footer — the shared-pool paragraph + the
+              // "n of 50 runs" counter; the desktop footer's keep-copies
+              // links and clear-all are absent (the server blocks them and
+              // the retention is the shared pool's own automatic rule).
+              <DemoRetentionBlock
+                kind="runs"
+                count={demoUsage.usage?.runs ?? null}
+                limit={demoUsage.usage?.run_limit ?? 50}
+              />
+            ) : (
+              <TxrHistoryFooter
+                usage={state.usage}
+                total={state.total}
+                preferences={state.preferences}
+                working={state.working !== null}
+                onCopiesOff={handleCopiesOff}
+                onCopiesOn={handleCopiesOn}
+                onClearAll={handleClearAll}
+              />
+            )}
           </PageFooterBar>
         }
       />

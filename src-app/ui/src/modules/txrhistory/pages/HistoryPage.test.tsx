@@ -42,6 +42,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { MemoryRouter, useLocation } from 'react-router-dom'
+import { DEMO_POOL_STATEMENT } from '@/modules/demo/copy'
+import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import type {
   TxrHistoryDetail,
   TxrHistoryItem,
@@ -623,5 +625,56 @@ describe('HistoryPage (TEST-HIST-8)', () => {
       path: '/data/txresbench/analysis-2026-11-01-run-1',
     })
     desktopView.unmount()
+  })
+})
+
+describe('HistoryPage demo arm (TEST-DM-7, ITEM-7)', () => {
+  beforeEach(() => {
+    seedDemoMode('demo')
+    api.getUsage.mockResolvedValue({
+      runs: 37,
+      run_limit: 50,
+      models: 12,
+      model_limit: 50,
+      pinned_runs: 1,
+      pinned_models: 2,
+      shared: true,
+    } as unknown as TxrHistoryUsage)
+  })
+  afterEach(() => resetDemoMode())
+
+  it('the footer is the shared-pool statement + the "n of 50 runs" counter; the keep-copies and clear-all links are absent', async () => {
+    renderPage()
+    await settle()
+    expect(screen.getByTestId('txr-demo-retention-statement').textContent).toBe(DEMO_POOL_STATEMENT)
+    expect(screen.getByTestId('txr-demo-retention-counter').textContent).toBe('37 of 50 runs')
+    // The desktop footer's retention controls are ABSENT (the server blocks
+    // them; the shared pool's retention is automatic).
+    expect(screen.queryByTestId('txr-history-copies-off')).toBeNull()
+    expect(screen.queryByTestId('txr-history-copies-on')).toBeNull()
+    expect(screen.queryByTestId('txr-history-clear-all')).toBeNull()
+    // The storage-usage segment is the desktop byte figure — absent in the
+    // demo footer (the demo answers the counters, not the size walk).
+    expect(screen.queryByText(/uses /)).toBeNull()
+  })
+
+  it('the run list still renders (rerun, download, results) — only the footer differs', async () => {
+    renderPage()
+    await settle()
+    expect(screen.getByTestId('txr-history-list')).toBeTruthy()
+    await expand('run-1')
+    expect(screen.getByTestId('txr-history-rerun-run-1')).toBeTruthy()
+    expect(screen.getByTestId('txr-history-download-run-1')).toBeTruthy()
+    // The per-run delete is the platform's desktop fact — absent in web demo.
+    expect(screen.queryByTestId('txr-history-delete-run-1')).toBeNull()
+  })
+
+  it('desktop mode keeps the desktop footer (the demo block is not rendered)', async () => {
+    seedDemoMode('desktop')
+    renderPage()
+    await settle()
+    expect(screen.queryByTestId('txr-demo-retention')).toBeNull()
+    expect(screen.getByTestId('txr-history-copies-off')).toBeTruthy()
+    expect(screen.getByTestId('txr-history-clear-all')).toBeTruthy()
   })
 })

@@ -44,6 +44,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import type { ModelListResponse, ModelSummary } from '@/api-client/types'
+import { DEMO_POOL_STATEMENT } from '@/modules/demo/copy'
+import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import { useTxrIntakeStore } from '@/modules/txrintake'
 import { TXRMODELS_J_RESPONSE, fixtureModelId } from '../fixtures'
 import { useTxrModelsStore } from '../stores/TxrModels.store'
@@ -78,6 +80,7 @@ const api = vi.hoisted(() => ({
   deleteModel: vi.fn(),
   importModel: vi.fn(),
   exportModel: vi.fn(),
+  getUsage: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -87,6 +90,9 @@ vi.mock('@/api-client', () => ({
       deleteModel: api.deleteModel,
       importModel: api.importModel,
       exportModel: api.exportModel,
+    },
+    History: {
+      getUsage: api.getUsage,
     },
   },
 }))
@@ -466,5 +472,52 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
       'Nothing matches here.',
     )
     expect(screen.queryByTestId('txr-models-empty-import')).toBeNull()
+  })
+})
+
+describe('ModelsPage demo arm (TEST-DM-7, ITEM-7)', () => {
+  beforeEach(() => {
+    seedDemoMode('demo')
+    api.getUsage.mockResolvedValue({
+      runs: 37,
+      run_limit: 50,
+      models: 12,
+      model_limit: 50,
+      pinned_runs: 1,
+      pinned_models: 2,
+      shared: true,
+    })
+  })
+  afterEach(() => resetDemoMode())
+
+  it('shows the shared-pool statement + "n of 50 models"; import, export, rename and delete are absent', async () => {
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-demo-retention-statement').textContent).toBe(DEMO_POOL_STATEMENT)
+    expect(screen.getByTestId('txr-demo-retention-counter').textContent).toBe('12 of 50 models')
+    // The import affordance + its hidden input are absent (no upload path).
+    expect(screen.queryByTestId('txr-models-import')).toBeNull()
+    expect(screen.queryByTestId('txr-models-import-file')).toBeNull()
+    // The row actions: Use stays, Export/Rename/Delete are absent.
+    const row = screen.getByTestId(`txr-models-row-${RUN_ROW.id}`)
+    expect(within(row).getByTestId(`txr-models-use-${RUN_ROW.id}`)).toBeTruthy()
+    expect(within(row).queryByTestId(`txr-models-export-${RUN_ROW.id}`)).toBeNull()
+    expect(within(row).queryByTestId(`txr-models-rename-${RUN_ROW.id}`)).toBeNull()
+    expect(within(row).queryByTestId(`txr-models-delete-${RUN_ROW.id}`)).toBeNull()
+    // The deletion footnote is the desktop promise — absent in demo.
+    expect(screen.queryByText(/Deleting a model removes its file/)).toBeNull()
+    expect(screen.getByTestId('txr-models-j-stored-line')).toBeTruthy()
+  })
+
+  it('desktop mode keeps the import + the row actions and shows no retention block', async () => {
+    seedDemoMode('desktop')
+    renderPage()
+    await settle(0)
+    expect(screen.queryByTestId('txr-demo-retention')).toBeNull()
+    expect(screen.getByTestId('txr-models-import')).toBeTruthy()
+    const row = screen.getByTestId(`txr-models-row-${RUN_ROW.id}`)
+    expect(within(row).getByTestId(`txr-models-export-${RUN_ROW.id}`)).toBeTruthy()
+    expect(within(row).getByTestId(`txr-models-rename-${RUN_ROW.id}`)).toBeTruthy()
+    expect(within(row).getByTestId(`txr-models-delete-${RUN_ROW.id}`)).toBeTruthy()
   })
 })
