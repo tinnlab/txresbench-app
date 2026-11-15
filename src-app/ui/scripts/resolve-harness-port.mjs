@@ -146,11 +146,34 @@ export const APP_E2E_PREVIEW_BAND = {
   label: 'appE2ePreview',
 }
 
+// demo-mode ITEM-6: the full-stack DEMO tier's two legs (backend in demo mode
+// + the preview proxying to it). 10400/10600 sit outside every entry of
+// PORT_FLOORS (9000/9100/9600/9800/10000/20000/22000/54331/54600) and outside
+// the gallery band, so the tier can run back to back with the others in one
+// worktree. The pin names are this tier's own knobs.
+export const DEMO_E2E_BACKEND_BAND = {
+  floor: 10400,
+  span: 200,
+  envVar: 'DEMO_E2E_BACKEND_PORT',
+  reuseEnv: 'DEMO_E2E_REUSE',
+  label: 'demoE2eBackend',
+}
+
+export const DEMO_E2E_PREVIEW_BAND = {
+  floor: 10600,
+  span: 200,
+  envVar: 'DEMO_E2E_APP_PORT',
+  reuseEnv: 'DEMO_E2E_REUSE',
+  label: 'demoE2ePreview',
+}
+
 /** Every named leg this resolver can be asked for, by its `label`. */
 export const BANDS = {
   [GALLERY_E2E_BAND.label]: GALLERY_E2E_BAND,
   [APP_E2E_BACKEND_BAND.label]: APP_E2E_BACKEND_BAND,
   [APP_E2E_PREVIEW_BAND.label]: APP_E2E_PREVIEW_BAND,
+  [DEMO_E2E_BACKEND_BAND.label]: DEMO_E2E_BACKEND_BAND,
+  [DEMO_E2E_PREVIEW_BAND.label]: DEMO_E2E_PREVIEW_BAND,
 }
 
 /**

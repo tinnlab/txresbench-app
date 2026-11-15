@@ -18,6 +18,13 @@ import {
 } from '@/modules/txrlist'
 import { Alert, Button, message, Skeleton } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { useAppMode } from '@/modules/demo'
+import {
+  DEMO_DISABLED_REASON,
+  DEMO_RUN_BUTTON_SUFFIX,
+  DEMO_SETTINGS_NOTE,
+} from '@/modules/demo/copy'
+import { formatDurationShort } from '@/modules/txrlist'
 import { useShortShell } from '../lib/useNarrow'
 import {
   PageFrame,
@@ -217,6 +224,7 @@ function TxrMethodPickerFrame({
   onChangeFiles,
   onChangeSettings,
   layout,
+  demo = false,
 }: {
   inventory: InventoryEligibilityRequest
   selected: ReadonlySet<string>
@@ -225,6 +233,8 @@ function TxrMethodPickerFrame({
   onChangeFiles(): void
   onChangeSettings(): void
   layout: NonNullable<Parameters<typeof TxrMethodPicker>[0]['layout']>
+  /** demo-mode ITEM-6: the picker's list is the recorded methods only. */
+  demo?: boolean
 }) {
   const { cards, loading, error, refetch } = useMethodRows(inventory)
   // The user's own selection change (a manual tick or a preset) turns the
@@ -274,7 +284,7 @@ function TxrMethodPickerFrame({
 
   return (
     <TxrMethodPicker
-      cards={cards}
+      cards={demo ? cards.filter(card => !card.run.disabled) : cards}
       loading={loading}
       refreshing={loading}
       error={error}
@@ -312,16 +322,28 @@ export function ChooseMethodsPage() {
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
   const runConfig = useRunConfig()
   const { keepCopies } = useKeepCopies()
+  const { isDemo } = useAppMode()
 
+  // demo-mode ITEM-6: the recorded setup IS the screen's settings (the
+  // estimate + eligibility arms answer from the bundle regardless, and the
+  // configs are the recorded ones — the sticky analysis-config of a shared
+  // pool is never a visitor's opinion, so the demo merge ignores it).
   const merged = useMemo(
-    () => mergeRunSettings(runConfig.engine, parameters),
-    [runConfig.engine, parameters],
+    () =>
+      isDemo
+        ? mergeRunSettings(null, parameters)
+        : mergeRunSettings(runConfig.engine, parameters),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isDemo, runConfig.engine, parameters],
   )
   const settings = settingsPatch === null ? merged : { ...merged, ...settingsPatch }
   const covariates = patients === null ? null : buildCovariates(patients.inspection)
 
   const change = (next: RunSettings): void => {
     setSettingsPatch(current => ({ ...(current ?? {}), ...diffPatch(next, settings) }))
+    // demo-mode ITEM-6: the demo never writes the shared-pool sticky row
+    // (the recorded setup is the one setup; the run carries its own).
+    if (isDemo) return
     void runConfig.update(next)
   }
 
@@ -479,6 +501,7 @@ export function ChooseMethodsPage() {
         details={filesSummary.details}
         onChangeFiles={() => setChangeOpen(true)}
         collapsed={short}
+        changeFilesReason={isDemo ? DEMO_DISABLED_REASON : null}
       />
       <div ref={settingsAnchor}>
         {runConfig.loading ? (
@@ -506,7 +529,13 @@ export function ChooseMethodsPage() {
               onChange={change}
               onMoreSettings={next => change({ ...settings, ...next })}
               collapsed={short}
+              locked={isDemo}
             />
+            {isDemo ? (
+              <p data-testid="txr-run-settings-demo-note" style={{ margin: 0, fontSize: 12.5, color: 'var(--txr-muted)' }}>
+                {DEMO_SETTINGS_NOTE}
+              </p>
+            ) : null}
           </>
         )}
       </div>
@@ -535,7 +564,13 @@ export function ChooseMethodsPage() {
     inventory !== null ? (
       <TxrRunBar
         selectedCount={countSelected(selected, cards)}
-        timeText={formatRunBarTime(estimate.scheduleSeconds, settings.at_a_time, settings.cpus)}
+        timeText={
+          isDemo
+            ? estimate.scheduleSeconds === null
+              ? '…'
+              : formatDurationShort(estimate.scheduleSeconds)
+            : formatRunBarTime(estimate.scheduleSeconds, settings.at_a_time, settings.cpus)
+        }
         atATime={settings.at_a_time}
         saveModels={{
           checked: settings.save_models,
@@ -549,6 +584,7 @@ export function ChooseMethodsPage() {
           const keys = [...selected].filter(key => !disabled.has(key))
           void createRun(keys, opts)
         }}
+        runLabelSuffix={isDemo ? DEMO_RUN_BUTTON_SUFFIX : undefined}
       />
     ) : null
 
@@ -581,6 +617,7 @@ export function ChooseMethodsPage() {
       onCards={setCards}
       onChangeFiles={() => setChangeOpen(true)}
       onChangeSettings={onChangeSettings}
+      demo={isDemo}
       layout={pickerParts => (
         <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
           <PageFrame

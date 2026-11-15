@@ -21,6 +21,8 @@
  * synthetic (non-board counts, small figures) — INV-6.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
+import { DEMO_RUNNING_LABEL } from '@/modules/demo/copy'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import type { TxrRunDetail, TxrRunMethod } from '@/api-client/types'
@@ -207,6 +209,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+  resetDemoMode()
   vi.restoreAllMocks()
 })
 
@@ -657,5 +660,21 @@ describe('RunningPage — the log panel and leave-and-continue (ITEM-11)', () =>
     fireEvent.click(screen.getByTestId('txr-run-log-close'))
     expect(state().logOpen).toBe(false)
     expect(screen.queryByTestId('txr-run-log')).toBeNull()
+  })
+})
+
+describe('demo mode (ITEM-6) — the demo-run label', () => {
+  it('the running page carries the audit\'s label line above the header', async () => {
+    seedDemoMode('demo')
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-title')
+    expect(screen.getByTestId('txr-run-demo-label').textContent).toBe(DEMO_RUNNING_LABEL)
+  })
+
+  it('desktop renders no demo label', async () => {
+    seedDemoMode('desktop')
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-title')
+    expect(screen.queryByTestId('txr-run-demo-label')).toBeNull()
   })
 })

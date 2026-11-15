@@ -356,13 +356,27 @@ fn clear_all_copies_docs(op: TransformOperation) -> TransformOperation {
 /// with the user-visible `data_dir` and the stamp. The walk runs on the
 /// blocking pool and is cached for 10 seconds (DEC-8 — a large data root is
 /// not walked per keystroke).
+///
+/// In DEMO mode the answer is the shared-pool figure instead (demo-mode
+/// ITEM-4): `{runs, run_limit, models, model_limit, pinned_runs,
+/// pinned_models, shared: true}` — the "n of 50" counters the demo pages
+/// carry; the byte walk is the desktop (private) figure and is not exposed
+/// to visitors.
 async fn get_usage(
     _auth: RequirePermissions<(JobsUse,)>,
     Extension(pool): Extension<SqlitePool>,
-) -> ApiResult<Json<TxrHistoryUsage>> {
+) -> ApiResult<Json<serde_json::Value>> {
+    if crate::modules::demo::enabled() {
+        let usage = crate::modules::demo::retention::usage(&pool).await.map_err(e)?;
+        let value = serde_json::to_value(usage)
+            .map_err(|err| AppError::internal_error(format!("demo usage figure: {err}")))?;
+        return Ok((StatusCode::OK, Json(value)));
+    }
     let retention = Retention::new(pool);
     let usage = retention.usage().await.map_err(e)?;
-    Ok((StatusCode::OK, Json(usage)))
+    let value = serde_json::to_value(usage)
+        .map_err(|err| AppError::internal_error(format!("usage figure: {err}")))?;
+    Ok((StatusCode::OK, Json(value)))
 }
 
 fn get_usage_docs(op: TransformOperation) -> TransformOperation {

@@ -52,11 +52,15 @@ const APP_CHAIN_GROUPS: &[(&str, usize)] = &[
     ("execution_engine", 7),
     ("model_store", 4),
     ("history_store", 2),
+    // demo-mode ITEM-1 + ITEM-4: the anonymous-visitor session rows + the
+    // run-owner rows (the stop/skip ownership rule) and the boot-seeded
+    // example runs' pin/idempotency rows (the retention).
+    ("demo", 2),
 ];
 
 /// The table set the ported chain creates (SDK 12 + jobs 8 (incl.
 /// compute_meter) + sandbox 1 + mcp 2 + features 1 + account 5 +
-/// execution_engine 5 + model_store 3 + history_store 2 = 39),
+/// execution_engine 5 + model_store 3 + history_store 2 + demo 3 = 42),
 /// alphabetically. The strip removed the dataset/project/workstore/
 /// provenance/drafts tables with their modules — this set is exactly the
 /// tables the kept chain creates (verified against a real SQLite apply of
@@ -89,6 +93,9 @@ const TABLE_SET: &[&str] = &[
     "sandbox_settings",
     "session_settings",
     "txr_app_config",
+    "txr_demo_run_sessions",
+    "txr_demo_seeded_runs",
+    "txr_demo_sessions",
     "txr_example_set",
     "txr_history_preferences",
     "txr_model_sets",
@@ -115,10 +122,10 @@ const SDK_CHAIN_FILES: &[&str] = &[
     "202609090010_users_email_lowercase_invariant.sql",
 ];
 
-/// Every file the ported chain ships (SDK 7 + the kept modules' 32: jobs 6,
+/// Every file the ported chain ships (SDK 7 + the kept modules' 34: jobs 6,
 /// sandbox 3, mcp 2, features 1, file 1, account 6, execution_engine 7,
-/// model_store 4, history_store 2), in the version-sorted order the merged
-/// chain applies them — the complete 39-file SQLite chain.
+/// model_store 4, history_store 2, demo 2), in the version-sorted order the
+/// merged chain applies them — the complete 41-file SQLite chain.
 pub(crate) const CHAIN_FILES: &[&str] = &[
     "202607140050_auth_schema.sql",
     "202607140125_file_schema.sql",
@@ -159,6 +166,8 @@ pub(crate) const CHAIN_FILES: &[&str] = &[
     "202610260011_txr_timing_samples.sql",
     "202610270001_txr_example_set.sql",
     "202611130001_txr_models_conversions.sql",
+    "202611141001_txr_demo_sessions.sql",
+    "202611141002_txr_demo_seeded_runs.sql",
 ];
 
 static UNIQUE: AtomicU64 = AtomicU64::new(0);
@@ -532,11 +541,11 @@ async fn email_invariant_refuses_case_collisions_in_legacy_data() {
     // The full chain now REFUSES: the functional unique index cannot be
     // created over the case-twin rows, the transaction rolls back, and the
     // migration is not recorded — the operator decides which account survives.
-    // The refusal lands at 202609090010 (the 26th of the 39 files: it sorts
+    // The refusal lands at 202609090010 (the 26th file of the chain: it sorts
     // above every SDK and kept-app file, but BELOW the execution_engine /
     // model_store / history_store files), so the six pre-applied SDK files
     // plus the nineteen kept-app files between them and the invariant are
-    // applied and only the invariant file itself is not: 25 of 39. The
+    // applied and only the invariant file itself is not: 25 of them. The
     // mid-chain migrations reference only kept tables (`users`, `accounts`,
     // `groups`, the jobs/sandbox/mcp/files tables) — the full chain is
     // applied below — so no test-side stubs stand in any more (ITEM-26

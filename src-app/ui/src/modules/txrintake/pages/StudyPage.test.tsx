@@ -21,6 +21,9 @@ import type { EligibilityResponse, MarkerGroup } from '@/api-client/types'
 import { StudyPage } from './StudyPage'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import { EXCLUDED_LIST_LIMIT } from '../lib/format'
+import { EXAMPLE_STUDY } from '../lib/example'
+import { seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
+import { DEMO_STUDY_NOTE } from '@/modules/demo/copy'
 import { __resetFetchCacheForTests } from '../data/fetchCache'
 
 // jsdom has no working PointerEvent constructor; Base UI's controls (the kit
@@ -488,5 +491,33 @@ describe('R2-1 — the environment fact separated from the answer causes', () =>
       )
     })
     expect(screen.getByText(`${CANNOT + 2} methods are left out`)).toBeTruthy()
+  })
+})
+
+describe('demo mode (ITEM-6) — the panel' + "s example-study note", () => {
+  it('answers outside the example setup show the note; the example setup does not', async () => {
+    seedDemoMode('demo')
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    fireEvent.click(screen.getByTestId('txr-intake-study-group-ctdna'))
+    expect(await screen.findByTestId('txr-intake-panel-demo-note')).toBeTruthy()
+    expect(screen.getByTestId('txr-intake-panel-demo-note').textContent).toBe(DEMO_STUDY_NOTE)
+  })
+
+  it('exactly the example answers leave the panel without the note', async () => {
+    seedDemoMode('demo')
+    store().patchStudy(EXAMPLE_STUDY)
+    renderStudy()
+    await screen.findByText(/of .* methods fit your study/)
+    expect(screen.queryByTestId('txr-intake-panel-demo-note')).toBeNull()
+  })
+
+  it('desktop never renders the note', async () => {
+    seedDemoMode('desktop')
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    fireEvent.click(screen.getByTestId('txr-intake-study-group-ctdna'))
+    expect(await screen.findByText(/of .* methods fit your study/)).toBeTruthy()
+    expect(screen.queryByTestId('txr-intake-panel-demo-note')).toBeNull()
   })
 })

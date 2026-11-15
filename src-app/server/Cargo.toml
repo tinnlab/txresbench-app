@@ -122,6 +122,19 @@ clap = { version = "4", features = ["derive"] }
 # byte-progress polling contract stays chunk-accurate. Feature edit only — no
 # new crate, `Cargo.lock` byte-identical.
 reqwest = { version = "0.12", features = ["json", "stream"] }
+# demo-mode ITEM-1: the per-session rate limiter IS the framework's rate-limit
+# module (tower_governor — the same crate `apply_rate_limit_layer` installs)
+# with the app's session-or-IP key, so the extra edge unifies onto the
+# existing 0.7.0 lockfile entry — no second build, no new package.
+tower_governor = "0.7"
+# demo-mode ITEM-1: the request-body cap must hold EVERYWHERE in demo mode,
+# including the adapted inspect/validate routes whose route-level
+# `DefaultBodyLimit::disable()` would override an extractor-level default.
+# tower_http is already in the graph (the framework enables its `cors`
+# feature; 0.6.11 in the lockfile), and the `limit` feature adds only
+# `http-body`/`http-body-util` on top — both already in the tree — so the
+# lockfile gains only this crate's dependency edges.
+tower-http = { version = "0.6", features = ["limit"] }
 
 # NOTE (artifact-model ITEM-12 / ITEM-20): `arrow` + `arrow-ipc` are GONE. They
 # existed for the Selection→Arrow serve wire (`workstore::serve_core`) and for the

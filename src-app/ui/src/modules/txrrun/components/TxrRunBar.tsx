@@ -36,6 +36,9 @@ export interface TxrRunBarProps {
   saveModels: { checked: boolean; onChange(v: boolean): void }
   /** Run clicked (the options; the keys are the page's). */
   onRun(opts: { atATime: number; saveModels: boolean }): void
+  /** The button label's suffix (demo-mode ITEM-6: the audit's "Run N
+   *  methods (demo)"). */
+  runLabelSuffix?: string
 }
 
 /** The board bar's container look (the E run bar's own two-line grid). */
@@ -102,7 +105,7 @@ const ACTION_ROW: CSSProperties = {
 /** The disabled reason beside the button (the plan's words). */
 const EMPTY_REASON: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 
-export function TxrRunBar({ selectedCount, timeText, atATime, saveModels, onRun }: TxrRunBarProps) {
+export function TxrRunBar({ selectedCount, timeText, atATime, saveModels, onRun, runLabelSuffix }: TxrRunBarProps) {
   const empty = selectedCount === 0
   return (
     <div data-testid="txr-run-bar" className="txr-run-bar" style={BAR}>
@@ -145,6 +148,7 @@ export function TxrRunBar({ selectedCount, timeText, atATime, saveModels, onRun 
           onClick={() => onRun({ atATime, saveModels: saveModels.checked })}
         >
           Run {selectedCount} {pluralize('method', selectedCount)}
+          {runLabelSuffix}
         </Button>
       </div>
     </div>

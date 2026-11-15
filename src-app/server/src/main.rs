@@ -29,6 +29,12 @@ struct Cli {
     #[arg(long)]
     config_file: Option<String>,
 
+    /// Run in DEMO MODE (web-service demo: example data only, recorded runs,
+    /// shared pool, route allowlist). Overrides `TXR_DEMO=1` and the config
+    /// file's `demo.enabled`; default off (desktop mode unchanged).
+    #[arg(long)]
+    demo: bool,
+
     /// Generate the DEFAULT (saas-OFF) OpenAPI spec + TypeScript client into <DIR>
     /// (emitting `<DIR>/../src/api-client/*`), then exit. Consumed by the desktop/OSS build.
     #[arg(long, value_name = "DIR")]
@@ -72,7 +78,14 @@ async fn main() {
     // Dispatch on the run mode. No subcommand ⇒ `serve` (default, unchanged); `worker`
     // boots the same assembly minus the public router and runs the scheduler loop (ITEM-2).
     let result = match cli.mode {
-        Some(Mode::Serve) | None => txresbench::serve_blocking(config).await,
+        Some(Mode::Serve) | None => {
+            // The demo switch: CLI `--demo` > TXR_DEMO env > `demo:` block > off.
+            let demo = txresbench::config::resolve_demo_config(
+                cli.demo,
+                cli.config_file.as_deref(),
+            );
+            txresbench::serve_blocking(config, demo).await
+        }
     };
     if let Err(e) = result {
         eprintln!("fatal: {e}");

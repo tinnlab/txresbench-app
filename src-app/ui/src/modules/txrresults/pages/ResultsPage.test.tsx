@@ -25,6 +25,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { AppEvents } from '@txresbench/framework/events'
 import { useEventBusStore } from '@txresbench/framework/events'
 import type { TxrPredictionsResponse, TxrRunDetail, TxrRunMethod } from '@/api-client/types'
+import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import { ResultsPage } from './ResultsPage'
 
 const api = vi.hoisted(() => ({
@@ -761,5 +762,22 @@ describe('ResultsPage (TEST-UR-6 — store wiring, states, actions)', () => {
     for (const id of ids) {
       expect(view.getByTestId(id)).toBeTruthy()
     }
+  })
+})
+
+describe('ResultsPage demo arm (TEST-DM-7, ITEM-7)', () => {
+  afterEach(() => resetDemoMode())
+
+  it('carries the recorded-results line in demo mode; absent in desktop', async () => {
+    seedDemoMode('demo')
+    const view = await renderLoaded()
+    expect(view.getByTestId('txr-results-demo-label').textContent).toBe(
+      'These are recorded results of the example data',
+    )
+    view.unmount()
+    state().reset()
+    seedDemoMode('desktop')
+    const desktop = await renderLoaded()
+    expect(desktop.queryByTestId('txr-results-demo-label')).toBeNull()
   })
 })

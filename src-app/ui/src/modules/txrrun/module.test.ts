@@ -450,6 +450,9 @@ describe('txrrun module (TEST-RUN-01)', () => {
           !p.startsWith('src-app/ui/src/modules/txrhelp/') &&
           !p.startsWith('src-app/ui/src/modules/txrintake/') &&
           !p.startsWith('src-app/ui/src/modules/txrresults/') &&
+          // demo-mode ITEM-5 (its DRIFT-1): the new `demo` module dir —
+          // additions, not global edits (the sibling-dir convention).
+          !p.startsWith('src-app/ui/src/modules/demo/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx' &&

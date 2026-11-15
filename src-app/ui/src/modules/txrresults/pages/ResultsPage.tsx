@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from 'zustand'
-import { Button, ErrorState, Skeleton } from '@txresbench/kit'
+import { Alert, Button, ErrorState, Skeleton } from '@txresbench/kit'
 import type { TxrRunDetail } from '@/api-client/types'
+import { useAppMode } from '@/modules/demo'
+import { DEMO_RECORDED_RESULTS_LINE } from '@/modules/demo/copy'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
@@ -163,6 +165,10 @@ function NotFoundResults({ onNewAnalysis }: { onNewAnalysis: () => void }) {
 export function ResultsPage() {
   const { runId } = useParams<{ runId: string }>()
   const navigate = useNavigate()
+  // ITEM-7 (the audit's /analysis/:id/results row): the demo line "These
+  // are recorded results of the example data" — the table, the CSV and the
+  // save are the recorded run's, and the line says so.
+  const { isDemo } = useAppMode()
   const state = useStore(useTxrResultsStore)
   const {
     run,
@@ -373,6 +379,13 @@ export function ResultsPage() {
         <PageFrame
           top={
             <div className="txr-results-top" style={PAGE_TOP}>
+              {isDemo ? (
+                <Alert
+                  data-testid="txr-results-demo-label"
+                  tone="info"
+                  title={DEMO_RECORDED_RESULTS_LINE}
+                />
+              ) : null}
               <TxrResultsHeader
                 run={run}
                 predictions={null}
@@ -434,6 +447,13 @@ export function ResultsPage() {
         testId="txr-results-frame"
         top={
           <div className="txr-results-top" style={PAGE_TOP}>
+            {isDemo ? (
+              <Alert
+                data-testid="txr-results-demo-label"
+                tone="info"
+                title={DEMO_RECORDED_RESULTS_LINE}
+              />
+            ) : null}
             <TxrResultsHeader
               run={run}
               predictions={predictions}

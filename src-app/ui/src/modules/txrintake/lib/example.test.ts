@@ -20,6 +20,7 @@ import {
   exampleSlotsFor,
   ensureExampleSet,
   fetchExampleTable,
+  isExampleStudy,
   runExampleFlow,
 } from './example'
 
@@ -174,5 +175,24 @@ describe('ensureExampleSet', () => {
     await expect(
       ensureExampleSet(() => {}, { delayMs: 1, cancelled: () => true }),
     ).rejects.toThrow('cancelled')
+  })
+})
+
+describe('isExampleStudy (demo-mode ITEM-6)', () => {
+  it('the example answers themselves are the example study', () => {
+    expect(isExampleStudy({ ...EXAMPLE_STUDY })).toBe(true)
+  })
+
+  it('one answer leaving the setup is no longer the example study', () => {
+    expect(isExampleStudy({ ...EXAMPLE_STUDY, disease: 'colorectal' })).toBe(false)
+    expect(isExampleStudy({ ...EXAMPLE_STUDY, lastDrawDay: 84 })).toBe(false)
+    expect(isExampleStudy({ ...EXAMPLE_STUDY, markerGroups: { kinetics: true } })).toBe(false)
+  })
+
+  it('a null markerGroups key is the same as an absent one', () => {
+    expect(isExampleStudy({ ...EXAMPLE_STUDY, markerGroups: null })).toBe(true)
+    const withoutGroups: typeof EXAMPLE_STUDY = { ...EXAMPLE_STUDY, markerGroups: null }
+    delete (withoutGroups as { markerGroups?: unknown }).markerGroups
+    expect(isExampleStudy(withoutGroups)).toBe(true)
   })
 })

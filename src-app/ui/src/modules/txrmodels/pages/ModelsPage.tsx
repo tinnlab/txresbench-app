@@ -60,6 +60,7 @@ import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
+import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
 import { useTxrIntakeStore } from '@/modules/txrintake'
 import { predictFilesPath } from '@/modules/txrrun'
 import { Alert, Button, Input } from '@txresbench/kit'
@@ -271,6 +272,11 @@ export function ModelsPage() {
   const setId = searchParams.get('set')
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('Your models')
+  // ITEM-7: the demo's inventory is the shared pool's — the visible
+  // statement + the "n of 50 models" counter, and the import/export/rename/
+  // delete row actions are absent (the server blocks them; DEC-3).
+  const { isDemo } = useAppMode()
+  const demoUsage = useDemoUsage(isDemo)
 
   const [search, setSearch] = useState('')
   const inventory = useModelInventory({ query: search, setId })
@@ -389,26 +395,41 @@ export function ModelsPage() {
                   style={{ width: 220 }}
                   allowStyle
                 />
-                <Button data-testid="txr-models-import" onClick={() => fileRef.current?.click()}>
-                  {IMPORT_LABEL}
-                </Button>
-                {/* native-control-ok: the file input is invisible; the visible affordance is <Button> */}
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".txr"
-                  style={{ display: 'none' }}
-                  aria-hidden="true"
-                  tabIndex={-1}
-                  data-testid="txr-models-import-file"
-                  onChange={event => {
-                    const file = event.target.files?.[0] ?? null
-                    event.target.value = ''
-                    if (file !== null) void importFile(file)
-                  }}
-                />
+                {/* ITEM-7: the import affordance is ABSENT in demo (the
+                    server blocks `models/import`; a visitor's file would
+                    land in the shared pool). */}
+                {!isDemo ? (
+                  <>
+                    <Button data-testid="txr-models-import" onClick={() => fileRef.current?.click()}>
+                      {IMPORT_LABEL}
+                    </Button>
+                    {/* native-control-ok: the file input is invisible; the visible affordance is <Button> */}
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept=".txr"
+                      style={{ display: 'none' }}
+                      aria-hidden="true"
+                      tabIndex={-1}
+                      data-testid="txr-models-import-file"
+                      onChange={event => {
+                        const file = event.target.files?.[0] ?? null
+                        event.target.value = ''
+                        if (file !== null) void importFile(file)
+                      }}
+                    />
+                  </>
+                ) : null}
               </div>
             </div>
+
+            {isDemo ? (
+              <DemoRetentionBlock
+                kind="models"
+                count={demoUsage.usage?.models ?? null}
+                limit={demoUsage.usage?.model_limit ?? 50}
+              />
+            ) : null}
 
             {setId !== null ? (
               <div data-testid="txr-models-j-set-focus" style={SET_FOCUS}>
@@ -462,9 +483,11 @@ export function ModelsPage() {
             {search.trim().length === 0 && setId === null ? (
               <>
                 <p style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-muted)' }}>{EMPTY_NOTE}</p>
-                <Button data-testid="txr-models-empty-import" onClick={() => fileRef.current?.click()}>
-                  {IMPORT_LABEL}
-                </Button>
+                {!isDemo ? (
+                  <Button data-testid="txr-models-empty-import" onClick={() => fileRef.current?.click()}>
+                    {IMPORT_LABEL}
+                  </Button>
+                ) : null}
               </>
             ) : null}
           </div>
@@ -544,32 +567,40 @@ export function ModelsPage() {
                     >
                       <Button data-testid={`txr-models-use-${model.id}`} onClick={() => useModel(model)}>
                         Use
-                      </Button>{' '}
-                      <Button
-                        data-testid={`txr-models-export-${model.id}`}
-                        variant="link"
-                        style={ROW_ACTION_LINK}
-                        disabled={exporting}
-                        onClick={() => void exportModel(model)}
-                      >
-                        Export
-                      </Button>{' '}
-                      <Button
-                        data-testid={`txr-models-rename-${model.id}`}
-                        variant="link"
-                        style={ROW_ACTION_LINK}
-                        onClick={() => openRename(model)}
-                      >
-                        Rename
-                      </Button>{' '}
-                      <Button
-                        data-testid={`txr-models-delete-${model.id}`}
-                        variant="link"
-                        style={ROW_ACTION_DANGER}
-                        onClick={() => openDelete(model)}
-                      >
-                        Delete
                       </Button>
+                      {/* ITEM-7: Export / Rename / Delete are ABSENT in demo
+                          (the server blocks them; DEC-3 — no free text,
+                          no export of the recorded stubs). */}
+                      {!isDemo ? (
+                        <>
+                          {' '}
+                          <Button
+                            data-testid={`txr-models-export-${model.id}`}
+                            variant="link"
+                            style={ROW_ACTION_LINK}
+                            disabled={exporting}
+                            onClick={() => void exportModel(model)}
+                          >
+                            Export
+                          </Button>{' '}
+                          <Button
+                            data-testid={`txr-models-rename-${model.id}`}
+                            variant="link"
+                            style={ROW_ACTION_LINK}
+                            onClick={() => openRename(model)}
+                          >
+                            Rename
+                          </Button>{' '}
+                          <Button
+                            data-testid={`txr-models-delete-${model.id}`}
+                            variant="link"
+                            style={ROW_ACTION_DANGER}
+                            onClick={() => openDelete(model)}
+                          >
+                            Delete
+                          </Button>
+                        </>
+                      ) : null}
                     </td>
                   </tr>
                 )
@@ -587,7 +618,12 @@ export function ModelsPage() {
               <span data-testid="txr-models-j-stored-line" style={STORED_LINE}>
                 <span>Models are kept so you can use them for new patients.</span>
               </span>
-              <span>Deleting a model removes its file. Results already made with it are kept in History.</span>
+              {/* ITEM-7: the deletion note is the desktop's own promise; in
+                  the demo the shared-pool retention paragraph (above the
+                  table) is the deletion truth — nothing is deleted by hand. */}
+              {!isDemo ? (
+                <span>Deleting a model removes its file. Results already made with it are kept in History.</span>
+              ) : null}
             </div>
           </PageFooterBar>
         }

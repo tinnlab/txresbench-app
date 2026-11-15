@@ -34,6 +34,10 @@ export type HelpBlock =
    *  chips the running/choose screens use — the labels and tones are the
    *  sibling modules' own constants, the meanings are authored here). */
   | { kind: 'statuses' }
+  /** An external link with its lead text (the demo's "download page"
+   *  link — a real anchor, new tab, no opener; the one non-internal link
+   *  the Help content can carry, demo-mode ITEM-7). */
+  | { kind: 'download'; text: string; label: string; url: string }
 
 /** One authored Help section: `id` is the anchor (`#id`). */
 export interface HelpSection {

@@ -1046,6 +1046,20 @@
         "finding": "W7",
         "note": "GENERATED mirror of the server OpenAPI / Tauri codegen doc comments (schemars → spec → emitted TS / desktop schemas). features is the kept API contract's own wording; editing the artifact is meaningless — fix the server doc comment or not at all."
       }
+    },
+    "server/src/modules/demo/allowlist.rs": {
+      "features": {
+        "count": 3,
+        "finding": "GENERIC",
+        "note": "The demo-mode route-policy table names the framework's kept furniture by its real path: /admin/features is the runtime feature-flags admin subsystem (issue 40), not the genomic 'features' the domain lattice means. Same disposition as the standing features-module admissions; the 3 code hits are the route path strings the gate must match."
+      }
+    },
+    "server/src/modules/demo/models.rs": {
+      "features": {
+        "count": 1,
+        "finding": "FALSE-POSITIVE",
+        "note": "The demo save writes the saved-model registry's own wire key (the txr_models.features column — the recorded marker-set requirement list of the kept TxResBench saved-model contract, the same kept-vocabulary disposition as the standing model_store admissions); the file's other two 'feature(s)' occurrences were reworded to 'marker facts'. The 1 code hit is the struct-literal field name."
+      }
     }
   },
   "prose": {
@@ -1735,6 +1749,13 @@
       "tokens": {
         "features": 2
       }
+    },
+    "server/src/modules/demo/allowlist.rs": {
+      "tokens": {
+        "features": 2
+      },
+      "finding": "GENERIC",
+      "note": "The demo-mode route-policy table names the framework's kept furniture by its real path: /admin/features is the runtime feature-flags admin subsystem (issue 40), not the genomic 'features' the domain lattice means. Same disposition as the standing features-module admissions; the 3 code hits are the route path strings the gate must match."
     }
   },
   "literals": {
@@ -1747,6 +1768,13 @@
     }
   },
   "testCode": {
+    "server/tests/demo/mod.rs": {
+      "features": {
+        "count": 1,
+        "finding": "FALSE-POSITIVE",
+        "note": "The ITEM-4 retention integration test builds the saved-model repository's own record (the txr_models.features wire key — the recorded marker-set requirement list of the kept TxResBench saved-model contract; the same kept-vocabulary disposition as the standing model_store admissions and the modules/demo/models.rs one). The 1 testCode hit is the struct-literal field name of the model-store test fixture shape."
+      }
+    },
     "server/tests/domain_surface/mod.rs": {
       "10x": {
         "count": 5,

@@ -50,6 +50,8 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { Alert, Button, Checkbox, Dialog, Input, Skeleton } from '@txresbench/kit'
 import type { MethodSummary, ModelSaveResponse, TxrPredictionsResponse, TxrRunDetail } from '@/api-client/types'
 import { ApiClient } from '@/api-client'
+import { useAppMode } from '@/modules/demo'
+import { demoGeneratedSetName } from '@/modules/demo/copy'
 import {
   WHAT_IS_SAVED_LABEL,
   NOT_SAVED_LABEL,
@@ -194,6 +196,12 @@ export function TxrSaveModelsDialog({
 }: TxrSaveModelsDialogProps) {
   const draftName = useTxrModelsStore(s => s.draftName)
   const setDraftName = useTxrModelsStore(s => s.setDraftName)
+  // ITEM-7: the demo's save dialog shows the GENERATED name without a text
+  // field (DEC-3: no free text from a visitor is ever stored or shown to
+  // others — the server ignores any client-supplied name and generates
+  // "Demo models <date time>" itself).
+  const { isDemo } = useAppMode()
+  const [generatedName, setGeneratedName] = useState<string | null>(null)
 
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle')
   const [run, setRun] = useState<TxrRunDetail | null>(null)
@@ -248,12 +256,13 @@ export function TxrSaveModelsDialog({
     setMethods([])
     setSelected(new Set())
     setSaveError(null)
+    setGeneratedName(isDemo ? demoGeneratedSetName() : null)
     setLoadState(runId === null ? 'idle' : 'loading')
     void loadAll()
     return () => {
       loadEpoch.current += 1
     }
-  }, [loadAll, runId])
+  }, [loadAll, runId, isDemo])
 
   const entries = run === null ? [] : buildSaveChecklist(run, methods)
   const selectedList = [...selected]
@@ -261,7 +270,9 @@ export function TxrSaveModelsDialog({
   const countLine = saveCountLine(selected.size, entries.length, totalBytes)
   const warning = formatTrainingDataWarning(trainingDataModelNames(entries))
   const notes = run === null ? [] : cannotRunNotes(run)
-  const name = draftName.trim()
+  // The demo's name is the generated one (the server generates its own at
+  // save time — this is the dialog's preview of the same byte).
+  const name = isDemo ? (generatedName ?? '') : draftName.trim()
   const canSave = entries.length > 0 && selected.size > 0 && name.length > 0 && !busy
   const trainedNote = run === null ? null : trainedOnNote(run, predictPatientCount(predictions))
 
@@ -341,13 +352,21 @@ export function TxrSaveModelsDialog({
         <div data-testid="txr-models-save-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{NAME_LABEL}</span>
-            <Input
-              data-testid="txr-models-save-name"
-              aria-label={NAME_LABEL}
-              placeholder="Name this set"
-              value={draftName}
-              onChange={event => setDraftName(event.target.value)}
-            />
+            {isDemo ? (
+              // ITEM-7: the generated name is DISPLAYED, not typed — there
+              // is no text field (no free text in the shared pool).
+              <span data-testid="txr-models-save-generated-name" style={{ fontSize: 13.5, fontWeight: 700 }}>
+                {generatedName ?? '\u2026'}
+              </span>
+            ) : (
+              <Input
+                data-testid="txr-models-save-name"
+                aria-label={NAME_LABEL}
+                placeholder="Name this set"
+                value={draftName}
+                onChange={event => setDraftName(event.target.value)}
+              />
+            )}
             <span data-testid="txr-models-save-made-from" style={MADE_FROM}>
               {formatMadeFrom(run, predictPatientCount(predictions))}
             </span>
@@ -357,7 +376,7 @@ export function TxrSaveModelsDialog({
                 patients with the draws and outcomes this run needs.
               </span>
             ) : null}
-            {name.length === 0 ? (
+            {!isDemo && name.length === 0 ? (
               <span data-testid="txr-models-save-name-hint" style={SUBLINE}>
                 Name the set to save the models.
               </span>
@@ -433,33 +452,35 @@ export function TxrSaveModelsDialog({
             </p>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <Checkbox
-                checked={keepTrainingFiles}
-                data-testid="txr-models-save-keep-training"
-                onCheckedChange={setKeepTrainingFiles}
-              />
-              <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span data-testid="txr-models-save-keep-training-label" style={{ fontSize: 13 }}>
-                  Also keep a copy of my training files, so this run can be repeated
+          {!isDemo ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <Checkbox
+                  checked={keepTrainingFiles}
+                  data-testid="txr-models-save-keep-training"
+                  onCheckedChange={setKeepTrainingFiles}
+                />
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span data-testid="txr-models-save-keep-training-label" style={{ fontSize: 13 }}>
+                    Also keep a copy of my training files, so this run can be repeated
+                  </span>
+                  <span data-testid="txr-models-save-keep-training-hint" style={SUBLINE}>
+                    They are kept with the set. Delete the set to remove them.
+                  </span>
                 </span>
-                <span data-testid="txr-models-save-keep-training-hint" style={SUBLINE}>
-                  They are kept with the set. Delete the set to remove them.
+              </label>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <Checkbox
+                  checked={alsoExport}
+                  data-testid="txr-models-save-also-export"
+                  onCheckedChange={setAlsoExport}
+                />
+                <span data-testid="txr-models-save-also-export-label" style={{ fontSize: 13 }}>
+                  Also save as a file
                 </span>
-              </span>
-            </label>
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-              <Checkbox
-                checked={alsoExport}
-                data-testid="txr-models-save-also-export"
-                onCheckedChange={setAlsoExport}
-              />
-              <span data-testid="txr-models-save-also-export-label" style={{ fontSize: 13 }}>
-                Also save as a file
-              </span>
-            </label>
-          </div>
+              </label>
+            </div>
+          ) : null}
 
           {saveError !== null ? (
             <span data-testid="txr-models-save-error" style={ERROR}>

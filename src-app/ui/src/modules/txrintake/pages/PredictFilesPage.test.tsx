@@ -28,6 +28,7 @@ import type {
 } from '@/api-client/types'
 import { PredictFilesPage } from './PredictFilesPage'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
+import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 
 // jsdom 25 ships no File.text(); the browser does. The polyfill reads the
 // jsdom impl buffer (Symbol(impl) -> `_buffer`) so the REAL browser decode
@@ -200,6 +201,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  resetDemoMode()
   vi.restoreAllMocks()
 })
 
@@ -447,5 +449,37 @@ describe("ITEM-6 P1/F4 — the aside's bullets and items, the pick guard", () =>
     })
     expect(api.inspect).not.toHaveBeenCalled()
     expect(store().predictMeasurements).toBeNull()
+  })
+})
+
+describe('demo mode (ITEM-6) — the example predict card replaces the upload', () => {
+  it('auto-adopts the example predict table; no drop zone, no file input, no Clear example', async () => {
+    seedDemoMode('demo')
+    api.example.mockImplementation(({ kind }: { kind: string }) =>
+      Promise.resolve(kind === 'predict-measurements' ? MEASUREMENTS_CSV : ''),
+    )
+    api.validate.mockResolvedValue(validationFixture())
+    renderPredict()
+
+    await screen.findByTestId('txr-example-card-predict')
+    const card = screen.getByTestId('txr-example-card-predict')
+    expect(within(card).getByText('Example patients to predict')).toBeTruthy()
+    expect(within(card).getByText('Example')).toBeTruthy()
+    expect(within(card).getByText(/^2 rows/)).toBeTruthy()
+    expect(within(card).getByText('Download the template (CSV)')).toBeTruthy()
+    expect(within(card).getByText('Download the full example (CSV)')).toBeTruthy()
+
+    expect(screen.queryByTestId('txr-intake-file-card-measurements')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-file-drop-measurements')).toBeNull()
+    expect(document.querySelector('input[type=file]')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-clear-example')).toBeNull()
+    expect(screen.queryByTestId('txr-use-example-pretrained')).toBeNull()
+
+    await waitFor(() => {
+      expect(api.validate).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      expect(continueButton().disabled).toBe(false)
+    })
   })
 })

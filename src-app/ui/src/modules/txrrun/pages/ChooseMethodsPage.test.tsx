@@ -49,6 +49,8 @@ import { RESEARCH_NOTICE } from '../lib/format'
 import { RUN_METHODS_GONE_LINE } from '../lib/runErrors'
 import { ChooseMethodsPage } from './ChooseMethodsPage'
 import { RUN_CONFIG_DEBOUNCE_MS } from '../data/useRunConfig'
+import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
+import { DEMO_DISABLED_REASON, DEMO_SETTINGS_NOTE } from '@/modules/demo/copy'
 
 // jsdom has no working PointerEvent constructor; Base UI's controls (the
 // kit Switch/Segmented/Select) construct one on pointer interaction, which
@@ -441,6 +443,7 @@ afterEach(() => {
   restoreLayout?.()
   restoreLayout = null
   vi.useRealTimers()
+  resetDemoMode()
   vi.restoreAllMocks()
 })
 
@@ -1171,5 +1174,39 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
       'scaled to your file',
     )
     expect(screen.getByTestId('txr-run-settings-seed-fact').textContent).toContain('fixed seed')
+  })
+})
+
+describe('demo mode (ITEM-6) — the recorded methods only, the locked setup, the (demo) run label', () => {
+  it('the picker lists only the runnable cards; the settings are locked with the note; Change files is disabled; Run carries (demo)', async () => {
+    seedDemoMode('demo')
+    seedStore()
+    renderPage()
+    await settle()
+
+    // The Ki-67 cannot-run card is not in the list, and neither is the
+    // cannot-run section nor its toggle (the demo list is the bundle's
+    // methods).
+    expect(screen.queryByTestId('txr-method-checkbox-ki67-two-week-four-group')).toBeNull()
+    expect(screen.queryByTestId('txr-method-cannot')).toBeNull()
+    expect(screen.queryByTestId('txr-method-cannot-toggle')).toBeNull()
+    expect(screen.getByTestId('txr-method-checkbox-direct-on')).toBeTruthy()
+    expect(screen.getByTestId('txr-method-checkbox-dynforest')).toBeTruthy()
+
+    // The settings rows are locked (the recorded setup) + the note; More
+    // settings is hidden (no real compute: no CPU / at-a-time controls).
+    expect(screen.getByTestId('txr-run-settings-demo-note').textContent).toBe(DEMO_SETTINGS_NOTE)
+    const endpointOption = screen.getByTestId('txr-run-settings-endpoint-opt-pfs')
+    const disabled =
+      endpointOption.getAttribute('aria-disabled') === 'true' ||
+      (endpointOption as HTMLButtonElement).disabled === true
+    expect(disabled).toBe(true)
+    expect(screen.queryByTestId('txr-run-settings-more')).toBeNull()
+
+    // Change files is disabled with the reason (cannot be re-enabled from
+    // the UI), and the run button carries the audit's "(demo)" suffix.
+    expect((screen.getByTestId('txr-run-change-files') as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByTestId('txr-run-change-files-reason').textContent).toBe(DEMO_DISABLED_REASON)
+    expect(screen.getByTestId('txr-run-bar-run').textContent).toContain('(demo)')
   })
 })

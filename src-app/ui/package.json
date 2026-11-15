@@ -13,6 +13,7 @@
     "check:rename-mechanical": "node scripts/check-rename-mechanical.mjs",
     "test:e2e": "playwright test",
     "test:e2e:gallery": "playwright test --config=playwright.gallery.config.ts",
+    "test:e2e:demo": "playwright test --config=playwright.demo.config.ts",
     "test:unit": "vitest run && npm run test:unit:node",
     "test:unit:node": "node scripts/run-node-tests.mjs",
     "gallery": "node scripts/gallery-dev.mjs",

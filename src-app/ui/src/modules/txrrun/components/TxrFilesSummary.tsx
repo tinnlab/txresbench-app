@@ -112,6 +112,11 @@ export interface TxrFilesSummaryProps {
    *  default (the audit's fixed-top byte — the one-line summary form the
    *  phone width already uses); `undefined` keeps the width-driven state. */
   collapsed?: boolean
+  /** demo-mode ITEM-6: when non-null the "Change files" control is DISABLED
+   *  with this reason (the audit's "'Change files' disabled" — the demo's
+   *  files are the recorded example tables, and the dialog must not open:
+   *  the button cannot be re-enabled from the UI). */
+  changeFilesReason?: string | null
 }
 
 export function TxrFilesSummary({
@@ -120,6 +125,7 @@ export function TxrFilesSummary({
   details,
   onChangeFiles,
   collapsed,
+  changeFilesReason = null,
 }: TxrFilesSummaryProps) {
   const narrow = useNarrow()
   /** The compact (one-line) form: phone width, or a SHORT shell window. */
@@ -165,10 +171,17 @@ export function TxrFilesSummary({
           variant="link"
           data-testid="txr-run-change-files"
           style={CHANGE_FILES}
+          disabled={changeFilesReason !== null}
+          title={changeFilesReason ?? undefined}
           onClick={onChangeFiles}
         >
           Change files
         </Button>
+        {changeFilesReason !== null ? (
+          <span data-testid="txr-run-change-files-reason" style={MARKERS_LINE}>
+            {changeFilesReason}
+          </span>
+        ) : null}
       </div>
       {markerNames.length > 0 ? (
         <p style={MARKERS_LINE} data-testid="txr-run-summary-markers">

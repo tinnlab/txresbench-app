@@ -62,6 +62,16 @@ const sampleJob = (over: Record<string, unknown>) => ({
 
 export const galleryCassette: Cassette = {
   'Auth.me': { user: adminUser, permissions: ['*'] } as any,
+  // The boot mode read (demo-mode ITEM-5: the demo module fires it at
+  // initialize). The gallery's default is DESKTOP — every existing surface
+  // renders its desktop byte; the demo surfaces seed the demo store directly
+  // (the demo module's gallery stories), they never flip this global answer.
+  'App.mode': {
+    mode: 'desktop',
+    download_url: '',
+    limits: { history: 50, models: 50 },
+    notice: '',
+  } as any,
   // Jobs concurrency settings (the /settings/jobs page).
   'Jobs.getSettings': {
     max_concurrent_jobs: 2,

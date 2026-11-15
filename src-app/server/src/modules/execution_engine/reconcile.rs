@@ -80,6 +80,15 @@ pub async fn reconcile_interrupted_runs(pool: &SqlitePool) -> Result<ReconcileRe
 
     let candidates = interrupted_run_ids(pool).await?;
     for run_id in candidates {
+        // demo-mode ITEM-3: a DEMO replay run (its dir carries
+        // `demo-replay.json`) is NOT an interrupted sandbox run — the demo's
+        // own boot sweep finishes it (the recorded seconds are already
+        // known). Marking it `failed + INTERRUPTED` here would leave a demo
+        // run permanently failed; the sweep owns the restart rule.
+        let dir = live_run_dir(pool, run_id).await?;
+        if crate::modules::demo::replay::is_demo_run(&dir) {
+            continue;
+        }
         let mut tx = pool.begin().await.map_err(AppError::database_error)?;
 
         // Guarded transition: only a run STILL in a live state becomes failed
@@ -176,6 +185,15 @@ async fn interrupted_run_ids(pool: &SqlitePool) -> Result<Vec<Uuid>, AppError> {
     .await
     .map_err(AppError::database_error)?;
     Ok(rows.into_iter().map(|r| r.id).collect())
+}
+
+/// One live run's dir (the demo-marker check's read).
+async fn live_run_dir(pool: &SqlitePool, run_id: Uuid) -> Result<std::path::PathBuf, AppError> {
+    let row = sqlx::query!("SELECT dir FROM txr_runs WHERE id = $1", run_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(AppError::database_error)?;
+    Ok(row.map(|r| std::path::PathBuf::from(r.dir)).unwrap_or_default())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -41,6 +41,18 @@ import { Button, Input, Collapsible, CollapsibleContent, CollapsibleTrigger } fr
 import { FiAlertTriangle, FiArrowUp, FiCheckCircle, FiInfo } from 'react-icons/fi'
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
+import { useAppMode, useDemoUsage } from '@/modules/demo'
+import {
+  DEMO_BANNER_PRIMARY_ACTION,
+  DEMO_HELP_CAN,
+  DEMO_HELP_CANNOT,
+  DEMO_HELP_LEAD,
+  DEMO_HELP_PRIVACY,
+  DEMO_HELP_SECTION_ID,
+  DEMO_HELP_TITLE,
+  DEMO_POOL_STATEMENT,
+  formatDemoCounter,
+} from '@/modules/demo/copy'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
@@ -70,7 +82,7 @@ import {
   problemGroupOf,
 } from '../content'
 import { helpPath } from '../routes'
-import type { FileCardContent, HelpBlock, HelpProblemEntry, ProblemGroup, QuickStartCard, StepCard } from '../types'
+import type { FileCardContent, HelpBlock, HelpProblemEntry, HelpSection, ProblemGroup, QuickStartCard, StepCard } from '../types'
 
 /** The intake route the example action lands on (the one-click promise of
  *  qa-fixes3 ITEM-4: the file step whose own flow validates the adopted
@@ -841,6 +853,26 @@ function Block({ block, query }: { block: HelpBlock; query: string }) {
       return <FileCard card={block.card} />
     case 'statuses':
       return <Statuses />
+    case 'download':
+      // demo-mode ITEM-7 (the audit's /help row): the download-page link —
+      // a real anchor in a new tab with no opener (the notice bar's own
+      // posture; an empty URL renders the text alone, never a dead link).
+      return block.url.trim().length > 0 ? (
+        <p style={PARAGRAPH}>
+          <Highlight text={block.text} query={query} />{' '}
+          <a
+            data-testid="txr-help-download"
+            href={block.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'var(--txr-brand)', fontWeight: 600, textDecoration: 'underline' }}
+          >
+            {block.label}
+          </a>
+        </p>
+      ) : (
+        <p style={PARAGRAPH}>{block.text}</p>
+      )
   }
 }
 
@@ -1043,6 +1075,9 @@ function sectionText(section: (typeof HELP_SECTIONS)[number]): string {
         for (const item of ELIGIBILITY_STATUSES) texts.push(item.meaning)
         for (const item of RUN_STATE_MEANINGS) texts.push(item.meaning)
         break
+      case 'download':
+        texts.push(block.text, block.label)
+        break
     }
   }
   // The troubleshooting section's searchable words include its entries (the
@@ -1063,9 +1098,49 @@ export function HelpPage() {
   // shell's one hook: the same "Help — TxResBench" byte, with the previous
   // title restored on unmount like every other route.
   useDocumentTitle('Help')
+  // demo-mode ITEM-7 (the audit's /help row): the "About this demo" section
+  // is the FIRST section in demo mode — its id is the notice bar's
+  // `/help#demo` anchor, it joins the rail, the search and the spy like any
+  // other section, and it carries the counters ("n of 50 runs / models" —
+  // the spec's /help counter byte) and the download link.
+  const { isDemo, downloadUrl } = useAppMode()
+  const demoUsage = useDemoUsage(isDemo)
+  const allSections = useMemo(() => {
+    if (!isDemo) return HELP_SECTIONS
+    return [
+      {
+        id: DEMO_HELP_SECTION_ID,
+        title: DEMO_HELP_TITLE,
+        blocks: [
+          { kind: 'paragraph', text: DEMO_HELP_LEAD },
+          { kind: 'caption', text: 'What you can do' },
+          { kind: 'bullets', items: [...DEMO_HELP_CAN] },
+          { kind: 'caption', text: 'What is not possible' },
+          { kind: 'bullets', items: [...DEMO_HELP_CANNOT] },
+          { kind: 'paragraph', text: DEMO_POOL_STATEMENT },
+          {
+            kind: 'paragraph',
+            text:
+              `${formatDemoCounter(demoUsage.usage?.runs ?? null, demoUsage.usage?.run_limit ?? 50, 'runs')}` +
+              ` \u00b7 ${formatDemoCounter(demoUsage.usage?.models ?? null, demoUsage.usage?.model_limit ?? 50, 'models')}`,
+          },
+          { kind: 'callout', tone: 'note', text: DEMO_HELP_PRIVACY },
+          {
+            kind: 'download',
+            text: 'To use TxResBench on your own data, privately:',
+            label: DEMO_BANNER_PRIMARY_ACTION,
+            url: downloadUrl,
+          },
+        ],
+      },
+      ...HELP_SECTIONS,
+    ] satisfies HelpSection[]
+  }, [isDemo, downloadUrl, demoUsage.usage])
 
   const [query, setQuery] = useState('')
-  const [activeSection, setActiveSection] = useState(HELP_SECTIONS[0].id)
+  const [activeSection, setActiveSection] = useState(() =>
+    isDemo ? DEMO_HELP_SECTION_ID : HELP_SECTIONS[0].id,
+  )
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [showBackTop, setShowBackTop] = useState(false)
   const [contentsOpen, setContentsOpen] = useState(false)
@@ -1079,9 +1154,9 @@ export function HelpPage() {
   const sectionsVisible = useMemo(
     () =>
       q === ''
-        ? HELP_SECTIONS
-        : HELP_SECTIONS.filter(section => sectionText(section).includes(q)),
-    [q],
+        ? allSections
+        : allSections.filter(section => sectionText(section).includes(q)),
+    [q, allSections],
   )
 
   const toggleProblem = useCallback((code: string) => {
@@ -1149,18 +1224,18 @@ export function HelpPage() {
   const SCROLLSPY_LINE = 96
   const updateActiveSection = useCallback(() => {
     const scrollerTop = regionRef.current?.getBoundingClientRect().top ?? 0
-    let current = HELP_SECTIONS[0].id
-    for (const section of HELP_SECTIONS) {
+    let current = allSections[0].id
+    for (const section of allSections) {
       const el = document.getElementById(section.id)
       if (el !== null && el.getBoundingClientRect().top - scrollerTop <= SCROLLSPY_LINE) {
         current = section.id
       }
     }
     setActiveSection(current)
-  }, [])
+  }, [allSections])
   useEffect(() => {
     if (typeof IntersectionObserver !== 'undefined') {
-      const headings = HELP_SECTIONS.flatMap(section => {
+      const headings = allSections.flatMap(section => {
         const heading = document.getElementById(section.id)?.querySelector('h2')
         return heading instanceof Element ? [heading] : []
       })

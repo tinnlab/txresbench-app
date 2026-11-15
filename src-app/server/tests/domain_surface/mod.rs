@@ -689,7 +689,10 @@ fn is_test_tier_key(key: &str) -> bool {
 /// STRIP (this branch): RE-MEASURED **16** — the seven single-cell modules were
 /// deleted, so 17 -> 16. This exact-count assertion fired at the base already
 /// (the base held 23 modules against a stale 17); it is now correctly 16.
-const EXPECT_MODULES: usize = 16;
+/// DEMO-MODE ITEM-1: **17** — the `demo` module (the demo-mode switch, the
+/// route allowlist gate, the anonymous visitor sessions) is consciously
+/// admitted in lockstep with the FE twin's module expectation.
+const EXPECT_MODULES: usize = 17;
 
 // ── POSITIVE-COUNT FLOORS ───────────────────────────────────────────────────
 //

@@ -59,6 +59,12 @@ export interface TxrSettingsBlockProps {
    *  default (the audit's fixed-top byte — the one-line summary form the
    *  phone width already uses); `undefined` keeps the width-driven state. */
   collapsed?: boolean
+  /** demo-mode ITEM-6: the demo offers only the recorded configuration —
+   *  the rows are shown with their recorded values and LOCKED (the spec's
+   *  "other controls are shown, disabled"), the More-settings (CPUs /
+   *  at-a-time) controls are hidden (no real compute), and the caller
+   *  renders the demo reason line under the card. */
+  locked?: boolean
 }
 
 /** The card's look (the board's settings card, with the block's own title). */
@@ -179,6 +185,7 @@ export function TxrSettingsBlock({
   onChange,
   onMoreSettings,
   collapsed,
+  locked = false,
 }: TxrSettingsBlockProps) {
   const [moreOpen, setMoreOpen] = useState(false)
   const narrow = useNarrow()
@@ -200,6 +207,7 @@ export function TxrSettingsBlock({
           data-testid="txr-run-settings-endpoint"
           aria-label="Predict"
           size="sm"
+          disabled={locked}
           value={value.endpoint}
           onValueChange={endpoint => onChange({ ...value, endpoint: endpoint as RunSettings['endpoint'] })}
           options={SETTING_OPTIONS.endpoint.map(option => ({
@@ -215,6 +223,7 @@ export function TxrSettingsBlock({
           data-testid="txr-run-settings-decision-day"
           aria-label="Decision day"
           size="sm"
+          disabled={locked}
           value={String(value.decision_day)}
           onValueChange={day => onChange({ ...value, decision_day: Number(day) })}
           options={numericOptions(value.decision_day, SETTING_OPTIONS.decision_day)}
@@ -227,6 +236,7 @@ export function TxrSettingsBlock({
           data-testid="txr-run-settings-look-ahead"
           aria-label="Look ahead to"
           size="sm"
+          disabled={locked}
           value={String(value.look_ahead_day)}
           onValueChange={day => onChange({ ...value, look_ahead_day: Number(day) })}
           options={numericOptions(value.look_ahead_day, SETTING_OPTIONS.look_ahead_day)}
@@ -241,7 +251,7 @@ export function TxrSettingsBlock({
             className="txr-settings-switch"
             aria-label="Extra inputs"
             checked={value.covariates}
-            disabled={covariatesDisabled}
+            disabled={locked || covariatesDisabled}
             onCheckedChange={checked => onChange({ ...value, covariates: checked })}
           />
           {names !== null ? (
@@ -258,17 +268,19 @@ export function TxrSettingsBlock({
           <span style={HELP}>{SETTING_HELP.covariates}</span>
         )}
       </div>
-      <span style={MORE}>
-        <Button
-          variant="link"
-          data-testid="txr-run-settings-more"
-          aria-expanded={moreOpen}
-          style={{ fontSize: 13.5, padding: '2px 4px' }}
-          onClick={() => setMoreOpen(open => !open)}
-        >
-          More settings
-        </Button>
-      </span>
+      {locked ? null : (
+        <span style={MORE}>
+          <Button
+            variant="link"
+            data-testid="txr-run-settings-more"
+            aria-expanded={moreOpen}
+            style={{ fontSize: 13.5, padding: '2px 4px' }}
+            onClick={() => setMoreOpen(open => !open)}
+          >
+            More settings
+          </Button>
+        </span>
+      )}
     </div>
   )
 

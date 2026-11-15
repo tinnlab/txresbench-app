@@ -7,6 +7,7 @@ import { MAC_TITLE_BAR_CSS_VARS } from '@/core/macTitleBar'
 import { isMacDesktop } from '@/core/platform'
 import { TxrThemeToggle } from '../TxrThemeToggle'
 import { shellModeClass, useShellMode } from '../lib/shellMode'
+import { DemoHeaderDownload, DemoMenuDownload, DemoNoticeBar } from '@/modules/demo'
 
 /**
  * txrshell — AppShell (app-shell ITEM-1, DEC-1/DEC-2).
@@ -26,7 +27,9 @@ import { shellModeClass, useShellMode } from '../lib/shellMode'
  * ITEM-6): below 700 px the nav collapses into a menu button (keyboard:
  * Base UI menu — arrows, Escape, focus return; screen-reader: menubar/
  * menu/menuitem roles) and the theme switch is an icon-only button whose
- * accessible name carries the visible state text. A skip link is the
+ * accessible name carries the visible state text — in demo mode the
+ * "Download the app" link joins that row above 700 px and yields into the
+ * menu below it (the ITEM-5 yield byte, index.css). A skip link is the
  * first tab stop (it targets the routed area), so the shell is
  * keyboard-complete before the first content element.
  *
@@ -157,6 +160,9 @@ export function AppShell({ children }: AppShellProps) {
           className="txr-shell-actions"
           style={{ display: 'flex', alignItems: 'center', gap: 22 }}
         >
+          {/* Demo mode only (ITEM-5): the header's download link. Absent in
+              desktop and while the boot mode read is pending. */}
+          <DemoHeaderDownload />
           <nav aria-label="Main" className="txr-shell-nav" style={{ display: 'flex', gap: 4, fontSize: 14 }}>
             {SHELL_NAV_ITEMS.map(item => (
               <NavLink
@@ -193,12 +199,22 @@ export function AppShell({ children }: AppShellProps) {
                     {item.label}
                   </MenubarItem>
                 ))}
+                {/* Demo mode only (ITEM-5): the download link joins the
+                    menu below 700 px (the header's ONE-row byte wins there
+                    — the header link yields; see index.css). */}
+                <DemoMenuDownload />
               </MenubarContent>
             </MenubarMenu>
           </Menubar>
           <TxrThemeToggle />
         </div>
       </header>
+      {/* Demo mode only (ITEM-5): the notice bar sits BETWEEN the header and
+          the routed area — a flex child of the shell column with flex: none,
+          so the body shrinks by its height and the bar never overlaps either
+          (the plan's "the page layout leaves its height"). Absent in desktop
+          and while the boot mode read is pending. */}
+      <DemoNoticeBar />
       {/* The routed area: the shell's skip-link target. In shell mode it is
           the ONE scroller before the pages own their regions (ITEM-2/3); in
           flow mode the document scrolls and this div is plain content. */}

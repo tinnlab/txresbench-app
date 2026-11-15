@@ -299,6 +299,22 @@ e2e:
 e2e-gallery:
     cd {{ui_dir}} && npm run test:e2e:gallery
 
+# The demo-mode e2e (tests/demo-e2e/): the REAL demo server (TXR_DEMO=1 with a
+# minimal valid recorded bundle + the served app) driven in a browser — the
+# three paths, no upload, the recorded-methods list, the run button label
+# (demo-mode ITEM-6's browser tier; ITEM-7/8's page proof builds on it).
+# DEMO_E2E_BACKEND_PORT / DEMO_E2E_APP_PORT pin a leg.
+e2e-demo:
+    cd {{ui_dir}} && npm run test:e2e:demo
+
+# The demo-mode API proof (scripts/demo/e2e-demo.py, ITEM-8): boots its own
+# demo server and drives the three paths + the plan's five checks (blocked
+# sweep, shared pool, stop/skip ownership, 50/50 retention, no sandbox).
+# TXR_BINARY points at the built server; the proof needs the binary, the
+# repo's example assets and the server's allowlist table.
+e2e-demo-api:
+    python3 scripts/demo/e2e-demo.py --binary "{{env_var_or_default('TXR_BINARY', '')}}"
+
 # EVERY e2e suite, in one invocation. Runs all to completion (a failing suite does
 # not mask the ones after it) and reports a per-suite exit table, failing if any failed.
 # This is the recipe that makes "the default run covers everything" true; `just e2e`

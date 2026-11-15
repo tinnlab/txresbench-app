@@ -848,6 +848,33 @@ impl TxrRepository {
         Ok(rows.into_iter().map(|r| (r.id, r.dir)).collect())
     }
 
+    /// Every run still in a live state, newest first — the boot pass's
+    /// iterate surface (the engine's reconcile + the demo replay's boot
+    /// sweep both walk the same set; each adjudicates its own runs).
+    pub async fn list_live_runs(&self) -> Result<Vec<RunRow>, AppError> {
+        sqlx::query_as!(
+            RunRow,
+            r#"SELECT id as "id: Uuid", created_at as "created_at: DateTime<Utc>",
+                      status, mode,
+                      config as "config: serde_json::Value",
+                      input_summary as "input_summary: serde_json::Value",
+                      model_ids as "model_ids?: serde_json::Value",
+                      method_count, counts as "counts: serde_json::Value",
+                      elapsed_secs, dir, memory_total_bytes, cpus as "cpus?: i32",
+                      error, started_at as "started_at?: DateTime<Utc>",
+                      finished_at as "finished_at?: DateTime<Utc>",
+                      predictions_ready as "predictions_ready: bool",
+                      seed as "seed: i32",
+                      estimate as "estimate?: serde_json::Value"
+               FROM txr_runs
+               WHERE status IN ('creating', 'preparing', 'running', 'finishing')
+               ORDER BY created_at DESC"#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
     /// The run's LAST `n` log lines, ascending (the SSE replay-on-connect's
     /// "last 200 log lines" — a seq-ascending page cannot express the tail).
     pub async fn logs_tail(&self, run_id: Uuid, n: u32) -> Result<Vec<LogRow>, AppError> {

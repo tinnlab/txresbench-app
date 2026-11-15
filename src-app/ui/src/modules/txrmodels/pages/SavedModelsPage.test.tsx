@@ -60,6 +60,8 @@ import type {
   ValidationResponse,
 } from '@/api-client/types'
 import { useTxrIntakeStore } from '@/modules/txrintake'
+import { DEMO_POOL_STATEMENT } from '@/modules/demo/copy'
+import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import {
   fixtureModelId,
   TXRMODELS_INVENTORY,
@@ -106,6 +108,7 @@ const api = vi.hoisted(() => ({
   resolveModels: vi.fn(),
   createRun: vi.fn(),
   getAnalysisConfig: vi.fn(),
+  getUsage: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -123,6 +126,9 @@ vi.mock('@/api-client', () => ({
     Txr: {
       createRun: api.createRun,
       getAnalysisConfig: api.getAnalysisConfig,
+    },
+    History: {
+      getUsage: api.getUsage,
     },
   },
 }))
@@ -704,5 +710,43 @@ describe('SavedModelsPage — the reuse Run flow (TEST-MOD-32 / CONS-UM-24 + 13,
     expect(screen.getByTestId('txr-list-filter-same-outcome').textContent).toBe(
       'Same outcome as my file 0',
     )
+  })
+})
+
+describe('SavedModelsPage demo arm (TEST-DM-7, ITEM-7)', () => {
+  beforeEach(() => {
+    seedDemoMode('demo')
+    api.getUsage.mockResolvedValue({
+      runs: 37,
+      run_limit: 50,
+      models: 12,
+      model_limit: 50,
+      pinned_runs: 1,
+      pinned_models: 2,
+      shared: true,
+    })
+  })
+  afterEach(() => resetDemoMode())
+
+  it('shows the shared-pool statement + "n of 50 models"; the set Rename/Delete actions are absent', async () => {
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-demo-retention-statement').textContent).toBe(DEMO_POOL_STATEMENT)
+    expect(screen.getByTestId('txr-demo-retention-counter').textContent).toBe('12 of 50 models')
+    // The set's section actions (rename/delete) are the desktop's own.
+    expect(screen.queryByTestId('txr-list-section-action-set-a-rename')).toBeNull()
+    expect(screen.queryByTestId('txr-list-section-action-set-a-delete')).toBeNull()
+    // The list itself stays: the section + its rows render, Run works.
+    expect(screen.getByTestId('txr-list-section-set-a')).toBeTruthy()
+    expect(screen.getByTestId('txr-list-run')).toBeTruthy()
+  })
+
+  it('desktop keeps the section rename/delete actions and shows no retention block', async () => {
+    seedDemoMode('desktop')
+    renderPage()
+    await settle(0)
+    expect(screen.queryByTestId('txr-demo-retention')).toBeNull()
+    expect(screen.getByTestId('txr-list-section-action-set-a-rename')).toBeTruthy()
+    expect(screen.getByTestId('txr-list-section-action-set-a-delete')).toBeTruthy()
   })
 })
