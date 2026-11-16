@@ -279,14 +279,13 @@ const MB = KB * 1024
 /**
  * The Details dialog's Environment fact: the layer's publish tag of the
  * environment image the model was trained in (and runs in: a reuse binds the
- * model's own image), e.g. `cox-model-2.0.1-amd64-5ce304e213ac`. A model
- * saved by an older app recorded only the image's file hashes, so the line
- * says the tag was not recorded rather than inventing one.
+ * model's own image), e.g. `cox-model-2.0.1-amd64-5ce304e213ac`. A record
+ * without a tag (a model saved before tags were kept, a demo model) says
+ * "not recorded" rather than inventing one or guessing why.
  */
 export function formatEnvironment(env: { layer_tag?: string | null } | null | undefined): string {
   const tag = env?.layer_tag?.trim() ?? ''
-  if (tag.length > 0) return tag
-  return `${UNRECORDED} (saved by an older app)`
+  return tag.length > 0 ? tag : UNRECORDED
 }
 
 /**

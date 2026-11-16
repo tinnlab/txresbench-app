@@ -866,14 +866,31 @@ pub fn row_method_facts(row: &ModelRow) -> Result<Option<TxrMethodFacts>, AppErr
     }
 }
 
-/// How a note names a recorded image: its layer tag, else the environment's
-/// version, else the start of the layer's file hash (a model saved before
-/// the tags were kept).
-fn image_words(env: &TxrMethodEnv) -> String {
-    env.layer_tag
+/// The detail's note when the model's own image is not the list's current
+/// one (`current_layer` / `current_base` / `current_tag`): "runs on its own
+/// environment, <its tag>; the current one is <the list's tag>". No note when
+/// the files are the list's, or when the record names no file (not a 64-hex
+/// file hash, e.g. the demo's `recorded`): there is no image to name. The
+/// image is named by its layer tag, else the environment's version, else the
+/// start of its layer file hash (a model saved before the tags were kept).
+fn own_environment_note(
+    env: &TxrMethodEnv,
+    current_layer: &str,
+    current_base: &str,
+    current_tag: &str,
+) -> Option<String> {
+    if !sandbox::stack::is_sha256_hex(&env.layer_digest) {
+        return None;
+    }
+    if env.layer_digest == current_layer && env.base_digest == current_base {
+        return None;
+    }
+    let own = env
+        .layer_tag
         .clone()
         .or_else(|| env.method_version.clone())
-        .unwrap_or_else(|| format!("file {}", env.layer_digest.chars().take(12).collect::<String>()))
+        .unwrap_or_else(|| format!("file {}", &env.layer_digest[..12]));
+    Some(format!("runs on its own environment, {own}; the current one is {current_tag}"))
 }
 
 /// The J/I list row (PROV-MS-2) — the marker-count + covariates subline facts
@@ -985,14 +1002,10 @@ pub fn detail_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelDetail
             // `bases`).
             use crate::modules::execution_engine::envmanifest::{base_artifact_for, base_pin};
             let current_base = base_pin(entry, base_artifact_for(entry));
-            if env.layer_digest != entry.layer_sha256 || env.base_digest != current_base {
+            if let Some(detail) = own_environment_note(&env, &entry.layer_sha256, current_base, &entry.tag) {
                 warnings.push(ModelWarning {
                     code: ModelWarningCode::DigestMismatch,
-                    detail: format!(
-                        "runs on its own environment, {}; the current one is {}",
-                        image_words(&env),
-                        entry.tag
-                    ),
+                    detail,
                 });
             }
         }
@@ -2523,6 +2536,75 @@ mod tests {
             }
         );
 
+        pool.close().await;
+        let _ = fs::remove_file(&path);
+    }
+
+    /// The environment note, independent of this computer's list: none for
+    /// the list's own files or a record that names no file; otherwise both
+    /// images are named (its tag, else its version, else its file).
+    #[test]
+    fn own_environment_note_names_both_images_or_nothing() {
+        let (layer, base, tag) = ("ab".repeat(32), "cd".repeat(32), "m-2.0.1-amd64-abababababab");
+        let note = |env: &TxrMethodEnv| own_environment_note(env, &layer, &base, tag);
+        assert_eq!(note(&TxrMethodEnv::digests(base.clone(), layer.clone())), None, "the list's own files");
+        assert_eq!(note(&TxrMethodEnv::digests("recorded", "recorded")), None, "no file named");
+        let old = TxrMethodEnv::digests(base.clone(), "ef".repeat(32));
+        assert_eq!(
+            note(&old).as_deref(),
+            Some(format!("runs on its own environment, file efefefefefef; the current one is {tag}").as_str())
+        );
+        let tagged = TxrMethodEnv {
+            method_version: Some("2.0.0".to_string()),
+            layer_tag: Some("m-2.0.0-amd64-efefefefefef".to_string()),
+            ..old.clone()
+        };
+        assert_eq!(
+            note(&tagged).as_deref(),
+            Some(format!("runs on its own environment, m-2.0.0-amd64-efefefefefef; the current one is {tag}").as_str())
+        );
+        let versioned = TxrMethodEnv { method_version: Some("2.0.0".to_string()), ..old };
+        assert_eq!(
+            note(&versioned).as_deref(),
+            Some(format!("runs on its own environment, 2.0.0; the current one is {tag}").as_str())
+        );
+    }
+
+    /// A record that names no file (the demo's saved models record the word
+    /// `recorded`) gets no environment note: there is no image to name.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_record_that_names_no_file_gets_no_environment_note() {
+        use crate::modules::execution_engine::envmanifest::{self, EnvArch};
+        let (root, _guard) = scratch_root("detail-no-file");
+        let (pool, path) = test_pool().await;
+        let repo = ModelStoreRepository::new(pool.clone());
+        let (src, digest, _) = fixture_tree(&root, "no-file");
+        let dir = copy_tree(&src, &digest).expect("tree");
+        let host = EnvArch::host().expect("a supported test host");
+        let entry = envmanifest::envs()
+            .iter()
+            .find(|e| e.arch == host && catalogue::method(&e.method_id).is_some());
+        let Some(entry) = entry else {
+            eprintln!(
+                "a_record_that_names_no_file_gets_no_environment_note: no listed method for {} \
+                 (runs where the list has this chip type)",
+                host.as_str()
+            );
+            return;
+        };
+        let cat = catalogue::method(&entry.method_id).expect("row");
+        let mut new = row_for(&dir, &digest, None, &entry.method_id);
+        new.method_version = cat.version.clone();
+        new.env_base_digest = Some("recorded".to_string());
+        new.env_layer_digest = Some("recorded".to_string());
+        let row = repo.insert_model(&new).await.expect("row");
+        let detail = detail_from(&row, None).expect("detail");
+        assert!(
+            detail.warnings.iter().all(|w| w.code != ModelWarningCode::DigestMismatch),
+            "no environment note for a record that names no file: {:?}",
+            detail.warnings
+        );
         pool.close().await;
         let _ = fs::remove_file(&path);
     }

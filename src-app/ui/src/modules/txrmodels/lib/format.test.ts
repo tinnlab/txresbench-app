@@ -181,10 +181,10 @@ describe('formatEnvironment — the Details dialog Environment fact', () => {
     ).toBe('cox-model-2.0.1-amd64-5ce304e213ac')
   })
 
-  it('says not recorded for a model saved by an older app (never an invented tag)', () => {
-    expect(formatEnvironment({})).toBe(`${UNRECORDED} (saved by an older app)`)
-    expect(formatEnvironment({ layer_tag: '  ' })).toBe(`${UNRECORDED} (saved by an older app)`)
-    expect(formatEnvironment(null)).toBe(`${UNRECORDED} (saved by an older app)`)
+  it('says not recorded when the record has no tag (never an invented tag or reason)', () => {
+    expect(formatEnvironment({})).toBe(UNRECORDED)
+    expect(formatEnvironment({ layer_tag: '  ' })).toBe(UNRECORDED)
+    expect(formatEnvironment(null)).toBe(UNRECORDED)
   })
 })
 

@@ -8,7 +8,7 @@
  * for, the cohort it was trained on, when and from where it entered the
  * inventory (the board's "Made" verb), the method + version that produced
  * it, the environment it was trained in and runs in (the layer's tag, or
- * "not recorded" for a model saved by an older app), the marker/inputs
+ * "not recorded" when the record has none), the marker/inputs
  * subline (the board's "N markers · uses age"
  * facts), the catalogue's fixed-required-marker rule when the record
  * declares one, the licence (unrecorded for a user's own rows), the size,
