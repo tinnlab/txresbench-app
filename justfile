@@ -177,13 +177,20 @@ check-invariants:
 # together with their subjects (env-rootfs pin recipes + the processor-vocabulary
 # guard, and the analysis-rootfs local env loop). The remaining four legs are the
 # kept enforcement guards.
+#
+# The method list (PR 4a) adds two legs, its guard's controls first and then the
+# guard over this tree (app mode: the trusted keys never hold the fixture key; the
+# imported list, once there is one, matches the app's two extracted copies and its
+# signature file). `--min-legs` 4 -> 6 with them.
 check-guards:
     #!/usr/bin/env bash
     set -uo pipefail
-    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check-guards' --min-legs 4 --controls-leg check-guard-integrity <<'LEGS'
+    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check-guards' --min-legs 6 --controls-leg check-guard-integrity <<'LEGS'
     check-guard-integrity "{{justfile_directory()}}/scripts/check-guard-integrity.sh"
     check-method-env-images-controls node --test "{{justfile_directory()}}/scripts/check-method-env-images.test.mjs"
     check-method-env-images bash "{{justfile_directory()}}/scripts/check-method-env-images.sh"
+    check-method-list-controls node --test "{{justfile_directory()}}/scripts/check-method-list.test.mjs"
+    check-method-list bash "{{justfile_directory()}}/scripts/check-method-list.sh"
     check-no-format-crates "{{justfile_directory()}}/scripts/check-no-format-crates.sh"
     LEGS
 

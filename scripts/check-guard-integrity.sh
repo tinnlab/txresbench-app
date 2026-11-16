@@ -118,8 +118,9 @@ GUARD_GLOBS=('scripts/check-*.sh' 'scripts/check-*.mjs' 'scripts/lib/*')
 # but unpinned since the rebrand commit, i.e. that re-pin also healed an inherited
 # red — and the floor moves with the set it guards, exactly as every entry above
 # demands. ITEM-5 added `check-dead-refs.sh` (16 -> 17) and raised the floor
-# in the same diff.
-MIN_GUARDS=17
+# in the same diff. PR 4a (the method list) added `check-method-list.sh` and its
+# controls `check-method-list.test.mjs` (17 -> 19), floor raised in the same diff.
+MIN_GUARDS=19
 
 MODE='verify'
 case "${1:-}" in

@@ -801,10 +801,13 @@ test('TEST-19 the REAL `just check` exits 0 when every gate passes', () => {
 // `check-guards` each lost their single-cell legs. The floors moved WITH the removals
 // in the same diff (the anti-pattern §5 names is lowering one to fit a RED, not
 // shrinking a gate whose subject is deleted by plan — see the ITEM-2 ledger block).
+// App repo (PR 4a, the method list) — 'check-guards': 4 -> 6. Two legs added,
+// `check-method-list-controls` and `check-method-list` (the method list guard + its controls),
+// in the SAME diff that adds them, next to their pins in scripts/guard-hashes.txt.
 const AGGREGATE_FLOORS = {
   check: 5,
   'check-invariants': 5,
-  'check-guards': 4,
+  'check-guards': 6,
 };
 
 test('TEST-20 every aggregating recipe declares a floor equal to its leg count and >= its frozen minimum', () => {
@@ -960,7 +963,7 @@ const REACHABLE_FROM_CHECK = [
  * ─── TABLE ───
  * check                      555f7ffb8d63c959167dea6aef6ff9eece22a0b492d255adfbd24b0cf1542176  5f356c5e THIS-CHANGE
  * check-domain               bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
- * check-guards               7cbe21a41b90bfe9e564c4e48f96f02a92f288522367d970ef484d28ff8be9c7  5f356c5e THIS-CHANGE
+ * check-guards               d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee  THIS-CHANGE
  * check-invariants           22a691bb9821a9ea342e21ad705ebbe4e20138f6ae5a0176ec71247e1c7d0948  5f356c5e THIS-CHANGE
  * __directives__             154eafad031d58f2879e721e70a0e2b4f1aebee40a7ae78b112d028365256cbb  5f356c5e THIS-CHANGE
  * ─── END TABLE ───
@@ -994,6 +997,16 @@ const REACHABLE_FROM_CHECK = [
  * (34 pins), and AGGREGATE_FLOORS moves 7 -> 9 in this same diff, so the recipe
  * cannot be edited into agreement with itself. STRENGTHENING. Establish it
  * yourself: `git show eaf2a71 -- justfile` is one recipe.
+ *
+ * ── APP-REPO CHECK-GUARDS MOVE (PR 4a, the method list) ──────────────────────────────────
+ * `check-guards` moved again: 7cbe21a4... -> d2b4d79b.... The change ADDS
+ * `check-method-list-controls node --test scripts/check-method-list.test.mjs` in front of
+ * `check-method-list bash scripts/check-method-list.sh` (controls first, the same order as
+ * the method-env-images pair), after that pair and before `check-no-format-crates`, and
+ * raises `--min-legs` 4 -> 6 with them. Nothing removed, no leg repointed, no floor lowered;
+ * both legs point at files pinned in scripts/guard-hashes.txt (MIN_GUARDS 17 -> 19), and
+ * AGGREGATE_FLOORS moves 4 -> 6 in this same diff. STRENGTHENING. Establish it yourself:
+ * the only justfile hunk of this change is inside `check-guards`.
  *
  * ── STRIP NODE ITEM-2 (the single-cell legs are REMOVED with their subjects) ────────────────
  * `check`, `check-invariants` and `check-guards` each lost their single-cell legs in the
@@ -1090,7 +1103,7 @@ const REACHABLE_FROM_CHECK = [
 const RECIPE_PINS = {
   "check": "555f7ffb8d63c959167dea6aef6ff9eece22a0b492d255adfbd24b0cf1542176",
   "check-domain": "bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4",
-  "check-guards": "7cbe21a41b90bfe9e564c4e48f96f02a92f288522367d970ef484d28ff8be9c7",
+  "check-guards": "d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee",
   "check-invariants": "22a691bb9821a9ea342e21ad705ebbe4e20138f6ae5a0176ec71247e1c7d0948",
   "__directives__": "154eafad031d58f2879e721e70a0e2b4f1aebee40a7ae78b112d028365256cbb"
 };
