@@ -66,7 +66,8 @@ Regeneration (on the publisher's machine; the generator reads the methods
 repository at build time only):
 
 ```sh
-python3 scripts/generate-method-env-images.py --check
+python3 scripts/generate-method-env-images.py --check --assemble <build dir> \
+  --methods-dir <methods checkout> [--previous <the previous list>]
 python3 scripts/method-catalogue/gen_method_catalogue.py --check
 ```
 
