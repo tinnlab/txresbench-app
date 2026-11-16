@@ -1374,6 +1374,79 @@ fn cancel_stops_an_inflight_pull_and_the_retry_lands_ready() {
     );
 }
 
+// ───────────────────── a saved model's file, by its sha256 ───────────────────
+
+/// A layer published in the publisher's shape (one squashfs file as the
+/// artifact's single layer, under its tag), then fetched by the download
+/// manager by the FILE's sha256 alone (`<package>@sha256:<pin>`, no tag, no
+/// manifest): the way a saved model gets an environment the method list no
+/// longer names. The layer blob digest is the file's sha256, the fetched bytes
+/// verify against the pin, and the file is cached and mounted by digest.
+#[test]
+fn layer_fetched_by_file_digest_from_loopback_registry() {
+    if !(have("docker") && have("oras")) {
+        record_skip(
+            "layer_fetched_by_file_digest_from_loopback_registry",
+            "needs docker + oras (the loopback registry fixture and the publisher-shape push); \
+             the unit tier pins the file-address fetch with a stub oras",
+        );
+        return;
+    }
+    let Some(()) = stack_gate("layer_fetched_by_file_digest_from_loopback_registry") else {
+        return;
+    };
+
+    let work = scratch();
+    let _guard = WorkGuard(work.clone());
+    let container = "mst-env-reg-5069".to_string();
+    sh(&format!(
+        "docker rm -f {container} >/dev/null 2>&1; docker run -d --name {container} -p 5069:5000 registry:2 >/dev/null && sleep 2"
+    ));
+    let _reg_guard = RegistryGuard { work: work.clone(), container };
+    let data = work.join("appdata");
+    std::fs::create_dir_all(&data).expect("appdata");
+    let reg = "localhost:5069";
+
+    // A real squashfs layer, pushed under its tag as the publisher does.
+    let layer_dir = work.join("layer-root");
+    std::fs::create_dir_all(layer_dir.join("opt/txr-layer")).expect("layer dir");
+    std::fs::write(layer_dir.join("opt/txr-layer/marker"), b"an older layer").expect("marker");
+    squash(&layer_dir, &work.join("layer.squashfs"));
+    let pin = format!("{:x}", Sha256::digest(std::fs::read(work.join("layer.squashfs")).expect("layer")));
+    let repo = format!("{reg}/tinnlab/txr-method-env-layers");
+    let tag = format!("mst-saved-x7-0.9.0-amd64-{}", &pin[..12]);
+    sh(&format!(
+        "cd {} && oras push --plain-http --artifact-type application/vnd.txr.method-env.squashfs.v1 \
+         {repo}:{tag} layer.squashfs:application/vnd.txr.method-env.squashfs.v1 >/dev/null",
+        work.display()
+    ));
+    // The registry holds the file as a blob under the file's own sha256.
+    let blob = sh_out(&format!(
+        "oras blob fetch --plain-http --descriptor {repo}@sha256:{pin}"
+    ));
+    assert!(blob.contains(&pin), "the layer blob digest is the file sha256: {blob}");
+
+    let _data_guard = txresbench::modules::rootfs::scoped_data_root(&data);
+    let manager = MethodEnvManager::with_seams(MethodEnvSeams {
+        registry: Some(reg.to_string()),
+        bypass_air_gap_env: true,
+    });
+    // The engine's spelling of a file address (the compiled package, mapped
+    // onto the loopback host by the seam), with no tag.
+    let r = EnvRef {
+        env_id: "mst-saved-x7".to_string(),
+        oci_ref: format!("ghcr.io/tinnlab/txr-method-env-layers@sha256:{pin}"),
+        digest: pin.clone(),
+        tag: None,
+    };
+    let mount = manager
+        .ensure(&r, EnvKind::Layer, std::time::Duration::from_secs(300))
+        .expect("the file is fetched by its sha256, verified and mounted");
+    assert_eq!(mount.digest.as_deref(), Some(pin.as_str()));
+    assert!(txresbench::modules::rootfs::cache::has_digest(&pin), "cached by its digest");
+    assert_eq!(manager.status("mst-saved-x7").state, MethodEnvState::Ready);
+}
+
 // ─────────────────────────────── TEST-08/09 ──────────────────────────────────
 
 /// **TEST-08 [acceptance] [INV-2/INV-3] + TEST-09 [acceptance] [INV-6]** —
