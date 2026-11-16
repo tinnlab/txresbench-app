@@ -58,10 +58,12 @@ alnum + `.` `_` `-`); the method catalogue emits the same string as its env id.
 
 ### §2.1 The manifest entry, field by field
 
-Top level: `schema_version` (1), `generator_version`, `source_revision`
-(methods-repo commit, 12 hex), `base_contract` (the container-contract version
-the benchmark base images are built under; `"2.0"`), `envs` (sorted by
-`env_id`). No wall-clock field (DEC-15).
+Top level: `schema_version` (2), `generator_version` (the generator that
+assembled the list), `base_contract` (the container-contract version the
+benchmark base images are built under; `"2.0"`), `bases` (§2.1a), `envs`
+(sorted by `env_id`, then `arch`). No wall-clock field (DEC-15). Schema 1 had
+one top-level `source_revision` for the whole list; schema 2 records it per
+entry, so one list holds entries built at different methods commits.
 
 Per entry:
 
@@ -69,8 +71,8 @@ Per entry:
 |---|---|---|
 | `env_id` | `== method_id` (DEC-1) | `landmark-cox-current` |
 | `method_id` | the methods-repo method folder id | `landmark-cox-current` |
-| `method_version` | `index.json` `version` | `2.0.0` |
-| `language` | `R` \| `Python` (index.json `language`) | `R` |
+| `method_version` | `method.json` `version` at `source_revision` | `2.0.0` |
+| `language` | `R` \| `Python` (`method.json` `language` at `source_revision`) | `R` |
 | `arch` | `amd64` \| `arm64` (D09: amd64 only for now) | `amd64` |
 | `oci_ref` | the layer package, exactly `ghcr.io/tinnlab/txr-method-env-layers` (every layer is a tag of it), no tag/digest | `ghcr.io/tinnlab/txr-method-env-layers` |
 | `tag` | `<env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256>`, immutable by publisher discipline: one tag per distinct layer file | `landmark-cox-current-2.0.0-amd64-5ce304e213ac` |
@@ -79,13 +81,19 @@ Per entry:
 | `size_bytes` | `layer.squashfs` byte length | `123456789` |
 | `base_ref` | the benchmark base the delta was computed against | `ghcr.io/tinnlab/txresbench-base-r:2.0` |
 | `base_digest` | that base image's digest | `sha256:4a2b…` |
-| `contract` | `index.json` `contract` (equals `base_contract` today) | `2.0` |
-| `licence` | `method.json` `licence`, verbatim (TEST-11) | … |
+| `contract` | the tag of the Dockerfile's FROM base at `source_revision` (equals `base_contract`) | `2.0` |
+| `licence` | `method.json` `licence` at `source_revision`, verbatim (TEST-11) | … |
 | `wrapper_code_sha256` | one hash of the wrapper payload (§2.2) | 64 hex |
 | `layer_schema` | `1` (§5) | `1` |
+| `source_revision` | the methods-repo commit the layer was built from (12 hex) | `6dcd4afde90b` |
+| `source_tree` | the git tree of `methods/<method_id>` at that commit (40 hex) | `13d6890b…` |
+| `generator_version` | the generator that built the layer (from its record) | `0.6.0` |
 
-`base_ref`, `base_digest`, `contract` and `licence` are provenance facts, not
-runtime fetch targets: the runtime's base ref is the app-side base artifact
+Every method fact of an entry comes from the method's own committed files at
+`source_revision` — never from the generated, gitignored `index.json` (AUDIT
+P7: a stale index once named the wrong version of two shipped entries).
+`base_ref`, `base_digest`, `contract`, `licence` and the three provenance
+fields are provenance facts, not runtime fetch targets: the runtime's base ref is the app-side base artifact
 (`ghcr.io/tinnlab/txresbench-env/…`, §6.3), paired by digest (see §7).
 `base_digest` is the Docker base image's digest — never the hash of a file
 the app downloads.
@@ -629,38 +637,82 @@ bwrap) through the shared skip recorder.
 
 ## §10 Determinism, regeneration, parity (INV-5)
 
-One source revision → one manifest. `source_revision` is the methods-repo
-commit (12 hex), entries sorted by `env_id` (then `arch` within an id), no
+One entry, one build: each entry records the methods commit it was built
+from (`source_revision`), its folder's git tree (`source_tree`) and the
+generator that built it; entries are sorted by `env_id` (then `arch`), no
 wall-clock field, no temp paths. The writer (the same
-`scripts/generate-method-env-images.py`, ITEM-3) assembles entries from
-the staged `artifact.json` records plus the index facts (`contract`) and
-`method.json` (`licence`, verbatim — TEST-11), pairs each entry with its
-staged base record (`<staging>/bases/`, §6.3; an entry without its base, or
-with another base image, is refused) and refuses (naming the
-record) any record whose env_id ≠ method_id, tag ≠ `<version>-<arch>`,
-oci_ref/base_ref prefix, digest/sha256 shape, arch or language is off, or
-whose index entry is missing or not `runnable` (DEC-8). Modes:
+`scripts/generate-method-env-images.py`, ITEM-3) assembles entries from the
+staged `artifact.json` records and reads every method fact from git at each
+record's OWN commit: the gate (`gates/<id>.json` passed, DEC-8), method.json's
+version, language and licence (verbatim — TEST-11), the Dockerfile's FROM
+(its tag is the contract), the run file and the wrapper hash, and the folder
+tree (taken from git for a record from a generator before 0.5.0). A record
+that disagrees with its commit is refused, naming it (`PROVENANCE_*`). It
+pairs each entry with its base (§6.3, §7) and refuses (naming the record) any
+record whose env_id ≠ method_id, tag, oci_ref/base_ref prefix, digest/sha256
+shape, arch or language is off. The methods repository's HEAD does not matter.
 
-- `--manifest <path>` after a build run writes the manifest (and stages
-  each entry's `oci-manifest.json`); `--fixture <dir> --manifest <path>`
-  writes from a fixture staging dir without building (the tests' mode).
+A build (§3) takes the method's committed folder at the methods HEAD
+(refused when it is not in HEAD, dirty or not gated; the build context is
+`git archive`) on the base the current list pins, from the machine's own
+image store by digest (never pulled, never rebuilt; a base image moves
+between machines by `docker save` / `docker load`). `--new-base` starts a
+base batch.
+
+Modes:
+
+- `--manifest <path>` writes the manifest after a build run, or with
+  `--assemble <dir>` (`--fixture` is the old name) from staged records
+  without building, and needs one of:
+  - `--previous <list>`: the previous schema 2 list's entries and bases are
+    carried byte for byte; each record replaces or adds its (env_id, arch);
+    `--drop <env_id>-<arch>` removes an entry; a record built on another base
+    image than the list pins is refused (`ASSEMBLE_BASE_CHANGED`);
+    `--replace-base <base_id>-<arch>` takes a staged base (a base batch): if
+    its source image changed, every carried entry on it must be rebuilt in
+    the same assembly or dropped (`ASSEMBLE_BASE_BATCH`); a new base file
+    packed from the same image keeps every layer paired;
+  - `--full`: every entry from a record, the bases from the staged bases (a
+    first list, or a full rebuild).
 - `--stage-bases --out <dir> --arch <arch>` stages the bases of layer records
   already in `<dir>` without building anything (§6.3).
 - `--check` assembles only and byte-compares against `--manifest`
-  (default `src-app/server/data/method-env-images.json`); a difference
-  exits 1 naming the first differing key (`envs[3].licence`,
-  `source_revision`, …) — TEST-2's failure shape. A hand-edit is a guard
-  failure naming the first differing key.
-- `--source-revision <12hex>` pins the expected revision: every staged
-  record must carry it (an explicit audit pin; the parity comparison
-  against the committed file's own revision is the default check).
+  (default `src-app/server/data/method-env-images.json`); a difference exits
+  1 naming the first differing key (`envs[3].licence`,
+  `envs[1].source_revision`, …) — TEST-2's failure shape:
+  - by default, the whole list re-assembles from the staging dir;
+  - with `--previous <list>`, an entry byte-identical to that list is carried
+    and every other entry must re-assemble from its own staged record
+    (`CHECK_NO_RECORD` otherwise);
+  - with `--entry` / `--base-entry`, only those entries.
+- `--check-provenance` re-reads every entry's facts (or the `--entry` ones)
+  at the entry's own commit.
+
+Since generator 0.6.0 one layer root packs to the same bytes every time
+(fixed times, no xattrs), and the layer's OCI manifest names the layer and
+its file only (§6): rebuilding an unchanged method — at a later commit, or
+over a new base image — is the artifact already published, the same digest
+and tag. Layers that install packages are usually not byte-reproducible
+(build dates in R package metadata, for one); they get a new tag as before.
+
+Fixed times and Python bytecode: a layer carries no bytecode — the §4 trim
+removes every `__pycache__/` and `*.pyc` — so no `.pyc` in a layer can go
+stale against the fixed source times; a method's own modules are compiled in
+memory at import (the layer mount is read-only). The bases are another case:
+their `.pyc` files already mismatch their sources, because the rootfs
+extraction drops file times and the base pack fixes every time. Compiling
+with hash-based invalidation (`--invalidation-mode checked-hash`, or
+`SOURCE_DATE_EPOCH` in the base recipe), and keeping hash-based `.pyc` in
+package layers instead of trimming them, are separate follow-ups.
 
 Byte-determinism caution: the writer's byte parity is about the
-manifest, not the squashfs. `--check` needs the staging dir the layers
-were built into (records + hashes are build outputs), so the ITEM-4
-guard's real-mode parity leg is a publisher-machine check against the
-recorded revision — on clean CI-style boxes only the fixture parity
-exercises it (see the ITEM-1 note on TEST-2). The guard itself
+manifest. `--check` needs the staging dir the layers were built into
+(records + hashes are build outputs) and the methods repository (the facts
+come from git), so the ITEM-4 guard's real-mode parity and provenance legs
+are publisher-machine checks — on clean CI-style boxes only the fixture
+tests exercise them (see the ITEM-1 note on TEST-2). The publisher runs the
+parity leg for the artifact it pushes against the previously published list
+(`--previous`; narrowed on purpose 2026-11-16, see the guard's header). The guard itself
 (`scripts/check-method-env-images.sh`, pinned by
 `check-guard-integrity.sh`, wired into `just check-guards`) additionally
 re-validates the committed file structurally — schema, id grammar,
@@ -671,7 +723,7 @@ prefix, uniqueness, sorted order, no status/placeholder text.
 
 | invariant | mechanism |
 |---|---|
-| INV-1 (method's own bytes) | build the published Dockerfile; refuse non-per-language `FROM`; source revision recorded |
+| INV-1 (method's own bytes) | build the published Dockerfile from the committed folder (`git archive`); refuse non-per-language `FROM`, a dirty or untracked folder; commit + folder tree recorded per entry |
 | INV-2 (public OCI, no status text) | `ghcr.io` only (`scripts/network-allowlist.txt`, unchanged); manifest carries data fields only; the guard refuses status/placeholder vocabulary |
 | INV-3 (paired base) | `base_ref`/`base_digest` + `com.txr.trimmed-from-digest`; typed refusal naming both digests |
 | INV-4 (immutable + offline-verifiable) | digest + `layer_sha256` + `size_bytes` in the manifest; fetch by digest; verify offline before mount |
