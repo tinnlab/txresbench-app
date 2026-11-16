@@ -50,9 +50,35 @@ items:
 The manifest is the authoritative record per environment: the runtime fetches
 `oci_ref@digest`, verifies `layer_sha256` before mounting, and the UI shows
 `size_bytes` before starting the download (manifest-first, digest-pinned —
-DEC-7). A saved model records the entry's `digest` and `base_digest` verbatim,
-so an exact re-fetch and an exact provenance claim are always possible
-(INV-6). `env_id == method_id` (DEC-1), valid per
+DEC-7).
+
+What a run and a saved model record (corrected: an earlier version of this
+paragraph said the entry's manifest `digest` and the Docker `base_digest`;
+the code has always recorded the two FILE hashes). Each method row and each
+saved model records:
+
+- `env_layer_digest` — the entry's `layer_sha256`, the sha256 of
+  `layer.squashfs`, which is also the OCI blob digest of that file in the one
+  layer package (§6.1);
+- `env_base_digest` — the base pin: the base record's `squashfs_sha256`, the
+  blob digest of `base.squashfs` in the base package (§6.3); for a list
+  without `bases`, the entry's `base_digest` without its prefix (§2.1a);
+- when the list knew them: the entry's `method_version` (which can differ
+  from the catalogue's version), the `arch`, and the layer and base tags.
+
+A reuse runs a saved model in THAT image, never in the list's current entry:
+the engine binds the two recorded file hashes. When a list entry (or base
+record) of this computer's arch names the same file, its tag ref and size are
+used; otherwise the app fetches the file itself by its sha256 (a file
+address, `<package>@sha256:<file sha256>`, `oras blob fetch`), so no tag or
+list history is needed and every model saved so far can get its image. A
+record for the other arch is refused before any download (a model must be
+trained once per arch to run on both), and a record that names no file is
+refused with a message naming the model. A saved model also keeps the
+run-shaping catalogue facts its training run used (`txr_models.method_facts`
+and the `.txr` header) and is run with them. So an exact re-fetch and an
+exact provenance claim are always possible (INV-6), as long as no published
+version is deleted (runbook §4 "After the PR"). `env_id == method_id` (DEC-1), valid per
 `src-app/server/src/modules/sandbox/env_id.rs::is_valid_env_id` (lowercase
 alnum + `.` `_` `-`); the method catalogue emits the same string as its env id.
 

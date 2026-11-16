@@ -360,7 +360,12 @@ scripts/check-method-env-images.sh --methods-dir <methods checkout> --require-pr
    are what refuses an overwrite. Never re-use or delete a tag that an app
    release still names: installed apps resolve that tag, then fetch the
    recorded digest.
-3. A tag overwritten by mistake: GHCR keeps the old manifest as an untagged
+3. Never delete a published layer or base version, even after a newer one
+   replaces it in the list. A saved model runs in the exact image it was
+   trained in, and the app fetches that file by its sha256 from the package
+   (design §2); a deleted version can take its blob with it, and every model
+   trained in it then cannot run on a computer that has not cached it.
+4. A tag overwritten by mistake: GHCR keeps the old manifest as an untagged
    version, so point the tag back at the digest the manifest records (the
    entry's `digest`; a base: its `bases[]` record's `digest` in
    `ghcr.io/tinnlab/txresbench-env`), then check it:
@@ -415,7 +420,9 @@ sequence is:
 2. build + release the app (the next app build embeds it),
 3. on a clinician's machine, the runtime downloads a missing layer exactly
    once (by digest, verified by sha256, then offline), and a saved model
-   records the environment's digest verbatim (INV-6) for exact provenance.
+   records the two file hashes of its environment (INV-6); a later reuse runs
+   in that image, fetching the file by its sha256 when the list has moved on
+   (design §2), which is why no published version is ever deleted (§4).
 
 Because tags are immutable and the manifest is digest-pinned, an app release
 and the layers it advertises cannot drift apart after the fact: the bytes a
