@@ -385,8 +385,9 @@ first). The generator's `METHOD_PACKAGES_DIR` and `stack.rs`
 benchmark method images, so the layer artifacts are never read as them),
 artifact type `application/vnd.txr.method-env.layer.v1`, exactly one file
 `layer.squashfs`, immutable tag `<env_id>-<method_version>-<arch>-<sha12>`
-(the first 12 hex of the layer file's sha256: layers are not byte-reproducible,
-so a rebuild at the same version gets its own tag instead of being refused),
+(the first 12 hex of the layer file's sha256: a rebuild at the same version
+that changes the file gets its own tag instead of being refused; one that
+does not change it is the same artifact, see §10),
 cosign-signed (provenance floor; the manifest's sha256 is the verification
 floor, DEC-5).
 
@@ -407,16 +408,22 @@ Annotations, exactly:
 | annotation | value |
 |---|---|
 | `org.opencontainers.image.source` | `https://github.com/tinnlab/txresbench-methods` |
-| `org.opencontainers.image.revision` | methods-repo commit |
 | `com.txr.method_id` | method id |
 | `com.txr.method_version` | `method_version` |
 | `com.txr.language` | `R` \| `Python` |
 | `com.txr.arch` | `amd64` \| `arm64` |
 | `com.txr.contract` | contract version |
-| `com.txr.base_ref` | `base_ref` |
-| `com.txr.base_digest` | `base_digest` |
 | `com.txr.layer_sha256` | `layer_sha256` |
 | `com.txr.layer_schema` | `"1"` |
+
+They name the layer and its file only. Generator 0.6.0 dropped
+`org.opencontainers.image.revision` (the methods commit), `com.txr.base_ref`
+and `com.txr.base_digest`: the list entry carries those (`source_revision`,
+`base_ref`, `base_digest`; the app never reads an annotation), and with them
+in the bytes the same layer file rebuilt at a later commit or over a new
+base image got the same tag with another digest, which the publisher's
+immutable-tag check refuses. Now one layer file is one artifact: one digest,
+one tag.
 
 The publisher mirrors `scripts/publish-method-env-images.sh` (login → push with
 artifact type + annotations → immutable tag → cosign sign; `--dry-run`,

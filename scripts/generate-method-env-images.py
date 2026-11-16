@@ -255,8 +255,10 @@ LAYER_SCHEMA_VERSION = 1
 #: takes the method's committed folder (clean, at HEAD) and the base the
 #: current list pins; the manifest records the methods commit, the folder's
 #: git tree and the building generator PER ENTRY (schema 2), and a list is
-#: assembled from the previous list's entries plus the new records.
-GENERATOR_VERSION = "0.5.0"
+#: assembled from the previous list's entries plus the new records. 0.6.0:
+#: layers pack with fixed times, and their OCI manifest carries no methods
+#: commit or base image, so one layer file is one artifact (FOLLOW-UPS 64).
+GENERATOR_VERSION = "0.6.0"
 
 #: The offline verification floor is sha256 (models.md's cached → verified →
 #: offline flow, DEC-5/7), so both the layer hash and the wrapper hash are
@@ -382,11 +384,14 @@ BASE_MKSQUASHFS_FLAGS = (
     "-all-time", BASE_SQUASHFS_TIME, "-mkfs-time", BASE_SQUASHFS_TIME,
 )
 
-#: The layer pack flags (the framework's env-recipe packer stage).
-LAYER_MKSQUASHFS_FLAGS = (
-    "-comp", "zstd", "-Xcompression-level", "22", "-b", "1M", "-noappend",
-    "-no-progress", "-all-root",
-)
+#: The layer pack flags: the framework's env-recipe packer stage plus the
+#: base's fixed times and no xattrs (BASE_MKSQUASHFS_FLAGS), so one layer root
+#: packs to the same bytes every time (FOLLOW-UPS 64). The materialized root
+#: carries extraction times; without a fixed time, rebuilding an unchanged
+#: code-only method gave a new file, a new tag and a new download. A layer
+#: carries no Python bytecode to go stale (trim_layer removes every .pyc and
+#: __pycache__, DEC-12), so fixed times change no import behaviour.
+LAYER_MKSQUASHFS_FLAGS = BASE_MKSQUASHFS_FLAGS
 
 #: Mirrors src-app/server/src/modules/sandbox/env_id.rs::is_valid_env_id.
 #: An id failing this is refused at the top of the build, not rescued.
@@ -2381,8 +2386,13 @@ def oci_artifact_manifest_bytes(rec: dict, contract: str) -> bytes:
     shape): artifactType = the artifact type, the single layer's mediaType
     = the artifact type (the file is the layer, not a tar), config = the
     OCI empty JSON, the layer descriptor carries the file title annotation
-    (oras's file-push convention). `org.opencontainers.image.revision` is
-    the methods-repo commit — PROV-2's annotation set. Key order is the OCI
+    (oras's file-push convention). The annotations name the layer and its
+    file only — never the methods commit or the base image the layer was
+    built at: those are per-entry provenance in the list (source_revision,
+    base_ref, base_digest). So the same layer file always gives the same
+    bytes, digest and tag: a rebuild of an unchanged method at a later commit,
+    or over a new base image, is the artifact already published (a no-op
+    publish), never a second set of bytes under one tag. Key order is the OCI
     manifest struct order (schemaVersion, mediaType, artifactType, config,
     layers, annotations), so the bytes are deterministic for one record and
     match a Go-encoded manifest: no whitespace, no HTML escapes needed
@@ -2407,14 +2417,11 @@ def oci_artifact_manifest_bytes(rec: dict, contract: str) -> bytes:
         ],
         "annotations": {
             "org.opencontainers.image.source": SOURCE_URL,
-            "org.opencontainers.image.revision": rec["source_revision"],
             "com.txr.method_id": rec["method_id"],
             "com.txr.method_version": rec["method_version"],
             "com.txr.language": rec["language"],
             "com.txr.arch": rec["arch"],
             "com.txr.contract": contract,
-            "com.txr.base_ref": rec["base_ref"],
-            "com.txr.base_digest": rec["base_digest"],
             "com.txr.layer_sha256": rec["layer_sha256"],
             "com.txr.layer_schema": str(rec["layer_schema"]),
         },
