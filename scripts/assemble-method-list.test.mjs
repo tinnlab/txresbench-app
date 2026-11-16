@@ -44,6 +44,13 @@ function listDir() {
   return { dir, previous, list: path.join(dir, 'method-list.json') };
 }
 
+/** Edit a JSON file in Python (`d` is the document): JavaScript cannot write 150.0 or keep 0.0. */
+function pyEdit(file, code) {
+  const r = spawnSync('python3', ['-c', `import json, sys\np = sys.argv[1]\nd = json.load(open(p))\n${code}\n` +
+    "open(p, 'w').write(json.dumps(d, indent=1, sort_keys=True, ensure_ascii=False) + '\\n')", file], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+}
+
 function edit(file, fn, indent = 1) {
   const v = readJson(file);
   fn(v);
@@ -112,18 +119,14 @@ test('refuses_arch_version_mismatch', () => {
 
 test('refuses_removed_row_accepts_retired', () => {
   const { dir, previous, list } = listDir();
-  edit(path.join(dir, 'catalogue.json'), (c) => {
-    c.methods = c.methods.filter((m) => m.id !== 'fx-response-signature');
-  });
+  pyEdit(path.join(dir, 'catalogue.json'), "d['methods'] = [m for m in d['methods'] if m['id'] != 'fx-response-signature']");
   const r = run(['--list-dir', dir, '--previous', previous]);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /LIST_ROW_REMOVED: method 'fx-response-signature'/);
   assert.ok(!fs.existsSync(list));
 
   const kept = listDir();
-  edit(path.join(kept.dir, 'catalogue.json'), (c) => {
-    c.methods.find((m) => m.id === 'fx-response-signature').runnable = false;
-  });
+  pyEdit(path.join(kept.dir, 'catalogue.json'), "rows = {m['id']: m for m in d['methods']}\nrows['fx-response-signature']['runnable'] = False");
   const ok = run(['--list-dir', kept.dir, '--previous', kept.previous]);
   assert.equal(ok.status, 0, ok.out);
   assert.equal(readJson(kept.list).catalogue.methods.find((m) => m.id === 'fx-response-signature').runnable, false);
@@ -131,12 +134,23 @@ test('refuses_removed_row_accepts_retired', () => {
 
 test('refuses_fact_change_same_version', () => {
   for (const [field, change] of [
-    ['min_draws', (m) => { m.min_draws += 1; }],
-    ['params', (m) => { m.params = { ...m.params, extra: 1 }; }],
-    ['tasks', (m) => { m.tasks = [...m.tasks, 'another']; }],
+    ['min_draws', "m['min_draws'] += 1"],
+    ['params', "m['params']['extra'] = 1"],
+    ['tasks', "m['tasks'].append('another')"],
   ]) {
     const { dir, previous } = listDir();
-    edit(path.join(dir, 'catalogue.json'), (c) => change(c.methods.find((m) => m.id === 'fx-response-signature')));
+    pyEdit(path.join(dir, 'catalogue.json'), `rows = {m['id']: m for m in d['methods']}\nm = rows['fx-response-signature']\n${change}`);
+    const r = run(['--list-dir', dir, '--previous', previous]);
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, new RegExp(`LIST_FACTS_CHANGED_SAME_VERSION: .*changes ${field}`));
+  }
+  // A change of type is a change: Python's == takes 0.0 == False and 150 == 150.0.
+  for (const [field, code] of [
+    ['params', "rows = {m['id']: m for m in d['methods']}\nrows['fx-asm-methylation-panel']['params']['call_cutoff'] = False"],
+    ['params', "rows = {m['id']: m for m in d['methods']}\nrows['fx-baseline-cox']['params']['reference_patients'] = 150.0"],
+  ]) {
+    const { dir, previous } = listDir();
+    pyEdit(path.join(dir, 'catalogue.json'), code);
     const r = run(['--list-dir', dir, '--previous', previous]);
     assert.equal(r.status, 1, r.out);
     assert.match(r.out, new RegExp(`LIST_FACTS_CHANGED_SAME_VERSION: .*changes ${field}`));
@@ -144,12 +158,8 @@ test('refuses_fact_change_same_version', () => {
   // The same change with a version bump is a new version: accepted. A change outside the
   // run-shaping facts (the description) needs no bump.
   const { dir, previous } = listDir();
-  edit(path.join(dir, 'catalogue.json'), (c) => {
-    const m = c.methods.find((x) => x.id === 'fx-response-signature');
-    m.min_draws += 1;
-    m.version = '0.9.1';
-    c.methods.find((x) => x.id === 'fx-baseline-cox').description = 'Reworded.';
-  });
+  pyEdit(path.join(dir, 'catalogue.json'), "rows = {m['id']: m for m in d['methods']}\nm = rows['fx-response-signature']\nm['min_draws'] += 1\nm['version'] = '0.9.1'\n" +
+    "rows['fx-baseline-cox']['description'] = 'Reworded.'");
   const r = run(['--list-dir', dir, '--previous', previous]);
   assert.equal(r.status, 0, r.out);
 });
@@ -206,10 +216,8 @@ test('extract writes the bytes each generator writes; bootstrap is sequence 0', 
 
 test('diff names added, changed and retired methods and the sequence', () => {
   const { dir, previous, list } = listDir();
-  edit(path.join(dir, 'catalogue.json'), (c) => {
-    c.methods.find((m) => m.id === 'fx-response-signature').runnable = false;
-    c.methods.find((m) => m.id === 'fx-baseline-cox').description = 'Reworded.';
-  });
+  pyEdit(path.join(dir, 'catalogue.json'), "rows = {m['id']: m for m in d['methods']}\nrows['fx-response-signature']['runnable'] = False\n" +
+    "rows['fx-baseline-cox']['description'] = 'Reworded.'");
   assert.equal(run(['--list-dir', dir, '--previous', previous]).status, 0);
   const r = run(['--diff', previous, list]);
   assert.equal(r.status, 0, r.out);
@@ -226,11 +234,17 @@ test('successor: rules 3 and 5 against an older list', () => {
   assert.equal(run(['--list-dir', dir, '--previous', previous]).status, 0);
   assert.equal(run(['--successor', previous, list]).status, 0);
   const dropped = path.join(tmp(), 'dropped.json');
-  const doc = readJson(list);
-  doc.catalogue.methods = doc.catalogue.methods.filter((m) => m.id !== 'fx-response-signature');
-  writeJson(dropped, doc);
+  fs.copyFileSync(list, dropped);
+  pyEdit(dropped, "d['catalogue']['methods'] = [m for m in d['catalogue']['methods'] if m['id'] != 'fx-response-signature']");
   const r = run(['--successor', previous, dropped]);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /LIST_ROW_REMOVED/);
   assert.match(run(['--diff', previous, dropped]).out, /^methods REMOVED \(1\): fx-response-signature$/m);
+  // A fact whose type changed at the same version (150 -> 150.0) is refused too.
+  const retyped = path.join(tmp(), 'retyped.json');
+  fs.copyFileSync(list, retyped);
+  pyEdit(retyped, "rows = {m['id']: m for m in d['catalogue']['methods']}\nrows['fx-baseline-cox']['params']['reference_patients'] = 150.0");
+  const t = run(['--successor', previous, retyped]);
+  assert.equal(t.status, 1, t.out);
+  assert.match(t.out, /LIST_FACTS_CHANGED_SAME_VERSION: method 'fx-baseline-cox'/);
 });

@@ -85,6 +85,12 @@ class ListError(Exception):
         self.code = code
 
 
+def same(a, b):
+    """Equal as JSON, value types included: Python's == takes 0.0 == False, 1 == True and
+    150 == 150.0, which are different facts to the app."""
+    return json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+
+
 def _no_duplicate_keys(pairs):
     out = {}
     for k, v in pairs:
@@ -161,7 +167,7 @@ def check_cross_rules(catalogue, images, previous_catalogue=None):
                             f"{e.get('method_id')!r}, which has no catalogue row")
         # Rule 2: every arch entry carries the row's version (a version bump rebuilds every
         # listed arch, or drops the stale one).
-        if e.get("method_version") != row.get("version"):
+        if not same(e.get("method_version"), row.get("version")):
             raise ListError("LIST_VERSION_MISMATCH", f"image entry {ref} is version "
                             f"{e.get('method_version')!r}, the catalogue row is "
                             f"{row.get('version')!r}: rebuild every listed arch at the new "
@@ -176,8 +182,8 @@ def check_cross_rules(catalogue, images, previous_catalogue=None):
                             "list and missing here: a method is retired with "
                             "`runnable: false`, never removed")
         # Rule 5: same version = same run-shaping facts.
-        if new.get("version") == old.get("version"):
-            changed = [f for f in RUN_SHAPING_FACTS if new.get(f) != old.get(f)]
+        if same(new.get("version"), old.get("version")):
+            changed = [f for f in RUN_SHAPING_FACTS if not same(new.get(f), old.get(f))]
             if changed:
                 raise ListError("LIST_FACTS_CHANGED_SAME_VERSION",
                                 f"method {old.get('id')!r} keeps version "

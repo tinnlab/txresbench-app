@@ -50,9 +50,9 @@ function world({ files = { 'method-list.json': LIST, 'method-list.json.minisig':
   fs.copyFileSync(path.join(REPO, 'data/method-list/trusted-keys.json'), path.join(app, 'data/method-list/trusted-keys.json'));
   fs.copyFileSync(path.join(FIXTURES, 'test-key.pub'), path.join(app, 'scripts/method-list/fixtures/test-key.pub'));
   if (builtin !== null) {
-    const doc = JSON.parse(LIST);
-    doc.sequence = builtin;
-    fs.writeFileSync(path.join(app, 'data/method-list/method-list.json'), JSON.stringify(doc, null, 1) + '\n');
+    // A text edit: a JSON round trip in JavaScript would print 0.0 as 0 (another value).
+    fs.writeFileSync(path.join(app, 'data/method-list/method-list.json'),
+      LIST.toString('utf8').replace(/^ "sequence": 1$/m, ` "sequence": ${builtin}`));
   }
   return { base, bin, cli, app };
 }
@@ -86,7 +86,11 @@ test('refuses_lower_sequence', () => {
   assert.match(r.out, /is sequence 1, below the built-in #2/);
   assert.ok(before.equals(fs.readFileSync(appFile(w, 'data/method-list/method-list.json'))));
   // The same sequence with other bytes is refused too; with the same bytes it is a no-op.
-  assert.match(run(world({ builtin: 1 })).out, /the built-in #1 holds OTHER bytes/);
+  const other = world({ builtin: 1 });
+  const builtin = appFile(other, 'data/method-list/method-list.json');
+  fs.writeFileSync(builtin, fs.readFileSync(builtin, 'utf8').replace('"assembled_at": "2026-01-01T00:00:00Z"',
+    '"assembled_at": "2026-01-01T00:00:01Z"'));
+  assert.match(run(other).out, /the built-in #1 holds OTHER bytes/);
   const same = world();
   fs.writeFileSync(appFile(same, 'data/method-list/method-list.json'), LIST);
   const r2 = run(same);
@@ -96,10 +100,17 @@ test('refuses_lower_sequence', () => {
 
 test('refuses a list that drops a row of the built-in one', () => {
   const w = world();
-  const doc = JSON.parse(LIST);
-  doc.sequence = 0;
-  doc.catalogue.methods.push({ ...doc.catalogue.methods[0], id: 'fx-only-in-the-built-in' });
-  fs.writeFileSync(appFile(w, 'data/method-list/method-list.json'), JSON.stringify(doc, null, 1) + '\n');
+  const builtin = appFile(w, 'data/method-list/method-list.json');
+  fs.writeFileSync(builtin, LIST);
+  const py = spawnSync('python3', ['-c', `import copy, json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d['sequence'] = 0
+row = copy.deepcopy(d['catalogue']['methods'][0])
+row['id'] = 'fx-only-in-the-built-in'
+d['catalogue']['methods'].append(row)
+open(p, 'w').write(json.dumps(d, indent=1, sort_keys=True, ensure_ascii=False) + '\\n')`, builtin], { encoding: 'utf8' });
+  assert.equal(py.status, 0, py.stderr);
   const r = run(w);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /LIST_ROW_REMOVED: method 'fx-only-in-the-built-in'/);

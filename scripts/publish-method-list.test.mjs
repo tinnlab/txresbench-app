@@ -61,7 +61,7 @@ function assemble(listDir, args) {
  * The world of one test. Defaults: the published :v1 holds sequence 1, the methods main
  * holds sequence 2, every pin resolves.
  */
-function world({ publishedSeq = 1, noBases = false, sideRevision = false, unpinned = null } = {}) {
+function world({ publishedSeq = 1, otherBytes = false, noBases = false, sideRevision = false, unpinned = null } = {}) {
   const base = tmp();
   const bin = path.join(base, 'bin');
   const stubs = writeStubs(bin);
@@ -114,9 +114,11 @@ function world({ publishedSeq = 1, noBases = false, sideRevision = false, unpinn
   }
   let published = null;
   if (publishedSeq !== null) {
-    const doc = JSON.parse(seq1);
-    doc.sequence = publishedSeq;
-    published = Buffer.from(JSON.stringify(doc, null, 1) + '\n');
+    published = withSequence(seq1, publishedSeq);
+    if (otherBytes) {
+      published = Buffer.from(published.toString('utf8').replace('"assembled_at": "2026-01-01T00:00:00Z"',
+        '"assembled_at": "2026-01-01T00:00:01Z"'));
+    }
     seedArtifact(bin, PACKAGE, 'v1', {
       'method-list.json': published,
       'method-list.json.minisig': stubSignature(published, `txresbench-method-list format=1 sequence=${publishedSeq}`),
@@ -125,6 +127,14 @@ function world({ publishedSeq = 1, noBases = false, sideRevision = false, unpinn
   const key = path.join(base, 'secret.key');
   fs.writeFileSync(key, 'stub secret key\n', { mode: 0o600 });
   return { base, bin, stubs, app, methods, listDir, key, methodsCommit, published };
+}
+
+/** The list with another sequence: a text edit (a JSON round trip in JavaScript would print 0.0
+ * as 0, another value to the rules). */
+function withSequence(bytes, sequence) {
+  const text = bytes.toString('utf8');
+  assert.match(text, /^ "sequence": \d+$/m);
+  return Buffer.from(text.replace(/^ "sequence": \d+$/m, ` "sequence": ${sequence}`));
 }
 
 function publish(w, extra = [], env = {}) {
@@ -202,7 +212,7 @@ test('refuses_sequence_not_above_published', () => {
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /sequence 2 is superseded by the published #3/);
   // The same sequence with other bytes.
-  w = world({ publishedSeq: 2 });
+  w = world({ publishedSeq: 2, otherBytes: true });
   r = publish(w);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /sequence 2 is published with OTHER bytes/);

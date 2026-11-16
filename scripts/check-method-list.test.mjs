@@ -180,15 +180,38 @@ test('methods mode with --previous: a removed row or a fact changed at the same 
     assert.equal(r.status, 1, r.out);
     assert.match(r.out, want);
   }
+  // A fact whose type changed at the same version (0.0 -> false, 150 -> 150.0): Python's ==
+  // takes both as equal. The list is written in the assembler's layout, so parity holds.
+  for (const code of [
+    "rows['fx-asm-methylation-panel']['params']['call_cutoff'] = False",
+    "rows['fx-baseline-cox']['params']['reference_patients'] = 150.0",
+  ]) {
+    const dir = listDir();
+    const py = spawnSync('python3', ['-c', `import json, sys
+p = sys.argv[1]
+d = json.load(open(p + '/method-list.json'))
+d['sequence'] = 2
+rows = {m['id']: m for m in d['catalogue']['methods']}
+${code}
+open(p + '/method-list.json', 'w').write(json.dumps(d, indent=1, sort_keys=True, ensure_ascii=False) + '\\n')
+open(p + '/catalogue.json', 'w').write(json.dumps(d['catalogue'], indent=1, sort_keys=True, ensure_ascii=False) + '\\n')`, dir], { encoding: 'utf8' });
+    assert.equal(py.status, 0, py.stderr);
+    const r = guard('--list-dir', dir, '--previous', path.join(LIST_DIR, 'method-list.json'));
+    assert.equal(r.status, 1, r.out);
+    assert.match(r.out, /LIST_FACTS_CHANGED_SAME_VERSION: .*changes params/);
+  }
   // The same sequence as the previous list fails.
   const same = guard('--list-dir', listDir(), '--previous', path.join(LIST_DIR, 'method-list.json'));
   assert.equal(same.status, 1, same.out);
   assert.match(same.out, /not above the previous list's 1/);
   // A retired row (runnable: false) is a kept row: the writer's next list passes.
   const dir = listDir();
-  const cat = readJson(path.join(dir, 'catalogue.json'));
-  cat.methods.find((m) => m.id === 'fx-response-signature').runnable = false;
-  writeJson(path.join(dir, 'catalogue.json'), cat);
+  const py = spawnSync('python3', ['-c', `import json, sys
+p = sys.argv[1] + '/catalogue.json'
+d = json.load(open(p))
+next(m for m in d['methods'] if m['id'] == 'fx-response-signature')['runnable'] = False
+open(p, 'w').write(json.dumps(d, indent=1, sort_keys=True, ensure_ascii=False) + '\\n')`, dir], { encoding: 'utf8' });
+  assert.equal(py.status, 0, py.stderr);
   const w = spawnSync('python3', [path.join(REPO, 'scripts/assemble-method-list.py'), '--list-dir', dir,
     '--previous', path.join(LIST_DIR, 'method-list.json')], { encoding: 'utf8', env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });
   assert.equal(w.status, 0, w.stderr);

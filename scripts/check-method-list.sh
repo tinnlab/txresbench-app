@@ -188,7 +188,7 @@ def check_rules(doc, path, previous=None):
         if row is None:
             fail(f"LIST_UNKNOWN_METHOD: {path}: image entry {ref} has no catalogue row "
                  f"{e.get('method_id')!r} (rule 1)")
-        if e.get("method_version") != row.get("version"):
+        if not same(e.get("method_version"), row.get("version")):
             fail(f"LIST_VERSION_MISMATCH: {path}: image entry {ref} is version "
                  f"{e.get('method_version')!r}, its row {row.get('version')!r} (rule 2)")
     if previous is None:
@@ -201,8 +201,8 @@ def check_rules(doc, path, previous=None):
         if new is None:
             fail(f"LIST_ROW_REMOVED: {path}: method {old.get('id')!r} of the previous list is "
                  "missing (rule 3: retire it with runnable: false)")
-        if new.get("version") == old.get("version"):
-            changed = [f for f in FACTS if new.get(f) != old.get(f)]
+        if same(new.get("version"), old.get("version")):
+            changed = [f for f in FACTS if not same(new.get(f), old.get(f))]
             if changed:
                 fail(f"LIST_FACTS_CHANGED_SAME_VERSION: {path}: method {old.get('id')!r} keeps "
                      f"version {old.get('version')!r} but changes {', '.join(changed)} (rule 5)")
