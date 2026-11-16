@@ -426,25 +426,37 @@ digest names never change.
 ## 7. Quick reference
 
 ```sh
-# build one method + assemble a manifest (staging dir = TXR_ENV_BUILD_DIR)
-python3 scripts/generate-method-env-images.py --only <id> --manifest <manifest>
+# build one method, on the machine that holds its pinned base (§4), into a fresh build dir
+python3 scripts/generate-method-env-images.py --only <id> --arch <amd64|arm64> \
+  --methods-dir <methods checkout> --out <build dir>
+
+# add it to the list: every other entry is carried byte for byte from the previous list
+git show origin/main:src-app/server/data/method-env-images.json > previous.json
+python3 scripts/generate-method-env-images.py --assemble <build dir> \
+  --methods-dir <methods checkout> --previous previous.json \
+  --manifest src-app/server/data/method-env-images.json
 
 # validate (gate; the publisher runs it too)
-scripts/check-method-env-images.sh --manifest <manifest> --staging-dir <dir>
+scripts/check-method-env-images.sh --staging-dir <build dir> \
+  --methods-dir <methods checkout> --previous previous.json
+
+# a full rebuild instead: --full in place of --previous (whole-list parity, §5)
 
 # stage the bases of layers already in a build dir
 python3 scripts/generate-method-env-images.py --stage-bases --out <dir> --arch <arch>
 
 # rehearse — prints the whole sequence, verifies every local byte, no network
 scripts/publish-method-env-images.sh --base base-py --dry-run
-scripts/publish-method-env-images.sh --env <id> --dry-run
+scripts/publish-method-env-images.sh --env <id> --arch <arch> --staging-dir <build dir> \
+  --methods-dir <methods checkout> --previous previous.json --dry-run
 
 # rehearse for real on a local registry (plain HTTP, no login, no signing)
 scripts/publish-method-env-images.sh --registry 127.0.0.1:5055 --base base-py
 
 # publish (owner-gated; requires GHCR_TOKEN + GHCR_USER): bases first
 scripts/publish-method-env-images.sh --base base-py
-scripts/publish-method-env-images.sh --env <id>
+scripts/publish-method-env-images.sh --env <id> --arch <arch> --staging-dir <build dir> \
+  --methods-dir <methods checkout> --previous previous.json
 
 # skip signing — only against a runtime with verification disabled
 scripts/publish-method-env-images.sh --env <id> --skip-sign
