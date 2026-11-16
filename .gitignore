@@ -40,6 +40,10 @@ src-app/desktop/tauri/resources/pretrained-bundled/*
 # The macOS method-VM runtime archive (scripts/build-macos-vm-runtime.sh); only its .gitkeep is tracked.
 src-app/desktop/tauri/resources/sandbox-vm-runtime/*
 !src-app/desktop/tauri/resources/sandbox-vm-runtime/.gitkeep
+# The Windows WSL runtime (scripts/build-wsl-rootfs.sh: txresbench-wsl.tar + MANIFEST.json); only its
+# .gitkeep is tracked.
+src-app/desktop/tauri/resources/wsl-runtime/*
+!src-app/desktop/tauri/resources/wsl-runtime/.gitkeep
 
 # The oras sidecar (bundle.externalBin): scripts/fetch-oras.mjs downloads and
 # verifies the pinned oras release binary at build time; never committed.
