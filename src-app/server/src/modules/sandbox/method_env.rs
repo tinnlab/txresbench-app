@@ -368,6 +368,10 @@ pub struct MethodEnvManager {
     /// is re-checked under the lock).
     slot_changed: Condvar,
     seams: MethodEnvSeams,
+    /// Test seam: run once by the next `ensure` that does not own its
+    /// attempt, right after `claim` returns (an interleaving point).
+    #[cfg(test)]
+    after_claim: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 struct Inner {
@@ -456,6 +460,8 @@ impl MethodEnvManager {
             }),
             slot_changed: Condvar::new(),
             seams,
+            #[cfg(test)]
+            after_claim: Mutex::new(None),
         }
         .with_persisted_loaded()
     }
@@ -497,6 +503,22 @@ impl MethodEnvManager {
         kind: EnvKind,
         deadline: Duration,
     ) -> Result<ProvidedMount, AppError> {
+        self.ensure_until(r, kind, deadline, &Arc::new(AtomicBool::new(false)))
+    }
+
+    /// [`Self::ensure`] with a stop signal for this one call (the engine sets
+    /// it when the user stops the method). Checked whenever the call waits
+    /// (for another attempt or a download slot): a stopped call returns
+    /// `ENV_DOWNLOAD_CANCELLED` and never claims an attempt. When the call
+    /// owns its attempt, the signal is that attempt's cancel handle, so it
+    /// stops the download too (a [`Self::cancel`] of that attempt sets it).
+    pub fn ensure_until(
+        &self,
+        r: &EnvRef,
+        kind: EnvKind,
+        deadline: Duration,
+        stop: &Arc<AtomicBool>,
+    ) -> Result<ProvidedMount, AppError> {
         let deadline_at = Instant::now() + deadline;
 
         // Entry boundary — caller data is grammar-validated BEFORE any
@@ -524,9 +546,13 @@ impl MethodEnvManager {
         // State machine: this call either owns the attempt, or waits out the
         // attempt the env already has (that attempt's result is returned), or
         // waits for a download slot.
-        let owned_attempt = self.claim(&env_id, r, kind)?;
-        if !owned_attempt {
-            return self.result_for(&env_id, &r.digest);
+        match self.claim(&env_id, r, kind, stop) {
+            Claim::Owned => {}
+            Claim::Done(result) => {
+                #[cfg(test)]
+                self.run_after_claim_hook();
+                return result;
+            }
         }
 
         let outcome = self.attempt_download(&env_id, r, &parts, deadline_at);
@@ -564,6 +590,18 @@ impl MethodEnvManager {
         self.slot_changed.notify_all();
 
         outcome
+    }
+
+    #[cfg(test)]
+    fn run_after_claim_hook(&self) {
+        let hook = self
+            .after_claim
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take();
+        if let Some(hook) = hook {
+            hook();
+        }
     }
 
     /// The current status of `env_id`. An env the manager has never seen (not
@@ -606,14 +644,33 @@ impl MethodEnvManager {
     /// no-op for an idle env; a subsequent `ensure` retries cleanly
     /// (TEST-10 / TEST-11).
     pub fn cancel(&self, env_id: &str) {
+        self.cancel_matching(env_id, None);
+    }
+
+    /// [`Self::cancel`] of `env_id`'s in-flight download only when it is the
+    /// download of `digest`: stopping one saved model never kills another
+    /// model's download of a different file of the same env. A download of
+    /// the same file is shared by every call waiting on it, so it is cancelled
+    /// for all of them, as [`Self::cancel`] does. Every waiter is woken either
+    /// way, so a call whose stop signal is set returns at once.
+    pub fn cancel_digest(&self, env_id: &str, digest: &str) {
+        self.cancel_matching(env_id, Some(digest));
+    }
+
+    fn cancel_matching(&self, env_id: &str, digest: Option<&str>) {
         if !is_valid_env_id(env_id) {
             return;
         }
         let mut guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         let Some(entry) = guard.entries.get_mut(env_id) else {
+            drop(guard);
+            self.slot_changed.notify_all();
             return;
         };
-        if entry.status.state != MethodEnvState::Downloading {
+        let other_file = digest.is_some_and(|d| entry.status.digest.as_deref() != Some(d));
+        if entry.status.state != MethodEnvState::Downloading || other_file {
+            drop(guard);
+            self.slot_changed.notify_all();
             return;
         }
         if let Some(flag) = entry.cancel.as_ref() {
@@ -698,12 +755,19 @@ impl MethodEnvManager {
         digest
     }
 
-    /// Get-or-create the entry and either claim the attempt or route this call
-    /// to the existing attempt's result. `Ok(false)` = the caller must return
-    /// [`Self::result_for`]; `Ok(true)` = the caller owns the attempt.
-    fn claim(&self, env_id: &str, r: &EnvRef, kind: EnvKind) -> Result<bool, AppError> {
+    /// Get-or-create the entry and either claim the attempt
+    /// ([`Claim::Owned`]) or answer this call ([`Claim::Done`]): the result of
+    /// an attempt for the requested file, taken while the lock is held (so a
+    /// download of another file that starts right after cannot change it), or
+    /// the cancelled error once the call's `stop` signal is set.
+    fn claim(&self, env_id: &str, r: &EnvRef, kind: EnvKind, stop: &Arc<AtomicBool>) -> Claim {
         let mut guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         loop {
+            // A stopped call never claims (nothing could cancel its download
+            // afterwards), whatever it waited for.
+            if stop.load(Ordering::SeqCst) {
+                return Claim::Done(Err(stopped_error()));
+            }
             // Predicates under the lock, with the entry borrow SCOPED so the
             // slot gate below can re-borrow `guard`.
             let (state, same_digest) = {
@@ -730,7 +794,8 @@ impl MethodEnvManager {
                 // run). Its result is not this call's: such a waiter never
                 // takes it, and waits until that attempt's worker has finished
                 // (the attempt counter moves), then re-evaluates: a cache hit
-                // or its own fetch.
+                // or its own fetch. The wait wakes on a short poll too, so a
+                // stop signal is seen without a notify.
                 let (seen, seen_digest) = guard
                     .entries
                     .get(env_id)
@@ -738,10 +803,14 @@ impl MethodEnvManager {
                     .unwrap_or((0, None));
                 let same_digest_attempt = seen_digest.as_deref() == Some(r.digest.as_str());
                 loop {
-                    guard = self
+                    let (g, _) = self
                         .slot_changed
-                        .wait(guard)
+                        .wait_timeout(guard, STOP_POLL_INTERVAL)
                         .unwrap_or_else(|p| p.into_inner());
+                    guard = g;
+                    if stop.load(Ordering::SeqCst) {
+                        return Claim::Done(Err(stopped_error()));
+                    }
                     let (state_now, attempt_now) = guard
                         .entries
                         .get(env_id)
@@ -751,7 +820,12 @@ impl MethodEnvManager {
                         break; // a newer attempt owns the future; re-evaluate
                     }
                     if state_now != MethodEnvState::Downloading && same_digest_attempt {
-                        return Ok(false); // THE observed attempt ended
+                        // THE observed attempt ended.
+                        let entry = guard
+                            .entries
+                            .get_mut(env_id)
+                            .expect("the observed entry exists");
+                        return Claim::Done(result_locked(entry, env_id, &r.digest));
                     }
                 }
                 continue;
@@ -762,16 +836,21 @@ impl MethodEnvManager {
             // same env-id) is a fresh download, not a stale mount. A Failed
             // entry is retried by the next, fresh call (TEST-11).
             if state == MethodEnvState::Ready && same_digest {
-                return Ok(false);
+                let entry = guard
+                    .entries
+                    .get_mut(env_id)
+                    .expect("the entry exists");
+                return Claim::Done(result_locked(entry, env_id, &r.digest));
             }
             if guard.running >= MAX_CONCURRENT_DOWNLOADS {
-                guard = self
+                let (g, _) = self
                     .slot_changed
-                    .wait(guard)
+                    .wait_timeout(guard, STOP_POLL_INTERVAL)
                     .unwrap_or_else(|p| p.into_inner());
+                guard = g;
                 continue;
             }
-            // Claim.
+            // Claim. The call's stop signal is the attempt's cancel handle.
             let entry = guard
                 .entries
                 .get_mut(env_id)
@@ -785,77 +864,13 @@ impl MethodEnvManager {
             entry.last_error = None;
             entry.worker_active = true;
             entry.mounted_dir = None;
-            entry.cancel = Some(Arc::new(AtomicBool::new(false)));
+            entry.cancel = Some(stop.clone());
             guard.running += 1;
             self.persist_locked(&mut guard, env_id);
             drop(guard);
             self.slot_changed.notify_all();
-            return Ok(true);
+            return Claim::Owned;
         }
-    }
-
-    /// The Ready mount or the last attempt's error, for a call that found an
-    /// existing terminal state (or waited one out). A Ready entry loaded from
-    /// disk mounts lazily (its digest is cache-present by the load rule).
-    /// The entry must carry the REQUESTED digest: a mount or an error of
-    /// another digest of the same env is never handed to this call.
-    fn result_for(&self, env_id: &str, requested: &str) -> Result<ProvidedMount, AppError> {
-        let mut guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(entry) = guard.entries.get_mut(env_id) else {
-            return Err(AppError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                ENV_REPOSITORY_UNKNOWN_CODE,
-                format!("no recorded state for env {env_id:?}"),
-            ));
-        };
-        // A newer attempt can only own the entry if this call's observed
-        // attempt was superseded between the waiter's read and this re-lock —
-        // an extreme race; refuse rather than mount or fail on a state the
-        // caller never asked for.
-        if entry.status.state == MethodEnvState::Downloading {
-            return Err(AppError::new(
-                StatusCode::CONFLICT,
-                ENV_REPOSITORY_UNKNOWN_CODE,
-                format!(
-                    "env {env_id:?} was re-fetched meanwhile with a different pin; \
-                     retry the request"
-                ),
-            ));
-        }
-        if entry.status.digest.as_deref() != Some(requested) {
-            return Err(AppError::new(
-                StatusCode::CONFLICT,
-                ENV_REPOSITORY_UNKNOWN_CODE,
-                format!(
-                    "env {env_id:?} now holds another file than the requested {requested}; \
-                     retry the request"
-                ),
-            ));
-        }
-        if let Some(e) = entry.last_error.clone() {
-            return Err(e.to_app());
-        }
-        let Some(digest) = entry.status.digest.clone() else {
-            return Err(AppError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                ENV_REPOSITORY_UNKNOWN_CODE,
-                format!("env {env_id:?} is ready but carries no digest"),
-            ));
-        };
-        if let Some(dir) = entry.mounted_dir.clone() {
-            return Ok(ProvidedMount {
-                mount_dir: dir,
-                digest: Some(digest),
-            });
-        }
-        // A persisted-rule Ready entry: mount now (the per-digest lock + fast
-        // path make a concurrent mount cheap).
-        let mount = ready_artifact_path(&digest)?;
-        entry.mounted_dir = Some(mount.clone());
-        Ok(ProvidedMount {
-            mount_dir: mount,
-            digest: Some(digest),
-        })
     }
 
     /// The whole fetch/verify/cache/mount sequence for this attempt (the
@@ -1173,6 +1188,78 @@ impl Entry {
             last_error: None,
         }
     }
+}
+
+/// What [`MethodEnvManager::claim`] decided for one call.
+enum Claim {
+    /// The call owns a fresh attempt and runs it.
+    Owned,
+    /// The call's answer, taken under the lock.
+    Done(Result<ProvidedMount, AppError>),
+}
+
+/// How often a waiting call re-checks its stop signal without a wake-up.
+const STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// The answer to a call whose stop signal is set (the cancel's own error).
+fn stopped_error() -> AppError {
+    AppError::new(
+        StatusCode::BAD_REQUEST,
+        ENV_DOWNLOAD_CANCELLED_CODE,
+        "the environment download was cancelled",
+    )
+}
+
+/// The Ready mount or the last attempt's error, for a call that found an
+/// existing terminal state (or waited one out), computed while the caller
+/// holds the manager's lock. A Ready entry loaded from disk mounts lazily
+/// (its digest is cache-present by the load rule). The entry must carry the
+/// REQUESTED digest: a mount or an error of another digest of the same env is
+/// never handed to this call.
+fn result_locked(entry: &mut Entry, env_id: &str, requested: &str) -> Result<ProvidedMount, AppError> {
+    // `claim` answers only from a terminal state; a Downloading entry here
+    // would be a state the caller never asked for.
+    if entry.status.state == MethodEnvState::Downloading {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            ENV_REPOSITORY_UNKNOWN_CODE,
+            format!("env {env_id:?} is downloading another attempt; retry the request"),
+        ));
+    }
+    if entry.status.digest.as_deref() != Some(requested) {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            ENV_REPOSITORY_UNKNOWN_CODE,
+            format!(
+                "env {env_id:?} now holds another file than the requested {requested}; \
+                 retry the request"
+            ),
+        ));
+    }
+    if let Some(e) = entry.last_error.clone() {
+        return Err(e.to_app());
+    }
+    let Some(digest) = entry.status.digest.clone() else {
+        return Err(AppError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ENV_REPOSITORY_UNKNOWN_CODE,
+            format!("env {env_id:?} is ready but carries no digest"),
+        ));
+    };
+    if let Some(dir) = entry.mounted_dir.clone() {
+        return Ok(ProvidedMount {
+            mount_dir: dir,
+            digest: Some(digest),
+        });
+    }
+    // A persisted-rule Ready entry: mount now (the per-digest lock + fast
+    // path make a concurrent mount cheap).
+    let mount = ready_artifact_path(&digest)?;
+    entry.mounted_dir = Some(mount.clone());
+    Ok(ProvidedMount {
+        mount_dir: mount,
+        digest: Some(digest),
+    })
 }
 
 fn unknown_status(env_id: &str) -> MethodEnvStatus {
@@ -3686,13 +3773,14 @@ mod tests {
         let m = MethodEnvManager::with_seams(loopback_seams());
         m.ensure(&file_address("fixture-layer", &current), EnvKind::Layer, Duration::from_secs(30))
             .expect("the cached file is served");
-        let served = m
-            .result_for("fixture-layer", &current)
-            .expect("the requested digest is the entry's");
+        let result_for = |digest: &str| {
+            let mut guard = m.inner.lock().unwrap();
+            let entry = guard.entries.get_mut("fixture-layer").expect("the env's entry");
+            result_locked(entry, "fixture-layer", digest)
+        };
+        let served = result_for(&current).expect("the requested digest is the entry's");
         assert_eq!(served.digest.as_deref(), Some(current.as_str()));
-        let err = m
-            .result_for("fixture-layer", &other)
-            .expect_err("another digest's mount is never handed out");
+        let err = result_for(&other).expect_err("another digest's mount is never handed out");
         assert_eq!(err.error_code(), ENV_REPOSITORY_UNKNOWN_CODE);
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -3783,6 +3871,186 @@ mod tests {
             .expect("the saved model's request returns")
             .expect("it gets its own file");
         assert_eq!(saved.digest.as_deref(), Some(old.as_str()), "never the other attempt's file");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ── stop, cancel and budget per call (two digests of one env) ─────────
+
+    /// A blob stub whose fetch of `held` waits (logging `started`) until the
+    /// `go` file exists; every other fetch answers at once. Every call is
+    /// logged to `calls`.
+    fn gated_stub(calls: &Path, blobs: &Path, held: &str, started: &Path, go: &Path) -> String {
+        blob_stub(
+            calls,
+            blobs,
+            &format!(
+                "if [ \"$d\" = \"{held}\" ]; then echo started > {}; while [ ! -f {} ]; do sleep 0.05; done; fi",
+                started.display(),
+                go.display()
+            ),
+        )
+    }
+
+    fn spawn_ensure(
+        m: &Arc<MethodEnvManager>,
+        root: &Path,
+        digest: &str,
+        deadline: Duration,
+        stop: Arc<AtomicBool>,
+    ) -> std::thread::JoinHandle<Result<ProvidedMount, AppError>> {
+        let m = m.clone();
+        let root = root.to_path_buf();
+        let digest = digest.to_string();
+        std::thread::spawn(move || {
+            let _g = scoped_data_root(root);
+            m.ensure_until(&file_address("fixture-layer", &digest), EnvKind::Layer, deadline, &stop)
+        })
+    }
+
+    fn join_within(
+        what: &str,
+        h: std::thread::JoinHandle<Result<ProvidedMount, AppError>>,
+    ) -> Result<ProvidedMount, AppError> {
+        wait_until(what, || h.is_finished());
+        h.join().expect("the call returns")
+    }
+
+    /// Two models of one method in one run: A downloads its layer file d1, B
+    /// waits for its own file d0. The user stops B: B returns cancelled at
+    /// once and never starts a download (nothing could cancel it later), and
+    /// A's download of the other file goes on and lands.
+    #[test]
+    fn a_stopped_call_never_starts_its_own_download() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let d1 = put_blob(&blobs, b"model A's layer");
+        let d0 = put_blob(&blobs, b"model B's layer");
+        pretend_mounted(&d1);
+        pretend_mounted(&d0);
+        let (started, go) = (root.join("a-started"), root.join("go"));
+        stub_oras(&root, &gated_stub(&calls, &blobs, &d1, &started, &go));
+        let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
+
+        let a = spawn_ensure(&m, &root, &d1, Duration::from_secs(300), Arc::new(AtomicBool::new(false)));
+        wait_until("A's download started", || started.exists());
+        let b_stop = Arc::new(AtomicBool::new(false));
+        let b = spawn_ensure(&m, &root, &d0, Duration::from_secs(300), b_stop.clone());
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!b.is_finished(), "B waits on the env's attempt");
+
+        // The user stops B (the engine's stop arm: the call's signal, then a
+        // cancel of B's own file).
+        b_stop.store(true, Ordering::SeqCst);
+        m.cancel_digest("fixture-layer", &d0);
+        let b = join_within("B returns once stopped", b);
+        assert_eq!(
+            b.expect_err("a stopped call is cancelled").error_code(),
+            ENV_DOWNLOAD_CANCELLED_CODE
+        );
+        assert!(!a.is_finished(), "stopping B never stops A's download of another file");
+        assert_eq!(m.status("fixture-layer").state, MethodEnvState::Downloading);
+
+        std::fs::write(&go, b"go").unwrap();
+        let a = join_within("A's download lands", a).expect("A's file is fetched");
+        assert_eq!(a.digest.as_deref(), Some(d1.as_str()));
+        let log = std::fs::read_to_string(&calls).unwrap_or_default();
+        assert!(
+            !log.contains(&format!("@sha256:{d0}")),
+            "the stopped call never started a download: {log}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A cancel of the SAME file still stops its download, for every call
+    /// waiting on it (the shared attempt).
+    #[test]
+    fn cancel_of_the_same_digest_still_stops_the_download() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let d1 = put_blob(&blobs, b"the shared layer");
+        let (started, go) = (root.join("started"), root.join("go"));
+        stub_oras(&root, &gated_stub(&calls, &blobs, &d1, &started, &go));
+        let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
+        let a = spawn_ensure(&m, &root, &d1, Duration::from_secs(300), Arc::new(AtomicBool::new(false)));
+        wait_until("the download started", || started.exists());
+        m.cancel_digest("fixture-layer", &d1);
+        let a = join_within("the cancelled call returns", a);
+        assert_eq!(a.expect_err("cancelled").error_code(), ENV_DOWNLOAD_CANCELLED_CODE);
+        assert_eq!(m.status("fixture-layer").state, MethodEnvState::Failed);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The stop signal also stops a download the call owns.
+    #[test]
+    fn a_stop_signal_stops_the_calls_own_download() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let d0 = put_blob(&blobs, b"a slow layer");
+        let (started, go) = (root.join("started"), root.join("go"));
+        stub_oras(&root, &gated_stub(&calls, &blobs, &d0, &started, &go));
+        let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let h = spawn_ensure(&m, &root, &d0, Duration::from_secs(300), stop.clone());
+        wait_until("the download started", || started.exists());
+        stop.store(true, Ordering::SeqCst);
+        let finished = {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !h.is_finished() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            h.is_finished()
+        };
+        if !finished {
+            // Unblock the stub so the thread ends before the assertion fails.
+            m.cancel("fixture-layer");
+            let _ = h.join();
+            panic!("the stop signal did not stop the call's own download");
+        }
+        let r = h.join().expect("the call returns");
+        assert_eq!(r.expect_err("cancelled").error_code(), ENV_DOWNLOAD_CANCELLED_CODE);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The result handed to a call that does not own an attempt is taken
+    /// while the call still holds the lock: another file's download that
+    /// starts right after cannot turn it into a "retry the request".
+    #[test]
+    fn a_ready_result_is_taken_under_the_lock() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let d0 = cache_bytes(b"the env's cached file");
+        let d1 = put_blob(&blobs, b"another file of the env");
+        pretend_mounted(&d1);
+        let (started, go) = (root.join("started"), root.join("go"));
+        stub_oras(&root, &gated_stub(&calls, &blobs, &d1, &started, &go));
+        let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
+        m.ensure(&file_address("fixture-layer", &d0), EnvKind::Layer, Duration::from_secs(30))
+            .expect("the cached file is ready");
+
+        // Right after the next call's claim (the env is Ready with d0),
+        // another call starts downloading d1.
+        let other: Arc<Mutex<Option<std::thread::JoinHandle<Result<ProvidedMount, AppError>>>>> =
+            Arc::new(Mutex::new(None));
+        {
+            let (m2, root2, d1c, other2, started2) =
+                (m.clone(), root.clone(), d1.clone(), other.clone(), started.clone());
+            *m.after_claim.lock().unwrap() = Some(Box::new(move || {
+                let h = spawn_ensure(&m2, &root2, &d1c, Duration::from_secs(300), Arc::new(AtomicBool::new(false)));
+                wait_until("the other download started", || started2.exists());
+                *other2.lock().unwrap() = Some(h);
+            }));
+        }
+        let got = m.ensure(&file_address("fixture-layer", &d0), EnvKind::Layer, Duration::from_secs(30));
+        std::fs::write(&go, b"go").unwrap();
+        if let Some(h) = other.lock().unwrap().take() {
+            let _ = h.join();
+        }
+        let got = got.expect("the ready file, never a retry-the-request conflict");
+        assert_eq!(got.digest.as_deref(), Some(d0.as_str()));
         let _ = std::fs::remove_dir_all(&root);
     }
 }
