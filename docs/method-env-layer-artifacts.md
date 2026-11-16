@@ -248,7 +248,25 @@ only:
 - delete `include/` directories, `*.a`, `tests/`, `test/`, `docs/`, `doc/`,
   `examples/` directories, `__pycache__/`, `*.pyc`;
 - KEEP `.pyi`/`.pyx`/`.pxd` (skimage/scipy lazy loaders read them), KEEP R
-  package metadata (`Meta/`, `R/`) and man pages untouched.
+  package metadata (`Meta/`, `R/`) and man pages untouched;
+- KEEP the package dirs in `TRIM_KEEP_PACKAGE_DIRS` (since generator 0.6.1),
+  paths below a `site-packages` dir: a trim-named dir that is one of them or
+  sits under one stays, without its `__pycache__/` and `*.pyc`. They are
+  code that `import tensorflow` loads, not docs or tests:
+  `tensorflow/tools/docs` (`doc_controls`, imported by
+  `tensorflow/python/util/deprecation.py`) and `tensorflow/_api` (the
+  generated API; `tensorflow/__init__.py` imports its `test` modules). With
+  them trimmed, the three TensorFlow methods failed at start
+  (`No module named 'tensorflow.tools.docs'`), the only environment failures
+  in the run test of 370 amd64 layers (2026-11-16).
+
+The keep-list names paths, not a general rule. "Keep any `test`/`docs` dir
+that has an `__init__.py`" would also keep joblib's test suite
+(`joblib/test`, about 0.3 MB) and change 20 more built layers, each a new tag
+and a new download; keeping every trim-named Python package would add up to
+40 MB of test suites to almost every Python package layer. A new
+import-time package with a trim name shows up as an import error in the §9
+equivalence test or a run test, and is added here.
 
 Trimming is what makes the delta small; it is also what makes the *equivalence
 test* (§9) the mandatory proof — "an install the smoke line does not verify
@@ -720,11 +738,15 @@ its file only (§6): rebuilding an unchanged method — at a later commit, or
 over a new base image — is the artifact already published, the same digest
 and tag. Layers that install packages are usually not byte-reproducible
 (build dates in R package metadata, for one); they get a new tag as before.
+Generator 0.6.1 changed only the §4 trim (the TensorFlow keep-list): a layer
+without those dirs is built as under 0.6.0 (a code-only one keeps its digest
+and tag); the TensorFlow layers get new ones.
 
 Fixed times and Python bytecode: a layer carries no bytecode — the §4 trim
 removes every `__pycache__/` and `*.pyc` — so no `.pyc` in a layer can go
-stale against the fixed source times; a method's own modules are compiled in
-memory at import (the layer mount is read-only). The bases are another case:
+stale against the fixed source times (the dirs §4 keeps lose their bytecode
+too); a method's own modules are compiled in memory at import (the layer
+mount is read-only). The bases are another case:
 their `.pyc` files already mismatch their sources, because the rootfs
 extraction drops file times and the base pack fixes every time. Compiling
 with hash-based invalidation (`--invalidation-mode checked-hash`, or

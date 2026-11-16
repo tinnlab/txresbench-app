@@ -126,6 +126,13 @@
 //            image), so the same file rebuilt at a later commit or over a new
 //            base image keeps its digest and tag.
 //
+//   TEST-23  the trim (design §4, generator 0.6.1): TensorFlow's packages that
+//            `import tensorflow` loads although they are named docs or test
+//            (tensorflow/tools/docs, the test modules under tensorflow/_api)
+//            are kept, without their bytecode; every other trim-named dir is
+//            still removed, Python packages named test or docs (joblib/test)
+//            included; the delta trim and the layer trim keep the same files.
+//
 //   node --test scripts/check-method-env-images.test.mjs
 
 import test from 'node:test';
@@ -1830,7 +1837,7 @@ test('TEST-15a the writer puts every layer in one package and both bases in one 
     assert.equal(b.oci_ref, BASE_PACKAGE);
     assert.equal(b.tag, `${b.base_id}-${b.contract}-${b.arch}-${b.squashfs_sha256.slice(0, 12)}`);
   }
-  assert.equal(m.generator_version, '0.6.0');
+  assert.equal(m.generator_version, '0.6.1');
 });
 
 test('TEST-15b records staged before 0.4.0 assemble to the same manifest bytes', () => {
@@ -2931,4 +2938,101 @@ test('TEST-22b the same layer file at a later commit or on a new base keeps its 
   assert.equal(a2.base_digest, NEW);
   assert.equal(fs.readFileSync(path.join(again, 'layers', 'fixture-a-amd64', 'oci-manifest.json'), 'utf8'), oci,
     'the staged OCI bytes are the published ones');
+});
+
+// ── TEST-23: the trim (design §4) ─────────────────────────────────────────────
+// The generator's own trim_delta + trim_layer, imported by path, over one
+// small layer root: the delta trim sees every file as added, the layer trim
+// runs on the tree. Both must keep the same files.
+const TRIM_HARNESS = `
+import importlib.util, json, os, sys
+spec = importlib.util.spec_from_file_location("txr_generator", sys.argv[1])
+g = importlib.util.module_from_spec(spec)
+sys.modules["txr_generator"] = g
+spec.loader.exec_module(g)
+root = sys.argv[2]
+def files():
+    out = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for name in filenames:
+            out.append(os.path.relpath(os.path.join(dirpath, name), root).replace(os.sep, "/"))
+    return sorted(out)
+delta = g.Delta()
+delta.added = {p: "file" for p in files()}
+by_delta = sorted(g.trim_delta(delta).added)
+g.trim_layer(root)
+print(json.dumps({"layer": files(), "delta": by_delta}))
+`;
+
+const SITE = 'opt/txr-layer/lib/python3.11/site-packages';
+
+/** Kept by the trim: TensorFlow's import-time packages and ordinary files. */
+const TRIM_KEPT = [
+  `${SITE}/tensorflow/tools/docs/__init__.py`,
+  `${SITE}/tensorflow/tools/docs/doc_controls.py`,
+  `${SITE}/tensorflow/_api/v2/test/__init__.py`,
+  `${SITE}/tensorflow/_api/v2/test/experimental/__init__.py`,
+  `${SITE}/tensorflow/_api/v2/__internal__/test/__init__.py`,
+  `${SITE}/tensorflow/_api/v2/compat/v1/test/__init__.py`,
+  `${SITE}/tensorflow/python/util/deprecation.py`,
+  `${SITE}/joblib/parallel.py`,
+  'opt/txr-layer/R-library/survival/R/survival',
+  'code/run.py',
+];
+
+/** Removed by the trim, before and after the change. */
+const TRIM_REMOVED = [
+  // bytecode inside a kept package dir
+  `${SITE}/tensorflow/tools/docs/__pycache__/doc_controls.cpython-311.pyc`,
+  `${SITE}/tensorflow/_api/v2/test/__init__.pyc`,
+  // TensorFlow dirs outside the kept paths
+  `${SITE}/tensorflow/include/tensorflow/core/framework/tensor.h`,
+  `${SITE}/tensorflow/python/compiler/tensorrt/test/__init__.py`,
+  `${SITE}/tensorflow/dtensor/python/tests/__init__.py`,
+  // Python packages named test, tests, docs, examples
+  `${SITE}/joblib/test/__init__.py`,
+  `${SITE}/joblib/test/test_parallel.py`,
+  `${SITE}/fixturepkg/tests/__init__.py`,
+  `${SITE}/fixturepkg/docs/__init__.py`,
+  `${SITE}/fixturepkg/examples/__init__.py`,
+  `${SITE}/fixturepkg/doc/notes.txt`,
+  `${SITE}/fixturepkg/include/fixture.h`,
+  `${SITE}/fixturepkg/lib/libfixture.a`,
+  // the kept paths only count right below a site-packages dir
+  `${SITE}/tensorflowx/tools/docs/__init__.py`,
+  `${SITE}/vendored/tensorflow/tools/docs/__init__.py`,
+  'opt/txr-layer/share/tensorflow/tools/docs/__init__.py',
+  // R package dirs
+  'opt/txr-layer/R-library/survival/doc/survival.pdf',
+  'opt/txr-layer/R-library/survival/tests/test.R',
+  'opt/txr-layer/R-library/Rcpp/include/Rcpp.h',
+];
+
+function trim() {
+  const root = path.join(mkdtemp('txr-trim-'), 'layer');
+  for (const rel of [...TRIM_KEPT, ...TRIM_REMOVED]) {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), `${rel}\n`);
+  }
+  const r = spawnSync('python3', ['-c', TRIM_HARNESS, GENERATOR, root], { encoding: 'utf8' });
+  assert.equal(r.status, 0, `the harness itself must run: ${r.stderr}`);
+  return JSON.parse(r.stdout.trim().split('\n').pop());
+}
+
+test('TEST-23a the trim keeps the packages named docs and test that import tensorflow loads', () => {
+  const { layer, delta } = trim();
+  for (const rel of TRIM_KEPT) {
+    assert.ok(layer.includes(rel), `the layer trim must keep ${rel}`);
+    assert.ok(delta.includes(rel), `the delta trim must keep ${rel}`);
+  }
+  assert.deepEqual(layer, [...TRIM_KEPT].sort(), 'the layer keeps exactly the kept files');
+});
+
+test('TEST-23b the trim still removes every other trim-named dir, packages named test or docs included', () => {
+  const { layer, delta } = trim();
+  for (const rel of TRIM_REMOVED) {
+    assert.ok(!layer.includes(rel), `the layer trim must remove ${rel}`);
+    assert.ok(!delta.includes(rel), `the delta trim must remove ${rel}`);
+  }
+  assert.deepEqual(delta, layer, 'the delta trim and the layer trim keep the same files');
 });
