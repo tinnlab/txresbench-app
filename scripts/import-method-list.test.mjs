@@ -1,0 +1,187 @@
+#!/usr/bin/env node
+// import-method-list.test.mjs — the controls for `scripts/import-method-list.sh`.
+//
+// The registry is the stub `oras` (scripts/method-list/stubs.mjs); the list is the fixture
+// signed with the REAL minisign by the test key (scripts/method-list/fixtures/), checked
+// with the test key through `--keys` by a verifier that does the real minisign check with
+// node:crypto — or by the real binary when TXR_CLI names one. The import writes into a
+// throwaway app tree (`--app-dir`); this checkout is never touched.
+//
+//   node --test scripts/import-method-list.test.mjs
+//   TXR_CLI=<target>/debug/txresbench node --test scripts/import-method-list.test.mjs
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { readLog, seedArtifact, writeStubs, writeVerifyingCli } from './method-list/stubs.mjs';
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SCRIPT = path.join(REPO, 'scripts/import-method-list.sh');
+const FIXTURES = path.join(REPO, 'scripts/method-list/fixtures');
+const LIST_DIR = path.join(FIXTURES, 'list-dir');
+const KEYS = path.join(FIXTURES, 'fixture-keys.json');
+const PACKAGE = 'ghcr.io/tinnlab/txresbench-method-list';
+const LIST = fs.readFileSync(path.join(LIST_DIR, 'method-list.json'));
+const SIG = fs.readFileSync(path.join(LIST_DIR, 'method-list.json.minisig'));
+
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'import-method-list-'));
+const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
+
+/** A registry holding `files` at :v1 (and at :v1-seq-<n>), and an app tree with older data. */
+function world({ files = { 'method-list.json': LIST, 'method-list.json.minisig': SIG }, builtin = null } = {}) {
+  const base = tmp();
+  const bin = path.join(base, 'bin');
+  writeStubs(bin);
+  const cli = process.env.TXR_CLI || writeVerifyingCli(bin);
+  seedArtifact(bin, PACKAGE, 'v1', files, `sha256:${'b'.repeat(64)}`);
+  seedArtifact(bin, PACKAGE, 'v1-seq-000001', files, `sha256:${'b'.repeat(64)}`);
+  const app = path.join(base, 'app');
+  for (const d of ['data/method-list', 'data/method-catalogue', 'src-app/server/data', 'scripts/method-list/fixtures']) {
+    fs.mkdirSync(path.join(app, d), { recursive: true });
+  }
+  // The app's current (older) copies.
+  fs.writeFileSync(path.join(app, 'data/method-catalogue/catalogue.json'), '{"old": true}\n');
+  fs.writeFileSync(path.join(app, 'src-app/server/data/method-env-images.json'), '{"old": true}\n');
+  fs.copyFileSync(path.join(REPO, 'data/method-list/trusted-keys.json'), path.join(app, 'data/method-list/trusted-keys.json'));
+  fs.copyFileSync(path.join(FIXTURES, 'test-key.pub'), path.join(app, 'scripts/method-list/fixtures/test-key.pub'));
+  if (builtin !== null) {
+    const doc = JSON.parse(LIST);
+    doc.sequence = builtin;
+    fs.writeFileSync(path.join(app, 'data/method-list/method-list.json'), JSON.stringify(doc, null, 1) + '\n');
+  }
+  return { base, bin, cli, app };
+}
+
+function run(w, extra = []) {
+  const r = spawnSync('bash', [SCRIPT, '--app-dir', w.app, '--keys', KEYS, '--cli', w.cli, ...extra], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${w.bin}:${process.env.PATH}`, TMPDIR: w.base, PYTHONDONTWRITEBYTECODE: '1' },
+  });
+  return { status: r.status, out: `${r.stdout}${r.stderr}` };
+}
+const appFile = (w, rel) => path.join(w.app, rel);
+
+test('refuses_bad_signature', () => {
+  const flipped = Buffer.from(LIST);
+  flipped[Math.floor(flipped.length / 2)] ^= 1;
+  const w = world({ files: { 'method-list.json': flipped, 'method-list.json.minisig': SIG } });
+  const r = run(w);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /METHOD_LIST_BAD_SIGNATURE/);
+  assert.match(r.out, /does not verify with the app's trusted keys: not imported/);
+  assert.ok(!fs.existsSync(appFile(w, 'data/method-list/method-list.json')));
+  assert.equal(fs.readFileSync(appFile(w, 'data/method-catalogue/catalogue.json'), 'utf8'), '{"old": true}\n');
+});
+
+test('refuses_lower_sequence', () => {
+  const w = world({ builtin: 2 });
+  const before = fs.readFileSync(appFile(w, 'data/method-list/method-list.json'));
+  const r = run(w);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /is sequence 1, below the built-in #2/);
+  assert.ok(before.equals(fs.readFileSync(appFile(w, 'data/method-list/method-list.json'))));
+  // The same sequence with other bytes is refused too; with the same bytes it is a no-op.
+  assert.match(run(world({ builtin: 1 })).out, /the built-in #1 holds OTHER bytes/);
+  const same = world();
+  fs.writeFileSync(appFile(same, 'data/method-list/method-list.json'), LIST);
+  const r2 = run(same);
+  assert.equal(r2.status, 0, r2.out);
+  assert.match(r2.out, /already #1/);
+});
+
+test('refuses a list that drops a row of the built-in one', () => {
+  const w = world();
+  const doc = JSON.parse(LIST);
+  doc.sequence = 0;
+  doc.catalogue.methods.push({ ...doc.catalogue.methods[0], id: 'fx-only-in-the-built-in' });
+  fs.writeFileSync(appFile(w, 'data/method-list/method-list.json'), JSON.stringify(doc, null, 1) + '\n');
+  const r = run(w);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /LIST_ROW_REMOVED: method 'fx-only-in-the-built-in'/);
+  assert.match(r.out, /does not keep the rows and facts of the built-in #0/);
+  assert.ok(!fs.existsSync(appFile(w, 'data/method-list/method-list.json.minisig')));
+});
+
+test('writes_list_sig_and_both_extracted_docs', () => {
+  const w = world({ builtin: 0 });
+  const r = run(w);
+  assert.equal(r.status, 0, r.out);
+  assert.ok(fs.readFileSync(appFile(w, 'data/method-list/method-list.json')).equals(LIST));
+  assert.ok(fs.readFileSync(appFile(w, 'data/method-list/method-list.json.minisig')).equals(SIG));
+  // Each document in its own generator's layout: the fixture source files, byte for byte.
+  assert.equal(fs.readFileSync(appFile(w, 'data/method-catalogue/catalogue.json'), 'utf8'),
+    fs.readFileSync(path.join(LIST_DIR, 'catalogue.json'), 'utf8'));
+  assert.equal(fs.readFileSync(appFile(w, 'src-app/server/data/method-env-images.json'), 'utf8'),
+    fs.readFileSync(path.join(LIST_DIR, 'method-env-images.json'), 'utf8'));
+  assert.match(r.out, /^sequence: 0 -> 1$/m);
+  assert.match(r.out, /update the app tests that pin counts/);
+  assert.deepEqual(fs.readdirSync(w.base).filter((f) => f.startsWith('import-method-list.')), [], 'work dir removed');
+});
+
+test('extracted_docs_equal_nested_docs', () => {
+  const w = world();
+  assert.equal(run(w).status, 0);
+  const list = readJson(appFile(w, 'data/method-list/method-list.json'));
+  assert.deepEqual(readJson(appFile(w, 'data/method-catalogue/catalogue.json')), list.catalogue);
+  assert.deepEqual(readJson(appFile(w, 'src-app/server/data/method-env-images.json')), list.images);
+  // The list guard's app-mode copy check agrees (its signature key check is its own: the
+  // fixture key is, rightly, not trusted).
+  const g = spawnSync('bash', [path.join(REPO, 'scripts/check-method-list.sh'), '--app-dir', w.app], { encoding: 'utf8' });
+  assert.equal(g.status, 1);
+  assert.match(g.stderr, /signed by key 73D9638AD48C0903, which is not in/);
+});
+
+test('bootstrap_writes_sequence_0_without_signature', () => {
+  const w = world();
+  fs.copyFileSync(path.join(LIST_DIR, 'catalogue.json'), appFile(w, 'data/method-catalogue/catalogue.json'));
+  fs.copyFileSync(path.join(LIST_DIR, 'method-env-images.json'), appFile(w, 'src-app/server/data/method-env-images.json'));
+  const r = spawnSync('bash', [SCRIPT, '--app-dir', w.app, '--cli', w.cli, '--bootstrap'], {
+    encoding: 'utf8', env: { ...process.env, TMPDIR: w.base, PYTHONDONTWRITEBYTECODE: '1' },
+  });
+  assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+  const list = readJson(appFile(w, 'data/method-list/method-list.json'));
+  assert.equal(list.sequence, 0);
+  assert.ok(!fs.existsSync(appFile(w, 'data/method-list/method-list.json.minisig')));
+  assert.deepEqual(list.catalogue, readJson(path.join(LIST_DIR, 'catalogue.json')));
+  // The two files are unchanged, and the guard accepts the tree.
+  assert.equal(fs.readFileSync(appFile(w, 'data/method-catalogue/catalogue.json'), 'utf8'),
+    fs.readFileSync(path.join(LIST_DIR, 'catalogue.json'), 'utf8'));
+  const g = spawnSync('bash', [path.join(REPO, 'scripts/check-method-list.sh'), '--app-dir', w.app], { encoding: 'utf8' });
+  assert.equal(g.status, 0, `${g.stdout}${g.stderr}`);
+  // After a published import, --bootstrap is refused.
+  const w2 = world();
+  assert.equal(run(w2).status, 0);
+  const r2 = spawnSync('bash', [SCRIPT, '--app-dir', w2.app, '--cli', w2.cli, '--bootstrap'], { encoding: 'utf8' });
+  assert.equal(r2.status, 1);
+  assert.match(r2.stderr, /carries published list #1: --bootstrap is for before the first publish only/);
+});
+
+test('pulls_with_empty_registry_config', () => {
+  const w = world();
+  assert.equal(run(w).status, 0);
+  let calls = readLog(w.bin, 'oras');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].sub, 'pull');
+  assert.equal(calls[0].configText, '{}');
+  assert.ok(!calls[0].plain);
+  assert.ok(calls[0].argv.includes(`${PACKAGE}:v1`));
+  const w2 = world();
+  assert.equal(run(w2, ['--sequence', '1']).status, 0);
+  calls = readLog(w2.bin, 'oras');
+  assert.ok(calls[0].argv.includes(`${PACKAGE}:v1-seq-000001`));
+});
+
+test('refuses an artifact with other files, and --keys into this checkout', () => {
+  const w = world({ files: { 'method-list.json': LIST, 'method-list.json.minisig': SIG, 'extra.txt': Buffer.from('x') } });
+  const r = run(w);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /is not exactly method-list\.json \+ method-list\.json\.minisig/);
+  const here = spawnSync('bash', [SCRIPT, '--keys', KEYS], { encoding: 'utf8' });
+  assert.equal(here.status, 2);
+  assert.match(here.stderr, /never writes into this checkout/);
+});

@@ -28,6 +28,31 @@ model file; absent rows are `false`). The runnable set only is emitted (a
 method with no env image is not listed — the app is for clinicians, not research
 wrappers the app cannot run).
 
+## The committed catalogue is an imported copy
+
+`data/method-catalogue/catalogue.json` is half of the signed method list, whose
+data lives in the methods repository (`method-list/catalogue.json`). It changes
+there, one method at a time (`--only`, below), and reaches this repository only
+through `scripts/import-method-list.sh` at an app release, which writes it with
+this generator's own writer; `scripts/check-method-list.sh` checks it equals the
+built-in list's `catalogue`. Never author it here
+(`docs/runbooks/method-env-images-publish.md` §8 and §9).
+
+One method at a time (on a methods checkout; the other inputs still come from
+the benchmark tree):
+
+```bash
+python3 scripts/method-catalogue/gen_method_catalogue.py --only <id> \
+  --previous <methods>/method-list/catalogue.json --methods-dir <methods>
+```
+
+It rebuilds the row of `<id>` reading `methods/<id>/method.json` and
+`gates/<id>.json` from the methods repository at the commit its image entries
+were built from (their `source_revision`; `--revision <commit>` for a method
+without an image entry), carries every other row byte for byte, adds the
+vocabulary markers the row needs and recounts every marker's `n_methods`. It
+writes `--previous` in place (`--out` to write elsewhere).
+
 ## Regen runbook
 
 Prerequisite: `python3` + `PyYAML` on the build machine (the generator's only

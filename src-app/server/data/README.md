@@ -2,6 +2,17 @@
 
 Files in this directory are **generated data**, not source:
 
+**`method-env-images.json` is an imported copy.** The environment images list is
+half of the signed method list, whose data lives in the methods repository
+(`method-list/method-env-images.json`). It changes there, in a methods-repository
+PR, and reaches this file only through `scripts/import-method-list.sh` at an app
+release (the import writes it with the generator's own writer and
+`scripts/check-method-list.sh` checks it equals the built-in list's `images`).
+Never author it here: assemble and check it on a methods checkout
+(`--manifest <methods>/method-list/method-env-images.json`), as
+`docs/runbooks/method-env-images-publish.md` §8 says. The generation notes below
+apply to that file.
+
 | file | what it is | produced by |
 |---|---|---|
 | `method-env-images.json` | the per-method environment layer manifest (one entry per runnable benchmark method, per published arch) | `scripts/generate-method-env-images.py` |

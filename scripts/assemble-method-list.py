@@ -34,6 +34,10 @@ Modes:
         entries, bases, sequence old -> new). OLD may be `-` (no previous list).
     --sequence-of LIST
         Print the list's sequence (after the header checks).
+    --successor OLD NEW
+        Check that NEW may follow OLD: rules 1-2 within NEW, and against OLD rule 3 (no row
+        removed) and rule 5 (same version, same run-shaping facts). The import runs it
+        against the app's built-in list.
 
 Refusals (exit 1, the code first): LIST_UNKNOWN_METHOD (an image entry with no catalogue
 row), LIST_VERSION_MISMATCH (an image entry whose method_version is not its row's
@@ -369,6 +373,9 @@ def diff_lines(old, new):
         f"{i} {o_rows[i].get('version')} -> {n_rows[i].get('version')}"
         for i in changed if i not in retired) or "none"))
     lines.append(f"methods retired ({len(retired)}): " + (", ".join(retired) or "none"))
+    removed = sorted(set(o_rows) - set(n_rows))
+    if removed:
+        lines.append(f"methods REMOVED ({len(removed)}): " + ", ".join(removed))
     for label, field, key in (("image entries", "envs", ("env_id", "arch")),
                               ("bases", "bases", ("base_id", "arch"))):
         o, n = _entries(old, field, key), _entries(new, field, key)
@@ -390,6 +397,14 @@ def cmd_diff(a):
     return 0
 
 
+def cmd_successor(a):
+    old, new = load_list(a.successor[0]), load_list(a.successor[1])
+    check_cross_rules(new["catalogue"], new["images"], previous_catalogue=old["catalogue"])
+    print(f"assemble-method-list: sequence {new['sequence']} keeps the rows and facts of "
+          f"sequence {old['sequence']}")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Assemble, check, extract or compare the method list "
                                              "(method-list.json).")
@@ -408,12 +423,17 @@ def main(argv=None):
     ap.add_argument("--images-out", metavar="FILE")
     ap.add_argument("--diff", nargs=2, metavar=("OLD", "NEW"))
     ap.add_argument("--sequence-of", metavar="LIST")
+    ap.add_argument("--successor", nargs=2, metavar=("OLD", "NEW"))
     a = ap.parse_args(argv)
 
-    modes = [bool(a.check), bool(a.bootstrap), bool(a.extract), bool(a.diff), bool(a.sequence_of)]
+    modes = [bool(a.check), bool(a.bootstrap), bool(a.extract), bool(a.diff), bool(a.sequence_of),
+             bool(a.successor)]
     if sum(modes) > 1:
-        ap.error("--check, --bootstrap, --extract, --diff and --sequence-of are separate runs")
+        ap.error("--check, --bootstrap, --extract, --diff, --sequence-of and --successor are "
+                 "separate runs")
     try:
+        if a.successor:
+            return cmd_successor(a)
         if a.sequence_of:
             print(load_list(a.sequence_of)["sequence"])
             return 0

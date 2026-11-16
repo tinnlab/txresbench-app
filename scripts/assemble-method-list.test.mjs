@@ -217,4 +217,20 @@ test('diff names added, changed and retired methods and the sequence', () => {
   assert.match(r.out, /^methods changed \(1\): fx-baseline-cox 1\.2\.0 -> 1\.2\.0$/m);
   assert.match(r.out, /^methods retired \(1\): fx-response-signature$/m);
   assert.match(run(['--diff', '-', list]).out, /^methods added \(3\)/m);
+  assert.doesNotMatch(r.out, /REMOVED/);
+  assert.match(run(['--diff', list, path.join(LIST_DIR, 'method-list.json')]).out, /^sequence: 2 -> 1$/m);
+});
+
+test('successor: rules 3 and 5 against an older list', () => {
+  const { dir, previous, list } = listDir();
+  assert.equal(run(['--list-dir', dir, '--previous', previous]).status, 0);
+  assert.equal(run(['--successor', previous, list]).status, 0);
+  const dropped = path.join(tmp(), 'dropped.json');
+  const doc = readJson(list);
+  doc.catalogue.methods = doc.catalogue.methods.filter((m) => m.id !== 'fx-response-signature');
+  writeJson(dropped, doc);
+  const r = run(['--successor', previous, dropped]);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /LIST_ROW_REMOVED/);
+  assert.match(run(['--diff', previous, dropped]).out, /^methods REMOVED \(1\): fx-response-signature$/m);
 });
