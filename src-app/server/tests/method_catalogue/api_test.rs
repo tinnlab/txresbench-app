@@ -537,8 +537,10 @@ async fn method_catalogue_eligibility_e3_coverage_120_of_151() {
 
 /// Screen B (preview): group checkboxes → `MARKER_GROUP_MISSING` reasons; the
 /// all-groups-true schedule (always-baseline, 4 draws) fits EVERY env-published
-/// method — the shipped manifest publishes 94, so the runtime-adjusted counts
-/// are total_fit 94 / total_cannot 265 / total_no_env 265 (of 359; pure
+/// method — the shipped manifest publishes 91 (94 until schema 2 dropped the
+/// three entries whose facts did not hold at their commit: two named the wrong
+/// version, one is in no commit of the methods repo), so the runtime-adjusted
+/// counts are total_fit 91 / total_cannot 268 / total_no_env 268 (of 359; pure
 /// fit-only would be 357 of 359, the two 6-draw methods additionally no-env).
 #[tokio::test]
 async fn method_catalogue_eligibility_preview_screen_b() {
@@ -567,14 +569,14 @@ async fn method_catalogue_eligibility_preview_screen_b() {
     assert_eq!(resp.status().as_u16(), 200);
     let body: Value = resp.json().await.expect("body");
 
-    assert_eq!(body["total_fit"], 94, "all groups true, 4 draws — the env-published fit");
+    assert_eq!(body["total_fit"], 91, "all groups true, 4 draws — the env-published fit");
     assert_eq!(body["total_some"], 0, "before-treatment always");
     assert_eq!(
         body["total_cannot"],
-        359 - 94,
+        359 - 91,
         "every method without a published env is CannotRun (the two 6-draw included)"
     );
-    assert_eq!(body["total_no_env"], 359 - 94, "the count agrees with the manifest (359 - 94 published)");
+    assert_eq!(body["total_no_env"], 359 - 91, "the count agrees with the manifest (359 - 91 published)");
 
     let verdict = body["methods"]
         .as_array()
