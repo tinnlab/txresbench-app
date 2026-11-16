@@ -189,7 +189,9 @@ const RESOURCE = 'src-app/desktop/tauri/resources/wsl-runtime';
 
 /** The workflow's jobs, read from the layout release.yml is written in (2-space indents: jobs at 2, their
  *  keys at 4, steps at "      - " with their keys at 8, `with:` keys at 10; `|` block scalars). Each job:
- *  { keys: { 'runs-on': ..., needs: ... }, lines, steps: [{ uses, name, if, run, with: {...} }] }. */
+ *  { keys: { 'runs-on': ..., needs: ..., permissions: '' }, blocks: { permissions: 'contents: read' } (the
+ *  lines under a key with no value, trimmed), lines (all but `run: |` bodies), steps: [{ uses, name, if,
+ *  run, env: '', with: {...} }] (a step's `env:` children are not read: a step with one has env ''). */
 function workflowJobs() {
   const lines = fs.readFileSync(WORKFLOW, 'utf8').split('\n');
   const indent = (l) => l.length - l.trimStart().length;
@@ -214,7 +216,7 @@ function workflowJobs() {
     if (!content(l)) { i++; continue; }
     const d = indent(l);
     if (d === 2) {
-      job = { keys: {}, lines: [], steps: [] };
+      job = { keys: {}, blocks: {}, lines: [], steps: [] };
       jobs[l.trim().replace(/:$/, '')] = job;
       step = null;
       i++;
@@ -224,7 +226,16 @@ function workflowJobs() {
     if (d === 4) {
       const s = scalar(i, 4);
       job.keys[s.key] = s.value;
-      i = s.key === 'steps' ? i + 1 : s.next;
+      i = s.next;
+      if (s.value === '' && s.key !== 'steps') {
+        const block = [];
+        for (; i < lines.length && (!content(lines[i]) || indent(lines[i]) > 4); i++) {
+          if (!content(lines[i])) continue;
+          block.push(lines[i].trim());
+          job.lines.push(lines[i]);
+        }
+        job.blocks[s.key] = block.join('\n');
+      }
       continue;
     }
     if (d === 6 && l.trim().startsWith('- ') && job.keys.steps !== undefined) {
@@ -261,28 +272,38 @@ function workflowJobs() {
 test('the release builds the WSL runtime on Linux from its own unchanged checkout, and checks it as a release', () => {
   const job = workflowJobs()['wsl-runtime'];
   assert.ok(job, 'release.yml has a wsl-runtime job');
-  assert.match(job.keys['runs-on'], /^ubuntu-/, 'Linux: the build runs Linux containers');
+  // no job-level if, continue-on-error or env
+  assert.deepEqual(Object.keys(job.keys), ['runs-on', 'permissions', 'steps']);
+  // an x64 Linux runner: the build runs Linux containers, and GitHub's ARM runners end in "-arm"
+  assert.match(job.keys['runs-on'], /^ubuntu-(latest|[0-9]+\.[0-9]+)$/);
   // it runs downloaded images and crates: a read-only token, not kept in the checkout
-  assert.ok(job.lines.join('\n').includes('    permissions:\n      contents: read\n'), job.lines.join('\n'));
-  const s = job.steps;
-  const build = s.findIndex((x) => x.run === 'sh scripts/build-wsl-rootfs.sh x86_64');
-  const check = s.findIndex((x) => x.run === 'node scripts/verify-wsl-runtime.mjs --arch x86_64');
-  const upload = s.findIndex((x) => x.uses === 'actions/upload-artifact@v4');
-  assert.ok(build >= 0 && check > build && upload > check, JSON.stringify(s));
-  // only the checkout and Node come before the build: nothing changes the tree, so the runtime records the
-  // commit without "+dirty", and the checkout is of the commit the workflow runs for (no ref of its own)
-  assert.deepEqual(s.slice(0, build).map((x) => x.uses), ['actions/checkout@v4', 'actions/setup-node@v4']);
-  assert.deepEqual(s[0].with, { 'persist-credentials': 'false' });
-  assert.deepEqual(s[upload].with, {
-    name: 'wsl-runtime-x86_64',
-    path: `${RESOURCE}/txresbench-wsl.tar\n${RESOURCE}/MANIFEST.json`,
-    'if-no-files-found': 'error',
-  });
+  assert.equal(job.blocks.permissions, 'contents: read');
+  // The whole job, step by step. Only the checkout and Node come before the build, so nothing changes the tree
+  // and the runtime records the commit without "+dirty"; the checkout has no ref of its own, so it is the
+  // commit the workflow runs for. No step is skipped or allowed to fail, and no step sets env.
+  assert.deepEqual(job.steps, [
+    { uses: 'actions/checkout@v4', with: { 'persist-credentials': 'false' } },
+    { name: 'Set up Node', uses: 'actions/setup-node@v4', with: { 'node-version': '22' } },
+    { name: 'Build the WSL runtime', run: 'sh scripts/build-wsl-rootfs.sh x86_64', with: {} },
+    { name: 'Check it as the Windows bundle will', run: 'node scripts/verify-wsl-runtime.mjs --arch x86_64', with: {} },
+    {
+      name: 'Upload the WSL runtime',
+      uses: 'actions/upload-artifact@v4',
+      with: {
+        name: 'wsl-runtime-x86_64',
+        path: `${RESOURCE}/txresbench-wsl.tar\n${RESOURCE}/MANIFEST.json`,
+        'if-no-files-found': 'error',
+        'retention-days': '1',
+      },
+    },
+  ]);
 });
 
 test('the Windows leg downloads the runtime into its bundle resource before `tauri build`, for its CPU', () => {
   const jobs = workflowJobs();
   const job = jobs.build;
+  // no job-level if (an `if: always()` would start the legs after a failed runtime build)
+  assert.deepEqual(Object.keys(job.keys), ['needs', 'strategy', 'runs-on', 'steps']);
   assert.equal(job.keys.needs, 'wsl-runtime');
   // windows-latest is an x64 runner and the leg names no --target, so Tauri's TAURI_ENV_ARCH, which the
   // bundle check reads, is x86_64: the arch the wsl-runtime job builds
@@ -293,8 +314,15 @@ test('the Windows leg downloads the runtime into its bundle resource before `tau
   const fetch = s.findIndex((x) => x.uses === 'actions/download-artifact@v4');
   const tauri = s.findIndex((x) => x.uses === 'tauri-apps/tauri-action@v0');
   assert.ok(fetch >= 0 && tauri > fetch, JSON.stringify(s));
-  assert.equal(s[fetch].if, "matrix.platform == 'windows-latest'");
-  assert.deepEqual(s[fetch].with, { name: 'wsl-runtime-x86_64', path: RESOURCE });
+  assert.deepEqual(s[fetch], {
+    name: 'Fetch the WSL runtime',
+    if: "matrix.platform == 'windows-latest'",
+    uses: 'actions/download-artifact@v4',
+    with: { name: 'wsl-runtime-x86_64', path: RESOURCE },
+  });
+  // the bundle runs on every leg, and a failed bundle step fails it
+  assert.equal(s[tauri].if, undefined);
+  assert.equal(s[tauri]['continue-on-error'], undefined);
   // the directory the Windows bundle takes (tauri.windows.conf.json) and the one Tauri builds in
   assert.ok(bundleFor('windows').resources.includes(path.relative('src-app/desktop/tauri', RESOURCE)));
   assert.equal(s[tauri].with.projectPath, 'src-app/desktop/tauri');
