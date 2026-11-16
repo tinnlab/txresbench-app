@@ -493,10 +493,11 @@ impl MethodEnvManager {
     ///    itself by its sha256 (`oras blob fetch`); bytes verified against
     ///    `r.digest` ALWAYS before the cache entry, mounted by digest.
     ///
-    /// BLOCKING: run on `spawn_blocking`. `deadline` bounds the whole
-    /// sequence. At most one download per env-id (a further request waits on
-    /// the existing attempt) and at most [`MAX_CONCURRENT_DOWNLOADS`] in
-    /// flight.
+    /// BLOCKING: run on `spawn_blocking`. `deadline` bounds this call's own
+    /// attempt (resolve→verify→pull→stage→mount), from the moment the call
+    /// owns it: time spent waiting on another call's attempt does not count.
+    /// At most one download per env-id (a further request waits on the
+    /// existing attempt) and at most [`MAX_CONCURRENT_DOWNLOADS`] in flight.
     pub fn ensure(
         &self,
         r: &EnvRef,
@@ -519,8 +520,6 @@ impl MethodEnvManager {
         deadline: Duration,
         stop: &Arc<AtomicBool>,
     ) -> Result<ProvidedMount, AppError> {
-        let deadline_at = Instant::now() + deadline;
-
         // Entry boundary — caller data is grammar-validated BEFORE any
         // filesystem/spawn work (the ref host/prefix boundary; the pinned
         // digest shape; base-vs-layer namespace consistency).
@@ -555,6 +554,8 @@ impl MethodEnvManager {
             }
         }
 
+        // The budget starts now: this call owns its attempt.
+        let deadline_at = Instant::now() + deadline;
         let outcome = self.attempt_download(&env_id, r, &parts, deadline_at);
 
         // Terminal transition (under the lock): clear the worker, release the
@@ -4011,6 +4012,33 @@ mod tests {
         }
         let r = h.join().expect("the call returns");
         assert_eq!(r.expect_err("cancelled").error_code(), ENV_DOWNLOAD_CANCELLED_CODE);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The time budget of a call starts when it claims its own attempt: a
+    /// call that waited out another file's long download still has its whole
+    /// budget for its own file.
+    #[test]
+    fn a_waiters_budget_starts_when_it_claims_its_own_attempt() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let d1 = put_blob(&blobs, b"a long download");
+        pretend_mounted(&d1);
+        let d0 = cache_bytes(b"a cached older layer");
+        let (started, go) = (root.join("started"), root.join("go"));
+        stub_oras(&root, &gated_stub(&calls, &blobs, &d1, &started, &go));
+        let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
+        let a = spawn_ensure(&m, &root, &d1, Duration::from_secs(300), Arc::new(AtomicBool::new(false)));
+        wait_until("the long download started", || started.exists());
+        let b = spawn_ensure(&m, &root, &d0, Duration::from_secs(1), Arc::new(AtomicBool::new(false)));
+        // The other download outlasts B's whole budget.
+        std::thread::sleep(Duration::from_millis(1500));
+        std::fs::write(&go, b"go").unwrap();
+        join_within("A lands", a).expect("A's file");
+        let b = join_within("B returns", b)
+            .expect("B's budget starts at its own attempt: its cached file is served");
+        assert_eq!(b.digest.as_deref(), Some(d0.as_str()));
         let _ = std::fs::remove_dir_all(&root);
     }
 
