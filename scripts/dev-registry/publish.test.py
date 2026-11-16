@@ -336,6 +336,18 @@ class PublishServerCase(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             rc = mod.main(["pull", "--plain-http", "-o", pull_dir, ref])
         self.assertEqual(rc, 0)
+        # the app's current call shape: `--registry-config <file>` before the ref
+        cfg = os.path.join(self.out, "registry-config.json")
+        with open(cfg, "w") as fh:
+            fh.write("{}")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = mod.main(["resolve", "--registry-config", cfg, "--plain-http", ref])
+        self.assertEqual(rc, 0)
+        self.assertEqual(buf.getvalue().strip(), self.entry["digest"])
+        with redirect_stdout(io.StringIO()):
+            rc = mod.main(["pull", "--registry-config", cfg, "--plain-http", "-o", pull_dir, ref])
+        self.assertEqual(rc, 0)
         self.assertEqual(
             hashlib.sha256(open(os.path.join(pull_dir, "layer.squashfs"), "rb").read()).hexdigest(),
             self.entry["layer_sha256"],

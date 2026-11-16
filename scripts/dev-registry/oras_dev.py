@@ -42,6 +42,25 @@ def _http(hostport):
     return http.client.HTTPConnection(host, int(port or 80), timeout=120)
 
 
+# Options of the app's oras calls that take a value (the app passes
+# `--registry-config <file>` since the empty login file was added); their
+# values are not refs.
+VALUE_OPTIONS = {"-o", "--output", "--registry-config", "--config", "-u", "--username", "-p", "--password"}
+
+
+def positional(args):
+    """The non-option arguments, skipping the value of each value option."""
+    out, skip = [], False
+    for a in args:
+        if skip:
+            skip = False
+        elif a in VALUE_OPTIONS:
+            skip = True
+        elif not a.startswith("-"):
+            out.append(a)
+    return out
+
+
 def split_ref(ref):
     """Return (host, repo, tag, digest) — the app's refs are
     `<host>/<repo>[:<tag>][@sha256:...]`, the registry path is `/v2/<repo>/...`."""
@@ -84,7 +103,7 @@ def fetch_json(conn, repo, ref):
 
 def cmd_resolve(args):
     plain = "--plain-http" in args
-    refs = [a for a in args if not a.startswith("-")]
+    refs = positional(args)
     if not refs:
         raise SystemExit("oras dev: resolve needs a ref")
     host, repo, tag, digest = split_ref(refs[0])
@@ -108,7 +127,7 @@ def cmd_pull(args):
     for i, a in enumerate(args):
         if a == "-o":
             out = args[i + 1]
-    refs = [a for a in args if not a.startswith("-") and a != out]
+    refs = positional(args)
     if not refs:
         raise SystemExit("oras dev: pull needs a ref")
     ref = refs[-1]
