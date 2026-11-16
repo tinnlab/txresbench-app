@@ -858,7 +858,7 @@ pub fn row_env(row: &ModelRow) -> Result<TxrMethodEnv, AppError> {
 }
 
 /// A row's kept run-shaping facts (`None` = a model saved before they were
-/// kept). A cell that no longer parses is a corrupt row, never a guess.
+/// kept). A stored value that no longer parses is a corrupt row, never a guess.
 pub fn row_method_facts(row: &ModelRow) -> Result<Option<TxrMethodFacts>, AppError> {
     match &row.method_facts {
         Some(v) => Ok(Some(parse_row(v, "txr_models.method_facts")?)),
