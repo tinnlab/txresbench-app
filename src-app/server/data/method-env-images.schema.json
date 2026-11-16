@@ -100,13 +100,13 @@
         },
         "oci_ref": {
           "type": "string",
-          "pattern": "^ghcr\\.io/tinnlab/txr-method-env-layers/[a-z0-9._-]+$",
-          "description": "The artifact repository ref, without tag or digest (the tag/digest are separate fields)."
+          "const": "ghcr.io/tinnlab/txr-method-env-layers",
+          "description": "The one OCI package every method layer is published in, without tag or digest (the tag/digest are separate fields); the method is in the tag."
         },
         "tag": {
           "type": "string",
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-.+][0-9A-Za-z.-]+)?-(amd64|arm64)$",
-          "description": "The immutable publish tag <method_version>-<arch>."
+          "pattern": "^[a-z0-9._-]+-[0-9]+\\.[0-9]+\\.[0-9]+([-.+][0-9A-Za-z.-]+)?-(amd64|arm64)-[0-9a-f]{12}$",
+          "description": "The immutable publish tag <env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256> in the layer package: a rebuild at the same version is a new tag."
         },
         "digest": {
           "type": "string",
@@ -174,7 +174,7 @@
         "base_id": {
           "type": "string",
           "enum": ["base-py", "base-r"],
-          "description": "The base repository component and the env id the app's env manager keys the base under."
+          "description": "The base id (the first part of its tag) and the env id the app's env manager keys the base under."
         },
         "arch": {
           "type": "string",
@@ -183,13 +183,13 @@
         },
         "oci_ref": {
           "type": "string",
-          "pattern": "^ghcr\\.io/tinnlab/txresbench-env/base-(py|r)$",
-          "description": "The base artifact repository ref, without tag or digest: the sandbox's base namespace + base_id."
+          "const": "ghcr.io/tinnlab/txresbench-env",
+          "description": "The one OCI package both bases are published in (the sandbox's base package), without tag or digest; the base is in the tag."
         },
         "tag": {
           "type": "string",
-          "pattern": "^[0-9]+\\.[0-9]+-(amd64|arm64)-[0-9a-f]{12}$",
-          "description": "The immutable publish tag <contract>-<arch>-<first 12 hex of squashfs_sha256>: one tag per distinct base file."
+          "pattern": "^base-(py|r)-[0-9]+\\.[0-9]+-(amd64|arm64)-[0-9a-f]{12}$",
+          "description": "The immutable publish tag <base_id>-<contract>-<arch>-<first 12 hex of squashfs_sha256> in the base package: one tag per distinct base file."
         },
         "digest": {
           "type": "string",

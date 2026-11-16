@@ -17,9 +17,16 @@ assertion is about the BYTES the app parses:
     payload-verify pin);
   * the dev manifest satisfies the app's own structural rules (the
     `envmanifest.rs` validator set mirrored here: schema_version 1,
-    env_id == method_id, layer_schema 1, tag == <version>-<arch>, pin shapes,
-    layer-ref namespace + repo identity, base-ref family, size >= 1,
-    contract <major>.<minor>, sorted by (env_id, arch));
+    env_id == method_id, layer_schema 1,
+    tag == <env_id>-<version>-<arch>-<first 12 hex of layer_sha256>,
+    pin shapes, oci_ref == the one layer package, base-ref family,
+    size >= 1, contract <major>.<minor>, sorted by (env_id, arch));
+  * the artifacts sit in the two packages and nowhere else: every layer in
+    `tinnlab/txr-method-env-layers` (the method and its layer hash in the
+    tag), the base in
+    `tinnlab/txresbench-env` at the app's no-`bases` tag
+    `base-<family>-<contract>-<arch>`; the old one-package-per-method and
+    per-base repos hold nothing;
   * the packed layer contains the §5 contract: /code files,
     `/.txr-method-env-layer-schema` == "1", `/layer-manifest.json` ==
     ["/code"], the root `usr/` mount-readiness sentinel, modes >= 0644/0755;
@@ -75,7 +82,14 @@ TEST_TMP_ROOT = _pick_tmp_root()
 
 FIXTURE_METHOD_ID = publish.FIXTURE_METHOD_ID
 FIXTURE_BASE_ID = publish.FIXTURE_BASE_ID
-FIXTURE_TAG = "1.0.0-amd64"
+#: The two packages and the tags, spelled independently of publish.py.
+LAYER_PACKAGE = "tinnlab/txr-method-env-layers"
+BASE_PACKAGE = "tinnlab/txresbench-env"
+#: The fixture layer's tag is "txr-dev-fixture-1.0.0-amd64-<sha12 of its
+#: packed squashfs>" (fixture_tag(), read from the packed file's bytes).
+FIXTURE_TAG_PREFIX = "txr-dev-fixture-1.0.0-amd64-"
+#: The app's base tag for a manifest without `bases` (base_env_ref).
+FIXTURE_BASE_TAG = "base-py-2.0-amd64"
 
 
 def sha256_file(path):
@@ -121,13 +135,13 @@ def validate_app_manifest(doc):
     for e in doc["envs"]:
         assert e["env_id"] == e["method_id"], e
         assert e["layer_schema"] == 1, e
-        assert e["tag"] == "%s-%s" % (e["method_version"], e["arch"]), e
+        assert e["tag"] == "%s-%s-%s-%s" % (e["env_id"], e["method_version"], e["arch"],
+                                            e["layer_sha256"][:12]), e
         assert e["arch"] == "amd64", e
         assert len(e["layer_sha256"]) == 64 and len(e["wrapper_code_sha256"]) == 64, e
         assert e["digest"].startswith("sha256:") and len(e["digest"]) == 71, e
         assert e["base_digest"].startswith("sha256:"), e
-        assert e["oci_ref"].startswith("ghcr.io/tinnlab/txr-method-env-layers/"), e
-        assert e["oci_ref"].rsplit("/", 1)[1] == e["env_id"], e
+        assert e["oci_ref"] == "ghcr.io/" + LAYER_PACKAGE, e
         family = e["base_ref"].rsplit("/", 1)[1].split(":")[0].split("-")[-1]
         assert family == ("r" if e["language"] == "R" else "py"), e
         assert e["size_bytes"] >= 1, e
@@ -159,6 +173,9 @@ class PublishServerCase(unittest.TestCase):
             self.manifest = json.load(f)
         self.entry = self.manifest["envs"][0]
         assert self.entry["env_id"] == FIXTURE_METHOD_ID
+        # The tag, from the packed layer file's own bytes (not publish.py's).
+        sqfs = os.path.join(self.out, "stage", "layers", FIXTURE_METHOD_ID + ".squashfs")
+        self.fixture_tag = FIXTURE_TAG_PREFIX + sha256_file(sqfs)[:12]
 
     def tearDown(self):
         self.server.shutdown()
@@ -190,8 +207,7 @@ class PublishServerCase(unittest.TestCase):
         """§6.1: the registry's manifest bytes equal the pinned literal (same
         helper registry.test.py pins), byte for byte."""
         sqfs = os.path.join(self.out, "stage", "layers", FIXTURE_METHOD_ID + ".squashfs")
-        status, headers, body = self.get_manifest(
-            "tinnlab/%s/%s" % (publish.LAYERS_REPO, FIXTURE_METHOD_ID), FIXTURE_TAG)
+        status, headers, body = self.get_manifest(LAYER_PACKAGE, self.fixture_tag)
         self.assertEqual(status, 200)
         self.assertEqual(headers.get("Content-Type"), MANIFEST_MEDIA_TYPE)
         expected = artifact_manifest_bytes(
@@ -216,32 +232,25 @@ class PublishServerCase(unittest.TestCase):
         """Manifest digest == Docker-Content-Digest == dev manifest `digest`;
         blob sha256 == `layer_sha256` == the packed squashfs."""
         sqfs = os.path.join(self.out, "stage", "layers", FIXTURE_METHOD_ID + ".squashfs")
-        status, headers, body = self.get_manifest(
-            "tinnlab/%s/%s" % (publish.LAYERS_REPO, FIXTURE_METHOD_ID), FIXTURE_TAG)
+        status, headers, body = self.get_manifest(LAYER_PACKAGE, self.fixture_tag)
         self.assertEqual(status, 200)
         self.assertEqual(headers.get("Docker-Content-Digest"), self.entry["digest"])
         self.assertEqual("sha256:" + hashlib.sha256(body).hexdigest(), self.entry["digest"])
         # pull the manifest by digest, then the layer blob: the app's verify pin.
-        status, _, body = self.request("GET",
-                                       "/v2/tinnlab/%s/%s/manifests/%s" % (
-                                           publish.LAYERS_REPO, FIXTURE_METHOD_ID,
-                                           self.entry["digest"]))
+        status, _, body = self.request("GET", "/v2/%s/manifests/%s" % (
+            LAYER_PACKAGE, self.entry["digest"]))
         self.assertEqual(status, 200)
-        status, _, blob = self.request("GET",
-                                       "/v2/tinnlab/%s/%s/blobs/sha256:%s" % (
-                                           publish.LAYERS_REPO, FIXTURE_METHOD_ID,
-                                           self.entry["layer_sha256"]))
+        status, _, blob = self.request("GET", "/v2/%s/blobs/sha256:%s" % (
+            LAYER_PACKAGE, self.entry["layer_sha256"]))
         self.assertEqual(status, 200)
         self.assertEqual(hashlib.sha256(blob).hexdigest(), self.entry["layer_sha256"])
         self.assertEqual(blob, open(sqfs, "rb").read(), "the served layer is the packed bytes")
         # the base: its tag resolves, its blob sha256 == the app's base pin.
-        status, headers, base_body = self.get_manifest(
-            "tinnlab/%s/%s" % (publish.BASES_REPO, FIXTURE_BASE_ID),
-            publish.base_tag("2.0", "amd64"))
+        self.assertEqual(publish.base_tag("py", "2.0", "amd64"), FIXTURE_BASE_TAG)
+        status, headers, base_body = self.get_manifest(BASE_PACKAGE, FIXTURE_BASE_TAG)
         self.assertEqual(status, 200, "the base manifest resolves at its immutable tag")
-        status, _, base_blob = self.request("GET", "/v2/tinnlab/%s/%s/blobs/%s" % (
-            publish.BASES_REPO, FIXTURE_BASE_ID,
-            "sha256:" + self.entry["base_digest"].split(":")[1]))
+        status, _, base_blob = self.request("GET", "/v2/%s/blobs/%s" % (
+            BASE_PACKAGE, "sha256:" + self.entry["base_digest"].split(":")[1]))
         self.assertEqual(status, 200)
         self.assertEqual(
             hashlib.sha256(base_blob).hexdigest(),
@@ -251,6 +260,24 @@ class PublishServerCase(unittest.TestCase):
 
     def test_app_manifest_passes_the_app_boot_rules(self):
         validate_app_manifest(self.manifest)
+
+    def test_artifacts_are_in_the_two_packages_only(self):
+        """Every layer is a tag of the one layer package, the base a tag of
+        the one base package; the old per-method and per-base repos are
+        empty (the app never asks for them)."""
+        self.assertEqual(self.entry["oci_ref"], "ghcr.io/" + LAYER_PACKAGE)
+        self.assertEqual(self.entry["tag"], self.fixture_tag)
+        for package, tag in ((LAYER_PACKAGE, self.fixture_tag), (BASE_PACKAGE, FIXTURE_BASE_TAG)):
+            status, _, body = self.request("GET", "/v2/%s/tags/list" % package)
+            self.assertEqual(status, 200, package)
+            self.assertEqual(json.loads(body)["tags"], [tag], package)
+        # Nor the one-package tag without the hash.
+        status, _, _ = self.get_manifest(LAYER_PACKAGE, FIXTURE_TAG_PREFIX.rstrip("-"))
+        self.assertEqual(status, 404, "nothing at the tag without the layer hash")
+        for old_name, old_tag in (("%s/%s" % (LAYER_PACKAGE, FIXTURE_METHOD_ID), "1.0.0-amd64"),
+                                  ("%s/%s" % (BASE_PACKAGE, FIXTURE_BASE_ID), "2.0-amd64")):
+            status, _, _ = self.get_manifest(old_name, old_tag)
+            self.assertEqual(status, 404, "nothing at the old %s:%s" % (old_name, old_tag))
 
     def test_packed_layer_contract(self):
         """§5: marker, layer-manifest, /code, usr/ sentinel, modes, §2.2 hash."""
@@ -292,8 +319,7 @@ class PublishServerCase(unittest.TestCase):
             "oras_dev", os.path.join(os.path.dirname(os.path.abspath(__file__)), "oras_dev.py"))
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        ref = "127.0.0.1:%d/tinnlab/%s/%s:%s" % (
-            self.port, publish.LAYERS_REPO, FIXTURE_METHOD_ID, FIXTURE_TAG)
+        ref = "127.0.0.1:%d/%s:%s" % (self.port, LAYER_PACKAGE, self.fixture_tag)
         import io
         from contextlib import redirect_stdout
         buf = io.StringIO()
@@ -364,8 +390,9 @@ class RealMethodsCase(unittest.TestCase):
                 "method_version": spec.get("version", "0.0.0"),
                 "language": spec.get("language", "Python"),
                 "arch": "amd64",
-                "oci_ref": "ghcr.io/tinnlab/%s/%s" % (publish.LAYERS_REPO, mid),
-                "tag": "%s-%s" % (spec.get("version", "0.0.0"), "amd64"),
+                "oci_ref": publish.LAYER_OCI_REF,
+                "tag": publish.layer_tag(mid, spec.get("version", "0.0.0"), "amd64",
+                                         sha256_file(sqfs)),
                 "digest": "sha256:" + sha256_file(sqfs),
                 "layer_sha256": sha256_file(sqfs),
                 "size_bytes": os.path.getsize(sqfs),
@@ -453,12 +480,17 @@ class StageFixtureCase(unittest.TestCase):
             base = json.load(f)
         self.assertEqual(base["kind"], "base")
         self.assertEqual(base["squashfs_sha256"], sha256_file(os.path.join(base_dir, "base.squashfs")))
-        self.assertEqual(base["tag"], "2.0-%s-%s" % (arch, base["squashfs_sha256"][:12]))
+        self.assertEqual(base["oci_ref"], "ghcr.io/" + BASE_PACKAGE)
+        self.assertEqual(base["tag"], "base-py-2.0-%s-%s" % (arch, base["squashfs_sha256"][:12]))
         layer_dir = os.path.join(stage, "layers", "%s-%s" % (publish.FIXTURE_B_METHOD_ID, arch))
         with open(os.path.join(layer_dir, "artifact.json")) as f:
             layer = json.load(f)
         self.assertEqual(layer["layer_sha256"], sha256_file(os.path.join(layer_dir, "layer.squashfs")))
         self.assertEqual(layer["base_digest"], base["source_digest"])
+        self.assertEqual((layer["oci_ref"], layer["tag"]),
+                         ("ghcr.io/" + LAYER_PACKAGE, "%s-1.0.0-%s-%s" % (
+                             publish.FIXTURE_B_METHOD_ID, arch, layer["layer_sha256"][:12])),
+                         "the generator's own record form")
 
         manifest = os.path.join(self.tmpdir, "manifest.json")
         r = subprocess.run([sys.executable, self.GENERATOR, "--fixture", stage,
@@ -470,6 +502,8 @@ class StageFixtureCase(unittest.TestCase):
         self.assertEqual([(b["base_id"], b["arch"]) for b in doc["bases"]], [("base-py", arch)])
         b, e = doc["bases"][0], doc["envs"][0]
         self.assertEqual(e["env_id"], publish.FIXTURE_B_METHOD_ID)
+        self.assertEqual((e["oci_ref"], e["tag"]), (layer["oci_ref"], layer["tag"]))
+        self.assertEqual((b["oci_ref"], b["tag"]), (base["oci_ref"], base["tag"]))
         self.assertEqual(b["squashfs_sha256"], base["squashfs_sha256"])
         self.assertEqual(e["base_digest"], b["source_digest"], "the pairing (design §7)")
         self.assertNotEqual(e["base_digest"], "sha256:" + b["squashfs_sha256"],

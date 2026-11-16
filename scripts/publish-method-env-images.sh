@@ -20,12 +20,19 @@
 #
 # ── WHAT IT PUBLISHES, AND WHY THE PUSH SHAPE IS TWO COMMANDS ──────────────────
 # One artifact per invocation:
-#   --env <env_id>    the layer for one (env_id, arch), at `<oci_ref>:<tag>`
-#                     (tag = `<method_version>-<arch>`, DEC-2's IMMUTABLE tag);
+#   --env <env_id>    the layer for one (env_id, arch), at `<oci_ref>:<tag>`:
+#                     oci_ref = the ONE layer package
+#                     ghcr.io/tinnlab/txr-method-env-layers, tag =
+#                     `<env_id>-<method_version>-<arch>-<first 12 hex of
+#                     layer_sha256>` (DEC-2's IMMUTABLE tag; the method and
+#                     its layer file are in the tag, so a rebuild at the same
+#                     version is a new tag);
 #   --base <base_id>  the base for one (base-py|base-r, arch), at the manifest
-#                     `bases[]` record's `<oci_ref>:<tag>` (tag =
-#                     `<contract>-<arch>-<first 12 hex of squashfs_sha256>`,
-#                     immutable: one tag per distinct base file).
+#                     `bases[]` record's `<oci_ref>:<tag>`: oci_ref = the ONE
+#                     base package ghcr.io/tinnlab/txresbench-env, tag =
+#                     `<base_id>-<contract>-<arch>-<first 12 hex of
+#                     squashfs_sha256>` (immutable: one tag per distinct base
+#                     file).
 # There is deliberately NO moving tag: a new artifact reaches a clinician only
 # through a new app build embedding the regenerated manifest.
 #
@@ -67,7 +74,13 @@
 #      `size_bytes`; the staged `oci-manifest.json` hashes to the `digest`; the
 #      build record (`artifact.json`) agrees field-for-field. A stray file
 #      finger is refused, never "fixed" (these bytes are the bytes the runtime
-#      will verify offline against this manifest).
+#      will verify offline against this manifest). The one exception is the
+#      record's own oci_ref/tag: a record staged by a generator before 0.4.0
+#      carries the one-package-per-method (or per-base) form of the SAME
+#      address — `<package>/<env_id>` + `<method_version>-<arch>` (a base:
+#      `<package>/<base_id>` + `<contract>-<arch>-<sha12>`) — which the
+#      manifest writer derives the current form from; that form, and only
+#      that form, is accepted besides the manifest's own.
 #   3. THE BEHAVIORAL CHECK — a layer: `scripts/lib/method-env-verify.sh`
 #      (ITEM-7) is sourced when present and its
 #      `txr_method_env_verify_layer <layer-dir> <artifact.json>` runs before
@@ -117,11 +130,12 @@
 #     cosign (>= 2.4) unless `--skip-sign` or `--registry`, unsquashfs
 #     (squashfs-tools) for a base.
 #   * for ghcr.io: a GHCR token with `write:packages` in GHCR_TOKEN, and
-#     GHCR_USER. The namespaces are tinnlab/txr-method-env-layers (layers) and
-#     tinnlab/txresbench-env (bases) on ghcr.io (DEC-2, owner-confirmed D05,
-#     already in scripts/network-allowlist.txt); the manifest's oci_ref is
-#     authoritative and is REFUSED if it leaves that namespace — no runtime
-#     would ever fetch it.
+#     GHCR_USER. The packages are tinnlab/txr-method-env-layers (every layer)
+#     and tinnlab/txresbench-env (both bases) on ghcr.io (DEC-2,
+#     owner-confirmed D05, already in scripts/network-allowlist.txt); the
+#     manifest's oci_ref is authoritative and is REFUSED if it is not that
+#     package, and its tag if it is not the entry's (or record's) own tag —
+#     no runtime would ever fetch it.
 #   * signing identity per DEC-5 (owner's decided verification policy; see the
 #     runbook's "Signing" section). Off CI cosign signs with YOUR identity —
 #     the decomposition accepts, or use `--skip-sign` only against a runtime
@@ -151,8 +165,10 @@ set -eu
 REPO_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 
 REGISTRY=ghcr.io
-OCI_REF_PREFIX="ghcr.io/tinnlab/txr-method-env-layers"
-BASE_OCI_REF_PREFIX="ghcr.io/tinnlab/txresbench-env"
+# The ONE package of every layer and the ONE package of both bases; the
+# method (or base) is in the tag.
+LAYER_OCI_REF="ghcr.io/tinnlab/txr-method-env-layers"
+BASE_OCI_REF="ghcr.io/tinnlab/txresbench-env"
 # The OCI artifact types (layer: application/vnd.txr.method-env.layer.v1,
 # base: application/vnd.txr.method-env.base.v1) are carried inside the staged
 # artifact-manifest bytes — the publisher never spells them on a command line;
@@ -355,10 +371,17 @@ PYEOF
 if [ -n "$BASE_ID" ]; then
   IFS=$'\t' read -r _KIND B_BASE_ID B_ARCH B_OCI_REF B_TAG B_DIGEST B_SQUASHFS_SHA256 \
     B_SIZE_BYTES B_SOURCE_REF B_SOURCE_DIGEST B_CONTRACT ENTRY_SOURCE_REVISION <<< "$entry"
-  if [ "$B_OCI_REF" != "$BASE_OCI_REF_PREFIX/$B_BASE_ID" ]; then
-    echo "refusing: base oci_ref $B_OCI_REF is not $BASE_OCI_REF_PREFIX/<base_id>" >&2
-    echo "The runtime fetches exactly this ref (the sandbox's base namespace); publishing" >&2
+  if [ "$B_OCI_REF" != "$BASE_OCI_REF" ]; then
+    echo "refusing: base oci_ref $B_OCI_REF is not $BASE_OCI_REF (the one base package)" >&2
+    echo "The runtime fetches exactly this ref (the sandbox's base package); publishing" >&2
     echo "anywhere else would be unfetchable by the app." >&2
+    exit 1
+  fi
+  B_WANT_TAG="$B_BASE_ID-$B_CONTRACT-$B_ARCH-${B_SQUASHFS_SHA256:0:12}"
+  if [ "$B_TAG" != "$B_WANT_TAG" ]; then
+    echo "refusing: base tag $B_TAG is not $B_WANT_TAG" >&2
+    echo "(<base_id>-<contract>-<arch>-<first 12 hex of squashfs_sha256>: the base is in the" >&2
+    echo "tag of the one base package, so another tag is another base's address)." >&2
     exit 1
   fi
   KIND_LABEL="base"
@@ -379,10 +402,18 @@ else
     PAIR_BASE_ID PAIR_BASE_OCI_REF PAIR_BASE_TAG PAIR_BASE_DIGEST <<< "$entry"
   # The manifest is the runtime contract; the namespace is DEC-2's and the host
   # is the allowlisted one (DEC-17: scheme-less refs, no new host anywhere).
-  if [ "$ENTRY_OCI_REF" != "$OCI_REF_PREFIX/$ENTRY_ENV_ID" ]; then
-    echo "refusing: entry oci_ref $ENTRY_OCI_REF is not $OCI_REF_PREFIX/<env_id>" >&2
+  if [ "$ENTRY_OCI_REF" != "$LAYER_OCI_REF" ]; then
+    echo "refusing: entry oci_ref $ENTRY_OCI_REF is not $LAYER_OCI_REF (the one layer package)" >&2
     echo "The runtime fetches exactly this ref (DEC-2 namespace, owner-confirmed" >&2
     echo "D05); publishing anywhere else would be unfetchable by the app." >&2
+    exit 1
+  fi
+  ENTRY_WANT_TAG="$ENTRY_ENV_ID-$ENTRY_METHOD_VERSION-$ENTRY_ARCH-${ENTRY_LAYER_SHA256:0:12}"
+  if [ "$ENTRY_TAG" != "$ENTRY_WANT_TAG" ]; then
+    echo "refusing: entry tag $ENTRY_TAG is not $ENTRY_WANT_TAG" >&2
+    echo "(<env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256>: the method and its" >&2
+    echo "layer file are in the tag of the one layer package, so another tag is another" >&2
+    echo "layer's address)." >&2
     exit 1
   fi
   if [ "$ENTRY_ARCH" != "$ARCH" ]; then
@@ -476,8 +507,18 @@ PYEOF
   [ "$REC_KIND" = "base" ] || { echo "refusing: record kind $REC_KIND != base" >&2; rec_ok=0; }
   [ "$REC_BASE_ID" = "$B_BASE_ID" ] || { echo "refusing: record base_id $REC_BASE_ID != manifest $B_BASE_ID" >&2; rec_ok=0; }
   [ "$REC_ARCH" = "$B_ARCH" ] || { echo "refusing: record arch $REC_ARCH != manifest $B_ARCH" >&2; rec_ok=0; }
-  [ "$REC_OCI_REF" = "$B_OCI_REF" ] || { echo "refusing: record oci_ref $REC_OCI_REF != manifest $B_OCI_REF" >&2; rec_ok=0; }
-  [ "$REC_TAG" = "$B_TAG" ] || { echo "refusing: record tag $REC_TAG != manifest $B_TAG" >&2; rec_ok=0; }
+  # The record's address: the manifest's, or the pre-0.4.0 one-package-per-base
+  # form of the same base (see check 2 in the header); nothing else.
+  B_LEGACY_REF="$BASE_OCI_REF/$B_BASE_ID"
+  B_LEGACY_TAG="$B_CONTRACT-$B_ARCH-${B_SQUASHFS_SHA256:0:12}"
+  if [ "$REC_OCI_REF" = "$B_OCI_REF" ] && [ "$REC_TAG" = "$B_TAG" ]; then
+    :
+  elif [ "$REC_OCI_REF" = "$B_LEGACY_REF" ] && [ "$REC_TAG" = "$B_LEGACY_TAG" ]; then
+    echo "record    : staged before 0.4.0 at $REC_OCI_REF:$REC_TAG; published at $B_OCI_REF:$B_TAG"
+  else
+    echo "refusing: record oci_ref/tag $REC_OCI_REF:$REC_TAG is neither manifest $B_OCI_REF:$B_TAG nor the pre-0.4.0 $B_LEGACY_REF:$B_LEGACY_TAG" >&2
+    rec_ok=0
+  fi
   [ "$REC_SHA256" = "$B_SQUASHFS_SHA256" ] || { echo "refusing: record squashfs_sha256 $REC_SHA256 != manifest $B_SQUASHFS_SHA256" >&2; rec_ok=0; }
   [ "$REC_SIZE_BYTES" = "$B_SIZE_BYTES" ] || { echo "refusing: record size_bytes $REC_SIZE_BYTES != manifest $B_SIZE_BYTES" >&2; rec_ok=0; }
   [ "$REC_SOURCE_REF" = "$B_SOURCE_REF" ] || { echo "refusing: record source_ref $REC_SOURCE_REF != manifest $B_SOURCE_REF" >&2; rec_ok=0; }
@@ -506,8 +547,19 @@ PYEOF
   [ "$REC_METHOD_ID" = "$ENTRY_METHOD_ID" ] || { echo "refusing: record method_id $REC_METHOD_ID != entry $ENTRY_METHOD_ID" >&2; rec_ok=0; }
   [ "$REC_METHOD_VERSION" = "$ENTRY_METHOD_VERSION" ] || { echo "refusing: record method_version $REC_METHOD_VERSION != entry $ENTRY_METHOD_VERSION" >&2; rec_ok=0; }
   [ "$REC_ARCH" = "$ENTRY_ARCH" ] || { echo "refusing: record arch $REC_ARCH != entry $ENTRY_ARCH" >&2; rec_ok=0; }
-  [ "$REC_OCI_REF" = "$ENTRY_OCI_REF" ] || { echo "refusing: record oci_ref $REC_OCI_REF != entry $ENTRY_OCI_REF" >&2; rec_ok=0; }
-  [ "$REC_TAG" = "$ENTRY_TAG" ] || { echo "refusing: record tag $REC_TAG != entry $ENTRY_TAG" >&2; rec_ok=0; }
+  # The record's address: the entry's, or the pre-0.4.0 one-package-per-method
+  # form of the same layer (see check 2 in the header); nothing else — the
+  # one-package tag without the layer hash is refused too.
+  LEGACY_REF="$LAYER_OCI_REF/$ENTRY_ENV_ID"
+  LEGACY_TAG="$ENTRY_METHOD_VERSION-$ENTRY_ARCH"
+  if [ "$REC_OCI_REF" = "$ENTRY_OCI_REF" ] && [ "$REC_TAG" = "$ENTRY_TAG" ]; then
+    :
+  elif [ "$REC_OCI_REF" = "$LEGACY_REF" ] && [ "$REC_TAG" = "$LEGACY_TAG" ]; then
+    echo "record    : staged before 0.4.0 at $REC_OCI_REF:$REC_TAG; published at $ENTRY_OCI_REF:$ENTRY_TAG"
+  else
+    echo "refusing: record oci_ref/tag $REC_OCI_REF:$REC_TAG is neither entry $ENTRY_OCI_REF:$ENTRY_TAG nor the pre-0.4.0 $LEGACY_REF:$LEGACY_TAG" >&2
+    rec_ok=0
+  fi
   [ "$REC_LAYER_SHA256" = "$ENTRY_LAYER_SHA256" ] || { echo "refusing: record layer_sha256 $REC_LAYER_SHA256 != entry $ENTRY_LAYER_SHA256" >&2; rec_ok=0; }
   [ "$REC_SIZE_BYTES" = "$ENTRY_SIZE_BYTES" ] || { echo "refusing: record size_bytes $REC_SIZE_BYTES != entry $ENTRY_SIZE_BYTES" >&2; rec_ok=0; }
   [ "$REC_SOURCE_REVISION" = "$ENTRY_SOURCE_REVISION" ] || { echo "refusing: record source_revision $REC_SOURCE_REVISION != entry $ENTRY_SOURCE_REVISION" >&2; rec_ok=0; }

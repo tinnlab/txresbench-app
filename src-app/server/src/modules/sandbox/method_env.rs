@@ -514,7 +514,11 @@ impl MethodEnvManager {
             ));
         }
         check_kind(&parts, kind, &self.seams)?;
-        let env_id = parts.repo.clone();
+        // Every env is a tag of its kind's one package, so the env id comes from
+        // the caller, checked against the tag (`<env_id>-…`) the pull will use.
+        let tag = parts.tag.clone().or_else(|| r.tag.clone().filter(|t| !t.is_empty()));
+        super::stack::validate_env_tag(&r.env_id, tag.as_deref())?;
+        let env_id = r.env_id.clone();
 
         // State machine: this call either owns the attempt, or waits out the
         // attempt the env already has (that attempt's result is returned), or
@@ -1236,26 +1240,24 @@ fn parse_oci_ref_against(oci_ref: &str, prefixes: &[String]) -> Result<OciRefPar
     }
 
     for prefix in prefixes {
-        let Some(rest) = name
+        if name == prefix.as_str() {
+            return Ok(OciRefParts {
+                registry_base: prefix.clone(),
+                tag,
+                digest,
+            });
+        }
+        if name
             .strip_prefix(prefix.as_str())
-            .and_then(|r| r.strip_prefix('/'))
-        else {
-            continue;
-        };
-        if rest.contains('/') {
-            return refused("nested repository paths are not part of the txr env registries");
+            .is_some_and(|r| r.starts_with('/'))
+        {
+            return refused(
+                "a repository path below the txr env package is refused; every env is a tag \
+                 of the one package",
+            );
         }
-        if !is_valid_env_id(rest) {
-            return refused("the repository component is not a valid env id");
-        }
-        return Ok(OciRefParts {
-            registry_base: prefix.clone(),
-            repo: rest.to_string(),
-            tag,
-            digest,
-        });
     }
-    refused("host/prefix not in the compiled txr registries")
+    refused("host/package not in the compiled txr registries")
 }
 
 /// The kind/namespace consistency check (INV-2): a Base claim must reference
@@ -1318,12 +1320,9 @@ fn pull_ref_for(
             ),
         ));
     };
-    let resolve_ref = format!("{}/{}:{}", parts.registry_base, parts.repo, tag);
+    let resolve_ref = format!("{}:{}", parts.registry_base, tag);
     let resolved = oras_resolve(&resolve_ref, deadline_at, seams)?;
-    Ok(format!(
-        "{}/{}@{}",
-        parts.registry_base, parts.repo, resolved
-    ))
+    Ok(format!("{}@{}", parts.registry_base, resolved))
 }
 
 // ────────────────────────────── tool resolution ───────────────────────────────
@@ -2101,38 +2100,44 @@ mod tests {
             registry: Some("127.0.0.1:5055".to_string()),
             bypass_air_gap_env: true,
         };
-        let base = parse_oci_ref("ghcr.io/tinnlab/txresbench-env/base-py:2.0-amd64", &seam)
+        let base = parse_oci_ref("ghcr.io/tinnlab/txresbench-env:base-py-2.0-amd64", &seam)
             .expect("the engine's base spelling is accepted under the seam");
         assert_eq!(base.registry_base, "127.0.0.1:5055/tinnlab/txresbench-env");
-        assert_eq!(base.repo, "base-py");
-        assert_eq!(base.tag.as_deref(), Some("2.0-amd64"));
+        assert_eq!(base.tag.as_deref(), Some("base-py-2.0-amd64"));
         assert_eq!(
-            parse_oci_ref("ghcr.io/tinnlab/txresbench-env/base-py@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", &seam)
+            parse_oci_ref("ghcr.io/tinnlab/txresbench-env@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", &seam)
                 .expect("digest-addressed compiled spelling too")
                 .registry_base,
             "127.0.0.1:5055/tinnlab/txresbench-env"
         );
         let layer = parse_oci_ref(
-            "ghcr.io/tinnlab/txr-method-env-layers/txr-dev-fixture:1.0.0-amd64",
+            "ghcr.io/tinnlab/txr-method-env-layers:txr-dev-fixture-1.0.0-amd64",
             &seam,
         )
         .expect("the engine's layer spelling is accepted under the seam");
         assert_eq!(layer.registry_base, "127.0.0.1:5055/tinnlab/txr-method-env-layers");
-        assert_eq!(layer.repo, "txr-dev-fixture");
+        assert_eq!(layer.tag.as_deref(), Some("txr-dev-fixture-1.0.0-amd64"));
+        // The old one-package-per-env spelling is refused under the seam too.
+        let old = parse_oci_ref(
+            "ghcr.io/tinnlab/txr-method-env-layers/txr-dev-fixture:1.0.0-amd64",
+            &seam,
+        )
+        .expect_err("the per-env package form is gone");
+        assert_eq!(old.error_code(), ENV_REF_HOST_UNALLOWED_CODE);
         // The seam-host spelling still parses to itself (fixture shape).
         let direct = parse_oci_ref(
-            "127.0.0.1:5055/tinnlab/txr-method-env-layers/txr-dev-fixture:1.0.0-amd64",
+            "127.0.0.1:5055/tinnlab/txr-method-env-layers:txr-dev-fixture-1.0.0-amd64",
             &seam,
         )
         .expect("the seam-host spelling is accepted directly");
         assert_eq!(direct.registry_base, "127.0.0.1:5055/tinnlab/txr-method-env-layers");
         // A host outside both sets is refused under the seam too.
-        let err = parse_oci_ref("evil.example.com/tinnlab/txr-method-env-layers/x:1", &seam)
+        let err = parse_oci_ref("evil.example.com/tinnlab/txr-method-env-layers:x-1", &seam)
             .expect_err("other hosts stay refused");
         assert_eq!(err.error_code(), ENV_REF_HOST_UNALLOWED_CODE);
         // Release (no seam): the compiled spelling maps to itself.
         let release = MethodEnvSeams::default();
-        let base = parse_oci_ref("ghcr.io/tinnlab/txresbench-env/base-py:2.0-amd64", &release)
+        let base = parse_oci_ref("ghcr.io/tinnlab/txresbench-env:base-py-2.0-amd64", &release)
             .expect("release accepts the compiled spelling");
         assert_eq!(base.registry_base, "ghcr.io/tinnlab/txresbench-env");
     }
@@ -2178,12 +2183,14 @@ mod tests {
     }
 
     /// A first-class loopback-style layer ref (the seam's host, the compiled
-    /// namespace + repo).
-    fn layer_ref(env_id: &str, tag: &str, digest: &str) -> EnvRef {
+    /// layer package, the env's tag `<env_id>-<version>`).
+    fn layer_ref(env_id: &str, version: &str, digest: &str) -> EnvRef {
+        let tag = format!("{env_id}-{version}");
         EnvRef {
-            oci_ref: format!("127.0.0.1:5000/tinnlab/txr-method-env-layers/{env_id}:{tag}"),
+            env_id: env_id.to_string(),
+            oci_ref: format!("127.0.0.1:5000/tinnlab/txr-method-env-layers:{tag}"),
             digest: digest.to_string(),
-            tag: Some(tag.to_string()),
+            tag: Some(tag),
         }
     }
 
@@ -2571,18 +2578,20 @@ mod tests {
     fn ref_grammar_matches_the_release_stack_grammar() {
         let seams = MethodEnvSeams::default();
         let cases: &[(&str, bool)] = &[
-            ("ghcr.io/tinnlab/txresbench-env/base-r:1.0", true),
-            ("ghcr.io/tinnlab/txr-method-env-layers/fixture-layer:1.0", true),
+            ("ghcr.io/tinnlab/txresbench-env:base-r-1.0", true),
+            ("ghcr.io/tinnlab/txr-method-env-layers:fixture-layer-1.0", true),
             (
-                "ghcr.io/tinnlab/txr-method-env-layers/fixture-layer@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "ghcr.io/tinnlab/txr-method-env-layers@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 true,
             ),
-            ("ghcr.io/tinnlab/txresbench-env/base-r", true),
-            ("elsewhere.io/tinnlab/txr-method-env-layers/x:1", false),
+            ("ghcr.io/tinnlab/txresbench-env", true),
+            ("elsewhere.io/tinnlab/txr-method-env-layers:x-1", false),
+            ("ghcr.io/tinnlab/txresbench-env/base-r:1.0", false),
+            ("ghcr.io/tinnlab/txr-method-env-layers/fixture-layer:1.0", false),
             ("ghcr.io/tinnlab/txresbench-env/a/b:1", false),
-            ("ghcr.io/tinnlab/txr-method-env-layers/UPPER:1", false),
-            ("ghcr.io/tinnlab/txr-method-env-layers/x:bad:tag", false),
-            ("ghcr.io/tinnlab/txr-method-env-layers/x@sha256:zz", false),
+            ("ghcr.io/tinnlab/txr-method-env-layers-x:a-1", false),
+            ("ghcr.io/tinnlab/txr-method-env-layers:bad:tag", false),
+            ("ghcr.io/tinnlab/txr-method-env-layers@sha256:zz", false),
         ];
         for (oci_ref, ok) in cases {
             let here = parse_oci_ref(oci_ref, &seams);
@@ -2590,7 +2599,6 @@ mod tests {
             assert_eq!(here.is_ok(), *ok, "method_env acceptance for {oci_ref:?}");
             match (&here, &there) {
                 (Ok(a), Ok(b)) => {
-                    assert_eq!(a.repo, b.repo, "repo component parity: {oci_ref}");
                     assert_eq!(a.tag, b.tag, "tag parity: {oci_ref}");
                     assert_eq!(a.digest, b.digest, "digest parity: {oci_ref}");
                     assert_eq!(a.registry_base, b.registry_base, "prefix parity: {oci_ref}");
@@ -2611,7 +2619,8 @@ mod tests {
             bypass_air_gap_env: true,
         });
         let r = EnvRef {
-            oci_ref: "ghcr.io/tinnlab/txr-method-env-layers/fixture-layer".to_string(),
+            env_id: "fixture-layer".to_string(),
+            oci_ref: "ghcr.io/tinnlab/txr-method-env-layers".to_string(),
             digest: hex_of(b"bytes"),
             tag: None,
         };
@@ -2635,9 +2644,10 @@ mod tests {
             bypass_air_gap_env: true,
         });
         let r = EnvRef {
-            oci_ref: "ghcr.io/tinnlab/txr-method-env-layers/fixture-layer:1.0".to_string(),
+            env_id: "fixture-layer".to_string(),
+            oci_ref: "ghcr.io/tinnlab/txr-method-env-layers:fixture-layer-1.0".to_string(),
             digest: "not-a-digest".to_string(),
-            tag: Some("1.0".to_string()),
+            tag: Some("fixture-layer-1.0".to_string()),
         };
         let err = m
             .ensure(&r, EnvKind::Layer, Duration::from_secs(30))
@@ -2654,9 +2664,10 @@ mod tests {
             bypass_air_gap_env: true,
         });
         let r = EnvRef {
-            oci_ref: "ghcr.io/tinnlab/txr-method-env-layers/fixture-layer:1.0".to_string(),
+            env_id: "fixture-layer".to_string(),
+            oci_ref: "ghcr.io/tinnlab/txr-method-env-layers:fixture-layer-1.0".to_string(),
             digest: hex_of(b"bytes"),
-            tag: Some("1.0".to_string()),
+            tag: Some("fixture-layer-1.0".to_string()),
         };
         let err = m
             .ensure(&r, EnvKind::Base, Duration::from_secs(30))
@@ -2677,9 +2688,10 @@ mod tests {
             bypass_air_gap_env: true,
         });
         let r = EnvRef {
-            oci_ref: "evil.example.com/tinnlab/txr-method-env-layers/x:1".to_string(),
+            env_id: "x".to_string(),
+            oci_ref: "evil.example.com/tinnlab/txr-method-env-layers:x-1".to_string(),
             digest: hex_of(b"bytes"),
-            tag: Some("1".to_string()),
+            tag: Some("x-1".to_string()),
         };
         let err = m
             .ensure(&r, EnvKind::Layer, Duration::from_secs(30))
@@ -2730,6 +2742,86 @@ mod tests {
             "TEST-07 negative control: no cache entry"
         );
         assert_eq!(m.status("fixture-layer").state, MethodEnvState::Failed);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// One package for every layer: the manager resolves `<package>:<tag>` and
+    /// pulls `<package>@<resolved digest>` — never a per-env repository path.
+    /// (The pulled bytes here are not the pinned ones, so the run stops at the
+    /// verify, before any mount; the oras calls are what this test reads.)
+    #[test]
+    fn ensure_resolves_the_package_tag_and_pulls_the_package_by_digest() {
+        let (root, _guard) = data_root();
+        let payload = root.join("payload.squashfs");
+        std::fs::write(&payload, b"other bytes").unwrap();
+        let calls = root.join("oras-calls.txt");
+        let manifest = "b".repeat(64);
+        let script = format!(
+            "#!/bin/sh\n\
+             echo \"$@\" >> {calls}\n\
+             if [ \"$1\" = \"resolve\" ]; then echo sha256:{manifest}; exit 0; fi\n\
+             if [ \"$1\" = \"pull\" ]; then\n\
+             \x20 out=\"\"; prev=\"\"\n\
+             \x20 for a in \"$@\"; do if [ \"$prev\" = \"-o\" ]; then out=\"$a\"; fi; prev=\"$a\"; done\n\
+             \x20 cp {payload} \"$out/rootfs.squashfs\"; exit 0\n\
+             fi\n\
+             exit 1\n",
+            calls = calls.display(),
+            payload = payload.display(),
+        );
+        stub_oras(&root, &script);
+
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        let pinned = hex_of(b"the pinned bytes");
+        let r = layer_ref("fixture-layer", "1.0.0-amd64", &pinned);
+        let err = m
+            .ensure(&r, EnvKind::Layer, Duration::from_secs(30))
+            .expect_err("the stand-in pulls other bytes, so the verify refuses");
+        assert_eq!(err.error_code(), ENV_VERIFY_FAILED_CODE);
+
+        let log = std::fs::read_to_string(&calls).expect("oras was called");
+        let resolve = log.lines().find(|l| l.starts_with("resolve")).expect("a resolve call");
+        assert!(
+            resolve.contains("127.0.0.1:5000/tinnlab/txr-method-env-layers:fixture-layer-1.0.0-amd64"),
+            "resolve names the package and the env's tag: {resolve}"
+        );
+        let pull = log.lines().find(|l| l.starts_with("pull")).expect("a pull call");
+        assert!(
+            pull.contains(&format!("127.0.0.1:5000/tinnlab/txr-method-env-layers@sha256:{manifest}")),
+            "pull names the package by the resolved digest: {pull}"
+        );
+        assert!(
+            !log.contains("txr-method-env-layers/"),
+            "no per-env repository path is ever named: {log}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A tag that names another env is refused before any oras call: the
+    /// ledger is keyed by the caller's env id, so it must agree with the tag
+    /// the pull would use.
+    #[test]
+    fn ensure_refuses_a_tag_of_another_env_before_any_pull() {
+        let (root, _guard) = data_root();
+        let payload = root.join("payload.squashfs");
+        std::fs::write(&payload, b"payload").unwrap();
+        let marker = root.join("pull-started");
+        let digest = hex_of(b"payload");
+        stub_oras(&root, &oras_script(&payload, &digest, 0, &marker));
+
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        let mut r = layer_ref("fixture-layer", "1.0.0-amd64", &digest);
+        r.env_id = "another-env".to_string();
+        let err = m
+            .ensure(&r, EnvKind::Layer, Duration::from_secs(30))
+            .expect_err("a tag of another env must refuse");
+        assert_eq!(err.error_code(), ENV_REF_HOST_UNALLOWED_CODE);
+        assert!(!marker.exists(), "refused before any pull");
+        assert_eq!(
+            m.status("another-env").state,
+            MethodEnvState::NotDownloaded,
+            "a refusal at the boundary claims no ledger entry"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -2839,10 +2931,23 @@ mod tests {
     fn a_third_download_waits_for_a_slot() {
         let (root, _guard) = data_root();
         let digest = hex_of(b"payload");
-        // The pull stage writes its argv (which contains the pulled ref) to
-        // one log file; the ref names the repo, so the log records WHICH env's
-        // pull started. The stub sleeps so the pull is cancellable.
-        let log = root.join("pull-log");
+        // The pull stage writes its argv to one log file. Every layer is a tag
+        // of ONE package, so the pulled ref (`<package>@<digest>`) no longer
+        // names the env; the pull's staging dir is named by the env's pinned
+        // digest (`.pull-<first 8 hex>-…`), so each env gets its own pin and
+        // the log records WHICH env's pull started by it. The stub sleeps so
+        // the pull is cancellable.
+        let pin = |env: &str| hex_of(format!("payload of {env}").as_bytes());
+        let started = |env: &str| {
+            let p = pin(env);
+            std::fs::read_to_string(&log_path(&root))
+                .map(|s| s.contains(&format!(".pull-{}-", &p[..8])))
+                .unwrap_or(false)
+        };
+        fn log_path(root: &Path) -> PathBuf {
+            root.join("pull-log")
+        }
+        let log = log_path(&root);
         let log_disp = log.display();
         let stub = format!(
             "#!/bin/sh\n\
@@ -2860,7 +2965,7 @@ mod tests {
 
         let m2 = m.clone();
         let root2 = root.clone();
-        let dig_a = digest.clone();
+        let dig_a = pin("env-a");
         let ha = std::thread::spawn(move || {
             let _g = scoped_data_root(root2);
             m2.ensure(
@@ -2869,16 +2974,12 @@ mod tests {
                 Duration::from_secs(300),
             )
         });
-        wait_until("env-a's pull started", || {
-            std::fs::read_to_string(&log)
-                .map(|s| s.contains("env-a"))
-                .unwrap_or(false)
-        });
+        wait_until("env-a's pull started", || started("env-a"));
         assert_eq!(m.status("env-a").state, MethodEnvState::Downloading);
 
         let m2 = m.clone();
         let root2 = root.clone();
-        let dig_b = digest.clone();
+        let dig_b = pin("env-b");
         let hb = std::thread::spawn(move || {
             let _g = scoped_data_root(root2);
             m2.ensure(
@@ -2887,18 +2988,14 @@ mod tests {
                 Duration::from_secs(300),
             )
         });
-        wait_until("env-b's pull started", || {
-            std::fs::read_to_string(&log)
-                .map(|s| s.contains("env-b"))
-                .unwrap_or(false)
-        });
+        wait_until("env-b's pull started", || started("env-b"));
         assert_eq!(m.status("env-b").state, MethodEnvState::Downloading);
 
         // Two downloads are in flight; a third env's request must WAIT for a
         // slot rather than start a third pull.
         let m2 = m.clone();
         let root2 = root.clone();
-        let dig_c = digest.clone();
+        let dig_c = pin("env-c");
         let hc = std::thread::spawn(move || {
             let _g = scoped_data_root(root2);
             m2.ensure(
@@ -2913,20 +3010,11 @@ mod tests {
             MethodEnvState::NotDownloaded,
             "the third download is waiting for a slot"
         );
-        assert!(
-            std::fs::read_to_string(&log)
-                .map(|s| !s.contains("env-c"))
-                .unwrap_or(true),
-            "no third pull started while both slots are busy"
-        );
+        assert!(!started("env-c"), "no third pull started while both slots are busy");
 
         // Cancelling one frees a slot; the waiting request proceeds.
         m.cancel("env-a");
-        wait_until("env-c's pull started after the slot freed", || {
-            std::fs::read_to_string(&log)
-                .map(|s| s.contains("env-c"))
-                .unwrap_or(false)
-        });
+        wait_until("env-c's pull started after the slot freed", || started("env-c"));
         assert_eq!(m.status("env-c").state, MethodEnvState::Downloading);
 
         m.cancel("env-b");

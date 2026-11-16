@@ -7,11 +7,15 @@ WHAT IT DOES
 The app pulls two artifact kinds from an OCI registry (the dev registry of
 `registry.py`, or ghcr in production):
 
-  * a trimmed per-language BASE rootfs (`tinnlab/txresbench-env/base-<family>`),
-    one squashfs whose filesystem is what the sandbox binds at `/usr` (plus the
-    `/opt`, `/etc/R`, `/etc/ssl/certs` etc. paths `sandbox::build_bwrap_argv`
-    binds);
-  * a per-method LAYER image (`tinnlab/txr-method-env-layers/<env-id>`), one
+  * a trimmed per-language BASE rootfs, in the one base package
+    `tinnlab/txresbench-env` at tag `base-<family>-<contract>-<arch>` (the
+    app's tag for a manifest without a `bases` list, which is what this
+    publisher writes), one squashfs whose filesystem is what the sandbox binds
+    at `/usr` (plus the `/opt`, `/etc/R`, `/etc/ssl/certs` etc. paths
+    `sandbox::build_bwrap_argv` binds);
+  * a per-method LAYER image, in the one layer package
+    `tinnlab/txr-method-env-layers` at tag
+    `<env-id>-<version>-<arch>-<first 12 hex of the layer sha256>`, one
     squashfs carrying `/code` (the method's own wrapper bytes), the layer
     schema marker, `/layer-manifest.json` and the `usr/` mount-readiness
     sentinel — the artifact shape of `docs/method-env-layer-artifacts.md`
@@ -115,16 +119,30 @@ EMPTY_CONFIG_SIZE = len(EMPTY_CONFIG_BYTES)
 #: Layer schema marker (§5, DEC-11) — the file content and the annotation.
 LAYER_SCHEMA_VERSION = "1"
 
-#: The registry namespace + repos the app's seam re-points only the HOST of
-#: (method_env.rs: the compiled namespace/repo names are kept).
+#: The registry namespace + the two packages the app's seam re-points only
+#: the HOST of (method_env.rs: the compiled namespace/package names are
+#: kept): one package for every layer, one for both bases.
 NAMESPACE = "tinnlab"
 BASES_REPO = "txresbench-env"
 LAYERS_REPO = "txr-method-env-layers"
+BASE_PACKAGE = "%s/%s" % (NAMESPACE, BASES_REPO)
+LAYER_PACKAGE = "%s/%s" % (NAMESPACE, LAYERS_REPO)
+#: The layer package as the manifest spells it (scheme-less ghcr.io ref).
+LAYER_OCI_REF = "ghcr.io/" + LAYER_PACKAGE
 
-#: The app-side base tag convention (immutable per contract-arch): the app's
-#: base_env_ref derives it from the manifest entry's contract + arch.
-def base_tag(contract, arch):
-    return "%s-%s" % (contract, arch)
+
+def layer_tag(env_id, version, arch, layer_sha256):
+    """A layer's immutable tag in the one layer package (the method and its
+    layer file are in the tag): `<env_id>-<version>-<arch>-<sha12>`, the
+    generator's own form."""
+    return "%s-%s-%s-%s" % (env_id, version, arch, layer_sha256[:12])
+
+
+#: The app-side base tag for a manifest WITHOUT a `bases` list (the dev
+#: manifests): the app's base_env_ref derives `base-<family>-<contract>-<arch>`
+#: in the one base package from the entry's language, contract and arch.
+def base_tag(family, contract, arch):
+    return "base-%s-%s-%s" % (family, contract, arch)
 
 
 #: The published base repo component, language-mapped (base_env_ref's
@@ -181,17 +199,18 @@ def check_methods_in_app_manifest(method_ids):
                 "METHOD_NOT_FOUND); the publish set must be the app's own set" % (method_id, len(app_ids))
             )
 
-#: The fixture ids. The fixture base is published under the SAME app-side repo
-#: the real base-py uses (`tinnlab/txresbench-env/base-py`, the language →
-#: `base-<family>` mapping of base_env_ref) — the app acceptance fetches it
-#: through the app's own ref builder, so the fixture must sit at the spelling
-#: the app actually requests. The fixture flow never mixes with the real
+#: The fixture ids. The fixture base is published at the SAME app-side tag
+#: the real base-py uses (`tinnlab/txresbench-env:base-py-<contract>-<arch>`,
+#: the language → `base-<family>` mapping of base_env_ref) — the app
+#: acceptance fetches it through the app's own ref builder, so the fixture
+#: must sit at the spelling the app actually requests. The fixture flow never mixes with the real
 #: publish in one registry data dir (acceptance.sh runs `--fixture
 #: --skip-real`; the real publish is its own `--out`).
 FIXTURE_METHOD_ID = "txr-dev-fixture"
 FIXTURE_BASE_ID = "base-py"
 #: The bases scenario's fixture layer (--stage-fixture): its own env id, so it
-#: never shares an immutable tag with the --fixture layer in one registry.
+#: never shares an immutable tag (the env id is in the tag) with the
+#: --fixture layer in the one layer package of one registry.
 FIXTURE_B_METHOD_ID = "txr-dev-fixture-b"
 
 #: Contract family of the dev build (the app's manifest validator wants
@@ -800,8 +819,9 @@ def stage_generator_fixture(stage_dir):
         "method_version": "1.0.0",
         "language": "Python",
         "arch": ARCH,
-        "oci_ref": "ghcr.io/tinnlab/%s/%s" % (LAYERS_REPO, env_id),
-        "tag": "1.0.0-" + ARCH,
+        # the address the generator itself writes (one layer package)
+        "oci_ref": gen.LAYER_OCI_REF,
+        "tag": gen.layer_tag(env_id, "1.0.0", ARCH, sha256_file(sqfs)),
         "source_revision": revision,
         "base_ref": base_ref,
         "base_digest": source_digest,
@@ -857,8 +877,8 @@ def build_and_publish(args):
             payload_sha = sha256_file(sqfs)
             bases[family] = (sqfs, payload_sha)
             if conn is not None:
-                repo = "%s/%s/base-%s" % (NAMESPACE, BASES_REPO, family)
-                tag = base_tag(CONTRACT, ARCH)
+                repo = BASE_PACKAGE
+                tag = base_tag(family, CONTRACT, ARCH)
                 manifest, digest, layer_sha, size = push_artifact(
                     conn, repo, tag, sqfs,
                     base_annotations(family, CONTRACT, "sha256:" + payload_sha, payload_sha),
@@ -880,8 +900,8 @@ def build_and_publish(args):
             base_digest = "sha256:" + bases[family][1]
             wrapper_sha = wrapper_code_sha256(method_dir)
             if conn is not None:
-                repo = "%s/%s/%s" % (NAMESPACE, LAYERS_REPO, env_id)
-                tag = "%s-%s" % (version, ARCH)
+                repo = LAYER_PACKAGE
+                tag = layer_tag(env_id, version, ARCH, payload_sha)
                 manifest, digest, layer_sha, size = push_artifact(
                     conn, repo, tag, sqfs,
                     method_annotations(env_id, version, language, CONTRACT, base_ref, base_digest, payload_sha),
@@ -898,8 +918,8 @@ def build_and_publish(args):
                 "method_version": version,
                 "language": language,
                 "arch": ARCH,
-                "oci_ref": "ghcr.io/tinnlab/%s/%s" % (LAYERS_REPO, env_id),
-                "tag": "%s-%s" % (version, ARCH),
+                "oci_ref": LAYER_OCI_REF,
+                "tag": layer_tag(env_id, version, ARCH, payload_sha),
                 "digest": manifest_digest,
                 "layer_sha256": layer_sha_pin,
                 "size_bytes": os.path.getsize(sqfs),
@@ -922,16 +942,15 @@ def build_and_publish(args):
         sqfs = os.path.join(stage, "base-fixture.squashfs")
         mksquashfs(rootfs, sqfs)
         fixture_digest = "sha256:" + sha256_file(sqfs)
-        base_repo = "%s/%s/%s" % (NAMESPACE, BASES_REPO, FIXTURE_BASE_ID)
         if conn is not None:
-            push_artifact(conn, base_repo, base_tag(CONTRACT, ARCH), sqfs,
+            push_artifact(conn, BASE_PACKAGE, base_tag("py", CONTRACT, ARCH), sqfs,
                           base_annotations("py", CONTRACT, fixture_digest, sha256_file(sqfs)))
         layer_sqfs, env_id = build_fixture_layer(stage)
         wrapper_sha = wrapper_code_sha256(os.path.join(stage, "fixture-method"))
-        layer_repo = "%s/%s/%s" % (NAMESPACE, LAYERS_REPO, env_id)
+        fixture_tag = layer_tag(env_id, "1.0.0", ARCH, sha256_file(layer_sqfs))
         if conn is not None:
             manifest, digest, layer_sha, size = push_artifact(
-                conn, layer_repo, "1.0.0-" + ARCH, layer_sqfs,
+                conn, LAYER_PACKAGE, fixture_tag, layer_sqfs,
                 method_annotations(env_id, "1.0.0", "Python", CONTRACT,
                                    "ghcr.io/tinnlab/txresbench-base-py:" + CONTRACT,
                                    fixture_digest, sha256_file(layer_sqfs)))
@@ -941,8 +960,8 @@ def build_and_publish(args):
             "method_version": "1.0.0",
             "language": "Python",
             "arch": ARCH,
-            "oci_ref": "ghcr.io/tinnlab/%s/%s" % (LAYERS_REPO, env_id),
-            "tag": "1.0.0-" + ARCH,
+            "oci_ref": LAYER_OCI_REF,
+            "tag": fixture_tag,
             "digest": digest if conn is not None else "sha256:" + sha256_file(layer_sqfs),
             "layer_sha256": sha256_file(layer_sqfs),
             "size_bytes": os.path.getsize(layer_sqfs),
