@@ -120,6 +120,12 @@
 //            it; a record whose provenance is not the entry's is refused; a
 //            pre-0.5.0 record is accepted and said so; --methods-dir required.
 //
+//   TEST-22  reproducible layers (generator 0.6.0, FOLLOW-UPS 64): one layer
+//            root packs to the same bytes every time; the layer's OCI manifest
+//            names the layer and its file only (no methods commit, no base
+//            image), so the same file rebuilt at a later commit or over a new
+//            base image keeps its digest and tag.
+//
 //   node --test scripts/check-method-env-images.test.mjs
 
 import test from 'node:test';
@@ -1824,7 +1830,7 @@ test('TEST-15a the writer puts every layer in one package and both bases in one 
     assert.equal(b.oci_ref, BASE_PACKAGE);
     assert.equal(b.tag, `${b.base_id}-${b.contract}-${b.arch}-${b.squashfs_sha256.slice(0, 12)}`);
   }
-  assert.equal(m.generator_version, '0.5.0');
+  assert.equal(m.generator_version, '0.6.0');
 });
 
 test('TEST-15b records staged before 0.4.0 assemble to the same manifest bytes', () => {
@@ -2816,4 +2822,113 @@ test('TEST-21b the publisher refuses a record whose provenance is not the entry\
     '--staging-dir', fx.staging, '--methods-dir', fx.methodsDir]);
   assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
   assert.match(r.stdout, /record {4}: legacy record \(record_schema_version 1, no tree recorded\)/);
+});
+
+// ── TEST-22: reproducible layers (one layer file = one artifact) ──────────────
+
+const LAYER_PACK_HARNESS = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("txr_generator", sys.argv[1])
+g = importlib.util.module_from_spec(spec)
+sys.modules["txr_generator"] = g
+spec.loader.exec_module(g)
+g.pack_layer(sys.argv[2], sys.argv[3])
+print(json.dumps({"sha": g._sha256_of(sys.argv[3])}))
+`;
+
+/** The pinned layer construction (design §6.1), spelled independently of the
+ *  generator so a drift on either side shows. */
+function expectedLayerOciBytes(rec, contract) {
+  return JSON.stringify({
+    schemaVersion: 2,
+    mediaType: 'application/vnd.oci.image.manifest.v1+json',
+    artifactType: 'application/vnd.txr.method-env.layer.v1',
+    config: {
+      mediaType: 'application/vnd.oci.empty.v1+json',
+      digest: 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
+      size: 2,
+    },
+    layers: [{
+      mediaType: 'application/vnd.txr.method-env.layer.v1',
+      digest: 'sha256:' + rec.layer_sha256,
+      size: rec.size_bytes,
+      annotations: { 'org.opencontainers.image.title': 'layer.squashfs' },
+    }],
+    annotations: {
+      'org.opencontainers.image.source': 'https://github.com/tinnlab/txresbench-methods',
+      'com.txr.method_id': rec.method_id,
+      'com.txr.method_version': rec.method_version,
+      'com.txr.language': rec.language,
+      'com.txr.arch': rec.arch,
+      'com.txr.contract': contract,
+      'com.txr.layer_sha256': rec.layer_sha256,
+      'com.txr.layer_schema': String(rec.layer_schema),
+    },
+  });
+}
+
+test('TEST-22a one layer root packs to the same bytes every time', () => {
+  if (!(haveTool('mksquashfs') && haveTool('unsquashfs'))) {
+    assert.fail('TEST-22a needs mksquashfs + unsquashfs on PATH (squashfs-tools)');
+  }
+  const dir = mkdtemp('mei-layerpack-');
+  const root = path.join(dir, 'root');
+  writeLayerRoot(root, SPEC_A);
+  const one = harness(LAYER_PACK_HARNESS, [root, path.join(dir, 'one.squashfs')]);
+  // New file times (another extraction, another machine's clock) must not
+  // change a byte; nor a copy of the same tree elsewhere.
+  const later = new Date(Date.now() + 7200 * 1000);
+  fs.utimesSync(path.join(root, 'code', 'run.py'), later, later);
+  fs.utimesSync(path.join(root, 'code'), later, later);
+  const two = harness(LAYER_PACK_HARNESS, [root, path.join(dir, 'two.squashfs')]);
+  const copy = path.join(dir, 'copy');
+  writeLayerRoot(copy, SPEC_A);
+  const three = harness(LAYER_PACK_HARNESS, [copy, path.join(dir, 'three.squashfs')]);
+  assert.equal(two.sha, one.sha, 'deterministic pack');
+  assert.equal(three.sha, one.sha, 'the same tree packs to the same file');
+  assert.equal(createHash('sha256').update(fs.readFileSync(path.join(dir, 'two.squashfs'))).digest('hex'), two.sha);
+  // A different tree is a different file.
+  const other = path.join(dir, 'other');
+  writeLayerRoot(other, { ...SPEC_A, runExtra: '# changed\n' });
+  assert.notEqual(harness(LAYER_PACK_HARNESS, [other, path.join(dir, 'other.squashfs')]).sha, one.sha);
+});
+
+test('TEST-22b the same layer file at a later commit or on a new base keeps its digest and tag', () => {
+  const fx = fixture();
+  const prev = JSON.parse(fs.readFileSync(fx.manifestPath, 'utf8'));
+  const a = prev.envs[0];
+  const rec = JSON.parse(fs.readFileSync(path.join(fx.staging, 'layers', 'fixture-a-amd64', 'artifact.json'), 'utf8'));
+  // The pinned construction: the layer and its file, no commit, no base.
+  const oci = fs.readFileSync(path.join(fx.staging, 'layers', 'fixture-a-amd64', 'oci-manifest.json'), 'utf8');
+  assert.equal(oci, expectedLayerOciBytes(rec, '2.0'));
+  assert.doesNotMatch(oci, /image\.revision|com\.txr\.base_/);
+  assert.equal(a.digest, 'sha256:' + createHash('sha256').update(oci).digest('hex'));
+  // Another method changes; fixture-a's folder does not. Its same layer file,
+  // recorded again at the later commit and over a new base image (a base
+  // batch), is the same artifact: same digest, same tag.
+  writeMethodFolder(fx.methodsDir, { ...SPEC_B, runExtra: '# b changed\n' });
+  const commit2 = commitAll(fx.methodsDir, 'fixture-b changed');
+  const NEW = 'sha256:' + 'ef'.repeat(32);
+  const again = path.join(fx.base, 'staged-again');
+  fs.mkdirSync(path.join(again, 'layers'), { recursive: true });
+  fs.cpSync(path.join(fx.staging, 'layers', 'fixture-a-amd64'), path.join(again, 'layers', 'fixture-a-amd64'),
+    { recursive: true });
+  fs.rmSync(path.join(again, 'layers', 'fixture-a-amd64', 'oci-manifest.json'));
+  editRecord(path.join(again, 'layers', 'fixture-a-amd64', 'artifact.json'), {
+    source_revision: commit2.slice(0, 12), base_digest: NEW,
+  });
+  stageFixtureBase(fx.base, again, 'base-py', 'amd64', { source_digest: NEW });
+  const out = path.join(fx.base, 'again.json');
+  const r = gen(['--fixture', again, '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath,
+    '--manifest', out, '--replace-base', 'base-py-amd64']);
+  assert.equal(r.status, 0, r.stderr);
+  const a2 = JSON.parse(fs.readFileSync(out, 'utf8')).envs[0];
+  assert.equal(a2.digest, a.digest, 'the same artifact');
+  assert.equal(a2.tag, a.tag);
+  assert.equal(a2.layer_sha256, a.layer_sha256);
+  assert.equal(a2.source_revision, commit2.slice(0, 12), 'the list records the new build');
+  assert.equal(a2.source_tree, a.source_tree, 'the folder did not change');
+  assert.equal(a2.base_digest, NEW);
+  assert.equal(fs.readFileSync(path.join(again, 'layers', 'fixture-a-amd64', 'oci-manifest.json'), 'utf8'), oci,
+    'the staged OCI bytes are the published ones');
 });
