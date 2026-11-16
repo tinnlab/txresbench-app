@@ -52,7 +52,8 @@ jobs:
   # and the bundle step there checks that the build's inputs are the same as
   # at that commit. The build runs downloaded images and crates, so this job's
   # token only reads, and is not left in the checkout. The artifact is only a
-  # hand-off within this run, so it is kept for a day.
+  # hand-off within this run; it is kept for a week so that "Re-run failed
+  # jobs" on the Windows leg still finds it.
   wsl-runtime:
     runs-on: ubuntu-22.04
     permissions:
@@ -81,12 +82,13 @@ jobs:
             src-app/desktop/tauri/resources/wsl-runtime/txresbench-wsl.tar
             src-app/desktop/tauri/resources/wsl-runtime/MANIFEST.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
 
   # Every leg waits for wsl-runtime, not only the Windows one: the publish job
   # needs all three legs, so a release cannot go out without the runtime anyway.
-  # It also means the Linux and macOS legs wait on the runtime's downloads
-  # (Docker Hub, Alpine's mirrors, crates.io) and fail with them.
+  # It also means that when the runtime build fails (its downloads from Docker
+  # Hub, Alpine's mirrors and crates.io, or its notices check), the Linux and
+  # macOS legs are skipped too.
   build:
     needs: wsl-runtime
     strategy:

@@ -293,7 +293,7 @@ test('the release builds the WSL runtime on Linux from its own unchanged checkou
         name: 'wsl-runtime-x86_64',
         path: `${RESOURCE}/txresbench-wsl.tar\n${RESOURCE}/MANIFEST.json`,
         'if-no-files-found': 'error',
-        'retention-days': '1',
+        'retention-days': '7',
       },
     },
   ]);
@@ -333,6 +333,19 @@ test('the Windows leg downloads the runtime into its bundle resource before `tau
 test('the release sets neither the bundle check\'s development switch nor the agent build\'s test cache', () => {
   const text = fs.readFileSync(WORKFLOW, 'utf8');
   assert.doesNotMatch(text, /TXR_WSL_RUNTIME_ALLOW_DEV|TXR_GUEST_AGENT_CARGO_CACHE/);
+  // no workflow-wide env or defaults reach the jobs
+  const top = text.split('\n').filter((l) => /^[A-Za-z]/.test(l)).map((l) => l.replace(/:.*$/, ''));
+  assert.deepEqual(top, ['name', 'on', 'permissions', 'jobs']);
+});
+
+test('nothing else in the release uploads, overwrites or merges the WSL runtime artifact', () => {
+  const text = fs.readFileSync(WORKFLOW, 'utf8');
+  // one upload under its name, made by the wsl-runtime job; no step replaces or deletes an artifact
+  assert.equal(text.match(/^\s+name: wsl-runtime-x86_64$/gm).length, 2, 'its upload and the Windows download');
+  const steps = Object.values(workflowJobs()).flatMap((j) => j.steps);
+  const named = steps.filter((x) => x.with.name === 'wsl-runtime-x86_64').map((x) => x.uses);
+  assert.deepEqual(named, ['actions/upload-artifact@v4', 'actions/download-artifact@v4']);
+  assert.doesNotMatch(text, /overwrite:|delete-merged:|upload-artifact\/merge/);
 });
 
 // ── notices ──────────────────────────────────────────────────────────────────
