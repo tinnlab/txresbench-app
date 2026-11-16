@@ -13,6 +13,22 @@ use clap::{Parser, Subcommand};
 enum Mode {
     /// Run the HTTP API server (the default when no subcommand is given).
     Serve,
+    /// Check a method list (and its signature) exactly as the app loads one, and print
+    /// what it holds: format, sequence, counts, the signer. Exit 1 on any refusal. The
+    /// arbiter `scripts/publish-method-list.sh` and `scripts/import-method-list.sh` run.
+    CheckMethodList {
+        /// The list file (`method-list.json`).
+        #[arg(long)]
+        list: std::path::PathBuf,
+        /// Its minisign signature (`method-list.json.minisig`). Without it only the
+        /// unsigned sequence 0 bootstrap copy passes.
+        #[arg(long)]
+        signature: Option<std::path::PathBuf>,
+        /// A trusted-keys file to use instead of the compiled-in keys (test fixtures and
+        /// rehearsals only; the report names it).
+        #[arg(long)]
+        keys: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Parser, Debug)]
@@ -57,6 +73,29 @@ async fn main() {
         }
     }
 
+    // A file check: no config, no data root, no server.
+    if let Some(Mode::CheckMethodList {
+        list,
+        signature,
+        keys,
+    }) = &cli.mode
+    {
+        match txresbench::modules::method_list::check_method_list_cli(
+            list,
+            signature.as_deref(),
+            keys.as_deref(),
+        ) {
+            Ok(report) => {
+                print!("{report}");
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("check-method-list: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let config = match txresbench::config::load_config(cli.config_file.as_deref()) {
         Ok(c) => c,
         Err(e) => {
@@ -86,6 +125,7 @@ async fn main() {
             );
             txresbench::serve_blocking(config, demo).await
         }
+        Some(Mode::CheckMethodList { .. }) => unreachable!("handled before the config load"),
     };
     if let Err(e) = result {
         eprintln!("fatal: {e}");

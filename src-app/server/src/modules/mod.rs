@@ -66,6 +66,10 @@ pub mod mcp;
 // TxResBench: the app-owned method catalogue (embedded facts + eligibility /
 // estimate engines + typed surfaces). DB-free, stateless, boot-validated embed.
 pub mod method_catalogue;
+// TxResBench: the signed method list (catalogue + environment images in one
+// minisign-signed file): trusted keys, signature check, parse. Not an app module
+// yet: its one consumer is the `check-method-list` command.
+pub mod method_list;
 pub mod rootfs;
 pub mod sandbox;
 // NOTE (artifact-model ITEM-13): the `tiledb_serve` module — the native in-process
