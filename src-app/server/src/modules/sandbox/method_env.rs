@@ -1782,6 +1782,107 @@ fn staged_payload_bytes(dir: &Path) -> u64 {
         .unwrap_or(0)
 }
 
+/// The variables a tool (oras) gets from the app's own environment beyond
+/// `PATH` and `HOME`, which always get a value. Everything else is cleared:
+/// no tokens, no `DOCKER_*`, nothing the download does not need.
+/// - Windows: a Go program needs `SystemRoot` for its network stack and the
+///   user's home, config and temp folders (`USERPROFILE`, `APPDATA`,
+///   `LOCALAPPDATA`, `TEMP`, `TMP`; `windir` with `SystemRoot`).
+/// - Proxies, in both spellings (Go reads either): without them a user behind
+///   a proxy cannot download at all.
+/// - A custom CA bundle (`SSL_CERT_FILE`, `SSL_CERT_DIR`), for networks that
+///   inspect TLS.
+const TOOL_PASSTHROUGH_ENV: &[&str] = &[
+    "SystemRoot",
+    "windir",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "TEMP",
+    "TMP",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "NO_PROXY",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+];
+
+/// The environment a tool runs with, built from `read` (the app's own
+/// environment in production; injected in tests): `PATH` and `HOME` (with the
+/// previous defaults when unset), then each [`TOOL_PASSTHROUGH_ENV`] variable
+/// that is set to a non-empty value.
+fn tool_env(read: &impl Fn(&str) -> Option<String>) -> Vec<(String, String)> {
+    let mut env = vec![
+        (
+            "PATH".to_string(),
+            read("PATH").unwrap_or_else(|| "/usr/local/bin:/usr/bin:/bin".into()),
+        ),
+        (
+            "HOME".to_string(),
+            read("HOME").unwrap_or_else(|| "/root".into()),
+        ),
+    ];
+    for name in TOOL_PASSTHROUGH_ENV {
+        if let Some(value) = read(name).filter(|v| !v.is_empty()) {
+            env.push(((*name).to_string(), value));
+        }
+    }
+    env
+}
+
+/// The app's own empty registry login file, `<data_root>/oras/registry-config.json`
+/// holding `{}`, passed to every oras call as `--registry-config`. oras then
+/// never reads the user's Docker logins (`~/.docker/config.json`): a stale
+/// ghcr.io entry there turns an anonymous pull of a public package into a 403,
+/// and on macOS a credential helper can open a keychain prompt. Every
+/// method-env download stays anonymous. Written atomically (temp file +
+/// rename), so a concurrent download never reads a half-written file.
+fn empty_registry_config() -> Result<PathBuf, AppError> {
+    let dir = crate::modules::rootfs::data_root().join("oras");
+    let path = dir.join("registry-config.json");
+    if std::fs::read(&path).map(|b| b == b"{}").unwrap_or(false) {
+        return Ok(path);
+    }
+    let unavailable = |e: std::io::Error| {
+        AppError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ENV_TOOL_MISSING_CODE,
+            format!("The method environment is not available yet (download settings: {e})"),
+        )
+    };
+    std::fs::create_dir_all(&dir).map_err(unavailable)?;
+    let tmp = dir.join(format!(
+        ".registry-config.{}.{}.tmp",
+        std::process::id(),
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::write(&tmp, b"{}").map_err(unavailable)?;
+    std::fs::rename(&tmp, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        unavailable(e)
+    })?;
+    Ok(path)
+}
+
+/// The oras arguments every call starts with: the subcommand, the app's empty
+/// registry config, and `--plain-http` when the dev seam names a loopback
+/// registry.
+fn oras_base_args(subcommand: &str, seams: &MethodEnvSeams) -> Result<Vec<String>, AppError> {
+    let config = empty_registry_config()?;
+    let mut args = vec![
+        subcommand.to_string(),
+        "--registry-config".to_string(),
+        config.to_string_lossy().into_owned(),
+    ];
+    if plain_http(seams) {
+        args.push("--plain-http".to_string());
+    }
+    Ok(args)
+}
+
 /// Run a host tool with a bounded wall-clock, a cancellation flag and a
 /// progress reporter — the manager's sibling of `env_image.rs`'s `run`, plus:
 ///
@@ -1806,14 +1907,7 @@ fn run_tool(
     let mut child = std::process::Command::new(tool)
         .args(args)
         .env_clear()
-        .env(
-            "PATH",
-            std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".into()),
-        )
-        .env(
-            "HOME",
-            std::env::var("HOME").unwrap_or_else(|_| "/root".into()),
-        )
+        .envs(tool_env(&|k| std::env::var(k).ok()))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1941,10 +2035,7 @@ fn oras_resolve(
             "The method environment is not available yet",
         )
     })?;
-    let mut args = vec!["resolve".to_string()];
-    if plain_http(seams) {
-        args.push("--plain-http".to_string());
-    }
+    let mut args = oras_base_args("resolve", seams)?;
     args.push(resolve_ref.to_string());
     let budget = remaining(deadline_at, "oras resolve")?.min(TOOL_METADATA_TIMEOUT);
     let out = run_tool(
@@ -1977,10 +2068,7 @@ fn pull_payload(
     seams: &MethodEnvSeams,
 ) -> Result<PathBuf, AppError> {
     let staging_s = staging.to_string_lossy().into_owned();
-    let mut args = vec!["pull".to_string()];
-    if plain_http(seams) {
-        args.push("--plain-http".to_string());
-    }
+    let mut args = oras_base_args("pull", seams)?;
     args.push("-o".to_string());
     args.push(staging_s);
     args.push(pull_ref.to_string());
@@ -2794,6 +2882,116 @@ mod tests {
             !log.contains("txr-method-env-layers/"),
             "no per-env repository path is ever named: {log}"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The tool environment: PATH and HOME always (with the old defaults), the
+    /// listed Windows / proxy / CA variables when set and non-empty, and
+    /// nothing else — no token, no Docker variable reaches oras.
+    #[test]
+    fn tool_env_passes_only_the_listed_variables() {
+        let vars: BTreeMap<&str, &str> = [
+            ("PATH", "/usr/bin"),
+            ("HOME", "/home/u"),
+            ("SystemRoot", "C:\\Windows"),
+            ("USERPROFILE", "C:\\Users\\u"),
+            ("HTTPS_PROXY", "http://proxy.invalid:3128"),
+            ("no_proxy", "localhost"),
+            ("SSL_CERT_FILE", "/etc/ca.pem"),
+            ("TEMP", ""), // empty: skipped
+            ("GITHUB_TOKEN", "secret"),
+            ("GHCR_TOKEN", "secret"),
+            ("DOCKER_CONFIG", "/home/u/.docker"),
+            ("AWS_SECRET_ACCESS_KEY", "secret"),
+        ]
+        .into_iter()
+        .collect();
+        let env = tool_env(&|k| vars.get(k).map(|v| v.to_string()));
+        let got: BTreeMap<String, String> = env.into_iter().collect();
+        let want: BTreeMap<String, String> = [
+            ("PATH", "/usr/bin"),
+            ("HOME", "/home/u"),
+            ("SystemRoot", "C:\\Windows"),
+            ("USERPROFILE", "C:\\Users\\u"),
+            ("HTTPS_PROXY", "http://proxy.invalid:3128"),
+            ("no_proxy", "localhost"),
+            ("SSL_CERT_FILE", "/etc/ca.pem"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        assert_eq!(got, want);
+
+        // Unset PATH/HOME keep the previous defaults; nothing else appears.
+        let bare: BTreeMap<String, String> = tool_env(&|_| None).into_iter().collect();
+        assert_eq!(bare.len(), 2);
+        assert_eq!(bare["PATH"], "/usr/local/bin:/usr/bin:/bin");
+        assert_eq!(bare["HOME"], "/root");
+    }
+
+    /// Every oras call names the app's own empty registry config (so the
+    /// user's Docker logins are never read and pulls stay anonymous), and the
+    /// child sees no variable outside PATH, HOME and the passthrough list.
+    /// (The pulled bytes are not the pinned ones, so the attempt stops at the
+    /// verify; the recorded arguments and environment are what this reads.)
+    #[test]
+    fn oras_calls_use_the_empty_registry_config_and_the_listed_environment() {
+        let (root, _guard) = data_root();
+        let payload = root.join("payload.squashfs");
+        std::fs::write(&payload, b"other bytes").unwrap();
+        let calls = root.join("oras-calls.txt");
+        let envs = root.join("oras-env.txt");
+        let manifest = "c".repeat(64);
+        let script = format!(
+            "#!/bin/sh\n\
+             echo \"$@\" >> {calls}\n\
+             env >> {envs}\n\
+             if [ \"$1\" = \"resolve\" ]; then echo sha256:{manifest}; exit 0; fi\n\
+             if [ \"$1\" = \"pull\" ]; then\n\
+             \x20 out=\"\"; prev=\"\"\n\
+             \x20 for a in \"$@\"; do if [ \"$prev\" = \"-o\" ]; then out=\"$a\"; fi; prev=\"$a\"; done\n\
+             \x20 cp {payload} \"$out/rootfs.squashfs\"; exit 0\n\
+             fi\n\
+             exit 1\n",
+            calls = calls.display(),
+            envs = envs.display(),
+            payload = payload.display(),
+        );
+        stub_oras(&root, &script);
+
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        let r = layer_ref("fixture-layer", "1.0.0-amd64", &hex_of(b"the pinned bytes"));
+        let err = m
+            .ensure(&r, EnvKind::Layer, Duration::from_secs(30))
+            .expect_err("the stand-in pulls other bytes, so the verify refuses");
+        assert_eq!(err.error_code(), ENV_VERIFY_FAILED_CODE);
+
+        let config = root.join("oras").join("registry-config.json");
+        assert_eq!(std::fs::read(&config).expect("the app wrote its config"), b"{}");
+        let flag = format!("--registry-config {}", config.display());
+        let log = std::fs::read_to_string(&calls).expect("oras was called");
+        for sub in ["resolve", "pull"] {
+            let line = log
+                .lines()
+                .find(|l| l.starts_with(sub))
+                .unwrap_or_else(|| panic!("a {sub} call: {log}"));
+            assert!(line.contains(&flag), "{sub} names the empty registry config: {line}");
+        }
+
+        // Only PATH, HOME and the passthrough list reach the child (plus what
+        // /bin/sh sets for itself).
+        let shell_own = ["PWD", "OLDPWD", "SHLVL", "_"];
+        let env_dump = std::fs::read_to_string(&envs).expect("env recorded");
+        for line in env_dump.lines() {
+            let Some((name, _)) = line.split_once('=') else { continue };
+            assert!(
+                name == "PATH"
+                    || name == "HOME"
+                    || TOOL_PASSTHROUGH_ENV.contains(&name)
+                    || shell_own.contains(&name),
+                "oras received {name:?}, which is not on the list"
+            );
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 
