@@ -89,7 +89,8 @@ use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES
 /// The demo-mode save adaptation (demo-mode ITEM-1, the spec's "save dialog
 /// shows a generated name (no text field)" server half). In demo mode the
 /// save IGNORES every client-supplied text and always targets a NEW set named
-/// `Demo models <date time>` — no free text from a visitor is ever stored or
+/// `Demo models <date time to the second>` (two saves in one minute get
+/// different names) — no free text from a visitor is ever stored or
 /// shown to others (owner decision DEC-3). `also_export` is forced off: the
 /// one-off `.txr` export of recorded demo models is not a real model file and
 /// export is blocked (owner decision). Desktop mode: the request is returned
@@ -98,7 +99,7 @@ pub fn demo_save_request(req: SaveModelsRequest) -> SaveModelsRequest {
     if !crate::modules::demo::enabled() {
         return req;
     }
-    let stamp = chrono::Utc::now().format("%Y-%m-%d %H:%M");
+    let stamp = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
     SaveModelsRequest {
         target: SaveTarget::NewSet {
             set_name: format!("Demo models {stamp}"),

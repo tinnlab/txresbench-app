@@ -270,7 +270,7 @@ class ScriptedServer:
         if path == "/txr/runs/r-fake/predictions.csv":
             return 200, b"patient_id,probability,note\nJ0000,0.62,\nJ0001,0.63,\nJ0002,0.64,\n"
         if path == "/txr/models/save":
-            return 201, {"set": {"id": "s-fake", "name": "Demo models 2026-11-15 00:00"},
+            return 201, {"set": {"id": "s-fake", "name": "Demo models 2026-11-15 00:00:00"},
                          "models": [{"id": "m-fake", "method_id": "kelim",
                                      "size_bytes": 1024}]}
         if path == "/txr/model-sets":

@@ -125,13 +125,13 @@ export const DEMO_HELP_PRIVACY =
 
 /** The demo's generated set name (the audit's "the save dialog shows a
  *  generated name (no text field)" byte; the server's own byte is ITEM-1's
- *  `Demo models <UTC yyyy-mm-dd HH:MM>` — the same clock and format, so the
- *  dialog's preview and the server's saved name agree to the minute). */
+ *  `Demo models <UTC yyyy-mm-dd HH:MM:SS>` — the same clock and format; the
+ *  seconds keep two saves within one minute apart). */
 export function demoGeneratedSetName(now: Date = new Date()): string {
   const pad = (value: number): string => String(value).padStart(2, '0')
   const stamp =
     `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}` +
-    ` ${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`
+    ` ${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())}`
   return `Demo models ${stamp}`
 }
 

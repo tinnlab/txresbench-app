@@ -326,7 +326,7 @@ describe('TxrSaveModelsDialog demo arm (TEST-DM-7, ITEM-7)', () => {
     expect(screen.queryByTestId('txr-models-save-name')).toBeNull()
     expect(screen.queryByTestId('txr-models-save-name-hint')).toBeNull()
     const shown = screen.getByTestId('txr-models-save-generated-name').textContent ?? ''
-    expect(shown).toMatch(/^Demo models \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
+    expect(shown).toMatch(/^Demo models \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
     expect(screen.queryByTestId('txr-models-save-keep-training')).toBeNull()
     expect(screen.queryByTestId('txr-models-save-also-export')).toBeNull()
     // The checklist and the save button stay (save works — the clone).
