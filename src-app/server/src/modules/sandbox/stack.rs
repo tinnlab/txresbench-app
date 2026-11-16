@@ -144,6 +144,11 @@ pub struct EnvRef {
     /// Full OCI reference, `<package>[:<tag>][@sha256:<hex>]`, where
     /// `<package>` is [`TXR_BASE_REGISTRY_PREFIX`] or
     /// [`TXR_LAYER_REGISTRY_PREFIX`] itself (enforced by [`validate_oci_ref`]).
+    /// `<package>@sha256:<digest>` with this ref's own `digest` is a FILE
+    /// ADDRESS: the download manager fetches the squashfs file itself by its
+    /// sha256 (no tag, no manifest), which is how a saved model gets an
+    /// environment the current method list no longer names. Any other
+    /// `@sha256:` is an artifact manifest digest.
     pub oci_ref: String,
     /// The pinned 64-hex sha256 of the squashfs layer the bytes are verified
     /// against.

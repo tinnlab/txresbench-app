@@ -483,8 +483,9 @@ impl MethodEnvManager {
     /// 2. the content-digest cache — a cached digest is re-verified (its bytes
     ///    must still hash to the pin) and mounted, no network;
     /// 3. the OCI path — the pinned (`@sha256:`) or tag-resolved pull ref,
-    ///    bytes verified against `r.digest` ALWAYS before the cache entry,
-    ///    mounted by digest.
+    ///    or, for a file address (`<package>@sha256:<r.digest>`), the file
+    ///    itself by its sha256 (`oras blob fetch`); bytes verified against
+    ///    `r.digest` ALWAYS before the cache entry, mounted by digest.
     ///
     /// BLOCKING: run on `spawn_blocking`. `deadline` bounds the whole
     /// sequence. At most one download per env-id (a further request waits on
@@ -525,7 +526,7 @@ impl MethodEnvManager {
         // waits for a download slot.
         let owned_attempt = self.claim(&env_id, r, kind)?;
         if !owned_attempt {
-            return self.result_for(&env_id);
+            return self.result_for(&env_id, &r.digest);
         }
 
         let outcome = self.attempt_download(&env_id, r, &parts, deadline_at);
@@ -723,7 +724,19 @@ impl MethodEnvManager {
                 // a terminal state starts a retry (TEST-11). If another
                 // caller restarted the env meanwhile (a newer attempt), the
                 // waiter chains onto it.
-                let seen = guard.entries.get(env_id).map(|e| e.attempt).unwrap_or(0);
+                //
+                // The observed attempt may be for ANOTHER digest of the same
+                // env (two saved models of one method at two versions in one
+                // run). Its result is not this call's: such a waiter never
+                // takes it, and waits until that attempt's worker has finished
+                // (the attempt counter moves), then re-evaluates: a cache hit
+                // or its own fetch.
+                let (seen, seen_digest) = guard
+                    .entries
+                    .get(env_id)
+                    .map(|e| (e.attempt, e.status.digest.clone()))
+                    .unwrap_or((0, None));
+                let same_digest_attempt = seen_digest.as_deref() == Some(r.digest.as_str());
                 loop {
                     guard = self
                         .slot_changed
@@ -737,7 +750,7 @@ impl MethodEnvManager {
                     if attempt_now != seen {
                         break; // a newer attempt owns the future; re-evaluate
                     }
-                    if state_now != MethodEnvState::Downloading {
+                    if state_now != MethodEnvState::Downloading && same_digest_attempt {
                         return Ok(false); // THE observed attempt ended
                     }
                 }
@@ -784,7 +797,9 @@ impl MethodEnvManager {
     /// The Ready mount or the last attempt's error, for a call that found an
     /// existing terminal state (or waited one out). A Ready entry loaded from
     /// disk mounts lazily (its digest is cache-present by the load rule).
-    fn result_for(&self, env_id: &str) -> Result<ProvidedMount, AppError> {
+    /// The entry must carry the REQUESTED digest: a mount or an error of
+    /// another digest of the same env is never handed to this call.
+    fn result_for(&self, env_id: &str, requested: &str) -> Result<ProvidedMount, AppError> {
         let mut guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         let Some(entry) = guard.entries.get_mut(env_id) else {
             return Err(AppError::new(
@@ -803,6 +818,16 @@ impl MethodEnvManager {
                 ENV_REPOSITORY_UNKNOWN_CODE,
                 format!(
                     "env {env_id:?} was re-fetched meanwhile with a different pin; \
+                     retry the request"
+                ),
+            ));
+        }
+        if entry.status.digest.as_deref() != Some(requested) {
+            return Err(AppError::new(
+                StatusCode::CONFLICT,
+                ENV_REPOSITORY_UNKNOWN_CODE,
+                format!(
+                    "env {env_id:?} now holds another file than the requested {requested}; \
                      retry the request"
                 ),
             ));
@@ -898,7 +923,15 @@ impl MethodEnvManager {
         }
 
         // ── OCI path ────────────────────────────────────────────────────────
-        let pull_ref = pull_ref_for(parts, r, &self.seams, deadline_at)?;
+        // A file address (`<package>@sha256:<the pin>`) names the file itself:
+        // it is fetched as one blob, with no tag and no manifest. Any other
+        // ref is pulled as an artifact (a pinned manifest digest, or the tag
+        // resolved to one).
+        let fetch = if is_file_address(parts, r) {
+            Fetch::Blob(format!("{}@sha256:{}", parts.registry_base, r.digest))
+        } else {
+            Fetch::Pull(pull_ref_for(parts, r, &self.seams, deadline_at)?)
+        };
         let tool = tool_bin("oras").ok_or_else(|| {
             AppError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -945,15 +978,26 @@ impl MethodEnvManager {
         })?;
         let _staging_guard = TmpDirGuard(staging.clone()); // removed on every exit path
 
-        let payload = pull_payload(
-            &tool,
-            &pull_ref,
-            &staging,
-            deadline_at,
-            &cancel,
-            &mut |n| self.update_bytes(env_id, n),
-            &self.seams,
-        )?;
+        let payload = match &fetch {
+            Fetch::Pull(pull_ref) => pull_payload(
+                &tool,
+                pull_ref,
+                &staging,
+                deadline_at,
+                &cancel,
+                &mut |n| self.update_bytes(env_id, n),
+                &self.seams,
+            )?,
+            Fetch::Blob(blob_ref) => fetch_blob_payload(
+                &tool,
+                blob_ref,
+                &staging.join(format!("{env_id}.squashfs")),
+                deadline_at,
+                &cancel,
+                &mut |n| self.update_bytes(env_id, n),
+                &self.seams,
+            )?,
+        };
         // INV-1: verify BEFORE the cache entry exists (a mismatch never
         // becomes a mountable artifact — TEST-07).
         verify_payload_bytes(&payload, &r.digest)?;
@@ -1290,6 +1334,26 @@ fn check_kind(parts: &OciRefParts, kind: EnvKind, seams: &MethodEnvSeams) -> Res
         ));
     }
     Ok(())
+}
+
+/// How an attempt gets its bytes from the registry.
+enum Fetch {
+    /// `oras pull` of an artifact by its manifest digest.
+    Pull(String),
+    /// `oras blob fetch` of the file itself by its sha256.
+    Blob(String),
+}
+
+/// Whether `r` is a file address: `<package>@sha256:<hex>` where `<hex>` is
+/// the pin itself (`EnvRef.digest`, the sha256 of the squashfs file). Every
+/// artifact's single layer is a blob whose digest is that file hash, so the
+/// file can be fetched with no tag and no manifest; this is how a saved model
+/// gets an environment the current list no longer names. An artifact's
+/// manifest digest never equals the hash of the file it lists, so a
+/// manifest-digest ref (`@digest` other than the pin) is never mistaken for a
+/// file address and keeps the pull path.
+fn is_file_address(parts: &OciRefParts, r: &EnvRef) -> bool {
+    parts.digest.as_deref() == Some(r.digest.as_str())
 }
 
 /// The digest-addressed pull ref: the ref's own `@sha256:` when pinned (no
@@ -1867,16 +1931,14 @@ fn empty_registry_config() -> Result<PathBuf, AppError> {
     Ok(path)
 }
 
-/// The oras arguments every call starts with: the subcommand, the app's empty
-/// registry config, and `--plain-http` when the dev seam names a loopback
-/// registry.
-fn oras_base_args(subcommand: &str, seams: &MethodEnvSeams) -> Result<Vec<String>, AppError> {
+/// The oras arguments every call starts with: the subcommand (one word, or
+/// two for `blob fetch`), the app's empty registry config, and `--plain-http`
+/// when the dev seam names a loopback registry.
+fn oras_base_args(subcommand: &[&str], seams: &MethodEnvSeams) -> Result<Vec<String>, AppError> {
     let config = empty_registry_config()?;
-    let mut args = vec![
-        subcommand.to_string(),
-        "--registry-config".to_string(),
-        config.to_string_lossy().into_owned(),
-    ];
+    let mut args: Vec<String> = subcommand.iter().map(|w| (*w).to_string()).collect();
+    args.push("--registry-config".to_string());
+    args.push(config.to_string_lossy().into_owned());
     if plain_http(seams) {
         args.push("--plain-http".to_string());
     }
@@ -2035,7 +2097,7 @@ fn oras_resolve(
             "The method environment is not available yet",
         )
     })?;
-    let mut args = oras_base_args("resolve", seams)?;
+    let mut args = oras_base_args(&["resolve"], seams)?;
     args.push(resolve_ref.to_string());
     let budget = remaining(deadline_at, "oras resolve")?.min(TOOL_METADATA_TIMEOUT);
     let out = run_tool(
@@ -2068,7 +2130,7 @@ fn pull_payload(
     seams: &MethodEnvSeams,
 ) -> Result<PathBuf, AppError> {
     let staging_s = staging.to_string_lossy().into_owned();
-    let mut args = oras_base_args("pull", seams)?;
+    let mut args = oras_base_args(&["pull"], seams)?;
     args.push("-o".to_string());
     args.push(staging_s);
     args.push(pull_ref.to_string());
@@ -2097,6 +2159,41 @@ fn pull_payload(
                 "the pulled environment artifact contained no .squashfs layer",
             )
         })
+}
+
+/// `oras blob fetch --output <out> <package>@sha256:<pin>`: the file itself,
+/// fetched by its sha256 (the same registry GET a pull makes for the layer
+/// blob, without a manifest or tag). Returns `out`; the caller verifies the
+/// bytes against the pin before anything is cached.
+fn fetch_blob_payload(
+    tool: &Path,
+    blob_ref: &str,
+    out: &Path,
+    deadline_at: Instant,
+    cancel: &AtomicBool,
+    on_progress: &mut dyn FnMut(u64),
+    seams: &MethodEnvSeams,
+) -> Result<PathBuf, AppError> {
+    let mut args = oras_base_args(&["blob", "fetch"], seams)?;
+    args.push("--output".to_string());
+    args.push(out.to_string_lossy().into_owned());
+    args.push(blob_ref.to_string());
+    run_tool(
+        tool,
+        &args,
+        remaining(deadline_at, "oras blob fetch")?,
+        cancel,
+        out.parent(),
+        on_progress,
+    )?;
+    if !out.is_file() {
+        return Err(AppError::new(
+            StatusCode::BAD_GATEWAY,
+            ENV_REPOSITORY_UNKNOWN_CODE,
+            format!("`oras blob fetch {blob_ref}` wrote no file"),
+        ));
+    }
+    Ok(out.to_path_buf())
 }
 
 /// Plain-HTTP fetch for the debug loopback seam (a release build never turns
@@ -3309,5 +3406,383 @@ mod tests {
         let refusal =
             seam_refusal_with("fixture-env", &read, &names).expect("own artifact unusable");
         assert_eq!(refusal.error_code(), ENV_STAGED_UNUSABLE_CODE);
+    }
+
+    // ── saved-model environments: the file address + two digests of one env ─
+
+    /// Mark `digest`'s cache mount point as mounted (`mnt/usr` present), so the
+    /// Linux mount step takes its fast path for a fixture file that is not a
+    /// real squashfs. macOS attaches the cached file and never reads this.
+    fn pretend_mounted(digest: &str) {
+        let usr = crate::modules::rootfs::cache::digest_dir(digest)
+            .join("mnt")
+            .join("usr");
+        std::fs::create_dir_all(usr).unwrap();
+    }
+
+    /// Put `bytes` in the digest cache under their own sha256 (and mark them
+    /// mounted); returns the digest.
+    fn cache_bytes(bytes: &[u8]) -> String {
+        let digest = hex_of(bytes);
+        let path = crate::modules::rootfs::cache::squashfs_path_for(&digest);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        pretend_mounted(&digest);
+        digest
+    }
+
+    /// The file address of a layer: the loopback layer package, `@sha256:`
+    /// the pin itself, no tag.
+    fn file_address(env_id: &str, digest: &str) -> EnvRef {
+        EnvRef {
+            env_id: env_id.to_string(),
+            oci_ref: format!("127.0.0.1:5000/tinnlab/txr-method-env-layers@sha256:{digest}"),
+            digest: digest.to_string(),
+            tag: None,
+        }
+    }
+
+    /// A stub `oras` that logs every call's arguments to `calls` and answers
+    /// `blob fetch <pkg>@sha256:<d>` with the file `<blobs>/<d>` written to
+    /// the `--output` path (exit 1 when there is no such blob). `hold` runs
+    /// first for the fetch (a shell snippet that may block); every other
+    /// subcommand fails.
+    fn blob_stub(calls: &Path, blobs: &Path, hold: &str) -> String {
+        format!(
+            "#!/bin/sh\n\
+             echo \"$@\" >> {calls}\n\
+             if [ \"$1\" = \"blob\" ] && [ \"$2\" = \"fetch\" ]; then\n\
+             \x20 out=\"\"; prev=\"\"; ref=\"\"\n\
+             \x20 for a in \"$@\"; do if [ \"$prev\" = \"--output\" ]; then out=\"$a\"; fi; prev=\"$a\"; ref=\"$a\"; done\n\
+             \x20 d=\"${{ref##*@sha256:}}\"\n\
+             \x20 {hold}\n\
+             \x20 if [ ! -f \"{blobs}/$d\" ]; then echo \"blob unknown\" >&2; exit 1; fi\n\
+             \x20 cp \"{blobs}/$d\" \"$out\"; exit 0\n\
+             fi\n\
+             echo \"unexpected oras call\" >&2\n\
+             exit 1\n",
+            calls = calls.display(),
+            blobs = blobs.display(),
+        )
+    }
+
+    /// Store `bytes` as the registry blob of their sha256; returns the digest.
+    fn put_blob(blobs: &Path, bytes: &[u8]) -> String {
+        std::fs::create_dir_all(blobs).unwrap();
+        let digest = hex_of(bytes);
+        std::fs::write(blobs.join(&digest), bytes).unwrap();
+        digest
+    }
+
+    /// A file address (`<package>@sha256:<the pin>`) is fetched as the file
+    /// itself: one `oras blob fetch` with the empty registry config and
+    /// `--output`, no resolve and no pull; the bytes are verified, cached and
+    /// served by their digest. The base package takes the same path.
+    #[test]
+    fn file_address_is_fetched_with_oras_blob_fetch() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let layer_pin = put_blob(&blobs, b"an older layer file");
+        let base_pin = put_blob(&blobs, b"an older base file");
+        pretend_mounted(&layer_pin);
+        pretend_mounted(&base_pin);
+        stub_oras(&root, &blob_stub(&calls, &blobs, ":"));
+
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        let got = m
+            .ensure(&file_address("fixture-layer", &layer_pin), EnvKind::Layer, Duration::from_secs(30))
+            .expect("the file address is fetched, verified and served");
+        assert_eq!(got.digest.as_deref(), Some(layer_pin.as_str()));
+        assert!(crate::modules::rootfs::cache::has_digest(&layer_pin), "the file is cached by its digest");
+        assert_eq!(m.status("fixture-layer").state, MethodEnvState::Ready);
+        assert_eq!(m.status("fixture-layer").digest.as_deref(), Some(layer_pin.as_str()));
+        if cfg!(target_os = "macos") {
+            assert_eq!(got.mount_dir, crate::modules::rootfs::cache::squashfs_path_for(&layer_pin));
+        }
+
+        let base = EnvRef {
+            env_id: "base-py".to_string(),
+            oci_ref: format!("127.0.0.1:5000/tinnlab/txresbench-env@sha256:{base_pin}"),
+            digest: base_pin.clone(),
+            tag: None,
+        };
+        let got = m
+            .ensure(&base, EnvKind::Base, Duration::from_secs(30))
+            .expect("a base file address is fetched the same way");
+        assert_eq!(got.digest.as_deref(), Some(base_pin.as_str()));
+
+        let config = root.join("oras").join("registry-config.json");
+        let log = std::fs::read_to_string(&calls).expect("oras was called");
+        let lines: Vec<&str> = log.lines().collect();
+        assert_eq!(lines.len(), 2, "one call per file: {log}");
+        let staging_out = format!("{layer_pin}", layer_pin = &layer_pin[..8]);
+        assert!(
+            lines[0].starts_with(&format!(
+                "blob fetch --registry-config {} --plain-http --output ",
+                config.display()
+            )),
+            "blob fetch with the empty registry config and --output: {}",
+            lines[0]
+        );
+        assert!(
+            lines[0].contains(&format!(".pull-{staging_out}-")) && lines[0].contains("/fixture-layer.squashfs "),
+            "the output is the env's file in the attempt's staging dir: {}",
+            lines[0]
+        );
+        assert!(
+            lines[0].ends_with(&format!(
+                " 127.0.0.1:5000/tinnlab/txr-method-env-layers@sha256:{layer_pin}"
+            )),
+            "the layer package, addressed by the file's sha256: {}",
+            lines[0]
+        );
+        assert!(
+            lines[1].ends_with(&format!(" 127.0.0.1:5000/tinnlab/txresbench-env@sha256:{base_pin}")),
+            "the base package, addressed by the file's sha256: {}",
+            lines[1]
+        );
+        assert!(!log.contains("resolve") && !log.contains("pull "), "no resolve, no pull: {log}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A file address whose fetched bytes do not hash to the pin is refused
+    /// before any cache entry exists.
+    #[test]
+    fn file_address_with_wrong_bytes_is_refused() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        std::fs::create_dir_all(&blobs).unwrap();
+        let pin = hex_of(b"the bytes the record names");
+        std::fs::write(blobs.join(&pin), b"other bytes under that name").unwrap();
+        stub_oras(&root, &blob_stub(&calls, &blobs, ":"));
+
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        let err = m
+            .ensure(&file_address("fixture-layer", &pin), EnvKind::Layer, Duration::from_secs(30))
+            .expect_err("bytes that do not hash to the pin are refused");
+        assert_eq!(err.error_code(), ENV_VERIFY_FAILED_CODE);
+        assert!(!crate::modules::rootfs::cache::has_digest(&pin), "no cache entry");
+        assert_eq!(m.status("fixture-layer").state, MethodEnvState::Failed);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A ref pinned by a MANIFEST digest (an `@sha256:` other than the file's
+    /// pin) keeps the artifact pull; only the pin itself is a file address.
+    #[test]
+    fn manifest_digest_ref_still_uses_oras_pull() {
+        let (root, _guard) = data_root();
+        let payload = root.join("payload.squashfs");
+        std::fs::write(&payload, b"other bytes").unwrap();
+        let calls = root.join("oras-calls.txt");
+        let manifest = "e".repeat(64);
+        let script = format!(
+            "#!/bin/sh\n\
+             echo \"$@\" >> {calls}\n\
+             if [ \"$1\" = \"pull\" ]; then\n\
+             \x20 out=\"\"; prev=\"\"\n\
+             \x20 for a in \"$@\"; do if [ \"$prev\" = \"-o\" ]; then out=\"$a\"; fi; prev=\"$a\"; done\n\
+             \x20 cp {payload} \"$out/rootfs.squashfs\"; exit 0\n\
+             fi\n\
+             exit 1\n",
+            calls = calls.display(),
+            payload = payload.display(),
+        );
+        stub_oras(&root, &script);
+
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        let pin = hex_of(b"the pinned bytes");
+        let r = EnvRef {
+            env_id: "fixture-layer".to_string(),
+            oci_ref: format!("127.0.0.1:5000/tinnlab/txr-method-env-layers@sha256:{manifest}"),
+            digest: pin,
+            tag: None,
+        };
+        let err = m
+            .ensure(&r, EnvKind::Layer, Duration::from_secs(30))
+            .expect_err("the stand-in pulls other bytes, so the verify refuses");
+        assert_eq!(err.error_code(), ENV_VERIFY_FAILED_CODE);
+        let log = std::fs::read_to_string(&calls).expect("oras was called");
+        assert_eq!(log.lines().count(), 1, "one call: {log}");
+        assert!(
+            log.starts_with("pull ")
+                && log.trim_end().ends_with(&format!(
+                    "127.0.0.1:5000/tinnlab/txr-method-env-layers@sha256:{manifest}"
+                )),
+            "a manifest-digest ref is pulled as an artifact: {log}"
+        );
+        assert!(!log.contains("blob"), "never a blob fetch: {log}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The ledger keeps one digest per env (the last one used). A request for
+    /// an OLDER digest that is still in the cache is served from the cache,
+    /// with no download, also after a restart and with no registry reachable.
+    #[test]
+    fn old_digest_in_the_cache_is_served_offline() {
+        let (root, _guard) = data_root();
+        let old = cache_bytes(b"the layer a saved model was trained with");
+        let new = cache_bytes(b"the layer the list names today");
+        // Offline: every oras call fails, and is logged.
+        let calls = root.join("oras-calls.txt");
+        stub_oras(
+            &root,
+            &format!("#!/bin/sh\necho \"$@\" >> {}\nexit 1\n", calls.display()),
+        );
+
+        let first = MethodEnvManager::with_seams(loopback_seams());
+        first
+            .ensure(&file_address("fixture-layer", &new), EnvKind::Layer, Duration::from_secs(30))
+            .expect("the current file is cached");
+        drop(first);
+
+        // A new manager (a restart) loads the ledger, which names the new file.
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        assert_eq!(m.status("fixture-layer").digest.as_deref(), Some(new.as_str()));
+        let got = m
+            .ensure(&file_address("fixture-layer", &old), EnvKind::Layer, Duration::from_secs(30))
+            .expect("the older cached file is served offline");
+        assert_eq!(got.digest.as_deref(), Some(old.as_str()));
+        assert_eq!(m.status("fixture-layer").digest.as_deref(), Some(old.as_str()));
+        assert!(!calls.exists(), "no download was started");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Two digests of one env (two saved models of one method at two
+    /// versions), both cached: alternating requests are each served their own
+    /// file and never start a download.
+    #[test]
+    fn two_digests_of_one_env_alternate_without_refetch() {
+        let (root, _guard) = data_root();
+        let a = cache_bytes(b"layer file a");
+        let b = cache_bytes(b"layer file b");
+        let calls = root.join("oras-calls.txt");
+        stub_oras(
+            &root,
+            &format!("#!/bin/sh\necho \"$@\" >> {}\nexit 1\n", calls.display()),
+        );
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        for digest in [&a, &b, &a, &b, &a] {
+            let got = m
+                .ensure(&file_address("fixture-layer", digest), EnvKind::Layer, Duration::from_secs(30))
+                .expect("a cached digest is served");
+            assert_eq!(got.digest.as_deref(), Some(digest.as_str()));
+            if cfg!(target_os = "macos") {
+                assert_eq!(got.mount_dir, crate::modules::rootfs::cache::squashfs_path_for(digest));
+            }
+        }
+        assert!(!calls.exists(), "no download was started");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The result of an env's last attempt is handed only to a call that asked
+    /// for that attempt's digest: another digest is refused, never served.
+    #[test]
+    fn result_for_refuses_another_digest() {
+        let (root, _guard) = data_root();
+        let current = cache_bytes(b"the env's current file");
+        let other = hex_of(b"another file of the same env");
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        m.ensure(&file_address("fixture-layer", &current), EnvKind::Layer, Duration::from_secs(30))
+            .expect("the cached file is served");
+        let served = m
+            .result_for("fixture-layer", &current)
+            .expect("the requested digest is the entry's");
+        assert_eq!(served.digest.as_deref(), Some(current.as_str()));
+        let err = m
+            .result_for("fixture-layer", &other)
+            .expect_err("another digest's mount is never handed out");
+        assert_eq!(err.error_code(), ENV_REPOSITORY_UNKNOWN_CODE);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A request that finds an attempt for ANOTHER digest of the same env in
+    /// flight waits for it, then gets ITS OWN file: never that attempt's
+    /// result. Both ends of the other attempt are covered: cancelled (whose
+    /// error is not this call's) and finished with the other file.
+    #[test]
+    fn waiter_for_another_digest_gets_its_own_file() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let old = cache_bytes(b"the saved model's layer");
+        let new = put_blob(&blobs, b"the current layer");
+        pretend_mounted(&new);
+        let started = root.join("fetch-started");
+        // The current layer's fetch blocks until it is cancelled.
+        stub_oras(
+            &root,
+            &blob_stub(
+                &calls,
+                &blobs,
+                &format!(
+                    "if [ \"$d\" = \"{new}\" ]; then echo started > {}; exec sleep 3600; fi",
+                    started.display()
+                ),
+            ),
+        );
+        let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
+
+        let spawn = |digest: String| {
+            let m = m.clone();
+            let root = root.clone();
+            std::thread::spawn(move || {
+                let _g = scoped_data_root(root);
+                m.ensure(&file_address("fixture-layer", &digest), EnvKind::Layer, Duration::from_secs(300))
+            })
+        };
+
+        // 1. The other attempt is cancelled.
+        let current = spawn(new.clone());
+        wait_until("the current layer's fetch started", || started.exists());
+        assert_eq!(m.status("fixture-layer").state, MethodEnvState::Downloading);
+        let saved = spawn(old.clone());
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!saved.is_finished(), "the saved model's request waits on the env's attempt");
+        m.cancel("fixture-layer");
+        let current = current.join().expect("the current request returns");
+        assert_eq!(
+            current.expect_err("cancelled").error_code(),
+            ENV_DOWNLOAD_CANCELLED_CODE
+        );
+        let saved = saved
+            .join()
+            .expect("the saved model's request returns")
+            .expect("it gets its own cached file, not the cancelled attempt's error");
+        assert_eq!(saved.digest.as_deref(), Some(old.as_str()));
+
+        // 2. The other attempt finishes with the other file.
+        let go = root.join("go");
+        let started2 = root.join("fetch-started-2");
+        stub_oras(
+            &root,
+            &blob_stub(
+                &calls,
+                &blobs,
+                &format!(
+                    "echo started > {}; while [ ! -f {} ]; do sleep 0.05; done",
+                    started2.display(),
+                    go.display()
+                ),
+            ),
+        );
+        let current = spawn(new.clone());
+        wait_until("the current layer's second fetch started", || started2.exists());
+        let saved = spawn(old.clone());
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!saved.is_finished(), "the saved model's request waits again");
+        std::fs::write(&go, b"go").unwrap();
+        let current = current
+            .join()
+            .expect("the current request returns")
+            .expect("the current file is fetched");
+        assert_eq!(current.digest.as_deref(), Some(new.as_str()));
+        let saved = saved
+            .join()
+            .expect("the saved model's request returns")
+            .expect("it gets its own file");
+        assert_eq!(saved.digest.as_deref(), Some(old.as_str()), "never the other attempt's file");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
