@@ -372,6 +372,10 @@ fn mock_model(set_id: Uuid, name: &str) -> txresbench::modules::model_store::rep
         own_auc: Some(0.66),
         own_c: Some(0.63),
         conversions: serde_json::json!({}),
+        env_method_version: None,
+        env_arch: None,
+        env_layer_tag: None,
+        env_base_tag: None,
     }
 }
 

@@ -828,6 +828,10 @@ mod tests {
             own_auc: Some(0.66),
             own_c: Some(0.63),
             conversions: serde_json::json!({}),
+            env_method_version: None,
+            env_arch: None,
+            env_layer_tag: None,
+            env_base_tag: None,
             created_at: "2026-10-19T15:00:00+00:00"
                 .parse::<DateTime<Utc>>()
                 .expect("fixture timestamp parses"),

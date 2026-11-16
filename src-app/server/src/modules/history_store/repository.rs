@@ -1492,6 +1492,10 @@ mod tests {
                 own_auc: Some(0.7),
                 own_c: None,
                 conversions: serde_json::json!({}),
+                env_method_version: None,
+                env_arch: None,
+                env_layer_tag: None,
+                env_base_tag: None,
             })
             .await
             .expect("insert model")

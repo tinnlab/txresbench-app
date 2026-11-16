@@ -1661,6 +1661,51 @@ mod tests {
         assert!(!staging2.exists());
     }
 
+    /// The environment image facts ride the header's `env` only when
+    /// recorded: a model without them is written with exactly the two
+    /// digests (an export keeps its earlier bytes), an older container reads
+    /// them as not recorded, and recorded ones round-trip.
+    #[test]
+    fn export_without_image_facts_keeps_its_bytes() {
+        let root = scratch("image-facts");
+        let plain = single_export(&root, "i0");
+        let mut plain_bytes = Vec::new();
+        write_container(&mut plain_bytes, &plain).expect("write");
+        let (h_off, h_len) = header_of(&plain_bytes);
+        let header_text = std::str::from_utf8(&plain_bytes[h_off..h_off + h_len]).unwrap();
+        assert!(
+            header_text.contains(
+                r#""env":{"base_digest":"sha256:base0000","layer_digest":"sha256:layer000"}"#
+            ),
+            "the env object is the two digests alone, as before: {header_text}"
+        );
+        for key in ["\"arch\"", "\"layer_tag\"", "\"base_tag\""] {
+            assert!(!header_text.contains(key), "{key} is not written when absent");
+        }
+        let restored =
+            read_container_bytes(&plain_bytes, &root.join("s-plain"), 1024 * 1024).expect("reads");
+        assert_eq!(
+            restored.models[0].header.facts.env,
+            TxrMethodEnv::digests("sha256:base0000", "sha256:layer000"),
+            "an older container reads the facts as not recorded"
+        );
+
+        let image = TxrMethodEnv {
+            base_digest: "e1".repeat(32),
+            layer_digest: "f2".repeat(32),
+            method_version: Some("1.2.1".to_string()),
+            arch: Some("arm64".to_string()),
+            layer_tag: Some(format!("landmark-cox-1.2.1-arm64-{}", "f2".repeat(6))),
+            base_tag: Some(format!("base-r-2.0-arm64-{}", "e1".repeat(6))),
+        };
+        let mut with = single_export(&root, "i1");
+        with.models[0].facts.env = image.clone();
+        let mut bytes = Vec::new();
+        write_container(&mut bytes, &with).expect("write");
+        let restored = read_container_bytes(&bytes, &root.join("s-with"), 1024 * 1024).expect("reads");
+        assert_eq!(restored.models[0].header.facts.env, image);
+    }
+
     /// A model's saved conversions ride the header (the package's map shape)
     /// and come back as they were; a model without any writes no
     /// `conversions` key (its export keeps its earlier bytes) and reads as

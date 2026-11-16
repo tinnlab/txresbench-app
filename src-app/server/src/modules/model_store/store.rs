@@ -663,6 +663,10 @@ async fn install_verified(
             contract: facts.contract.clone(),
             env_base_digest: Some(facts.env.base_digest.clone()),
             env_layer_digest: Some(facts.env.layer_digest.clone()),
+            env_method_version: facts.env.method_version.clone(),
+            env_arch: facts.env.arch.clone(),
+            env_layer_tag: facts.env.layer_tag.clone(),
+            env_base_tag: facts.env.base_tag.clone(),
             trained_on_patients: facts.trained_on_patients.map(|v| v as i64),
             trained_at: facts.trained_at,
             decision_day: facts.decision_day,
@@ -829,6 +833,35 @@ pub fn row_conversions(row: &ModelRow) -> Result<Conversions, AppError> {
     Ok(map)
 }
 
+/// A row's recorded environment image: the two file hashes (required — a
+/// row without them is corrupt) and the version, arch and tags when kept.
+pub fn row_env(row: &ModelRow) -> Result<TxrMethodEnv, AppError> {
+    match (&row.env_base_digest, &row.env_layer_digest) {
+        (Some(b), Some(l)) => Ok(TxrMethodEnv {
+            base_digest: b.clone(),
+            layer_digest: l.clone(),
+            method_version: row.env_method_version.clone(),
+            arch: row.env_arch.clone(),
+            layer_tag: row.env_layer_tag.clone(),
+            base_tag: row.env_base_tag.clone(),
+        }),
+        _ => Err(AppError::internal_error(format!(
+            "model {} records no environment digest — a corrupt row",
+            row.id
+        ))),
+    }
+}
+
+/// How a note names a recorded image: its layer tag, else the environment's
+/// version, else the start of the layer's file hash (a model saved before
+/// the tags were kept).
+fn image_words(env: &TxrMethodEnv) -> String {
+    env.layer_tag
+        .clone()
+        .or_else(|| env.method_version.clone())
+        .unwrap_or_else(|| format!("file {}", env.layer_digest.chars().take(12).collect::<String>()))
+}
+
 /// The J/I list row (PROV-MS-2) — the marker-count + covariates subline facts
 /// mirror the recorded JSON (TEST-MS-24: no per-row detail fetch).
 pub fn summary_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelSummary, AppError> {
@@ -890,35 +923,50 @@ pub fn detail_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelDetail
     let marker_facts: MarkerFacts = parse_row(&row.marker_facts, "txr_models.marker_facts")?;
     let covariates: CovariateFacts = parse_row(&row.covariates, "txr_models.covariates")?;
     let features: Vec<String> = parse_row(&row.features, "txr_models.features")?;
+    let env = row_env(row)?;
     let mut warnings = Vec::new();
+    // The model runs in the image it was trained in, so a list that moved on
+    // is a note, not a problem — unless the image is for the other chip type,
+    // which this computer cannot run (the run refuses it before any download).
+    use crate::modules::execution_engine::envmanifest::EnvArch;
+    let other_arch = env
+        .arch
+        .as_deref()
+        .and_then(EnvArch::parse)
+        .zip(EnvArch::host())
+        .filter(|(recorded, host)| recorded != host);
+    if let Some((recorded, host)) = other_arch {
+        warnings.push(ModelWarning {
+            code: ModelWarningCode::DigestMismatch,
+            detail: crate::modules::execution_engine::envimage::other_arch_message(recorded, host),
+        });
+    }
     if let Some(cat) = catalogue::method(&row.method_id) {
         if cat.version != row.method_version {
             warnings.push(ModelWarning {
                 code: ModelWarningCode::ModelVersionMismatch,
                 detail: format!(
-                    "recorded method version {}; the catalogue ships {}",
+                    "trained with version {}; the current version is {}; it runs with its own \
+                     version",
                     row.method_version, cat.version
                 ),
             });
         }
-        if let Some(entry) = crate::modules::execution_engine::envmanifest::env_for(&row.method_id) {
+        let entry = crate::modules::execution_engine::envmanifest::env_for(&row.method_id);
+        if let (None, Some(entry)) = (other_arch, entry) {
             // The same pin the run's base ref verifies against (the base
             // record's file hash, or the old reading for a manifest without
             // `bases`).
             use crate::modules::execution_engine::envmanifest::{base_artifact_for, base_pin};
             let current_base = base_pin(entry, base_artifact_for(entry));
-            let layer_mismatch = row
-                .env_layer_digest
-                .as_deref()
-                .is_some_and(|d| d != entry.layer_sha256);
-            let base_mismatch = row
-                .env_base_digest
-                .as_deref()
-                .is_some_and(|d| d != current_base);
-            if layer_mismatch || base_mismatch {
+            if env.layer_digest != entry.layer_sha256 || env.base_digest != current_base {
                 warnings.push(ModelWarning {
                     code: ModelWarningCode::DigestMismatch,
-                    detail: "recorded environment digests differ from the current environment image".to_string(),
+                    detail: format!(
+                        "runs on its own environment, {}; the current one is {}",
+                        image_words(&env),
+                        entry.tag
+                    ),
                 });
             }
         }
@@ -929,22 +977,13 @@ pub fn detail_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelDetail
             detail: "this model carries no recorded requirements (markers, features, draws)".to_string(),
         });
     }
-    let (base_digest, layer_digest) = match (&row.env_base_digest, &row.env_layer_digest) {
-        (Some(b), Some(l)) => (b.clone(), l.clone()),
-        _ => {
-            return Err(AppError::internal_error(format!(
-                "model {} records no environment digest — a corrupt row",
-                row.id
-            )))
-        }
-    };
     Ok(ModelDetail {
         summary,
         own_c: row.own_c,
         tree_sha256: row.tree_sha256.clone(),
         dir: row.dir.clone(),
         contract: row.contract.clone(),
-        env: TxrMethodEnv::digests(base_digest, layer_digest),
+        env,
         features,
         required_markers,
         marker_facts,
@@ -1011,15 +1050,7 @@ pub async fn resolve_assets(
                 format!("model {id}: {}", err),
             )
         })?;
-        let (base_digest, layer_digest) = match (&row.env_base_digest, &row.env_layer_digest) {
-            (Some(b), Some(l)) => (b.clone(), l.clone()),
-            _ => {
-                return Err(AppError::internal_error(format!(
-                    "model {} records no environment digest — a corrupt row",
-                    row.id
-                )))
-            }
-        };
+        let env = row_env(&row)?;
         let conversions = row_conversions(&row)?;
         assets.push(ResolvedAsset {
             model_id: id.clone(),
@@ -1027,7 +1058,7 @@ pub async fn resolve_assets(
             tree_sha256: row.tree_sha256,
             method_id: row.method_id,
             method_version: row.method_version,
-            env: TxrMethodEnv::digests(base_digest, layer_digest),
+            env,
             contract: row.contract,
             conversions,
         });
@@ -1192,6 +1223,10 @@ pub async fn save_from_run(
                 contract: facts.cat.env.contract.clone(),
                 env_base_digest: Some(pm.env.base_digest.clone()),
                 env_layer_digest: Some(pm.env.layer_digest.clone()),
+                env_method_version: pm.env.method_version.clone(),
+                env_arch: pm.env.arch.clone(),
+                env_layer_tag: pm.env.layer_tag.clone(),
+                env_base_tag: pm.env.base_tag.clone(),
                 trained_on_patients: Some(pm.trained_on_patients as i64),
                 trained_at: summary.finished_at,
                 decision_day: summary.config.decision_day,
@@ -1421,15 +1456,7 @@ pub fn export_model(row: &ModelRow) -> Result<ContainerExport, AppError> {
 /// The row's container facts (the export's recorded-facts block; the env
 /// digests are REQUIRED by the format — a row without them cannot be carried).
 fn facts_from_row(row: &ModelRow) -> Result<ContainerModelFacts, AppError> {
-    let (base_digest, layer_digest) = match (&row.env_base_digest, &row.env_layer_digest) {
-        (Some(b), Some(l)) => (b.clone(), l.clone()),
-        _ => {
-            return Err(AppError::internal_error(format!(
-                "model {} records no environment digest — a corrupt row",
-                row.id
-            )))
-        }
-    };
+    let env = row_env(row)?;
     Ok(ContainerModelFacts {
         name: row.name.clone(),
         method_id: row.method_id.clone(),
@@ -1449,7 +1476,7 @@ fn facts_from_row(row: &ModelRow) -> Result<ContainerModelFacts, AppError> {
         endpoint: parse_endpoint(&row.endpoint)?,
         horizon: row.horizon,
         contract: row.contract.clone(),
-        env: TxrMethodEnv::digests(base_digest, layer_digest),
+        env,
         features: parse_row(&row.features, "txr_models.features")?,
         required_markers: match &row.required_markers {
             Some(v) => Some(parse_row(v, "txr_models.required_markers")?),
@@ -1799,6 +1826,10 @@ mod tests {
             own_auc: Some(0.66),
             own_c: Some(0.63),
             conversions: serde_json::json!({}),
+            env_method_version: None,
+            env_arch: None,
+            env_layer_tag: None,
+            env_base_tag: None,
         }
     }
 
@@ -2332,6 +2363,211 @@ mod tests {
             .expect("corrupt the row");
         let err = resolve_assets(&pool, &[row.id.to_string()]).await.expect_err("refused");
         assert_eq!(err.status_code(), 500);
+
+        pool.close().await;
+        let _ = fs::remove_file(&path);
+    }
+
+    /// A saved model's environment image facts travel with it: resolve hands
+    /// them to the engine, a `.txr` export carries them and an import stores
+    /// them.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn txr_export_import_round_trips_the_image_facts() {
+        let (root, _guard) = scratch_root("image-facts");
+        let (pool, path) = test_pool().await;
+        let repo = ModelStoreRepository::new(pool.clone());
+        let (src, digest, _) = fixture_tree(&root, "image");
+        let dir = copy_tree(&src, &digest).expect("tree");
+        let mut new = row_for(&dir, &digest, None, "dynforest");
+        new.env_base_digest = Some("e1".repeat(32));
+        new.env_layer_digest = Some("f2".repeat(32));
+        new.env_method_version = Some("1.2.1".to_string());
+        new.env_arch = Some("amd64".to_string());
+        new.env_layer_tag = Some(format!("dynforest-1.2.1-amd64-{}", "f2".repeat(6)));
+        new.env_base_tag = Some(format!("base-r-2.0-amd64-{}", "e1".repeat(6)));
+        let row = repo.insert_model(&new).await.expect("row");
+        let want = TxrMethodEnv {
+            base_digest: "e1".repeat(32),
+            layer_digest: "f2".repeat(32),
+            method_version: new.env_method_version.clone(),
+            arch: new.env_arch.clone(),
+            layer_tag: new.env_layer_tag.clone(),
+            base_tag: new.env_base_tag.clone(),
+        };
+
+        let assets = resolve_assets(&pool, &[row.id.to_string()]).await.expect("resolve");
+        assert_eq!(assets[0].env, want, "the engine element carries the image");
+        assert_eq!(detail_from(&row, None).expect("detail").env, want, "and the detail");
+
+        let export = export_model(&row).expect("export");
+        assert_eq!(export.models[0].facts.env, want);
+        let mut bytes = Vec::new();
+        write_container(&mut bytes, &export).expect("write");
+        let out = install_imported(
+            &pool,
+            &bytes,
+            &ImportOptions {
+                set_id: None,
+                provenance: Provenance::Imported {
+                    source_name: "image.txr".to_string(),
+                },
+            },
+        )
+        .await
+        .expect("import");
+        let imported = repo
+            .get_model(Uuid::parse_str(&out.model_ids[0]).unwrap())
+            .await
+            .expect("get")
+            .expect("row");
+        assert_eq!(row_env(&imported).expect("env"), want, "the import stores the image");
+
+        pool.close().await;
+        let _ = fs::remove_file(&path);
+    }
+
+    /// A container from before the image facts were kept (two digests only)
+    /// imports, resolves, and plans a reuse in its recorded files: the layer
+    /// and base are fetched by their own sha256, no tag needed.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn container_without_image_facts_imports_and_runs() {
+        use crate::modules::execution_engine::envimage::{resolve_recorded, PlanEnvSource};
+        use crate::modules::execution_engine::envmanifest::{self, EnvLanguage};
+        let (root, _guard) = scratch_root("old-container");
+        let (pool, path) = test_pool().await;
+        let repo = ModelStoreRepository::new(pool.clone());
+        let (src, digest, _) = fixture_tree(&root, "old");
+        let dir = copy_tree(&src, &digest).expect("tree");
+        let mut new = row_for(&dir, &digest, None, "landmark-cox-current");
+        new.env_base_digest = Some("e1".repeat(32));
+        new.env_layer_digest = Some("f2".repeat(32));
+        let row = repo.insert_model(&new).await.expect("row");
+        let export = export_model(&row).expect("export");
+        let mut bytes = Vec::new();
+        write_container(&mut bytes, &export).expect("write");
+        let header = String::from_utf8_lossy(&bytes);
+        assert!(!header.contains("\"layer_tag\""), "an old-shape container");
+        let out = install_imported(
+            &pool,
+            &bytes,
+            &ImportOptions {
+                set_id: None,
+                provenance: Provenance::Imported {
+                    source_name: "old.txr".to_string(),
+                },
+            },
+        )
+        .await
+        .expect("import");
+        let assets = resolve_assets(&pool, &out.model_ids).await.expect("resolve");
+        let asset: crate::modules::execution_engine::types::TxrModelAsset =
+            serde_json::from_value(serde_json::to_value(&assets[0]).unwrap()).expect("engine element");
+        assert_eq!(asset.env, TxrMethodEnv::digests("e1".repeat(32), "f2".repeat(32)));
+        let facts = envmanifest::facts_for("landmark-cox-current").expect("a catalogue method");
+        let env = resolve_recorded(
+            envmanifest::manifest(),
+            envmanifest::EnvArch::host(),
+            &asset,
+            EnvLanguage::from_catalogue(&facts.language),
+        )
+        .expect("planned in its own files");
+        assert_eq!(env.layer.digest, "f2".repeat(32));
+        assert_eq!(env.base.digest, "e1".repeat(32));
+        assert_eq!(
+            env.source,
+            PlanEnvSource::SavedModel {
+                model_id: out.model_ids[0].clone()
+            }
+        );
+
+        pool.close().await;
+        let _ = fs::remove_file(&path);
+    }
+
+    /// The detail's environment notes: a model runs in its own image, so a
+    /// list that moved on is a note naming both images; a model of the other
+    /// chip type says it cannot run here.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn detail_notes_name_the_own_environment() {
+        use crate::modules::execution_engine::envmanifest::{self, EnvArch};
+        let (root, _guard) = scratch_root("detail-notes");
+        let (pool, path) = test_pool().await;
+        let repo = ModelStoreRepository::new(pool.clone());
+        let (src, digest, _) = fixture_tree(&root, "notes");
+        let dir = copy_tree(&src, &digest).expect("tree");
+
+        // The other chip type.
+        let host = EnvArch::host().expect("a supported test host");
+        let other = match host {
+            EnvArch::Amd64 => EnvArch::Arm64,
+            EnvArch::Arm64 => EnvArch::Amd64,
+        };
+        let mut new = row_for(&dir, &digest, None, "dynforest");
+        new.env_arch = Some(other.as_str().to_string());
+        let row = repo.insert_model(&new).await.expect("row");
+        let detail = detail_from(&row, None).expect("detail");
+        let arch_note = crate::modules::execution_engine::envimage::other_arch_message(other, host);
+        assert!(
+            detail
+                .warnings
+                .iter()
+                .any(|w| w.code == ModelWarningCode::DigestMismatch && w.detail == arch_note),
+            "{:?}",
+            detail.warnings
+        );
+
+        // A listed method on this chip type: its own image vs the list's.
+        match envmanifest::envs()
+            .iter()
+            .find(|e| e.arch == host && catalogue::method(&e.method_id).is_some())
+        {
+            Some(entry) => {
+                let cat = catalogue::method(&entry.method_id).expect("row");
+                let mut new = row_for(&dir, &digest, None, &entry.method_id);
+                new.method_version = "0.0.1".to_string();
+                new.env_layer_digest = Some("ab".repeat(32));
+                new.env_layer_tag = Some("its-own-tag".to_string());
+                new.env_arch = Some(host.as_str().to_string());
+                let row = repo.insert_model(&new).await.expect("row");
+                let detail = detail_from(&row, None).expect("detail");
+                let text = |code: ModelWarningCode| {
+                    detail
+                        .warnings
+                        .iter()
+                        .find(|w| w.code == code)
+                        .map(|w| w.detail.clone())
+                };
+                assert_eq!(
+                    text(ModelWarningCode::DigestMismatch).as_deref(),
+                    Some(
+                        format!(
+                            "runs on its own environment, its-own-tag; the current one is {}",
+                            entry.tag
+                        )
+                        .as_str()
+                    )
+                );
+                assert_eq!(
+                    text(ModelWarningCode::ModelVersionMismatch).as_deref(),
+                    Some(
+                        format!(
+                            "trained with version 0.0.1; the current version is {}; it runs \
+                             with its own version",
+                            cat.version
+                        )
+                        .as_str()
+                    )
+                );
+            }
+            None => eprintln!(
+                "detail_notes_name_the_own_environment: no listed method for {} (the list \
+                 half runs where the list has this chip type)",
+                host.as_str()
+            ),
+        }
 
         pool.close().await;
         let _ = fs::remove_file(&path);
