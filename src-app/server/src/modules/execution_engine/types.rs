@@ -523,12 +523,43 @@ pub struct TxrModelAsset {
     pub conversions: super::predictions::Conversions,
 }
 
-/// The env digest pair recorded on a method row / produced model (base + the
-/// method's layer — provenance against the manifest, CONS-EE-8).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+/// The environment image recorded on a method row / produced model / saved
+/// model: the two FILE hashes the run verified (the base squashfs pin and the
+/// layer squashfs `layer_sha256`, each the blob digest of its file in its
+/// package, so the exact image can always be fetched again), plus what the
+/// method list told about it when the run started.
+///
+/// The four optional facts are absent on records from before they were kept
+/// (and on an image the list did not name); absent ones are not written, so a
+/// `.txr` header without them keeps its bytes and an older app ignores them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct TxrMethodEnv {
     pub base_digest: String,
     pub layer_digest: String,
+    /// The environment's method version (the list entry's `method_version`,
+    /// which can differ from the catalogue's version).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method_version: Option<String>,
+    /// The chip type the image is built for (`amd64` | `arm64`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arch: Option<String>,
+    /// The layer's immutable publish tag (`<env_id>-<version>-<arch>-<sha12>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_tag: Option<String>,
+    /// The base's immutable publish tag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_tag: Option<String>,
+}
+
+impl TxrMethodEnv {
+    /// The two digests alone (a record that carries no list facts).
+    pub fn digests(base_digest: impl Into<String>, layer_digest: impl Into<String>) -> Self {
+        Self {
+            base_digest: base_digest.into(),
+            layer_digest: layer_digest.into(),
+            ..Self::default()
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1128,10 +1159,7 @@ mod tests {
             tree_sha256: "a".repeat(64),
             method_id: "landmark-cox-current".to_string(),
             method_version: "2.0.1".to_string(),
-            env: TxrMethodEnv {
-                base_digest: "b".repeat(64),
-                layer_digest: "c".repeat(64),
-            },
+            env: TxrMethodEnv::digests("b".repeat(64), "c".repeat(64)),
             contract: "2.0".to_string(),
             conversions: Default::default(),
         }

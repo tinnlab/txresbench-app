@@ -1097,10 +1097,7 @@ mod tests {
             tree_sha256: "ab".repeat(32),
             method_id: "dynforest".into(),
             method_version: "1.0.0".into(),
-            env: TxrMethodEnv {
-                base_digest: "ba".repeat(32),
-                layer_digest: "ca".repeat(32),
-            },
+            env: TxrMethodEnv::digests("ba".repeat(32), "ca".repeat(32)),
             contract: "2.0".into(),
             conversions: Default::default(),
         };

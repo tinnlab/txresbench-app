@@ -93,6 +93,15 @@ impl EnvArch {
         }
     }
 
+    /// The variant of an arch string (`amd64` | `arm64`), `None` otherwise.
+    pub fn parse(s: &str) -> Option<EnvArch> {
+        match s {
+            "amd64" => Some(EnvArch::Amd64),
+            "arm64" => Some(EnvArch::Arm64),
+            _ => None,
+        }
+    }
+
     /// The architecture this BUILT runtime runs on (the lookup the engine
     /// performs at run start: a layer for another machine is a layer the app
     /// cannot mount, and `env_for` returning it would be a silent wrong
@@ -123,6 +132,15 @@ impl EnvLanguage {
         match self {
             EnvLanguage::R => "r",
             EnvLanguage::Python => "py",
+        }
+    }
+
+    /// The language of a catalogue row (`R` | `Python`), `None` otherwise.
+    pub fn from_catalogue(language: &str) -> Option<EnvLanguage> {
+        match language {
+            "R" => Some(EnvLanguage::R),
+            "Python" => Some(EnvLanguage::Python),
+            _ => None,
         }
     }
 

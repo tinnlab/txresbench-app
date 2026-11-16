@@ -49,7 +49,7 @@ const APP_CHAIN_GROUPS: &[(&str, usize)] = &[
     ("features", 1),
     ("file", 1),
     ("account", 6),
-    ("execution_engine", 7),
+    ("execution_engine", 8),
     ("model_store", 4),
     ("history_store", 2),
     // demo-mode ITEM-1 + ITEM-4: the anonymous-visitor session rows + the
@@ -122,10 +122,10 @@ const SDK_CHAIN_FILES: &[&str] = &[
     "202609090010_users_email_lowercase_invariant.sql",
 ];
 
-/// Every file the ported chain ships (SDK 7 + the kept modules' 34: jobs 6,
-/// sandbox 3, mcp 2, features 1, file 1, account 6, execution_engine 7,
+/// Every file the ported chain ships (SDK 7 + the kept modules' 35: jobs 6,
+/// sandbox 3, mcp 2, features 1, file 1, account 6, execution_engine 8,
 /// model_store 4, history_store 2, demo 2), in the version-sorted order the
-/// merged chain applies them — the complete 41-file SQLite chain.
+/// merged chain applies them — the complete 42-file SQLite chain.
 pub(crate) const CHAIN_FILES: &[&str] = &[
     "202607140050_auth_schema.sql",
     "202607140125_file_schema.sql",
@@ -168,6 +168,7 @@ pub(crate) const CHAIN_FILES: &[&str] = &[
     "202611130001_txr_models_conversions.sql",
     "202611141001_txr_demo_sessions.sql",
     "202611141002_txr_demo_seeded_runs.sql",
+    "202611170001_txr_run_methods_env_image.sql",
 ];
 
 static UNIQUE: AtomicU64 = AtomicU64::new(0);

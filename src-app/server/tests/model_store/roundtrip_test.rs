@@ -53,10 +53,7 @@ fn container_fixture(tree_dir: &std::path::Path, token: &str) -> Vec<u8> {
         endpoint: txresbench::modules::execution_engine::types::TxrEndpoint::Pfs,
         horizon: 238.0,
         contract: "2.0".to_string(),
-        env: TxrMethodEnv {
-            base_digest: "ab".repeat(32),
-            layer_digest: "cd".repeat(32),
-        },
+        env: TxrMethodEnv::digests("ab".repeat(32), "cd".repeat(32)),
         features: vec!["M1".to_string(), "M2".to_string()],
         required_markers: None,
         marker_facts: MarkerFacts {

@@ -1183,10 +1183,7 @@ mod tests {
             endpoint: TxrEndpoint::Pfs,
             horizon: 238.0,
             contract: "2.0".to_string(),
-            env: TxrMethodEnv {
-                base_digest: "sha256:base0000".to_string(),
-                layer_digest: "sha256:layer000".to_string(),
-            },
+            env: TxrMethodEnv::digests("sha256:base0000".to_string(), "sha256:layer000".to_string()),
             features: vec!["M1".to_string(), "M2".to_string()],
             required_markers: None,
             marker_facts: MarkerFacts {

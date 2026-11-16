@@ -34,6 +34,7 @@
 //! adds its own per-run lane semaphore (the board's "run N at a time").
 
 pub mod bundle;
+pub mod envimage;
 pub mod envmanifest;
 pub mod orchestrator;
 pub mod predictions;

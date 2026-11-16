@@ -944,10 +944,7 @@ pub fn detail_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelDetail
         tree_sha256: row.tree_sha256.clone(),
         dir: row.dir.clone(),
         contract: row.contract.clone(),
-        env: TxrMethodEnv {
-            base_digest,
-            layer_digest,
-        },
+        env: TxrMethodEnv::digests(base_digest, layer_digest),
         features,
         required_markers,
         marker_facts,
@@ -1030,10 +1027,7 @@ pub async fn resolve_assets(
             tree_sha256: row.tree_sha256,
             method_id: row.method_id,
             method_version: row.method_version,
-            env: TxrMethodEnv {
-                base_digest,
-                layer_digest,
-            },
+            env: TxrMethodEnv::digests(base_digest, layer_digest),
             contract: row.contract,
             conversions,
         });
@@ -1455,10 +1449,7 @@ fn facts_from_row(row: &ModelRow) -> Result<ContainerModelFacts, AppError> {
         endpoint: parse_endpoint(&row.endpoint)?,
         horizon: row.horizon,
         contract: row.contract.clone(),
-        env: TxrMethodEnv {
-            base_digest,
-            layer_digest,
-        },
+        env: TxrMethodEnv::digests(base_digest, layer_digest),
         features: parse_row(&row.features, "txr_models.features")?,
         required_markers: match &row.required_markers {
             Some(v) => Some(parse_row(v, "txr_models.required_markers")?),

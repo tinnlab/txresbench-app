@@ -333,6 +333,9 @@ pub struct EnvFacts {
     pub base_digest: String,
     /// Verified layer content digest (64-hex; the row's `env_layer_digest`).
     pub layer_digest: String,
+    /// The image facts the method row records (the two digests above plus
+    /// the version, arch and tags the plan knew).
+    pub image: super::types::TxrMethodEnv,
 }
 
 /// Everything the per-method executor needs — ITEM-9's context. Owned (the
@@ -482,7 +485,10 @@ pub struct MethodPlan {
     pub version: String,
     pub group: String,
     pub min_draws: u32,
-    pub entry: Option<&'static envmanifest::ManifestEntry>,
+    /// The environment the method runs in (a train run: the list entry for
+    /// this computer; a reuse run: the saved model's own image). `None` only
+    /// on a `cannot_run` plan.
+    pub env: Option<super::envimage::PlanEnv>,
     pub target: RunTarget,
     /// Whether the row was inserted as `cannot_run` (no task is spawned).
     pub cannot_run: bool,
@@ -3447,6 +3453,8 @@ fn prepare_run(
         assets,
         &canonical.validated.inventory,
         config,
+        envmanifest::manifest(),
+        envmanifest::EnvArch::host(),
     )?;
     Ok(PreparedRun {
         markers: canonical.validated.markers.len(),
@@ -3645,12 +3653,19 @@ fn reason_line(reason: &crate::modules::method_catalogue::types::Reason) -> Stri
 /// (TEST-EE-06: the screens' verdict and the run row now carry the SAME code
 /// — the stage runs before this branch, so the CannotRun arm is what its
 /// rows take; the ENV_UNKNOWN arm stays the defensive backstop).
+///
+/// The method list is read only here, through `list` (the environment of a
+/// train plan is the host-arch entry, `host`; a reuse plan's is the saved
+/// model's own record, which the list only describes — [`super::envimage`]).
+#[allow(clippy::too_many_arguments)]
 fn classify(
     mode: super::types::TxrRunMode,
     method_ids: &[String],
     assets: &[super::types::TxrModelAsset],
     inventory: &crate::modules::method_catalogue::types::InventoryEligibilityRequest,
     config: &RunConfig,
+    list: &envmanifest::EnvManifest,
+    host: Option<envmanifest::EnvArch>,
 ) -> Result<Vec<MethodPlan>, AppError> {
     let _ = config;
     let mut plans = Vec::new();
@@ -3707,21 +3722,24 @@ fn classify(
                             version: facts.version.clone(),
                             group: facts.group.as_str().to_string(),
                             min_draws: facts.min_draws,
-                            entry: None,
+                            env: None,
                             target: RunTarget::TrainMethod,
                             cannot_run: true,
                             reason: Some(reason),
                         }
                     }
                     EligibilityStatus::CanRun | EligibilityStatus::CanRunSome => {
-                        match envmanifest::env_for(id) {
+                        match host.and_then(|arch| list.find(id, arch)) {
                             Some(entry) => MethodPlan {
                                 method_id: id.clone(),
                                 label: facts.id.clone(),
                                 version: facts.version.clone(),
                                 group: facts.group.as_str().to_string(),
                                 min_draws: facts.min_draws,
-                                entry: Some(entry),
+                                env: Some(super::envimage::PlanEnv::from_list(
+                                    entry,
+                                    list.base_for_entry(entry),
+                                )),
                                 target: RunTarget::TrainMethod,
                                 cannot_run: false,
                                 reason: None,
@@ -3732,7 +3750,7 @@ fn classify(
                                 version: facts.version.clone(),
                                 group: facts.group.as_str().to_string(),
                                 min_draws: facts.min_draws,
-                                entry: None,
+                                env: None,
                                 target: RunTarget::TrainMethod,
                                 cannot_run: true,
                                 reason: Some(TxrRunReason::from_engine(
@@ -3749,63 +3767,53 @@ fn classify(
         super::types::TxrRunMode::Reuse => {
             for asset in assets {
                 let facts = envmanifest::facts_for(&asset.method_id).expect("checked at start");
-                let plan = match envmanifest::env_for(&asset.method_id) {
-                    None => MethodPlan {
+                let plan = |env: Option<super::envimage::PlanEnv>, reason: Option<TxrRunReason>| {
+                    MethodPlan {
                         method_id: asset.model_id.clone(),
                         label: asset.method_id.clone(),
-                        version: fact_version(&facts, asset),
+                        version: fact_version(facts, asset),
                         group: facts.group.as_str().to_string(),
                         min_draws: facts.min_draws,
-                        entry: None,
+                        env,
                         target: RunTarget::ReuseModel {
                             asset: asset.clone(),
                         },
-                        cannot_run: true,
-                        reason: Some(TxrRunReason::from_engine(
-                            EngineReasonCode::EnvUnknown,
-                            format!("no published environment for method {:?}", asset.method_id),
-                        )),
-                    },
-                    Some(entry) => {
-                        // The verify-before-bind gate (CONS-EE-6): a tampered
-                        // asset dir is refused BEFORE any spawn.
-                        match crate::modules::sandbox::stack::verify_model_tree(
-                            Path::new(&asset.host_dir),
-                            &asset.tree_sha256,
-                        ) {
-                            Ok(()) => MethodPlan {
-                                method_id: asset.model_id.clone(),
-                                label: asset.method_id.clone(),
-                                version: fact_version(&facts, asset),
-                                group: facts.group.as_str().to_string(),
-                                min_draws: facts.min_draws,
-                                entry: Some(entry),
-                                target: RunTarget::ReuseModel {
-                                    asset: asset.clone(),
-                                },
-                                cannot_run: false,
-                                reason: None,
-                            },
-                            Err(e) => MethodPlan {
-                                method_id: asset.model_id.clone(),
-                                label: asset.method_id.clone(),
-                                version: fact_version(&facts, asset),
-                                group: facts.group.as_str().to_string(),
-                                min_draws: facts.min_draws,
-                                entry: Some(entry),
-                                target: RunTarget::ReuseModel {
-                                    asset: asset.clone(),
-                                },
-                                cannot_run: true,
-                                reason: Some(TxrRunReason {
-                                    code: e.error_code().to_string(),
-                                    detail: e.to_string(),
-                                }),
-                            },
-                        }
+                        cannot_run: reason.is_some(),
+                        reason,
                     }
                 };
-                plans.push(plan);
+                // The image the model was trained in (its recorded files —
+                // never the list's current entry). A record for the other
+                // chip type, or one that names no file, is refused here,
+                // before any download; the other models still run.
+                let env = match super::envimage::resolve_recorded(
+                    list,
+                    host,
+                    asset,
+                    envmanifest::EnvLanguage::from_catalogue(&facts.language),
+                ) {
+                    Ok(env) => env,
+                    Err(refusal) => {
+                        plans.push(plan(None, Some(refusal.reason(asset))));
+                        continue;
+                    }
+                };
+                // The verify-before-bind gate (CONS-EE-6): a tampered asset
+                // dir is refused BEFORE any spawn.
+                let verified = crate::modules::sandbox::stack::verify_model_tree(
+                    Path::new(&asset.host_dir),
+                    &asset.tree_sha256,
+                );
+                plans.push(match verified {
+                    Ok(()) => plan(Some(env), None),
+                    Err(e) => plan(
+                        Some(env),
+                        Some(TxrRunReason {
+                            code: e.error_code().to_string(),
+                            detail: e.to_string(),
+                        }),
+                    ),
+                });
             }
         }
     }
@@ -3841,7 +3849,7 @@ async fn persist_plans(
             } else {
                 TxrMethodState::Waiting
             },
-            bytes_total: plan.entry.map(|e| e.size_bytes),
+            bytes_total: plan.env.as_ref().and_then(|e| e.layer_size),
         };
         let _ = repo.insert_method(&new).await?;
         if let Some(reason) = plan.reason.clone() {
@@ -3953,15 +3961,14 @@ async fn run_drive_body(
 }
 
 fn clone_plan(plan: &MethodPlan) -> MethodPlan {
-    // `&'static ManifestEntry` is Copy; the rest is cloned — the per-method
-    // task owns its plan.
+    // The per-method task owns its plan.
     MethodPlan {
         method_id: plan.method_id.clone(),
         label: plan.label.clone(),
         version: plan.version.clone(),
         group: plan.group.clone(),
         min_draws: plan.min_draws,
-        entry: plan.entry,
+        env: plan.env.clone(),
         target: match &plan.target {
             RunTarget::TrainMethod => RunTarget::TrainMethod,
             RunTarget::ReuseModel { asset } => RunTarget::ReuseModel {
@@ -4188,6 +4195,10 @@ async fn run_method_via_lanes(drive: Arc<RunDrive>, prepared: Arc<PreparedRun>, 
         job_id: Some(job_id),
         env_base_digest: Some(env_facts.base_digest.clone()),
         env_layer_digest: Some(env_facts.layer_digest.clone()),
+        env_method_version: env_facts.image.method_version.clone(),
+        env_arch: env_facts.image.arch.clone(),
+        env_layer_tag: env_facts.image.layer_tag.clone(),
+        env_base_tag: env_facts.image.base_tag.clone(),
         ..Default::default()
     };
     if let Err(e) = drive.patch(&method_id, patch).await {
@@ -4421,7 +4432,9 @@ async fn ensure_method_env(
     skip_rx: &mut watch::Receiver<bool>,
     run_stop_rx: &mut watch::Receiver<bool>,
 ) -> EnvPhase {
-    let entry = match plan.entry {
+    // The plan resolved both refs (the base included) once, at plan time:
+    // nothing here reads the method list again.
+    let env = match plan.env.as_ref() {
         Some(e) => e,
         None => {
             return EnvPhase::Failed(TxrRunReason::from_engine(
@@ -4430,23 +4443,32 @@ async fn ensure_method_env(
             ));
         }
     };
-    let base = base_env_ref(entry, envmanifest::base_artifact_for(entry));
-    let layer = layer_env_ref(entry);
+    let base = env.base.clone();
+    let layer = env.layer.clone();
     let base_digest = base.digest.clone();
     let layer_digest = layer.digest.clone();
-    let layer_id = entry.env_id.clone();
-    let base_id = base_env_id(entry);
+    let layer_id = layer.env_id.clone();
+    let base_id = env.base_id.clone();
+    let layer_size = env.layer_size.unwrap_or(0);
     let budget = crate::modules::sandbox::settings_cache::get(&drive.pool)
         .await
         .staging_budget();
 
+    let size_words = match env.layer_size {
+        Some(size) => format!("{} MB", size / (1024 * 1024)),
+        None => "size not listed".to_string(),
+    };
+    let own_image = match &env.source {
+        super::envimage::PlanEnvSource::SavedModel { .. } => "the saved model's own environment, ",
+        super::envimage::PlanEnvSource::List => "",
+    };
     drive
         .append_log(
             Some(&plan.method_id),
             &format!(
-                "starting environment (base {}, layer {} MB)",
-                base_id,
-                entry.size_bytes / (1024 * 1024)
+                "starting environment ({own_image}base {base_id}, layer {} {}, {size_words})",
+                layer_id,
+                env.describe(),
             ),
         )
         .await;
@@ -4496,9 +4518,10 @@ async fn ensure_method_env(
                             layer,
                             base_digest,
                             layer_digest,
+                            image: env.image.clone(),
                         });
                     }
-                    Ok(Err(e)) => break EnvPhase::Failed(env_failure_reason(&e)),
+                    Ok(Err(e)) => break EnvPhase::Failed(saved_model_env_failure(plan, env, env_failure_reason(&e))),
                     Err(e) => break EnvPhase::Failed(execution_failure_reason(&AppError::internal_error(format!("env ensure task join: {e}")))),
                 }
             }
@@ -4531,8 +4554,8 @@ async fn ensure_method_env(
                     if let Err(e) = drive.patch(&plan.method_id, patch).await {
                         tracing::warn!(method_id = %plan.method_id, error = %e, "execution engine: byte patch failed");
                     }
-                    let pct = if entry.size_bytes > 0 {
-                        Some((st.bytes_downloaded as f64 / entry.size_bytes as f64) * 100.0)
+                    let pct = if layer_size > 0 {
+                        Some((st.bytes_downloaded as f64 / layer_size as f64) * 100.0)
                     } else {
                         None
                     };
@@ -4590,6 +4613,35 @@ async fn ensure_method_env(
     // CANCEL_JOIN_TIMEOUT) — the task handle is dropped, its result never
     // read, which is the honest post-cancel state.
     phase
+}
+
+/// A saved model's environment that could not be had (offline and not
+/// cached, gone from the registry, bytes that do not match the record): the
+/// provider's code stays, and the detail says which model and environment
+/// version it was (the user's decision: that model is refused, the others
+/// run). A train run's failure is returned as it is.
+fn saved_model_env_failure(
+    plan: &MethodPlan,
+    env: &super::envimage::PlanEnv,
+    reason: TxrRunReason,
+) -> TxrRunReason {
+    if !matches!(env.source, super::envimage::PlanEnvSource::SavedModel { .. }) {
+        return reason;
+    }
+    let what = if reason.code == "ENV_VERIFY_FAILED" {
+        "the downloaded environment does not match the model's record"
+    } else {
+        "that environment could not be downloaded: connect and run again"
+    };
+    TxrRunReason {
+        detail: format!(
+            "This saved model was trained with {} {}; {what} ({})",
+            plan.label,
+            env.describe(),
+            reason.detail
+        ),
+        code: reason.code,
+    }
 }
 
 /// Cancel both envs of a stopped download (fire-and-forget: the provider's
@@ -5005,6 +5057,8 @@ mod tests {
         policy: Mutex<std::collections::HashMap<String, EnvPolicy>>,
         progress: Mutex<std::collections::HashMap<String, (std::time::Instant, u64)>>,
         cancelled: Mutex<Vec<String>>,
+        /// Every ref `ensure` was asked for, in order.
+        requested: Mutex<Vec<EnvRef>>,
     }
 
     impl FakeEnv {
@@ -5015,8 +5069,17 @@ mod tests {
                     policy: Mutex::new(std::collections::HashMap::new()),
                     progress: Mutex::new(std::collections::HashMap::new()),
                     cancelled: Mutex::new(Vec::new()),
+                    requested: Mutex::new(Vec::new()),
                 }),
             }
+        }
+
+        fn requested(&self) -> Vec<EnvRef> {
+            self.inner
+                .requested
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
         }
 
         fn set(&self, env_id: &str, policy: EnvPolicy) {
@@ -5049,6 +5112,11 @@ mod tests {
             _kind: EnvKind,
             _deadline: Duration,
         ) -> Result<ProvidedMount, AppError> {
+            self.inner
+                .requested
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(r.clone());
             let env_id = ref_env_id(r);
             let policy = self
                 .inner
@@ -5425,7 +5493,7 @@ mod tests {
             .collect();
         let cox = by_id["landmark-cox-current"];
         assert!(!cox.cannot_run, "survival task + draws met → queued");
-        assert!(cox.entry.is_some(), "has a published environment");
+        assert!(cox.env.is_some(), "has a published environment");
         assert!(matches!(cox.target, RunTarget::TrainMethod));
 
         let jm = by_id["jm-mem-lq"];
@@ -5942,10 +6010,7 @@ mod tests {
                 tree_sha256: "bb".repeat(32),
                 method_id: "landmark-cox-current".to_string(),
                 method_version: "1.0.0".to_string(),
-                env: TxrMethodEnv {
-                    base_digest: "c".repeat(64),
-                    layer_digest: "d".repeat(64),
-                },
+                env: TxrMethodEnv::digests("c".repeat(64), "d".repeat(64)),
                 contract: "2.0".to_string(),
                 conversions: Default::default(),
             }],
@@ -5968,6 +6033,289 @@ mod tests {
             Some("MODEL_TREE_READ_FAILED"),
             "the verify-before-bind refusal, typed, before any spawn"
         );
+    }
+
+    // ── a saved model runs in the image it was trained in ──────────────────
+
+    /// This computer's chip type and the other one.
+    fn host_and_other_arch() -> (&'static str, &'static str) {
+        match envmanifest::EnvArch::host() {
+            Some(envmanifest::EnvArch::Arm64) => ("arm64", "amd64"),
+            _ => ("amd64", "arm64"),
+        }
+    }
+
+    /// A saved model of `method` (a real verified tree under `root`) whose
+    /// record names the layer file `layer` and the base file `base`.
+    fn saved_model(
+        root: &Path,
+        model_id: &str,
+        method: &str,
+        layer: &str,
+        base: &str,
+        arch: Option<&str>,
+    ) -> crate::modules::execution_engine::types::TxrModelAsset {
+        let (dir, digest) = fixture_asset(&root.join(model_id));
+        crate::modules::execution_engine::types::TxrModelAsset {
+            model_id: model_id.to_string(),
+            host_dir: dir.display().to_string(),
+            tree_sha256: digest,
+            method_id: method.to_string(),
+            method_version: "1.0.0".to_string(),
+            env: TxrMethodEnv {
+                base_digest: base.to_string(),
+                layer_digest: layer.to_string(),
+                method_version: Some("1.0.0".to_string()),
+                arch: arch.map(str::to_string),
+                layer_tag: Some(format!("{method}-1.0.0-{}-{}", arch.unwrap_or("amd64"), &layer[..12])),
+                base_tag: None,
+            },
+            contract: "2.0".to_string(),
+            conversions: Default::default(),
+        }
+    }
+
+    fn reuse_request(
+        assets: Vec<crate::modules::execution_engine::types::TxrModelAsset>,
+    ) -> CreateRunRequest {
+        CreateRunRequest {
+            mode: TxrRunMode::Reuse,
+            input: TxrRunInput {
+                patients: None,
+                measurements: measurements_table(),
+                predict_measurements: None,
+                joins: Vec::new(),
+                mapping: Vec::new(),
+                keep_copies: false,
+            },
+            config: RunConfig {
+                at_a_time: 2,
+                ..Default::default()
+            },
+            method_ids: Vec::new(),
+            model_ids: assets,
+        }
+    }
+
+    /// The base env id of a catalogue method (its language's base).
+    fn base_id_of(method: &str) -> &'static str {
+        let facts = envmanifest::facts_for(method).expect("a catalogue method");
+        envmanifest::EnvLanguage::from_catalogue(&facts.language)
+            .expect("R or Python")
+            .base_id()
+    }
+
+    #[tokio::test]
+    async fn reuse_run_requests_the_recorded_digests() {
+        let root = test_data_dir("reuse-recorded-digests");
+        let _ = std::fs::remove_dir_all(&root);
+        let _g = rootfs::scoped_data_root(root.clone());
+        let pool = merged_pool().await;
+        let env = Arc::new(FakeEnv::new(Duration::from_millis(10)));
+        let executor = Arc::new(FakeExecutor::new(Duration::ZERO));
+        let (host, _) = host_and_other_arch();
+        let method = "landmark-cox-current";
+        // Files the list does not name (an older layer and base).
+        let (layer, base) = ("1a".repeat(32), "2b".repeat(32));
+        let asset = saved_model(&root, "m-1", method, &layer, &base, Some(host));
+        let summary = start_run(
+            pool.clone(),
+            Arc::new(RunRuntime::new()),
+            env.clone(),
+            executor,
+            owner(),
+            reuse_request(vec![asset.clone()]),
+        )
+        .await
+        .expect("create");
+        let repo = TxrRepository::new(pool.clone());
+        let _ = wait_terminal(&repo, summary.id).await;
+
+        let requested = env.requested();
+        let base_id = base_id_of(method);
+        assert!(
+            requested.contains(&EnvRef {
+                env_id: base_id.to_string(),
+                oci_ref: format!("ghcr.io/tinnlab/txresbench-env@sha256:{base}"),
+                digest: base.clone(),
+                tag: None,
+            }),
+            "the recorded base file, by its sha256: {requested:?}"
+        );
+        assert!(
+            requested.contains(&EnvRef {
+                env_id: method.to_string(),
+                oci_ref: format!("ghcr.io/tinnlab/txr-method-env-layers@sha256:{layer}"),
+                digest: layer.clone(),
+                tag: None,
+            }),
+            "the recorded layer file, by its sha256 (never the list's entry): {requested:?}"
+        );
+        assert_eq!(requested.len(), 2, "one base, one layer: {requested:?}");
+
+        let rows = repo.methods_for_run(summary.id).await.expect("methods");
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.state, "finished");
+        assert_eq!(row.env_layer_digest.as_deref(), Some(layer.as_str()));
+        assert_eq!(row.env_base_digest.as_deref(), Some(base.as_str()));
+        assert_eq!(row.env_method_version.as_deref(), Some("1.0.0"), "the model's recorded version");
+        assert_eq!(row.env_arch.as_deref(), Some(host));
+        assert_eq!(row.env_layer_tag, asset.env.layer_tag, "the model's recorded tag");
+        assert_eq!(row.env_base_tag, None);
+        assert_eq!(row.bytes_total, None, "the list does not know the old file's size");
+    }
+
+    #[tokio::test]
+    async fn two_models_of_one_method_bind_their_own_layers() {
+        let root = test_data_dir("reuse-two-versions");
+        let _ = std::fs::remove_dir_all(&root);
+        let _g = rootfs::scoped_data_root(root.clone());
+        let pool = merged_pool().await;
+        let env = Arc::new(FakeEnv::new(Duration::from_millis(10)));
+        let executor = Arc::new(FakeExecutor::new(Duration::ZERO));
+        let (host, _) = host_and_other_arch();
+        let method = "landmark-cox-current";
+        let base = "2b".repeat(32);
+        let (old, new) = ("1a".repeat(32), "3c".repeat(32));
+        let assets = vec![
+            saved_model(&root, "m-old", method, &old, &base, Some(host)),
+            saved_model(&root, "m-new", method, &new, &base, Some(host)),
+        ];
+        let summary = start_run(
+            pool.clone(),
+            Arc::new(RunRuntime::new()),
+            env.clone(),
+            executor,
+            owner(),
+            reuse_request(assets),
+        )
+        .await
+        .expect("create");
+        let repo = TxrRepository::new(pool.clone());
+        let _ = wait_terminal(&repo, summary.id).await;
+
+        let layers: std::collections::BTreeSet<String> = env
+            .requested()
+            .into_iter()
+            .filter(|r| r.env_id == method)
+            .map(|r| r.digest)
+            .collect();
+        assert_eq!(
+            layers,
+            [old.clone(), new.clone()].into_iter().collect(),
+            "each model asks for its own layer file"
+        );
+        let rows = repo.methods_for_run(summary.id).await.expect("methods");
+        let by_id: std::collections::HashMap<_, _> =
+            rows.iter().map(|r| (r.method_id.as_str(), r)).collect();
+        assert_eq!(by_id["m-old"].state, "finished");
+        assert_eq!(by_id["m-new"].state, "finished");
+        assert_eq!(by_id["m-old"].env_layer_digest.as_deref(), Some(old.as_str()));
+        assert_eq!(by_id["m-new"].env_layer_digest.as_deref(), Some(new.as_str()));
+    }
+
+    #[tokio::test]
+    async fn reuse_fetch_failure_names_the_model_version() {
+        let root = test_data_dir("reuse-fetch-failure");
+        let _ = std::fs::remove_dir_all(&root);
+        let _g = rootfs::scoped_data_root(root.clone());
+        let pool = merged_pool().await;
+        let env = Arc::new(FakeEnv::new(Duration::from_millis(10)));
+        let method = "landmark-cox-current";
+        // Offline and not cached: the layer download fails.
+        env.set(method, EnvPolicy::Fail { code: "ENV_REPOSITORY_UNKNOWN" });
+        let executor = Arc::new(FakeExecutor::new(Duration::ZERO));
+        let (host, _) = host_and_other_arch();
+        let other = envmanifest::envs()
+            .iter()
+            .map(|e| e.method_id.as_str())
+            .find(|m| *m != method && envmanifest::facts_for(m).is_some())
+            .expect("another listed method");
+        let assets = vec![
+            saved_model(&root, "m-1", method, &"1a".repeat(32), &"2b".repeat(32), Some(host)),
+            saved_model(&root, "m-2", other, &"4d".repeat(32), &"2b".repeat(32), Some(host)),
+        ];
+        let summary = start_run(
+            pool.clone(),
+            Arc::new(RunRuntime::new()),
+            env,
+            executor,
+            owner(),
+            reuse_request(assets),
+        )
+        .await
+        .expect("create");
+        let repo = TxrRepository::new(pool.clone());
+        let _ = wait_terminal(&repo, summary.id).await;
+        let rows = repo.methods_for_run(summary.id).await.expect("methods");
+        let by_id: std::collections::HashMap<_, _> =
+            rows.iter().map(|r| (r.method_id.as_str(), r)).collect();
+        let failed = by_id["m-1"];
+        assert_eq!(failed.state, "failed");
+        assert_eq!(
+            failed.reason_code.as_deref(),
+            Some("ENV_REPOSITORY_UNKNOWN"),
+            "the provider's code stays"
+        );
+        let detail = failed.reason_detail.as_deref().unwrap_or_default();
+        assert!(
+            detail.starts_with(&format!(
+                "This saved model was trained with {method} 1.0.0; that environment could not be \
+                 downloaded: connect and run again"
+            )),
+            "the detail names the model's method and version: {detail}"
+        );
+        assert_eq!(by_id["m-2"].state, "finished", "the other model still runs");
+    }
+
+    #[tokio::test]
+    async fn other_arch_record_is_refused_before_any_download() {
+        let root = test_data_dir("reuse-other-arch");
+        let _ = std::fs::remove_dir_all(&root);
+        let _g = rootfs::scoped_data_root(root.clone());
+        let pool = merged_pool().await;
+        let env = Arc::new(FakeEnv::new(Duration::from_millis(10)));
+        let executor = Arc::new(FakeExecutor::new(Duration::ZERO));
+        let (host, other_arch) = host_and_other_arch();
+        let method = "landmark-cox-current";
+        let assets = vec![
+            saved_model(&root, "m-other-chip", method, &"1a".repeat(32), &"2b".repeat(32), Some(other_arch)),
+            saved_model(&root, "m-this-chip", method, &"3c".repeat(32), &"2b".repeat(32), Some(host)),
+        ];
+        let summary = start_run(
+            pool.clone(),
+            Arc::new(RunRuntime::new()),
+            env.clone(),
+            executor,
+            owner(),
+            reuse_request(assets),
+        )
+        .await
+        .expect("create");
+        let repo = TxrRepository::new(pool.clone());
+        let _ = wait_terminal(&repo, summary.id).await;
+        let rows = repo.methods_for_run(summary.id).await.expect("methods");
+        let by_id: std::collections::HashMap<_, _> =
+            rows.iter().map(|r| (r.method_id.as_str(), r)).collect();
+        let refused = by_id["m-other-chip"];
+        assert_eq!(refused.state, "cannot_run");
+        assert_eq!(refused.reason_code.as_deref(), Some("ENV_UNKNOWN"));
+        assert_eq!(
+            refused.reason_detail.as_deref(),
+            Some(
+                super::super::envimage::other_arch_message(
+                    envmanifest::EnvArch::parse(other_arch).unwrap(),
+                    envmanifest::EnvArch::parse(host).unwrap(),
+                )
+                .as_str()
+            )
+        );
+        assert!(
+            env.requested().iter().all(|r| r.digest != "1a".repeat(32)),
+            "nothing of the other chip's model is downloaded"
+        );
+        assert_eq!(by_id["m-this-chip"].state, "finished", "the other model still runs");
     }
 
     // ── ITEM-9: the executor over scripted sandbox calls ────────────────────
@@ -6186,6 +6534,7 @@ mod tests {
                     },
                     base_digest: "c".repeat(64),
                     layer_digest: "d".repeat(64),
+                    image: TxrMethodEnv::digests("c".repeat(64), "d".repeat(64)),
                 },
                 job_id: Uuid::new_v4(),
                 cancel,
@@ -6683,10 +7032,7 @@ mod tests {
                 tree_sha256: digest.to_string(),
                 method_id: method_id.to_string(),
                 method_version: "2.0.0".to_string(),
-                env: TxrMethodEnv {
-                    base_digest: "c".repeat(64),
-                    layer_digest: "d".repeat(64),
-                },
+                env: TxrMethodEnv::digests("c".repeat(64), "d".repeat(64)),
                 contract: "2.0".to_string(),
                 conversions: Default::default(),
             }],

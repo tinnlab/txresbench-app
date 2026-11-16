@@ -209,9 +209,32 @@ pub struct MethodRow {
     pub trained_on_patients: Option<i64>,
     pub size_bytes: Option<i64>,
     pub own_auc: Option<f64>,
+    pub env_method_version: Option<String>,
+    pub env_arch: Option<String>,
+    pub env_layer_tag: Option<String>,
+    pub env_base_tag: Option<String>,
 }
 
 impl MethodRow {
+    /// The recorded environment image: the two file hashes (both, or none)
+    /// plus the version, arch and tags when the run knew them.
+    pub fn env(&self) -> Option<TxrMethodEnv> {
+        match (
+            self.env_base_digest.as_deref(),
+            self.env_layer_digest.as_deref(),
+        ) {
+            (Some(base), Some(layer)) => Some(TxrMethodEnv {
+                base_digest: base.to_string(),
+                layer_digest: layer.to_string(),
+                method_version: self.env_method_version.clone(),
+                arch: self.env_arch.clone(),
+                layer_tag: self.env_layer_tag.clone(),
+                base_tag: self.env_base_tag.clone(),
+            }),
+            _ => None,
+        }
+    }
+
     /// The state column as the closed vocabulary.
     pub fn state(&self) -> Result<TxrMethodState, AppError> {
         enum_from_wire(&self.state, "method state")
@@ -259,16 +282,7 @@ impl MethodRow {
             }),
             _ => None,
         };
-        let env = match (
-            self.env_base_digest.as_deref(),
-            self.env_layer_digest.as_deref(),
-        ) {
-            (Some(base), Some(layer)) => Some(TxrMethodEnv {
-                base_digest: base.to_string(),
-                layer_digest: layer.to_string(),
-            }),
-            _ => None,
-        };
+        let env = self.env();
         // `progress_pct` is NOT a column (PROV-EE-10): the download phase's
         // progress is derived at read from the persisted counters — the
         // ratio of bytes_downloaded to bytes_total while the row IS
@@ -406,6 +420,12 @@ pub struct MethodPatch {
     pub job_id: Option<Uuid>,
     pub env_base_digest: Option<String>,
     pub env_layer_digest: Option<String>,
+    /// The image facts beside the two digests (the running patch writes them
+    /// with the digests; `None` keeps the column).
+    pub env_method_version: Option<String>,
+    pub env_arch: Option<String>,
+    pub env_layer_tag: Option<String>,
+    pub env_base_tag: Option<String>,
     pub model_out_digest: Option<String>,
     pub model_dir: Option<String>,
     pub exit_code: Option<i32>,
@@ -943,7 +963,8 @@ impl TxrRepository {
                          coverage_scored, coverage_eligible, task,
                          started_at as "started_at?: DateTime<Utc>",
                          finished_at as "finished_at?: DateTime<Utc>",
-                         trained_on_patients, size_bytes, own_auc"#,
+                         trained_on_patients, size_bytes, own_auc,
+                         env_method_version, env_arch, env_layer_tag, env_base_tag"#,
             new.id,
             new.run_id,
             method_id,
@@ -975,7 +996,8 @@ impl TxrRepository {
                       coverage_scored, coverage_eligible, task,
                       started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
-                      trained_on_patients, size_bytes, own_auc
+                      trained_on_patients, size_bytes, own_auc,
+                      env_method_version, env_arch, env_layer_tag, env_base_tag
                FROM txr_run_methods
                WHERE run_id = $1 AND method_id = $2"#,
             run_id,
@@ -999,7 +1021,8 @@ impl TxrRepository {
                       coverage_scored, coverage_eligible, task,
                       started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
-                      trained_on_patients, size_bytes, own_auc
+                      trained_on_patients, size_bytes, own_auc,
+                      env_method_version, env_arch, env_layer_tag, env_base_tag
                FROM txr_run_methods
                WHERE run_id = $1
                ORDER BY rowid"#,
@@ -1048,6 +1071,10 @@ impl TxrRepository {
         let env_layer_digest = patch.env_layer_digest.as_deref();
         let model_out_digest = patch.model_out_digest.as_deref();
         let model_dir = patch.model_dir.as_deref();
+        let env_method_version = patch.env_method_version.as_deref();
+        let env_arch = patch.env_arch.as_deref();
+        let env_layer_tag = patch.env_layer_tag.as_deref();
+        let env_base_tag = patch.env_base_tag.as_deref();
         sqlx::query_as!(
             MethodRow,
             r#"UPDATE txr_run_methods SET
@@ -1073,7 +1100,11 @@ impl TxrRepository {
                  finished_at = COALESCE($22, finished_at),
                  trained_on_patients = COALESCE($23, trained_on_patients),
                  size_bytes = COALESCE($24, size_bytes),
-                 own_auc = COALESCE($25, own_auc)
+                 own_auc = COALESCE($25, own_auc),
+                 env_method_version = COALESCE($26, env_method_version),
+                 env_arch = COALESCE($27, env_arch),
+                 env_layer_tag = COALESCE($28, env_layer_tag),
+                 env_base_tag = COALESCE($29, env_base_tag)
                WHERE run_id = $1 AND method_id = $2
                RETURNING id as "id: Uuid", run_id as "run_id: Uuid", method_id, label,
                          version, "group",
@@ -1084,7 +1115,8 @@ impl TxrRepository {
                          coverage_scored, coverage_eligible, task,
                          started_at as "started_at?: DateTime<Utc>",
                          finished_at as "finished_at?: DateTime<Utc>",
-                         trained_on_patients, size_bytes, own_auc"#,
+                         trained_on_patients, size_bytes, own_auc,
+                         env_method_version, env_arch, env_layer_tag, env_base_tag"#,
             run_id,
             method_id,
             state,
@@ -1110,6 +1142,10 @@ impl TxrRepository {
             trained_on_patients,
             size_bytes,
             patch.own_auc,
+            env_method_version,
+            env_arch,
+            env_layer_tag,
+            env_base_tag,
         )
         .fetch_optional(&self.pool)
         .await
@@ -1395,7 +1431,8 @@ pub async fn produced_models(
                   coverage_scored, coverage_eligible, task,
                   started_at as "started_at?: DateTime<Utc>",
                   finished_at as "finished_at?: DateTime<Utc>",
-                  trained_on_patients, size_bytes, own_auc
+                  trained_on_patients, size_bytes, own_auc,
+                  env_method_version, env_arch, env_layer_tag, env_base_tag
            FROM txr_run_methods
            WHERE run_id = $1
              AND model_out_digest IS NOT NULL
@@ -1412,11 +1449,8 @@ pub async fn produced_models(
     .map_err(AppError::database_error)?;
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
+        let env = r.env().expect("both digests filtered NOT NULL");
         let digest = r.model_out_digest.expect("filtered NOT NULL");
-        let env = TxrMethodEnv {
-            base_digest: r.env_base_digest.expect("filtered NOT NULL"),
-            layer_digest: r.env_layer_digest.expect("filtered NOT NULL"),
-        };
         out.push(TxrProducedModel {
             method_id: r.method_id,
             method_version: r.version,
