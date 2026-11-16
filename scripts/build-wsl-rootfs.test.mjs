@@ -333,8 +333,8 @@ test('the Windows leg downloads the runtime into its bundle resource before `tau
 test('the release sets neither the bundle check\'s development switch nor the agent build\'s test cache', () => {
   const text = fs.readFileSync(WORKFLOW, 'utf8');
   assert.doesNotMatch(text, /TXR_WSL_RUNTIME_ALLOW_DEV|TXR_GUEST_AGENT_CARGO_CACHE/);
-  // no workflow-wide env or defaults reach the jobs
-  const top = text.split('\n').filter((l) => /^[A-Za-z]/.test(l)).map((l) => l.replace(/:.*$/, ''));
+  // no workflow-wide env or defaults reach the jobs: every unindented line but a comment is a top-level key
+  const top = text.split('\n').filter((l) => /^\S/.test(l) && !l.startsWith('#')).map((l) => l.replace(/:.*$/, ''));
   assert.deepEqual(top, ['name', 'on', 'permissions', 'jobs']);
 });
 
