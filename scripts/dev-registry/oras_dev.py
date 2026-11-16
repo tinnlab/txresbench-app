@@ -4,8 +4,11 @@
 The app runs exactly two `oras` commands against the loopback dev registry
 (`src-app/server/src/modules/sandbox/method_env.rs`):
 
-    oras resolve [--plain-http] <host>/<repo>[:<tag>|@sha256:...]
-    oras pull    [--plain-http] -o <dir> <host>/<repo>[:<tag>|@sha256:...]
+    oras resolve --registry-config <file> [--plain-http] <host>/<repo>[:<tag>|@sha256:...]
+    oras pull    --registry-config <file> [--plain-http] -o <dir> <host>/<repo>[:<tag>|@sha256:...]
+
+(`--registry-config` names the app's empty login file, `oras_base_args`; the
+dev registry needs no login, so its value is read past and not used.)
 
 `resolve` prints the manifest's content digest; `pull` fetches the manifest
 and its single layer and writes the layer file to `<dir>/<filename>` (oras
@@ -82,12 +85,38 @@ def fetch_json(conn, repo, ref):
     return json.loads(body), d
 
 
+VALUE_OPTIONS = ("--registry-config", "-o", "--output")
+
+
+def split_args(args):
+    """(options with values, positional arguments). An option in VALUE_OPTIONS
+    takes the next argument as its value, so a value (the app's registry-config
+    path, the pull dir) is never read as the ref."""
+    values, positional, i = {}, [], 0
+    while i < len(args):
+        a = args[i]
+        if a in VALUE_OPTIONS:
+            if i + 1 >= len(args):
+                raise SystemExit("oras dev: %s needs a value" % a)
+            values[a] = args[i + 1]
+            i += 2
+            continue
+        if not a.startswith("-"):
+            positional.append(a)
+        i += 1
+    return values, positional
+
+
+def one_ref(positional, sub):
+    if len(positional) != 1:
+        raise SystemExit("oras dev: %s needs exactly one ref, got %r" % (sub, positional))
+    return positional[0]
+
+
 def cmd_resolve(args):
     plain = "--plain-http" in args
-    refs = [a for a in args if not a.startswith("-")]
-    if not refs:
-        raise SystemExit("oras dev: resolve needs a ref")
-    host, repo, tag, digest = split_ref(refs[0])
+    _, positional = split_args(args)
+    host, repo, tag, digest = split_ref(one_ref(positional, "resolve"))
     if not plain:
         raise SystemExit("oras dev: resolve without --plain-http is not the app's shape")
     conn = _http(host)
@@ -104,15 +133,11 @@ def cmd_resolve(args):
 
 def cmd_pull(args):
     plain = "--plain-http" in args
-    out = None
-    for i, a in enumerate(args):
-        if a == "-o":
-            out = args[i + 1]
-    refs = [a for a in args if not a.startswith("-") and a != out]
-    if not refs:
-        raise SystemExit("oras dev: pull needs a ref")
-    ref = refs[-1]
-    host, repo, tag, digest = split_ref(ref)
+    values, positional = split_args(args)
+    out = values.get("-o") or values.get("--output")
+    if not out:
+        raise SystemExit("oras dev: pull needs -o <dir>")
+    host, repo, tag, digest = split_ref(one_ref(positional, "pull"))
     if not plain:
         raise SystemExit("oras dev: pull without --plain-http is not the app's shape")
     conn = _http(host)

@@ -325,16 +325,22 @@ class PublishServerCase(unittest.TestCase):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         ref = "127.0.0.1:%d/%s:%s" % (self.port, LAYER_PACKAGE, self.fixture_tag)
+        # The app's exact argv (method_env.rs oras_base_args): the empty login
+        # file comes first, so its path must never be read as the ref.
+        config = os.path.join(self.out, "registry-config.json")
+        with open(config, "w") as f:
+            f.write("{}")
+        base = ["--registry-config", config, "--plain-http"]
         import io
         from contextlib import redirect_stdout
         buf = io.StringIO()
         with redirect_stdout(buf):
-            rc = mod.main(["resolve", "--plain-http", ref])
+            rc = mod.main(["resolve"] + base + [ref])
         self.assertEqual(rc, 0)
         self.assertEqual(buf.getvalue().strip(), self.entry["digest"])
         pull_dir = os.path.join(self.out, "pull")
         with redirect_stdout(io.StringIO()):
-            rc = mod.main(["pull", "--plain-http", "-o", pull_dir, ref])
+            rc = mod.main(["pull"] + base + ["-o", pull_dir, ref])
         self.assertEqual(rc, 0)
         self.assertEqual(
             hashlib.sha256(open(os.path.join(pull_dir, "layer.squashfs"), "rb").read()).hexdigest(),
