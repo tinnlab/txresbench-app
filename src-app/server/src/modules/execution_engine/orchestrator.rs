@@ -44,6 +44,7 @@
 //!   create, restore at drive finalize only when no other live drive remains.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, LazyLock, Mutex, Weak};
 use std::time::Duration;
 
@@ -96,16 +97,21 @@ pub const ENV_POLL_INTERVAL: Duration = Duration::from_millis(500);
 /// The env-fetch seam the drive loop holds (CONS-EE-7).
 pub trait EnvProvider: Send + Sync {
     /// Blocking fetch/verify/mount of one artifact (call on `spawn_blocking`).
+    /// `stop` is this method's stop signal: once set, the call never starts
+    /// a download and returns `ENV_DOWNLOAD_CANCELLED`.
     fn ensure(
         &self,
         r: &EnvRef,
         kind: EnvKind,
         deadline: Duration,
+        stop: &Arc<AtomicBool>,
     ) -> Result<ProvidedMount, AppError>;
     /// The env's live state (the 500 ms poll's read side).
     fn status(&self, env_id: &str) -> MethodEnvStatus;
-    /// Cancel the env's in-flight download (a user stop of the method).
-    fn cancel(&self, env_id: &str);
+    /// Cancel the env's in-flight download of `digest` (a user stop of the
+    /// method): another method's download of another file of the same env
+    /// goes on.
+    fn cancel(&self, env_id: &str, digest: &str);
 }
 
 /// The production provider — a thin wrapper over the sandbox module's
@@ -119,16 +125,17 @@ impl EnvProvider for RealEnvProvider {
         r: &EnvRef,
         kind: EnvKind,
         deadline: Duration,
+        stop: &Arc<AtomicBool>,
     ) -> Result<ProvidedMount, AppError> {
-        self.0.ensure(r, kind, deadline)
+        self.0.ensure_until(r, kind, deadline, stop)
     }
 
     fn status(&self, env_id: &str) -> MethodEnvStatus {
         self.0.status(env_id)
     }
 
-    fn cancel(&self, env_id: &str) {
-        self.0.cancel(env_id);
+    fn cancel(&self, env_id: &str, digest: &str) {
+        self.0.cancel_digest(env_id, digest);
     }
 }
 
@@ -4529,9 +4536,14 @@ async fn ensure_method_env(
     let base_r = base.clone();
     let layer_r = layer.clone();
     let budget_c = budget;
+    // This method's stop signal for both calls: a stop below sets it, so a
+    // call still waiting (on another method's download of the same env)
+    // never starts a download of its own afterwards.
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_c = stop.clone();
     let ensure_task = tokio::task::spawn_blocking(move || {
-        let base_mount = env_ensure.ensure(&base_r, EnvKind::Base, budget_c)?;
-        let layer_mount = env_ensure.ensure(&layer_r, EnvKind::Layer, budget_c)?;
+        let base_mount = env_ensure.ensure(&base_r, EnvKind::Base, budget_c, &stop_c)?;
+        let layer_mount = env_ensure.ensure(&layer_r, EnvKind::Layer, budget_c, &stop_c)?;
         Ok::<_, AppError>((base_mount, layer_mount))
     });
 
@@ -4628,15 +4640,15 @@ async fn ensure_method_env(
                 // PER-METHOD stop (stop flag alone, no run stop, no skip) is
                 // the one `stopped` + ABORTED shape. (`biased;` above gives
                 // exactly this priority.)
-                cancel_env(&env_poll, &base_id, &layer_id);
+                cancel_env(&env_poll, &stop, (&base_id, &base.digest), (&layer_id, &layer.digest));
                 break EnvPhase::UserStopped { skipped: true };
             }
             _ = skip_rx.changed() => {
-                cancel_env(&env_poll, &base_id, &layer_id);
+                cancel_env(&env_poll, &stop, (&base_id, &base.digest), (&layer_id, &layer.digest));
                 break EnvPhase::UserStopped { skipped: true };
             }
             _ = stop_rx.changed() => {
-                cancel_env(&env_poll, &base_id, &layer_id);
+                cancel_env(&env_poll, &stop, (&base_id, &base.digest), (&layer_id, &layer.digest));
                 break EnvPhase::UserStopped { skipped: false };
             }
         }
@@ -4684,16 +4696,25 @@ fn saved_model_env_failure(
     }
 }
 
-/// Cancel both envs of a stopped download (fire-and-forget: the provider's
-/// cancel joins the worker on its own thread and bounds itself; the drive
-/// must not block up to 30 s on the async side).
-fn cancel_env(env: &Arc<dyn EnvProvider>, base_id: &str, layer_id: &str) {
+/// Stop a method's env phase: its calls' stop signal first (a call still
+/// waiting returns cancelled and never starts a download), then a cancel of
+/// this method's own two files (fire-and-forget:
+/// the provider's cancel joins the worker on its own thread and bounds
+/// itself; the drive must not block up to 30 s on the async side). A
+/// download of another file of the same env (another saved model's) goes on.
+fn cancel_env(
+    env: &Arc<dyn EnvProvider>,
+    stop: &Arc<AtomicBool>,
+    base: (&str, &str),
+    layer: (&str, &str),
+) {
+    stop.store(true, std::sync::atomic::Ordering::SeqCst);
     let env = env.clone();
-    let base_id = base_id.to_string();
-    let layer_id = layer_id.to_string();
+    let (base_id, base_digest) = (base.0.to_string(), base.1.to_string());
+    let (layer_id, layer_digest) = (layer.0.to_string(), layer.1.to_string());
     tokio::task::spawn_blocking(move || {
-        env.cancel(&base_id);
-        env.cancel(&layer_id);
+        env.cancel(&base_id, &base_digest);
+        env.cancel(&layer_id, &layer_digest);
     });
 }
 
@@ -5099,6 +5120,10 @@ mod tests {
         cancelled: Mutex<Vec<String>>,
         /// Every ref `ensure` was asked for, in order.
         requested: Mutex<Vec<EnvRef>>,
+        /// The stop signal each `ensure` call got, by env id.
+        stops: Mutex<Vec<(String, Arc<AtomicBool>)>>,
+        /// Every `(env id, digest)` cancelled, in order.
+        cancelled_files: Mutex<Vec<(String, String)>>,
     }
 
     impl FakeEnv {
@@ -5110,8 +5135,30 @@ mod tests {
                     progress: Mutex::new(std::collections::HashMap::new()),
                     cancelled: Mutex::new(Vec::new()),
                     requested: Mutex::new(Vec::new()),
+                    stops: Mutex::new(Vec::new()),
+                    cancelled_files: Mutex::new(Vec::new()),
                 }),
             }
+        }
+
+        /// Whether the stop signal of every `ensure` call for `env_id` is set.
+        fn stopped(&self, env_id: &str) -> Vec<bool> {
+            self.inner
+                .stops
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .filter(|(id, _)| id == env_id)
+                .map(|(_, s)| s.load(Ordering::SeqCst))
+                .collect()
+        }
+
+        fn cancelled_files(&self) -> Vec<(String, String)> {
+            self.inner
+                .cancelled_files
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
         }
 
         fn requested(&self) -> Vec<EnvRef> {
@@ -5151,12 +5198,18 @@ mod tests {
             r: &EnvRef,
             _kind: EnvKind,
             _deadline: Duration,
+            stop: &Arc<AtomicBool>,
         ) -> Result<ProvidedMount, AppError> {
             self.inner
                 .requested
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .push(r.clone());
+            self.inner
+                .stops
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push((r.env_id.clone(), stop.clone()));
             let env_id = ref_env_id(r);
             let policy = self
                 .inner
@@ -5234,12 +5287,17 @@ mod tests {
             }
         }
 
-        fn cancel(&self, env_id: &str) {
+        fn cancel(&self, env_id: &str, digest: &str) {
             self.inner
                 .cancelled
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .push(env_id.to_string());
+            self.inner
+                .cancelled_files
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push((env_id.to_string(), digest.to_string()));
         }
     }
 
@@ -6328,6 +6386,72 @@ mod tests {
             "{:?}",
             old.reason_detail
         );
+    }
+
+    /// A stop of one saved model while its environment is being fetched sets
+    /// that method's own stop signal (so a call still waiting on another
+    /// model's download of the same env never starts one afterwards) and
+    /// cancels only that model's own two files; the other model's calls are
+    /// not stopped.
+    #[tokio::test]
+    async fn stopping_a_saved_model_stops_its_own_calls_and_cancels_only_its_files() {
+        let root = test_data_dir("reuse-stop-own-files");
+        let _ = std::fs::remove_dir_all(&root);
+        let _g = rootfs::scoped_data_root(root.clone());
+        let pool = merged_pool().await;
+        let env = Arc::new(FakeEnv::new(Duration::from_secs(3)));
+        let executor = Arc::new(FakeExecutor::new(Duration::ZERO));
+        let (host, _) = host_and_other_arch();
+        let method = "landmark-cox-current";
+        let base = "2b".repeat(32);
+        let (layer_a, layer_b) = ("1a".repeat(32), "3c".repeat(32));
+        let assets = vec![
+            saved_model(&root, "m-a", method, &layer_a, &base, Some(host)),
+            saved_model(&root, "m-b", method, &layer_b, &base, Some(host)),
+        ];
+        let summary = start_run(
+            pool.clone(),
+            Arc::new(RunRuntime::new()),
+            env.clone(),
+            executor,
+            owner(),
+            reuse_request(assets),
+        )
+        .await
+        .expect("create");
+        // Both models are inside their (blocking) base ensure by now.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let drive = drive_for(summary.id).expect("the drive is live in the env phase");
+        assert!(drive.signal_stop_method("m-b"), "m-b is stopped");
+        let repo = TxrRepository::new(pool.clone());
+        let _ = wait_terminal(&repo, summary.id).await;
+
+        let base_id = base_id_of(method);
+        let stops = env.stopped(base_id);
+        assert_eq!(stops.len(), 2, "one base call per model: {stops:?}");
+        assert_eq!(
+            stops.iter().filter(|s| **s).count(),
+            1,
+            "exactly the stopped model's call got its stop signal: {stops:?}"
+        );
+        let cancelled = env.cancelled_files();
+        assert!(
+            cancelled.contains(&(method.to_string(), layer_b.clone())),
+            "the stopped model's own layer file is cancelled: {cancelled:?}"
+        );
+        assert!(
+            cancelled.contains(&(base_id.to_string(), base.clone())),
+            "and its base file: {cancelled:?}"
+        );
+        assert!(
+            !cancelled.iter().any(|(_, d)| *d == layer_a),
+            "the other model's layer file is never cancelled: {cancelled:?}"
+        );
+        let rows = repo.methods_for_run(summary.id).await.expect("methods");
+        let by_id: std::collections::HashMap<_, _> =
+            rows.iter().map(|r| (r.method_id.as_str(), r)).collect();
+        assert_eq!(by_id["m-b"].state, "stopped");
+        assert_eq!(by_id["m-a"].state, "finished", "the other model runs on");
     }
 
     #[tokio::test]

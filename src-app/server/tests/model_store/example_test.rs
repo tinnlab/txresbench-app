@@ -70,6 +70,7 @@ impl EnvProvider for FakeExampleEnv {
         _r: &EnvRef,
         _kind: EnvKind,
         _deadline: Duration,
+        _stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<ProvidedMount, AppError> {
         Ok(ProvidedMount {
             mount_dir: PathBuf::from("/fixture-mount"),
@@ -90,7 +91,7 @@ impl EnvProvider for FakeExampleEnv {
         }
     }
 
-    fn cancel(&self, _env_id: &str) {}
+    fn cancel(&self, _env_id: &str, _digest: &str) {}
 }
 
 /// The scripted method executor: records the runs, runs the pick's bundle

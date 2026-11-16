@@ -449,6 +449,7 @@ impl orchestrator::EnvProvider for FakeEnv {
         r: &EnvRef,
         _kind: EnvKind,
         _deadline: Duration,
+        _stop: &Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<ProvidedMount, AppError> {
         self.inner
             .requested
@@ -545,7 +546,7 @@ impl orchestrator::EnvProvider for FakeEnv {
         }
     }
 
-    fn cancel(&self, env_id: &str) {
+    fn cancel(&self, env_id: &str, _digest: &str) {
         self.inner
             .cancelled
             .lock()
