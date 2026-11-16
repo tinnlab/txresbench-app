@@ -578,6 +578,37 @@ describe('SavedModelsPage — TEST-MOD-10 (screen I)', () => {
     expect(screen.getByTestId(`txr-models-details-${fixtureModelId(1)}`)).toBeTruthy()
   })
 
+  it('the Details dialog names the environment the model was trained in, or says it was not recorded', async () => {
+    renderPage()
+    await settle(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`txr-list-row-${fixtureModelId(1)}-action`))
+      await Promise.resolve()
+    })
+    await settle(0)
+    // The fixture model was saved by an older app (digests only).
+    expect(screen.getByText('not recorded (saved by an older app)')).toBeTruthy()
+    cleanup()
+
+    const tagged = detailPayload(fixtureModelId(1))
+    tagged.env = {
+      base_digest: 'sha256:base',
+      layer_digest: 'sha256:layer',
+      method_version: '2.1.0',
+      arch: 'amd64',
+      layer_tag: 'fm-1-2.1.0-amd64-5ce304e213ac',
+    }
+    api.getModel.mockResolvedValue(tagged)
+    renderPage()
+    await settle(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`txr-list-row-${fixtureModelId(1)}-action`))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByText('fm-1-2.1.0-amd64-5ce304e213ac')).toBeTruthy()
+  })
+
   it('a 404 detail (a row whose tree vanished) renders the not-found state, never a crash', async () => {
     api.getModel.mockRejectedValue({ status: 404, message: 'MODEL_NOT_FOUND' })
     renderPage()

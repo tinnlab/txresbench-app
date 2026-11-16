@@ -34,6 +34,7 @@ import {
   WHAT_IS_SAVED_LABEL,
   formatBytes,
   formatCheckedAgainstLine,
+  formatEnvironment,
   formatMade,
   formatModelSublines,
   formatPredicts,
@@ -170,6 +171,20 @@ describe('formatBytes — the sizes (TEST-MOD-03)', () => {
     expect(formatBytes(null)).toBe(UNRECORDED)
     expect(formatBytes(-1)).toBe(UNRECORDED)
     expect(formatBytes(Number.NaN)).toBe(UNRECORDED)
+  })
+})
+
+describe('formatEnvironment — the Details dialog Environment fact', () => {
+  it('names the layer tag of the image the model was trained in', () => {
+    expect(
+      formatEnvironment({ layer_tag: 'cox-model-2.0.1-amd64-5ce304e213ac' }),
+    ).toBe('cox-model-2.0.1-amd64-5ce304e213ac')
+  })
+
+  it('says not recorded for a model saved by an older app (never an invented tag)', () => {
+    expect(formatEnvironment({})).toBe(`${UNRECORDED} (saved by an older app)`)
+    expect(formatEnvironment({ layer_tag: '  ' })).toBe(`${UNRECORDED} (saved by an older app)`)
+    expect(formatEnvironment(null)).toBe(`${UNRECORDED} (saved by an older app)`)
   })
 })
 

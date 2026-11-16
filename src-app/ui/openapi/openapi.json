@@ -8517,7 +8517,7 @@
             "type": "string"
           },
           "oci_ref": {
-            "description": "Full OCI reference, `<package>[:<tag>][@sha256:<hex>]`, where\n `<package>` is [`TXR_BASE_REGISTRY_PREFIX`] or\n [`TXR_LAYER_REGISTRY_PREFIX`] itself (enforced by [`validate_oci_ref`]).",
+            "description": "Full OCI reference, `<package>[:<tag>][@sha256:<hex>]`, where\n `<package>` is [`TXR_BASE_REGISTRY_PREFIX`] or\n [`TXR_LAYER_REGISTRY_PREFIX`] itself (enforced by [`validate_oci_ref`]).\n `<package>@sha256:<digest>` with this ref's own `digest` is a FILE\n ADDRESS: the download manager fetches the squashfs file itself by its\n sha256 (no tag, no manifest), which is how a saved model gets an\n environment the current method list no longer names. Any other\n `@sha256:` is an artifact manifest digest.",
             "type": "string"
           },
           "tag": {
@@ -13337,6 +13337,17 @@
           "host_dir": {
             "type": "string"
           },
+          "method_facts": {
+            "description": "The run-shaping facts the model was trained with (the engine\n element's `method_facts`; absent on a model saved before they were\n kept).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TxrMethodFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "method_id": {
             "type": "string"
           },
@@ -15158,19 +15169,122 @@
         ]
       },
       "TxrMethodEnv": {
-        "description": "The env digest pair recorded on a method row / produced model (base + the\n method's layer — provenance against the manifest, CONS-EE-8).",
+        "description": "The environment image recorded on a method row / produced model / saved\n model: the two FILE hashes the run verified (the base squashfs pin and the\n layer squashfs `layer_sha256`, each the blob digest of its file in its\n package, so the exact image can always be fetched again), plus what the\n method list told about it when the run started.\n\n The four optional facts are absent on records from before they were kept\n (and on an image the list did not name); absent ones are not written, so a\n `.txr` header without them keeps its bytes and an older app ignores them.",
         "type": "object",
         "properties": {
+          "arch": {
+            "description": "The chip type the image is built for (`amd64` | `arm64`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "base_digest": {
             "type": "string"
           },
+          "base_tag": {
+            "description": "The base's immutable publish tag.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "layer_digest": {
             "type": "string"
+          },
+          "layer_tag": {
+            "description": "The layer's immutable publish tag (`<env_id>-<version>-<arch>-<sha12>`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "method_version": {
+            "description": "The environment's method version (the list entry's `method_version`,\n which can differ from the catalogue's version).",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "base_digest",
           "layer_digest"
+        ]
+      },
+      "TxrMethodFacts": {
+        "description": "The run-shaping facts of a catalogue row: the method.json contract the\n engine reads to build a method's bundles, pick its markers, choose its\n task and read its outputs. A saved model keeps the ones its training run\n used, so a later catalogue that changed them (a new method version) does\n not change how the model is run. The rest of the row (title, timing,\n references, …) is not run-shaping and is not kept.",
+        "type": "object",
+        "properties": {
+          "covariates": {
+            "$ref": "#/components/schemas/CovariateMode"
+          },
+          "fitted": {
+            "type": "boolean"
+          },
+          "group": {
+            "$ref": "#/components/schemas/MethodGroup"
+          },
+          "markers": {
+            "$ref": "#/components/schemas/MethodMarkers"
+          },
+          "min_draws": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "needs_baseline": {
+            "type": "boolean"
+          },
+          "needs_detection_call": {
+            "type": "boolean"
+          },
+          "own_outputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "required_markers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequiredMarkers"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "saves_model": {
+            "type": "boolean"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "uses_history": {
+            "$ref": "#/components/schemas/UsesHistory"
+          }
+        },
+        "required": [
+          "group",
+          "markers",
+          "covariates",
+          "min_draws",
+          "needs_baseline",
+          "uses_history",
+          "fitted",
+          "saves_model",
+          "own_outputs",
+          "tasks",
+          "needs_detection_call",
+          "params"
         ]
       },
       "TxrMethodState": {
@@ -15206,6 +15320,17 @@
           },
           "host_dir": {
             "type": "string"
+          },
+          "method_facts": {
+            "description": "The run-shaping catalogue facts the model was trained with. A reuse\n runs with THESE facts, not the current catalogue row's. Absent on a\n model saved before they were kept: the current row is used only when\n its version equals `method_version`, otherwise the model is refused.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TxrMethodFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "method_id": {
             "type": "string"

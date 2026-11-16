@@ -23,7 +23,9 @@
  *   ", " — the method id mono (the catalogue id), the version + duration
  *   plain; the duration is `formatMethodDuration` (the board's compact
  *   "(2 min)" — DEC-9's recorded divergence from the word form), omitted
- *   with the parenthetical when the row recorded no duration;
+ *   with the parenthetical when the row recorded no duration; a row that
+ *   recorded its environment image adds "environment <tag>" inside the
+ *   parenthetical (a run recorded before that shows nothing new);
  * - Took: the lib's `tookLine` (the word form + the estimate
  *   parenthetical); the row renders only when the run recorded a took
  *   figure (never a fabricated zero);
@@ -136,10 +138,31 @@ export function settingsLine(settings: TxrHistoryDetail['settings']): string {
   return segments.join(', ')
 }
 
-/** One method's row words (the mono id + version + the compact duration). */
+/**
+ * The environment a method ran in, when the run recorded it: the layer's tag
+ * without the method's own name in front (`2.0.1-amd64-5ce304e213ac`), else
+ * the environment's version; null for a run recorded before these were kept
+ * (nothing new is shown — never a fabricated version).
+ */
+export function environmentWords(row: TxrHistoryDetail['methods'][number]): string | null {
+  const tag = row.env?.layer_tag?.trim() ?? ''
+  if (tag.length > 0) {
+    const prefix = `${row.label}-`
+    return tag.startsWith(prefix) && tag.length > prefix.length ? tag.slice(prefix.length) : tag
+  }
+  const version = row.env?.method_version?.trim() ?? ''
+  return version.length > 0 ? version : null
+}
+
+/** One method's row words (the mono id + version + the compact duration,
+ *  and the environment it ran in when recorded). */
 export function methodRow(row: TxrHistoryDetail['methods'][number]): string {
   const duration = formatMethodDuration(row.elapsed_secs)
-  return `${row.label} ${row.version}${duration !== null ? ` (${duration})` : ''}`
+  const environment = environmentWords(row)
+  const notes = [duration, environment !== null ? `environment ${environment}` : null].filter(
+    (part): part is string => part !== null,
+  )
+  return `${row.label} ${row.version}${notes.length > 0 ? ` (${notes.join(', ')})` : ''}`
 }
 
 /** The Made line's facts (the board's "N models (…)" shape). */
