@@ -108,7 +108,7 @@ if [ -x "$REAL_ORAS_DIR/oras" ]; then
   echo "bases scenario: oras $("$REAL_ORAS_DIR/oras" version 2>/dev/null | head -1)"
   python3 "$PUBLISH_PY" --stage-fixture "$BASES_STAGE"
   python3 "$GEN_PY" --fixture "$BASES_STAGE" --methods-dir "$BASES_STAGE/methods" \
-    --manifest "$BASES_MANIFEST"
+    --manifest "$BASES_MANIFEST" --full
   bash "$REPO_ROOT/scripts/check-method-env-images.sh" --manifest "$BASES_MANIFEST" \
     --staging-dir "$BASES_STAGE" --methods-dir "$BASES_STAGE/methods" --require-parity
   pub() {

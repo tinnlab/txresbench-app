@@ -272,14 +272,14 @@ async fn embedded_data_serves_the_surface_without_a_benchmark_tree() {
 /// over the REAL loader, and the shipped bytes prove they PASS the check.
 #[test]
 fn a_mangled_manifest_refuses_with_the_named_loader_code() {
-    let mangled = br#"{"schema_version": 2, "generator_version": "x", "source_revision": "x", "base_contract": "2.0", "envs": []}"#;
-    let err = envmanifest::parse_manifest(mangled).expect_err("schema 2 refuses");
+    let mangled = br#"{"schema_version": 3, "generator_version": "x", "base_contract": "2.0", "envs": []}"#;
+    let err = envmanifest::parse_manifest(mangled).expect_err("schema 3 refuses");
     assert_eq!(err.code(), "MANIFEST_SCHEMA_VERSION");
     // The module init's wrapper text (the boot refusal the operator sees).
     let wrapped = format!("method env manifest load failed: {err}");
     assert!(wrapped.contains("MANIFEST_SCHEMA_VERSION"), "{wrapped}");
 
-    let empty = br#"{"schema_version": 1, "generator_version": "x", "source_revision": "x", "base_contract": "2.0", "envs": []}"#;
+    let empty = br#"{"schema_version": 2, "generator_version": "x", "base_contract": "2.0", "envs": []}"#;
     assert_eq!(
         envmanifest::parse_manifest(empty)
             .expect_err("empty envs refuses")

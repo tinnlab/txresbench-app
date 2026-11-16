@@ -66,9 +66,18 @@
 #   1. THE MANIFEST IS THE COMMITTED CONTRACT — the entry or base record is read
 #      from `src-app/server/data/method-env-images.json` (`--manifest`
 #      overridable), and that file must satisfy the repo's own guard
-#      (`scripts/check-method-env-images.sh`, regen-parity leg included against
-#      the same staging dir): a hand-edited manifest that the guard refuses is
-#      not published from. It must carry a `bases` list.
+#      (`scripts/check-method-env-images.sh`, its parity and provenance legs
+#      included against the same staging dir and the methods repository): a
+#      hand-edited manifest that the guard refuses is not published from. It
+#      must carry a `bases` list. The parity leg runs per entry when
+#      `--previous <list>` names the previously published list (one method at
+#      a time; NARROWED ON PURPOSE 2026-11-16 with the user's OK): the pushed
+#      entry (or base) equals its own build record, its facts hold in the
+#      methods repository at its recorded commit, every other entry is
+#      byte-identical to the previous list or re-assembles from its own
+#      staged record, and the whole list passes every structural rule.
+#      Without `--previous` it is the whole-list mode of a full rebuild: every
+#      entry of the list re-assembles from the staging dir.
 #   2. THE STAGED ARTIFACT IS THE MANIFEST'S BYTES — the squashfs file's sha256
 #      and size equal the pin (`layer_sha256` / `squashfs_sha256`) and
 #      `size_bytes`; the staged `oci-manifest.json` hashes to the `digest`; the
@@ -145,7 +154,7 @@
 #   scripts/publish-method-env-images.sh (--env <env_id> | --base <base-py|base-r>)
 #                                       [--arch amd64|arm64]
 #                                       [--manifest <path>] [--staging-dir <dir>]
-#                                       [--methods-dir <dir>]
+#                                       --methods-dir <dir> [--previous <list>]
 #                                       [--registry 127.0.0.1:<port>|[::1]:<port>]
 #                                       [--dry-run] [--skip-sign]
 #
@@ -189,6 +198,7 @@ ARCH=amd64
 MANIFEST="$REPO_ROOT/src-app/server/data/method-env-images.json"
 STAGING="${TXR_ENV_BUILD_DIR:-}"
 METHODS_DIR="${TXR_METHODS_DIR:-}"
+PREVIOUS=""
 DRY_RUN=0
 SKIP_SIGN=0
 LOOPBACK=""
@@ -206,6 +216,7 @@ while [ $# -gt 0 ]; do
     --manifest) MANIFEST=${2-}; shift 2 ;;
     --staging-dir) STAGING=${2-}; shift 2 ;;
     --methods-dir) METHODS_DIR=${2-}; shift 2 ;;
+    --previous) PREVIOUS=${2-}; shift 2 ;;
     --registry) LOOPBACK=${2-}; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --skip-sign) SKIP_SIGN=1; shift ;;
@@ -228,6 +239,14 @@ case "$ARCH" in
   amd64|arm64) ;;
   *) echo "publish: unsupported --arch: $ARCH (expected amd64 or arm64)" >&2; exit 2 ;;
 esac
+if [ -z "$METHODS_DIR" ]; then
+  echo "publish: --methods-dir <the methods repository> is required (TXR_METHODS_DIR also" >&2
+  echo "works): the guard re-reads each checked entry's facts from git at its own commit." >&2
+  exit 2
+fi
+if [ -n "$PREVIOUS" ] && [ ! -f "$PREVIOUS" ]; then
+  echo "publish: --previous $PREVIOUS: no such file (the previously published list)" >&2; exit 2
+fi
 
 # ── the loopback rehearsal target (never another host) ────────────────────────
 # Exactly `127.0.0.1:<port>` or `[::1]:<port>`, port 1-65535, nothing after it.
@@ -339,7 +358,7 @@ if base_id:
               + (", ".join(f"{x.get('base_id')}-{x.get('arch')}" for x in bases) or "(none)"),
               file=sys.stderr)
         sys.exit(2)
-    row = ["base"] + [b.get(f, "") for f in BASE_FIELDS] + [m.get("source_revision", "")]
+    row = ["base"] + [b.get(f, "") for f in BASE_FIELDS]
     print("\t".join(str(v) for v in row))
     sys.exit(0)
 
@@ -356,8 +375,8 @@ for e in m.get("envs", []):
         row = ["layer"] + [e.get(f, "") for f in (
             "env_id", "method_id", "method_version", "language", "arch",
             "oci_ref", "tag", "digest", "layer_sha256", "size_bytes",
-            "base_ref", "base_digest", "contract", "layer_schema")]
-        row.append(m.get("source_revision", ""))
+            "base_ref", "base_digest", "contract", "layer_schema",
+            "source_revision", "source_tree", "generator_version")]
         row += [b.get("base_id", ""), b.get("oci_ref", ""), b.get("tag", ""), b.get("digest", "")]
         print("\t".join(str(v) for v in row))
         sys.exit(0)
@@ -370,7 +389,7 @@ PYEOF
 
 if [ -n "$BASE_ID" ]; then
   IFS=$'\t' read -r _KIND B_BASE_ID B_ARCH B_OCI_REF B_TAG B_DIGEST B_SQUASHFS_SHA256 \
-    B_SIZE_BYTES B_SOURCE_REF B_SOURCE_DIGEST B_CONTRACT ENTRY_SOURCE_REVISION <<< "$entry"
+    B_SIZE_BYTES B_SOURCE_REF B_SOURCE_DIGEST B_CONTRACT <<< "$entry"
   if [ "$B_OCI_REF" != "$BASE_OCI_REF" ]; then
     echo "refusing: base oci_ref $B_OCI_REF is not $BASE_OCI_REF (the one base package)" >&2
     echo "The runtime fetches exactly this ref (the sandbox's base package); publishing" >&2
@@ -399,6 +418,7 @@ else
   IFS=$'\t' read -r _KIND ENTRY_ENV_ID ENTRY_METHOD_ID ENTRY_METHOD_VERSION ENTRY_LANGUAGE \
     ENTRY_ARCH ENTRY_OCI_REF ENTRY_TAG ENTRY_DIGEST ENTRY_LAYER_SHA256 ENTRY_SIZE_BYTES \
     ENTRY_BASE_REF ENTRY_BASE_DIGEST ENTRY_CONTRACT ENTRY_LAYER_SCHEMA ENTRY_SOURCE_REVISION \
+    ENTRY_SOURCE_TREE ENTRY_GENERATOR_VERSION \
     PAIR_BASE_ID PAIR_BASE_OCI_REF PAIR_BASE_TAG PAIR_BASE_DIGEST <<< "$entry"
   # The manifest is the runtime contract; the namespace is DEC-2's and the host
   # is the allowlisted one (DEC-17: scheme-less refs, no new host anywhere).
@@ -434,7 +454,7 @@ else
   echo "layer     : sha256 $ENTRY_LAYER_SHA256, $ENTRY_SIZE_BYTES bytes, schema $ENTRY_LAYER_SCHEMA"
   echo "base      : $ENTRY_BASE_REF @ $ENTRY_BASE_DIGEST   (provenance, DEC-4)"
   echo "stacks on : $PAIR_BASE_OCI_REF:$PAIR_BASE_TAG @ $PAIR_BASE_DIGEST   (published first)"
-  echo "revision  : $ENTRY_SOURCE_REVISION   (methods repo — the layer's source)"
+  echo "revision  : $ENTRY_SOURCE_REVISION tree $ENTRY_SOURCE_TREE   (methods repo — the layer's source)"
 fi
 if [ -n "$LOOPBACK" ]; then
   echo "target    : $LOOPBACK   (loopback rehearsal: plain HTTP, no login, no signing)"
@@ -536,11 +556,15 @@ except Exception as e:
     sys.exit(2)
 print("\t".join(str(r.get(f, "")) for f in (
     "env_id", "method_id", "method_version", "arch", "oci_ref", "tag",
-    "layer_sha256", "size_bytes", "source_revision", "layer_file")))
+    "layer_sha256", "size_bytes", "source_revision", "layer_file",
+    "record_schema_version", "generator_version", "source_tree")))
 PYEOF
   ) || exit $?
+  # source_tree last: a record_schema_version 1 record has none, and `read`
+  # with a tab IFS would fold an empty field in the middle into the next one.
   IFS=$'\t' read -r REC_ENV_ID REC_METHOD_ID REC_METHOD_VERSION REC_ARCH REC_OCI_REF REC_TAG \
-    REC_LAYER_SHA256 REC_SIZE_BYTES REC_SOURCE_REVISION REC_LAYER_FILE <<< "$record"
+    REC_LAYER_SHA256 REC_SIZE_BYTES REC_SOURCE_REVISION REC_LAYER_FILE \
+    REC_SCHEMA_VERSION REC_GENERATOR_VERSION REC_SOURCE_TREE <<< "$record"
   # Field-for-field record/entry agreement (the writer's note-m validation again,
   # at the boundary that matters: the bytes about to be published).
   [ "$REC_ENV_ID" = "$ENTRY_ENV_ID" ] || { echo "refusing: record env_id $REC_ENV_ID != entry $ENTRY_ENV_ID" >&2; rec_ok=0; }
@@ -563,6 +587,14 @@ PYEOF
   [ "$REC_LAYER_SHA256" = "$ENTRY_LAYER_SHA256" ] || { echo "refusing: record layer_sha256 $REC_LAYER_SHA256 != entry $ENTRY_LAYER_SHA256" >&2; rec_ok=0; }
   [ "$REC_SIZE_BYTES" = "$ENTRY_SIZE_BYTES" ] || { echo "refusing: record size_bytes $REC_SIZE_BYTES != entry $ENTRY_SIZE_BYTES" >&2; rec_ok=0; }
   [ "$REC_SOURCE_REVISION" = "$ENTRY_SOURCE_REVISION" ] || { echo "refusing: record source_revision $REC_SOURCE_REVISION != entry $ENTRY_SOURCE_REVISION" >&2; rec_ok=0; }
+  [ "$REC_GENERATOR_VERSION" = "$ENTRY_GENERATOR_VERSION" ] || { echo "refusing: record generator_version $REC_GENERATOR_VERSION != entry $ENTRY_GENERATOR_VERSION" >&2; rec_ok=0; }
+  # The folder tree: a record_schema_version 1 record (a generator before
+  # 0.5.0) has none; the writer took the entry's from git at that commit.
+  if [ "$REC_SCHEMA_VERSION" = "1" ] && [ -z "$REC_SOURCE_TREE" ]; then
+    echo "record    : legacy record (record_schema_version 1, no tree recorded); the entry's tree is from git"
+  elif [ "$REC_SOURCE_TREE" != "$ENTRY_SOURCE_TREE" ]; then
+    echo "refusing: record source_tree $REC_SOURCE_TREE != entry $ENTRY_SOURCE_TREE" >&2; rec_ok=0
+  fi
   [ "$REC_LAYER_FILE" = "layer.squashfs" ] || { echo "refusing: record layer_file $REC_LAYER_FILE != layer.squashfs" >&2; rec_ok=0; }
 fi
 [ "$rec_ok" = "1" ] || { echo "refusing: the build record disagrees with the manifest —" >&2; echo "rebuild/regenerate (one revision, one manifest); never reconcile by hand." >&2; exit 1; }
@@ -576,8 +608,18 @@ fi
 # it runs in --dry-run too: a rehearsal that skips the manifest contract is a
 # rehearsal of nothing.
 GUARD="$REPO_ROOT/scripts/check-method-env-images.sh"
-guard_args=(--manifest "$MANIFEST" --staging-dir "$STAGING")
-[ -z "$METHODS_DIR" ] || guard_args+=(--methods-dir "$METHODS_DIR")
+guard_args=(--manifest "$MANIFEST" --staging-dir "$STAGING" --methods-dir "$METHODS_DIR")
+if [ -n "$PREVIOUS" ]; then
+  # One artifact at a time (narrowed on purpose 2026-11-16, with the user's OK;
+  # see check 1 in the header): this artifact against its record, the rest of
+  # the list against the previously published one.
+  guard_args+=(--previous "$PREVIOUS")
+  if [ -n "$BASE_ID" ]; then
+    guard_args+=(--base-entry "$B_BASE_ID-$B_ARCH")
+  else
+    guard_args+=(--entry "$ENTRY_ENV_ID-$ENTRY_ARCH")
+  fi
+fi
 echo "+ scripts/check-method-env-images.sh ${guard_args[*]}"
 set +e
 "$GUARD" "${guard_args[@]}" >/dev/null
@@ -592,7 +634,11 @@ if [ "$rc" != "0" ]; then
   echo "publish: the manifest guard exited $rc (usage/missing file); re-check paths." >&2
   exit 2
 fi
-echo "guard     : manifest + regen parity OK"
+if [ -n "$PREVIOUS" ]; then
+  echo "guard     : manifest + per-entry parity (vs $PREVIOUS) + provenance OK"
+else
+  echo "guard     : manifest + regen parity OK"
+fi
 
 # ── 4b. the behavioral check ───────────────────────────────────────────────────
 if [ -n "$BASE_ID" ]; then

@@ -192,22 +192,14 @@ fn fixture_methods_dir(work: &Path) -> PathBuf {
     let methods = work.join("methods");
     let dir = methods.join("methods").join(FIXTURE_METHOD_ID);
     std::fs::create_dir_all(&dir).expect("fixture method dir");
+    // The method's passed gate (the generator lists and builds only gated,
+    // committed method folders; it reads no index.json).
+    std::fs::create_dir_all(methods.join("gates")).expect("gates dir");
     std::fs::write(
-        methods.join("index.json"),
-        json!({
-            "index_version": "fixture",
-            "contract_versions": ["2.0"],
-            "methods": [{
-                "id": FIXTURE_METHOD_ID,
-                "version": "1.0.0",
-                "language": "Python",
-                "contract": "2.0",
-                "runnable": true,
-            }],
-        })
-        .to_string(),
+        methods.join("gates").join(format!("{FIXTURE_METHOD_ID}.json")),
+        json!({ "pass": true }).to_string(),
     )
-    .expect("index.json");
+    .expect("gate file");
     std::fs::write(
         dir.join("method.json"),
         json!({
@@ -316,7 +308,7 @@ fn build_pipeline(work: &Path) -> Pipeline {
     let manifest = work.join("manifest.json");
     let gen = repo_root().join("scripts/generate-method-env-images.py");
     let out = sh_out(&format!(
-        "python3 {gen} --methods-dir {m} --out {o} --manifest {mf} 2>&1",
+        "python3 {gen} --methods-dir {m} --out {o} --manifest {mf} --new-base --full 2>&1",
         gen = gen.display(),
         m = methods_dir.display(),
         o = staging.display(),
