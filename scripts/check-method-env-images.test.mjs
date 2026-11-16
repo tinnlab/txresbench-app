@@ -87,6 +87,44 @@
 //            /usr and /opt are read-only in the sandbox, so no mount point could
 //            be made for them); a changed file the base already has stays an
 //            entry; a code-only method is just /code.
+//   TEST-16  one method's build input (generator 0.5.0): a dirty, untracked or
+//            ungated method folder is refused before any docker call; the facts
+//            come from method.json + the Dockerfile at HEAD (a stale index.json
+//            is never read); the build context is the committed folder (git
+//            archive); a pinned build uses the local base image at the pinned
+//            digest (tagging it by digest), refuses when it is not on the
+//            machine (never pulls, never rebuilds) and when the tag moved
+//            during the build; the base flags are exclusive.
+//   TEST-17  lists one method at a time (schema 2): records at different
+//            commits and pre-0.5.0 records assemble into one list, each entry
+//            with its own commit, folder tree and generator; every provenance
+//            refusal (version, folder in no commit, unknown commit, tree,
+//            wrapper, FROM, language) names the record; `--previous` carries
+//            the other entries byte for byte, refuses a schema 1 / no-bases
+//            previous, another base image, another contract, an unknown drop;
+//            a base change is a batch (`--replace-base`, `--drop`), a new base
+//            file from the same image keeps every layer; `--only` at assembly.
+//   TEST-18  parity entry by entry: against the previous list (carried
+//            byte-identical, the rest re-assembled; edited carried entries,
+//            missing records, edited bases and a non-writer serialization
+//            fail), and for named entries / bases only.
+//   TEST-19  provenance: every entry's facts at its own commit (the three
+//            AUDIT P7 shapes and the rest, all reported in one run); the
+//            guard's provenance leg, its skip and --require-provenance; the
+//            guard's parity modes.
+//   TEST-20  the schema 2 shape in the guard: per-entry provenance required and
+//            well formed, no top-level source_revision, no `+` in a version.
+//   TEST-21  the publisher checks the entry it publishes (narrowed on purpose,
+//            2026-11-16): one method publishes from a dir holding only its
+//            record, against the previous list; the whole-list mode refuses
+//            it; a record whose provenance is not the entry's is refused; a
+//            pre-0.5.0 record is accepted and said so; --methods-dir required.
+//
+//   TEST-22  reproducible layers (generator 0.6.0, FOLLOW-UPS 64): one layer
+//            root packs to the same bytes every time; the layer's OCI manifest
+//            names the layer and its file only (no methods commit, no base
+//            image), so the same file rebuilt at a later commit or over a new
+//            base image keeps its digest and tag.
 //
 //   node --test scripts/check-method-env-images.test.mjs
 
@@ -137,13 +175,32 @@ function gen(args = []) {
 }
 
 // ── fixtures ──────────────────────────────────────────────────────────────────
-// A fixture methods tree + staged artifact records, written by hand in the
-// exact `artifact.json` shape ITEM-2's build produces (the ITEM-3 fixture
-// shape), then a manifest produced by the generator's own `--fixture` mode.
-const REVISION = '0123456789ab';
+// A fixture methods REPOSITORY (a real git repo: method folders + gates/,
+// committed) + staged artifact records, written by hand in the exact
+// `artifact.json` shape the build produces, then a manifest produced by the
+// generator's own `--fixture` (assemble-only) mode. The writer reads every
+// method fact from git at each record's own commit, so the fixture records
+// carry that commit and the folder's git tree, like a real build.
+const GIT_ENV = {
+  GIT_AUTHOR_NAME: 'fixture', GIT_AUTHOR_EMAIL: 'fixture@txr.test',
+  GIT_COMMITTER_NAME: 'fixture', GIT_COMMITTER_EMAIL: 'fixture@txr.test',
+  GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z',
+};
+
+function git(dir, args) {
+  const r = spawnSync('git', ['-C', dir, ...args], {
+    encoding: 'utf8', env: { ...process.env, ...GIT_ENV },
+  });
+  assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
+  return r.stdout.trim();
+}
+
+/** The host arch, for the generator's native-arch build gate. */
+const HOST_ARCH = process.arch === 'arm64' ? 'arm64' : 'amd64';
+
 const RECORD_A = {
-  record_schema_version: 1,
-  generator_version: '0.2.0',
+  record_schema_version: 2,
+  generator_version: '0.5.0',
   env_id: 'fixture-a',
   method_id: 'fixture-a',
   method_version: '2.0.0',
@@ -151,8 +208,8 @@ const RECORD_A = {
   arch: 'amd64',
   oci_ref: LAYER_PACKAGE,
   // tag: `<env_id>-<version>-<arch>-<sha12>`, set by stagedLayerRecord from
-  // the real layer bytes (like layer_sha256).
-  source_revision: REVISION,
+  // the real layer bytes (like layer_sha256); source_revision and
+  // source_tree are the fixture commit's (set from the methods repo).
   base_ref: 'ghcr.io/tinnlab/txresbench-base-py:2.0',
   base_digest: 'sha256:' + 'ab'.repeat(32),
   base_digest_source: 'repo_digests',
@@ -178,37 +235,62 @@ const RECORD_B = {
   wrapper_code_sha256: 'be460acb0ede00fcef1f12b19d837048ab4648d0d6f2920677be2b667a4233fb',
   run_file: 'run.R',
 };
-const INDEX = {
-  index_version: '2026.10.0',
-  contract_versions: ['2.0'],
-  methods: [
-    { id: 'fixture-a', version: '2.0.0', language: 'Python', contract: '2.0', runnable: true },
-    { id: 'fixture-b', version: '2.0.0', language: 'R', contract: '2.0', runnable: true },
-    { id: 'fixture-c', version: '1.0.0', language: 'Python', contract: '2.0', runnable: false },
-  ],
-};
 
-/** methodsDir + stagingDir with two staged records; the manifest is written by
- *  the real generator's --fixture mode and returned as its path.
- *
- *  The staged layer.squashfs is a REAL squashfs (mksquashfs over a fixture
+/** The bytes of a fixture method's method.json and wrapper: the methods
+ *  repository and the layer's /code carry the SAME bytes (the wrapper hash
+ *  the writer re-derives from git must be the record's). */
+function methodJsonText({ id, licence, language, version }) {
+  return JSON.stringify({ id, version, licence, language });
+}
+function runText(run, extra = '') {
+  return `#!/usr/bin/env ${run === 'run.py' ? 'python3' : 'Rscript'}\n# fixture wrapper\n${extra}`;
+}
+
+/** A method folder in the fixture methods repo: method.json, its wrapper,
+ *  a Dockerfile FROM its language's base, and gates/<id>.json (`gate`:
+ *  true = passed, false = failed, null = no gate file). */
+function writeMethodFolder(methodsDir, { id, licence, language, version, run,
+  gate = true, contract = '2.0', runExtra = '' }) {
+  const d = path.join(methodsDir, 'methods', id);
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, 'method.json'), methodJsonText({ id, licence, language, version }));
+  fs.writeFileSync(path.join(d, run), runText(run, runExtra));
+  const family = language === 'R' ? 'r' : 'py';
+  fs.writeFileSync(path.join(d, 'Dockerfile'),
+    `FROM ghcr.io/tinnlab/txresbench-base-${family}:${contract}\nCOPY method.json ${run} /code/\n`);
+  fs.mkdirSync(path.join(methodsDir, 'gates'), { recursive: true });
+  const gatePath = path.join(methodsDir, 'gates', `${id}.json`);
+  if (gate === null) fs.rmSync(gatePath, { force: true });
+  else fs.writeFileSync(gatePath, JSON.stringify({ pass: gate }));
+}
+
+/** Commit everything in the fixture methods repo; returns the full commit. */
+function commitAll(methodsDir, msg) {
+  if (!fs.existsSync(path.join(methodsDir, '.git'))) git(methodsDir, ['init', '-q']);
+  git(methodsDir, ['add', '-A']);
+  git(methodsDir, ['commit', '-q', '--allow-empty', '-m', msg]);
+  return git(methodsDir, ['rev-parse', 'HEAD']);
+}
+
+/** The provenance a record built at `commit` carries. */
+function provenance(methodsDir, commit, id) {
+  return { source_revision: commit.slice(0, 12),
+           source_tree: git(methodsDir, ['rev-parse', `${commit}:methods/${id}`]) };
+}
+
+/** The staged layer.squashfs is a REAL squashfs (mksquashfs over a fixture
  *  layer root carrying the schema marker, /code payload and the bind
  *  manifest), and the record's `layer_sha256`/`size_bytes`/`wrapper_code_sha256`
- *  are set to THEIR REAL values — the generator's --fixture mode trusts the
- *  record, but the publisher (ITEM-5) re-hashes the staged file and ITEM-7's
- *  behavioral verifier EXTRACTS it, so the fixture byte contract must be
- *  truthful for the publisher / verifier to be the thing under test. */
-function writeLayerRoot(root, { id, licence, run, language, withRun = true }) {
+ *  are set to THEIR REAL values — the publisher (ITEM-5) re-hashes the
+ *  staged file and ITEM-7's behavioral verifier EXTRACTS it, so the fixture
+ *  byte contract must be truthful for the publisher / verifier to be the
+ *  thing under test. */
+function writeLayerRoot(root, { id, licence, run, language, version, withRun = true, runExtra = '' }) {
   fs.mkdirSync(path.join(root, 'code'), { recursive: true });
-  fs.writeFileSync(
-    path.join(root, 'code', 'method.json'),
-    JSON.stringify({ id, licence, language }),
-  );
+  fs.writeFileSync(path.join(root, 'code', 'method.json'),
+    methodJsonText({ id, licence, language, version }));
   if (withRun) {
-    fs.writeFileSync(
-      path.join(root, 'code', run),
-      `#!/usr/bin/env ${run === 'run.py' ? 'python3' : 'Rscript'}\n# fixture wrapper\n`,
-    );
+    fs.writeFileSync(path.join(root, 'code', run), runText(run, runExtra));
   }
   fs.writeFileSync(path.join(root, '.txr-method-env-layer-schema'), '1');
   fs.writeFileSync(path.join(root, 'layer-manifest.json'), JSON.stringify(['/code']));
@@ -235,6 +317,7 @@ function wrapperSha(root, run) {
 }
 
 function stagedLayerRecord(dir, rec, root, run, { withRun = true } = {}) {
+  fs.mkdirSync(dir, { recursive: true });
   const squashfs = path.join(dir, 'layer.squashfs');
   squashLayer(root, squashfs);
   const bytes = fs.readFileSync(squashfs);
@@ -246,13 +329,26 @@ function stagedLayerRecord(dir, rec, root, run, { withRun = true } = {}) {
     ? wrapperSha(root, run)
     : createHash('sha256').update(fs.readFileSync(path.join(root, 'code', 'method.json'))).digest('hex');
   const sha = createHash('sha256').update(bytes).digest('hex');
-  fs.writeFileSync(path.join(dir, 'artifact.json'), JSON.stringify({
+  const record = {
     ...rec,
     tag: `${rec.env_id}-${rec.method_version}-${rec.arch}-${sha.slice(0, 12)}`,
     layer_sha256: sha,
     size_bytes: bytes.length,
     wrapper_code_sha256: wrapper,
-  }, null, 2));
+  };
+  fs.writeFileSync(path.join(dir, 'artifact.json'), JSON.stringify(record, null, 2));
+  return record;
+}
+
+/** Stage one method's layer the way a build at `commit` would: a layer root
+ *  whose /code is the committed method.json + wrapper, packed for real, and
+ *  its record with that commit's provenance. */
+function stageMethodLayer(base, staging, methodsDir, commit, spec, rec, { withRun = true } = {}) {
+  const arch = rec.arch || 'amd64';
+  const root = path.join(base, `${spec.id}-${arch}-${commit.slice(0, 7)}-root-${Math.random().toString(36).slice(2, 8)}`);
+  writeLayerRoot(root, { ...spec, withRun });
+  return stagedLayerRecord(path.join(staging, 'layers', `${spec.id}-${arch}`),
+    { ...rec, ...provenance(methodsDir, commit, spec.id) }, root, spec.run, { withRun });
 }
 
 /** The first 12 hex of a staged layer file's sha256, read from the bytes. */
@@ -271,16 +367,21 @@ const BASE_SOURCE = {
 const BASE_SOURCE_DIGEST = RECORD_A.base_digest;
 const BASE_FIELDS = ['base_id', 'arch', 'oci_ref', 'tag', 'digest', 'squashfs_sha256',
   'size_bytes', 'source_ref', 'source_digest', 'contract'];
+const ENV_FIELDS = ['env_id', 'method_id', 'method_version', 'language', 'arch', 'oci_ref',
+  'tag', 'digest', 'layer_sha256', 'size_bytes', 'base_ref', 'base_digest', 'contract',
+  'licence', 'wrapper_code_sha256', 'layer_schema', 'source_revision', 'source_tree',
+  'generator_version'];
 
 /** A tiny base root holding what the stacked run needs: the layer mount
  *  point (+ the R library for base-r), /usr/bin/prlimit and /usr/bin/bash,
  *  plus the Debian `bin -> usr/bin` link. `omit` drops paths; `binLink: null`
  *  leaves the base without its own /bin (the sandbox makes /bin itself). */
-function writeBaseRoot(root, baseId, { omit = [], binLink = 'usr/bin' } = {}) {
+function writeBaseRoot(root, baseId, { omit = [], binLink = 'usr/bin', extra = {} } = {}) {
   const files = {
     'opt/txr-layer/': null,
     'usr/bin/prlimit': '#!/bin/sh\n',
     'usr/bin/bash': '#!/bin/sh\n',
+    ...extra,
   };
   if (baseId === 'base-r') files['opt/txr-layer/R-library/'] = null;
   for (const rel of omit) delete files[rel];
@@ -320,49 +421,53 @@ function stagedBaseRecord(staging, baseId, arch, root, overrides = {}) {
   return { dir, rec };
 }
 
-function stageFixtureBase(base, staging, baseId, arch) {
-  const root = path.join(base, `${baseId}-${arch}-root`);
-  writeBaseRoot(root, baseId);
-  return stagedBaseRecord(staging, baseId, arch, root);
+function stageFixtureBase(base, staging, baseId, arch, overrides = {}, rootOpts = {}) {
+  const root = path.join(base, `${baseId}-${arch}-root-${Math.random().toString(36).slice(2, 8)}`);
+  writeBaseRoot(root, baseId, rootOpts);
+  return stagedBaseRecord(staging, baseId, arch, root, overrides);
 }
 
+const SPEC_A = { id: 'fixture-a', licence: 'verbatim-licence-of-fixture-a-LLC', language: 'Python',
+  version: '2.0.0', run: 'run.py' };
+const SPEC_B = { id: 'fixture-b', licence: 'verbatim-licence-of-fixture-b-LLC', language: 'R',
+  version: '2.0.0', run: 'run.R' };
+// A method in the repository that never passed its gate: it gets no layer.
+const SPEC_C = { id: 'fixture-c', licence: 'verbatim-licence-of-fixture-c-LLC', language: 'Python',
+  version: '1.0.0', run: 'run.py', gate: false };
+
+/** The fixture methods repository (fixture-a/b gated, fixture-c not) at its
+ *  first commit; returns that commit. */
+function fixtureMethodsRepo(methodsDir) {
+  for (const spec of [SPEC_A, SPEC_B, SPEC_C]) writeMethodFolder(methodsDir, spec);
+  fs.writeFileSync(path.join(methodsDir, '.gitignore'), '__pycache__/\n*.pyc\nindex.json\n');
+  return commitAll(methodsDir, 'fixture methods');
+}
+
+/** methodsDir (a git repo) + stagingDir with two staged records built at its
+ *  first commit; the manifest is written by the real generator's --fixture
+ *  --full mode and returned as its path. */
 function fixture() {
   const base = mkdtemp('mei-fixture-');
   const methodsDir = path.join(base, 'methods');
   const staging = path.join(base, 'staged');
   const manifestPath = path.join(base, 'manifest.json');
-  const spec = [
-    ['fixture-a', 'Python', 'run.py', RECORD_A],
-    ['fixture-b', 'R', 'run.R', RECORD_B],
-  ];
-  for (const [id, language, run] of spec) {
-    const d = path.join(methodsDir, 'methods', id);
-    fs.mkdirSync(d, { recursive: true });
-    const licence = `verbatim-licence-of-${id}-LLC`;
-    fs.writeFileSync(
-      path.join(d, 'method.json'),
-      JSON.stringify({ id, licence, language }),
-    );
-    const dir = path.join(staging, 'layers', `${id}-amd64`);
-    fs.mkdirSync(dir, { recursive: true });
-    const root = path.join(base, `${id}-root`);
-    writeLayerRoot(root, { id, licence, run, language });
-    stagedLayerRecord(dir, id === 'fixture-a' ? RECORD_A : RECORD_B, root, run);
-  }
-  fs.writeFileSync(path.join(methodsDir, 'index.json'), JSON.stringify(INDEX));
+  const commit = fixtureMethodsRepo(methodsDir);
+  stageMethodLayer(base, staging, methodsDir, commit, SPEC_A, RECORD_A);
+  stageMethodLayer(base, staging, methodsDir, commit, SPEC_B, RECORD_B);
   // The bases the two amd64 layers stack on (fixture-a Python, fixture-b R).
   stageFixtureBase(base, staging, 'base-py', 'amd64');
   stageFixtureBase(base, staging, 'base-r', 'amd64');
-  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', manifestPath]);
+  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', manifestPath, '--full']);
   assert.equal(r.status, 0, `fixture manifest did not assemble: ${r.stderr}`);
-  return { base, methodsDir, staging, manifestPath };
+  return { base, methodsDir, staging, manifestPath, commit };
 }
 
 // ── ITEM-6 fixture: the FULL-GENERATION shape ─────────────────────────────────
-// The plan's ITEM-6 is the real 95-method run; TEST-10/TEST-11 pin its
-// GENERATED-MANIFEST properties on the fixture index: one entry per runnable
-// method per published arch (here amd64 + a native arm64 record share one env
-// id), per-arch tags `^<env_id>-<version>-(amd64|arm64)-<sha12>$`, and the full provenance
+// TEST-10/TEST-11 pin the GENERATED-MANIFEST properties on the fixture repo:
+// one entry per gated method per published arch (here a native arm64 record
+// of a method added in a SECOND commit: one list holds entries built at
+// different commits), per-arch tags
+// `^<env_id>-<version>-(amd64|arm64)-<sha12>$`, and the full provenance
 // triplet + the verbatim licence (INV-6/TEST-11).
 const RECORD_D = {
   ...RECORD_A,
@@ -372,38 +477,23 @@ const RECORD_D = {
   arch: 'arm64',
   wrapper_code_sha256: 'c4f0c7861fd6f6d66b2a90c8e35fc787a49e85bfef2c35d7b7270fd5c89cda25',
 };
-const INDEX_FULL = {
-  index_version: '2026.10.0',
-  contract_versions: ['2.0'],
-  methods: [
-    ...INDEX.methods,
-    { id: 'fixture-d', version: '1.5.0', language: 'Python', contract: '2.0', runnable: true },
-  ],
-};
+const SPEC_D = { id: 'fixture-d', licence: 'verbatim-licence-of-fixture-d-LLC', language: 'Python',
+  version: '1.5.0', run: 'run.py' };
 
-/** The ITEM-6 fixture: three staged records (a amd64, b amd64, d arm64) over an
- *  index with two runnable fixtures + one non-runnable (fixture-c) + one arm64
- *  fixture (fixture-d); the manifest is written by the real generator. */
+/** The ITEM-6 fixture: three staged records (a amd64 and b amd64 at the first
+ *  commit, d arm64 at a second commit that added fixture-d) over a repo with
+ *  one non-gated method (fixture-c); the manifest is written by the real
+ *  generator. */
 function fixtureFull() {
-  const { base, methodsDir, staging } = fixture();
-  const manifestPath = path.join(base, 'manifest-full.json');
-  fs.writeFileSync(path.join(methodsDir, 'index.json'), JSON.stringify(INDEX_FULL));
-  const dMethods = path.join(methodsDir, 'methods', 'fixture-d');
-  fs.mkdirSync(dMethods, { recursive: true });
-  const dLicence = 'verbatim-licence-of-fixture-d-LLC';
-  fs.writeFileSync(
-    path.join(dMethods, 'method.json'),
-    JSON.stringify({ id: 'fixture-d', licence: dLicence, language: 'Python' }),
-  );
-  const dir = path.join(staging, 'layers', 'fixture-d-arm64');
-  fs.mkdirSync(dir, { recursive: true });
-  const dRoot = path.join(base, 'fixture-d-root');
-  writeLayerRoot(dRoot, { id: 'fixture-d', licence: dLicence, run: 'run.py', language: 'Python' });
-  stagedLayerRecord(dir, RECORD_D, dRoot, 'run.py');
-  stageFixtureBase(base, staging, 'base-py', 'arm64');
-  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', manifestPath]);
+  const fx = fixture();
+  const manifestPath = path.join(fx.base, 'manifest-full.json');
+  writeMethodFolder(fx.methodsDir, SPEC_D);
+  const commit2 = commitAll(fx.methodsDir, 'add fixture-d');
+  stageMethodLayer(fx.base, fx.staging, fx.methodsDir, commit2, SPEC_D, RECORD_D);
+  stageFixtureBase(fx.base, fx.staging, 'base-py', 'arm64');
+  const r = gen(['--fixture', fx.staging, '--methods-dir', fx.methodsDir, '--manifest', manifestPath, '--full']);
   assert.equal(r.status, 0, `ITEM-6 fixture manifest did not assemble: ${r.stderr}`);
-  return { base, methodsDir, staging, manifestPath };
+  return { ...fx, manifestPath, commit2 };
 }
 
 function withMutated(manifestPath, fn) {
@@ -545,12 +635,14 @@ test('TEST-2b parity fails naming the first differing key after a manual edit', 
   assert.match(r.stderr, /envs\[1\]\.licence/);
 });
 
-test('TEST-2c parity fails naming source_revision after a bumped revision', () => {
+test('TEST-2c parity fails naming an entry\'s source_revision after a bumped revision', () => {
+  // The methods commit is per entry (schema 2): a bumped revision fails at
+  // that entry's own field.
   const { staging, methodsDir, manifestPath } = fixture();
-  const p = withMutated(manifestPath, (m) => { m.source_revision = 'ffffffffffff'; });
+  const p = withMutated(manifestPath, (m) => { m.envs[1].source_revision = 'ffffffffffff'; });
   const r = gen(['--check', '--fixture', staging, '--methods-dir', methodsDir, '--manifest', p]);
   assert.equal(r.status, 1, 'a bumped revision must fail parity');
-  assert.match(r.stderr, /source_revision/);
+  assert.match(r.stderr, /envs\[1\]\.source_revision/);
 });
 
 test('TEST-2d the guard\'s parity leg skips with a reason when no staging dir is given', () => {
@@ -825,8 +917,12 @@ test('TEST-9f the publisher verifies the staged bytes are the entry bytes', () =
 test('TEST-10 the full-generation run emits exactly one entry per runnable method', () => {
   const { methodsDir, staging, manifestPath } = fixtureFull();
   const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  const idx = JSON.parse(fs.readFileSync(path.join(methodsDir, 'index.json'), 'utf8'));
-  const runnable = idx.methods.filter((e) => e.runnable === true).map((e) => e.id).sort();
+  // The runnable set is the gated method folders of the repository (no
+  // index.json): fixture-c's gate failed.
+  const runnable = fs.readdirSync(path.join(methodsDir, 'methods'))
+    .filter((id) => JSON.parse(fs.readFileSync(path.join(methodsDir, 'gates', `${id}.json`), 'utf8')).pass === true)
+    .sort();
+  assert.deepEqual(runnable, ['fixture-a', 'fixture-b', 'fixture-d']);
   const keys = m.envs.map((e) => `${e.env_id}-${e.arch}`);
   // exactly the runnable set — the non-runnable fixture has no entry, and the
   // arm64 record made its way in under a second arch of the SAME env id.
@@ -856,60 +952,67 @@ test('TEST-10 the full-generation run emits exactly one entry per runnable metho
   // a record for a NON-runnable method must refuse the write — "exactly the
   // runnable methods" is enforced by the writer (DEC-8), not a coincidence of
   // the fixture.
-  const cDir = path.join(staging, 'layers', 'fixture-c-amd64');
-  fs.mkdirSync(cDir, { recursive: true });
-  const cBytes = Buffer.alloc(1024, 5);
-  fs.writeFileSync(path.join(cDir, 'layer.squashfs'), cBytes);
-  fs.writeFileSync(path.join(cDir, 'artifact.json'), JSON.stringify({
-    ...RECORD_A,
-    env_id: 'fixture-c',
-    method_id: 'fixture-c',
-    method_version: '1.0.0',
-    tag: `fixture-c-1.0.0-amd64-${createHash('sha256').update(cBytes).digest('hex').slice(0, 12)}`,
-    layer_sha256: createHash('sha256').update(cBytes).digest('hex'),
-    size_bytes: cBytes.length,
-  }, null, 2));
-  const r = gen(['--fixture', staging, '--methods-dir', methodsDir,
-    '--manifest', path.join(path.dirname(manifestPath), 'manifest-must-not-write.json')]);
+  const commit = git(methodsDir, ['rev-parse', 'HEAD']);
+  stageMethodLayer(path.dirname(staging), staging, methodsDir, commit, SPEC_C,
+    { ...RECORD_A, env_id: 'fixture-c', method_id: 'fixture-c', method_version: '1.0.0' });
+  const out = path.join(path.dirname(manifestPath), 'manifest-must-not-write.json');
+  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', out, '--full']);
   assert.notEqual(r.status, 0, 'a record for a non-runnable method must refuse');
   assert.match(r.stderr, /fixture-c/);
+  assert.match(r.stderr, /PROVENANCE_NOT_GATED/);
   assert.match(r.stderr, /not runnable/);
+  assert.ok(!fs.existsSync(out), 'nothing is written');
 });
 
 test('TEST-11 every entry carries the provenance triplet and the verbatim licence', () => {
-  const { methodsDir, staging, manifestPath } = fixtureFull();
+  const { base, methodsDir, staging, manifestPath, commit, commit2 } = fixtureFull();
   const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-  const idx = JSON.parse(fs.readFileSync(path.join(methodsDir, 'index.json'), 'utf8'));
-  const indexOf = new Map(idx.methods.map((e) => [e.id, e]));
   assert.equal(m.base_contract, '2.0');
+  const builtAt = { 'fixture-a': commit, 'fixture-b': commit, 'fixture-d': commit2 };
   for (const e of m.envs) {
     // non-empty identity + provenance fields (INV-6: a run and a saved model
     // record these verbatim — method, method version, base digest, env digest).
     for (const f of ['method_id', 'method_version', 'digest', 'base_digest',
-                     'oci_ref', 'tag', 'wrapper_code_sha256', 'layer_sha256']) {
+                     'oci_ref', 'tag', 'wrapper_code_sha256', 'layer_sha256',
+                     'source_revision', 'source_tree', 'generator_version']) {
       assert.ok(e[f] && String(e[f]).length > 0, `${e.env_id}: ${f} must be non-empty`);
     }
     assert.match(e.digest, /^sha256:[0-9a-f]{64}$/);
     assert.match(e.base_digest, /^sha256:[0-9a-f]{64}$/);
     assert.match(e.layer_sha256, /^[0-9a-f]{64}$/);
     assert.equal(e.oci_ref, LAYER_PACKAGE);
-    assert.equal(e.contract, indexOf.get(e.env_id).contract);
-    // the licence reproduced VERBATIM from method.json at generation time.
-    const mj = JSON.parse(fs.readFileSync(
-      path.join(methodsDir, 'methods', e.env_id, 'method.json'), 'utf8'));
+    // the contract is the FROM tag of the method's Dockerfile at its commit.
+    assert.equal(e.contract, '2.0');
+    // each entry names the commit its layer was built at and that commit's
+    // folder tree; the generator that built it comes from its record.
+    assert.equal(e.source_revision, builtAt[e.env_id].slice(0, 12));
+    assert.equal(e.source_tree, git(methodsDir, ['rev-parse', `${builtAt[e.env_id]}:methods/${e.env_id}`]));
+    assert.equal(e.generator_version, '0.5.0');
+    // the licence reproduced VERBATIM from method.json at that commit.
+    const mj = JSON.parse(git(methodsDir, ['show', `${builtAt[e.env_id]}:methods/${e.env_id}/method.json`]));
     assert.equal(e.licence, mj.licence);
     assert.equal(e.licence, `verbatim-licence-of-${e.env_id}-LLC`);
   }
-  // a licence change is a REGENERATION event (run the writer again from the
-  // same records), never an edit: the verbatim fact follows method.json.
+  // A licence change is a REBUILD event: the facts are read at each record's
+  // own commit, so a new method.json (committed or not) changes nothing until
+  // the layer is rebuilt from it — the list's licence can never drift from the
+  // method.json inside the layer.
   const revised = 'verbatim-licence-of-fixture-a-LLC-revised-by-the-facts';
-  fs.writeFileSync(path.join(methodsDir, 'methods', 'fixture-a', 'method.json'),
-    JSON.stringify({ id: 'fixture-a', licence: revised }));
-  const regenerated = path.join(path.dirname(manifestPath), 'manifest-regen.json');
-  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', regenerated]);
+  const specA2 = { ...SPEC_A, licence: revised };
+  writeMethodFolder(methodsDir, specA2);
+  const commit3 = commitAll(methodsDir, 'fixture-a: revised licence');
+  const same = path.join(base, 'manifest-same-records.json');
+  let r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', same, '--full']);
+  assert.equal(r.status, 0, `re-assembly refused: ${r.stderr}`);
+  assert.equal(fs.readFileSync(same, 'utf8'), fs.readFileSync(manifestPath, 'utf8'),
+    'the same records give the same list, whatever the methods HEAD');
+  stageMethodLayer(base, staging, methodsDir, commit3, specA2, RECORD_A);
+  const regenerated = path.join(base, 'manifest-regen.json');
+  r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', regenerated, '--full']);
   assert.equal(r.status, 0, `regeneration refused: ${r.stderr}`);
-  const m2 = JSON.parse(fs.readFileSync(regenerated, 'utf8'));
-  assert.equal(m2.envs.find((e) => e.env_id === 'fixture-a').licence, revised);
+  const a2 = JSON.parse(fs.readFileSync(regenerated, 'utf8')).envs.find((e) => e.env_id === 'fixture-a');
+  assert.equal(a2.licence, revised);
+  assert.equal(a2.source_revision, commit3.slice(0, 12));
 });
 
 // ── TEST-8: the behavioral verifier (ITEM-7) ─────────────────────────────────
@@ -936,29 +1039,24 @@ function verifyFixture({ withRun = true } = {}) {
   const staging = path.join(base, 'staged');
   const manifestPath = path.join(base, 'manifest.json');
   const id = 'fixture-v';
-  const licence = 'verbatim-licence-of-fixture-v-LLC';
-  const d = path.join(methodsDir, 'methods', id);
-  fs.mkdirSync(d, { recursive: true });
-  fs.writeFileSync(path.join(d, 'method.json'), JSON.stringify({ id, licence, language: 'Python' }));
-  fs.writeFileSync(path.join(methodsDir, 'index.json'), JSON.stringify({
-    index_version: '2026.10.0',
-    contract_versions: ['2.0'],
-    methods: [
-      { id, version: '1.0.0', language: 'Python', contract: '2.0', runnable: true },
-    ],
-  }));
+  const spec = { id, licence: 'verbatim-licence-of-fixture-v-LLC', language: 'Python',
+    version: '1.0.0', run: 'run.py' };
+  writeMethodFolder(methodsDir, spec);
+  const commit = commitAll(methodsDir, 'fixture-v');
   const dir = path.join(staging, 'layers', `${id}-amd64`);
-  fs.mkdirSync(dir, { recursive: true });
-  const root = path.join(base, `${id}-root`);
-  writeLayerRoot(root, { id, licence, run: 'run.py', language: 'Python', withRun });
-  stagedLayerRecord(dir, {
-    ...RECORD_A,
-    env_id: id,
-    method_id: id,
-    method_version: '1.0.0',
-  }, root, 'run.py', { withRun });
+  stageMethodLayer(base, staging, methodsDir, commit, spec,
+    { ...RECORD_A, env_id: id, method_id: id, method_version: '1.0.0' }, { withRun });
+  if (!withRun) {
+    // The broken layer lacks its run file, but its record carries the
+    // committed wrapper hash (the writer checks it against git): every byte
+    // check agrees, and only the behavioral verifier can refuse it.
+    const committed = createHash('sha256')
+      .update(Buffer.concat([Buffer.from(methodJsonText(spec)), Buffer.from(runText('run.py'))]))
+      .digest('hex');
+    editRecord(path.join(dir, 'artifact.json'), { wrapper_code_sha256: committed });
+  }
   stageFixtureBase(base, staging, 'base-py', 'amd64');
-  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', manifestPath]);
+  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', manifestPath, '--full']);
   assert.equal(r.status, 0, `TEST-8 fixture manifest did not assemble: ${r.stderr}`);
   return { base, methodsDir, staging, manifestPath, layerDir: dir, recordFile: path.join(dir, 'artifact.json') };
 }
@@ -1171,7 +1269,7 @@ test('TEST-13a the writer emits bases and stages each base\'s exact OCI manifest
   const { staging, manifestPath } = fixture();
   const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   assert.deepEqual(Object.keys(m),
-    ['schema_version', 'generator_version', 'source_revision', 'base_contract', 'bases', 'envs']);
+    ['schema_version', 'generator_version', 'base_contract', 'bases', 'envs']);
   assert.deepEqual(m.bases.map((b) => `${b.base_id}-${b.arch}`), ['base-py-amd64', 'base-r-amd64']);
   for (const b of m.bases) {
     assert.deepEqual(Object.keys(b), BASE_FIELDS, 'the schema field order');
@@ -1196,7 +1294,7 @@ test('TEST-13a the writer emits bases and stages each base\'s exact OCI manifest
 test('TEST-13b the writer refuses an entry without its staged base', () => {
   const { staging, methodsDir, base } = fixture();
   fs.rmSync(path.join(staging, 'bases', 'base-r-amd64'), { recursive: true, force: true });
-  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', path.join(base, 'x.json')]);
+  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', path.join(base, 'x.json'), '--full']);
   assert.equal(r.status, 1, 'a layer without its base must not be written');
   assert.match(r.stderr, /fixture-b-amd64: no staged base base-r-amd64/);
 });
@@ -1207,7 +1305,7 @@ test('TEST-13c the writer refuses a base packed from another image, naming both 
   const rec = JSON.parse(fs.readFileSync(recPath, 'utf8'));
   const other = 'sha256:' + 'cd'.repeat(32);
   fs.writeFileSync(recPath, JSON.stringify({ ...rec, source_digest: other }));
-  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', path.join(base, 'x.json')]);
+  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', path.join(base, 'x.json'), '--full']);
   assert.equal(r.status, 1, 'a base from another image must not pair');
   assert.ok(r.stderr.includes(other) && r.stderr.includes(BASE_SOURCE_DIGEST), r.stderr);
   assert.match(r.stderr, /design §7/);
@@ -1217,12 +1315,12 @@ test('TEST-13d the writer refuses a stray dir or a dir without a record under ba
   const { staging, methodsDir, base } = fixture();
   const stray = path.join(staging, 'bases', 'sha256:abababababab-amd64');
   fs.mkdirSync(stray);
-  let r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', path.join(base, 'x.json')]);
+  let r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', path.join(base, 'x.json'), '--full']);
   assert.equal(r.status, 1, 'an old rootfs cache dir under bases/ must be refused');
   assert.match(r.stderr, /base-cache/);
   fs.rmSync(stray, { recursive: true });
   fs.mkdirSync(path.join(staging, 'bases', 'base-py-arm64'));
-  r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', path.join(base, 'x.json')]);
+  r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', path.join(base, 'x.json'), '--full']);
   assert.equal(r.status, 1, 'a base dir without its record must be refused');
   assert.match(r.stderr, /base-py-arm64 has no artifact\.json/);
 });
@@ -1444,7 +1542,7 @@ test('TEST-13k --stage-bases stages each base from the image with the recorded d
   assert.equal(again.status, 0, again.stderr);
   assert.doesNotMatch(again.stdout, /\+ mksquashfs/, 'nothing is packed twice');
   // And the writer pairs every layer with them.
-  const w = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', path.join(base, 'staged.json')]);
+  const w = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', path.join(base, 'staged.json'), '--full']);
   assert.equal(w.status, 0, w.stderr);
   const m = JSON.parse(fs.readFileSync(path.join(base, 'staged.json'), 'utf8'));
   assert.equal(m.bases.length, 2);
@@ -1514,7 +1612,8 @@ test('TEST-14b --base refuses bytes, records and manifests that are not the cont
     assert.match(r.stderr, re, `${what}: ${r.stderr}`);
   }
   const fx = fixture();
-  const flags = ['--manifest', fx.manifestPath, '--staging-dir', fx.staging, '--dry-run'];
+  const flags = ['--manifest', fx.manifestPath, '--staging-dir', fx.staging, '--methods-dir', fx.methodsDir,
+    '--dry-run'];
   assert.equal(publisher(['--base', 'base-x', ...flags]).status, 2, 'an unknown base id');
   assert.equal(publisher(['--base', 'base-r', '--arch', 'arm64', ...flags], { ALLOW_EMULATED_BUILD: '1' }).status, 2,
     'a base the manifest does not hold');
@@ -1531,7 +1630,7 @@ test('TEST-14c --base refuses a base without what the stacked run needs, before 
   const root = path.join(fx.base, 'broken-base-root');
   writeBaseRoot(root, 'base-py', { omit: ['usr/bin/prlimit'] });
   stagedBaseRecord(fx.staging, 'base-py', 'amd64', root);
-  const w = gen(['--fixture', fx.staging, '--methods-dir', fx.methodsDir, '--manifest', fx.manifestPath]);
+  const w = gen(['--fixture', fx.staging, '--methods-dir', fx.methodsDir, '--manifest', fx.manifestPath, '--full']);
   assert.equal(w.status, 0, w.stderr);
   const { dir: stubDir, log, env } = makeStubs('');
   t.after(() => fs.rmSync(stubDir, { recursive: true, force: true }));
@@ -1677,15 +1776,19 @@ test('TEST-14i a loopback publish is plain HTTP to the loopback host, with no lo
 
 // ── TEST-15: one package for every layer, one for both bases ──────────────────
 
-/** Rewrite every staged record under `staging` to the address a generator
- *  before 0.4.0 wrote (one package per method, one per base); every other
- *  field and every staged file stays as it is. */
+/** Rewrite every staged record under `staging` to what a generator before
+ *  0.4.0 wrote: the address of one package per method (one per base), and a
+ *  record_schema_version 1 layer record with no folder tree (the writer
+ *  takes the tree from git at the record's commit); every other field and
+ *  every staged file stays as it is. */
 function toLegacyRecords(staging) {
   for (const name of fs.readdirSync(path.join(staging, 'layers'))) {
     const p = path.join(staging, 'layers', name, 'artifact.json');
     const r = JSON.parse(fs.readFileSync(p, 'utf8'));
+    delete r.source_tree;
     fs.writeFileSync(p, JSON.stringify({
-      ...r, oci_ref: `${LAYER_PACKAGE}/${r.env_id}`, tag: `${r.method_version}-${r.arch}`,
+      ...r, record_schema_version: 1,
+      oci_ref: `${LAYER_PACKAGE}/${r.env_id}`, tag: `${r.method_version}-${r.arch}`,
     }, null, 2));
   }
   for (const name of fs.readdirSync(path.join(staging, 'bases'))) {
@@ -1727,7 +1830,7 @@ test('TEST-15a the writer puts every layer in one package and both bases in one 
     assert.equal(b.oci_ref, BASE_PACKAGE);
     assert.equal(b.tag, `${b.base_id}-${b.contract}-${b.arch}-${b.squashfs_sha256.slice(0, 12)}`);
   }
-  assert.equal(m.generator_version, '0.4.0');
+  assert.equal(m.generator_version, '0.6.0');
 });
 
 test('TEST-15b records staged before 0.4.0 assemble to the same manifest bytes', () => {
@@ -1745,7 +1848,7 @@ test('TEST-15b records staged before 0.4.0 assemble to the same manifest bytes',
   // A fresh write from the old-form records: the same bytes, the same staged
   // OCI manifest bytes (no address is in them), so the same digests.
   const again = path.join(base, 'from-legacy.json');
-  const w = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', again]);
+  const w = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', again, '--full']);
   assert.equal(w.status, 0, w.stderr);
   assert.equal(fs.readFileSync(again, 'utf8'), current);
   assert.deepEqual(stagedOciBytes(staging), currentOci);
@@ -1791,7 +1894,7 @@ test('TEST-15c a staged record with any other address is refused, naming the rec
     const fx = fixture();
     breakIt(fx);
     const out = path.join(fx.base, 'must-not-write.json');
-    const r = gen(['--fixture', fx.staging, '--methods-dir', fx.methodsDir, '--manifest', out]);
+    const r = gen(['--fixture', fx.staging, '--methods-dir', fx.methodsDir, '--manifest', out, '--full']);
     assert.equal(r.status, 1, `${what}: ${r.stderr}\n${r.stdout}`);
     assert.match(r.stderr, re, `${what}: ${r.stderr}`);
     assert.ok(!fs.existsSync(out), `${what}: nothing is written`);
@@ -1944,4 +2047,888 @@ test('TEST-15g the publisher refuses an address that is not the one-package form
     assert.match(r.stderr, re, `${what}: ${r.stderr}`);
     assert.ok(!fs.existsSync(stub.log) || calls(stub.log).length === 0, `${what}: no oras or cosign call`);
   }
+});
+
+// ── TEST-16: one method's build input (the committed folder, the pinned base) ─
+// The generator's own functions, imported by path (the TEST-12 harness shape),
+// over a real git methods repository; docker is a logging stub with no daemon.
+
+const SOURCE_HARNESS = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("txr_generator", sys.argv[1])
+g = importlib.util.module_from_spec(spec)
+sys.modules["txr_generator"] = g
+spec.loader.exec_module(g)
+methods, op = sys.argv[2], sys.argv[3]
+try:
+    if op == "gated":
+        git = g.Git(methods)
+        print(json.dumps({"ids": g.gated_method_ids(git, git.commit("HEAD"))}))
+    else:
+        src = sys.argv[5] if len(sys.argv) > 5 else None
+        print(json.dumps({"facts": g.prepare_method_source(methods, sys.argv[4], src)}))
+except g.BuildError as e:
+    print(json.dumps({"error": str(e)}))
+`;
+
+function harness(code, args, env = {}) {
+  const r = spawnSync('python3', ['-c', code, GENERATOR, ...args], {
+    encoding: 'utf8', env: { ...process.env, ...env },
+  });
+  assert.equal(r.status, 0, `the harness itself must run: ${r.stderr}`);
+  return JSON.parse(r.stdout.trim().split('\n').pop());
+}
+
+const prepare = (methodsDir, id, src) =>
+  harness(SOURCE_HARNESS, [methodsDir, 'prepare', id, ...(src ? [src] : [])]);
+
+/** A fresh fixture methods repository (a, b gated; c not) at its first commit. */
+function methodsRepo() {
+  const base = mkdtemp('mei-src-');
+  const methodsDir = path.join(base, 'methods');
+  const commit = fixtureMethodsRepo(methodsDir);
+  return { base, methodsDir, commit };
+}
+
+test('TEST-16a a build refuses a dirty, untracked or ungated method folder, naming it', () => {
+  const cases = [
+    ['a modified tracked file', (m) => fs.appendFileSync(path.join(m, 'methods', 'fixture-a', 'run.py'), '# local edit\n'),
+      'fixture-a', /BUILD_FOLDER_DIRTY: method fixture-a[\s\S]*methods\/fixture-a\/run\.py/],
+    ['an untracked file', (m) => fs.writeFileSync(path.join(m, 'methods', 'fixture-a', 'notes.txt'), 'x\n'),
+      'fixture-a', /BUILD_FOLDER_DIRTY[\s\S]*methods\/fixture-a\/notes\.txt/],
+    ['an edited gate file', (m) => fs.writeFileSync(path.join(m, 'gates', 'fixture-a.json'), '{"pass": false}'),
+      'fixture-a', /BUILD_FOLDER_DIRTY[\s\S]*gates\/fixture-a\.json/],
+    ['a folder that was never committed', (m) => writeMethodFolder(m, { ...SPEC_A, id: 'fixture-x', gate: null }),
+      'fixture-x', /BUILD_METHOD_NOT_IN_COMMIT: method fixture-x: methods\/fixture-x is not in HEAD/],
+    ['a failed gate', () => {}, 'fixture-c', /BUILD_NOT_GATED: method fixture-c is not runnable/],
+    ['no gate file at all', (m) => {
+      fs.rmSync(path.join(m, 'gates', 'fixture-b.json'));
+      commitAll(m, 'drop the gate of fixture-b');
+    }, 'fixture-b', /BUILD_NOT_GATED: method fixture-b/],
+  ];
+  for (const [what, breakIt, id, re] of cases) {
+    const { methodsDir } = methodsRepo();
+    breakIt(methodsDir);
+    const res = prepare(methodsDir, id);
+    assert.ok(res.error, `${what} must be refused: ${JSON.stringify(res)}`);
+    assert.match(res.error, re, what);
+  }
+  // The CLI refuses before any docker call (a logging stub on PATH).
+  const { base, methodsDir } = methodsRepo();
+  fs.appendFileSync(path.join(methodsDir, 'methods', 'fixture-a', 'run.py'), '# local edit\n');
+  const stub = makeDockerStub('sha256:' + 'cd'.repeat(32), path.join(base, 'none.tar'));
+  const r = spawnSync('python3', [GENERATOR, '--out', path.join(base, 'out'), '--methods-dir', methodsDir,
+    '--only', 'fixture-a', '--arch', HOST_ARCH, '--new-base'], {
+    cwd: REPO, encoding: 'utf8', env: { ...process.env, ...stub.env },
+  });
+  assert.equal(r.status, 1, `${r.stdout}\n${r.stderr}`);
+  assert.match(r.stderr, /FAIL fixture-a: BUILD_FOLDER_DIRTY/);
+  assert.ok(!fs.existsSync(stub.log), 'docker was never called');
+});
+
+test('TEST-16b the build takes its facts from method.json and the Dockerfile at HEAD, never index.json', () => {
+  const { methodsDir, commit } = methodsRepo();
+  // A stale generated index (gitignored, untracked) naming another version and
+  // "not runnable": the P7 shape. It is not read.
+  fs.writeFileSync(path.join(methodsDir, 'index.json'), JSON.stringify({
+    methods: [{ id: 'fixture-a', version: '9.9.9', language: 'R', contract: '9.9', runnable: false }],
+  }));
+  const res = prepare(methodsDir, 'fixture-a');
+  assert.ok(res.facts, JSON.stringify(res));
+  const f = res.facts;
+  assert.equal(f.version, '2.0.0');
+  assert.equal(f.language, 'Python');
+  assert.equal(f.licence, SPEC_A.licence);
+  assert.equal(f.base_ref, 'ghcr.io/tinnlab/txresbench-base-py:2.0');
+  assert.equal(f.contract, '2.0');
+  assert.equal(f.run_file, 'run.py');
+  assert.equal(f.gated, true);
+  // The record's provenance: HEAD's 12 hex and the folder's git tree.
+  assert.equal(f.source_revision, commit.slice(0, 12));
+  assert.equal(f.source_tree, git(methodsDir, ['rev-parse', `${commit}:methods/fixture-a`]));
+  assert.equal(f.wrapper_code_sha256, createHash('sha256')
+    .update(methodJsonText(SPEC_A) + runText('run.py')).digest('hex'));
+  // A full build lists the gated folders of HEAD (fixture-c's gate failed).
+  assert.deepEqual(harness(SOURCE_HARNESS, [methodsDir, 'gated']), { ids: ['fixture-a', 'fixture-b'] });
+});
+
+test('TEST-16c the build context is exactly the committed folder', () => {
+  const { base, methodsDir } = methodsRepo();
+  // An ignored file in the working folder: not dirty (git ignores it) and not
+  // in the export.
+  fs.mkdirSync(path.join(methodsDir, 'methods', 'fixture-a', '__pycache__'));
+  fs.writeFileSync(path.join(methodsDir, 'methods', 'fixture-a', '__pycache__', 'run.cpython-311.pyc'), 'x');
+  fs.writeFileSync(path.join(methodsDir, 'methods', 'fixture-a', 'stray.pyc'), 'x');
+  fs.chmodSync(path.join(methodsDir, 'methods', 'fixture-a', 'run.py'), 0o600);
+  const src = path.join(base, 'src');
+  const res = prepare(methodsDir, 'fixture-a', src);
+  assert.ok(res.facts, JSON.stringify(res));
+  const dir = res.facts.dir;
+  assert.equal(dir, path.join(src, 'methods', 'fixture-a'));
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['Dockerfile', 'method.json', 'run.py']);
+  assert.equal(fs.readFileSync(path.join(dir, 'method.json'), 'utf8'), methodJsonText(SPEC_A));
+  // git records 0644 for the file; the export carries that, not the local 0600.
+  assert.equal(fs.statSync(path.join(dir, 'run.py')).mode & 0o777, 0o644);
+});
+
+/** A stateful `docker` stub (a real subprocess, no daemon): `image inspect`
+ *  answers from a JSON state file {ref: [RepoDigests]}, `tag` adds a ref,
+ *  everything else (pull, build) exits 1. Every call is logged. */
+function makePinnedDockerStub(refs) {
+  const dir = mkdtemp('mei-pinstub-');
+  const bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin);
+  const state = path.join(dir, 'state.json');
+  const log = path.join(dir, 'calls.log');
+  fs.writeFileSync(state, JSON.stringify(refs));
+  fs.writeFileSync(path.join(bin, 'docker'), `#!/usr/bin/env python3
+import json, os, sys
+with open(os.environ["DOCKER_STUB_LOG"], "a") as f:
+    f.write("docker " + " ".join(sys.argv[1:]) + "\\n")
+path = os.environ["DOCKER_STUB_STATE"]
+refs = json.load(open(path))
+args = sys.argv[1:]
+def lookup(ref):
+    if ref in refs:
+        return refs[ref]
+    for v in refs.values():
+        if ref in v:
+            return v
+    return None
+if args[:2] == ["image", "inspect"]:
+    v = lookup(args[-1])
+    if v is None:
+        sys.exit(1)
+    if "--format" in args:
+        print(json.dumps(v))
+    sys.exit(0)
+if args[:1] == ["tag"] and lookup(args[1]) is not None:
+    refs[args[2]] = lookup(args[1])
+    json.dump(refs, open(path, "w"))
+    sys.exit(0)
+sys.exit(1)
+`);
+  fs.chmodSync(path.join(bin, 'docker'), 0o755);
+  return {
+    log, state,
+    env: { DOCKER_STUB_LOG: log, DOCKER_STUB_STATE: state, PATH: `${bin}:${process.env.PATH}` },
+  };
+}
+
+const PIN_HARNESS = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("txr_generator", sys.argv[1])
+g = importlib.util.module_from_spec(spec)
+sys.modules["txr_generator"] = g
+spec.loader.exec_module(g)
+from_ref, pin, op = sys.argv[2], json.loads(sys.argv[3]), sys.argv[4]
+try:
+    if op == "resolve":
+        print(json.dumps({"base": g.resolve_pinned_base(from_ref, pin, "base-py-amd64", "the-list.json")}))
+    else:
+        g.assert_base_unchanged(from_ref, pin["source_digest"])
+        print(json.dumps({"ok": True}))
+except g.BuildError as e:
+    print(json.dumps({"error": str(e)}))
+`;
+
+test('TEST-16d a pinned build uses the local base image at the pinned digest, or refuses', () => {
+  const FROM = 'ghcr.io/tinnlab/txresbench-base-py:2.0';
+  const REPO_PY = 'ghcr.io/tinnlab/txresbench-base-py';
+  const PIN = 'sha256:' + 'ab'.repeat(32);
+  const OTHER = 'sha256:' + 'cd'.repeat(32);
+  const pin = { source_ref: FROM, source_digest: PIN };
+  const run = (refs, p = pin, op = 'resolve') => {
+    const stub = makePinnedDockerStub(refs);
+    const res = harness(PIN_HARNESS, [FROM, JSON.stringify(p), op], stub.env);
+    const log = fs.existsSync(stub.log) ? fs.readFileSync(stub.log, 'utf8') : '';
+    return { res, log, state: JSON.parse(fs.readFileSync(stub.state, 'utf8')) };
+  };
+  // The FROM tag already names the pinned image: used as it is.
+  let { res, log } = run({ [FROM]: [`${REPO_PY}@${PIN}`] });
+  assert.deepEqual(res.base && [res.base.digest, res.base.source], [PIN, 'local'], JSON.stringify(res));
+  assert.doesNotMatch(log, /docker (tag|pull|build|buildx)/);
+  // The tag names another image, the pinned one is local by digest: tagged.
+  let state;
+  ({ res, log, state } = run({ [FROM]: [`${REPO_PY}@${OTHER}`], other: [`${REPO_PY}@${PIN}`] }));
+  assert.equal(res.base && res.base.source, 'local-by-digest', JSON.stringify(res));
+  assert.match(log, new RegExp(`docker tag ${REPO_PY}@${PIN} ${FROM.replace(/\./g, '\\.')}`));
+  assert.deepEqual(state[FROM], [`${REPO_PY}@${PIN}`]);
+  assert.doesNotMatch(log, /docker (pull|build|buildx)/, 'never pulled, never rebuilt');
+  // The pinned image is not on this machine: refused, never pulled.
+  ({ res, log } = run({ [FROM]: [`${REPO_PY}@${OTHER}`] }));
+  assert.match(res.error || '', /BUILD_BASE_UNAVAILABLE: the pinned base image ghcr\.io\/tinnlab\/txresbench-base-py@sha256:(ab){32} is not on this machine/);
+  assert.match(res.error, /docker save/);
+  assert.match(res.error, /docker load/);
+  assert.doesNotMatch(log, /docker (pull|build|buildx|tag)/);
+  // The list pins no base for the key; the Dockerfile names another base.
+  ({ res } = run({}, null));
+  assert.match(res.error || '', /BUILD_BASE_NOT_PINNED: the-list\.json pins no base-py-amd64 base/);
+  assert.match(res.error, /--new-base/);
+  ({ res } = run({}, { source_ref: 'ghcr.io/tinnlab/txresbench-base-py:2.1', source_digest: PIN }));
+  assert.match(res.error || '', /BUILD_FROM_NOT_PINNED/);
+  // After the build: the tag must still name the pin.
+  ({ res } = run({ [FROM]: [`${REPO_PY}@${PIN}`] }, pin, 'after'));
+  assert.deepEqual(res, { ok: true });
+  ({ res } = run({ [FROM]: [`${REPO_PY}@${OTHER}`] }, pin, 'after'));
+  assert.match(res.error || '', /BUILD_BASE_MOVED/);
+});
+
+test('TEST-16e the build CLI: a list without bases pins nothing; the base flags are exclusive', () => {
+  const { base, methodsDir } = methodsRepo();
+  const noBases = path.join(base, 'no-bases.json');
+  fs.writeFileSync(noBases, JSON.stringify({ schema_version: 2, envs: [] }));
+  const stub = makePinnedDockerStub({});
+  const cli = (extra) => spawnSync('python3', [GENERATOR, '--out', path.join(base, 'out'),
+    '--methods-dir', methodsDir, '--only', 'fixture-a', '--arch', HOST_ARCH, ...extra], {
+    cwd: REPO, encoding: 'utf8', env: { ...process.env, ...stub.env },
+  });
+  let r = cli(['--base-pins', noBases]);
+  assert.equal(r.status, 1, `${r.stdout}\n${r.stderr}`);
+  assert.match(r.stderr, /FAIL fixture-a: BUILD_BASE_NOT_PINNED/);
+  assert.ok(!fs.existsSync(stub.log), 'refused before any docker call');
+  r = cli(['--force-base-build']);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /--force-base-build rebuilds the base: only with --new-base/);
+  r = cli(['--new-base', '--base-pins', noBases]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /exclusive/);
+  // FOLLOW-UPS 77: a build that writes a manifest must say how.
+  r = cli(['--new-base', '--manifest', path.join(base, 'm.json')]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /ASSEMBLE_MODE/);
+});
+
+// ── TEST-17: lists assembled one method at a time (per-entry provenance) ──────
+
+/** A one-record staging dir: `spec` built at `commit` (optionally on another
+ *  base digest), nothing else. */
+function oneRecordStaging(fx, commit, spec, rec, name) {
+  const staging = path.join(fx.base, name);
+  stageMethodLayer(fx.base, staging, fx.methodsDir, commit, spec, rec);
+  return staging;
+}
+
+const SPEC_A2 = { ...SPEC_A, version: '2.0.1', licence: 'verbatim-licence-of-fixture-a-LLC-v2' };
+
+/** The fixture, then fixture-a bumped to 2.0.1 in a new commit and rebuilt
+ *  alone into its own staging dir. */
+function fixtureWithUpdate() {
+  const fx = fixture();
+  writeMethodFolder(fx.methodsDir, SPEC_A2);
+  const commit2 = commitAll(fx.methodsDir, 'fixture-a 2.0.1');
+  const one = oneRecordStaging(fx, commit2, SPEC_A2, { ...RECORD_A, method_version: '2.0.1' }, 'staged-one');
+  return { ...fx, commit2, one };
+}
+
+test('TEST-17a records at different commits and legacy records assemble into one list', () => {
+  const fx = fixture();
+  // fixture-b rebuilt at a later commit; fixture-a stays a pre-0.5.0
+  // (record_schema_version 1, no tree) record of the first commit; the
+  // methods HEAD then moves on (another method changes): none of it matters.
+  writeMethodFolder(fx.methodsDir, { ...SPEC_B, runExtra: '# b changed\n' });
+  const commit2 = commitAll(fx.methodsDir, 'fixture-b changed');
+  stageMethodLayer(fx.base, fx.staging, fx.methodsDir, commit2, { ...SPEC_B, runExtra: '# b changed\n' }, RECORD_B);
+  const aRec = path.join(fx.staging, 'layers', 'fixture-a-amd64', 'artifact.json');
+  const legacy = JSON.parse(fs.readFileSync(aRec, 'utf8'));
+  delete legacy.source_tree;
+  fs.writeFileSync(aRec, JSON.stringify({ ...legacy, record_schema_version: 1, generator_version: '0.3.0' }, null, 2));
+  writeMethodFolder(fx.methodsDir, { ...SPEC_C, licence: 'changed' });
+  commitAll(fx.methodsDir, 'an unrelated method changes');
+  const out = path.join(fx.base, 'mixed.json');
+  const r = gen(['--fixture', fx.staging, '--methods-dir', fx.methodsDir, '--manifest', out, '--full']);
+  assert.equal(r.status, 0, r.stderr);
+  const m = JSON.parse(fs.readFileSync(out, 'utf8'));
+  const [a, b] = m.envs;
+  assert.equal(a.source_revision, fx.commit.slice(0, 12));
+  assert.equal(a.source_tree, git(fx.methodsDir, ['rev-parse', `${fx.commit}:methods/fixture-a`]),
+    'a legacy record gets its tree from git');
+  assert.equal(a.generator_version, '0.3.0');
+  assert.equal(b.source_revision, commit2.slice(0, 12));
+  assert.notEqual(a.source_revision, b.source_revision);
+  for (const e of m.envs) assert.deepEqual(Object.keys(e), ENV_FIELDS, 'the schema field order');
+  const g = guard(['--manifest', out, '--staging-dir', fx.staging, '--methods-dir', fx.methodsDir]);
+  assert.equal(g.status, 0, `${g.stderr}\n${g.stdout}`);
+  assert.match(g.stdout, /provenance: OK — 2 entries/);
+});
+
+test('TEST-17b each provenance refusal at assembly names the record and writes nothing', () => {
+  const cases = [
+    ['a version method.json does not have (the P7 shape)', (fx) => editRecord(fx.aRec, {
+      method_version: '2.0.1', tag: `fixture-a-2.0.1-amd64-${layerSha12(fx.staging, 'fixture-a-amd64')}`,
+    }), /record fixture-a-amd64: PROVENANCE_VERSION_MISMATCH: the record says '2\.0\.1', methods\/fixture-a\/method\.json at [0-9a-f]{12} says '2\.0\.0'/],
+    ['a method folder that is in no commit (the P7 shape)', (fx) => {
+      const dir = path.join(fx.staging, 'layers', 'fixture-a-amd64');
+      const rec = JSON.parse(fs.readFileSync(fx.aRec, 'utf8'));
+      fs.renameSync(dir, path.join(fx.staging, 'layers', 'fixture-x-amd64'));
+      editRecord(path.join(fx.staging, 'layers', 'fixture-x-amd64', 'artifact.json'), {
+        env_id: 'fixture-x', method_id: 'fixture-x', tag: rec.tag.replace('fixture-a', 'fixture-x'),
+      });
+    }, /record fixture-x-amd64: PROVENANCE_METHOD_NOT_IN_COMMIT: methods\/fixture-x is not in commit/],
+    ['an unknown commit', (fx) => editRecord(fx.aRec, { source_revision: 'ffffffffffff' }),
+      /record fixture-a-amd64: PROVENANCE_COMMIT_UNKNOWN: commit ffffffffffff/],
+    ['another folder tree', (fx) => editRecord(fx.aRec, { source_tree: 'f'.repeat(40) }),
+      /record fixture-a-amd64: PROVENANCE_TREE_MISMATCH/],
+    ['a layer whose /code is not the commit\'s', (fx) => editRecord(fx.aRec, { wrapper_code_sha256: 'e'.repeat(64) }),
+      /record fixture-a-amd64: PROVENANCE_WRAPPER_MISMATCH/],
+    ['another base image than the Dockerfile\'s FROM', (fx) => editRecord(fx.aRec, {
+      base_ref: 'ghcr.io/tinnlab/txresbench-base-py:2.1' }),
+    /record fixture-a-amd64: PROVENANCE_FACT_MISMATCH: record base_ref/],
+    ['another language', (fx) => editRecord(fx.aRec, { language: 'R' }),
+      /record fixture-a-amd64: PROVENANCE_FACT_MISMATCH: record language 'R' != 'Python'/],
+  ];
+  for (const [what, breakIt, re] of cases) {
+    const fx = fixture();
+    fx.aRec = path.join(fx.staging, 'layers', 'fixture-a-amd64', 'artifact.json');
+    breakIt(fx);
+    const out = path.join(fx.base, 'must-not-write.json');
+    const r = gen(['--fixture', fx.staging, '--methods-dir', fx.methodsDir, '--manifest', out, '--full']);
+    assert.equal(r.status, 1, `${what}: ${r.stderr}\n${r.stdout}`);
+    assert.match(r.stderr, re, `${what}: ${r.stderr}`);
+    assert.ok(!fs.existsSync(out), `${what}: nothing is written`);
+  }
+  // A methods dir that is not a git checkout: every fact needs git.
+  const fx = fixture();
+  const r = gen(['--fixture', fx.staging, '--methods-dir', fx.staging, '--manifest', path.join(fx.base, 'x.json'), '--full']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /is not a git checkout/);
+});
+
+test('TEST-17c one method rebuilt alone: the others are carried byte for byte', () => {
+  const fx = fixtureWithUpdate();
+  const out = path.join(fx.base, 'updated.json');
+  const r = gen(['--fixture', fx.one, '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath,
+    '--manifest', out]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /replaced : fixture-a-amd64/);
+  assert.match(r.stdout, /carried {2}: 1 entry from /);
+  const prev = JSON.parse(fs.readFileSync(fx.manifestPath, 'utf8'));
+  const m = JSON.parse(fs.readFileSync(out, 'utf8'));
+  assert.equal(JSON.stringify(m.envs[1]), JSON.stringify(prev.envs[1]), 'fixture-b carried untouched');
+  assert.equal(JSON.stringify(m.bases), JSON.stringify(prev.bases), 'the bases carried untouched');
+  assert.equal(m.envs[0].method_version, '2.0.1');
+  assert.equal(m.envs[0].licence, SPEC_A2.licence);
+  assert.equal(m.envs[0].source_revision, fx.commit2.slice(0, 12));
+  assert.notEqual(m.envs[0].source_revision, m.envs[1].source_revision);
+  // The new entry's OCI manifest bytes are staged next to its record.
+  const oci = fs.readFileSync(path.join(fx.one, 'layers', 'fixture-a-amd64', 'oci-manifest.json'));
+  assert.equal(m.envs[0].digest, 'sha256:' + createHash('sha256').update(oci).digest('hex'));
+  // In place: `--previous X --manifest X` updates X.
+  const inPlace = path.join(fx.base, 'in-place.json');
+  fs.copyFileSync(fx.manifestPath, inPlace);
+  const w = gen(['--fixture', fx.one, '--methods-dir', fx.methodsDir, '--previous', inPlace, '--manifest', inPlace]);
+  assert.equal(w.status, 0, w.stderr);
+  assert.equal(fs.readFileSync(inPlace, 'utf8'), fs.readFileSync(out, 'utf8'));
+  // The same record again: "unchanged".
+  const again = gen(['--fixture', fx.one, '--methods-dir', fx.methodsDir, '--previous', out,
+    '--manifest', path.join(fx.base, 'again.json')]);
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stdout, /unchanged: fixture-a-amd64/);
+  assert.equal(fs.readFileSync(path.join(fx.base, 'again.json'), 'utf8'), fs.readFileSync(out, 'utf8'));
+});
+
+test('TEST-17d an incremental assembly refuses what would break the list, naming it', () => {
+  const fx = fixtureWithUpdate();
+  const out = path.join(fx.base, 'must-not-write.json');
+  const asm = (extra, staging = fx.one) => gen(['--fixture', staging, '--methods-dir', fx.methodsDir,
+    '--manifest', out, ...extra]);
+  const prevWith = (fn) => withMutated(fx.manifestPath, fn);
+  const cases = [
+    ['a schema 1 previous list', ['--previous', prevWith((m) => { m.schema_version = 1; m.source_revision = 'a'.repeat(12); })],
+      /ASSEMBLE_PREVIOUS_SCHEMA: --previous .* is schema_version 1/],
+    ['a previous list without bases', ['--previous', prevWith((m) => { delete m.bases; })],
+      /ASSEMBLE_PREVIOUS_NO_BASES/],
+    ['a drop of an entry the list lacks', ['--previous', fx.manifestPath, '--drop', 'fixture-z-amd64'],
+      /ASSEMBLE_DROP_UNKNOWN: --drop fixture-z-amd64/],
+    ['a drop of the rebuilt entry', ['--previous', fx.manifestPath, '--drop', 'fixture-a-amd64'],
+      /--drop fixture-a-amd64: a staged record rebuilds it too/],
+    ['a base batch without its staged base', ['--previous', fx.manifestPath, '--replace-base', 'base-py-amd64'],
+      /ASSEMBLE_BASE_BATCH: --replace-base base-py-amd64: no staged base/],
+  ];
+  for (const [what, extra, re] of cases) {
+    const r = asm(extra);
+    assert.equal(r.status, 1, `${what}: ${r.stderr}\n${r.stdout}`);
+    assert.match(r.stderr, re, `${what}: ${r.stderr}`);
+    assert.ok(!fs.existsSync(out), `${what}: nothing is written`);
+  }
+  // A record built on another base image than the list pins.
+  const otherDigest = 'sha256:' + 'ef'.repeat(32);
+  const other = oneRecordStaging(fx, fx.commit2, SPEC_A2,
+    { ...RECORD_A, method_version: '2.0.1', base_digest: otherDigest }, 'staged-other-base');
+  let r = asm(['--previous', fx.manifestPath], other);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /record fixture-a-amd64: ASSEMBLE_BASE_CHANGED: base_digest sha256:(ef){32} != base-py-amd64's source_digest sha256:(ab){32}/);
+  // A record of another contract line (its Dockerfile FROM :2.1).
+  writeMethodFolder(fx.methodsDir, { ...SPEC_A2, contract: '2.1' });
+  const commit3 = commitAll(fx.methodsDir, 'fixture-a on contract 2.1');
+  const c21 = oneRecordStaging(fx, commit3, SPEC_A2, { ...RECORD_A, method_version: '2.0.1',
+    base_ref: 'ghcr.io/tinnlab/txresbench-base-py:2.1' }, 'staged-2-1');
+  r = asm(['--previous', fx.manifestPath], c21);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /ASSEMBLE_CONTRACT: contract '2\.1' is not the list's base_contract '2\.0'/);
+  // --replace-base / --drop need --previous; --full and --previous are exclusive.
+  for (const extra of [['--full', '--drop', 'fixture-b-amd64'], ['--full', '--previous', fx.manifestPath]]) {
+    r = asm(extra);
+    assert.equal(r.status, 2, `${extra.join(' ')}: ${r.stderr}`);
+  }
+  // FOLLOW-UPS 77: no mode, no manifest.
+  r = asm([]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /ASSEMBLE_MODE/);
+  assert.ok(!fs.existsSync(out));
+});
+
+test('TEST-17e a base change is a batch: every layer on the new base, or dropped', () => {
+  const fx = fixtureWithUpdate();
+  // A second Python amd64 method in the list, so the base has two layers.
+  const SPEC_E = { id: 'fixture-e', licence: 'verbatim-licence-of-fixture-e-LLC', language: 'Python',
+    version: '1.0.0', run: 'run.py' };
+  writeMethodFolder(fx.methodsDir, SPEC_E);
+  const commitE = commitAll(fx.methodsDir, 'add fixture-e');
+  stageMethodLayer(fx.base, fx.staging, fx.methodsDir, commitE, SPEC_E,
+    { ...RECORD_A, env_id: 'fixture-e', method_id: 'fixture-e', method_version: '1.0.0' });
+  const prev = path.join(fx.base, 'with-e.json');
+  let r = gen(['--fixture', fx.staging, '--methods-dir', fx.methodsDir, '--manifest', prev, '--full']);
+  assert.equal(r.status, 0, r.stderr);
+  // A new base-py image: fixture-a rebuilt on it, its base staged beside it.
+  const NEW = 'sha256:' + 'ef'.repeat(32);
+  const batch = oneRecordStaging(fx, fx.commit2, SPEC_A2,
+    { ...RECORD_A, method_version: '2.0.1', base_digest: NEW }, 'staged-batch');
+  stageFixtureBase(fx.base, batch, 'base-py', 'amd64', { source_digest: NEW },
+    { extra: { 'usr/share/new-base': 'v2\n' } });
+  const out = path.join(fx.base, 'batch.json');
+  r = gen(['--fixture', batch, '--methods-dir', fx.methodsDir, '--previous', prev, '--manifest', out,
+    '--replace-base', 'base-py-amd64']);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /fixture-e-amd64: ASSEMBLE_BASE_BATCH: the new base-py-amd64 base was packed from sha256:(ef){32}, but fixture-e-amd64, carried from the previous list, was built on sha256:(ab){32}/);
+  assert.ok(!fs.existsSync(out));
+  r = gen(['--fixture', batch, '--methods-dir', fx.methodsDir, '--previous', prev, '--manifest', out,
+    '--replace-base', 'base-py-amd64', '--drop', 'fixture-e-amd64']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /dropped {2}: fixture-e-amd64/);
+  assert.match(r.stdout, /bases {4}: from the build dir base-py-amd64/);
+  const m = JSON.parse(fs.readFileSync(out, 'utf8'));
+  const py = m.bases.find((b) => b.base_id === 'base-py');
+  assert.equal(py.source_digest, NEW);
+  const staged = JSON.parse(fs.readFileSync(path.join(batch, 'bases', 'base-py-amd64', 'artifact.json'), 'utf8'));
+  assert.equal(py.squashfs_sha256, staged.squashfs_sha256);
+  assert.ok(fs.existsSync(path.join(batch, 'bases', 'base-py-amd64', 'oci-manifest.json')),
+    'the new base\'s OCI bytes are staged for its publish');
+  assert.deepEqual(m.envs.map((e) => e.env_id), ['fixture-a', 'fixture-b']);
+  // The check of that list against the previous one.
+  const c = gen(['--check', '--fixture', batch, '--methods-dir', fx.methodsDir, '--previous', prev, '--manifest', out]);
+  assert.equal(c.status, 0, `${c.stderr}\n${c.stdout}`);
+  assert.match(c.stdout, /1 carried byte-identical, 1 re-assembled from their records, 1 dropped/);
+  // A new base FILE packed from the SAME image keeps every layer paired: no
+  // rebuild is needed (the layers pair with the image, not the file).
+  const refile = path.join(fx.base, 'staged-refile');
+  fs.mkdirSync(path.join(refile, 'layers'), { recursive: true });
+  stageFixtureBase(fx.base, refile, 'base-py', 'amd64', {}, { extra: { 'usr/share/repacked': 'x\n' } });
+  const out2 = path.join(fx.base, 'refile.json');
+  r = gen(['--fixture', refile, '--methods-dir', fx.methodsDir, '--previous', prev, '--manifest', out2,
+    '--replace-base', 'base-py-amd64']);
+  assert.equal(r.status, 0, r.stderr);
+  const m2 = JSON.parse(fs.readFileSync(out2, 'utf8'));
+  assert.notEqual(m2.bases[0].squashfs_sha256, JSON.parse(fs.readFileSync(prev, 'utf8')).bases[0].squashfs_sha256);
+  assert.equal(JSON.stringify(m2.envs), JSON.stringify(JSON.parse(fs.readFileSync(prev, 'utf8')).envs));
+});
+
+test('TEST-17f the first entries of a new arch need their base batch; --drop leaves out an unused base', () => {
+  const fx = fixture();
+  writeMethodFolder(fx.methodsDir, SPEC_D);
+  const commit2 = commitAll(fx.methodsDir, 'add fixture-d');
+  const arm = oneRecordStaging(fx, commit2, SPEC_D, RECORD_D, 'staged-arm64');
+  stageFixtureBase(fx.base, arm, 'base-py', 'arm64');
+  const out = path.join(fx.base, 'with-arm64.json');
+  let r = gen(['--fixture', arm, '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath, '--manifest', out]);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /record fixture-d-arm64: ASSEMBLE_BASE_CHANGED: the list pins no base-py-arm64 base/);
+  r = gen(['--fixture', arm, '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath, '--manifest', out,
+    '--replace-base', 'base-py-arm64']);
+  assert.equal(r.status, 0, r.stderr);
+  let m = JSON.parse(fs.readFileSync(out, 'utf8'));
+  assert.deepEqual(m.bases.map((b) => `${b.base_id}-${b.arch}`), ['base-py-amd64', 'base-py-arm64', 'base-r-amd64']);
+  assert.match(r.stdout, /added {4}: fixture-d-arm64/);
+  // Drop the only R entry: its base goes too.
+  const empty = path.join(fx.base, 'staged-empty');
+  fs.mkdirSync(path.join(empty, 'layers'), { recursive: true });
+  const out2 = path.join(fx.base, 'no-r.json');
+  r = gen(['--fixture', empty, '--methods-dir', fx.methodsDir, '--previous', out, '--manifest', out2,
+    '--drop', 'fixture-b-amd64']);
+  assert.equal(r.status, 0, r.stderr);
+  m = JSON.parse(fs.readFileSync(out2, 'utf8'));
+  assert.deepEqual(m.envs.map((e) => `${e.env_id}-${e.arch}`), ['fixture-a-amd64', 'fixture-d-arm64']);
+  assert.ok(!m.bases.some((b) => b.base_id === 'base-r'), 'an unused base is left out');
+  const g = guard(['--manifest', out2]);
+  assert.equal(g.status, 0, `${g.stderr}\n${g.stdout}`);
+  // --only at assembly takes only those ids' records.
+  const both = path.join(fx.base, 'staged-both');
+  stageMethodLayer(fx.base, both, fx.methodsDir, commit2, SPEC_D, RECORD_D);
+  stageMethodLayer(fx.base, both, fx.methodsDir, fx.commit, SPEC_B, RECORD_B);
+  stageFixtureBase(fx.base, both, 'base-py', 'arm64');
+  const out3 = path.join(fx.base, 'only.json');
+  r = gen(['--fixture', both, '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath, '--manifest', out3]);
+  assert.equal(r.status, 1, 'fixture-d-arm64 has no base in that list');
+  r = gen(['--fixture', both, '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath, '--manifest', out3,
+    '--only', 'fixture-b']);
+  assert.equal(r.status, 0, r.stderr);
+  // fixture-b's record was packed again (new layer bytes): replaced.
+  assert.match(r.stdout, /replaced : fixture-b-amd64/);
+  assert.doesNotMatch(r.stdout, /fixture-d-arm64/);
+});
+
+// ── TEST-18: parity entry by entry ────────────────────────────────────────────
+
+test('TEST-18a parity against the previous list: carried byte-identical, the rest re-assembled', () => {
+  const fx = fixtureWithUpdate();
+  const out = path.join(fx.base, 'updated.json');
+  const w = gen(['--fixture', fx.one, '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath, '--manifest', out]);
+  assert.equal(w.status, 0, w.stderr);
+  const check = (manifest, staging = fx.one) => gen(['--check', '--fixture', staging, '--methods-dir',
+    fx.methodsDir, '--previous', fx.manifestPath, '--manifest', manifest]);
+  let r = check(out);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /MANIFEST OK \(against the previous list .*: 1 carried byte-identical, 1 re-assembled/);
+  // The whole-list mode cannot pass from a one-record dir: that is why the
+  // per-entry mode exists.
+  r = gen(['--check', '--fixture', fx.one, '--methods-dir', fx.methodsDir, '--manifest', out]);
+  assert.equal(r.status, 1);
+  // An edited carried entry is no longer carried, and has no record.
+  r = check(withMutated(out, (m) => { m.envs[1].licence = 'edited'; }));
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /CHECK_NO_RECORD: envs\[1\] fixture-b-amd64 differs from the previous list at envs\[1\]\.licence/);
+  // An edited re-assembled entry names its field.
+  r = check(withMutated(out, (m) => { m.envs[0].size_bytes += 1; }));
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /MANIFEST DIFFERS at envs\[0\]\.size_bytes/);
+  // A new entry without a record.
+  const empty = path.join(fx.base, 'staged-empty');
+  fs.mkdirSync(path.join(empty, 'layers'), { recursive: true });
+  r = check(out, empty);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /CHECK_NO_RECORD: envs\[0\] fixture-a-amd64 differs from the previous list/);
+  // An edited carried base.
+  r = check(withMutated(out, (m) => { m.bases[0].size_bytes += 1; }));
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /CHECK_NO_RECORD: bases\[0\] base-py-amd64 differs from the previous list/);
+  // A file that holds the same values but is not the writer's serialization.
+  const reformatted = path.join(fx.base, 'reformatted.json');
+  fs.writeFileSync(reformatted, JSON.stringify(JSON.parse(fs.readFileSync(out, 'utf8'))) + '\n');
+  r = check(reformatted);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /is not the writer's serialization/);
+  // A dropped entry is printed.
+  const empty2 = path.join(fx.base, 'staged-empty2');
+  fs.mkdirSync(path.join(empty2, 'layers'), { recursive: true });
+  const dropped = path.join(fx.base, 'dropped.json');
+  assert.equal(gen(['--fixture', empty2, '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath,
+    '--manifest', dropped, '--drop', 'fixture-b-amd64']).status, 0);
+  r = check(dropped, empty2);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /dropped from the previous list: fixture-b-amd64/);
+});
+
+test('TEST-18b entry-level parity: the named entry or base against its own record only', () => {
+  const fx = fixtureWithUpdate();
+  const out = path.join(fx.base, 'updated.json');
+  assert.equal(gen(['--fixture', fx.one, '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath,
+    '--manifest', out]).status, 0);
+  const check = (manifest, extra, staging = fx.one) => gen(['--check', '--fixture', staging, '--methods-dir',
+    fx.methodsDir, '--manifest', manifest, ...extra]);
+  let r = check(out, ['--entry', 'fixture-a-amd64']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /ENTRY OK \(fixture-a-amd64 re-assembled/);
+  r = check(withMutated(out, (m) => { m.envs[0].source_tree = 'f'.repeat(40); }), ['--entry', 'fixture-a-amd64']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /MANIFEST DIFFERS at envs\[0\]\.source_tree/);
+  r = check(out, ['--entry', 'fixture-b-amd64']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /CHECK_NO_RECORD: fixture-b-amd64: no staged record/);
+  r = check(out, ['--entry', 'fixture-z-amd64']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /--entry fixture-z-amd64: the list has no such entry/);
+  r = check(out, ['--entry', 'fixture-a']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /is not <id>-<amd64\|arm64>/);
+  // A base against its staged record (the fixture's own staging dir).
+  r = check(fx.manifestPath, ['--base-entry', 'base-r-amd64'], fx.staging);
+  assert.equal(r.status, 0, r.stderr);
+  r = check(withMutated(fx.manifestPath, (m) => { m.bases[1].digest = 'sha256:' + '0'.repeat(64); }),
+    ['--base-entry', 'base-r-amd64'], fx.staging);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /MANIFEST DIFFERS at bases\[1\]\.digest/);
+  r = check(out, ['--base-entry', 'base-py-amd64']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /CHECK_NO_RECORD: base-py-amd64: no staged base/);
+  // --entry and --previous together: both checks.
+  r = check(out, ['--entry', 'fixture-a-amd64', '--previous', fx.manifestPath]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /ENTRY OK/);
+  assert.match(r.stdout, /MANIFEST OK \(against the previous list/);
+});
+
+// ── TEST-19: the facts of every entry, at its own commit ──────────────────────
+
+test('TEST-19a the provenance check re-reads every entry\'s facts at its commit', () => {
+  const fx = fixtureFull();
+  const prov = (manifest, extra = []) => gen(['--check-provenance', '--manifest', manifest,
+    '--methods-dir', fx.methodsDir, ...extra]);
+  let r = prov(fx.manifestPath);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /provenance: OK — 3 entries/);
+  // The three P7 shapes and the rest, all reported in one run.
+  const bad = withMutated(fx.manifestPath, (m) => {
+    m.envs[0].method_version = '2.0.1';
+    m.envs[1].env_id = 'fixture-x';
+    m.envs[1].method_id = 'fixture-x';
+    m.envs[2].source_tree = 'f'.repeat(40);
+    m.envs[2].licence = 'a paraphrase';
+  });
+  r = prov(bad);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /envs\[0\] fixture-a-amd64: PROVENANCE_VERSION_MISMATCH: the list says '2\.0\.1', method\.json at [0-9a-f]{12} says '2\.0\.0'/);
+  assert.match(r.stderr, /envs\[1\] fixture-x-amd64: PROVENANCE_METHOD_NOT_IN_COMMIT/);
+  assert.match(r.stderr, /envs\[2\] fixture-d-arm64: PROVENANCE_TREE_MISMATCH/);
+  assert.match(r.stderr, /envs\[2\] fixture-d-arm64: PROVENANCE_FACT_MISMATCH: licence 'a paraphrase'/);
+  assert.match(r.stderr, /FAILED — 4 problem\(s\) in 3 entries/);
+  r = prov(withMutated(fx.manifestPath, (m) => { m.envs[0].source_revision = 'ffffffffffff'; }));
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /PROVENANCE_COMMIT_UNKNOWN/);
+  r = prov(withMutated(fx.manifestPath, (m) => { m.envs[0].wrapper_code_sha256 = 'e'.repeat(64); }));
+  assert.match(r.stderr, /PROVENANCE_WRAPPER_MISMATCH/);
+  // --entry narrows the check.
+  r = prov(bad, ['--entry', 'fixture-b-amd64']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /the list has no such entry/);
+  r = prov(withMutated(fx.manifestPath, (m) => { m.envs[0].licence = 'x'; }), ['--entry', 'fixture-b-amd64']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /provenance: OK — 1 entry/);
+});
+
+test('TEST-19b the guard\'s provenance leg runs with the methods repository, skips without it', () => {
+  const fx = fixture();
+  let r = guard(['--manifest', fx.manifestPath, '--methods-dir', fx.methodsDir]);
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  assert.match(r.stdout, /provenance: OK — 2 entries/);
+  r = guard(['--manifest', withMutated(fx.manifestPath, (m) => { m.envs[0].licence = 'edited'; }),
+    '--methods-dir', fx.methodsDir]);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /PROVENANCE_FACT_MISMATCH: licence 'edited'/);
+  r = guard(['--manifest', fx.manifestPath]);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /provenance SKIPPED — no methods repository/);
+  r = guard(['--manifest', fx.manifestPath, '--require-provenance']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /--require-provenance/);
+  // The parity modes are wired through: incremental, and entry by entry.
+  const up = fixtureWithUpdate();
+  const out = path.join(up.base, 'updated.json');
+  assert.equal(gen(['--fixture', up.one, '--methods-dir', up.methodsDir, '--previous', up.manifestPath,
+    '--manifest', out]).status, 0);
+  r = guard(['--manifest', out, '--staging-dir', up.one, '--methods-dir', up.methodsDir,
+    '--previous', up.manifestPath, '--entry', 'fixture-a-amd64']);
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  assert.match(r.stdout, /regen parity \(against /);
+  assert.match(r.stdout, /ENTRY OK/);
+  assert.match(r.stdout, /provenance: OK — 1 entry/);
+  r = guard(['--manifest', out, '--staging-dir', up.one, '--methods-dir', up.methodsDir]);
+  assert.equal(r.status, 1, 'the whole-list mode needs every record');
+  r = guard(['--manifest', out, '--previous', up.manifestPath]);
+  assert.equal(r.status, 2, 'a parity mode needs a staging dir');
+});
+
+// ── TEST-20: the schema 2 shape in the guard ──────────────────────────────────
+
+test('TEST-20 the guard refuses a list without well-formed per-entry provenance', () => {
+  const { manifestPath } = fixture();
+  const cases = [
+    ['a missing source_revision', (m) => { delete m.envs[0].source_revision; }, /missing required property 'source_revision'/],
+    ['a missing source_tree', (m) => { delete m.envs[0].source_tree; }, /missing required property 'source_tree'/],
+    ['a missing generator_version', (m) => { delete m.envs[0].generator_version; },
+      /missing required property 'generator_version'/],
+    ['an uppercase revision', (m) => { m.envs[0].source_revision = m.envs[0].source_revision.toUpperCase(); },
+      /source_revision/],
+    ['a short tree', (m) => { m.envs[0].source_tree = 'abc123'; }, /source_tree/],
+    ['a generator version that is not X.Y.Z', (m) => { m.envs[0].generator_version = '0.5'; }, /generator_version/],
+    ['a top-level source_revision (schema 1)', (m) => { m.source_revision = '0123456789ab'; },
+      /additional property 'source_revision'/],
+    ['schema_version 1', (m) => { m.schema_version = 1; }, /schema_version: must be exactly 2/],
+    ['a + in the version (FOLLOW-UPS 72)', (m) => {
+      m.envs[0].method_version = '2.0.0+build1';
+      m.envs[0].tag = `fixture-a-2.0.0+build1-amd64-${m.envs[0].layer_sha256.slice(0, 12)}`;
+    }, /method_version: '2\.0\.0\+build1' does not match/],
+  ];
+  for (const [what, mutate, re] of cases) {
+    const r = guard(['--manifest', withMutated(manifestPath, mutate)]);
+    assert.equal(r.status, 1, `${what} must be refused: ${r.stdout}`);
+    assert.match(r.stderr, re, `${what}: ${r.stderr}`);
+  }
+});
+
+// ── TEST-21: the publisher checks the entry it publishes (D4) ─────────────────
+
+test('TEST-21a the publisher publishes one method from a dir holding only its record', () => {
+  const fx = fixtureWithUpdate();
+  const out = path.join(fx.base, 'updated.json');
+  assert.equal(gen(['--fixture', fx.one, '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath,
+    '--manifest', out]).status, 0);
+  const args = (extra) => ['--env', 'fixture-a', '--dry-run', '--manifest', out, '--staging-dir', fx.one,
+    '--methods-dir', fx.methodsDir, ...extra];
+  let r = publisher(args(['--previous', fx.manifestPath]));
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  assert.match(r.stdout, /\+ scripts\/check-method-env-images\.sh .*--previous .* --entry fixture-a-amd64/);
+  assert.match(r.stdout, /guard {5}: manifest \+ per-entry parity \(vs .*\) \+ provenance OK/);
+  assert.match(r.stdout, /revision {2}: [0-9a-f]{12} tree [0-9a-f]{40}/);
+  // The whole-list mode (no --previous) needs every record: refused here.
+  r = publisher(args([]));
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /check-method-env-images\.sh rejects the manifest/);
+  // A carried entry another commit changed is not re-assembled from this dir:
+  // an edit to fixture-b fails the per-entry check of fixture-a's publish.
+  const edited = withMutated(out, (m) => { m.envs[1].licence = 'edited'; });
+  r = publisher(['--env', 'fixture-a', '--dry-run', '--manifest', edited, '--staging-dir', fx.one,
+    '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath]);
+  assert.equal(r.status, 1, r.stdout);
+  // --previous names a file; the methods repository is required.
+  r = publisher(args(['--previous', path.join(fx.base, 'none.json')]));
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /--previous .*: no such file/);
+  r = publisher(['--env', 'fixture-a', '--dry-run', '--manifest', out, '--staging-dir', fx.one]);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /--methods-dir <the methods repository> is required/);
+});
+
+test('TEST-21b the publisher refuses a record whose provenance is not the entry\'s', () => {
+  const cases = [
+    ['another commit', { source_revision: 'ffffffffffff' }, /record source_revision ffffffffffff != entry/],
+    ['another tree', { source_tree: 'f'.repeat(40) }, /record source_tree f{40} != entry/],
+    ['another generator', { generator_version: '9.9.9' }, /record generator_version 9\.9\.9 != entry 0\.5\.0/],
+  ];
+  for (const [what, fields, re] of cases) {
+    const fx = fixture();
+    editRecord(path.join(fx.staging, 'layers', 'fixture-a-amd64', 'artifact.json'), fields);
+    const r = publisher(['--env', 'fixture-a', '--dry-run', '--manifest', fx.manifestPath,
+      '--staging-dir', fx.staging, '--methods-dir', fx.methodsDir]);
+    assert.equal(r.status, 1, `${what}: ${r.stdout}`);
+    assert.match(r.stderr, re, `${what}: ${r.stderr}`);
+  }
+  // A legacy record (record_schema_version 1, no tree) is accepted and said so.
+  const fx = fixture();
+  const p = path.join(fx.staging, 'layers', 'fixture-a-amd64', 'artifact.json');
+  const rec = JSON.parse(fs.readFileSync(p, 'utf8'));
+  delete rec.source_tree;
+  fs.writeFileSync(p, JSON.stringify({ ...rec, record_schema_version: 1 }, null, 2));
+  const r = publisher(['--env', 'fixture-a', '--dry-run', '--manifest', fx.manifestPath,
+    '--staging-dir', fx.staging, '--methods-dir', fx.methodsDir]);
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  assert.match(r.stdout, /record {4}: legacy record \(record_schema_version 1, no tree recorded\)/);
+});
+
+// ── TEST-22: reproducible layers (one layer file = one artifact) ──────────────
+
+const LAYER_PACK_HARNESS = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("txr_generator", sys.argv[1])
+g = importlib.util.module_from_spec(spec)
+sys.modules["txr_generator"] = g
+spec.loader.exec_module(g)
+g.pack_layer(sys.argv[2], sys.argv[3])
+print(json.dumps({"sha": g._sha256_of(sys.argv[3])}))
+`;
+
+/** The pinned layer construction (design §6.1), spelled independently of the
+ *  generator so a drift on either side shows. */
+function expectedLayerOciBytes(rec, contract) {
+  return JSON.stringify({
+    schemaVersion: 2,
+    mediaType: 'application/vnd.oci.image.manifest.v1+json',
+    artifactType: 'application/vnd.txr.method-env.layer.v1',
+    config: {
+      mediaType: 'application/vnd.oci.empty.v1+json',
+      digest: 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
+      size: 2,
+    },
+    layers: [{
+      mediaType: 'application/vnd.txr.method-env.layer.v1',
+      digest: 'sha256:' + rec.layer_sha256,
+      size: rec.size_bytes,
+      annotations: { 'org.opencontainers.image.title': 'layer.squashfs' },
+    }],
+    annotations: {
+      'org.opencontainers.image.source': 'https://github.com/tinnlab/txresbench-methods',
+      'com.txr.method_id': rec.method_id,
+      'com.txr.method_version': rec.method_version,
+      'com.txr.language': rec.language,
+      'com.txr.arch': rec.arch,
+      'com.txr.contract': contract,
+      'com.txr.layer_sha256': rec.layer_sha256,
+      'com.txr.layer_schema': String(rec.layer_schema),
+    },
+  });
+}
+
+test('TEST-22a one layer root packs to the same bytes every time', () => {
+  if (!(haveTool('mksquashfs') && haveTool('unsquashfs'))) {
+    assert.fail('TEST-22a needs mksquashfs + unsquashfs on PATH (squashfs-tools)');
+  }
+  const dir = mkdtemp('mei-layerpack-');
+  const root = path.join(dir, 'root');
+  writeLayerRoot(root, SPEC_A);
+  const one = harness(LAYER_PACK_HARNESS, [root, path.join(dir, 'one.squashfs')]);
+  // New file times (another extraction, another machine's clock) must not
+  // change a byte; nor a copy of the same tree elsewhere.
+  const later = new Date(Date.now() + 7200 * 1000);
+  fs.utimesSync(path.join(root, 'code', 'run.py'), later, later);
+  fs.utimesSync(path.join(root, 'code'), later, later);
+  const two = harness(LAYER_PACK_HARNESS, [root, path.join(dir, 'two.squashfs')]);
+  const copy = path.join(dir, 'copy');
+  writeLayerRoot(copy, SPEC_A);
+  const three = harness(LAYER_PACK_HARNESS, [copy, path.join(dir, 'three.squashfs')]);
+  assert.equal(two.sha, one.sha, 'deterministic pack');
+  assert.equal(three.sha, one.sha, 'the same tree packs to the same file');
+  assert.equal(createHash('sha256').update(fs.readFileSync(path.join(dir, 'two.squashfs'))).digest('hex'), two.sha);
+  // A different tree is a different file.
+  const other = path.join(dir, 'other');
+  writeLayerRoot(other, { ...SPEC_A, runExtra: '# changed\n' });
+  assert.notEqual(harness(LAYER_PACK_HARNESS, [other, path.join(dir, 'other.squashfs')]).sha, one.sha);
+});
+
+test('TEST-22b the same layer file at a later commit or on a new base keeps its digest and tag', () => {
+  const fx = fixture();
+  const prev = JSON.parse(fs.readFileSync(fx.manifestPath, 'utf8'));
+  const a = prev.envs[0];
+  const rec = JSON.parse(fs.readFileSync(path.join(fx.staging, 'layers', 'fixture-a-amd64', 'artifact.json'), 'utf8'));
+  // The pinned construction: the layer and its file, no commit, no base.
+  const oci = fs.readFileSync(path.join(fx.staging, 'layers', 'fixture-a-amd64', 'oci-manifest.json'), 'utf8');
+  assert.equal(oci, expectedLayerOciBytes(rec, '2.0'));
+  assert.doesNotMatch(oci, /image\.revision|com\.txr\.base_/);
+  assert.equal(a.digest, 'sha256:' + createHash('sha256').update(oci).digest('hex'));
+  // Another method changes; fixture-a's folder does not. Its same layer file,
+  // recorded again at the later commit and over a new base image (a base
+  // batch), is the same artifact: same digest, same tag.
+  writeMethodFolder(fx.methodsDir, { ...SPEC_B, runExtra: '# b changed\n' });
+  const commit2 = commitAll(fx.methodsDir, 'fixture-b changed');
+  const NEW = 'sha256:' + 'ef'.repeat(32);
+  const again = path.join(fx.base, 'staged-again');
+  fs.mkdirSync(path.join(again, 'layers'), { recursive: true });
+  fs.cpSync(path.join(fx.staging, 'layers', 'fixture-a-amd64'), path.join(again, 'layers', 'fixture-a-amd64'),
+    { recursive: true });
+  fs.rmSync(path.join(again, 'layers', 'fixture-a-amd64', 'oci-manifest.json'));
+  editRecord(path.join(again, 'layers', 'fixture-a-amd64', 'artifact.json'), {
+    source_revision: commit2.slice(0, 12), base_digest: NEW,
+  });
+  stageFixtureBase(fx.base, again, 'base-py', 'amd64', { source_digest: NEW });
+  const out = path.join(fx.base, 'again.json');
+  const r = gen(['--fixture', again, '--methods-dir', fx.methodsDir, '--previous', fx.manifestPath,
+    '--manifest', out, '--replace-base', 'base-py-amd64']);
+  assert.equal(r.status, 0, r.stderr);
+  const a2 = JSON.parse(fs.readFileSync(out, 'utf8')).envs[0];
+  assert.equal(a2.digest, a.digest, 'the same artifact');
+  assert.equal(a2.tag, a.tag);
+  assert.equal(a2.layer_sha256, a.layer_sha256);
+  assert.equal(a2.source_revision, commit2.slice(0, 12), 'the list records the new build');
+  assert.equal(a2.source_tree, a.source_tree, 'the folder did not change');
+  assert.equal(a2.base_digest, NEW);
+  assert.equal(fs.readFileSync(path.join(again, 'layers', 'fixture-a-amd64', 'oci-manifest.json'), 'utf8'), oci,
+    'the staged OCI bytes are the published ones');
 });

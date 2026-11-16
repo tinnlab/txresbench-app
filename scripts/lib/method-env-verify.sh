@@ -148,8 +148,10 @@ txr_method_env_verify_layer() {
   }
 
   _txr_read_record "$TXR_RECORD_FILE" || return 2
-  [ "$TXR_RECORD_SCHEMA_VERSION" = "1" ] || {
-    _txr_fail "the artifact record is not record_schema_version 1 (got ${TXR_RECORD_SCHEMA_VERSION:-missing});"
+  # 1 = a generator before 0.5.0; 2 = 0.5.0 (the same layer contract, plus
+  # the method folder's git tree, which the writer checks against git).
+  [ "$TXR_RECORD_SCHEMA_VERSION" = "1" ] || [ "$TXR_RECORD_SCHEMA_VERSION" = "2" ] || {
+    _txr_fail "the artifact record is not record_schema_version 1 or 2 (got ${TXR_RECORD_SCHEMA_VERSION:-missing});"
     _txr_fail "  the ITEM-2 generator's hand-off and the verifier agree on this fence — rebuilding"
     _txr_fail "  with the current generator is the path, never a record hand-edit"
     return 2

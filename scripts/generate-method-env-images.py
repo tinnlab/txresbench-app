@@ -33,8 +33,9 @@ ownership-clean):
     methods. It packs the app-side base squashfs from the very base rootfs
     the layers' deltas were computed against (see THE BASE ARTIFACT). The
     methods repository is a read-only build-time input
-    (CONS-method-env-images-1); the only network use is the docker pull of
-    a missing base image, which the build needs.
+    (CONS-method-env-images-1); the only network use is a base batch's
+    (--new-base) docker pull of a missing base image — a pinned build
+    pulls nothing.
 
 THE STAGED OUTPUT (one directory per (env, arch)):
 
@@ -79,22 +80,60 @@ the layer file hash/size, the wrapper hash per the design doc's pinned byte
 convention (§2.2), the layer-manifest entries, and the delta statistics the
 ITEM-6 report summarizes (outside the repo, in the worker's report).
 
+ONE METHOD AT A TIME (0.5.0)
+----------------------------
+A build takes the method's COMMITTED folder at the methods HEAD: it refuses
+a folder that is not in HEAD (an untracked folder), that has uncommitted
+changes or untracked files (the folder or its gates/<id>.json), or whose
+gate did not pass; the build context is `git archive HEAD methods/<id>`.
+Every fact comes from that folder: the version and language from
+method.json, the base ref and the contract (its tag) from the Dockerfile's
+FROM; the generated index.json is never read (AUDIT P7). The record carries
+the commit (`source_revision`) and the folder's git tree (`source_tree`).
+
+The base is the Docker image the current list pins (`bases[]`:
+source_ref + source_digest; `--base-pins <list>`, default the committed
+list), taken from THIS machine's image store by digest: never pulled (the
+base images are not published) and never rebuilt (a rebuilt base has
+another digest). A method is built on the machine that holds its pinned
+base; a base image moves between machines by `docker save` / `docker load`,
+its digest checked after the load. `--new-base` starts a base batch instead
+(the base resolved as before, staged, and every layer on it rebuilt).
+
 THE MANIFEST WRITER (ITEM-3)
 ----------------------------
 
-  python3 scripts/generate-method-env-images.py --out <dir> --manifest <path>
-      build every selected method, then assemble + write the manifest.
-  python3 scripts/generate-method-env-images.py --check --out <dir> [--manifest <path>]
-      assemble ONLY (no docker) from the staged records and byte-compare
-      against <path> (default: the committed repo file); exit 0 = identical,
-      1 = differs with the first differing key named, 2 = usage error.
-  python3 scripts/generate-method-env-images.py --fixture <dir> --manifest <path>
-      assemble from fixture records (tests; no build, no git needed).
+  python3 scripts/generate-method-env-images.py --out <dir> --manifest <path> (--previous <list> | --full)
+      build the selected methods, then assemble + write the manifest.
+  python3 scripts/generate-method-env-images.py --assemble <dir> --manifest <path> (--previous <list> | --full)
+      assemble only (no docker) from the records under <dir> (`--fixture`
+      is the old name of `--assemble`).
+  python3 scripts/generate-method-env-images.py --check --assemble <dir> [--manifest <path>]
+          [--previous <list>] [--entry <env_id>-<arch>] [--base-entry <base_id>-<arch>]
+      parity, no docker: by default the whole list re-assembles byte for
+      byte from <dir>; with --previous, an entry byte-identical to that list
+      is carried and every other entry re-assembles from its own record;
+      with --entry/--base-entry, those entries only. Exit 0 = identical, 1 =
+      differs with the first differing key named, 2 = usage error.
+  python3 scripts/generate-method-env-images.py --check-provenance [--manifest <path>] [--entry ...]
+      every entry's facts against the methods repository at its own commit.
 
-Entry fields come from the record (everything the build measured) plus the
-methods index (`contract`) and method.json (`licence`, verbatim — TEST-11);
-`oci_ref`/`tag` are derived from the record's env_id, method_version, arch and
-layer_sha256 (the one layer package, tag
+`--full`: every entry from a record, the bases from the staged base records.
+`--previous`: the previous list's entries and bases are carried untouched;
+each record replaces or adds its (env_id, arch); `--drop <env_id>-<arch>`
+removes one; a record built on another base image than the list pins is
+refused, except in a base batch (`--replace-base <base_id>-<arch>` takes the
+staged base: when its source image changed, every entry on it must be
+rebuilt in the same assembly, or dropped). Writing a manifest without one
+of the two is a usage error (no one-method list by accident).
+
+Entry fields come from the record (everything the build measured) and from
+git at the record's own commit: the gate, method.json's version, language
+and licence (verbatim — TEST-11), the Dockerfile's FROM and its tag (the
+contract), the run file and the wrapper hash, and the folder tree (taken
+from git for a record from a generator before 0.5.0, which has none); the
+methods HEAD does not matter. `oci_ref`/`tag` are derived from the record's
+env_id, method_version, arch and layer_sha256 (the one layer package, tag
 `<env_id>-<method_version>-<arch>-<first 12 hex of layer_sha256>`; a base:
 the one base package, tag `<base_id>-<contract>-<arch>-<sha12>`). A record's
 own address must be that form or the one-package-per-method form a
@@ -103,10 +142,8 @@ assembles, to the same digests (the OCI manifest bytes carry no address);
 `digest` is the sha256 of the exact OCI artifact manifest bytes the item's
 publisher must push (construction pinned in design §6). Determinism (INV-5,
 DEC-15): no wall-clock field, entries sorted by (env_id, arch), pinned key
-order, byte-identical for one source revision. `--source-revision <12hex>`
-pins the expected revision: every staged record must carry it (the parity
-comparison against the committed manifest's own revision is the check
-itself — a mismatch surfaces at `source_revision`).
+order; each entry records its own `source_revision`, `source_tree` and the
+`generator_version` that built it (schema 2).
 
 LAYOUT NOTE: the squashfs root IS the layer filesystem root — the runtime
 mounts the layer dir and binds <layer_dir>/<entry> (stack.rs's
@@ -130,44 +167,50 @@ WHAT THE SHIPPED CODE ALREADY PROVED (do not re-derive):
 
 USAGE
 -----
-  python3 scripts/generate-method-env-images.py --out <dir>               # every runnable method
-  python3 scripts/generate-method-env-images.py --out <dir> --only <id>  # one method (ITEM-6 resume)
+  python3 scripts/generate-method-env-images.py --out <dir>               # every gated method at HEAD
+  python3 scripts/generate-method-env-images.py --out <dir> --only <id>  # one method, on the pinned base
   python3 scripts/generate-method-env-images.py --dry-run --out <dir>    # print the sequence, run nothing
-  python3 scripts/generate-method-env-images.py --out <dir> --manifest <path>   # build + write manifest
-  python3 scripts/generate-method-env-images.py --check --out <dir>      # byte parity vs the committed file
-  python3 scripts/generate-method-env-images.py --fixture <dir> --manifest <path>  # tests: assemble only
+  python3 scripts/generate-method-env-images.py --out <dir> --manifest <path> --previous <list>
+  python3 scripts/generate-method-env-images.py --assemble <dir> --manifest <path> --previous <list>
+  python3 scripts/generate-method-env-images.py --check --assemble <dir> --previous <list>
+  python3 scripts/generate-method-env-images.py --check-provenance --methods-dir <dir>
   python3 scripts/generate-method-env-images.py --stage-bases --out <dir> --arch <a>  # bases for staged layers
 
   --arch            amd64 (default) | arm64; a cross-arch build is refused
                     unless ALLOW_EMULATED_BUILD=1 (mirror of
                     the framework's publish script: qemu bytes must not be staged
                     by accident, DEC-10).
-  --methods-dir     the methods repository (default $TXR_METHODS_DIR, else
-                    /data/share/pbya/sigtrans/methods — the plan's CONS-1
-                    default).
+  --methods-dir     the methods repository, a git checkout (default
+                    $TXR_METHODS_DIR, else /data/share/pbya/sigtrans/methods —
+                    the plan's CONS-1 default).
   --benchmark-dir   the benchmark tree root used ONLY as the fallback base
-                    source (docker-images/base-<lang> there) when a FROM
-                    base is neither local nor pullable (default:
+                    source of --new-base (docker-images/base-<lang> there)
+                    when a FROM base is neither local nor pullable (default:
                     dirname(methods-dir)/dev/code/benchmark).
+  --base-pins <list> build on the bases this list pins (default: the
+                    committed list).
+  --new-base        a base batch: resolve the base as before (local, pull,
+                    benchmark tree) and stage it.
   --manifest <path> assemble + write the manifest (from this run's records,
-                    or from --fixture records when --fixture is given).
-  --check           assemble only and byte-compare against --manifest
-                    (default src-app/server/data/method-env-images.json).
-  --fixture <dir>   read records from <dir>/layers and <dir>/bases (tests;
-                    never builds).
+                    or from the --assemble records); with --check /
+                    --check-provenance, the file to check (default
+                    src-app/server/data/method-env-images.json).
+  --previous <list> / --full   how a manifest is assembled or checked (above).
+  --replace-base <base_id>-<arch>, --drop <env_id>-<arch>   (with --previous).
+  --check           parity, assemble-only (above).
+  --entry / --base-entry   the entries a --check or --check-provenance covers.
+  --assemble <dir>  read records from <dir>/layers and <dir>/bases (never
+                    builds; --fixture is the old name).
   --stage-bases     build nothing; stage the base artifact of every language
                     the --arch layer records in --out use, from the cached
                     base rootfs, or from the LOCAL base image when its digest
                     equals the records' base_digest (never pulled or rebuilt:
                     a rebuilt base has another digest and would not pair).
-  --source-revision <12hex>  expected source revision pin; every staged
-                    record must carry it (an explicit pin, for the tests
-                    and for a rebuild audited against a known revision).
   --no-trim         debugging only (DEC-12: trim constants are fixed).
   --keep-rootfs     keep the extracted rootfs + scratch (debugging).
-  --force-base-build  skip the local/pull base lookup; build the base from
-                    the benchmark tree (the owner's "bases published or
-                    build from src" step).
+  --force-base-build  with --new-base: skip the local/pull base lookup; build
+                    the base from the benchmark tree (the owner's "bases
+                    published or build from src" step).
 
 EXIT CODES
 ----------
@@ -176,8 +219,8 @@ EXIT CODES
   2  usage error
   1  a method failed — the FIRST failure is reported and the run stops
      (a silent skip of a runnable method is forbidden: DEC-8's rule that
-     exactly the runnable methods are covered); or, with --check, the
-     parity differs
+     exactly the runnable methods are covered); or, with --check /
+     --check-provenance, the list differs
 
 Python 3.10+, stdlib only. POSIX paths only (the rootfs tars are POSIX).
 """
@@ -208,8 +251,14 @@ LAYER_SCHEMA_VERSION = 1
 #: the manifest's generator_version, so a bump here is a visible change —
 #: deliberate, never silent. 0.4.0: every layer in ONE package (the method and
 #: the first 12 hex of its layer_sha256 in the tag) and both bases in ONE
-#: package (the base in the tag).
-GENERATOR_VERSION = "0.4.0"
+#: package (the base in the tag). 0.5.0: one method at a time — the build
+#: takes the method's committed folder (clean, at HEAD) and the base the
+#: current list pins; the manifest records the methods commit, the folder's
+#: git tree and the building generator PER ENTRY (schema 2), and a list is
+#: assembled from the previous list's entries plus the new records. 0.6.0:
+#: layers pack with fixed times, and their OCI manifest carries no methods
+#: commit or base image, so one layer file is one artifact (FOLLOW-UPS 64).
+GENERATOR_VERSION = "0.6.0"
 
 #: The offline verification floor is sha256 (models.md's cached → verified →
 #: offline flow, DEC-5/7), so both the layer hash and the wrapper hash are
@@ -335,6 +384,15 @@ BASE_MKSQUASHFS_FLAGS = (
     "-all-time", BASE_SQUASHFS_TIME, "-mkfs-time", BASE_SQUASHFS_TIME,
 )
 
+#: The layer pack flags: the framework's env-recipe packer stage plus the
+#: base's fixed times and no xattrs (BASE_MKSQUASHFS_FLAGS), so one layer root
+#: packs to the same bytes every time (FOLLOW-UPS 64). The materialized root
+#: carries extraction times; without a fixed time, rebuilding an unchanged
+#: code-only method gave a new file, a new tag and a new download. A layer
+#: carries no Python bytecode to go stale (trim_layer removes every .pyc and
+#: __pycache__, DEC-12), so fixed times change no import behaviour.
+LAYER_MKSQUASHFS_FLAGS = BASE_MKSQUASHFS_FLAGS
+
 #: Mirrors src-app/server/src/modules/sandbox/env_id.rs::is_valid_env_id.
 #: An id failing this is refused at the top of the build, not rescued.
 ENV_ID_RE = re.compile(r"^[a-z0-9._-]+$")
@@ -354,8 +412,41 @@ MIN_SIZE_BYTES = 1  # an empty layer is a build bug, not an artifact
 
 #: The committed manifest's shape version (`schema_version` in the file).
 #: Bump on any breaking field change, with the JSON Schema in the same change
-#: (schema_version 1 == the seed emitted by ITEM-1).
-MANIFEST_SCHEMA_VERSION = 1
+#: (schema_version 1 == the seed emitted by ITEM-1; 2 == the methods commit,
+#: the folder tree and the building generator per entry, no top-level
+#: source_revision).
+MANIFEST_SCHEMA_VERSION = 2
+
+#: The artifact record versions the writer reads: 1 (generators before
+#: 0.5.0: no folder tree recorded; the writer derives it from git at the
+#: record's commit) and 2 (0.5.0: built from the committed folder, with its
+#: git tree).
+RECORD_SCHEMA_VERSION = 2
+RECORD_SCHEMA_VERSIONS = (1, 2)
+
+#: The one container-contract line a list carries (`base_contract`); every
+#: entry's contract and every base's contract equal it.
+BASE_CONTRACT = "2.0"
+
+#: A method version: X.Y.Z with an optional `-`/`.` suffix. No `+`: the
+#: version is part of the layer's OCI tag, which cannot hold one
+#: (FOLLOW-UPS 72).
+METHOD_VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$")
+
+#: A generator version as a record or an entry carries it (X.Y.Z, with an
+#: optional pre-release suffix for the dev publisher's own records).
+GENERATOR_VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$")
+
+#: A method folder's git tree id (`git rev-parse <commit>:methods/<id>`); the
+#: methods repository uses SHA-1 object ids.
+SOURCE_TREE_RE = re.compile(r"^[0-9a-f]{40}$")
+
+#: The fields of one emitted `envs[]` entry, in the schema's order.
+ENV_FIELDS = ("env_id", "method_id", "method_version", "language", "arch",
+              "oci_ref", "tag", "digest", "layer_sha256", "size_bytes",
+              "base_ref", "base_digest", "contract", "licence",
+              "wrapper_code_sha256", "layer_schema", "source_revision",
+              "source_tree", "generator_version")
 
 #: The OCI artifact type (DEC-14) — the manifest's `artifactType` AND the
 #: single file's media type (the publisher's `oras push` spells the file as
@@ -1072,63 +1163,110 @@ def extract_tar(tar_path: str, dest: str) -> None:
 
 # ─────────────────────────────── index + base ────────────────────────────────
 
-def load_method_index(methods_dir: str) -> dict[str, dict]:
-    with open(os.path.join(methods_dir, "index.json")) as f:
-        index = json.load(f)
-    methods = index.get("methods")
-    if not isinstance(methods, list):
-        raise SystemExit("index.json has no 'methods' array")
-    by_id: dict[str, dict] = {}
-    for entry in methods:
-        eid = entry.get("id")
-        if not eid or not ENV_ID_RE.match(eid):
-            raise SystemExit(
-                f"index.json entry without a valid env/method id: {eid!r}")
-        by_id[eid] = entry
-    return by_id
+# ─────────────────── the methods repository (git, per method) ────────────────
+#
+# Every method fact the list carries is read from the method's OWN committed
+# files at the commit its layer was built from — never from the generated,
+# gitignored index.json (AUDIT P7: a stale index named the wrong version of
+# two shipped entries). A build takes the method's folder from HEAD, refused
+# when it is dirty or untracked; the writer re-reads the facts at each
+# record's own commit, so the methods repository's HEAD never matters to an
+# assembly.
+
+class ProvenanceError(Exception):
+    """A method fact that cannot be read or does not hold at a commit; the
+    message starts with a stable code (PROVENANCE_*)."""
 
 
-def source_revision(methods_dir: str) -> str:
-    p = subprocess.run(["git", "-C", methods_dir, "rev-parse", "HEAD"],
-                       capture_output=True, text=True)
-    if p.returncode != 0:
-        raise SystemExit("the methods directory is not a git checkout; "
-                         "source_revision cannot be pinned (INV-5 requires it)")
-    return p.stdout.strip()[:12]
+class Git:
+    """The few read-only git calls the generator makes on the methods
+    repository (`git -C <dir>`, bytes out)."""
+
+    def __init__(self, repo: str) -> None:
+        self.repo = repo
+
+    def _git(self, *args: str, check: bool = False) -> subprocess.CompletedProcess:
+        try:
+            return subprocess.run(["git", "-C", self.repo, "-c", "core.quotepath=off",
+                                   *args], capture_output=True, check=check)
+        except FileNotFoundError as e:
+            raise SystemExit(f"git is not on PATH: {e}") from e
+
+    def is_repo(self) -> bool:
+        """Whether the dir is a git checkout's TOP level (every path the
+        generator reads is relative to it: methods/<id>, gates/<id>.json)."""
+        p = self._git("rev-parse", "--show-toplevel")
+        if p.returncode != 0:
+            return False
+        top = p.stdout.decode().strip()
+        return os.path.realpath(top) == os.path.realpath(self.repo)
+
+    def commit(self, rev: str) -> str | None:
+        """The full commit id `rev` names, or None."""
+        p = self._git("rev-parse", "--verify", "--quiet", rev + "^{commit}")
+        out = p.stdout.decode().strip()
+        return out if p.returncode == 0 and re.match(r"^[0-9a-f]{40}$", out) else None
+
+    def tree(self, commit: str, path: str) -> str | None:
+        """The tree id of `path` at `commit`, or None when it is absent or not
+        a directory."""
+        p = self._git("rev-parse", "--verify", "--quiet", f"{commit}:{path}")
+        oid = p.stdout.decode().strip()
+        if p.returncode != 0 or not oid:
+            return None
+        t = self._git("cat-file", "-t", oid)
+        return oid if t.returncode == 0 and t.stdout.strip() == b"tree" else None
+
+    def blob(self, commit: str, path: str) -> bytes | None:
+        """The bytes of file `path` at `commit`, or None."""
+        p = self._git("cat-file", "blob", f"{commit}:{path}")
+        return p.stdout if p.returncode == 0 else None
+
+    def names(self, commit: str, path: str) -> list[str]:
+        """The entry names directly under `path` at `commit`."""
+        p = self._git("ls-tree", "--name-only", commit, path.rstrip("/") + "/")
+        if p.returncode != 0:
+            return []
+        return sorted(os.path.basename(line) for line in
+                      p.stdout.decode().splitlines() if line)
+
+    def dirty(self, *paths: str) -> list[str]:
+        """`git status --porcelain` lines (modified, staged, deleted or
+        untracked) under `paths`."""
+        p = self._git("status", "--porcelain=v1", "--untracked-files=all", "--", *paths)
+        if p.returncode != 0:
+            raise SystemExit(f"git status failed in {self.repo}: "
+                             f"{p.stderr.decode(errors='replace')[-500:]}")
+        return [line for line in p.stdout.decode().splitlines() if line]
+
+    def archive(self, commit: str, path: str, tar_path: str) -> None:
+        """`git archive` of `path` at `commit` into `tar_path`, with the
+        usual 0644/0755 modes (tar.umask 022) whatever the host's umask."""
+        with open(tar_path, "wb") as out:
+            p = subprocess.run(["git", "-C", self.repo, "-c", "tar.umask=0022",
+                                "archive", "--format=tar", commit, "--", path],
+                               stdout=out, stderr=subprocess.PIPE)
+        if p.returncode != 0:
+            raise BuildError(f"git archive {commit[:12]} {path} failed: "
+                             f"{p.stderr.decode(errors='replace')[-500:]}")
 
 
-def select_methods(by_id: dict, only: list[str]) -> list[tuple[str, dict]]:
-    if only:
-        chosen = []
-        for eid in only:
-            entry = by_id.get(eid)
-            if entry is None:
-                raise SystemExit(f"--only {eid}: no such method in index.json")
-            if not entry.get("runnable"):
-                raise SystemExit(
-                    f"--only {eid}: the method is not runnable (DEC-8: exactly "
-                    "the runnable methods get a layer)")
-            chosen.append((eid, entry))
-        return chosen
-    runnable = [(m["id"], m) for m in by_id.values() if m.get("runnable")]
-    if not runnable:
-        raise SystemExit("index.json declares no runnable method — nothing to build")
-    return runnable
+def methods_git(methods_dir: str) -> Git:
+    git = Git(methods_dir)
+    if not os.path.isdir(methods_dir) or not git.is_repo():
+        raise SystemExit(
+            f"the methods dir {methods_dir} is not a git checkout (its top level): "
+            "every method fact is read from the method's committed files at its "
+            "recorded commit (--methods-dir / TXR_METHODS_DIR)")
+    return git
 
 
-def classify_from(dockerfile_path: str) -> tuple[str, str]:
-    """Read the first FROM and classify it (design §3 step 1). Refuses a
-    Dockerfile that does not start FROM a per-language benchmark base
-    (INV-1). `FROM` may carry a `--platform=` arg (buildx syntax); ARG
-    lines may precede it. Returns (base_ref, 'r'|'py').
-
-    The match happens BEFORE any docker call — an unclassifiable FROM never
-    costs a build, and a build never records a base ref different from the
-    one the classifier accepted.
-    """
-    with open(dockerfile_path) as f:
-        lines = f.readlines()
-    for line in lines:
+def _parse_from(text: str, where: str) -> tuple[str, str]:
+    """Read the first FROM of a Dockerfile's text and classify it (design §3
+    step 1). Refuses a Dockerfile that does not start FROM a per-language
+    benchmark base (INV-1). `FROM` may carry a `--platform=` arg (buildx
+    syntax); ARG lines may precede it. Returns (base_ref, 'r'|'py')."""
+    for line in text.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or stripped.startswith("ARG "):
             continue
@@ -1138,22 +1276,173 @@ def classify_from(dockerfile_path: str) -> tuple[str, str]:
             bm = BASE_REF_RE.match(ref)
             if not bm:
                 raise BuildError(
-                    f"Dockerfile {dockerfile_path} does not start FROM a "
+                    f"Dockerfile {where} does not start FROM a "
                     "per-language benchmark base (INV-1: the layer is the "
                     f"method's own bytes, never a hand-authored base): {ref!r}. "
                     "Accepted shape: "
                     "FROM ghcr.io/tinnlab/txresbench-base-(r|py):<contract>.")
             return ref, bm.group(1)
         raise BuildError(
-            f"Dockerfile {dockerfile_path}: the first build instruction is "
+            f"Dockerfile {where}: the first build instruction is "
             f"{stripped!r}, not FROM (INV-1)")
-    raise BuildError(f"Dockerfile {dockerfile_path} has no FROM line")
+    raise BuildError(f"Dockerfile {where} has no FROM line")
 
 
-def method_folder(methods_dir: str, eid: str) -> dict:
-    """DEC-8: a runnable index entry whose folder is incomplete is a hard
-    error naming the id, never a silent skip."""
-    d = os.path.join(methods_dir, "methods", eid)
+def classify_from(dockerfile_path: str) -> tuple[str, str]:
+    """`_parse_from` over a Dockerfile on disk. The match happens BEFORE any
+    docker call — an unclassifiable FROM never costs a build, and a build
+    never records a base ref different from the one the classifier
+    accepted."""
+    with open(dockerfile_path) as f:
+        return _parse_from(f.read(), dockerfile_path)
+
+
+def method_facts_at(git: Git, commit: str, eid: str) -> dict:
+    """Every fact the list takes from a method, read from its committed
+    files at `commit`: the folder's tree, method.json (id, version, language,
+    licence), the Dockerfile's FROM (base_ref; its tag is the contract), the
+    one run file and the wrapper hash (design §2.2), and whether
+    gates/<id>.json says the method passed its gate (DEC-8: exactly the
+    runnable methods get a layer). Raises ProvenanceError with a code."""
+    folder = f"methods/{eid}"
+    at = f"{folder} at {commit[:12]}"
+    tree = git.tree(commit, folder)
+    if tree is None:
+        raise ProvenanceError(
+            f"PROVENANCE_METHOD_NOT_IN_COMMIT: {folder} is not in commit "
+            f"{commit[:12]} of the methods repository (a folder that was never "
+            "committed has no provenance)")
+    mj = git.blob(commit, f"{folder}/method.json")
+    if mj is None:
+        raise ProvenanceError(f"PROVENANCE_METHOD_NOT_IN_COMMIT: {at} has no method.json")
+    try:
+        spec = json.loads(mj)
+    except ValueError as e:
+        raise ProvenanceError(f"PROVENANCE_FACT_MISMATCH: {at}: method.json is not "
+                              f"valid JSON: {e}") from e
+    if not isinstance(spec, dict):
+        raise ProvenanceError(f"PROVENANCE_FACT_MISMATCH: {at}: method.json is not an object")
+    if spec.get("id") != eid:
+        raise ProvenanceError(f"PROVENANCE_FACT_MISMATCH: {at}: method.json id "
+                              f"{spec.get('id')!r} is not {eid!r}")
+    version = spec.get("version")
+    if not isinstance(version, str) or not METHOD_VERSION_RE.match(version):
+        raise ProvenanceError(f"PROVENANCE_FACT_MISMATCH: {at}: method.json version "
+                              f"{version!r} is not X.Y.Z (the registry tag needs it)")
+    language = spec.get("language")
+    if language not in BASE_ID_BY_LANG:
+        raise ProvenanceError(f"PROVENANCE_FACT_MISMATCH: {at}: method.json language "
+                              f"{language!r} is not R or Python")
+    licence = spec.get("licence")
+    if not isinstance(licence, str) or not licence.strip():
+        raise ProvenanceError(f"PROVENANCE_FACT_MISMATCH: {at}: method.json has no "
+                              "non-empty 'licence'")
+    dockerfile = git.blob(commit, f"{folder}/Dockerfile")
+    if dockerfile is None:
+        raise ProvenanceError(f"PROVENANCE_METHOD_NOT_IN_COMMIT: {at} has no Dockerfile")
+    try:
+        base_ref, key = _parse_from(dockerfile.decode("utf-8", "replace"), f"{at}/Dockerfile")
+    except BuildError as e:
+        raise ProvenanceError(f"PROVENANCE_FACT_MISMATCH: {e}") from e
+    if BASE_LANG_BY_KEY[key] != language:
+        raise ProvenanceError(
+            f"PROVENANCE_FACT_MISMATCH: {at}: method.json language {language!r} "
+            f"does not match its FROM base {base_ref!r}")
+    runs = [r for r in ("run.py", "run.R") if git.blob(commit, f"{folder}/{r}") is not None]
+    if len(runs) != 1:
+        raise ProvenanceError(
+            f"PROVENANCE_FACT_MISMATCH: {at} has {' and '.join(runs) or 'no run.py or run.R'}; "
+            "the wrapper hash convention needs exactly one (design §2.2)")
+    run_file = runs[0]
+    wrapper = HASH(mj + git.blob(commit, f"{folder}/{run_file}")).hexdigest()
+    gate_raw = git.blob(commit, f"gates/{eid}.json")
+    try:
+        gate = json.loads(gate_raw) if gate_raw is not None else None
+    except ValueError:
+        gate = None
+    return {
+        "commit": commit,
+        "source_revision": commit[:12],
+        "source_tree": tree,
+        "version": version,
+        "language": language,
+        "licence": licence,
+        "base_ref": base_ref,
+        "contract": base_ref.rsplit(":", 1)[1],
+        "run_file": run_file,
+        "wrapper_code_sha256": wrapper,
+        "gated": isinstance(gate, dict) and gate.get("pass") is True,
+    }
+
+
+def gated_method_ids(git: Git, commit: str) -> list[str]:
+    """The method folders of `commit` whose gates/<id>.json passed — every
+    runnable method of a full build (DEC-8), with no index.json."""
+    ids = []
+    for eid in git.names(commit, "methods"):
+        raw = git.blob(commit, f"gates/{eid}.json")
+        try:
+            gate = json.loads(raw) if raw is not None else None
+        except ValueError:
+            gate = None
+        if isinstance(gate, dict) and gate.get("pass") is True:
+            ids.append(eid)
+    return ids
+
+
+def prepare_method_source(methods_dir: str, eid: str, src_root: str | None) -> dict:
+    """The committed folder a build uses (AUDIT P7): refuses a method whose
+    folder is not in HEAD (an untracked folder), whose folder or gate file has
+    uncommitted changes or untracked files, or that has not passed its gate
+    at HEAD; then reads its facts at HEAD and, unless `src_root` is None (a
+    dry run), exports the folder with `git archive` into
+    <src_root>/methods/<id>: the build context is exactly the committed bytes
+    (no ignored or stray file). Returns the facts plus `dir` (the export)."""
+    if not ENV_ID_RE.match(eid):
+        raise BuildError(f"method id {eid!r} is not a valid env id (env_id.rs grammar); "
+                         "it cannot have a layer")
+    git = methods_git(methods_dir)
+    head = git.commit("HEAD")
+    if head is None:
+        raise BuildError(f"the methods dir {methods_dir} has no HEAD commit")
+    folder = f"methods/{eid}"
+    if git.tree(head, folder) is None:
+        raise BuildError(
+            f"BUILD_METHOD_NOT_IN_COMMIT: method {eid}: {folder} is not in HEAD "
+            f"({head[:12]}) of {methods_dir} — commit the method before building it "
+            "(a layer from an untracked folder has no provenance)")
+    dirty = git.dirty(folder, f"gates/{eid}.json")
+    if dirty:
+        raise BuildError(
+            f"BUILD_FOLDER_DIRTY: method {eid}: uncommitted changes or untracked "
+            f"files at HEAD {head[:12]} — commit or remove them first (the layer "
+            "is built from the committed folder):\n  " + "\n  ".join(dirty))
+    try:
+        facts = method_facts_at(git, head, eid)
+    except ProvenanceError as e:
+        raise BuildError(f"method {eid}: {e}") from e
+    if not facts["gated"]:
+        raise BuildError(
+            f"BUILD_NOT_GATED: method {eid} is not runnable at HEAD {head[:12]}: "
+            f"gates/{eid}.json is missing or does not pass (DEC-8: exactly the "
+            "runnable methods get a layer)")
+    facts["dir"] = None
+    if src_root is not None:
+        if os.path.lexists(src_root):
+            shutil.rmtree(src_root)
+        os.makedirs(src_root)
+        tar_path = src_root + ".tar"
+        git.archive(head, folder, tar_path)
+        extract_tar(tar_path, src_root)
+        os.unlink(tar_path)
+        facts["dir"] = os.path.join(src_root, "methods", eid)
+    return facts
+
+
+def method_folder(method_dir: str, eid: str) -> dict:
+    """DEC-8: a runnable method whose folder is incomplete is a hard error
+    naming the id, never a silent skip."""
+    d = method_dir
     missing = [f for f in ("method.json", "Dockerfile")
                if not os.path.isfile(os.path.join(d, f))]
     run_py = os.path.isfile(os.path.join(d, "run.py"))
@@ -1237,6 +1526,84 @@ def _meta_file() -> str:
     return os.path.join(tmp, "txr-base-build-meta.json")
 
 
+def load_base_pins(path: str) -> dict[tuple[str, str], dict]:
+    """The bases a list pins, by (base_id, arch): the Docker base image
+    (source_ref + source_digest) every layer of that language and arch must
+    be built on. A list without `bases` pins nothing."""
+    try:
+        with open(path) as f:
+            doc = json.load(f)
+    except (OSError, ValueError) as e:
+        raise SystemExit(f"--base-pins {path}: cannot read the list: {e}") from e
+    pins = {}
+    for b in (doc.get("bases") or []) if isinstance(doc, dict) else []:
+        if isinstance(b, dict) and b.get("base_id") and b.get("arch"):
+            pins[(b["base_id"], b["arch"])] = {"source_ref": b.get("source_ref"),
+                                               "source_digest": b.get("source_digest")}
+    return pins
+
+
+def _has_digest(ref: str, repo: str, digest: str) -> bool:
+    """Whether the local image `ref` is the image `repo@digest`."""
+    return f"{repo}@{digest}" in image_repo_digests(ref)
+
+
+def resolve_pinned_base(from_ref: str, pin: dict | None, base_key: str,
+                        pins_path: str) -> dict:
+    """The base a one-method build uses (item 4 of the per-method plan): the
+    Docker image the current list pins, by digest, from THIS machine's image
+    store. The moving `:<contract>` tag is used only when it already names the
+    pinned digest; otherwise a local `<repo>@<digest>` image is tagged as the
+    FROM ref. Nothing is pulled (the base images are not published) and
+    nothing is rebuilt (a rebuilt base has another digest): a base image moves
+    between machines by `docker save` / `docker load`, its digest checked
+    after the load."""
+    if pin is None:
+        raise BuildError(
+            f"BUILD_BASE_NOT_PINNED: {pins_path} pins no {base_key} base, so there "
+            "is no base to build this layer on; start a base batch with --new-base "
+            "(the base and every layer on it), or pass --base-pins <list>")
+    if from_ref != pin.get("source_ref"):
+        raise BuildError(
+            f"BUILD_FROM_NOT_PINNED: the Dockerfile starts FROM {from_ref}, but "
+            f"{pins_path} pins {base_key} to {pin.get('source_ref')}; a layer on "
+            "another base image needs a base batch (--new-base)")
+    digest = pin.get("source_digest") or ""
+    if not re.match(r"^sha256:[0-9a-f]{64}$", digest):
+        raise BuildError(f"BUILD_BASE_NOT_PINNED: {pins_path} pins {base_key} to "
+                         f"{digest!r}, not sha256:<64 hex>")
+    repo = from_ref.rsplit(":", 1)[0]
+    by_digest = f"{repo}@{digest}"
+    source = "local"
+    if not (image_exists(from_ref) and _has_digest(from_ref, repo, digest)):
+        if not image_exists(by_digest):
+            raise BuildError(
+                f"BUILD_BASE_UNAVAILABLE: the pinned base image {by_digest} is not "
+                "on this machine. Build the method on the machine that holds it, or "
+                "move the image here with `docker save` / `docker load` and check its "
+                "digest after the load. The generator never pulls a base (the base "
+                "images are not published) and never rebuilds one (a rebuilt base "
+                "has another digest, so its layers would not pair with the list).")
+        docker("tag", by_digest, from_ref)
+        source = "local-by-digest"
+        if not _has_digest(from_ref, repo, digest):
+            raise BuildError(f"BUILD_BASE_UNAVAILABLE: tagged {by_digest} as {from_ref}, "
+                             "but the tag does not name that digest")
+    return {"ref": from_ref, "digest": digest, "source": source,
+            "digest_source": "repo_digests", "legacy_dir": None}
+
+
+def assert_base_unchanged(from_ref: str, digest: str) -> None:
+    """After the method build: the FROM tag must still name the pinned image
+    (a concurrent retag would have changed the base under the build)."""
+    repo = from_ref.rsplit(":", 1)[0]
+    if not _has_digest(from_ref, repo, digest):
+        raise BuildError(
+            f"BUILD_BASE_MOVED: {from_ref} no longer names the pinned {digest} after "
+            "the build (another process retagged it); the layer is not recorded — "
+            "build again")
+
+
 def base_cache_key(base_digest: str | None, arch: str) -> str:
     return f"{base_digest[:16] if base_digest else 'no-digest'}-{arch}"
 
@@ -1268,64 +1635,74 @@ def load_or_build_base_index(out: str, base_digest: str | None, arch: str,
 
 # ─────────────────────────────── the per-method build ────────────────────────
 
-def build_one(eid: str, entry: dict, args) -> dict:
+def build_one(eid: str, args) -> dict:
     """Build + stage one method layer; returns the artifact record. Every
     refusal propagates as an exception naming the method; the driver stops —
     no silent skip of a runnable method (DEC-8).
-    """
-    if not ENV_ID_RE.match(eid):
-        raise BuildError(
-            f"method id {eid!r} is not a valid env id (env_id.rs grammar); "
-            "it cannot have a layer")
-    folder = method_folder(args.methods_dir, eid)
-    base_ref, base_key = classify_from(os.path.join(folder["dir"], "Dockerfile"))
-    index_language = entry.get("language")
-    if index_language != BASE_LANG_BY_KEY[base_key]:
-        raise BuildError(
-            f"method {eid}: index language {index_language!r} does not match "
-            f"its FROM base {base_ref!r} (with LANGUAGE {BASE_LANG_BY_KEY[base_key]})")
-    if not CONTRACT_RE.match(entry.get("contract") or ""):
-        raise BuildError(f"method {eid}: index contract "
-                         f"{entry.get('contract')!r} is not an X.Y version")
-    version = entry.get("version") or ""
-    if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$", version):
-        raise BuildError(f"method {eid}: index version {version!r} is not a "
-                         "semver-ish version; the registry tag needs it")
 
-    print(f"\n=== {eid} ({index_language}, {version}) ===")
+    The source is the method's committed folder at the methods HEAD
+    (prepare_method_source: refused when dirty, untracked or not gated), and
+    every fact the record carries comes from that folder: the version and
+    language from method.json, the base ref and the contract from the
+    Dockerfile's FROM. The base is the image the current list pins
+    (resolve_pinned_base) unless --new-base starts a base batch.
+    """
+    work = os.path.join(args.out, "work", f"{eid}-{args.arch}")
+    src = prepare_method_source(args.methods_dir, eid,
+                                None if args.dry_run else os.path.join(work, "src"))
+    language, version = src["language"], src["version"]
+    base_ref = src["base_ref"]
+    base_id = BASE_ID_BY_LANG[language]
+
+    print(f"\n=== {eid} ({language}, {version}, {src['source_revision']}) ===")
 
     if args.dry_run:
         tag = METHOD_IMAGE_TAG.format(env_id=eid, arch=args.arch)
-        print("+ docker build --platform linux/%s -t %s %s"
-              % (args.arch, tag, folder["dir"]))
+        print(f"+ git archive {src['source_revision']} methods/{eid} -> the build context")
+        if args.new_base:
+            print(f"+ base {base_ref}: local -> pull -> benchmark tree (--new-base)")
+        else:
+            print(f"+ base {base_ref}: the local image at the digest {args.base_pins} pins")
+        print("+ docker build --platform linux/%s -t %s <the export>" % (args.arch, tag))
         print("+ docker create/export %s + its FROM base %s -> tar"
               % (tag, base_ref))
         print("+ delta / trim / cover / marker / modes")
-        print("+ mksquashfs -comp zstd -Xcompression-level 22 -b 1M "
-              "-noappend -no-progress -all-root")
+        print("+ mksquashfs " + " ".join(LAYER_MKSQUASHFS_FLAGS))
         print("+ write layers/%s-%s/artifact.json" % (eid, args.arch))
-        print("+ stage bases/%s-%s/base.squashfs from the same base rootfs "
-              "(kept when already staged from the same image)"
-              % (BASE_ID_BY_LANG[index_language], args.arch))
+        if args.new_base:
+            print("+ stage bases/%s-%s/base.squashfs from the same base rootfs "
+                  "(kept when already staged from the same image)"
+                  % (base_id, args.arch))
         return {"env_id": eid, "dry_run": True}
 
-    # 1. base: local -> pull -> benchmark-tree fallback.
-    base = resolve_base(base_ref, index_language, args.benchmark_dir,
-                        args.arch, args.force_base_build)
+    folder = method_folder(src["dir"], eid)
+    if folder["wrapper"] != src["run_file"]:
+        raise BuildError(f"method {eid}: the export's run file {folder['wrapper']} is not "
+                         f"the commit's {src['run_file']}")
+
+    # 1. base: the pinned image (default), or for a base batch local -> pull ->
+    # benchmark-tree fallback.
+    if args.new_base:
+        base = resolve_base(base_ref, language, args.benchmark_dir,
+                            args.arch, args.force_base_build)
+    else:
+        base = resolve_pinned_base(base_ref, args.pins.get((base_id, args.arch)),
+                                   f"{base_id}-{args.arch}", args.base_pins)
     if not base.get("digest"):
         raise BuildError(
             f"method {eid}: no digest recorded for base {base_ref} — the "
             "pairing anchor cannot be emitted (pulled or buildx-built base "
             "required)")
 
-    # 2. build the method image exactly as published.
+    # 2. build the method image exactly as published, from the committed folder.
     tag = METHOD_IMAGE_TAG.format(env_id=eid, arch=args.arch)
     build_image(tag, folder["dir"], args.arch)
+    if not args.new_base:
+        assert_base_unchanged(base_ref, base["digest"])
 
     # 3-4. export + extract both rootfses. The base is extracted once per
     # (digest, arch) and cached under out/bases — the full run's 95 methods
     # share two base rootfses, not 95.
-    work = os.path.join(args.out, "work", f"{eid}-{args.arch}")
     os.makedirs(work, exist_ok=True)
     m_tar = os.path.join(work, "method-rootfs.tar")
     export_rootfs(tag, m_tar)
@@ -1378,24 +1755,25 @@ def build_one(eid: str, entry: dict, args) -> dict:
     # 10. pack.
     os.makedirs(layer_dir, exist_ok=True)
     squashfs = os.path.join(layer_dir, "layer.squashfs")
-    _run(["mksquashfs", layer_root, squashfs, "-comp", "zstd",
-          "-Xcompression-level", "22", "-b", "1M", "-noappend", "-no-progress",
-          "-all-root"])
-    _assert_squashfs_ok(squashfs)
+    pack_layer(layer_root, squashfs)
 
     # 11. artifact record (ITEM-3 consumes this file directly).
     layer_sha256 = _sha256_of(squashfs)
+    wrapper = wrapper_code_sha256(folder["dir"], folder["wrapper"])
+    if wrapper != src["wrapper_code_sha256"]:
+        raise BuildError(f"method {eid}: the export's wrapper hash is not the commit's")
     record = {
-        "record_schema_version": 1,
+        "record_schema_version": RECORD_SCHEMA_VERSION,
         "generator_version": GENERATOR_VERSION,
         "env_id": eid,
         "method_id": eid,
         "method_version": version,
-        "language": index_language,
+        "language": language,
         "arch": args.arch,
         "oci_ref": LAYER_OCI_REF,
         "tag": layer_tag(eid, version, args.arch, layer_sha256),
-        "source_revision": source_revision(args.methods_dir),
+        "source_revision": src["source_revision"],
+        "source_tree": src["source_tree"],
         "base_ref": base["ref"],
         "base_digest": base["digest"],
         "base_digest_source": base["digest_source"],
@@ -1404,7 +1782,7 @@ def build_one(eid: str, entry: dict, args) -> dict:
         "layer_file": "layer.squashfs",
         "layer_sha256": layer_sha256,
         "size_bytes": os.path.getsize(squashfs),
-        "wrapper_code_sha256": wrapper_code_sha256(folder["dir"], folder["wrapper"]),
+        "wrapper_code_sha256": wrapper,
         "layer_schema": LAYER_SCHEMA_VERSION,
         "layer_manifest": entries,
         "run_file": folder["wrapper"],
@@ -1420,10 +1798,13 @@ def build_one(eid: str, entry: dict, args) -> dict:
         json.dump(record, f, indent=2, sort_keys=True)
         f.write("\n")
 
-    # 12. the app-side base this layer stacks on, packed from the SAME base
-    # rootfs the delta used (kept when this build dir already holds it).
-    stage_base(args.out, args.arch, index_language, base["ref"],
-               base["digest"], base["source"], base["digest_source"], b_root)
+    # 12. a base batch (--new-base): the app-side base this layer stacks on,
+    # packed from the SAME base rootfs the delta used (kept when this build
+    # dir already holds it). A pinned build stages none: the list's base is
+    # the published one.
+    if args.new_base:
+        stage_base(args.out, args.arch, language, base["ref"],
+                   base["digest"], base["source"], base["digest_source"], b_root)
 
     if not args.keep_rootfs:
         shutil.rmtree(m_root, ignore_errors=True)
@@ -1434,6 +1815,13 @@ def build_one(eid: str, entry: dict, args) -> dict:
             os.replace(b_tar, b_tar_cached)  # keep for the next method
         shutil.rmtree(work, ignore_errors=True)
     return record
+
+
+def pack_layer(layer_root: str, squashfs: str) -> None:
+    """Pack a materialized layer root into its squashfs (the OCI artifact's
+    single file)."""
+    _run(["mksquashfs", layer_root, squashfs, *LAYER_MKSQUASHFS_FLAGS])
+    _assert_squashfs_ok(squashfs)
 
 
 def _sha256_of(path: str) -> str:
@@ -1687,10 +2075,10 @@ def load_staged_records(records_dir: str) -> list[dict]:
                 rec = json.load(f)
             except json.JSONDecodeError as e:
                 raise SystemExit(f"{rec_path} is not valid JSON: {e}") from e
-        if not isinstance(rec, dict) or rec.get("record_schema_version") != 1:
+        if not isinstance(rec, dict) or rec.get("record_schema_version") not in RECORD_SCHEMA_VERSIONS:
             raise SystemExit(
-                f"{rec_path} is not a record_schema_version 1 artifact "
-                f"record (got {rec.get('record_schema_version')!r})"
+                f"{rec_path} is not a record_schema_version 1 or 2 artifact "
+                f"record (got {rec.get('record_schema_version') if isinstance(rec, dict) else rec!r})"
                 " — rebuild with the current generator")
         records.append(rec)
     records.sort(key=lambda r: (r.get("env_id", ""), r.get("arch", "")))
@@ -1819,8 +2207,7 @@ def _ref_of_record(rec: dict) -> str:
     return f"{rec.get('env_id', '?')}-{rec.get('arch', '?')}"
 
 
-def validate_record_and_entry(rec: dict, entry: dict,
-                              index_entry: dict) -> None:
+def validate_record_and_entry(rec: dict, entry: dict) -> None:
     """Writer-side structural checks; each refusal names the record.
 
     The ITEM-4 guard re-validates the COMMITTED file; the writer validates
@@ -1828,10 +2215,8 @@ def validate_record_and_entry(rec: dict, entry: dict,
     manifest that a later guard round then has to explain. Every check is
     a hard error (never a normalize-and-proceed): a value the writer
     silently repairs would not regenerate on the next run and would break
-    byte parity. (The index-presence and DEC-8 runnable refusals are
-    decided in assemble_manifest BEFORE any method.json read — a record
-    for a method the index does not declare as runnable must refuse on
-    that fact, not on whichever file happens to be missing.)
+    byte parity. (The method facts — gate, version, language, FROM, wrapper,
+    folder tree — are checked against git in entry_from_record BEFORE this.)
     """
     ref = _ref_of_record(rec)
     version, arch = (rec.get("method_version", ""), rec.get("arch", ""))
@@ -1842,6 +2227,9 @@ def validate_record_and_entry(rec: dict, entry: dict,
                          "env id (env_id.rs grammar)")
     if arch not in ("amd64", "arm64"):
         raise SystemExit(f"record {ref}: arch {arch!r} not in amd64/arm64")
+    if not METHOD_VERSION_RE.match(version):
+        raise SystemExit(f"record {ref}: method_version {version!r} is not X.Y.Z with "
+                         "an optional -/. suffix (the registry tag needs it)")
     if not BASE_REF_RE.match(entry["base_ref"]):
         raise SystemExit(f"record {ref}: base_ref {entry['base_ref']!r} is not a "
                          "ghcr.io/tinnlab/txresbench-base-(r|py):<contract> ref")
@@ -1883,40 +2271,107 @@ def validate_record_and_entry(rec: dict, entry: dict,
                          "not a positive integer")
     if entry["language"] not in ("R", "Python"):
         raise SystemExit(f"record {ref}: language {entry['language']!r} not in R/Python")
-    if index_entry.get("language") != entry["language"]:
-        raise SystemExit(f"record {ref}: index language {index_entry.get('language')!r} "
-                         f"!= record language {entry['language']!r}")
-    if index_entry.get("version") != version:
-        raise SystemExit(f"record {ref}: index version {index_entry.get('version')!r} "
-                         f"!= record version {version!r}")
     base_contract = entry["base_ref"].rsplit(":", 1)[1]
     if entry["contract"] != base_contract:
         raise SystemExit(
-            f"record {ref}: index contract {entry['contract']!r} != the base "
+            f"record {ref}: contract {entry['contract']!r} != the base "
             f"tag contract {base_contract!r} of {entry['base_ref']} — a layer "
             "computed against one contract cannot be declared as another")
     if not CONTRACT_RE.match(entry["contract"]):
-        raise SystemExit(f"record {ref}: index contract {entry['contract']!r} is "
+        raise SystemExit(f"record {ref}: contract {entry['contract']!r} is "
                          "not an X.Y version")
     if entry["layer_schema"] != LAYER_SCHEMA_VERSION:
         raise SystemExit(f"record {ref}: layer_schema {entry['layer_schema']!r} != "
                          f"{LAYER_SCHEMA_VERSION} (DEC-11)")
     if not entry["licence"].strip():
         raise SystemExit(f"record {ref}: method.json licence is empty (minLength 1)")
-    v = index_entry.get("version") or ""
-    if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$", v):
-        raise SystemExit(f"record {ref}: index version {v!r} is not semver-ish")
+    if not GENERATOR_VERSION_RE.match(str(entry["generator_version"])):
+        raise SystemExit(f"record {ref}: generator_version "
+                         f"{entry['generator_version']!r} is not X.Y.Z")
 
 
-def load_licence(methods_dir: str, eid: str) -> str:
-    """method.json's `licence`, verbatim (TEST-11 — the manifest reproduces
-    the legal fact, never a paraphrase)."""
-    with open(os.path.join(methods_dir, "methods", eid, "method.json")) as f:
-        mj = json.load(f)
-    lic = mj.get("licence")
-    if not isinstance(lic, str) or not lic:
-        raise SystemExit(f"method {eid}: method.json has no non-empty 'licence'")
-    return lic
+def entry_from_record(rec: dict, git: Git) -> dict:
+    """One manifest entry from one staged record. Every method fact is read
+    from git at the record's OWN commit (`source_revision`) and must agree
+    with what the record measured: the gate (DEC-8), method.json's version
+    and language, the Dockerfile's FROM, the run file and the wrapper hash
+    (the layer's /code is that commit's method.json + run file), and for a
+    record_schema_version 2 record the folder's git tree. The licence and
+    the contract come from that commit, never from the methods HEAD or the
+    generated index.json (AUDIT P7). A record from a generator before 0.5.0
+    (record_schema_version 1) has no tree: it is taken from git, and the
+    wrapper check is what ties the record to that commit."""
+    ref = _ref_of_record(rec)
+    eid = rec.get("env_id", "")
+    if not eid or not ENV_ID_RE.match(eid):
+        raise SystemExit(f"record {ref}: env_id missing/invalid")
+    rev = str(rec.get("source_revision") or "")
+    if not SOURCE_REVISION_RE.match(rev):
+        raise SystemExit(f"record {ref}: source_revision {rev!r} is not the 12-hex "
+                         "methods commit")
+    commit = git.commit(rev)
+    if commit is None:
+        raise SystemExit(
+            f"record {ref}: PROVENANCE_COMMIT_UNKNOWN: commit {rev} is not in the "
+            f"methods repository {git.repo} (fetch it, or rebuild the layer)")
+    try:
+        facts = method_facts_at(git, commit, eid)
+    except ProvenanceError as e:
+        raise SystemExit(f"record {ref}: {e}") from e
+    if not facts["gated"]:
+        raise SystemExit(
+            f"record {ref}: PROVENANCE_NOT_GATED: method {eid!r} is not runnable "
+            f"at {rev}: gates/{eid}.json is missing or does not pass (DEC-8: exactly "
+            "the runnable methods get a layer)")
+    version = rec.get("method_version", "")
+    if version != facts["version"]:
+        raise SystemExit(
+            f"record {ref}: PROVENANCE_VERSION_MISMATCH: the record says {version!r}, "
+            f"methods/{eid}/method.json at {rev} says {facts['version']!r}")
+    for field in ("language", "base_ref", "run_file"):
+        if rec.get(field) != facts[field]:
+            raise SystemExit(
+                f"record {ref}: PROVENANCE_FACT_MISMATCH: record {field} "
+                f"{rec.get(field)!r} != {facts[field]!r} from methods/{eid} at {rev}")
+    if rec.get("wrapper_code_sha256") != facts["wrapper_code_sha256"]:
+        raise SystemExit(
+            f"record {ref}: PROVENANCE_WRAPPER_MISMATCH: sha256(method.json + "
+            f"{facts['run_file']}) at {rev} is {facts['wrapper_code_sha256']}, the "
+            f"record's is {rec.get('wrapper_code_sha256')} — the layer's /code is "
+            "not that commit's")
+    if rec.get("record_schema_version", 1) >= 2 and rec.get("source_tree") != facts["source_tree"]:
+        raise SystemExit(
+            f"record {ref}: PROVENANCE_TREE_MISMATCH: record source_tree "
+            f"{rec.get('source_tree')!r} != the git tree of methods/{eid} at {rev} "
+            f"({facts['source_tree']})")
+    contract = facts["contract"]
+    entry = {
+        "env_id": eid,
+        "method_id": rec.get("method_id", eid),
+        "method_version": version,
+        "language": rec.get("language", ""),
+        "arch": rec.get("arch", ""),
+        # The address is derived from the record's identity, never
+        # copied: a record from a generator before 0.4.0 carries the
+        # per-method-package form (validate_record_and_entry checks it).
+        "oci_ref": LAYER_OCI_REF,
+        "tag": layer_tag(eid, version, rec.get("arch", ""),
+                         str(rec.get("layer_sha256", ""))),
+        "digest": "sha256:" + HASH(oci_artifact_manifest_bytes(rec, contract)).hexdigest(),
+        "layer_sha256": rec.get("layer_sha256", ""),
+        "size_bytes": rec.get("size_bytes", 0),
+        "base_ref": rec.get("base_ref", ""),
+        "base_digest": rec.get("base_digest", ""),
+        "contract": contract,
+        "licence": facts["licence"],
+        "wrapper_code_sha256": rec.get("wrapper_code_sha256", ""),
+        "layer_schema": rec.get("layer_schema", -1),
+        "source_revision": rev,
+        "source_tree": facts["source_tree"],
+        "generator_version": rec.get("generator_version", ""),
+    }
+    validate_record_and_entry(rec, entry)
+    return entry
 
 
 def oci_artifact_manifest_bytes(rec: dict, contract: str) -> bytes:
@@ -1931,8 +2386,13 @@ def oci_artifact_manifest_bytes(rec: dict, contract: str) -> bytes:
     shape): artifactType = the artifact type, the single layer's mediaType
     = the artifact type (the file is the layer, not a tar), config = the
     OCI empty JSON, the layer descriptor carries the file title annotation
-    (oras's file-push convention). `org.opencontainers.image.revision` is
-    the methods-repo commit — PROV-2's annotation set. Key order is the OCI
+    (oras's file-push convention). The annotations name the layer and its
+    file only — never the methods commit or the base image the layer was
+    built at: those are per-entry provenance in the list (source_revision,
+    base_ref, base_digest). So the same layer file always gives the same
+    bytes, digest and tag: a rebuild of an unchanged method at a later commit,
+    or over a new base image, is the artifact already published (a no-op
+    publish), never a second set of bytes under one tag. Key order is the OCI
     manifest struct order (schemaVersion, mediaType, artifactType, config,
     layers, annotations), so the bytes are deterministic for one record and
     match a Go-encoded manifest: no whitespace, no HTML escapes needed
@@ -1957,14 +2417,11 @@ def oci_artifact_manifest_bytes(rec: dict, contract: str) -> bytes:
         ],
         "annotations": {
             "org.opencontainers.image.source": SOURCE_URL,
-            "org.opencontainers.image.revision": rec["source_revision"],
             "com.txr.method_id": rec["method_id"],
             "com.txr.method_version": rec["method_version"],
             "com.txr.language": rec["language"],
             "com.txr.arch": rec["arch"],
             "com.txr.contract": contract,
-            "com.txr.base_ref": rec["base_ref"],
-            "com.txr.base_digest": rec["base_digest"],
             "com.txr.layer_sha256": rec["layer_sha256"],
             "com.txr.layer_schema": str(rec["layer_schema"]),
         },
@@ -1972,128 +2429,209 @@ def oci_artifact_manifest_bytes(rec: dict, contract: str) -> bytes:
     return json.dumps(manifest, separators=(",", ":"), ensure_ascii=False).encode()
 
 
-def assemble_manifest(records: list[dict], methods_dir: str,
-                      by_id: dict, base_records: list[dict]) -> tuple[dict, dict]:
-    """One manifest from staged records (INV-5, DEC-15).
+def emitted_base(b: dict) -> dict:
+    """The `bases[]` record of one staged base (schema field order), at the
+    current address whatever form the staged record carries
+    (validate_base_record accepted the current or the pre-0.4.0 one)."""
+    emitted = {f: b[f] for f in BASE_ENTRY_FIELDS if f not in ("oci_ref", "tag", "digest")}
+    emitted["oci_ref"] = BASE_OCI_REF
+    emitted["tag"] = base_tag(b["base_id"], b["contract"], b["arch"], b["squashfs_sha256"])
+    emitted["digest"] = "sha256:" + HASH(oci_base_manifest_bytes(b)).hexdigest()
+    return {f: emitted[f] for f in BASE_ENTRY_FIELDS}
 
-    Returns (manifest, entries_by_key) where the key is (env_id, arch) —
-    the same key the check mode uses for its diff. Every record must carry
-    the same source_revision (a mixed staging dir is a staging bug, not a
-    manifest: the manifest records ONE revision, DEC-15).
-    """
-    if not records:
+
+def parse_key(key: str, what: str) -> tuple[str, str]:
+    """`<id>-<arch>` (an env id or a base id, then amd64|arm64)."""
+    head, _, arch = key.rpartition("-")
+    if not head or arch not in ("amd64", "arm64") or not ENV_ID_RE.match(head):
+        raise SystemExit(f"{what} {key!r} is not <id>-<amd64|arm64>")
+    return head, arch
+
+
+def _key_ref(key: tuple[str, str]) -> str:
+    return f"{key[0]}-{key[1]}"
+
+
+def _base_key_of(entry: dict) -> tuple[str, str]:
+    return BASE_ID_BY_LANG.get(entry.get("language"), "?"), entry.get("arch", "?")
+
+
+def load_previous(path: str) -> dict:
+    """The previous list an incremental assembly or check carries entries
+    from: schema 2 with a `bases` list (an older list cannot be carried: its
+    entries have no per-entry provenance — assemble the first schema 2 list
+    with --full). Entries and bases are returned in the schema field order,
+    values untouched, so a carried entry re-serializes to the same bytes."""
+    try:
+        with open(path, "rb") as f:
+            doc = json.loads(f.read())
+    except (OSError, ValueError) as e:
+        raise SystemExit(f"--previous {path}: cannot read the list: {e}") from e
+    if not isinstance(doc, dict) or doc.get("schema_version") != MANIFEST_SCHEMA_VERSION:
+        got = doc.get("schema_version") if isinstance(doc, dict) else None
+        raise SystemExit(
+            f"ASSEMBLE_PREVIOUS_SCHEMA: --previous {path} is schema_version {got!r}; "
+            f"only a schema {MANIFEST_SCHEMA_VERSION} list carries entries forward "
+            "(per-entry provenance) — assemble the first one with --full")
+    if not isinstance(doc.get("bases"), list):
+        raise SystemExit(
+            f"ASSEMBLE_PREVIOUS_NO_BASES: --previous {path} has no bases list, so it "
+            "pins no base to pair new layers with — assemble with --full")
+    if not CONTRACT_RE.match(str(doc.get("base_contract") or "")):
+        raise SystemExit(f"--previous {path}: base_contract is not X.Y")
+    envs, bases = [], []
+    for i, e in enumerate(doc.get("envs") or []):
+        if not isinstance(e, dict) or set(e) != set(ENV_FIELDS):
+            raise SystemExit(f"--previous {path}: envs[{i}] does not carry exactly the "
+                             "schema 2 entry fields")
+        envs.append({f: e[f] for f in ENV_FIELDS})
+    for i, b in enumerate(doc["bases"]):
+        if not isinstance(b, dict) or set(b) != set(BASE_ENTRY_FIELDS):
+            raise SystemExit(f"--previous {path}: bases[{i}] does not carry exactly the "
+                             "base fields")
+        bases.append({f: b[f] for f in BASE_ENTRY_FIELDS})
+    return {"path": path, "base_contract": doc["base_contract"], "envs": envs, "bases": bases}
+
+
+def assemble_manifest(records: list[dict], methods_dir: str, base_records: list[dict], *,
+                      previous: dict | None = None, replace_bases: tuple = (),
+                      drops: tuple = ()) -> tuple[dict, dict, dict]:
+    """One manifest (schema 2) from staged records.
+
+    --full (previous None): every entry from a record, the bases from the
+    staged base records (design §7: each entry pairs with the staged base of
+    its language and arch; only the bases some entry uses are emitted).
+
+    --previous: the previous list's entries and bases are CARRIED, values
+    untouched; each record's entry replaces or adds its (env_id, arch);
+    `drops` (`<env_id>-<arch>`) removes carried entries. Every new entry must
+    pair with the base the list pins for its language and arch — another
+    image is ASSEMBLE_BASE_CHANGED. `replace_bases` (`<base_id>-<arch>`)
+    takes that staged base instead (a base batch): when its source image
+    changes, every carried entry on it must have been rebuilt in this batch
+    or dropped (ASSEMBLE_BASE_BATCH). A base no entry uses is left out.
+
+    Every new entry's facts are read from git at its own record's commit
+    (entry_from_record); the methods repository's HEAD does not matter.
+    Returns (manifest, new entries by key, summary)."""
+    if previous is None and not records:
         raise SystemExit(
             "no staged records to assemble (the manifest is never written from "
             "an empty staging dir outside the ITEM-1 seed path)")
-    revisions = {r.get("source_revision", "") for r in records}
-    if len(revisions) != 1:
-        raise SystemExit(
-            "staged records carry different source revisions: "
-            + ", ".join(sorted(revisions))
-            + " — rebuild against ONE methods-repository revision (DEC-15)")
-    source_revision = next(iter(revisions))
-
-    entries: list[dict] = []
-    by_key: dict[tuple[str, str], dict] = {}
-    for rec in records:
-        eid = rec.get("env_id", "")
-        if not eid or not ENV_ID_RE.match(eid):
-            raise SystemExit(f"record {_ref_of_record(rec)}: env_id missing/invalid")
-        index_entry = by_id.get(eid)
-        if index_entry is None:
-            raise SystemExit(f"record {_ref_of_record(rec)}: method {eid!r} is not "
-                             "in the methods index")
-        if index_entry.get("runnable") is not True:
-            raise SystemExit(f"record {_ref_of_record(rec)}: method {eid!r} is "
-                             "not runnable in the index (DEC-8: exactly the "
-                             "runnable methods get a layer)")
-        contract = str(index_entry.get("contract") or "")
-        try:
-            licence = load_licence(methods_dir, eid)
-        except OSError as e:
-            raise SystemExit(
-                f"record {_ref_of_record(rec)}: cannot read method {eid!r}'s "
-                f"licence (method.json): {e}") from e
-        entry = {
-            "env_id": eid,
-            "method_id": rec.get("method_id", eid),
-            "method_version": rec.get("method_version", ""),
-            "language": rec.get("language", ""),
-            "arch": rec.get("arch", ""),
-            # The address is derived from the record's identity, never
-            # copied: a record from a generator before 0.4.0 carries the
-            # per-method-package form (validate_record_and_entry checks it).
-            "oci_ref": LAYER_OCI_REF,
-            "tag": layer_tag(eid, rec.get("method_version", ""),
-                             rec.get("arch", ""),
-                             str(rec.get("layer_sha256", ""))),
-            "digest": "sha256:" + HASH(
-                oci_artifact_manifest_bytes(rec, contract)).hexdigest(),
-            "layer_sha256": rec.get("layer_sha256", ""),
-            "size_bytes": rec.get("size_bytes", 0),
-            "base_ref": rec.get("base_ref", ""),
-            "base_digest": rec.get("base_digest", ""),
-            "contract": contract,
-            "licence": licence,
-            "wrapper_code_sha256": rec.get("wrapper_code_sha256", ""),
-            "layer_schema": rec.get("layer_schema", -1),
-        }
-        validate_record_and_entry(rec, entry, index_entry)
-        entries.append(entry)
-        by_key[(entry["env_id"], entry["arch"])] = entry
-    entries.sort(key=lambda e: (e["env_id"], e["arch"]))
-
-    # The bases: every entry pairs with the staged base of its language and
-    # arch (design §7: the layer's base image IS the base's source image);
-    # only the bases some entry uses are emitted.
+    new: dict[tuple[str, str], dict] = {}
+    if records:
+        git = methods_git(methods_dir)
+        for rec in records:
+            entry = entry_from_record(rec, git)
+            key = (entry["env_id"], entry["arch"])
+            if key in new:
+                raise SystemExit(f"two staged records for {_key_ref(key)}")
+            new[key] = entry
     staged: dict[tuple[str, str], dict] = {}
     for b in base_records:
         validate_base_record(b)
-        if b["contract"] != "2.0":
-            raise SystemExit(f"base {b['base_id']}-{b['arch']}: contract "
-                             f"{b['contract']!r} is not the base_contract 2.0")
         staged[(b["base_id"], b["arch"])] = b
-    used: set[tuple[str, str]] = set()
-    for entry in entries:
-        key = (BASE_ID_BY_LANG[entry["language"]], entry["arch"])
-        b = staged.get(key)
-        ref = f"{entry['env_id']}-{entry['arch']}"
-        if b is None:
+
+    summary = {"added": [], "replaced": [], "unchanged": [], "carried": [], "dropped": [],
+               "bases": []}
+    if previous is None:
+        contract = BASE_CONTRACT
+        for b in staged.values():
+            if b["contract"] != contract:
+                raise SystemExit(f"base {b['base_id']}-{b['arch']}: contract "
+                                 f"{b['contract']!r} is not the base_contract {contract}")
+        entries = dict(new)
+        pool = {k: emitted_base(b) for k, b in staged.items()}
+        prev_envs: dict = {}
+        summary["added"] = sorted(new)
+    else:
+        contract = previous["base_contract"]
+        prev_envs = {(e["env_id"], e["arch"]): e for e in previous["envs"]}
+        drop_keys = {parse_key(d, "--drop") for d in drops}
+        for k in sorted(drop_keys):
+            if k not in prev_envs:
+                raise SystemExit(f"ASSEMBLE_DROP_UNKNOWN: --drop {_key_ref(k)}: the previous "
+                                 f"list {previous['path']} has no such entry")
+            if k in new:
+                raise SystemExit(f"--drop {_key_ref(k)}: a staged record rebuilds it too; "
+                                 "drop it or rebuild it, not both")
+        entries = {k: e for k, e in prev_envs.items() if k not in drop_keys}
+        for k, e in new.items():
+            if k not in prev_envs:
+                summary["added"].append(k)
+            elif prev_envs[k] == e:
+                summary["unchanged"].append(k)
+            else:
+                summary["replaced"].append(k)
+            entries[k] = e
+        summary["carried"] = sorted(k for k in entries if k not in new)
+        summary["dropped"] = sorted(drop_keys)
+        pool = {(b["base_id"], b["arch"]): b for b in previous["bases"]}
+        for rb in replace_bases:
+            k = parse_key(rb, "--replace-base")
+            if k[0] not in BASE_ID_BY_LANG.values():
+                raise SystemExit(f"--replace-base {rb}: {k[0]!r} is not base-py or base-r")
+            b = staged.get(k)
+            if b is None:
+                raise SystemExit(f"ASSEMBLE_BASE_BATCH: --replace-base {rb}: no staged base "
+                                 f"{rb} under <dir>/bases")
+            if b["contract"] != contract:
+                raise SystemExit(f"base {rb}: contract {b['contract']!r} is not the list's "
+                                 f"base_contract {contract}")
+            pool[k] = emitted_base(b)
+            summary["bases"].append(rb)
+    for k, e in new.items():
+        if e["contract"] != contract:
             raise SystemExit(
-                f"record {ref}: no staged base {key[0]}-{key[1]} under "
-                "<dir>/bases — stage it (--stage-bases --out <dir> --arch "
-                f"{key[1]}); a layer without its base cannot run")
-        for e_field, b_field in (("base_ref", "source_ref"),
-                                 ("base_digest", "source_digest")):
-            if entry[e_field] != b[b_field]:
+                f"record {_key_ref(k)}: ASSEMBLE_CONTRACT: contract {e['contract']!r} is not "
+                f"the list's base_contract {contract!r} (one contract line per list)")
+
+    used: set = set()
+    for k in sorted(entries):
+        e = entries[k]
+        bk = _base_key_of(e)
+        b = pool.get(bk)
+        ref = _key_ref(k)
+        if b is None:
+            if previous is None:
                 raise SystemExit(
-                    f"record {ref}: {e_field} {entry[e_field]} != the staged "
-                    f"{key[0]}-{key[1]}'s {b_field} {b[b_field]} — the layer was "
+                    f"record {ref}: no staged base {bk[0]}-{bk[1]} under "
+                    "<dir>/bases — stage it (--stage-bases --out <dir> --arch "
+                    f"{bk[1]}); a layer without its base cannot run")
+            raise SystemExit(
+                f"record {ref}: ASSEMBLE_BASE_CHANGED: the list pins no {bk[0]}-{bk[1]} base; "
+                f"add it as a base batch (--replace-base {bk[0]}-{bk[1]} with that base "
+                "staged under <dir>/bases)")
+        for e_field, b_field in (("base_ref", "source_ref"), ("base_digest", "source_digest")):
+            if e[e_field] == b[b_field]:
+                continue
+            if previous is None:
+                raise SystemExit(
+                    f"record {ref}: {e_field} {e[e_field]} != the staged "
+                    f"{bk[0]}-{bk[1]}'s {b_field} {b[b_field]} — the layer was "
                     "built on another base image (design §7); rebuild the layer "
                     "and the base together")
-        used.add(key)
-    bases = []
-    for key in sorted(used):
-        b = staged[key]
-        emitted = {f: b[f] for f in BASE_ENTRY_FIELDS
-                   if f not in ("oci_ref", "tag", "digest")}
-        # The current address, whatever form the staged record carries
-        # (validate_base_record accepted the current or the pre-0.4.0 one).
-        emitted["oci_ref"] = BASE_OCI_REF
-        emitted["tag"] = base_tag(b["base_id"], b["contract"], b["arch"],
-                                  b["squashfs_sha256"])
-        emitted["digest"] = "sha256:" + HASH(oci_base_manifest_bytes(b)).hexdigest()
-        bases.append({f: emitted[f] for f in BASE_ENTRY_FIELDS})
-
+            if k in new:
+                raise SystemExit(
+                    f"record {ref}: ASSEMBLE_BASE_CHANGED: {e_field} {e[e_field]} != "
+                    f"{bk[0]}-{bk[1]}'s {b_field} {b[b_field]} in the list — the layer was "
+                    "built on another base image (design §7); rebuild it on the pinned "
+                    f"base, or start a base batch (--replace-base {bk[0]}-{bk[1]})")
+            raise SystemExit(
+                f"{ref}: ASSEMBLE_BASE_BATCH: the new {bk[0]}-{bk[1]} base was packed from "
+                f"{b[b_field]}, but {ref}, carried from the previous list, was built on "
+                f"{e[e_field]}: a base change is a batch — rebuild {ref} on the new base "
+                "in this assembly, or --drop it")
+        used.add(bk)
+    bases = [pool[k] for k in sorted(used)]
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "generator_version": GENERATOR_VERSION,
-        "source_revision": source_revision,
-        "base_contract": "2.0",
+        "base_contract": contract,
         "bases": bases,
-        "envs": entries,
+        "envs": [entries[k] for k in sorted(entries)],
     }
-    return manifest, by_key
+    return manifest, new, summary
 
 
 def manifest_bytes(manifest: dict) -> bytes:
@@ -2103,14 +2641,25 @@ def manifest_bytes(manifest: dict) -> bytes:
     return (json.dumps(manifest, indent=2) + "\n").encode()
 
 
+def _entry_difference(committed: dict, assembled: dict, fields: tuple) -> str | None:
+    for field in fields:
+        if committed.get(field) != assembled.get(field):
+            return field
+    extra = sorted(set(committed) - set(fields))
+    return extra[0] if extra else None
+
+
 def first_difference(committed: dict, assembled: dict) -> str | None:
     """The path of the first field where the two manifests differ (TEST-2:
     the failure names the first differing key), or None when they agree."""
     if committed.get("schema_version") != assembled.get("schema_version"):
         return "schema_version"
-    for key in ("generator_version", "source_revision", "base_contract"):
+    for key in ("generator_version", "base_contract"):
         if committed.get(key) != assembled.get(key):
             return key
+    extra = sorted(set(committed) - set(assembled))
+    if extra:
+        return extra[0]
     c_bases, a_bases = committed.get("bases"), assembled.get("bases")
     if not isinstance(c_bases, list) or not isinstance(a_bases, list):
         if c_bases != a_bases:
@@ -2119,74 +2668,313 @@ def first_difference(committed: dict, assembled: dict) -> str | None:
         for i in range(max(len(c_bases), len(a_bases))):
             if i >= len(c_bases) or i >= len(a_bases):
                 return f"bases[{i}].base_id"
-            for field in BASE_ENTRY_FIELDS:
-                if c_bases[i].get(field) != a_bases[i].get(field):
-                    return f"bases[{i}].{field}"
+            field = _entry_difference(c_bases[i], a_bases[i], BASE_ENTRY_FIELDS)
+            if field:
+                return f"bases[{i}].{field}"
     c_envs = committed.get("envs", [])
     a_envs = assembled.get("envs", [])
     if len(c_envs) != len(a_envs):
         c_keys = {(e.get("env_id"), e.get("arch")) for e in c_envs}
         a_keys = {(e.get("env_id"), e.get("arch")) for e in a_envs}
         missing = sorted(a_keys - c_keys)
-        extra = sorted(c_keys - a_keys)
+        extra_keys = sorted(c_keys - a_keys)
         if missing:
             return f"envs[{len(c_envs)}].env_id (missing {missing[0][0]}-{missing[0][1]})"
-        return f"envs[{len(c_envs)}].env_id (unexpected {extra[0][0]}-{extra[0][1]})"
+        return f"envs[{len(c_envs)}].env_id (unexpected {extra_keys[0][0]}-{extra_keys[0][1]})"
     for i, (c, a) in enumerate(zip(c_envs, a_envs)):
         if (c.get("env_id"), c.get("arch")) != (a.get("env_id"), a.get("arch")):
             return f"envs[{i}].env_id ({c.get('env_id')} != {a.get('env_id')})"
-        for field in ("env_id", "method_id", "method_version", "language", "arch",
-                      "oci_ref", "tag", "digest", "layer_sha256", "size_bytes",
-                      "base_ref", "base_digest", "contract", "licence",
-                      "wrapper_code_sha256", "layer_schema"):
-            if c.get(field) != a.get(field):
-                return f"envs[{i}].{field}"
+        field = _entry_difference(c, a, ENV_FIELDS)
+        if field:
+            return f"envs[{i}].{field}"
     return None
 
 
-def check_manifest(records: list[dict], methods_dir: str, by_id: dict,
-                   manifest_path: str, pin: str | None,
-                   base_records: list[dict]) -> int:
-    """ITEM-3's --check: assemble from staged records (no build) and compare
-    BYTE equality against the committed manifest; report the first differing
-    key. Returns 0 (identical) or 1 (differ) — never throws for a diff.
-    An explicit --source-revision pin is checked first (a staging dir built
-    at the wrong revision is reported as such); without the pin the parity
-    comparison itself names `source_revision` when revisions mismatch
-    (TEST-2: fails naming the first differing key after a bumped revision)."""
+def _read_committed(manifest_path: str) -> tuple[bytes, dict | None]:
     with open(manifest_path, "rb") as f:
-        committed_bytes = f.read()
+        raw = f.read()
     try:
-        committed = json.loads(committed_bytes)
-    except json.JSONDecodeError as e:
+        doc = json.loads(raw)
+    except ValueError as e:
         print(f"check: {manifest_path} is not valid JSON: {e}", file=sys.stderr)
+        return raw, None
+    if not isinstance(doc, dict):
+        print(f"check: {manifest_path} is not a JSON object", file=sys.stderr)
+        return raw, None
+    return raw, doc
+
+
+def _differs(path: str, committed, assembled, what: str) -> int:
+    print(f"check: MANIFEST DIFFERS at {path}: committed {committed!r} != "
+          f"assembled {assembled!r} ({what})", file=sys.stderr)
+    print("check: regenerate with --manifest <path> (or rebuild the entry); never "
+          "hand-edit (INV-5)", file=sys.stderr)
+    return 1
+
+
+def check_full(records: list[dict], methods_dir: str, manifest_path: str,
+               base_records: list[dict]) -> int:
+    """Whole-list parity (the full-rebuild mode): assemble every entry from
+    the staged records (no build) and compare BYTE equality against the
+    committed manifest; report the first differing key. 0 = identical, 1 =
+    differ. An edited per-entry provenance field surfaces as that field
+    (TEST-2: fails naming the first differing key)."""
+    committed_bytes, committed = _read_committed(manifest_path)
+    if committed is None:
         return 1
-    if pin is not None:
-        wrong = [r["source_revision"] for r in records
-                 if r.get("source_revision") != pin]
-        if wrong:
-            print(f"check: staged records are for revision {sorted(set(wrong))} "
-                  f"but the pin is {pin} — regenerate at the pinned revision "
-                  "(INV-5: one revision, one manifest)", file=sys.stderr)
-            return 1
-    manifest, _by_key = assemble_manifest(records, methods_dir, by_id,
-                                          base_records)
-    assembled_bytes = manifest_bytes(manifest)
-    if assembled_bytes == committed_bytes:
+    if not records:
+        print("check: no staged records — whole-list parity cannot be assessed",
+              file=sys.stderr)
+        return 1
+    manifest, _new, _summary = assemble_manifest(records, methods_dir, base_records)
+    if manifest_bytes(manifest) == committed_bytes:
         n = len(manifest["envs"])
-        print(f"check: MANIFEST OK ({n} env entr{'y' if n == 1 else 'ies'}, "
-              f"revision {manifest['source_revision']}, "
-              f"generator {manifest['generator_version']})")
+        print(f"check: MANIFEST OK ({n} env entr{'y' if n == 1 else 'ies'}, every one "
+              f"re-assembled from its record, generator {manifest['generator_version']})")
         return 0
     key = first_difference(committed, manifest)
-    c_val = _lookup(committed, key)
-    a_val = _lookup(manifest, key)
-    print(f"check: MANIFEST DIFFERS at {key}: committed {c_val!r} != "
-          f"assembled {a_val!r} ({len(manifest['envs'])} assembled entries "
-          f"vs {len(committed.get('envs', []))} committed)", file=sys.stderr)
-    print("check: regenerate with --manifest <path> (or rebuild at the "
-          "recorded revision); never hand-edit (INV-5)", file=sys.stderr)
-    return 1
+    return _differs(key, _lookup(committed, key), _lookup(manifest, key),
+                    f"{len(manifest['envs'])} assembled entries vs "
+                    f"{len(committed.get('envs', []))} committed")
+
+
+def _canonical(doc: dict) -> bytes:
+    """The writer's serialization of what a schema 2 list holds (entries and
+    bases in the schema field order and sorted): a list whose bytes differ
+    from it was not written by the writer."""
+    try:
+        envs = sorted(({f: e[f] for f in ENV_FIELDS} for e in doc.get("envs") or []),
+                      key=lambda e: (e["env_id"], e["arch"]))
+        bases = sorted(({f: b[f] for f in BASE_ENTRY_FIELDS} for b in doc.get("bases") or []),
+                       key=lambda b: (b["base_id"], b["arch"]))
+    except (KeyError, TypeError):
+        return b""
+    return manifest_bytes({"schema_version": doc.get("schema_version"),
+                           "generator_version": doc.get("generator_version"),
+                           "base_contract": doc.get("base_contract"),
+                           "bases": bases, "envs": envs})
+
+
+def check_previous(records: list[dict], methods_dir: str, manifest_path: str,
+                   base_records: list[dict], previous: dict) -> int:
+    """Entry-level parity against the previous list (the one-method mode):
+    an entry byte-identical to the previous list's is carried; every other
+    entry must re-assemble, byte for byte, from a staged record (its facts
+    read from git at its own commit); a changed base must re-assemble from a
+    staged base, and when its source image changed, every entry on it must
+    be one of the re-assembled ones (a base change is a batch). Entries the
+    previous list has and this one lacks are printed as dropped. The file
+    must be the writer's own serialization."""
+    committed_bytes, committed = _read_committed(manifest_path)
+    if committed is None:
+        return 1
+    top = {"schema_version": MANIFEST_SCHEMA_VERSION, "generator_version": GENERATOR_VERSION,
+           "base_contract": previous["base_contract"]}
+    for key, want in top.items():
+        if committed.get(key) != want:
+            return _differs(key, committed.get(key), want, "the list's top level")
+    by_key = {(r.get("env_id"), r.get("arch")): r for r in records}
+    p_envs = {(e["env_id"], e["arch"]): e for e in previous["envs"]}
+    p_bases = {(b["base_id"], b["arch"]): b for b in previous["bases"]}
+    git = None
+    reassembled: set = set()
+    c_envs = committed.get("envs") or []
+    for i, c in enumerate(c_envs):
+        key = (c.get("env_id"), c.get("arch"))
+        p = p_envs.get(key)
+        if p is not None and p == c:
+            continue
+        rec = by_key.get(key)
+        if rec is None:
+            why = (f"differs from the previous list at envs[{i}]."
+                   f"{_entry_difference(p, c, ENV_FIELDS)}" if p is not None
+                   else "is not in the previous list")
+            print(f"check: CHECK_NO_RECORD: envs[{i}] {_key_ref(key)} {why}, and no staged "
+                  "record re-assembles it (a carried entry is byte-identical to the "
+                  f"previous list {previous['path']}; a new or changed one is checked "
+                  "against its own build record)", file=sys.stderr)
+            return 1
+        if git is None:
+            git = methods_git(methods_dir)
+        assembled = entry_from_record(rec, git)
+        field = _entry_difference(c, assembled, ENV_FIELDS)
+        if field:
+            return _differs(f"envs[{i}].{field}", c.get(field), assembled.get(field),
+                            f"re-assembled from the staged record of {_key_ref(key)}")
+        reassembled.add(key)
+    c_keys = {(e.get("env_id"), e.get("arch")) for e in c_envs}
+    dropped = sorted(k for k in p_envs if k not in c_keys)
+    staged = {}
+    for b in base_records:
+        validate_base_record(b)
+        staged[(b["base_id"], b["arch"])] = b
+    c_bases = committed.get("bases")
+    if not isinstance(c_bases, list):
+        print("check: the list has no bases list (a schema 2 list pins its bases)",
+              file=sys.stderr)
+        return 1
+    for i, cb in enumerate(c_bases):
+        key = (cb.get("base_id"), cb.get("arch"))
+        pb = p_bases.get(key)
+        if pb is not None and pb == cb:
+            continue
+        sb = staged.get(key)
+        if sb is None:
+            print(f"check: CHECK_NO_RECORD: bases[{i}] {_key_ref(key)} "
+                  f"{'differs from' if pb else 'is not in'} the previous list, and no "
+                  "staged base under <dir>/bases re-assembles it", file=sys.stderr)
+            return 1
+        eb = emitted_base(sb)
+        field = _entry_difference(cb, eb, BASE_ENTRY_FIELDS)
+        if field:
+            return _differs(f"bases[{i}].{field}", cb.get(field), eb.get(field),
+                            f"re-assembled from the staged base {_key_ref(key)}")
+        if pb is None or (pb["source_ref"], pb["source_digest"]) != (cb["source_ref"], cb["source_digest"]):
+            for j, e in enumerate(c_envs):
+                ek = (e.get("env_id"), e.get("arch"))
+                if _base_key_of(e) == key and ek not in reassembled:
+                    print(f"check: CHECK_BASE_BATCH: bases[{i}] {_key_ref(key)} changed its "
+                          f"source image, but envs[{j}] {_key_ref(ek)} is carried from the "
+                          "previous list — a base change is a batch (the base and every "
+                          "layer on it)", file=sys.stderr)
+                    return 1
+    for j, e in enumerate(c_envs):
+        b = next((x for x in c_bases if (x.get("base_id"), x.get("arch")) == _base_key_of(e)), None)
+        if b is None or (e.get("base_ref"), e.get("base_digest")) != (b.get("source_ref"), b.get("source_digest")):
+            print(f"check: envs[{j}] {e.get('env_id')}-{e.get('arch')} does not pair with "
+                  "a base of the list (design §7)", file=sys.stderr)
+            return 1
+    if _canonical(committed) != committed_bytes:
+        print(f"check: MANIFEST DIFFERS: {manifest_path} is not the writer's serialization "
+              "of what it holds (field order, sort order or whitespace) — regenerate, "
+              "never hand-edit (INV-5)", file=sys.stderr)
+        return 1
+    carried = len(c_envs) - len(reassembled)
+    print(f"check: MANIFEST OK (against the previous list {previous['path']}: {carried} "
+          f"carried byte-identical, {len(reassembled)} re-assembled from their records, "
+          f"{len(dropped)} dropped)")
+    for k in dropped:
+        print(f"check: dropped from the previous list: {_key_ref(k)}")
+    return 0
+
+
+def check_entries(records: list[dict], methods_dir: str, manifest_path: str,
+                  base_records: list[dict], entries: list, base_entries: list) -> int:
+    """Entry-level parity of the named entries only (the publisher's own
+    artifact): each must re-assemble byte for byte from its staged record
+    (facts read from git at its commit) or, for a base, from its staged base
+    record. No other record is needed."""
+    _raw, committed = _read_committed(manifest_path)
+    if committed is None:
+        return 1
+    by_key = {(r.get("env_id"), r.get("arch")): r for r in records}
+    c_envs = {(e.get("env_id"), e.get("arch")): (i, e)
+              for i, e in enumerate(committed.get("envs") or [])}
+    git = None
+    for raw in entries:
+        key = parse_key(raw, "--entry")
+        if key not in c_envs:
+            print(f"check: --entry {raw}: the list has no such entry", file=sys.stderr)
+            return 1
+        rec = by_key.get(key)
+        if rec is None:
+            print(f"check: CHECK_NO_RECORD: {raw}: no staged record under <dir>/layers",
+                  file=sys.stderr)
+            return 1
+        if git is None:
+            git = methods_git(methods_dir)
+        i, c = c_envs[key]
+        assembled = entry_from_record(rec, git)
+        field = _entry_difference(c, assembled, ENV_FIELDS)
+        if field:
+            return _differs(f"envs[{i}].{field}", c.get(field), assembled.get(field),
+                            f"re-assembled from the staged record of {raw}")
+    staged = {(b["base_id"], b["arch"]): b for b in base_records}
+    c_bases = {(b.get("base_id"), b.get("arch")): (i, b)
+               for i, b in enumerate(committed.get("bases") or [])}
+    for raw in base_entries:
+        key = parse_key(raw, "--base-entry")
+        if key not in c_bases:
+            print(f"check: --base-entry {raw}: the list has no such base", file=sys.stderr)
+            return 1
+        sb = staged.get(key)
+        if sb is None:
+            print(f"check: CHECK_NO_RECORD: {raw}: no staged base under <dir>/bases",
+                  file=sys.stderr)
+            return 1
+        validate_base_record(sb)
+        i, cb = c_bases[key]
+        eb = emitted_base(sb)
+        field = _entry_difference(cb, eb, BASE_ENTRY_FIELDS)
+        if field:
+            return _differs(f"bases[{i}].{field}", cb.get(field), eb.get(field),
+                            f"re-assembled from the staged base {raw}")
+    names = ", ".join(list(entries) + list(base_entries))
+    print(f"check: ENTRY OK ({names} re-assembled from their records)")
+    return 0
+
+
+def check_provenance(manifest_path: str, methods_dir: str, entries: list) -> int:
+    """Every entry's (or the named entries') facts against the methods
+    repository at the entry's own commit: the commit exists, the folder's
+    tree is the recorded one, the gate passed, and method.json's version,
+    language and licence, the Dockerfile's FROM (its tag = the contract) and
+    the wrapper hash are what the entry says (AUDIT P7)."""
+    _raw, committed = _read_committed(manifest_path)
+    if committed is None:
+        return 1
+    git = methods_git(methods_dir)
+    envs = list(enumerate(committed.get("envs") or []))
+    if entries:
+        wanted = {parse_key(k, "--entry") for k in entries}
+        envs = [(i, e) for i, e in envs if (e.get("env_id"), e.get("arch")) in wanted]
+        found = {(e.get("env_id"), e.get("arch")) for _i, e in envs}
+        missing = sorted(wanted - found)
+        if missing:
+            print(f"provenance: --entry {_key_ref(missing[0])}: the list has no such entry",
+                  file=sys.stderr)
+            return 1
+    problems = []
+    for i, e in envs:
+        ref = f"envs[{i}] {e.get('env_id')}-{e.get('arch')}"
+        rev = str(e.get("source_revision") or "")
+        commit = git.commit(rev) if SOURCE_REVISION_RE.match(rev) else None
+        if commit is None:
+            problems.append(f"{ref}: PROVENANCE_COMMIT_UNKNOWN: commit {rev!r} is not in "
+                            f"{methods_dir}")
+            continue
+        try:
+            facts = method_facts_at(git, commit, str(e.get("env_id")))
+        except ProvenanceError as ex:
+            problems.append(f"{ref}: {ex}")
+            continue
+        if not facts["gated"]:
+            problems.append(f"{ref}: PROVENANCE_NOT_GATED: gates/{e.get('env_id')}.json at "
+                            f"{rev} is missing or does not pass")
+        if e.get("source_tree") != facts["source_tree"]:
+            problems.append(f"{ref}: PROVENANCE_TREE_MISMATCH: source_tree "
+                            f"{e.get('source_tree')!r} != {facts['source_tree']} at {rev}")
+        if e.get("method_version") != facts["version"]:
+            problems.append(f"{ref}: PROVENANCE_VERSION_MISMATCH: the list says "
+                            f"{e.get('method_version')!r}, method.json at {rev} says "
+                            f"{facts['version']!r}")
+        for field, fact in (("language", "language"), ("licence", "licence"),
+                            ("base_ref", "base_ref"), ("contract", "contract")):
+            if e.get(field) != facts[fact]:
+                problems.append(f"{ref}: PROVENANCE_FACT_MISMATCH: {field} {e.get(field)!r} "
+                                f"!= {facts[fact]!r} at {rev}")
+        if e.get("wrapper_code_sha256") != facts["wrapper_code_sha256"]:
+            problems.append(f"{ref}: PROVENANCE_WRAPPER_MISMATCH: wrapper_code_sha256 != "
+                            f"sha256(method.json + {facts['run_file']}) at {rev}")
+    if problems:
+        for p in problems:
+            print(f"provenance: {p}", file=sys.stderr)
+        print(f"provenance: FAILED — {len(problems)} problem(s) in {len(envs)} entr"
+              f"{'y' if len(envs) == 1 else 'ies'}", file=sys.stderr)
+        return 1
+    print(f"provenance: OK — {len(envs)} entr{'y' if len(envs) == 1 else 'ies'}' facts "
+          f"hold at their recorded commits in {methods_dir}")
+    return 0
 
 
 def _lookup(obj: dict, path: str | None):
@@ -2196,72 +2984,58 @@ def _lookup(obj: dict, path: str | None):
         if path.startswith(top + "["):
             i = int(path.split("[", 1)[1].split("]", 1)[0])
             field = path.split(".", 1)[1] if "." in path else None
+            if field and " " in field:
+                field = field.split(" ", 1)[0]
             items = obj.get(top) or []
             entry = items[i] if i < len(items) else {}
             return entry.get(field) if field else entry.get(default)
     return obj.get(path)
 
 
-def check_methods_dir_revision(methods_dir: str, source_revision: str) -> None:
-    """The methods dir the writer reads contract/licence from must BE the
-    revision the layers were built at — otherwise the manifest could take
-    year-newer licence facts while its layers are the old method's bytes.
-    Enforced when the dir is a git checkout (the build itself refused a
-    non-git dir at ITEM-2, so real runs always have git here); fixture
-    trees are content snapshots and are exempt by design (--fixture)."""
-    p = subprocess.run(["git", "-C", methods_dir, "rev-parse", "HEAD"],
-                       capture_output=True, text=True)
-    if p.returncode != 0:
-        return  # not a git checkout: fixture snapshot
-    head = p.stdout.strip()[:12]
-    if head != source_revision:
-        raise SystemExit(
-            f"methods dir {methods_dir} is at {head}, not {source_revision} — "
-            "the contract/licence facts (and the manifest's source_revision) "
-            "would not match the built layers. Check out the recorded revision "
-            "or regenerate at the current HEAD.")
-
-
-def write_manifest(records: list[dict], methods_dir: str, by_id: dict,
-                   manifest_path: str, record_dirs: dict[str, str],
-                   pin: str | None, records_dir: str) -> None:
-    """Assemble + write the manifest, then stage each entry's and each
-    emitted base's exact OCI artifact manifest bytes next to its record
+def write_manifest(records: list[dict], methods_dir: str, manifest_path: str,
+                   record_dirs: dict, records_dir: str, *, previous_path: str | None = None,
+                   replace_bases: tuple = (), drops: tuple = ()) -> None:
+    """Assemble + write the manifest, then stage each NEW entry's and each
+    newly emitted base's exact OCI artifact manifest bytes next to its record
     (ITEM-5 pushes those bytes, so the recorded digest is by construction
-    the pushed digest). The base records come from <records_dir>/bases."""
-    if pin is not None:
-        wrong = sorted({r["source_revision"] for r in records
-                        if r.get("source_revision") != pin})
-        if wrong:
-            raise SystemExit(f"--source-revision {pin}: staged records carry "
-                             f"{wrong} (one revision per staging dir)")
+    the pushed digest). Carried entries were staged when they were built.
+    The base records come from <records_dir>/bases. The previous list is read
+    before the output is written, so `--previous X --manifest X` updates X."""
+    previous = load_previous(previous_path) if previous_path else None
     base_records = load_staged_bases(records_dir)
-    manifest, _by_key = assemble_manifest(records, methods_dir, by_id,
-                                          base_records)
-    check_methods_dir_revision(methods_dir, manifest["source_revision"])
+    manifest, new, summary = assemble_manifest(records, methods_dir, base_records,
+                                               previous=previous,
+                                               replace_bases=replace_bases, drops=drops)
     parent = os.path.dirname(manifest_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
     with open(manifest_path, "wb") as f:
         f.write(manifest_bytes(manifest))
     for rec in records:
-        layer_dir = record_dirs.get((rec.get("env_id"), rec.get("arch")))
+        key = (rec.get("env_id"), rec.get("arch"))
+        layer_dir = record_dirs.get(key)
         if layer_dir is None:
             raise SystemExit(f"record {_ref_of_record(rec)}: unknown layer dir")
-        index_entry = by_id.get(rec.get("env_id"))
-        contract = str(index_entry.get("contract") or "") if index_entry else ""
         with open(os.path.join(layer_dir, "oci-manifest.json"), "wb") as f:
-            f.write(oci_artifact_manifest_bytes(rec, contract))
+            f.write(oci_artifact_manifest_bytes(rec, new[key]["contract"]))
     staged = {(b["base_id"], b["arch"]): b for b in base_records}
     for emitted in manifest["bases"]:
-        b = staged[(emitted["base_id"], emitted["arch"])]
-        base_dir = os.path.join(records_dir, "bases",
-                                f"{b['base_id']}-{b['arch']}")
+        b = staged.get((emitted["base_id"], emitted["arch"]))
+        if b is None or emitted_base(b) != emitted:
+            continue  # a carried base: staged when it was built
+        base_dir = os.path.join(records_dir, "bases", f"{b['base_id']}-{b['arch']}")
         with open(os.path.join(base_dir, "oci-manifest.json"), "wb") as f:
             f.write(oci_base_manifest_bytes(b))
-    print(f"manifest written: {manifest_path} ({len(manifest['envs'])} env "
-          f"entr{'y' if len(manifest['envs']) == 1 else 'ies'}, revision "
-          f"{manifest['source_revision']})")
+    n = len(manifest["envs"])
+    print(f"manifest written: {manifest_path} ({n} env entr{'y' if n == 1 else 'ies'})")
+    if previous is not None:
+        for what in ("added", "replaced", "unchanged", "dropped"):
+            if summary[what]:
+                print(f"  {what:9s}: " + ", ".join(_key_ref(k) for k in summary[what]))
+        print(f"  carried  : {len(summary['carried'])} entr"
+              f"{'y' if len(summary['carried']) == 1 else 'ies'} from {previous_path}")
+        if summary["bases"]:
+            print("  bases    : from the build dir " + ", ".join(summary["bases"]))
 
 
 # ─────────────────────────────── CLI ─────────────────────────────────────────
@@ -2271,8 +3045,9 @@ def main(argv: list[str]) -> int:
                     "check the committed env manifest (node "
                     "method-env-images, ITEM-2 + ITEM-3). No push.")
     parser.add_argument("--only", nargs="+", metavar="ID",
-                        help="build only these method ids (resume, ITEM-6); "
-                             "default: every runnable method")
+                        help="build only these method ids (default: every gated "
+                             "method at the methods HEAD); with --assemble, take "
+                             "only these ids' records")
     parser.add_argument("--arch", default="amd64", help="amd64 (default) or "
                         "arm64; cross-arch is refused unless "
                         "ALLOW_EMULATED_BUILD=1")
@@ -2283,26 +3058,46 @@ def main(argv: list[str]) -> int:
                         default=os.environ.get("TXR_BENCHMARK_DIR"))
     parser.add_argument("--out", default=os.environ.get("TXR_ENV_BUILD_DIR"))
     parser.add_argument("--manifest", metavar="PATH",
-                        help="assemble + write the manifest to PATH (build "
-                             "mode: after this run's layers; fixture mode: "
-                             "from the fixture records; --check mode: the "
-                             "file to compare against, default "
-                             "src-app/server/data/method-env-images.json)")
+                        help="assemble + write the manifest to PATH (after a build: "
+                             "from this run's records; with --assemble: from the "
+                             "records under DIR); with --check / --check-provenance: "
+                             "the file to check, default "
+                             "src-app/server/data/method-env-images.json")
+    parser.add_argument("--previous", metavar="PATH",
+                        help="carry the entries and bases of this schema 2 list; "
+                             "the records replace or add their entries")
+    parser.add_argument("--full", action="store_true",
+                        help="every entry from a record, the bases from the staged "
+                             "bases (a first list, or a full rebuild)")
+    parser.add_argument("--replace-base", action="append", default=[], metavar="BASE-ARCH",
+                        help="with --previous: take the staged base <base_id>-<arch> "
+                             "(a base batch: every entry on a changed base image must "
+                             "be rebuilt in the same assembly, or dropped)")
+    parser.add_argument("--drop", action="append", default=[], metavar="ENV-ARCH",
+                        help="with --previous: remove the entry <env_id>-<arch>")
     parser.add_argument("--check", action="store_true",
-                        help="assemble only (no docker) from the staged "
-                             "records under --out/--fixture and byte-compare "
-                             "against --manifest (default "
-                             "src-app/server/data/method-env-images.json). "
-                             "Exit 1 names the first differing key.")
-    parser.add_argument("--fixture", metavar="DIR",
-                        help="read staged records from DIR/layers without "
-                             "building (the tests' local fixture mode). "
-                             "Requires --manifest or --check.")
-    parser.add_argument("--source-revision", metavar="12HEX",
-                        help="expected source revision pin: every staged "
-                             "record must carry it (the parity comparison "
-                             "against the committed file's own revision is "
-                             "the default check)")
+                        help="assemble only (no docker) and compare against "
+                             "--manifest: --full (the default) = every entry "
+                             "re-assembles from the staged records; --previous = "
+                             "carried entries byte-identical to that list, the others "
+                             "re-assembled; --entry/--base-entry = those entries only")
+    parser.add_argument("--entry", action="append", default=[], metavar="ENV-ARCH",
+                        help="with --check / --check-provenance: check this entry")
+    parser.add_argument("--base-entry", action="append", default=[], metavar="BASE-ARCH",
+                        help="with --check: check this base against its staged record")
+    parser.add_argument("--check-provenance", action="store_true",
+                        help="check every entry's facts (or --entry ones) against the "
+                             "methods repository at the entry's own commit")
+    parser.add_argument("--assemble", "--fixture", dest="assemble", metavar="DIR",
+                        help="read staged records from DIR/layers and DIR/bases "
+                             "without building (assemble-only; --fixture is the "
+                             "old name)")
+    parser.add_argument("--base-pins", metavar="PATH",
+                        help="build on the bases this list pins, from the local "
+                             "image store (default: the committed list)")
+    parser.add_argument("--new-base", action="store_true",
+                        help="a base batch: resolve the base as before (local, pull, "
+                             "benchmark tree) and stage it, instead of the pinned one")
     parser.add_argument("--no-trim", action="store_true",
                         help="debugging only (DEC-12: trim constants are fixed)")
     parser.add_argument("--keep-rootfs", action="store_true")
@@ -2315,43 +3110,66 @@ def main(argv: list[str]) -> int:
                              "the recorded digest)")
     args = parser.parse_args(argv)
 
-    if args.source_revision is not None and not SOURCE_REVISION_RE.match(
-            args.source_revision):
-        parser.error("--source-revision must be 12 lowercase hex chars "
-                     "(the methods-repo commit prefix)")
-    if args.fixture and args.out:
-        parser.error("--fixture and --out are exclusive; --fixture <dir> "
+    if args.assemble and args.out:
+        parser.error("--assemble/--fixture and --out are exclusive; --assemble <dir> "
                      "reads records from <dir>/layers and never builds")
-    if args.check and not args.fixture and not args.out:
+    if args.full and args.previous:
+        parser.error("--full and --previous are exclusive")
+    if (args.replace_base or args.drop) and not args.previous:
+        parser.error("--replace-base and --drop need --previous (they change a "
+                     "previous list)")
+    if (args.entry or args.base_entry) and not (args.check or args.check_provenance):
+        parser.error("--entry and --base-entry go with --check or --check-provenance")
+    if args.check and args.check_provenance:
+        parser.error("--check and --check-provenance are separate runs")
+    if args.check and not args.assemble and not args.out:
         parser.error("--check needs the staged records: pass --out <dir> or "
-                     "--fixture <dir>")
+                     "--assemble <dir>")
+    if args.new_base and args.base_pins:
+        parser.error("--new-base and --base-pins are exclusive")
+    if args.force_base_build and not args.new_base:
+        parser.error("--force-base-build rebuilds the base: only with --new-base (a "
+                     "pinned build uses the local image at the pinned digest)")
 
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    manifest_path = args.manifest or os.path.join(repo_root, DEFAULT_MANIFEST_PATH)
+    committed_path = os.path.join(repo_root, DEFAULT_MANIFEST_PATH)
+    manifest_path = args.manifest or committed_path
+
+    if args.check_provenance:
+        return check_provenance(manifest_path, args.methods_dir, args.entry)
 
     if args.check:
-        records_dir = args.fixture or args.out
+        records_dir = args.assemble or args.out
         records = load_staged_records(records_dir)
-        if not records:
-            print(f"check: no staged records under {records_dir}/layers — "
-                  "parity cannot be assessed (build first / point --fixture "
-                  "at a fixture staging dir)", file=sys.stderr)
-            return 1
-        return check_manifest(records, args.methods_dir,
-                              load_method_index(args.methods_dir),
-                              manifest_path, args.source_revision,
-                              load_staged_bases(records_dir))
+        base_records = load_staged_bases(records_dir)
+        rc = 0
+        if args.entry or args.base_entry:
+            rc = check_entries(records, args.methods_dir, manifest_path, base_records,
+                               args.entry, args.base_entry)
+        if rc == 0 and args.previous:
+            rc = check_previous(records, args.methods_dir, manifest_path, base_records,
+                                load_previous(args.previous))
+        elif rc == 0 and (args.full or not (args.entry or args.base_entry)):
+            rc = check_full(records, args.methods_dir, manifest_path, base_records)
+        return rc
 
-    if args.fixture:
-        records = load_staged_records(args.fixture)
+    if args.manifest and not (args.full or args.previous) and not args.dry_run:
+        parser.error("ASSEMBLE_MODE: writing a manifest needs --previous <list> (carry "
+                     "its entries; the records replace or add theirs) or --full (every "
+                     "entry from a record) — a one-method list is never written by "
+                     "accident (FOLLOW-UPS 77)")
+
+    if args.assemble:
+        records = load_staged_records(args.assemble)
+        if args.only:
+            records = [r for r in records if r.get("env_id") in set(args.only)]
         if not args.manifest:
-            parser.error("--fixture requires --manifest <path> (write) or "
-                         "--check (parity)")
-        write_manifest(records, args.methods_dir,
-                       load_method_index(args.methods_dir),
-                       manifest_path,
-                       _record_dirs_of(args.fixture, records),
-                       args.source_revision, args.fixture)
+            parser.error("--assemble requires --manifest <path> (write) or --check "
+                         "(parity)")
+        write_manifest(records, args.methods_dir, manifest_path,
+                       _record_dirs_of(args.assemble, records), args.assemble,
+                       previous_path=args.previous, replace_bases=tuple(args.replace_base),
+                       drops=tuple(args.drop))
         return 0
 
     if args.stage_bases:
@@ -2385,16 +3203,28 @@ def main(argv: list[str]) -> int:
     if args.benchmark_dir is None:
         args.benchmark_dir = os.path.dirname(os.path.abspath(args.methods_dir)) \
             + "/dev/code/benchmark"
+    if not args.new_base:
+        args.base_pins = args.base_pins or committed_path
+        args.pins = load_base_pins(args.base_pins)
 
-    by_id = load_method_index(args.methods_dir)
-    selected = select_methods(by_id, args.only)
-    print(f"methods dir : {args.methods_dir}")
+    git = methods_git(args.methods_dir)
+    head = git.commit("HEAD")
+    if head is None:
+        print(f"FAIL: the methods dir {args.methods_dir} has no HEAD commit", file=sys.stderr)
+        return 1
+    selected = list(args.only) if args.only else gated_method_ids(git, head)
+    if not selected:
+        print(f"FAIL: no gated method at HEAD {head[:12]} of {args.methods_dir} — "
+              "nothing to build", file=sys.stderr)
+        return 1
+    print(f"methods dir : {args.methods_dir} (HEAD {head[:12]})")
     print(f"out         : {args.out}")
     print(f"arch        : {args.arch}   ({len(selected)} method(s))")
+    print(f"base        : {'a new base batch (--new-base)' if args.new_base else 'pinned by ' + args.base_pins}")
     records = []
-    for eid, entry in selected:
+    for eid in selected:
         try:
-            records.append(build_one(eid, entry, args))
+            records.append(build_one(eid, args))
         except (BuildError, DockerStageError, OSError) as e:
             print(f"\nFAIL {eid}: {e}", file=sys.stderr)
             return 1
@@ -2406,11 +3236,12 @@ def main(argv: list[str]) -> int:
     if args.manifest:
         if args.dry_run:
             print(f"+ write manifest {manifest_path} from the staged records")
-            print(f"+ stage <layer_dir>/oci-manifest.json per entry")
+            print("+ stage <layer_dir>/oci-manifest.json per new entry")
         else:
-            write_manifest(records, args.methods_dir, by_id, manifest_path,
-                           _record_dirs_of(args.out, records),
-                           args.source_revision, args.out)
+            write_manifest(records, args.methods_dir, manifest_path,
+                           _record_dirs_of(args.out, records), args.out,
+                           previous_path=args.previous,
+                           replace_bases=tuple(args.replace_base), drops=tuple(args.drop))
     return 0
 
 

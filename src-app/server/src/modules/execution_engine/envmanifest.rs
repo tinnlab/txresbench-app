@@ -7,7 +7,7 @@
 //!
 //! 1. the env manifest `src-app/server/data/method-env-images.json`
 //!    (PROV-method-env-images-1, published by the `method-env-images` node,
-//!    schema v1, `layer_schema: 1`) — the layer artifact facts the engine
+//!    schema v2, `layer_schema: 1`) — the layer artifact facts the engine
 //!    binds to when it drives the `sandbox` module's env manager
 //!    (CONS-EE-8/8c/8b): `env_for(method_id)` returns the host-arch entry
 //!    (oci ref, tag, layer pin + size, base pairing anchor, contract);
@@ -60,7 +60,10 @@ use crate::modules::method_catalogue::types::Method;
 /// The manifest schema version this module understands (PROV-method-env-images-1
 /// `schema_version`; the JSON Schema at
 /// `src-app/server/data/method-env-images.schema.json` pins the same value).
-pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
+/// 2: the methods commit, the method folder's git tree and the building
+/// generator are per entry (one list holds entries built at different
+/// commits); no top-level `source_revision`.
+pub const MANIFEST_SCHEMA_VERSION: u32 = 2;
 
 /// The published layer-schema marker the engine's manifests carry
 /// (`layer_schema == 1` per PROV-method-env-images-1; the mount path compares
@@ -135,10 +138,10 @@ impl EnvLanguage {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The manifest data model (schema v1; serde-only — never a wire type)
+// The manifest data model (schema v2; serde-only — never a wire type)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The root of `src-app/server/data/method-env-images.json` (schema v1).
+/// The root of `src-app/server/data/method-env-images.json` (schema v2).
 ///
 /// `deny_unknown_fields` mirrors the JSON Schema's `additionalProperties:
 /// false` and the catalogue's own stance: a field the generator emits that
@@ -148,8 +151,9 @@ impl EnvLanguage {
 #[serde(deny_unknown_fields)]
 pub struct EnvManifest {
     pub schema_version: u32,
+    /// The generator that assembled the list (each entry names the one that
+    /// built its layer).
     pub generator_version: String,
-    pub source_revision: String,
     pub base_contract: String,
     /// The app-side base artifacts. `None` = a manifest from before the base
     /// publisher (no base record; the old pin reading applies). `Some` must
@@ -234,6 +238,14 @@ pub struct ManifestEntry {
     /// The layer-filesystem schema marker (must equal
     /// [`LAYER_SCHEMA_VERSION`]).
     pub layer_schema: u32,
+    /// The methods-repository commit (12 lowercase hex) the layer was built
+    /// from; every method fact of the entry is that commit's (provenance).
+    pub source_revision: String,
+    /// The git tree (40 lowercase hex) of `methods/<method_id>` at
+    /// `source_revision`: the method folder the layer was built from.
+    pub source_tree: String,
+    /// The generator that built this layer (`X.Y.Z`, an optional `-suffix`).
+    pub generator_version: String,
 }
 
 impl ManifestEntry {
@@ -301,7 +313,7 @@ pub struct BaseArtifact {
 /// degrade around.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ManifestLoadError {
-    /// The bytes are not a schema-v1 manifest (parser message carries the
+    /// The bytes are not a schema-v2 manifest (parser message carries the
     /// line/column report; an unknown field or closed-enum value is a parse
     /// refusal here too).
     EmbedParse { message: String },
@@ -353,6 +365,10 @@ pub enum ManifestLoadError {
     SizeZero { env_id: String },
     /// `contract` is not a `<major>.<minor>` version string.
     ContractInvalid { env_id: String, contract: String },
+    /// A per-entry provenance field is malformed (`field` names it):
+    /// `source_revision` must be 12 lowercase hex, `source_tree` 40 lowercase
+    /// hex, `generator_version` `X.Y.Z` with an optional `-suffix`.
+    Provenance { env_id: String, field: String },
     /// A `bases[]` record breaks its own construction (`base` =
     /// `<base_id>-<arch>`; `why` names the rule): an unknown base id, an
     /// `oci_ref` outside the base namespace, a malformed pin, a tag that is
@@ -394,6 +410,7 @@ impl ManifestLoadError {
             ManifestLoadError::BadBaseRef { .. } => "MANIFEST_BASE_REF",
             ManifestLoadError::SizeZero { .. } => "MANIFEST_SIZE_ZERO",
             ManifestLoadError::ContractInvalid { .. } => "MANIFEST_CONTRACT",
+            ManifestLoadError::Provenance { .. } => "MANIFEST_PROVENANCE",
             ManifestLoadError::BaseInvalid { .. } => "MANIFEST_BASE_INVALID",
             ManifestLoadError::BaseMissing { .. } => "MANIFEST_BASE_MISSING",
             ManifestLoadError::BasePairing { .. } => "MANIFEST_BASE_PAIRING",
@@ -406,7 +423,7 @@ impl fmt::Display for ManifestLoadError {
         match self {
             ManifestLoadError::EmbedParse { message } => write!(
                 f,
-                "MANIFEST_EMBED_INVALID: the embedded env manifest is not valid schema-1 JSON: {message}"
+                "MANIFEST_EMBED_INVALID: the embedded env manifest is not valid schema-2 JSON: {message}"
             ),
             ManifestLoadError::SchemaVersion { found } => write!(
                 f,
@@ -482,6 +499,11 @@ impl fmt::Display for ManifestLoadError {
                 f,
                 "MANIFEST_CONTRACT: env `{env_id}` contract {contract:?} is not <major>.<minor>"
             ),
+            ManifestLoadError::Provenance { env_id, field } => write!(
+                f,
+                "MANIFEST_PROVENANCE: env `{env_id}` {field} is malformed (source_revision: 12 \
+                 lowercase hex; source_tree: 40 lowercase hex; generator_version: X.Y.Z)"
+            ),
             ManifestLoadError::BaseInvalid { base, why } => write!(
                 f,
                 "MANIFEST_BASE_INVALID: base `{base}`: {why}"
@@ -526,7 +548,7 @@ const MANIFEST_JSON: &[u8] = include_bytes!(concat!(
 ));
 
 /// ITEM-2 (qa-hardening): a DEBUG build may point the engine at a dev
-/// manifest (`TXR_ENV_MANIFEST=<path>`) — the dev publisher's schema-v1
+/// manifest (`TXR_ENV_MANIFEST=<path>`) — the dev publisher's schema-v2
 /// file whose pins are its own built digests. The bytes go through the SAME
 /// [`parse_manifest`] validator, so every `MANIFEST_*` check applies to the
 /// dev data too (nothing is skipped, nothing unverified). A RELEASE build
@@ -566,6 +588,20 @@ static MANIFEST: OnceLock<EnvManifest> = OnceLock::new();
 /// Parse + validate a manifest from arbitrary bytes (the unit-test seam and
 /// the boot path share it — a corrupted-byte test exercises the REAL loader).
 pub fn parse_manifest(bytes: &[u8]) -> Result<EnvManifest, ManifestLoadError> {
+    // The shape version first: a list of another schema (an older one has a
+    // top-level `source_revision` and no per-entry provenance) is refused by
+    // its version, not by whichever field the strict parse trips on first.
+    #[derive(Deserialize)]
+    struct VersionProbe {
+        schema_version: u32,
+    }
+    if let Ok(probe) = serde_json::from_slice::<VersionProbe>(bytes) {
+        if probe.schema_version != MANIFEST_SCHEMA_VERSION {
+            return Err(ManifestLoadError::SchemaVersion {
+                found: probe.schema_version,
+            });
+        }
+    }
     let manifest: EnvManifest =
         serde_json::from_slice(bytes).map_err(|e| ManifestLoadError::EmbedParse {
             message: e.to_string(),
@@ -724,6 +760,18 @@ fn validate_manifest(m: &EnvManifest) -> Result<(), ManifestLoadError> {
                 contract: e.contract.clone(),
             });
         }
+        for (field, ok) in [
+            ("source_revision", is_lower_hex(&e.source_revision, 12)),
+            ("source_tree", is_lower_hex(&e.source_tree, 40)),
+            ("generator_version", is_generator_version(&e.generator_version)),
+        ] {
+            if !ok {
+                return Err(ManifestLoadError::Provenance {
+                    env_id: e.env_id.clone(),
+                    field: field.to_string(),
+                });
+            }
+        }
     }
     validate_bases(m)
 }
@@ -849,6 +897,33 @@ fn validate_bases(m: &EnvManifest) -> Result<(), ManifestLoadError> {
     Ok(())
 }
 
+/// Whether `s` is exactly `len` lowercase hex digits.
+fn is_lower_hex(s: &str, len: usize) -> bool {
+    s.len() == len && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Whether `s` is a generator version: `X.Y.Z` (digits), optionally followed
+/// by `-<suffix>` of `[0-9A-Za-z.-]` (the schema's
+/// `^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`).
+fn is_generator_version(s: &str) -> bool {
+    let (core, suffix) = match s.split_once('-') {
+        Some((c, rest)) => (c, Some(rest)),
+        None => (s, None),
+    };
+    let parts: Vec<&str> = core.split('.').collect();
+    let core_ok = parts.len() == 3
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+    let suffix_ok = match suffix {
+        None => true,
+        Some(x) => {
+            !x.is_empty() && x.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+        }
+    };
+    core_ok && suffix_ok
+}
+
 /// Whether `s` is a `<major>.<minor>` version string (the schema's contract
 /// shape `^[0-9]+\.[0-9]+$`).
 fn is_major_minor(s: &str) -> bool {
@@ -950,7 +1025,7 @@ pub fn facts_for(method_id: &str) -> Option<&'static Method> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST-EE-04 + TEST-EE-06 (unit halves): the embedded manifest parses against
-// schema v1 (fields per PROV-method-env-images-1), entries sorted by env_id,
+// schema v2 (fields per PROV-method-env-images-1), entries sorted by env_id,
 // `env_id == method_id` everywhere, `layer_schema == 1`, the synthetic
 // fixture round-trips `env_for`/`base_for` verbatim, and a runnable method
 // without a manifest entry resolves to the typed `ENV_UNKNOWN` refusal.
@@ -984,7 +1059,10 @@ mod tests {
                 "contract": "2.0",
                 "licence": "MIT",
                 "wrapper_code_sha256": "{wrapper_sha}",
-                "layer_schema": 1
+                "layer_schema": 1,
+                "source_revision": "5db3b60f727d",
+                "source_tree": "13d6890bbaa6ab7a2032a2a5b93ee12851057859",
+                "generator_version": "0.5.0"
             }}"#
         )
     }
@@ -992,9 +1070,8 @@ mod tests {
     fn fixture_manifest_bytes() -> Vec<u8> {
         format!(
             r#"{{
-                "schema_version": 1,
+                "schema_version": 2,
                 "generator_version": "0.2.0",
-                "source_revision": "5db3b60f727d",
                 "base_contract": "2.0",
                 "envs": [
                     {a},
@@ -1008,12 +1085,12 @@ mod tests {
     }
 
     /// TEST-EE-04 (embedded half): the COMMITTED manifest parses against
-    /// schema v1 — fields per PROV-method-env-images-1, entries sorted by
+    /// schema v2 — fields per PROV-method-env-images-1, entries sorted by
     /// env_id, `env_id == method_id` for every entry, `layer_schema == 1`,
     /// and the real runnable `landmark-cox-current` entry resolves with a
     /// well-formed pin + size (the F screen's `bytes_total` source).
     #[test]
-    fn embedded_manifest_loads_with_schema_v1_shape() {
+    fn embedded_manifest_loads_with_schema_v2_shape() {
         let m = ensure_loaded().expect("the committed manifest must parse + validate");
         assert_eq!(m.schema_version, MANIFEST_SCHEMA_VERSION);
         assert_eq!(m.base_contract, "2.0");
@@ -1045,6 +1122,11 @@ mod tests {
                 crate::modules::sandbox::stack::TXR_LAYER_REGISTRY_PREFIX,
                 "every layer is a tag of the one layer package"
             );
+            // Schema 2: every entry names the methods commit and folder tree it
+            // was built from, and the generator that built it.
+            assert!(is_lower_hex(&e.source_revision, 12), "{}: source_revision", e.env_id);
+            assert!(is_lower_hex(&e.source_tree, 40), "{}: source_tree", e.env_id);
+            assert!(is_generator_version(&e.generator_version), "{}: generator_version", e.env_id);
             // The data facts the manifest exists to serve:
             assert!(e.size_bytes >= 1);
             assert!(crate::modules::sandbox::stack::is_sha256_hex(&e.layer_sha256));
@@ -1090,6 +1172,10 @@ mod tests {
         assert_eq!(alpha.base().name, "ghcr.io/tinnlab/txresbench-base-r:2.0");
         assert_eq!(alpha.oci_ref, "ghcr.io/tinnlab/txr-method-env-layers");
         assert_eq!(alpha.tag, "alpha-rule-2.0.0-amd64-5ce304e213ac");
+        assert_eq!(alpha.source_revision, "5db3b60f727d");
+        assert_eq!(alpha.source_tree, "13d6890bbaa6ab7a2032a2a5b93ee12851057859");
+        assert_eq!(alpha.generator_version, "0.5.0");
+        assert_eq!(m.generator_version, "0.2.0");
 
         // The arm64 entry lives beside the amd64 one (one env, per-arch
         // records), and its base family is the Python base.
@@ -1134,20 +1220,111 @@ mod tests {
     #[test]
     fn unknown_schema_version_is_refused() {
         let text = String::from_utf8(fixture_manifest_bytes()).unwrap();
-        let re = "\"schema_version\": 1";
-        let pos = text.find(re).expect("fixture declares schema_version 1");
+        let re = "\"schema_version\": 2";
+        let pos = text.find(re).expect("fixture declares schema_version 2");
         let mut bytes = text.into_bytes();
-        bytes[pos + re.len() - 1] = b'2';
+        bytes[pos + re.len() - 1] = b'3';
         let err = parse_manifest(&bytes).unwrap_err();
         assert_eq!(err.code(), "MANIFEST_SCHEMA_VERSION");
-        assert!(matches!(err, ManifestLoadError::SchemaVersion { found: 2 }));
+        assert!(matches!(err, ManifestLoadError::SchemaVersion { found: 3 }));
+    }
+
+    /// A schema-1 list (the shape before per-entry provenance: one top-level
+    /// `source_revision`, entries without it) is refused by its version.
+    #[test]
+    fn a_schema_1_list_is_refused_by_its_version() {
+        let entry = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0")
+            .replace(",\n                \"source_revision\": \"5db3b60f727d\",\n                \"source_tree\": \"13d6890bbaa6ab7a2032a2a5b93ee12851057859\",\n                \"generator_version\": \"0.5.0\"", "");
+        assert!(!entry.contains("source_tree"), "the v1 entry shape: {entry}");
+        let json = format!(
+            r#"{{
+                "schema_version": 1, "generator_version": "0.2.0",
+                "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                "envs": [ {entry} ]
+            }}"#
+        );
+        let err = parse_manifest(json.as_bytes()).unwrap_err();
+        assert_eq!(err.code(), "MANIFEST_SCHEMA_VERSION");
+        assert!(matches!(err, ManifestLoadError::SchemaVersion { found: 1 }));
+    }
+
+    /// Schema 2 has no top-level `source_revision`: the strict parse refuses
+    /// it (deny_unknown_fields), like any field the loader does not model.
+    #[test]
+    fn a_top_level_source_revision_is_a_parse_refusal() {
+        let json = format!(
+            r#"{{
+                "schema_version": 2, "generator_version": "0.5.0",
+                "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                "envs": [ {a} ]
+            }}"#,
+            a = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0"),
+        );
+        let err = parse_manifest(json.as_bytes()).unwrap_err();
+        assert_eq!(err.code(), "MANIFEST_EMBED_INVALID");
+    }
+
+    /// Every entry carries its own provenance: a missing field is a parse
+    /// refusal; a malformed one is MANIFEST_PROVENANCE naming the field.
+    #[test]
+    fn per_entry_provenance_is_required_and_well_formed() {
+        let one = |entry: String| {
+            format!(
+                r#"{{
+                    "schema_version": 2, "generator_version": "0.5.0",
+                    "base_contract": "2.0", "envs": [ {entry} ]
+                }}"#
+            )
+        };
+        let good = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0");
+        assert!(parse_manifest(one(good.clone()).as_bytes()).is_ok());
+        for field in ["source_revision", "source_tree", "generator_version"] {
+            let without: String = good
+                .lines()
+                .filter(|l| !l.contains(&format!("\"{field}\"")))
+                .collect::<Vec<_>>()
+                .join("\n")
+                .replace("\"layer_schema\": 1,\n", "\"layer_schema\": 1\n")
+                .replace(",\n            }", "\n            }");
+            let err = parse_manifest(one(without.clone()).as_bytes())
+                .expect_err(&format!("a missing {field} refuses: {without}"));
+            assert_eq!(err.code(), "MANIFEST_EMBED_INVALID", "{field}: {err}");
+        }
+        for (field, from, to) in [
+            ("source_revision", "\"5db3b60f727d\"", "\"5DB3B60F727D\""),
+            ("source_revision", "\"5db3b60f727d\"", "\"5db3b60f727d00\""),
+            ("source_revision", "\"5db3b60f727d\"", "\"\""),
+            ("source_tree", "\"13d6890bbaa6ab7a2032a2a5b93ee12851057859\"", "\"13d6890b\""),
+            ("source_tree", "\"13d6890bbaa6ab7a2032a2a5b93ee12851057859\"",
+             "\"13d6890bbaa6ab7a2032a2a5b93ee1285105785g\""),
+            ("generator_version", "\"0.5.0\"", "\"0.5\""),
+            ("generator_version", "\"0.5.0\"", "\"v0.5.0\""),
+            ("generator_version", "\"0.5.0\"", "\"0.5.0-\""),
+            ("generator_version", "\"0.5.0\"", "\"0.5.0+dev\""),
+        ] {
+            let bad = good.replacen(from, to, 1);
+            assert_ne!(bad, good, "{field}: the mutation applies");
+            let err = parse_manifest(one(bad).as_bytes()).expect_err(field);
+            assert_eq!(err.code(), "MANIFEST_PROVENANCE", "{field} {to}: {err}");
+            assert_eq!(
+                err,
+                ManifestLoadError::Provenance {
+                    env_id: "alpha-rule".to_string(),
+                    field: field.to_string()
+                }
+            );
+            assert!(err.to_string().contains(field), "{err}");
+        }
+        // A dev publisher's pre-release generator version is well formed.
+        let dev = good.replacen("\"0.5.0\"", "\"0.1.0-dev\"", 1);
+        assert!(parse_manifest(one(dev).as_bytes()).is_ok());
     }
 
     #[test]
     fn empty_envs_are_refused() {
         let json = r#"{
-            "schema_version": 1, "generator_version": "0.2.0",
-            "source_revision": "5db3b60f727d", "base_contract": "2.0",
+            "schema_version": 2, "generator_version": "0.2.0",
+            "base_contract": "2.0",
             "envs": []
         }"#;
         let err = parse_manifest(json.as_bytes()).unwrap_err();
@@ -1161,9 +1338,8 @@ mod tests {
         // deterministic-order contract of the schema.
         let reversed = format!(
             r#"{{
-                "schema_version": 1,
+                "schema_version": 2,
                 "generator_version": "0.2.0",
-                "source_revision": "5db3b60f727d",
                 "base_contract": "2.0",
                 "envs": [ {b}, {a} ]
             }}"#,
@@ -1182,8 +1358,8 @@ mod tests {
     fn duplicate_entry_is_refused() {
         let json = format!(
             r#"{{
-                "schema_version": 1, "generator_version": "0.2.0",
-                "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                "schema_version": 2, "generator_version": "0.2.0",
+                "base_contract": "2.0",
                 "envs": [ {a}, {a} ]
             }}"#,
             a = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0"),
@@ -1197,8 +1373,8 @@ mod tests {
         // Both ids stay grammar-valid; only the identity promise breaks.
         let json = format!(
             r#"{{
-                "schema_version": 1, "generator_version": "0.2.0",
-                "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                "schema_version": 2, "generator_version": "0.2.0",
+                "base_contract": "2.0",
                 "envs": [ {a} ]
             }}"#,
             a = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0").replace(
@@ -1240,8 +1416,8 @@ mod tests {
             );
             let full = format!(
                 r#"{{
-                    "schema_version": 1, "generator_version": "0.2.0",
-                    "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                    "schema_version": 2, "generator_version": "0.2.0",
+                    "base_contract": "2.0",
                     "envs": [ {a} ]
                 }}"#,
                 a = json
@@ -1258,8 +1434,8 @@ mod tests {
         let json = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0+build1");
         let full = format!(
             r#"{{
-                "schema_version": 1, "generator_version": "0.2.0",
-                "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                "schema_version": 2, "generator_version": "0.2.0",
+                "base_contract": "2.0",
                 "envs": [ {a} ]
             }}"#,
             a = json
@@ -1272,8 +1448,8 @@ mod tests {
         let json = fixture_env_json(&long_id, "amd64", "R", "2.0.0");
         let full = format!(
             r#"{{
-                "schema_version": 1, "generator_version": "0.2.0",
-                "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                "schema_version": 2, "generator_version": "0.2.0",
+                "base_contract": "2.0",
                 "envs": [ {a} ]
             }}"#,
             a = json
@@ -1290,8 +1466,8 @@ mod tests {
         let b = fixture_env_json("fx-1.0.0", "amd64", "R", "2.0.0");
         let full = format!(
             r#"{{
-                "schema_version": 1, "generator_version": "0.2.0",
-                "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                "schema_version": 2, "generator_version": "0.2.0",
+                "base_contract": "2.0",
                 "envs": [ {a}, {b} ]
             }}"#
         );
@@ -1301,8 +1477,8 @@ mod tests {
         for one in [&a, &b] {
             let full = format!(
                 r#"{{
-                    "schema_version": 1, "generator_version": "0.2.0",
-                    "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                    "schema_version": 2, "generator_version": "0.2.0",
+                    "base_contract": "2.0",
                     "envs": [ {one} ]
                 }}"#
             );
@@ -1316,8 +1492,8 @@ mod tests {
             .replace("\"layer_sha256\": \"5ce304e213ac6307d7e2d5991f432d0006805b2df9fb5f40f401905db8d0fc1a\"", "\"layer_sha256\": \"not-hex\"");
         let full = format!(
             r#"{{
-                "schema_version": 1, "generator_version": "0.2.0",
-                "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                "schema_version": 2, "generator_version": "0.2.0",
+                "base_contract": "2.0",
                 "envs": [ {a} ]
             }}"#,
             a = json
@@ -1329,8 +1505,8 @@ mod tests {
             .replace("\"digest\": \"sha256:7153c0b1b85cf5089bb9fe80a2f9ac708e11b3e79d5cb74bd06ba5752a9d12cf\"", "\"digest\": \"nope\"");
         let full = format!(
             r#"{{
-                "schema_version": 1, "generator_version": "0.2.0",
-                "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                "schema_version": 2, "generator_version": "0.2.0",
+                "base_contract": "2.0",
                 "envs": [ {a} ]
             }}"#,
             a = json
@@ -1355,8 +1531,8 @@ mod tests {
             );
             let full = format!(
                 r#"{{
-                    "schema_version": 1, "generator_version": "0.2.0",
-                    "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                    "schema_version": 2, "generator_version": "0.2.0",
+                    "base_contract": "2.0",
                     "envs": [ {a} ]
                 }}"#,
                 a = json
@@ -1373,8 +1549,8 @@ mod tests {
             .replace("txresbench-base-r", "txresbench-base-py");
         let full = format!(
             r#"{{
-                "schema_version": 1, "generator_version": "0.2.0",
-                "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                "schema_version": 2, "generator_version": "0.2.0",
+                "base_contract": "2.0",
                 "envs": [ {a} ]
             }}"#,
             a = json
@@ -1387,8 +1563,8 @@ mod tests {
     fn unknown_field_is_a_parse_refusal() {
         let json = format!(
             r#"{{
-                "schema_version": 1, "generator_version": "0.2.0",
-                "source_revision": "5db3b60f727d", "base_contract": "2.0",
+                "schema_version": 2, "generator_version": "0.2.0",
+                "base_contract": "2.0",
                 "envs": [ {a} ], "future_field": 1
             }}"#,
             a = fixture_env_json("alpha-rule", "amd64", "R", "2.0.0"),
@@ -1462,9 +1638,8 @@ mod tests {
     fn manifest_with_bases(bases: &str) -> Vec<u8> {
         format!(
             r#"{{
-                "schema_version": 1,
+                "schema_version": 2,
                 "generator_version": "0.3.0",
-                "source_revision": "5db3b60f727d",
                 "base_contract": "2.0",
                 "bases": [ {bases} ],
                 "envs": [ {a}, {b} ]

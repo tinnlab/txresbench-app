@@ -5266,6 +5266,9 @@ mod tests {
             licence: "fixture".to_string(),
             wrapper_code_sha256: "ab".repeat(32),
             layer_schema: 1,
+            source_revision: "0123456789ab".to_string(),
+            source_tree: "cd".repeat(20),
+            generator_version: "0.5.0".to_string(),
         };
 
         let layer = layer_env_ref(&entry);

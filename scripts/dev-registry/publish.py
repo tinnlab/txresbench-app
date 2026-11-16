@@ -81,9 +81,11 @@ the acceptance's bases scenario: the fixture base (the same host-assembled
 stdlib base as --fixture, plus /opt/txr-layer) packed by the generator's own
 `pack_base` into <dir>/bases/base-py-<arch>/, a second fixture layer
 (`txr-dev-fixture-b`) with its generator-format record under <dir>/layers/,
-and a fixture methods dir (<dir>/methods: index.json + method.json). The
-generator then writes the manifest (`--fixture <dir> --methods-dir
-<dir>/methods --manifest ...`), and the REAL publisher pushes both artifacts
+and a fixture methods repository (<dir>/methods: a git repo holding the
+method's folder and its passed gate, committed; the record names that
+commit and the folder's tree). The generator then writes the manifest
+(`--fixture <dir> --methods-dir <dir>/methods --manifest ... --full`), and
+the REAL publisher pushes both artifacts
 (`publish-method-env-images.sh --registry <loopback>`). There is no Docker
 image in the dev flow, so the base's source digest is a stand-in: the
 sha256 of the fixture rootfs's sorted path + content listing. It is
@@ -573,16 +575,21 @@ def build_layer(method_dir, out_dir, env_id=None):
     return sqfs, env_id
 
 
-def build_fixture_layer(out_dir, env_id=FIXTURE_METHOD_ID):
+def build_fixture_layer(out_dir, env_id=FIXTURE_METHOD_ID, licence=None):
     """The tiny fake method of TEST-QA-2: stdlib-only run.py writing the
-    contract prediction row per /input/test/patients.csv patient."""
+    contract prediction row per /input/test/patients.csv patient. `licence`
+    goes into its method.json when given (the generator's writer reads the
+    licence from the committed method.json, which must be the layer's)."""
     method_dir = os.path.join(out_dir, "fixture-method")
     if os.path.exists(method_dir):
         shutil.rmtree(method_dir)
     os.makedirs(method_dir)
+    spec = {"id": env_id, "version": "1.0.0", "language": "Python",
+            "group": "response-call", "min_draws": 1, "markers": "single"}
+    if licence is not None:
+        spec["licence"] = licence
     with open(os.path.join(method_dir, "method.json"), "w") as f:
-        json.dump({"id": env_id, "version": "1.0.0", "language": "Python",
-                   "group": "response-call", "min_draws": 1, "markers": "single"}, f)
+        json.dump(spec, f)
     with open(os.path.join(method_dir, "run.py"), "w") as f:
         f.write(
             "import csv, json, os\n"
@@ -708,15 +715,38 @@ def base_annotations(family, contract, base_digest, layer_sha):
 
 # ─────────────────────────────── manifest writer ─────────────────────────────
 
-def write_app_manifest(path, entries):
-    """Schema-v1 manifest (src-app/server/data/method-env-images.schema.json),
-    sorted by env_id."""
+def _git_out(repo, *args):
+    try:
+        p = subprocess.run(["git", "-C", repo, *args], stdout=subprocess.PIPE,
+                           stderr=subprocess.DEVNULL)
+    except OSError:
+        return ""
+    return p.stdout.decode().strip() if p.returncode == 0 else ""
+
+
+def provenance_fields(methods_dir, env_id):
+    """The schema-2 per-entry provenance of a dev entry: the methods commit
+    and the method folder's git tree when `methods_dir` is a git checkout
+    holding the method, else well-formed zeros (dev data: a debug build reads
+    it through TXR_ENV_MANIFEST; a release build never does)."""
+    rev = _git_out(methods_dir, "rev-parse", "HEAD")[:12] if methods_dir else ""
+    tree = _git_out(methods_dir, "rev-parse", "HEAD:methods/%s" % env_id) if rev else ""
+    if not re.match(r"^[0-9a-f]{12}$", rev):
+        rev = "0" * 12
+    if not re.match(r"^[0-9a-f]{40}$", tree):
+        tree = "0" * 40
+    return {"source_revision": rev, "source_tree": tree, "generator_version": GENERATOR_VERSION}
+
+
+def write_app_manifest(path, entries, methods_dir=None):
+    """Schema-v2 manifest (src-app/server/data/method-env-images.schema.json),
+    sorted by env_id; each entry gets its per-entry provenance."""
     doc = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generator_version": GENERATOR_VERSION,
-        "source_revision": SOURCE_REVISION,
         "base_contract": CONTRACT,
-        "envs": sorted(entries, key=lambda e: e["env_id"]),
+        "envs": sorted(({**e, **provenance_fields(methods_dir, e["env_id"])} for e in entries),
+                       key=lambda e: e["env_id"]),
     }
     with open(path, "w") as f:
         json.dump(doc, f, indent=2)
@@ -788,8 +818,6 @@ def stage_generator_fixture(stage_dir):
         shutil.rmtree(os.path.join(stage_dir, sub), ignore_errors=True)
     os.makedirs(work)
     gen = _load_generator()
-    revision = SOURCE_REVISION if re.match(r"^[0-9a-f]{12}$", SOURCE_REVISION or "") \
-        else "000000000000"  # no methods checkout here: the fixture's own revision
 
     # the base: the --fixture base rootfs + the layer mount point, packed by
     # the generator (its checks and its fixed-time flags).
@@ -804,15 +832,36 @@ def stage_generator_fixture(stage_dir):
                          source_digest=source_digest, source_ref_source="dev-fixture",
                          source_digest_source="dev-fixture-tree")
 
-    # the layer: the fixture method under its own env id, with the record the
-    # generator's writer reads.
-    sqfs, env_id = build_fixture_layer(work, env_id=FIXTURE_B_METHOD_ID)
+    # the layer: the fixture method under its own env id.
+    sqfs, env_id = build_fixture_layer(work, env_id=FIXTURE_B_METHOD_ID,
+                                       licence="MIT (fixture)")
     layer_dir = os.path.join(stage_dir, "layers", "%s-%s" % (env_id, ARCH))
     os.makedirs(layer_dir)
     shutil.copy2(sqfs, os.path.join(layer_dir, "layer.squashfs"))
     method_dir = os.path.join(work, "fixture-method")
+
+    # the methods repository the writer reads every fact from at the record's
+    # commit: the method folder (the layer's own method.json + run.py, and a
+    # Dockerfile FROM its base) and its passed gate, committed.
+    methods = os.path.join(stage_dir, "methods")
+    folder = os.path.join(methods, "methods", env_id)
+    os.makedirs(folder)
+    for name in ("method.json", "run.py"):
+        shutil.copy2(os.path.join(method_dir, name), os.path.join(folder, name))
+    with open(os.path.join(folder, "Dockerfile"), "w") as f:
+        f.write("FROM %s\nCOPY method.json run.py /code/\n" % base_ref)
+    os.makedirs(os.path.join(methods, "gates"))
+    with open(os.path.join(methods, "gates", env_id + ".json"), "w") as f:
+        json.dump({"pass": True}, f)
+    git_env = dict(os.environ, GIT_AUTHOR_NAME="dev-fixture", GIT_AUTHOR_EMAIL="dev-fixture@txr.test",
+                   GIT_COMMITTER_NAME="dev-fixture", GIT_COMMITTER_EMAIL="dev-fixture@txr.test")
+    for cmd in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "dev fixture method"]):
+        subprocess.run(["git", "-C", methods] + cmd, check=True, env=git_env,
+                       stdout=subprocess.DEVNULL)
+    revision = _git_out(methods, "rev-parse", "HEAD")[:12]
+    tree = _git_out(methods, "rev-parse", "HEAD:methods/%s" % env_id)
     record = {
-        "record_schema_version": 1,
+        "record_schema_version": 2,
         "generator_version": GENERATOR_VERSION,
         "env_id": env_id,
         "method_id": env_id,
@@ -823,6 +872,7 @@ def stage_generator_fixture(stage_dir):
         "oci_ref": gen.LAYER_OCI_REF,
         "tag": gen.layer_tag(env_id, "1.0.0", ARCH, sha256_file(sqfs)),
         "source_revision": revision,
+        "source_tree": tree,
         "base_ref": base_ref,
         "base_digest": source_digest,
         "base_digest_source": "dev-fixture-tree",
@@ -839,15 +889,6 @@ def stage_generator_fixture(stage_dir):
         json.dump(record, f, indent=2, sort_keys=True)
         f.write("\n")
 
-    # the methods dir the writer reads index + licence facts from.
-    methods = os.path.join(stage_dir, "methods")
-    os.makedirs(os.path.join(methods, "methods", env_id))
-    with open(os.path.join(methods, "index.json"), "w") as f:
-        json.dump({"index_version": "dev-fixture", "contract_versions": [CONTRACT],
-                   "methods": [{"id": env_id, "version": "1.0.0", "language": "Python",
-                                "contract": CONTRACT, "runnable": True}]}, f)
-    with open(os.path.join(methods, "methods", env_id, "method.json"), "w") as f:
-        json.dump({"id": env_id, "language": "Python", "licence": "MIT (fixture)"}, f)
     print("stage-fixture: %s (base %s, file sha256 %s…; layer %s)"
           % (stage_dir, base["tag"], base["squashfs_sha256"][:16], env_id))
     return stage_dir
@@ -976,7 +1017,7 @@ def build_and_publish(args):
         print("fixture: base-fixture + %s published, manifest %s" % (env_id, args.manifest_fixture))
 
     if entries:
-        write_app_manifest(args.manifest, entries)
+        write_app_manifest(args.manifest, entries, methods_dir=args.methods_dir)
         print("manifest: %s (%d entries)" % (args.manifest, len(entries)))
     if published:
         print("published:")
