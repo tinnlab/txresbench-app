@@ -1041,6 +1041,65 @@ pub fn facts_for(method_id: &str) -> Option<&'static Method> {
     crate::modules::method_catalogue::catalogue::method(method_id)
 }
 
+/// Why a saved model's run-shaping facts cannot be had.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReuseFactsRefusal {
+    /// The catalogue has no row for the method at all.
+    UnknownMethod { method_id: String },
+    /// The model kept no facts (saved before they were kept) and the
+    /// catalogue row is another version, whose facts may differ.
+    OtherVersion {
+        method_id: String,
+        recorded: String,
+        current: String,
+    },
+}
+
+impl ReuseFactsRefusal {
+    /// The plain sentence a run row and the model's detail show.
+    pub fn detail(&self) -> String {
+        match self {
+            ReuseFactsRefusal::UnknownMethod { method_id } => {
+                format!("This saved model's method {method_id} is not in this app")
+            }
+            ReuseFactsRefusal::OtherVersion {
+                method_id,
+                recorded,
+                current,
+            } => format!(
+                "This saved model was trained with {method_id} {recorded}, whose settings this \
+                 app no longer has (it has {current}); it was saved before models kept their \
+                 settings"
+            ),
+        }
+    }
+}
+
+/// The method facts a saved model runs with (one rule for the run and for
+/// the model eligibility, so the screen and the run agree): the facts the
+/// model kept from its training run, laid over the current catalogue row
+/// (which still gives everything that does not shape the run); a model that
+/// kept none uses the current row only when the row is the model's recorded
+/// `method_version` ("same version, same facts"), and is refused otherwise.
+pub fn reuse_facts_for(
+    method_id: &str,
+    method_version: &str,
+    saved: Option<&super::types::TxrMethodFacts>,
+) -> Result<std::borrow::Cow<'static, Method>, ReuseFactsRefusal> {
+    let row = facts_for(method_id).ok_or_else(|| ReuseFactsRefusal::UnknownMethod {
+        method_id: method_id.to_string(),
+    })?;
+    match saved {
+        Some(facts) => Ok(std::borrow::Cow::Owned(facts.apply_to(row))),
+        None if row.version == method_version => Ok(std::borrow::Cow::Borrowed(row)),
+        None => Err(ReuseFactsRefusal::OtherVersion {
+            method_id: method_id.to_string(),
+            recorded: method_version.to_string(),
+            current: row.version.clone(),
+        }),
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST-EE-04 + TEST-EE-06 (unit halves): the embedded manifest parses against
 // schema v2 (fields per PROV-method-env-images-1), entries sorted by env_id,

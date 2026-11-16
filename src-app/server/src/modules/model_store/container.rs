@@ -243,6 +243,12 @@ pub struct ContainerModelFacts {
     /// export of a model without conversions keeps its earlier bytes.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub conversions: crate::modules::execution_engine::predictions::Conversions,
+    /// The run-shaping catalogue facts the model was trained with (a reuse
+    /// runs with them). Optional in the header like `conversions`: a
+    /// container written before they were kept reads as none, and none is
+    /// not written, so such an export keeps its earlier bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method_facts: Option<crate::modules::execution_engine::types::TxrMethodFacts>,
 }
 
 /// The recorded provenance of a model in the container (the plan's
@@ -1203,6 +1209,7 @@ mod tests {
             own_auc: Some(0.66),
             own_c: Some(0.63),
             conversions: Default::default(),
+            method_facts: None,
         }
     }
 

@@ -126,6 +126,9 @@ pub struct ModelRow {
     pub env_arch: Option<String>,
     pub env_layer_tag: Option<String>,
     pub env_base_tag: Option<String>,
+    /// The run-shaping facts the model was trained with
+    /// (`execution_engine::types::TxrMethodFacts`; NULL = not kept).
+    pub method_facts: Option<Json>,
 }
 
 /// The columns the save flow supplies (everything except `id`/`created_at`,
@@ -173,6 +176,8 @@ pub struct NewModel {
     pub env_arch: Option<String>,
     pub env_layer_tag: Option<String>,
     pub env_base_tag: Option<String>,
+    /// The run-shaping facts (None = not kept).
+    pub method_facts: Option<Json>,
 }
 
 /// The repository. Pool-bound (CONS-MS-1/2): takes the process pool; the
@@ -400,6 +405,7 @@ impl ModelStoreRepository {
         let env_arch = m.env_arch.clone();
         let env_layer_tag = m.env_layer_tag.clone();
         let env_base_tag = m.env_base_tag.clone();
+        let method_facts = m.method_facts.clone();
         // The id is a bind local (see `insert_set`).
         let id = Uuid::new_v4();
         sqlx::query_as!(
@@ -412,10 +418,10 @@ impl ModelStoreRepository {
                   trained_at, decision_day, endpoint, horizon, features,
                   required_markers, marker_facts, covariates, embeds_training_data,
                   own_auc, own_c, conversions, env_method_version, env_arch,
-                  env_layer_tag, env_base_tag)
+                  env_layer_tag, env_base_tag, method_facts)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
-                       $27, $28, $29, $30, $31, $32, $33, $34, $35, $36)
+                       $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37)
                RETURNING id as "id: Uuid", set_id as "set_id?: Uuid", name, method_id,
                          method_version, "group", group_label, task, provenance,
                          imported_from, pretrained_catalogue_id,
@@ -431,7 +437,8 @@ impl ModelStoreRepository {
                          own_auc, own_c,
                          conversions as "conversions: serde_json::Value",
                          created_at as "created_at: DateTime<Utc>",
-                         env_method_version, env_arch, env_layer_tag, env_base_tag"#,
+                         env_method_version, env_arch, env_layer_tag, env_base_tag,
+                         method_facts as "method_facts?: serde_json::Value""#,
             id,
             m.set_id,
             name,
@@ -468,6 +475,7 @@ impl ModelStoreRepository {
             env_arch,
             env_layer_tag,
             env_base_tag,
+            method_facts,
         )
         .fetch_one(&self.pool)
         .await
@@ -492,7 +500,8 @@ impl ModelStoreRepository {
                       embeds_training_data as "embeds_training_data: bool",
                       own_auc, own_c, conversions as "conversions: serde_json::Value",
                       created_at as "created_at: DateTime<Utc>",
-                      env_method_version, env_arch, env_layer_tag, env_base_tag
+                      env_method_version, env_arch, env_layer_tag, env_base_tag,
+                      method_facts as "method_facts?: serde_json::Value"
                FROM txr_models WHERE id = $1"#,
             id,
         )
@@ -527,7 +536,8 @@ impl ModelStoreRepository {
                       embeds_training_data as "embeds_training_data: bool",
                       own_auc, own_c, conversions as "conversions: serde_json::Value",
                       created_at as "created_at: DateTime<Utc>",
-                      env_method_version, env_arch, env_layer_tag, env_base_tag
+                      env_method_version, env_arch, env_layer_tag, env_base_tag,
+                      method_facts as "method_facts?: serde_json::Value"
                FROM txr_models
                WHERE ($1 IS NULL OR set_id = $1)
                  AND ($2 IS NULL
@@ -662,7 +672,8 @@ impl ModelStoreRepository {
                       embeds_training_data as "embeds_training_data: bool",
                       own_auc, own_c, conversions as "conversions: serde_json::Value",
                       created_at as "created_at: DateTime<Utc>",
-                      env_method_version, env_arch, env_layer_tag, env_base_tag
+                      env_method_version, env_arch, env_layer_tag, env_base_tag,
+                      method_facts as "method_facts?: serde_json::Value"
                FROM txr_models
                WHERE tree_sha256 = $1 AND method_id = $2
                  AND ((set_id = $3) OR (set_id IS NULL AND $3 IS NULL))"#,
@@ -836,6 +847,7 @@ mod tests {
             env_arch: None,
             env_layer_tag: None,
             env_base_tag: None,
+            method_facts: None,
         }
     }
 

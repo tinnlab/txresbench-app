@@ -376,6 +376,7 @@ fn mock_model(set_id: Uuid, name: &str) -> txresbench::modules::model_store::rep
         env_arch: None,
         env_layer_tag: None,
         env_base_tag: None,
+        method_facts: None,
     }
 }
 

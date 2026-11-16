@@ -177,6 +177,7 @@ fn new_model_from_bundle(
         env_arch: None,
         env_layer_tag: None,
         env_base_tag: None,
+        method_facts: None,
     })
 }
 

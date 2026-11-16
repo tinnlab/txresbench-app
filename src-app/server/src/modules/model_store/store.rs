@@ -81,7 +81,8 @@ use super::types::{
 use crate::modules::execution_engine::predictions::{self, Conversions};
 use crate::modules::execution_engine::repository::{MethodRow, TxrRepository};
 use crate::modules::execution_engine::types::{
-    TxrEndpoint, TxrMethodEnv, TxrMethodState, TxrProducedModel, TxrRunSummary, TxrTask,
+    TxrEndpoint, TxrMethodEnv, TxrMethodFacts, TxrMethodState, TxrProducedModel, TxrRunSummary,
+    TxrTask,
 };
 use crate::modules::method_catalogue::catalogue;
 use crate::modules::method_catalogue::types::RequiredMarkers;
@@ -667,6 +668,10 @@ async fn install_verified(
             env_arch: facts.env.arch.clone(),
             env_layer_tag: facts.env.layer_tag.clone(),
             env_base_tag: facts.env.base_tag.clone(),
+            method_facts: match &facts.method_facts {
+                Some(f) => Some(json_value(f, "method_facts")?),
+                None => None,
+            },
             trained_on_patients: facts.trained_on_patients.map(|v| v as i64),
             trained_at: facts.trained_at,
             decision_day: facts.decision_day,
@@ -852,6 +857,15 @@ pub fn row_env(row: &ModelRow) -> Result<TxrMethodEnv, AppError> {
     }
 }
 
+/// A row's kept run-shaping facts (`None` = a model saved before they were
+/// kept). A cell that no longer parses is a corrupt row, never a guess.
+pub fn row_method_facts(row: &ModelRow) -> Result<Option<TxrMethodFacts>, AppError> {
+    match &row.method_facts {
+        Some(v) => Ok(Some(parse_row(v, "txr_models.method_facts")?)),
+        None => Ok(None),
+    }
+}
+
 /// How a note names a recorded image: its layer tag, else the environment's
 /// version, else the start of the layer's file hash (a model saved before
 /// the tags were kept).
@@ -943,13 +957,25 @@ pub fn detail_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelDetail
     }
     if let Some(cat) = catalogue::method(&row.method_id) {
         if cat.version != row.method_version {
-            warnings.push(ModelWarning {
-                code: ModelWarningCode::ModelVersionMismatch,
-                detail: format!(
+            // A model that kept its run-shaping facts runs with them; one
+            // saved before they were kept cannot run on another version's
+            // (the run refuses it with the same sentence).
+            let detail = match row_method_facts(row)? {
+                Some(_) => format!(
                     "trained with version {}; the current version is {}; it runs with its own \
                      version",
                     row.method_version, cat.version
                 ),
+                None => crate::modules::execution_engine::envmanifest::ReuseFactsRefusal::OtherVersion {
+                    method_id: row.method_id.clone(),
+                    recorded: row.method_version.clone(),
+                    current: cat.version.clone(),
+                }
+                .detail(),
+            };
+            warnings.push(ModelWarning {
+                code: ModelWarningCode::ModelVersionMismatch,
+                detail,
             });
         }
         let entry = crate::modules::execution_engine::envmanifest::env_for(&row.method_id);
@@ -1052,6 +1078,7 @@ pub async fn resolve_assets(
         })?;
         let env = row_env(&row)?;
         let conversions = row_conversions(&row)?;
+        let method_facts = row_method_facts(&row)?;
         assets.push(ResolvedAsset {
             model_id: id.clone(),
             host_dir: row.dir,
@@ -1061,6 +1088,7 @@ pub async fn resolve_assets(
             env,
             contract: row.contract,
             conversions,
+            method_facts,
         });
     }
     Ok(assets)
@@ -1227,6 +1255,10 @@ pub async fn save_from_run(
                 env_arch: pm.env.arch.clone(),
                 env_layer_tag: pm.env.layer_tag.clone(),
                 env_base_tag: pm.env.base_tag.clone(),
+                method_facts: match &facts.method_facts {
+                    Some(f) => Some(json_value(f, "method_facts")?),
+                    None => None,
+                },
                 trained_on_patients: Some(pm.trained_on_patients as i64),
                 trained_at: summary.finished_at,
                 decision_day: summary.config.decision_day,
@@ -1311,6 +1343,11 @@ struct SaveFacts<'a> {
     /// (`output/<method>/conversions.json`; empty for a native-probability
     /// method or a run recorded before the file existed).
     conversions: Conversions,
+    /// The run-shaping facts the training run used: the catalogue row's, when
+    /// the row is still the run's method version (the same version has the
+    /// same facts); `None` when the app's row has moved to another version
+    /// since the run (the facts the run used are then unknown).
+    method_facts: Option<TxrMethodFacts>,
 }
 
 fn save_facts(
@@ -1372,6 +1409,7 @@ fn save_facts(
                 produced.method_id
             ))
         })?;
+    let method_facts = (cat.version == method_row.version).then(|| TxrMethodFacts::from_method(cat));
     Ok(SaveFacts {
         cat,
         features,
@@ -1379,6 +1417,7 @@ fn save_facts(
         marker_facts,
         covariates,
         conversions,
+        method_facts,
     })
 }
 
@@ -1488,6 +1527,7 @@ fn facts_from_row(row: &ModelRow) -> Result<ContainerModelFacts, AppError> {
         own_auc: row.own_auc,
         own_c: row.own_c,
         conversions: row_conversions(row)?,
+        method_facts: row_method_facts(row)?,
     })
 }
 
@@ -1830,6 +1870,7 @@ mod tests {
             env_arch: None,
             env_layer_tag: None,
             env_base_tag: None,
+            method_facts: None,
         }
     }
 
@@ -2531,6 +2572,8 @@ mod tests {
                 new.env_layer_digest = Some("ab".repeat(32));
                 new.env_layer_tag = Some("its-own-tag".to_string());
                 new.env_arch = Some(host.as_str().to_string());
+                new.method_facts =
+                    Some(serde_json::to_value(TxrMethodFacts::from_method(cat)).unwrap());
                 let row = repo.insert_model(&new).await.expect("row");
                 let detail = detail_from(&row, None).expect("detail");
                 let text = |code: ModelWarningCode| {
@@ -2561,6 +2604,23 @@ mod tests {
                         .as_str()
                     )
                 );
+                // The same model saved before the facts were kept cannot run
+                // on another version's facts: the note says so.
+                new.method_facts = None;
+                let row = repo.insert_model(&new).await.expect("row");
+                let detail = detail_from(&row, None).expect("detail");
+                assert!(
+                    detail.warnings.iter().any(|w| w.code == ModelWarningCode::ModelVersionMismatch
+                        && w.detail
+                            == format!(
+                                "This saved model was trained with {} 0.0.1, whose settings this \
+                                 app no longer has (it has {}); it was saved before models kept \
+                                 their settings",
+                                entry.method_id, cat.version
+                            )),
+                    "{:?}",
+                    detail.warnings
+                );
             }
             None => eprintln!(
                 "detail_notes_name_the_own_environment: no listed method for {} (the list \
@@ -2568,6 +2628,162 @@ mod tests {
                 host.as_str()
             ),
         }
+
+        pool.close().await;
+        let _ = fs::remove_file(&path);
+    }
+
+    /// Save keeps the run-shaping facts the training run used: the catalogue
+    /// row's, while the row is still the run's method version; a run recorded
+    /// at another version saves none (its facts are unknown, so such a model
+    /// is refused at reuse rather than run on another version's facts). The
+    /// facts then ride resolve, a `.txr` export and an import.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn save_stores_the_training_runs_facts() {
+        use crate::modules::execution_engine::repository::{MethodPatch, NewMethod, NewRun};
+        use crate::modules::execution_engine::types::{
+            RunConfig, TxrRunCounts, TxrRunFileNames, TxrRunInputSummary, TxrRunMode, TxrRunStatus,
+        };
+        use crate::modules::model_store::types::{SaveModelsRequest, SaveTarget};
+        let (root, _guard) = scratch_root("save-facts");
+        let (pool, path) = test_pool().await;
+        let engine = TxrRepository::new(pool.clone());
+        let repo = ModelStoreRepository::new(pool.clone());
+        let method = "landmark-cox-current";
+        let cat = catalogue::method(method).expect("a catalogue method");
+        let want = serde_json::to_value(TxrMethodFacts::from_method(cat)).unwrap();
+
+        let mut saved_ids = Vec::new();
+        for (name, version) in [("same", cat.version.clone()), ("older", "0.0.1".to_string())] {
+            let run_dir = root.join(format!("analysis-{name}"));
+            write_file(
+                &run_dir.join("bundles").join(method).join("params.json"),
+                br#"{"markers": ["M1"]}"#,
+            );
+            let (tree, digest, size) = fixture_tree(&run_dir.join("models").join(method), name);
+            let run_id = Uuid::new_v4();
+            engine
+                .insert_run(&NewRun {
+                    id: run_id,
+                    created_at: None,
+                    status: TxrRunStatus::Finished,
+                    mode: TxrRunMode::Train,
+                    config: RunConfig {
+                        save_models: true,
+                        ..Default::default()
+                    },
+                    input_summary: TxrRunInputSummary {
+                        patients: Some(2),
+                        predict_patients: None,
+                        markers: 1,
+                        events: Some(1),
+                        file_names: TxrRunFileNames {
+                            patients: Some("patients.csv".to_string()),
+                            measurements: "values.csv".to_string(),
+                            predict_measurements: None,
+                        },
+                    },
+                    model_ids: Vec::new(),
+                    method_count: 1,
+                    counts: TxrRunCounts {
+                        finished: 1,
+                        failed: 0,
+                        stopped: 0,
+                        skipped: 0,
+                        cannot_run: 0,
+                        running: 0,
+                        downloading: 0,
+                        waiting: 0,
+                    },
+                    dir: run_dir.display().to_string(),
+                    memory_total_bytes: None,
+                    cpus: Some(1),
+                    seed: 1,
+                    estimate: None,
+                })
+                .await
+                .expect("run");
+            engine
+                .insert_method(&NewMethod {
+                    id: Uuid::new_v4(),
+                    run_id,
+                    method_id: method.to_string(),
+                    label: method.to_string(),
+                    version: version.clone(),
+                    group: cat.group.as_str().to_string(),
+                    state: TxrMethodState::Finished,
+                    bytes_total: None,
+                })
+                .await
+                .expect("method");
+            engine
+                .patch_method(
+                    run_id,
+                    method,
+                    &MethodPatch {
+                        model_out_digest: Some(digest.clone()),
+                        model_dir: Some(tree.display().to_string()),
+                        env_base_digest: Some("e1".repeat(32)),
+                        env_layer_digest: Some("f2".repeat(32)),
+                        trained_on_patients: Some(2),
+                        size_bytes: Some(size),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .expect("produced");
+            let saved = save_from_run(
+                &pool,
+                &SaveModelsRequest {
+                    run_id,
+                    method_ids: vec![method.to_string()],
+                    target: SaveTarget::NewSet {
+                        set_name: format!("facts {name}"),
+                    },
+                    keep_training_files: false,
+                    also_export: false,
+                    source_label: None,
+                },
+            )
+            .await
+            .expect("save");
+            saved_ids.push(saved.models[0].id);
+        }
+        let same = repo.get_model(saved_ids[0]).await.expect("get").expect("row");
+        assert_eq!(same.method_facts, Some(want.clone()), "the row's facts, at the run's version");
+        let older = repo.get_model(saved_ids[1]).await.expect("get").expect("row");
+        assert_eq!(older.method_facts, None, "another version's facts are never stored as its own");
+
+        // The facts ride resolve, the export and an import.
+        let assets = resolve_assets(&pool, &[same.id.to_string()]).await.expect("resolve");
+        assert_eq!(serde_json::to_value(&assets[0].method_facts).unwrap(), want);
+        let export = export_model(&same).expect("export");
+        let mut bytes = Vec::new();
+        write_container(&mut bytes, &export).expect("write");
+        assert!(String::from_utf8_lossy(&bytes).contains("\"method_facts\""));
+        let out = install_imported(
+            &pool,
+            &bytes,
+            &ImportOptions {
+                set_id: None,
+                provenance: Provenance::Imported {
+                    source_name: "facts.txr".to_string(),
+                },
+            },
+        )
+        .await
+        .expect("import");
+        let imported = repo
+            .get_model(Uuid::parse_str(&out.model_ids[0]).unwrap())
+            .await
+            .expect("get")
+            .expect("row");
+        assert_eq!(imported.method_facts, Some(want));
+        // A model without facts exports without the key (its bytes as before).
+        let mut old_bytes = Vec::new();
+        write_container(&mut old_bytes, &export_model(&older).expect("export")).expect("write");
+        assert!(!String::from_utf8_lossy(&old_bytes).contains("method_facts"));
 
         pool.close().await;
         let _ = fs::remove_file(&path);

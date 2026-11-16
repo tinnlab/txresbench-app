@@ -1686,6 +1686,7 @@ async fn demo_retention_evicts_the_oldest_model_sets() {
         env_arch: None,
         env_layer_tag: None,
         env_base_tag: None,
+        method_facts: None,
     })
     .await
     .expect("old model insert");

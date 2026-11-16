@@ -88,6 +88,7 @@ use super::types::{
     CovariateFacts, MarkerFacts, ModelEligibility, ModelEligibilityResponse, ModelReason,
     ModelReasonCode,
 };
+use crate::modules::execution_engine::envmanifest::{reuse_facts_for, ReuseFactsRefusal};
 use crate::modules::execution_engine::types::TxrTask;
 use crate::modules::method_catalogue::catalogue;
 use crate::modules::method_catalogue::eligibility::{
@@ -188,6 +189,38 @@ fn model_verdict(
             status: EligibilityStatus::CannotRun,
             reasons: vec![ModelReason {
                 code: ModelReasonCode::ModelRequirementsUnrecorded,
+                params: BTreeMap::new(),
+            }],
+            missing_markers: Vec::new(),
+            coverage: Coverage {
+                eligible: 0,
+                total: inv.patients,
+                fraction: 0.0,
+            },
+            min_draws: MinDraws {
+                required: 0,
+                met: 0,
+                unmet_patients: 0,
+            },
+            estimated_seconds,
+            estimate_quality,
+        });
+    }
+
+    // The method facts a reuse runs with (the engine's own rule): a model
+    // that kept none, whose method's catalogue row is now another version,
+    // cannot run — the run refuses it, so the verdict says so first.
+    let kept_facts = super::store::row_method_facts(row)?;
+    if let Err(ReuseFactsRefusal::OtherVersion { .. }) =
+        reuse_facts_for(&row.method_id, &row.method_version, kept_facts.as_ref())
+    {
+        return Ok(ModelEligibility {
+            id: row.id.to_string(),
+            task,
+            endpoint,
+            status: EligibilityStatus::CannotRun,
+            reasons: vec![ModelReason {
+                code: ModelReasonCode::NotRunnable,
                 params: BTreeMap::new(),
             }],
             missing_markers: Vec::new(),
@@ -832,6 +865,7 @@ mod tests {
             env_arch: None,
             env_layer_tag: None,
             env_base_tag: None,
+            method_facts: None,
             created_at: "2026-10-19T15:00:00+00:00"
                 .parse::<DateTime<Utc>>()
                 .expect("fixture timestamp parses"),
@@ -934,6 +968,42 @@ mod tests {
     /// the compiled catalogue): the verdict stands (recorded facts are the
     /// check), the time is NOT promised — seconds null, the weaker `estimate`
     /// quality.
+    /// The model eligibility follows the run's facts rule: a model that kept
+    /// its facts, or one at the catalogue row's own version, gets its normal
+    /// verdict; a model that kept none at another version cannot run
+    /// (`NOT_RUNNABLE`, the run's refusal).
+    #[test]
+    fn reuse_eligibility_uses_the_model_facts_rule() {
+        let inv = inventory(
+            vec![marker("M1", "M1", UnitFamily::None, vec![], vec![("S0001", 1, 2)], false)],
+            1,
+            56.0,
+        );
+        let method = "landmark-cox-current";
+        let cat = catalogue::method(method).expect("a catalogue method");
+
+        let mut same = base_row(method);
+        same.method_version = cat.version.clone();
+        let v = model_verdict(&same, &inv).expect("verdict");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", v.reasons);
+
+        let mut other = base_row(method);
+        other.method_version = "0.0.1".to_string();
+        let v = model_verdict(&other, &inv).expect("verdict");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert_eq!(v.reasons.len(), 1);
+        assert_eq!(v.reasons[0].code, ModelReasonCode::NotRunnable);
+
+        other.method_facts = Some(
+            serde_json::to_value(
+                crate::modules::execution_engine::types::TxrMethodFacts::from_method(cat),
+            )
+            .unwrap(),
+        );
+        let v = model_verdict(&other, &inv).expect("verdict");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "kept facts run: {:?}", v.reasons);
+    }
+
     #[test]
     fn absent_method_verdict_stands_without_a_time() {
         let row = base_row("retired-imported-method");

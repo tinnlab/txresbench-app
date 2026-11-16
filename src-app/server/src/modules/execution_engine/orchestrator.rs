@@ -797,14 +797,27 @@ impl MethodExecutor for StackMethodExecutor {
         // `ctx.method_id` is the plan id — for reuse plans that is the MODEL
         // id, not a catalogue method id. start_run validated the asset's
         // catalogue `method_id`; resolve facts from the target, not the plan id.
-        let facts = match &ctx.target {
-            RunTarget::TrainMethod => {
-                envmanifest::facts_for(&method_id).expect("checked at start_run")
-            }
-            RunTarget::ReuseModel { asset } => {
-                envmanifest::facts_for(&asset.method_id).expect("checked at start_run")
-            }
+        // A saved model runs with the facts it was trained with (classify
+        // already refused a model whose facts cannot be had).
+        let facts: std::borrow::Cow<'static, Method> = match &ctx.target {
+            RunTarget::TrainMethod => std::borrow::Cow::Borrowed(
+                envmanifest::facts_for(&method_id).expect("checked at start_run"),
+            ),
+            RunTarget::ReuseModel { asset } => match envmanifest::reuse_facts_for(
+                &asset.method_id,
+                &asset.method_version,
+                asset.method_facts.as_ref(),
+            ) {
+                Ok(facts) => facts,
+                Err(refusal) => {
+                    return Ok(failed_outcome(TxrRunReason::from_catalogue(
+                        crate::modules::method_catalogue::types::ReasonCode::NotRunnable,
+                        refusal.detail(),
+                    )))
+                }
+            },
         };
+        let facts: &Method = &facts;
         let spec = super::predictions::PredictionSpec::new(facts);
         let settings = method_bundle_settings(&ctx.config, ctx.cpus);
         let limits = crate::modules::sandbox::settings_cache::get(&self.pool).await;
@@ -3800,20 +3813,41 @@ fn classify(
                 };
                 // The verify-before-bind gate (CONS-EE-6): a tampered asset
                 // dir is refused BEFORE any spawn.
-                let verified = crate::modules::sandbox::stack::verify_model_tree(
+                if let Err(e) = crate::modules::sandbox::stack::verify_model_tree(
                     Path::new(&asset.host_dir),
                     &asset.tree_sha256,
-                );
-                plans.push(match verified {
-                    Ok(()) => plan(Some(env), None),
-                    Err(e) => plan(
+                ) {
+                    plans.push(plan(
                         Some(env),
                         Some(TxrRunReason {
                             code: e.error_code().to_string(),
                             detail: e.to_string(),
                         }),
-                    ),
-                });
+                    ));
+                    continue;
+                }
+                // The facts the model was trained with (a model that kept
+                // none runs only at its own catalogue version); the plan's
+                // group and draw rule are those facts', not the current row's.
+                match envmanifest::reuse_facts_for(
+                    &asset.method_id,
+                    &asset.method_version,
+                    asset.method_facts.as_ref(),
+                ) {
+                    Ok(model_facts) => {
+                        let mut p = plan(Some(env), None);
+                        p.group = model_facts.group.as_str().to_string();
+                        p.min_draws = model_facts.min_draws;
+                        plans.push(p);
+                    }
+                    Err(refusal) => plans.push(plan(
+                        Some(env),
+                        Some(TxrRunReason::from_catalogue(
+                            crate::modules::method_catalogue::types::ReasonCode::NotRunnable,
+                            refusal.detail(),
+                        )),
+                    )),
+                }
             }
         }
     }
@@ -6013,6 +6047,7 @@ mod tests {
                 env: TxrMethodEnv::digests("c".repeat(64), "d".repeat(64)),
                 contract: "2.0".to_string(),
                 conversions: Default::default(),
+                method_facts: None,
             }],
         };
         let summary = start_run(pool.clone(), runtime, env, executor, owner(), req)
@@ -6072,6 +6107,10 @@ mod tests {
             },
             contract: "2.0".to_string(),
             conversions: Default::default(),
+            // Saved with the facts its training run used.
+            method_facts: Some(crate::modules::execution_engine::types::TxrMethodFacts::from_method(
+                envmanifest::facts_for(method).expect("a catalogue method"),
+            )),
         }
     }
 
@@ -7035,6 +7074,7 @@ mod tests {
                 env: TxrMethodEnv::digests("c".repeat(64), "d".repeat(64)),
                 contract: "2.0".to_string(),
                 conversions: Default::default(),
+                method_facts: None,
             }],
         }
     }
@@ -7351,6 +7391,117 @@ mod tests {
         let outcome = exec.execute(ctx).await.expect("verdict");
         let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner()).clone();
         (outcome, run_dir, calls, digest)
+    }
+
+    /// A saved model runs with the facts its training run used, not the
+    /// catalogue's current row: here the row has changed since (another task,
+    /// another draw rule, another group) and the plan and the call follow
+    /// the model's own facts.
+    #[tokio::test]
+    async fn reuse_uses_stored_facts_after_the_catalogue_row_changed() {
+        let _g = rootfs::scoped_data_root(test_data_dir("reuse-stored-facts"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let run_dir = rootfs::data_root();
+        let (asset_dir, digest) = fixture_asset(&run_dir);
+        make_method_dirs(&run_dir, "m-1");
+        let method = "ctdna-tf-four-group";
+        let row = envmanifest::facts_for(method).expect("a catalogue method");
+        // The facts the model was trained with differ from today's row.
+        let mut trained = types::TxrMethodFacts::from_method(row);
+        trained.tasks = vec!["response".to_string()];
+        trained.min_draws = row.min_draws + 1;
+        trained.group = crate::modules::method_catalogue::types::MethodGroup::DynamicRisk;
+        assert_ne!(row.group, trained.group);
+        let mut req = cohort_reuse_request(&asset_dir, &digest, method);
+        req.input.patients = None;
+        req.model_ids[0].method_facts = Some(trained.clone());
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Reuse,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the reuse fixture validates");
+        let plan = &prepared.plans[0];
+        assert!(!plan.cannot_run, "{:?}", plan.reason);
+        assert_eq!(plan.min_draws, trained.min_draws, "the model's draw rule");
+        assert_eq!(plan.group, "dynamic-risk", "the model's group");
+
+        let (mut ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "m-1",
+            prepared.train,
+            prepared.predict,
+            prepared.predict_patients,
+            false,
+            RunTarget::ReuseModel {
+                asset: req.model_ids[0].clone(),
+            },
+        );
+        ctx.config = req.config.clone();
+        ctx.min_draws = plan.min_draws;
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(
+            outcome.task,
+            Some(TxrTask::Response),
+            "the model's task, not the row's survival task: {:?}",
+            outcome.reason
+        );
+    }
+
+    /// A model saved before the facts were kept runs on the current row only
+    /// when the row is the model's version; at another version that model is
+    /// refused with a clear sentence and the other models still run.
+    #[tokio::test]
+    async fn model_without_facts_uses_the_row_only_at_its_own_version() {
+        let root = test_data_dir("reuse-facts-version");
+        let _ = std::fs::remove_dir_all(&root);
+        let _g = rootfs::scoped_data_root(root.clone());
+        let pool = merged_pool().await;
+        let env = Arc::new(FakeEnv::new(Duration::from_millis(10)));
+        let executor = Arc::new(FakeExecutor::new(Duration::ZERO));
+        let (host, _) = host_and_other_arch();
+        let method = "landmark-cox-current";
+        let row = envmanifest::facts_for(method).expect("a catalogue method");
+        let mut same = saved_model(&root, "m-same", method, &"1a".repeat(32), &"2b".repeat(32), Some(host));
+        same.method_facts = None;
+        same.method_version = row.version.clone();
+        let mut other = saved_model(&root, "m-other", method, &"3c".repeat(32), &"2b".repeat(32), Some(host));
+        other.method_facts = None;
+        other.method_version = "0.0.1".to_string();
+        let summary = start_run(
+            pool.clone(),
+            Arc::new(RunRuntime::new()),
+            env,
+            executor,
+            owner(),
+            reuse_request(vec![same, other]),
+        )
+        .await
+        .expect("create");
+        let repo = TxrRepository::new(pool.clone());
+        let _ = wait_terminal(&repo, summary.id).await;
+        let rows = repo.methods_for_run(summary.id).await.expect("methods");
+        let by_id: std::collections::HashMap<_, _> =
+            rows.iter().map(|r| (r.method_id.as_str(), r)).collect();
+        assert_eq!(by_id["m-same"].state, "finished", "same version: the row's facts");
+        let refused = by_id["m-other"];
+        assert_eq!(refused.state, "cannot_run");
+        assert_eq!(refused.reason_code.as_deref(), Some("NOT_RUNNABLE"));
+        assert_eq!(
+            refused.reason_detail.as_deref(),
+            Some(
+                format!(
+                    "This saved model was trained with {method} 0.0.1, whose settings this app no \
+                     longer has (it has {}); it was saved before models kept their settings",
+                    row.version
+                )
+                .as_str()
+            )
+        );
     }
 
     /// The `m-1` reuse column as recorded: `(patient, probability, note)`.

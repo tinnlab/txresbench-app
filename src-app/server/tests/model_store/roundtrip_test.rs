@@ -73,6 +73,7 @@ fn container_fixture(tree_dir: &std::path::Path, token: &str) -> Vec<u8> {
         own_auc: Some(0.66),
         own_c: Some(0.60),
         conversions: Default::default(),
+        method_facts: None,
     };
     let export = ContainerExport {
         set: Some(ContainerSet {
@@ -183,6 +184,112 @@ async fn export_then_import_keeps_the_conversions() {
     let id = imported["models"][0]["id"].as_str().expect("id").to_string();
     let assets = store::resolve_assets(&pool(&server2).await, &[id]).await.expect("resolve");
     assert!(assets[0].conversions.is_empty());
+}
+
+/// A saved model keeps the run-shaping facts its training run used and the
+/// environment image it ran in: save stores them, the `.txr` export carries
+/// them, and an import on another computer stores them again; the engine
+/// element the import resolves to carries both. An older container (without
+/// them) imports with none.
+#[tokio::test]
+async fn save_export_import_round_trips_the_method_facts_and_image() {
+    use txresbench::modules::execution_engine::repository::MethodPatch;
+    use txresbench::modules::execution_engine::types::TxrMethodFacts;
+    let server = TestServer::spawn().await;
+    let token = owner_token(&server).await;
+    let repo = TxrRepository::new(pool(&server).await);
+    let (run_id, _) = seed_run_with_models(&server, &repo, "facts-trip", &[METHOD_A]).await;
+    repo.patch_method(
+        run_id,
+        METHOD_A,
+        &MethodPatch {
+            env_method_version: Some("2.0.1".to_string()),
+            env_arch: Some("amd64".to_string()),
+            env_layer_tag: Some(format!("{METHOD_A}-2.0.1-amd64-5ce304e213ac")),
+            env_base_tag: Some("base-py-2.0-amd64-e10454500239".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("image facts");
+    let resp = server
+        .client
+        .post(server.api_url("/txr/models/save"))
+        .bearer_auth(&token)
+        .json(&json!({"run_id": run_id, "method_ids": [METHOD_A],
+            "target": {"set_name": "Facts trip"}}))
+        .send()
+        .await
+        .expect("save");
+    assert_eq!(resp.status().as_u16(), 201);
+    let saved: Value = resp.json().await.expect("json");
+    let model_id = saved["models"][0]["id"].as_str().expect("id").to_string();
+
+    let cat = txresbench::modules::method_catalogue::catalogue::method(METHOD_A).expect("row");
+    let want = serde_json::to_value(TxrMethodFacts::from_method(cat)).expect("facts");
+    let assets = store::resolve_assets(&pool(&server).await, &[model_id.clone()])
+        .await
+        .expect("resolve");
+    assert_eq!(
+        serde_json::to_value(&assets[0].method_facts).expect("facts"),
+        want,
+        "save stores the training run's facts (the row is still the run's version)"
+    );
+    let image = assets[0].env.clone();
+    assert_eq!(image.layer_tag.as_deref(), Some(format!("{METHOD_A}-2.0.1-amd64-5ce304e213ac").as_str()));
+
+    let container = server
+        .client
+        .get(server.api_url(&format!("/txr/models/{model_id}/export")))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("export")
+        .bytes()
+        .await
+        .expect("container bytes")
+        .to_vec();
+    let server2 = TestServer::spawn().await;
+    let token2 = owner_token(&server2).await;
+    let resp = server2
+        .client
+        .post(server2.api_url("/txr/models/import"))
+        .bearer_auth(&token2)
+        .multipart(Form::new().part("file", Part::bytes(container).file_name("facts.txr")))
+        .send()
+        .await
+        .expect("import");
+    assert_eq!(resp.status().as_u16(), 201);
+    let imported: Value = resp.json().await.expect("import json");
+    let id = imported["models"][0]["id"].as_str().expect("id").to_string();
+    let assets = store::resolve_assets(&pool(&server2).await, &[id]).await.expect("resolve");
+    assert_eq!(
+        serde_json::to_value(&assets[0].method_facts).expect("facts"),
+        want,
+        "the same facts on the other computer"
+    );
+    assert_eq!(assets[0].env, image, "the same image on the other computer");
+
+    // An older container (no facts in its header): imported with none.
+    let tree = server2.data_dir().join("older-facts-tree");
+    let (tree, _, _) = super::fixture_tree(&tree, "older-facts");
+    let older = container_fixture(&tree, "older-facts");
+    let header_len = u32::from_le_bytes(older[9..13].try_into().expect("len")) as usize;
+    let header = std::str::from_utf8(&older[13..13 + header_len]).expect("utf-8");
+    assert!(!header.contains("method_facts"), "an older header has no facts");
+    let resp = server2
+        .client
+        .post(server2.api_url("/txr/models/import"))
+        .bearer_auth(&token2)
+        .multipart(Form::new().part("file", Part::bytes(older).file_name("older.txr")))
+        .send()
+        .await
+        .expect("import");
+    assert_eq!(resp.status().as_u16(), 201);
+    let imported: Value = resp.json().await.expect("import json");
+    let id = imported["models"][0]["id"].as_str().expect("id").to_string();
+    let assets = store::resolve_assets(&pool(&server2).await, &[id]).await.expect("resolve");
+    assert!(assets[0].method_facts.is_none());
 }
 
 /// TEST-MS-10: the round trip — export the saved SET via the route, import it

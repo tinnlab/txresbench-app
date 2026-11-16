@@ -380,6 +380,7 @@ mod tests {
             env,
             contract: "2.0".to_string(),
             conversions: Default::default(),
+            method_facts: None,
         }
     }
 

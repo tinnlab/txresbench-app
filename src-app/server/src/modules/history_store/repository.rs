@@ -1496,6 +1496,7 @@ mod tests {
                 env_arch: None,
                 env_layer_tag: None,
                 env_base_tag: None,
+                method_facts: None,
             })
             .await
             .expect("insert model")

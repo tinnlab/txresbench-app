@@ -521,6 +521,79 @@ pub struct TxrModelAsset {
     /// before conversions were kept).
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub conversions: super::predictions::Conversions,
+    /// The run-shaping catalogue facts the model was trained with. A reuse
+    /// runs with THESE facts, not the current catalogue row's. Absent on a
+    /// model saved before they were kept: the current row is used only when
+    /// its version equals `method_version`, otherwise the model is refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method_facts: Option<TxrMethodFacts>,
+}
+
+/// The run-shaping facts of a catalogue row: the method.json contract the
+/// engine reads to build a method's bundles, pick its markers, choose its
+/// task and read its outputs. A saved model keeps the ones its training run
+/// used, so a later catalogue that changed them (a new method version) does
+/// not change how the model is run. The rest of the row (title, timing,
+/// references, …) is not run-shaping and is not kept.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TxrMethodFacts {
+    pub group: crate::modules::method_catalogue::types::MethodGroup,
+    pub markers: crate::modules::method_catalogue::types::MethodMarkers,
+    pub required_markers: Option<crate::modules::method_catalogue::types::RequiredMarkers>,
+    pub covariates: crate::modules::method_catalogue::types::CovariateMode,
+    pub min_draws: u32,
+    pub needs_baseline: bool,
+    pub uses_history: crate::modules::method_catalogue::types::UsesHistory,
+    pub fitted: bool,
+    pub saves_model: bool,
+    pub own_outputs: Vec<String>,
+    pub tasks: Vec<String>,
+    pub needs_detection_call: bool,
+    pub params: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+impl TxrMethodFacts {
+    /// The run-shaping facts of a catalogue row.
+    pub fn from_method(m: &crate::modules::method_catalogue::types::Method) -> Self {
+        Self {
+            group: m.group,
+            markers: m.markers,
+            required_markers: m.required_markers.clone(),
+            covariates: m.covariates,
+            min_draws: m.min_draws,
+            needs_baseline: m.needs_baseline,
+            uses_history: m.uses_history,
+            fitted: m.fitted,
+            saves_model: m.saves_model,
+            own_outputs: m.own_outputs.clone(),
+            tasks: m.tasks.clone(),
+            needs_detection_call: m.needs_detection_call,
+            params: m.params.clone(),
+        }
+    }
+
+    /// `row` with these facts in place of its own (the row gives everything
+    /// that does not shape the run: id, names, language, timing, …).
+    pub fn apply_to(
+        &self,
+        row: &crate::modules::method_catalogue::types::Method,
+    ) -> crate::modules::method_catalogue::types::Method {
+        let mut m = row.clone();
+        m.group = self.group;
+        m.markers = self.markers;
+        m.required_markers = self.required_markers.clone();
+        m.covariates = self.covariates;
+        m.min_draws = self.min_draws;
+        m.needs_baseline = self.needs_baseline;
+        m.uses_history = self.uses_history;
+        m.fitted = self.fitted;
+        m.saves_model = self.saves_model;
+        m.own_outputs = self.own_outputs.clone();
+        m.tasks = self.tasks.clone();
+        m.needs_detection_call = self.needs_detection_call;
+        m.params = self.params.clone();
+        m
+    }
 }
 
 /// The environment image recorded on a method row / produced model / saved
@@ -1162,6 +1235,7 @@ mod tests {
             env: TxrMethodEnv::digests("b".repeat(64), "c".repeat(64)),
             contract: "2.0".to_string(),
             conversions: Default::default(),
+            method_facts: None,
         }
     }
 

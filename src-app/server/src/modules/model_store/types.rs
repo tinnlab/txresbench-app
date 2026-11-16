@@ -626,6 +626,11 @@ pub struct ResolvedAsset {
     /// `conversions`; absent when none was saved).
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub conversions: crate::modules::execution_engine::predictions::Conversions,
+    /// The run-shaping facts the model was trained with (the engine
+    /// element's `method_facts`; absent on a model saved before they were
+    /// kept).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method_facts: Option<crate::modules::execution_engine::types::TxrMethodFacts>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1100,6 +1105,7 @@ mod tests {
             env: TxrMethodEnv::digests("ba".repeat(32), "ca".repeat(32)),
             contract: "2.0".into(),
             conversions: Default::default(),
+            method_facts: None,
         };
         let json = serde_json::to_value(&engine_asset).expect("engine asset serializes");
         let mine: ResolvedAsset = serde_json::from_value(json.clone())
