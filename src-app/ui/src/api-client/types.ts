@@ -612,6 +612,11 @@ export interface EnvRef {
    * Full OCI reference, `<package>[:<tag>][@sha256:<hex>]`, where
    *  `<package>` is [`TXR_BASE_REGISTRY_PREFIX`] or
    *  [`TXR_LAYER_REGISTRY_PREFIX`] itself (enforced by [`validate_oci_ref`]).
+   *  `<package>@sha256:<digest>` with this ref's own `digest` is a FILE
+   *  ADDRESS: the download manager fetches the squashfs file itself by its
+   *  sha256 (no tag, no manifest), which is how a saved model gets an
+   *  environment the current method list no longer names. Any other
+   *  `@sha256:` is an artifact manifest digest.
    */
   oci_ref: string
   /** Optional tag; resolved only when the reference carries no `@digest`. */
@@ -2651,6 +2656,12 @@ export interface ResolvedAsset {
   conversions?: any
   env: TxrMethodEnv
   host_dir: string
+  /**
+   * The run-shaping facts the model was trained with (the engine
+   *  element's `method_facts`; absent on a model saved before they were
+   *  kept).
+   */
+  method_facts?: TxrMethodFacts
   method_id: string
   method_version: string
   model_id: string
@@ -3440,12 +3451,54 @@ export interface TxrMapping {
 }
 
 /**
- * The env digest pair recorded on a method row / produced model (base + the
- *  method's layer — provenance against the manifest, CONS-EE-8).
+ * The environment image recorded on a method row / produced model / saved
+ *  model: the two FILE hashes the run verified (the base squashfs pin and the
+ *  layer squashfs `layer_sha256`, each the blob digest of its file in its
+ *  package, so the exact image can always be fetched again), plus what the
+ *  method list told about it when the run started.
+ *
+ *  The four optional facts are absent on records from before they were kept
+ *  (and on an image the list did not name); absent ones are not written, so a
+ *  `.txr` header without them keeps its bytes and an older app ignores them.
  */
 export interface TxrMethodEnv {
+  /** The chip type the image is built for (`amd64` | `arm64`). */
+  arch?: string
   base_digest: string
+  /** The base's immutable publish tag. */
+  base_tag?: string
   layer_digest: string
+  /** The layer's immutable publish tag (`<env_id>-<version>-<arch>-<sha12>`). */
+  layer_tag?: string
+  /**
+   * The environment's method version (the list entry's `method_version`,
+   *  which can differ from the catalogue's version).
+   */
+  method_version?: string
+}
+
+/**
+ * The run-shaping facts of a catalogue row: the method.json contract the
+ *  engine reads to build a method's bundles, pick its markers, choose its
+ *  task and read its outputs. A saved model keeps the ones its training run
+ *  used, so a later catalogue that changed them (a new method version) does
+ *  not change how the model is run. The rest of the row (title, timing,
+ *  references, …) is not run-shaping and is not kept.
+ */
+export interface TxrMethodFacts {
+  covariates: CovariateMode
+  fitted: boolean
+  group: MethodGroup
+  markers: MethodMarkers
+  min_draws: number
+  needs_baseline: boolean
+  needs_detection_call: boolean
+  own_outputs: string[]
+  params: any
+  required_markers?: RequiredMarkers
+  saves_model: boolean
+  tasks: string[]
+  uses_history: UsesHistory
 }
 
 /**
@@ -3474,6 +3527,13 @@ export interface TxrModelAsset {
   conversions?: any
   env: TxrMethodEnv
   host_dir: string
+  /**
+   * The run-shaping catalogue facts the model was trained with. A reuse
+   *  runs with THESE facts, not the current catalogue row's. Absent on a
+   *  model saved before they were kept: the current row is used only when
+   *  its version equals `method_version`, otherwise the model is refused.
+   */
+  method_facts?: TxrMethodFacts
   method_id: string
   method_version: string
   model_id: string

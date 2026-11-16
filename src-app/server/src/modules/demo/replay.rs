@@ -341,11 +341,28 @@ pub fn lpt_schedule_seconds(seconds: &[f64], lanes: usize) -> f64 {
 /// The recorded env provenance of a catalogue method (the manifest's digest
 /// pins — the same facts a real run records; the demo run never downloaded
 /// them, so the row carries the RECORDED digests, never a fabricated
-/// download).
-fn recorded_env_digests(method_id: &str) -> (String, String) {
+/// download), with the image facts the same list entry gives (version, arch,
+/// tags) — what a real run's running patch writes.
+fn recorded_env_patch(method_id: &str) -> MethodPatch {
     match envmanifest::env_for(method_id) {
-        Some(entry) => (entry.base_digest.clone(), entry.layer_sha256.clone()),
-        None => ("recorded".to_string(), "recorded".to_string()),
+        Some(entry) => MethodPatch {
+            env_base_digest: Some(entry.base_digest.clone()),
+            env_layer_digest: Some(entry.layer_sha256.clone()),
+            env_method_version: Some(entry.method_version.clone()),
+            env_arch: Some(entry.arch.as_str().to_string()),
+            env_layer_tag: Some(entry.tag.clone()),
+            env_base_tag: crate::modules::execution_engine::orchestrator::base_env_ref(
+                entry,
+                envmanifest::base_artifact_for(entry),
+            )
+            .tag,
+            ..Default::default()
+        },
+        None => MethodPatch {
+            env_base_digest: Some("recorded".to_string()),
+            env_layer_digest: Some("recorded".to_string()),
+            ..Default::default()
+        },
     }
 }
 
@@ -1330,7 +1347,7 @@ async fn patch_step_finished(
     finished_at: DateTime<Utc>,
     elapsed_ms: u64,
 ) -> Result<(), AppError> {
-    let (base, layer) = recorded_env_digests(&step.outcome_method_id);
+    let env = recorded_env_patch(&step.outcome_method_id);
     repo.patch_method(
         run_id,
         &step.method_id,
@@ -1347,12 +1364,10 @@ async fn patch_step_finished(
             finished_at: Some(finished_at),
             model_out_digest: step.model_digest.clone(),
             model_dir: step.model_tree.as_ref().map(|p| p.display().to_string()),
-            env_base_digest: Some(base),
-            env_layer_digest: Some(layer),
             trained_on_patients: step.model.as_ref().and_then(|m| m.trained_on_patients),
             size_bytes: step.model.as_ref().map(|m| m.size_bytes),
             own_auc: step.model.as_ref().and_then(|m| m.own_auc),
-            ..Default::default()
+            ..env
         },
     )
     .await?;
@@ -1792,7 +1807,7 @@ pub async fn finish_interrupted_replays(
             };
             let tree = Path::new(&row.dir).join("models").join(&m.method_id);
             let digest = crate::modules::sandbox::stack::tree_sha256(&tree).ok();
-            let (base, layer) = recorded_env_digests(&m.label);
+            let env = recorded_env_patch(&m.label);
             repo.patch_method(
                 run_id,
                 &m.method_id,
@@ -1808,12 +1823,10 @@ pub async fn finish_interrupted_replays(
                     finished_at: Some(Utc::now()),
                     model_out_digest: digest.clone(),
                     model_dir: tree.exists().then(|| tree.display().to_string()),
-                    env_base_digest: Some(base),
-                    env_layer_digest: Some(layer),
                     trained_on_patients: model.as_ref().and_then(|m| m.trained_on_patients),
                     size_bytes: model.as_ref().map(|m| m.size_bytes),
                     own_auc: model.as_ref().and_then(|m| m.own_auc),
-                    ..Default::default()
+                    ..env
                 },
             )
             .await?;
@@ -2010,7 +2023,7 @@ async fn seed_one_run(
         .await?;
     let finished_at = Utc::now();
     for step in &plan.steps {
-        let (base, layer) = recorded_env_digests(&step.outcome_method_id);
+        let env = recorded_env_patch(&step.outcome_method_id);
         repo.patch_method(
             run_id,
             &step.method_id,
@@ -2027,12 +2040,10 @@ async fn seed_one_run(
                 finished_at: Some(finished_at),
                 model_out_digest: step.model_digest.clone(),
                 model_dir: step.model_tree.as_ref().map(|p| p.display().to_string()),
-                env_base_digest: Some(base),
-                env_layer_digest: Some(layer),
                 trained_on_patients: step.model.as_ref().and_then(|m| m.trained_on_patients),
                 size_bytes: step.model.as_ref().map(|m| m.size_bytes),
                 own_auc: step.model.as_ref().and_then(|m| m.own_auc),
-                ..Default::default()
+                ..env
             },
         )
         .await?;

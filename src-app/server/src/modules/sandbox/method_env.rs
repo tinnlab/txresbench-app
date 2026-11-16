@@ -368,6 +368,10 @@ pub struct MethodEnvManager {
     /// is re-checked under the lock).
     slot_changed: Condvar,
     seams: MethodEnvSeams,
+    /// Test seam: run once by the next `ensure` that does not own its
+    /// attempt, right after `claim` returns (an interleaving point).
+    #[cfg(test)]
+    after_claim: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 struct Inner {
@@ -456,6 +460,8 @@ impl MethodEnvManager {
             }),
             slot_changed: Condvar::new(),
             seams,
+            #[cfg(test)]
+            after_claim: Mutex::new(None),
         }
         .with_persisted_loaded()
     }
@@ -483,21 +489,37 @@ impl MethodEnvManager {
     /// 2. the content-digest cache — a cached digest is re-verified (its bytes
     ///    must still hash to the pin) and mounted, no network;
     /// 3. the OCI path — the pinned (`@sha256:`) or tag-resolved pull ref,
-    ///    bytes verified against `r.digest` ALWAYS before the cache entry,
-    ///    mounted by digest.
+    ///    or, for a file address (`<package>@sha256:<r.digest>`), the file
+    ///    itself by its sha256 (`oras blob fetch`); bytes verified against
+    ///    `r.digest` ALWAYS before the cache entry, mounted by digest.
     ///
-    /// BLOCKING: run on `spawn_blocking`. `deadline` bounds the whole
-    /// sequence. At most one download per env-id (a further request waits on
-    /// the existing attempt) and at most [`MAX_CONCURRENT_DOWNLOADS`] in
-    /// flight.
+    /// BLOCKING: run on `spawn_blocking`. `deadline` bounds this call's own
+    /// attempt (resolve→verify→pull→stage→mount), from the moment the call
+    /// owns it: time spent waiting on another call's attempt does not count.
+    /// At most one download per env-id (a further request waits on the
+    /// existing attempt) and at most [`MAX_CONCURRENT_DOWNLOADS`] in flight.
     pub fn ensure(
         &self,
         r: &EnvRef,
         kind: EnvKind,
         deadline: Duration,
     ) -> Result<ProvidedMount, AppError> {
-        let deadline_at = Instant::now() + deadline;
+        self.ensure_until(r, kind, deadline, &Arc::new(AtomicBool::new(false)))
+    }
 
+    /// [`Self::ensure`] with a stop signal for this one call (the engine sets
+    /// it when the user stops the method). Checked whenever the call waits
+    /// (for another attempt or a download slot): a stopped call returns
+    /// `ENV_DOWNLOAD_CANCELLED` and never claims an attempt. When the call
+    /// owns its attempt, the signal is that attempt's cancel handle, so it
+    /// stops the download too (a [`Self::cancel`] of that attempt sets it).
+    pub fn ensure_until(
+        &self,
+        r: &EnvRef,
+        kind: EnvKind,
+        deadline: Duration,
+        stop: &Arc<AtomicBool>,
+    ) -> Result<ProvidedMount, AppError> {
         // Entry boundary — caller data is grammar-validated BEFORE any
         // filesystem/spawn work (the ref host/prefix boundary; the pinned
         // digest shape; base-vs-layer namespace consistency).
@@ -523,11 +545,17 @@ impl MethodEnvManager {
         // State machine: this call either owns the attempt, or waits out the
         // attempt the env already has (that attempt's result is returned), or
         // waits for a download slot.
-        let owned_attempt = self.claim(&env_id, r, kind)?;
-        if !owned_attempt {
-            return self.result_for(&env_id);
+        match self.claim(&env_id, r, kind, stop) {
+            Claim::Owned => {}
+            Claim::Done(result) => {
+                #[cfg(test)]
+                self.run_after_claim_hook();
+                return result;
+            }
         }
 
+        // The budget starts now: this call owns its attempt.
+        let deadline_at = Instant::now() + deadline;
         let outcome = self.attempt_download(&env_id, r, &parts, deadline_at);
 
         // Terminal transition (under the lock): clear the worker, release the
@@ -563,6 +591,18 @@ impl MethodEnvManager {
         self.slot_changed.notify_all();
 
         outcome
+    }
+
+    #[cfg(test)]
+    fn run_after_claim_hook(&self) {
+        let hook = self
+            .after_claim
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take();
+        if let Some(hook) = hook {
+            hook();
+        }
     }
 
     /// The current status of `env_id`. An env the manager has never seen (not
@@ -605,14 +645,33 @@ impl MethodEnvManager {
     /// no-op for an idle env; a subsequent `ensure` retries cleanly
     /// (TEST-10 / TEST-11).
     pub fn cancel(&self, env_id: &str) {
+        self.cancel_matching(env_id, None);
+    }
+
+    /// [`Self::cancel`] of `env_id`'s in-flight download only when it is the
+    /// download of `digest`: stopping one saved model never kills another
+    /// model's download of a different file of the same env. A download of
+    /// the same file is shared by every call waiting on it, so it is cancelled
+    /// for all of them, as [`Self::cancel`] does. Every waiter is woken either
+    /// way, so a call whose stop signal is set returns at once.
+    pub fn cancel_digest(&self, env_id: &str, digest: &str) {
+        self.cancel_matching(env_id, Some(digest));
+    }
+
+    fn cancel_matching(&self, env_id: &str, digest: Option<&str>) {
         if !is_valid_env_id(env_id) {
             return;
         }
         let mut guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         let Some(entry) = guard.entries.get_mut(env_id) else {
+            drop(guard);
+            self.slot_changed.notify_all();
             return;
         };
-        if entry.status.state != MethodEnvState::Downloading {
+        let other_file = digest.is_some_and(|d| entry.status.digest.as_deref() != Some(d));
+        if entry.status.state != MethodEnvState::Downloading || other_file {
+            drop(guard);
+            self.slot_changed.notify_all();
             return;
         }
         if let Some(flag) = entry.cancel.as_ref() {
@@ -697,12 +756,19 @@ impl MethodEnvManager {
         digest
     }
 
-    /// Get-or-create the entry and either claim the attempt or route this call
-    /// to the existing attempt's result. `Ok(false)` = the caller must return
-    /// [`Self::result_for`]; `Ok(true)` = the caller owns the attempt.
-    fn claim(&self, env_id: &str, r: &EnvRef, kind: EnvKind) -> Result<bool, AppError> {
+    /// Get-or-create the entry and either claim the attempt
+    /// ([`Claim::Owned`]) or answer this call ([`Claim::Done`]): the result of
+    /// an attempt for the requested file, taken while the lock is held (so a
+    /// download of another file that starts right after cannot change it), or
+    /// the cancelled error once the call's `stop` signal is set.
+    fn claim(&self, env_id: &str, r: &EnvRef, kind: EnvKind, stop: &Arc<AtomicBool>) -> Claim {
         let mut guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         loop {
+            // A stopped call never claims (nothing could cancel its download
+            // afterwards), whatever it waited for.
+            if stop.load(Ordering::SeqCst) {
+                return Claim::Done(Err(stopped_error()));
+            }
             // Predicates under the lock, with the entry borrow SCOPED so the
             // slot gate below can re-borrow `guard`.
             let (state, same_digest) = {
@@ -723,12 +789,29 @@ impl MethodEnvManager {
                 // a terminal state starts a retry (TEST-11). If another
                 // caller restarted the env meanwhile (a newer attempt), the
                 // waiter chains onto it.
-                let seen = guard.entries.get(env_id).map(|e| e.attempt).unwrap_or(0);
+                //
+                // The observed attempt may be for ANOTHER digest of the same
+                // env (two saved models of one method at two versions in one
+                // run). Its result is not this call's: such a waiter never
+                // takes it, and waits until that attempt's worker has finished
+                // (the attempt counter moves), then re-evaluates: a cache hit
+                // or its own fetch. The wait wakes on a short poll too, so a
+                // stop signal is seen without a notify.
+                let (seen, seen_digest) = guard
+                    .entries
+                    .get(env_id)
+                    .map(|e| (e.attempt, e.status.digest.clone()))
+                    .unwrap_or((0, None));
+                let same_digest_attempt = seen_digest.as_deref() == Some(r.digest.as_str());
                 loop {
-                    guard = self
+                    let (g, _) = self
                         .slot_changed
-                        .wait(guard)
+                        .wait_timeout(guard, STOP_POLL_INTERVAL)
                         .unwrap_or_else(|p| p.into_inner());
+                    guard = g;
+                    if stop.load(Ordering::SeqCst) {
+                        return Claim::Done(Err(stopped_error()));
+                    }
                     let (state_now, attempt_now) = guard
                         .entries
                         .get(env_id)
@@ -737,8 +820,13 @@ impl MethodEnvManager {
                     if attempt_now != seen {
                         break; // a newer attempt owns the future; re-evaluate
                     }
-                    if state_now != MethodEnvState::Downloading {
-                        return Ok(false); // THE observed attempt ended
+                    if state_now != MethodEnvState::Downloading && same_digest_attempt {
+                        // THE observed attempt ended.
+                        let entry = guard
+                            .entries
+                            .get_mut(env_id)
+                            .expect("the observed entry exists");
+                        return Claim::Done(result_locked(entry, env_id, &r.digest));
                     }
                 }
                 continue;
@@ -749,16 +837,21 @@ impl MethodEnvManager {
             // same env-id) is a fresh download, not a stale mount. A Failed
             // entry is retried by the next, fresh call (TEST-11).
             if state == MethodEnvState::Ready && same_digest {
-                return Ok(false);
+                let entry = guard
+                    .entries
+                    .get_mut(env_id)
+                    .expect("the entry exists");
+                return Claim::Done(result_locked(entry, env_id, &r.digest));
             }
             if guard.running >= MAX_CONCURRENT_DOWNLOADS {
-                guard = self
+                let (g, _) = self
                     .slot_changed
-                    .wait(guard)
+                    .wait_timeout(guard, STOP_POLL_INTERVAL)
                     .unwrap_or_else(|p| p.into_inner());
+                guard = g;
                 continue;
             }
-            // Claim.
+            // Claim. The call's stop signal is the attempt's cancel handle.
             let entry = guard
                 .entries
                 .get_mut(env_id)
@@ -772,65 +865,13 @@ impl MethodEnvManager {
             entry.last_error = None;
             entry.worker_active = true;
             entry.mounted_dir = None;
-            entry.cancel = Some(Arc::new(AtomicBool::new(false)));
+            entry.cancel = Some(stop.clone());
             guard.running += 1;
             self.persist_locked(&mut guard, env_id);
             drop(guard);
             self.slot_changed.notify_all();
-            return Ok(true);
+            return Claim::Owned;
         }
-    }
-
-    /// The Ready mount or the last attempt's error, for a call that found an
-    /// existing terminal state (or waited one out). A Ready entry loaded from
-    /// disk mounts lazily (its digest is cache-present by the load rule).
-    fn result_for(&self, env_id: &str) -> Result<ProvidedMount, AppError> {
-        let mut guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(entry) = guard.entries.get_mut(env_id) else {
-            return Err(AppError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                ENV_REPOSITORY_UNKNOWN_CODE,
-                format!("no recorded state for env {env_id:?}"),
-            ));
-        };
-        // A newer attempt can only own the entry if this call's observed
-        // attempt was superseded between the waiter's read and this re-lock —
-        // an extreme race; refuse rather than mount or fail on a state the
-        // caller never asked for.
-        if entry.status.state == MethodEnvState::Downloading {
-            return Err(AppError::new(
-                StatusCode::CONFLICT,
-                ENV_REPOSITORY_UNKNOWN_CODE,
-                format!(
-                    "env {env_id:?} was re-fetched meanwhile with a different pin; \
-                     retry the request"
-                ),
-            ));
-        }
-        if let Some(e) = entry.last_error.clone() {
-            return Err(e.to_app());
-        }
-        let Some(digest) = entry.status.digest.clone() else {
-            return Err(AppError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                ENV_REPOSITORY_UNKNOWN_CODE,
-                format!("env {env_id:?} is ready but carries no digest"),
-            ));
-        };
-        if let Some(dir) = entry.mounted_dir.clone() {
-            return Ok(ProvidedMount {
-                mount_dir: dir,
-                digest: Some(digest),
-            });
-        }
-        // A persisted-rule Ready entry: mount now (the per-digest lock + fast
-        // path make a concurrent mount cheap).
-        let mount = ready_artifact_path(&digest)?;
-        entry.mounted_dir = Some(mount.clone());
-        Ok(ProvidedMount {
-            mount_dir: mount,
-            digest: Some(digest),
-        })
     }
 
     /// The whole fetch/verify/cache/mount sequence for this attempt (the
@@ -898,7 +939,15 @@ impl MethodEnvManager {
         }
 
         // ── OCI path ────────────────────────────────────────────────────────
-        let pull_ref = pull_ref_for(parts, r, &self.seams, deadline_at)?;
+        // A file address (`<package>@sha256:<the pin>`) names the file itself:
+        // it is fetched as one blob, with no tag and no manifest. Any other
+        // ref is pulled as an artifact (a pinned manifest digest, or the tag
+        // resolved to one).
+        let fetch = if is_file_address(parts, r) {
+            Fetch::Blob(format!("{}@sha256:{}", parts.registry_base, r.digest))
+        } else {
+            Fetch::Pull(pull_ref_for(parts, r, &self.seams, deadline_at)?)
+        };
         let tool = tool_bin("oras").ok_or_else(|| {
             AppError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -945,15 +994,26 @@ impl MethodEnvManager {
         })?;
         let _staging_guard = TmpDirGuard(staging.clone()); // removed on every exit path
 
-        let payload = pull_payload(
-            &tool,
-            &pull_ref,
-            &staging,
-            deadline_at,
-            &cancel,
-            &mut |n| self.update_bytes(env_id, n),
-            &self.seams,
-        )?;
+        let payload = match &fetch {
+            Fetch::Pull(pull_ref) => pull_payload(
+                &tool,
+                pull_ref,
+                &staging,
+                deadline_at,
+                &cancel,
+                &mut |n| self.update_bytes(env_id, n),
+                &self.seams,
+            )?,
+            Fetch::Blob(blob_ref) => fetch_blob_payload(
+                &tool,
+                blob_ref,
+                &staging.join(format!("{env_id}.squashfs")),
+                deadline_at,
+                &cancel,
+                &mut |n| self.update_bytes(env_id, n),
+                &self.seams,
+            )?,
+        };
         // INV-1: verify BEFORE the cache entry exists (a mismatch never
         // becomes a mountable artifact — TEST-07).
         verify_payload_bytes(&payload, &r.digest)?;
@@ -1131,6 +1191,78 @@ impl Entry {
     }
 }
 
+/// What [`MethodEnvManager::claim`] decided for one call.
+enum Claim {
+    /// The call owns a fresh attempt and runs it.
+    Owned,
+    /// The call's answer, taken under the lock.
+    Done(Result<ProvidedMount, AppError>),
+}
+
+/// How often a waiting call re-checks its stop signal without a wake-up.
+const STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// The answer to a call whose stop signal is set (the cancel's own error).
+fn stopped_error() -> AppError {
+    AppError::new(
+        StatusCode::BAD_REQUEST,
+        ENV_DOWNLOAD_CANCELLED_CODE,
+        "the environment download was cancelled",
+    )
+}
+
+/// The Ready mount or the last attempt's error, for a call that found an
+/// existing terminal state (or waited one out), computed while the caller
+/// holds the manager's lock. A Ready entry loaded from disk mounts lazily
+/// (its digest is cache-present by the load rule). The entry must carry the
+/// REQUESTED digest: a mount or an error of another digest of the same env is
+/// never handed to this call.
+fn result_locked(entry: &mut Entry, env_id: &str, requested: &str) -> Result<ProvidedMount, AppError> {
+    // `claim` answers only from a terminal state; a Downloading entry here
+    // would be a state the caller never asked for.
+    if entry.status.state == MethodEnvState::Downloading {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            ENV_REPOSITORY_UNKNOWN_CODE,
+            format!("env {env_id:?} is downloading another attempt; retry the request"),
+        ));
+    }
+    if entry.status.digest.as_deref() != Some(requested) {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            ENV_REPOSITORY_UNKNOWN_CODE,
+            format!(
+                "env {env_id:?} now holds another file than the requested {requested}; \
+                 retry the request"
+            ),
+        ));
+    }
+    if let Some(e) = entry.last_error.clone() {
+        return Err(e.to_app());
+    }
+    let Some(digest) = entry.status.digest.clone() else {
+        return Err(AppError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ENV_REPOSITORY_UNKNOWN_CODE,
+            format!("env {env_id:?} is ready but carries no digest"),
+        ));
+    };
+    if let Some(dir) = entry.mounted_dir.clone() {
+        return Ok(ProvidedMount {
+            mount_dir: dir,
+            digest: Some(digest),
+        });
+    }
+    // A persisted-rule Ready entry: mount now (the per-digest lock + fast
+    // path make a concurrent mount cheap).
+    let mount = ready_artifact_path(&digest)?;
+    entry.mounted_dir = Some(mount.clone());
+    Ok(ProvidedMount {
+        mount_dir: mount,
+        digest: Some(digest),
+    })
+}
+
 fn unknown_status(env_id: &str) -> MethodEnvStatus {
     MethodEnvStatus {
         env_id: env_id.to_string(),
@@ -1290,6 +1422,26 @@ fn check_kind(parts: &OciRefParts, kind: EnvKind, seams: &MethodEnvSeams) -> Res
         ));
     }
     Ok(())
+}
+
+/// How an attempt gets its bytes from the registry.
+enum Fetch {
+    /// `oras pull` of an artifact by its manifest digest.
+    Pull(String),
+    /// `oras blob fetch` of the file itself by its sha256.
+    Blob(String),
+}
+
+/// Whether `r` is a file address: `<package>@sha256:<hex>` where `<hex>` is
+/// the pin itself (`EnvRef.digest`, the sha256 of the squashfs file). Every
+/// artifact's single layer is a blob whose digest is that file hash, so the
+/// file can be fetched with no tag and no manifest; this is how a saved model
+/// gets an environment the current list no longer names. An artifact's
+/// manifest digest never equals the hash of the file it lists, so a
+/// manifest-digest ref (`@digest` other than the pin) is never mistaken for a
+/// file address and keeps the pull path.
+fn is_file_address(parts: &OciRefParts, r: &EnvRef) -> bool {
+    parts.digest.as_deref() == Some(r.digest.as_str())
 }
 
 /// The digest-addressed pull ref: the ref's own `@sha256:` when pinned (no
@@ -1867,16 +2019,14 @@ fn empty_registry_config() -> Result<PathBuf, AppError> {
     Ok(path)
 }
 
-/// The oras arguments every call starts with: the subcommand, the app's empty
-/// registry config, and `--plain-http` when the dev seam names a loopback
-/// registry.
-fn oras_base_args(subcommand: &str, seams: &MethodEnvSeams) -> Result<Vec<String>, AppError> {
+/// The oras arguments every call starts with: the subcommand (one word, or
+/// two for `blob fetch`), the app's empty registry config, and `--plain-http`
+/// when the dev seam names a loopback registry.
+fn oras_base_args(subcommand: &[&str], seams: &MethodEnvSeams) -> Result<Vec<String>, AppError> {
     let config = empty_registry_config()?;
-    let mut args = vec![
-        subcommand.to_string(),
-        "--registry-config".to_string(),
-        config.to_string_lossy().into_owned(),
-    ];
+    let mut args: Vec<String> = subcommand.iter().map(|w| (*w).to_string()).collect();
+    args.push("--registry-config".to_string());
+    args.push(config.to_string_lossy().into_owned());
     if plain_http(seams) {
         args.push("--plain-http".to_string());
     }
@@ -2035,7 +2185,7 @@ fn oras_resolve(
             "The method environment is not available yet",
         )
     })?;
-    let mut args = oras_base_args("resolve", seams)?;
+    let mut args = oras_base_args(&["resolve"], seams)?;
     args.push(resolve_ref.to_string());
     let budget = remaining(deadline_at, "oras resolve")?.min(TOOL_METADATA_TIMEOUT);
     let out = run_tool(
@@ -2068,7 +2218,7 @@ fn pull_payload(
     seams: &MethodEnvSeams,
 ) -> Result<PathBuf, AppError> {
     let staging_s = staging.to_string_lossy().into_owned();
-    let mut args = oras_base_args("pull", seams)?;
+    let mut args = oras_base_args(&["pull"], seams)?;
     args.push("-o".to_string());
     args.push(staging_s);
     args.push(pull_ref.to_string());
@@ -2097,6 +2247,41 @@ fn pull_payload(
                 "the pulled environment artifact contained no .squashfs layer",
             )
         })
+}
+
+/// `oras blob fetch --output <out> <package>@sha256:<pin>`: the file itself,
+/// fetched by its sha256 (the same registry GET a pull makes for the layer
+/// blob, without a manifest or tag). Returns `out`; the caller verifies the
+/// bytes against the pin before anything is cached.
+fn fetch_blob_payload(
+    tool: &Path,
+    blob_ref: &str,
+    out: &Path,
+    deadline_at: Instant,
+    cancel: &AtomicBool,
+    on_progress: &mut dyn FnMut(u64),
+    seams: &MethodEnvSeams,
+) -> Result<PathBuf, AppError> {
+    let mut args = oras_base_args(&["blob", "fetch"], seams)?;
+    args.push("--output".to_string());
+    args.push(out.to_string_lossy().into_owned());
+    args.push(blob_ref.to_string());
+    run_tool(
+        tool,
+        &args,
+        remaining(deadline_at, "oras blob fetch")?,
+        cancel,
+        out.parent(),
+        on_progress,
+    )?;
+    if !out.is_file() {
+        return Err(AppError::new(
+            StatusCode::BAD_GATEWAY,
+            ENV_REPOSITORY_UNKNOWN_CODE,
+            format!("`oras blob fetch {blob_ref}` wrote no file"),
+        ));
+    }
+    Ok(out.to_path_buf())
 }
 
 /// Plain-HTTP fetch for the debug loopback seam (a release build never turns
@@ -3309,5 +3494,591 @@ mod tests {
         let refusal =
             seam_refusal_with("fixture-env", &read, &names).expect("own artifact unusable");
         assert_eq!(refusal.error_code(), ENV_STAGED_UNUSABLE_CODE);
+    }
+
+    // ── saved-model environments: the file address + two digests of one env ─
+
+    /// Mark `digest`'s cache mount point as mounted (`mnt/usr` present), so the
+    /// Linux mount step takes its fast path for a fixture file that is not a
+    /// real squashfs. macOS attaches the cached file and never reads this.
+    fn pretend_mounted(digest: &str) {
+        let usr = crate::modules::rootfs::cache::digest_dir(digest)
+            .join("mnt")
+            .join("usr");
+        std::fs::create_dir_all(usr).unwrap();
+    }
+
+    /// Put `bytes` in the digest cache under their own sha256 (and mark them
+    /// mounted); returns the digest.
+    fn cache_bytes(bytes: &[u8]) -> String {
+        let digest = hex_of(bytes);
+        let path = crate::modules::rootfs::cache::squashfs_path_for(&digest);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        pretend_mounted(&digest);
+        digest
+    }
+
+    /// The file address of a layer: the loopback layer package, `@sha256:`
+    /// the pin itself, no tag.
+    fn file_address(env_id: &str, digest: &str) -> EnvRef {
+        EnvRef {
+            env_id: env_id.to_string(),
+            oci_ref: format!("127.0.0.1:5000/tinnlab/txr-method-env-layers@sha256:{digest}"),
+            digest: digest.to_string(),
+            tag: None,
+        }
+    }
+
+    /// A stub `oras` that logs every call's arguments to `calls` and answers
+    /// `blob fetch <pkg>@sha256:<d>` with the file `<blobs>/<d>` written to
+    /// the `--output` path (exit 1 when there is no such blob). `hold` runs
+    /// first for the fetch (a shell snippet that may block); every other
+    /// subcommand fails.
+    fn blob_stub(calls: &Path, blobs: &Path, hold: &str) -> String {
+        format!(
+            "#!/bin/sh\n\
+             echo \"$@\" >> {calls}\n\
+             if [ \"$1\" = \"blob\" ] && [ \"$2\" = \"fetch\" ]; then\n\
+             \x20 out=\"\"; prev=\"\"; ref=\"\"\n\
+             \x20 for a in \"$@\"; do if [ \"$prev\" = \"--output\" ]; then out=\"$a\"; fi; prev=\"$a\"; ref=\"$a\"; done\n\
+             \x20 d=\"${{ref##*@sha256:}}\"\n\
+             \x20 {hold}\n\
+             \x20 if [ ! -f \"{blobs}/$d\" ]; then echo \"blob unknown\" >&2; exit 1; fi\n\
+             \x20 cp \"{blobs}/$d\" \"$out\"; exit 0\n\
+             fi\n\
+             echo \"unexpected oras call\" >&2\n\
+             exit 1\n",
+            calls = calls.display(),
+            blobs = blobs.display(),
+        )
+    }
+
+    /// Store `bytes` as the registry blob of their sha256; returns the digest.
+    fn put_blob(blobs: &Path, bytes: &[u8]) -> String {
+        std::fs::create_dir_all(blobs).unwrap();
+        let digest = hex_of(bytes);
+        std::fs::write(blobs.join(&digest), bytes).unwrap();
+        digest
+    }
+
+    /// A file address (`<package>@sha256:<the pin>`) is fetched as the file
+    /// itself: one `oras blob fetch` with the empty registry config and
+    /// `--output`, no resolve and no pull; the bytes are verified, cached and
+    /// served by their digest. The base package takes the same path.
+    #[test]
+    fn file_address_is_fetched_with_oras_blob_fetch() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let layer_pin = put_blob(&blobs, b"an older layer file");
+        let base_pin = put_blob(&blobs, b"an older base file");
+        pretend_mounted(&layer_pin);
+        pretend_mounted(&base_pin);
+        stub_oras(&root, &blob_stub(&calls, &blobs, ":"));
+
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        let got = m
+            .ensure(&file_address("fixture-layer", &layer_pin), EnvKind::Layer, Duration::from_secs(30))
+            .expect("the file address is fetched, verified and served");
+        assert_eq!(got.digest.as_deref(), Some(layer_pin.as_str()));
+        assert!(crate::modules::rootfs::cache::has_digest(&layer_pin), "the file is cached by its digest");
+        assert_eq!(m.status("fixture-layer").state, MethodEnvState::Ready);
+        assert_eq!(m.status("fixture-layer").digest.as_deref(), Some(layer_pin.as_str()));
+        if cfg!(target_os = "macos") {
+            assert_eq!(got.mount_dir, crate::modules::rootfs::cache::squashfs_path_for(&layer_pin));
+        }
+
+        let base = EnvRef {
+            env_id: "base-py".to_string(),
+            oci_ref: format!("127.0.0.1:5000/tinnlab/txresbench-env@sha256:{base_pin}"),
+            digest: base_pin.clone(),
+            tag: None,
+        };
+        let got = m
+            .ensure(&base, EnvKind::Base, Duration::from_secs(30))
+            .expect("a base file address is fetched the same way");
+        assert_eq!(got.digest.as_deref(), Some(base_pin.as_str()));
+
+        let config = root.join("oras").join("registry-config.json");
+        let log = std::fs::read_to_string(&calls).expect("oras was called");
+        let lines: Vec<&str> = log.lines().collect();
+        assert_eq!(lines.len(), 2, "one call per file: {log}");
+        let staging_out = format!("{layer_pin}", layer_pin = &layer_pin[..8]);
+        assert!(
+            lines[0].starts_with(&format!(
+                "blob fetch --registry-config {} --plain-http --output ",
+                config.display()
+            )),
+            "blob fetch with the empty registry config and --output: {}",
+            lines[0]
+        );
+        assert!(
+            lines[0].contains(&format!(".pull-{staging_out}-")) && lines[0].contains("/fixture-layer.squashfs "),
+            "the output is the env's file in the attempt's staging dir: {}",
+            lines[0]
+        );
+        assert!(
+            lines[0].ends_with(&format!(
+                " 127.0.0.1:5000/tinnlab/txr-method-env-layers@sha256:{layer_pin}"
+            )),
+            "the layer package, addressed by the file's sha256: {}",
+            lines[0]
+        );
+        assert!(
+            lines[1].ends_with(&format!(" 127.0.0.1:5000/tinnlab/txresbench-env@sha256:{base_pin}")),
+            "the base package, addressed by the file's sha256: {}",
+            lines[1]
+        );
+        assert!(!log.contains("resolve") && !log.contains("pull "), "no resolve, no pull: {log}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A file address whose fetched bytes do not hash to the pin is refused
+    /// before any cache entry exists.
+    #[test]
+    fn file_address_with_wrong_bytes_is_refused() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        std::fs::create_dir_all(&blobs).unwrap();
+        let pin = hex_of(b"the bytes the record names");
+        std::fs::write(blobs.join(&pin), b"other bytes under that name").unwrap();
+        stub_oras(&root, &blob_stub(&calls, &blobs, ":"));
+
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        let err = m
+            .ensure(&file_address("fixture-layer", &pin), EnvKind::Layer, Duration::from_secs(30))
+            .expect_err("bytes that do not hash to the pin are refused");
+        assert_eq!(err.error_code(), ENV_VERIFY_FAILED_CODE);
+        assert!(!crate::modules::rootfs::cache::has_digest(&pin), "no cache entry");
+        assert_eq!(m.status("fixture-layer").state, MethodEnvState::Failed);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A ref pinned by a MANIFEST digest (an `@sha256:` other than the file's
+    /// pin) keeps the artifact pull; only the pin itself is a file address.
+    #[test]
+    fn manifest_digest_ref_still_uses_oras_pull() {
+        let (root, _guard) = data_root();
+        let payload = root.join("payload.squashfs");
+        std::fs::write(&payload, b"other bytes").unwrap();
+        let calls = root.join("oras-calls.txt");
+        let manifest = "e".repeat(64);
+        let script = format!(
+            "#!/bin/sh\n\
+             echo \"$@\" >> {calls}\n\
+             if [ \"$1\" = \"pull\" ]; then\n\
+             \x20 out=\"\"; prev=\"\"\n\
+             \x20 for a in \"$@\"; do if [ \"$prev\" = \"-o\" ]; then out=\"$a\"; fi; prev=\"$a\"; done\n\
+             \x20 cp {payload} \"$out/rootfs.squashfs\"; exit 0\n\
+             fi\n\
+             exit 1\n",
+            calls = calls.display(),
+            payload = payload.display(),
+        );
+        stub_oras(&root, &script);
+
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        let pin = hex_of(b"the pinned bytes");
+        let r = EnvRef {
+            env_id: "fixture-layer".to_string(),
+            oci_ref: format!("127.0.0.1:5000/tinnlab/txr-method-env-layers@sha256:{manifest}"),
+            digest: pin,
+            tag: None,
+        };
+        let err = m
+            .ensure(&r, EnvKind::Layer, Duration::from_secs(30))
+            .expect_err("the stand-in pulls other bytes, so the verify refuses");
+        assert_eq!(err.error_code(), ENV_VERIFY_FAILED_CODE);
+        let log = std::fs::read_to_string(&calls).expect("oras was called");
+        assert_eq!(log.lines().count(), 1, "one call: {log}");
+        assert!(
+            log.starts_with("pull ")
+                && log.trim_end().ends_with(&format!(
+                    "127.0.0.1:5000/tinnlab/txr-method-env-layers@sha256:{manifest}"
+                )),
+            "a manifest-digest ref is pulled as an artifact: {log}"
+        );
+        assert!(!log.contains("blob"), "never a blob fetch: {log}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The ledger keeps one digest per env (the last one used). A request for
+    /// an OLDER digest that is still in the cache is served from the cache,
+    /// with no download, also after a restart and with no registry reachable.
+    #[test]
+    fn old_digest_in_the_cache_is_served_offline() {
+        let (root, _guard) = data_root();
+        let old = cache_bytes(b"the layer a saved model was trained with");
+        let new = cache_bytes(b"the layer the list names today");
+        // Offline: every oras call fails, and is logged.
+        let calls = root.join("oras-calls.txt");
+        stub_oras(
+            &root,
+            &format!("#!/bin/sh\necho \"$@\" >> {}\nexit 1\n", calls.display()),
+        );
+
+        let first = MethodEnvManager::with_seams(loopback_seams());
+        first
+            .ensure(&file_address("fixture-layer", &new), EnvKind::Layer, Duration::from_secs(30))
+            .expect("the current file is cached");
+        drop(first);
+
+        // A new manager (a restart) loads the ledger, which names the new file.
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        assert_eq!(m.status("fixture-layer").digest.as_deref(), Some(new.as_str()));
+        let got = m
+            .ensure(&file_address("fixture-layer", &old), EnvKind::Layer, Duration::from_secs(30))
+            .expect("the older cached file is served offline");
+        assert_eq!(got.digest.as_deref(), Some(old.as_str()));
+        assert_eq!(m.status("fixture-layer").digest.as_deref(), Some(old.as_str()));
+        assert!(!calls.exists(), "no download was started");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Two digests of one env (two saved models of one method at two
+    /// versions), both cached: alternating requests are each served their own
+    /// file and never start a download.
+    #[test]
+    fn two_digests_of_one_env_alternate_without_refetch() {
+        let (root, _guard) = data_root();
+        let a = cache_bytes(b"layer file a");
+        let b = cache_bytes(b"layer file b");
+        let calls = root.join("oras-calls.txt");
+        stub_oras(
+            &root,
+            &format!("#!/bin/sh\necho \"$@\" >> {}\nexit 1\n", calls.display()),
+        );
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        for digest in [&a, &b, &a, &b, &a] {
+            let got = m
+                .ensure(&file_address("fixture-layer", digest), EnvKind::Layer, Duration::from_secs(30))
+                .expect("a cached digest is served");
+            assert_eq!(got.digest.as_deref(), Some(digest.as_str()));
+            if cfg!(target_os = "macos") {
+                assert_eq!(got.mount_dir, crate::modules::rootfs::cache::squashfs_path_for(digest));
+            }
+        }
+        assert!(!calls.exists(), "no download was started");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The result of an env's last attempt is handed only to a call that asked
+    /// for that attempt's digest: another digest is refused, never served.
+    #[test]
+    fn result_for_refuses_another_digest() {
+        let (root, _guard) = data_root();
+        let current = cache_bytes(b"the env's current file");
+        let other = hex_of(b"another file of the same env");
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        m.ensure(&file_address("fixture-layer", &current), EnvKind::Layer, Duration::from_secs(30))
+            .expect("the cached file is served");
+        let result_for = |digest: &str| {
+            let mut guard = m.inner.lock().unwrap();
+            let entry = guard.entries.get_mut("fixture-layer").expect("the env's entry");
+            result_locked(entry, "fixture-layer", digest)
+        };
+        let served = result_for(&current).expect("the requested digest is the entry's");
+        assert_eq!(served.digest.as_deref(), Some(current.as_str()));
+        let err = result_for(&other).expect_err("another digest's mount is never handed out");
+        assert_eq!(err.error_code(), ENV_REPOSITORY_UNKNOWN_CODE);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A request that finds an attempt for ANOTHER digest of the same env in
+    /// flight waits for it, then gets ITS OWN file: never that attempt's
+    /// result. Both ends of the other attempt are covered: cancelled (whose
+    /// error is not this call's) and finished with the other file.
+    #[test]
+    fn waiter_for_another_digest_gets_its_own_file() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let old = cache_bytes(b"the saved model's layer");
+        let new = put_blob(&blobs, b"the current layer");
+        pretend_mounted(&new);
+        let started = root.join("fetch-started");
+        // The current layer's fetch blocks until it is cancelled.
+        stub_oras(
+            &root,
+            &blob_stub(
+                &calls,
+                &blobs,
+                &format!(
+                    "if [ \"$d\" = \"{new}\" ]; then echo started > {}; exec sleep 3600; fi",
+                    started.display()
+                ),
+            ),
+        );
+        let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
+
+        let spawn = |digest: String| {
+            let m = m.clone();
+            let root = root.clone();
+            std::thread::spawn(move || {
+                let _g = scoped_data_root(root);
+                m.ensure(&file_address("fixture-layer", &digest), EnvKind::Layer, Duration::from_secs(300))
+            })
+        };
+
+        // 1. The other attempt is cancelled.
+        let current = spawn(new.clone());
+        wait_until("the current layer's fetch started", || started.exists());
+        assert_eq!(m.status("fixture-layer").state, MethodEnvState::Downloading);
+        let saved = spawn(old.clone());
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!saved.is_finished(), "the saved model's request waits on the env's attempt");
+        m.cancel("fixture-layer");
+        let current = current.join().expect("the current request returns");
+        assert_eq!(
+            current.expect_err("cancelled").error_code(),
+            ENV_DOWNLOAD_CANCELLED_CODE
+        );
+        let saved = saved
+            .join()
+            .expect("the saved model's request returns")
+            .expect("it gets its own cached file, not the cancelled attempt's error");
+        assert_eq!(saved.digest.as_deref(), Some(old.as_str()));
+
+        // 2. The other attempt finishes with the other file.
+        let go = root.join("go");
+        let started2 = root.join("fetch-started-2");
+        stub_oras(
+            &root,
+            &blob_stub(
+                &calls,
+                &blobs,
+                &format!(
+                    "echo started > {}; while [ ! -f {} ]; do sleep 0.05; done",
+                    started2.display(),
+                    go.display()
+                ),
+            ),
+        );
+        let current = spawn(new.clone());
+        wait_until("the current layer's second fetch started", || started2.exists());
+        let saved = spawn(old.clone());
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!saved.is_finished(), "the saved model's request waits again");
+        std::fs::write(&go, b"go").unwrap();
+        let current = current
+            .join()
+            .expect("the current request returns")
+            .expect("the current file is fetched");
+        assert_eq!(current.digest.as_deref(), Some(new.as_str()));
+        let saved = saved
+            .join()
+            .expect("the saved model's request returns")
+            .expect("it gets its own file");
+        assert_eq!(saved.digest.as_deref(), Some(old.as_str()), "never the other attempt's file");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ── stop, cancel and budget per call (two digests of one env) ─────────
+
+    /// A blob stub whose fetch of `held` waits (logging `started`) until the
+    /// `go` file exists; every other fetch answers at once. Every call is
+    /// logged to `calls`.
+    fn gated_stub(calls: &Path, blobs: &Path, held: &str, started: &Path, go: &Path) -> String {
+        blob_stub(
+            calls,
+            blobs,
+            &format!(
+                "if [ \"$d\" = \"{held}\" ]; then echo started > {}; while [ ! -f {} ]; do sleep 0.05; done; fi",
+                started.display(),
+                go.display()
+            ),
+        )
+    }
+
+    fn spawn_ensure(
+        m: &Arc<MethodEnvManager>,
+        root: &Path,
+        digest: &str,
+        deadline: Duration,
+        stop: Arc<AtomicBool>,
+    ) -> std::thread::JoinHandle<Result<ProvidedMount, AppError>> {
+        let m = m.clone();
+        let root = root.to_path_buf();
+        let digest = digest.to_string();
+        std::thread::spawn(move || {
+            let _g = scoped_data_root(root);
+            m.ensure_until(&file_address("fixture-layer", &digest), EnvKind::Layer, deadline, &stop)
+        })
+    }
+
+    fn join_within(
+        what: &str,
+        h: std::thread::JoinHandle<Result<ProvidedMount, AppError>>,
+    ) -> Result<ProvidedMount, AppError> {
+        wait_until(what, || h.is_finished());
+        h.join().expect("the call returns")
+    }
+
+    /// Two models of one method in one run: A downloads its layer file d1, B
+    /// waits for its own file d0. The user stops B: B returns cancelled at
+    /// once and never starts a download (nothing could cancel it later), and
+    /// A's download of the other file goes on and lands.
+    #[test]
+    fn a_stopped_call_never_starts_its_own_download() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let d1 = put_blob(&blobs, b"model A's layer");
+        let d0 = put_blob(&blobs, b"model B's layer");
+        pretend_mounted(&d1);
+        pretend_mounted(&d0);
+        let (started, go) = (root.join("a-started"), root.join("go"));
+        stub_oras(&root, &gated_stub(&calls, &blobs, &d1, &started, &go));
+        let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
+
+        let a = spawn_ensure(&m, &root, &d1, Duration::from_secs(300), Arc::new(AtomicBool::new(false)));
+        wait_until("A's download started", || started.exists());
+        let b_stop = Arc::new(AtomicBool::new(false));
+        let b = spawn_ensure(&m, &root, &d0, Duration::from_secs(300), b_stop.clone());
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!b.is_finished(), "B waits on the env's attempt");
+
+        // The user stops B (the engine's stop arm: the call's signal, then a
+        // cancel of B's own file).
+        b_stop.store(true, Ordering::SeqCst);
+        m.cancel_digest("fixture-layer", &d0);
+        let b = join_within("B returns once stopped", b);
+        assert_eq!(
+            b.expect_err("a stopped call is cancelled").error_code(),
+            ENV_DOWNLOAD_CANCELLED_CODE
+        );
+        assert!(!a.is_finished(), "stopping B never stops A's download of another file");
+        assert_eq!(m.status("fixture-layer").state, MethodEnvState::Downloading);
+
+        std::fs::write(&go, b"go").unwrap();
+        let a = join_within("A's download lands", a).expect("A's file is fetched");
+        assert_eq!(a.digest.as_deref(), Some(d1.as_str()));
+        let log = std::fs::read_to_string(&calls).unwrap_or_default();
+        assert!(
+            !log.contains(&format!("@sha256:{d0}")),
+            "the stopped call never started a download: {log}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A cancel of the SAME file still stops its download, for every call
+    /// waiting on it (the shared attempt).
+    #[test]
+    fn cancel_of_the_same_digest_still_stops_the_download() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let d1 = put_blob(&blobs, b"the shared layer");
+        let (started, go) = (root.join("started"), root.join("go"));
+        stub_oras(&root, &gated_stub(&calls, &blobs, &d1, &started, &go));
+        let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
+        let a = spawn_ensure(&m, &root, &d1, Duration::from_secs(300), Arc::new(AtomicBool::new(false)));
+        wait_until("the download started", || started.exists());
+        m.cancel_digest("fixture-layer", &d1);
+        let a = join_within("the cancelled call returns", a);
+        assert_eq!(a.expect_err("cancelled").error_code(), ENV_DOWNLOAD_CANCELLED_CODE);
+        assert_eq!(m.status("fixture-layer").state, MethodEnvState::Failed);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The stop signal also stops a download the call owns.
+    #[test]
+    fn a_stop_signal_stops_the_calls_own_download() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let d0 = put_blob(&blobs, b"a slow layer");
+        let (started, go) = (root.join("started"), root.join("go"));
+        stub_oras(&root, &gated_stub(&calls, &blobs, &d0, &started, &go));
+        let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
+        let stop = Arc::new(AtomicBool::new(false));
+        let h = spawn_ensure(&m, &root, &d0, Duration::from_secs(300), stop.clone());
+        wait_until("the download started", || started.exists());
+        stop.store(true, Ordering::SeqCst);
+        let finished = {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !h.is_finished() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            h.is_finished()
+        };
+        if !finished {
+            // Unblock the stub so the thread ends before the assertion fails.
+            m.cancel("fixture-layer");
+            let _ = h.join();
+            panic!("the stop signal did not stop the call's own download");
+        }
+        let r = h.join().expect("the call returns");
+        assert_eq!(r.expect_err("cancelled").error_code(), ENV_DOWNLOAD_CANCELLED_CODE);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The time budget of a call starts when it claims its own attempt: a
+    /// call that waited out another file's long download still has its whole
+    /// budget for its own file.
+    #[test]
+    fn a_waiters_budget_starts_when_it_claims_its_own_attempt() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let d1 = put_blob(&blobs, b"a long download");
+        pretend_mounted(&d1);
+        let d0 = cache_bytes(b"a cached older layer");
+        let (started, go) = (root.join("started"), root.join("go"));
+        stub_oras(&root, &gated_stub(&calls, &blobs, &d1, &started, &go));
+        let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
+        let a = spawn_ensure(&m, &root, &d1, Duration::from_secs(300), Arc::new(AtomicBool::new(false)));
+        wait_until("the long download started", || started.exists());
+        let b = spawn_ensure(&m, &root, &d0, Duration::from_secs(1), Arc::new(AtomicBool::new(false)));
+        // The other download outlasts B's whole budget.
+        std::thread::sleep(Duration::from_millis(1500));
+        std::fs::write(&go, b"go").unwrap();
+        join_within("A lands", a).expect("A's file");
+        let b = join_within("B returns", b)
+            .expect("B's budget starts at its own attempt: its cached file is served");
+        assert_eq!(b.digest.as_deref(), Some(d0.as_str()));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The result handed to a call that does not own an attempt is taken
+    /// while the call still holds the lock: another file's download that
+    /// starts right after cannot turn it into a "retry the request".
+    #[test]
+    fn a_ready_result_is_taken_under_the_lock() {
+        let (root, _guard) = data_root();
+        let calls = root.join("oras-calls.txt");
+        let blobs = root.join("blobs");
+        let d0 = cache_bytes(b"the env's cached file");
+        let d1 = put_blob(&blobs, b"another file of the env");
+        pretend_mounted(&d1);
+        let (started, go) = (root.join("started"), root.join("go"));
+        stub_oras(&root, &gated_stub(&calls, &blobs, &d1, &started, &go));
+        let m = Arc::new(MethodEnvManager::with_seams(loopback_seams()));
+        m.ensure(&file_address("fixture-layer", &d0), EnvKind::Layer, Duration::from_secs(30))
+            .expect("the cached file is ready");
+
+        // Right after the next call's claim (the env is Ready with d0),
+        // another call starts downloading d1.
+        let other: Arc<Mutex<Option<std::thread::JoinHandle<Result<ProvidedMount, AppError>>>>> =
+            Arc::new(Mutex::new(None));
+        {
+            let (m2, root2, d1c, other2, started2) =
+                (m.clone(), root.clone(), d1.clone(), other.clone(), started.clone());
+            *m.after_claim.lock().unwrap() = Some(Box::new(move || {
+                let h = spawn_ensure(&m2, &root2, &d1c, Duration::from_secs(300), Arc::new(AtomicBool::new(false)));
+                wait_until("the other download started", || started2.exists());
+                *other2.lock().unwrap() = Some(h);
+            }));
+        }
+        let got = m.ensure(&file_address("fixture-layer", &d0), EnvKind::Layer, Duration::from_secs(30));
+        std::fs::write(&go, b"go").unwrap();
+        if let Some(h) = other.lock().unwrap().take() {
+            let _ = h.join();
+        }
+        let got = got.expect("the ready file, never a retry-the-request conflict");
+        assert_eq!(got.digest.as_deref(), Some(d0.as_str()));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

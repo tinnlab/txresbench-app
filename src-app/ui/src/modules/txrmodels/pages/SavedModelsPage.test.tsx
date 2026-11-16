@@ -571,11 +571,45 @@ describe('SavedModelsPage — TEST-MOD-10 (screen I)', () => {
     expect(screen.getByText('fm-1 · 2.1.0')).toBeTruthy()
     expect(screen.getByText('6 markers · uses age')).toBeTruthy()
     expect(screen.getByText('LDH, CEA (curated)')).toBeTruthy()
-    expect(screen.getByText('not recorded')).toBeTruthy()
+    // The licence and the environment (the fixture records no tag).
+    expect(screen.getAllByText('not recorded').length).toBe(2)
     expect(screen.getByText(/recorded method 2\.1\.0, catalogue now 2\.2\.0/)).toBeTruthy()
     expect(screen.getByText(/recorded sha differs from the catalogue/)).toBeTruthy()
     // The dialog's own test-id (the assertive query, never a text scan).
     expect(screen.getByTestId(`txr-models-details-${fixtureModelId(1)}`)).toBeTruthy()
+  })
+
+  it('the Details dialog names the environment the model was trained in, or says it was not recorded', async () => {
+    renderPage()
+    await settle(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`txr-list-row-${fixtureModelId(1)}-action`))
+      await Promise.resolve()
+    })
+    await settle(0)
+    // The fixture model records no tag (digests only): the licence and the
+    // environment both read "not recorded".
+    expect(screen.getAllByText('not recorded').length).toBe(2)
+    cleanup()
+
+    const tagged = detailPayload(fixtureModelId(1))
+    tagged.env = {
+      base_digest: 'sha256:base',
+      layer_digest: 'sha256:layer',
+      method_version: '2.1.0',
+      arch: 'amd64',
+      layer_tag: 'fm-1-2.1.0-amd64-5ce304e213ac',
+    }
+    api.getModel.mockResolvedValue(tagged)
+    renderPage()
+    await settle(0)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`txr-list-row-${fixtureModelId(1)}-action`))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByText('fm-1-2.1.0-amd64-5ce304e213ac')).toBeTruthy()
+    expect(screen.getAllByText('not recorded').length).toBe(1)
   })
 
   it('a 404 detail (a row whose tree vanished) renders the not-found state, never a crash', async () => {

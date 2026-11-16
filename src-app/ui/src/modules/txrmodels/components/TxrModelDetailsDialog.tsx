@@ -7,7 +7,9 @@
  * predicts (task / endpoint / horizon), the decision day it was trained
  * for, the cohort it was trained on, when and from where it entered the
  * inventory (the board's "Made" verb), the method + version that produced
- * it, the marker/inputs subline (the board's "N markers · uses age"
+ * it, the environment it was trained in and runs in (the layer's tag, or
+ * "not recorded" when the record has none), the marker/inputs
+ * subline (the board's "N markers · uses age"
  * facts), the catalogue's fixed-required-marker rule when the record
  * declares one, the licence (unrecorded for a user's own rows), the size,
  * the record's warnings — `MODEL_VERSION_MISMATCH` / `DIGEST_MISMATCH` /
@@ -43,6 +45,7 @@ import { useModelDetail } from '../data/useModelDetail'
 import {
   UNRECORDED,
   formatBytes,
+  formatEnvironment,
   formatMade,
   formatModelSublines,
   formatPredicts,
@@ -153,6 +156,11 @@ function factsOf(detail: ModelDetail): DescriptionsItem[] {
           {detail.method_id} · {detail.method_version}
         </span>
       ),
+    },
+    {
+      key: 'environment',
+      label: 'Environment',
+      children: <span style={MONO}>{formatEnvironment(detail.env)}</span>,
     },
     {
       key: 'group',

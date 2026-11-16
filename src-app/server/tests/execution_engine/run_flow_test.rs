@@ -436,6 +436,129 @@ async fn reuse_of_a_saved_model_gets_the_training_probabilities() {
     }
 }
 
+/// A saved model runs in the image it was trained in, also after the method
+/// list moved on: a train run records the list entry's image (both file
+/// hashes, the entry's version, the chip type, both tags); after the list
+/// names a newer layer, a reuse of the saved model asks the download manager
+/// for the model's OWN layer file (by its sha256) and the reuse row records
+/// that image, not the list's current one.
+#[tokio::test]
+async fn reuse_runs_in_the_recorded_image_after_the_list_changes() {
+    use txresbench::modules::execution_engine::types::{
+        CreateRunRequest, TxrModelAsset, TxrRunInput, TxrRunMode,
+    };
+    use txresbench::modules::model_store::store;
+    use txresbench::modules::model_store::types::{SaveModelsRequest, SaveTarget};
+
+    let server = TestServer::spawn().await;
+    let (_token, owner) = register_user(&server, "txr-reuse-image").await;
+    let pool = pool(&server).await;
+    let scratch = scratch_dir("reuse-recorded-image");
+    let _g = rootfs::scoped_data_root(&scratch);
+    let repo = TxrRepository::new(pool.clone());
+    let method = "ctdna-tf-four-group";
+    let entry = envmanifest::env_for(method).expect("a listed method on this computer");
+    let base = orchestrator::base_env_ref(entry, envmanifest::base_artifact_for(entry));
+    let start = |req: CreateRunRequest, env: Arc<FakeEnv>| {
+        let pool = pool.clone();
+        async move {
+            let exec = StackMethodExecutor::with_seam(pool.clone(), FakeStackRunSeam::new());
+            orchestrator::start_run(pool, Arc::new(RunRuntime::new()), env, Arc::new(exec), owner, req)
+                .await
+                .expect("create")
+        }
+    };
+
+    // Train under today's list: the row records the entry's image.
+    let train = start(cohort_run_request(&[method], 1, true), Arc::new(FakeEnv::new(Duration::from_millis(5)))).await;
+    let row = wait_terminal(&repo, train.id).await;
+    assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
+    let m = repo.get_method(train.id, method).await.expect("row").expect("exists");
+    assert_eq!(m.env_layer_digest.as_deref(), Some(entry.layer_sha256.as_str()));
+    assert_eq!(m.env_base_digest.as_deref(), Some(base.digest.as_str()));
+    assert_eq!(m.env_method_version.as_deref(), Some(entry.method_version.as_str()), "the entry's version");
+    assert_eq!(m.env_arch.as_deref(), Some(entry.arch.as_str()));
+    assert_eq!(m.env_layer_tag.as_deref(), Some(entry.tag.as_str()));
+    assert_eq!(m.env_base_tag, base.tag);
+
+    let saved = store::save_from_run(
+        &pool,
+        &SaveModelsRequest {
+            run_id: train.id,
+            method_ids: vec![method.to_string()],
+            target: SaveTarget::NewSet {
+                set_name: "recorded image".to_string(),
+            },
+            keep_training_files: false,
+            also_export: false,
+            source_label: None,
+        },
+    )
+    .await
+    .expect("save");
+    let model_id = saved.models[0].id.to_string();
+
+    // The list moves on: the model was trained in a layer the list no longer
+    // names (an earlier build of the method).
+    let old_layer = "5e".repeat(32);
+    let old_tag = format!("{method}-0.9.0-{}-{}", entry.arch.as_str(), &old_layer[..12]);
+    sqlx::query(
+        "UPDATE txr_models SET env_layer_digest = ?, env_method_version = '0.9.0', \
+         env_layer_tag = ? WHERE id = ?",
+    )
+    .bind(&old_layer)
+    .bind(&old_tag)
+    .bind(saved.models[0].id)
+    .execute(&pool)
+    .await
+    .expect("an older model");
+    let assets = store::resolve_assets(&pool, &[model_id.clone()]).await.expect("resolve");
+    let asset: TxrModelAsset =
+        serde_json::from_value(serde_json::to_value(&assets[0]).unwrap()).expect("engine element");
+
+    let env = Arc::new(FakeEnv::new(Duration::from_millis(5)));
+    let reuse = start(
+        CreateRunRequest {
+            mode: TxrRunMode::Reuse,
+            input: TxrRunInput {
+                patients: None,
+                measurements: super::cohort_measurements_parsed(),
+                predict_measurements: Some(super::cohort_measurements_parsed()),
+                joins: Vec::new(),
+                mapping: Vec::new(),
+                keep_copies: false,
+            },
+            config: txresbench::modules::execution_engine::types::RunConfig {
+                at_a_time: 1,
+                decision_day: 56.0,
+                look_ahead_day: 238.0,
+                ..Default::default()
+            },
+            method_ids: Vec::new(),
+            model_ids: vec![asset],
+        },
+        env.clone(),
+    )
+    .await;
+    let row = wait_terminal(&repo, reuse.id).await;
+    assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
+    let layers: Vec<_> = env.requested().into_iter().filter(|r| r.env_id == method).collect();
+    assert_eq!(layers.len(), 1, "{layers:?}");
+    assert_eq!(
+        layers[0].oci_ref,
+        format!("{}@sha256:{old_layer}", entry.oci_ref),
+        "the model's own layer file, by its sha256 — never the list's current entry"
+    );
+    assert_eq!(layers[0].digest, old_layer);
+    let m = repo.get_method(reuse.id, &model_id).await.expect("row").expect("exists");
+    assert_eq!(m.state, "finished");
+    assert_eq!(m.env_layer_digest.as_deref(), Some(old_layer.as_str()));
+    assert_eq!(m.env_base_digest.as_deref(), Some(base.digest.as_str()));
+    assert_eq!(m.env_method_version.as_deref(), Some("0.9.0"), "the model's recorded version");
+    assert_eq!(m.env_layer_tag.as_deref(), Some(old_tag.as_str()));
+    assert_eq!(m.env_base_tag, base.tag, "the base the list still names");
+}
+
 /// TEST-EE-33: the wrapper's live lines are appended while the run is active
 /// (the drainer, not a completion-time batch) and ride the run SSE runtime as
 /// `log` frames; the run-scoped log serves them after too.

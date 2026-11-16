@@ -396,6 +396,8 @@ struct FakeEnvInner {
     policy: Mutex<std::collections::HashMap<String, EnvPolicy>>,
     progress: Mutex<std::collections::HashMap<String, (std::time::Instant, u64)>>,
     cancelled: Mutex<Vec<String>>,
+    /// Every ref `ensure` was asked for, in order.
+    requested: Mutex<Vec<EnvRef>>,
 }
 
 impl FakeEnv {
@@ -406,8 +408,18 @@ impl FakeEnv {
                 policy: Mutex::new(std::collections::HashMap::new()),
                 progress: Mutex::new(std::collections::HashMap::new()),
                 cancelled: Mutex::new(Vec::new()),
+                requested: Mutex::new(Vec::new()),
             }),
         }
+    }
+
+    /// Every ref `ensure` was asked for, in order.
+    pub fn requested(&self) -> Vec<EnvRef> {
+        self.inner
+            .requested
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn set(&self, env_id: &str, policy: EnvPolicy) {
@@ -437,7 +449,13 @@ impl orchestrator::EnvProvider for FakeEnv {
         r: &EnvRef,
         _kind: EnvKind,
         _deadline: Duration,
+        _stop: &Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<ProvidedMount, AppError> {
+        self.inner
+            .requested
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(r.clone());
         let env_id = ref_env_id(r);
         let policy = self
             .inner
@@ -528,7 +546,7 @@ impl orchestrator::EnvProvider for FakeEnv {
         }
     }
 
-    fn cancel(&self, env_id: &str) {
+    fn cancel(&self, env_id: &str, _digest: &str) {
         self.inner
             .cancelled
             .lock()

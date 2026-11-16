@@ -1682,6 +1682,11 @@ async fn demo_retention_evicts_the_oldest_model_sets() {
         own_auc: Some(0.71),
         own_c: None,
         conversions: serde_json::json!({}),
+        env_method_version: None,
+        env_arch: None,
+        env_layer_tag: None,
+        env_base_tag: None,
+        method_facts: None,
     })
     .await
     .expect("old model insert");

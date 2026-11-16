@@ -277,6 +277,18 @@ const KB = 1024
 const MB = KB * 1024
 
 /**
+ * The Details dialog's Environment fact: the layer's publish tag of the
+ * environment image the model was trained in (and runs in: a reuse binds the
+ * model's own image), e.g. `cox-model-2.0.1-amd64-5ce304e213ac`. A record
+ * without a tag (a model saved before tags were kept, a demo model) says
+ * "not recorded" rather than inventing one or guessing why.
+ */
+export function formatEnvironment(env: { layer_tag?: string | null } | null | undefined): string {
+  const tag = env?.layer_tag?.trim() ?? ''
+  return tag.length > 0 ? tag : UNRECORDED
+}
+
+/**
  * A byte size as the boards spell them:
  *
  * - 10 MB and up → whole megabytes ("41 MB", nearest);

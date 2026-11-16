@@ -93,6 +93,15 @@ impl EnvArch {
         }
     }
 
+    /// The variant of an arch string (`amd64` | `arm64`), `None` otherwise.
+    pub fn parse(s: &str) -> Option<EnvArch> {
+        match s {
+            "amd64" => Some(EnvArch::Amd64),
+            "arm64" => Some(EnvArch::Arm64),
+            _ => None,
+        }
+    }
+
     /// The architecture this BUILT runtime runs on (the lookup the engine
     /// performs at run start: a layer for another machine is a layer the app
     /// cannot mount, and `env_for` returning it would be a silent wrong
@@ -123,6 +132,15 @@ impl EnvLanguage {
         match self {
             EnvLanguage::R => "r",
             EnvLanguage::Python => "py",
+        }
+    }
+
+    /// The language of a catalogue row (`R` | `Python`), `None` otherwise.
+    pub fn from_catalogue(language: &str) -> Option<EnvLanguage> {
+        match language {
+            "R" => Some(EnvLanguage::R),
+            "Python" => Some(EnvLanguage::Python),
+            _ => None,
         }
     }
 
@@ -1021,6 +1039,65 @@ pub fn size_bytes(method_id: &str) -> Option<u64> {
 /// file and never reach into the provider's module under an unseamed path.
 pub fn facts_for(method_id: &str) -> Option<&'static Method> {
     crate::modules::method_catalogue::catalogue::method(method_id)
+}
+
+/// Why a saved model's run-shaping facts cannot be had.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReuseFactsRefusal {
+    /// The catalogue has no row for the method at all.
+    UnknownMethod { method_id: String },
+    /// The model kept no facts (saved before they were kept) and the
+    /// catalogue row is another version, whose facts may differ.
+    OtherVersion {
+        method_id: String,
+        recorded: String,
+        current: String,
+    },
+}
+
+impl ReuseFactsRefusal {
+    /// The plain sentence a run row and the model's detail show.
+    pub fn detail(&self) -> String {
+        match self {
+            ReuseFactsRefusal::UnknownMethod { method_id } => {
+                format!("This saved model's method {method_id} is not in this app")
+            }
+            ReuseFactsRefusal::OtherVersion {
+                method_id,
+                recorded,
+                current,
+            } => format!(
+                "This saved model was trained with {method_id} {recorded}, whose settings this \
+                 app no longer has (it has {current}); it was saved before models kept their \
+                 settings"
+            ),
+        }
+    }
+}
+
+/// The method facts a saved model runs with (one rule for the run and for
+/// the model eligibility, so the screen and the run agree): the facts the
+/// model kept from its training run, laid over the current catalogue row
+/// (which still gives everything that does not shape the run); a model that
+/// kept none uses the current row only when the row is the model's recorded
+/// `method_version` ("same version, same facts"), and is refused otherwise.
+pub fn reuse_facts_for(
+    method_id: &str,
+    method_version: &str,
+    saved: Option<&super::types::TxrMethodFacts>,
+) -> Result<std::borrow::Cow<'static, Method>, ReuseFactsRefusal> {
+    let row = facts_for(method_id).ok_or_else(|| ReuseFactsRefusal::UnknownMethod {
+        method_id: method_id.to_string(),
+    })?;
+    match saved {
+        Some(facts) => Ok(std::borrow::Cow::Owned(facts.apply_to(row))),
+        None if row.version == method_version => Ok(std::borrow::Cow::Borrowed(row)),
+        None => Err(ReuseFactsRefusal::OtherVersion {
+            method_id: method_id.to_string(),
+            recorded: method_version.to_string(),
+            current: row.version.clone(),
+        }),
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -753,6 +753,11 @@ mod tests {
             own_auc: Some(0.66),
             own_c: None,
             conversions: serde_json::json!({}),
+            env_method_version: None,
+            env_arch: None,
+            env_layer_tag: None,
+            env_base_tag: None,
+            method_facts: None,
         }
     }
 

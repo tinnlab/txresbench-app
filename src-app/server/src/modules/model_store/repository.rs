@@ -120,6 +120,15 @@ pub struct ModelRow {
     /// `model.conversions` map; `{}` when none was saved).
     pub conversions: Json,
     pub created_at: DateTime<Utc>,
+    /// The environment image facts beside the two digests (NULL = not
+    /// recorded: a model saved before they were kept).
+    pub env_method_version: Option<String>,
+    pub env_arch: Option<String>,
+    pub env_layer_tag: Option<String>,
+    pub env_base_tag: Option<String>,
+    /// The run-shaping facts the model was trained with
+    /// (`execution_engine::types::TxrMethodFacts`; NULL = not kept).
+    pub method_facts: Option<Json>,
 }
 
 /// The columns the save flow supplies (everything except `id`/`created_at`,
@@ -162,6 +171,13 @@ pub struct NewModel {
     pub own_c: Option<f64>,
     /// The conversions to save (`{}` when none).
     pub conversions: Json,
+    /// The environment image facts (None = not recorded).
+    pub env_method_version: Option<String>,
+    pub env_arch: Option<String>,
+    pub env_layer_tag: Option<String>,
+    pub env_base_tag: Option<String>,
+    /// The run-shaping facts (None = not kept).
+    pub method_facts: Option<Json>,
 }
 
 /// The repository. Pool-bound (CONS-MS-1/2): takes the process pool; the
@@ -385,6 +401,11 @@ impl ModelStoreRepository {
         let marker_facts = m.marker_facts.clone();
         let covariates = m.covariates.clone();
         let conversions = m.conversions.clone();
+        let env_method_version = m.env_method_version.clone();
+        let env_arch = m.env_arch.clone();
+        let env_layer_tag = m.env_layer_tag.clone();
+        let env_base_tag = m.env_base_tag.clone();
+        let method_facts = m.method_facts.clone();
         // The id is a bind local (see `insert_set`).
         let id = Uuid::new_v4();
         sqlx::query_as!(
@@ -396,10 +417,11 @@ impl ModelStoreRepository {
                   contract, env_base_digest, env_layer_digest, trained_on_patients,
                   trained_at, decision_day, endpoint, horizon, features,
                   required_markers, marker_facts, covariates, embeds_training_data,
-                  own_auc, own_c, conversions)
+                  own_auc, own_c, conversions, env_method_version, env_arch,
+                  env_layer_tag, env_base_tag, method_facts)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
-                       $27, $28, $29, $30, $31, $32)
+                       $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37)
                RETURNING id as "id: Uuid", set_id as "set_id?: Uuid", name, method_id,
                          method_version, "group", group_label, task, provenance,
                          imported_from, pretrained_catalogue_id,
@@ -414,7 +436,9 @@ impl ModelStoreRepository {
                          embeds_training_data as "embeds_training_data: bool",
                          own_auc, own_c,
                          conversions as "conversions: serde_json::Value",
-                         created_at as "created_at: DateTime<Utc>""#,
+                         created_at as "created_at: DateTime<Utc>",
+                         env_method_version, env_arch, env_layer_tag, env_base_tag,
+                         method_facts as "method_facts?: serde_json::Value""#,
             id,
             m.set_id,
             name,
@@ -447,6 +471,11 @@ impl ModelStoreRepository {
             m.own_auc,
             m.own_c,
             conversions,
+            env_method_version,
+            env_arch,
+            env_layer_tag,
+            env_base_tag,
+            method_facts,
         )
         .fetch_one(&self.pool)
         .await
@@ -470,7 +499,9 @@ impl ModelStoreRepository {
                       covariates as "covariates: serde_json::Value",
                       embeds_training_data as "embeds_training_data: bool",
                       own_auc, own_c, conversions as "conversions: serde_json::Value",
-                      created_at as "created_at: DateTime<Utc>"
+                      created_at as "created_at: DateTime<Utc>",
+                      env_method_version, env_arch, env_layer_tag, env_base_tag,
+                      method_facts as "method_facts?: serde_json::Value"
                FROM txr_models WHERE id = $1"#,
             id,
         )
@@ -504,7 +535,9 @@ impl ModelStoreRepository {
                       covariates as "covariates: serde_json::Value",
                       embeds_training_data as "embeds_training_data: bool",
                       own_auc, own_c, conversions as "conversions: serde_json::Value",
-                      created_at as "created_at: DateTime<Utc>"
+                      created_at as "created_at: DateTime<Utc>",
+                      env_method_version, env_arch, env_layer_tag, env_base_tag,
+                      method_facts as "method_facts?: serde_json::Value"
                FROM txr_models
                WHERE ($1 IS NULL OR set_id = $1)
                  AND ($2 IS NULL
@@ -638,7 +671,9 @@ impl ModelStoreRepository {
                       covariates as "covariates: serde_json::Value",
                       embeds_training_data as "embeds_training_data: bool",
                       own_auc, own_c, conversions as "conversions: serde_json::Value",
-                      created_at as "created_at: DateTime<Utc>"
+                      created_at as "created_at: DateTime<Utc>",
+                      env_method_version, env_arch, env_layer_tag, env_base_tag,
+                      method_facts as "method_facts?: serde_json::Value"
                FROM txr_models
                WHERE tree_sha256 = $1 AND method_id = $2
                  AND ((set_id = $3) OR (set_id IS NULL AND $3 IS NULL))"#,
@@ -808,6 +843,11 @@ mod tests {
             own_auc: Some(0.66),
             own_c: Some(0.63),
             conversions: serde_json::json!({}),
+            env_method_version: None,
+            env_arch: None,
+            env_layer_tag: None,
+            env_base_tag: None,
+            method_facts: None,
         }
     }
 
@@ -1227,6 +1267,66 @@ mod tests {
         assert!(!repo.fill_missing_conversions(inserted.id, &other).await.expect("fill"));
         let kept = repo.get_model(inserted.id).await.expect("get").expect("row");
         assert_eq!(kept.conversions, map, "a saved map is never rewritten");
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The environment image facts round-trip through every read, and a row
+    /// written before the columns existed reads them as NULL (not recorded).
+    #[tokio::test]
+    async fn rows_from_before_the_migration_read_with_null_facts() {
+        let (pool, path) = test_pool().await;
+        let repo = ModelStoreRepository::new(pool.clone());
+        let set = repo.insert_set("image", None, None, false, None).await.expect("set");
+        let mut with = new_model(Some(set.id), &"a1".repeat(32), "ctdna-tf-four-group");
+        with.env_method_version = Some("2.0.1".to_string());
+        with.env_arch = Some("amd64".to_string());
+        with.env_layer_tag = Some("ctdna-tf-four-group-2.0.1-amd64-5ce304e213ac".to_string());
+        with.env_base_tag = Some("base-py-2.0-amd64-e10454500239".to_string());
+        let inserted = repo.insert_model(&with).await.expect("insert");
+        let reads = [
+            inserted.clone(),
+            repo.get_model(inserted.id).await.expect("get").expect("row"),
+            repo.list_models(Some(set.id), None, None).await.expect("list")[0].clone(),
+            repo.get_model_by_ref(Some(set.id), &"a1".repeat(32), "ctdna-tf-four-group")
+                .await
+                .expect("by ref")
+                .expect("row"),
+        ];
+        for row in &reads {
+            assert_eq!(row.env_method_version.as_deref(), Some("2.0.1"));
+            assert_eq!(row.env_arch.as_deref(), Some("amd64"));
+            assert_eq!(row.env_layer_tag, with.env_layer_tag);
+            assert_eq!(row.env_base_tag, with.env_base_tag);
+        }
+
+        // A row written without the columns (saved before this change).
+        let old_id = Uuid::new_v4();
+        sqlx::query(
+            r#"INSERT INTO txr_models (id, set_id, name, method_id, method_version, "group",
+                 group_label, provenance, tree_sha256, dir, size_bytes, contract,
+                 env_base_digest, env_layer_digest, decision_day,
+                 endpoint, horizon, features, marker_facts, covariates, embeds_training_data)
+               VALUES (?, ?, 'old', 'ctdna-tf-four-group', '1.0.0', 'landmark', 'Landmark',
+                 'run', ?, '/data/x', 1, '2.0', ?, ?, 56.0, 'pfs', 238.0, '[]', '{}', '{}', 0)"#,
+        )
+        .bind(old_id)
+        .bind(set.id)
+        .bind("b2".repeat(32))
+        .bind("c3".repeat(32))
+        .bind("d4".repeat(32))
+        .execute(&pool)
+        .await
+        .expect("a row written without the columns");
+        let old = repo.get_model(old_id).await.expect("get").expect("row");
+        assert_eq!(old.env_base_digest.as_deref(), Some("c3".repeat(32).as_str()));
+        assert_eq!(old.env_layer_digest.as_deref(), Some("d4".repeat(32).as_str()));
+        assert_eq!(
+            (old.env_method_version, old.env_arch, old.env_layer_tag, old.env_base_tag),
+            (None, None, None, None),
+            "not recorded, never invented"
+        );
 
         pool.close().await;
         let _ = std::fs::remove_file(&path);

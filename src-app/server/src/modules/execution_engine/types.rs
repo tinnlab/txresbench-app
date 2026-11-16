@@ -521,14 +521,118 @@ pub struct TxrModelAsset {
     /// before conversions were kept).
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub conversions: super::predictions::Conversions,
+    /// The run-shaping catalogue facts the model was trained with. A reuse
+    /// runs with THESE facts, not the current catalogue row's. Absent on a
+    /// model saved before they were kept: the current row is used only when
+    /// its version equals `method_version`, otherwise the model is refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method_facts: Option<TxrMethodFacts>,
 }
 
-/// The env digest pair recorded on a method row / produced model (base + the
-/// method's layer — provenance against the manifest, CONS-EE-8).
+/// The run-shaping facts of a catalogue row: the method.json contract the
+/// engine reads to build a method's bundles, pick its markers, choose its
+/// task and read its outputs. A saved model keeps the ones its training run
+/// used, so a later catalogue that changed them (a new method version) does
+/// not change how the model is run. The rest of the row (title, timing,
+/// references, …) is not run-shaping and is not kept.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct TxrMethodFacts {
+    pub group: crate::modules::method_catalogue::types::MethodGroup,
+    pub markers: crate::modules::method_catalogue::types::MethodMarkers,
+    pub required_markers: Option<crate::modules::method_catalogue::types::RequiredMarkers>,
+    pub covariates: crate::modules::method_catalogue::types::CovariateMode,
+    pub min_draws: u32,
+    pub needs_baseline: bool,
+    pub uses_history: crate::modules::method_catalogue::types::UsesHistory,
+    pub fitted: bool,
+    pub saves_model: bool,
+    pub own_outputs: Vec<String>,
+    pub tasks: Vec<String>,
+    pub needs_detection_call: bool,
+    pub params: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+impl TxrMethodFacts {
+    /// The run-shaping facts of a catalogue row.
+    pub fn from_method(m: &crate::modules::method_catalogue::types::Method) -> Self {
+        Self {
+            group: m.group,
+            markers: m.markers,
+            required_markers: m.required_markers.clone(),
+            covariates: m.covariates,
+            min_draws: m.min_draws,
+            needs_baseline: m.needs_baseline,
+            uses_history: m.uses_history,
+            fitted: m.fitted,
+            saves_model: m.saves_model,
+            own_outputs: m.own_outputs.clone(),
+            tasks: m.tasks.clone(),
+            needs_detection_call: m.needs_detection_call,
+            params: m.params.clone(),
+        }
+    }
+
+    /// `row` with these facts in place of its own (the row gives everything
+    /// that does not shape the run: id, names, language, timing, …).
+    pub fn apply_to(
+        &self,
+        row: &crate::modules::method_catalogue::types::Method,
+    ) -> crate::modules::method_catalogue::types::Method {
+        let mut m = row.clone();
+        m.group = self.group;
+        m.markers = self.markers;
+        m.required_markers = self.required_markers.clone();
+        m.covariates = self.covariates;
+        m.min_draws = self.min_draws;
+        m.needs_baseline = self.needs_baseline;
+        m.uses_history = self.uses_history;
+        m.fitted = self.fitted;
+        m.saves_model = self.saves_model;
+        m.own_outputs = self.own_outputs.clone();
+        m.tasks = self.tasks.clone();
+        m.needs_detection_call = self.needs_detection_call;
+        m.params = self.params.clone();
+        m
+    }
+}
+
+/// The environment image recorded on a method row / produced model / saved
+/// model: the two FILE hashes the run verified (the base squashfs pin and the
+/// layer squashfs `layer_sha256`, each the blob digest of its file in its
+/// package, so the exact image can always be fetched again), plus what the
+/// method list told about it when the run started.
+///
+/// The four optional facts are absent on records from before they were kept
+/// (and on an image the list did not name); absent ones are not written, so a
+/// `.txr` header without them keeps its bytes and an older app ignores them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct TxrMethodEnv {
     pub base_digest: String,
     pub layer_digest: String,
+    /// The environment's method version (the list entry's `method_version`,
+    /// which can differ from the catalogue's version).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method_version: Option<String>,
+    /// The chip type the image is built for (`amd64` | `arm64`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arch: Option<String>,
+    /// The layer's immutable publish tag (`<env_id>-<version>-<arch>-<sha12>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_tag: Option<String>,
+    /// The base's immutable publish tag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_tag: Option<String>,
+}
+
+impl TxrMethodEnv {
+    /// The two digests alone (a record that carries no list facts).
+    pub fn digests(base_digest: impl Into<String>, layer_digest: impl Into<String>) -> Self {
+        Self {
+            base_digest: base_digest.into(),
+            layer_digest: layer_digest.into(),
+            ..Self::default()
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1128,12 +1232,10 @@ mod tests {
             tree_sha256: "a".repeat(64),
             method_id: "landmark-cox-current".to_string(),
             method_version: "2.0.1".to_string(),
-            env: TxrMethodEnv {
-                base_digest: "b".repeat(64),
-                layer_digest: "c".repeat(64),
-            },
+            env: TxrMethodEnv::digests("b".repeat(64), "c".repeat(64)),
             contract: "2.0".to_string(),
             conversions: Default::default(),
+            method_facts: None,
         }
     }
 

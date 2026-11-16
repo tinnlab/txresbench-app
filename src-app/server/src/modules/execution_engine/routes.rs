@@ -1488,6 +1488,10 @@ mod tests {
             trained_on_patients: None,
             size_bytes: None,
             own_auc: None,
+            env_method_version: None,
+            env_arch: None,
+            env_layer_tag: None,
+            env_base_tag: None,
         }
     }
 

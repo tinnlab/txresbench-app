@@ -117,6 +117,109 @@ async fn save_then_resolve_carries_the_training_conversion() {
     assert_eq!(resp.status().as_u16(), 500);
 }
 
+/// The environment image a run recorded (version, chip type, both tags, next
+/// to the two file hashes) reaches the run detail, the saved model's detail,
+/// the resolved engine asset and a `.txr` export; a run recorded before the
+/// facts were kept reads them as absent (not written, never invented).
+#[tokio::test]
+async fn run_detail_and_saved_model_carry_the_image_facts() {
+    use txresbench::modules::execution_engine::repository::MethodPatch;
+    let server = TestServer::spawn().await;
+    let token = owner_token(&server).await;
+    let repo = TxrRepository::new(pool(&server).await);
+    let (run_id, _) = seed_run_with_models(&server, &repo, "image", &[METHOD_A, METHOD_B]).await;
+    // METHOD_A's row carries the image facts (as the running patch writes
+    // them); METHOD_B's is a row from before they were kept.
+    let layer_tag = format!("{METHOD_A}-2.0.1-amd64-5ce304e213ac");
+    repo.patch_method(
+        run_id,
+        METHOD_A,
+        &MethodPatch {
+            env_method_version: Some("2.0.1".to_string()),
+            env_arch: Some("amd64".to_string()),
+            env_layer_tag: Some(layer_tag.clone()),
+            env_base_tag: Some("base-py-2.0-amd64-e10454500239".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("image facts");
+
+    let get = |path: String| {
+        let server = &server;
+        let token = token.clone();
+        async move {
+            let resp = server
+                .client
+                .get(server.api_url(&path))
+                .bearer_auth(&token)
+                .send()
+                .await
+                .expect("get");
+            assert_eq!(resp.status().as_u16(), 200, "{path}");
+            resp.json::<Value>().await.expect("json")
+        }
+    };
+    let detail = get(format!("/txr/runs/{run_id}")).await;
+    let methods = detail["methods"].as_array().expect("methods");
+    let env_of = |id: &str| {
+        methods
+            .iter()
+            .find(|m| m["method_id"] == id)
+            .map(|m| m["env"].clone())
+            .expect("method row")
+    };
+    let a = env_of(METHOD_A);
+    assert_eq!(a["method_version"], "2.0.1");
+    assert_eq!(a["arch"], "amd64");
+    assert_eq!(a["layer_tag"], layer_tag.as_str());
+    assert_eq!(a["base_tag"], "base-py-2.0-amd64-e10454500239");
+    let b = env_of(METHOD_B);
+    assert!(b["layer_digest"].is_string());
+    for key in ["method_version", "arch", "layer_tag", "base_tag"] {
+        assert!(b.get(key).is_none(), "{key} is absent on a row from before: {b}");
+    }
+
+    let resp = server
+        .client
+        .post(server.api_url("/txr/models/save"))
+        .bearer_auth(&token)
+        .json(&json!({"run_id": run_id, "method_ids": [METHOD_A, METHOD_B],
+            "target": {"set_name": "image facts"}}))
+        .send()
+        .await
+        .expect("save");
+    assert_eq!(resp.status().as_u16(), 201);
+    let saved: Value = resp.json().await.expect("save json");
+    let id_of = |method: &str| {
+        saved["models"]
+            .as_array()
+            .expect("models")
+            .iter()
+            .find(|m| m["method_id"] == method)
+            .and_then(|m| m["id"].as_str())
+            .expect("saved model")
+            .to_string()
+    };
+    let (id_a, id_b) = (id_of(METHOD_A), id_of(METHOD_B));
+    let model_a = get(format!("/txr/models/{id_a}")).await;
+    assert_eq!(model_a["env"], a, "the saved model keeps the run's image");
+    let model_b = get(format!("/txr/models/{id_b}")).await;
+    assert_eq!(model_b["env"], b, "a model saved from an older row has the digests only");
+
+    let resp = server
+        .client
+        .post(server.api_url("/txr/models/resolve"))
+        .bearer_auth(&token)
+        .json(&json!({"model_ids": [id_a]}))
+        .send()
+        .await
+        .expect("resolve");
+    assert_eq!(resp.status().as_u16(), 200);
+    let body: Value = resp.json().await.expect("resolve json");
+    assert_eq!(body["assets"][0]["env"], a, "the engine binds the same image");
+}
+
 /// TEST-MS-08: the save-from-run flow (PROV-MS-3). A seeded finished run with
 /// two produced trees → POST save → 201 with the set + rows whose
 /// `tree_sha256` equals the run record's, `size_bytes`, `trained_at` == the

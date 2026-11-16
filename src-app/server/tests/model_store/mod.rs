@@ -158,14 +158,14 @@ pub async fn seed_run_with_models(
         let (dir, digest, size) = fixture_tree(&model_dir, &format!("{mid}-{name}"));
         let _ = dir;
         let entry = envmanifest::env_for(mid).expect("a manifest entry for the seeded method");
-        let env = txresbench::modules::execution_engine::types::TxrMethodEnv {
-            base_digest: entry
+        let env = txresbench::modules::execution_engine::types::TxrMethodEnv::digests(
+            entry
                 .base_digest
                 .strip_prefix("sha256:")
                 .unwrap_or(&entry.base_digest)
                 .to_string(),
-            layer_digest: entry.layer_sha256.clone(),
-        };
+            entry.layer_sha256.clone(),
+        );
         method_rows.push(SeededMethod {
             method_id: mid.to_string(),
             dir: model_dir,

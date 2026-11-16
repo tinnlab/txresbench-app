@@ -31,6 +31,7 @@ import { TxrHistoryList } from './TxrHistoryList'
 import { TxrHistoryCard } from './TxrHistoryCard'
 import {
   TxrHistoryDetailBlock,
+  environmentWords,
   formatMethodDuration,
   madeFactsOf,
   methodRow,
@@ -690,6 +691,45 @@ describe('TxrHistoryDetailBlock + the composition helpers (TEST-HIST-7 — the f
     expect(facts.remainder).toBe(1)
     expect(facts.hasPredictions).toBe(true)
     expect(madeFactsOf(detail('run-1', { models_made: { produced: 0, saved_sets: [] } }))).toBeNull()
+  })
+
+  it('a method row names the environment it ran in when the run recorded it, and nothing new when not', () => {
+    const row = detail('run-1').methods[0]
+    // A run recorded before the image facts were kept: the row is unchanged.
+    expect(environmentWords(row)).toBeNull()
+    expect(
+      methodRow({ ...row, env: { base_digest: 'b'.repeat(64), layer_digest: 'c'.repeat(64) } }),
+    ).toBe('method-a 1.0.0 (2 min)')
+    // The layer tag, without the method's own name in front.
+    const tagged = {
+      ...row,
+      env: {
+        base_digest: 'b'.repeat(64),
+        layer_digest: 'c'.repeat(64),
+        method_version: '1.0.1',
+        arch: 'amd64',
+        layer_tag: 'method-a-1.0.1-amd64-cccccccccccc',
+      },
+    }
+    expect(environmentWords(tagged)).toBe('1.0.1-amd64-cccccccccccc')
+    expect(methodRow(tagged)).toBe('method-a 1.0.0 (2 min, environment 1.0.1-amd64-cccccccccccc)')
+    expect(methodRow({ ...tagged, elapsed_secs: undefined })).toBe(
+      'method-a 1.0.0 (environment 1.0.1-amd64-cccccccccccc)',
+    )
+    // The version alone when no tag was recorded.
+    expect(
+      methodRow({ ...tagged, env: { ...tagged.env, layer_tag: undefined } }),
+    ).toBe('method-a 1.0.0 (2 min, environment 1.0.1)')
+    // The expanded block shows it.
+    const view = render(
+      <TxrHistoryDetailBlock
+        detail={detail('run-1', { methods: [tagged] })}
+        isDesktop={true}
+      />,
+    )
+    expect(view.getByTestId('txr-history-detail-run-1').textContent).toContain(
+      'method-a 1.0.0 (2 min, environment 1.0.1-amd64-cccccccccccc)',
+    )
   })
 
   it('the card subtitle helper: one-method train runs omit the method segment (the board shape)', () => {
