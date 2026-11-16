@@ -45,6 +45,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -127,7 +128,8 @@ def artifact_manifest_bytes(layer_sha256_hex, size_bytes, annotations):
 def validate_app_manifest(doc):
     """Mirrors src-app/server/src/modules/execution_engine/envmanifest.rs's
     validate_manifest set (the app-boot rules the dev data must pass)."""
-    assert doc["schema_version"] == 1, doc
+    assert doc["schema_version"] == 2, doc
+    assert "source_revision" not in doc, "schema 2: the provenance is per entry"
     assert isinstance(doc["base_contract"], str) and "." in doc["base_contract"]
     assert doc["base_contract"].split(".")[0].isdigit() and doc["base_contract"].split(".")[1].isdigit()
     assert doc["envs"], "no entries"
@@ -135,6 +137,9 @@ def validate_app_manifest(doc):
     for e in doc["envs"]:
         assert e["env_id"] == e["method_id"], e
         assert e["layer_schema"] == 1, e
+        assert re.match(r"^[0-9a-f]{12}$", e["source_revision"]), e
+        assert re.match(r"^[0-9a-f]{40}$", e["source_tree"]), e
+        assert re.match(r"^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$", e["generator_version"]), e
         assert e["tag"] == "%s-%s-%s-%s" % (e["env_id"], e["method_version"], e["arch"],
                                             e["layer_sha256"][:12]), e
         assert e["arch"] == "amd64", e
@@ -404,9 +409,10 @@ class RealMethodsCase(unittest.TestCase):
                 "layer_schema": 1,
             })
         doc = {
-            "schema_version": 1, "generator_version": publish.GENERATOR_VERSION,
-            "source_revision": publish.SOURCE_REVISION, "base_contract": publish.CONTRACT,
-            "envs": entries,
+            "schema_version": 2, "generator_version": publish.GENERATOR_VERSION,
+            "base_contract": publish.CONTRACT,
+            "envs": [{**e, **publish.provenance_fields(publish.DEFAULT_METHODS_DIR, e["env_id"])}
+                     for e in entries],
         }
         validate_app_manifest(doc)
         langs = {e["language"] for e in entries}
@@ -495,7 +501,7 @@ class StageFixtureCase(unittest.TestCase):
         manifest = os.path.join(self.tmpdir, "manifest.json")
         r = subprocess.run([sys.executable, self.GENERATOR, "--fixture", stage,
                             "--methods-dir", os.path.join(stage, "methods"),
-                            "--manifest", manifest], capture_output=True, text=True)
+                            "--manifest", manifest, "--full"], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(manifest) as f:
             doc = json.load(f)

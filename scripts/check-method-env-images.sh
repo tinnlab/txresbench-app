@@ -76,17 +76,44 @@
 #      `stud(y|ies)` — a scan mixing licence DATA with a vocabulary rule
 #      reddens the guard on provenance it must not alter (owner question,
 #      carried).
-#   4. REGEN PARITY — the manifest must byte-reassemble from the staged build
+#   4. REGEN PARITY — the manifest must re-assemble from the staged build
 #      records. The records (hashes/sizes) are docker build outputs that no
 #      committed file can re-derive, so this leg is a PUBLISHER-MACHINE check
 #      (PLAN note n): it runs `generate-method-env-images.py --check` against
-#      the staging dir when one is provided (`--staging-dir` / `TXR_ENV_BUILD_DIR`),
-#      pinned to the manifest's own `source_revision`. Without a staging dir it
-#      SKIPS WITH A REASON (exit 0) — the fixture parity leg of
-#      `check-method-env-images.test.mjs` exercises the same code path on every
-#      gate run; `--require-parity` turns the absence into a failure.
-#      A staging dir + the SEED manifest is red by design (notes e/j: parity is
-#      green on the real manifest only after ITEM-6's regeneration).
+#      the staging dir when one is provided (`--staging-dir` / `TXR_ENV_BUILD_DIR`).
+#      Three modes:
+#        - whole list (the default, the full-rebuild mode): EVERY entry and
+#          base re-assembles, byte for byte, from the staging dir;
+#        - `--previous <list>` (one method at a time): an entry byte-identical
+#          to that earlier list is carried; every other entry must re-assemble
+#          from its own staged record; a base whose source image changed must
+#          come with every layer on it re-assembled (a base change is a batch);
+#        - `--entry <env_id>-<arch>` / `--base-entry <base_id>-<arch>`: only
+#          those entries re-assemble from their records.
+#      Every re-assembled entry's facts are read from git at the entry's own
+#      `source_revision` (the methods repository is needed: `--methods-dir`).
+#      Without a staging dir the leg SKIPS WITH A REASON (exit 0) — the fixture
+#      parity leg of `check-method-env-images.test.mjs` exercises the same code
+#      path on every gate run; `--require-parity` turns the absence into a
+#      failure.
+#      NARROWED ON PURPOSE (2026-11-16, with the user's OK): the publisher
+#      used to run the whole-list mode, which needs the record of every entry
+#      of every arch in one staging dir, so one method could never be
+#      published alone. It now runs `--previous <the previously published
+#      list> --entry <the artifact it pushes>`: the pushed entry equals its own
+#      build record, its facts hold at its commit (check 5), every other entry
+#      is byte-identical to the previously published list or re-assembles from
+#      its record, and the whole list passes checks 1-3. The whole-list mode
+#      stays for full rebuilds (the publisher without --previous).
+#   5. PROVENANCE — with the methods repository (`--methods-dir` /
+#      `TXR_METHODS_DIR`), every entry's (or the `--entry` ones') facts are
+#      re-read at the entry's own commit: the commit exists, `source_tree` is
+#      the git tree of methods/<id> there, the gate passed, and method.json's
+#      version, language and licence, the Dockerfile's FROM (its tag = the
+#      contract) and the wrapper hash are the entry's (AUDIT P7: a stale
+#      index.json once named the wrong version of two shipped entries). The
+#      methods repository is private, so without it the leg SKIPS WITH A
+#      REASON; `--require-provenance` makes that a failure.
 #
 # ── WHAT IT DOES NOT DO ────────────────────────────────────────────────────────
 # It does not touch the methods repository (read-only build input), does not
@@ -100,6 +127,8 @@
 #   scripts/check-method-env-images.sh --manifest FILE --schema FILE
 #   scripts/check-method-env-images.sh --staging-dir DIR --methods-dir DIR \
 #       --require-parity --verbose
+#   scripts/check-method-env-images.sh --staging-dir DIR --methods-dir DIR \
+#       --previous PREVIOUS.json [--entry <env_id>-<arch>]   # one method at a time
 #   TXR_ENV_BUILD_DIR=... scripts/check-method-env-images.sh   # same as --staging-dir
 #
 # Exit 0 = valid (and parity matched, or skipped with a printed reason).
@@ -111,7 +140,11 @@ MANIFEST="$REPO/src-app/server/data/method-env-images.json"
 SCHEMA="$REPO/src-app/server/data/method-env-images.schema.json"
 STAGING="${TXR_ENV_BUILD_DIR:-}"
 METHODS_DIR="${TXR_METHODS_DIR:-}"
+PREVIOUS=""
+ENTRIES=()
+BASE_ENTRIES=()
 REQUIRE_PARITY=0
+REQUIRE_PROVENANCE=0
 VERBOSE=0
 
 usage() {
@@ -122,8 +155,14 @@ usage: scripts/check-method-env-images.sh [options]
   --manifest=FILE    manifest to validate (default src-app/server/data/method-env-images.json)
   --schema=FILE      JSON Schema to validate against (default ...method-env-images.schema.json)
   --staging-dir=DIR  staged build records (TXR_ENV_BUILD_DIR also works) → run regen parity
-  --methods-dir=DIR  methods repository for the parity leg (TXR_METHODS_DIR also works)
+  --methods-dir=DIR  methods repository (git) for the parity and provenance legs
+                     (TXR_METHODS_DIR also works)
+  --previous=FILE    parity against this earlier list: carried entries byte-identical,
+                     the others re-assembled from their records
+  --entry=ENV-ARCH   parity (and provenance) of this entry only; repeatable
+  --base-entry=BASE-ARCH  parity of this base only; repeatable
   --require-parity   make a missing staging dir a failure, not a skip-with-reason
+  --require-provenance  make a missing methods repository a failure
   --verbose          print each validated entry
 Exit 0 = valid (and parity matched, or skipped with a printed reason); 1 = a rule
 failed (named); 2 = usage / missing file — not a verdict.
@@ -140,7 +179,14 @@ while [ $# -gt 0 ]; do
     --staging-dir) shift; [ $# -gt 0 ] || { echo "check-method-env-images: --staging-dir needs a value" >&2; exit 2; }; STAGING="$1" ;;
     --methods-dir=*) METHODS_DIR="${1#--methods-dir=}" ;;
     --methods-dir) shift; [ $# -gt 0 ] || { echo "check-method-env-images: --methods-dir needs a value" >&2; exit 2; }; METHODS_DIR="$1" ;;
+    --previous=*) PREVIOUS="${1#--previous=}" ;;
+    --previous) shift; [ $# -gt 0 ] || { echo "check-method-env-images: --previous needs a value" >&2; exit 2; }; PREVIOUS="$1" ;;
+    --entry=*) ENTRIES+=("${1#--entry=}") ;;
+    --entry) shift; [ $# -gt 0 ] || { echo "check-method-env-images: --entry needs a value" >&2; exit 2; }; ENTRIES+=("$1") ;;
+    --base-entry=*) BASE_ENTRIES+=("${1#--base-entry=}") ;;
+    --base-entry) shift; [ $# -gt 0 ] || { echo "check-method-env-images: --base-entry needs a value" >&2; exit 2; }; BASE_ENTRIES+=("$1") ;;
     --require-parity) REQUIRE_PARITY=1 ;;
+    --require-provenance) REQUIRE_PROVENANCE=1 ;;
     --verbose) VERBOSE=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "check-method-env-images: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
@@ -150,6 +196,11 @@ done
 
 [ -f "$MANIFEST" ] || { echo "check-method-env-images: manifest not found: $MANIFEST" >&2; exit 2; }
 [ -f "$SCHEMA" ] || { echo "check-method-env-images: schema not found: $SCHEMA" >&2; exit 2; }
+[ -z "$PREVIOUS" ] || [ -f "$PREVIOUS" ] || { echo "check-method-env-images: previous list not found: $PREVIOUS" >&2; exit 2; }
+if [ -z "$STAGING" ] && { [ -n "$PREVIOUS" ] || [ "${#BASE_ENTRIES[@]}" -gt 0 ]; }; then
+  echo "check-method-env-images: --previous and --base-entry are parity modes: they need --staging-dir" >&2
+  exit 2
+fi
 
 python3 - "$MANIFEST" "$SCHEMA" "$VERBOSE" <<'PYEOF' || exit $?
 import json
@@ -473,32 +524,54 @@ print(f"check-method-env-images: OK — {len(envs)} env entr{'y' if len(envs) ==
 PYEOF
 
 # ── 4. Regen parity leg (publisher-machine check; see header). ─────────────────
+GEN="$REPO/scripts/generate-method-env-images.py"
+methods_args=()
+[ -z "$METHODS_DIR" ] || methods_args=(--methods-dir "$METHODS_DIR")
+entry_args=()
+for e in ${ENTRIES[@]+"${ENTRIES[@]}"}; do entry_args+=(--entry "$e"); done
 if [ -n "$STAGING" ]; then
   if [ ! -d "$STAGING/layers" ]; then
     echo "check-method-env-images: FAIL: staging dir $STAGING has no layers/ — the regen parity leg cannot run" >&2
     exit 1
   fi
-  rev="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["source_revision"])' "$MANIFEST")" || {
-    echo "check-method-env-images: FAIL(2): cannot read source_revision from $MANIFEST" >&2
-    exit 2
-  }
-  args=(--check --fixture "$STAGING" --manifest "$MANIFEST" --source-revision "$rev")
-  if [ -n "$METHODS_DIR" ]; then
-    args+=(--methods-dir "$METHODS_DIR")
+  args=(--check --assemble "$STAGING" --manifest "$MANIFEST" ${methods_args[@]+"${methods_args[@]}"})
+  mode="whole list"
+  if [ -n "$PREVIOUS" ]; then
+    args+=(--previous "$PREVIOUS")
+    mode="against $PREVIOUS"
   fi
-  echo "check-method-env-images: regen parity at $rev against $STAGING ..."
-  python3 "$REPO/scripts/generate-method-env-images.py" "${args[@]}" || exit 1
-  exit 0
-fi
-
-if [ "$REQUIRE_PARITY" -eq 1 ]; then
+  args+=(${entry_args[@]+"${entry_args[@]}"})
+  for b in ${BASE_ENTRIES[@]+"${BASE_ENTRIES[@]}"}; do args+=(--base-entry "$b"); done
+  if [ -z "$PREVIOUS" ] && { [ "${#ENTRIES[@]}" -gt 0 ] || [ "${#BASE_ENTRIES[@]}" -gt 0 ]; }; then
+    mode="entries ${ENTRIES[*]-} ${BASE_ENTRIES[*]-}"
+  fi
+  echo "check-method-env-images: regen parity ($mode) against $STAGING ..."
+  python3 "$GEN" "${args[@]}" || exit 1
+elif [ "$REQUIRE_PARITY" -eq 1 ]; then
   echo "check-method-env-images: FAIL: --require-parity but no staging dir " \
        "(pass --staging-dir <dir> / TXR_ENV_BUILD_DIR)" >&2
   exit 1
+else
+  echo "check-method-env-images: regen parity SKIPPED — no staging dir " \
+       "(TXR_ENV_BUILD_DIR / --staging-dir); the layer hashes/sizes are docker " \
+       "build outputs no committed file can re-derive (PLAN note n), so real-mode " \
+       "parity is a publisher-machine check. Fixture parity runs in " \
+       "check-method-env-images.test.mjs; --require-parity makes this a failure."
 fi
-echo "check-method-env-images: regen parity SKIPPED — no staging dir " \
-     "(TXR_ENV_BUILD_DIR / --staging-dir); the layer hashes/sizes are docker " \
-     "build outputs no committed file can re-derive (PLAN note n), so real-mode " \
-     "parity is a publisher-machine check. Fixture parity runs in " \
-     "check-method-env-images.test.mjs; --require-parity makes this a failure."
+
+# ── 5. Provenance leg (needs the methods repository; see header). ──────────────
+if [ -n "$METHODS_DIR" ]; then
+  echo "check-method-env-images: provenance against $METHODS_DIR ..."
+  python3 "$GEN" --check-provenance --manifest "$MANIFEST" --methods-dir "$METHODS_DIR" \
+    ${entry_args[@]+"${entry_args[@]}"} || exit 1
+elif [ "$REQUIRE_PROVENANCE" -eq 1 ]; then
+  echo "check-method-env-images: FAIL: --require-provenance but no methods repository " \
+       "(pass --methods-dir <dir> / TXR_METHODS_DIR)" >&2
+  exit 1
+else
+  echo "check-method-env-images: provenance SKIPPED — no methods repository " \
+       "(TXR_METHODS_DIR / --methods-dir; it is private, so the gate has none). " \
+       "Fixture provenance runs in check-method-env-images.test.mjs; " \
+       "--require-provenance makes this a failure."
+fi
 exit 0
