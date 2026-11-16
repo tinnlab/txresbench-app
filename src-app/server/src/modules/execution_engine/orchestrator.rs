@@ -4667,12 +4667,18 @@ fn saved_model_env_failure(
     } else {
         "that environment could not be downloaded: connect and run again"
     };
+    // The environment's version when the record has it, else the model's
+    // recorded method version (a model saved before the image facts were
+    // kept).
+    let version = env
+        .image
+        .method_version
+        .clone()
+        .unwrap_or_else(|| plan.version.clone());
     TxrRunReason {
         detail: format!(
-            "This saved model was trained with {} {}; {what} ({})",
-            plan.label,
-            env.describe(),
-            reason.detail
+            "This saved model was trained with {} {version}; {what} ({})",
+            plan.label, reason.detail
         ),
         code: reason.code,
     }
@@ -6271,9 +6277,15 @@ mod tests {
             .map(|e| e.method_id.as_str())
             .find(|m| *m != method && envmanifest::facts_for(m).is_some())
             .expect("another listed method");
+        // A model saved before the image facts were kept: the detail names
+        // the model's recorded method version.
+        let mut old = saved_model(&root, "m-old", method, &"5e".repeat(32), &"2b".repeat(32), None);
+        old.env = TxrMethodEnv::digests("2b".repeat(32), "5e".repeat(32));
+        old.method_version = "0.9.9".to_string();
         let assets = vec![
             saved_model(&root, "m-1", method, &"1a".repeat(32), &"2b".repeat(32), Some(host)),
             saved_model(&root, "m-2", other, &"4d".repeat(32), &"2b".repeat(32), Some(host)),
+            old,
         ];
         let summary = start_run(
             pool.clone(),
@@ -6306,6 +6318,16 @@ mod tests {
             "the detail names the model's method and version: {detail}"
         );
         assert_eq!(by_id["m-2"].state, "finished", "the other model still runs");
+        let old = by_id["m-old"];
+        assert_eq!(old.state, "failed");
+        assert!(
+            old.reason_detail.as_deref().unwrap_or_default().starts_with(&format!(
+                "This saved model was trained with {method} 0.9.9; that environment could not be \
+                 downloaded"
+            )),
+            "{:?}",
+            old.reason_detail
+        );
     }
 
     #[tokio::test]
