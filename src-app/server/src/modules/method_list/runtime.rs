@@ -294,7 +294,27 @@ impl ListRuntime {
         };
         let updates_on = seams.source.is_some();
         if updates_on {
-            if let Some((bytes, sig)) = store.read_list() {
+            let before = state.clone();
+            // Refused digests were judged by a set of keys, a built-in list and an app: when
+            // any of them changed (an app update, a new key), look at those lists again.
+            let judge = judgement(&seams.keys, &builtin);
+            if state.judged_by.as_deref() != Some(judge.as_str()) {
+                if !state.bad_digests.is_empty() {
+                    tracing::info!(
+                        forgotten = state.bad_digests.len(),
+                        "method list: the keys or the app changed; refused lists will be checked again"
+                    );
+                }
+                state.bad_digests.clear();
+                state.judged_by = Some(judge);
+            }
+            let stored = store.read_list();
+            if stored.is_none() {
+                // Nothing stored (never written, or deleted): the held digest names no list
+                // on disk any more, so the next check pulls the published list again.
+                state.live_digest = None;
+            }
+            if let Some((bytes, sig)) = stored {
                 match verify_and_parse(&bytes, &sig, &seams.keys) {
                     Ok(stored) => match choose(&builtin, &stored) {
                         Choice::Newer => match stored.keeps_rows_of(&builtin) {
@@ -333,8 +353,12 @@ impl ListRuntime {
                         // A torn write or an edit: run on the built-in list, fetch again.
                         tracing::warn!(error = %e, "method list: the stored list does not verify; ignored");
                         state.live_digest = None;
-                        let _ = store.write_state(&state);
                     }
+                }
+            }
+            if state != before {
+                if let Err(e) = store.write_state(&state) {
+                    tracing::warn!(error = %e, "method list: the check state could not be saved");
                 }
             }
         }
@@ -396,23 +420,58 @@ impl ListRuntime {
     /// An automatic check (boot, run start): at most one check runs at a time, and one that
     /// finished within the coalescing window (a minute) is reused. Never fails: a problem
     /// is the status (the app keeps the list it has).
+    ///
+    /// It waits for a check already running at most `budget.resolve`: a run start never
+    /// waits for a boot or a Settings check to finish, it goes on with the list in use.
     pub async fn check(self: &Arc<Self>, budget: CheckBudget) -> MethodListStatus {
-        self.check_within(budget, self.seams.coalesce).await
+        self.check_within(budget, self.seams.coalesce, Some(budget.resolve)).await
     }
 
     /// A check the user asked for (the Settings button and its action): it asks the
     /// registry now, unless a check finished while this one waited for its turn (two
     /// presses at once share one).
     pub async fn check_now(self: &Arc<Self>) -> MethodListStatus {
-        self.check_within(CheckBudget::BACKGROUND, Duration::ZERO).await
+        self.check_within(CheckBudget::BACKGROUND, Duration::ZERO, None).await
     }
 
-    async fn check_within(self: &Arc<Self>, budget: CheckBudget, window: Duration) -> MethodListStatus {
+    /// The check runs in its own task (its turn, the registry, recording the result): a
+    /// caller that goes away (a closed request) neither cuts it short nor releases its turn
+    /// while it still runs.
+    async fn check_within(
+        self: &Arc<Self>,
+        budget: CheckBudget,
+        window: Duration,
+        wait: Option<Duration>,
+    ) -> MethodListStatus {
+        if self.seams.source.is_none() {
+            return self.status();
+        }
+        let asked = Instant::now();
+        let this = self.clone();
+        let task = tokio::spawn(async move { this.check_in_turn(budget, window, wait, asked).await });
+        task.await.unwrap_or_else(|_| self.status())
+    }
+
+    async fn check_in_turn(
+        self: Arc<Self>,
+        budget: CheckBudget,
+        window: Duration,
+        wait: Option<Duration>,
+        asked: Instant,
+    ) -> MethodListStatus {
         let Some(source) = self.seams.source.clone() else {
             return self.status();
         };
-        let asked = Instant::now();
-        let _turn = self.turn.lock().await;
+        let _turn = match wait {
+            Some(limit) => match tokio::time::timeout(limit, self.turn.lock()).await {
+                Ok(turn) => turn,
+                Err(_) => {
+                    tracing::info!("method list: another check is still running; going on with the list in use");
+                    return self.status();
+                }
+            },
+            None => self.turn.lock().await,
+        };
         let reuse = self
             .record
             .lock()
@@ -534,6 +593,21 @@ impl ListRuntime {
                 }
             }
             Choice::Same => {
+                // A list taken from the registry in this session may not be on disk yet (its
+                // write failed): write it again, and hold its digest only once it is stored,
+                // so the next start does not run on an older copy and call it up to date.
+                if self.active().origin == ListOrigin::Live {
+                    if let Err(e) = self.store.write_list(&fetched.list, &fetched.signature) {
+                        tracing::warn!(error = %e, "method list: the list in use could not be saved");
+                        return (
+                            CheckResult::Current,
+                            Some(format!(
+                                "Method list #{} is in use but could not be saved; the app fetches it again at the next start.",
+                                in_use.sequence
+                            )),
+                        );
+                    }
+                }
                 self.state.lock().unwrap_or_else(|e| e.into_inner()).live_digest = Some(digest.to_string());
                 (CheckResult::Current, None)
             }
@@ -614,11 +688,52 @@ impl ListRuntime {
     }
 }
 
+/// What judges a published list besides the list itself: the trusted keys, the built-in
+/// list (the floor and the rows a newer list must keep), this build's format line and
+/// version. A refused digest is remembered only while this fingerprint stays the same.
+pub fn judgement(keys: &TrustedKeys, builtin: &MethodList) -> String {
+    let text = format!(
+        "format={}\nkeys={}\nbuiltin={}\napp={}",
+        format::FORMAT_VERSION,
+        keys.fingerprint(),
+        builtin.sha256,
+        env!("CARGO_PKG_VERSION"),
+    );
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(text.as_bytes()))
+}
+
+/// The facts [`production_seams_with`] reads from the process (passed in so tests can set
+/// them without touching process-wide state).
+pub struct SeamInputs<'a> {
+    /// Demo mode is on (`demo::enabled()`).
+    pub demo: bool,
+    /// A debug build's `TXR_ENV_MANIFEST` replaces the images.
+    pub dev_manifest: bool,
+    /// The environment.
+    pub read: &'a dyn Fn(&str) -> Option<String>,
+    /// A debug build (`cfg!(debug_assertions)`): the only build that honours the seams.
+    pub debug: bool,
+}
+
 /// The production seams: the registry through oras (the debug seams may name another
 /// reference and one more key), the app data root, the compiled-in keys. Updates are off
 /// in demo mode (recorded runs replay the built-in list) and while a debug build's
 /// `TXR_ENV_MANIFEST` replaces the images.
 pub fn production_seams(data_root: PathBuf) -> RuntimeSeams {
+    production_seams_with(
+        data_root,
+        SeamInputs {
+            demo: crate::modules::demo::enabled(),
+            dev_manifest: dev_manifest_active(),
+            read: &|k| std::env::var(k).ok(),
+            debug: cfg!(debug_assertions),
+        },
+    )
+}
+
+/// [`production_seams`] over given inputs.
+pub fn production_seams_with(data_root: PathBuf, inputs: SeamInputs<'_>) -> RuntimeSeams {
     let builtin_keys = TrustedKeys::builtin().cloned();
     let mut keys = builtin_keys.unwrap_or_else(|_| {
         TrustedKeys::from_json(br#"{"format":"txresbench-method-list-keys","format_version":1,"keys":[]}"#)
@@ -631,17 +746,17 @@ pub fn production_seams(data_root: PathBuf) -> RuntimeSeams {
         keys: keys.clone(),
         coalesce: COALESCE_WINDOW,
     };
-    if crate::modules::demo::enabled() {
+    if inputs.demo {
         return off("demo mode replays the built-in list");
     }
-    if dev_manifest_active() {
+    if inputs.dev_manifest {
         return off("TXR_ENV_MANIFEST replaces the images (a debug build)");
     }
-    let list_ref = match fetch::list_ref() {
+    let list_ref = match fetch::list_ref_with(&inputs.read, inputs.debug) {
         Ok(r) => r,
         Err(e) => return off(&e),
     };
-    if let Some(path) = fetch::test_key_path() {
+    if let Some(path) = fetch::test_key_path_with(&inputs.read, inputs.debug) {
         match std::fs::read_to_string(&path)
             .map_err(|e| e.to_string())
             .and_then(|text| keys.with_minisign_pub(&text, "test key (TXR_METHOD_LIST_TEST_KEY)").map_err(|e| e.to_string()))
@@ -1017,14 +1132,158 @@ mod tests {
         std::fs::write(root.join("method-list"), b"not a folder").unwrap();
         let source = Arc::new(FakeSource::default());
         source.publish(&digest(2), Ok(signed(2, 0)));
-        let rt = runtime_on(parsed(&signed(1, 0)), &root, Some(source), Duration::ZERO);
+        let rt = runtime_on(parsed(&signed(1, 0)), &root, Some(source.clone()), Duration::ZERO);
         let status = rt.check(CheckBudget::BACKGROUND).await;
         assert_eq!(status.last_check, CheckResult::Updated);
         assert_eq!((status.sequence, status.origin), (2, ListOrigin::Live));
         assert!(status.last_error.unwrap().contains("could not be saved"));
-        // The next session starts on the built-in list again.
-        let again = runtime_on(parsed(&signed(1, 0)), &root, Some(Arc::new(FakeSource::default())), Duration::ZERO);
+        // A second check pulls it again (it is not held) and still says it is not saved.
+        let status = rt.check(CheckBudget::BACKGROUND).await;
+        assert_eq!((status.sequence, status.origin), (2, ListOrigin::Live));
+        assert!(status.last_error.unwrap().contains("could not be saved"));
+        assert_eq!(source.counts(), (2, 2));
+        // The next session starts on the built-in list again, and fetches the list again.
+        let again = runtime_on(parsed(&signed(1, 0)), &root, Some(source.clone()), Duration::ZERO);
         assert_eq!(again.current().sequence, 1);
+        assert_eq!(again.check(CheckBudget::BACKGROUND).await.sequence, 2);
+    }
+
+    /// The list file cannot be written while state.json can (a nearly full disk): the list
+    /// taken in this session is held only once it is stored, so a later start does not run
+    /// on an older copy and call it up to date.
+    #[tokio::test]
+    async fn a_list_not_saved_is_fetched_again_until_it_is_stored() {
+        let root = scratch("unsaved");
+        let list_path = ListStore::new(&root).dir().join(super::fetch::LIST_FILE);
+        std::fs::create_dir_all(&list_path).unwrap(); // a folder in its place: the rename fails
+        let source = Arc::new(FakeSource::default());
+        source.publish(&digest(2), Ok(signed(2, 0)));
+        let rt = runtime_on(parsed(&signed(1, 0)), &root, Some(source.clone()), Duration::ZERO);
+        let first = rt.check(CheckBudget::BACKGROUND).await;
+        assert_eq!((first.last_check, first.sequence), (CheckResult::Updated, 2));
+        // Pulled again: the same list as in use, still not on disk, so not held.
+        let second = rt.check(CheckBudget::BACKGROUND).await;
+        assert_eq!(second.sequence, 2);
+        assert!(second.last_error.unwrap().contains("could not be saved"));
+        assert_eq!(ListStore::new(&root).read_state().live_digest, None, "not held");
+        // The next start runs on the built-in list and fetches the newer one again.
+        let next = runtime_on(parsed(&signed(1, 0)), &root, Some(source.clone()), Duration::ZERO);
+        assert_eq!(next.current().sequence, 1);
+        let third = next.check(CheckBudget::BACKGROUND).await;
+        assert_eq!((third.last_check, third.sequence), (CheckResult::Updated, 2));
+        // Once the disk takes it, it is stored and held.
+        std::fs::remove_dir(&list_path).unwrap();
+        let fourth = next.check(CheckBudget::BACKGROUND).await;
+        assert_eq!((fourth.last_check, fourth.last_error), (CheckResult::Current, None));
+        assert_eq!(ListStore::new(&root).read_state().live_digest, Some(digest(2)));
+        let last = runtime_on(parsed(&signed(1, 0)), &root, Some(source), Duration::ZERO);
+        assert_eq!((last.current().sequence, last.active().origin), (2, ListOrigin::Disk));
+    }
+
+    /// The stored list is gone but state.json still holds its digest: the next start
+    /// forgets the digest and fetches the list again.
+    #[tokio::test]
+    async fn a_deleted_stored_list_is_fetched_again() {
+        let root = scratch("deleted");
+        let source = Arc::new(FakeSource::default());
+        source.publish(&digest(2), Ok(signed(2, 0)));
+        let rt = runtime_on(parsed(&signed(1, 0)), &root, Some(source.clone()), Duration::ZERO);
+        assert_eq!(rt.check(CheckBudget::BACKGROUND).await.last_check, CheckResult::Updated);
+        let dir = ListStore::new(&root).dir().to_path_buf();
+        std::fs::remove_file(dir.join(super::fetch::LIST_FILE)).unwrap();
+        std::fs::remove_file(dir.join(super::fetch::SIGNATURE_FILE)).unwrap();
+        let next = runtime_on(parsed(&signed(1, 0)), &root, Some(source.clone()), Duration::ZERO);
+        assert_eq!(next.current().sequence, 1);
+        let status = next.check(CheckBudget::BACKGROUND).await;
+        assert_eq!((status.last_check, status.sequence), (CheckResult::Updated, 2));
+        assert!(ListStore::new(&root).read_list().is_some(), "stored again");
+    }
+
+    /// A refusal depends on the keys the app trusts and on the app: one remembered under
+    /// other keys (or another built-in list) is looked at again.
+    #[tokio::test]
+    async fn refusals_are_forgotten_when_the_keys_or_the_app_change() {
+        let root = scratch("judged-by");
+        let source = Arc::new(FakeSource::default());
+        source.publish(&digest(2), Ok(signed(2, 0)));
+        let with_keys = |keys: TrustedKeys, builtin: Arc<MethodList>| {
+            Arc::new(ListRuntime::new(
+                builtin,
+                RuntimeSeams {
+                    data_root: root.clone(),
+                    source: Some(source.clone() as Arc<dyn ListSource>),
+                    off_reason: None,
+                    keys,
+                    coalesce: Duration::ZERO,
+                },
+            ))
+        };
+        // This app does not trust the signer yet: refused and remembered.
+        let old_app = with_keys(TrustedKeys::builtin().unwrap().clone(), parsed(&signed(1, 0)));
+        let status = old_app.check(CheckBudget::BACKGROUND).await;
+        assert!(status.last_error.unwrap().contains("METHOD_LIST_UNKNOWN_KEY"));
+        assert!(ListStore::new(&root).read_state().is_bad(&digest(2)));
+        // The same app again: still remembered, not pulled again.
+        let same = with_keys(TrustedKeys::builtin().unwrap().clone(), parsed(&signed(1, 0)));
+        assert_eq!(same.check(CheckBudget::BACKGROUND).await.last_check, CheckResult::Refused);
+        assert_eq!(source.counts().1, 1);
+        // An update that trusts the key looks at the list again and takes it.
+        let updated = with_keys(keys(), parsed(&signed(1, 0)));
+        let status = updated.check(CheckBudget::BACKGROUND).await;
+        assert_eq!((status.last_check, status.sequence), (CheckResult::Updated, 2));
+        assert_eq!(source.counts().1, 2);
+        // Another built-in list (an app release) is another judge too.
+        let a = judgement(&keys(), &parsed(&signed(1, 0)));
+        assert_ne!(a, judgement(&keys(), &parsed(&signed(1, 1))));
+        assert_ne!(a, judgement(&TrustedKeys::builtin().unwrap().clone(), &parsed(&signed(1, 0))));
+        assert_eq!(a, judgement(&keys(), &parsed(&signed(1, 0))));
+    }
+
+    /// An automatic check (a run start) waits for a check already running at most its
+    /// resolve budget, then goes on with the list in use.
+    #[tokio::test]
+    async fn a_run_start_does_not_wait_for_a_long_check() {
+        let root = scratch("turn-wait");
+        let source = Arc::new(FakeSource {
+            delay: Duration::from_millis(1500),
+            ..Default::default()
+        });
+        source.publish(&digest(2), Ok(signed(2, 0)));
+        let rt = runtime_on(parsed(&signed(1, 0)), &root, Some(source.clone()), COALESCE_WINDOW);
+        let long = {
+            let rt = rt.clone();
+            tokio::spawn(async move { rt.check_now().await })
+        };
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let started = Instant::now();
+        let quick = CheckBudget {
+            resolve: Duration::from_millis(200),
+            pull: Duration::from_millis(200),
+        };
+        let status = rt.check(quick).await;
+        assert!(started.elapsed() < Duration::from_millis(1000), "waited {:?}", started.elapsed());
+        assert_eq!(status.sequence, 1, "the run goes on with the list in use");
+        assert_eq!(long.await.unwrap().sequence, 2);
+    }
+
+    /// A caller that goes away mid-check (a closed request) leaves the check running with
+    /// its turn: the next check waits for it and reuses its answer instead of running
+    /// alongside it.
+    #[tokio::test]
+    async fn a_dropped_caller_does_not_release_the_turn_of_a_running_check() {
+        let root = scratch("dropped");
+        let source = Arc::new(FakeSource {
+            delay: Duration::from_millis(400),
+            ..Default::default()
+        });
+        source.publish(&digest(2), Ok(signed(2, 0)));
+        let rt = runtime_on(parsed(&signed(1, 0)), &root, Some(source.clone()), Duration::ZERO);
+        let dropped = tokio::time::timeout(Duration::from_millis(50), rt.check_now()).await;
+        assert!(dropped.is_err(), "the first caller went away");
+        let status = rt.check_now().await;
+        assert_eq!(source.counts(), (1, 1), "one check ran; the second waited for it");
+        assert_eq!((status.last_check, status.sequence), (CheckResult::Updated, 2));
+        assert_eq!(ListStore::new(&root).read_state().live_digest, Some(digest(2)), "finished and recorded");
     }
 
     #[tokio::test]
@@ -1168,15 +1427,68 @@ mod tests {
 
     #[tokio::test]
     async fn demo_mode_never_swaps() {
-        // Updates off (demo mode): no registry call, and a newer stored list is not used
-        // either — the demo replays the built-in list.
+        // Demo mode, through the production seams: updates off, no registry call, and a
+        // newer stored list is not used either — the demo replays the built-in list.
         let root = scratch("demo");
         store_on_disk(&root, &signed(5, 0));
-        let rt = runtime_on(parsed(&signed(1, 0)), &root, None, Duration::ZERO);
+        let read = |k: &str| match k {
+            super::fetch::TEST_KEY_ENV => Some(fixture_pub_path()),
+            _ => None,
+        };
+        let seams = production_seams_with(
+            root.clone(),
+            SeamInputs {
+                demo: true,
+                dev_manifest: false,
+                read: &read,
+                debug: true,
+            },
+        );
+        assert!(seams.source.is_none(), "no registry in demo mode");
+        assert!(seams.off_reason.as_deref().unwrap().contains("demo"));
+        let rt = Arc::new(ListRuntime::new(parsed(&signed(1, 0)), seams));
         let status = rt.check(CheckBudget::BACKGROUND).await;
         assert_eq!(status.last_check, CheckResult::Off);
         assert!(!status.updates_enabled);
         assert_eq!((rt.current().sequence, rt.active().origin), (1, ListOrigin::Builtin));
+    }
+
+    fn fixture_pub_path() -> String {
+        format!(
+            "{}/../../scripts/method-list/fixtures/test-key.pub",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    }
+
+    #[test]
+    fn production_seams_turn_updates_off_in_demo_mode_and_with_the_dev_images() {
+        let root = scratch("seams");
+        let inputs = |demo: bool, dev_manifest: bool| SeamInputs {
+            demo,
+            dev_manifest,
+            read: &|_| None,
+            debug: true,
+        };
+        let on = production_seams_with(root.clone(), inputs(false, false));
+        assert!(on.source.is_some() && on.off_reason.is_none());
+        let demo = production_seams_with(root.clone(), inputs(true, false));
+        assert!(demo.source.is_none());
+        assert!(demo.off_reason.unwrap().contains("demo"));
+        let dev = production_seams_with(root.clone(), inputs(false, true));
+        assert!(dev.source.is_none());
+        assert!(dev.off_reason.unwrap().contains("TXR_ENV_MANIFEST"));
+        // The test key seam adds the key in a debug build; a release build ignores it.
+        let read = |k: &str| (k == super::fetch::TEST_KEY_ENV).then(fixture_pub_path);
+        let debug = production_seams_with(
+            root.clone(),
+            SeamInputs { demo: false, dev_manifest: false, read: &read, debug: true },
+        );
+        assert_eq!(debug.keys.keys().len(), TrustedKeys::builtin().unwrap().keys().len() + 1);
+        let release = production_seams_with(
+            root.clone(),
+            SeamInputs { demo: false, dev_manifest: false, read: &read, debug: false },
+        );
+        assert_eq!(release.keys.fingerprint(), TrustedKeys::builtin().unwrap().fingerprint());
     }
 
     #[test]

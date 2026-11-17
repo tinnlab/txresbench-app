@@ -79,6 +79,8 @@ pub struct TrustedKey {
     pub key_id: String,
     id_bytes: [u8; 8],
     key: PublicKey,
+    /// The key line as given (base64), for [`TrustedKeys::fingerprint`].
+    key_line: String,
 }
 
 impl TrustedKey {
@@ -145,6 +147,7 @@ impl TrustedKeys {
                 key_id: id,
                 id_bytes,
                 key,
+                key_line: r.public_key.trim().to_string(),
             });
         }
         Ok(TrustedKeys { keys })
@@ -185,6 +188,7 @@ impl TrustedKeys {
                 key_id: key_id_text(&id_bytes),
                 id_bytes,
                 key,
+                key_line: line.to_string(),
             });
         }
         Ok(TrustedKeys { keys })
@@ -198,6 +202,20 @@ impl TrustedKeys {
     /// The trusted signers, in file order.
     pub fn keys(&self) -> &[TrustedKey] {
         &self.keys
+    }
+
+    /// The set of keys as one value (its key ids and keys, in order of id): two sets
+    /// trust the same signers exactly when their fingerprints are equal. The runtime
+    /// forgets the lists it refused when the set changes (an app update that trusts a new
+    /// key must look at a list it refused before).
+    pub fn fingerprint(&self) -> String {
+        let mut entries: Vec<String> = self
+            .keys
+            .iter()
+            .map(|k| format!("{}:{}", k.key_id, k.key_line))
+            .collect();
+        entries.sort();
+        entries.join(";")
     }
 }
 
@@ -239,6 +257,17 @@ mod tests {
         assert_eq!(added.key_id, fixture.keys()[0].key_id);
         assert_eq!(with.keys().len(), builtin.keys().len() + 1);
         assert!(builtin.with_minisign_pub("untrusted comment: x\nnot base64!", "x").is_err());
+    }
+
+    #[test]
+    fn the_fingerprint_follows_the_key_set() {
+        let builtin = TrustedKeys::builtin().expect("keys");
+        let fixture = TrustedKeys::from_json(FIXTURE_KEYS).expect("fixture keys");
+        let with = builtin.with_minisign_pub(FIXTURE_PUB, "test key").expect("with the test key");
+        assert_ne!(builtin.fingerprint(), with.fingerprint());
+        // The same signers give the same fingerprint, whatever the labels.
+        assert_eq!(with.fingerprint(), fixture.fingerprint());
+        assert_eq!(builtin.fingerprint(), builtin.clone().fingerprint());
     }
 
     #[test]

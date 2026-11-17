@@ -5,7 +5,8 @@
 //!   refused never reaches the disk. Re-verified at the next start: a copy that does not
 //!   verify (a torn write, an edit) is ignored and the app runs on its built-in list.
 //! - `state.json`: the digest of the published list the app holds, up to 8 digests of
-//!   published lists it refused (never pulled again), the last check's time and error.
+//!   published lists it refused (never pulled again while the same keys and the same app
+//!   judge them: `judged_by`), the last check's time and error.
 //!
 //! The `v1` folder is the format line: a newer app reading another line keeps its own folder.
 
@@ -32,6 +33,10 @@ pub struct StoreState {
     /// Digests of published lists the app refused, newest last.
     #[serde(default)]
     pub bad_digests: Vec<String>,
+    /// What judged `bad_digests`: a fingerprint of the trusted keys, the built-in list and
+    /// the app (`runtime::judgement`). Another one (an app update, a new key) forgets them.
+    #[serde(default)]
+    pub judged_by: Option<String>,
     /// The last check's time (RFC 3339).
     #[serde(default)]
     pub last_check_at: Option<String>,
