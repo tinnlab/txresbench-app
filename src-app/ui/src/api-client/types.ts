@@ -489,6 +489,13 @@ export interface CreateRunRequest {
   input: TxrRunInput
   /** Train mode: the selected catalogue method ids (≥ 1 — validate()). */
   method_ids?: string[]
+  /**
+   * The method list the screen showed (`method_list_sequence` of the method
+   *  list and eligibility responses). When it is not the list the run starts
+   *  on, the run is refused with `409 METHOD_LIST_CHANGED`: a run never
+   *  starts from a selection made on another list. Absent: no check.
+   */
+  method_list_sequence?: number
   mode: TxrRunMode
   /**
    * Reuse mode: the resolved model assets (`model-store`'s join shape,
@@ -549,6 +556,12 @@ export type EligibilityRequest = { preview: PreviewEligibilityRequest } | { inve
 
 /** The eligibility response — per-method verdicts plus the screen-B totals. */
 export interface EligibilityResponse {
+  /**
+   * The sequence of the method list the verdicts come from (the HTTP surface
+   *  fills it; the pure engine leaves it out). A screen sends it back when it
+   *  starts a run (`409 METHOD_LIST_CHANGED` on another list).
+   */
+  method_list_sequence?: number
   methods: MethodEligibility[]
   total_cannot: number
   total_fit: number
@@ -1459,6 +1472,12 @@ export interface MethodListQuery {
  *  roughly 400 rows; the list screen filters client-side (DEC-11).
  */
 export interface MethodListResponse {
+  /**
+   * The sequence of the method list these rows come from: a screen sends it back
+   *  when it starts a run, and a run started from an older list is refused
+   *  (`409 METHOD_LIST_CHANGED`).
+   */
+  method_list_sequence: number
   methods: MethodSummary[]
   total: number
 }

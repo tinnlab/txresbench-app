@@ -51,7 +51,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
 
-use crate::modules::method_catalogue;
 use crate::modules::pretrained_catalogue::types::{
     BundledAsset, BundledModels, PretrainedCatalogue, PretrainedDataSourceAccess, PretrainedKind,
     PretrainedModel, PretrainedOrigin, PretrainedRefreshResponse, PRETRAINED_SCHEMA_VERSION,
@@ -518,7 +517,9 @@ fn validate_method_facts(m: &PretrainedModel) -> Result<(), CatalogueLoadError> 
         method_id: m.method_id.clone(),
         sub,
     };
-    let Some(method) = method_catalogue::catalogue::method(&m.method_id) else {
+    // The embedded pretrained catalogue ships with this app release, so its
+    // pair is the release's built-in method list.
+    let Some(method) = crate::modules::method_list::builtin().method(&m.method_id) else {
         return Err(method_facts_err(
             "the method is absent from the method catalogue",
         ));

@@ -257,7 +257,7 @@ async fn pretrained_and_installed_rows_answer_identically() {
 
     // The estimate is PROV-MC-6's one formula, in-process (the provider's
     // estimator at the file's patient count with the default CPU pairing).
-    let method = txresbench::modules::method_catalogue::catalogue::method(METHOD)
+    let method = txresbench::modules::method_list::builtin().method(METHOD)
         .expect("the method is in the committed catalogue");
     let expect_seconds = txresbench::modules::method_catalogue::eligibility::estimate_seconds_for(
         method,

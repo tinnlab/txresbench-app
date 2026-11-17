@@ -698,6 +698,7 @@ export const TXRMODELS_PREDICTIONS: TxrPredictionsResponse = {
  */
 export const TXRMODELS_METHODS: MethodListResponse = {
   total: 12,
+  method_list_sequence: 0,
   methods: [
     fixtureMethodSummary('rm-1', 'Response probability'),
     fixtureMethodSummary('rm-2', 'Response probability'),

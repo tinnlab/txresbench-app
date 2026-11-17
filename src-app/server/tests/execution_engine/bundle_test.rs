@@ -9,7 +9,6 @@ use super::{cohort_measurements_parsed, cohort_patients_parsed};
 use txresbench::modules::execution_engine::bundle::{
     self, BundleError, BundleSettings, MarkerSelection,
 };
-use txresbench::modules::execution_engine::envmanifest;
 use txresbench::modules::execution_engine::types::RunConfig;
 use txresbench::modules::file_validator::bundle::canonical_bundle;
 use txresbench::modules::file_validator::types::{
@@ -137,7 +136,7 @@ fn the_cohort_bundle_matches_the_contract_2_0_shapes() {
     // The effects of a per-method marker scoping: a one-marker method on the
     // all-markers bundle is the same set; `params.markers` never lists the
     // companion rows (there are none on this fixture).
-    let facts = envmanifest::facts_for("cox-cutpoint-risk").expect("real catalogue facts");
+    let facts = txresbench::modules::method_list::builtin().method("cox-cutpoint-risk").expect("real catalogue facts");
     let selection = bundle::method_marker_set(&canonical, &facts.markers, None)
         .expect("one marker on a one-marker file");
     assert_eq!(selection.mains, vec!["14804-9"]);
@@ -171,7 +170,7 @@ fn per_method_marker_set_obeys_the_package_count_rule() {
     }
     canonical.values = values;
 
-    let facts = envmanifest::facts_for("cox-cutpoint-risk").expect("facts");
+    let facts = txresbench::modules::method_list::builtin().method("cox-cutpoint-risk").expect("facts");
     assert!(
         matches!(
             facts.markers.kind,
@@ -263,16 +262,16 @@ fn fixtures_are_synthetic_in_test_constructs() {
 /// manifest are present and answer for the fixture methods.
 #[test]
 fn the_embedded_facts_answer_for_the_fixture_methods() {
-    let facts = envmanifest::facts_for("cox-cutpoint-risk").expect("catalogue method");
+    let facts = txresbench::modules::method_list::builtin().method("cox-cutpoint-risk").expect("catalogue method");
     assert_eq!(facts.id, "cox-cutpoint-risk");
-    let entry = envmanifest::env_for("cox-cutpoint-risk").expect("manifest entry");
+    let entry = txresbench::modules::method_list::builtin().env_for("cox-cutpoint-risk").expect("manifest entry");
     assert_eq!(entry.method_id, "cox-cutpoint-risk");
     assert!(entry.size_bytes > 0, "the F screen's bytes_total fact");
-    let base = envmanifest::base_for("cox-cutpoint-risk").expect("base pair");
+    let base = txresbench::modules::method_list::builtin().base_for("cox-cutpoint-risk").expect("base pair");
     assert!(base.name.contains("txresbench-base"), "{base:?}");
     // A runnable method without an entry — the runtime-env missing case.
     assert!(
-        envmanifest::env_for("jm-mem-lq").is_none(),
+        txresbench::modules::method_list::builtin().env_for("jm-mem-lq").is_none(),
         "A runnable catalogue method with no published layer → the ITEM-2 ENV_IMAGE_MISSING classification"
     );
     let _ = entry;

@@ -33,7 +33,6 @@ use super::{
 };
 use crate::common::TestServer;
 use crate::common::record_skip;
-use txresbench::modules::execution_engine::envmanifest;
 use txresbench::modules::execution_engine::orchestrator::{self, StackMethodExecutor};
 use txresbench::modules::execution_engine::repository::{produced_models, TxrRepository};
 use txresbench::modules::execution_engine::runtime::RunRuntime;
@@ -317,6 +316,7 @@ async fn reuse_of_a_saved_model_gets_the_training_probabilities() {
         },
         method_ids: Vec::new(),
         model_ids: vec![asset],
+        method_list_sequence: None,
     };
     use txresbench::modules::execution_engine::types::TxrEndpoint;
     let reuse = start(reuse_request(asset.clone(), TxrEndpoint::Pfs)).await;
@@ -457,8 +457,8 @@ async fn reuse_runs_in_the_recorded_image_after_the_list_changes() {
     let _g = rootfs::scoped_data_root(&scratch);
     let repo = TxrRepository::new(pool.clone());
     let method = "ctdna-tf-four-group";
-    let entry = envmanifest::env_for(method).expect("a listed method on this computer");
-    let base = orchestrator::base_env_ref(entry, envmanifest::base_artifact_for(entry));
+    let entry = txresbench::modules::method_list::builtin().env_for(method).expect("a listed method on this computer");
+    let base = orchestrator::base_env_ref(entry, txresbench::modules::method_list::builtin().base_artifact_for(entry));
     let start = |req: CreateRunRequest, env: Arc<FakeEnv>| {
         let pool = pool.clone();
         async move {
@@ -536,6 +536,7 @@ async fn reuse_runs_in_the_recorded_image_after_the_list_changes() {
             },
             method_ids: Vec::new(),
             model_ids: vec![asset],
+            method_list_sequence: None,
         },
         env.clone(),
     )
@@ -943,7 +944,7 @@ fn real_stack_ready(methods: &[&str]) -> Result<(), String> {
     }
     let data_root = rootfs::data_root();
     for m in methods {
-        match envmanifest::env_for(m) {
+        match txresbench::modules::method_list::builtin().env_for(m) {
             None => missing.push(format!("no manifest entry for {m}")),
             Some(e) => {
                 let ledger = data_root.join("txr-envs").join(format!("{m}.json"));
@@ -1010,7 +1011,7 @@ async fn a_failing_layer_keeps_the_provider_typed_code() {
 
     let runtime = Arc::new(RunRuntime::new());
     let env = FakeEnv::new(Duration::from_millis(5));
-    let entry = envmanifest::env_for("ctdna-tf-four-group").expect("fixture entry");
+    let entry = txresbench::modules::method_list::builtin().env_for("ctdna-tf-four-group").expect("fixture entry");
     env.set(
         &super::ref_env_id(&orchestrator::layer_env_ref(entry)),
         EnvPolicy::Fail {
@@ -1067,7 +1068,7 @@ async fn a_downloading_layer_rides_the_row_bytes_and_still_finishes() {
 
     let runtime = Arc::new(RunRuntime::new());
     let env = FakeEnv::new(Duration::from_millis(5));
-    let entry = envmanifest::env_for("ctdna-tf-four-group").expect("fixture entry");
+    let entry = txresbench::modules::method_list::builtin().env_for("ctdna-tf-four-group").expect("fixture entry");
     let total = 128 * 1024u64;
     env.set(
         &super::ref_env_id(&orchestrator::layer_env_ref(entry)),
@@ -1128,7 +1129,7 @@ async fn stop_all_types_downloading_skipped_and_running_aborted() {
     let env = FakeEnv::new(Duration::from_millis(5));
     // jm-lme's layer hangs in the download (64 KiB/s fixture rate); the other
     // two are ready instantly and park in the executor until the stop.
-    let entry = envmanifest::env_for("jm-lme").expect("fixture entry");
+    let entry = txresbench::modules::method_list::builtin().env_for("jm-lme").expect("fixture entry");
     env.set(
         &super::ref_env_id(&orchestrator::layer_env_ref(entry)),
         EnvPolicy::Downloading { total: 512 * 1024 },

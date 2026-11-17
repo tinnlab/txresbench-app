@@ -225,7 +225,7 @@ async fn save_export_import_round_trips_the_method_facts_and_image() {
     let saved: Value = resp.json().await.expect("json");
     let model_id = saved["models"][0]["id"].as_str().expect("id").to_string();
 
-    let cat = txresbench::modules::method_catalogue::catalogue::method(METHOD_A).expect("row");
+    let cat = txresbench::modules::method_list::builtin().method(METHOD_A).expect("row");
     let want = serde_json::to_value(TxrMethodFacts::from_method(cat)).expect("facts");
     let assets = store::resolve_assets(&pool(&server).await, &[model_id.clone()])
         .await

@@ -1107,7 +1107,7 @@ async fn method_catalogue_http_equals_the_in_process_seam() {
     };
     let req = EligibilityRequest::Inventory { inventory: inv };
 
-    let in_process = eligibility(&req);
+    let in_process = eligibility(txresbench::modules::method_list::builtin(), &req);
     let resp = server
         .client
         .post(server.api_url("/methods/eligibility"))
@@ -1133,7 +1133,7 @@ async fn method_catalogue_http_equals_the_in_process_seam() {
         cpus: None,
         at_a_time: 3,
     };
-    let in_process = estimate(&est_req).expect("engine estimate");
+    let in_process = estimate(txresbench::modules::method_list::builtin(), &est_req).expect("engine estimate");
     let resp = server
         .client
         .post(server.api_url("/methods/estimate"))

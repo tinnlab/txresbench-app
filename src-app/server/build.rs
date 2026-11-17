@@ -19,6 +19,9 @@
 //! (`build_helper/processor_manifest.rs`) were removed with their arms — the
 //! runtime no longer `include_bytes!`s an embed slot, so nothing needs staging.
 //!
+//! 3. Writes the include of the method list's built-in signature (or `None`
+//!    before the first published list) into `OUT_DIR`.
+//!
 //! The build DB is the per-worktree file `txresbench_build_<key>.sqlite` the
 //! one-call `provision_build_db` derives from the committed sqlite sentinel
 //! (wiped + re-migrated on every build).
@@ -51,6 +54,31 @@ fn main() {
     // keeps its postgres leg for the SDK's own standalone builds; this crate's
     // chain is sqlite and a postgres-leg run here would fail loudly at apply).
     provision_build_db(&merged);
+
+    // The method list's built-in copy (`data/method-list/`, embedded by
+    // `modules/method_list/runtime.rs`): its `.minisig` exists only from the first
+    // imported published list on (the sequence 0 bootstrap copy has none), and
+    // `include_bytes!` cannot name a file that may be absent. So the include of the
+    // signature, or `None`, is written here; the directory watch reruns this when the
+    // file appears or goes.
+    let list_dir = manifest.join("../../data/method-list");
+    let signature = list_dir.join("method-list.json.minisig");
+    println!("cargo:rerun-if-changed={}", list_dir.display());
+    println!("cargo:rerun-if-changed={}", signature.display());
+    let include = if signature.is_file() {
+        format!(
+            "/// The built-in list's signature (written by build.rs).\n\
+             const BUILTIN_SIGNATURE: Option<&[u8]> = Some(include_bytes!({:?}));\n",
+            signature.display().to_string()
+        )
+    } else {
+        "/// The built-in list has no signature: the sequence 0 bootstrap copy (build.rs).\n\
+         const BUILTIN_SIGNATURE: Option<&[u8]> = None;\n"
+            .to_string()
+    };
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR"));
+    std::fs::write(out.join("builtin_method_list_signature.rs"), include)
+        .expect("write the built-in signature include");
 
     // NOTE (artifact-model ITEM-13): a `#[cfg(feature = "tiledb_serve")]` block used to
     // sit here and point the linker at a prebuilt core `libtiledb` given by the

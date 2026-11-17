@@ -1317,6 +1317,7 @@ mod tests {
             cpus: Some(4),
             seed: 1,
             estimate,
+            method_list_sequence: None,
         };
         engine.insert_run(&new).await.expect("insert run")
     }

@@ -28,7 +28,7 @@ The steps are in `docs/runbooks/method-env-images-publish.md` §8 (updating a me
 |---|---|
 | `trusted-keys.json` | the minisign public keys the app trusts to sign a list, compiled into the app |
 | `method-list.schema.json` | the header schema (the nested documents keep their own) |
-| `method-list.json`, `method-list.json.minisig` | the built-in copy, written only by `scripts/import-method-list.sh` (sequence 0 = the unsigned bootstrap copy, before the first publish). Not present until the first import. |
+| `method-list.json`, `method-list.json.minisig` | the built-in copy, written only by `scripts/import-method-list.sh` (sequence 0 = the unsigned bootstrap copy, before the first publish; it has no `.minisig`). The app embeds this file and nothing else of the method facts. |
 
 `data/method-catalogue/catalogue.json` and `src-app/server/data/method-env-images.json`
 are the built-in list's two documents, extracted by the import to the paths the app and

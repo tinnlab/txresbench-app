@@ -215,7 +215,7 @@ mod tests {
     fn an_empty_calibration_leaves_the_generated_facts_untouched() {
         let cal = TimingCalibration::empty();
         assert!(cal.is_empty());
-        let cat = crate::modules::method_catalogue::catalogue::catalogue();
+        let cat = &crate::modules::method_list::builtin().catalogue;
         let m = cat.method("cox-baseline-delta").expect("catalogue method");
         assert_eq!(
             calibrated_estimate_seconds_for(m, 150, 4, &cal),

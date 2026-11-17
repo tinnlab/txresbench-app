@@ -1,35 +1,21 @@
-//! The boot-validated embedded catalogue + the module's in-process accessors
-//! (PROV-MC-7's catalogue half): `catalogue()`, `method(id)`, `env_for(id)`,
-//! `marker_vocabulary()`, `parse_standard_ids` / `required_marker_match` /
-//! `eligibility` / `estimate` live with the engines (ITEM-3/4).
+//! The catalogue loader and its checks: [`parse_catalogue`] and the named
+//! [`CatalogueLoadError`] refusals (PROV-MC-7's catalogue half).
 //!
-//! The module is stateless (DEC-9): the catalogue is COMPILED into the binary
-//! from `data/method-catalogue/catalogue.json` (a first-party derived file, at
-//! the repo root so its prose lives outside the source-tree hygiene scans) and
-//! parsed ONCE at boot. The runtime never reads the benchmark tree (INV-1) — not
-//! even its existence is consulted; the embedded bytes are the only source. A
-//! first-party catalogue that fails to parse or validate is a BOOT FAILURE (the
-//! extensions `_checked` posture, DEC-15): the server refuses to serve rather
-//! than run with a silently empty or half-understood catalogue.
+//! The catalogue is the `catalogue` half of the method list (`method_list`):
+//! the app embeds only the method list's built-in copy (generated from the
+//! benchmark tree by `scripts/method-catalogue/gen_method_catalogue.py` and
+//! assembled in the methods repository, never read from the benchmark tree
+//! at run time — INV-1) and may replace it, between runs, with a newer signed
+//! list. A request or a run asks one `MethodList` snapshot for its methods
+//! and markers (`MethodList::method`, `marker_vocabulary`,
+//! `vocabulary_marker`). A first-party catalogue that fails to parse or
+//! validate is a BOOT FAILURE (the extensions `_checked` posture, DEC-15):
+//! the server refuses to serve rather than run with a silently empty or
+//! half-understood catalogue.
 
 use std::fmt;
-use std::sync::OnceLock;
 
-use crate::modules::method_catalogue::types::{
-    Catalogue, MarkerGroup, Method, MethodEnv, VocabularyMarker, CATALOGUE_SCHEMA_VERSION,
-};
-
-/// The embedded catalogue bytes. `$CARGO_MANIFEST_DIR` is `src-app/server`, so
-/// `../../data/method-catalogue/catalogue.json` is the repo-root generated file.
-const CATALOGUE_JSON: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../data/method-catalogue/catalogue.json"
-));
-
-/// The process-wide catalogue, installed by the module's `init` (the boot check).
-/// `OnceLock` (vs `ArcSwap`/`Mutex`): the catalogue is immutable for the process
-/// lifetime — there is no rescan, no reload, no write path (DEC-9).
-static CATALOGUE: OnceLock<Catalogue> = OnceLock::new();
+use crate::modules::method_catalogue::types::{Catalogue, CATALOGUE_SCHEMA_VERSION};
 
 /// A named catalogue load failure. Every variant carries a stable code (the
 /// `as_str` below) so a boot refusal is a testable, typed report — the
@@ -74,16 +60,16 @@ impl fmt::Display for CatalogueLoadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CatalogueLoadError::EmbedParse { message } => {
-                write!(f, "CATALOGUE_EMBED_INVALID: the embedded catalogue is not valid schema-1 JSON: {message}")
+                write!(f, "CATALOGUE_EMBED_INVALID: the catalogue is not valid schema-1 JSON: {message}")
             }
             CatalogueLoadError::SchemaVersion { found } => write!(
                 f,
-                "CATALOGUE_SCHEMA_VERSION: the embedded catalogue declares schema_version {found}, \
+                "CATALOGUE_SCHEMA_VERSION: the catalogue declares schema_version {found}, \
                  this build understands {CATALOGUE_SCHEMA_VERSION}"
             ),
             CatalogueLoadError::EmptyMethods => write!(
                 f,
-                "CATALOGUE_EMPTY: the embedded catalogue carries zero methods"
+                "CATALOGUE_EMPTY: the catalogue carries zero methods"
             ),
             CatalogueLoadError::DuplicateMethodId { id } => write!(
                 f,
@@ -180,68 +166,6 @@ fn validate_catalogue(c: &Catalogue) -> Result<(), CatalogueLoadError> {
     Ok(())
 }
 
-/// Load (once) the embedded catalogue, or fail with the named error. The module
-/// `init` calls this and returns the error to the boot path — a refusal means
-/// the server does not serve.
-pub fn ensure_loaded() -> Result<&'static Catalogue, CatalogueLoadError> {
-    if let Some(c) = CATALOGUE.get() {
-        return Ok(c);
-    }
-    let parsed = parse_catalogue(CATALOGUE_JSON)?;
-    // A concurrent caller may win the race; the loser's value is simply not the
-    // installed one (`OnceLock::set` returns it back).
-    let _ = CATALOGUE.set(parsed);
-    Ok(CATALOGUE
-        .get()
-        .expect("the catalogue is installed by this call or a concurrent one"))
-}
-
-/// The boot-validated catalogue. Panics only when called before `init`/load in a
-/// build whose boot has not run — the mutable-before-boot window that `init`
-/// closes; after boot the value is always present.
-pub fn catalogue() -> &'static Catalogue {
-    ensure_loaded().expect(
-        "method_catalogue: the embedded catalogue failed its boot check — a malformed \
-         first-party catalogue is a boot refusal, not a silently empty one",
-    )
-}
-
-/// Look a method up by its stable id (the PROV-MC-7 in-process seam).
-pub fn method(id: &str) -> Option<&'static Method> {
-    catalogue().method(id)
-}
-
-/// The runtime `EnvRef`-shaped facts for a method (the catalogue's benchmark
-/// reference + the gate digest + contract + version — the seam the execution
-/// engine binds; PROV-MC-7).
-pub fn env_for(id: &str) -> Option<MethodEnv> {
-    let m = method(id)?;
-    Some(MethodEnv {
-        image: m.env.image.clone(),
-        version: m.version.clone(),
-        digest: m.env.digest.clone(),
-        contract: m.env.contract.clone(),
-    })
-}
-
-/// The full marker vocabulary (join-offer + B-screen group panel; PROV-MC-4/7).
-pub fn marker_vocabulary() -> &'static [VocabularyMarker] {
-    &catalogue().markers
-}
-
-/// The 7 board marker groups.
-pub fn marker_groups() -> &'static [MarkerGroup] {
-    &catalogue().groups
-}
-
-/// The `(system, id)`-indexed marker lookup the engine uses (first match wins —
-/// identity is unique, validated at boot).
-pub fn vocabulary_marker(system: &str, id: &str) -> Option<&'static VocabularyMarker> {
-    marker_vocabulary()
-        .iter()
-        .find(|m| m.system.as_str() == system && m.id == id)
-}
-
 // The TEST-MC-7 / TEST-MC-19 / TEST-MC-9(unit half) suite: the embedded file
 // parses + validates; `method`/`env_for` resolve a real runnable entry; a
 // corrupted or nonsense catalogue is a NAMED boot refusal, never a silent
@@ -251,10 +175,38 @@ pub fn vocabulary_marker(system: &str, id: &str) -> Option<&'static VocabularyMa
 mod tests {
     use super::*;
     use crate::modules::method_catalogue::types::{
-        MethodGroup, TimingQuality, UnitFamily, CATALOGUE_SCHEMA_VERSION,
+        MarkerGroup, Method, MethodEnv, MethodGroup, TimingQuality, UnitFamily,
+        VocabularyMarker, CATALOGUE_SCHEMA_VERSION,
     };
 
-    /// TEST-MC-7: the embedded catalogue parses + validates; a real runnable
+    // The shipped catalogue is the built-in method list's `catalogue` half; these read
+    // it the way a request reads one list snapshot.
+    fn ensure_loaded() -> Result<&'static Catalogue, CatalogueLoadError> {
+        Ok(&crate::modules::method_list::builtin().catalogue)
+    }
+    fn method(id: &str) -> Option<&'static Method> {
+        crate::modules::method_list::builtin().method(id)
+    }
+    fn env_for(id: &str) -> Option<MethodEnv> {
+        let m = method(id)?;
+        Some(MethodEnv {
+            image: m.env.image.clone(),
+            version: m.version.clone(),
+            digest: m.env.digest.clone(),
+            contract: m.env.contract.clone(),
+        })
+    }
+    fn marker_vocabulary() -> &'static [VocabularyMarker] {
+        crate::modules::method_list::builtin().marker_vocabulary()
+    }
+    fn marker_groups() -> &'static [MarkerGroup] {
+        &crate::modules::method_list::builtin().catalogue.groups
+    }
+    fn vocabulary_marker(system: &str, id: &str) -> Option<&'static VocabularyMarker> {
+        crate::modules::method_list::builtin().vocabulary_marker(system, id)
+    }
+
+    /// TEST-MC-7: the shipped (built-in) catalogue parses + validates; a real runnable
     /// method resolves; `env_for` returns the image/digest/contract + version.
     #[test]
     fn embedded_catalogue_loads_and_resolves_a_runnable_method() {

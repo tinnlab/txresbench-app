@@ -104,7 +104,7 @@ function vocabulary(): MarkerVocabularyResponse {
 }
 
 function methodList(total = 64): MethodListResponse {
-  return { methods: [], total }
+  return { methods: [], total, method_list_sequence: 0 }
 }
 
 /** Flush the promise chain (a macrotask turn covers all pending microtasks). */

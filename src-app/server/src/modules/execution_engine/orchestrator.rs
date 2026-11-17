@@ -68,6 +68,7 @@ use crate::modules::file_validator::types::{
 };
 use crate::modules::method_catalogue::eligibility;
 use crate::modules::method_catalogue::estimate;
+use crate::modules::method_list::MethodList;
 use crate::modules::method_catalogue::types::{
     EligibilityRequest, EligibilityStatus, EstimateRequest, Method, TimingQuality,
 };
@@ -380,6 +381,9 @@ pub struct MethodRunContext {
     /// ITEM-9's live channel back into the drive (log lines + progress
     /// frames — the sandbox sink's frames ride this seam).
     pub sink: Arc<dyn MethodSink>,
+    /// The method list the run took at its start: the method's facts come
+    /// from it, never from a list that replaced it meanwhile.
+    pub list: Arc<MethodList>,
 }
 
 /// The terminal facts the executor learned (the drive loop applies them to
@@ -806,11 +810,13 @@ impl MethodExecutor for StackMethodExecutor {
         // catalogue `method_id`; resolve facts from the target, not the plan id.
         // A saved model runs with the facts it was trained with (classify
         // already refused a model whose facts cannot be had).
-        let facts: std::borrow::Cow<'static, Method> = match &ctx.target {
+        let list = ctx.list.clone();
+        let facts: std::borrow::Cow<'_, Method> = match &ctx.target {
             RunTarget::TrainMethod => std::borrow::Cow::Borrowed(
-                envmanifest::facts_for(&method_id).expect("checked at start_run"),
+                list.method(&method_id).expect("checked at start_run"),
             ),
             RunTarget::ReuseModel { asset } => match envmanifest::reuse_facts_for(
+                &list.catalogue,
                 &asset.method_id,
                 &asset.method_version,
                 asset.method_facts.as_ref(),
@@ -2055,6 +2061,9 @@ impl MethodControl {
 pub struct RunDrive {
     pool: sqlx::SqlitePool,
     runtime: Arc<RunRuntime>,
+    /// The method list the run took at its start (its plans, facts and
+    /// images all come from it; a newer list never mixes into a running run).
+    list: Arc<MethodList>,
     repo: TxrRepository,
     env: Arc<dyn EnvProvider>,
     executor: Arc<dyn MethodExecutor>,
@@ -2606,7 +2615,8 @@ pub async fn start_run(
     owner: Uuid,
     req: CreateRunRequest,
 ) -> Result<TxrRunSummary, AppError> {
-    start_run_inner(pool, runtime, env, executor, owner, req, None).await
+    let list = crate::modules::method_list::current();
+    start_run_inner(pool, runtime, env, executor, owner, req, None, list).await
 }
 
 /// `POST /api/txr/runs/{id}/rerun` (ITEM-10's route seam; PROV-EE-6): clone a
@@ -2659,8 +2669,10 @@ pub async fn rerun_run(
             config: record.config,
             method_ids: record.method_ids,
             model_ids: record.model_ids,
+            method_list_sequence: None,
         },
         Some(run_id),
+        crate::modules::method_list::current(),
     )
     .await
 }
@@ -3007,8 +3019,14 @@ async fn recompute_run_estimate(
         cpus: Some(cpus),
         at_a_time: at_a_time.max(1),
     };
+    // The run's own list while its drive is live (the same list its plans
+    // came from); the current list for a run whose drive is gone.
+    let list = drive_for(row.id)
+        .map(|d| d.list.clone())
+        .unwrap_or_else(crate::modules::method_list::current);
     let resp = match estimate::estimate_for_runtime_calibrated(
-        crate::modules::method_catalogue::catalogue::catalogue(),
+        &list.catalogue,
+        &list.images,
         &req,
         &calibration,
     ) {
@@ -3037,6 +3055,9 @@ async fn recompute_run_estimate(
     }
 }
 
+/// The run's start, over ONE method list: `list` is the snapshot the run
+/// takes (the current list at the call) and keeps to its end.
+#[allow(clippy::too_many_arguments)]
 async fn start_run_inner(
     pool: sqlx::SqlitePool,
     runtime: Arc<RunRuntime>,
@@ -3045,9 +3066,11 @@ async fn start_run_inner(
     owner: Uuid,
     req: CreateRunRequest,
     rerun_of: Option<Uuid>,
+    list: Arc<MethodList>,
 ) -> Result<TxrRunSummary, AppError> {
     req.validate().map_err(request_error_to_app)?;
-    check_methods_known(&req)?;
+    check_method_list_sequence(&req, &list)?;
+    check_methods_known(&list, &req)?;
 
     // PROV-EE-2's `409 RUN_ALREADY_ACTIVE`: the app drives ONE analysis at a
     // time (a second create — or a rerun of a STILL-ACTIVE run — would spawn
@@ -3072,7 +3095,8 @@ async fn start_run_inner(
         let mode = req.mode;
         let method_ids = req.method_ids.clone();
         let assets = req.model_ids.clone();
-        move || prepare_run(&req_tables, &config, mode, &method_ids, &assets)
+        let list = list.clone();
+        move || prepare_run_with(&list, &req_tables, &config, mode, &method_ids, &assets)
     })
     .await
     .map_err(|e| AppError::internal_error(format!("run prepare task join: {e}")))??;
@@ -3090,7 +3114,7 @@ async fn start_run_inner(
     // The measured-time calibration snapshot is loaded per create (R2-3) —
     // fail-open, an empty calibration is the uncalibrated engine.
     let calibration = load_timing_calibration(&repo).await;
-    let estimate = compute_estimate(&req, &prepared, cpus, &calibration);
+    let estimate = compute_estimate(&list, &req, &prepared, cpus, &calibration);
 
     // The row is persisted in `preparing` (the first visible state — a 202
     // reader never sees a run that is not there; `creating` is the instant
@@ -3119,6 +3143,7 @@ async fn start_run_inner(
         cpus: Some(cpus),
         seed: TxrLimits::SEED,
         estimate,
+        method_list_sequence: Some(list.sequence),
     })
     .await?;
 
@@ -3184,6 +3209,7 @@ async fn start_run_inner(
     let drive = Arc::new(RunDrive {
         pool: pool.clone(),
         runtime,
+        list,
         repo: repo.clone(),
         env,
         executor,
@@ -3212,10 +3238,27 @@ async fn start_run_inner(
         .ok_or_else(|| AppError::internal_error("run row vanished after insert"))
 }
 
-fn check_methods_known(req: &CreateRunRequest) -> Result<(), AppError> {
+/// `409 METHOD_LIST_CHANGED`: the screen that asked for the run showed
+/// another method list than the one the run starts on (a list update arrived
+/// in between). The selection is re-checked by the user, never re-mapped.
+fn check_method_list_sequence(req: &CreateRunRequest, list: &MethodList) -> Result<(), AppError> {
+    match req.method_list_sequence {
+        Some(seen) if seen != list.sequence => Err(AppError::new(
+            axum::http::StatusCode::CONFLICT,
+            "METHOD_LIST_CHANGED",
+            format!(
+                "The method list was updated (#{seen} to #{}); check your selection",
+                list.sequence
+            ),
+        )),
+        _ => Ok(()),
+    }
+}
+
+fn check_methods_known(list: &MethodList, req: &CreateRunRequest) -> Result<(), AppError> {
     if req.mode == super::types::TxrRunMode::Train {
         for id in &req.method_ids {
-            if envmanifest::facts_for(id).is_none() {
+            if list.method(id).is_none() {
                 return Err(AppError::new(
                     axum::http::StatusCode::NOT_FOUND,
                     "METHOD_NOT_FOUND",
@@ -3225,7 +3268,7 @@ fn check_methods_known(req: &CreateRunRequest) -> Result<(), AppError> {
         }
     }
     for asset in &req.model_ids {
-        if envmanifest::facts_for(&asset.method_id).is_none() {
+        if list.method(&asset.method_id).is_none() {
             return Err(AppError::new(
                 axum::http::StatusCode::NOT_FOUND,
                 "METHOD_NOT_FOUND",
@@ -3273,6 +3316,7 @@ async fn load_timing_calibration(
 /// ITEM-9 #6: stored at create, not finalize — the header needs it while the
 /// run is still running).
 fn compute_estimate(
+    list: &MethodList,
     req: &CreateRunRequest,
     prepared: &PreparedRun,
     cpus: u32,
@@ -3293,7 +3337,8 @@ fn compute_estimate(
     };
     let at_a_time = req.config.at_a_time.max(1);
     let resp = match estimate::estimate_for_runtime_calibrated(
-        crate::modules::method_catalogue::catalogue::catalogue(),
+        &list.catalogue,
+        &list.images,
         &EstimateRequest {
             method_ids,
             patients,
@@ -3459,6 +3504,8 @@ fn validation_request(
     }
 }
 
+/// The tests' shorthand for [`prepare_run_with`] over the current list.
+#[cfg(test)]
 fn prepare_run(
     input: &super::types::TxrRunInput,
     config: &RunConfig,
@@ -3466,14 +3513,35 @@ fn prepare_run(
     method_ids: &[String],
     assets: &[super::types::TxrModelAsset],
 ) -> Result<PreparedRun, AppError> {
-    let canonical = canonicalize_run(input, config, run_mode)?;
+    prepare_run_with(
+        &crate::modules::method_list::current(),
+        input,
+        config,
+        run_mode,
+        method_ids,
+        assets,
+    )
+}
+
+/// Validate, canonicalize and classify a run over ONE method list (the
+/// run's snapshot): the vocabulary, the eligibility, the facts and the
+/// images all come from `list`.
+fn prepare_run_with(
+    list: &MethodList,
+    input: &super::types::TxrRunInput,
+    config: &RunConfig,
+    run_mode: super::types::TxrRunMode,
+    method_ids: &[String],
+    assets: &[super::types::TxrModelAsset],
+) -> Result<PreparedRun, AppError> {
+    let canonical = canonicalize_run(list, input, config, run_mode)?;
     let plans = classify(
         run_mode,
         method_ids,
         assets,
         &canonical.validated.inventory,
         config,
-        envmanifest::manifest(),
+        list,
         envmanifest::EnvArch::host(),
     )?;
     Ok(PreparedRun {
@@ -3547,13 +3615,15 @@ fn run_validation_request(
 /// without building the canonical sides — for a caller that needs only the
 /// validator's verdict on a run request's tables (the example saved set).
 pub(crate) fn validate_run(
+    list: &MethodList,
     input: &super::types::TxrRunInput,
     config: &RunConfig,
     run_mode: super::types::TxrRunMode,
 ) -> Result<crate::modules::file_validator::types::ValidationResponse, AppError> {
-    crate::modules::file_validator::validate::validate(&run_validation_request(
-        input, config, run_mode,
-    ))
+    crate::modules::file_validator::validate::validate_with(
+        list.marker_vocabulary(),
+        &run_validation_request(input, config, run_mode),
+    )
     .map_err(validation_error_to_app)
 }
 
@@ -3561,16 +3631,18 @@ pub(crate) fn validate_run(
 /// also used by the example saved set, so it judges exactly the tables and
 /// canonical sides the run will use).
 pub(crate) fn canonicalize_run(
+    list: &MethodList,
     input: &super::types::TxrRunInput,
     config: &RunConfig,
     run_mode: super::types::TxrRunMode,
 ) -> Result<CanonicalRun, AppError> {
     use crate::modules::file_validator::{bundle, validate};
+    let vocabulary = list.marker_vocabulary();
 
     // One validate per run over the RUN's table set.
     let vreq = run_validation_request(input, config, run_mode);
     let mode = vreq.mode;
-    let validated = validate::validate(&vreq).map_err(validation_error_to_app)?;
+    let validated = validate::validate_with(vocabulary, &vreq).map_err(validation_error_to_app)?;
 
     // The canonical sides. In FILES mode (train, or reuse with a predict
     // patients table) the run-side bundle is the TRAIN one and the predict
@@ -3580,7 +3652,7 @@ pub(crate) fn canonicalize_run(
     // table set IS the predict side — the canonical bundle sits in `predict`.
     let files_canonical = if mode == ValidationMode::Files {
         Some(Arc::new(
-            bundle::canonical_bundle(&vreq).map_err(validation_error_to_app)?,
+            bundle::canonical_bundle_with(vocabulary, &vreq).map_err(validation_error_to_app)?,
         ))
     } else {
         None
@@ -3597,10 +3669,13 @@ pub(crate) fn canonicalize_run(
             );
             // The predict-side bundle AND its forensic facts come from ONE
             // validation pass (the same pure pass the FILES request got).
-            let pv = validate::validate(&pvreq).map_err(validation_error_to_app)?;
+            let pv = validate::validate_with(vocabulary, &pvreq).map_err(validation_error_to_app)?;
             let predict_patients = Some(pv.measurements.patients);
             Some((
-                Arc::new(bundle::canonical_bundle(&pvreq).map_err(validation_error_to_app)?),
+                Arc::new(
+                    bundle::canonical_bundle_with(vocabulary, &pvreq)
+                        .map_err(validation_error_to_app)?,
+                ),
                 predict_patients,
             ))
         }
@@ -3618,7 +3693,7 @@ pub(crate) fn canonicalize_run(
         (
             None,
             Some(Arc::new(
-                bundle::canonical_bundle(&vreq).map_err(validation_error_to_app)?,
+                bundle::canonical_bundle_with(vocabulary, &vreq).map_err(validation_error_to_app)?,
             )),
             Some(validated.measurements.patients),
         )
@@ -3684,16 +3759,19 @@ fn classify(
     assets: &[super::types::TxrModelAsset],
     inventory: &crate::modules::method_catalogue::types::InventoryEligibilityRequest,
     config: &RunConfig,
-    list: &envmanifest::EnvManifest,
+    list: &MethodList,
     host: Option<envmanifest::EnvArch>,
 ) -> Result<Vec<MethodPlan>, AppError> {
     let _ = config;
     let mut plans = Vec::new();
     match mode {
         super::types::TxrRunMode::Train => {
-            let verdicts = eligibility::eligibility(&EligibilityRequest::Inventory {
-                inventory: inventory.clone(),
-            });
+            let verdicts = eligibility::eligibility(
+                list,
+                &EligibilityRequest::Inventory {
+                    inventory: inventory.clone(),
+                },
+            );
             let by_id: std::collections::HashMap<
                 &str,
                 &crate::modules::method_catalogue::types::MethodEligibility,
@@ -3706,7 +3784,7 @@ fn classify(
                 let verdict = by_id
                     .get(id.as_str())
                     .expect("the eligibility engine answers every catalogue method");
-                let facts = envmanifest::facts_for(id).expect("checked at start");
+                let facts = list.method(id).expect("checked at start");
                 let plan = match verdict.status {
                     EligibilityStatus::CannotRun => {
                         // The verdict's first reason is the row's one reason
@@ -3749,7 +3827,7 @@ fn classify(
                         }
                     }
                     EligibilityStatus::CanRun | EligibilityStatus::CanRunSome => {
-                        match host.and_then(|arch| list.find(id, arch)) {
+                        match host.and_then(|arch| list.env_for_arch(id, arch)) {
                             Some(entry) => MethodPlan {
                                 method_id: id.clone(),
                                 label: facts.id.clone(),
@@ -3758,7 +3836,8 @@ fn classify(
                                 min_draws: facts.min_draws,
                                 env: Some(super::envimage::PlanEnv::from_list(
                                     entry,
-                                    list.base_for_entry(entry),
+                                    list.base_artifact_for(entry),
+                                    list.sequence,
                                 )),
                                 target: RunTarget::TrainMethod,
                                 cannot_run: false,
@@ -3786,7 +3865,7 @@ fn classify(
         }
         super::types::TxrRunMode::Reuse => {
             for asset in assets {
-                let facts = envmanifest::facts_for(&asset.method_id).expect("checked at start");
+                let facts = list.method(&asset.method_id).expect("checked at start");
                 let plan = |env: Option<super::envimage::PlanEnv>, reason: Option<TxrRunReason>| {
                     MethodPlan {
                         method_id: asset.model_id.clone(),
@@ -3807,7 +3886,7 @@ fn classify(
                 // chip type, or one that names no file, is refused here,
                 // before any download; the other models still run.
                 let env = match super::envimage::resolve_recorded(
-                    list,
+                    &list.images,
                     host,
                     asset,
                     envmanifest::EnvLanguage::from_catalogue(&facts.language),
@@ -3837,6 +3916,7 @@ fn classify(
                 // none runs only at its own catalogue version); the plan's
                 // group and draw rule are those facts', not the current row's.
                 match envmanifest::reuse_facts_for(
+                    &list.catalogue,
                     &asset.method_id,
                     &asset.method_version,
                     asset.method_facts.as_ref(),
@@ -4317,6 +4397,7 @@ async fn run_method_via_lanes(drive: Arc<RunDrive>, prepared: Arc<PreparedRun>, 
             },
         },
         sink,
+        list: drive.list.clone(),
     };
     let outcome = drive.executor.execute(ctx).await;
     let failure = outcome.as_ref().err().map(|e| e.to_string());
@@ -4501,7 +4582,7 @@ async fn ensure_method_env(
     };
     let own_image = match &env.source {
         super::envimage::PlanEnvSource::SavedModel { .. } => "the saved model's own environment, ",
-        super::envimage::PlanEnvSource::List => "",
+        super::envimage::PlanEnvSource::List { .. } => "",
     };
     drive
         .append_log(
@@ -4790,7 +4871,7 @@ pub(crate) mod test_support {
         let pool = merged_pool().await;
         let mut methods = Vec::new();
         for plan in &prepared.plans {
-            let facts = envmanifest::facts_for(&plan.method_id).expect("a catalogue method");
+            let facts = crate::modules::method_list::builtin().method(&plan.method_id).expect("a catalogue method");
             let seam = FakeStackRunSeam::new();
             let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
             let run_dir = rootfs::data_root().join(&plan.method_id);
@@ -5016,6 +5097,7 @@ mod tests {
             },
             method_ids: methods.iter().map(|s| s.to_string()).collect(),
             model_ids: Vec::new(),
+            method_list_sequence: None,
         }
     }
 
@@ -5038,6 +5120,7 @@ mod tests {
             },
             method_ids: methods.iter().map(|s| s.to_string()).collect(),
             model_ids: Vec::new(),
+            method_list_sequence: None,
         }
     }
 
@@ -5658,6 +5741,7 @@ mod tests {
             config,
             method_ids: vec!["landmark-cox-current".to_string()],
             model_ids: Vec::new(),
+            method_list_sequence: None,
         };
         assert_eq!(
             input_summary(&req, &prepared).predict_patients,
@@ -5998,7 +6082,7 @@ mod tests {
             "the 500 ms poll patched the row counter: {}",
             m.bytes_downloaded
         );
-        let entry = envmanifest::env_for("landmark-cox-current").expect("entry");
+        let entry = crate::modules::method_list::builtin().env_for("landmark-cox-current").expect("entry");
         assert_eq!(
             m.bytes_total,
             Some(entry.size_bytes as i64),
@@ -6113,6 +6197,7 @@ mod tests {
                 conversions: Default::default(),
                 method_facts: None,
             }],
+            method_list_sequence: None,
         };
         let summary = start_run(pool.clone(), runtime, env, executor, owner(), req)
             .await
@@ -6173,7 +6258,7 @@ mod tests {
             conversions: Default::default(),
             // Saved with the facts its training run used.
             method_facts: Some(crate::modules::execution_engine::types::TxrMethodFacts::from_method(
-                envmanifest::facts_for(method).expect("a catalogue method"),
+                crate::modules::method_list::builtin().method(method).expect("a catalogue method"),
             )),
         }
     }
@@ -6197,12 +6282,13 @@ mod tests {
             },
             method_ids: Vec::new(),
             model_ids: assets,
+            method_list_sequence: None,
         }
     }
 
     /// The base env id of a catalogue method (its language's base).
     fn base_id_of(method: &str) -> &'static str {
-        let facts = envmanifest::facts_for(method).expect("a catalogue method");
+        let facts = crate::modules::method_list::builtin().method(method).expect("a catalogue method");
         envmanifest::EnvLanguage::from_catalogue(&facts.language)
             .expect("R or Python")
             .base_id()
@@ -6330,10 +6416,10 @@ mod tests {
         env.set(method, EnvPolicy::Fail { code: "ENV_REPOSITORY_UNKNOWN" });
         let executor = Arc::new(FakeExecutor::new(Duration::ZERO));
         let (host, _) = host_and_other_arch();
-        let other = envmanifest::envs()
+        let other = crate::modules::method_list::builtin().images.envs
             .iter()
             .map(|e| e.method_id.as_str())
-            .find(|m| *m != method && envmanifest::facts_for(m).is_some())
+            .find(|m| *m != method && crate::modules::method_list::builtin().method(m).is_some())
             .expect("another listed method");
         // A model saved before the image facts were kept: the detail names
         // the model's recorded method version.
@@ -6737,6 +6823,7 @@ mod tests {
                 save_models,
                 target,
                 sink: RunMethodSink::channel().0,
+                list: crate::modules::method_list::current(),
             },
             cancel_tx,
         )
@@ -6947,7 +7034,7 @@ mod tests {
         train: &CanonicalBundle,
         settings: &bundle::BundleSettings,
     ) -> Option<(String, CanonicalBundle)> {
-        let cat = crate::modules::method_catalogue::catalogue::catalogue();
+        let cat = &crate::modules::method_list::builtin().catalogue;
         let refused = Err(bundle::BundleError::NoLearnableOutcome {
             min: bundle::MIN_TRAINING_PATIENTS,
         });
@@ -6991,7 +7078,7 @@ mod tests {
             ..Default::default()
         };
         let settings = method_bundle_settings(&config, detect_cpus());
-        let cat = crate::modules::method_catalogue::catalogue::catalogue();
+        let cat = &crate::modules::method_list::builtin().catalogue;
 
         // A method the cohort's one marker cannot satisfy.
         let marker_refused = cat
@@ -7019,7 +7106,7 @@ mod tests {
             p.covariates = vec![("age".to_string(), CanonCell::Number(40.0 + i as f64))];
         }
         let with_covariates = Arc::new(with_covariates);
-        let base_facts = envmanifest::facts_for(base).expect("facts");
+        let base_facts = crate::modules::method_list::builtin().method(base).expect("facts");
         let main = bundle::method_marker_set(
             &train,
             &base_facts.markers,
@@ -7114,7 +7201,7 @@ mod tests {
 
         for (i, case) in cases.into_iter().enumerate() {
             let name = case.name;
-            let facts = envmanifest::facts_for(&case.method).expect("a catalogue method");
+            let facts = crate::modules::method_list::builtin().method(&case.method).expect("a catalogue method");
             let seam = FakeStackRunSeam::new();
             let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
             let run_dir = rootfs::data_root().join(format!("case-{i}"));
@@ -7182,7 +7269,7 @@ mod tests {
             false,
             RunTarget::TrainMethod,
         );
-        let facts = envmanifest::facts_for(method).expect("facts");
+        let facts = crate::modules::method_list::builtin().method(method).expect("facts");
         let err = call_bundle_preflight(&ctx, facts).expect_err("no train side");
         assert_eq!(err.status_code(), 500, "{err}");
         assert!(err.to_string().contains("no train side"), "{err}");
@@ -7222,6 +7309,7 @@ mod tests {
                 conversions: Default::default(),
                 method_facts: None,
             }],
+            method_list_sequence: None,
         }
     }
 
@@ -7317,7 +7405,7 @@ mod tests {
             },
         );
         ctx.config = req.config.clone();
-        let facts = envmanifest::facts_for(method).expect("facts");
+        let facts = crate::modules::method_list::builtin().method(method).expect("facts");
         let expected = method_bundles(
             &train,
             None,
@@ -7447,7 +7535,7 @@ mod tests {
             covariates: true,
             ..req.config.clone()
         };
-        let facts = envmanifest::facts_for(method).expect("facts");
+        let facts = crate::modules::method_list::builtin().method(method).expect("facts");
         let refusal = method_bundles(
             &cohort,
             None,
@@ -7553,7 +7641,7 @@ mod tests {
         let (asset_dir, digest) = fixture_asset(&run_dir);
         make_method_dirs(&run_dir, "m-1");
         let method = "ctdna-tf-four-group";
-        let row = envmanifest::facts_for(method).expect("a catalogue method");
+        let row = crate::modules::method_list::builtin().method(method).expect("a catalogue method");
         // The facts the model was trained with differ from today's row.
         let mut trained = types::TxrMethodFacts::from_method(row);
         trained.tasks = vec!["response".to_string()];
@@ -7611,7 +7699,7 @@ mod tests {
         let executor = Arc::new(FakeExecutor::new(Duration::ZERO));
         let (host, _) = host_and_other_arch();
         let method = "landmark-cox-current";
-        let row = envmanifest::facts_for(method).expect("a catalogue method");
+        let row = crate::modules::method_list::builtin().method(method).expect("a catalogue method");
         let mut same = saved_model(&root, "m-same", method, &"1a".repeat(32), &"2b".repeat(32), Some(host));
         same.method_facts = None;
         same.method_version = row.version.clone();
@@ -8115,6 +8203,7 @@ mod tests {
             cpus: Some(4),
             seed: 1,
             estimate: None,
+            method_list_sequence: None,
         })
         .await
         .expect("run inserts");
@@ -8368,5 +8457,261 @@ mod tests {
             .await
             .expect_err("terminal lane change");
         assert_eq!(err.error_code(), "RUN_NOT_ACTIVE");
+    }
+
+    // ── one method list per run ──────────────────────────────────────────
+
+    /// The built-in list as another list: `sequence`, every image entry
+    /// published for this computer's chip type (so a plan finds one on any
+    /// host), and a base record per language so the base comes from the
+    /// list too. Not `current()`: the tests below prove the run reads the
+    /// list it was given.
+    fn list_for_host(sequence: u64) -> Arc<MethodList> {
+        let host = envmanifest::EnvArch::host().expect("a supported host");
+        let mut list = crate::modules::method_list::builtin().clone();
+        list.sequence = sequence;
+        list.sha256 = format!("{sequence:064x}");
+        list.images.envs.retain(|e| e.arch == envmanifest::EnvArch::Amd64);
+        let mut bases = Vec::new();
+        for e in &mut list.images.envs {
+            e.arch = host;
+            let base_id = e.language.base_id();
+            if !bases.iter().any(|b: &envmanifest::BaseArtifact| b.base_id == base_id) {
+                let file = format!("{}{sequence:063x}", if base_id == "base-r" { "a" } else { "b" });
+                bases.push(envmanifest::BaseArtifact {
+                    base_id: base_id.to_string(),
+                    arch: host,
+                    oci_ref: TXR_BASE_REGISTRY_PREFIX.to_string(),
+                    tag: format!("{base_id}-2.0-{}-{}", host.as_str(), &file[..12]),
+                    digest: format!("sha256:{}", "e".repeat(64)),
+                    squashfs_sha256: file,
+                    size_bytes: 1,
+                    source_ref: e.base_ref.clone(),
+                    source_digest: e.base_digest.clone(),
+                    contract: "2.0".to_string(),
+                });
+            }
+        }
+        list.images.bases = Some(bases);
+        Arc::new(list)
+    }
+
+    #[test]
+    fn plan_building_reads_the_run_snapshot_not_current() {
+        let list = list_for_host(4242);
+        let entry = list
+            .env_for("landmark-cox-current")
+            .expect("the run's list has the method for this computer")
+            .clone();
+        let req = run_request(&["landmark-cox-current"], 1, false);
+        let prepared = prepare_run_with(
+            &list,
+            &req.input,
+            &req.config,
+            req.mode,
+            &req.method_ids,
+            &[],
+        )
+        .expect("prepares");
+        let plan = &prepared.plans[0];
+        assert!(!plan.cannot_run, "{:?}", plan.reason);
+        let env = plan.env.as_ref().expect("an environment from the run's list");
+        assert_eq!(env.source, super::super::envimage::PlanEnvSource::List { sequence: 4242 });
+        assert_eq!(env.layer.digest, entry.layer_sha256);
+        assert_eq!(env.layer.tag.as_deref(), Some(entry.tag.as_str()));
+        // The current list is another one (the built-in, sequence 0): the
+        // plan is not built from it.
+        assert_ne!(crate::modules::method_list::current().sequence, 4242);
+    }
+
+    #[test]
+    fn base_and_layer_from_same_snapshot() {
+        let list = list_for_host(77);
+        let req = run_request(&["landmark-cox-current"], 1, false);
+        let prepared =
+            prepare_run_with(&list, &req.input, &req.config, req.mode, &req.method_ids, &[])
+                .expect("prepares");
+        let env = prepared.plans[0].env.as_ref().expect("planned");
+        let entry = list.env_for("landmark-cox-current").expect("entry");
+        let base = list.base_artifact_for(entry).expect("the list's base record");
+        assert_eq!(env.base.digest, base.squashfs_sha256, "the base file of the same list");
+        assert_eq!(env.base.tag.as_deref(), Some(base.tag.as_str()));
+        assert_eq!(env.layer.digest, entry.layer_sha256, "the layer of the same list");
+        assert_eq!(env.image.base_tag.as_deref(), Some(base.tag.as_str()));
+    }
+
+    #[test]
+    fn reuse_keeps_recorded_digests_under_a_newer_list() {
+        // The model was trained in files X (layer) and Y (base); a newer list
+        // names other files for the method. The plan binds X and Y, by file
+        // address, never the newer list's entry.
+        let list = list_for_host(900);
+        let (host, _) = host_and_other_arch();
+        let recorded_layer = "d".repeat(64);
+        let recorded_base = "c".repeat(64);
+        let entry = list.env_for("landmark-cox-current").expect("the newer list names the method");
+        assert_ne!(entry.layer_sha256, recorded_layer);
+        let mut env = TxrMethodEnv::digests(recorded_base.clone(), recorded_layer.clone());
+        env.arch = Some(host.to_string());
+        let asset = crate::modules::execution_engine::types::TxrModelAsset {
+            model_id: "model-old".to_string(),
+            host_dir: test_data_dir("reuse-recorded-no-tree").display().to_string(),
+            tree_sha256: "bb".repeat(32),
+            method_id: "landmark-cox-current".to_string(),
+            method_version: list.method("landmark-cox-current").unwrap().version.clone(),
+            env,
+            contract: "2.0".to_string(),
+            conversions: Default::default(),
+            method_facts: None,
+        };
+        let req = CreateRunRequest {
+            mode: TxrRunMode::Reuse,
+            input: TxrRunInput {
+                patients: None,
+                measurements: measurements_table(),
+                predict_measurements: None,
+                joins: Vec::new(),
+                mapping: Vec::new(),
+                keep_copies: false,
+            },
+            config: RunConfig::default(),
+            method_ids: Vec::new(),
+            model_ids: vec![asset],
+            method_list_sequence: None,
+        };
+        let prepared = prepare_run_with(
+            &list,
+            &req.input,
+            &req.config,
+            req.mode,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("prepares");
+        let plan_env = prepared.plans[0].env.as_ref().expect("planned in its recorded files");
+        assert_eq!(plan_env.layer.digest, recorded_layer);
+        assert_eq!(
+            plan_env.layer.oci_ref,
+            format!("{}@sha256:{recorded_layer}", crate::modules::sandbox::stack::TXR_LAYER_REGISTRY_PREFIX),
+            "the recorded file, fetched by its own address"
+        );
+        assert_eq!(plan_env.base.digest, recorded_base);
+        assert_eq!(
+            plan_env.source,
+            super::super::envimage::PlanEnvSource::SavedModel {
+                model_id: "model-old".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn stale_sequence_is_409_method_list_changed() {
+        let list = list_for_host(12);
+        let mut req = run_request(&["landmark-cox-current"], 1, false);
+        req.method_list_sequence = Some(11);
+        let err = check_method_list_sequence(&req, &list).expect_err("another list");
+        assert_eq!(err.error_code(), "METHOD_LIST_CHANGED");
+        assert_eq!(err.status_code(), 409);
+        req.method_list_sequence = Some(12);
+        check_method_list_sequence(&req, &list).expect("the same list");
+        req.method_list_sequence = None;
+        check_method_list_sequence(&req, &list).expect("no sequence sent: no check");
+    }
+
+    #[tokio::test]
+    async fn stale_sequence_refuses_the_run_before_any_row() {
+        let _g = rootfs::scoped_data_root(test_data_dir("stale-list"));
+        let pool = merged_pool().await;
+        let mut req = run_request(&["landmark-cox-current"], 1, false);
+        req.method_list_sequence = Some(3);
+        let err = start_run_inner(
+            pool.clone(),
+            Arc::new(RunRuntime::new()),
+            Arc::new(FakeEnv::new(Duration::from_millis(10))),
+            Arc::new(FakeExecutor::new(Duration::ZERO)),
+            owner(),
+            req,
+            None,
+            list_for_host(4),
+        )
+        .await
+        .expect_err("a screen of list #3, a run on list #4");
+        assert_eq!(err.error_code(), "METHOD_LIST_CHANGED");
+        let (rows, total) = TxrRepository::new(pool).list_runs(10, 0).await.expect("runs");
+        assert!(rows.is_empty() && total == 0, "no run row was made");
+    }
+
+    /// An executor that records the list each method's context carried.
+    struct ListRecorder {
+        seen: Arc<Mutex<Vec<(String, u64)>>>,
+    }
+
+    #[async_trait]
+    impl MethodExecutor for ListRecorder {
+        async fn execute(&self, ctx: MethodRunContext) -> Result<MethodOutcome, AppError> {
+            self.seen
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push((ctx.method_id.clone(), ctx.list.sequence));
+            Ok(finish_outcome())
+        }
+    }
+
+    #[tokio::test]
+    async fn run_keeps_its_list_after_swap() {
+        // The run starts on list #31. Whatever the current list is while it
+        // runs (here the built-in, #0, is current throughout), every method
+        // gets #31: its facts, its plan and its images are the start's.
+        let _g = rootfs::scoped_data_root(test_data_dir("run-keeps-list"));
+        let pool = merged_pool().await;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let executor = Arc::new(ListRecorder { seen: seen.clone() });
+        let list = list_for_host(31);
+        let summary = start_run_inner(
+            pool.clone(),
+            Arc::new(RunRuntime::new()),
+            Arc::new(FakeEnv::new(Duration::from_millis(10))),
+            executor,
+            owner(),
+            run_request(&["landmark-cox-current", "ctdna-tf-four-group"], 2, false),
+            None,
+            list.clone(),
+        )
+        .await
+        .expect("create");
+        let repo = TxrRepository::new(pool.clone());
+        let drive = drive_for(summary.id);
+        if let Some(drive) = drive {
+            assert!(Arc::ptr_eq(&drive.list, &list), "the drive holds the start's list");
+        }
+        let row = wait_terminal(&repo, summary.id).await;
+        assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
+        let seen = seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        assert_eq!(seen.len(), 2, "{seen:?}");
+        assert!(seen.iter().all(|(_, s)| *s == 31), "{seen:?}");
+        assert_ne!(crate::modules::method_list::current().sequence, 31);
+    }
+
+    #[tokio::test]
+    async fn run_row_records_list_sequence() {
+        let _g = rootfs::scoped_data_root(test_data_dir("run-row-list"));
+        let pool = merged_pool().await;
+        let summary = start_run_inner(
+            pool.clone(),
+            Arc::new(RunRuntime::new()),
+            Arc::new(FakeEnv::new(Duration::from_millis(10))),
+            Arc::new(FakeExecutor::new(Duration::ZERO)),
+            owner(),
+            run_request(&["landmark-cox-current"], 1, false),
+            None,
+            list_for_host(58),
+        )
+        .await
+        .expect("create");
+        let repo = TxrRepository::new(pool.clone());
+        let _ = wait_terminal(&repo, summary.id).await;
+        assert_eq!(repo.run_method_list_sequence(summary.id).await.expect("read"), Some(58));
+        // A row not made by a run start records none.
+        assert_eq!(repo.run_method_list_sequence(Uuid::new_v4()).await.expect("read"), None);
     }
 }

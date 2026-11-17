@@ -10,12 +10,14 @@
 //! ## Handler posture
 //!
 //! The handlers are thin transport: every decision lives in the engines over
-//! the boot-validated embedded catalogue ([`super::catalogue`]). The two POST
+//! ONE snapshot of the current method list (`method_list::current()`, taken
+//! once per request, so a list that changes meanwhile never mixes into an
+//! answer). The two POST
 //! endpoints run their engine call through `spawn_blocking` — the engine is
 //! pure and CPU-cheap (a bounded ≤ ~400-method set), but the module pattern
 //! keeps blocking work off a tokio worker (the `extensions::reload_processors`
 //! precedent). The two GET-list/detail/vocabulary handlers are plain reads of
-//! the already-loaded static catalogue (no I/O at all, so no blocking pool).
+//! the already-loaded list (no I/O at all, so no blocking pool).
 //!
 //! ## Error mapping (closed, documented)
 //!
@@ -61,7 +63,6 @@ use crate::modules::execution_engine::repository::TxrRepository;
 use crate::modules::permissions::{with_permission, RequirePermissions};
 use crate::modules::permissions::ProjectsUse;
 
-use super::catalogue;
 use super::calibration::TimingCalibration;
 use super::eligibility::eligibility_for_runtime_calibrated;
 use super::estimate::estimate_for_runtime_calibrated;
@@ -160,13 +161,20 @@ async fn list_methods(
     _auth: RequirePermissions<(ProjectsUse,)>,
     Query(q): Query<MethodListQuery>,
 ) -> ApiResult<Json<MethodListResponse>> {
-    let cat = catalogue::catalogue();
-    let methods: Vec<MethodSummary> = filter_methods(cat, &q)
+    let list = crate::modules::method_list::current();
+    let methods: Vec<MethodSummary> = filter_methods(&list.catalogue, &q)
         .into_iter()
         .map(MethodSummary::from_method)
         .collect();
     let total = methods.len() as u32;
-    Ok((StatusCode::OK, Json(MethodListResponse { methods, total })))
+    Ok((
+        StatusCode::OK,
+        Json(MethodListResponse {
+            methods,
+            total,
+            method_list_sequence: list.sequence,
+        }),
+    ))
 }
 
 fn list_methods_docs(op: TransformOperation) -> TransformOperation {
@@ -187,7 +195,8 @@ async fn get_method_detail(
     _auth: RequirePermissions<(ProjectsUse,)>,
     Path(method_id): Path<String>,
 ) -> ApiResult<Json<MethodDetail>> {
-    let m = catalogue::method(&method_id).ok_or_else(|| {
+    let list = crate::modules::method_list::current();
+    let m = list.method(&method_id).ok_or_else(|| {
         AppError::new(
             StatusCode::NOT_FOUND,
             "METHOD_NOT_FOUND",
@@ -216,7 +225,8 @@ fn get_method_detail_docs(op: TransformOperation) -> TransformOperation {
 async fn get_marker_vocabulary(
     _auth: RequirePermissions<(ProjectsUse,)>,
 ) -> ApiResult<Json<MarkerVocabularyResponse>> {
-    let cat = catalogue::catalogue();
+    let list = crate::modules::method_list::current();
+    let cat = &list.catalogue;
     let vocab = MarkerVocabularyResponse {
         markers: cat.markers.clone(),
         groups: cat.groups.clone(),
@@ -255,9 +265,13 @@ async fn post_eligibility(
         );
         return Ok((StatusCode::OK, Json(response)));
     }
+    let list = crate::modules::method_list::current();
     let calibration = load_calibration(&pool).await;
     let response = tokio::task::spawn_blocking(move || {
-        eligibility_for_runtime_calibrated(catalogue::catalogue(), &body, &calibration)
+        let mut response =
+            eligibility_for_runtime_calibrated(&list.catalogue, &list.images, &body, &calibration);
+        response.method_list_sequence = Some(list.sequence);
+        response
     })
     .await
     .map_err(|e| {
@@ -299,9 +313,10 @@ async fn post_estimate(
         .map_err(|e| e.to_api_error())?;
         return Ok((StatusCode::OK, Json(response)));
     }
+    let list = crate::modules::method_list::current();
     let calibration = load_calibration(&pool).await;
     let response = tokio::task::spawn_blocking(move || {
-        estimate_for_runtime_calibrated(catalogue::catalogue(), &body, &calibration)
+        estimate_for_runtime_calibrated(&list.catalogue, &list.images, &body, &calibration)
     })
     .await
     .map_err(|e| {
@@ -325,10 +340,16 @@ fn post_estimate_docs(op: TransformOperation) -> TransformOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modules::method_catalogue::catalogue;
+
+    // The shipped catalogue (the built-in method list's), as one request reads it.
+    mod catalogue {
+        pub fn catalogue() -> &'static crate::modules::method_catalogue::types::Catalogue {
+            &crate::modules::method_list::builtin().catalogue
+        }
+    }
 
     /// The pure query-filter semantics (no HTTP): group + q + boolean filters
-    /// and their combination, over the REAL embedded catalogue.
+    /// and their combination, over the REAL shipped (built-in) catalogue.
     #[test]
     fn list_query_filters_are_the_query_semantics() {
         let cat = catalogue::catalogue();

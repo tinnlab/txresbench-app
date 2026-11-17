@@ -8277,6 +8277,15 @@
               "type": "string"
             }
           },
+          "method_list_sequence": {
+            "description": "The method list the screen showed (`method_list_sequence` of the method\n list and eligibility responses). When it is not the list the run starts\n on, the run is refused with `409 METHOD_LIST_CHANGED`: a run never\n starts from a selection made on another list. Absent: no check.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
           "mode": {
             "$ref": "#/components/schemas/TxrRunMode"
           },
@@ -8413,6 +8422,15 @@
         "description": "The eligibility response — per-method verdicts plus the screen-B totals.",
         "type": "object",
         "properties": {
+          "method_list_sequence": {
+            "description": "The sequence of the method list the verdicts come from (the HTTP surface\n fills it; the pure engine leaves it out). A screen sends it back when it\n starts a run (`409 METHOD_LIST_CHANGED` on another list).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
           "methods": {
             "type": "array",
             "items": {
@@ -10416,6 +10434,12 @@
         "description": "The `GET /api/methods` response — the full (unpaged) runnable set, bounded at\n roughly 400 rows; the list screen filters client-side (DEC-11).",
         "type": "object",
         "properties": {
+          "method_list_sequence": {
+            "description": "The sequence of the method list these rows come from: a screen sends it back\n when it starts a run, and a run started from an older list is refused\n (`409 METHOD_LIST_CHANGED`).",
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
           "methods": {
             "type": "array",
             "items": {
@@ -10430,7 +10454,8 @@
         },
         "required": [
           "methods",
-          "total"
+          "total",
+          "method_list_sequence"
         ]
       },
       "MethodMarkers": {

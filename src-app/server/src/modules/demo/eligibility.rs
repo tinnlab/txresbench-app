@@ -31,7 +31,6 @@ use sqlx::SqlitePool;
 
 use txresbench_core::AppError;
 
-use crate::modules::method_catalogue::catalogue;
 use crate::modules::method_catalogue::types::{
     Coverage, EligibilityResponse, EligibilityStatus, EstimateRequest, EstimateResponse,
     MethodEligibility, MethodEstimate, MinDraws, Reason, TimingQuality,
@@ -116,11 +115,14 @@ fn pretrained_not_recorded_reason() -> Vec<PretrainedReason> {
 /// for both (the recorded setup IS the example setup).
 pub fn methods_eligibility(bundle: &DemoBundle, body: &crate::modules::method_catalogue::types::EligibilityRequest) -> EligibilityResponse {
     let speed = speed();
-    let mut methods_out = Vec::with_capacity(catalogue::catalogue().methods.len());
+    // Demo mode never moves off the built-in list (its recordings were made
+    // against it).
+    let list = crate::modules::method_list::builtin();
+    let mut methods_out = Vec::with_capacity(list.catalogue.methods.len());
     let mut total_fit = 0;
     let mut total_cannot = 0;
     let _ = body;
-    for m in catalogue::catalogue().methods.iter() {
+    for m in list.catalogue.methods.iter() {
         if let Some((_config, record)) = record_for_first(bundle, &m.id) {
             let second = record.seconds / speed.max(0.01);
             methods_out.push(MethodEligibility {
@@ -172,6 +174,7 @@ pub fn methods_eligibility(bundle: &DemoBundle, body: &crate::modules::method_ca
         total_some: 0,
         total_cannot,
         total_no_env: 0,
+        method_list_sequence: Some(list.sequence),
     }
 }
 

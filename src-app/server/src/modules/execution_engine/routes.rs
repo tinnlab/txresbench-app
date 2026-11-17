@@ -76,7 +76,6 @@ use txresbench_core::{ApiResult, AppError};
 use crate::modules::jobs::JobsUse;
 use crate::modules::permissions::{with_permission, RequirePermissions};
 
-use super::envmanifest;
 use super::orchestrator;
 use super::repository::{produced_models, MethodRow, TxrRepository};
 use super::runtime::RunRuntime;
@@ -1022,6 +1021,8 @@ fn assemble_predictions(
     let mut patients: Vec<String> = Vec::new();
     let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut methods_out: Vec<TxrPredictionMethod> = Vec::new();
+    // One snapshot of the current method list for the group labels.
+    let list = crate::modules::method_list::current();
     for m in rows {
         if !matches!(m.state(), Ok(super::types::TxrMethodState::Finished)) {
             continue;
@@ -1070,8 +1071,9 @@ fn assemble_predictions(
         // (an app-manifest id) — else the raw group id (a renamed model or a
         // method removed from the catalogue after the run still renders —
         // qa-fixes RES-05).
-        let group_label = envmanifest::facts_for(&m.method_id)
-            .or_else(|| envmanifest::facts_for(&m.label))
+        let group_label = list
+            .method(&m.method_id)
+            .or_else(|| list.method(&m.label))
             .map(|f| f.group_label.clone())
             .unwrap_or_else(|| m.group.clone());
         let prob_source = match m.prob_source.as_deref() {

@@ -15,7 +15,6 @@ use uuid::Uuid;
 
 use super::{owner_token, pool};
 use crate::common::TestServer;
-use txresbench::modules::execution_engine::envmanifest;
 use txresbench::modules::execution_engine::orchestrator::{
     self, EnvProvider, MethodExecutor, MethodRunContext, MethodOutcome, ProducedModelFacts,
 };
@@ -28,9 +27,8 @@ use txresbench::modules::file_validator::assets::ASSETS;
 use txresbench::modules::file_validator::types::{
     ParsedTable, ParsedTableSource, ProblemSeverity, TableFormat, ValidationMode, ValidationRequest,
 };
-use txresbench::modules::method_catalogue::catalogue::catalogue;
 use txresbench::modules::method_catalogue::eligibility::{
-    eligibility_for, estimate_seconds_for, runtime_env_available, REFERENCE_CPUS,
+    eligibility_for, estimate_seconds_for, REFERENCE_CPUS,
 };
 use txresbench::modules::method_catalogue::types::{EligibilityRequest, EligibilityStatus};
 use txresbench::modules::model_store::example::{
@@ -137,7 +135,7 @@ impl MethodExecutor for ModelFakeExecutor {
         // input or config drifting from what the drive hands the executor;
         // that the preflight matches `execute_train` itself is checked by
         // the unit test `call_bundle_preflight_matches_the_executor_bundle_stage`.
-        let facts = envmanifest::facts_for(&ctx.method_id)
+        let facts = txresbench::modules::method_list::builtin().method(&ctx.method_id)
             .ok_or_else(|| AppError::internal_error(format!("unknown method {}", ctx.method_id)))?;
         if let Err(e) = orchestrator::call_bundle_preflight(&ctx, facts)? {
             self.refused
@@ -342,7 +340,7 @@ async fn pick_is_deterministic_three_fast_saving_methods() {
     );
     assert_eq!(a.len(), EXAMPLE_METHOD_CAP.min(3), "pick: {a:?}");
     assert!(!a.is_empty(), "the shipped catalogue yields at least one fast method");
-    let cat = catalogue();
+    let cat = &txresbench::modules::method_list::builtin().catalogue;
     let verdicts = eligibility_for(
         cat,
         &EligibilityRequest::Inventory {
@@ -351,7 +349,7 @@ async fn pick_is_deterministic_three_fast_saving_methods() {
     );
     for id in &a {
         let method = cat.method(id).expect("catalogue method");
-        assert!(runtime_env_available(id), "{id} has a published environment");
+        assert!(txresbench::modules::method_list::builtin().has_env(id), "{id} has a published environment");
         assert!(method.saves_model, "{id} saves a model");
         let verdict = verdicts.methods.iter().find(|m| &m.id == id).expect("verdict");
         assert_eq!(verdict.status, EligibilityStatus::CanRun, "{id}");
@@ -372,7 +370,7 @@ async fn pick_is_deterministic_three_fast_saving_methods() {
     let runnable: Vec<_> = verdicts
         .methods
         .iter()
-        .filter(|m| m.status == EligibilityStatus::CanRun && runtime_env_available(&m.id))
+        .filter(|m| m.status == EligibilityStatus::CanRun && txresbench::modules::method_list::builtin().has_env(&m.id))
         .filter(|m| {
             let method = cat.method(&m.id).expect("catalogue method");
             inputs.preflight(method).is_ok()

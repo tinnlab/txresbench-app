@@ -712,6 +712,7 @@ mod tests {
             cpus: None,
             seed: 1,
             estimate: None,
+            method_list_sequence: None,
         })
         .await
         .expect("run insert");

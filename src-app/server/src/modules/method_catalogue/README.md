@@ -3,16 +3,20 @@
 The method catalogue module of the TxResBench app: a DB-free, stateless server
 module that owns the app's method facts (the runnable method set of the
 benchmark), the marker vocabulary with the seven board groups, the eligibility
-matching engine and the time-estimate model. It embeds a generated catalogue at
-build time, serves five typed endpoints under `/api/methods`, and exposes an
-in-process Rust seam for the other server modules. It performs no network I/O
-at run time, keeps no state and has no write path (no database, no migration —
+matching engine and the time-estimate model. Its catalogue is the `catalogue`
+half of the signed method list (`method_list`): the app embeds the list's
+built-in copy and may move to a newer signed list between runs (the
+`method_list` module fetches it; this module does no network I/O). Every
+handler reads ONE snapshot of the current list. It serves five typed endpoints
+under `/api/methods`, and exposes an in-process Rust seam for the other server
+modules. It keeps no state and has no write path (no database, no migration —
 a later SQLite switch does not touch it).
 
 ## What is generated from what
 
-The catalogue is DATA, produced by a script at build time and committed; the
-runtime only embeds the bytes. The generator is
+The catalogue is DATA, produced by a script at build time; the runtime reads
+it from the method list (never from this file, which is the list's imported
+copy for the scripts and tests that read it by path). The generator is
 `scripts/method-catalogue/gen_method_catalogue.py`.
 
 | produced | from (the benchmark tree, read at build time only) |

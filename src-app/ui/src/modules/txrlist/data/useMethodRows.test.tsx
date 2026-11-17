@@ -98,7 +98,11 @@ function verdict(
 
 /** The catalogue response the hook joins (one method in the fixture set). */
 function listResponse(): MethodListResponse {
-  return { methods: [summary({ id: 'direct-on', year: 2021, language: 'R' })], total: 1 }
+  return {
+    methods: [summary({ id: 'direct-on', year: 2021, language: 'R' })],
+    total: 1,
+    method_list_sequence: 0,
+  }
 }
 
 /** The eligibility response for the fixture set (the can-run verdict). */

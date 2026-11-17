@@ -269,6 +269,7 @@ mod tests {
             cpus: Some(4),
             seed: 1,
             estimate: None,
+            method_list_sequence: None,
         }
     }
 
