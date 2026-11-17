@@ -271,6 +271,22 @@ describe('presets', () => {
     expect(screen.queryByTestId('txr-method-section-response-call')).toBeNull()
     expect(screen.getByTestId('txr-method-section-static-risk')).toBeTruthy()
   })
+
+  it('a chip keeps the app border colour after it was pressed and released (no border shorthand mix)', () => {
+    renderPicker(CARDS)
+    const chip = screen.getByTestId('txr-method-family-static-risk')
+    expect(chip.style.borderColor).toBe('var(--txr-border)')
+    fireEvent.click(chip)
+    expect(chip.getAttribute('aria-pressed')).toBe('true')
+    expect(chip.style.borderColor).toBe('var(--txr-brand)')
+    fireEvent.click(chip)
+    expect(chip.getAttribute('aria-pressed')).toBe('false')
+    // React removes a dropped longhand; with a `border` shorthand beside it
+    // the colour fell back to the kit's own border colour.
+    expect(chip.style.borderColor).toBe('var(--txr-border)')
+    expect(chip.style.borderStyle).toBe('solid')
+    expect(chip.style.borderWidth).toBe('1px')
+  })
 })
 
 describe('show-more and the can\'t-run section', () => {

@@ -157,13 +157,18 @@ export interface TxrMethodPickerLayoutParts {
   list: ReactNode
 }
 
-/** The family chip's toggleable pill (the kit Button wears the pill look). */
+/** The family chip's toggleable pill (the kit Button wears the pill look).
+ *  The border is written as LONGHANDS: the pressed looks override
+ *  `borderColor`, and with a `border` shorthand here React's removal of the
+ *  dropped `borderColor` on release left the kit's own border colour. */
 const FAMILY_CHIP: CSSProperties = {
   fontSize: 12.5,
   height: 'auto',
   padding: '3px 10px',
   borderRadius: 999,
-  border: '1px solid var(--txr-border)',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'var(--txr-border)',
   background: 'var(--txr-surface)',
   color: 'var(--txr-text-2)',
 }
