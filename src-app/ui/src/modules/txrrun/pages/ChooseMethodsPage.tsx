@@ -52,10 +52,7 @@ import {
   RUN_METHODS_GONE_LINE,
   staleMethodIds,
 } from '../lib/runErrors'
-import {
-  refreshMethodListStatus,
-  shownMethodListSequence,
-} from '@/lib/txr-method-list/revision'
+import { refreshMethodListStatus } from '@/lib/txr-method-list/revision'
 import { runSetupMissing } from '../lib/slotSummary'
 import { buildFilesSummary } from '../lib/filesSummary'
 import { formatRunBarTime } from '../lib/runBar'
@@ -260,7 +257,8 @@ function TxrMethodPickerFrame({
   onSelectionChange(next: ReadonlySet<string>): void
   /** The user's own change (a tick or a preset): the seed never overrides it. */
   onUserSelectionChange(next: ReadonlySet<string>): void
-  onCards(cards: TxrMethodCard[]): void
+  /** The joined cards and the method list they come from (`null` before the first). */
+  onCards(cards: TxrMethodCard[], methodListSequence: number | null): void
   onChangeFiles(): void
   onChangeSettings(): void
   /** How many times the user changed a setting the eligibility request
@@ -274,7 +272,7 @@ function TxrMethodPickerFrame({
   /** demo-mode ITEM-6: the picker's list is the recorded methods only. */
   demo?: boolean
 }) {
-  const { cards, loading, error, refetch } = useMethodRows(inventory)
+  const { cards, loading, error, refetch, methodListSequence } = useMethodRows(inventory)
   // Ticks that exist for these files (seeded, or the user's own tick or
   // preset) turn the auto-recommendation off — a settings change recomputes
   // eligibility but never overrides them, and neither does a return to the
@@ -312,7 +310,7 @@ function TxrMethodPickerFrame({
   }, [error])
 
   useEffect(() => {
-    onCards(cards)
+    onCards(cards, methodListSequence)
     if (cards !== initialCards.current) {
       const keys = runnableCards(cards).map(card => card.key)
       const asked = recheckAsks.current !== answeredAsks.current
@@ -531,6 +529,14 @@ export function ChooseMethodsPage() {
   // cards: the page counts nothing then (the Extra-inputs help falls back to
   // its general line), until the new files' first answer arrives.
   const cards = settingsInventory === null ? NO_CARDS : cardsState
+  // The method list the cards on screen come from: a run request sends it back, so a
+  // selection made on one list never starts a run on another (409 METHOD_LIST_CHANGED).
+  // Never the latest status read: that moves ahead of the cards until they reload.
+  const cardsListSequence = useRef<number | null>(null)
+  const onCards = useCallback((next: TxrMethodCard[], sequence: number | null): void => {
+    cardsListSequence.current = sequence
+    setCards(next)
+  }, [])
   const estimate = useListEstimate([...selected], {
     patients: inventory?.patients ?? 0,
     cpus: settings.cpus ?? undefined,
@@ -566,7 +572,7 @@ export function ChooseMethodsPage() {
         )
         // The method list the cards came from: a run is never started from a
         // selection made on another list (409 METHOD_LIST_CHANGED).
-        const shown = shownMethodListSequence()
+        const shown = cardsListSequence.current
         if (shown !== null) request.method_list_sequence = shown
         const run = await ApiClient.Txr.createRun(request)
         leaving = true
@@ -763,7 +769,7 @@ export function ChooseMethodsPage() {
                   seeded={ownPicks !== null}
                   onSelectionChange={next => updateSelection(() => next, false)}
                   onUserSelectionChange={next => updateSelection(() => next, true)}
-                  onCards={setCards}
+                  onCards={onCards}
                   onChangeFiles={() => setChangeOpen(true)}
                   onChangeSettings={onChangeSettings}
                   recheckAsks={recheckAsks}

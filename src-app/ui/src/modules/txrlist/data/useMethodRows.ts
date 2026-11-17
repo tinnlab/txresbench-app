@@ -25,7 +25,7 @@
  *   unmounts (the effect's cancellation flag): only the newest key's
  *   response may write state (the plan's stale-response rule).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiClient } from '@/api-client'
 import type { InventoryEligibilityRequest } from '@/api-client/types'
 import {
@@ -79,6 +79,13 @@ export function stableInventoryKey(inventory: InventoryEligibilityRequest): stri
   return JSON.stringify(canonicalize(inventory))
 }
 
+/** How many times the hook asks again when the rows and the verdicts come from two
+ *  method lists (a newer list arrived between the two requests). */
+export const MIXED_LIST_RETRIES = 3
+
+/** The error line when the two answers keep coming from two lists. */
+export const MIXED_LIST_LINE = 'The method list changed while loading; try again.'
+
 /**
  * The error line for the fetch (the Datasets-store idiom: the thrown
  * message, else the operation's constant).
@@ -99,6 +106,8 @@ export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethod
   // minutes); a new list moves the revision and the cards are fetched again.
   useMethodListUpdates()
   const revision = useMethodListRevision()
+  // Consecutive answers whose rows and verdicts named two lists.
+  const mixed = useRef(0)
 
   useEffect(() => {
     // The closure's `inventory` is the object this key was derived from, so
@@ -113,6 +122,22 @@ export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethod
     ])
       .then(([list, eligibility]) => {
         if (cancelled) return
+        // The two requests run in parallel: a newer list taken between them gives rows of
+        // one list and verdicts of another. Never join those; ask again.
+        const rowsList = list.method_list_sequence
+        const verdictsList = eligibility.method_list_sequence
+        if (rowsList != null && verdictsList != null && rowsList !== verdictsList) {
+          mixed.current += 1
+          if (mixed.current <= MIXED_LIST_RETRIES) {
+            setRefresh(count => count + 1)
+            return
+          }
+          mixed.current = 0
+          setError(MIXED_LIST_LINE)
+          setLoading(false)
+          return
+        }
+        mixed.current = 0
         setCards(buildMethodCards(list.methods, eligibility))
         setNoEnvCount(eligibility.total_no_env ?? 0)
         const sequence = eligibility.method_list_sequence ?? list.method_list_sequence ?? null

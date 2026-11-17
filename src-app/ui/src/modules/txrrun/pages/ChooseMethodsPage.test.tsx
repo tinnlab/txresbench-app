@@ -964,6 +964,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
 
   it('Run sends the method list the cards came from (PR 5)', async () => {
     api.getConfig.mockResolvedValue({ config: null })
+    api.listMethods.mockResolvedValue({ methods: catalogue(), total: 3, method_list_sequence: 3 })
     api.eligibility.mockResolvedValue({ ...eligibility(), method_list_sequence: 3 })
     seedStore()
     renderPage()
@@ -979,8 +980,46 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     expect(api.createRun.mock.calls[0][0].method_list_sequence).toBe(3)
   })
 
+  it('Run names the list of the cards on screen, not a newer status read (PR 5)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    api.listMethods.mockResolvedValue({ methods: catalogue(), total: 3, method_list_sequence: 3 })
+    api.eligibility.mockResolvedValue({ ...eligibility(), method_list_sequence: 3 })
+    seedStore()
+    renderPage()
+    await settle()
+    await chooseOnly('direct-on')
+    // The app moved to list #4: a status read (window focus) says so, and the cards'
+    // reload has not landed yet.
+    api.listUpdates.mockReset()
+    api.listUpdates.mockResolvedValue({
+      sequence: 4,
+      origin: 'live',
+      assembled_at: '2026-11-20T10:00:00Z',
+      updates_enabled: true,
+      last_check: 'updated',
+    })
+    api.listMethods.mockReturnValue(new Promise(() => {}))
+    api.eligibility.mockReturnValue(new Promise(() => {}))
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.listUpdates).toHaveBeenCalled()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    await settle(0)
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    // The selection was made on #3: the request says #3, so the server refuses it.
+    expect(api.createRun.mock.calls[0][0].method_list_sequence).toBe(3)
+  })
+
   it('a 409 METHOD_LIST_CHANGED reloads the methods with the notice and starts nothing (PR 5)', async () => {
     api.getConfig.mockResolvedValue({ config: null })
+    api.listMethods.mockResolvedValue({ methods: catalogue(), total: 3, method_list_sequence: 3 })
     api.eligibility.mockResolvedValue({ ...eligibility(), method_list_sequence: 3 })
     api.createRun.mockRejectedValue({
       status: 409,
@@ -1001,6 +1040,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
       updates_enabled: true,
       last_check: 'updated',
     })
+    api.listMethods.mockResolvedValue({ methods: catalogue(), total: 3, method_list_sequence: 4 })
     api.eligibility.mockResolvedValue({ ...eligibility(), method_list_sequence: 4 })
     await act(async () => {
       fireEvent.click(screen.getByTestId('txr-run-bar-run'))
