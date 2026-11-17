@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TxrMethodCard } from '../types'
 import {
+  activePreset,
   fastSelection,
   filterMethodCards,
   presetOf,
@@ -116,6 +117,61 @@ describe('presets (presetSelection / presetOf)', () => {
     expect(presetOf(new Set(presetSelection('recommended', overCap)), overCap)).toBe('recommended')
     expect(presetOf(new Set(presetSelection('none', RUNNABLE)), RUNNABLE)).toBe('none')
     expect(presetOf(new Set(['a']), RUNNABLE)).toBe('custom')
+  })
+})
+
+describe('activePreset (the pressed preset button, step-4 fix)', () => {
+  // Three runnable methods, one per family, every estimate under a minute:
+  // Recommended = All = Fast = the same three (the user's Mac had this
+  // shape: 5 runnable methods, Recommended = All).
+  const EQUAL = [
+    card({ id: 'q1', group: 'response-call', estimate: { seconds: 10, quality: 'measured' } }),
+    card({ id: 'q2', group: 'static-risk', estimate: { seconds: 20, quality: 'measured' } }),
+    card({ id: 'q3', group: 'dynamic-risk', estimate: { seconds: 30, quality: 'measured' } }),
+  ]
+  const everything = new Set(['q1', 'q2', 'q3'])
+
+  it('the three presets give the same set here (the case under test)', () => {
+    expect(presetSelection('recommended', EQUAL).sort()).toEqual(['q1', 'q2', 'q3'])
+    expect(presetSelection('all', EQUAL).sort()).toEqual(['q1', 'q2', 'q3'])
+    expect(presetSelection('fast', EQUAL).sort()).toEqual(['q1', 'q2', 'q3'])
+  })
+
+  it('the clicked preset wins while the selection equals its set', () => {
+    expect(activePreset(everything, EQUAL, 'recommended')).toBe('recommended')
+    expect(activePreset(everything, EQUAL, 'all')).toBe('all')
+    expect(activePreset(everything, EQUAL, 'fast')).toBe('fast')
+  })
+
+  it('after a manual tick the selection decides (custom)', () => {
+    const ticked = new Set(['q1', 'q2'])
+    expect(activePreset(ticked, EQUAL, 'all')).toBe('custom')
+  })
+
+  it('with nothing clicked yet, the order is presetOf\'s (the seeded recommendation shows Recommended)', () => {
+    expect(activePreset(everything, EQUAL, null)).toBe('recommended')
+    expect(activePreset(everything, EQUAL, null)).toBe(presetOf(everything, EQUAL))
+  })
+
+  it('a chosen preset whose set no longer matches falls back to the matching one', () => {
+    // The user chose Fast, then the selection became the over-cap All set.
+    const overCap = [
+      ...RUNNABLE,
+      card({ id: 'h', group: 'dynamic-risk', estimate: { seconds: 2000, quality: 'estimate' } }),
+      card({ id: 'i', group: 'dynamic-risk', estimate: { seconds: 4000, quality: 'estimate' } }),
+    ]
+    expect(activePreset(new Set(presetSelection('all', overCap)), overCap, 'fast')).toBe('all')
+  })
+
+  it('when no method is fast, None gives none (never "Fast only"), and presetOf of an empty selection is none', () => {
+    const slow = EQUAL.map(c => ({ ...c, estimate: { seconds: 600, quality: 'measured' as const } }))
+    expect(presetSelection('fast', slow)).toEqual([])
+    expect(presetOf(new Set(), slow)).toBe('none')
+    expect(activePreset(new Set(), slow, 'none')).toBe('none')
+    expect(activePreset(new Set(), slow, null)).toBe('none')
+    // Clicking Fast with no fast method selects nothing; the clicked button
+    // is the one that shows.
+    expect(activePreset(new Set(), slow, 'fast')).toBe('fast')
   })
 })
 

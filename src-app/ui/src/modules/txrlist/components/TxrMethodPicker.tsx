@@ -14,9 +14,12 @@
  *   Run button (DEC-3), so the picker reports every change through
  *   `lib/methodPicker.ts`'s pure rules (toggle, presets, group select-all);
  * - the picker owns the toolbar state (search query, family multi-filter,
- *   sort, the preset control derives its active segment from the selection),
- *   the per-section show-more, the can't-run section and the per-reason
- *   expansion.
+ *   sort, the preset last clicked), the per-section show-more, the can't-run
+ *   section and the per-reason expansion. The pressed preset is the one last
+ *   clicked while the selection still equals its set (`activePreset`: on a
+ *   small catalogue two presets often give the same methods, and the one the
+ *   user clicked is the one that shows), else the preset the selection
+ *   equals, else Custom.
  *
  * DISPLAY RULES:
  * - the family order + explainer + the preset/recommendation rules are
@@ -46,8 +49,9 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, Input, Select, Skeleton } from '@txresbench/kit'
 import type { TxrMethodCard } from '../types'
 import {
+  activePreset,
+  fastSelection,
   filterMethodCards,
-  presetOf,
   presetSelection,
   reasonGroups,
   recommendedSelection,
@@ -205,11 +209,14 @@ export function TxrMethodPicker({
   const [expandedSections, setExpandedSections] = useState<ReadonlySet<string>>(new Set())
   const [cannotOpen, setCannotOpen] = useState(false)
   const [expandedReasons, setExpandedReasons] = useState<ReadonlySet<string>>(new Set())
+  /** The preset last applied (null until one is): it stays pressed while the
+   *  selection still equals its set (`activePreset`). */
+  const [chosenPreset, setChosenPreset] = useState<TxrMethodPreset | null>(null)
 
   const runnable = useMemo(() => runnableCards(cards), [cards])
   const cannot = useMemo(() => cards.filter(card => card.run.disabled), [cards])
   const reasonGroupsList = useMemo(() => reasonGroups(cards), [cards])
-  const preset = presetOf(selected, cards)
+  const preset = activePreset(selected, cards, chosenPreset)
   const filterActive = query.trim() !== '' || familyFilter.size > 0
 
   const shown = useMemo(() => {
@@ -225,6 +232,7 @@ export function TxrMethodPicker({
   }
 
   const applyPreset = (value: TxrMethodPreset): void => {
+    setChosenPreset(value)
     onSelectionChange(new Set(presetSelection(value, cards)))
   }
 
@@ -258,11 +266,13 @@ export function TxrMethodPicker({
 
   const recommendations = recommendedSelection(cards)
   const allKeys = presetSelection('all', cards)
-  const fastKeys = presetSelection('fast', cards)
+  const fastKeys = fastSelection(cards)
+  // Every set-taking preset shows its count, so a user can see when two of
+  // them give the same methods.
   const presets: { value: TxrMethodPreset; label: string }[] = [
     { value: 'recommended', label: `Recommended (${recommendations.length})` },
     { value: 'all', label: `All that can run (${allKeys.length})` },
-    { value: 'fast', label: 'Fast only (under 1 min each)' },
+    { value: 'fast', label: `Fast only, under 1 min each (${fastKeys.length})` },
     { value: 'none', label: 'None' },
   ]
 

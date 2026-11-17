@@ -17,6 +17,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
 import type { TxrMethodCard } from '../types'
 import { TXRMETHOD_GROUP_ORDER } from '../lib/methodPicker'
 import { TxrMethodPicker } from './TxrMethodPicker'
@@ -257,6 +258,83 @@ describe('presets', () => {
     expect(next.size).toBe(0)
     fireEvent.click(screen.getByTestId('txr-method-preset-fast'))
     expect([...next].sort()).toEqual(['r1'])
+  })
+
+  it('every set-taking preset shows its count, Fast included', () => {
+    renderPicker(CARDS)
+    expect(screen.getByTestId('txr-method-preset-all').textContent).toBe('All that can run (7)')
+    expect(screen.getByTestId('txr-method-preset-fast').textContent).toBe(
+      'Fast only, under 1 min each (1)',
+    )
+  })
+
+  it('when the three presets give the same set, the clicked one is the pressed one; a manual tick presses none', () => {
+    // Three runnable methods, one per family, all under a minute: the
+    // recommendation takes all three, so Recommended = All = Fast.
+    const equal = [
+      runnable('e1', 'Response call', { estimate: { seconds: 10, quality: 'measured' } }),
+      runnable('e2', 'Static risk', { estimate: { seconds: 20, quality: 'measured' } }),
+      runnable('e3', 'Dynamic risk', { estimate: { seconds: 30, quality: 'measured' } }),
+    ]
+    function Host() {
+      const [selected, setSelected] = useState<ReadonlySet<string>>(new Set(['e1', 'e2', 'e3']))
+      return (
+        <TxrMethodPicker
+          cards={equal}
+          loading={false}
+          error={null}
+          onRetry={() => {}}
+          selected={selected}
+          onSelectionChange={setSelected}
+          onChangeFiles={() => {}}
+          onChangeSettings={() => {}}
+        />
+      )
+    }
+    render(<Host />)
+    const pressed = (): string[] =>
+      (['recommended', 'all', 'fast', 'none'] as const).filter(
+        value => screen.getByTestId(`txr-method-preset-${value}`).getAttribute('aria-pressed') === 'true',
+      )
+    // Arrival (nothing clicked): the seeded set reads as Recommended.
+    expect(pressed()).toEqual(['recommended'])
+    fireEvent.click(screen.getByTestId('txr-method-preset-all'))
+    expect(pressed()).toEqual(['all'])
+    fireEvent.click(screen.getByTestId('txr-method-preset-fast'))
+    expect(pressed()).toEqual(['fast'])
+    fireEvent.click(screen.getByTestId('txr-method-preset-recommended'))
+    expect(pressed()).toEqual(['recommended'])
+    fireEvent.click(screen.getByTestId('txr-method-preset-all'))
+    expect(pressed()).toEqual(['all'])
+
+    // A manual tick: the selection is no preset's set.
+    fireEvent.click(screen.getByTestId('txr-method-checkbox-e2'))
+    expect(pressed()).toEqual([])
+  })
+
+  it('None is the pressed preset when no method is fast (never "Fast only")', () => {
+    function Host() {
+      const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+      return (
+        <TxrMethodPicker
+          cards={CARDS.filter(c => c.id !== 'r1')}
+          loading={false}
+          error={null}
+          onRetry={() => {}}
+          selected={selected}
+          onSelectionChange={setSelected}
+          onChangeFiles={() => {}}
+          onChangeSettings={() => {}}
+        />
+      )
+    }
+    render(<Host />)
+    expect(screen.getByTestId('txr-method-preset-none').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('txr-method-preset-fast').getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(screen.getByTestId('txr-method-preset-all'))
+    fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+    expect(screen.getByTestId('txr-method-preset-none').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('txr-method-preset-fast').getAttribute('aria-pressed')).toBe('false')
   })
 
   it('the family filter and search restrict the sections and restore', () => {

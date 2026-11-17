@@ -15,7 +15,8 @@
  *   datasets), fastest-first as the tie-break and as the fallback when no
  *   benchmark is known;
  * - presets: Recommended, All that can run, Fast only (each row's estimate
- *   under a minute), None; a manual tick is "Custom";
+ *   under a minute), None; a manual tick is "Custom"; the pressed preset is
+ *   the one last clicked while the selection still matches it;
  * - a cannot-run method is bucketed by its FIRST reason (the provider emits
  *   the reasons in a deterministic order), so the per-reason counts are a
  *   partition — never a double count.
@@ -125,18 +126,50 @@ export function presetSelection(
   }
 }
 
+/** True when `selected` is exactly the preset's set over `cards`. */
+function selectionIsPreset(
+  selected: ReadonlySet<string>,
+  preset: TxrMethodPreset,
+  cards: ReadonlyArray<TxrMethodCard>,
+): boolean {
+  const keys = presetSelection(preset, cards)
+  return keys.length === selected.size && keys.every(key => selected.has(key))
+}
+
 /** The preset a selection equals: the control's active segment, or 'custom'
- *  when the user has ticked by hand. */
+ *  when the user has ticked by hand. An empty selection is always 'none'
+ *  (checked first: when no method is fast, the Fast set is empty too, and
+ *  "None" must not light "Fast only"). When two presets give the same set,
+ *  the first of recommended, all, fast wins; `activePreset` keeps the one
+ *  the user clicked. */
 export function presetOf(
   selected: ReadonlySet<string>,
   cards: ReadonlyArray<TxrMethodCard>,
 ): TxrMethodPreset | 'custom' {
-  for (const preset of ['recommended', 'all', 'fast'] as const) {
-    const keys = presetSelection(preset, cards)
-    if (keys.length === selected.size && keys.every(key => selected.has(key))) return preset
-  }
   if (selected.size === 0) return 'none'
+  for (const preset of ['recommended', 'all', 'fast'] as const) {
+    if (selectionIsPreset(selected, preset, cards)) return preset
+  }
   return 'custom'
+}
+
+/**
+ * The preset button that shows as pressed. `chosen` is the preset the user
+ * (or the AI action) last applied: while the selection still equals that
+ * preset's set, it stays pressed, even when another preset gives the same
+ * set (on a small catalogue Recommended, All and Fast are often the same
+ * methods). Once the selection differs (a manual tick, a group select-all, a
+ * settings change that unticks a method), the selection decides
+ * (`presetOf`). With nothing chosen yet (the page's recommended seed), the
+ * order is `presetOf`'s.
+ */
+export function activePreset(
+  selected: ReadonlySet<string>,
+  cards: ReadonlyArray<TxrMethodCard>,
+  chosen: TxrMethodPreset | null,
+): TxrMethodPreset | 'custom' {
+  if (chosen !== null && selectionIsPreset(selected, chosen, cards)) return chosen
+  return presetOf(selected, cards)
 }
 
 /** The picker's sort (recommended keeps the recommendation's order). */

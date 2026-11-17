@@ -723,6 +723,39 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('0 methods selected')
   })
 
+  it('the clicked preset stays pressed when two presets give the same set (Recommended = All here); None never lights Fast', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    // The fixture's two runnable methods are one per family, so the
+    // recommendation takes both: Recommended = All; neither is under a
+    // minute, so Fast is empty.
+    const pressed = (value: string): string | null =>
+      screen.getByTestId(`txr-method-preset-${value}`).getAttribute('aria-pressed')
+    expect(pressed('recommended')).toBe('true')
+    expect(pressed('all')).toBe('false')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-preset-all'))
+      await Promise.resolve()
+    })
+    expect(pressed('all')).toBe('true')
+    expect(pressed('recommended')).toBe('false')
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+      await Promise.resolve()
+    })
+    expect(pressed('none')).toBe('true')
+    expect(pressed('fast')).toBe('false')
+    expect(screen.getByTestId('txr-method-preset-fast').textContent).toBe(
+      'Fast only, under 1 min each (0)',
+    )
+  })
+
   it('search and the family multi-filter restrict the sections and restore', async () => {
     api.getConfig.mockResolvedValue({ config: null })
     seedStore()
