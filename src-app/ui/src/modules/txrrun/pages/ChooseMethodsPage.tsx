@@ -321,9 +321,17 @@ function TxrMethodPickerFrame({
     [onSelectionChange],
   )
 
+  // demo-mode ITEM-6: the recorded methods only. Memoized: a new array on
+  // every render would read as new cards to the picker (its state token
+  // would move on every re-render, not only on a change).
+  const pickerCards = useMemo(
+    () => (demo ? cards.filter(card => !card.run.disabled) : cards),
+    [demo, cards],
+  )
+
   return (
     <TxrMethodPicker
-      cards={demo ? cards.filter(card => !card.run.disabled) : cards}
+      cards={pickerCards}
       loading={loading}
       refreshing={loading}
       error={error}

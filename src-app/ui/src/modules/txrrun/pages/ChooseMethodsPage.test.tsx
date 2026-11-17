@@ -1542,6 +1542,39 @@ describe('step-4 review fixes: the preset action and the re-check line', () => {
     expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
   })
 
+  it('in demo mode the picker\'s state token stays put across re-renders (it moves only on a change)', async () => {
+    seedDemoMode('demo')
+    seedStore()
+    const view = renderPage()
+    await settle()
+    await settle(250)
+    const live = instancesOfType('txr.method-picker')
+    expect(live.length).toBe(1)
+    const token = async (): Promise<unknown> =>
+      ((await runAction('view.describe', { view_id: live[0].id })) as Record<string, unknown>)
+        ._state_token
+    const before = await token()
+
+    // Re-render the page with nothing changed.
+    for (let i = 0; i < 3; i += 1) {
+      view.rerender(
+        <MemoryRouter initialEntries={['/choose-methods']}>
+          <ChooseMethodsPage />
+          <LocationProbe />
+        </MemoryRouter>,
+      )
+      await settle()
+    }
+    expect(await token()).toBe(before)
+
+    // A real change still moves it.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+      await Promise.resolve()
+    })
+    expect(await token()).not.toBe(before)
+  })
+
   it('no "Checked again" line on arrival when the sticky settings land after the first answer', async () => {
     let releaseConfig: (value: unknown) => void = () => {}
     api.getConfig.mockReturnValueOnce(
