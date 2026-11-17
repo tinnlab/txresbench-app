@@ -131,6 +131,21 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
     expect(state().mode).toBe('predict')
   })
 
+  it('setIntent forgets the file check when the mode changes (it was made for the other mode), and keeps it otherwise', () => {
+    const checked = validationOf()
+    TxrIntake.setIntent('pretrained')
+    useTxrIntakeStore.setState({ validation: checked })
+    TxrIntake.setIntent('reuse') // predict → predict: the same check
+    expect(state().validation).toBe(checked)
+    TxrIntake.setIntent('train') // predict → study: the predict check is not the learn files' check
+    expect(state().validation).toBeNull()
+    useTxrIntakeStore.setState({ validation: checked })
+    TxrIntake.setIntent('train') // study → study
+    expect(state().validation).toBe(checked)
+    TxrIntake.setIntent('pretrained') // study → predict
+    expect(state().validation).toBeNull()
+  })
+
   it('adoptFile replaces a slot file and resets its offers', () => {
     const withOffers = { ...loadedFile(), joinOffers: [joinOffer], vocabOffers: [vocabOffer] }
     TxrIntake.adoptFile('measurements', withOffers)

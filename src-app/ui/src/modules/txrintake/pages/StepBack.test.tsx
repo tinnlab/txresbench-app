@@ -399,6 +399,18 @@ describe('Back targets along the Start paths', () => {
   })
 })
 
+describe('a path that changes the mode', () => {
+  it('after a predict path, the learn path\u2019s Your files does not continue on the predict file\u2019s check', async () => {
+    seedPredict()
+    renderApp('/')
+    await click('txr-intake-start-card-train-cta')
+    await click('txr-intake-study-continue')
+    expect(routeAt()).toBe('/files')
+    expect(screen.getByTestId<HTMLButtonElement>('txr-intake-continue').disabled).toBe(true)
+    expect(screen.getByText('Both files are needed before the check runs.')).toBeTruthy()
+  })
+})
+
 describe('state kept across Back', () => {
   it('C keeps its files and validation after Back to B and Continue (no new check)', async () => {
     seedTrain()

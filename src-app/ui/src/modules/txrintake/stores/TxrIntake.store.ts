@@ -306,12 +306,15 @@ const TxrIntakeDef = defineStore('TxrIntake', {
     })
 
     return {
-      /** The A-card path choice; the mode follows (train → study, the rest → predict). */
+      /**
+       * The A-card path choice; the mode follows (train → study, the rest →
+       * predict). A mode change forgets the validation: it checked the other
+       * mode's files (the predict file, or the learn pair), so the new mode's
+       * file step checks its own files again instead of continuing on it.
+       */
       setIntent: (intent: IntakeIntent) => {
-        set({
-          intent,
-          mode: intent === 'train' ? 'study' : 'predict',
-        })
+        const mode: IntakeSnapshot['mode'] = intent === 'train' ? 'study' : 'predict'
+        set(s => (s.mode === mode ? { intent, mode } : { intent, mode, validation: null }))
       },
 
       /** Merge one B answer group change (any field; unanswered fields stay null). */
