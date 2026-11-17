@@ -32,7 +32,7 @@ pub mod routes;
 pub mod runtime;
 pub mod store;
 #[cfg(test)]
-mod test_sign;
+pub(crate) mod test_sign;
 pub mod verify;
 
 use std::io::Read;

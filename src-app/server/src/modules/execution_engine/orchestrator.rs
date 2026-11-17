@@ -8712,55 +8712,149 @@ mod tests {
         assert!(rows.is_empty() && total == 0, "no run row was made");
     }
 
-    /// An executor that records the list each method's context carried.
-    struct ListRecorder {
+    /// An executor that records the list each method's context carried, then waits for
+    /// the gate (so the test can swap the list while the run is going).
+    struct GatedListRecorder {
         seen: Arc<Mutex<Vec<(String, u64)>>>,
+        gate: Arc<tokio::sync::Semaphore>,
     }
 
     #[async_trait]
-    impl MethodExecutor for ListRecorder {
+    impl MethodExecutor for GatedListRecorder {
         async fn execute(&self, ctx: MethodRunContext) -> Result<MethodOutcome, AppError> {
             self.seen
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .push((ctx.method_id.clone(), ctx.list.sequence));
+            let _pass = self.gate.acquire().await.expect("the gate stays open");
             Ok(finish_outcome())
+        }
+    }
+
+    /// A registry holding at most one published list.
+    #[derive(Default)]
+    struct OneListRegistry {
+        published: Mutex<Option<(String, crate::modules::method_list::fetch::Fetched)>>,
+    }
+
+    impl crate::modules::method_list::fetch::ListSource for OneListRegistry {
+        fn describe(&self) -> String {
+            "a test registry".to_string()
+        }
+        fn resolve(&self, _: Duration) -> Result<String, crate::modules::method_list::fetch::FetchError> {
+            self.published
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .map(|(d, _)| d.clone())
+                .ok_or(crate::modules::method_list::fetch::FetchError::Unreachable {
+                    detail: "nothing published".to_string(),
+                })
+        }
+        fn pull(
+            &self,
+            _: &str,
+            _: Duration,
+        ) -> Result<crate::modules::method_list::fetch::Fetched, crate::modules::method_list::fetch::FetchError> {
+            Ok(self
+                .published
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .expect("resolved first")
+                .1
+                .clone())
         }
     }
 
     #[tokio::test]
     async fn run_keeps_its_list_after_swap() {
-        // The run starts on list #31. Whatever the current list is while it
-        // runs (here the built-in, #0, is current throughout), every method
-        // gets #31: its facts, its plan and its images are the start's.
-        let _g = rootfs::scoped_data_root(test_data_dir("run-keeps-list"));
+        // A run starts on list #31 (the current list of a runtime). While its first method
+        // runs, a newer list (#32) is published and taken: the runtime serves #32, and the
+        // run keeps #31 for every method, the one running and the one still waiting.
+        use crate::modules::method_list::runtime::{ListRuntime, RuntimeSeams};
+        let data = test_data_dir("run-keeps-list");
+        let _ = std::fs::remove_dir_all(&data);
+        let _g = rootfs::scoped_data_root(data.clone());
         let pool = merged_pool().await;
+        let registry = Arc::new(OneListRegistry::default());
+        let keys = crate::modules::method_list::keys::TrustedKeys::from_json(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scripts/method-list/fixtures/fixture-keys.json"
+        )))
+        .expect("fixture keys");
+        let lists = Arc::new(ListRuntime::new(
+            list_for_host(31),
+            RuntimeSeams {
+                data_root: data.join("app-data"),
+                source: Some(registry.clone()),
+                off_reason: None,
+                keys,
+                coalesce: Duration::ZERO,
+            },
+        ));
+        let start = lists.current();
+        assert_eq!(start.sequence, 31);
+
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let executor = Arc::new(ListRecorder { seen: seen.clone() });
-        let list = list_for_host(31);
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        let executor = Arc::new(GatedListRecorder {
+            seen: seen.clone(),
+            gate: gate.clone(),
+        });
         let summary = start_run_inner(
             pool.clone(),
             Arc::new(RunRuntime::new()),
             Arc::new(FakeEnv::new(Duration::from_millis(10))),
             executor,
             owner(),
-            run_request(&["landmark-cox-current", "ctdna-tf-four-group"], 2, false),
+            run_request(&["landmark-cox-current", "ctdna-tf-four-group"], 1, false),
             None,
-            list.clone(),
+            lists.current(),
         )
         .await
         .expect("create");
-        let repo = TxrRepository::new(pool.clone());
-        let drive = drive_for(summary.id);
-        if let Some(drive) = drive {
-            assert!(Arc::ptr_eq(&drive.list, &list), "the drive holds the start's list");
+        // The first method is running (inside the executor), the second waits for its lane.
+        for _ in 0..500 {
+            if !seen.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
+        let drive = drive_for(summary.id).expect("the run is going");
+        assert!(Arc::ptr_eq(&drive.list, &start), "the drive holds the start's list");
+
+        // A newer list is published and taken while the run is going.
+        let mut doc: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../data/method-list/method-list.json"
+        )))
+        .expect("the built-in list");
+        doc["sequence"] = 32.into();
+        let bytes = serde_json::to_vec(&doc).expect("serializes");
+        let signature = crate::modules::method_list::test_sign::TestSigner::fixture()
+            .sign_list(&bytes)
+            .into_bytes();
+        *registry.published.lock().unwrap_or_else(|e| e.into_inner()) = Some((
+            format!("sha256:{}", "3".repeat(64)),
+            crate::modules::method_list::fetch::Fetched {
+                list: bytes,
+                signature,
+            },
+        ));
+        let status = lists.check_now().await;
+        assert_eq!(status.sequence, 32, "{status:?}");
+        assert_eq!(lists.current().sequence, 32, "the runtime serves the newer list");
+        assert!(Arc::ptr_eq(&drive.list, &start), "the running run keeps its own");
+
+        gate.add_permits(16);
+        let repo = TxrRepository::new(pool.clone());
         let row = wait_terminal(&repo, summary.id).await;
         assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
         let seen = seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
         assert_eq!(seen.len(), 2, "{seen:?}");
-        assert!(seen.iter().all(|(_, s)| *s == 31), "{seen:?}");
-        assert_ne!(crate::modules::method_list::current().sequence, 31);
+        assert!(seen.iter().all(|(_, s)| *s == 31), "every method ran on #31: {seen:?}");
+        assert_eq!(repo.run_method_list_sequence(summary.id).await.expect("read"), Some(31));
     }
 
     #[tokio::test]
