@@ -1122,6 +1122,33 @@ describe('the dynamic no-models messages on Saved models (I)', () => {
     expect(screen.getByTestId('route-location').textContent).toBe('/pretrained-models')
   })
 
+  it('a file change never shows the previous file\u2019s none-can-run line', async () => {
+    api.eligibility.mockResolvedValue({
+      models: [],
+      total_fit: 0,
+      total_some: 0,
+      total_cannot: TXRMODELS_SAVED.length,
+    } as ModelEligibilityResponse)
+    published(4)
+    publishedVerdicts(1, 0, 3)
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-models-i-none-can-run')).toBeTruthy()
+    const original = useTxrModelsStore.getState().loadInventory
+    useTxrModelsStore.setState({ loadInventory: () => undefined })
+    try {
+      act(() => {
+        useTxrIntakeStore.setState({
+          validation: { ...validation(), inventory: { ...TXRMODELS_INVENTORY, patients: 43 } },
+        })
+      })
+      await settle(0)
+      expect(screen.queryByTestId('txr-models-i-none-can-run')).toBeNull()
+    } finally {
+      useTxrModelsStore.setState({ loadInventory: original })
+    }
+  })
+
   it('saved models that can run: no line, and the published models are not loaded', async () => {
     renderPage()
     await settle(0)

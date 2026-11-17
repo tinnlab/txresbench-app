@@ -147,7 +147,7 @@
       "mutating": true,
       "stateful": false,
       "permission": "mcp::use",
-      "description": "Pick one of the three ways of the Start screen: \"pretrained\" predicts with a published model, \"reuse\" predicts with a model you saved, \"train\" learns from your own patients. Opens the first step of that way; files already added are kept.",
+      "description": "Pick one of the three ways of the Start screen: \"pretrained\" predicts with a published model, \"reuse\" predicts with a model you saved, \"train\" learns from your own patients. Opens the first step of that way (or its file step with startAtFiles); files already added are kept. Back from that step returns to the page it was started from. Refused while a run is starting or a dialog is open.",
       "aliases": [
         "learn from my data",
         "predict with a pretrained model",
@@ -168,6 +168,37 @@
               "train"
             ],
             "description": "\"pretrained\", \"reuse\" (a saved model) or \"train\" (learn from my data)."
+          },
+          "startAtFiles": {
+            "description": "Open the file step directly (the learn path skips its study questions).",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "id": "history.useSettingsAgain",
+      "title": "Use the settings of a past analysis again",
+      "kind": "global",
+      "context": "global",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "description": "History \"Use these settings again\": copy the settings of a past analysis (by its run id) into the method choice and open it. The files of that analysis are not reused. Back from the method choice returns to the page it was started from.",
+      "aliases": [
+        "use these settings again"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "runId"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The run id of the past analysis (from History)."
           }
         }
       }
@@ -275,7 +306,7 @@
       "id": "models.switchList",
       "title": "Switch between the published models and your saved models",
       "kind": "global",
-      "context": "txr.step",
+      "context": "txr.modelStep",
       "mutating": true,
       "stateful": false,
       "permission": "mcp::use",
@@ -298,6 +329,37 @@
               "published"
             ],
             "description": "\"saved\" for your saved models, \"published\" for the published models."
+          }
+        }
+      }
+    },
+    {
+      "id": "models.useModel",
+      "title": "Predict new patients with a saved model",
+      "kind": "global",
+      "context": "global",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "description": "Your models \"Use\": start the saved-model path for one saved model (by its id). Opens the step to add the patients to predict; the model is ticked on the saved list once the file checks out. Back from that step returns to the page it was started from.",
+      "aliases": [
+        "use this model"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "modelId"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The saved model id (from Your models)."
+          },
+          "name": {
+            "description": "The model name the step shows.",
+            "type": "string"
           }
         }
       }

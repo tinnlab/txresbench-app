@@ -26,6 +26,8 @@ const NEW_IDS = [
   'flow.back',
   'models.switchList',
   'flow.startPath',
+  'models.useModel',
+  'history.useSettingsAgain',
 ]
 
 // owning module.tsx → the builtin file it must side-effect-import

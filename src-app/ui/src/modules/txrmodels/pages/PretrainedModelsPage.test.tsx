@@ -1344,6 +1344,32 @@ describe('the dynamic no-models messages on Pretrained models (D)', () => {
     expect(screen.getByTestId('route-location').textContent).toBe('/saved-models')
   })
 
+  it('a file change never shows the previous file\u2019s saved count (no stale "can run" before the new check)', async () => {
+    api.listModels.mockResolvedValue(emptyCatalogue())
+    savedList(3)
+    savedVerdicts(1, 1, 1)
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-models-d-no-catalogue').textContent).toContain('2 can run on this file')
+    // Hold the store's inventory on the previous file (as before its effect
+    // runs): the verdicts it holds answer that file, not this one.
+    const original = useTxrModelsStore.getState().loadInventory
+    useTxrModelsStore.setState({ loadInventory: () => undefined })
+    try {
+      act(() => {
+        useTxrIntakeStore.setState({
+          validation: { ...validation(), inventory: { ...TXRMODELS_INVENTORY, patients: 43 } },
+        })
+      })
+      await settle(0)
+      const box = screen.getByTestId('txr-models-d-no-catalogue')
+      expect(box.textContent).not.toContain('can run on this file')
+      expect(box.textContent).toContain('Checking your saved models\u2026')
+    } finally {
+      useTxrModelsStore.setState({ loadInventory: original })
+    }
+  })
+
   it('a catalogue that can run loads no saved models and shows no line', async () => {
     renderPage()
     await settle(0)

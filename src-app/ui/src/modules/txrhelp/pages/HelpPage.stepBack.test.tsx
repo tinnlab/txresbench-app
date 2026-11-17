@@ -10,6 +10,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { useStepTrailStore, useTxrIntakeStore } from '@/modules/txrintake'
 import { HelpPage } from './HelpPage'
+import '@/core/actions/builtin/stepActions'
+import { RouterBridge } from '@/core/actions/navigateBridge'
 
 const api = vi.hoisted(() => ({ example: vi.fn() }))
 vi.mock('@/api-client', () => ({
@@ -28,6 +30,8 @@ function LocationProbe() {
 function renderHelp() {
   return render(
     <MemoryRouter initialEntries={['/help']}>
+      {/* The quick-start entries run the registered flow.startPath. */}
+      <RouterBridge />
       <HelpPage />
       <LocationProbe />
     </MemoryRouter>,
@@ -40,7 +44,11 @@ beforeEach(() => {
   api.example.mockResolvedValue(PREDICT_CSV)
   window.localStorage.clear()
   useTxrIntakeStore.getState().reset()
-  useStepTrailStore.setState({ trail: ['/', '/study', '/files', '/choose-methods'], current: null })
+  useStepTrailStore.setState({
+    trail: ['/', '/study', '/files', '/choose-methods'],
+    current: null,
+    leaving: false,
+  })
 })
 
 afterEach(() => {

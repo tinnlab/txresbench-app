@@ -1,9 +1,11 @@
 import { createModule } from '@txresbench/framework'
 import { TxrLayoutDef } from '@/modules/txrshell/module'
 import { lazyWithPreload } from '@/utils/lazyWithPreload'
-// Side-effect import: registers `flow.back`, `models.switchList` and
-// `flow.startPath` (the step views' Back button, the model-list switch and the
-// Start cards), so each is drivable by the palette and the AI, not only a button.
+// Side-effect import: registers the step-flow actions (`flow.back`,
+// `models.switchList`, `flow.startPath`, `models.useModel`,
+// `history.useSettingsAgain`: the step views' Back button, the model-list
+// switch and the entries that start a path), so each is drivable by the
+// palette and the AI, not only a button.
 import '@/core/actions/builtin/stepActions'
 
 /**

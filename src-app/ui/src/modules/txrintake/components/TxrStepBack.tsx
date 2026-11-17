@@ -20,9 +20,19 @@ import { useStore } from 'zustand'
 import { FiArrowLeft } from 'react-icons/fi'
 import { Button, message } from '@txresbench/kit'
 import { runAction } from '@/core/actions/defineAction'
-import { useActiveContext } from '@/core/actions/activeContext'
+import {
+  registerActiveContext,
+  unregisterActiveContext,
+  useActiveContext,
+} from '@/core/actions/activeContext'
 import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
-import { recordStep, TXR_STEP_CONTEXT, useStepTrailStore, type TxrStepId } from '../lib/stepTrail'
+import {
+  recordStep,
+  TXR_MODEL_STEP_CONTEXT,
+  TXR_STEP_CONTEXT,
+  useStepTrailStore,
+  type TxrStepId,
+} from '../lib/stepTrail'
 
 /** The reason Back is not possible while a run is being started. */
 export const STEP_BACK_STARTING_REASON = 'Starting the run…'
@@ -48,6 +58,14 @@ export function useStepBack({
   const location = useLocation()
   const url = `${location.pathname}${location.search}`
   useActiveContext(TXR_STEP_CONTEXT, { entityId: step })
+
+  // The model steps (D, I) also declare the model-step context: the list
+  // switch is offered there only.
+  useEffect(() => {
+    if (step !== 'pretrained-models' && step !== 'saved-models') return
+    registerActiveContext(TXR_MODEL_STEP_CONTEXT, { entityId: step })
+    return () => unregisterActiveContext(TXR_MODEL_STEP_CONTEXT)
+  }, [step])
 
   useEffect(() => {
     recordStep(url)

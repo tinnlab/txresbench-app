@@ -35,6 +35,10 @@ import { create } from 'zustand'
  *  `models.switchList` are offered and invokable only then). */
 export const TXR_STEP_CONTEXT = 'txr.step'
 
+/** The page context the model steps (D, I) add while on screen (`models.switchList`
+ *  is offered and invokable only there). */
+export const TXR_MODEL_STEP_CONTEXT = 'txr.modelStep'
+
 /** The step views that show a Back button. */
 export type TxrStepId =
   | 'study'
@@ -83,6 +87,11 @@ const STEP_ORDER: Readonly<Record<string, number>> = {
 export function pathOf(url: string): string {
   const cut = url.search(/[?#]/)
   return cut === -1 ? url : url.slice(0, cut)
+}
+
+/** Is this URL a step view of the flow (B, C, N, E, D, I)? */
+export function isStepUrl(url: string): boolean {
+  return STEP_ORDER[pathOf(url)] !== undefined
 }
 
 function indexOfPath(trail: readonly string[], url: string): number {

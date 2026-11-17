@@ -69,6 +69,10 @@ function renderFlow(initial: string, steps: { blocked?: string | null; dialog?: 
         <Route path="/" element={<Start />} />
         <Route path="/study" element={<Step step="study" fallback="/" next="/files" />} />
         <Route
+          path="/pretrained-models"
+          element={<Step step="pretrained-models" fallback="/predict-files" />}
+        />
+        <Route
           path="/files"
           element={
             <Step
@@ -206,6 +210,17 @@ describe('the palette offers flow.back only on a step view', () => {
     expect(offered()).toContain('flow.back')
     view.unmount()
     expect(offered()).not.toContain('flow.back')
+  })
+
+  it('models.switchList only on the model steps (D, I), never on B, C, N or E', () => {
+    const study = renderFlow('/study')
+    expect(offered()).toContain('flow.back')
+    expect(offered()).not.toContain('models.switchList')
+    study.unmount()
+    const models = renderFlow('/pretrained-models')
+    expect(offered()).toContain('models.switchList')
+    models.unmount()
+    expect(offered()).not.toContain('models.switchList')
   })
 
   it('absent on a non-step page (Start)', () => {

@@ -43,7 +43,7 @@
  */
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Alert } from '@txresbench/kit'
 import { isDesktop } from '@/core/platform'
@@ -54,8 +54,8 @@ import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
 import { modelsPath } from '@/modules/txrmodels'
 import { downloadPredictionsCsv, resultsPath, revealRunDir } from '@/modules/txrresults'
-import { chooseMethodsPath, runningPath } from '@/modules/txrrun'
-import { beginPath } from '@/modules/txrintake'
+import { runningPath } from '@/modules/txrrun'
+import { runAction } from '@/core/actions/defineAction'
 import { TxrHistory, useTxrHistory } from '../index'
 import { TxrConfirmDialog } from '../components/TxrConfirmDialog'
 import { TxrHistoryFooter } from '../components/TxrHistoryFooter'
@@ -113,7 +113,6 @@ function fresh(): void {
 
 export function HistoryPage() {
   const navigate = useNavigate()
-  const location = useLocation()
   const state = useStore(useTxrHistory)
   const [actionError, setActionError] = useState<string | null>(null)
   // R2-G1: the tab/title byte is the page's own h1.
@@ -173,17 +172,13 @@ export function HistoryPage() {
       .catch(() => setActionError(RERUN_FAILED))
   }
 
+  // The registered `history.useSettingsAgain` (the palette and the AI take the
+  // same path): the settings PUT, then choose-methods, whose Back returns here.
   const handleSettingsAgain = (runId: string): void => {
-    const detail = useTxrHistory.getState().detail
-    if (detail === null || detail.id !== runId) return
     setActionError(null)
-    void TxrHistory.useSettingsAgain(detail)
-      .then(() => {
-        // The path's one step goes back here (the step trail).
-        beginPath(`${location.pathname}${location.search}`)
-        navigate(chooseMethodsPath())
-      })
-      .catch(() => setActionError(SETTINGS_AGAIN_FAILED))
+    runAction('history.useSettingsAgain', { runId }).catch(() =>
+      setActionError(SETTINGS_AGAIN_FAILED),
+    )
   }
 
   const handleDownload = (runId: string): void => {

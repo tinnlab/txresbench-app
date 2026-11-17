@@ -481,15 +481,19 @@ export function PretrainedModelsPage() {
     if (needSaved && saved.loaded) void useTxrModelsStore.getState().loadEligibility(savedIds)
   }, [needSaved, saved.loaded, savedIds, storeInventory])
   const savedSettled = saved.loaded && !saved.loading
+  // The store's verdicts answer the store's inventory: right after a file
+  // change (before the inventory effect runs) they are the previous file's.
+  const savedVerdictsFresh = storeInventory !== null && storeInventory === validation?.inventory
   const savedTotals = savedVerdicts.totals
   const savedFacts: TxrModelListFacts = {
-    failed: saved.error !== null || savedVerdicts.error !== null,
+    failed: saved.error !== null || (savedVerdictsFresh && savedVerdicts.error !== null),
     total: savedSettled ? saved.summaries.length : null,
     canRun: !savedSettled
       ? null
       : saved.summaries.length === 0
         ? 0
-        : savedTotals !== null &&
+        : savedVerdictsFresh &&
+            savedTotals !== null &&
             !savedVerdicts.loading &&
             savedTotals.fit + savedTotals.some + savedTotals.cannot === saved.summaries.length
           ? savedTotals.fit + savedTotals.some

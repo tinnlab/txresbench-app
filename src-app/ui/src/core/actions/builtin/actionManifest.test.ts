@@ -32,6 +32,8 @@ const EXPECTED: Record<string, { permission: string; mutating: boolean }> = {
   'flow.back': { permission: 'mcp::use', mutating: true },
   'models.switchList': { permission: 'mcp::use', mutating: true },
   'flow.startPath': { permission: 'mcp::use', mutating: true },
+  'models.useModel': { permission: 'mcp::use', mutating: true },
+  'history.useSettingsAgain': { permission: 'mcp::use', mutating: true },
 }
 
 // No removed-module path may sit in the allowlist. Its remaining entries are

@@ -166,6 +166,23 @@ describe('usePretrainedEligibility (TEST-MOD-27)', () => {
     expect((api.checkEligibility.mock.calls[2][0] as { inventory: unknown }).inventory).toBe(invB)
   })
 
+  it('never returns the previous file\u2019s verdicts for a new file: none while the new ones load', async () => {
+    const invA = inventory()
+    const invB = inventory({ patients: 84 })
+    api.checkEligibility
+      .mockResolvedValueOnce(verdicts(['ps-1']))
+      .mockReturnValueOnce(new Promise(() => undefined))
+    const { result, rerender } = renderHook(
+      ({ inv }: { inv: InventoryEligibilityRequest }) => usePretrainedEligibility(inv, ['ps-1']),
+      { initialProps: { inv: invA } },
+    )
+    await flush()
+    expect(result.current.response?.total_fit).toBe(1)
+    rerender({ inv: invB })
+    expect(result.current.response).toBeNull()
+    expect(result.current.loading).toBe(true)
+  })
+
   it('discards a stale resolve — the newer key\'s verdicts stay', async () => {
     const invA = inventory()
     const invB = inventory({ patients: 84 })

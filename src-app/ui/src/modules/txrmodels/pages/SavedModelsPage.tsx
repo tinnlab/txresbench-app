@@ -596,8 +596,12 @@ export function SavedModelsPage() {
   /** The saved list loaded and holds no model (never before the first load). */
   const noSaved =
     validation !== null && savedSettled && saved.error === null && saved.summaries.length === 0
-  /** The saved verdicts answer every saved model (the totals cover the whole list). */
+  /** The saved verdicts answer this file (the store's inventory is the
+   *  validation's: right after a file change they are still the previous
+   *  file's) and every saved model (the totals cover the whole list). */
   const savedVerdictsReady =
+    inventory !== null &&
+    inventory === validation?.inventory &&
     totals !== null &&
     !eligibility.loading &&
     eligibility.error === null &&

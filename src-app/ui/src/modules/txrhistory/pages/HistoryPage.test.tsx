@@ -53,6 +53,9 @@ import type {
 } from '@/api-client/types'
 import { HistoryPage } from './HistoryPage'
 import { useStepTrailStore } from '@/modules/txrintake'
+import '@/core/actions/builtin/stepActions'
+import { runAction } from '@/core/actions/defineAction'
+import { RouterBridge } from '@/core/actions/navigateBridge'
 
 const api = vi.hoisted(() => ({
   listHistory: vi.fn(async (_q: unknown): Promise<TxrHistoryPage> => ({ items: [], total: 0, limit: 20, offset: 0 })),
@@ -258,6 +261,9 @@ function LocationProbe() {
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={['/history']}>
+      {/* "Use these settings again" runs a registered action; its navigation
+          goes through the router bridge, as in the app. */}
+      <RouterBridge />
       <HistoryPage />
       <LocationProbe />
     </MemoryRouter>,
@@ -521,6 +527,25 @@ describe('HistoryPage (TEST-HIST-8)', () => {
     expect(body.config.label_day).toBeNull()
     expect(body.last_input_summary).toBeNull()
     expect(screen.getByTestId('route-location').textContent).toBe('/choose-methods')
+  })
+
+  it('the registered history.useSettingsAgain does the same from the palette or the AI, loading the run when it is not expanded', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/study', '/files'], current: null, leaving: false })
+    api.getHistory.mockImplementation(async (_id: unknown) =>
+      detail((_id as { id: string }).id, { can_rerun: false }),
+    )
+    renderPage()
+    await settle()
+    await act(async () => {
+      await runAction('history.useSettingsAgain', { runId: 'run-1' })
+    })
+    await settle()
+    expect(api.getHistory).toHaveBeenCalledWith({ id: 'run-1' })
+    const body = api.updateAnalysisConfig.mock.calls[0][0] as { config: Record<string, unknown> }
+    expect(body.config.decision_day).toBe(42)
+    expect(api.rerunRun).not.toHaveBeenCalled()
+    expect(screen.getByTestId('route-location').textContent).toBe('/choose-methods')
+    expect(useStepTrailStore.getState().trail).toEqual(['/history'])
   })
 
   it('settings-again starts the step trail here: Back from choose-methods returns to History (and this page has no Back)', async () => {

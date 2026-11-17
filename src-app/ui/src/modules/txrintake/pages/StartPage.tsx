@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Button } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
@@ -41,8 +41,6 @@ import type { IntakeIntent } from '../types'
 
 /** The intake's own route literals (the module route table is the source). */
 const STUDY_ROUTE = '/study'
-const FILES_ROUTE = '/files'
-const PREDICT_FILES_ROUTE = '/predict-files'
 
 /** The page's frame host. */
 const PAGE_ROOT: CSSProperties = {
@@ -268,7 +266,6 @@ function CardActions({
 }
 
 export function StartPage() {
-  const navigate = useNavigate()
   const { count } = useRunnableMethodCount()
   const { isDemo } = useAppMode()
   // R2-G1: the tab/title byte is the page's own h1.
@@ -287,12 +284,9 @@ export function StartPage() {
   /** The "Use example" landing (qa-fixes3 ITEM-4): one click to the file
    *  step with the flow filled — the file screen's own flow then validates
    *  the adopted tables (the same inspect/validate a user drop runs). */
-  const exampleDone = useCallback(
-    (intent: IntakeIntent) => {
-      navigate(intent === 'train' ? FILES_ROUTE : PREDICT_FILES_ROUTE)
-    },
-    [navigate],
-  )
+  const exampleDone = useCallback((intent: IntakeIntent) => {
+    void runAction('flow.startPath', { intent, startAtFiles: true })
+  }, [])
 
   const webUrlUsable =
     typeof window !== 'undefined' &&

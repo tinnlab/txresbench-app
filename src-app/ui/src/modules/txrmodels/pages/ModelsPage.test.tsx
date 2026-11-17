@@ -50,6 +50,8 @@ import { useStepTrailStore, useTxrIntakeStore } from '@/modules/txrintake'
 import { TXRMODELS_J_RESPONSE, fixtureModelId } from '../fixtures'
 import { useTxrModelsStore } from '../stores/TxrModels.store'
 import { ModelsPage } from './ModelsPage'
+import '@/core/actions/builtin/stepActions'
+import { RouterBridge } from '@/core/actions/navigateBridge'
 
 // jsdom has no working PointerEvent constructor; Base UI's controls (the
 // kit Input/Button) construct one on pointer interaction, which would
@@ -116,6 +118,9 @@ function LocationProbe() {
 function renderPage(initialEntry = '/models') {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
+      {/* "Use" runs the registered models.useModel; its navigation goes
+          through the router bridge, as in the app. */}
+      <RouterBridge />
       <ModelsPage />
       <LocationProbe />
     </MemoryRouter>,
@@ -322,7 +327,7 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
   })
 
   it('Use starts the step trail here: Back from the predict-files step returns to Your models (and this page has no Back)', async () => {
-    useStepTrailStore.setState({ trail: ['/', '/study', '/files'], current: null })
+    useStepTrailStore.setState({ trail: ['/', '/study', '/files'], current: null, leaving: false })
     renderPage()
     await settle(0)
     expect(screen.queryByTestId('txr-step-back')).toBeNull()

@@ -27,6 +27,8 @@ import type { ModelSaveResponse } from '@/api-client/types'
 import { TXRMODELS_SAVE_RESPONSE } from '../fixtures'
 import { useStepTrailStore, useTxrIntakeStore } from '@/modules/txrintake'
 import { TxrSavedDialog } from './TxrSavedDialog'
+import '@/core/actions/builtin/stepActions'
+import { RouterBridge } from '@/core/actions/navigateBridge'
 
 const api = vi.hoisted(() => ({
   listModels: vi.fn(),
@@ -46,6 +48,8 @@ function renderDialog(over: { response?: ModelSaveResponse | null; onClose?: () 
   const onClose = over.onClose ?? vi.fn()
   render(
     <MemoryRouter initialEntries={[over.from ?? '/models']}>
+      {/* "Predict new patients with them" runs the registered flow.startPath. */}
+      <RouterBridge />
       <TxrSavedDialog response={over.response === undefined ? TXRMODELS_SAVE_RESPONSE : over.response} onClose={onClose} />
       <RouteProbe />
     </MemoryRouter>,
