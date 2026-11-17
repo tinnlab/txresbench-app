@@ -1,0 +1,11 @@
+{
+ "format": "txresbench-method-list-keys",
+ "format_version": 1,
+ "keys": [
+  {
+   "key_id": "73D9638AD48C0903",
+   "label": "fixture test key (tests only, never trusted by the app)",
+   "public_key": "RWQDCYzUimPZc7DydDum9UVtUGEBN+BpNW342Eob+JbXnbH/tCPYZhvN"
+  }
+ ]
+}

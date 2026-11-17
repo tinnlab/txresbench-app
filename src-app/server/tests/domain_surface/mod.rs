@@ -692,7 +692,10 @@ fn is_test_tier_key(key: &str) -> bool {
 /// DEMO-MODE ITEM-1: **17** — the `demo` module (the demo-mode switch, the
 /// route allowlist gate, the anonymous visitor sessions) is consciously
 /// admitted in lockstep with the FE twin's module expectation.
-const EXPECT_MODULES: usize = 17;
+/// METHOD LIST (PR 4a): **18** — the `method_list` module (the signed method
+/// list's trusted keys, signature check and parse) is consciously admitted, in
+/// lockstep with the FE twin.
+const EXPECT_MODULES: usize = 18;
 
 // ── POSITIVE-COUNT FLOORS ───────────────────────────────────────────────────
 //

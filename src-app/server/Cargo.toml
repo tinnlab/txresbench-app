@@ -93,7 +93,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-uti
 sqlx = { version = "0.8.6", features = ["postgres", "sqlite", "runtime-tokio-rustls", "uuid", "chrono", "macros", "migrate", "json"] }
 linkme = "0.3"
 serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.141"
+# `raw_value`: the method list hands each nested document's own bytes to its own
+# loader (`method_list::format`). Feature edit only: no new crate.
+serde_json = { version = "1.0.141", features = ["raw_value"] }
 # YAML config loader (matches the SDK's `serde_norway` choice — see SDK_GAPS G2).
 serde_norway = "0.9"
 schemars = { version = "0.9.0", features = ["chrono04", "uuid1"] }
@@ -179,6 +181,11 @@ mime_guess = "2.0"
 # member (it was this crate's TEST-33 dev-dep; moved, not added) — no new
 # package enters `Cargo.lock`, and it is outside every guard's denylist.
 regex = "1"
+# The signed method list (`modules/method_list`): minisign signature checks. Zero
+# dependencies; already in `Cargo.lock` through the desktop updater
+# (tauri-plugin-updater), so this adds an edge, not a package. Pinned exactly: the
+# check is a security boundary.
+minisign-verify = "=0.2.5"
 
 # The bundled SQLite C library symbols, as a REGULAR dependency (sqlite-store
 # ITEM-17): the SQLite port of `account::seat::assert_serializable_context`'s

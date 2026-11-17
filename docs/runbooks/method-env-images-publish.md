@@ -249,6 +249,12 @@ published result depends on.
 
 ## 4. Adding a method or bumping a version
 
+> Once the methods repository carries `method-list/` (the signed method list), the
+> images list and the catalogue are changed THERE, and §8 is the whole flow: the
+> build and layer-publish steps below stay the same, but the list you assemble is
+> `<methods>/method-list/method-env-images.json`, never the app's imported copy, and
+> an app release picks it up through §9 instead of an app PR ("After the PR", §6).
+
 A new layer is a **build event**, not a publish-time edit. One method is
 built and listed alone; every other entry of the list stays as it is.
 
@@ -411,6 +417,9 @@ never weaken the contract to fit a method.
 
 ## 6. How the app picks up new layers
 
+> With the signed method list, an app release imports the published list (§9); the
+> app's `src-app/server/data/method-env-images.json` is then an imported copy.
+
 The manifest is the only runtime-facing artifact of this node: it is embedded
 into the app at build time (DEC-6, `include_dir!` — dev builds read it from
 disk). Publishing a layer alone changes nothing for an existing install; the
@@ -468,3 +477,159 @@ scripts/publish-method-env-images.sh --env <id> --arch <arch> --staging-dir <bui
 # skip signing — only against a runtime with verification disabled
 scripts/publish-method-env-images.sh --env <id> --skip-sign
 ```
+
+---
+
+## 8. Updating a method (the signed method list)
+
+The method list (`method-list.json`) is the catalogue and the images list in one file,
+signed with minisign and published to `ghcr.io/tinnlab/txresbench-method-list`
+(`v1-seq-<N>`, then `v1`). Its data lives in the methods repository, folder
+`method-list/`; the tools are this repository's, run against a methods checkout. A
+method update is one methods-repository PR; nothing changes in the app repository.
+
+You need: an app checkout at its `origin/main` (the current tools; the publisher refuses
+any other), a methods checkout, the benchmark tree (the catalogue's other inputs, as
+`SIGTRANS_ROOT`), the method's pinned base image and Docker (the build, §4), `oras`, and
+to publish, `minisign` with your key (`~/.minisign/txresbench-method-list.key`, its
+public key in `data/method-list/trusted-keys.json`) and a GHCR token with
+`write:packages`.
+
+```sh
+APP=<app checkout at origin/main>
+M=<methods checkout>
+git -C "$M" fetch origin && git -C "$M" switch -c feat/<id> origin/main
+
+# 1. commit the method: methods/<id>/ and its passed gates/<id>.json (§4 step 1)
+
+# 2. build its layer on the machine that holds the pinned base (§4 step 2)
+python3 "$APP/scripts/generate-method-env-images.py" --only <id> --arch <amd64|arm64> \
+  --methods-dir "$M" --out <build dir> --base-pins "$M/method-list/method-env-images.json"
+
+# 3. add its entry to the images list; every other entry is carried from main's list
+git -C "$M" show origin/main:method-list/method-env-images.json > previous-images.json
+python3 "$APP/scripts/generate-method-env-images.py" --assemble <build dir> \
+  --methods-dir "$M" --previous previous-images.json \
+  --manifest "$M/method-list/method-env-images.json"
+"$APP/scripts/check-method-env-images.sh" --manifest "$M/method-list/method-env-images.json" \
+  --staging-dir <build dir> --methods-dir "$M" --previous previous-images.json
+
+# 4. publish the layer (its base first, if the list pins a new one: §3)
+"$APP/scripts/publish-method-env-images.sh" --env <id> --arch <arch> \
+  --staging-dir <build dir> --methods-dir "$M" \
+  --manifest "$M/method-list/method-env-images.json" --previous previous-images.json
+
+# 5. its catalogue row (a new method or a new version): one row rebuilt, the rest carried
+python3 "$APP/scripts/method-catalogue/gen_method_catalogue.py" --only <id> \
+  --previous "$M/method-list/catalogue.json" --methods-dir "$M"
+
+# 6. assemble the list: sequence = main's + 1
+git -C "$M" show origin/main:method-list/method-list.json > previous-list.json
+python3 "$APP/scripts/assemble-method-list.py" --list-dir "$M/method-list" \
+  --previous previous-list.json
+
+# 7. the checks; paste their output and both commit ids into the methods PR body
+"$APP/scripts/check-method-list.sh" --list-dir "$M/method-list" --previous previous-list.json
+"$APP/scripts/check-method-env-images.sh" --manifest "$M/method-list/method-env-images.json" \
+  --methods-dir "$M" --require-provenance
+git -C "$APP" rev-parse HEAD; git -C "$M" rev-parse HEAD
+
+# 8. commit method-list/ on the branch (after the method's own commit), push, open the
+#    methods PR. The owner merges it WITH A MERGE COMMIT (never squash or rebase).
+
+# 9. after the merge: publish what the methods main holds
+git -C "$M" switch main && git -C "$M" pull --ff-only
+"$APP/scripts/publish-method-list.sh" --methods-dir "$M" --dry-run
+"$APP/scripts/publish-method-list.sh" --methods-dir "$M"
+```
+
+The images list is assembled before the layer is published because the env publisher
+reads the entry it pushes from that list (step 4).
+
+The rules every list keeps (the assembler and the guard check 1-3 and 5, the app's loader
+1 and 2, the publisher 4 and 6):
+1. every image entry has a catalogue row; 2. every arch entry of a method carries the row's
+`version` (a version bump rebuilds every listed arch, or `--drop`s the stale one); 3. a row is
+never removed (saved models and run history keep their facts); 4. the publisher refuses a list
+without `bases`; 5. the run-shaping facts (`markers`, `required_markers`, `covariates`,
+`min_draws`, `needs_baseline`, `uses_history`, `fitted`, `saves_model`, `own_outputs`, `tasks`,
+`group`, `needs_detection_call`, `params`) change only with a `version` bump; 6. every entry's
+`source_revision` is on the methods main when the list is published.
+
+**Why a merge commit.** A layer records the commit it was built from, and every check
+re-reads that commit. A squash or rebase merge leaves it off main, and other clones lose it;
+the publisher refuses such a list (rule 6).
+
+**Two maintainers at once.** Both assemble main's sequence + 1, so the second PR conflicts
+on the `sequence` line. Merge main into the branch and RE-RUN steps 3, 5 and 6 (never merge
+the JSON by hand); the list becomes main's + 1 again.
+
+**What the publisher does** (`scripts/publish-method-list.sh`, its header has the detail):
+it refuses unless both checkouts' `origin` is the tinnlab repository (`tinnlab/txresbench-app`,
+`tinnlab/txresbench-methods`, https or ssh; never a fork), this app checkout is clean and at
+its `origin/main`, and the methods checkout is clean with `method-list/` equal to the methods
+`origin/main`; it publishes the files of the methods `origin/main` itself. It re-runs the
+checks above, the app's loader (`txresbench check-method-list`), rule 4 and rule 6; reads the
+published `:v1`, verifies it and refuses a sequence at or below it (the same list again is
+"already published") or a list that drops a row of it; resolves every layer and base the
+list pins to its digest; signs in a scrubbed environment (`env -i`, the minisign password at
+the prompt); checks the signature with `minisign -V` and the app's verifier; pushes
+`v1-seq-<N>` (the list and its signature in one artifact) with the token in a temporary
+registry config (never `oras login`); reads that artifact back anonymously, byte for byte;
+moves `v1` only if nobody moved it meanwhile; and reads `v1` back byte for byte. The token
+(`GHCR_USER`, `GHCR_TOKEN`) is taken out of the environment at the start: no child process
+(git, cargo, oras, minisign, the verifier) sees it. The verifier is `cargo run` in the app
+checkout, or the binary named with `--cli` (a `TXR_CLI` in the environment is refused). The
+first publish needs `--first-publish` (an anonymous request for a missing package looks like
+one for a private package); a package's first push creates it private: make it public and
+rerun, and the rerun only moves `v1`. `--registry 127.0.0.1:<port>` rehearses on a local
+registry (plain HTTP, no token; `--keys` may then name a test key's trusted-keys file).
+
+**A `:v1` that does not verify.** The publisher stops and reads nothing from it (not its
+sequence, not its rows): it was signed by a key this app no longer trusts, or someone with
+write access to the package pushed it. Find out which before going on. To replace it, rerun
+with `--supersede-unverified <its digest>` (the refusal prints it). The floor is then the
+highest `v1-seq-<N>` whose list verifies and says sequence N: the new list must be above it
+and keep its rows. Tags above the floor that do not verify are listed; an installed app that
+still trusts their signer may hold such a list, so after a key is removed from
+`trusted-keys.json` pick a sequence above those too. `v1` is moved only if it is still at the
+digest you named.
+
+**A wrong list.** Never delete or retag a published version. Publish a NEW list (a higher
+sequence) with the right entries: apps take the highest valid sequence.
+
+**Retiring a method.** A row is never removed (rule 3): a retired method keeps its row with
+`runnable: false` and loses its image entries (`--drop` in step 3). No tool writes that
+row change yet (a known gap: until one does, retiring a method needs a reviewed edit
+of its row in the methods PR).
+
+---
+
+## 9. App release: import the list
+
+An app release carries the published list as its built-in copy:
+
+```sh
+git switch -c release/method-list-<N> origin/main      # a worktree, as for any change
+scripts/import-method-list.sh                           # :v1; --sequence <N> for another
+```
+
+The import pulls anonymously, verifies with the app's own verifier and trusted keys
+(`cargo run` in this checkout, or `--cli <binary>`), refuses a sequence below the built-in
+one and a list that drops a row of it or changes a run-shaping fact at the same version
+(before the first import: of the app's current two documents), and writes `data/method-list/method-list.json`
++ `.minisig` and the two extracted documents at the paths the app reads
+(`data/method-catalogue/catalogue.json`, `src-app/server/data/method-env-images.json`),
+each in its generator's own layout. It prints what changed (methods added, changed,
+retired; sequence old -> new).
+
+Then update the app tests that pin counts of the shipped data (for example
+`tests/method_catalogue/api_test.rs`'s `total_fit`): a pin that moves is what the
+release review should see. Run the gate and open the import PR. A test that goes red on
+the imported data is the review point: fix the data in the methods repository and publish
+a new list; never edit the imported copies here (`scripts/check-method-list.sh` fails if
+they differ from the list).
+
+Before the first publish, `scripts/import-method-list.sh --bootstrap` writes a
+`sequence: 0` list from the app's current two files, without a signature (the app accepts
+an unsigned list only at sequence 0); any published list replaces it.

@@ -1,0 +1,75 @@
+{
+  "schema_version": 2,
+  "generator_version": "0.6.0",
+  "base_contract": "2.0",
+  "bases": [
+    {
+      "base_id": "base-py",
+      "arch": "amd64",
+      "oci_ref": "ghcr.io/tinnlab/txresbench-env",
+      "tag": "base-py-2.0-amd64-ad3013594e39",
+      "digest": "sha256:98eddab50821489a643a29631278997e2a58c53f891344a15887fbee8f6c77f0",
+      "squashfs_sha256": "ad3013594e39fb25522d9f22268126671ad6192185c58b9bdd1a8ad40b048978",
+      "size_bytes": 1048576,
+      "source_ref": "ghcr.io/tinnlab/txresbench-base-py:2.0",
+      "source_digest": "sha256:92df8ffb251019cd000023c7baca03e6f34d8f485a3577a3ba28b4fc8d3eb474",
+      "contract": "2.0"
+    },
+    {
+      "base_id": "base-r",
+      "arch": "amd64",
+      "oci_ref": "ghcr.io/tinnlab/txresbench-env",
+      "tag": "base-r-2.0-amd64-e3a0f05db167",
+      "digest": "sha256:490999eba8f848a6cb615a603f1f00341892c4cc121ab3bf3f24a6c81ad50e33",
+      "squashfs_sha256": "e3a0f05db167e6d5bbad702897d5abe2a6ee4c72dac3d232684ccfa7ac8788a0",
+      "size_bytes": 1048576,
+      "source_ref": "ghcr.io/tinnlab/txresbench-base-r:2.0",
+      "source_digest": "sha256:a1d8341e00728e0527a9ea359c986f9c2ee99263d3f88809d29dd522181c60e8",
+      "contract": "2.0"
+    }
+  ],
+  "envs": [
+    {
+      "env_id": "fx-asm-methylation-panel",
+      "method_id": "fx-asm-methylation-panel",
+      "method_version": "1.0.0",
+      "language": "Python",
+      "arch": "amd64",
+      "oci_ref": "ghcr.io/tinnlab/txr-method-env-layers",
+      "tag": "fx-asm-methylation-panel-1.0.0-amd64-9236c5f70fa9",
+      "digest": "sha256:169315934fb766114d8e5d0a98858ed0a3c1b6ffd480d24286fa92f4ecd1fb08",
+      "layer_sha256": "9236c5f70fa98e945c684359ef4d5fdfab933f380f8f013c38b66352e12c4ace",
+      "size_bytes": 4096,
+      "base_ref": "ghcr.io/tinnlab/txresbench-base-py:2.0",
+      "base_digest": "sha256:92df8ffb251019cd000023c7baca03e6f34d8f485a3577a3ba28b4fc8d3eb474",
+      "contract": "2.0",
+      "licence": "MIT (fixture)",
+      "wrapper_code_sha256": "82aa6c9a8926277ae2900c2dc3cb1816750a93c2b9db0d8a09db35ae97373566",
+      "layer_schema": 1,
+      "source_revision": "73b99701deb2",
+      "source_tree": "ae2d64e240024b47df766ab0de281d1fa99b147a",
+      "generator_version": "0.6.0"
+    },
+    {
+      "env_id": "fx-baseline-cox",
+      "method_id": "fx-baseline-cox",
+      "method_version": "1.2.0",
+      "language": "R",
+      "arch": "amd64",
+      "oci_ref": "ghcr.io/tinnlab/txr-method-env-layers",
+      "tag": "fx-baseline-cox-1.2.0-amd64-d7415c94cd97",
+      "digest": "sha256:9defd6e528dc5907912a98e488a0c3a0f9ad400852d037f85a4d274e998cc1e9",
+      "layer_sha256": "d7415c94cd97b2e3bc2e0b98f3d84088bfa790901bc8e95b502dd4ba524c05fb",
+      "size_bytes": 4096,
+      "base_ref": "ghcr.io/tinnlab/txresbench-base-r:2.0",
+      "base_digest": "sha256:a1d8341e00728e0527a9ea359c986f9c2ee99263d3f88809d29dd522181c60e8",
+      "contract": "2.0",
+      "licence": "MIT (fixture)",
+      "wrapper_code_sha256": "21872274459368f3d53605b1b526ff2fb19f05257952c13cc391add68aa03951",
+      "layer_schema": 1,
+      "source_revision": "653f484b11a8",
+      "source_tree": "7d92961f35da375cd0772bbd46c63da26e2292ef",
+      "generator_version": "0.6.0"
+    }
+  ]
+}

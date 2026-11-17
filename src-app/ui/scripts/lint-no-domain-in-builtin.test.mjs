@@ -1388,7 +1388,9 @@ test('[TEST-43][ITEM-30] the server scan set reaches every `server/src/modules/*
   //   DEMO-MODE ITEM-1 (its DRIFT-1): +1 (`demo` — the mode switch, the route-policy table
   //   and the anonymous-session rows) = 17, again in lockstep with the Rust twin's
   //   EXPECT_MODULES 16 -> 17.
-  assert.equal(modules.length, 17, 'the module count is a POSITIVE expectation: a new module must be consciously admitted, and a deleted one consciously retired')
+  //   METHOD LIST (PR 4a): +1 (`method_list` — the signed method list's trusted keys,
+  //   signature check and parse) = 18, in lockstep with the Rust twin's EXPECT_MODULES 17 -> 18.
+  assert.equal(modules.length, 18, 'the module count is a POSITIVE expectation: a new module must be consciously admitted, and a deleted one consciously retired')
   const covered = new Set(
     scanned
       .map(p => path.relative(serverRoot, p).split(path.sep)[0])

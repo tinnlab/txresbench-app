@@ -20,6 +20,14 @@ Usage:
                           scripts/method-catalogue/fixtures/expected-catalogue.json)
         --selftest        run the generator's own invariant checks against the fixture registry
                           (TEST-MC-15/TEST-MC-16) and exit 0/1
+        --only ID --previous CATALOGUE --methods-dir METHODS [--images FILE] [--revision COMMIT]
+                          one-method mode (the method list's catalogue in the methods repository,
+                          method-list/catalogue.json): rebuild or add one row, reading method.json
+                          and gates/<id>.json from the methods repository at the image entries'
+                          source_revision (the newest, when the arches were built at several
+                          commits of one method folder); every other row is carried byte for byte, missing
+                          vocabulary markers are added, n_methods is recounted; writes --previous
+                          in place unless --out is given
         --propose-groups  write `marker-groups.proposed.tsv` with the auto-derived
                           (system,id) -> group/unit rows for the current registry (curation aid;
                           the committed marker-groups.tsv stays hand-confirmed, OWNER-3)
@@ -732,21 +740,115 @@ def _bool_of(v):
     return str(v).strip().lower() in ("true", "1", "yes")
 
 
-def build_catalogue(registry, marker_groups_tsv, model_warnings_tsv):
+def load_inputs(registry, marker_groups_tsv, model_warnings_tsv):
+    """Every benchmark-tree input except method.json and the gates' pass/digest selection
+    (the full build reads those from the tree; the one-method mode reads method.json and the
+    gate from the methods repository at the method's own commit)."""
     registry.check()
-    manifest = load_manifest(registry.manifest)
-    gates = load_gates(registry.gates_dir)
-    mindraws = load_mindraws(registry.mindraws_dir)
     names, map_rows = load_catalog_markers(registry.catalog_dir)
     tsv = load_tsv_rows(marker_groups_tsv)
-    warnings = {r["method_id"]: r["embeds_training_data"] for r in load_warnings(model_warnings_tsv)}
-    group_map = {(r["system"], r["id"]): r for r in tsv}
+    return {
+        "manifest": load_manifest(registry.manifest),
+        "gates": load_gates(registry.gates_dir),
+        "mindraws": load_mindraws(registry.mindraws_dir),
+        "names": names,
+        "map_rows": map_rows,
+        "warnings": {r["method_id"]: r["embeds_training_data"] for r in load_warnings(model_warnings_tsv)},
+        "group_map": {(r["system"], r["id"]): r for r in tsv},
+        "timings": load_timings(registry.runs_csv),
+        "paper_titles": (load_paper_titles(registry.literature_md_dir)
+                         if registry.literature_md_dir is not None else {}),
+    }
 
-    timings = load_timings(registry.runs_csv)
+
+def required_keys(mj):
+    """The (system, id) match keys of a method's required markers, with the manifest's own id
+    casing (the match key is case-folded, the shipped id is not)."""
+    out = []
+    for m in (mj.get("required_markers") or {}).get("markers") or []:
+        if m.get("id"):
+            rid = str(m.get("id") or "").strip()
+            out.append(((str(m.get("id_system") or "other").lower(), rid.lower()), rid))
+    return out
+
+
+def method_row(mid, mj, gate, inputs, perf, warnings_out):
+    """One catalogue row. `build_vocabulary` must have run first (the marker-group fallback
+    reads its alias map)."""
+    row = inputs["manifest"].get(mid, {})
+    md = inputs["mindraws"].get(mid, {})
+    group_map = inputs["group_map"]
+    group = (row.get("group") or mj.get("group") or "other")
+    if group not in GROUP_LABELS:
+        warnings_out.append(f"{mid}: unknown group {group!r} — label falls back to the group id")
+    language = str(mj.get("language") or "other")
+    kind, count = _marker_kind(mj.get("markers", "any"), mj.get("required_markers"))
+    rm = mj.get("required_markers") or {}
+    rm_markers = [m for m in rm.get("markers") or [] if m.get("id")]
+    req_norm = {
+        "markers": [{"name": str(m.get("name") or ""), "id_system": str(m.get("id_system") or "other"),
+                     "id": str(m.get("id") or "").strip()} for m in rm_markers],
+        "match": rm.get("match") or "all",
+        "min_fraction": float(rm.get("min_fraction") or 0.0),
+        "list_source": str(rm.get("list_source") or ""),
+    }
+    required_keyed = [(str(m.get("id_system") or "other").lower(), str(m.get("id") or "").strip().lower())
+                      for m in rm_markers]
+    needs_detection = _needs_detection_call(rm_markers)
+    groups_required = _marker_groups_required(mj, md, required_keyed, group_map)
+    min_draws = md.get("technical_min_draws")
+    if not isinstance(min_draws, int):
+        min_draws = int(mj.get("min_draws") or 1)
+    return {
+        "id": mj["id"],
+        "version": str(mj.get("version") or ""),
+        "group": group,
+        "group_label": GROUP_LABELS.get(group, group),
+        "title": derive_title(mid, mj.get("description") or ""),
+        "summary": derive_summary(mj.get("description") or ""),
+        "paper_title": derive_paper_title(row.get("paper_doi"), mj.get("references"),
+                                          inputs["paper_titles"]),
+        "journal": row.get("journal") or "",
+        "year": _int_or(row.get("year"), 0),
+        "citations": _int_or(row.get("citations_all_papers"), 0),
+        "language": language,
+        "paper_doi": row.get("paper_doi") or "",
+        "spec_status": str(row.get("spec_status") or "draft"),
+        "frozen_model": _bool_of(row.get("frozen_model")),
+        "container": _bool_of(row.get("container")),
+        "runnable": True,
+        "gate": {"pass": bool(gate.get("pass")),
+                 "report_name": Path(str(gate.get("report") or "")).name},
+        "env": {"image": f"{REGISTRY_PREFIX}/txresbench-{mid}:{mj.get('version')}",
+                "digest": str(gate.get("image_digest") or ""), "contract": CONTRACT},
+        "markers": {"kind": kind, "count": count},
+        "covariates": str(mj.get("covariates") or "none"),
+        "min_draws": min_draws,
+        "needs_baseline": md.get("needs_baseline") if isinstance(md.get("needs_baseline"), bool) else False,
+        "uses_history": str(mj.get("uses_history") or "landmark"),
+        "fitted": bool(mj.get("fitted")),
+        "saves_model": bool(mj.get("saves_model")),
+        "own_outputs": [str(x) for x in (mj.get("own_outputs") or [])],
+        "tasks": _task_list(row.get("tasks")),
+        "required_markers": req_norm if rm_markers else None,
+        "needs_detection_call": needs_detection,
+        "marker_groups_required": groups_required,
+        "description": str(mj.get("description") or ""),
+        "software": (mj.get("software") or {"language": "", "packages": {}}),
+        "licence": str(mj.get("licence") or ""),
+        "references": [str(x) for x in (mj.get("references") or [])],
+        "params": (mj.get("params") or {}),
+        "timing": _timing_for(mid, inputs["timings"], language),
+        "performance": _performance_for(mid, perf),
+        "embeds_training_data": bool(inputs["warnings"].get(mid, False)),
+    }
+
+
+def build_catalogue(registry, marker_groups_tsv, model_warnings_tsv):
+    inputs = load_inputs(registry, marker_groups_tsv, model_warnings_tsv)
+    gates = inputs["gates"]
     run_ids = sorted(m for m, g in gates.items() if g.get("pass") and g.get("image_digest"))
     perf = load_performance(registry.scores_csv, set(run_ids))
-    paper_titles = (load_paper_titles(registry.literature_md_dir)
-                    if registry.literature_md_dir is not None else {})
 
     # pre-pass: collect required (system, id) pairs -> vocabulary; keep the manifest's original
     # id casing for display (the match key is case-folded, the shipped id is not)
@@ -758,14 +860,12 @@ def build_catalogue(registry, marker_groups_tsv, model_warnings_tsv):
         if mj is None:
             continue
         pre[mid] = mj
-        for m in (mj.get("required_markers") or {}).get("markers") or []:
-            if m.get("id"):
-                rid = str(m.get("id") or "").strip()
-                key = (str(m.get("id_system") or "other").lower(), rid.lower())
-                used_required[key] += 1
-                required_case.setdefault(key, rid)
+        for key, rid in required_keys(mj):
+            used_required[key] += 1
+            required_case.setdefault(key, rid)
 
-    markers = build_vocabulary(used_required, required_case, names, map_rows, group_map)
+    markers = build_vocabulary(used_required, required_case, inputs["names"], inputs["map_rows"],
+                               inputs["group_map"])
 
     methods = []
     warnings_out = []
@@ -774,72 +874,7 @@ def build_catalogue(registry, marker_groups_tsv, model_warnings_tsv):
         if mj is None:
             warnings_out.append(f"{mid}: no method.json — skipped")
             continue
-        row = manifest.get(mid, {})
-        md = mindraws.get(mid, {})
-        gate = gates[mid]
-        group = (row.get("group") or mj.get("group") or "other")
-        if group not in GROUP_LABELS:
-            warnings_out.append(f"{mid}: unknown group {group!r} — label falls back to the group id")
-        language = str(mj.get("language") or "other")
-        kind, count = _marker_kind(mj.get("markers", "any"), mj.get("required_markers"))
-        rm = mj.get("required_markers") or {}
-        rm_markers = [m for m in rm.get("markers") or [] if m.get("id")]
-        req_norm = {
-            "markers": [{"name": str(m.get("name") or ""), "id_system": str(m.get("id_system") or "other"),
-                         "id": str(m.get("id") or "").strip()} for m in rm_markers],
-            "match": rm.get("match") or "all",
-            "min_fraction": float(rm.get("min_fraction") or 0.0),
-            "list_source": str(rm.get("list_source") or ""),
-        }
-        required_keyed = [(str(m.get("id_system") or "other").lower(), str(m.get("id") or "").strip().lower())
-                          for m in rm_markers]
-        needs_detection = _needs_detection_call(rm_markers)
-        groups_required = _marker_groups_required(mj, md, required_keyed, group_map)
-        min_draws = md.get("technical_min_draws")
-        if not isinstance(min_draws, int):
-            min_draws = int(mj.get("min_draws") or 1)
-        methods.append({
-            "id": mj["id"],
-            "version": str(mj.get("version") or ""),
-            "group": group,
-            "group_label": GROUP_LABELS.get(group, group),
-            "title": derive_title(mid, mj.get("description") or ""),
-            "summary": derive_summary(mj.get("description") or ""),
-            "paper_title": derive_paper_title(row.get("paper_doi"), mj.get("references"), paper_titles),
-            "journal": row.get("journal") or "",
-            "year": _int_or(row.get("year"), 0),
-            "citations": _int_or(row.get("citations_all_papers"), 0),
-            "language": language,
-            "paper_doi": row.get("paper_doi") or "",
-            "spec_status": str(row.get("spec_status") or "draft"),
-            "frozen_model": _bool_of(row.get("frozen_model")),
-            "container": _bool_of(row.get("container")),
-            "runnable": True,
-            "gate": {"pass": bool(gate.get("pass")),
-                     "report_name": Path(str(gate.get("report") or "")).name},
-            "env": {"image": f"{REGISTRY_PREFIX}/txresbench-{mid}:{mj.get('version')}",
-                    "digest": str(gate.get("image_digest") or ""), "contract": CONTRACT},
-            "markers": {"kind": kind, "count": count},
-            "covariates": str(mj.get("covariates") or "none"),
-            "min_draws": min_draws,
-            "needs_baseline": md.get("needs_baseline") if isinstance(md.get("needs_baseline"), bool) else False,
-            "uses_history": str(mj.get("uses_history") or "landmark"),
-            "fitted": bool(mj.get("fitted")),
-            "saves_model": bool(mj.get("saves_model")),
-            "own_outputs": [str(x) for x in (mj.get("own_outputs") or [])],
-            "tasks": _task_list(row.get("tasks")),
-            "required_markers": req_norm if rm_markers else None,
-            "needs_detection_call": needs_detection,
-            "marker_groups_required": groups_required,
-            "description": str(mj.get("description") or ""),
-            "software": (mj.get("software") or {"language": "", "packages": {}}),
-            "licence": str(mj.get("licence") or ""),
-            "references": [str(x) for x in (mj.get("references") or [])],
-            "params": (mj.get("params") or {}),
-            "timing": _timing_for(mid, timings, language),
-            "performance": _performance_for(mid, perf),
-            "embeds_training_data": bool(warnings.get(mid, False)),
-        })
+        methods.append(method_row(mid, mj, gates[mid], inputs, perf, warnings_out))
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -848,6 +883,146 @@ def build_catalogue(registry, marker_groups_tsv, model_warnings_tsv):
         "markers": markers,
         "groups": [{"id": gid, "display_name": label} for gid, label in BOARD_GROUPS],
     }, warnings_out
+
+
+# ---- one-method mode (`--only <id> --previous <catalogue> --methods-dir <methods>`) ----
+# The method list's catalogue lives in the methods repository (method-list/catalogue.json) and
+# changes one method at a time: one row is rebuilt, every other row is carried byte for byte (a
+# full regeneration would also move every other method's timings and vocabulary with the live
+# benchmark tree). The rebuilt row reads method.json and gates/<id>.json from the methods
+# repository at the method's own commit (the image entry's `source_revision`), never from a
+# checkout; the other inputs (registry facts, draws, timings, results, vocabulary) still come
+# from the benchmark tree.
+class OnlyModeError(Exception):
+    pass
+
+
+def _git(methods_dir, *args):
+    try:
+        return subprocess.run(["git", "-C", str(methods_dir), *args], capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise OnlyModeError(f"ONLY_GIT: git failed in {methods_dir}: {e}") from e
+
+
+def _git_json_at(methods_dir, commit, path):
+    p = _git(methods_dir, "cat-file", "blob", f"{commit}:{path}")
+    if p.returncode != 0:
+        return None
+    try:
+        return json.loads(p.stdout)
+    except ValueError as e:
+        raise OnlyModeError(f"ONLY_BAD_JSON: {path} at {commit[:12]} is not valid JSON: {e}") from e
+
+
+def _commit_of(methods_dir, rev):
+    p = _git(methods_dir, "rev-parse", "--verify", "--quiet", rev + "^{commit}")
+    commit = p.stdout.decode().strip() if p.returncode == 0 else ""
+    if not re.match(r"^[0-9a-f]{40}$", commit):
+        raise OnlyModeError(f"ONLY_COMMIT_UNKNOWN: commit {rev} is not in the methods repository "
+                            f"{methods_dir} (fetch it)")
+    return commit
+
+
+def only_commit(mid, images, methods_dir, revision=None):
+    """The methods commit a row is rebuilt at (full id).
+
+    - `--revision`: that commit; when the method has image entries it must be one of their
+      `source_revision`s (the row's facts are those its images were built from).
+    - one `source_revision` among the method's entries: that commit.
+    - several (each arch built on its own machine, at its own HEAD) that hold ONE method
+      folder (`source_tree`): the newest of them (the others are its ancestors), so the gate
+      file is the latest; commits not on one line, or different trees, need `--revision`.
+    - no entry: `--revision` is required."""
+    entries = [e for e in (images or {}).get("envs") or [] if e.get("method_id") == mid]
+    revs = sorted({str(e.get("source_revision") or "") for e in entries})
+    trees = sorted({str(e.get("source_tree") or "") for e in entries})
+    if revision:
+        commit = _commit_of(methods_dir, revision)
+        if revs and commit[:12] not in revs:
+            raise OnlyModeError(f"ONLY_REVISION_CONFLICT: {mid}'s image entries were built at "
+                                f"{', '.join(revs)}, not at {commit[:12]}: --revision names one of "
+                                "them (the row's facts are those its images were built from)")
+        return commit
+    if not revs:
+        raise OnlyModeError(f"ONLY_NO_IMAGE_ENTRY: {mid} has no image entry to take its commit "
+                            "from; pass --revision <methods commit>")
+    if len(revs) == 1:
+        return _commit_of(methods_dir, revs[0])
+    if len(trees) != 1 or not trees[0]:
+        raise OnlyModeError(f"ONLY_REVISION_AMBIGUOUS: {mid}'s image entries were built from "
+                            f"different method folders (commits {', '.join(revs)}); pass "
+                            "--revision <one of them>")
+    commits = [_commit_of(methods_dir, r) for r in revs]
+    for c in commits:
+        if all(o == c or _git(methods_dir, "merge-base", "--is-ancestor", o, c).returncode == 0
+               for o in commits):
+            return c
+    raise OnlyModeError(f"ONLY_REVISION_AMBIGUOUS: {mid}'s image entries were built at "
+                        f"{', '.join(revs)}, which are not on one line; pass --revision "
+                        "<one of them>")
+
+
+def build_only(mid, previous, images, methods_dir, registry, marker_groups_tsv, model_warnings_tsv,
+               revision=None):
+    """`previous` with the row of `mid` rebuilt (or added) at its own commit, every other row
+    carried as it is, vocabulary markers the row needs and the previous catalogue lacks added,
+    and every marker's `n_methods` recounted over the rows. Returns (doc, warnings, commit)."""
+    commit = only_commit(mid, images, methods_dir, revision)
+    mj = _git_json_at(methods_dir, commit, f"methods/{mid}/method.json")
+    if not isinstance(mj, dict):
+        raise OnlyModeError(f"ONLY_METHOD_NOT_IN_COMMIT: methods/{mid}/method.json is not in "
+                            f"commit {commit[:12]}")
+    if mj.get("id") != mid:
+        raise OnlyModeError(f"ONLY_METHOD_ID: methods/{mid}/method.json at {commit[:12]} has id "
+                            f"{mj.get('id')!r}")
+    gate = _git_json_at(methods_dir, commit, f"gates/{mid}.json")
+    if not (isinstance(gate, dict) and gate.get("pass") is True and gate.get("image_digest")):
+        raise OnlyModeError(f"ONLY_NOT_GATED: gates/{mid}.json at {commit[:12]} is missing or "
+                            "does not pass with an image digest (only runnable methods get a row)")
+    if not isinstance(previous, dict) or previous.get("schema_version") != SCHEMA_VERSION:
+        raise OnlyModeError(f"ONLY_PREVIOUS: the previous catalogue is not schema_version {SCHEMA_VERSION}")
+
+    inputs = load_inputs(registry, marker_groups_tsv, model_warnings_tsv)
+    perf = load_performance(registry.scores_csv, {mid})
+    rows = [m for m in previous["methods"] if m["id"] != mid]
+    used_required = collections.Counter()
+    required_case = {}
+    for m in rows:
+        for r in (m.get("required_markers") or {}).get("markers") or []:
+            key = (str(r.get("id_system") or "other").lower(), str(r.get("id") or "").lower())
+            used_required[key] += 1
+            required_case.setdefault(key, str(r.get("id") or ""))
+    wanted = []
+    for key, rid in required_keys(mj):
+        used_required[key] += 1
+        required_case.setdefault(key, rid)
+        wanted.append(key)
+    vocab = build_vocabulary(used_required, required_case, inputs["names"], inputs["map_rows"],
+                             inputs["group_map"])
+    warnings_out = []
+    row = sanitize_value(method_row(mid, mj, gate, inputs, perf, warnings_out))
+
+    def mkey(v):
+        return (v["system"].lower(), v["id"].lower())
+
+    markers = [dict(v) for v in previous["markers"]]
+    have = {mkey(v) for v in markers}
+    for v in vocab:
+        if mkey(v) in wanted and mkey(v) not in have:
+            markers.append(sanitize_value(v))
+            have.add(mkey(v))
+    markers.sort(key=mkey)
+    methods = sorted(rows + [row], key=lambda m: m["id"])
+    counts = collections.Counter()
+    for m in methods:
+        for r in (m.get("required_markers") or {}).get("markers") or []:
+            counts[(str(r.get("id_system") or "other").lower(), str(r.get("id") or "").lower())] += 1
+    for v in markers:
+        v["n_methods"] = counts.get(mkey(v), 0)
+    doc = dict(previous)
+    doc["methods"] = methods
+    doc["markers"] = markers
+    return doc, warnings_out, commit
 
 
 def dump_to_text(doc):
@@ -944,11 +1119,123 @@ def selftest(fixtures_dir):
           hygiene_scan(doc) == [], " ".join(hygiene_scan(doc))[:300])
     check("sanitizer removed the fixture's deliberate 'study' + url",
           "study" not in str(doc) and "example.invalid" not in str(doc))
+    for name, passed, detail in selftest_only_mode(registry, fixtures_dir, dump_to_text(doc)):
+        check(name, passed, detail)
     ok = all(c[1] for c in checks)
     for name, passed, detail in checks:
         print(("PASS" if passed else "FAIL") + f"  {name}" + (f"  [{detail}]" if detail and not passed else ""))
     print(("self-test OK" if ok else "self-test FAILED") + f"  ({len(catalogue['methods'])} fixture methods)")
     return 0 if ok else 1
+
+
+def selftest_only_mode(registry, fixtures_dir, full_text):
+    """The one-method mode against the fixture registry and a throwaway methods repository
+    (git): commit A holds the fixture method.json files and gates, commit B (HEAD) bumps
+    fx-baseline-cox to 9.9.9. Yields (name, passed, detail)."""
+    import copy
+    import tempfile
+
+    expected = json.loads(full_text)
+    tsv, warn = SCRIPT_DIR / "marker-groups.tsv", SCRIPT_DIR / "model-warnings.tsv"
+    with tempfile.TemporaryDirectory(prefix="gen-catalogue-only-") as tmp:
+        repo = Path(tmp) / "methods"
+        git = ["git", "-C", str(repo), "-c", "user.name=fixture", "-c",
+               "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"]
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True, capture_output=True)
+        for mid in ("fx-baseline-cox", "fx-asm-methylation-panel"):
+            (repo / "methods" / mid).mkdir(parents=True)
+            (repo / "methods" / mid / "method.json").write_bytes(
+                (fixtures_dir / "methods" / mid / "method.json").read_bytes())
+            (repo / "gates").mkdir(exist_ok=True)
+            (repo / "gates" / f"{mid}.json").write_bytes((fixtures_dir / "gates" / f"{mid}.json").read_bytes())
+        subprocess.run(git + ["add", "-A"], check=True, capture_output=True)
+        subprocess.run(git + ["commit", "-q", "-m", "A"], check=True, capture_output=True)
+        rev_a = subprocess.run(git + ["rev-parse", "HEAD"], check=True, capture_output=True,
+                               text=True).stdout.strip()
+        # C: a later commit that leaves the method folders as they are (another arch is often
+        # built there, on another machine).
+        (repo / "README").write_text("another file\n")
+        subprocess.run(git + ["add", "-A"], check=True, capture_output=True)
+        subprocess.run(git + ["commit", "-q", "-m", "C"], check=True, capture_output=True)
+        rev_c = subprocess.run(git + ["rev-parse", "HEAD"], check=True, capture_output=True,
+                               text=True).stdout.strip()
+        bumped = json.loads((repo / "methods" / "fx-baseline-cox" / "method.json").read_text())
+        bumped["version"] = "9.9.9"
+        (repo / "methods" / "fx-baseline-cox" / "method.json").write_text(json.dumps(bumped, indent=1))
+        subprocess.run(git + ["commit", "-q", "-am", "B"], check=True, capture_output=True)
+        rev_b = subprocess.run(git + ["rev-parse", "HEAD"], check=True, capture_output=True,
+                               text=True).stdout.strip()
+
+        def images_at(rev, *mids):
+            return {"envs": [{"method_id": m, "source_revision": rev[:12]} for m in mids]}
+
+        def run(mid, previous, images, revision=None):
+            try:
+                doc, _w, _c = build_only(mid, previous, images, repo, registry, tsv, warn, revision)
+                return doc, ""
+            except OnlyModeError as e:
+                return None, str(e)
+
+        # 1. a stale row is rebuilt; every other row (and the whole file) is carried byte for byte
+        previous = copy.deepcopy(expected)
+        stale = next(m for m in previous["methods"] if m["id"] == "fx-baseline-cox")
+        stale["description"] = "An older description of the fixture method."
+        doc, err = run("fx-baseline-cox", previous, images_at(rev_a, "fx-baseline-cox"))
+        others_same = doc is not None and all(
+            json.dumps(n, indent=1, sort_keys=True) == json.dumps(o, indent=1, sort_keys=True)
+            for n, o in zip(doc["methods"], previous["methods"]) if o["id"] != "fx-baseline-cox")
+        yield ("only_mode_carries_other_rows_byte_identical",
+               doc is not None and others_same and dump_to_text(doc) == full_text,
+               err or "the rebuilt file differs from the full generation")
+
+        # 2. method.json is read at the image entry's commit, never at the checkout's HEAD
+        doc_a, err_a = run("fx-baseline-cox", previous, images_at(rev_a, "fx-baseline-cox"))
+        doc_b, err_b = run("fx-baseline-cox", previous, images_at(rev_b, "fx-baseline-cox"))
+        ver = lambda d: d and next(m["version"] for m in d["methods"] if m["id"] == "fx-baseline-cox")
+        _none, err_none = run("fx-baseline-cox", previous, {"envs": []})
+        _conflict, err_conflict = run("fx-baseline-cox", previous,
+                                      images_at(rev_a, "fx-baseline-cox"), revision=rev_b)
+        yield ("only_mode_reads_method_json_at_source_revision",
+               ver(doc_a) == "1.2.0" and ver(doc_b) == "9.9.9"
+               and err_none.startswith("ONLY_NO_IMAGE_ENTRY")
+               and err_conflict.startswith("ONLY_REVISION_CONFLICT"),
+               f"{ver(doc_a)!r} {ver(doc_b)!r} {err_a or err_b} | {err_none} | {err_conflict}")
+
+        # 4. two arches built at two commits that hold one method tree: the row is read at the
+        # newer one; trees that differ need --revision, which must name one of the commits
+        def tree_at(rev, mid):
+            return subprocess.run(git + ["rev-parse", f"{rev}:methods/{mid}"], check=True,
+                                  capture_output=True, text=True).stdout.strip()
+
+        def two_arches(rev1, rev2, mid="fx-baseline-cox"):
+            return {"envs": [{"method_id": mid, "arch": "amd64", "source_revision": rev1[:12],
+                              "source_tree": tree_at(rev1, mid)},
+                             {"method_id": mid, "arch": "arm64", "source_revision": rev2[:12],
+                              "source_tree": tree_at(rev2, mid)}]}
+
+        doc_ac, err_ac = run("fx-baseline-cox", previous, two_arches(rev_a, rev_c))
+        _ab, err_ab = run("fx-baseline-cox", previous, two_arches(rev_a, rev_b))
+        doc_ab_a, err_ab_a = run("fx-baseline-cox", previous, two_arches(rev_a, rev_b), revision=rev_a)
+        _ac_b, err_ac_b = run("fx-baseline-cox", previous, two_arches(rev_a, rev_c), revision=rev_b)
+        yield ("only_mode_accepts_arches_built_at_two_commits_of_one_tree",
+               doc_ac is not None and dump_to_text(doc_ac) == full_text
+               and err_ab.startswith("ONLY_REVISION_AMBIGUOUS")
+               and ver(doc_ab_a) == "1.2.0"
+               and err_ac_b.startswith("ONLY_REVISION_CONFLICT"),
+               f"{err_ac} | {err_ab} | {err_ab_a} | {err_ac_b}")
+
+        # 3. adding a row back: its missing vocabulary marker is added, n_methods recounted
+        previous = copy.deepcopy(expected)
+        previous["methods"] = [m for m in previous["methods"] if m["id"] != "fx-asm-methylation-panel"]
+        previous["markers"] = [v for v in previous["markers"] if v["id"] != "GRIA4"]
+        for v in previous["markers"]:
+            v["n_methods"] = 7
+        doc, err = run("fx-asm-methylation-panel", previous, images_at(rev_a, "fx-asm-methylation-panel"))
+        counts = doc and {v["id"]: v["n_methods"] for v in doc["markers"]}
+        yield ("only_mode_recounts_n_methods",
+               doc is not None and dump_to_text(doc) == full_text,
+               err or f"n_methods {counts}")
 
 
 def _normalise(doc):
@@ -987,10 +1274,43 @@ def backfill_human_names(target, root):
     return 0
 
 
+def main_only(a):
+    """`--only <id> --previous <catalogue> --methods-dir <methods>`: see build_only."""
+    if not (a.previous and a.methods_dir):
+        print("ONLY_USAGE: --only needs --previous <catalogue> and --methods-dir <methods repository>",
+              file=sys.stderr)
+        return 2
+    if a.check or a.selftest or a.human_names or a.propose_groups:
+        print("ONLY_USAGE: --only is a separate run", file=sys.stderr)
+        return 2
+    previous_path = Path(a.previous)
+    images_path = Path(a.images) if a.images else previous_path.with_name("method-env-images.json")
+    try:
+        previous = json.loads(previous_path.read_text(encoding="utf-8"))
+        images = json.loads(images_path.read_text(encoding="utf-8")) if images_path.exists() else {}
+        registry = Registry(SCRIPT_DIR / "fixtures" if a.fixtures else Path(a.root), is_fixture=a.fixtures)
+        doc, warnings_out, commit = build_only(a.only, previous, images, Path(a.methods_dir), registry,
+                                               SCRIPT_DIR / "marker-groups.tsv",
+                                               SCRIPT_DIR / "model-warnings.tsv", a.revision)
+    except (OnlyModeError, OSError, ValueError) as e:
+        print(f"gen_method_catalogue --only {a.only}: {e}", file=sys.stderr)
+        return 1
+    for w in warnings_out:
+        print(f"warning: {w}")
+    out = Path(a.out) if a.out else previous_path
+    out.write_text(dump_to_text(doc), encoding="utf-8")
+    row = next(m for m in doc["methods"] if m["id"] == a.only)
+    print(f"wrote {out}: row {a.only} {row['version']} rebuilt at {commit[:12]}, "
+          f"{len(doc['methods'])} methods, {len(doc['markers'])} markers")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Generate the TxResBench method catalogue (data/method-catalogue/catalogue.json)")
-    ap.add_argument("--out", default=str(DEFAULT_CATALOGUE))
+    ap.add_argument("--out", default=None,
+                    help="the file to write (default data/method-catalogue/catalogue.json; with "
+                         "--only, the --previous file)")
     ap.add_argument("--fixtures", action="store_true", help="use the synthetic fixture registry")
     ap.add_argument("--check", action="store_true", help="generate and byte-compare with the target file")
     ap.add_argument("--selftest", action="store_true", help="run the generator invariants (TEST-MC-15/16)")
@@ -1000,7 +1320,28 @@ def main(argv=None):
                          "without a full regeneration (the live-tree regen is the owner's runbook step)")
     ap.add_argument("--root", default=os.environ.get("SIGTRANS_ROOT", str(DEFAULT_SIGTRANS_ROOT)),
                     help="benchmark tree root (default SIGTRANS_ROOT or /data/share/pbya/sigtrans)")
+    ap.add_argument("--only", metavar="ID",
+                    help="one-method mode: rebuild (or add) this method's row of --previous, carry "
+                         "every other row byte for byte, add the vocabulary markers it needs and "
+                         "recount n_methods; method.json and the gate are read from --methods-dir at "
+                         "the method's image entries' source_revision")
+    ap.add_argument("--previous", metavar="FILE",
+                    help="with --only: the catalogue to change (the methods repository's "
+                         "method-list/catalogue.json)")
+    ap.add_argument("--methods-dir", metavar="DIR", default=os.environ.get("TXR_METHODS_DIR"),
+                    help="with --only: the methods repository (git)")
+    ap.add_argument("--images", metavar="FILE",
+                    help="with --only: the env images list whose entries name the commit "
+                         "(default: method-env-images.json next to --previous)")
+    ap.add_argument("--revision", metavar="COMMIT",
+                    help="with --only: the methods commit to read (a method without an image entry)")
     a = ap.parse_args(argv)
+
+    if a.only:
+        return main_only(a)
+    if a.previous or a.images or a.revision:
+        ap.error("--previous, --images and --revision go with --only")
+    a.out = a.out or str(DEFAULT_CATALOGUE)
 
     if a.selftest:
         return selftest(SCRIPT_DIR / "fixtures")

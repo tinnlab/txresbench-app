@@ -6641,6 +6641,7 @@ dependencies = [
  "linkme",
  "memchr",
  "mime_guess",
+ "minisign-verify",
  "multer",
  "once_cell",
  "rand 0.9.5",
