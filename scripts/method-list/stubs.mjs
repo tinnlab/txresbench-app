@@ -7,10 +7,17 @@
 //              mode of its --registry-config file, and whether GHCR_TOKEN was in its
 //              environment. <bin>/behavior.json changes what it does (see below).
 //   minisign   -S writes a minisign-SHAPED signature (key id E7620F1842B4E81F, the sha256
-//              of the file and of the trusted comment, no real ed25519); -V checks one. Its
-//              environment is logged to <bin>/minisign.log (it runs under `env -i`, so it
-//              finds its log by its own path, not by a variable).
-//   txresbench `check-method-list` over those signatures: sha256 + comment + sequence.
+//              of the file and of the trusted comment, no real ed25519); -V checks one
+//              against the key id of -P. Its environment is logged to <bin>/minisign.log (it
+//              runs under `env -i`, so it finds its log by its own path, not by a variable).
+//   txresbench `check-method-list` over those signatures: the key id must be in the trusted
+//              set (--keys, else <bin>/trusted-keys.json, the stand-in for the compiled-in
+//              keys), then sha256 + comment + sequence. Logged to <bin>/cli.log.
+//
+// behavior.json (oras): resolveError: [tags] answer resolve with a non-"not found" error;
+// corruptReadback: a pull by digest of a just-pushed artifact serves other list bytes;
+// moveV1OnPush: 'verified' | 'unverified' moves v1 to a list #99 during the push;
+// corruptV1AfterTag; privateUntilPublic.
 //
 // The real minisign and the real verifier are covered by the Rust unit tests over the
 // fixtures signed with the real minisign (scripts/method-list/fixtures/).
@@ -33,17 +40,18 @@ import path from 'node:path';
 const BIN = path.dirname(new URL(import.meta.url).pathname);
 const sha = (b) => crypto.createHash('sha256').update(b).digest();
 const KEY_ID_LE = Buffer.from('E7620F1842B4E81F', 'hex').reverse();
-function makeSig(bytes, trusted, untrusted) {
-  const line2 = Buffer.concat([Buffer.from('ED'), KEY_ID_LE, sha(bytes), Buffer.alloc(32)]).toString('base64');
+function makeSig(bytes, trusted, untrusted, keyIdLe = KEY_ID_LE) {
+  const line2 = Buffer.concat([Buffer.from('ED'), keyIdLe, sha(bytes), Buffer.alloc(32)]).toString('base64');
   const line4 = Buffer.concat([sha(Buffer.from(trusted)), Buffer.alloc(32)]).toString('base64');
   return 'untrusted comment: ' + untrusted + '\n' + line2 + '\ntrusted comment: ' + trusted + '\n' + line4 + '\n';
 }
-function checkSig(bytes, sigText) {
+// trustedIds: little-endian key id buffers (the bytes inside a key and a signature).
+function checkSig(bytes, sigText, trustedIds = [KEY_ID_LE]) {
   const lines = sigText.split('\n');
   if (lines.length < 4) return 'not a signature';
   const raw = Buffer.from(lines[1], 'base64');
   if (raw.length !== 74 || raw.subarray(0, 2).toString() !== 'ED') return 'not a prehashed signature';
-  if (!raw.subarray(2, 10).equals(KEY_ID_LE)) return 'unknown key';
+  if (!trustedIds.some((id) => raw.subarray(2, 10).equals(id))) return 'METHOD_LIST_UNKNOWN_KEY';
   if (!raw.subarray(10, 42).equals(sha(bytes))) return 'METHOD_LIST_BAD_SIGNATURE';
   const comment = lines[2].replace(/^trusted comment: /, '');
   if (!Buffer.from(lines[3], 'base64').subarray(0, 32).equals(sha(Buffer.from(comment)))) return 'METHOD_LIST_BAD_SIGNATURE';
@@ -91,8 +99,15 @@ const anonymous = !configText || configText === '{}';
 if (behavior.privateUntilPublic && anonymous && (sub === 'resolve' || sub === 'pull') && pos[0].includes('txresbench-method-list')) {
   fail('unauthorized: authentication required');
 }
+const pushedFile = path.join(BIN, 'pushed.txt');
+const pushed = () => fs.existsSync(pushedFile) ? fs.readFileSync(pushedFile, 'utf8').split('\n').filter(Boolean) : [];
 if (sub === 'resolve') {
+  if ((behavior.resolveError || []).includes(split(pos[0]).tag)) fail('GET ' + pos[0] + ': unexpected status code 500');
   const d = resolve(pos[0]); if (!d) fail('not found: ' + pos[0]); process.stdout.write(d + '\n');
+} else if (sub === 'repo' && pos[0] === 'tags') {
+  const dir = path.join(repoDir(pos[1]), 'tags');
+  if (!fs.existsSync(dir)) fail('not found: ' + pos[1]);
+  process.stdout.write(fs.readdirSync(dir).sort().join('\n') + '\n');
 } else if (sub === 'pull') {
   const d = resolve(pos[0]); if (!d) fail('not found: ' + pos[0]);
   const dir = path.join(repoDir(split(pos[0]).repo), 'blobs', d.replace(':', '_'), 'files');
@@ -100,6 +115,7 @@ if (sub === 'resolve') {
   for (const f of fs.readdirSync(dir)) {
     let bytes = fs.readFileSync(path.join(dir, f));
     if (behavior.corruptV1AfterTag && split(pos[0]).tag === 'v1' && tagged() && f === 'method-list.json') bytes = Buffer.concat([bytes, Buffer.from(' ')]);
+    if (behavior.corruptReadback && split(pos[0]).digest && pushed().includes(d) && f === 'method-list.json') bytes = Buffer.concat([bytes, Buffer.from(' ')]);
     fs.writeFileSync(path.join(out, f), bytes);
   }
 } else if (sub === 'push') {
@@ -113,10 +129,17 @@ if (sub === 'resolve') {
   fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ artifactType: type, annotations: ann, files: desc }));
   fs.mkdirSync(path.dirname(tagFile(r.repo, r.tag)), { recursive: true });
   fs.writeFileSync(tagFile(r.repo, r.tag), digest);
+  fs.appendFileSync(pushedFile, digest + '\n');
   if (behavior.moveV1OnPush) {
+    // Another maintainer's list #99 lands on v1 meanwhile: signed by the trusted stub key, or
+    // by a key nobody trusts.
     const other = path.join(repoDir(r.repo), 'blobs', 'sha256_' + 'e'.repeat(64));
     fs.mkdirSync(path.join(other, 'files'), { recursive: true });
-    fs.writeFileSync(path.join(other, 'files', 'method-list.json'), JSON.stringify({ sequence: 99 }));
+    const list = Buffer.from(JSON.stringify({ format_version: 1, sequence: 99 }));
+    const keyId = behavior.moveV1OnPush === 'verified' ? KEY_ID_LE : Buffer.alloc(8, 7);
+    fs.writeFileSync(path.join(other, 'files', 'method-list.json'), list);
+    fs.writeFileSync(path.join(other, 'files', 'method-list.json.minisig'),
+      makeSig(list, 'txresbench-method-list format=1 sequence=99', 'other', keyId));
     fs.writeFileSync(tagFile(r.repo, 'v1'), 'sha256:' + 'e'.repeat(64));
   }
   process.stdout.write('Pushed ' + pos[0] + '\nDigest: ' + digest + '\n');
@@ -139,7 +162,8 @@ if (argv.includes('-S')) {
   fs.writeFileSync(opt('-x') || file + '.minisig', makeSig(fs.readFileSync(file), opt('-t'), opt('-c') || 'signature'));
 } else if (argv.includes('-V')) {
   const file = opt('-m');
-  const r = checkSig(fs.readFileSync(file), fs.readFileSync(opt('-x') || file + '.minisig', 'utf8'));
+  const pk = Buffer.from(opt('-P') || '', 'base64');
+  const r = checkSig(fs.readFileSync(file), fs.readFileSync(opt('-x') || file + '.minisig', 'utf8'), [pk.subarray(2, 10)]);
   if (typeof r === 'string') { process.stderr.write('Signature verification failed: ' + r + '\n'); process.exit(1); }
 } else { process.exit(2); }
 `;
@@ -147,14 +171,19 @@ if (argv.includes('-S')) {
 const CLI = String.raw`#!/usr/bin/env node
 ${COMMON}
 const argv = process.argv.slice(2);
-fs.appendFileSync(path.join(BIN, 'cli.log'), JSON.stringify({ argv }) + '\n');
+fs.appendFileSync(path.join(BIN, 'cli.log'), JSON.stringify({ argv, tokenInEnv: 'GHCR_TOKEN' in process.env }) + '\n');
 const opt = (f) => { const i = argv.indexOf(f); return i >= 0 ? argv[i + 1] : null; };
 if (argv[0] !== 'check-method-list') process.exit(2);
 const bytes = fs.readFileSync(opt('--list'));
 let doc;
 try { doc = JSON.parse(bytes); } catch { process.stderr.write('check-method-list: METHOD_LIST_HEADER_INVALID\n'); process.exit(1); }
+// The trusted set: --keys, else the stand-in for the compiled-in keys.
+const keysFile = opt('--keys') || path.join(BIN, 'trusted-keys.json');
+const trusted = fs.existsSync(keysFile)
+  ? JSON.parse(fs.readFileSync(keysFile, 'utf8')).keys.map((k) => Buffer.from(k.public_key, 'base64').subarray(2, 10))
+  : [];
 if (opt('--signature')) {
-  const r = checkSig(bytes, fs.readFileSync(opt('--signature'), 'utf8'));
+  const r = checkSig(bytes, fs.readFileSync(opt('--signature'), 'utf8'), trusted);
   if (typeof r === 'string') { process.stderr.write('check-method-list: ' + r + '\n'); process.exit(1); }
   if (r.comment !== 'txresbench-method-list format=1 sequence=' + doc.sequence) { process.stderr.write('check-method-list: METHOD_LIST_COMMENT_MISMATCH\n'); process.exit(1); }
 } else if (doc.sequence !== 0) { process.stderr.write('check-method-list: METHOD_LIST_UNSIGNED\n'); process.exit(1); }
@@ -219,7 +248,7 @@ export function writeCargoStub(bin, cli) {
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 const argv = process.argv.slice(2);
-fs.appendFileSync(${JSON.stringify(path.join(bin, 'cargo.log'))}, JSON.stringify({ cwd: process.cwd(), argv }) + '\\n');
+fs.appendFileSync(${JSON.stringify(path.join(bin, 'cargo.log'))}, JSON.stringify({ cwd: process.cwd(), argv, tokenInEnv: 'GHCR_TOKEN' in process.env }) + '\\n');
 const r = spawnSync(${JSON.stringify(cli)}, argv.slice(argv.indexOf('--') + 1), { stdio: 'inherit' });
 process.exit(r.status === null ? 1 : r.status);
 `);
@@ -240,10 +269,11 @@ export function writeStubs(bin) {
   return out;
 }
 
-/** A stub signature (the stub minisign's format) of `bytes` with the trusted `comment`. */
-export function stubSignature(bytes, comment) {
+/** A stub signature (the stub minisign's format) of `bytes` with the trusted `comment`, by
+ * the key with id `keyIdHex` (as minisign prints it). */
+export function stubSignature(bytes, comment, keyIdHex = STUB_KEY.key_id) {
   const sha = (b) => crypto.createHash('sha256').update(b).digest();
-  const keyId = Buffer.from(STUB_KEY.key_id, 'hex').reverse();
+  const keyId = Buffer.from(keyIdHex, 'hex').reverse();
   const line2 = Buffer.concat([Buffer.from('ED'), keyId, sha(bytes), Buffer.alloc(32)]).toString('base64');
   const line4 = Buffer.concat([sha(Buffer.from(comment)), Buffer.alloc(32)]).toString('base64');
   return `untrusted comment: stub\n${line2}\ntrusted comment: ${comment}\n${line4}\n`;
