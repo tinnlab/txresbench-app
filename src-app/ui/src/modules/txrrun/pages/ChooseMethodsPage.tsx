@@ -447,10 +447,10 @@ export function ChooseMethodsPage() {
     [inventory, settings.decision_day, settings.covariates],
   )
   const [cardsState, setCards] = useState<TxrMethodCard[]>([])
-  // While the validation is null (a Change files in progress) the picker
-  // frame is unmounted and its last cards are the OLD files' cards: the page
-  // counts nothing then (the Extra-inputs help falls back to its general
-  // line), until the new files' first answer arrives.
+  // While the validation is null (Change files has just changed a file),
+  // the picker frame is unmounted and its last cards are the OLD files'
+  // cards: the page counts nothing then (the Extra-inputs help falls back to
+  // its general line), until the new files' first answer arrives.
   const cards = settingsInventory === null ? NO_CARDS : cardsState
   const estimate = useListEstimate([...selected], {
     patients: inventory?.patients ?? 0,
