@@ -1509,6 +1509,39 @@ describe('step-4 review fixes: the preset action and the re-check line', () => {
     expect(status()).toBe('Checked again: the same 2 methods can run.')
   })
 
+  it('while Change files clears the validation, the Extra-inputs help does not count the old files\' methods', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+    const help = () => screen.getByTestId('txr-run-settings-covariates-help').textContent
+    expect(help()).toBe('Used by 2 of the 2 methods that can run.')
+
+    // A file change in the dialog nulls the validation: the list is pending.
+    await act(async () => {
+      useTxrIntakeStore.setState({ validation: null })
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-list-pending')).toBeTruthy()
+    expect(help()).toBe('Other columns of your file the methods may use.')
+
+    // The new files' validation lands: a FIRST answer again (no re-check
+    // line), and the help counts the new answer.
+    api.eligibility.mockResolvedValueOnce({
+      ...eligibility(),
+      methods: eligibility().methods.map(method =>
+        method.id === 'dynforest' ? { ...method, status: 'cannot_run', reasons: [{ code: 'MIN_DRAWS_UNMET' }] } : method,
+      ),
+    })
+    await act(async () => {
+      useTxrIntakeStore.setState({ validation: validation() })
+      await Promise.resolve()
+    })
+    await settle()
+    expect(help()).toBe('Used by the one method that can run.')
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
+  })
+
   it('no "Checked again" line on arrival when the sticky settings land after the first answer', async () => {
     let releaseConfig: (value: unknown) => void = () => {}
     api.getConfig.mockReturnValueOnce(
