@@ -252,7 +252,9 @@ test('refuses an artifact with other files, and --keys into this checkout', () =
   const r = run(w);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /is not exactly method-list\.json \+ method-list\.json\.minisig/);
-  const here = spawnSync('bash', [SCRIPT, '--keys', KEYS], { encoding: 'utf8' });
+  const env = { ...process.env };
+  delete env.TXR_CLI; // this case is about --keys (the suite may run with TXR_CLI set)
+  const here = spawnSync('bash', [SCRIPT, '--keys', KEYS], { encoding: 'utf8', env });
   assert.equal(here.status, 2);
   assert.match(here.stderr, /never writes into this checkout/);
 });
