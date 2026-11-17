@@ -46,7 +46,7 @@ short-circuiting** — one red leg does not abort the others, so read every exit
 
 It is a **deep tree, not 5 flat commands**: `check-invariants` fans out to 5 sub-legs
 (`justfile:127-133`: test-scope-lists, pub-orphans + controls, check-guards, check-domain) and
-`check-guards` to 4 more (guard-integrity controls + method-env-images + no-format-crates);
+`check-guards` to 6 more (guard-integrity controls + method-env-images + method-list + no-format-crates);
 `ui npm run check` is itself a 14-step chain (`src-app/ui/package.json:11`).
 
 - Backend integration: `just test 4` (positional `THREADS`, default 4; `justfile:22`) · unit: `just test-unit`
@@ -85,7 +85,7 @@ quietly edited (grow `MIN_GUARDS` in the same commit that adds one). Others:
 `check-aggregate.sh` (+ its test), `check-naming.sh`, `check-dead-refs.sh`, `check-network-allowlist.sh`,
 `check-no-format-crates.sh`, `check-no-study-domain-literals.sh` (kept, and currently RED on
 measured prose — see its comment in the justfile), `check-pub-orphans.mjs`,
-`check-test-scope-lists.mjs`, `check-method-env-images.sh` (+ test), and the frontend-suite guards
+`check-test-scope-lists.mjs`, `check-method-env-images.sh` (+ test), `check-method-list.sh` (+ test), and the frontend-suite guards
 under `src-app/ui/scripts/` (`check-e2e-routing.mjs`, `check-rename-mechanical.mjs`,
 `lint-no-domain-in-builtin.mjs`, `guard-floors.test.mjs`, `lint-native-controls.mjs`,
 `lint-secret-input-caps.mjs`, `collect-actions.mjs`, `action-refs-lint.mjs`,
