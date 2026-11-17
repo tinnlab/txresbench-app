@@ -6,7 +6,7 @@
 # ghcr.io/tinnlab/txresbench-method-list:v1 (or :v1-seq-<N> with --sequence N), verify it with
 # the app's own verifier and trusted keys (`txresbench check-method-list`), refuse a sequence
 # below the current built-in copy or a list that drops a row of it (or changes a fact at the
-# same version), then write
+# same version; before the first import, of the app's current two documents), then write
 #   data/method-list/method-list.json + method-list.json.minisig
 # and extract the two nested documents to the paths the app and its tools read today, with
 # each generator's own writer:
@@ -26,7 +26,9 @@
 #   --app-dir DIR                write into another app tree (tests); default: this checkout
 #   --keys FILE                  verify with another trusted-keys file; only with an --app-dir
 #                                that is not this checkout (the seam never writes here)
-#   --cli PATH                   the txresbench binary (or TXR_CLI); default: cargo run here
+#   --cli PATH                   the txresbench binary to verify with; default: `cargo run` in
+#                                this checkout (a TXR_CLI in the environment is refused: name
+#                                the verifier with --cli)
 #
 # Exit: 0 imported (or already current); 1 a refusal; 2 usage or tooling.
 set -euo pipefail
@@ -40,7 +42,7 @@ SEQUENCE=""
 BOOTSTRAP=0
 LOOPBACK=""
 KEYS_FILE=""
-CLI="${TXR_CLI:-}"
+CLI=""
 
 usage() { awk 'NR == 1 { next } /^[^#]/ { exit } { sub(/^# ?/, ""); print }' "$0"; }
 die() { echo "import-method-list: $*" >&2; exit 1; }
@@ -59,11 +61,15 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+if [ -z "$CLI" ] && [ -n "${TXR_CLI:-}" ]; then
+  usage_error "TXR_CLI is set ($TXR_CLI): the verifier is named only with --cli; pass --cli \"\$TXR_CLI\" to use it, or unset TXR_CLI"
+fi
 [ -d "$APP_DIR" ] || usage_error "--app-dir $APP_DIR: no such directory"
 APP_DIR=$(cd "$APP_DIR" && pwd -P)
 if [ -n "$KEYS_FILE" ]; then
   [ "$APP_DIR" != "$(cd "$REPO" && pwd -P)" ] || usage_error "--keys (another trusted-keys file) never writes into this checkout: pass --app-dir <a test tree>"
   [ -f "$KEYS_FILE" ] || usage_error "--keys $KEYS_FILE: no such file"
+  KEYS_FILE="$(cd "$(dirname "$KEYS_FILE")" && pwd -P)/$(basename "$KEYS_FILE")"
 fi
 if [ -n "$SEQUENCE" ]; then
   [[ $SEQUENCE =~ ^[1-9][0-9]{0,5}$ ]] || usage_error "--sequence takes a published sequence number (1-999999)"
@@ -81,13 +87,16 @@ IMAGES="$APP_DIR/src-app/server/data/method-env-images.json"
 ASSEMBLER="$REPO/scripts/assemble-method-list.py"
 mkdir -p "$APP_DIR/data/method-list"
 
+# The verifier: --cli, or this checkout's own build. cargo runs IN the checkout so it reads
+# the repository's .cargo/config.toml (its [env] build settings); every argument is absolute.
 cli() {
   if [ -n "$CLI" ]; then
     "$CLI" "$@"
   else
-    cargo run --quiet --manifest-path "$REPO/src-app/server/Cargo.toml" --bin txresbench -- "$@"
+    (cd "$REPO" && cargo run --quiet --manifest-path "$REPO/src-app/server/Cargo.toml" --bin txresbench -- "$@")
   fi
 }
+echo "import-method-list: verifier: ${CLI:-cargo run (this checkout, $REPO)}"
 cli_keys=()
 [ -z "$KEYS_FILE" ] || cli_keys=(--keys "$KEYS_FILE")
 
@@ -157,6 +166,13 @@ if [ -n "$current_seq" ]; then
   # publisher checks this against the published list, the import against what it replaces.
   python3 "$ASSEMBLER" --successor "$LIST" "$WORK/pull/method-list.json" >/dev/null \
     || die "$ref does not keep the rows and facts of the built-in #$current_seq"
+else
+  # No built-in list yet: what the import replaces is the app's current two documents.
+  python3 "$ASSEMBLER" --bootstrap --catalogue "$CATALOGUE" --images "$IMAGES" \
+    --out "$WORK/old-list.json" >/dev/null 2>"$WORK/current.err" \
+    || { cat "$WORK/current.err" >&2; die "the app's current documents are not a method list's ($CATALOGUE, $IMAGES): nothing to compare the new list with"; }
+  python3 "$ASSEMBLER" --successor "$WORK/old-list.json" "$WORK/pull/method-list.json" >/dev/null \
+    || die "$ref does not keep the rows and facts of the app's current documents"
 fi
 
 # ── write: the list, its signature, the two extracted documents ────────────────

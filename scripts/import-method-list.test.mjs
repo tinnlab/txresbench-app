@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { readLog, seedArtifact, writeStubs, writeVerifyingCli } from './method-list/stubs.mjs';
+import { readLog, seedArtifact, writeCargoStub, writeStubs, writeVerifyingCli } from './method-list/stubs.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(REPO, 'scripts/import-method-list.sh');
@@ -32,8 +32,11 @@ const SIG = fs.readFileSync(path.join(LIST_DIR, 'method-list.json.minisig'));
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'import-method-list-'));
 const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 
-/** A registry holding `files` at :v1 (and at :v1-seq-<n>), and an app tree with older data. */
-function world({ files = { 'method-list.json': LIST, 'method-list.json.minisig': SIG }, builtin = null } = {}) {
+/** A registry holding `files` at :v1 (and at :v1-seq-<n>), and an app tree: its current two
+ * documents (`current`: the fixture's, or with one extra row, or not documents at all) and
+ * optionally a built-in list at sequence `builtin`. */
+function world({ files = { 'method-list.json': LIST, 'method-list.json.minisig': SIG }, builtin = null,
+  current = 'fixture' } = {}) {
   const base = tmp();
   const bin = path.join(base, 'bin');
   writeStubs(bin);
@@ -44,9 +47,24 @@ function world({ files = { 'method-list.json': LIST, 'method-list.json.minisig':
   for (const d of ['data/method-list', 'data/method-catalogue', 'src-app/server/data', 'scripts/method-list/fixtures']) {
     fs.mkdirSync(path.join(app, d), { recursive: true });
   }
-  // The app's current (older) copies.
-  fs.writeFileSync(path.join(app, 'data/method-catalogue/catalogue.json'), '{"old": true}\n');
-  fs.writeFileSync(path.join(app, 'src-app/server/data/method-env-images.json'), '{"old": true}\n');
+  // The app's current copies.
+  const cat = path.join(app, 'data/method-catalogue/catalogue.json');
+  if (current === 'invalid') {
+    fs.writeFileSync(cat, '{"old": true}\n');
+  } else {
+    fs.copyFileSync(path.join(LIST_DIR, 'catalogue.json'), cat);
+  }
+  if (current === 'extra-row') {
+    const py = spawnSync('python3', ['-c', `import copy, json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+row = copy.deepcopy(d['methods'][0])
+row['id'] = 'fx-only-in-the-app'
+d['methods'].append(row)
+open(p, 'w').write(json.dumps(d, indent=1, sort_keys=True, ensure_ascii=False) + '\\n')`, cat], { encoding: 'utf8' });
+    assert.equal(py.status, 0, py.stderr);
+  }
+  fs.copyFileSync(path.join(LIST_DIR, 'method-env-images.json'), path.join(app, 'src-app/server/data/method-env-images.json'));
   fs.copyFileSync(path.join(REPO, 'data/method-list/trusted-keys.json'), path.join(app, 'data/method-list/trusted-keys.json'));
   fs.copyFileSync(path.join(FIXTURES, 'test-key.pub'), path.join(app, 'scripts/method-list/fixtures/test-key.pub'));
   if (builtin !== null) {
@@ -75,7 +93,49 @@ test('refuses_bad_signature', () => {
   assert.match(r.out, /METHOD_LIST_BAD_SIGNATURE/);
   assert.match(r.out, /does not verify with the app's trusted keys: not imported/);
   assert.ok(!fs.existsSync(appFile(w, 'data/method-list/method-list.json')));
-  assert.equal(fs.readFileSync(appFile(w, 'data/method-catalogue/catalogue.json'), 'utf8'), '{"old": true}\n');
+  assert.equal(fs.readFileSync(appFile(w, 'data/method-catalogue/catalogue.json'), 'utf8'),
+    fs.readFileSync(path.join(LIST_DIR, 'catalogue.json'), 'utf8'));
+});
+
+test('without a built-in list, refuses a list that drops a row of the app\'s current documents', () => {
+  const w = world({ current: 'extra-row' });
+  const before = fs.readFileSync(appFile(w, 'data/method-catalogue/catalogue.json'));
+  const r = run(w);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /LIST_ROW_REMOVED: method 'fx-only-in-the-app'/);
+  assert.match(r.out, /does not keep the rows and facts of the app's current documents/);
+  assert.ok(before.equals(fs.readFileSync(appFile(w, 'data/method-catalogue/catalogue.json'))));
+  assert.ok(!fs.existsSync(appFile(w, 'data/method-list/method-list.json')));
+  // Current documents that are not a list's documents are not silently replaced either.
+  const bad = run(world({ current: 'invalid' }));
+  assert.equal(bad.status, 1, bad.out);
+  assert.match(bad.out, /the app's current documents are not a method list's/);
+});
+
+test('a TXR_CLI left in the environment is refused; --cli names the verifier', () => {
+  const w = world();
+  const r = spawnSync('bash', [SCRIPT, '--app-dir', w.app, '--keys', KEYS], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${w.bin}:${process.env.PATH}`, TMPDIR: w.base, TXR_CLI: w.cli },
+  });
+  assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
+  assert.match(r.stderr, /TXR_CLI is set .* pass --cli/);
+  assert.ok(!fs.existsSync(appFile(w, 'data/method-list/method-list.json')));
+});
+
+test('the default verifier is cargo run from this checkout, wherever the import is started', () => {
+  const w = world();
+  writeCargoStub(w.bin, w.cli);
+  const env = { ...process.env, PATH: `${w.bin}:${process.env.PATH}`, TMPDIR: w.base, PYTHONDONTWRITEBYTECODE: '1' };
+  delete env.TXR_CLI;
+  const r = spawnSync('bash', [SCRIPT, '--app-dir', w.app, '--keys', KEYS], { encoding: 'utf8', env, cwd: w.base });
+  assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+  const calls = readLog(w.bin, 'cargo');
+  assert.ok(calls.length >= 1);
+  for (const c of calls) {
+    assert.equal(fs.realpathSync(c.cwd), fs.realpathSync(REPO), 'cargo runs in the app checkout (its .cargo/config.toml)');
+    assert.deepEqual(c.argv.slice(0, 6), ['run', '--quiet', '--manifest-path', path.join(REPO, 'src-app/server/Cargo.toml'), '--bin', 'txresbench']);
+  }
 });
 
 test('refuses_lower_sequence', () => {

@@ -210,6 +210,23 @@ export function writeVerifyingCli(bin) {
   return p;
 }
 
+/** A `cargo` that logs its working dir and arguments to <bin>/cargo.log and runs `cli` with
+ * the arguments after `--` (the scripts' default verifier is `cargo run … -- <args>`). */
+export function writeCargoStub(bin, cli) {
+  fs.mkdirSync(bin, { recursive: true });
+  const p = path.join(bin, 'cargo');
+  fs.writeFileSync(p, `#!/usr/bin/env node
+import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const argv = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(path.join(bin, 'cargo.log'))}, JSON.stringify({ cwd: process.cwd(), argv }) + '\\n');
+const r = spawnSync(${JSON.stringify(cli)}, argv.slice(argv.indexOf('--') + 1), { stdio: 'inherit' });
+process.exit(r.status === null ? 1 : r.status);
+`);
+  fs.chmodSync(p, 0o755);
+  return p;
+}
+
 /** Write the three stubs into `bin` (a fresh dir); returns their paths. */
 export function writeStubs(bin) {
   fs.mkdirSync(bin, { recursive: true });
