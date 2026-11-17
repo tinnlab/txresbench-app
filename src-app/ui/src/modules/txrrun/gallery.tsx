@@ -446,7 +446,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-shell-route-choose-methods',
       title: 'Choose the methods (screen E) inside the shell',
-      note: 'The ITEM-2 route byte: the step/title/summary/settings + the picker toolbar fixed, the method list ONE region (the sections\' sticky headers stick to its top), the run bar pinned in the bottom slot — the page itself never scrolls.',
+      note: 'The route byte (app-shell ITEM-2, step-4 fix): only the step line and the title are fixed; the intro, the files summary, the settings, the presets, the toolbar and the method list scroll in ONE region (the sections\' sticky headers stick to its top), and the run bar is pinned in the bottom slot. The routed area itself never scrolls.',
       path: '/choose-methods',
       initialPath: '/choose-methods',
       component: lazy(() =>

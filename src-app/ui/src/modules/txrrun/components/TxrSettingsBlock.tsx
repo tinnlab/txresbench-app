@@ -22,7 +22,7 @@
  *   default) with the live sentence as its one-line summary; the rows are
  *   the same controls either way (only the chrome changes). The app-shell's
  *   short shell windows (720/768 px) use the same compact form via the
- *   `collapsed` prop (ITEM-2's fixed-top byte).
+ *   `collapsed` prop (less to scroll past on the E page).
  *
  * The block is CONTROLLED and presentational (the ITEM-7 rule): the rows
  * render `value`, every change reports the new full `RunSettings` up, the

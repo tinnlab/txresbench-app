@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
+import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { ApiClient } from '@/api-client'
@@ -62,8 +62,6 @@ import type { TxrMethodCard } from '@/modules/txrlist'
  * live sentence, the compact files summary, the new run bar and the phone
  * layout):
  *
- * - the page is ONE document that scrolls (`PAGE_MAIN` is the only vertical
- *   scroll container — the old nested ~330 px list box is gone);
  * - the list is the picker `TxrMethodPicker` (txrlist), fed by the
  *   catalogue × eligibility adapter (`useMethodRows` — the intake
  *   validation's ONE inventory, DEC-13: this page never re-validates) with
@@ -77,20 +75,22 @@ import type { TxrMethodCard } from '@/modules/txrlist'
  * - the eligibility request reflects the SETTINGS the screen shows (the
  *   decision day + the extra-inputs switch are the verdicts' own inputs),
  *   so a change re-checks with the picker's visible re-check line;
- * - the sticky run bar is ITEM-2's own `TxrRunBar` (the boards' shared
+ * - the run bar is ITEM-2's own `TxrRunBar` (the boards' shared
  *   `TxrListBottomBar` stays for the D/I model screens);
  * - the create path is unchanged: `buildRunRequest` → `Txr.createRun`, the
  *   202 → `runningPath`, the 404/409 resolutions, the one-create-in-flight
  *   guard (see the ITEM-8 notes carried in the git history).
  *
- * app-shell ITEM-2 — the frame byte (the audit's route table): the fixed
- * top holds the step/title, the files summary, the settings card and the
- * picker TOOLBAR (the picker's own `layout` split keeps its state local),
- * the method list is ONE ScrollRegion (the sections' sticky headers stick
- * to ITS top — the audit's "the list is the scroll region with sticky
- * section headers"), the run bar is pinned in the frame's bottom slot, and
- * the page itself never scrolls. The `layout` callback renders the WHOLE
- * PageFrame because the picker owns the toolbar/list seam.
+ * The frame (app-shell ITEM-2, changed by the step-4 fix): the fixed top
+ * holds ONLY the step line and the title. The intro, the files summary, the
+ * settings card, the alerts and the whole picker (presets, re-check line,
+ * toolbar, sections, can't-run section) are in ONE ScrollRegion, in that
+ * order; the sections' sticky headers stick to the region's top, and the
+ * run bar is pinned in the frame's bottom slot. The routed area itself
+ * never scrolls: the region is the page's one scroll container. Before the
+ * fix the summary, the settings and the picker toolbar sat in the fixed
+ * top, and at the desktop's default 1200x800 window the list region was
+ * 7 px tall (0 px with More settings open).
  */
 
 const PAGE_OUTER: CSSProperties = {
@@ -101,31 +101,28 @@ const PAGE_OUTER: CSSProperties = {
   minWidth: 0,
 }
 
-/** The fixed top's own padding (the frame's page chrome). */
+/** The fixed top's own padding (the frame's page chrome: step + title). */
 const PAGE_TOP: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 12,
   padding: '24px 36px 0',
   minWidth: 0,
 }
 
-/** The picker's fixed-toolbar slot (the picker's split wrapper). */
-const PICKER_SPLIT: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 14,
-  minWidth: 0,
-}
-
-/** The list region's content padding (the region scrolls, the padding rides). */
+/** The region's content: the intro, the files summary, the settings, the
+ *  alerts and the picker, in one column (the region scrolls, the padding
+ *  rides). The 12 px gap is the old fixed top's rhythm. */
 const REGION_CONTENT: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 14,
+  gap: 12,
   padding: '12px 36px 24px',
   minWidth: 0,
 }
+
+/** "Change settings" scrolls the region to the settings card; the margin
+ *  keeps the card off the region's top edge. */
+const SETTINGS_ANCHOR: CSSProperties = { scrollMarginTop: 12 }
 
 const STEP_LINE: CSSProperties = {
   fontSize: 12,
@@ -225,7 +222,6 @@ function TxrMethodPickerFrame({
   onCards,
   onChangeFiles,
   onChangeSettings,
-  layout,
   demo = false,
 }: {
   inventory: InventoryEligibilityRequest
@@ -234,7 +230,6 @@ function TxrMethodPickerFrame({
   onCards(cards: TxrMethodCard[]): void
   onChangeFiles(): void
   onChangeSettings(): void
-  layout: NonNullable<Parameters<typeof TxrMethodPicker>[0]['layout']>
   /** demo-mode ITEM-6: the picker's list is the recorded methods only. */
   demo?: boolean
 }) {
@@ -309,7 +304,6 @@ function TxrMethodPickerFrame({
       onChangeFiles={onChangeFiles}
       onChangeSettings={onChangeSettings}
       recheckResult={recheckResult}
-      layout={layout}
     />
   )
 }
@@ -325,8 +319,8 @@ export function ChooseMethodsPage() {
   const settingsAnchor = useRef<HTMLDivElement | null>(null)
   useDocumentTitle('Choose the methods and settings')
   /** A short shell window collapses the summary + settings cards by
-   *  default (the expanded chrome cannot share a 720/768 px shell window
-   *  with the list — the audit's fixed-top byte, ITEM-2). */
+   *  default. Both now scroll with the list (step-4 fix), so the collapse
+   *  only saves scrolling on a 720/768 px window. */
   const short = useShortShell()
   const mode = useStore(useTxrIntakeStore, s => s.mode)
   const patients = useStore(useTxrIntakeStore, s => s.patients)
@@ -479,17 +473,23 @@ export function ChooseMethodsPage() {
     settingsAnchor.current?.scrollIntoView({ block: 'start' })
   }, [])
 
+  /** The fixed top: the step line and the title, nothing else. Every other
+   *  part of the page scrolls in the one region below (step-4 fix: with the
+   *  files summary, the settings card and the picker toolbar pinned here,
+   *  the default 1200x800 window left the method list 7 px). */
+  const top = (
+    <div className="txr-run-top" style={PAGE_TOP}>
+      <div style={STEP_LINE}>Step 4 of 4</div>
+      <h1 style={TITLE}>Choose the methods and settings</h1>
+    </div>
+  )
+
   const missing = runSetupMissing({ mode, patients, measurements, predictMeasurements })
   if (missing !== null) {
     return (
       <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
         <PageFrame
-          top={
-            <div style={PAGE_TOP}>
-              <div style={STEP_LINE}>Step 4 of 4</div>
-              <h1 style={TITLE}>Choose the methods and settings</h1>
-            </div>
-          }
+          top={top}
           body={
             <ScrollRegion label="Methods to choose">
               <div style={REGION_CONTENT}>
@@ -501,83 +501,6 @@ export function ChooseMethodsPage() {
       </main>
     )
   }
-
-  /** The fixed top's page chrome (the picker's toolbar joins it when the
-   *  picker is mounted — the toolbar state stays inside the picker). */
-  const top = (toolbar: ReactNode | null): ReactNode => (
-    <div className="txr-run-top" style={PAGE_TOP}>
-      <div style={STEP_LINE}>Step 4 of 4</div>
-      <h1 style={TITLE}>Choose the methods and settings</h1>
-      <p data-testid="txr-run-intro" style={INTRO}>
-        Run these methods on your patients. Checked against your files;
-        each learns from your {inventory !== null ? inventory.patients : 0}{' '}
-        patients, then predicts.
-      </p>
-      <TxrFilesSummary
-        line={filesSummary.line}
-        markerNames={filesSummary.markerNames}
-        details={filesSummary.details}
-        onChangeFiles={() => setChangeOpen(true)}
-        collapsed={short}
-        changeFilesReason={isDemo ? DEMO_DISABLED_REASON : null}
-      />
-      <div ref={settingsAnchor}>
-        {runConfig.loading ? (
-          <Skeleton data-testid="txr-run-settings-loading" style={SETTINGS_SKELETON} />
-        ) : (
-          <>
-            {runConfig.error !== null ? (
-              <Alert
-                tone="warning"
-                data-testid="txr-run-settings-error"
-                title={runConfig.error}
-              >
-                <Button
-                  variant="outline"
-                  data-testid="txr-run-settings-retry"
-                  onClick={runConfig.retry}
-                >
-                  Retry
-                </Button>
-              </Alert>
-            ) : null}
-            <TxrSettingsBlock
-              value={settings}
-              covariates={covariates}
-              onChange={change}
-              onMoreSettings={next => change({ ...settings, ...next })}
-              collapsed={short}
-              locked={isDemo}
-              covariatesHelp={covariatesUseLine(cards)}
-            />
-            {isDemo ? (
-              <p data-testid="txr-run-settings-demo-note" style={{ margin: 0, fontSize: 12.5, color: 'var(--txr-muted)' }}>
-                {DEMO_SETTINGS_NOTE}
-              </p>
-            ) : null}
-          </>
-        )}
-      </div>
-      {runError !== null ? (
-        <Alert tone="error" data-testid="txr-run-create-error" title={runError} />
-      ) : null}
-      {runNotice !== null ? (
-        <Alert tone="warning" data-testid="txr-run-create-notice" title={runNotice} />
-      ) : null}
-      {toolbar !== null ? (
-        <div data-testid="txr-method-picker" style={PICKER_SPLIT}>
-          {toolbar}
-        </div>
-      ) : null}
-    </div>
-  )
-
-  /** The list region (the ONE scroll container of the page). */
-  const body = (list: ReactNode): ReactNode => (
-    <ScrollRegion label="Methods to choose" className="txr-run-methods-region">
-      <div className="txr-run-methods-content" style={REGION_CONTENT}>{list}</div>
-    </ScrollRegion>
-  )
 
   const runBar =
     inventory !== null ? (
@@ -607,50 +530,94 @@ export function ChooseMethodsPage() {
       />
     ) : null
 
-  if (settingsInventory === null) {
-    return (
-      <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
-        <PageFrame
-          top={top(null)}
-          body={body(
-            <div data-testid="txr-run-list-pending" style={PENDING_BLOCK}>
-              <p style={PENDING_LINE}>{PENDING_REFRESH_LINE}</p>
-            </div>,
-          )}
-          bottom={runBar}
-        />
-        <TxrChangeFilesDialog
-          mode={mode}
-          open={changeOpen}
-          onOpenChange={setChangeOpen}
-        />
-      </main>
-    )
-  }
-
   return (
-    <TxrMethodPickerFrame
-      inventory={settingsInventory}
-      selected={selected}
-      onSelectionChange={setSelected}
-      onCards={setCards}
-      onChangeFiles={() => setChangeOpen(true)}
-      onChangeSettings={onChangeSettings}
-      demo={isDemo}
-      layout={pickerParts => (
-        <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
-          <PageFrame
-            top={top(pickerParts.toolbar)}
-            body={body(pickerParts.list)}
-            bottom={runBar}
-          />
-          <TxrChangeFilesDialog
-            mode={mode}
-            open={changeOpen}
-            onOpenChange={setChangeOpen}
-          />
-        </main>
-      )}
-    />
+    <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
+      <PageFrame
+        top={top}
+        body={
+          <ScrollRegion label="Methods to choose" className="txr-run-methods-region">
+            <div className="txr-run-methods-content" style={REGION_CONTENT}>
+              <p data-testid="txr-run-intro" style={INTRO}>
+                Run these methods on your patients. Checked against your files;
+                each learns from your {inventory !== null ? inventory.patients : 0}{' '}
+                patients, then predicts.
+              </p>
+              <TxrFilesSummary
+                line={filesSummary.line}
+                markerNames={filesSummary.markerNames}
+                details={filesSummary.details}
+                onChangeFiles={() => setChangeOpen(true)}
+                collapsed={short}
+                changeFilesReason={isDemo ? DEMO_DISABLED_REASON : null}
+              />
+              <div ref={settingsAnchor} style={SETTINGS_ANCHOR}>
+                {runConfig.loading ? (
+                  <Skeleton data-testid="txr-run-settings-loading" style={SETTINGS_SKELETON} />
+                ) : (
+                  <>
+                    {runConfig.error !== null ? (
+                      <Alert
+                        tone="warning"
+                        data-testid="txr-run-settings-error"
+                        title={runConfig.error}
+                      >
+                        <Button
+                          variant="outline"
+                          data-testid="txr-run-settings-retry"
+                          onClick={runConfig.retry}
+                        >
+                          Retry
+                        </Button>
+                      </Alert>
+                    ) : null}
+                    <TxrSettingsBlock
+                      value={settings}
+                      covariates={covariates}
+                      onChange={change}
+                      onMoreSettings={next => change({ ...settings, ...next })}
+                      collapsed={short}
+                      locked={isDemo}
+                      covariatesHelp={covariatesUseLine(cards)}
+                    />
+                    {isDemo ? (
+                      <p data-testid="txr-run-settings-demo-note" style={{ margin: 0, fontSize: 12.5, color: 'var(--txr-muted)' }}>
+                        {DEMO_SETTINGS_NOTE}
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </div>
+              {runError !== null ? (
+                <Alert tone="error" data-testid="txr-run-create-error" title={runError} />
+              ) : null}
+              {runNotice !== null ? (
+                <Alert tone="warning" data-testid="txr-run-create-notice" title={runNotice} />
+              ) : null}
+              {settingsInventory === null ? (
+                <div data-testid="txr-run-list-pending" style={PENDING_BLOCK}>
+                  <p style={PENDING_LINE}>{PENDING_REFRESH_LINE}</p>
+                </div>
+              ) : (
+                <TxrMethodPickerFrame
+                  inventory={settingsInventory}
+                  selected={selected}
+                  onSelectionChange={setSelected}
+                  onCards={setCards}
+                  onChangeFiles={() => setChangeOpen(true)}
+                  onChangeSettings={onChangeSettings}
+                  demo={isDemo}
+                />
+              )}
+            </div>
+          </ScrollRegion>
+        }
+        bottom={runBar}
+      />
+      <TxrChangeFilesDialog
+        mode={mode}
+        open={changeOpen}
+        onOpenChange={setChangeOpen}
+      />
+    </main>
   )
 }

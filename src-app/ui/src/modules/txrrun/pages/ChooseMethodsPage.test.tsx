@@ -1311,3 +1311,125 @@ describe('demo mode (ITEM-6) — the recorded methods only, the locked setup, th
     expect(screen.getByTestId('txr-run-bar-run').textContent).toContain('(demo)')
   })
 })
+
+describe('step-4 fix: only the step line and the title are fixed; everything else scrolls in the one region', () => {
+  /** The page's one region (the ScrollRegion's labelled scroll container). */
+  const region = (): HTMLElement => {
+    const el = document.querySelector<HTMLElement>('[role="region"][aria-label="Methods to choose"]')
+    if (el === null) throw new Error('no "Methods to choose" region')
+    return el
+  }
+
+  /** True when `a` comes before `b` in document order. */
+  const before = (a: HTMLElement, b: HTMLElement): boolean =>
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+
+  it('the fixed top holds the step line and the h1 only', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    const tops = document.querySelectorAll<HTMLElement>('.txr-page-frame-top')
+    expect(tops.length).toBe(1)
+    const chrome = tops[0].firstElementChild as HTMLElement
+    const children = Array.from(chrome.children) as HTMLElement[]
+    expect(children.length).toBe(2)
+    expect(children[0].textContent).toBe('Step 4 of 4')
+    expect(children[1].tagName).toBe('H1')
+    expect(children[1].textContent).toBe('Choose the methods and settings')
+    for (const id of [
+      'txr-run-intro',
+      'txr-run-summary',
+      'txr-run-settings',
+      'txr-method-presets',
+      'txr-method-toolbar',
+    ]) {
+      expect(tops[0].querySelector(`[data-testid="${id}"]`), `${id} must not be in the fixed top`).toBeNull()
+    }
+  })
+
+  it('the intro, summary, settings, presets and toolbar are inside the region, in that order, before the list', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    const scroller = region()
+    const ids = [
+      'txr-run-intro',
+      'txr-run-summary',
+      'txr-run-settings',
+      'txr-method-presets',
+      'txr-method-toolbar',
+      'txr-method-sections',
+    ]
+    const nodes = ids.map(id => screen.getByTestId(id))
+    for (const [index, node] of nodes.entries()) {
+      expect(scroller.contains(node), `${ids[index]} is inside the region`).toBe(true)
+    }
+    for (let index = 1; index < nodes.length; index += 1) {
+      expect(before(nodes[index - 1], nodes[index]), `${ids[index - 1]} before ${ids[index]}`).toBe(true)
+    }
+    // The run bar stays in the frame's fixed bottom slot, outside the region.
+    const bar = screen.getByTestId('txr-run-bar')
+    expect(scroller.contains(bar)).toBe(false)
+    expect(bar.closest('.txr-page-frame-bottom')).not.toBeNull()
+    // One region: the page has no other scroll container of its own.
+    expect(document.querySelectorAll('[role="region"]').length).toBe(1)
+  })
+
+  it('the pending (null validation) state has the same structure', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore({ validation: null })
+    renderPage()
+    await settle()
+
+    const scroller = region()
+    const top = document.querySelector<HTMLElement>('.txr-page-frame-top')!
+    expect(top.querySelector('h1')!.textContent).toBe('Choose the methods and settings')
+    for (const id of ['txr-run-intro', 'txr-run-summary', 'txr-run-settings', 'txr-run-list-pending']) {
+      const node = screen.getByTestId(id)
+      expect(scroller.contains(node), `${id} is inside the region`).toBe(true)
+      expect(top.contains(node), `${id} is not in the fixed top`).toBe(false)
+    }
+    expect(
+      before(screen.getByTestId('txr-run-settings'), screen.getByTestId('txr-run-list-pending')),
+    ).toBe(true)
+  })
+
+  it('"Change settings" in the zero state scrolls the region to the settings card', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    // Every verdict cannot-run: the picker's zero state.
+    api.eligibility.mockResolvedValue({
+      ...eligibility(),
+      methods: eligibility().methods.map(method => ({
+        ...method,
+        status: 'cannot_run',
+        coverage: { eligible: 0, total: 18, fraction: 0 },
+        reasons: [{ code: 'DECISION_DAY_UNMET' }],
+      })),
+    })
+    const scrollIntoView = vi.fn()
+    const proto = Element.prototype as unknown as { scrollIntoView?: unknown }
+    const saved = proto.scrollIntoView
+    proto.scrollIntoView = scrollIntoView
+    try {
+      seedStore()
+      renderPage()
+      await settle()
+      expect(screen.getByTestId('txr-method-zero')).toBeTruthy()
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('txr-method-zero-change-settings'))
+        await Promise.resolve()
+      })
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      const target = scrollIntoView.mock.contexts[0] as HTMLElement
+      expect(region().contains(target), 'the scrolled element is inside the region').toBe(true)
+      expect(target.contains(screen.getByTestId('txr-run-settings'))).toBe(true)
+    } finally {
+      proto.scrollIntoView = saved
+    }
+  })
+})

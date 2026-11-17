@@ -228,12 +228,48 @@ test.describe('ITEM-2 — the settings sentence, the recompute + untick toast (t
     await expect(page.locator('[data-sonner-toast]')).toContainText(
       '1 method no longer fits these settings',
     )
+    // The step-4 status line answers the re-check.
+    await expect(page.getByTestId('txr-method-recheck-result')).toHaveText(
+      'Checked again: 5 methods can run (was 6).',
+    )
     // The unticked method left the ready list and sits in the can't-run
     // section, counted honestly.
     await expect(page.getByTestId('txr-method-card-fx-prob-one')).toHaveCount(0)
     await expect(page.getByTestId('txr-method-cannot-heading')).toHaveText(
       "1 method can't run on this data",
     )
+  })
+})
+
+test.describe('step-4 fix — the clicked preset is the pressed one when two presets give the same set', () => {
+  test('on the six-method story (Recommended = All = 6) clicking All presses All only; the count stays', async ({
+    page,
+  }) => {
+    await openE(page, { width: 1440, height: 900 }, 'txr-run-e-small')
+    await expect(page.getByTestId('txr-method-preset-recommended')).toHaveText('Recommended (6)')
+    await expect(page.getByTestId('txr-method-preset-all')).toHaveText('All that can run (6)')
+    await expect(page.getByTestId('txr-run-bar-count')).toHaveText('6 methods selected')
+    await expect(page.getByTestId('txr-method-preset-recommended')).toHaveAttribute('aria-pressed', 'true')
+
+    await page.getByTestId('txr-method-preset-all').click()
+    await expect(page.getByTestId('txr-method-preset-all')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('txr-method-preset-recommended')).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.getByTestId('txr-run-bar-count')).toHaveText('6 methods selected')
+
+    // A released chip keeps the app's border colour (the border longhands),
+    // once the kit button's colour transition has run.
+    const border = (id: string) =>
+      page.evaluate(
+        testId => getComputedStyle(document.querySelector(`[data-testid="${testId}"]`)!).borderTopColor,
+        id,
+      )
+    const never = await border('txr-method-preset-none')
+    await expect
+      .poll(() => border('txr-method-preset-recommended'), {
+        message: 'a released preset has the same border as one never pressed',
+        timeout: 5_000,
+      })
+      .toBe(never)
   })
 })
 

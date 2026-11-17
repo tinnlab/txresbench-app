@@ -47,7 +47,9 @@
  * the scroll region) while the toolbar state stays inside this component —
  * one state owner, one keyboard model, whichever box the toolbar ends up
  * in. Without `layout` the two pieces render inline exactly as before (the
- * gallery and the D/I screens keep the old composition).
+ * gallery and the D/I screens keep the old composition). Since the step-4
+ * fix the E page uses the inline composition too: its whole picker scrolls
+ * in the page's one region.
  */
 import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, Input, Select, Skeleton } from '@txresbench/kit'
