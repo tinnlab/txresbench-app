@@ -258,7 +258,10 @@ LAYER_SCHEMA_VERSION = 1
 #: assembled from the previous list's entries plus the new records. 0.6.0:
 #: layers pack with fixed times, and their OCI manifest carries no methods
 #: commit or base image, so one layer file is one artifact (FOLLOW-UPS 64).
-GENERATOR_VERSION = "0.6.0"
+#: 0.6.1: the trim keeps the package dirs in TRIM_KEEP_PACKAGE_DIRS (the
+#: TensorFlow layers could not import tensorflow); every other layer is built
+#: as under 0.6.0.
+GENERATOR_VERSION = "0.6.1"
 
 #: The offline verification floor is sha256 (models.md's cached → verified →
 #: offline flow, DEC-5/7), so both the layer hash and the wrapper hash are
@@ -306,6 +309,20 @@ TRIM_DIR_NAMES = frozenset(
     ("include", "tests", "test", "docs", "doc", "examples", "__pycache__")
 )
 TRIM_FILE_SUFFIXES = (".pyc", ".a")
+#: Package dirs the trim keeps although they have a trim name: code that a
+#: package imports when it is imported, not tests or docs (design §4). Each is
+#: a path below a site-packages dir; a trim-named dir that is one of them or
+#: sits under one is kept, except `__pycache__` (a layer carries no bytecode).
+#:   tensorflow/tools/docs  doc_controls, imported by
+#:                          tensorflow/python/util/deprecation.py
+#:   tensorflow/_api        TensorFlow's generated API modules;
+#:                          tensorflow/__init__.py imports the `test` ones
+#:                          (tf.test, tf.__internal__.test, the tf.compat copies)
+#: Without them `import tensorflow` fails in the layer: the only environment
+#: failures in the 2026-11-16 run test of 370 amd64 layers. A general rule
+#: ("keep any test/docs dir with an __init__.py") would also keep joblib's
+#: test suite (joblib/test) and change 20 more built layers.
+TRIM_KEEP_PACKAGE_DIRS = ("tensorflow/tools/docs", "tensorflow/_api")
 STRIP_PATTERN = re.compile(r"\.so(\.|$)")
 
 #: The per-language base the method Dockerfiles must start FROM (INV-1: the
@@ -747,9 +764,23 @@ def trim_delta(delta: Delta) -> Delta:
 
 def _trimmed(p: str, kind: str) -> bool:
     parts = p.split("/")
-    if any(comp in TRIM_DIR_NAMES for comp in parts):
+    if any(_trimmed_dir(parts[: i + 1]) for i in range(len(parts))):
         return True
     return kind == "file" and p.endswith(TRIM_FILE_SUFFIXES)
+
+
+def _trimmed_dir(parts: list[str]) -> bool:
+    """Whether the dir at these path components (from the rootfs or layer
+    root) is trimmed: a TRIM_DIR_NAMES name, unless it is or sits under a
+    TRIM_KEEP_PACKAGE_DIRS path below a site-packages dir. `__pycache__` is
+    always trimmed. trim_delta and trim_layer both decide with this."""
+    name = parts[-1]
+    if name not in TRIM_DIR_NAMES:
+        return False
+    if name == "__pycache__" or "site-packages" not in parts:
+        return True
+    rel = "/".join(parts[parts.index("site-packages") + 1:])
+    return not any(rel == k or rel.startswith(k + "/") for k in TRIM_KEEP_PACKAGE_DIRS)
 
 
 def closed_cover(delta: Delta, method_root: str, base_root: str) -> list[str]:
@@ -932,8 +963,10 @@ def trim_layer(layer_root: str) -> None:
     an over-trimmed one is, and the ITEM-7 equivalence test catches that).
     """
     for dirpath, dirnames, filenames in os.walk(layer_root, topdown=True):
+        rel_dir = os.path.relpath(dirpath, layer_root)
+        parts = [] if rel_dir == "." else rel_dir.split(os.sep)
         for d in list(dirnames):
-            if d in TRIM_DIR_NAMES:
+            if _trimmed_dir(parts + [d]):
                 shutil.rmtree(os.path.join(dirpath, d))
                 dirnames.remove(d)
         for name in filenames:
