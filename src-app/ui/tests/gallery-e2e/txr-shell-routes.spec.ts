@@ -80,11 +80,44 @@ const SIZES = [
   { width: 1000, height: 640, desktop: true },
 ] as const
 
-/** The least share of the routed area (`#txr-main`) a route's scroll
- *  regions must fill together. Measured before the step-4 fix: every route
- *  but E between 49 % and 100 % at the desktop's 1000x640; E at 1 %
- *  (1200x800). */
+/** The least share of the routed area (`#txr-main`, its AREA) a route's
+ *  scroll regions must cover together. Area, not summed heights: two short
+ *  regions side by side must not add up to a tall one. Measured at the
+ *  step-4 fix: every route but E between 49 % and 100 % at every size
+ *  here (Saved models at the desktop's 1000x640 is the lowest); E was 1 %
+ *  at 1200x800 before the fix and is 71 % or more after it. */
 const MIN_REGION_SHARE = 0.4
+
+/** The share of `main` covered by the union of `rects` (each clipped to
+ *  `main`): coordinate compression over the rects' edges, so overlapping or
+ *  side-by-side regions are counted once and by their real area. */
+function coveredShare(
+  main: { left: number; top: number; right: number; bottom: number },
+  rects: { left: number; top: number; right: number; bottom: number }[],
+): number {
+  const clipped = rects
+    .map(r => ({
+      left: Math.max(r.left, main.left),
+      top: Math.max(r.top, main.top),
+      right: Math.min(r.right, main.right),
+      bottom: Math.min(r.bottom, main.bottom),
+    }))
+    .filter(r => r.right > r.left && r.bottom > r.top)
+  const xs = [...new Set(clipped.flatMap(r => [r.left, r.right]))].sort((a, b) => a - b)
+  const ys = [...new Set(clipped.flatMap(r => [r.top, r.bottom]))].sort((a, b) => a - b)
+  let covered = 0
+  for (let i = 0; i + 1 < xs.length; i += 1) {
+    for (let j = 0; j + 1 < ys.length; j += 1) {
+      const cx = (xs[i] + xs[i + 1]) / 2
+      const cy = (ys[j] + ys[j + 1]) / 2
+      if (clipped.some(r => cx > r.left && cx < r.right && cy > r.top && cy < r.bottom)) {
+        covered += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j])
+      }
+    }
+  }
+  const area = (main.right - main.left) * (main.bottom - main.top)
+  return area > 0 ? covered / area : 0
+}
 
 /** Give the gallery frame the test viewport's height (the default frame is
  *  720 px — bounded — so the shell's height chain is definite; resizing the
@@ -207,22 +240,28 @@ for (const route of SURFACES) {
         `${route.label}@${size.width}x${size.height} region count`,
       ).toBeLessThanOrEqual(2)
 
-      // The regions have usable height (the step-4 leg): together at least
-      // MIN_REGION_SHARE of the routed area.
-      const share = await page.evaluate(() => {
+      // The regions have usable room (the step-4 leg): their union covers
+      // at least MIN_REGION_SHARE of the routed area's visible box.
+      const boxes = await page.evaluate(() => {
+        const box = (el: Element) => {
+          const r = el.getBoundingClientRect()
+          return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }
+        }
         const main = document.querySelector<HTMLElement>('#txr-main')
-        const regionHeights = Array.from(
-          document.querySelectorAll<HTMLElement>('[role="region"]'),
-        ).map(el => el.getBoundingClientRect().height)
+        if (main === null) return null
+        const r = main.getBoundingClientRect()
         return {
-          main: main === null ? 0 : main.clientHeight,
-          regions: regionHeights.reduce((sum, h) => sum + h, 0),
+          // The routed area's visible box (clientHeight: a scrollbar or an
+          // overflow below is not room).
+          main: { left: r.left, top: r.top, right: r.right, bottom: r.top + main.clientHeight },
+          regions: Array.from(document.querySelectorAll('[role="region"]')).map(box),
         }
       })
-      expect(share.main, `${route.label}@${size.width}x${size.height} routed area height`).toBeGreaterThan(0)
+      expect(boxes, `${route.label}@${size.width}x${size.height} routed area`).not.toBeNull()
+      const share = coveredShare(boxes!.main, boxes!.regions)
       expect(
-        share.regions / share.main,
-        `${route.label}@${size.width}x${size.height} region share of the routed area (${Math.round(share.regions)} of ${share.main} px)`,
+        share,
+        `${route.label}@${size.width}x${size.height} region share of the routed area (${Math.round(share * 100)} %)`,
       ).toBeGreaterThanOrEqual(MIN_REGION_SHARE)
 
       // A scrollable region scrolls; the header stays put.
@@ -346,28 +385,52 @@ test('route Choose methods: the settings and the toolbar scroll with the list in
   expect(sticky.headers).toBeGreaterThan(0)
   expect(sticky.stuck, 'a section header must stick to the region top').toBeGreaterThanOrEqual(1)
 
-  // Scrolled to its end, the region shows its last item fully, above the
-  // run bar (nothing hides under the bar).
+  // Scrolled to its end, the region shows its LAST list item (a method row,
+  // a show-more link, a can't-run chip or row: whichever ends lowest) fully
+  // inside its box, and the box ends above the run bar (nothing hides under
+  // the bar).
   await region.evaluate(el => {
     el.scrollTop = el.scrollHeight
   })
   await page.waitForTimeout(150)
   const end = await page.evaluate(l => {
     const el = document.querySelector<HTMLElement>(`[aria-label="${l}"]`)!
-    const content = el.firstElementChild as HTMLElement
-    const last = content.lastElementChild as HTMLElement
+    const items = Array.from(
+      el.querySelectorAll<HTMLElement>(
+        [
+          '[data-testid^="txr-method-card-"]',
+          '[data-testid^="txr-method-section-more-"]',
+          '[data-testid^="txr-method-reason-"]',
+          '[data-testid^="txr-method-cannot-row-"]',
+        ].join(', '),
+      ),
+    ).map(item => ({ id: item.dataset.testid ?? '', box: item.getBoundingClientRect() }))
+    items.sort((a, b) => b.box.bottom - a.box.bottom)
+    const last = items[0]
     const bar = document.querySelector<HTMLElement>('[data-testid="txr-run-bar"]')!
     const regionBox = el.getBoundingClientRect()
     return {
-      lastBottom: last.getBoundingClientRect().bottom,
+      items: items.length,
+      lastId: last?.id ?? '',
+      lastTop: last?.box.top ?? 0,
+      lastBottom: last?.box.bottom ?? 0,
+      regionTop: regionBox.top,
       regionBottom: regionBox.bottom,
       barTop: bar.getBoundingClientRect().top,
       atEnd: el.scrollTop + el.clientHeight >= el.scrollHeight - 1,
     }
   }, label)
   expect(end.atEnd, 'the region reached its end').toBe(true)
-  expect(end.lastBottom, 'the last item ends inside the region').toBeLessThanOrEqual(end.regionBottom + 1)
-  expect(end.lastBottom, 'the last item ends above the run bar').toBeLessThanOrEqual(end.barTop + 1)
+  expect(end.items, 'the list has items').toBeGreaterThan(0)
+  expect(end.lastTop, `the last item (${end.lastId}) starts inside the region`).toBeGreaterThanOrEqual(
+    end.regionTop - 1,
+  )
+  expect(end.lastBottom, `the last item (${end.lastId}) ends inside the region`).toBeLessThanOrEqual(
+    end.regionBottom + 1,
+  )
+  // It IS the end of the list: only the content's bottom padding is below it.
+  expect(end.regionBottom - end.lastBottom, `the last item (${end.lastId}) is at the list end`).toBeLessThanOrEqual(48)
+  expect(end.regionBottom, 'the region ends above the run bar').toBeLessThanOrEqual(end.barTop + 1)
 
   // The run bar never leaves the frame while the region scrolls.
   const bar = await page.getByTestId('txr-run-bar').boundingBox()
