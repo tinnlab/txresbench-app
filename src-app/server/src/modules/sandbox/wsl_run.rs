@@ -22,9 +22,9 @@
 //! - the distro cannot start Windows programs (its `wsl.conf` turns interop
 //!   off).
 //!
-//! What the user must have: WSL installed (`wsl --install`, which needs admin
-//! rights and a restart once) and new enough ([`wsl_version_ok`]). The probe
-//! ([`probe_host`]) says which step is missing.
+//! What the user must have: WSL installed (`wsl --install --no-distribution`,
+//! which needs admin rights and a restart once) and new enough
+//! ([`wsl_version_ok`]). The probe ([`probe_host`]) says which step is missing.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -62,6 +62,11 @@ const MANIFEST_FILE: &str = "MANIFEST.json";
 
 /// The WSL runner could not be prepared or reached.
 pub const WSL_UNAVAILABLE_CODE: &str = "SANDBOX_WSL_UNAVAILABLE";
+
+/// The command the messages tell the user to run to get WSL. The install
+/// command without `--no-distribution` would also install and start a Linux
+/// distribution (Ubuntu) the app does not use; the app imports its own.
+const WSL_INSTALL_COMMAND: &str = "wsl --install --no-distribution";
 
 /// `CREATE_NO_WINDOW`: wsl.exe is a console program; started from the
 /// desktop app it would otherwise flash a console window per request.
@@ -301,9 +306,10 @@ fn probe() -> Result<HostCapabilities, String> {
         ));
     }
     if !wsl_exe().is_file() {
-        return Err("methods run in WSL 2, which is not installed: open PowerShell as administrator, \
-                    run `wsl --install`, then restart Windows"
-            .into());
+        return Err(format!(
+            "methods run in WSL 2, which is not installed: open PowerShell as administrator, run \
+             `{WSL_INSTALL_COMMAND}`, then restart Windows"
+        ));
     }
     let out = run_wsl(&["--version".as_ref()], WSL_QUERY_TIMEOUT)?;
     let version = if out.ok() { parse_wsl_version(&out.stdout) } else { None };
@@ -311,8 +317,8 @@ fn probe() -> Result<HostCapabilities, String> {
         None => {
             return Err(format!(
                 "methods run in WSL 2, which is not installed or too old on this computer: open PowerShell \
-                 as administrator, run `wsl --install` (or `wsl --update` if WSL is installed), then restart \
-                 Windows [`wsl --version` said: {}]",
+                 as administrator, run `{WSL_INSTALL_COMMAND}` (or `wsl --update` if WSL is installed), \
+                 then restart Windows [`wsl --version` said: {}]",
                 one_line(&out.text())
             ));
         }
@@ -390,13 +396,15 @@ fn distro_version() -> Result<Option<String>, AppError> {
 fn wsl_start_error(text: &str) -> AppError {
     let lower = text.to_ascii_lowercase();
     let hint = if lower.contains("0x80370102") || lower.contains("virtual machine platform") {
-        " (WSL 2 needs the \"Virtual Machine Platform\" option of Windows and virtualization turned on \
-         in the PC's firmware settings: run `wsl --install` as administrator, restart, and check the \
-         firmware setting if it still fails)"
+        format!(
+            " (WSL 2 needs the \"Virtual Machine Platform\" option of Windows and virtualization turned on \
+             in the PC's firmware settings: run `{WSL_INSTALL_COMMAND}` as administrator, restart, and check \
+             the firmware setting if it still fails)"
+        )
     } else if lower.contains("0x8004032d") || lower.contains("not supported") {
-        " (this Windows does not support WSL 2)"
+        " (this Windows does not support WSL 2)".to_string()
     } else {
-        ""
+        String::new()
     };
     wsl_error(format!("WSL could not start the app's distro: {}{hint}", one_line(text)))
 }
@@ -817,6 +825,28 @@ mod tests {
         assert_eq!(e.error_code(), WSL_UNAVAILABLE_CODE);
         assert!(e.to_string().contains("could not be mounted in WSL"), "{e}");
         assert!(e.to_string().contains("squashfs not supported"), "{e}");
+    }
+
+    /// Every message that tells the user how to get WSL names the command
+    /// that installs WSL alone, never the install command without
+    /// `--no-distribution` (which also installs a Linux distribution).
+    #[test]
+    fn install_advice_never_installs_a_linux_distribution() {
+        assert_eq!(WSL_INSTALL_COMMAND, "wsl --install --no-distribution");
+        let source = include_str!("wsl_run.rs");
+        let needle = ["wsl", " --install"].concat();
+        let mut seen = 0;
+        for (at, _) in source.match_indices(&needle) {
+            let rest = &source[at + needle.len()..];
+            assert!(
+                rest.starts_with(" --no-distribution"),
+                "an install command without --no-distribution at byte {at}"
+            );
+            seen += 1;
+        }
+        assert!(seen >= 2, "the const and the module docs name it");
+        let e = wsl_start_error("Error code: Wsl/Service/CreateInstance/0x80370102");
+        assert!(e.to_string().contains("`wsl --install --no-distribution`"), "{e}");
     }
 
     /// Exit 4 is not only a lost connection: a request the agent refuses for

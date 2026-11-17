@@ -531,7 +531,7 @@ impl MethodExecutor for NoRunnerExecutor {
     }
 
     fn runner_unavailable(&self) -> Option<String> {
-        Some("methods run in WSL 2, which is not installed: run `wsl --install`".into())
+        Some("methods run in WSL 2, which is not installed: run `wsl --install --no-distribution`".into())
     }
 }
 
