@@ -16,3 +16,7 @@ workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 libseccomp = "0.3"
 tempfile = "3.15"
+
+# The tests load the filter in a forked child and make the denied calls.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc = "0.2"
