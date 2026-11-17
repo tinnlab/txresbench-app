@@ -51,18 +51,23 @@
  * fix the E page uses the inline composition too: its whole picker scrolls
  * in the page's one region.
  */
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, Input, Select, Skeleton } from '@txresbench/kit'
+import { useAction } from '@/core/actions/useAction'
+import { useActiveContext } from '@/core/actions/activeContext'
+import { createVersioned } from '@/core/actions/versioned'
 import type { TxrMethodCard } from '../types'
 import {
   activePreset,
   fastSelection,
   filterMethodCards,
+  METHODS_APPLY_PRESET,
   presetSelection,
   reasonGroups,
   recommendedSelection,
   runnableCards,
   sortCards,
+  TXR_METHOD_PICKER_CONTEXT,
   TXRMETHOD_GROUP_ORDER,
   TXRMETHOD_GROUP_EXPLAINER,
   type TxrMethodGroupId,
@@ -143,6 +148,19 @@ const STATUS_EMPTY: CSSProperties = {
   overflow: 'hidden',
   clip: 'rect(0 0 0 0)',
   margin: 0,
+}
+
+/** What the picker instance reports to the action registry (`view.describe`,
+ *  `views.list`): the pressed preset and the counts. */
+type TxrMethodPickerSnapshot = {
+  preset: TxrMethodPreset | 'custom'
+  selected_count: number
+  runnable_count: number
+}
+
+/** A fresh `view_id` for one mounted picker (never reused). */
+function newViewId(): string {
+  return crypto.randomUUID()
 }
 
 /** The rows a section shows before "Show N more" (the plan's 6). */
@@ -247,6 +265,25 @@ export function TxrMethodPicker({
   const preset = activePreset(selected, cards, chosenPreset)
   const filterActive = query.trim() !== '' || familyFilter.size > 0
 
+  // The picker as an AI-controllable instance (`methods.applyPreset`,
+  // `core/actions/builtin/methodActions.ts`): one `view_id` per mounted
+  // picker, its snapshot versioned so every selection change, whoever made
+  // it, moves the `_state_token` the world-model reads return.
+  const [viewId] = useState(newViewId)
+  const snapshot: TxrMethodPickerSnapshot = {
+    preset,
+    selected_count: runnable.filter(card => selected.has(card.key)).length,
+    runnable_count: runnable.length,
+  }
+  const [versioned] = useState(() => createVersioned(viewId, snapshot))
+  const stamped = useRef({ selected, cards, chosenPreset })
+  useEffect(() => {
+    const last = stamped.current
+    if (last.selected === selected && last.cards === cards && last.chosenPreset === chosenPreset) return
+    stamped.current = { selected, cards, chosenPreset }
+    versioned.set(snapshot)
+  })
+
   const shown = useMemo(() => {
     const filtered = filterMethodCards(runnable, query, familyFilter)
     return sortCards(filtered, sort)
@@ -259,10 +296,23 @@ export function TxrMethodPicker({
     setFamilyFilter(next)
   }
 
-  const applyPreset = (value: TxrMethodPreset): void => {
+  /** Apply a preset: the button's click and the `methods.applyPreset`
+   *  action run this same handler. */
+  const applyPreset = (value: TxrMethodPreset): TxrMethodPickerSnapshot => {
+    const keys = presetSelection(value, cards)
     setChosenPreset(value)
-    onSelectionChange(new Set(presetSelection(value, cards)))
+    onSelectionChange(new Set(keys))
+    return { preset: value, selected_count: keys.length, runnable_count: runnable.length }
   }
+
+  useAction(viewId, {
+    type: TXR_METHOD_PICKER_CONTEXT,
+    handlers: {
+      [METHODS_APPLY_PRESET]: params => applyPreset((params as { preset: TxrMethodPreset }).preset),
+    },
+    getSnapshot: () => versioned.snapshot(),
+  })
+  useActiveContext(TXR_METHOD_PICKER_CONTEXT, { entityId: viewId })
 
   const toggleGroupAll = (group: TxrMethodGroupId, members: TxrMethodCard[]): void => {
     const memberKeys = members.map(member => member.key)

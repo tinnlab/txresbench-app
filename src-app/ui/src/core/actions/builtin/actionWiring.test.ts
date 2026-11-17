@@ -13,6 +13,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import './mcpSettingsActions'
 import './featureFlagActions'
+import './methodActions'
 import { getActionMeta } from '../defineAction'
 
 const NEW_IDS = [
@@ -20,12 +21,14 @@ const NEW_IDS = [
   'features.setGlobalFlag',
   'features.setAccountFlag',
   'features.clearAccountOverride',
+  'methods.applyPreset',
 ]
 
 // owning module.tsx → the builtin file it must side-effect-import
 const MODULE_IMPORTS: Record<string, string[]> = {
   'src/modules/mcp/module.tsx': ['@/core/actions/builtin/mcpSettingsActions'],
   'src/modules/features/module.tsx': ['@/core/actions/builtin/featureFlagActions'],
+  'src/modules/txrlist/module.tsx': ['@/core/actions/builtin/methodActions'],
 }
 
 const SRC_ROOT = resolve(__dirname, '../../../..')

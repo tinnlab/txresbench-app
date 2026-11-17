@@ -44,6 +44,16 @@ export const TXRMETHOD_GROUP_EXPLAINER: Record<TxrMethodGroupId, string> = {
 /** The picker's presets (the segmented control above the list). */
 export type TxrMethodPreset = 'recommended' | 'all' | 'fast' | 'none'
 
+/** The presets, in the control's order (the `methods.applyPreset` param). */
+export const TXRMETHOD_PRESETS = ['recommended', 'all', 'fast', 'none'] as const satisfies readonly TxrMethodPreset[]
+
+/** The mounted picker's instance type, which is also the page context it
+ *  declares while mounted (`core/actions/builtin/methodActions.ts`). */
+export const TXR_METHOD_PICKER_CONTEXT = 'txr.method-picker'
+
+/** The preset action's id (the picker's instance handler key). */
+export const METHODS_APPLY_PRESET = 'methods.applyPreset'
+
 /** The picker's sort order. */
 export type TxrMethodSort = 'recommended' | 'fastest' | 'name' | 'year'
 
