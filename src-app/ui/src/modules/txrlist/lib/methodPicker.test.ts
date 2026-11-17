@@ -12,6 +12,7 @@ import {
   presetOf,
   presetSelection,
   reasonGroups,
+  recheckFailedLine,
   recheckLine,
   recommendedSelection,
   runnableCards,
@@ -260,5 +261,16 @@ describe('recheckLine (the line after a re-check, step-4 fix)', () => {
     const line = recheckLine(['a', 'b', 'c', 'd', 'e', 'f'], ['a', 'b', 'c', 'd', 'e', 'g'])
     expect(line).toBe('Checked again: a different set of 6 methods can run.')
     expect(line).not.toContain('(was 6)')
+  })
+})
+
+describe('recheckFailedLine (a re-check that failed while a list is shown)', () => {
+  it('names the error once, without a doubled full stop, and says what the list shows', () => {
+    expect(recheckFailedLine('eligibility down')).toBe(
+      'Could not check again: eligibility down. The list shows the last answer.',
+    )
+    expect(recheckFailedLine('The engine is busy.')).toBe(
+      'Could not check again: The engine is busy. The list shows the last answer.',
+    )
   })
 })

@@ -11,6 +11,7 @@ import type { IntakeSnapshot } from '@/modules/txrintake'
 import { buildTxrRunInput, useTxrIntakeStore } from '@/modules/txrintake'
 import {
   countSelected,
+  recheckFailedLine,
   recheckLine,
   recommendedSelection,
   runnableCards,
@@ -222,6 +223,7 @@ function TxrMethodPickerFrame({
   onCards,
   onChangeFiles,
   onChangeSettings,
+  recheckAsks,
   demo = false,
 }: {
   inventory: InventoryEligibilityRequest
@@ -230,6 +232,10 @@ function TxrMethodPickerFrame({
   onCards(cards: TxrMethodCard[]): void
   onChangeFiles(): void
   onChangeSettings(): void
+  /** How many times the user changed a setting the eligibility request
+   *  reads (the page counts them): an answer is a re-check worth a line only
+   *  when this moved since the previous answer. */
+  recheckAsks: { readonly current: number }
   /** demo-mode ITEM-6: the picker's list is the recorded methods only. */
   demo?: boolean
 }) {
@@ -243,21 +249,41 @@ function TxrMethodPickerFrame({
   // CURRENT selection is read through a ref so the prune is never stale.
   const selectedRef = useRef(selected)
   selectedRef.current = selected
-  // The step-4 re-check line: every eligibility answer after the first is a
-  // re-check (a settings or files change, or a retry), and the line says
-  // what changed in the runnable set, or that nothing did. An answer is a
-  // new `cards` array from the adapter (its state is set once per answer);
-  // the adapter's initial empty array is not an answer.
+  // The step-4 re-check line. An answer is a new `cards` array from the
+  // adapter (its state is set once per answer; its initial empty array is
+  // not one). An answer after the first, to a request the USER caused (a
+  // decision-day or extra-inputs change, `recheckAsks`), gets a line saying
+  // what changed in the runnable set, or that nothing did. An answer nobody
+  // asked for (the sticky settings landing after the first answer on
+  // arrival) just becomes the new baseline. A files change is not a
+  // re-check here: it nulls the validation, which unmounts this frame, so
+  // the next answer is a first answer again.
   const initialCards = useRef(cards)
   const answeredKeys = useRef<string[] | null>(null)
+  const answeredAsks = useRef(recheckAsks.current)
   const [recheckResult, setRecheckResult] = useState<string | null>(null)
+
+  // A new request clears the last line (it described the previous one).
+  useEffect(() => {
+    if (loading && answeredKeys.current !== null) setRecheckResult(null)
+  }, [loading])
+
+  // A re-check that fails while a list is on screen says so: the list keeps
+  // the last answer, which may no longer match the settings.
+  useEffect(() => {
+    if (error !== null && answeredKeys.current !== null) setRecheckResult(recheckFailedLine(error))
+  }, [error])
 
   useEffect(() => {
     onCards(cards)
     if (cards !== initialCards.current) {
       const keys = runnableCards(cards).map(card => card.key)
-      if (answeredKeys.current !== null) setRecheckResult(recheckLine(answeredKeys.current, keys))
+      const asked = recheckAsks.current !== answeredAsks.current
+      setRecheckResult(
+        answeredKeys.current !== null && asked ? recheckLine(answeredKeys.current, keys) : null,
+      )
       answeredKeys.current = keys
+      answeredAsks.current = recheckAsks.current
     }
     // ITEM-2: a settings change re-checks eligibility; the selection keeps
     // the methods that still fit, and the ones that stopped being eligible
@@ -316,6 +342,10 @@ export function ChooseMethodsPage() {
   const [runError, setRunError] = useState<string | null>(null)
   const [runNotice, setRunNotice] = useState<string | null>(null)
   const creating = useRef(false)
+  /** The user's changes to what the eligibility request reads (the decision
+   *  day, the extra-inputs switch): the picker frame shows a re-check line
+   *  only for answers the user asked for. */
+  const recheckAsks = useRef(0)
   const settingsAnchor = useRef<HTMLDivElement | null>(null)
   useDocumentTitle('Choose the methods and settings')
   /** A short shell window collapses the summary + settings cards by
@@ -350,6 +380,9 @@ export function ChooseMethodsPage() {
   const covariates = patients === null ? null : buildCovariates(patients.inspection)
 
   const change = (next: RunSettings): void => {
+    if (next.decision_day !== settings.decision_day || next.covariates !== settings.covariates) {
+      recheckAsks.current += 1
+    }
     setSettingsPatch(current => ({ ...(current ?? {}), ...diffPatch(next, settings) }))
     // demo-mode ITEM-6: the demo never writes the shared-pool sticky row
     // (the recorded setup is the one setup; the run carries its own).
@@ -605,6 +638,7 @@ export function ChooseMethodsPage() {
                   onCards={setCards}
                   onChangeFiles={() => setChangeOpen(true)}
                   onChangeSettings={onChangeSettings}
+                  recheckAsks={recheckAsks}
                   demo={isDemo}
                 />
               )}

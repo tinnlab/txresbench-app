@@ -1476,4 +1476,69 @@ describe('step-4 review fixes: the preset action and the re-check line', () => {
       screen.getByTestId('txr-method-preset-recommended').getAttribute('aria-pressed'),
     ).toBe('true')
   })
+
+  /** Pick a Segmented option (the kit commits on pointer down + click). */
+  async function pick(testId: string): Promise<void> {
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId(testId), { button: 0, pointerType: 'mouse' })
+      fireEvent.click(screen.getByTestId(testId))
+      await Promise.resolve()
+    })
+    await settle()
+  }
+
+  it('a failed re-check says so; the previous "Checked again" line never comes back', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+    await pick('txr-run-settings-decision-day-opt-28')
+    const status = () => screen.getByTestId('txr-method-recheck-result').textContent
+    expect(status()).toBe('Checked again: the same 2 methods can run.')
+
+    api.eligibility.mockRejectedValueOnce(new Error('eligibility down'))
+    const callsBefore = api.eligibility.mock.calls.length
+    await pick('txr-run-settings-decision-day-opt-84')
+    expect(api.eligibility.mock.calls.length).toBe(callsBefore + 1)
+    expect(status()).toBe('Could not check again: eligibility down. The list shows the last answer.')
+    // The list is still the last answer's.
+    expect(screen.getByTestId('txr-method-card-direct-on')).toBeTruthy()
+
+    // The next re-check that works replaces the failure line.
+    await pick('txr-run-settings-decision-day-opt-42')
+    expect(status()).toBe('Checked again: the same 2 methods can run.')
+  })
+
+  it('no "Checked again" line on arrival when the sticky settings land after the first answer', async () => {
+    let releaseConfig: (value: unknown) => void = () => {}
+    api.getConfig.mockReturnValueOnce(
+      new Promise(resolve => {
+        releaseConfig = resolve
+      }),
+    )
+    seedStore()
+    renderPage()
+    await settle()
+    // The first answer is for the defaults (the sticky GET is in flight).
+    expect(api.eligibility.mock.calls.length).toBe(1)
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
+
+    // The sticky config turns the extra inputs on: a second request nobody
+    // asked for. Its answer is the new baseline, not a re-check line.
+    await act(async () => {
+      releaseConfig(stickyConfig)
+      await Promise.resolve()
+    })
+    await settle()
+    await settle()
+    expect(api.eligibility.mock.calls.length).toBe(2)
+    expect(api.eligibility.mock.calls[1][0].inventory.covariates.length).toBe(1)
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
+
+    // A change the user makes still gets its line.
+    await pick('txr-run-settings-decision-day-opt-28')
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe(
+      'Checked again: the same 2 methods can run.',
+    )
+  })
 })

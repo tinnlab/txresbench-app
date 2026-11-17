@@ -216,6 +216,13 @@ export function recheckLine(
   return `Checked again: ${methodCount(after.size)} can run (was ${before.size}).`
 }
 
+/** The line after a re-check that FAILED while a list is on screen: the
+ *  list still shows the last answer, which may not match the settings. */
+export function recheckFailedLine(error: string): string {
+  const reason = error.trim().replace(/\.+$/, '')
+  return `Could not check again: ${reason}. The list shows the last answer.`
+}
+
 /** The picker's sort (recommended keeps the recommendation's order). */
 export function sortCards(
   cards: ReadonlyArray<TxrMethodCard>,
