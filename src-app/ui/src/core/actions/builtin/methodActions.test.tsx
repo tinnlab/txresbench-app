@@ -196,6 +196,47 @@ describe('methods.applyPreset (step-4 fix)', () => {
     expect(gated).toEqual({ meta: getActionMeta('methods.applyPreset'), viewId })
   })
 
+  it('is refused while the method list has not loaded (first load, failed first load); the selection is untouched', async () => {
+    const changes: ReadonlySet<string>[] = []
+    const view = (loading: boolean, error: string | null, cards: TxrMethodCard[]) => (
+      <TxrMethodPicker
+        cards={cards}
+        loading={loading}
+        error={error}
+        onRetry={() => {}}
+        selected={new Set()}
+        onSelectionChange={next => changes.push(next)}
+        onChangeFiles={() => {}}
+        onChangeSettings={() => {}}
+      />
+    )
+    const { rerender } = render(view(true, null, []))
+    const viewId = liveViewId()
+    const describe = async () =>
+      (await runAction('view.describe', { view_id: viewId })) as Record<string, unknown>
+
+    expect(await describe()).toMatchObject({ loading: true, load_error: null, runnable_count: 0 })
+    await expect(
+      runAction('methods.applyPreset', { view_id: viewId, preset: 'all' }),
+    ).rejects.toThrow('UNAVAILABLE: the method list has not loaded yet')
+
+    rerender(view(false, 'eligibility down', []))
+    expect(await describe()).toMatchObject({ loading: false, load_error: 'eligibility down' })
+    await expect(
+      runAction('methods.applyPreset', { view_id: viewId, preset: 'all' }),
+    ).rejects.toThrow('UNAVAILABLE: the method list has not loaded yet (eligibility down)')
+    expect(changes).toEqual([])
+
+    // Loaded: the action runs.
+    rerender(view(false, null, CARDS))
+    expect(await describe()).toMatchObject({ loading: false, load_error: null, runnable_count: 3 })
+    await act(async () => {
+      await runAction('methods.applyPreset', { view_id: viewId, preset: 'all' })
+    })
+    expect(changes.length).toBe(1)
+    expect([...changes[0]].sort()).toEqual(['m1', 'm2', 'm3'])
+  })
+
   it('rejects a bad preset and a gone picker', async () => {
     await expect(
       runAction('methods.applyPreset', { view_id: 'nope', preset: 'everything' }),

@@ -151,12 +151,22 @@ const STATUS_EMPTY: CSSProperties = {
 }
 
 /** What the picker instance reports to the action registry (`view.describe`,
- *  `views.list`): the pressed preset and the counts. */
+ *  `views.list`): the pressed preset, the counts, and whether the method list
+ *  is there yet (`loading` during the first load, `load_error` when that
+ *  load failed; the preset action is refused in both states). */
 type TxrMethodPickerSnapshot = {
   preset: TxrMethodPreset | 'custom'
   selected_count: number
   runnable_count: number
+  loading: boolean
+  load_error: string | null
 }
+
+/** The preset action's refusal while the method list is not there yet (the
+ *  first load, or a first load that failed). The preset buttons are hidden
+ *  then; a preset applied to an empty list would select nothing and stop the
+ *  page's recommended selection on arrival. */
+export const TXRMETHOD_LIST_UNAVAILABLE = 'UNAVAILABLE: the method list has not loaded yet'
 
 /** A fresh `view_id` for one mounted picker (never reused). */
 function newViewId(): string {
@@ -264,7 +274,10 @@ export function TxrMethodPicker({
   const reasonGroupsList = useMemo(() => reasonGroups(cards), [cards])
   const preset = activePreset(selected, cards, chosenPreset)
   const filterActive = query.trim() !== '' || familyFilter.size > 0
-
+  // The first load and a failed first load: no list, no presets (the
+  // toolbar is not rendered) and the preset action is refused.
+  const firstLoad = loading && cards.length === 0
+  const firstError = error !== null && cards.length === 0
   // The picker as an AI-controllable instance (`methods.applyPreset`,
   // `core/actions/builtin/methodActions.ts`): one `view_id` per mounted
   // picker, its snapshot versioned so every selection change, whoever made
@@ -274,13 +287,23 @@ export function TxrMethodPicker({
     preset,
     selected_count: runnable.filter(card => selected.has(card.key)).length,
     runnable_count: runnable.length,
+    loading: firstLoad,
+    load_error: firstError ? error : null,
   }
   const [versioned] = useState(() => createVersioned(viewId, snapshot))
-  const stamped = useRef({ selected, cards, chosenPreset })
+  const stamped = useRef({ selected, cards, chosenPreset, firstLoad, firstError })
   useEffect(() => {
     const last = stamped.current
-    if (last.selected === selected && last.cards === cards && last.chosenPreset === chosenPreset) return
-    stamped.current = { selected, cards, chosenPreset }
+    if (
+      last.selected === selected &&
+      last.cards === cards &&
+      last.chosenPreset === chosenPreset &&
+      last.firstLoad === firstLoad &&
+      last.firstError === firstError
+    ) {
+      return
+    }
+    stamped.current = { selected, cards, chosenPreset, firstLoad, firstError }
     versioned.set(snapshot)
   })
 
@@ -302,13 +325,26 @@ export function TxrMethodPicker({
     const keys = presetSelection(value, cards)
     setChosenPreset(value)
     onSelectionChange(new Set(keys))
-    return { preset: value, selected_count: keys.length, runnable_count: runnable.length }
+    return {
+      preset: value,
+      selected_count: keys.length,
+      runnable_count: runnable.length,
+      loading: false,
+      load_error: null,
+    }
   }
 
   useAction(viewId, {
     type: TXR_METHOD_PICKER_CONTEXT,
     handlers: {
-      [METHODS_APPLY_PRESET]: params => applyPreset((params as { preset: TxrMethodPreset }).preset),
+      [METHODS_APPLY_PRESET]: params => {
+        // The buttons are not on screen until the list has loaded; the
+        // action is refused the same way (it would select nothing and stop
+        // the page's recommended seed).
+        if (firstLoad) throw new Error(TXRMETHOD_LIST_UNAVAILABLE)
+        if (firstError) throw new Error(`${TXRMETHOD_LIST_UNAVAILABLE} (${error})`)
+        return applyPreset((params as { preset: TxrMethodPreset }).preset)
+      },
     },
     getSnapshot: () => versioned.snapshot(),
   })
@@ -354,8 +390,6 @@ export function TxrMethodPicker({
     { value: 'none', label: 'None' },
   ]
 
-  const firstLoad = loading && cards.length === 0
-  const firstError = error !== null && cards.length === 0
 
   // The toolbar (the page may pin it OUTSIDE the list's scroll region): the
   // first-load and first-error states have no toolbar (the old early-return

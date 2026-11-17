@@ -51,6 +51,10 @@ import { ChooseMethodsPage } from './ChooseMethodsPage'
 import { RUN_CONFIG_DEBOUNCE_MS } from '../data/useRunConfig'
 import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import { DEMO_DISABLED_REASON, DEMO_SETTINGS_NOTE } from '@/modules/demo/copy'
+import { runAction } from '@/core/actions/defineAction'
+import { instancesOfType } from '@/core/actions/instanceRegistry'
+import '@/core/actions/builtin/methodActions'
+import '@/core/actions/builtin/worldModel'
 
 // jsdom has no working PointerEvent constructor; Base UI's controls (the
 // kit Switch/Segmented/Select) construct one on pointer interaction, which
@@ -1431,5 +1435,45 @@ describe('step-4 fix: only the step line and the title are fixed; everything els
     } finally {
       proto.scrollIntoView = saved
     }
+  })
+})
+
+describe('step-4 review fixes: the preset action and the re-check line', () => {
+  it('methods.applyPreset is refused while the list is still loading, and the recommended seed still happens', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    let release: (value: unknown) => void = () => {}
+    api.eligibility.mockReturnValueOnce(
+      new Promise(resolve => {
+        release = resolve
+      }),
+    )
+    seedStore()
+    renderPage()
+    await settle()
+    expect(screen.getByTestId('txr-method-loading')).toBeTruthy()
+    const live = instancesOfType('txr.method-picker')
+    expect(live.length).toBe(1)
+
+    // The usual AI sequence: navigate, views.list, invoke at once.
+    let failure: unknown = null
+    await act(async () => {
+      try {
+        await runAction('methods.applyPreset', { view_id: live[0].id, preset: 'all' })
+      } catch (err) {
+        failure = err
+      }
+    })
+    expect(String(failure)).toContain('UNAVAILABLE: the method list has not loaded yet')
+
+    await act(async () => {
+      release(eligibility())
+      await Promise.resolve()
+    })
+    await settle()
+    // The arrival seed was not stopped: the recommendation is ticked.
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
+    expect(
+      screen.getByTestId('txr-method-preset-recommended').getAttribute('aria-pressed'),
+    ).toBe('true')
   })
 })

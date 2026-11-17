@@ -17,7 +17,12 @@ import {
 // `useAction` under the type `txr.method-picker` and declares the same page
 // context while it is mounted (`useActiveContext`). The palette offers the
 // action against that live picker; the AI finds the `view_id` with
-// `views.list`. The preset buttons call the same handler.
+// `views.list`. The preset buttons call the same handler. Until the
+// picker's method list has loaded (the first load, or a first load that
+// failed) the buttons are not on screen and the handler refuses with
+// `UNAVAILABLE` (the snapshot's `loading` / `load_error` say why): a preset
+// applied to an empty list would select nothing and stop the page's
+// recommended selection.
 //
 // `stateful: false`: a preset REPLACES the selection with its own set, so the
 // result does not depend on the selection the caller last read, and no
@@ -42,7 +47,7 @@ defineAction({
   context: TXR_METHOD_PICKER_CONTEXT,
   group: 'Analysis',
   description:
-    'On the choose-methods page, select the methods of one preset: recommended, all that can run, fast only (under 1 min each), or none. It replaces the current selection.',
+    'On the choose-methods page, select the methods of one preset: recommended, all that can run, fast only (under 1 min each), or none. It replaces the current selection. Refused until the method list has loaded.',
   aliases: [
     'select recommended methods',
     'select all methods',

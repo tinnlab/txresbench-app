@@ -182,7 +182,7 @@
       "stateful": false,
       "permission": "mcp::use",
       "group": "Analysis",
-      "description": "On the choose-methods page, select the methods of one preset: recommended, all that can run, fast only (under 1 min each), or none. It replaces the current selection.",
+      "description": "On the choose-methods page, select the methods of one preset: recommended, all that can run, fast only (under 1 min each), or none. It replaces the current selection. Refused until the method list has loaded.",
       "aliases": [
         "select recommended methods",
         "select all methods",
