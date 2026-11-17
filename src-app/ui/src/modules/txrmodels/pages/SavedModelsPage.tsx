@@ -85,6 +85,7 @@ import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
 import { countSelected, formatTotalTime, TxrSelectList, type TxrListSection } from '@/modules/txrlist'
 import { predictFilesPath, runningPath } from '@/modules/txrrun'
 import { Alert, Button } from '@txresbench/kit'
+import { runAction } from '@/core/actions/defineAction'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
@@ -103,6 +104,14 @@ import type { TxrModelDialogId, TxrModelSortId } from '../types'
 import { TxrModelDetailsDialog } from '../components/TxrModelDetailsDialog'
 import { TxrRenameSetDialog } from '../components/TxrRenameSetDialog'
 import { TxrDeleteSetDialog } from '../components/TxrDeleteSetDialog'
+import { TxrModelsEmptyState, TxrModelsNoneCanRun } from '../components/TxrModelsEmptyState'
+import { usePretrainedEligibility } from '../data/usePretrainedEligibility'
+import {
+  noSavedCanRunLine,
+  noSavedMessage,
+  SAVED_FILTERED_EMPTY,
+  type TxrModelListFacts,
+} from '../lib/emptyState'
 
 /** The page's flex spine (the frame fills the routed area). */
 const PAGE_OUTER: CSSProperties = {
@@ -575,6 +584,52 @@ export function SavedModelsPage() {
   // apply). ────────────────────────────────────────────────────────────────
   const totals = eligibility.totals
 
+  // ── The other list, for the empty and none-can-run messages (part of the
+  // step's dynamic messages): the published models and their verdicts for
+  // this file, loaded only when a message needs them. ───────────────────────
+  const savedSettled = saved.loaded && !saved.loading
+  /** The saved list loaded and holds no model (never before the first load). */
+  const noSaved =
+    validation !== null && savedSettled && saved.error === null && saved.summaries.length === 0
+  /** The saved verdicts answer every saved model (the totals cover the whole list). */
+  const savedVerdictsReady =
+    totals !== null &&
+    !eligibility.loading &&
+    eligibility.error === null &&
+    totals.fit + totals.some + totals.cannot === saved.summaries.length
+  const noSavedCanRun =
+    validation !== null &&
+    savedSettled &&
+    saved.summaries.length > 0 &&
+    savedVerdictsReady &&
+    totals.fit + totals.some === 0
+  const needPublished = noSaved || noSavedCanRun
+  const published = useStore(useTxrModelsStore, s => s.pretrained)
+  useEffect(() => {
+    if (needPublished) void useTxrModelsStore.getState().loadPretrained()
+  }, [needPublished])
+  const publishedIds = useMemo(() => published.cards.map(card => card.id), [published.cards])
+  const publishedSettled = published.loaded && !published.loading
+  const publishedVerdicts = usePretrainedEligibility(
+    needPublished && publishedSettled ? (validation?.inventory ?? null) : null,
+    publishedIds,
+  )
+  const publishedResponse = publishedVerdicts.response
+  const publishedFacts: TxrModelListFacts = {
+    failed: published.error !== null || publishedVerdicts.error !== null,
+    total: publishedSettled ? published.cards.length : null,
+    canRun: !publishedSettled
+      ? null
+      : published.cards.length === 0
+        ? 0
+        : publishedResponse !== null &&
+            !publishedVerdicts.loading &&
+            publishedResponse.total_fit + publishedResponse.total_some + publishedResponse.total_cannot ===
+              published.cards.length
+          ? publishedResponse.total_fit + publishedResponse.total_some
+          : null,
+  }
+
   // ── The ITEM-3 frame composition ─────────────────────────────────────────
   // The audit route table's row for the I route: fixed top = step + title +
   // the checked-against line + the totals + the use-example action + the
@@ -631,6 +686,12 @@ export function SavedModelsPage() {
           kind="models"
           count={demoUsage.usage?.models ?? null}
           limit={demoUsage.usage?.model_limit ?? 50}
+        />
+      ) : null}
+      {toolbar !== null && noSavedCanRun ? (
+        <TxrModelsNoneCanRun
+          line={noSavedCanRunLine(saved.summaries.length, publishedFacts)}
+          testId="txr-models-i-none-can-run"
         />
       ) : null}
       {toolbar !== null ? (
@@ -708,11 +769,34 @@ export function SavedModelsPage() {
               <Button
                 data-testid="txr-models-i-empty-cta"
                 variant="outline"
-                onClick={() => navigate(predictFilesPath())}
+                onClick={() => void runAction('app.navigate', { path: predictFilesPath() })}
               >
                 {EMPTY_CTA}
               </Button>
             </div>,
+          )}
+          bottom={<TxrStepBackBar />}
+        />
+        {dialogs}
+      </main>
+    )
+  }
+
+  // The no-saved branch (the saved list loaded and is empty): the frame, the
+  // message in the region — what the published models hold for this file,
+  // and the way there.
+  if (noSaved) {
+    return (
+      <main data-testid="txr-models-i" style={PAGE_OUTER}>
+        <PageFrame
+          testId="txr-models-i-frame"
+          top={pageTop(null)}
+          body={bodyRegion(
+            <TxrModelsEmptyState
+              message={noSavedMessage(publishedFacts)}
+              testId="txr-models-i-no-saved"
+              onRetry={() => void useTxrModelsStore.getState().loadPretrained({ force: true })}
+            />,
           )}
           bottom={<TxrStepBackBar />}
         />
@@ -739,7 +823,10 @@ export function SavedModelsPage() {
           options: I_SORT_OPTIONS as { value: string; label: string }[],
           onChange: value => useTxrModelsStore.getState().setSort(value as TxrModelSortId),
         }}
-        loading={saved.loading || eligibility.loading}
+        // Not loaded yet (the birth state, before the first fetch) counts as
+        // loading: the list never flashes its empty line before the data.
+        loading={(!saved.loaded && saved.error === null) || saved.loading || eligibility.loading}
+        emptyText={SAVED_FILTERED_EMPTY}
         error={saved.error ?? eligibility.error}
         onRetry={() => {
           void useTxrModelsStore.getState().loadSaved({ force: true })

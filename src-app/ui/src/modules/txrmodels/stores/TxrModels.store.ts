@@ -77,8 +77,8 @@ export const DEFAULT_AT_A_TIME = 3
 
 const BIRTH_STATE: TxrModelsState = {
   inventory: null,
-  pretrained: { cards: [], loading: false, error: null },
-  saved: { summaries: [], sets: [], loading: false, error: null },
+  pretrained: { cards: [], loading: false, error: null, loaded: false },
+  saved: { summaries: [], sets: [], loading: false, error: null, loaded: false },
   eligibility: { byKey: new Map(), totals: null, loading: false, error: null },
   selection: new Set<string>(),
   filters: [],
@@ -220,7 +220,7 @@ const TxrModelsDef = defineStore('TxrModels', {
       try {
         const res = await ApiClient.Pretrained.listModels()
         if (myEpoch !== pretrainedEpoch || runEpoch !== epoch) return
-        set(s => ({ pretrained: { cards: res.models, loading: false, error: null } }))
+        set({ pretrained: { cards: res.models, loading: false, error: null, loaded: true } })
       } catch (error) {
         if (myEpoch !== pretrainedEpoch || runEpoch !== epoch) return
         set(s => ({
@@ -245,9 +245,15 @@ const TxrModelsDef = defineStore('TxrModels', {
           ApiClient.ModelSets.listSets(),
         ])
         if (myEpoch !== savedEpoch || runEpoch !== epoch) return
-        set(s => ({
-          saved: { summaries: modelsRes.models, sets: setsRes.sets, loading: false, error: null },
-        }))
+        set({
+          saved: {
+            summaries: modelsRes.models,
+            sets: setsRes.sets,
+            loading: false,
+            error: null,
+            loaded: true,
+          },
+        })
       } catch (error) {
         if (myEpoch !== savedEpoch || runEpoch !== epoch) return
         set(s => ({ saved: { ...s.saved, loading: false, error: errorText(error) } }))

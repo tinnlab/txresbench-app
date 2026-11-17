@@ -24,6 +24,8 @@ const NEW_IDS = [
   'features.clearAccountOverride',
   'methods.applyPreset',
   'flow.back',
+  'models.switchList',
+  'flow.startPath',
 ]
 
 // owning module.tsx → the builtin file it must side-effect-import

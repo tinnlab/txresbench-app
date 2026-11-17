@@ -56,6 +56,8 @@ export interface UsePretrainedResult {
   loading: boolean
   /** The fetch failure message, `null` when healthy. */
   error: string | null
+  /** The list loaded at least once (false at birth, before the first fetch). */
+  loaded: boolean
   /** Re-issue the list request (`{force: true}` — the retry path). */
   refetch: () => void
 }
@@ -76,7 +78,13 @@ export function usePretrained(): UsePretrainedResult {
   const refetch = useCallback((): void => {
     void useTxrModelsStore.getState().loadPretrained({ force: true })
   }, [])
-  return { cards: slice.cards, loading: slice.loading, error: slice.error, refetch }
+  return {
+    cards: slice.cards,
+    loading: slice.loading,
+    error: slice.error,
+    loaded: slice.loaded,
+    refetch,
+  }
 }
 
 /**

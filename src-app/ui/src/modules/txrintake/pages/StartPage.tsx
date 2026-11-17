@@ -5,10 +5,10 @@ import { Button } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
-import { TxrIntake } from '../stores/TxrIntake.store'
 import { useRunnableMethodCount } from '../data/useRunnableMethodCount'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
 import { beginPath } from '../lib/stepTrail'
+import { runAction } from '@/core/actions/defineAction'
 import { useAppMode } from '@/modules/demo'
 import { DEMO_START_HINT, DEMO_START_PRIMARY } from '@/modules/demo/copy'
 import type { IntakeIntent } from '../types'
@@ -278,18 +278,11 @@ export function StartPage() {
     beginPath('/')
   }, [])
 
-  /** The card path picker: set the intent, then start the flow it leads to. */
-  const pickPath = useCallback(
-    (intent: IntakeIntent) => {
-      TxrIntake.setIntent(intent)
-      if (intent === 'train') {
-        navigate(STUDY_ROUTE)
-      } else {
-        navigate(PREDICT_FILES_ROUTE)
-      }
-    },
-    [navigate],
-  )
+  /** The card path picker: the registered `flow.startPath` sets the intent,
+   *  then starts the flow it leads to (train → B, the predict paths → N). */
+  const pickPath = useCallback((intent: IntakeIntent) => {
+    void runAction('flow.startPath', { intent })
+  }, [])
 
   /** The "Use example" landing (qa-fixes3 ITEM-4): one click to the file
    *  step with the flow filled — the file screen's own flow then validates

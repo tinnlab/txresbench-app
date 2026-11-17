@@ -79,8 +79,8 @@ import { predictFilesPath, runningPath } from '@/modules/txrrun'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
-import { modelsPath } from '../routes'
 import { Alert, Button } from '@txresbench/kit'
+import { runAction } from '@/core/actions/defineAction'
 import { usePretrained } from '../data/usePretrained'
 import { usePretrainedEligibility } from '../data/usePretrainedEligibility'
 import { useDownloadState } from '../data/useDownloadState'
@@ -92,6 +92,12 @@ import { DOWNLOAD_POLL_MS, useTxrModelsStore } from '../stores/TxrModels.store'
 import type { TxrModelDialogId, TxrModelFilterId, TxrModelSortId } from '../types'
 import { TxrDownloadState } from '../components/TxrDownloadState'
 import { TxrModelCardDialog } from '../components/TxrModelCardDialog'
+import { TxrModelsEmptyState, TxrModelsNoneCanRun } from '../components/TxrModelsEmptyState'
+import {
+  noPublishedCanRunLine,
+  noPublishedMessage,
+  type TxrModelListFacts,
+} from '../lib/emptyState'
 
 /** The page's flex spine (the frame fills the routed area). */
 const PAGE_OUTER: CSSProperties = {
@@ -337,7 +343,13 @@ export function PretrainedModelsPage() {
   // and a Run replays the recorded results of the card's method.
   const { isDemo } = useAppMode()
 
-  const { cards, loading: cardsLoading, error: cardsError, refetch } = usePretrained()
+  const {
+    cards,
+    loading: cardsLoading,
+    error: cardsError,
+    loaded: cardsLoaded,
+    refetch,
+  } = usePretrained()
   const {
     response,
     loading: eligLoading,
@@ -439,6 +451,54 @@ export function PretrainedModelsPage() {
   )
 
   const totals = response
+
+  // ── The other list, for the empty and none-can-run messages (part of the
+  // step's dynamic messages): the saved models and their verdicts for this
+  // file, loaded only when a message needs them. ─────────────────────────────
+  const storeInventory = useStore(useTxrModelsStore, s => s.inventory)
+  const saved = useStore(useTxrModelsStore, s => s.saved)
+  const savedVerdicts = useStore(useTxrModelsStore, s => s.eligibility)
+  /** The published catalogue loaded and holds no model (never before the first load). */
+  const noCatalogue =
+    validation !== null && cardsLoaded && !cardsLoading && cardsError === null && cards.length === 0
+  /** The published verdicts answer the whole catalogue (the totals cover every card). */
+  const publishedVerdictsReady =
+    response !== null &&
+    !eligLoading &&
+    eligError === null &&
+    response.total_fit + response.total_some + response.total_cannot === cards.length
+  const noPublishedCanRun =
+    validation !== null &&
+    cards.length > 0 &&
+    publishedVerdictsReady &&
+    response.total_fit + response.total_some === 0
+  const needSaved = noCatalogue || noPublishedCanRun
+  const savedIds = useMemo(() => saved.summaries.map(model => model.id), [saved.summaries])
+  useEffect(() => {
+    if (needSaved) void useTxrModelsStore.getState().loadSaved()
+  }, [needSaved])
+  useEffect(() => {
+    if (needSaved && saved.loaded) void useTxrModelsStore.getState().loadEligibility(savedIds)
+  }, [needSaved, saved.loaded, savedIds, storeInventory])
+  const savedSettled = saved.loaded && !saved.loading
+  const savedTotals = savedVerdicts.totals
+  const savedFacts: TxrModelListFacts = {
+    failed: saved.error !== null || savedVerdicts.error !== null,
+    total: savedSettled ? saved.summaries.length : null,
+    canRun: !savedSettled
+      ? null
+      : saved.summaries.length === 0
+        ? 0
+        : savedTotals !== null &&
+            !savedVerdicts.loading &&
+            savedTotals.fit + savedTotals.some + savedTotals.cannot === saved.summaries.length
+          ? savedTotals.fit + savedTotals.some
+          : null,
+  }
+  const retrySaved = useCallback((): void => {
+    void useTxrModelsStore.getState().loadSaved({ force: true })
+    void useTxrModelsStore.getState().loadEligibility(savedIds, { force: true })
+  }, [savedIds])
 
   /** The downloads strip's entries: each card with a live/failed download
    *  (a `ready` entry leaves the strip — the asset is verified, the Run is
@@ -643,6 +703,12 @@ export function PretrainedModelsPage() {
           </span>
         ) : null}
       </div>
+      {toolbar !== null && noPublishedCanRun ? (
+        <TxrModelsNoneCanRun
+          line={noPublishedCanRunLine(cards.length, savedFacts)}
+          testId="txr-models-d-none-can-run"
+        />
+      ) : null}
       {toolbar !== null ? (
         <div className="txr-models-d-toolbar" data-testid="txr-models-d-toolbar" style={TOOLBAR_SLOT}>
           {toolbar}
@@ -677,40 +743,20 @@ export function PretrainedModelsPage() {
   )
 
   // The no-catalogue branch (a published catalogue with no cards yet): the
-  // same frame, its own content in the region.
-  if (validation !== null && cards.length === 0 && !cardsLoading && cardsError === null) {
+  // same frame, its own content in the region — what your saved models hold
+  // for this file, and the way there.
+  if (noCatalogue) {
     return (
       <main data-testid="txr-models-d" style={PAGE_OUTER}>
         <PageFrame
           testId="txr-models-d-frame"
           top={pageTop(null)}
           body={bodyRegion(
-            <div
-              data-testid="txr-models-d-no-catalogue"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 12,
-                alignItems: 'flex-start',
-                padding: '24px 0',
-              }}
-            >
-              <p style={{ margin: 0, fontSize: 15.5, color: 'var(--txr-text-2)', fontWeight: 600 }}>
-                No published models are available yet.
-              </p>
-              <p style={CHECK_LINE}>
-                The benchmark&rsquo;s published models arrive with its releases and appear here.
-                Until then, models you trained yourself are in Your models &mdash; from your own
-                analyses, or opened from a file.
-              </p>
-              <Button
-                data-testid="txr-models-d-no-catalogue-cta"
-                variant="outline"
-                onClick={() => navigate(modelsPath())}
-              >
-                Go to Your models
-              </Button>
-            </div>,
+            <TxrModelsEmptyState
+              message={noPublishedMessage(savedFacts)}
+              testId="txr-models-d-no-catalogue"
+              onRetry={retrySaved}
+            />,
           )}
           bottom={<TxrStepBackBar />}
         />
@@ -748,7 +794,7 @@ export function PretrainedModelsPage() {
               <Button
                 data-testid="txr-models-d-empty-cta"
                 variant="outline"
-                onClick={() => navigate(predictFilesPath())}
+                onClick={() => void runAction('app.navigate', { path: predictFilesPath() })}
               >
                 {EMPTY_CTA}
               </Button>
@@ -777,7 +823,9 @@ export function PretrainedModelsPage() {
           options: D_SORT_OPTIONS as { value: string; label: string }[],
           onChange: value => useTxrModelsStore.getState().setSort(value as TxrModelSortId),
         }}
-        loading={cardsLoading || eligLoading}
+        // Not loaded yet (the birth state, before the first fetch) counts as
+        // loading: the list never flashes its empty line before the data.
+        loading={(!cardsLoaded && cardsError === null) || cardsLoading || eligLoading}
         error={cardsError ?? eligError}
         onRetry={() => {
           refetch()
