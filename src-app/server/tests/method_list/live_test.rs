@@ -113,8 +113,10 @@ async fn live_list_from_loopback_registry_verified_and_served() {
     assert_eq!(body["method_list_sequence"], sequence);
     assert!(body["methods"].as_array().unwrap().iter().any(|m| m["id"] == ADDED_METHOD));
 
-    // The registry was asked for the moving tag, then the list by its digest.
+    // The registry was asked for the moving tag, the artifact's manifest, then the list by
+    // its digest.
     let calls = registry_calls(server.data_dir());
+    assert!(calls.lines().any(|l| l.starts_with("manifest fetch")), "{calls}");
     let pull = calls.lines().find(|l| l.starts_with("pull")).expect("a pull");
     assert!(pull.contains("txresbench-method-list@sha256:"), "{pull}");
     assert!(pull.contains("--plain-http"), "a loopback registry: {pull}");

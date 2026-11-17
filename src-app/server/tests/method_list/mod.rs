@@ -32,7 +32,8 @@ pub fn fixture_pub() -> PathBuf {
 }
 
 /// The stand-in `oras`: it serves the method list package from `<data_dir>/registry/`
-/// (resolve → the `digest` file; pull → copy the two files into `-o`), records every call
+/// (resolve → the `digest` file; manifest fetch → the two files' layers with their sizes;
+/// pull → copy the two files into `-o`), records every call
 /// in `registry/calls.txt`, and fails everything else after `ENV_DELAY_SECS` (so an env
 /// download is slow, then refused).
 pub fn oras_stub() -> (String, Vec<u8>, bool) {
@@ -47,6 +48,9 @@ pub fn oras_stub() -> (String, Vec<u8>, bool) {
         if [ \"$1\" = resolve ]; then\n\
         \x20 [ -f \"$reg/digest\" ] || { echo 'not found' >&2; exit 1; }\n\
         \x20 cat \"$reg/digest\"; exit 0\n\
+        fi\n\
+        if [ \"$1\" = manifest ]; then\n\
+        \x20 printf '{\"schemaVersion\":2,\"layers\":[{\"size\":%s,\"annotations\":{\"org.opencontainers.image.title\":\"method-list.json\"}},{\"size\":%s,\"annotations\":{\"org.opencontainers.image.title\":\"method-list.json.minisig\"}}]}' $(wc -c < \"$reg/method-list.json\") $(wc -c < \"$reg/method-list.json.minisig\"); exit 0\n\
         fi\n\
         if [ \"$1\" = pull ]; then\n\
         \x20 out=''; prev=''\n\

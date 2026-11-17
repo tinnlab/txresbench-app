@@ -12,8 +12,12 @@
 //! cleared environment (PATH, HOME, proxies, CA bundle). GHCR answers every blob GET with a
 //! redirect to `pkg-containers.githubusercontent.com`, so the two hosts a firewall must allow
 //! are the env downloads' two. The pull is capped while it runs: past the 16 MiB list cap the
-//! child is killed (`METHOD_LIST_TOO_LARGE`), the bytes are never read whole. The pulled
-//! folder must hold exactly the two files, as regular files; both are read capped.
+//! child is killed (`METHOD_LIST_TOO_LARGE`), the bytes are never read whole. Before the
+//! pull, the artifact's manifest (`oras manifest fetch`, a few hundred bytes, capped) must
+//! name exactly the two files, by those names, within their caps and not as a folder to
+//! unpack: an artifact that would bring anything else is refused without being pulled (and
+//! its digest remembered). The pulled folder must then hold exactly the two files, as
+//! regular files; both are read capped.
 //!
 //! Debug-only seams (a release build never reads either variable):
 //! - `TXR_METHOD_LIST_REF=<host>[:<port>]/<path>:<tag>` replaces the reference. A loopback
@@ -134,27 +138,18 @@ fn is_loopback(host_port: &str) -> bool {
     matches!(host, "127.0.0.1" | "localhost" | "::1")
 }
 
-/// The reference this build fetches: production, or the debug seam.
-pub fn list_ref() -> Result<ListRef, String> {
-    list_ref_with(&|k| std::env::var(k).ok(), cfg!(debug_assertions))
-}
-
-/// The pure core of [`list_ref`]: `debug` is the build's own flag, passed in so the release
-/// half is tested too.
-pub(crate) fn list_ref_with(read: &impl Fn(&str) -> Option<String>, debug: bool) -> Result<ListRef, String> {
+/// The reference a build fetches: production, or the debug seam. `read` is the
+/// environment and `debug` the build's own flag (`cfg!(debug_assertions)`), passed in so
+/// the release half is tested too (`runtime::production_seams` passes the real ones).
+pub fn list_ref_with(read: &impl Fn(&str) -> Option<String>, debug: bool) -> Result<ListRef, String> {
     match read(LIST_REF_ENV).filter(|v| debug && !v.trim().is_empty()) {
         Some(v) => ListRef::parse_seam(&v),
         None => Ok(ListRef::production()),
     }
 }
 
-/// The debug seam's extra trusted key file, if this build honours one.
-pub fn test_key_path() -> Option<PathBuf> {
-    test_key_path_with(&|k| std::env::var(k).ok(), cfg!(debug_assertions))
-}
-
-/// The pure core of [`test_key_path`].
-pub(crate) fn test_key_path_with(read: &impl Fn(&str) -> Option<String>, debug: bool) -> Option<PathBuf> {
+/// The debug seam's extra trusted key file, if the build honours one (as [`list_ref_with`]).
+pub fn test_key_path_with(read: &impl Fn(&str) -> Option<String>, debug: bool) -> Option<PathBuf> {
     read(TEST_KEY_ENV)
         .filter(|v| debug && !v.trim().is_empty())
         .map(|v| PathBuf::from(v.trim()))
@@ -226,6 +221,70 @@ pub trait ListSource: Send + Sync {
     fn resolve(&self, timeout: Duration) -> Result<String, FetchError>;
     /// The two files of the artifact at `digest`.
     fn pull(&self, digest: &str, timeout: Duration) -> Result<Fetched, FetchError>;
+}
+
+/// The largest manifest the app reads (a list artifact's is a few hundred bytes).
+pub const MAX_MANIFEST_BYTES: usize = 64 * 1024;
+
+/// The OCI annotation naming a layer's file.
+const TITLE_ANNOTATION: &str = "org.opencontainers.image.title";
+/// The annotation oras sets on a layer that is a folder (a tarball it unpacks).
+const UNPACK_ANNOTATION: &str = "io.deis.oras.content.unpack";
+
+/// What a list artifact's manifest must say before anything is pulled: exactly two layers,
+/// titled `method-list.json` and `method-list.json.minisig` (no folder, no path), each within
+/// its cap, neither one a folder to unpack. A refusal is the artifact's fault.
+pub fn check_manifest(text: &str) -> Result<(), FetchError> {
+    let bad = |detail: String| FetchError::BadArtifact { detail };
+    if text.len() > MAX_MANIFEST_BYTES {
+        return Err(bad(format!("the artifact's manifest is over {MAX_MANIFEST_BYTES} bytes")));
+    }
+    let manifest: serde_json::Value =
+        serde_json::from_str(text).map_err(|e| bad(format!("the artifact's manifest is not JSON: {e}")))?;
+    let layers = manifest["layers"]
+        .as_array()
+        .ok_or_else(|| bad("the artifact's manifest lists no layers".to_string()))?;
+    if layers.len() != 2 {
+        return Err(bad(format!(
+            "the artifact holds {} layers, not exactly {LIST_FILE} and {SIGNATURE_FILE}",
+            layers.len()
+        )));
+    }
+    let mut titles = Vec::with_capacity(2);
+    for layer in layers {
+        let annotations = &layer["annotations"];
+        let title = annotations[TITLE_ANNOTATION]
+            .as_str()
+            .ok_or_else(|| bad("a layer of the artifact has no file name".to_string()))?;
+        if !annotations[UNPACK_ANNOTATION].is_null() {
+            return Err(bad(format!("{title:?} in the artifact is a folder to unpack")));
+        }
+        let cap = match title {
+            LIST_FILE => MAX_LIST_BYTES,
+            SIGNATURE_FILE => MAX_SIGNATURE_BYTES,
+            other => {
+                return Err(bad(format!(
+                    "the artifact holds {other:?}, not exactly {LIST_FILE} and {SIGNATURE_FILE}"
+                )))
+            }
+        };
+        let size = layer["size"]
+            .as_u64()
+            .ok_or_else(|| bad(format!("{title} in the artifact has no size")))?;
+        if size > cap as u64 {
+            return Err(if title == LIST_FILE {
+                FetchError::TooLarge
+            } else {
+                bad(format!("{title} in the artifact is over the {cap}-byte cap"))
+            });
+        }
+        titles.push(title);
+    }
+    titles.sort_unstable();
+    if titles != [LIST_FILE, SIGNATURE_FILE] {
+        return Err(bad(format!("the artifact holds {titles:?} twice over")));
+    }
+    Ok(())
 }
 
 /// `sha256:` + 64 lowercase hex.
@@ -304,6 +363,14 @@ impl ListSource for OrasSource {
             });
         }
         let tool = self.oras()?;
+        let started = std::time::Instant::now();
+        // The manifest first: what the pull would bring, checked before a byte is pulled.
+        let mut args = method_env::oras_base_args(&["manifest", "fetch"], &self.seams()).map_err(tool_error)?;
+        args.push(self.list_ref.digest_ref(digest));
+        let manifest = method_env::run_tool(&tool, &args, timeout, &AtomicBool::new(false), None, &mut |_| {})
+            .map_err(tool_error)?;
+        check_manifest(&manifest)?;
+        let timeout = timeout.saturating_sub(started.elapsed());
         let dir = PullDir::create(&self.work_dir)?;
         let mut args = method_env::oras_base_args(&["pull"], &self.seams()).map_err(tool_error)?;
         args.push("-o".to_string());
@@ -423,14 +490,47 @@ mod tests {
 
     const DIGEST: &str = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
 
-    /// A stub that resolves to [`DIGEST`] and pulls by writing `files` (shell lines run with
-    /// `$out` = the -o folder), recording every call's arguments and environment.
+    /// A list artifact's manifest: `(title, size, unpack)` per layer.
+    fn manifest(layers: &[(&str, u64, bool)]) -> String {
+        let layers: Vec<serde_json::Value> = layers
+            .iter()
+            .map(|(title, size, unpack)| {
+                let mut annotations = serde_json::json!({ TITLE_ANNOTATION: title });
+                if *unpack {
+                    annotations[UNPACK_ANNOTATION] = "true".into();
+                }
+                serde_json::json!({
+                    "mediaType": "application/vnd.oci.image.layer.v1.tar",
+                    "digest": DIGEST, "size": size, "annotations": annotations,
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "artifactType": "application/vnd.txresbench.method-list.v1",
+            "layers": layers,
+        })
+        .to_string()
+    }
+
+    fn good_manifest() -> String {
+        manifest(&[(LIST_FILE, 4, false), (SIGNATURE_FILE, 3, false)])
+    }
+
+    /// A stub that resolves to [`DIGEST`], answers `manifest fetch` with `<root>/manifest.json`
+    /// and pulls by writing `files` (shell lines run with `$out` = the -o folder), recording
+    /// every call's arguments and environment.
     fn script(root: &Path, files: &str) -> String {
+        if !root.join("manifest.json").exists() {
+            std::fs::write(root.join("manifest.json"), good_manifest()).unwrap();
+        }
         format!(
             "#!/bin/sh\n\
              echo \"$@\" >> {calls}\n\
              env >> {envs}\n\
              if [ \"$1\" = \"resolve\" ]; then echo {DIGEST}; exit 0; fi\n\
+             if [ \"$1\" = \"manifest\" ]; then cat {manifest}; exit 0; fi\n\
              if [ \"$1\" = \"pull\" ]; then\n\
              \x20 out=\"\"; prev=\"\"\n\
              \x20 for a in \"$@\"; do if [ \"$prev\" = \"-o\" ]; then out=\"$a\"; fi; prev=\"$a\"; done\n\
@@ -440,6 +540,7 @@ mod tests {
              exit 1\n",
             calls = root.join("calls.txt").display(),
             envs = root.join("env.txt").display(),
+            manifest = root.join("manifest.json").display(),
         )
     }
 
@@ -632,6 +733,61 @@ mod tests {
         stub_oras(&root, "#!/bin/sh\necho 'denied' >&2\nexit 1\n");
         let err = source(&root, loopback()).resolve(Duration::from_secs(10)).unwrap_err();
         assert_eq!(err.code(), "METHOD_LIST_UNREACHABLE", "{err}");
+    }
+
+    /// An artifact whose manifest names anything but the two files within their caps is
+    /// refused from the manifest: nothing is pulled, and the refusal is the artifact's fault
+    /// (the runtime remembers its digest).
+    #[cfg(unix)]
+    #[test]
+    fn a_manifest_other_than_the_two_files_is_refused_before_the_pull() {
+        let cases: Vec<(&str, String, &str)> = vec![
+            (
+                "three-layers",
+                manifest(&[(LIST_FILE, 4, false), (SIGNATURE_FILE, 3, false), ("extra.bin", 1, false)]),
+                "METHOD_LIST_BAD_ARTIFACT",
+            ),
+            (
+                "sub-folder",
+                manifest(&[("lists/method-list.json", 4, false), (SIGNATURE_FILE, 3, false)]),
+                "METHOD_LIST_BAD_ARTIFACT",
+            ),
+            (
+                "unpack",
+                manifest(&[(LIST_FILE, 4, true), (SIGNATURE_FILE, 3, false)]),
+                "METHOD_LIST_BAD_ARTIFACT",
+            ),
+            (
+                "list-over-cap",
+                manifest(&[(LIST_FILE, MAX_LIST_BYTES as u64 + 1, false), (SIGNATURE_FILE, 3, false)]),
+                "METHOD_LIST_TOO_LARGE",
+            ),
+            (
+                "many-just-under",
+                manifest(&[(LIST_FILE, MAX_LIST_BYTES as u64, false), (LIST_FILE, MAX_LIST_BYTES as u64, false)]),
+                "METHOD_LIST_BAD_ARTIFACT",
+            ),
+            (
+                "signature-over-cap",
+                manifest(&[(LIST_FILE, 4, false), (SIGNATURE_FILE, MAX_SIGNATURE_BYTES as u64 + 1, false)]),
+                "METHOD_LIST_BAD_ARTIFACT",
+            ),
+            ("not-json", "not a manifest".to_string(), "METHOD_LIST_BAD_ARTIFACT"),
+        ];
+        for (tag, text, code) in cases {
+            let (root, _g) = data_root(&format!("manifest-{tag}"));
+            std::fs::write(root.join("manifest.json"), text).unwrap();
+            stub_oras(&root, &script(&root, two_files()));
+            let err = source(&root, loopback()).pull(DIGEST, Duration::from_secs(10)).unwrap_err();
+            assert_eq!(err.code(), code, "{tag}: {err}");
+            assert!(err.is_artifact_fault(), "{tag}: remembered as the artifact's fault");
+            let calls = std::fs::read_to_string(root.join("calls.txt")).unwrap();
+            assert!(!calls.lines().any(|l| l.starts_with("pull")), "{tag}: nothing pulled: {calls}");
+            let manifest_call = calls.lines().find(|l| l.starts_with("manifest fetch")).expect("asked");
+            assert!(manifest_call.ends_with(&format!("txresbench-method-list@{DIGEST}")), "{manifest_call}");
+        }
+        // The two files within their caps pass.
+        check_manifest(&good_manifest()).expect("the list and its signature");
     }
 
     #[test]
