@@ -24,7 +24,8 @@ Usage:
                           one-method mode (the method list's catalogue in the methods repository,
                           method-list/catalogue.json): rebuild or add one row, reading method.json
                           and gates/<id>.json from the methods repository at the image entries'
-                          source_revision; every other row is carried byte for byte, missing
+                          source_revision (the newest, when the arches were built at several
+                          commits of one method folder); every other row is carried byte for byte, missing
                           vocabulary markers are added, n_methods is recounted; writes --previous
                           in place unless --out is given
         --propose-groups  write `marker-groups.proposed.tsv` with the auto-derived
@@ -913,21 +914,52 @@ def _git_json_at(methods_dir, commit, path):
         raise OnlyModeError(f"ONLY_BAD_JSON: {path} at {commit[:12]} is not valid JSON: {e}") from e
 
 
-def only_revision(mid, images, revision=None):
-    """The methods commit a row is rebuilt at: the image entries' `source_revision` (all of
-    the method's entries must agree), or `--revision` for a method without an image entry.
-    Returns (the revision to read, the entries' revisions)."""
-    revs = sorted({str(e.get("source_revision") or "") for e in (images or {}).get("envs") or []
-                   if e.get("method_id") == mid})
+def _commit_of(methods_dir, rev):
+    p = _git(methods_dir, "rev-parse", "--verify", "--quiet", rev + "^{commit}")
+    commit = p.stdout.decode().strip() if p.returncode == 0 else ""
+    if not re.match(r"^[0-9a-f]{40}$", commit):
+        raise OnlyModeError(f"ONLY_COMMIT_UNKNOWN: commit {rev} is not in the methods repository "
+                            f"{methods_dir} (fetch it)")
+    return commit
+
+
+def only_commit(mid, images, methods_dir, revision=None):
+    """The methods commit a row is rebuilt at (full id).
+
+    - `--revision`: that commit; when the method has image entries it must be one of their
+      `source_revision`s (the row's facts are those its images were built from).
+    - one `source_revision` among the method's entries: that commit.
+    - several (each arch built on its own machine, at its own HEAD) that hold ONE method
+      folder (`source_tree`): the newest of them (the others are its ancestors), so the gate
+      file is the latest; commits not on one line, or different trees, need `--revision`.
+    - no entry: `--revision` is required."""
+    entries = [e for e in (images or {}).get("envs") or [] if e.get("method_id") == mid]
+    revs = sorted({str(e.get("source_revision") or "") for e in entries})
+    trees = sorted({str(e.get("source_tree") or "") for e in entries})
     if revision:
-        return revision, revs
+        commit = _commit_of(methods_dir, revision)
+        if revs and commit[:12] not in revs:
+            raise OnlyModeError(f"ONLY_REVISION_CONFLICT: {mid}'s image entries were built at "
+                                f"{', '.join(revs)}, not at {commit[:12]}: --revision names one of "
+                                "them (the row's facts are those its images were built from)")
+        return commit
     if not revs:
         raise OnlyModeError(f"ONLY_NO_IMAGE_ENTRY: {mid} has no image entry to take its commit "
                             "from; pass --revision <methods commit>")
-    if len(revs) > 1:
-        raise OnlyModeError(f"ONLY_REVISION_AMBIGUOUS: {mid}'s image entries were built at "
-                            f"{', '.join(revs)}; the row needs one commit")
-    return revs[0], revs
+    if len(revs) == 1:
+        return _commit_of(methods_dir, revs[0])
+    if len(trees) != 1 or not trees[0]:
+        raise OnlyModeError(f"ONLY_REVISION_AMBIGUOUS: {mid}'s image entries were built from "
+                            f"different method folders (commits {', '.join(revs)}); pass "
+                            "--revision <one of them>")
+    commits = [_commit_of(methods_dir, r) for r in revs]
+    for c in commits:
+        if all(o == c or _git(methods_dir, "merge-base", "--is-ancestor", o, c).returncode == 0
+               for o in commits):
+            return c
+    raise OnlyModeError(f"ONLY_REVISION_AMBIGUOUS: {mid}'s image entries were built at "
+                        f"{', '.join(revs)}, which are not on one line; pass --revision "
+                        "<one of them>")
 
 
 def build_only(mid, previous, images, methods_dir, registry, marker_groups_tsv, model_warnings_tsv,
@@ -935,16 +967,7 @@ def build_only(mid, previous, images, methods_dir, registry, marker_groups_tsv, 
     """`previous` with the row of `mid` rebuilt (or added) at its own commit, every other row
     carried as it is, vocabulary markers the row needs and the previous catalogue lacks added,
     and every marker's `n_methods` recounted over the rows. Returns (doc, warnings, commit)."""
-    rev, entry_revs = only_revision(mid, images, revision)
-    p = _git(methods_dir, "rev-parse", "--verify", "--quiet", rev + "^{commit}")
-    commit = p.stdout.decode().strip() if p.returncode == 0 else ""
-    if not re.match(r"^[0-9a-f]{40}$", commit):
-        raise OnlyModeError(f"ONLY_COMMIT_UNKNOWN: commit {rev} is not in the methods repository "
-                            f"{methods_dir} (fetch it)")
-    if entry_revs and entry_revs != [commit[:12]]:
-        raise OnlyModeError(f"ONLY_REVISION_CONFLICT: {mid}'s image entries were built at "
-                            f"{', '.join(entry_revs)}, not at {commit[:12]}: the row's facts are "
-                            "read at the commit its images were built from")
+    commit = only_commit(mid, images, methods_dir, revision)
     mj = _git_json_at(methods_dir, commit, f"methods/{mid}/method.json")
     if not isinstance(mj, dict):
         raise OnlyModeError(f"ONLY_METHOD_NOT_IN_COMMIT: methods/{mid}/method.json is not in "
@@ -1130,6 +1153,13 @@ def selftest_only_mode(registry, fixtures_dir, full_text):
         subprocess.run(git + ["commit", "-q", "-m", "A"], check=True, capture_output=True)
         rev_a = subprocess.run(git + ["rev-parse", "HEAD"], check=True, capture_output=True,
                                text=True).stdout.strip()
+        # C: a later commit that leaves the method folders as they are (another arch is often
+        # built there, on another machine).
+        (repo / "README").write_text("another file\n")
+        subprocess.run(git + ["add", "-A"], check=True, capture_output=True)
+        subprocess.run(git + ["commit", "-q", "-m", "C"], check=True, capture_output=True)
+        rev_c = subprocess.run(git + ["rev-parse", "HEAD"], check=True, capture_output=True,
+                               text=True).stdout.strip()
         bumped = json.loads((repo / "methods" / "fx-baseline-cox" / "method.json").read_text())
         bumped["version"] = "9.9.9"
         (repo / "methods" / "fx-baseline-cox" / "method.json").write_text(json.dumps(bumped, indent=1))
@@ -1171,6 +1201,29 @@ def selftest_only_mode(registry, fixtures_dir, full_text):
                and err_none.startswith("ONLY_NO_IMAGE_ENTRY")
                and err_conflict.startswith("ONLY_REVISION_CONFLICT"),
                f"{ver(doc_a)!r} {ver(doc_b)!r} {err_a or err_b} | {err_none} | {err_conflict}")
+
+        # 4. two arches built at two commits that hold one method tree: the row is read at the
+        # newer one; trees that differ need --revision, which must name one of the commits
+        def tree_at(rev, mid):
+            return subprocess.run(git + ["rev-parse", f"{rev}:methods/{mid}"], check=True,
+                                  capture_output=True, text=True).stdout.strip()
+
+        def two_arches(rev1, rev2, mid="fx-baseline-cox"):
+            return {"envs": [{"method_id": mid, "arch": "amd64", "source_revision": rev1[:12],
+                              "source_tree": tree_at(rev1, mid)},
+                             {"method_id": mid, "arch": "arm64", "source_revision": rev2[:12],
+                              "source_tree": tree_at(rev2, mid)}]}
+
+        doc_ac, err_ac = run("fx-baseline-cox", previous, two_arches(rev_a, rev_c))
+        _ab, err_ab = run("fx-baseline-cox", previous, two_arches(rev_a, rev_b))
+        doc_ab_a, err_ab_a = run("fx-baseline-cox", previous, two_arches(rev_a, rev_b), revision=rev_a)
+        _ac_b, err_ac_b = run("fx-baseline-cox", previous, two_arches(rev_a, rev_c), revision=rev_b)
+        yield ("only_mode_accepts_arches_built_at_two_commits_of_one_tree",
+               doc_ac is not None and dump_to_text(doc_ac) == full_text
+               and err_ab.startswith("ONLY_REVISION_AMBIGUOUS")
+               and ver(doc_ab_a) == "1.2.0"
+               and err_ac_b.startswith("ONLY_REVISION_CONFLICT"),
+               f"{err_ac} | {err_ab} | {err_ab_a} | {err_ac_b}")
 
         # 3. adding a row back: its missing vocabulary marker is added, n_methods recounted
         previous = copy.deepcopy(expected)

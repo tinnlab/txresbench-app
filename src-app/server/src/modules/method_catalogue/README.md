@@ -48,8 +48,10 @@ python3 scripts/method-catalogue/gen_method_catalogue.py --only <id> \
 
 It rebuilds the row of `<id>` reading `methods/<id>/method.json` and
 `gates/<id>.json` from the methods repository at the commit its image entries
-were built from (their `source_revision`; `--revision <commit>` for a method
-without an image entry), carries every other row byte for byte, adds the
+were built from (their `source_revision`; when the arches were built at several
+commits holding one method folder, the newest of them; `--revision <commit>`,
+one of those commits, otherwise and for a method without an image entry),
+carries every other row byte for byte, adds the
 vocabulary markers the row needs and recounts every marker's `n_methods`. It
 writes `--previous` in place (`--out` to write elsewhere).
 
