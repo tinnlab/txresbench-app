@@ -696,7 +696,10 @@ fn agent_failure(e: AppError, status: Option<i32>, log: &[u8]) -> AppError {
     let what = match status {
         Some(AGENT_EXIT_SETUP) => "the method environment could not be mounted in WSL",
         Some(AGENT_EXIT_BAD_ARGS) => "the WSL agent refused its arguments (an app and guest root mismatch)",
-        Some(AGENT_EXIT_TRANSPORT) => "the WSL agent lost its connection to the app",
+        // The agent's exit 4 covers every failed exchange: a broken or closed
+        // pipe, a malformed frame, and a request whose protocol version it
+        // does not serve. Its own reason is in the log tail below.
+        Some(AGENT_EXIT_TRANSPORT) => "the exchange between the app and the WSL agent failed",
         _ => "the method run in WSL stopped",
     };
     let mut message = format!("{what}: {e}");
@@ -814,6 +817,24 @@ mod tests {
         assert_eq!(e.error_code(), WSL_UNAVAILABLE_CODE);
         assert!(e.to_string().contains("could not be mounted in WSL"), "{e}");
         assert!(e.to_string().contains("squashfs not supported"), "{e}");
+    }
+
+    /// Exit 4 is not only a lost connection: a request the agent refuses for
+    /// its protocol version ends the same way, so the message must not claim
+    /// a lost connection, and the agent's own reason must reach the user.
+    #[test]
+    fn a_refused_request_is_not_called_a_lost_connection() {
+        let base = wsl_error("the agent ended without an exit frame");
+        let e = agent_failure(
+            base,
+            Some(AGENT_EXIT_TRANSPORT),
+            b"error: the request's protocol version is not served by this agent\n",
+        );
+        let text = e.to_string();
+        assert_eq!(e.error_code(), WSL_UNAVAILABLE_CODE);
+        assert!(text.contains("the exchange between the app and the WSL agent failed"), "{text}");
+        assert!(!text.contains("lost its connection"), "{text}");
+        assert!(text.contains("protocol version is not served"), "{text}");
     }
 
     /// A stand-in agent process: PowerShell writes `frames` to its stdout (it
