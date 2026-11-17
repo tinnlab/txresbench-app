@@ -11,7 +11,9 @@ import type { IntakeSnapshot } from '@/modules/txrintake'
 import { buildTxrRunInput, useTxrIntakeStore } from '@/modules/txrintake'
 import {
   countSelected,
+  recheckLine,
   recommendedSelection,
+  runnableCards,
   TxrMethodPicker,
   useListEstimate,
   useMethodRows,
@@ -43,7 +45,7 @@ import { buildFilesSummary } from '../lib/filesSummary'
 import { formatRunBarTime } from '../lib/runBar'
 import { mergeRunSettings, type RunSettings } from '../lib/settings'
 import { buildRunRequest } from '../lib/runRequest'
-import { buildCovariates } from '../lib/covariates'
+import { buildCovariates, covariatesUseLine } from '../lib/covariates'
 import { useKeepCopies } from '../data/useKeepCopies'
 import { useRunConfig } from '../data/useRunConfig'
 import { runningPath } from '../routes'
@@ -246,9 +248,22 @@ function TxrMethodPickerFrame({
   // CURRENT selection is read through a ref so the prune is never stale.
   const selectedRef = useRef(selected)
   selectedRef.current = selected
+  // The step-4 re-check line: every eligibility answer after the first is a
+  // re-check (a settings or files change, or a retry), and the line says
+  // what changed in the runnable set, or that nothing did. An answer is a
+  // new `cards` array from the adapter (its state is set once per answer);
+  // the adapter's initial empty array is not an answer.
+  const initialCards = useRef(cards)
+  const answeredKeys = useRef<string[] | null>(null)
+  const [recheckResult, setRecheckResult] = useState<string | null>(null)
 
   useEffect(() => {
     onCards(cards)
+    if (cards !== initialCards.current) {
+      const keys = runnableCards(cards).map(card => card.key)
+      if (answeredKeys.current !== null) setRecheckResult(recheckLine(answeredKeys.current, keys))
+      answeredKeys.current = keys
+    }
     // ITEM-2: a settings change re-checks eligibility; the selection keeps
     // the methods that still fit, and the ones that stopped being eligible
     // are UNTICKED with the toast (the plan's words). This runs before the
@@ -293,6 +308,7 @@ function TxrMethodPickerFrame({
       onSelectionChange={changeSelection}
       onChangeFiles={onChangeFiles}
       onChangeSettings={onChangeSettings}
+      recheckResult={recheckResult}
       layout={layout}
     />
   )
@@ -532,6 +548,7 @@ export function ChooseMethodsPage() {
               onMoreSettings={next => change({ ...settings, ...next })}
               collapsed={short}
               locked={isDemo}
+              covariatesHelp={covariatesUseLine(cards)}
             />
             {isDemo ? (
               <p data-testid="txr-run-settings-demo-note" style={{ margin: 0, fontSize: 12.5, color: 'var(--txr-muted)' }}>

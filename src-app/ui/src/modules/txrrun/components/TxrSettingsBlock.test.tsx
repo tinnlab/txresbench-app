@@ -329,6 +329,54 @@ describe('TxrSettingsBlock ITEM-2 — the "What do you want to predict?" card', 
     )
   })
 
+  it('the Extra-inputs help line prop replaces the general help (step-4 fix)', () => {
+    render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+        covariatesHelp="Used by 1 of the 5 methods that can run."
+      />,
+    )
+    expect(screen.getByTestId('txr-run-settings-covariates-help').textContent).toBe(
+      'Used by 1 of the 5 methods that can run.',
+    )
+    expect(screen.queryByText('Other columns of your file the methods may use.')).toBeNull()
+  })
+
+  it('a null help line keeps the general help', () => {
+    render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+        covariatesHelp={null}
+      />,
+    )
+    expect(screen.getByTestId('txr-run-settings-covariates-help').textContent).toBe(
+      'Other columns of your file the methods may use.',
+    )
+  })
+
+  it('the disabled reason still wins over the help line when the file has no covariate column', () => {
+    render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={{ names: [], availability: 'absent' }}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+        covariatesHelp="Used by 1 of the 5 methods that can run."
+      />,
+    )
+    expect(
+      screen.getByTestId('txr-run-settings-covariates-disabled-reason').textContent,
+    ).toBe('your file has no extra-input columns')
+    expect(screen.queryByTestId('txr-run-settings-covariates-help')).toBeNull()
+    expect(screen.queryByText('Used by 1 of the 5 methods that can run.')).toBeNull()
+  })
+
   it('More settings opens in place: CPUs, the lanes and the two quiet facts', async () => {
     render(
       <TxrSettingsBlock

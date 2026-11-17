@@ -172,6 +172,40 @@ export function activePreset(
   return presetOf(selected, cards)
 }
 
+/** "1 method" / "N methods" (the re-check line's count words). */
+function methodCount(count: number): string {
+  return `${count} ${count === 1 ? 'method' : 'methods'}`
+}
+
+/**
+ * The picker's line after a re-check (a settings or files change asked the
+ * engine again what can run): what changed in the runnable set, compared by
+ * key. Neutral wording, because a Change-files re-check gives the same line.
+ *
+ * - same set: "Checked again: the same 5 methods can run."
+ * - another count: "Checked again: 6 methods can run (was 5)."
+ * - same count, other members: "Checked again: a different set of 5 methods
+ *   can run." (never "5 methods can run (was 5)").
+ */
+export function recheckLine(
+  beforeKeys: ReadonlyArray<string>,
+  afterKeys: ReadonlyArray<string>,
+): string {
+  const before = new Set(beforeKeys)
+  const after = new Set(afterKeys)
+  const same = before.size === after.size && [...after].every(key => before.has(key))
+  if (same) {
+    if (after.size === 0) return 'Checked again: still no method can run.'
+    if (after.size === 1) return 'Checked again: the same method can run.'
+    return `Checked again: the same ${methodCount(after.size)} can run.`
+  }
+  if (after.size === before.size) {
+    return `Checked again: a different set of ${methodCount(after.size)} can run.`
+  }
+  if (after.size === 0) return `Checked again: no method can run now (was ${before.size}).`
+  return `Checked again: ${methodCount(after.size)} can run (was ${before.size}).`
+}
+
 /** The picker's sort (recommended keeps the recommendation's order). */
 export function sortCards(
   cards: ReadonlyArray<TxrMethodCard>,

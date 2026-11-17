@@ -494,6 +494,43 @@ describe('ITEM-2 — the recompute state and the tab order', () => {
     expect(screen.getByTestId('txr-method-picker')).toBeTruthy()
   })
 
+  it('the host\'s re-check result shows in a status line, hidden while a re-check is in flight (step-4 fix)', () => {
+    const view = (refreshing: boolean, recheckResult: string | null) => (
+      <TxrMethodPicker
+        cards={CARDS}
+        loading={refreshing}
+        refreshing={refreshing}
+        error={null}
+        onRetry={() => {}}
+        selected={new Set()}
+        onSelectionChange={() => {}}
+        onChangeFiles={() => {}}
+        onChangeSettings={() => {}}
+        recheckResult={recheckResult}
+      />
+    )
+    const { rerender } = render(view(false, null))
+    const status = (): HTMLElement => screen.getByTestId('txr-method-recheck-result')
+    // Nothing re-checked yet: the live region is in the DOM, empty and out
+    // of the flow (it must exist before its text changes to be announced).
+    expect(status().getAttribute('role')).toBe('status')
+    expect(status().textContent).toBe('')
+    expect(status().style.position).toBe('absolute')
+
+    rerender(view(false, 'Checked again: the same 7 methods can run.'))
+    expect(status().textContent).toBe('Checked again: the same 7 methods can run.')
+    expect(status().style.position).toBe('')
+
+    // A new re-check starts: the old answer is hidden under the
+    // "Re-checking" line until the host has the new one.
+    rerender(view(true, 'Checked again: the same 7 methods can run.'))
+    expect(screen.getByTestId('txr-method-refreshing')).toBeTruthy()
+    expect(status().textContent).toBe('')
+    rerender(view(false, 'Checked again: 6 methods can run (was 7).'))
+    expect(screen.queryByTestId('txr-method-refreshing')).toBeNull()
+    expect(status().textContent).toBe('Checked again: 6 methods can run (was 7).')
+  })
+
   it('the presets row precedes the toolbar (the ITEM-2 keyboard order: presets, then search)', () => {
     renderPicker(CARDS)
     const presets = screen.getByTestId('txr-method-presets')

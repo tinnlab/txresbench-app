@@ -1140,6 +1140,61 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
     expect(lastCall.inventory.decision_day).toBe(28)
   })
 
+  it('a re-check that changes nothing still answers: "Checked again: the same 2 methods can run." (step-4 fix)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
+
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-decision-day-opt-28'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-decision-day-opt-28'))
+      await Promise.resolve()
+    })
+    await settle()
+    // The eligibility answer is the same verdicts: the list looks the same,
+    // and the status line says so.
+    expect(api.eligibility.mock.calls.length).toBeGreaterThanOrEqual(2)
+    const status = screen.getByTestId('txr-method-recheck-result')
+    expect(status.getAttribute('role')).toBe('status')
+    expect(status.textContent).toBe('Checked again: the same 2 methods can run.')
+  })
+
+  it('the Extra-inputs help line says how many of the methods that can run use them (step-4 fix)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+    // Both runnable fixture methods take extra inputs (optional).
+    expect(screen.getByTestId('txr-run-settings-covariates-help').textContent).toBe(
+      'Used by 2 of the 2 methods that can run.',
+    )
+
+    // Turning the switch on re-checks; the line is still the count from the
+    // (same) answer, and the status line reports the re-check.
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-covariates'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-covariates'))
+      await Promise.resolve()
+    })
+    await settle()
+    const lastCall = api.eligibility.mock.calls[api.eligibility.mock.calls.length - 1][0]
+    expect(lastCall.inventory.covariates.length).toBe(1)
+    expect(screen.getByTestId('txr-run-settings-covariates-help').textContent).toBe(
+      'Used by 2 of the 2 methods that can run.',
+    )
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe(
+      'Checked again: the same 2 methods can run.',
+    )
+  })
+
   it('a method that stops being eligible is unticked with the toast; the still-eligible stay', async () => {
     api.getConfig.mockResolvedValue({ config: null })
     // The recommendation ticks both runnable methods; the SECOND answer (a
@@ -1181,6 +1236,10 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
     // direct-on left the selection; dynforest stayed.
     expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('1 method selected')
     expect(screen.getByText('1 method no longer fits these settings')).toBeTruthy()
+    // The step-4 status line names the change.
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe(
+      'Checked again: 1 method can run (was 2).',
+    )
   })
 
   it('the run bar is disabled with the reason when nothing is selected', async () => {

@@ -59,6 +59,11 @@ export interface TxrSettingsBlockProps {
    *  default (the audit's fixed-top byte — the one-line summary form the
    *  phone width already uses); `undefined` keeps the width-driven state. */
   collapsed?: boolean
+  /** The Extra-inputs help line once the method list is known ("Used by 1
+   *  of the 5 methods that can run.", `covariatesUseLine`): it replaces the
+   *  general help. The disabled reason still wins when the file has no
+   *  extra-input columns. `null`/omitted keeps the general help. */
+  covariatesHelp?: string | null
   /** demo-mode ITEM-6: the demo offers only the recorded configuration —
    *  the rows are shown with their recorded values and LOCKED (the spec's
    *  "other controls are shown, disabled"), the More-settings (CPUs /
@@ -186,6 +191,7 @@ export function TxrSettingsBlock({
   onMoreSettings,
   collapsed,
   locked = false,
+  covariatesHelp = null,
 }: TxrSettingsBlockProps) {
   const [moreOpen, setMoreOpen] = useState(false)
   const narrow = useNarrow()
@@ -265,7 +271,9 @@ export function TxrSettingsBlock({
             {COVARIATES_DISABLED_REASON}
           </span>
         ) : (
-          <span style={HELP}>{SETTING_HELP.covariates}</span>
+          <span style={HELP} data-testid="txr-run-settings-covariates-help">
+            {covariatesHelp ?? SETTING_HELP.covariates}
+          </span>
         )}
       </div>
       {locked ? null : (

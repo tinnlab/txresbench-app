@@ -32,7 +32,11 @@
  *   list (title + id + the one-line reason + the one-line fix);
  * - zero runnable methods: the plan's plain statement (what blocks
  *   everything, what to change) + the two actions "Change files" / "Change
- *   settings".
+ *   settings";
+ * - a re-check (`refreshing` with cards on screen) shows the "Re-checking"
+ *   line; when it ends, the host's `recheckResult` ("Checked again: the same
+ *   5 methods can run.", `recheckLine`) shows in a status line, so a change
+ *   that leaves the list as it was is still visibly answered.
  *
  * The copy is location-neutral (qa-fixes2 ITEM-2 rules): no "on this
  * computer" anywhere; the deployment fact (fewer methods can start than the
@@ -123,6 +127,22 @@ const REFRESH_LINE: CSSProperties = {
   color: 'var(--txr-muted)',
 }
 
+/** The re-check result line (step-4 fix: after a re-check the user is told
+ *  what changed, or that nothing did). */
+const RECHECK_LINE: CSSProperties = { margin: 0, fontSize: 13, color: 'var(--txr-text-2)' }
+
+/** The empty status element: kept in the DOM (a live region must exist
+ *  before its text changes to be announced), out of the flow (an absolute
+ *  child takes no flex gap) and invisible. */
+const STATUS_EMPTY: CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  margin: 0,
+}
+
 /** The rows a section shows before "Show N more" (the plan's 6). */
 const SECTION_SHOW_FIRST = 6
 
@@ -147,6 +167,11 @@ export interface TxrMethodPickerProps {
   onChangeFiles(): void
   /** The zero-state's "Change settings" action (scroll to the settings). */
   onChangeSettings(): void
+  /** The line that answers the last re-check (`recheckLine`, computed by the
+   *  host, which knows when a new eligibility answer landed). Shown in a
+   *  `role="status"` line under the presets, hidden while a re-check is in
+   *  flight; `null`/omitted shows nothing. */
+  recheckResult?: string | null
   /** The host's own composition of the picker's two pieces (toolbar + list).
    *  Default: both inline in one column (the pre-ITEM-2 byte). */
   layout?(parts: TxrMethodPickerLayoutParts): ReactNode
@@ -201,6 +226,7 @@ export function TxrMethodPicker({
   onSelectionChange,
   onChangeFiles,
   onChangeSettings,
+  recheckResult = null,
   layout,
 }: TxrMethodPickerProps) {
   const [query, setQuery] = useState('')
@@ -318,6 +344,13 @@ export function TxrMethodPicker({
             Re-checking what can run with these settings…
           </div>
         ) : null}
+        <p
+          data-testid="txr-method-recheck-result"
+          role="status"
+          style={recheckResult !== null && !refreshing ? RECHECK_LINE : STATUS_EMPTY}
+        >
+          {refreshing ? null : recheckResult}
+        </p>
 
         <div data-testid="txr-method-toolbar" style={TOOLBAR}>
           <Input

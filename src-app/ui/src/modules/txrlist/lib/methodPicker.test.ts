@@ -12,6 +12,7 @@ import {
   presetOf,
   presetSelection,
   reasonGroups,
+  recheckLine,
   recommendedSelection,
   runnableCards,
   sortCards,
@@ -235,5 +236,29 @@ describe('the family order is the plan\'s fixed order', () => {
       'static-risk',
       'dynamic-risk',
     ])
+  })
+})
+
+describe('recheckLine (the line after a re-check, step-4 fix)', () => {
+  it('the same set says so, with the count', () => {
+    expect(recheckLine(['a', 'b', 'c', 'd', 'e'], ['e', 'd', 'c', 'b', 'a'])).toBe(
+      'Checked again: the same 5 methods can run.',
+    )
+    expect(recheckLine(['a'], ['a'])).toBe('Checked again: the same method can run.')
+    expect(recheckLine([], [])).toBe('Checked again: still no method can run.')
+  })
+
+  it('more or fewer methods give the new count and the old one', () => {
+    expect(recheckLine(['a', 'b', 'c', 'd', 'e'], ['a', 'b', 'c', 'd', 'e', 'f'])).toBe(
+      'Checked again: 6 methods can run (was 5).',
+    )
+    expect(recheckLine(['a', 'b', 'c'], ['a'])).toBe('Checked again: 1 method can run (was 3).')
+    expect(recheckLine(['a', 'b'], [])).toBe('Checked again: no method can run now (was 2).')
+  })
+
+  it('the same count with other members is "a different set", never "6 (was 6)"', () => {
+    const line = recheckLine(['a', 'b', 'c', 'd', 'e', 'f'], ['a', 'b', 'c', 'd', 'e', 'g'])
+    expect(line).toBe('Checked again: a different set of 6 methods can run.')
+    expect(line).not.toContain('(was 6)')
   })
 })
