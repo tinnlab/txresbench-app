@@ -4,6 +4,12 @@
     "beforeBundleCommand": "npm run verify-wsl-runtime"
   },
   "bundle": {
-    "resources": ["resources/pretrained-bundled", "resources/wsl-runtime"]
+    "resources": ["resources/pretrained-bundled", "resources/wsl-runtime"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
+    }
   }
 }
