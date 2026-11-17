@@ -52,6 +52,7 @@ import type {
   TxrRunLogLine,
 } from '@/api-client/types'
 import { HistoryPage } from './HistoryPage'
+import { useStepTrailStore } from '@/modules/txrintake'
 
 const api = vi.hoisted(() => ({
   listHistory: vi.fn(async (_q: unknown): Promise<TxrHistoryPage> => ({ items: [], total: 0, limit: 20, offset: 0 })),
@@ -520,6 +521,23 @@ describe('HistoryPage (TEST-HIST-8)', () => {
     expect(body.config.label_day).toBeNull()
     expect(body.last_input_summary).toBeNull()
     expect(screen.getByTestId('route-location').textContent).toBe('/choose-methods')
+  })
+
+  it('settings-again starts the step trail here: Back from choose-methods returns to History (and this page has no Back)', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/study', '/files'], current: null })
+    api.getHistory.mockImplementation(async (_id: unknown) =>
+      detail((_id as { id: string }).id, { can_rerun: false }),
+    )
+    renderPage()
+    await settle()
+    expect(screen.queryByTestId('txr-step-back')).toBeNull()
+    await expand('run-1')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-history-settings-again-run-1'))
+    })
+    await settle()
+    expect(screen.getByTestId('route-location').textContent).toBe('/choose-methods')
+    expect(useStepTrailStore.getState().trail).toEqual(['/history'])
   })
 
   it('"Clear all history" is the confirmation gate: Cancel does nothing, the choice fires clearRuns', async () => {

@@ -71,6 +71,7 @@ import { TXRLIST_STATUS_COLORS } from '@/modules/txrlist/components/TxrListRow'
 // already recorded for `txrrun`).
 import { TxrUseExampleButton } from '@/modules/txrintake/components/TxrUseExampleButton'
 import { TxrIntake } from '@/modules/txrintake/stores/TxrIntake.store'
+import { beginPath } from '@/modules/txrintake/lib/stepTrail'
 import {
   ELIGIBILITY_STATUSES,
   HELP_SECTIONS,
@@ -89,6 +90,8 @@ import type { FileCardContent, HelpBlock, HelpProblemEntry, HelpSection, Problem
  *  tables; the destination literals mirror the Start screen's own). */
 const EXAMPLE_FILES_ROUTE = '/files'
 const EXAMPLE_PREDICT_FILES_ROUTE = '/predict-files'
+/** Where Back from a quick-start path's first step returns: this page. */
+const HELP_ORIGIN = helpPath()
 
 /**
  * The quick-start card's intent (qa-fixes4 ITEM-5, R3-help-6): the card
@@ -1407,6 +1410,8 @@ export function HelpPage() {
                               // could not say whether pretrained or saved
                               // models follow).
                               TxrIntake.setIntent(intentOf(card.id))
+                              // The path's first step goes back to Help (the step trail).
+                              beginPath(HELP_ORIGIN)
                             }}
                             style={{ color: 'var(--txr-brand)', fontWeight: 600, fontSize: 13.5 }}
                           >
@@ -1418,13 +1423,14 @@ export function HelpPage() {
                           <TxrUseExampleButton
                             path={card.tryExample.path}
                             label={card.tryExample.label}
-                            onDone={() =>
+                            onDone={() => {
+                              beginPath(HELP_ORIGIN)
                               navigate(
                                 card.tryExample.path === 'train'
                                   ? EXAMPLE_FILES_ROUTE
                                   : EXAMPLE_PREDICT_FILES_ROUTE,
                               )
-                            }
+                            }}
                           />
                         </div>
                       </section>

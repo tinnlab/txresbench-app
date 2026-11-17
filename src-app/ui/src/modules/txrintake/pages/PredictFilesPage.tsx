@@ -25,6 +25,7 @@ import { fetchTemplateCsv, downloadText, templateFilename } from '../lib/downloa
 import { ROUTE_CONVENTIONS } from '../module'
 import { TxrFileCard } from '../components/TxrFileCard'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
+import { TxrStepBack, useStepBack } from '../components/TxrStepBack'
 import { CLEAR_EXAMPLE_LABEL, EXAMPLE_BANNER, runExampleFlow } from '../lib/example'
 import { ExampleFileCard } from '@/modules/demo/components/ExampleFileCard'
 import { useAppMode } from '@/modules/demo'
@@ -70,6 +71,10 @@ import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../ty
  */
 
 const STUDY_ROUTE = '/study'
+const START_ROUTE = '/'
+/** Your models (the "Use" handoff's origin; the txrmodels route, spelled here
+ *  because txrmodels depends on this module, never the other way round). */
+const MODELS_ROUTE = '/models'
 
 /** The page's frame host. */
 const PAGE_ROOT: CSSProperties = {
@@ -251,6 +256,12 @@ export function PredictFilesPage() {
   // Use click and the choice screen's preselection.
   const pendingUseId = searchParams.get('use')
   const pendingUseName = searchParams.get('name')
+  // The step's Back (the step trail): with no trail, Back goes to where this
+  // path starts — Your models for its "Use" handoff, else Start.
+  useStepBack({
+    step: 'predict-files',
+    fallback: pendingUseId !== null ? MODELS_ROUTE : START_ROUTE,
+  })
 
   const [busy, setBusy] = useState(false)
   const [cardError, setCardError] = useState<string | null>(null)
@@ -654,6 +665,7 @@ export function PredictFilesPage() {
                   {validateError}
                 </span>
               ) : null}
+              <TxrStepBack />
               <Button
                 data-testid="txr-intake-continue"
                 style={PRIMARY_BUTTON}

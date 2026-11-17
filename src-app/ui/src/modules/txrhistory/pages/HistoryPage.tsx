@@ -43,7 +43,7 @@
  */
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Alert } from '@txresbench/kit'
 import { isDesktop } from '@/core/platform'
@@ -55,6 +55,7 @@ import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
 import { modelsPath } from '@/modules/txrmodels'
 import { downloadPredictionsCsv, resultsPath, revealRunDir } from '@/modules/txrresults'
 import { chooseMethodsPath, runningPath } from '@/modules/txrrun'
+import { beginPath } from '@/modules/txrintake'
 import { TxrHistory, useTxrHistory } from '../index'
 import { TxrConfirmDialog } from '../components/TxrConfirmDialog'
 import { TxrHistoryFooter } from '../components/TxrHistoryFooter'
@@ -112,6 +113,7 @@ function fresh(): void {
 
 export function HistoryPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const state = useStore(useTxrHistory)
   const [actionError, setActionError] = useState<string | null>(null)
   // R2-G1: the tab/title byte is the page's own h1.
@@ -176,7 +178,11 @@ export function HistoryPage() {
     if (detail === null || detail.id !== runId) return
     setActionError(null)
     void TxrHistory.useSettingsAgain(detail)
-      .then(() => navigate(chooseMethodsPath()))
+      .then(() => {
+        // The path's one step goes back here (the step trail).
+        beginPath(`${location.pathname}${location.search}`)
+        navigate(chooseMethodsPath())
+      })
       .catch(() => setActionError(SETTINGS_AGAIN_FAILED))
   }
 

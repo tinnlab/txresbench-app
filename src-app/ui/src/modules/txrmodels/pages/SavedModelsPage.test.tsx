@@ -48,7 +48,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { Button } from '@txresbench/kit'
+import '@/core/actions/builtin/stepActions'
+import { runAction } from '@/core/actions/defineAction'
+import { RouterBridge } from '@/core/actions/navigateBridge'
 import type {
   ModelDetail,
   ModelEligibilityResponse,
@@ -59,7 +63,13 @@ import type {
   TxrRunSummary,
   ValidationResponse,
 } from '@/api-client/types'
-import { useTxrIntakeStore } from '@/modules/txrintake'
+import {
+  STEP_BACK_DIALOG_OPEN,
+  STEP_BACK_STARTING_REASON,
+  useStepBack,
+  useStepTrailStore,
+  useTxrIntakeStore,
+} from '@/modules/txrintake'
 import { DEMO_POOL_STATEMENT } from '@/modules/demo/copy'
 import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import {
@@ -782,5 +792,168 @@ describe('SavedModelsPage demo arm (TEST-DM-7, ITEM-7)', () => {
     expect(screen.queryByTestId('txr-demo-retention')).toBeNull()
     expect(screen.getByTestId('txr-list-section-action-set-a-rename')).toBeTruthy()
     expect(screen.getByTestId('txr-list-section-action-set-a-delete')).toBeTruthy()
+  })
+})
+
+describe('the step Back on Saved models (I)', () => {
+  /** N in the flow: records its step, and its Continue lands on I again. */
+  function PredictStandIn() {
+    useStepBack({ step: 'predict-files', fallback: '/' })
+    const navigate = useNavigate()
+    return (
+      <Button data-testid="stand-in-continue" onClick={() => navigate('/saved-models')}>
+        Continue
+      </Button>
+    )
+  }
+
+  function renderFlow() {
+    return render(
+      <MemoryRouter initialEntries={['/saved-models']}>
+        <RouterBridge />
+        <Routes>
+          <Route path="/saved-models" element={<SavedModelsPage />} />
+          <Route path="/predict-files" element={<PredictStandIn />} />
+        </Routes>
+        <FullLocationProbe />
+      </MemoryRouter>,
+    )
+  }
+
+  function FullLocationProbe() {
+    const location = useLocation()
+    return <div data-testid="route-location">{`${location.pathname}${location.search}`}</div>
+  }
+
+  const routeAt = () => screen.getByTestId('route-location').textContent
+
+  async function click(testId: string): Promise<void> {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(testId))
+      await Promise.resolve()
+    })
+    await settle(0)
+  }
+
+  function expectBackBeforeRun(): void {
+    expect(screen.getByTestId('txr-step-back').nextElementSibling).toBe(
+      screen.getByTestId('txr-list-run'),
+    )
+  }
+
+  beforeEach(() => {
+    useStepTrailStore.setState({ trail: [], current: null })
+  })
+
+  it('sits directly left of Run in the list bar: rows, loading, error and a search that hides every row', async () => {
+    renderPage()
+    await settle(0)
+    expectBackBeforeRun()
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('txr-list-search'), { target: { value: 'no such run' } })
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('txr-list-empty')).toBeTruthy()
+    expectBackBeforeRun()
+    cleanup()
+
+    useTxrModelsStore.getState().reset()
+    api.listModels.mockReturnValue(new Promise(() => undefined))
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-list-loading')).toBeTruthy()
+    expectBackBeforeRun()
+    cleanup()
+
+    useTxrModelsStore.getState().reset()
+    api.listModels.mockRejectedValue(new Error('models down'))
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-list-error')).toBeTruthy()
+    expectBackBeforeRun()
+  })
+
+  it('no checked file: a bottom bar with Back at its right end', async () => {
+    useTxrIntakeStore.setState({ validation: null })
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-models-i-empty')).toBeTruthy()
+    expect(screen.getByTestId('txr-step-back-bar').lastElementChild).toBe(
+      screen.getByTestId('txr-step-back'),
+    )
+  })
+
+  it('row 9 — reached by Your models "Use": Back is N with its "Use" search, then Your models', async () => {
+    const withUse = '/predict-files?use=m1&name=Model%201'
+    useStepTrailStore.setState({ trail: ['/models', withUse] })
+    renderFlow()
+    await settle(0)
+    await click('txr-step-back')
+    expect(routeAt()).toBe(withUse)
+    expect(useStepTrailStore.getState().trail).toEqual(['/models', withUse])
+  })
+
+  it('with no trail goes back to N', async () => {
+    renderFlow()
+    await settle(0)
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/predict-files')
+  })
+
+  it('keeps the selection after Back to N and Continue (also after more than 5 s away); a new file clears it', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    renderFlow()
+    await settle(0)
+    await selectRow(fixtureModelId(1))
+    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('1 model selected')
+
+    await click('txr-step-back')
+    await settle(6000)
+    await click('stand-in-continue')
+    expect(routeAt()).toBe('/saved-models')
+    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('1 model selected')
+
+    await click('txr-step-back')
+    act(() => {
+      useTxrIntakeStore.setState({
+        validation: { ...validation(), inventory: { ...TXRMODELS_INVENTORY, patients: 43 } },
+      })
+    })
+    await click('stand-in-continue')
+    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('0 models selected')
+  })
+
+  it('while the run is being created Back is unavailable with the reason, and flow.back refuses', async () => {
+    api.resolveModels.mockReturnValue(new Promise(() => undefined))
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    renderFlow()
+    await settle(0)
+    await selectRow(fixtureModelId(1))
+    await click('txr-list-run')
+    const back = screen.getByTestId('txr-step-back')
+    expect(back.getAttribute('aria-disabled')).toBe('true')
+    expect(back.textContent).toContain(STEP_BACK_STARTING_REASON)
+    await expect(runAction('flow.back', {})).rejects.toThrow(STEP_BACK_STARTING_REASON)
+    expect(routeAt()).toBe('/saved-models')
+  })
+
+  it('while a set Rename dialog or the Details dialog is open, flow.back refuses', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    renderFlow()
+    await settle(0)
+    await click('txr-list-section-action-set-a-rename')
+    await expect(runAction('flow.back', {})).rejects.toThrow(STEP_BACK_DIALOG_OPEN)
+    cleanup()
+
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    renderFlow()
+    await settle(0)
+    act(() => {
+      useTxrModelsStore.getState().openDialog(`details:${fixtureModelId(1)}`)
+    })
+    await settle(0)
+    await expect(runAction('flow.back', {})).rejects.toThrow(STEP_BACK_DIALOG_OPEN)
+    expect(routeAt()).toBe('/saved-models')
   })
 })

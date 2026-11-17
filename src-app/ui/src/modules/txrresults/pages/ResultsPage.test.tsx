@@ -324,6 +324,8 @@ describe('ResultsPage (TEST-UR-6 — store wiring, states, actions)', () => {
     expect(view.getByTestId('txr-heatmap-show-more').textContent).toBe(
       `Show all ${PATIENT_COUNT}`,
     )
+    // Results is not a step of the flow: no step Back.
+    expect(view.queryByTestId('txr-step-back')).toBeNull()
   })
 
   it('renders the 409 empty-heatmap state: banner + counts + disabled download, no spinner loop', async () => {

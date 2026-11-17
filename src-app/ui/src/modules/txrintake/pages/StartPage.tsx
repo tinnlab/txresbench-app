@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@txresbench/kit'
@@ -8,6 +8,7 @@ import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { TxrIntake } from '../stores/TxrIntake.store'
 import { useRunnableMethodCount } from '../data/useRunnableMethodCount'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
+import { beginPath } from '../lib/stepTrail'
 import { useAppMode } from '@/modules/demo'
 import { DEMO_START_HINT, DEMO_START_PRIMARY } from '@/modules/demo/copy'
 import type { IntakeIntent } from '../types'
@@ -272,6 +273,10 @@ export function StartPage() {
   const { isDemo } = useAppMode()
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('What do you want to do?')
+  // Every path that starts here goes back here from its first step (the step trail).
+  useEffect(() => {
+    beginPath('/')
+  }, [])
 
   /** The card path picker: set the intent, then start the flow it leads to. */
   const pickPath = useCallback(

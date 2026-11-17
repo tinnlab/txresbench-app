@@ -534,4 +534,17 @@ describe('qa-fixes3 ITEM-4 — the per-slot example fact, the clear action and t
       predictMeasurements: false,
     })
   })
+
+  it('the method ticks of screen E are a non-persisted field: set, kept apart from the persisted slice, cleared by reset', () => {
+    TxrIntake.reset()
+    expect(state().methodPicks).toBeNull()
+    TxrIntake.setIntent('train')
+    TxrIntake.setMethodPicks({ key: 'inv-1', selected: ['direct-on'], touched: true })
+    expect(state().methodPicks).toEqual({ key: 'inv-1', selected: ['direct-on'], touched: true })
+    const raw = window.localStorage.getItem('txr-intake-storage') ?? ''
+    expect(raw).not.toContain('methodPicks')
+    expect(raw).not.toContain('direct-on')
+    TxrIntake.reset()
+    expect(state().methodPicks).toBeNull()
+  })
 })

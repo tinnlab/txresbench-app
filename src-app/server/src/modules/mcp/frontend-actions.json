@@ -120,6 +120,26 @@
       }
     },
     {
+      "id": "flow.back",
+      "title": "Go back to the previous step",
+      "kind": "global",
+      "context": "txr.step",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "description": "On a step of a new analysis, go back to the step this path showed before, or to where the path started. Refused while a run is starting or a dialog is open.",
+      "aliases": [
+        "back",
+        "previous step"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
       "id": "mcp.updateSettings",
       "title": "Update MCP settings",
       "kind": "global",

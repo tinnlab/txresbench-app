@@ -263,6 +263,9 @@ describe('RunningPage — the run id and the header facts (TEST-RUN-23)', () => 
     const see = screen.getByTestId('txr-run-see-results')
     expect(see.getAttribute('href')).toBe(resultsPath('run-1'))
     expect(screen.getByTestId('txr-run-notice').textContent).toContain('For research.')
+    // Running is not a step of the flow: no step Back (the run continues
+    // when the user leaves; the sidebar is the way out).
+    expect(screen.queryByTestId('txr-step-back')).toBeNull()
   })
 
   it('ticks the elapsed from the run\'s own snapshot and counts the time-left down (RP-2)', async () => {

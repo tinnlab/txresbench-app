@@ -74,4 +74,35 @@ describe('TxrRunBar (ITEM-2 c)', () => {
     })
     expect(onRun).toHaveBeenCalledWith({ atATime: 3, saveModels: true })
   })
+
+  it('renders the host Back node just before Run, in the action row', () => {
+    render(
+      <TxrRunBar
+        selectedCount={2}
+        timeText="about 1 min"
+        atATime={3}
+        saveModels={{ checked: false, onChange: () => undefined }}
+        onRun={() => undefined}
+        back={<span data-testid="host-back">Back</span>}
+      />,
+    )
+    const back = screen.getByTestId('host-back')
+    expect(back.nextElementSibling).toBe(screen.getByTestId('txr-run-bar-run'))
+    expect(back.parentElement?.classList.contains('txr-run-bar-action')).toBe(true)
+  })
+
+  it('without a Back node the action row is the save switch and Run only', () => {
+    render(
+      <TxrRunBar
+        selectedCount={2}
+        timeText="about 1 min"
+        atATime={3}
+        saveModels={{ checked: false, onChange: () => undefined }}
+        onRun={() => undefined}
+      />,
+    )
+    const run = screen.getByTestId('txr-run-bar-run')
+    expect(run.previousElementSibling).toBe(screen.getByTestId('txr-run-bar-save'))
+    expect(run.parentElement?.children.length).toBe(2)
+  })
 })

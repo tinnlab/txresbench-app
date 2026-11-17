@@ -61,7 +61,14 @@ import type {
   TxrModelAsset,
 } from '@/api-client/types'
 import type { IntakeSnapshot } from '@/modules/txrintake'
-import { buildTxrRunInput, useTxrIntakeStore } from '@/modules/txrintake'
+import {
+  buildTxrRunInput,
+  STEP_BACK_STARTING_REASON,
+  TxrStepBack,
+  TxrStepBackBar,
+  useStepBack,
+  useTxrIntakeStore,
+} from '@/modules/txrintake'
 import { useAppMode } from '@/modules/demo'
 import {
   countSelected,
@@ -476,6 +483,17 @@ export function PretrainedModelsPage() {
 
   const [runError, setRunError] = useState<string | null>(null)
   const creating = useRef(false)
+  /** A create (with its installs) is in flight: Back is unavailable until it
+   *  settles (the success path leaves for the Running screen). */
+  const [starting, setStarting] = useState(false)
+
+  // The step's Back (the step trail): with no trail, Back goes to the file step.
+  useStepBack({
+    step: 'pretrained-models',
+    fallback: predictFilesPath(),
+    blockedReason: starting ? STEP_BACK_STARTING_REASON : null,
+    dialogOpen: dialog !== 'none',
+  })
 
   /**
    * The D Run path (CONS-UM-21/24/13): gate → install-if-needed →
@@ -494,6 +512,7 @@ export function PretrainedModelsPage() {
       }
       if (creating.current) return
       creating.current = true
+      setStarting(true)
       setRunError(null)
       try {
         const runCards = cards.filter(card => keys.includes(`${ROW_KEY_PREFIX}${card.id}`))
@@ -575,6 +594,7 @@ export function PretrainedModelsPage() {
         setRunError(errorText(error))
       } finally {
         creating.current = false
+        setStarting(false)
       }
     },
     [cards, patients, measurements, predictMeasurements, joins, mapping, parameters, atATime, navigate, isDemo],
@@ -692,6 +712,7 @@ export function PretrainedModelsPage() {
               </Button>
             </div>,
           )}
+          bottom={<TxrStepBackBar />}
         />
         <TxrModelCardDialog
           cardId={null}
@@ -733,6 +754,7 @@ export function PretrainedModelsPage() {
               </Button>
             </div>,
           )}
+          bottom={<TxrStepBackBar />}
         />
         <TxrModelCardDialog
           cardId={null}
@@ -770,6 +792,7 @@ export function PretrainedModelsPage() {
           onRun: keys => {
             void createRun(keys)
           },
+          back: <TxrStepBack look="list-bar" />,
         }}
         onRowAction={row => {
           useTxrModelsStore.getState().openDialog(`card:${row.key.slice(ROW_KEY_PREFIX.length)}` as TxrModelDialogId)

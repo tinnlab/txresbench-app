@@ -53,7 +53,7 @@
  */
 import { useCallback, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiClient } from '@/api-client'
 import type { ModelSummary } from '@/api-client/types'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
@@ -61,7 +61,7 @@ import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
-import { useTxrIntakeStore } from '@/modules/txrintake'
+import { beginPath, useTxrIntakeStore } from '@/modules/txrintake'
 import { predictFilesPath } from '@/modules/txrrun'
 import { Alert, Button, Input } from '@txresbench/kit'
 import { useModelInventory } from '../data/useModelInventory'
@@ -268,6 +268,7 @@ type RowDialog = { kind: 'rename' | 'delete'; model: ModelSummary } | null
 
 export function ModelsPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const setId = searchParams.get('set')
   // R2-G1: the tab/title byte is the page's own h1.
@@ -302,12 +303,14 @@ export function ModelsPage() {
     (model: ModelSummary): void => {
       useTxrIntakeStore.getState().setIntent('reuse')
       useTxrModelsStore.getState().setPendingUse(model.id)
+      // The path's first step goes back here (the step trail).
+      beginPath(`${location.pathname}${location.search}`)
       // The URL announces the choice (the J "?set=" view precedent, DEC-19):
       // the N screen names the chosen model while the handoff is live
       // (RES-21 — "which model did I pick?" was left unspoken by the flow).
       navigate(`${predictFilesPath()}?use=${encodeURIComponent(model.id)}&name=${encodeURIComponent(model.name)}`)
     },
-    [navigate],
+    [navigate, location.pathname, location.search],
   )
 
   /** Export — the provider's attachment, byte passthrough; the picked

@@ -72,7 +72,15 @@ import type {
   RunConfig,
 } from '@/api-client/types'
 import type { IntakeSnapshot } from '@/modules/txrintake'
-import { buildTxrRunInput, TxrIntake, useTxrIntakeStore } from '@/modules/txrintake'
+import {
+  buildTxrRunInput,
+  STEP_BACK_STARTING_REASON,
+  TxrIntake,
+  TxrStepBack,
+  TxrStepBackBar,
+  useStepBack,
+  useTxrIntakeStore,
+} from '@/modules/txrintake'
 import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
 import { countSelected, formatTotalTime, TxrSelectList, type TxrListSection } from '@/modules/txrlist'
 import { predictFilesPath, runningPath } from '@/modules/txrrun'
@@ -487,6 +495,19 @@ export function SavedModelsPage() {
   // ── The Run path (CONS-UM-24/13 — the I arm of TEST-MOD-32) ──────────────
   const [runError, setRunError] = useState<string | null>(null)
   const creating = useRef(false)
+  /** A create is in flight: Back is unavailable until it settles (the
+   *  success path leaves for the Running screen). */
+  const [starting, setStarting] = useState(false)
+
+  // The step's Back (the step trail): with no trail, Back goes to the file
+  // step. The row Details dialog and the set Rename/Delete dialogs count as
+  // open page dialogs.
+  useStepBack({
+    step: 'saved-models',
+    fallback: predictFilesPath(),
+    blockedReason: starting ? STEP_BACK_STARTING_REASON : null,
+    dialogOpen: dialog !== 'none' || sectionAction.set !== null,
+  })
 
   /**
    * The reuse Run: gate → resolve FIRST (the selected uuids, assets
@@ -503,6 +524,7 @@ export function SavedModelsPage() {
       }
       if (creating.current) return
       creating.current = true
+      setStarting(true)
       setRunError(null)
       try {
         const runModels = saved.summaries.filter(model => keys.includes(model.id))
@@ -531,6 +553,7 @@ export function SavedModelsPage() {
         setRunError(errorText(error))
       } finally {
         creating.current = false
+        setStarting(false)
       }
     },
     [
@@ -691,6 +714,7 @@ export function SavedModelsPage() {
               </Button>
             </div>,
           )}
+          bottom={<TxrStepBackBar />}
         />
         {dialogs}
       </main>
@@ -730,6 +754,7 @@ export function SavedModelsPage() {
           onRun: keys => {
             void createRun(keys)
           },
+          back: <TxrStepBack look="list-bar" />,
         }}
         onRowAction={row => {
           useTxrModelsStore.getState().openDialog(`details:${row.key}` as TxrModelDialogId)

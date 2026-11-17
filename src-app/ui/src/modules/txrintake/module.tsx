@@ -1,6 +1,9 @@
 import { createModule } from '@txresbench/framework'
 import { TxrLayoutDef } from '@/modules/txrshell/module'
 import { lazyWithPreload } from '@/utils/lazyWithPreload'
+// Side-effect import: registers `flow.back` (the step views' Back button), so
+// Back is drivable by the palette and the AI, not only the button.
+import '@/core/actions/builtin/stepActions'
 
 /**
  * txrintake — the intake flow of TxResBench: screen A (Start), B (Your

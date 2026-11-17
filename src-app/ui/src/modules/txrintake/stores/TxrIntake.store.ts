@@ -82,6 +82,20 @@ export type FileCardPatch = Partial<
   Pick<LoadedFile, 'inspection' | 'problems' | 'prepared' | 'joinOffers' | 'vocabOffers' | 'columnOffers'>
 >
 
+/**
+ * The method ticks of screen E for one set of checked files: the user who
+ * goes Back from E and comes forward again with the same files finds the
+ * ticks as left (the step Back's decision 2). `key` is txrlist's
+ * `stableInventoryKey` of the validation's inventory: new files give a new
+ * key, and E then ticks its recommended set again.
+ */
+export interface MethodPicks {
+  key: string
+  selected: string[]
+  /** The user changed the ticks (a tick or a preset): the recommendation never overrides them. */
+  touched: boolean
+}
+
 /** The store's data fields (the `IntakeSnapshot` + the recall map). */
 export interface TxrIntakeState extends IntakeSnapshot {
   fileRecalls: FileRecalls
@@ -111,6 +125,8 @@ export interface TxrIntakeState extends IntakeSnapshot {
    * user can call "Use example" again).
    */
   pendingExampleSetId: string | null
+  /** Screen E's method ticks (see `MethodPicks`). Memory only, never persisted. */
+  methodPicks: MethodPicks | null
 }
 
 /**
@@ -279,6 +295,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
     exampleLoaded: false,
     exampleSlots: { ...BIRTH_EXAMPLE_SLOTS },
     pendingExampleSetId: null as string | null,
+    methodPicks: null as MethodPicks | null,
   },
   actions: (set, get) => {
     /** The state snapshot the current validation is STILL valid against. */
@@ -406,6 +423,11 @@ const TxrIntakeDef = defineStore('TxrIntake', {
             pendingExampleSetId: null,
           }
         })
+      },
+
+      /** Screen E's method ticks for the current files (null forgets them). */
+      setMethodPicks: (picks: MethodPicks | null) => {
+        set({ methodPicks: picks })
       },
 
       /** The ITEM-3 example-set handoff (qa-fixes3 ITEM-4). */
@@ -598,6 +620,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
           exampleLoaded: false,
           exampleSlots: { ...BIRTH_EXAMPLE_SLOTS },
           pendingExampleSetId: null,
+          methodPicks: null,
         })
       },
 
