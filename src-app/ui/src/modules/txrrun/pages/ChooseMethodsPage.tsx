@@ -517,6 +517,9 @@ export function ChooseMethodsPage() {
       setStarting(true)
       setRunError(null)
       setRunNotice(null)
+      // A navigation to the Running screen leaves this step: Back stays
+      // unavailable until the route changes (the Running chunk may still load).
+      let leaving = false
       try {
         const input = buildTxrRunInput({
           patients,
@@ -532,6 +535,7 @@ export function ChooseMethodsPage() {
           keys,
         )
         const run = await ApiClient.Txr.createRun(request)
+        leaving = true
         navigate(runningPath(run.id))
       } catch (err) {
         const status = errorStatus(err)
@@ -540,6 +544,7 @@ export function ChooseMethodsPage() {
             const page = await ApiClient.Txr.listRuns({ limit: 50 })
             const active = page.runs.find(run => ACTIVE_RUN_STATUSES.has(run.status))
             if (active !== undefined) {
+              leaving = true
               navigate(runningPath(active.id), { state: { resumed: true } })
               return
             }
@@ -566,7 +571,7 @@ export function ChooseMethodsPage() {
         }
       } finally {
         creating.current = false
-        setStarting(false)
+        if (!leaving) setStarting(false)
       }
     },
     [

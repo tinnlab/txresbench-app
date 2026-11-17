@@ -94,7 +94,7 @@ async function clickBack(): Promise<void> {
 }
 
 beforeEach(() => {
-  useStepTrailStore.setState({ trail: [], current: null })
+  useStepTrailStore.setState({ trail: [], current: null, leaving: false })
 })
 
 afterEach(() => {
@@ -141,6 +141,26 @@ describe('TxrStepBack', () => {
     const back = screen.getByTestId('txr-step-back')
     expect(back.textContent).toContain('Back')
     expect(back.getAttribute('aria-disabled')).toBeNull()
+  })
+
+  it('while a Back is already leaving the step, another click does nothing', async () => {
+    beginPath('/')
+    renderFlow('/study')
+    act(() => {
+      useStepTrailStore.setState({ leaving: true })
+    })
+    await clickBack()
+    expect(location()).toBe('/study')
+    expect(useStepTrailStore.getState().trail).toEqual(['/', '/study'])
+  })
+
+  it('leaving the step view ends the leaving state', () => {
+    const view = renderFlow('/study')
+    act(() => {
+      useStepTrailStore.setState({ leaving: true })
+    })
+    view.unmount()
+    expect(useStepTrailStore.getState().leaving).toBe(false)
   })
 
   it('a deep link (no trail) goes to the step fallback', async () => {

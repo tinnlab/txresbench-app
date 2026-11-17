@@ -866,7 +866,7 @@ describe('the step Back on Saved models (I)', () => {
   }
 
   beforeEach(() => {
-    useStepTrailStore.setState({ trail: [], current: null })
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
   })
 
   it('sits directly left of Run in the list bar: rows, loading, error and a search that hides every row', async () => {
@@ -962,6 +962,32 @@ describe('the step Back on Saved models (I)', () => {
     expect(routeAt()).toBe('/saved-models')
   })
 
+  it('a dialog id another page left in the shared store (D\u2019s model card) does not block Back here', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    act(() => {
+      useTxrModelsStore.getState().openDialog('card:ps-1')
+    })
+    renderFlow()
+    await settle(0)
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/predict-files')
+  })
+
+  it('after a run is created the page stays on "Starting the run…" until it leaves: Back stays unavailable', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    renderPage()
+    await settle(0)
+    await selectRow(fixtureModelId(1))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('txr-step-back').getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByTestId('txr-step-back').textContent).toContain(STEP_BACK_STARTING_REASON)
+  })
+
   it('while a set Rename dialog or the Details dialog is open, flow.back refuses', async () => {
     useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
     renderFlow()
@@ -1010,7 +1036,7 @@ describe('the dynamic no-models messages on Saved models (I)', () => {
   }
 
   beforeEach(() => {
-    useStepTrailStore.setState({ trail: [], current: null })
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
   })
 
   it('no saved model, published models loading: says it checks them, no number; Back at the bottom right', async () => {

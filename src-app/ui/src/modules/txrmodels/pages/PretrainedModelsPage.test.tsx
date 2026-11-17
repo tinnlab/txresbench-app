@@ -1039,7 +1039,7 @@ describe('the step Back on Pretrained models (D)', () => {
   }
 
   beforeEach(() => {
-    useStepTrailStore.setState({ trail: [], current: null })
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
   })
 
   it('sits directly left of Run in the list bar: rows, loading, error and a filtered-empty list', async () => {
@@ -1106,7 +1106,7 @@ describe('the step Back on Pretrained models (D)', () => {
     expect(routeAt()).toBe('/predict-files')
     cleanup()
 
-    useStepTrailStore.setState({ trail: [], current: null })
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
     renderFlow()
     await settle(0)
     await click('txr-step-back')
@@ -1159,6 +1159,49 @@ describe('the step Back on Pretrained models (D)', () => {
     expect(routeAt()).toBe('/pretrained-models')
   })
 
+  it('a dialog id another page left in the shared store (I\u2019s Details) does not block Back here', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    act(() => {
+      useTxrModelsStore.getState().openDialog('details:m-1')
+    })
+    renderFlow()
+    await settle(0)
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/predict-files')
+  })
+
+  it('a model card id left open does not block Back where no card can show (no checked file)', async () => {
+    useTxrIntakeStore.setState({ validation: null })
+    act(() => {
+      useTxrModelsStore.getState().openDialog('card:ps-2')
+    })
+    renderFlow()
+    await settle(0)
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/predict-files')
+  })
+
+  it('after a run is created the page stays on "Starting the run…" until it leaves: Back stays unavailable', async () => {
+    api.listModels.mockResolvedValue({
+      origin: 'embedded',
+      generated_at: '2026-11-29T09:00:00Z',
+      total: 1,
+      models: [runCard(1, 'installed')],
+    } as PretrainedListResponse)
+    api.eligibility.mockResolvedValue(runEligibility())
+    renderPage()
+    await settle(0)
+    await selectRow('ps:rc-1')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('txr-step-back').getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByTestId('txr-step-back').textContent).toContain(STEP_BACK_STARTING_REASON)
+  })
+
   it('while the Model card dialog is open, flow.back refuses', async () => {
     useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
     renderFlow()
@@ -1193,7 +1236,7 @@ describe('the dynamic no-models messages on Pretrained models (D)', () => {
   }
 
   beforeEach(() => {
-    useStepTrailStore.setState({ trail: [], current: null })
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
   })
 
   it('no published model, 3 saved and 2 can run: says so, and "Use my saved models" opens the saved list for the same file', async () => {

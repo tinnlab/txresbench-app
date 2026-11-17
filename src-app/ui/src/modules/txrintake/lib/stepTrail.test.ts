@@ -17,6 +17,7 @@ import {
   replaceCurrent,
   replaceCurrentStep,
   STEP_BACK_DIALOG_OPEN,
+  STEP_BACK_LEAVING,
   STEP_BACK_NO_STEP,
   takeStepBack,
   useStepTrailStore,
@@ -66,9 +67,9 @@ function show(url: string, fallback?: string): void {
   })
 }
 
-/** A non-step page mounts (Start, Help, ...): no current step. */
+/** A non-step page mounts (Start, Help, ...): the step unmounted, no current step. */
 function leaveToPage(): void {
-  useStepTrailStore.setState({ current: null })
+  useStepTrailStore.setState({ current: null, leaving: false })
 }
 
 /** Back from the current step: the URL it lands on. */
@@ -80,7 +81,7 @@ function back(): string {
 }
 
 beforeEach(() => {
-  useStepTrailStore.setState({ trail: [], current: null })
+  useStepTrailStore.setState({ trail: [], current: null, leaving: false })
 })
 
 describe('the pure helpers', () => {
@@ -231,6 +232,39 @@ describe('the flow map (each row: Back from each step of the path)', () => {
     expect(back()).toBe(START)
   })
 
+  it('row 11 — a backward hop into a step the trail does not hold cuts back to the origin, never forward', () => {
+    // History "Use these settings again" → E, then "Change files" → C (or N
+    // on a predict path): Back from the file step is History, not E.
+    beginPath('/history')
+    show(METHODS)
+    show(FILES)
+    expect(useStepTrailStore.getState().trail).toEqual(['/history', FILES])
+    expect(back()).toBe('/history')
+
+    beginPath('/history')
+    show(METHODS, PREDICT)
+    show(PREDICT)
+    expect(useStepTrailStore.getState().trail).toEqual(['/history', PREDICT])
+    expect(back()).toBe('/history')
+  })
+
+  it('row 11 + 13 — after a reload on D or I, "Go to the measurements step" / I "Use example" lands on N, whose Back is Start', () => {
+    for (const model of [PUBLISHED, SAVED]) {
+      useStepTrailStore.setState({ trail: [], current: null })
+      show(model) // the reload: the trail holds only the model step
+      show(PREDICT)
+      expect(useStepTrailStore.getState().trail).toEqual([PREDICT])
+      expect(back()).toBe(START)
+    }
+  })
+
+  it('a detour to B from a later step is not a backward hop (N study link, row 7): B goes back to N', () => {
+    beginPath(START)
+    show(PREDICT)
+    show(STUDY)
+    expect(useStepTrailStore.getState().trail).toEqual([START, PREDICT, STUDY])
+  })
+
   it('row 12: the D ↔ I switch replaces the step: Back from the new list goes to N', () => {
     beginPath(START)
     show(PREDICT)
@@ -273,6 +307,18 @@ describe('the flow map (each row: Back from each step of the path)', () => {
 })
 
 describe('the refusals', () => {
+  it('a second Back while the first is still leaving does nothing (the trail was already cut)', () => {
+    beginPath('/history')
+    show(METHODS)
+    expect(takeStepBack()).toBe('/history')
+    // The router has not committed the new route yet: the step is still on screen.
+    expect(() => takeStepBack()).toThrow(STEP_BACK_LEAVING)
+    expect(useStepTrailStore.getState().trail).toEqual(['/history'])
+    // The next step that records itself ends the leaving state.
+    show(FILES)
+    expect(() => takeStepBack()).not.toThrow()
+  })
+
   it('refuses with no step view on screen', () => {
     expect(() => takeStepBack()).toThrow(STEP_BACK_NO_STEP)
   })

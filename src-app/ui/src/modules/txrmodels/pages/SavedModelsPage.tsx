@@ -509,13 +509,14 @@ export function SavedModelsPage() {
   const [starting, setStarting] = useState(false)
 
   // The step's Back (the step trail): with no trail, Back goes to the file
-  // step. The row Details dialog and the set Rename/Delete dialogs count as
-  // open page dialogs.
+  // step. Only the dialogs this page shows count as open (the row Details,
+  // the set Rename/Delete): the store's dialog id is shared with the
+  // published-models page.
   useStepBack({
     step: 'saved-models',
     fallback: predictFilesPath(),
     blockedReason: starting ? STEP_BACK_STARTING_REASON : null,
-    dialogOpen: dialog !== 'none' || sectionAction.set !== null,
+    dialogOpen: dialog.startsWith('details:') || sectionAction.set !== null,
   })
 
   /**
@@ -535,6 +536,9 @@ export function SavedModelsPage() {
       creating.current = true
       setStarting(true)
       setRunError(null)
+      // A navigation to the Running screen leaves this step: Back stays
+      // unavailable until the route changes (the Running chunk may still load).
+      let leaving = false
       try {
         const runModels = saved.summaries.filter(model => keys.includes(model.id))
         const { assets } = await ApiClient.Models.resolveModels({
@@ -557,12 +561,13 @@ export function SavedModelsPage() {
           ),
           model_ids: assets,
         })
+        leaving = true
         navigate(runningPath(run.id))
       } catch (error) {
         setRunError(errorText(error))
       } finally {
         creating.current = false
-        setStarting(false)
+        if (!leaving) setStarting(false)
       }
     },
     [

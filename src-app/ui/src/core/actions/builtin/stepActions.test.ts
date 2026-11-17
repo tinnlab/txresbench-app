@@ -15,6 +15,7 @@ import { useTxrIntakeStore } from '@/modules/txrintake/stores/TxrIntake.store'
 import type { ValidationResponse } from '@/api-client/types'
 import {
   STEP_BACK_DIALOG_OPEN,
+  STEP_BACK_LEAVING,
   STEP_BACK_NO_STEP,
   useStepTrailStore,
   type TxrCurrentStep,
@@ -28,7 +29,7 @@ function onStep(current: Partial<TxrCurrentStep> & Pick<TxrCurrentStep, 'step' |
 
 beforeEach(() => {
   nav.navigate.mockReset()
-  useStepTrailStore.setState({ trail: [], current: null })
+  useStepTrailStore.setState({ trail: [], current: null, leaving: false })
 })
 
 describe('flow.back', () => {
@@ -79,6 +80,16 @@ describe('flow.back', () => {
     expect(nav.navigate).toHaveBeenCalledWith(withUse)
   })
 
+  it('a second Back before the router commits the first does nothing (no fallback hop)', async () => {
+    useStepTrailStore.setState({ trail: ['/history', '/choose-methods'] })
+    onStep({ step: 'choose-methods', url: '/choose-methods', fallback: '/files' })
+    await runAction('flow.back', {})
+    // The router has not committed yet: E is still the current step.
+    await expect(runAction('flow.back', {})).rejects.toThrow(STEP_BACK_LEAVING)
+    expect(nav.navigate).toHaveBeenCalledTimes(1)
+    expect(nav.navigate).toHaveBeenCalledWith('/history')
+  })
+
   it('with an empty trail (a reload), goes to the step fallback', async () => {
     onStep({ step: 'files', url: '/files', fallback: '/study' })
     await runAction('flow.back', {})
@@ -122,6 +133,15 @@ describe('models.switchList', () => {
     expect(nav.navigate).toHaveBeenCalledWith('/pretrained-models')
     expect(useStepTrailStore.getState().trail).toEqual(['/', '/predict-files', '/pretrained-models'])
     expect(useTxrIntakeStore.getState().intent).toBe('pretrained')
+  })
+
+  it('a second switch before the router commits the first does nothing (the trail holds the list once)', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/predict-files', '/pretrained-models'] })
+    onStep({ step: 'pretrained-models', url: '/pretrained-models', fallback: '/predict-files' })
+    await runAction('models.switchList', { list: 'saved' })
+    await expect(runAction('models.switchList', { list: 'saved' })).rejects.toThrow(STEP_BACK_LEAVING)
+    expect(nav.navigate).toHaveBeenCalledTimes(1)
+    expect(useStepTrailStore.getState().trail).toEqual(['/', '/predict-files', '/saved-models'])
   })
 
   it('already on that list: nothing moves', async () => {

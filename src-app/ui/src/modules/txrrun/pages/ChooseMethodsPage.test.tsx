@@ -1666,7 +1666,7 @@ describe('the step Back on Choose methods (E)', () => {
   }
 
   beforeEach(() => {
-    useStepTrailStore.setState({ trail: [], current: null })
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
   })
 
   it('sits directly left of Run in the run bar once the list is there', async () => {
@@ -1733,7 +1733,7 @@ describe('the step Back on Choose methods (E)', () => {
     expect(routeAt()).toBe('/files')
     cleanup()
 
-    useStepTrailStore.setState({ trail: [], current: null })
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
     seedStore({ mode: 'predict' })
     renderFlow()
     await settle()
@@ -1792,6 +1792,21 @@ describe('the step Back on Choose methods (E)', () => {
     await expect(runAction('flow.back', {})).rejects.toThrow(STEP_BACK_STARTING_REASON)
     await click('txr-step-back')
     expect(routeAt()).toBe('/choose-methods')
+  })
+
+  it('after a run is created the page stays on "Starting the run…" until it leaves: Back stays unavailable', async () => {
+    seedStore()
+    renderPage()
+    await settle()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
+      await Promise.resolve()
+    })
+    await settle()
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
+    expect(screen.getByTestId('txr-step-back').getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByTestId('txr-step-back').textContent).toContain(STEP_BACK_STARTING_REASON)
   })
 
   it('while the Change files dialog is open, flow.back refuses', async () => {

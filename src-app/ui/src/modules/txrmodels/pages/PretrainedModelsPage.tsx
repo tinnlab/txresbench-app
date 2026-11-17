@@ -552,7 +552,9 @@ export function PretrainedModelsPage() {
     step: 'pretrained-models',
     fallback: predictFilesPath(),
     blockedReason: starting ? STEP_BACK_STARTING_REASON : null,
-    dialogOpen: dialog !== 'none',
+    // Only the dialog this page shows counts (the model card, in the list
+    // state): the store's dialog id is shared with the saved-models page.
+    dialogOpen: validation !== null && !noCatalogue && dialog.startsWith('card:'),
   })
 
   /**
@@ -574,6 +576,9 @@ export function PretrainedModelsPage() {
       creating.current = true
       setStarting(true)
       setRunError(null)
+      // A navigation to the Running screen leaves this step: Back stays
+      // unavailable until the route changes (the Running chunk may still load).
+      let leaving = false
       try {
         const runCards = cards.filter(card => keys.includes(`${ROW_KEY_PREFIX}${card.id}`))
         // ITEM-7 demo arm: the cards are included in the demo — no install,
@@ -604,6 +609,7 @@ export function PretrainedModelsPage() {
               method_version: card.method_version,
             })) as unknown as TxrModelAsset[],
           })
+          leaving = true
           navigate(runningPath(run.id))
           return
         }
@@ -649,12 +655,13 @@ export function PretrainedModelsPage() {
           ),
           model_ids: assets,
         })
+        leaving = true
         navigate(runningPath(run.id))
       } catch (error) {
         setRunError(errorText(error))
       } finally {
         creating.current = false
-        setStarting(false)
+        if (!leaving) setStarting(false)
       }
     },
     [cards, patients, measurements, predictMeasurements, joins, mapping, parameters, atATime, navigate, isDemo],

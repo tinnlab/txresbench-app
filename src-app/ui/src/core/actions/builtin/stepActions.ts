@@ -4,8 +4,8 @@ import { defineAction } from '../defineAction'
 import { TxrIntake } from '@/modules/txrintake/stores/TxrIntake.store'
 import {
   beginPath,
+  assertCanLeaveStep,
   replaceCurrentStep,
-  STEP_BACK_DIALOG_OPEN,
   takeStepBack,
   TXR_STEP_CONTEXT,
   useStepTrailStore,
@@ -65,15 +65,14 @@ defineAction({
       .describe('"saved" for your saved models, "published" for the published models.'),
   }),
   run: ({ list }, ctx) => {
-    const current = useStepTrailStore.getState().current
+    const onScreen = useStepTrailStore.getState().current
     if (
-      current === null ||
-      (current.step !== 'pretrained-models' && current.step !== 'saved-models')
+      onScreen === null ||
+      (onScreen.step !== 'pretrained-models' && onScreen.step !== 'saved-models')
     ) {
       throw new Error('Open the model step of a new analysis first.')
     }
-    if (current.blockedReason !== null) throw new Error(current.blockedReason)
-    if (current.dialogOpen) throw new Error(STEP_BACK_DIALOG_OPEN)
+    const current = assertCanLeaveStep()
     const path = list === 'saved' ? SAVED_MODELS_ROUTE : PUBLISHED_MODELS_ROUTE
     // Already on that list: nothing to switch.
     if ((current.step === 'saved-models') === (list === 'saved')) return { path }

@@ -61,7 +61,7 @@ export function useStepBack({
     () => () => {
       // Leaving the step view: forget it, unless another step already took its place.
       if (useStepTrailStore.getState().current?.step === step) {
-        useStepTrailStore.setState({ current: null })
+        useStepTrailStore.setState({ current: null, leaving: false })
       }
     },
     [step],
@@ -103,6 +103,8 @@ export function TxrStepBack({ look = 'footer' }: { look?: TxrStepBackLook }) {
       style={LOOKS[look]}
       unavailableReason={blockedReason ?? undefined}
       onClick={() => {
+        // A Back already left this step; the route is changing (a second click does nothing).
+        if (useStepTrailStore.getState().leaving) return
         runAction('flow.back', {}).catch((error: unknown) => {
           message.error(errorText(error))
         })
