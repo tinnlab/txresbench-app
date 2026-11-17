@@ -347,18 +347,20 @@ export function ChooseMethodsPage() {
     void runConfig.update(next)
   }
 
-  // The retry-load transition (the engine's sticky fields land after an
-  // edit): the write-through body is once more the screen's truth.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const engineBefore = useRef<typeof runConfig.engine>(runConfig.engine)
+  // The load transition (the engine's sticky fields land after an edit): the
+  // write-through body is once more the screen's truth. Keyed on the hook's
+  // LOAD count, never on `engine`: each save replaces `engine` too, so an
+  // `engine` key re-wrote after every save, forever.
+  const loadsBefore = useRef(runConfig.loadCount)
   useEffect(() => {
-    const previous = engineBefore.current
-    engineBefore.current = runConfig.engine
+    const previous = loadsBefore.current
+    loadsBefore.current = runConfig.loadCount
     if (settingsPatch === null) return
-    if (previous !== runConfig.engine) {
+    if (previous !== runConfig.loadCount) {
       void runConfig.update({ ...merged, ...settingsPatch })
     }
-  }, [runConfig.engine])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runConfig.loadCount])
 
   const inventory = validation?.inventory ?? null
   // ITEM-2 (a): the ONE compact summary (the line + marker names + the

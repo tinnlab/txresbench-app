@@ -513,6 +513,15 @@ describe('ChooseMethodsPage settings wiring (ITEM-7)', () => {
         label_day: null,
       },
     })
+
+    // The save is the last write: the hook's own PUT never triggers another
+    // one (the step-4 fix: an `engine`-keyed effect re-wrote after every
+    // save, one PUT per debounce window for as long as the page was open).
+    for (let window = 0; window < 5; window += 1) {
+      await settle(RUN_CONFIG_DEBOUNCE_MS)
+      await settle()
+    }
+    expect(api.putConfig).toHaveBeenCalledTimes(1)
   })
 
   it('fills the Extra-inputs names line from the patients inspection covariate_columns', async () => {
