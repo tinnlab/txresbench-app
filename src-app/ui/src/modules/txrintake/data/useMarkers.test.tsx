@@ -34,7 +34,7 @@
  * `Datasets.store` precedent.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, renderHook } from '@testing-library/react'
+import { act, cleanup, renderHook } from '@testing-library/react'
 import type {
   MarkerGroup,
   MarkerVocabularyResponse,
@@ -44,6 +44,10 @@ import type {
 import { useMarkers } from './useMarkers'
 import { useRunnableMethodCount } from './useRunnableMethodCount'
 import { __resetFetchCacheForTests } from './fetchCache'
+import {
+  __resetMethodListRevisionForTests,
+  noteMethodListSequence,
+} from '@/lib/txr-method-list/revision'
 
 const api = vi.hoisted(() => ({ markers: vi.fn(), list: vi.fn() }))
 vi.mock('@/api-client', () => ({
@@ -120,9 +124,13 @@ beforeEach(() => {
   api.markers.mockResolvedValue(vocabulary())
   api.list.mockResolvedValue(methodList())
   __resetFetchCacheForTests()
+  __resetMethodListRevisionForTests()
 })
 
 afterEach(() => {
+  // Unmount every hook: a mounted one would answer the next test's method list
+  // change (a process-wide signal) and count its requests there.
+  cleanup()
   vi.restoreAllMocks()
 })
 
@@ -235,5 +243,32 @@ describe('useRunnableMethodCount (TEST-INT-5, ITEM-10)', () => {
     await settle()
     expect(api.list).toHaveBeenCalledTimes(2)
     expect(second.result.current.count).toBe(64)
+  })
+})
+
+describe('a new method list (PR 5)', () => {
+  it('drops the cached vocabulary and the runnable count, and the mounted hooks fetch again', async () => {
+    const markers = renderHook(() => useMarkers())
+    const count = renderHook(() => useRunnableMethodCount())
+    await settle()
+    expect(api.markers).toHaveBeenCalledTimes(1)
+    expect(api.list).toHaveBeenCalledTimes(1)
+    // The first list the screens see only sets the sequence.
+    act(() => noteMethodListSequence(1))
+    await settle()
+    expect(api.markers).toHaveBeenCalledTimes(1)
+    // A newer list: both catalogue reads are stale.
+    api.list.mockResolvedValue(methodList(65))
+    act(() => noteMethodListSequence(2))
+    await settle()
+    expect(api.markers).toHaveBeenCalledTimes(2)
+    expect(api.list).toHaveBeenCalledTimes(2)
+    expect(count.result.current.count).toBe(65)
+    expect(markers.result.current.groups).toEqual(GROUPS)
+    // The refetched values are cached again: a later mount sends nothing.
+    markers.unmount()
+    renderHook(() => useMarkers())
+    await settle()
+    expect(api.markers).toHaveBeenCalledTimes(2)
   })
 })

@@ -60,9 +60,10 @@ compare failing sets **by name** (`comm`), not by count.
 - **The analysis sandbox has no network.** `--unshare-net` at
   `src-app/server/src/modules/sandbox/sandbox.rs:96`, asserted at `:637`
   (*"network must be blocked"*). Nothing is fetched at run time — ever. Fetch at build time
-  instead; the method environments themselves are downloaded by digest from the method catalogue
-  before a run (the app's only network uses are those downloads and the update check, both pinned
-  by `scripts/check-network-allowlist.sh`).
+  instead; the method environments themselves are downloaded by digest from the method list
+  before a run (the app's only network uses are those downloads, the signed method list check —
+  boot, run start, the Settings button, never on a timer — and the update check, all pinned by
+  `scripts/check-network-allowlist.sh`; GHCR needs `ghcr.io` and `pkg-containers.githubusercontent.com`).
 - **The app is bare-metal single-user by design.** No login screen, no queue, no provenance or
   workspace screens: the route surface is the app's own `/api/health`, `/api/session/local`,
   `/api/app/mode`, `/api/methods*`, `/api/markers`, `/api/file-validation/*` and `/api/txr/*`

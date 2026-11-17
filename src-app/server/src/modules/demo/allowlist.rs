@@ -79,6 +79,9 @@ pub const ROUTE_POLICY: &[RouteRow] = &[
     RouteRow::allowed("POST", "/auth/logout"),
     RouteRow::allowed("POST", "/auth/refresh"),
     RouteRow::allowed("GET", "/methods"),
+    // The method list status: in demo mode it says updates are off (the demo
+    // replays the built-in list). Before the `{method_id}` row: first match wins.
+    RouteRow::allowed("GET", "/methods/updates"),
     RouteRow::allowed("GET", "/methods/{method_id}"),
     RouteRow::allowed("POST", "/methods/eligibility"),
     RouteRow::allowed("POST", "/methods/estimate"),
@@ -139,6 +142,9 @@ pub const ROUTE_POLICY: &[RouteRow] = &[
     RouteRow::blocked("POST", "/txr/history/copies/clear"),
     RouteRow::blocked("POST", "/txr/history/{id}/copies/clear"),
     RouteRow::blocked("POST", "/txr/models/import"),
+    // The method list never moves in demo mode (recorded runs replay the
+    // built-in list), so the check is blocked like the pretrained refresh.
+    RouteRow::blocked("POST", "/methods/updates/check"),
     RouteRow::blocked("POST", "/txr/pretrained/refresh"),
     RouteRow::blocked("POST", "/txr/pretrained/{id}/download"),
     RouteRow::blocked("POST", "/txr/pretrained/{id}/install"),

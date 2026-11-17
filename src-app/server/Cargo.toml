@@ -275,6 +275,12 @@ zip = { version = "6", default-features = false }
 # Both are already in the lockfile as transitive axum deps.
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+# The method list tests sign lists with the committed FIXTURE test key exactly as
+# `minisign -S` does (`src/modules/method_list/test_sign.rs`), so the runtime and the
+# loopback integration tests verify real signatures without committing a signed copy of
+# the 3 MB built-in list. TEST dep only. Already in `Cargo.lock` (2.2.0): an edge, not a
+# package.
+ed25519-dalek = "=2.2.0"
 
 # Unix SIGTERM for graceful job stop (SIGTERM -> SIGKILL); cfg-gated at use so the
 # non-unix build (which falls back to Child::start_kill) never links it.

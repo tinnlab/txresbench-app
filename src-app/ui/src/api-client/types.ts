@@ -379,6 +379,9 @@ export interface ChangePasswordRequest {
   new_password: string
 }
 
+/** What the last check found. */
+export type CheckResult = 'not_checked' | 'current' | 'updated' | 'unreachable' | 'unavailable' | 'refused' | 'needs_newer_app' | 'off'
+
 /**
  * One covariate column's numeric-ness fact (an inspect-time report: a
  *  covariate known to a numeric rule is a usable covariate; a text column is
@@ -1110,6 +1113,9 @@ export interface LinkAccountRequest {
   password: string
 }
 
+/** Where the list in use came from. */
+export type ListOrigin = 'builtin' | 'disk' | 'live'
+
 /**
  * Optional pagination for the versions list. Defaults bound an
  *  un-paginated caller to the most recent `DEFAULT_PAGE_SIZE` versions
@@ -1480,6 +1486,24 @@ export interface MethodListResponse {
   method_list_sequence: number
   methods: MethodSummary[]
   total: number
+}
+
+/** `GET /api/methods/updates`: the list in use and the last check. */
+export interface MethodListStatus {
+  /** When the list in use was assembled (`YYYY-MM-DDTHH:MM:SSZ`). */
+  assembled_at: string
+  last_check: CheckResult
+  /** When the last check finished (in this or an earlier session). */
+  last_checked_at?: string
+  /** The last check's problem, in a plain sentence; `None` when it went well. */
+  last_error?: string
+  origin: ListOrigin
+  /** The sequence of the list in use (0: the built-in copy from before the first publish). */
+  sequence: number
+  /** Who signed the list in use; `None` for the unsigned built-in copy. */
+  signer?: string
+  /** Whether this app checks for newer lists (false in demo mode). */
+  updates_enabled: boolean
 }
 
 /** A method's marker-input summary (`markers{kind,count}`). */
@@ -4242,6 +4266,8 @@ export type ApiEndpointParameters = {
   'MethodCatalogue.estimate': EstimateRequest
   'MethodCatalogue.list': { frozen?: boolean; group?: MethodGroup; q?: string; runnable?: boolean }
   'MethodCatalogue.markers': void
+  'MethodList.checkUpdates': void
+  'MethodList.updates': void
   'ModelSets.deleteSet': { id: string; keep_files?: boolean }
   'ModelSets.exportSet': { id: string }
   'ModelSets.listSets': void
@@ -4376,6 +4402,8 @@ export type ApiEndpointResponses = {
   'MethodCatalogue.estimate': EstimateResponse
   'MethodCatalogue.list': MethodListResponse
   'MethodCatalogue.markers': MarkerVocabularyResponse
+  'MethodList.checkUpdates': MethodListStatus
+  'MethodList.updates': MethodListStatus
   'ModelSets.deleteSet': void
   'ModelSets.exportSet': void
   'ModelSets.listSets': ModelSetListResponse

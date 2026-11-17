@@ -28,6 +28,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiClient } from '@/api-client'
 import type { InventoryEligibilityRequest } from '@/api-client/types'
+import {
+  noteMethodListSequence,
+  useMethodListRevision,
+  useMethodListUpdates,
+} from '@/lib/txr-method-list/revision'
 import type { TxrMethodCard } from '../types'
 import { buildMethodCards } from './methodRows'
 
@@ -44,6 +49,9 @@ export interface UseMethodRowsResult {
   error: string | null
   /** Re-fetch both endpoints for the current inventory. */
   refetch: () => void
+  /** The sequence of the method list the cards come from (`null` until the
+   *  first response); a run request sends it back. */
+  methodListSequence: number | null
 }
 
 /**
@@ -86,6 +94,11 @@ export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethod
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
+  const [methodListSequence, setMethodListSequence] = useState<number | null>(null)
+  // The method screens keep the list status fresh (mount, focus, every 10
+  // minutes); a new list moves the revision and the cards are fetched again.
+  useMethodListUpdates()
+  const revision = useMethodListRevision()
 
   useEffect(() => {
     // The closure's `inventory` is the object this key was derived from, so
@@ -102,6 +115,9 @@ export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethod
         if (cancelled) return
         setCards(buildMethodCards(list.methods, eligibility))
         setNoEnvCount(eligibility.total_no_env ?? 0)
+        const sequence = eligibility.method_list_sequence ?? list.method_list_sequence ?? null
+        setMethodListSequence(sequence)
+        noteMethodListSequence(sequence)
         setLoading(false)
       })
       .catch((err: unknown) => {
@@ -115,11 +131,11 @@ export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethod
     // `inventory` is deliberately not a dependency: its content key is the
     // pair's cache discriminator, and a content-identical rebuild must not
     // re-issue the request (same key -> no refetch).
-  }, [key, refresh])
+  }, [key, refresh, revision])
 
   const refetch = useCallback(() => {
     setRefresh(count => count + 1)
   }, [])
 
-  return { cards, noEnvCount, loading, error, refetch }
+  return { cards, noEnvCount, loading, error, refetch, methodListSequence }
 }

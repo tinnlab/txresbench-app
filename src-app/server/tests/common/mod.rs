@@ -119,6 +119,26 @@ pub struct TestOptions {
     /// sets its own loopback URL here.
     pub catalogue_url: Option<String>,
 
+    /// Point the spawned server's method list checks at this reference
+    /// (`TXR_METHOD_LIST_REF=<host>[:<port>]/<path>:<tag>` — the module's
+    /// debug-only seam). `None` (default) names a CLOSED loopback port: the
+    /// boot check and every run-start check fail at once without network, so
+    /// no test suite dials the production registry. A test that serves a list
+    /// names its own loopback reference and stages a stand-in `bin/oras`
+    /// ([`TestOptions::prestage_data_files`]).
+    pub method_list_ref: Option<String>,
+
+    /// Trust one more method list key in the spawned server
+    /// (`TXR_METHOD_LIST_TEST_KEY`, debug only): a minisign public key file
+    /// (the fixture test key's `test-key.pub`).
+    pub method_list_test_key: Option<PathBuf>,
+
+    /// Files written under the spawned server's `<data_dir>` BEFORE it boots:
+    /// `(relative path, bytes, executable)`. A stand-in `bin/oras` (the tool
+    /// lookup's `<app_data>/bin`) or a stored method list
+    /// (`method-list/v1/…`) must exist before the boot reads them.
+    pub prestage_data_files: Vec<(String, Vec<u8>, bool)>,
+
     /// Point the spawned server's pretrained bundled-models dir at this
     /// directory (`TXR_BUNDLED_MODELS_DIR` — the module's documented
     /// bundle-layout resolution). `None` (default) leaves the env unset →
@@ -401,6 +421,20 @@ jwt:
                         .expect("prestage method-env ledger");
                     }
                 }
+                for (rel, bytes, executable) in &opts.prestage_data_files {
+                    let path = facts.data_dir.join(rel);
+                    std::fs::create_dir_all(path.parent().expect("a file under the data dir"))
+                        .expect("prestage data dir");
+                    std::fs::write(&path, bytes).expect("prestage data file");
+                    #[cfg(unix)]
+                    if *executable {
+                        use std::os::unix::fs::PermissionsExt;
+                        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                            .expect("prestage data file mode");
+                    }
+                    #[cfg(not(unix))]
+                    let _ = executable;
+                }
                 let mut env = vec![(
                     "TXR_APP_DATA_DIR".to_string(),
                     facts.data_dir.display().to_string(),
@@ -433,6 +467,21 @@ jwt:
                         .clone()
                         .unwrap_or_else(|| "http://127.0.0.1:9/catalogue.json".to_string()),
                 ));
+                // The method list check (boot + run start) must never dial the
+                // production registry from a test suite either: a CLOSED loopback
+                // port by default, a test that serves a list passes its own.
+                env.push((
+                    "TXR_METHOD_LIST_REF".to_string(),
+                    opts.method_list_ref
+                        .clone()
+                        .unwrap_or_else(|| "127.0.0.1:9/tinnlab/txresbench-method-list:v1".to_string()),
+                ));
+                if let Some(key) = &opts.method_list_test_key {
+                    env.push((
+                        "TXR_METHOD_LIST_TEST_KEY".to_string(),
+                        key.display().to_string(),
+                    ));
+                }
                 // The same for the pretrained bundled-models dir: a test that
                 // must exercise the bundled install source passes its own
                 // layout (the module's documented env seam).

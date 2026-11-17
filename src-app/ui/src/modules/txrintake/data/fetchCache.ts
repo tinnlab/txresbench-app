@@ -39,6 +39,8 @@
  * (`data/useMarkers.ts`, `data/useRunnableMethodCount.ts`).
  */
 
+import { onMethodListChange } from '@/lib/txr-method-list/revision'
+
 const values = new Map<string, unknown>()
 const pending = new Map<string, Promise<unknown>>()
 
@@ -79,6 +81,19 @@ export function dropCached(key: string): void {
   values.delete(key)
   pending.delete(key)
 }
+
+/**
+ * Forget every key (values + in-flight). Every read cached here is the
+ * method list's (the vocabulary, the runnable count), so a NEW method list
+ * makes them all stale: the hooks then refetch (`useMethodListRevision`).
+ */
+export function dropAllCached(): void {
+  values.clear()
+  pending.clear()
+}
+
+// A new method list drops every catalogue read before the screens re-render.
+onMethodListChange(dropAllCached)
 
 /**
  * Test seam: clear every entry (values + in-flight) so each test starts

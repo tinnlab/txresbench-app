@@ -55,7 +55,8 @@ import {
   useTxrIntakeStore,
 } from '@/modules/txrintake'
 import { RESEARCH_NOTICE } from '../lib/format'
-import { RUN_METHODS_GONE_LINE } from '../lib/runErrors'
+import { METHOD_LIST_CHANGED_NOTICE, RUN_METHODS_GONE_LINE } from '../lib/runErrors'
+import { __resetMethodListRevisionForTests } from '@/lib/txr-method-list/revision'
 import { ChooseMethodsPage } from './ChooseMethodsPage'
 import { RUN_CONFIG_DEBOUNCE_MS } from '../data/useRunConfig'
 import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
@@ -90,6 +91,7 @@ const api = vi.hoisted(() => ({
   createRun: vi.fn(),
   listRuns: vi.fn(),
   getPrefs: vi.fn(),
+  listUpdates: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -107,6 +109,9 @@ vi.mock('@/api-client', () => ({
     },
     History: {
       getPreferences: api.getPrefs,
+    },
+    MethodList: {
+      updates: api.listUpdates,
     },
   },
 }))
@@ -446,6 +451,9 @@ beforeEach(() => {
     offset: 0,
   } as TxrRunListResponse)
   api.getPrefs.mockResolvedValue({ keep_file_copies: true })
+  api.listUpdates.mockReset()
+  api.listUpdates.mockRejectedValue(new Error('no status in this suite'))
+  __resetMethodListRevisionForTests()
   window.localStorage.clear()
   store().reset()
   statedLayout()
@@ -952,6 +960,62 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     )
     expect(api.listRuns).toHaveBeenCalledTimes(1)
     expect(api.createRun).toHaveBeenCalledTimes(1)
+  })
+
+  it('Run sends the method list the cards came from (PR 5)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    api.eligibility.mockResolvedValue({ ...eligibility(), method_list_sequence: 3 })
+    seedStore()
+    renderPage()
+    await settle()
+    await chooseOnly('direct-on')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    await settle(0)
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    expect(api.createRun.mock.calls[0][0].method_list_sequence).toBe(3)
+  })
+
+  it('a 409 METHOD_LIST_CHANGED reloads the methods with the notice and starts nothing (PR 5)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    api.eligibility.mockResolvedValue({ ...eligibility(), method_list_sequence: 3 })
+    api.createRun.mockRejectedValue({
+      status: 409,
+      error_code: 'METHOD_LIST_CHANGED',
+      message: 'The method list was updated (#3 to #4); check your selection',
+    })
+    seedStore()
+    renderPage()
+    await settle()
+    await chooseOnly('direct-on')
+    const before = api.eligibility.mock.calls.length
+    // The app moved to list #4 meanwhile: the status read after the 409 says so.
+    api.listUpdates.mockReset()
+    api.listUpdates.mockResolvedValue({
+      sequence: 4,
+      origin: 'live',
+      assembled_at: '2026-11-20T10:00:00Z',
+      updates_enabled: true,
+      last_check: 'updated',
+    })
+    api.eligibility.mockResolvedValue({ ...eligibility(), method_list_sequence: 4 })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    await settle(0)
+    await settle(0)
+    expect(screen.getByTestId('txr-run-create-notice').textContent).toBe(
+      METHOD_LIST_CHANGED_NOTICE,
+    )
+    expect(api.listRuns).not.toHaveBeenCalled()
+    expect(screen.getByTestId('route-location').textContent).toBe('/choose-methods')
+    // The cards and verdicts were fetched again for the new list.
+    expect(api.eligibility.mock.calls.length).toBeGreaterThan(before)
   })
 
   it('a 409 with no active run answer surfaces the error line (the racy state is never hidden)', async () => {

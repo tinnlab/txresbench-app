@@ -23,7 +23,12 @@
  * reshapes a payload breaks the typecheck here (DEC-11's mechanical move).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, renderHook } from '@testing-library/react'
+import {
+  __resetMethodListRevisionForTests,
+  noteMethodListSequence,
+  shownMethodListSequence,
+} from '@/lib/txr-method-list/revision'
+import { act, cleanup, renderHook } from '@testing-library/react'
 import type {
   EligibilityResponse,
   InventoryEligibilityRequest,
@@ -38,6 +43,7 @@ const api = vi.hoisted(() => ({
   list: vi.fn(),
   eligibility: vi.fn(),
   estimate: vi.fn(),
+  updates: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -46,6 +52,7 @@ vi.mock('@/api-client', () => ({
       eligibility: api.eligibility,
       estimate: api.estimate,
     },
+    MethodList: { updates: api.updates },
   },
 }))
 
@@ -155,11 +162,19 @@ beforeEach(() => {
   api.list.mockReset()
   api.eligibility.mockReset()
   api.estimate.mockReset()
+  api.updates.mockReset()
   api.list.mockResolvedValue(listResponse())
   api.eligibility.mockResolvedValue(eligibilityResponse())
+  // The status read of a method screen: unanswered by default (the hook's own
+  // responses name the list).
+  api.updates.mockRejectedValue(new Error('no status in this suite'))
+  __resetMethodListRevisionForTests()
 })
 
 afterEach(() => {
+  // Unmount every hook: a mounted one would answer the next test's method list
+  // change (a process-wide signal) and count its requests there.
+  cleanup()
   vi.restoreAllMocks()
 })
 
@@ -353,5 +368,32 @@ describe('useMethodRows (TEST-UL-11)', () => {
       ],
     })
     expect(stableInventoryKey(withPatientDraws)).not.toBe(stableInventoryKey(reversed))
+  })
+})
+
+describe('useMethodRows and the method list (PR 5)', () => {
+  it('reports the list the cards come from and notes it for a run request', async () => {
+    api.eligibility.mockResolvedValue({ ...eligibilityResponse(), method_list_sequence: 7 })
+    const { result } = renderHook(() => useMethodRows(inventory()))
+    await act(async () => {})
+    expect(result.current.methodListSequence).toBe(7)
+    expect(shownMethodListSequence()).toBe(7)
+  })
+
+  it('a newer method list fetches the cards and verdicts again', async () => {
+    api.eligibility.mockResolvedValue({ ...eligibilityResponse(), method_list_sequence: 7 })
+    const { result } = renderHook(() => useMethodRows(inventory()))
+    await act(async () => {})
+    expect(api.list).toHaveBeenCalledTimes(1)
+    api.eligibility.mockResolvedValue({ ...eligibilityResponse(), method_list_sequence: 8 })
+    await act(async () => {
+      noteMethodListSequence(8)
+    })
+    await act(async () => {})
+    expect(api.list).toHaveBeenCalledTimes(2)
+    expect(api.eligibility).toHaveBeenCalledTimes(2)
+    expect(result.current.methodListSequence).toBe(8)
+    // The status of a method screen is read on mount (the poll's first read).
+    expect(api.updates).toHaveBeenCalled()
   })
 })

@@ -31,6 +31,7 @@
 import { useEffect, useState } from 'react'
 import { ApiClient } from '@/api-client'
 import type { MethodListResponse } from '@/api-client/types'
+import { useMethodListRevision } from '@/lib/txr-method-list/revision'
 import { fetchCached, readCached } from './fetchCache'
 
 export interface UseRunnableMethodCountResult {
@@ -47,6 +48,8 @@ export function useRunnableMethodCount(): UseRunnableMethodCountResult {
   // blank count line and fires no second request.
   const cached = readCached<MethodListResponse>(RUNNABLE_COUNT_KEY)
   const [count, setCount] = useState<number | null>(cached?.total ?? null)
+  // A new method list drops the cached count and moves the revision.
+  const revision = useMethodListRevision()
 
   useEffect(() => {
     // One request per session under the stable key: a failure keeps
@@ -65,7 +68,7 @@ export function useRunnableMethodCount(): UseRunnableMethodCountResult {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [revision])
 
   return { count }
 }

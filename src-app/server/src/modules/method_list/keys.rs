@@ -159,6 +159,37 @@ impl TrustedKeys {
             .map_err(Clone::clone)
     }
 
+    /// These keys plus the key of a minisign public key file (`minisign -G`'s `.pub`: an
+    /// untrusted comment line, then the key line), labelled `label`. The debug-only test key
+    /// seam (`TXR_METHOD_LIST_TEST_KEY`) uses it; a release build never calls it.
+    pub fn with_minisign_pub(&self, pub_file: &str, label: &str) -> Result<TrustedKeys, KeysError> {
+        let bad = |message: String| KeysError { message };
+        let line = pub_file
+            .lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty() && !l.starts_with("untrusted comment:"))
+            .ok_or_else(|| bad("the public key file has no key line".to_string()))?;
+        let raw = STANDARD
+            .decode(line)
+            .map_err(|e| bad(format!("the public key is not base64: {e}")))?;
+        if raw.len() != 42 || raw[..2] != KEY_ALGORITHM {
+            return Err(bad("not a minisign Ed25519 public key".to_string()));
+        }
+        let mut id_bytes = [0u8; 8];
+        id_bytes.copy_from_slice(&raw[2..10]);
+        let key = PublicKey::from_base64(line).map_err(|e| bad(e.to_string()))?;
+        let mut keys = self.keys.clone();
+        if !keys.iter().any(|k| k.id_bytes == id_bytes) {
+            keys.push(TrustedKey {
+                label: label.to_string(),
+                key_id: key_id_text(&id_bytes),
+                id_bytes,
+                key,
+            });
+        }
+        Ok(TrustedKeys { keys })
+    }
+
     /// The signer with this key id, if trusted.
     pub fn find(&self, id: &[u8; 8]) -> Option<&TrustedKey> {
         self.keys.iter().find(|k| &k.id_bytes == id)
@@ -194,6 +225,20 @@ mod tests {
         assert!(builtin.find(&fixture_key.id_bytes).is_none());
         assert!(builtin.keys().iter().all(|k| k.key_id != fixture_key.key_id));
         assert!(!String::from_utf8_lossy(TRUSTED_KEYS_JSON).contains(pub_line.trim()));
+    }
+
+    #[test]
+    fn a_minisign_pub_file_adds_its_key() {
+        let builtin = TrustedKeys::builtin().expect("keys");
+        let fixture = TrustedKeys::from_json(FIXTURE_KEYS).expect("fixture keys parse");
+        let with = builtin
+            .with_minisign_pub(FIXTURE_PUB, "test key")
+            .expect("the fixture .pub reads");
+        let added = with.find(&fixture.keys()[0].id_bytes).expect("the test key is trusted");
+        assert_eq!(added.label, "test key");
+        assert_eq!(added.key_id, fixture.keys()[0].key_id);
+        assert_eq!(with.keys().len(), builtin.keys().len() + 1);
+        assert!(builtin.with_minisign_pub("untrusted comment: x\nnot base64!", "x").is_err());
     }
 
     #[test]

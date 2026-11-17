@@ -41,6 +41,10 @@ mod health;
 mod sandbox;
 mod mcp;
 mod method_catalogue;
+// The `method_list` suite: the list in use over a spawned server — the built-in
+// copy offline, a verified newer list from a stand-in registry, the stored copy
+// at the next start, a run that keeps its list when a newer one arrives.
+mod method_list;
 // The `model_store` suites — the save flow, inventory + set CRUD, the .txr
 // round trip over the real routes, the pretrained import seam, the per-model
 // eligibility, the verified reuse resolution and the route matrix.

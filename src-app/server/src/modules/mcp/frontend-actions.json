@@ -258,6 +258,23 @@
       }
     },
     {
+      "id": "methodList.checkForUpdates",
+      "title": "Check for method updates",
+      "kind": "global",
+      "context": "global",
+      "mutating": true,
+      "stateful": false,
+      "permission": "projects::use",
+      "group": "Methods",
+      "description": "Ask the app to check now for a newer signed method list. A verified newer list is used from the next run on (a run already going keeps its list); the answer is the list in use and what the check found (current, updated, unreachable, refused, …).",
+      "params_schema": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
       "id": "methods.applyPreset",
       "title": "Choose a method preset",
       "kind": "instance",

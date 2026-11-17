@@ -2615,6 +2615,9 @@ pub async fn start_run(
     owner: Uuid,
     req: CreateRunRequest,
 ) -> Result<TxrRunSummary, AppError> {
+    // A short check for a newer method list first (a failure keeps the list in use),
+    // then the run's ONE snapshot.
+    crate::modules::method_list::runtime::check_before_run().await;
     let list = crate::modules::method_list::current();
     start_run_inner(pool, runtime, env, executor, owner, req, None, list).await
 }
@@ -2672,7 +2675,10 @@ pub async fn rerun_run(
             method_list_sequence: None,
         },
         Some(run_id),
-        crate::modules::method_list::current(),
+        {
+            crate::modules::method_list::runtime::check_before_run().await;
+            crate::modules::method_list::current()
+        },
     )
     .await
 }
@@ -8602,6 +8608,71 @@ mod tests {
                 model_id: "model-old".to_string()
             }
         );
+    }
+
+    /// TO CONFIRM (the user has not decided): a method RETIRED by a newer
+    /// list (`runnable: false`, its row kept) still runs its existing SAVED
+    /// models; only new training is refused. Pinned so a change is deliberate.
+    #[test]
+    fn a_retired_method_keeps_its_saved_models_and_refuses_training() {
+        let mut list = (*list_for_host(500)).clone();
+        let method = "landmark-cox-current";
+        for m in &mut list.catalogue.methods {
+            if m.id == method {
+                m.runnable = false;
+            }
+        }
+        // Training: the eligibility verdict refuses it.
+        let req = run_request(&[method], 1, false);
+        let prepared =
+            prepare_run_with(&list, &req.input, &req.config, req.mode, &req.method_ids, &[])
+                .expect("prepares");
+        assert!(prepared.plans[0].cannot_run, "a retired method is not trained");
+        // A saved model of it (a real, verified tree) is planned in its own image.
+        let dir = test_data_dir("retired-method-saved-model");
+        let _ = std::fs::remove_dir_all(&dir);
+        let (asset_dir, digest) = fixture_asset(&dir);
+        let (host, _) = host_and_other_arch();
+        let mut env = TxrMethodEnv::digests("c".repeat(64), "d".repeat(64));
+        env.arch = Some(host.to_string());
+        let asset = crate::modules::execution_engine::types::TxrModelAsset {
+            model_id: "model-of-a-retired-method".to_string(),
+            host_dir: asset_dir.display().to_string(),
+            tree_sha256: digest,
+            method_id: method.to_string(),
+            method_version: list.method(method).unwrap().version.clone(),
+            env,
+            contract: "2.0".to_string(),
+            conversions: Default::default(),
+            method_facts: None,
+        };
+        let reuse = CreateRunRequest {
+            mode: TxrRunMode::Reuse,
+            input: TxrRunInput {
+                patients: None,
+                measurements: measurements_table(),
+                predict_measurements: None,
+                joins: Vec::new(),
+                mapping: Vec::new(),
+                keep_copies: false,
+            },
+            config: RunConfig::default(),
+            method_ids: Vec::new(),
+            model_ids: vec![asset],
+            method_list_sequence: None,
+        };
+        let prepared = prepare_run_with(
+            &list,
+            &reuse.input,
+            &reuse.config,
+            reuse.mode,
+            &reuse.method_ids,
+            &reuse.model_ids,
+        )
+        .expect("prepares");
+        let plan = &prepared.plans[0];
+        assert!(!plan.cannot_run, "the saved model still runs: {:?}", plan.reason);
+        assert!(plan.env.is_some());
     }
 
     #[test]

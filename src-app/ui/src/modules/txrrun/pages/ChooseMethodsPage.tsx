@@ -46,10 +46,16 @@ import {
 } from '@/modules/txrshell/components/ScrollRegion'
 import {
   droppedNotice,
+  isMethodListChanged,
+  METHOD_LIST_CHANGED_NOTICE,
   RUN_ALREADY_ACTIVE_LINE,
   RUN_METHODS_GONE_LINE,
   staleMethodIds,
 } from '../lib/runErrors'
+import {
+  refreshMethodListStatus,
+  shownMethodListSequence,
+} from '@/lib/txr-method-list/revision'
 import { runSetupMissing } from '../lib/slotSummary'
 import { buildFilesSummary } from '../lib/filesSummary'
 import { formatRunBarTime } from '../lib/runBar'
@@ -558,12 +564,20 @@ export function ChooseMethodsPage() {
           { ...settings, at_a_time: opts.atATime, save_models: opts.saveModels },
           keys,
         )
+        // The method list the cards came from: a run is never started from a
+        // selection made on another list (409 METHOD_LIST_CHANGED).
+        const shown = shownMethodListSequence()
+        if (shown !== null) request.method_list_sequence = shown
         const run = await ApiClient.Txr.createRun(request)
         leaving = true
         navigate(runningPath(run.id))
       } catch (err) {
         const status = errorStatus(err)
-        if (status === 409) {
+        if (status === 409 && isMethodListChanged(err)) {
+          // Note the newer list: the cards and verdicts reload, the user checks.
+          await refreshMethodListStatus()
+          setRunNotice(METHOD_LIST_CHANGED_NOTICE)
+        } else if (status === 409) {
           try {
             const page = await ApiClient.Txr.listRuns({ limit: 50 })
             const active = page.runs.find(run => ACTIVE_RUN_STATUSES.has(run.status))

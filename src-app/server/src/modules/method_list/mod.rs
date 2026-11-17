@@ -16,14 +16,23 @@
 //!   maker of a [`verify::VerifiedList`];
 //! - [`format`] — the header, the two nested documents through their own loaders, the
 //!   rules that tie them together, and the lookups a snapshot answers;
-//! - [`runtime`] — the built-in list and the current one ([`current`]).
+//! - [`runtime`] — the built-in list and the current one ([`current`]), moved to a newer
+//!   verified list between runs;
+//! - [`fetch`] — the published list through the bundled oras (resolve, then pull by digest,
+//!   capped); [`store`] — the last good list on disk; [`routes`] — `GET /api/methods/updates`
+//!   and `POST /api/methods/updates/check`.
 //!
 //! The `txresbench check-method-list` command is the arbiter the publisher and the import
 //! run: it verifies and parses a list exactly as the app does.
 
+pub mod fetch;
 pub mod format;
 pub mod keys;
+pub mod routes;
 pub mod runtime;
+pub mod store;
+#[cfg(test)]
+mod test_sign;
 pub mod verify;
 
 use std::io::Read;
@@ -40,8 +49,11 @@ pub use runtime::{builtin, current};
 use keys::TrustedKeys;
 use verify::{VerifiedList, MAX_LIST_BYTES, MAX_SIGNATURE_BYTES};
 
-/// The module instance: the built-in list is checked at boot.
-pub struct MethodListModule;
+/// The module instance: the built-in list is checked at boot, then the runtime starts on
+/// the newest valid list and checks the registry once in the background.
+pub struct MethodListModule {
+    boot_check_spawned: bool,
+}
 
 impl AppModule for MethodListModule {
     fn name(&self) -> &'static str {
@@ -66,23 +78,52 @@ impl AppModule for MethodListModule {
             dev_manifest = runtime::dev_manifest_active(),
             "method list: the built-in copy loaded"
         );
+        let seams = runtime::production_seams(crate::modules::rootfs::data_root());
+        if let Some(why) = &seams.off_reason {
+            tracing::info!(reason = %why, "method list: updates are off");
+        }
+        let rt = runtime::install(runtime::ListRuntime::new(list.clone(), seams));
+        let active = rt.active();
+        tracing::info!(
+            sequence = active.list.sequence,
+            origin = ?active.origin,
+            "method list: in use"
+        );
+        // ONE detached check per boot: never blocks the boot (offline is a valid state),
+        // the result is the status.
+        if rt.updates_enabled() && !self.boot_check_spawned {
+            self.boot_check_spawned = true;
+            let rt = rt.clone();
+            tokio::spawn(async move {
+                let status = rt.check(runtime::CheckBudget::BACKGROUND).await;
+                tracing::info!(
+                    sequence = status.sequence,
+                    result = ?status.last_check,
+                    "method list: boot check finished"
+                );
+            });
+        }
         Ok(())
     }
 
     fn register_routes(&self, router: ApiRouter) -> ApiRouter {
-        router
+        router.merge(routes::method_list_routes())
     }
 }
 
 /// Module registration. Distinct order (45), before every reader of the list
 /// (`method_catalogue` 47, `file_validator` 48, `execution_engine` 49) — see
-/// `modules/mod.rs::module_order_is_unique`; 46 is `features`.
+/// `modules/mod.rs::module_order_is_unique` (46 is taken).
 #[distributed_slice(MODULE_ENTRIES)]
 static METHOD_LIST: ModuleEntry = ModuleEntry {
     name: "method_list",
     order: 45,
     description: "The signed method list: built-in copy + current list (TxResBench).",
-    constructor: || Box::new(MethodListModule),
+    constructor: || {
+        Box::new(MethodListModule {
+            boot_check_spawned: false,
+        })
+    },
 };
 
 /// Read at most `cap` bytes of `path`; a longer file is refused without reading the rest.
