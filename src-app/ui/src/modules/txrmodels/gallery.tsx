@@ -55,6 +55,10 @@
  */
 import { lazy, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
+// The app mounts the router bridge as a router effect; a story's own router
+// needs it too, so the registered actions the pages run (the step Back, the
+// entries that start a path) navigate inside the story.
+import { RouterBridge } from '@/core/actions/navigateBridge'
 import { Button } from '@txresbench/kit'
 import {
   extendCassette,
@@ -411,6 +415,7 @@ function DStoryView({ narrow = false }: { narrow?: boolean }) {
   return (
     <section style={{ width: narrow ? 390 : '100%', maxWidth: '100%', minWidth: 0 }}>
       <SeedGate seed={seedDStory}>
+        <RouterBridge />
         <Routes>
           <Route path="/pretrained-models" element={<PretrainedModelsPage />} />
           <Route
@@ -474,6 +479,7 @@ function LStoryView() {
   return (
     <section style={{ width: '100%', minWidth: 0, position: 'relative' }}>
       <SeedGate seed={seedLDialogStory}>
+        <RouterBridge />
         <Routes>
           <Route
             path="/analysis/:runId/results"
@@ -499,6 +505,7 @@ function L2StoryView() {
   return (
     <section style={{ width: '100%', minWidth: 0, position: 'relative' }}>
       <SeedGate seed={seedLDialogStory}>
+        <RouterBridge />
         <Routes>
           <Route
             path="/analysis/:runId/results"
@@ -524,6 +531,7 @@ function L3StoryView() {
   return (
     <section style={{ width: '100%', minWidth: 0, position: 'relative' }}>
       <SeedGate seed={seedLDialogStory}>
+        <RouterBridge />
         <Routes>
           <Route
             path="/analysis/:runId/results"
@@ -577,6 +585,7 @@ function ShellDStoryView() {
   return (
     <SeedGate seed={seedDStory}>
       <AppShell>
+        <RouterBridge />
         <Routes>
           <Route path="/pretrained-models" element={<PretrainedModelsPage />} />
           <Route path="/analysis/:runId/running" element={<LandingLine path="running" />} />

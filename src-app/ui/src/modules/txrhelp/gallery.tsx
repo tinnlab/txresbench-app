@@ -21,6 +21,10 @@
  */
 import { lazy, type CSSProperties } from 'react'
 import { Route, Routes } from 'react-router-dom'
+// The app mounts the router bridge as a router effect; a story's own router
+// needs it too, so the registered actions the pages run (the step Back, the
+// entries that start a path) navigate inside the story.
+import { RouterBridge } from '@/core/actions/navigateBridge'
 import type { ModuleGallery } from '@txresbench/gallery'
 import { AppShell } from '@/modules/txrshell/components/AppShell'
 import { HelpPage } from './pages/HelpPage'
@@ -44,6 +48,7 @@ export const gallery: ModuleGallery = {
         Promise.resolve({
           default: () => (
             <div style={FRAME}>
+              <RouterBridge />
               <Routes>
                 <Route path="/help" element={<HelpPage />} />
                 <Route path="*" element={null} />
@@ -70,6 +75,7 @@ export const gallery: ModuleGallery = {
           default: () => (
             <div style={{ width: 390, maxWidth: '100%' }}>
               <div style={{ ...FRAME, width: 390, maxWidth: '100%' }}>
+                <RouterBridge />
                 <Routes>
                   <Route path="/help" element={<HelpPage />} />
                   <Route path="*" element={null} />
@@ -92,6 +98,7 @@ export const gallery: ModuleGallery = {
         Promise.resolve({
           default: () => (
             <AppShell>
+              <RouterBridge />
               <Routes>
                 <Route path="/help" element={<HelpPage />} />
                 <Route path="*" element={null} />

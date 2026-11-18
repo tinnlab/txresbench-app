@@ -45,6 +45,10 @@
 import { lazy, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
+// The app mounts the router bridge as a router effect; a story's own router
+// needs it too, so the registered actions the pages run (the step Back, the
+// entries that start a path) navigate inside the story.
+import { RouterBridge } from '@/core/actions/navigateBridge'
 import { extendCassette, type ModuleGallery, type MockRequestContext } from '@txresbench/gallery'
 import { parseCsvText } from '@/lib/txr-files/csv'
 import { AppShell } from '../txrshell/components/AppShell'
@@ -324,6 +328,7 @@ function UseExampleStoryView() {
   }, [])
   return (
     <section style={{ minWidth: 0 }}>
+      <RouterBridge />
       <Routes>
         <Route path="/" element={<StartPage />} />
         <Route path="/files" element={<FilesPage />} />
