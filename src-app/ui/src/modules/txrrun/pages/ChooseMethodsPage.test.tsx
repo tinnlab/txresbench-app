@@ -1779,6 +1779,26 @@ describe('the step Back on Choose methods (E)', () => {
     expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
   })
 
+  it('keeps the pressed preset too after Back to C and Continue (All stays pressed where Recommended is the same set)', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/study', '/files'], current: null, leaving: false })
+    seedStore()
+    renderFlow()
+    await settle()
+    await click('txr-method-preset-all')
+    const pressed = (value: string): string | null =>
+      screen.getByTestId(`txr-method-preset-${value}`).getAttribute('aria-pressed')
+    expect(pressed('all')).toBe('true')
+    expect(pressed('recommended')).toBe('false')
+
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/files')
+    await click('stand-in-continue')
+    await settle()
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
+    expect(pressed('all')).toBe('true')
+    expect(pressed('recommended')).toBe('false')
+  })
+
   it('while a run is being created Back is unavailable with the reason, and flow.back refuses', async () => {
     api.createRun.mockReturnValue(new Promise(() => undefined))
     useStepTrailStore.setState({ trail: ['/', '/study', '/files'] })

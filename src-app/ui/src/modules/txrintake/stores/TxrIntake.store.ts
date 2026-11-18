@@ -48,6 +48,7 @@ import type {
 } from '../types'
 import type { ColumnRenameOffer } from '../types'
 import { renamedTable } from '../lib/flow'
+import type { TxrMethodPreset } from '@/modules/txrlist/lib/methodPicker'
 
 /** The three file slots of the snapshot (screen C's two, screen N's one). */
 export type FileSlot = 'patients' | 'measurements' | 'predictMeasurements'
@@ -94,6 +95,8 @@ export interface MethodPicks {
   selected: string[]
   /** The user changed the ticks (a tick or a preset): the recommendation never overrides them. */
   touched: boolean
+  /** The preset last applied, so the picker shows it pressed again on return. */
+  preset: TxrMethodPreset | null
 }
 
 /** The store's data fields (the `IntakeSnapshot` + the recall map). */

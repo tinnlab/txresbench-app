@@ -312,6 +312,41 @@ describe('presets', () => {
     expect(pressed()).toEqual([])
   })
 
+  it('a host that keeps the applied preset (initialPreset, onPresetChosen) gets it pressed again on a remount', () => {
+    const equal = [
+      runnable('e1', 'Response call', { estimate: { seconds: 10, quality: 'measured' } }),
+      runnable('e2', 'Static risk', { estimate: { seconds: 20, quality: 'measured' } }),
+      runnable('e3', 'Dynamic risk', { estimate: { seconds: 30, quality: 'measured' } }),
+    ]
+    const all = new Set(['e1', 'e2', 'e3'])
+    const chosen: string[] = []
+    const mount = (initialPreset: 'recommended' | 'all' | 'fast' | 'none' | null) =>
+      render(
+        <TxrMethodPicker
+          cards={equal}
+          loading={false}
+          error={null}
+          onRetry={() => {}}
+          selected={all}
+          onSelectionChange={() => {}}
+          onChangeFiles={() => {}}
+          onChangeSettings={() => {}}
+          initialPreset={initialPreset}
+          onPresetChosen={preset => chosen.push(preset)}
+        />,
+      )
+    const pressed = (): string[] =>
+      (['recommended', 'all', 'fast', 'none'] as const).filter(
+        value => screen.getByTestId(`txr-method-preset-${value}`).getAttribute('aria-pressed') === 'true',
+      )
+    const first = mount(null)
+    fireEvent.click(screen.getByTestId('txr-method-preset-fast'))
+    expect(chosen).toEqual(['fast'])
+    first.unmount()
+    mount('fast')
+    expect(pressed()).toEqual(['fast'])
+  })
+
   it('None is the pressed preset when no method is fast (never "Fast only")', () => {
     function Host() {
       const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())

@@ -554,8 +554,13 @@ describe('qa-fixes3 ITEM-4 — the per-slot example fact, the clear action and t
     TxrIntake.reset()
     expect(state().methodPicks).toBeNull()
     TxrIntake.setIntent('train')
-    TxrIntake.setMethodPicks({ key: 'inv-1', selected: ['direct-on'], touched: true })
-    expect(state().methodPicks).toEqual({ key: 'inv-1', selected: ['direct-on'], touched: true })
+    TxrIntake.setMethodPicks({ key: 'inv-1', selected: ['direct-on'], touched: true, preset: 'all' })
+    expect(state().methodPicks).toEqual({
+      key: 'inv-1',
+      selected: ['direct-on'],
+      touched: true,
+      preset: 'all',
+    })
     const raw = window.localStorage.getItem('txr-intake-storage') ?? ''
     expect(raw).not.toContain('methodPicks')
     expect(raw).not.toContain('direct-on')

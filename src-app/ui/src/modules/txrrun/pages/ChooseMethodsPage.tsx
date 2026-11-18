@@ -64,7 +64,7 @@ import { TxrRunEmptyState } from '../components/TxrRunEmptyState'
 import { TxrSettingsBlock } from '../components/TxrSettingsBlock'
 import { TxrFilesSummary } from '../components/TxrFilesSummary'
 import { TxrRunBar } from '../components/TxrRunBar'
-import type { TxrMethodCard } from '@/modules/txrlist'
+import type { TxrMethodCard, TxrMethodPreset } from '@/modules/txrlist'
 
 /**
  * Screen E — Choose the methods and settings (qa-fixes3 ITEM-1 redesign,
@@ -242,6 +242,8 @@ function TxrMethodPickerFrame({
   onChangeFiles,
   onChangeSettings,
   recheckAsks,
+  initialPreset,
+  onPresetChosen,
   demo = false,
 }: {
   inventory: InventoryEligibilityRequest
@@ -259,6 +261,10 @@ function TxrMethodPickerFrame({
    *  reads (the page counts them): an answer is a re-check worth a line only
    *  when this moved since the previous answer. */
   recheckAsks: { readonly current: number }
+  /** The preset kept for these files (the picker shows it pressed again). */
+  initialPreset: TxrMethodPreset | null
+  /** A preset was applied: the page keeps it with the ticks. */
+  onPresetChosen(preset: TxrMethodPreset): void
   /** demo-mode ITEM-6: the picker's list is the recorded methods only. */
   demo?: boolean
 }) {
@@ -355,6 +361,8 @@ function TxrMethodPickerFrame({
       onChangeFiles={onChangeFiles}
       onChangeSettings={onChangeSettings}
       recheckResult={recheckResult}
+      initialPreset={initialPreset}
+      onPresetChosen={onPresetChosen}
     />
   )
 }
@@ -462,6 +470,22 @@ export function ChooseMethodsPage() {
         key: picksKey,
         selected: [...next(new Set(own?.selected ?? []))],
         touched: byUser || (own?.touched ?? false),
+        preset: own?.preset ?? null,
+      })
+    },
+    [picksKey],
+  )
+  /** A preset was applied: kept with the ticks, so a return shows it pressed. */
+  const rememberPreset = useCallback(
+    (preset: TxrMethodPreset): void => {
+      if (picksKey === null) return
+      const picks = useTxrIntakeStore.getState().methodPicks
+      const own = picks !== null && picks.key === picksKey ? picks : null
+      TxrIntake.setMethodPicks({
+        key: picksKey,
+        selected: own?.selected ?? [],
+        touched: own?.touched ?? false,
+        preset,
       })
     },
     [picksKey],
@@ -729,6 +753,8 @@ export function ChooseMethodsPage() {
                   onChangeFiles={() => setChangeOpen(true)}
                   onChangeSettings={onChangeSettings}
                   recheckAsks={recheckAsks}
+                  initialPreset={ownPicks?.preset ?? null}
+                  onPresetChosen={rememberPreset}
                   demo={isDemo}
                 />
               )}
