@@ -60,6 +60,12 @@ pub const PROGRESS_FIFO_SANDBOX_PATH: &str = "/tmp/.txr_progress";
 pub(crate) const SANDBOX_PATH: &str =
     "/opt/venv/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
+/// Every path inside the rootfs image that [`build_bwrap_argv`] binds (`<rootfs>/<path>`), in argv
+/// order. A stacked run refuses a base image with a symbolic link in any of them
+/// (`stack::image_bind_sources`); `rootfs_bind_paths_match_the_argv` pins this list to the argv.
+pub(crate) const ROOTFS_BIND_PATHS: [&str; 6] =
+    ["usr", "etc/ssl/certs", "etc/resolv.conf", "etc/alternatives", "etc/R", "opt"];
+
 /// Build the full bwrap argv: hardening prefix + prlimit tail + `/bin/bash -lc
 /// <cmd>`. `rootfs_dir` is the squashfuse mount dir (contains `usr/`).
 /// `progress_fifo_src` (when `Some`) binds a host FIFO at
@@ -676,6 +682,25 @@ mod tests {
         // All of it precedes the first `--` terminator (part of the prefix).
         let first_term = pos(&with, "--").unwrap();
         assert!(p < first_term && e < first_term, "fifo bind + env before the terminator");
+    }
+
+    // A stacked run checks ROOTFS_BIND_PATHS for symbolic links before bwrap runs, so the list must
+    // name every path the argv takes from the rootfs: any argv word under the rootfs is the source
+    // of a bind, and the sources are exactly the list, in order.
+    #[test]
+    fn rootfs_bind_paths_match_the_argv() {
+        let a = argv(&[], Some(7));
+        let mut found = Vec::new();
+        for (i, word) in a.iter().enumerate() {
+            if let Some(rel) = word.strip_prefix("/mnt/rootfs/") {
+                assert!(
+                    i >= 1 && matches!(a[i - 1].as_str(), "--ro-bind" | "--ro-bind-try"),
+                    "{word} is not the source of a read-only bind"
+                );
+                found.push(rel.to_string());
+            }
+        }
+        assert_eq!(found, ROOTFS_BIND_PATHS, "the rootfs paths the argv binds");
     }
 
     #[test]

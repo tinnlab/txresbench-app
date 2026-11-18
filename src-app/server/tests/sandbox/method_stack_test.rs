@@ -86,7 +86,8 @@ use txresbench::modules::sandbox::method_env::{
 };
 use txresbench::modules::sandbox::stack::{
     tree_sha256, verify_model_tree, EnvRef, MethodRunMode, MethodRunRequest, ModelMount,
-    MODEL_VERIFY_FAILED_CODE, TXR_BASE_REGISTRY_PREFIX, TXR_LAYER_REGISTRY_PREFIX,
+    ENV_LAYER_ENTRY_INVALID_CODE, MODEL_VERIFY_FAILED_CODE, TXR_BASE_REGISTRY_PREFIX,
+    TXR_LAYER_REGISTRY_PREFIX,
 };
 
 // ────────────────────────────── child protocol ───────────────────────────────
@@ -108,6 +109,11 @@ const LAYER1_ID: &str = "mst-layer-a1q4";
 const LAYER2_ID: &str = "mst-layer-a2q4";
 /// The layer that carries a method's own packages in /opt/txr-layer.
 const LAYER3_ID: &str = "mst-layer-a3q4";
+/// The layer whose `/opt/txr-layer` entry is a symbolic link out of the image.
+const LAYER4_ID: &str = "mst-layer-a4q4";
+/// What the linked layer's wrapper prints from `/opt/txr-layer`; the file sits
+/// in a host dir outside every image.
+const HOST_ONLY_TEXT: &str = "HOST-ONLY-TEXT-7Q2";
 
 // ────────────────────────────── shell helpers ────────────────────────────────
 
@@ -386,6 +392,21 @@ fn build_packages_layer_rootfs(root: &Path) {
     std::fs::write(&tool, "#!/bin/bash\necho TOOL_FROM_LAYER_PATH\n").expect("write tool");
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).expect("tool mode");
+}
+
+/// The linked layer: `/code/run.sh` prints `/opt/txr-layer/host.txt`, and the
+/// layer's `opt/txr-layer` is a symbolic link to `<victim>` under `/oldroot`,
+/// where bwrap keeps the host's root while it opens bind sources. Without the
+/// link check the run would bind the host dir `victim` at `/opt/txr-layer`.
+/// Like the published layers it carries an empty `usr/`: the Linux mount
+/// counts an image as mounted once `<mnt>/usr` appears.
+fn build_linked_layer_rootfs(root: &Path, victim: &Path) {
+    let run_sh = "#!/bin/bash\ncat /opt/txr-layer/host.txt\necho linked layer ran\n";
+    build_layer_rootfs(root, run_sh, &["/code", "/opt/txr-layer"]);
+    std::fs::create_dir_all(root.join("usr")).expect("layer usr dir");
+    std::fs::create_dir_all(root.join("opt")).expect("layer opt dir");
+    let target = Path::new("/oldroot").join(victim.strip_prefix("/").expect("absolute victim"));
+    std::os::unix::fs::symlink(&target, root.join("opt/txr-layer")).expect("linked entry");
 }
 
 /// Write a contract-shaped input bundle (the layout CONS-SS-1 names; the
@@ -806,6 +827,36 @@ async fn stacked_run_child() {
             assert!(outputs.join("predictions.csv").is_file(), "/output/predictions.csv written");
             println!("PROBE_OK packages_layer");
         }
+        // A layer entry that is a symbolic link out of the image: the
+        // run is refused before any workspace work, so bwrap never runs.
+        "linked_layer_entry" => {
+            let layer4_sqfs =
+                PathBuf::from(std::env::var_os("TXR_MST_LAYER4_SQFS").expect("layer4"));
+            let layer4_pin = sha256_hex(&std::fs::read(&layer4_sqfs).expect("read layer4 fixture"));
+            let job = Uuid::new_v4();
+            let ws = data_dir.join("sandboxes").join(job.to_string());
+            let err = match run_one!(
+                job,
+                layer_ref(LAYER4_ID, &layer4_pin),
+                MethodRunMode::FitPredict,
+                None,
+                Some(work.join("model-out-linked")),
+                work.join("outputs-linked"),
+                None
+            ) {
+                Ok(r) => fail(format!(
+                    "the linked layer ran (exit {}); host text bound in: {}; stdout: {}",
+                    r.exit_code,
+                    r.stdout.contains(HOST_ONLY_TEXT),
+                    r.stdout
+                )),
+                Err(e) => e,
+            };
+            assert_eq!(err.error_code(), ENV_LAYER_ENTRY_INVALID_CODE, "{err}");
+            assert!(err.to_string().contains("symbolic link"), "{err}");
+            assert!(!ws.exists(), "refused before the run's workspace: nothing spawned");
+            println!("PROBE_OK linked_layer_entry_refused");
+        }
         other => fail(format!("unknown scenario {other:?}")),
     }
 }
@@ -862,6 +913,7 @@ fn spawn_child(work: &Path, data_dir: &Path, scenario: &str) -> (bool, String) {
         .env("TXR_MST_LAYER1_SQFS", work.join("layer1.squashfs"))
         .env("TXR_MST_LAYER2_SQFS", work.join("layer2.squashfs"))
         .env("TXR_MST_LAYER3_SQFS", work.join("layer3.squashfs"))
+        .env("TXR_MST_LAYER4_SQFS", work.join("layer4.squashfs"))
         .env(format!("TXR_ENV_ROOTFS_SQUASHFS__{BASE_ID}"), work.join("base.squashfs"))
         .env(
             format!("TXR_ENV_ROOTFS_SQUASHFS__{LAYER1_ID}"),
@@ -874,6 +926,10 @@ fn spawn_child(work: &Path, data_dir: &Path, scenario: &str) -> (bool, String) {
         .env(
             format!("TXR_ENV_ROOTFS_SQUASHFS__{LAYER3_ID}"),
             work.join("layer3.squashfs"),
+        )
+        .env(
+            format!("TXR_ENV_ROOTFS_SQUASHFS__{LAYER4_ID}"),
+            work.join("layer4.squashfs"),
         )
         // The child must start from a clean seam environment: whatever this
         // box exported to run the rootfs-gated tiers would otherwise leak in
@@ -918,7 +974,8 @@ fn assert_child_ran_one(stdout: &str) {
 }
 
 /// Build the fixture set once for the child legs: base + layer1 + layer2 + layer3 (packages)
-/// squashfs under `work`. Returns the plain base DIR (for the PID-ns gate).
+/// + layer4 (linked entry, with its host dir `victim`) squashfs under `work`. Returns the plain
+/// base DIR (for the PID-ns gate).
 fn build_stack_fixtures(work: &Path) -> PathBuf {
     let base_dir = work.join("base-root");
     build_base_rootfs(&base_dir);
@@ -933,6 +990,11 @@ fn build_stack_fixtures(work: &Path) -> PathBuf {
     squash(&work.join("layer2-root"), &work.join("layer2.squashfs"));
     build_packages_layer_rootfs(&work.join("layer3-root"));
     squash(&work.join("layer3-root"), &work.join("layer3.squashfs"));
+    let victim = work.join("victim");
+    std::fs::create_dir_all(&victim).expect("victim dir");
+    std::fs::write(victim.join("host.txt"), HOST_ONLY_TEXT).expect("victim file");
+    build_linked_layer_rootfs(&work.join("layer4-root"), &victim);
+    squash(&work.join("layer4-root"), &work.join("layer4.squashfs"));
     base_dir
 }
 
@@ -1499,6 +1561,33 @@ fn stacked_run_reads_the_method_packages_from_opt_txr_layer() {
     std::fs::create_dir_all(&data).expect("data dir");
     let (ok, stdout) = spawn_child(&work, &data, "packages_layer");
     assert!(ok, "the packages-layer child must run clean");
+    assert_child_ran_one(&stdout);
+    if let Some(reason) = child_skipped(&stdout) {
+        record_skip(name, &format!("child: {reason}"));
+    }
+}
+
+/// Through the real Linux seam: a layer image whose `/opt/txr-layer`
+/// entry is a symbolic link to a host dir (by way of bwrap's `/oldroot`) is
+/// refused with `ENV_LAYER_ENTRY_INVALID` before the run's workspace exists,
+/// so bwrap never binds the host dir (the child fails with the run's stdout,
+/// host text included, if the run goes ahead).
+#[test]
+fn stacked_run_refuses_a_layer_entry_linked_out_of_the_image() {
+    let name = "stacked_run_refuses_a_layer_entry_linked_out_of_the_image";
+    let Some(()) = stack_gate(name) else {
+        return;
+    };
+    let work = scratch();
+    let _guard = WorkGuard(work.clone());
+    let base_dir = build_stack_fixtures(&work);
+    let Some(()) = stack_gate_pidns(name, &base_dir) else {
+        return;
+    };
+    let data = work.join("data");
+    std::fs::create_dir_all(&data).expect("data dir");
+    let (ok, stdout) = spawn_child(&work, &data, "linked_layer_entry");
+    assert!(ok, "the linked-layer child must run clean");
     assert_child_ran_one(&stdout);
     if let Some(reason) = child_skipped(&stdout) {
         record_skip(name, &format!("child: {reason}"));
