@@ -143,9 +143,11 @@ pub const DENY_SOCKET_FAMILIES: &[DeniedSocketFamily] = &[DeniedSocketFamily {
 }];
 
 /// Compile the seccomp filter to its BPF byte image (for bwrap `--seccomp <fd>`).
-/// Per-name best-effort: syscalls absent on the running kernel are skipped (a
-/// failed lookup must never disable the whole filter). Returns the BPF bytes
-/// plus the names that didn't resolve (callers may log them).
+/// Per-name best-effort for the deny lists: syscalls absent on the running
+/// kernel are skipped (one failed lookup there must not disable the whole
+/// filter). The exception is `socket`, which carries the socket family rules:
+/// if it does not resolve, this returns an error. Returns the BPF bytes plus
+/// the names that didn't resolve (callers may log them).
 #[cfg(target_os = "linux")]
 pub fn build_bpf() -> Result<(Vec<u8>, Vec<String>), String> {
     use libseccomp::{ScmpAction, ScmpArgCompare, ScmpCompareOp, ScmpFilterContext, ScmpSyscall};
@@ -185,11 +187,13 @@ pub fn build_bpf() -> Result<(Vec<u8>, Vec<String>), String> {
                     .map_err(|e| format!("add_rule socket {}: {e}", f.name))?;
             }
         }
-        // The socket rule is the only guard against AF_VSOCK in the sandbox:
-        // without it, refuse to build the filter (the agent then refuses
-        // every sandboxed command that asks for seccomp) rather than run
-        // methods with vsock open. libseccomp resolves names from its own
-        // table, so this does not happen on x86_64 or aarch64.
+        // The socket rule is the only guard against AF_VSOCK in the sandbox,
+        // so without it no filter is built. What a caller then does differs:
+        // the guest agent refuses every sandboxed command that asks for
+        // seccomp; the Linux host runner (probes.rs compile_seccomp_filter)
+        // reports seccomp as Disabled and runs bwrap without a filter.
+        // libseccomp resolves names from its own table, so this does not
+        // happen on x86_64 or aarch64.
         Err(_) => return Err("socket(2) does not resolve here: the socket family rules cannot be added".into()),
     }
     let mut buf: Vec<u8> = Vec::new();
