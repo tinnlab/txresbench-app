@@ -8712,11 +8712,12 @@ mod tests {
         assert!(rows.is_empty() && total == 0, "no run row was made");
     }
 
-    /// An executor that records the list each method's context carried, then waits for
-    /// the gate (so the test can swap the list while the run is going).
+    /// An executor that records the list each method's context carried, then waits until
+    /// the gate opens (so the test can swap the list while the run is going). The gate is a
+    /// watch flag: once opened it stays open for every later method.
     struct GatedListRecorder {
         seen: Arc<Mutex<Vec<(String, u64)>>>,
-        gate: Arc<tokio::sync::Semaphore>,
+        gate: watch::Receiver<bool>,
     }
 
     #[async_trait]
@@ -8726,7 +8727,8 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .push((ctx.method_id.clone(), ctx.list.sequence));
-            let _pass = self.gate.acquire().await.expect("the gate stays open");
+            let mut gate = self.gate.clone();
+            gate.wait_for(|open| *open).await.expect("the test holds the gate's sender");
             Ok(finish_outcome())
         }
     }
@@ -8797,10 +8799,10 @@ mod tests {
         assert_eq!(start.sequence, 31);
 
         let seen = Arc::new(Mutex::new(Vec::new()));
-        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        let (open_gate, gate) = watch::channel(false);
         let executor = Arc::new(GatedListRecorder {
             seen: seen.clone(),
-            gate: gate.clone(),
+            gate,
         });
         let summary = start_run_inner(
             pool.clone(),
@@ -8847,7 +8849,7 @@ mod tests {
         assert_eq!(lists.current().sequence, 32, "the runtime serves the newer list");
         assert!(Arc::ptr_eq(&drive.list, &start), "the running run keeps its own");
 
-        gate.add_permits(16);
+        open_gate.send(true).expect("the executor holds a receiver");
         let repo = TxrRepository::new(pool.clone());
         let row = wait_terminal(&repo, summary.id).await;
         assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
