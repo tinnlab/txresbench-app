@@ -30,3 +30,5 @@ modules/user/components/group/UserGroupsSettings.tsx
 modules/user/components/group/EditUserGroupDrawer.tsx
 # Admin settings-save pages (form save dispatches runAction('*.updateSettings')).
 modules/auth/SessionSettingsPage.tsx
+# Step views' Back button (dispatches runAction('flow.back')).
+modules/txrintake/components/TxrStepBack.tsx

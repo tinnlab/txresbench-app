@@ -25,8 +25,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import type { ModelSaveResponse } from '@/api-client/types'
 import { TXRMODELS_SAVE_RESPONSE } from '../fixtures'
-import { useTxrIntakeStore } from '@/modules/txrintake'
+import { useStepTrailStore, useTxrIntakeStore } from '@/modules/txrintake'
 import { TxrSavedDialog } from './TxrSavedDialog'
+import '@/core/actions/builtin/stepActions'
+import { RouterBridge } from '@/core/actions/navigateBridge'
 
 const api = vi.hoisted(() => ({
   listModels: vi.fn(),
@@ -46,6 +48,8 @@ function renderDialog(over: { response?: ModelSaveResponse | null; onClose?: () 
   const onClose = over.onClose ?? vi.fn()
   render(
     <MemoryRouter initialEntries={[over.from ?? '/models']}>
+      {/* "Predict new patients with them" runs the registered flow.startPath. */}
+      <RouterBridge />
       <TxrSavedDialog response={over.response === undefined ? TXRMODELS_SAVE_RESPONSE : over.response} onClose={onClose} />
       <RouteProbe />
     </MemoryRouter>,
@@ -105,6 +109,15 @@ describe('TxrSavedDialog (TEST-MOD-15)', () => {
     expect(useTxrIntakeStore.getState().intent).toBe('reuse')
     expect(screen.getByTestId('route-probe').textContent).toBe('/predict-files')
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('predict new patients starts the step trail on the page the dialog opened on (Back from N returns there)', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/study', '/files', '/choose-methods'], current: null })
+    renderDialog({ from: '/analysis/run-1/results' })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-saved-predict'))
+    })
+    expect(useStepTrailStore.getState().trail).toEqual(['/analysis/run-1/results'])
   })
 
   it('see my models navigates to the models screen', async () => {

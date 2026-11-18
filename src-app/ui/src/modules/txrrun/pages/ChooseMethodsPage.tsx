@@ -8,13 +8,22 @@ import type {
   TxrRunStatus,
 } from '@/api-client/types'
 import type { IntakeSnapshot } from '@/modules/txrintake'
-import { buildTxrRunInput, useTxrIntakeStore } from '@/modules/txrintake'
+import {
+  buildTxrRunInput,
+  STEP_BACK_STARTING_REASON,
+  TxrIntake,
+  TxrStepBack,
+  TxrStepBackBar,
+  useStepBack,
+  useTxrIntakeStore,
+} from '@/modules/txrintake'
 import {
   countSelected,
   recheckFailedLine,
   recheckLine,
   recommendedSelection,
   runnableCards,
+  stableInventoryKey,
   TxrMethodPicker,
   useListEstimate,
   useMethodRows,
@@ -49,13 +58,13 @@ import { buildRunRequest } from '../lib/runRequest'
 import { buildCovariates, covariatesUseLine } from '../lib/covariates'
 import { useKeepCopies } from '../data/useKeepCopies'
 import { useRunConfig } from '../data/useRunConfig'
-import { runningPath } from '../routes'
+import { filesPath, predictFilesPath, runningPath } from '../routes'
 import { TxrChangeFilesDialog } from '../components/TxrChangeFilesDialog'
 import { TxrRunEmptyState } from '../components/TxrRunEmptyState'
 import { TxrSettingsBlock } from '../components/TxrSettingsBlock'
 import { TxrFilesSummary } from '../components/TxrFilesSummary'
 import { TxrRunBar } from '../components/TxrRunBar'
-import type { TxrMethodCard } from '@/modules/txrlist'
+import type { TxrMethodCard, TxrMethodPreset } from '@/modules/txrlist'
 
 /**
  * Screen E — Choose the methods and settings (qa-fixes3 ITEM-1 redesign,
@@ -218,20 +227,33 @@ function diffPatch(next: RunSettings, current: RunSettings): Partial<RunSettings
  *  object) plus the ONE-TIME recommended seeding and the ITEM-2
  *  eligibility-preserving rule. The joined cards are reported up so the page
  *  can count the bar's selection against the real runnable set (a stale key
- *  is never counted). */
+ *  is never counted).
+ *
+ *  The ticks live in the intake store per set of checked files (`seeded` is
+ *  true once ticks exist for them): coming back to the screen with the same
+ *  files keeps the ticks instead of seeding the recommendation again. */
 function TxrMethodPickerFrame({
   inventory,
   selected,
+  seeded,
   onSelectionChange,
+  onUserSelectionChange,
   onCards,
   onChangeFiles,
   onChangeSettings,
   recheckAsks,
+  initialPreset,
+  onPresetChosen,
   demo = false,
 }: {
   inventory: InventoryEligibilityRequest
   selected: ReadonlySet<string>
+  /** Ticks already exist for these files (seeded before, or the user's own). */
+  seeded: boolean
+  /** A change the screen makes (the seed, the eligibility prune). */
   onSelectionChange(next: ReadonlySet<string>): void
+  /** The user's own change (a tick or a preset): the seed never overrides it. */
+  onUserSelectionChange(next: ReadonlySet<string>): void
   onCards(cards: TxrMethodCard[]): void
   onChangeFiles(): void
   onChangeSettings(): void
@@ -239,19 +261,25 @@ function TxrMethodPickerFrame({
    *  reads (the page counts them): an answer is a re-check worth a line only
    *  when this moved since the previous answer. */
   recheckAsks: { readonly current: number }
+  /** The preset kept for these files (the picker shows it pressed again). */
+  initialPreset: TxrMethodPreset | null
+  /** A preset was applied: the page keeps it with the ticks. */
+  onPresetChosen(preset: TxrMethodPreset): void
   /** demo-mode ITEM-6: the picker's list is the recorded methods only. */
   demo?: boolean
 }) {
   const { cards, loading, error, refetch } = useMethodRows(inventory)
-  // The user's own selection change (a manual tick or a preset) turns the
-  // auto-recommendation off for the rest of the screen's life — a settings
-  // change recomputes eligibility but never overrides a human choice.
-  const touched = useRef(false)
-  const seeded = useRef(false)
+  // Ticks that exist for these files (seeded, or the user's own tick or
+  // preset) turn the auto-recommendation off — a settings change recomputes
+  // eligibility but never overrides them, and neither does a return to the
+  // screen with the same files.
   // The effect below is keyed on `cards` only (the adapter's one event); the
-  // CURRENT selection is read through a ref so the prune is never stale.
+  // CURRENT selection and seed state are read through refs so the prune is
+  // never stale.
   const selectedRef = useRef(selected)
   selectedRef.current = selected
+  const seededRef = useRef(seeded)
+  seededRef.current = seeded
   // The step-4 re-check line. An answer is a new `cards` array from the
   // adapter (its state is set once per answer; its initial empty array is
   // not one). An answer after the first, to a request the USER caused (a
@@ -304,22 +332,14 @@ function TxrMethodPickerFrame({
           : `${dropped.length} methods no longer fit these settings`,
       )
     }
-    if (touched.current || seeded.current || cards.length === 0) return
-    seeded.current = true
+    if (seededRef.current || cards.length === 0) return
+    seededRef.current = true
     onSelectionChange(new Set(recommendedSelection(cards)))
     // `cards` is the only trigger: the seed is one-shot per card set; a
     // content-identical rebuild (same inventory) does not re-seed because
     // the adapter keeps the last good cards.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cards])
-
-  const changeSelection = useCallback(
-    (next: ReadonlySet<string>): void => {
-      touched.current = true
-      onSelectionChange(next)
-    },
-    [onSelectionChange],
-  )
 
   // demo-mode ITEM-6: the recorded methods only. Memoized: a new array on
   // every render would read as new cards to the picker (its state token
@@ -337,10 +357,12 @@ function TxrMethodPickerFrame({
       error={error}
       onRetry={refetch}
       selected={selected}
-      onSelectionChange={changeSelection}
+      onSelectionChange={onUserSelectionChange}
       onChangeFiles={onChangeFiles}
       onChangeSettings={onChangeSettings}
       recheckResult={recheckResult}
+      initialPreset={initialPreset}
+      onPresetChosen={onPresetChosen}
     />
   )
 }
@@ -349,7 +371,6 @@ export function ChooseMethodsPage() {
   const navigate = useNavigate()
   const [changeOpen, setChangeOpen] = useState(false)
   const [settingsPatch, setSettingsPatch] = useState<Partial<RunSettings> | null>(null)
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [runError, setRunError] = useState<string | null>(null)
   const [runNotice, setRunNotice] = useState<string | null>(null)
   const creating = useRef(false)
@@ -357,6 +378,9 @@ export function ChooseMethodsPage() {
    *  day, the extra-inputs switch): the picker frame shows a re-check line
    *  only for answers the user asked for. */
   const recheckAsks = useRef(0)
+  /** A create is in flight: Back is unavailable until it settles (the
+   *  success path leaves for the Running screen). */
+  const [starting, setStarting] = useState(false)
   const settingsAnchor = useRef<HTMLDivElement | null>(null)
   useDocumentTitle('Choose the methods and settings')
   /** A short shell window collapses the summary + settings cards by
@@ -371,9 +395,18 @@ export function ChooseMethodsPage() {
   const mapping = useStore(useTxrIntakeStore, s => s.mapping)
   const validation = useStore(useTxrIntakeStore, s => s.validation)
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
+  const methodPicks = useStore(useTxrIntakeStore, s => s.methodPicks)
   const runConfig = useRunConfig()
   const { keepCopies } = useKeepCopies()
   const { isDemo } = useAppMode()
+  // The step's Back (the step trail): with no trail, Back goes to the file
+  // step of this flow.
+  useStepBack({
+    step: 'choose-methods',
+    fallback: mode === 'predict' ? predictFilesPath() : filesPath(),
+    blockedReason: starting ? STEP_BACK_STARTING_REASON : null,
+    dialogOpen: changeOpen,
+  })
 
   // demo-mode ITEM-6: the recorded setup IS the screen's settings (the
   // estimate + eligibility arms answer from the bundle regardless, and the
@@ -417,6 +450,46 @@ export function ChooseMethodsPage() {
   }, [runConfig.loadCount])
 
   const inventory = validation?.inventory ?? null
+  // The ticks kept for THESE files (the intake store's `methodPicks`, keyed
+  // by the inventory's content): other files' ticks are not this screen's.
+  const picksKey = useMemo(
+    () => (inventory === null ? null : stableInventoryKey(inventory)),
+    [inventory],
+  )
+  const ownPicks = methodPicks !== null && methodPicks.key === picksKey ? methodPicks : null
+  const selected = useMemo<ReadonlySet<string>>(
+    () => new Set(ownPicks?.selected ?? []),
+    [ownPicks],
+  )
+  const updateSelection = useCallback(
+    (next: (current: ReadonlySet<string>) => ReadonlySet<string>, byUser: boolean): void => {
+      if (picksKey === null) return
+      const picks = useTxrIntakeStore.getState().methodPicks
+      const own = picks !== null && picks.key === picksKey ? picks : null
+      TxrIntake.setMethodPicks({
+        key: picksKey,
+        selected: [...next(new Set(own?.selected ?? []))],
+        touched: byUser || (own?.touched ?? false),
+        preset: own?.preset ?? null,
+      })
+    },
+    [picksKey],
+  )
+  /** A preset was applied: kept with the ticks, so a return shows it pressed. */
+  const rememberPreset = useCallback(
+    (preset: TxrMethodPreset): void => {
+      if (picksKey === null) return
+      const picks = useTxrIntakeStore.getState().methodPicks
+      const own = picks !== null && picks.key === picksKey ? picks : null
+      TxrIntake.setMethodPicks({
+        key: picksKey,
+        selected: own?.selected ?? [],
+        touched: own?.touched ?? false,
+        preset,
+      })
+    },
+    [picksKey],
+  )
   // ITEM-2 (a): the ONE compact summary (the line + marker names + the
   // Details list) — the builder's facts are the store's own (DEC-13).
   const filesSummary = useMemo(
@@ -465,8 +538,12 @@ export function ChooseMethodsPage() {
     ): Promise<void> => {
       if (creating.current) return
       creating.current = true
+      setStarting(true)
       setRunError(null)
       setRunNotice(null)
+      // A navigation to the Running screen leaves this step: Back stays
+      // unavailable until the route changes (the Running chunk may still load).
+      let leaving = false
       try {
         const input = buildTxrRunInput({
           patients,
@@ -482,6 +559,7 @@ export function ChooseMethodsPage() {
           keys,
         )
         const run = await ApiClient.Txr.createRun(request)
+        leaving = true
         navigate(runningPath(run.id))
       } catch (err) {
         const status = errorStatus(err)
@@ -490,6 +568,7 @@ export function ChooseMethodsPage() {
             const page = await ApiClient.Txr.listRuns({ limit: 50 })
             const active = page.runs.find(run => ACTIVE_RUN_STATUSES.has(run.status))
             if (active !== undefined) {
+              leaving = true
               navigate(runningPath(active.id), { state: { resumed: true } })
               return
             }
@@ -503,7 +582,10 @@ export function ChooseMethodsPage() {
           const dropped = staleMethodIds(message, keys, [...known])
           if (dropped.length > 0) {
             const droppedSet = new Set(dropped)
-            setSelected(current => new Set([...current].filter(key => !droppedSet.has(key))))
+            updateSelection(
+              current => new Set([...current].filter(key => !droppedSet.has(key))),
+              false,
+            )
             setRunNotice(droppedNotice(dropped))
           } else {
             setRunError(RUN_METHODS_GONE_LINE)
@@ -513,9 +595,21 @@ export function ChooseMethodsPage() {
         }
       } finally {
         creating.current = false
+        if (!leaving) setStarting(false)
       }
     },
-    [patients, measurements, predictMeasurements, joins, mapping, keepCopies, settings, cards, navigate],
+    [
+      patients,
+      measurements,
+      predictMeasurements,
+      joins,
+      mapping,
+      keepCopies,
+      settings,
+      cards,
+      navigate,
+      updateSelection,
+    ],
   )
 
   const onChangeSettings = useCallback((): void => {
@@ -546,6 +640,7 @@ export function ChooseMethodsPage() {
               </div>
             </ScrollRegion>
           }
+          bottom={<TxrStepBackBar />}
         />
       </main>
     )
@@ -576,6 +671,7 @@ export function ChooseMethodsPage() {
           void createRun(keys, opts)
         }}
         runLabelSuffix={isDemo ? DEMO_RUN_BUTTON_SUFFIX : undefined}
+        back={<TxrStepBack look="run-bar" />}
       />
     ) : null
 
@@ -650,18 +746,24 @@ export function ChooseMethodsPage() {
                 <TxrMethodPickerFrame
                   inventory={settingsInventory}
                   selected={selected}
-                  onSelectionChange={setSelected}
+                  seeded={ownPicks !== null}
+                  onSelectionChange={next => updateSelection(() => next, false)}
+                  onUserSelectionChange={next => updateSelection(() => next, true)}
                   onCards={setCards}
                   onChangeFiles={() => setChangeOpen(true)}
                   onChangeSettings={onChangeSettings}
                   recheckAsks={recheckAsks}
+                  initialPreset={ownPicks?.preset ?? null}
+                  onPresetChosen={rememberPreset}
                   demo={isDemo}
                 />
               )}
             </div>
           </ScrollRegion>
         }
-        bottom={runBar}
+        // No inventory (files being re-checked), no run bar: Back still sits
+        // at the bottom right.
+        bottom={runBar ?? <TxrStepBackBar />}
       />
       <TxrChangeFilesDialog
         mode={mode}

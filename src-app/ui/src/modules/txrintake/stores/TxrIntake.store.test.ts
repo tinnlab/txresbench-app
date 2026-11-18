@@ -131,6 +131,21 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
     expect(state().mode).toBe('predict')
   })
 
+  it('setIntent forgets the file check when the mode changes (it was made for the other mode), and keeps it otherwise', () => {
+    const checked = validationOf()
+    TxrIntake.setIntent('pretrained')
+    useTxrIntakeStore.setState({ validation: checked })
+    TxrIntake.setIntent('reuse') // predict → predict: the same check
+    expect(state().validation).toBe(checked)
+    TxrIntake.setIntent('train') // predict → study: the predict check is not the learn files' check
+    expect(state().validation).toBeNull()
+    useTxrIntakeStore.setState({ validation: checked })
+    TxrIntake.setIntent('train') // study → study
+    expect(state().validation).toBe(checked)
+    TxrIntake.setIntent('pretrained') // study → predict
+    expect(state().validation).toBeNull()
+  })
+
   it('adoptFile replaces a slot file and resets its offers', () => {
     const withOffers = { ...loadedFile(), joinOffers: [joinOffer], vocabOffers: [vocabOffer] }
     TxrIntake.adoptFile('measurements', withOffers)
@@ -533,5 +548,23 @@ describe('qa-fixes3 ITEM-4 — the per-slot example fact, the clear action and t
       measurements: false,
       predictMeasurements: false,
     })
+  })
+
+  it('the method ticks of screen E are a non-persisted field: set, kept apart from the persisted slice, cleared by reset', () => {
+    TxrIntake.reset()
+    expect(state().methodPicks).toBeNull()
+    TxrIntake.setIntent('train')
+    TxrIntake.setMethodPicks({ key: 'inv-1', selected: ['direct-on'], touched: true, preset: 'all' })
+    expect(state().methodPicks).toEqual({
+      key: 'inv-1',
+      selected: ['direct-on'],
+      touched: true,
+      preset: 'all',
+    })
+    const raw = window.localStorage.getItem('txr-intake-storage') ?? ''
+    expect(raw).not.toContain('methodPicks')
+    expect(raw).not.toContain('direct-on')
+    TxrIntake.reset()
+    expect(state().methodPicks).toBeNull()
   })
 })

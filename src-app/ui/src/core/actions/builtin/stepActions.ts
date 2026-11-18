@@ -1,0 +1,204 @@
+import { z } from 'zod'
+import { Permissions } from '@/api-client/permissions'
+import { defineAction } from '../defineAction'
+import { currentPathViaBridge } from '../navigateBridge'
+import { TxrIntake } from '@/modules/txrintake/stores/TxrIntake.store'
+import {
+  beginPath,
+  assertCanLeaveStep,
+  isStepUrl,
+  replaceCurrentStep,
+  STEP_BACK_DIALOG_OPEN,
+  STEP_BACK_LEAVING,
+  takeStepBack,
+  TXR_MODEL_STEP_CONTEXT,
+  TXR_STEP_CONTEXT,
+  useStepTrailStore,
+} from '@/modules/txrintake/lib/stepTrail'
+
+// The step-flow actions of a new analysis: the Back button of each step view,
+// the switch between the published and the saved model lists on the model
+// step, and the entries that start a path (the Start and Help cards, Your
+// models "Use", History "Use these settings again", the saved-models dialog).
+// Registered once so the buttons, the command palette and the AI take the
+// same path. The models and history stores are loaded on use (they are not
+// part of the start-up code).
+//
+// `permission`: the step routes carry no route permission
+// (`modules/txrintake/module.tsx`), so these use the permission the
+// registered navigation action (`app.navigate`, `./appActions.ts`) uses.
+//
+// Sole runtime import site: `src/modules/txrintake/module.tsx`.
+
+/** The model step routes (the D and I screens). */
+const PUBLISHED_MODELS_ROUTE = '/pretrained-models'
+const SAVED_MODELS_ROUTE = '/saved-models'
+
+/** The first route of each path (Start's card picker: train → B, the predict paths → N). */
+const STUDY_ROUTE = '/study'
+const PREDICT_FILES_ROUTE = '/predict-files'
+
+/** The learn path's file step (an example landing opens it directly). */
+const FILES_ROUTE = '/files'
+/** The learn path's last step (History "Use these settings again" opens it). */
+const CHOOSE_METHODS_ROUTE = '/choose-methods'
+
+/** Where every path starts (the Start screen, step 1 of each path). */
+const START_ROUTE = '/'
+
+/**
+ * A new path may start now: nothing on a step view holds it (a run being
+ * created, an open dialog, a Back already leaving the step).
+ */
+function assertCanStartPath(): void {
+  const { current, leaving } = useStepTrailStore.getState()
+  if (current === null) return
+  if (leaving) throw new Error(STEP_BACK_LEAVING)
+  if (current.blockedReason !== null) throw new Error(current.blockedReason)
+  if (current.dialogOpen) throw new Error(STEP_BACK_DIALOG_OPEN)
+}
+
+/**
+ * Begin a new step trail where the path is started from: the page the user is
+ * on (Help, Your models, History, a results page), or Start when that page is
+ * itself a step view (a new path replaces the one on screen).
+ */
+function beginPathHere(): void {
+  const here = currentPathViaBridge()
+  beginPath(isStepUrl(here) ? START_ROUTE : here)
+}
+
+defineAction({
+  id: 'flow.back',
+  title: 'Go back to the previous step',
+  permission: Permissions.McpUse,
+  mutating: true,
+  context: TXR_STEP_CONTEXT,
+  aliases: ['back', 'previous step'],
+  description:
+    'On a step of a new analysis, go back to the step this path showed before, or to where the path started. Refused while a run is starting or a dialog is open.',
+  params: z.object({}),
+  run: (_params, ctx) => {
+    const path = takeStepBack()
+    ctx.navigate(path)
+    return { path }
+  },
+})
+
+defineAction({
+  id: 'models.switchList',
+  title: 'Switch between the published models and your saved models',
+  permission: Permissions.McpUse,
+  mutating: true,
+  context: TXR_MODEL_STEP_CONTEXT,
+  aliases: ['use my saved models', 'use the published models'],
+  description:
+    'On the model step of a new analysis, show the other model list for the same checked file: "saved" for your saved models, "published" for the published models. The new list takes the place of the current one in the steps, so Back still goes to the file step.',
+  params: z.object({
+    list: z
+      .enum(['saved', 'published'])
+      .describe('"saved" for your saved models, "published" for the published models.'),
+  }),
+  run: ({ list }, ctx) => {
+    const onScreen = useStepTrailStore.getState().current
+    if (
+      onScreen === null ||
+      (onScreen.step !== 'pretrained-models' && onScreen.step !== 'saved-models')
+    ) {
+      throw new Error('Open the model step of a new analysis first.')
+    }
+    const current = assertCanLeaveStep()
+    const path = list === 'saved' ? SAVED_MODELS_ROUTE : PUBLISHED_MODELS_ROUTE
+    // Already on that list: nothing to switch.
+    if ((current.step === 'saved-models') === (list === 'saved')) return { path }
+    // The intent the Start cards set for the two lists; the checked file stays
+    // (setIntent changes the intent and the mode only).
+    TxrIntake.setIntent(list === 'saved' ? 'reuse' : 'pretrained')
+    replaceCurrentStep(path)
+    ctx.navigate(path)
+    return { path }
+  },
+})
+
+defineAction({
+  id: 'flow.startPath',
+  title: 'Start a new analysis',
+  permission: Permissions.McpUse,
+  mutating: true,
+  aliases: ['learn from my data', 'predict with a pretrained model', 'use a model I saved'],
+  description:
+    'Pick one of the three ways of the Start screen: "pretrained" predicts with a published model, "reuse" predicts with a model you saved, "train" learns from your own patients. Opens the first step of that way (or its file step with startAtFiles); files already added are kept. Back from that step returns to the page it was started from. Refused while a run is starting or a dialog is open.',
+  params: z.object({
+    intent: z
+      .enum(['pretrained', 'reuse', 'train'])
+      .describe('"pretrained", "reuse" (a saved model) or "train" (learn from my data).'),
+    startAtFiles: z
+      .boolean()
+      .optional()
+      .describe('Open the file step directly (the learn path skips its study questions).'),
+  }),
+  run: ({ intent, startAtFiles }, ctx) => {
+    assertCanStartPath()
+    TxrIntake.setIntent(intent)
+    beginPathHere()
+    const path =
+      intent !== 'train' ? PREDICT_FILES_ROUTE : startAtFiles === true ? FILES_ROUTE : STUDY_ROUTE
+    ctx.navigate(path)
+    return { path }
+  },
+})
+
+defineAction({
+  id: 'models.useModel',
+  title: 'Predict new patients with a saved model',
+  permission: Permissions.McpUse,
+  mutating: true,
+  aliases: ['use this model'],
+  description:
+    'Your models "Use": start the saved-model path for one saved model (by its id). Opens the step to add the patients to predict; the model is ticked on the saved list once the file checks out. Back from that step returns to the page it was started from.',
+  params: z.object({
+    modelId: z.string().min(1).describe('The saved model id (from Your models).'),
+    name: z.string().optional().describe('The model name the step shows.'),
+  }),
+  run: async ({ modelId, name }, ctx) => {
+    assertCanStartPath()
+    const { useTxrModelsStore } = await import('@/modules/txrmodels/stores/TxrModels.store')
+    TxrIntake.setIntent('reuse')
+    useTxrModelsStore.getState().setPendingUse(modelId)
+    beginPathHere()
+    const path =
+      `${PREDICT_FILES_ROUTE}?use=${encodeURIComponent(modelId)}` +
+      (name === undefined ? '' : `&name=${encodeURIComponent(name)}`)
+    ctx.navigate(path)
+    return { path }
+  },
+})
+
+defineAction({
+  id: 'history.useSettingsAgain',
+  title: 'Use the settings of a past analysis again',
+  permission: Permissions.McpUse,
+  mutating: true,
+  aliases: ['use these settings again'],
+  description:
+    'History "Use these settings again": copy the settings of a past analysis (by its run id) into the method choice and open it. The files of that analysis are not reused. Back from the method choice returns to the page it was started from.',
+  params: z.object({
+    runId: z.string().min(1).describe('The run id of the past analysis (from History).'),
+  }),
+  run: async ({ runId }, ctx) => {
+    assertCanStartPath()
+    const [{ TxrHistory, useTxrHistory }, { ApiClient }] = await Promise.all([
+      import('@/modules/txrhistory/stores/TxrHistory.store'),
+      import('@/api-client'),
+    ])
+    const shown = useTxrHistory.getState().detail
+    const run =
+      shown !== null && shown.id === runId
+        ? shown
+        : await ApiClient.History.getHistory({ id: runId })
+    await TxrHistory.useSettingsAgain(run)
+    beginPathHere()
+    ctx.navigate(CHOOSE_METHODS_ROUTE)
+    return { path: CHOOSE_METHODS_ROUTE }
+  },
+})

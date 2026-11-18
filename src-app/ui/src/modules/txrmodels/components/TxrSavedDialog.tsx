@@ -27,8 +27,7 @@ import { type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Dialog } from '@txresbench/kit'
 import type { ModelSaveResponse } from '@/api-client/types'
-import { useTxrIntakeStore } from '@/modules/txrintake'
-import { predictFilesPath } from '@/modules/txrrun'
+import { runAction } from '@/core/actions/defineAction'
 import { formatBytes } from '../lib/format'
 import { modelsPath } from '../routes'
 
@@ -89,10 +88,11 @@ export interface TxrSavedDialogProps {
 export function TxrSavedDialog({ response, onClose }: TxrSavedDialogProps) {
   const navigate = useNavigate()
 
+  // The registered `flow.startPath` (reuse): its first step goes back to the
+  // page this dialog opened on.
   const predictWithThem = (): void => {
     if (response === null) return
-    useTxrIntakeStore.getState().setIntent('reuse')
-    navigate(predictFilesPath())
+    void runAction('flow.startPath', { intent: 'reuse' }).catch(() => undefined)
     onClose()
   }
 

@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest'
 import './mcpSettingsActions'
 import './featureFlagActions'
 import './methodActions'
+import './stepActions'
 import { getActionMeta } from '../defineAction'
 
 const NEW_IDS = [
@@ -22,6 +23,11 @@ const NEW_IDS = [
   'features.setAccountFlag',
   'features.clearAccountOverride',
   'methods.applyPreset',
+  'flow.back',
+  'models.switchList',
+  'flow.startPath',
+  'models.useModel',
+  'history.useSettingsAgain',
 ]
 
 // owning module.tsx → the builtin file it must side-effect-import
@@ -29,6 +35,7 @@ const MODULE_IMPORTS: Record<string, string[]> = {
   'src/modules/mcp/module.tsx': ['@/core/actions/builtin/mcpSettingsActions'],
   'src/modules/features/module.tsx': ['@/core/actions/builtin/featureFlagActions'],
   'src/modules/txrlist/module.tsx': ['@/core/actions/builtin/methodActions'],
+  'src/modules/txrintake/module.tsx': ['@/core/actions/builtin/stepActions'],
 }
 
 const SRC_ROOT = resolve(__dirname, '../../../..')

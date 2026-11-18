@@ -61,13 +61,11 @@ import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
-import { useTxrIntakeStore } from '@/modules/txrintake'
-import { predictFilesPath } from '@/modules/txrrun'
+import { runAction } from '@/core/actions/defineAction'
 import { Alert, Button, Input } from '@txresbench/kit'
 import { useModelInventory } from '../data/useModelInventory'
 import { downloadModelExport } from '../lib/export'
 import { formatMade, formatModelSublines, formatPredicts, formatTrainedOn } from '../lib/format'
-import { useTxrModelsStore } from '../stores/TxrModels.store'
 import { TxrDeleteModelDialog } from '../components/TxrDeleteModelDialog'
 import { TxrRenameModelDialog } from '../components/TxrRenameModelDialog'
 
@@ -298,17 +296,17 @@ export function ModelsPage() {
   /** Use — the DEC-10 handoff: intent reuse + the pending model id, then
    *  the N screen (the user adds the predict file; the I screen preselects
    *  this row on mount — the board's path 3 flow, never a direct run). */
-  const useModel = useCallback(
-    (model: ModelSummary): void => {
-      useTxrIntakeStore.getState().setIntent('reuse')
-      useTxrModelsStore.getState().setPendingUse(model.id)
-      // The URL announces the choice (the J "?set=" view precedent, DEC-19):
-      // the N screen names the chosen model while the handoff is live
-      // (RES-21 — "which model did I pick?" was left unspoken by the flow).
-      navigate(`${predictFilesPath()}?use=${encodeURIComponent(model.id)}&name=${encodeURIComponent(model.name)}`)
-    },
-    [navigate],
-  )
+  //  The registered `models.useModel` does it (the palette and the AI start
+  //  the same path): the path's first step goes back here (the step trail),
+  //  and the URL announces the choice (the J "?set=" view precedent, DEC-19:
+  //  the N screen names the chosen model while the handoff is live — RES-21).
+  const useModel = useCallback((model: ModelSummary): void => {
+    runAction('models.useModel', { modelId: model.id, name: model.name }).catch(
+      (error: unknown) => {
+        setActionError(error instanceof Error ? error.message : 'The model could not be used.')
+      },
+    )
+  }, [])
 
   /** Export — the provider's attachment, byte passthrough; the picked
    *  bytes land in the user's downloads via `lib/export.ts`. A failure

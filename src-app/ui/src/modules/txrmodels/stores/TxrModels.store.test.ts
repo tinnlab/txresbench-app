@@ -286,6 +286,42 @@ describe('TxrModels store (TEST-MOD-04)', () => {
     expect(state().pretrained.error).toBe('boom')
   })
 
+  it('the loaded flags: false at birth, true after a successful load only, kept through a failed refetch and an inventory change, cleared by reset', async () => {
+    expect(state().pretrained.loaded).toBe(false)
+    expect(state().saved.loaded).toBe(false)
+
+    api.pretrainedList.mockRejectedValueOnce(new Error('down'))
+    api.savedList.mockRejectedValueOnce(new Error('down'))
+    api.setsList.mockResolvedValueOnce({ sets: [], total: 0 })
+    await state().loadPretrained()
+    await state().loadSaved()
+    expect(state().pretrained.loaded).toBe(false)
+    expect(state().saved.loaded).toBe(false)
+
+    api.pretrainedList.mockResolvedValueOnce({ models: [], total: 0 })
+    api.savedList.mockResolvedValueOnce({ models: [], total: 0 })
+    api.setsList.mockResolvedValueOnce({ sets: [], total: 0 })
+    await state().loadPretrained()
+    await state().loadSaved()
+    // Loaded AND empty — the state the no-models messages wait for.
+    expect(state().pretrained).toMatchObject({ cards: [], loading: false, error: null, loaded: true })
+    expect(state().saved).toMatchObject({ summaries: [], loading: false, error: null, loaded: true })
+
+    api.pretrainedList.mockRejectedValueOnce(new Error('again'))
+    await state().loadPretrained({ force: true })
+    expect(state().pretrained.error).toBe('again')
+    expect(state().pretrained.loaded).toBe(true)
+
+    setValidation({ inventory: inventory({ patients: 7 }) })
+    state().loadInventory()
+    expect(state().pretrained.loaded).toBe(true)
+    expect(state().saved.loaded).toBe(true)
+
+    state().reset()
+    expect(state().pretrained.loaded).toBe(false)
+    expect(state().saved.loaded).toBe(false)
+  })
+
   it('loadEligibility fetches once per stable inventory hash, refetches on a content change, and posts the ONE inventory object', async () => {
     const invA = inventory()
     const respA = eligibilityResponse([verdict('m-1', 'can_run')])

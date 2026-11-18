@@ -36,7 +36,7 @@
  * the search and the back-to-top control.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { Button, Input, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@txresbench/kit'
 import { FiAlertTriangle, FiArrowUp, FiCheckCircle, FiInfo } from 'react-icons/fi'
 import { ApiClient } from '@/api-client'
@@ -70,7 +70,7 @@ import { TXRLIST_STATUS_COLORS } from '@/modules/txrlist/components/TxrListRow'
 // `Circular dependency detected` (the cycle the qa-fixes2 ITEM-3 plan
 // already recorded for `txrrun`).
 import { TxrUseExampleButton } from '@/modules/txrintake/components/TxrUseExampleButton'
-import { TxrIntake } from '@/modules/txrintake/stores/TxrIntake.store'
+import { runAction } from '@/core/actions/defineAction'
 import {
   ELIGIBILITY_STATUSES,
   HELP_SECTIONS,
@@ -87,8 +87,6 @@ import type { FileCardContent, HelpBlock, HelpProblemEntry, HelpSection, Problem
 /** The intake route the example action lands on (the one-click promise of
  *  qa-fixes3 ITEM-4: the file step whose own flow validates the adopted
  *  tables; the destination literals mirror the Start screen's own). */
-const EXAMPLE_FILES_ROUTE = '/files'
-const EXAMPLE_PREDICT_FILES_ROUTE = '/predict-files'
 
 /**
  * The quick-start card's intent (qa-fixes4 ITEM-5, R3-help-6): the card
@@ -1093,7 +1091,6 @@ function sectionText(section: (typeof HELP_SECTIONS)[number]): string {
 
 export function HelpPage() {
   const location = useLocation()
-  const navigate = useNavigate()
   // The per-route title system (R2-G1) — ITEM-3's local effect is now the
   // shell's one hook: the same "Help — TxResBench" byte, with the previous
   // title restored on unmount like every other route.
@@ -1397,16 +1394,16 @@ export function HelpPage() {
                             to={card.route}
                             className="txr-help-link"
                             data-testid={`txr-help-quickstart-cta-${card.id}`}
-                            onClick={() => {
+                            onClick={event => {
                               // qa-fixes4 ITEM-5 (help-r3 R3-help-6): the
                               // two predict cards both land on the same
                               // file screen — the card must tell the flow
-                              // WHICH path (the Start screen's own card
-                              // picker's byte: set the intent first, then
-                              // the flow it leads to; otherwise the screen
-                              // could not say whether pretrained or saved
-                              // models follow).
-                              TxrIntake.setIntent(intentOf(card.id))
+                              // WHICH path. The registered flow.startPath
+                              // sets the intent and opens the path (the
+                              // Start cards' action); its first step goes
+                              // back to Help (the step trail).
+                              event.preventDefault()
+                              void runAction('flow.startPath', { intent: intentOf(card.id) })
                             }}
                             style={{ color: 'var(--txr-brand)', fontWeight: 600, fontSize: 13.5 }}
                           >
@@ -1418,13 +1415,14 @@ export function HelpPage() {
                           <TxrUseExampleButton
                             path={card.tryExample.path}
                             label={card.tryExample.label}
-                            onDone={() =>
-                              navigate(
-                                card.tryExample.path === 'train'
-                                  ? EXAMPLE_FILES_ROUTE
-                                  : EXAMPLE_PREDICT_FILES_ROUTE,
-                              )
-                            }
+                            onDone={() => {
+                              // The example files are in: the path opens on
+                              // its file step, and goes back to Help.
+                              void runAction('flow.startPath', {
+                                intent: card.tryExample.path,
+                                startAtFiles: true,
+                              })
+                            }}
                           />
                         </div>
                       </section>

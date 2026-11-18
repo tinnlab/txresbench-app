@@ -32,8 +32,11 @@
  * defaults: `atATime: 3` (the boards' own value) and `saveModels: false`
  * (nothing to save on the D/I paths). The total slot never renders blank:
  * a `null` totalText shows the loading ellipsis (EXAMPLE-UL-7).
+ *
+ * `back` is the host step's Back button, rendered directly left of Run (the
+ * host's node; a bar without it renders as before).
  */
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { Button, Checkbox, Select } from '@txresbench/kit'
 import { pluralize, runLabel } from '../lib/format'
 
@@ -58,6 +61,8 @@ export interface TxrListBottomBarProps {
   notice?: string | null
   /** Run clicked: the options (keys are wired by TxrSelectList). */
   onRun(opts: { atATime: number; saveModels: boolean }): void
+  /** The host step's Back button, rendered just before Run (absent: nothing extra). */
+  back?: ReactNode
 }
 
 /** The board bar's container look. */
@@ -99,6 +104,7 @@ export function TxrListBottomBar({
   saveModels,
   notice,
   onRun,
+  back,
 }: TxrListBottomBarProps) {
   return (
     <div data-testid="txr-list-bottom-bar" style={BAR}>
@@ -139,6 +145,7 @@ export function TxrListBottomBar({
         </label>
       ) : null}
       {notice !== null && notice !== undefined ? <span style={NOTICE}>{notice}</span> : null}
+      {back}
       <Button
         data-testid="txr-list-run"
         style={RUN_BUTTON}

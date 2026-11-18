@@ -59,6 +59,10 @@
  */
 import { lazy, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
+// The app mounts the router bridge as a router effect; a story's own router
+// needs it too, so the registered actions the pages run (the step Back, the
+// entries that start a path) navigate inside the story.
+import { RouterBridge } from '@/core/actions/navigateBridge'
 import { useStore } from 'zustand'
 import { extendCassette, type MockRequestContext, type ModuleGallery } from '@txresbench/gallery'
 import { AppShell } from '@/modules/txrshell/components/AppShell'
@@ -210,6 +214,7 @@ function HistoryStory({
       style={{ width: narrow ? 390 : '100%', maxWidth: '100%', minWidth: 0, position: 'relative' }}
     >
       <SeedGate seed={seed}>
+        <RouterBridge />
         <Routes>
           <Route
             path="/history"
@@ -242,6 +247,7 @@ function ShellHistoryView() {
     <>
       <SeedGate seed={seedFamily}>
         <AppShell>
+          <RouterBridge />
           <Routes>
             <Route
               path="/history"

@@ -72,11 +72,20 @@ import type {
   RunConfig,
 } from '@/api-client/types'
 import type { IntakeSnapshot } from '@/modules/txrintake'
-import { buildTxrRunInput, TxrIntake, useTxrIntakeStore } from '@/modules/txrintake'
+import {
+  buildTxrRunInput,
+  STEP_BACK_STARTING_REASON,
+  TxrIntake,
+  TxrStepBack,
+  TxrStepBackBar,
+  useStepBack,
+  useTxrIntakeStore,
+} from '@/modules/txrintake'
 import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
 import { countSelected, formatTotalTime, TxrSelectList, type TxrListSection } from '@/modules/txrlist'
 import { predictFilesPath, runningPath } from '@/modules/txrrun'
 import { Alert, Button } from '@txresbench/kit'
+import { runAction } from '@/core/actions/defineAction'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
@@ -95,6 +104,14 @@ import type { TxrModelDialogId, TxrModelSortId } from '../types'
 import { TxrModelDetailsDialog } from '../components/TxrModelDetailsDialog'
 import { TxrRenameSetDialog } from '../components/TxrRenameSetDialog'
 import { TxrDeleteSetDialog } from '../components/TxrDeleteSetDialog'
+import { TxrModelsEmptyState, TxrModelsNoneCanRun } from '../components/TxrModelsEmptyState'
+import { usePretrainedEligibility } from '../data/usePretrainedEligibility'
+import {
+  noSavedCanRunLine,
+  noSavedMessage,
+  SAVED_FILTERED_EMPTY,
+  type TxrModelListFacts,
+} from '../lib/emptyState'
 
 /** The page's flex spine (the frame fills the routed area). */
 const PAGE_OUTER: CSSProperties = {
@@ -487,6 +504,20 @@ export function SavedModelsPage() {
   // ── The Run path (CONS-UM-24/13 — the I arm of TEST-MOD-32) ──────────────
   const [runError, setRunError] = useState<string | null>(null)
   const creating = useRef(false)
+  /** A create is in flight: Back is unavailable until it settles (the
+   *  success path leaves for the Running screen). */
+  const [starting, setStarting] = useState(false)
+
+  // The step's Back (the step trail): with no trail, Back goes to the file
+  // step. Only the dialogs this page shows count as open (the row Details,
+  // the set Rename/Delete): the store's dialog id is shared with the
+  // published-models page.
+  useStepBack({
+    step: 'saved-models',
+    fallback: predictFilesPath(),
+    blockedReason: starting ? STEP_BACK_STARTING_REASON : null,
+    dialogOpen: dialog.startsWith('details:') || sectionAction.set !== null,
+  })
 
   /**
    * The reuse Run: gate → resolve FIRST (the selected uuids, assets
@@ -503,7 +534,11 @@ export function SavedModelsPage() {
       }
       if (creating.current) return
       creating.current = true
+      setStarting(true)
       setRunError(null)
+      // A navigation to the Running screen leaves this step: Back stays
+      // unavailable until the route changes (the Running chunk may still load).
+      let leaving = false
       try {
         const runModels = saved.summaries.filter(model => keys.includes(model.id))
         const { assets } = await ApiClient.Models.resolveModels({
@@ -526,11 +561,13 @@ export function SavedModelsPage() {
           ),
           model_ids: assets,
         })
+        leaving = true
         navigate(runningPath(run.id))
       } catch (error) {
         setRunError(errorText(error))
       } finally {
         creating.current = false
+        if (!leaving) setStarting(false)
       }
     },
     [
@@ -551,6 +588,56 @@ export function SavedModelsPage() {
   // local view — Template literal narrowing on a property access does not
   // apply). ────────────────────────────────────────────────────────────────
   const totals = eligibility.totals
+
+  // ── The other list, for the empty and none-can-run messages (part of the
+  // step's dynamic messages): the published models and their verdicts for
+  // this file, loaded only when a message needs them. ───────────────────────
+  const savedSettled = saved.loaded && !saved.loading
+  /** The saved list loaded and holds no model (never before the first load). */
+  const noSaved =
+    validation !== null && savedSettled && saved.error === null && saved.summaries.length === 0
+  /** The saved verdicts answer this file (the store's inventory is the
+   *  validation's: right after a file change they are still the previous
+   *  file's) and every saved model (the totals cover the whole list). */
+  const savedVerdictsReady =
+    inventory !== null &&
+    inventory === validation?.inventory &&
+    totals !== null &&
+    !eligibility.loading &&
+    eligibility.error === null &&
+    totals.fit + totals.some + totals.cannot === saved.summaries.length
+  const noSavedCanRun =
+    validation !== null &&
+    savedSettled &&
+    saved.summaries.length > 0 &&
+    savedVerdictsReady &&
+    totals.fit + totals.some === 0
+  const needPublished = noSaved || noSavedCanRun
+  const published = useStore(useTxrModelsStore, s => s.pretrained)
+  useEffect(() => {
+    if (needPublished) void useTxrModelsStore.getState().loadPretrained()
+  }, [needPublished])
+  const publishedIds = useMemo(() => published.cards.map(card => card.id), [published.cards])
+  const publishedSettled = published.loaded && !published.loading
+  const publishedVerdicts = usePretrainedEligibility(
+    needPublished && publishedSettled ? (validation?.inventory ?? null) : null,
+    publishedIds,
+  )
+  const publishedResponse = publishedVerdicts.response
+  const publishedFacts: TxrModelListFacts = {
+    failed: published.error !== null || publishedVerdicts.error !== null,
+    total: publishedSettled ? published.cards.length : null,
+    canRun: !publishedSettled
+      ? null
+      : published.cards.length === 0
+        ? 0
+        : publishedResponse !== null &&
+            !publishedVerdicts.loading &&
+            publishedResponse.total_fit + publishedResponse.total_some + publishedResponse.total_cannot ===
+              published.cards.length
+          ? publishedResponse.total_fit + publishedResponse.total_some
+          : null,
+  }
 
   // ── The ITEM-3 frame composition ─────────────────────────────────────────
   // The audit route table's row for the I route: fixed top = step + title +
@@ -608,6 +695,12 @@ export function SavedModelsPage() {
           kind="models"
           count={demoUsage.usage?.models ?? null}
           limit={demoUsage.usage?.model_limit ?? 50}
+        />
+      ) : null}
+      {toolbar !== null && noSavedCanRun ? (
+        <TxrModelsNoneCanRun
+          line={noSavedCanRunLine(saved.summaries.length, publishedFacts)}
+          testId="txr-models-i-none-can-run"
         />
       ) : null}
       {toolbar !== null ? (
@@ -685,12 +778,36 @@ export function SavedModelsPage() {
               <Button
                 data-testid="txr-models-i-empty-cta"
                 variant="outline"
-                onClick={() => navigate(predictFilesPath())}
+                onClick={() => void runAction('app.navigate', { path: predictFilesPath() })}
               >
                 {EMPTY_CTA}
               </Button>
             </div>,
           )}
+          bottom={<TxrStepBackBar />}
+        />
+        {dialogs}
+      </main>
+    )
+  }
+
+  // The no-saved branch (the saved list loaded and is empty): the frame, the
+  // message in the region — what the published models hold for this file,
+  // and the way there.
+  if (noSaved) {
+    return (
+      <main data-testid="txr-models-i" style={PAGE_OUTER}>
+        <PageFrame
+          testId="txr-models-i-frame"
+          top={pageTop(null)}
+          body={bodyRegion(
+            <TxrModelsEmptyState
+              message={noSavedMessage(publishedFacts)}
+              testId="txr-models-i-no-saved"
+              onRetry={() => void useTxrModelsStore.getState().loadPretrained({ force: true })}
+            />,
+          )}
+          bottom={<TxrStepBackBar />}
         />
         {dialogs}
       </main>
@@ -715,7 +832,10 @@ export function SavedModelsPage() {
           options: I_SORT_OPTIONS as { value: string; label: string }[],
           onChange: value => useTxrModelsStore.getState().setSort(value as TxrModelSortId),
         }}
-        loading={saved.loading || eligibility.loading}
+        // Not loaded yet (the birth state, before the first fetch) counts as
+        // loading: the list never flashes its empty line before the data.
+        loading={(!saved.loaded && saved.error === null) || saved.loading || eligibility.loading}
+        emptyText={SAVED_FILTERED_EMPTY}
         error={saved.error ?? eligibility.error}
         onRetry={() => {
           void useTxrModelsStore.getState().loadSaved({ force: true })
@@ -730,6 +850,7 @@ export function SavedModelsPage() {
           onRun: keys => {
             void createRun(keys)
           },
+          back: <TxrStepBack look="list-bar" />,
         }}
         onRowAction={row => {
           useTxrModelsStore.getState().openDialog(`details:${row.key}` as TxrModelDialogId)

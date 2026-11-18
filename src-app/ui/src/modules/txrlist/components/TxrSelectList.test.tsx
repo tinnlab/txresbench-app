@@ -429,6 +429,49 @@ describe('TxrSelectList bottom bar (TEST-UL-6 — INV-3, the boards\' bar)', () 
   })
 })
 
+describe('TxrSelectList bottom bar Back slot (the host step Back)', () => {
+  it('renders the host Back node just before Run', () => {
+    render(
+      <TxrSelectList
+        {...listProps({
+          rows: rows(3, 0),
+          itemLabel: 'model',
+          bottomBar: {
+            selectedCount: 1,
+            totalTimeText: 'about 2 minutes in total',
+            onRun: vi.fn(),
+            back: <span data-testid="host-back">Back</span>,
+          },
+        })}
+      />,
+    )
+    const back = document.querySelector('[data-testid="host-back"]')!
+    expect(back.nextElementSibling).toBe(document.querySelector('[data-testid="txr-list-run"]'))
+    expect(back.parentElement).toBe(document.querySelector('[data-testid="txr-list-bottom-bar"]'))
+  })
+
+  it('without a Back node nothing is rendered before Run but the bar\'s own parts', () => {
+    render(
+      <TxrSelectList
+        {...listProps({
+          rows: rows(3, 0),
+          itemLabel: 'model',
+          bottomBar: {
+            selectedCount: 1,
+            totalTimeText: 'about 2 minutes in total',
+            onRun: vi.fn(),
+          },
+        })}
+      />,
+    )
+    const run = document.querySelector('[data-testid="txr-list-run"]')!
+    // count, total, the spacer, Run: no notice, no save toggle, no Back.
+    expect(run.parentElement!.children.length).toBe(4)
+    expect(run.previousElementSibling?.tagName).toBe('SPAN')
+    expect(run.previousElementSibling?.textContent).toBe('')
+  })
+})
+
 describe('TxrSelectList selection wiring (the ONE lib/selection rule set)', () => {
   it('a row checkbox toggles exactly that row into the selection', () => {
     render(

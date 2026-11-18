@@ -96,6 +96,9 @@ export function usePretrainedEligibility(
     [inventory, idsKey],
   )
   const [response, setResponse] = useState<PretrainedEligibilityResponse | null>(null)
+  /** The key the stored response answers: a response for another key (the
+   *  previous file, the previous id set) is never returned. */
+  const [responseKey, setResponseKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
@@ -115,11 +118,13 @@ export function usePretrainedEligibility(
       // (the provider's body bounds `model_ids` at 1..=200).
       epoch.current += 1
       setResponse(EMPTY_RESPONSE)
+      setResponseKey(key)
       setLoading(false)
       setError(null)
       return
     }
     const requestEpoch = (epoch.current += 1)
+    const requestKey = key
     setLoading(true)
     setError(null)
     ApiClient.Pretrained.checkEligibility({ model_ids: catalogueIds, inventory })
@@ -131,6 +136,7 @@ export function usePretrainedEligibility(
           total_some: res?.total_some ?? 0,
           total_cannot: res?.total_cannot ?? 0,
         })
+        setResponseKey(requestKey)
         setLoading(false)
       })
       .catch((err: unknown) => {
@@ -147,5 +153,13 @@ export function usePretrainedEligibility(
     setTick(count => count + 1)
   }, [])
 
-  return { response, loading, error, refetch }
+  // Until the current key's verdicts land, the previous key's are not this
+  // file's: no response, and loading (unless the request failed).
+  const fresh = key !== null && responseKey === key
+  return {
+    response: fresh ? response : null,
+    loading: loading || (key !== null && !fresh && error === null),
+    error,
+    refetch,
+  }
 }

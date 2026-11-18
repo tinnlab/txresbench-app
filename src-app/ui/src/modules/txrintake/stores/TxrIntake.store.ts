@@ -48,6 +48,7 @@ import type {
 } from '../types'
 import type { ColumnRenameOffer } from '../types'
 import { renamedTable } from '../lib/flow'
+import type { TxrMethodPreset } from '@/modules/txrlist/lib/methodPicker'
 
 /** The three file slots of the snapshot (screen C's two, screen N's one). */
 export type FileSlot = 'patients' | 'measurements' | 'predictMeasurements'
@@ -82,6 +83,22 @@ export type FileCardPatch = Partial<
   Pick<LoadedFile, 'inspection' | 'problems' | 'prepared' | 'joinOffers' | 'vocabOffers' | 'columnOffers'>
 >
 
+/**
+ * The method ticks of screen E for one set of checked files: the user who
+ * goes Back from E and comes forward again with the same files finds the
+ * ticks as left (the step Back's decision 2). `key` is txrlist's
+ * `stableInventoryKey` of the validation's inventory: new files give a new
+ * key, and E then ticks its recommended set again.
+ */
+export interface MethodPicks {
+  key: string
+  selected: string[]
+  /** The user changed the ticks (a tick or a preset): the recommendation never overrides them. */
+  touched: boolean
+  /** The preset last applied, so the picker shows it pressed again on return. */
+  preset: TxrMethodPreset | null
+}
+
 /** The store's data fields (the `IntakeSnapshot` + the recall map). */
 export interface TxrIntakeState extends IntakeSnapshot {
   fileRecalls: FileRecalls
@@ -111,6 +128,8 @@ export interface TxrIntakeState extends IntakeSnapshot {
    * user can call "Use example" again).
    */
   pendingExampleSetId: string | null
+  /** Screen E's method ticks (see `MethodPicks`). Memory only, never persisted. */
+  methodPicks: MethodPicks | null
 }
 
 /**
@@ -279,6 +298,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
     exampleLoaded: false,
     exampleSlots: { ...BIRTH_EXAMPLE_SLOTS },
     pendingExampleSetId: null as string | null,
+    methodPicks: null as MethodPicks | null,
   },
   actions: (set, get) => {
     /** The state snapshot the current validation is STILL valid against. */
@@ -289,12 +309,15 @@ const TxrIntakeDef = defineStore('TxrIntake', {
     })
 
     return {
-      /** The A-card path choice; the mode follows (train → study, the rest → predict). */
+      /**
+       * The A-card path choice; the mode follows (train → study, the rest →
+       * predict). A mode change forgets the validation: it checked the other
+       * mode's files (the predict file, or the learn pair), so the new mode's
+       * file step checks its own files again instead of continuing on it.
+       */
       setIntent: (intent: IntakeIntent) => {
-        set({
-          intent,
-          mode: intent === 'train' ? 'study' : 'predict',
-        })
+        const mode: IntakeSnapshot['mode'] = intent === 'train' ? 'study' : 'predict'
+        set(s => (s.mode === mode ? { intent, mode } : { intent, mode, validation: null }))
       },
 
       /** Merge one B answer group change (any field; unanswered fields stay null). */
@@ -406,6 +429,11 @@ const TxrIntakeDef = defineStore('TxrIntake', {
             pendingExampleSetId: null,
           }
         })
+      },
+
+      /** Screen E's method ticks for the current files (null forgets them). */
+      setMethodPicks: (picks: MethodPicks | null) => {
+        set({ methodPicks: picks })
       },
 
       /** The ITEM-3 example-set handoff (qa-fixes3 ITEM-4). */
@@ -598,6 +626,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
           exampleLoaded: false,
           exampleSlots: { ...BIRTH_EXAMPLE_SLOTS },
           pendingExampleSetId: null,
+          methodPicks: null,
         })
       },
 

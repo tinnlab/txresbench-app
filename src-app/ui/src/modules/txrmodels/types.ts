@@ -114,7 +114,10 @@ export type TxrModelRowKey = string
  * - `inventory` — the ONE `InventoryEligibilityRequest` object from the
  *   intake GAP (`IntakeSnapshot.validation.inventory`), passed to the
  *   eligibility endpoints verbatim (the ui-list DEC-15 ONE-builder pin);
- * - `pretrained` / `saved` — the D/I data slices with their load state;
+ * - `pretrained` / `saved` — the D/I data slices with their load state
+ *   (`loaded` turns true on the first successful load and stays true: the
+ *   birth state shows `loading: false` before any fetch, so a page tells
+ *   "loaded and empty" from "not loaded yet" by this flag);
  * - `eligibility` — the saved-models verdicts (PROV-MS-9): per-key entry
  *   (a key the response omitted maps to `null` — the row builder's
  *   defensive fallback, PROV-UI-MODELS-4) + the response totals;
@@ -137,12 +140,14 @@ export interface TxrModelsState {
     cards: PretrainedSummary[]
     loading: boolean
     error: string | null
+    loaded: boolean
   }
   saved: {
     summaries: ModelSummary[]
     sets: SetSummary[]
     loading: boolean
     error: string | null
+    loaded: boolean
   }
   eligibility: {
     byKey: ReadonlyMap<string, ModelEligibility | null>

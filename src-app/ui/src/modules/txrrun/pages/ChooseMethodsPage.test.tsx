@@ -33,7 +33,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { Button } from '@txresbench/kit'
+import '@/core/actions/builtin/stepActions'
+import { RouterBridge } from '@/core/actions/navigateBridge'
 import type {
   EligibilityResponse,
   FileInspection,
@@ -44,7 +47,13 @@ import type {
   ValidationResponse,
 } from '@/api-client/types'
 import type { TxrIntakeState } from '@/modules/txrintake'
-import { useTxrIntakeStore } from '@/modules/txrintake'
+import {
+  STEP_BACK_DIALOG_OPEN,
+  STEP_BACK_STARTING_REASON,
+  useStepBack,
+  useStepTrailStore,
+  useTxrIntakeStore,
+} from '@/modules/txrintake'
 import { RESEARCH_NOTICE } from '../lib/format'
 import { RUN_METHODS_GONE_LINE } from '../lib/runErrors'
 import { ChooseMethodsPage } from './ChooseMethodsPage'
@@ -1606,5 +1615,227 @@ describe('step-4 review fixes: the preset action and the re-check line', () => {
     expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe(
       'Checked again: the same 2 methods can run.',
     )
+  })
+})
+
+describe('the step Back on Choose methods (E)', () => {
+  /** C in the flow: records its step, and its Continue lands on E again. */
+  function FilesStandIn() {
+    useStepBack({ step: 'files', fallback: '/study' })
+    const navigate = useNavigate()
+    return (
+      <Button data-testid="stand-in-continue" onClick={() => navigate('/choose-methods')}>
+        Continue
+      </Button>
+    )
+  }
+
+  function renderFlow() {
+    return render(
+      <MemoryRouter initialEntries={['/choose-methods']}>
+        <RouterBridge />
+        <Routes>
+          <Route path="/choose-methods" element={<ChooseMethodsPage />} />
+          <Route path="/files" element={<FilesStandIn />} />
+          <Route path="/predict-files" element={<div data-testid="stand-in-predict" />} />
+          <Route path="/history" element={<div data-testid="stand-in-history" />} />
+        </Routes>
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+  }
+
+  const routeAt = () => screen.getByTestId('route-location').textContent
+
+  async function click(testId: string): Promise<void> {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(testId))
+      await Promise.resolve()
+    })
+    await settle()
+  }
+
+  function expectBackBeforeRun(): void {
+    const back = screen.getByTestId('txr-step-back')
+    expect(back.nextElementSibling).toBe(screen.getByTestId('txr-run-bar-run'))
+  }
+
+  function expectBackLastInBar(): void {
+    const bar = screen.getByTestId('txr-step-back-bar')
+    expect(bar.lastElementChild).toBe(screen.getByTestId('txr-step-back'))
+  }
+
+  beforeEach(() => {
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
+  })
+
+  it('sits directly left of Run in the run bar once the list is there', async () => {
+    seedStore()
+    renderPage()
+    await settle()
+    expectBackBeforeRun()
+  })
+
+  it('stays left of Run while the methods load, after the list fails, and while the settings load', async () => {
+    api.listMethods.mockReturnValue(new Promise(() => undefined))
+    seedStore()
+    renderPage()
+    await settle()
+    expectBackBeforeRun()
+    cleanup()
+
+    api.listMethods.mockRejectedValue(new Error('catalogue down'))
+    renderPage()
+    await settle()
+    expectBackBeforeRun()
+    cleanup()
+
+    api.listMethods.mockResolvedValue({ methods: catalogue(), total: 3 })
+    api.getConfig.mockReturnValue(new Promise(() => undefined))
+    renderPage()
+    await settle()
+    expect(screen.getByTestId('txr-run-settings-loading')).toBeTruthy()
+    expectBackBeforeRun()
+  })
+
+  it('stays left of Run after a run error', async () => {
+    api.createRun.mockRejectedValue(Object.assign(new Error('bad request'), { status: 400 }))
+    seedStore()
+    renderPage()
+    await settle()
+    await click('txr-run-bar-run')
+    expect(screen.getByTestId('txr-run-create-error')).toBeTruthy()
+    expectBackBeforeRun()
+  })
+
+  it('with no files: a bottom bar with Back at its right end', async () => {
+    seedStore({ patients: null, measurements: null, validation: null })
+    renderPage()
+    await settle()
+    expect(screen.getByTestId('txr-run-empty')).toBeTruthy()
+    expectBackLastInBar()
+  })
+
+  it('while the files are re-checked (no run bar): a bottom bar with Back at its right end', async () => {
+    seedStore({ validation: null })
+    renderPage()
+    await settle()
+    expect(screen.getByTestId('txr-run-list-pending')).toBeTruthy()
+    expect(screen.queryByTestId('txr-run-bar')).toBeNull()
+    expectBackLastInBar()
+  })
+
+  it('with no trail goes to the file step: C on the learn path, N on a predict path', async () => {
+    seedStore()
+    renderFlow()
+    await settle()
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/files')
+    cleanup()
+
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
+    seedStore({ mode: 'predict' })
+    renderFlow()
+    await settle()
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/predict-files')
+  })
+
+  it('row 10 — reached from History: Back goes to History', async () => {
+    useStepTrailStore.setState({ trail: ['/history'] })
+    seedStore()
+    renderFlow()
+    await settle()
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/history')
+  })
+
+  it('keeps the ticks after Back to C and Continue with the same files; ticks the recommendation again after a file change', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/study', '/files'] })
+    seedStore()
+    renderFlow()
+    await settle()
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
+    await chooseOnly('direct-on')
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('1 method selected')
+
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/files')
+    await click('stand-in-continue')
+    expect(routeAt()).toBe('/choose-methods')
+    await settle()
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('1 method selected')
+    expect(store().methodPicks?.touched).toBe(true)
+
+    // A new file: a new validation with another inventory.
+    await click('txr-step-back')
+    act(() => {
+      useTxrIntakeStore.setState({
+        validation: { ...validation(), inventory: { ...validation().inventory, patients: 19 } },
+      })
+    })
+    await click('stand-in-continue')
+    await settle()
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
+  })
+
+  it('keeps the pressed preset too after Back to C and Continue (All stays pressed where Recommended is the same set)', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/study', '/files'], current: null, leaving: false })
+    seedStore()
+    renderFlow()
+    await settle()
+    await click('txr-method-preset-all')
+    const pressed = (value: string): string | null =>
+      screen.getByTestId(`txr-method-preset-${value}`).getAttribute('aria-pressed')
+    expect(pressed('all')).toBe('true')
+    expect(pressed('recommended')).toBe('false')
+
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/files')
+    await click('stand-in-continue')
+    await settle()
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
+    expect(pressed('all')).toBe('true')
+    expect(pressed('recommended')).toBe('false')
+  })
+
+  it('while a run is being created Back is unavailable with the reason, and flow.back refuses', async () => {
+    api.createRun.mockReturnValue(new Promise(() => undefined))
+    useStepTrailStore.setState({ trail: ['/', '/study', '/files'] })
+    seedStore()
+    renderFlow()
+    await settle()
+    await click('txr-run-bar-run')
+    const back = screen.getByTestId('txr-step-back')
+    expect(back.getAttribute('aria-disabled')).toBe('true')
+    expect(back.textContent).toContain(STEP_BACK_STARTING_REASON)
+    await expect(runAction('flow.back', {})).rejects.toThrow(STEP_BACK_STARTING_REASON)
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/choose-methods')
+  })
+
+  it('after a run is created the page stays on "Starting the run…" until it leaves: Back stays unavailable', async () => {
+    seedStore()
+    renderPage()
+    await settle()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
+      await Promise.resolve()
+    })
+    await settle()
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('route-location').textContent).toBe('/analysis/run-1/running')
+    expect(screen.getByTestId('txr-step-back').getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByTestId('txr-step-back').textContent).toContain(STEP_BACK_STARTING_REASON)
+  })
+
+  it('while the Change files dialog is open, flow.back refuses', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/study', '/files'] })
+    seedStore()
+    renderFlow()
+    await settle()
+    await click('txr-run-change-files')
+    await expect(runAction('flow.back', {})).rejects.toThrow(STEP_BACK_DIALOG_OPEN)
+    expect(routeAt()).toBe('/choose-methods')
   })
 })

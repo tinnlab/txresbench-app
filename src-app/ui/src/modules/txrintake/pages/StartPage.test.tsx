@@ -17,6 +17,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
+import '@/core/actions/builtin/stepActions'
+import { RouterBridge } from '@/core/actions/navigateBridge'
 import { StartPage } from './StartPage'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import { __resetFetchCacheForTests } from '../data/fetchCache'
@@ -73,6 +75,9 @@ function LocationProbe() {
 function renderStart() {
   return render(
     <MemoryRouter initialEntries={['/']}>
+      {/* The card buttons run the registered flow.startPath (its navigation
+          goes through the router bridge, as in the app). */}
+      <RouterBridge />
       <StartPage />
       <LocationProbe />
     </MemoryRouter>,

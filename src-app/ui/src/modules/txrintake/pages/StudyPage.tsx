@@ -24,6 +24,7 @@ import {
 import { descriptiveSentence, hasStudyAnswers, PREVIEW_ANSWER_INVITE } from '../lib/preview'
 import { formatNoEnvLine } from '@/modules/txrlist/lib/format'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
+import { TxrStepBack, useStepBack } from '../components/TxrStepBack'
 import { isExampleStudy } from '../lib/example'
 import { useAppMode } from '@/modules/demo'
 import { DEMO_STUDY_NOTE } from '@/modules/demo/copy'
@@ -55,6 +56,7 @@ import type { DiseaseId, OutcomeId, TreatmentId } from '../types'
 
 const FILES_ROUTE = '/files'
 const PREDICT_FILES_ROUTE = '/predict-files'
+const START_ROUTE = '/'
 
 /** The page's frame host (the shell's routed area). */
 const PAGE_ROOT: CSSProperties = {
@@ -303,6 +305,8 @@ export function StudyPage() {
   const { isDemo } = useAppMode()
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('Tell us about your study')
+  // The step's Back (the step trail): with no trail, Back goes to Start.
+  useStepBack({ step: 'study', fallback: START_ROUTE })
   const [showAllExcluded, setShowAllExcluded] = useState(false)
 
   /** One checkbox toggle: the answer map grows/shrinks explicitly (DEC-5). */
@@ -595,6 +599,7 @@ export function StudyPage() {
         bottom={
           <PageFooterBar className="txr-study-footer">
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
+              <TxrStepBack />
               <Button
                 data-testid="txr-intake-study-continue"
                 style={PRIMARY_BUTTON}

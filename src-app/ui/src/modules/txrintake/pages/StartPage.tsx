@@ -1,13 +1,14 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Button } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
-import { TxrIntake } from '../stores/TxrIntake.store'
 import { useRunnableMethodCount } from '../data/useRunnableMethodCount'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
+import { beginPath } from '../lib/stepTrail'
+import { runAction } from '@/core/actions/defineAction'
 import { useAppMode } from '@/modules/demo'
 import { DEMO_START_HINT, DEMO_START_PRIMARY } from '@/modules/demo/copy'
 import type { IntakeIntent } from '../types'
@@ -40,8 +41,6 @@ import type { IntakeIntent } from '../types'
 
 /** The intake's own route literals (the module route table is the source). */
 const STUDY_ROUTE = '/study'
-const FILES_ROUTE = '/files'
-const PREDICT_FILES_ROUTE = '/predict-files'
 
 /** The page's frame host. */
 const PAGE_ROOT: CSSProperties = {
@@ -267,34 +266,27 @@ function CardActions({
 }
 
 export function StartPage() {
-  const navigate = useNavigate()
   const { count } = useRunnableMethodCount()
   const { isDemo } = useAppMode()
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('What do you want to do?')
+  // Every path that starts here goes back here from its first step (the step trail).
+  useEffect(() => {
+    beginPath('/')
+  }, [])
 
-  /** The card path picker: set the intent, then start the flow it leads to. */
-  const pickPath = useCallback(
-    (intent: IntakeIntent) => {
-      TxrIntake.setIntent(intent)
-      if (intent === 'train') {
-        navigate(STUDY_ROUTE)
-      } else {
-        navigate(PREDICT_FILES_ROUTE)
-      }
-    },
-    [navigate],
-  )
+  /** The card path picker: the registered `flow.startPath` sets the intent,
+   *  then starts the flow it leads to (train → B, the predict paths → N). */
+  const pickPath = useCallback((intent: IntakeIntent) => {
+    void runAction('flow.startPath', { intent })
+  }, [])
 
   /** The "Use example" landing (qa-fixes3 ITEM-4): one click to the file
    *  step with the flow filled — the file screen's own flow then validates
    *  the adopted tables (the same inspect/validate a user drop runs). */
-  const exampleDone = useCallback(
-    (intent: IntakeIntent) => {
-      navigate(intent === 'train' ? FILES_ROUTE : PREDICT_FILES_ROUTE)
-    },
-    [navigate],
-  )
+  const exampleDone = useCallback((intent: IntakeIntent) => {
+    void runAction('flow.startPath', { intent, startAtFiles: true })
+  }, [])
 
   const webUrlUsable =
     typeof window !== 'undefined' &&

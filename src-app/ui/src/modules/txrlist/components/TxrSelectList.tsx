@@ -105,6 +105,8 @@ export interface TxrSelectListBottomBar {
   notice?: string | null
   /** Run clicked: the run keys + the options (atATime, saveModels). */
   onRun(keys: string[], opts: { atATime: number; saveModels: boolean }): void
+  /** The host step's Back button, rendered just before Run (absent: nothing extra). */
+  back?: ReactNode
 }
 
 export interface TxrSelectListLayoutParts {
@@ -467,6 +469,7 @@ export function TxrSelectList({
       saveModels={bottomBar.saveModels}
       notice={bottomBar.notice}
       onRun={opts => bottomBar.onRun(runKeys(selected, rows), opts)}
+      back={bottomBar.back}
     />
   )
 

@@ -48,7 +48,12 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { Button } from '@txresbench/kit'
+import '@/core/actions/builtin/stepActions'
+import '@/core/actions/builtin/appActions'
+import { runAction } from '@/core/actions/defineAction'
+import { RouterBridge } from '@/core/actions/navigateBridge'
 import type {
   ModelDetail,
   ModelEligibilityResponse,
@@ -59,12 +64,19 @@ import type {
   TxrRunSummary,
   ValidationResponse,
 } from '@/api-client/types'
-import { useTxrIntakeStore } from '@/modules/txrintake'
+import {
+  STEP_BACK_DIALOG_OPEN,
+  STEP_BACK_STARTING_REASON,
+  useStepBack,
+  useStepTrailStore,
+  useTxrIntakeStore,
+} from '@/modules/txrintake'
 import { DEMO_POOL_STATEMENT } from '@/modules/demo/copy'
 import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import {
   fixtureModelId,
   TXRMODELS_INVENTORY,
+  TXRMODELS_PRETRAINED,
   TXRMODELS_SAVED,
   TXRMODELS_SAVED_ELIGIBILITY,
   TXRMODELS_SET_A,
@@ -109,9 +121,15 @@ const api = vi.hoisted(() => ({
   createRun: vi.fn(),
   getAnalysisConfig: vi.fn(),
   getUsage: vi.fn(),
+  listPublished: vi.fn(),
+  publishedEligibility: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
+    Pretrained: {
+      listModels: api.listPublished,
+      checkEligibility: api.publishedEligibility,
+    },
     Models: {
       listModels: api.listModels,
       checkEligibility: api.eligibility,
@@ -312,6 +330,9 @@ function LocationProbe() {
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={['/saved-models']}>
+      {/* The page's buttons run registered actions; their navigation goes
+          through the router bridge, as in the app. */}
+      <RouterBridge />
       <SavedModelsPage />
       <LocationProbe />
     </MemoryRouter>,
@@ -354,6 +375,19 @@ beforeEach(() => {
   api.getAnalysisConfig.mockResolvedValue({
     config: { endpoint: 'pfs', look_ahead_day: 240 },
   } as TxrAppConfig)
+  // The other list (the published models), read only by the no-models messages.
+  api.listPublished.mockResolvedValue({
+    origin: 'embedded',
+    generated_at: '2026-11-29T09:00:00Z',
+    total: 0,
+    models: [],
+  })
+  api.publishedEligibility.mockResolvedValue({
+    models: [],
+    total_fit: 0,
+    total_some: 0,
+    total_cannot: 0,
+  })
   useTxrIntakeStore.getState().reset()
   useTxrModelsStore.getState().reset()
   seedIntake()
@@ -782,5 +816,378 @@ describe('SavedModelsPage demo arm (TEST-DM-7, ITEM-7)', () => {
     expect(screen.queryByTestId('txr-demo-retention')).toBeNull()
     expect(screen.getByTestId('txr-list-section-action-set-a-rename')).toBeTruthy()
     expect(screen.getByTestId('txr-list-section-action-set-a-delete')).toBeTruthy()
+  })
+})
+
+describe('the step Back on Saved models (I)', () => {
+  /** N in the flow: records its step, and its Continue lands on I again. */
+  function PredictStandIn() {
+    useStepBack({ step: 'predict-files', fallback: '/' })
+    const navigate = useNavigate()
+    return (
+      <Button data-testid="stand-in-continue" onClick={() => navigate('/saved-models')}>
+        Continue
+      </Button>
+    )
+  }
+
+  function renderFlow() {
+    return render(
+      <MemoryRouter initialEntries={['/saved-models']}>
+        <RouterBridge />
+        <Routes>
+          <Route path="/saved-models" element={<SavedModelsPage />} />
+          <Route path="/predict-files" element={<PredictStandIn />} />
+        </Routes>
+        <FullLocationProbe />
+      </MemoryRouter>,
+    )
+  }
+
+  function FullLocationProbe() {
+    const location = useLocation()
+    return <div data-testid="route-location">{`${location.pathname}${location.search}`}</div>
+  }
+
+  const routeAt = () => screen.getByTestId('route-location').textContent
+
+  async function click(testId: string): Promise<void> {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(testId))
+      await Promise.resolve()
+    })
+    await settle(0)
+  }
+
+  function expectBackBeforeRun(): void {
+    expect(screen.getByTestId('txr-step-back').nextElementSibling).toBe(
+      screen.getByTestId('txr-list-run'),
+    )
+  }
+
+  beforeEach(() => {
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
+  })
+
+  it('sits directly left of Run in the list bar: rows, loading, error and a search that hides every row', async () => {
+    renderPage()
+    await settle(0)
+    expectBackBeforeRun()
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('txr-list-search'), { target: { value: 'no such run' } })
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('txr-list-empty')).toBeTruthy()
+    expectBackBeforeRun()
+    cleanup()
+
+    useTxrModelsStore.getState().reset()
+    api.listModels.mockReturnValue(new Promise(() => undefined))
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-list-loading')).toBeTruthy()
+    expectBackBeforeRun()
+    cleanup()
+
+    useTxrModelsStore.getState().reset()
+    api.listModels.mockRejectedValue(new Error('models down'))
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-list-error')).toBeTruthy()
+    expectBackBeforeRun()
+  })
+
+  it('no checked file: a bottom bar with Back at its right end', async () => {
+    useTxrIntakeStore.setState({ validation: null })
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-models-i-empty')).toBeTruthy()
+    expect(screen.getByTestId('txr-step-back-bar').lastElementChild).toBe(
+      screen.getByTestId('txr-step-back'),
+    )
+  })
+
+  it('row 9 — reached by Your models "Use": Back is N with its "Use" search, then Your models', async () => {
+    const withUse = '/predict-files?use=m1&name=Model%201'
+    useStepTrailStore.setState({ trail: ['/models', withUse] })
+    renderFlow()
+    await settle(0)
+    await click('txr-step-back')
+    expect(routeAt()).toBe(withUse)
+    expect(useStepTrailStore.getState().trail).toEqual(['/models', withUse])
+  })
+
+  it('with no trail goes back to N', async () => {
+    renderFlow()
+    await settle(0)
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/predict-files')
+  })
+
+  it('keeps the selection after Back to N and Continue (also after more than 5 s away); a new file clears it', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    renderFlow()
+    await settle(0)
+    await selectRow(fixtureModelId(1))
+    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('1 model selected')
+
+    await click('txr-step-back')
+    await settle(6000)
+    await click('stand-in-continue')
+    expect(routeAt()).toBe('/saved-models')
+    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('1 model selected')
+
+    await click('txr-step-back')
+    act(() => {
+      useTxrIntakeStore.setState({
+        validation: { ...validation(), inventory: { ...TXRMODELS_INVENTORY, patients: 43 } },
+      })
+    })
+    await click('stand-in-continue')
+    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('0 models selected')
+  })
+
+  it('while the run is being created Back is unavailable with the reason, and flow.back refuses', async () => {
+    api.resolveModels.mockReturnValue(new Promise(() => undefined))
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    renderFlow()
+    await settle(0)
+    await selectRow(fixtureModelId(1))
+    await click('txr-list-run')
+    const back = screen.getByTestId('txr-step-back')
+    expect(back.getAttribute('aria-disabled')).toBe('true')
+    expect(back.textContent).toContain(STEP_BACK_STARTING_REASON)
+    await expect(runAction('flow.back', {})).rejects.toThrow(STEP_BACK_STARTING_REASON)
+    expect(routeAt()).toBe('/saved-models')
+  })
+
+  it('a dialog id another page left in the shared store (D\u2019s model card) does not block Back here', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    act(() => {
+      useTxrModelsStore.getState().openDialog('card:ps-1')
+    })
+    renderFlow()
+    await settle(0)
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/predict-files')
+  })
+
+  it('after a run is created the page stays on "Starting the run…" until it leaves: Back stays unavailable', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    renderPage()
+    await settle(0)
+    await selectRow(fixtureModelId(1))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-run'))
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('txr-step-back').getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByTestId('txr-step-back').textContent).toContain(STEP_BACK_STARTING_REASON)
+  })
+
+  it('while a set Rename dialog or the Details dialog is open, flow.back refuses', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    renderFlow()
+    await settle(0)
+    await click('txr-list-section-action-set-a-rename')
+    await expect(runAction('flow.back', {})).rejects.toThrow(STEP_BACK_DIALOG_OPEN)
+    cleanup()
+
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    renderFlow()
+    await settle(0)
+    act(() => {
+      useTxrModelsStore.getState().openDialog(`details:${fixtureModelId(1)}`)
+    })
+    await settle(0)
+    await expect(runAction('flow.back', {})).rejects.toThrow(STEP_BACK_DIALOG_OPEN)
+    expect(routeAt()).toBe('/saved-models')
+  })
+})
+
+describe('the dynamic no-models messages on Saved models (I)', () => {
+  function published(n: number): void {
+    api.listPublished.mockResolvedValue({
+      origin: 'embedded',
+      generated_at: '2026-11-29T09:00:00Z',
+      total: n,
+      models: TXRMODELS_PRETRAINED.slice(0, n),
+    })
+  }
+
+  function publishedVerdicts(fit: number, some: number, cannot: number): void {
+    api.publishedEligibility.mockResolvedValue({ models: [], total_fit: fit, total_some: some, total_cannot: cannot })
+  }
+
+  function noSavedModels(): void {
+    api.listModels.mockResolvedValue({ models: [], total: 0 } as ModelListResponse)
+    api.listSets.mockResolvedValue({ sets: [], total: 0 } as ModelSetListResponse)
+  }
+
+  async function click(testId: string): Promise<void> {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(testId))
+      await Promise.resolve()
+    })
+    await settle(0)
+  }
+
+  beforeEach(() => {
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
+  })
+
+  it('no saved model, published models loading: says it checks them, no number; Back at the bottom right', async () => {
+    noSavedModels()
+    api.listPublished.mockReturnValue(new Promise(() => undefined))
+    renderPage()
+    await settle(0)
+    const box = screen.getByTestId('txr-models-i-no-saved')
+    expect(box.textContent).toBe('You have no saved models yet.Checking the published models\u2026')
+    expect(screen.queryByTestId('txr-list')).toBeNull()
+    expect(screen.getByTestId('txr-step-back-bar').lastElementChild).toBe(
+      screen.getByTestId('txr-step-back'),
+    )
+  })
+
+  it('no saved model, 3 of 5 published can run: "Use the published models" opens them for the same file', async () => {
+    noSavedModels()
+    published(5)
+    publishedVerdicts(2, 1, 2)
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    const checked = useTxrIntakeStore.getState().validation
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-models-i-no-saved').textContent).toContain(
+      '3 of the 5 published models can run on this file.',
+    )
+    await click('txr-models-i-no-saved-action-use-published')
+    expect(screen.getByTestId('route-location').textContent).toBe('/pretrained-models')
+    expect(useTxrIntakeStore.getState().intent).toBe('pretrained')
+    expect(useTxrIntakeStore.getState().validation).toBe(checked)
+    expect(useStepTrailStore.getState().trail).toEqual(['/', '/predict-files', '/pretrained-models'])
+  })
+
+  it('no saved model and none of the published can run: "See the published models" and Your models', async () => {
+    noSavedModels()
+    published(5)
+    publishedVerdicts(0, 0, 5)
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-models-i-no-saved').textContent).toContain(
+      'You have no saved models yet, and none of the 5 published models can run on this file.',
+    )
+    expect(screen.getByTestId('txr-models-i-no-saved-action-see-published')).toBeTruthy()
+    await click('txr-models-i-no-saved-action-your-models')
+    expect(screen.getByTestId('route-location').textContent).toBe('/models')
+  })
+
+  it('no saved model and no published model: how to get one, "Learn from my data"', async () => {
+    noSavedModels()
+    published(0)
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-models-i-no-saved').textContent).toContain(
+      'Save models from an analysis that learns from your data, or open a model file in Your models.',
+    )
+    await click('txr-models-i-no-saved-action-learn')
+    expect(screen.getByTestId('route-location').textContent).toBe('/study')
+  })
+
+  it('the published models failed to load: the same "how to get one" message', async () => {
+    noSavedModels()
+    api.listPublished.mockRejectedValue(new Error('catalogue down'))
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-models-i-no-saved-action-learn')).toBeTruthy()
+  })
+
+  it('none of the saved models can run: the line above the list, with the published models that can', async () => {
+    api.eligibility.mockResolvedValue({
+      models: [],
+      total_fit: 0,
+      total_some: 0,
+      total_cannot: TXRMODELS_SAVED.length,
+    } as ModelEligibilityResponse)
+    published(4)
+    publishedVerdicts(1, 0, 3)
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-models-i-none-can-run').textContent).toContain(
+      `None of your ${TXRMODELS_SAVED.length} saved models can run on this file. Each row says what is missing. 1 published model can run on it.`,
+    )
+    await click('txr-models-i-none-can-run-action-use-published')
+    expect(screen.getByTestId('route-location').textContent).toBe('/pretrained-models')
+  })
+
+  it('a file change never shows the previous file\u2019s none-can-run line', async () => {
+    api.eligibility.mockResolvedValue({
+      models: [],
+      total_fit: 0,
+      total_some: 0,
+      total_cannot: TXRMODELS_SAVED.length,
+    } as ModelEligibilityResponse)
+    published(4)
+    publishedVerdicts(1, 0, 3)
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId('txr-models-i-none-can-run')).toBeTruthy()
+    const original = useTxrModelsStore.getState().loadInventory
+    useTxrModelsStore.setState({ loadInventory: () => undefined })
+    try {
+      act(() => {
+        useTxrIntakeStore.setState({
+          validation: { ...validation(), inventory: { ...TXRMODELS_INVENTORY, patients: 43 } },
+        })
+      })
+      await settle(0)
+      expect(screen.queryByTestId('txr-models-i-none-can-run')).toBeNull()
+    } finally {
+      useTxrModelsStore.setState({ loadInventory: original })
+    }
+  })
+
+  it('saved models that can run: no line, and the published models are not loaded', async () => {
+    renderPage()
+    await settle(0)
+    expect(screen.queryByTestId('txr-models-i-none-can-run')).toBeNull()
+    expect(api.listPublished).not.toHaveBeenCalled()
+  })
+
+  it('a search that hides every row says so in its own words', async () => {
+    renderPage()
+    await settle(0)
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('txr-list-search'), { target: { value: 'no such run' } })
+      await Promise.resolve()
+    })
+    await settle(0)
+    expect(screen.getByTestId('txr-list-empty').textContent).toBe(
+      'No saved models match the search or the filters.',
+    )
+  })
+
+  it('before the first saved load the page never shows the no-saved state (no flash)', async () => {
+    const original = useTxrModelsStore.getState().loadSaved
+    useTxrModelsStore.setState({ loadSaved: async () => undefined })
+    try {
+      renderPage()
+      await settle(0)
+      expect(screen.queryByTestId('txr-models-i-no-saved')).toBeNull()
+      expect(screen.queryByTestId('txr-list-empty')).toBeNull()
+      expect(screen.getByTestId('txr-list-loading')).toBeTruthy()
+    } finally {
+      useTxrModelsStore.setState({ loadSaved: original })
+    }
+  })
+
+  it('the not-ready "Go to the measurements step" is the registered navigation', async () => {
+    useTxrIntakeStore.setState({ validation: null })
+    renderPage()
+    await settle(0)
+    await click('txr-models-i-empty-cta')
+    expect(screen.getByTestId('route-location').textContent).toBe('/predict-files')
   })
 })

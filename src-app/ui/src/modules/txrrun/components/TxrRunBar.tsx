@@ -18,8 +18,11 @@
  * The bar is CONTROLLED and presentational: the count, the time text and
  * the options are the host's; Run hands the host the run OPTIONS (the run
  * KEYS remain the selection × cards property the page owns).
+ *
+ * `back` is the step's Back button, rendered directly left of Run (the
+ * host's node; a bar without it renders as before).
  */
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { Button, Switch } from '@txresbench/kit'
 import { pluralize } from '@/modules/txrlist'
 import { RESEARCH_NOTICE } from '../lib/format'
@@ -39,6 +42,8 @@ export interface TxrRunBarProps {
   /** The button label's suffix (demo-mode ITEM-6: the audit's "Run N
    *  methods (demo)"). */
   runLabelSuffix?: string
+  /** The step's Back button, rendered just before Run (absent: nothing extra). */
+  back?: ReactNode
 }
 
 /** The board bar's container look (the E run bar's own two-line grid). */
@@ -105,7 +110,15 @@ const ACTION_ROW: CSSProperties = {
 /** The disabled reason beside the button (the plan's words). */
 const EMPTY_REASON: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 
-export function TxrRunBar({ selectedCount, timeText, atATime, saveModels, onRun, runLabelSuffix }: TxrRunBarProps) {
+export function TxrRunBar({
+  selectedCount,
+  timeText,
+  atATime,
+  saveModels,
+  onRun,
+  runLabelSuffix,
+  back,
+}: TxrRunBarProps) {
   const empty = selectedCount === 0
   return (
     <div data-testid="txr-run-bar" className="txr-run-bar" style={BAR}>
@@ -141,6 +154,7 @@ export function TxrRunBar({ selectedCount, timeText, atATime, saveModels, onRun,
             {RUN_BAR_EMPTY_REASON}
           </span>
         ) : null}
+        {back}
         <Button
           data-testid="txr-run-bar-run"
           style={RUN_BUTTON}

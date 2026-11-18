@@ -13,8 +13,9 @@
 //!
 //! STRIP (single-cell): the CONTEXT_INACTIVE relay proof left with its only
 //! vehicle — the context-gated `workbench.openJobs` action. The first
-//! context-bearing txr action is `methods.applyPreset` (context
-//! `txr.method-picker`, the choose-methods page's preset buttons); the
+//! context-bearing txr actions are `methods.applyPreset` (context
+//! `txr.method-picker`, the choose-methods page's preset buttons) and
+//! `flow.back` (context `txr.step`, the step views' Back); the
 //! describe half below covers it, the relay proof is not restored yet. The
 //! relay MACHINERY itself is unchanged (the same code path TEST-9/TEST-10
 //! prove for the NOT_CONNECTED / NOT_PERMITTED verdicts).
@@ -150,8 +151,8 @@ async fn describe_capability_surfaces_the_context_precondition() {
 
     // A `"global"` action carries its context but is NOT a precondition (no
     // `context_required` flag) — it is invokable from anywhere. (The
-    // context-bearing vehicle is the method picker's `methods.applyPreset`,
-    // below.)
+    // context-bearing vehicles are the method picker's `methods.applyPreset`
+    // and the step views' `flow.back`, below.)
     let navigate = tools_call(
         &server,
         &user,
@@ -183,4 +184,18 @@ async fn describe_capability_surfaces_the_context_precondition() {
     assert_eq!(structured["context_required"], true, "{structured}");
     assert_eq!(structured["view_id_required"], true, "{structured}");
     assert_eq!(structured["expected_token_required"], false, "{structured}");
+
+    // A context-bearing global action (`flow.back`, offered only while a step
+    // view of a new analysis is on screen) names its context AND is flagged as
+    // a precondition, so the agent opens a step view before invoking it.
+    let back = tools_call(
+        &server,
+        &user,
+        "describe_capability",
+        json!({ "operation_id": "flow.back" }),
+    )
+    .await;
+    let structured = &back["structuredContent"];
+    assert_eq!(structured["context"], "txr.step", "{structured}");
+    assert_eq!(structured["context_required"], true, "{structured}");
 }

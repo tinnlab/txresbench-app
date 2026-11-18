@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useNavigate, type NavigateFunction } from 'react-router-dom'
+import { useLocation, useNavigate, type NavigateFunction } from 'react-router-dom'
 
 // DEC-9 (`.lifecycle/ai-mcp/DECISIONS.md`): how a GLOBAL action's `run`
 // (invoked from the out-of-React agent engine, `./engine.ts`) reaches
@@ -13,6 +13,20 @@ import { useNavigate, type NavigateFunction } from 'react-router-dom'
 // React" pattern.
 
 let navigateRef: NavigateFunction | null = null
+
+/** The router's current path + search, captured by `RouterBridge` (null before it mounts). */
+let pathRef: string | null = null
+
+/**
+ * The page the user is on (path + search), for an action that needs to know
+ * where it was started from (a new path's origin, the step Back trail).
+ * Falls back to `window.location` before `RouterBridge` mounts.
+ */
+export function currentPathViaBridge(): string {
+  if (pathRef !== null) return pathRef
+  if (typeof window === 'undefined') return '/'
+  return `${window.location.pathname}${window.location.search}`
+}
 
 /**
  * Navigate the app to `path`. Used by `ctx.navigate` (and directly by the
@@ -41,6 +55,7 @@ export function navigateViaBridge(path: string): void {
  */
 export function RouterBridge(): null {
   const navigate = useNavigate()
+  const { pathname, search } = useLocation()
 
   useEffect(() => {
     navigateRef = navigate
@@ -48,6 +63,14 @@ export function RouterBridge(): null {
       if (navigateRef === navigate) navigateRef = null
     }
   }, [navigate])
+
+  useEffect(() => {
+    const here = `${pathname}${search}`
+    pathRef = here
+    return () => {
+      if (pathRef === here) pathRef = null
+    }
+  }, [pathname, search])
 
   return null
 }

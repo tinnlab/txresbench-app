@@ -25,6 +25,7 @@ import { fetchTemplateCsv, downloadText, templateFilename } from '../lib/downloa
 import { ROUTE_CONVENTIONS } from '../module'
 import { TxrFileCard } from '../components/TxrFileCard'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
+import { TxrStepBack, useStepBack } from '../components/TxrStepBack'
 import { CLEAR_EXAMPLE_LABEL, EXAMPLE_BANNER, runExampleFlow } from '../lib/example'
 import { ExampleFileCard } from '@/modules/demo/components/ExampleFileCard'
 import { useAppMode } from '@/modules/demo'
@@ -67,6 +68,9 @@ import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../ty
 
 const SLOTS = ['patients', 'measurements'] as const
 type Slot = (typeof SLOTS)[number]
+
+/** Screen B, the step before this one on the train path (Back's fallback). */
+const STUDY_ROUTE = '/study'
 
 const PAGE_ROOT: CSSProperties = {
   height: '100%',
@@ -174,6 +178,8 @@ export function FilesPage() {
   const exampleSlots = useStore(useTxrIntakeStore, s => s.exampleSlots)
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('Add your files')
+  // The step's Back (the step trail): with no trail, Back goes to the study step.
+  useStepBack({ step: 'files', fallback: STUDY_ROUTE })
 
   const [busySlot, setBusySlot] = useState<Slot | null>(null)
   const [cardErrors, setCardErrors] = useState<Partial<Record<Slot, string>>>({})
@@ -591,6 +597,7 @@ export function FilesPage() {
                   {validateError}
                 </span>
               ) : null}
+              <TxrStepBack />
               <Button
                 data-testid="txr-intake-continue"
                 style={PRIMARY_BUTTON}

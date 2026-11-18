@@ -202,6 +202,13 @@ export interface TxrMethodPickerProps {
    *  `role="status"` line under the presets, hidden while a re-check is in
    *  flight; `null`/omitted shows nothing. */
   recheckResult?: string | null
+  /** The preset the user last applied, as the host kept it (a return to the
+   *  page): it shows as pressed again while the selection still equals its
+   *  set. Read on mount only. */
+  initialPreset?: TxrMethodPreset | null
+  /** A preset was applied (a button or `methods.applyPreset`), for a host
+   *  that keeps it across a remount (`initialPreset`). */
+  onPresetChosen?(preset: TxrMethodPreset): void
   /** The host's own composition of the picker's two pieces (toolbar + list).
    *  Default: both inline in one column (the pre-ITEM-2 byte). */
   layout?(parts: TxrMethodPickerLayoutParts): ReactNode
@@ -257,6 +264,8 @@ export function TxrMethodPicker({
   onChangeFiles,
   onChangeSettings,
   recheckResult = null,
+  initialPreset = null,
+  onPresetChosen,
   layout,
 }: TxrMethodPickerProps) {
   const [query, setQuery] = useState('')
@@ -267,7 +276,7 @@ export function TxrMethodPicker({
   const [expandedReasons, setExpandedReasons] = useState<ReadonlySet<string>>(new Set())
   /** The preset last applied (null until one is): it stays pressed while the
    *  selection still equals its set (`activePreset`). */
-  const [chosenPreset, setChosenPreset] = useState<TxrMethodPreset | null>(null)
+  const [chosenPreset, setChosenPreset] = useState<TxrMethodPreset | null>(initialPreset)
 
   const runnable = useMemo(() => runnableCards(cards), [cards])
   const cannot = useMemo(() => cards.filter(card => card.run.disabled), [cards])
@@ -324,6 +333,7 @@ export function TxrMethodPicker({
   const applyPreset = (value: TxrMethodPreset): TxrMethodPickerSnapshot => {
     const keys = presetSelection(value, cards)
     setChosenPreset(value)
+    onPresetChosen?.(value)
     onSelectionChange(new Set(keys))
     return {
       preset: value,

@@ -54,7 +54,8 @@ import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
 import { modelsPath } from '@/modules/txrmodels'
 import { downloadPredictionsCsv, resultsPath, revealRunDir } from '@/modules/txrresults'
-import { chooseMethodsPath, runningPath } from '@/modules/txrrun'
+import { runningPath } from '@/modules/txrrun'
+import { runAction } from '@/core/actions/defineAction'
 import { TxrHistory, useTxrHistory } from '../index'
 import { TxrConfirmDialog } from '../components/TxrConfirmDialog'
 import { TxrHistoryFooter } from '../components/TxrHistoryFooter'
@@ -171,13 +172,13 @@ export function HistoryPage() {
       .catch(() => setActionError(RERUN_FAILED))
   }
 
+  // The registered `history.useSettingsAgain` (the palette and the AI take the
+  // same path): the settings PUT, then choose-methods, whose Back returns here.
   const handleSettingsAgain = (runId: string): void => {
-    const detail = useTxrHistory.getState().detail
-    if (detail === null || detail.id !== runId) return
     setActionError(null)
-    void TxrHistory.useSettingsAgain(detail)
-      .then(() => navigate(chooseMethodsPath()))
-      .catch(() => setActionError(SETTINGS_AGAIN_FAILED))
+    runAction('history.useSettingsAgain', { runId }).catch(() =>
+      setActionError(SETTINGS_AGAIN_FAILED),
+    )
   }
 
   const handleDownload = (runId: string): void => {
