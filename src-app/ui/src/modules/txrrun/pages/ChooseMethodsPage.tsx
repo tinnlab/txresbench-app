@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, ReactNode } from 'react'
+import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { ApiClient } from '@/api-client'
@@ -11,7 +11,10 @@ import type { IntakeSnapshot } from '@/modules/txrintake'
 import { buildTxrRunInput, useTxrIntakeStore } from '@/modules/txrintake'
 import {
   countSelected,
+  recheckFailedLine,
+  recheckLine,
   recommendedSelection,
+  runnableCards,
   TxrMethodPicker,
   useListEstimate,
   useMethodRows,
@@ -43,7 +46,7 @@ import { buildFilesSummary } from '../lib/filesSummary'
 import { formatRunBarTime } from '../lib/runBar'
 import { mergeRunSettings, type RunSettings } from '../lib/settings'
 import { buildRunRequest } from '../lib/runRequest'
-import { buildCovariates } from '../lib/covariates'
+import { buildCovariates, covariatesUseLine } from '../lib/covariates'
 import { useKeepCopies } from '../data/useKeepCopies'
 import { useRunConfig } from '../data/useRunConfig'
 import { runningPath } from '../routes'
@@ -60,8 +63,6 @@ import type { TxrMethodCard } from '@/modules/txrlist'
  * live sentence, the compact files summary, the new run bar and the phone
  * layout):
  *
- * - the page is ONE document that scrolls (`PAGE_MAIN` is the only vertical
- *   scroll container — the old nested ~330 px list box is gone);
  * - the list is the picker `TxrMethodPicker` (txrlist), fed by the
  *   catalogue × eligibility adapter (`useMethodRows` — the intake
  *   validation's ONE inventory, DEC-13: this page never re-validates) with
@@ -75,20 +76,22 @@ import type { TxrMethodCard } from '@/modules/txrlist'
  * - the eligibility request reflects the SETTINGS the screen shows (the
  *   decision day + the extra-inputs switch are the verdicts' own inputs),
  *   so a change re-checks with the picker's visible re-check line;
- * - the sticky run bar is ITEM-2's own `TxrRunBar` (the boards' shared
+ * - the run bar is ITEM-2's own `TxrRunBar` (the boards' shared
  *   `TxrListBottomBar` stays for the D/I model screens);
  * - the create path is unchanged: `buildRunRequest` → `Txr.createRun`, the
  *   202 → `runningPath`, the 404/409 resolutions, the one-create-in-flight
  *   guard (see the ITEM-8 notes carried in the git history).
  *
- * app-shell ITEM-2 — the frame byte (the audit's route table): the fixed
- * top holds the step/title, the files summary, the settings card and the
- * picker TOOLBAR (the picker's own `layout` split keeps its state local),
- * the method list is ONE ScrollRegion (the sections' sticky headers stick
- * to ITS top — the audit's "the list is the scroll region with sticky
- * section headers"), the run bar is pinned in the frame's bottom slot, and
- * the page itself never scrolls. The `layout` callback renders the WHOLE
- * PageFrame because the picker owns the toolbar/list seam.
+ * The frame (app-shell ITEM-2, changed by the step-4 fix): the fixed top
+ * holds ONLY the step line and the title. The intro, the files summary, the
+ * settings card, the alerts and the whole picker (presets, re-check line,
+ * toolbar, sections, can't-run section) are in ONE ScrollRegion, in that
+ * order; the sections' sticky headers stick to the region's top, and the
+ * run bar is pinned in the frame's bottom slot. The routed area itself
+ * never scrolls: the region is the page's one scroll container. Before the
+ * fix the summary, the settings and the picker toolbar sat in the fixed
+ * top, and at the desktop's default 1200x800 window the list region was
+ * 7 px tall (0 px with More settings open).
  */
 
 const PAGE_OUTER: CSSProperties = {
@@ -99,31 +102,28 @@ const PAGE_OUTER: CSSProperties = {
   minWidth: 0,
 }
 
-/** The fixed top's own padding (the frame's page chrome). */
+/** The fixed top's own padding (the frame's page chrome: step + title). */
 const PAGE_TOP: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 12,
   padding: '24px 36px 0',
   minWidth: 0,
 }
 
-/** The picker's fixed-toolbar slot (the picker's split wrapper). */
-const PICKER_SPLIT: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 14,
-  minWidth: 0,
-}
-
-/** The list region's content padding (the region scrolls, the padding rides). */
+/** The region's content: the intro, the files summary, the settings, the
+ *  alerts and the picker, in one column (the region scrolls, the padding
+ *  rides). The 12 px gap is the old fixed top's rhythm. */
 const REGION_CONTENT: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 14,
+  gap: 12,
   padding: '12px 36px 24px',
   minWidth: 0,
 }
+
+/** "Change settings" scrolls the region to the settings card; the margin
+ *  keeps the card off the region's top edge. */
+const SETTINGS_ANCHOR: CSSProperties = { scrollMarginTop: 12 }
 
 const STEP_LINE: CSSProperties = {
   fontSize: 12,
@@ -162,6 +162,9 @@ const PENDING_BLOCK: CSSProperties = {
 }
 
 const PENDING_LINE: CSSProperties = { margin: 0, fontSize: 13.5, color: 'var(--txr-muted)' }
+
+/** The page's cards while there is no inventory to check against. */
+const NO_CARDS: TxrMethodCard[] = []
 
 /** The pending line (the list's place while the summary is transiently null). */
 const PENDING_REFRESH_LINE = 'Re-check your files to see what can run.'
@@ -223,7 +226,7 @@ function TxrMethodPickerFrame({
   onCards,
   onChangeFiles,
   onChangeSettings,
-  layout,
+  recheckAsks,
   demo = false,
 }: {
   inventory: InventoryEligibilityRequest
@@ -232,7 +235,10 @@ function TxrMethodPickerFrame({
   onCards(cards: TxrMethodCard[]): void
   onChangeFiles(): void
   onChangeSettings(): void
-  layout: NonNullable<Parameters<typeof TxrMethodPicker>[0]['layout']>
+  /** How many times the user changed a setting the eligibility request
+   *  reads (the page counts them): an answer is a re-check worth a line only
+   *  when this moved since the previous answer. */
+  recheckAsks: { readonly current: number }
   /** demo-mode ITEM-6: the picker's list is the recorded methods only. */
   demo?: boolean
 }) {
@@ -246,9 +252,42 @@ function TxrMethodPickerFrame({
   // CURRENT selection is read through a ref so the prune is never stale.
   const selectedRef = useRef(selected)
   selectedRef.current = selected
+  // The step-4 re-check line. An answer is a new `cards` array from the
+  // adapter (its state is set once per answer; its initial empty array is
+  // not one). An answer after the first, to a request the USER caused (a
+  // decision-day or extra-inputs change, `recheckAsks`), gets a line saying
+  // what changed in the runnable set, or that nothing did. An answer nobody
+  // asked for (the sticky settings landing after the first answer on
+  // arrival) just becomes the new baseline. A files change is not a
+  // re-check here: it nulls the validation, which unmounts this frame, so
+  // the next answer is a first answer again.
+  const initialCards = useRef(cards)
+  const answeredKeys = useRef<string[] | null>(null)
+  const answeredAsks = useRef(recheckAsks.current)
+  const [recheckResult, setRecheckResult] = useState<string | null>(null)
+
+  // A new request clears the last line (it described the previous one).
+  useEffect(() => {
+    if (loading && answeredKeys.current !== null) setRecheckResult(null)
+  }, [loading])
+
+  // A re-check that fails while a list is on screen says so: the list keeps
+  // the last answer, which may no longer match the settings.
+  useEffect(() => {
+    if (error !== null && answeredKeys.current !== null) setRecheckResult(recheckFailedLine(error))
+  }, [error])
 
   useEffect(() => {
     onCards(cards)
+    if (cards !== initialCards.current) {
+      const keys = runnableCards(cards).map(card => card.key)
+      const asked = recheckAsks.current !== answeredAsks.current
+      setRecheckResult(
+        answeredKeys.current !== null && asked ? recheckLine(answeredKeys.current, keys) : null,
+      )
+      answeredKeys.current = keys
+      answeredAsks.current = recheckAsks.current
+    }
     // ITEM-2: a settings change re-checks eligibility; the selection keeps
     // the methods that still fit, and the ones that stopped being eligible
     // are UNTICKED with the toast (the plan's words). This runs before the
@@ -282,9 +321,17 @@ function TxrMethodPickerFrame({
     [onSelectionChange],
   )
 
+  // demo-mode ITEM-6: the recorded methods only. Memoized: a new array on
+  // every render would read as new cards to the picker (its state token
+  // would move on every re-render, not only on a change).
+  const pickerCards = useMemo(
+    () => (demo ? cards.filter(card => !card.run.disabled) : cards),
+    [demo, cards],
+  )
+
   return (
     <TxrMethodPicker
-      cards={demo ? cards.filter(card => !card.run.disabled) : cards}
+      cards={pickerCards}
       loading={loading}
       refreshing={loading}
       error={error}
@@ -293,7 +340,7 @@ function TxrMethodPickerFrame({
       onSelectionChange={changeSelection}
       onChangeFiles={onChangeFiles}
       onChangeSettings={onChangeSettings}
-      layout={layout}
+      recheckResult={recheckResult}
     />
   )
 }
@@ -306,11 +353,15 @@ export function ChooseMethodsPage() {
   const [runError, setRunError] = useState<string | null>(null)
   const [runNotice, setRunNotice] = useState<string | null>(null)
   const creating = useRef(false)
+  /** The user's changes to what the eligibility request reads (the decision
+   *  day, the extra-inputs switch): the picker frame shows a re-check line
+   *  only for answers the user asked for. */
+  const recheckAsks = useRef(0)
   const settingsAnchor = useRef<HTMLDivElement | null>(null)
   useDocumentTitle('Choose the methods and settings')
   /** A short shell window collapses the summary + settings cards by
-   *  default (the expanded chrome cannot share a 720/768 px shell window
-   *  with the list — the audit's fixed-top byte, ITEM-2). */
+   *  default. Both now scroll with the list (step-4 fix), so the collapse
+   *  only saves scrolling on a 720/768 px window. */
   const short = useShortShell()
   const mode = useStore(useTxrIntakeStore, s => s.mode)
   const patients = useStore(useTxrIntakeStore, s => s.patients)
@@ -340,6 +391,9 @@ export function ChooseMethodsPage() {
   const covariates = patients === null ? null : buildCovariates(patients.inspection)
 
   const change = (next: RunSettings): void => {
+    if (next.decision_day !== settings.decision_day || next.covariates !== settings.covariates) {
+      recheckAsks.current += 1
+    }
     setSettingsPatch(current => ({ ...(current ?? {}), ...diffPatch(next, settings) }))
     // demo-mode ITEM-6: the demo never writes the shared-pool sticky row
     // (the recorded setup is the one setup; the run carries its own).
@@ -347,18 +401,20 @@ export function ChooseMethodsPage() {
     void runConfig.update(next)
   }
 
-  // The retry-load transition (the engine's sticky fields land after an
-  // edit): the write-through body is once more the screen's truth.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const engineBefore = useRef<typeof runConfig.engine>(runConfig.engine)
+  // The load transition (the engine's sticky fields land after an edit): the
+  // write-through body is once more the screen's truth. Keyed on the hook's
+  // LOAD count, never on `engine`: each save replaces `engine` too, so an
+  // `engine` key re-wrote after every save, forever.
+  const loadsBefore = useRef(runConfig.loadCount)
   useEffect(() => {
-    const previous = engineBefore.current
-    engineBefore.current = runConfig.engine
+    const previous = loadsBefore.current
+    loadsBefore.current = runConfig.loadCount
     if (settingsPatch === null) return
-    if (previous !== runConfig.engine) {
+    if (previous !== runConfig.loadCount) {
       void runConfig.update({ ...merged, ...settingsPatch })
     }
-  }, [runConfig.engine])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runConfig.loadCount])
 
   const inventory = validation?.inventory ?? null
   // ITEM-2 (a): the ONE compact summary (the line + marker names + the
@@ -390,7 +446,12 @@ export function ChooseMethodsPage() {
           },
     [inventory, settings.decision_day, settings.covariates],
   )
-  const [cards, setCards] = useState<TxrMethodCard[]>([])
+  const [cardsState, setCards] = useState<TxrMethodCard[]>([])
+  // While the validation is null (Change files has just changed a file),
+  // the picker frame is unmounted and its last cards are the OLD files'
+  // cards: the page counts nothing then (the Extra-inputs help falls back to
+  // its general line), until the new files' first answer arrives.
+  const cards = settingsInventory === null ? NO_CARDS : cardsState
   const estimate = useListEstimate([...selected], {
     patients: inventory?.patients ?? 0,
     cpus: settings.cpus ?? undefined,
@@ -461,17 +522,23 @@ export function ChooseMethodsPage() {
     settingsAnchor.current?.scrollIntoView({ block: 'start' })
   }, [])
 
+  /** The fixed top: the step line and the title, nothing else. Every other
+   *  part of the page scrolls in the one region below (step-4 fix: with the
+   *  files summary, the settings card and the picker toolbar pinned here,
+   *  the default 1200x800 window left the method list 7 px). */
+  const top = (
+    <div className="txr-run-top" style={PAGE_TOP}>
+      <div style={STEP_LINE}>Step 4 of 4</div>
+      <h1 style={TITLE}>Choose the methods and settings</h1>
+    </div>
+  )
+
   const missing = runSetupMissing({ mode, patients, measurements, predictMeasurements })
   if (missing !== null) {
     return (
       <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
         <PageFrame
-          top={
-            <div style={PAGE_TOP}>
-              <div style={STEP_LINE}>Step 4 of 4</div>
-              <h1 style={TITLE}>Choose the methods and settings</h1>
-            </div>
-          }
+          top={top}
           body={
             <ScrollRegion label="Methods to choose">
               <div style={REGION_CONTENT}>
@@ -483,82 +550,6 @@ export function ChooseMethodsPage() {
       </main>
     )
   }
-
-  /** The fixed top's page chrome (the picker's toolbar joins it when the
-   *  picker is mounted — the toolbar state stays inside the picker). */
-  const top = (toolbar: ReactNode | null): ReactNode => (
-    <div className="txr-run-top" style={PAGE_TOP}>
-      <div style={STEP_LINE}>Step 4 of 4</div>
-      <h1 style={TITLE}>Choose the methods and settings</h1>
-      <p data-testid="txr-run-intro" style={INTRO}>
-        Run these methods on your patients. Checked against your files;
-        each learns from your {inventory !== null ? inventory.patients : 0}{' '}
-        patients, then predicts.
-      </p>
-      <TxrFilesSummary
-        line={filesSummary.line}
-        markerNames={filesSummary.markerNames}
-        details={filesSummary.details}
-        onChangeFiles={() => setChangeOpen(true)}
-        collapsed={short}
-        changeFilesReason={isDemo ? DEMO_DISABLED_REASON : null}
-      />
-      <div ref={settingsAnchor}>
-        {runConfig.loading ? (
-          <Skeleton data-testid="txr-run-settings-loading" style={SETTINGS_SKELETON} />
-        ) : (
-          <>
-            {runConfig.error !== null ? (
-              <Alert
-                tone="warning"
-                data-testid="txr-run-settings-error"
-                title={runConfig.error}
-              >
-                <Button
-                  variant="outline"
-                  data-testid="txr-run-settings-retry"
-                  onClick={runConfig.retry}
-                >
-                  Retry
-                </Button>
-              </Alert>
-            ) : null}
-            <TxrSettingsBlock
-              value={settings}
-              covariates={covariates}
-              onChange={change}
-              onMoreSettings={next => change({ ...settings, ...next })}
-              collapsed={short}
-              locked={isDemo}
-            />
-            {isDemo ? (
-              <p data-testid="txr-run-settings-demo-note" style={{ margin: 0, fontSize: 12.5, color: 'var(--txr-muted)' }}>
-                {DEMO_SETTINGS_NOTE}
-              </p>
-            ) : null}
-          </>
-        )}
-      </div>
-      {runError !== null ? (
-        <Alert tone="error" data-testid="txr-run-create-error" title={runError} />
-      ) : null}
-      {runNotice !== null ? (
-        <Alert tone="warning" data-testid="txr-run-create-notice" title={runNotice} />
-      ) : null}
-      {toolbar !== null ? (
-        <div data-testid="txr-method-picker" style={PICKER_SPLIT}>
-          {toolbar}
-        </div>
-      ) : null}
-    </div>
-  )
-
-  /** The list region (the ONE scroll container of the page). */
-  const body = (list: ReactNode): ReactNode => (
-    <ScrollRegion label="Methods to choose" className="txr-run-methods-region">
-      <div className="txr-run-methods-content" style={REGION_CONTENT}>{list}</div>
-    </ScrollRegion>
-  )
 
   const runBar =
     inventory !== null ? (
@@ -588,50 +579,95 @@ export function ChooseMethodsPage() {
       />
     ) : null
 
-  if (settingsInventory === null) {
-    return (
-      <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
-        <PageFrame
-          top={top(null)}
-          body={body(
-            <div data-testid="txr-run-list-pending" style={PENDING_BLOCK}>
-              <p style={PENDING_LINE}>{PENDING_REFRESH_LINE}</p>
-            </div>,
-          )}
-          bottom={runBar}
-        />
-        <TxrChangeFilesDialog
-          mode={mode}
-          open={changeOpen}
-          onOpenChange={setChangeOpen}
-        />
-      </main>
-    )
-  }
-
   return (
-    <TxrMethodPickerFrame
-      inventory={settingsInventory}
-      selected={selected}
-      onSelectionChange={setSelected}
-      onCards={setCards}
-      onChangeFiles={() => setChangeOpen(true)}
-      onChangeSettings={onChangeSettings}
-      demo={isDemo}
-      layout={pickerParts => (
-        <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
-          <PageFrame
-            top={top(pickerParts.toolbar)}
-            body={body(pickerParts.list)}
-            bottom={runBar}
-          />
-          <TxrChangeFilesDialog
-            mode={mode}
-            open={changeOpen}
-            onOpenChange={setChangeOpen}
-          />
-        </main>
-      )}
-    />
+    <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
+      <PageFrame
+        top={top}
+        body={
+          <ScrollRegion label="Methods to choose" className="txr-run-methods-region">
+            <div className="txr-run-methods-content" style={REGION_CONTENT}>
+              <p data-testid="txr-run-intro" style={INTRO}>
+                Run these methods on your patients. Checked against your files;
+                each learns from your {inventory !== null ? inventory.patients : 0}{' '}
+                patients, then predicts.
+              </p>
+              <TxrFilesSummary
+                line={filesSummary.line}
+                markerNames={filesSummary.markerNames}
+                details={filesSummary.details}
+                onChangeFiles={() => setChangeOpen(true)}
+                collapsed={short}
+                changeFilesReason={isDemo ? DEMO_DISABLED_REASON : null}
+              />
+              <div ref={settingsAnchor} style={SETTINGS_ANCHOR}>
+                {runConfig.loading ? (
+                  <Skeleton data-testid="txr-run-settings-loading" style={SETTINGS_SKELETON} />
+                ) : (
+                  <>
+                    {runConfig.error !== null ? (
+                      <Alert
+                        tone="warning"
+                        data-testid="txr-run-settings-error"
+                        title={runConfig.error}
+                      >
+                        <Button
+                          variant="outline"
+                          data-testid="txr-run-settings-retry"
+                          onClick={runConfig.retry}
+                        >
+                          Retry
+                        </Button>
+                      </Alert>
+                    ) : null}
+                    <TxrSettingsBlock
+                      value={settings}
+                      covariates={covariates}
+                      onChange={change}
+                      onMoreSettings={next => change({ ...settings, ...next })}
+                      collapsed={short}
+                      locked={isDemo}
+                      covariatesHelp={covariatesUseLine(cards)}
+                    />
+                    {isDemo ? (
+                      <p data-testid="txr-run-settings-demo-note" style={{ margin: 0, fontSize: 12.5, color: 'var(--txr-muted)' }}>
+                        {DEMO_SETTINGS_NOTE}
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </div>
+              {runError !== null ? (
+                <Alert tone="error" data-testid="txr-run-create-error" title={runError} />
+              ) : null}
+              {runNotice !== null ? (
+                <Alert tone="warning" data-testid="txr-run-create-notice" title={runNotice} />
+              ) : null}
+              {settingsInventory === null ? (
+                <div data-testid="txr-run-list-pending" style={PENDING_BLOCK}>
+                  <p style={PENDING_LINE}>{PENDING_REFRESH_LINE}</p>
+                </div>
+              ) : (
+                <TxrMethodPickerFrame
+                  inventory={settingsInventory}
+                  selected={selected}
+                  onSelectionChange={setSelected}
+                  onCards={setCards}
+                  onChangeFiles={() => setChangeOpen(true)}
+                  onChangeSettings={onChangeSettings}
+                  recheckAsks={recheckAsks}
+                  demo={isDemo}
+                />
+              )}
+            </div>
+          </ScrollRegion>
+        }
+        bottom={runBar}
+      />
+      <TxrChangeFilesDialog
+        mode={mode}
+        open={changeOpen}
+        onOpenChange={setChangeOpen}
+      />
+    </main>
   )
 }

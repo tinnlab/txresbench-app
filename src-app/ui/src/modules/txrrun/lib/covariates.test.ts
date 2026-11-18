@@ -11,7 +11,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { FileInspection } from '@/api-client/types'
-import { buildCovariates } from './covariates'
+import type { TxrMethodCard } from '@/modules/txrlist/types'
+import { buildCovariates, covariatesUseLine } from './covariates'
 
 /** One inspection with the given covariate facts (the fixture shape). */
 function inspection(covariates: { name: string; is_numeric: boolean }[]): FileInspection {
@@ -51,5 +52,83 @@ describe('buildCovariates (the Extra-inputs line facts, TEST-RUN-15)', () => {
     const fact = buildCovariates(null)
     expect(fact.availability).toBe('unknown')
     expect(fact.names).toEqual([])
+  })
+})
+
+/** One method card with the facts `covariatesUseLine` reads. */
+function method(
+  id: string,
+  covariates: string | null,
+  run: { disabled: boolean; reasonCode: string | null } = { disabled: false, reasonCode: null },
+): TxrMethodCard {
+  return {
+    key: id,
+    id,
+    title: id,
+    summary: `Summary of ${id}.`,
+    paperTitle: null,
+    group: 'static-risk',
+    groupLabel: 'Static risk',
+    language: 'R',
+    journal: 'Fixture Journal',
+    year: 2020,
+    paperDoi: '',
+    estimate: { seconds: 30, quality: 'measured' },
+    rank: null,
+    needs: { markers: '1 marker', covariates, draws: '1+ draws' },
+    run: {
+      status: run.disabled ? 'cannot' : 'can',
+      coverageLine: '',
+      reasonCode: run.reasonCode,
+      reasonLine: '',
+      reasonLines: [],
+      reasonFix: '',
+      disabled: run.disabled,
+    },
+  }
+}
+
+describe('covariatesUseLine (the Extra-inputs help once the list is known, step-4 fix)', () => {
+  it('says how many of the methods that can run take extra inputs', () => {
+    const cards = [
+      method('a', 'covariates optional'),
+      method('b', null),
+      method('c', null),
+      method('d', null),
+      method('e', null),
+    ]
+    expect(covariatesUseLine(cards)).toBe('Used by 1 of the 5 methods that can run.')
+  })
+
+  it('says none use them when no runnable method takes them', () => {
+    expect(covariatesUseLine([method('a', null), method('b', null)])).toBe(
+      'None of the methods that can run use them.',
+    )
+  })
+
+  it('names the one method case plainly', () => {
+    expect(covariatesUseLine([method('a', 'covariates required')])).toBe(
+      'Used by the one method that can run.',
+    )
+  })
+
+  it('adds the can\'t-run methods held back by extra inputs (the switch is off, they require them)', () => {
+    const cards = [
+      method('a', null),
+      method('r1', 'covariates required', { disabled: true, reasonCode: 'COVARIATE_REQUIRED_UNMET' }),
+      method('r2', 'covariates required', { disabled: true, reasonCode: 'COVARIATE_MISSING' }),
+      // Held back by something else first: not counted.
+      method('x', 'covariates required', { disabled: true, reasonCode: 'ENV_IMAGE_MISSING' }),
+    ]
+    expect(covariatesUseLine(cards)).toBe(
+      'None of the methods that can run use them. 2 more need them to run.',
+    )
+  })
+
+  it('is null before there is a method to count (the caller keeps the general help)', () => {
+    expect(covariatesUseLine([])).toBeNull()
+    expect(
+      covariatesUseLine([method('x', null, { disabled: true, reasonCode: 'ENV_IMAGE_MISSING' })]),
+    ).toBeNull()
   })
 })

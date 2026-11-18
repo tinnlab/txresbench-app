@@ -12,12 +12,12 @@
 //!   (so the agent navigates to that context first).
 //!
 //! STRIP (single-cell): the CONTEXT_INACTIVE relay proof left with its only
-//! vehicle — the context-gated `workbench.openJobs` action. Every kept
-//! manifest action is context "global", so the relay path (backend never
-//! judges context itself; it relays the engine's verdict) has no kept
-//! producer; it returns to coverage with the first context-bearing txr
-//! action. The relay MACHINERY itself is unchanged (the same code path
-//! TEST-9/TEST-10 prove for the NOT_CONNECTED / NOT_PERMITTED verdicts).
+//! vehicle — the context-gated `workbench.openJobs` action. The first
+//! context-bearing txr action is `methods.applyPreset` (context
+//! `txr.method-picker`, the choose-methods page's preset buttons); the
+//! describe half below covers it, the relay proof is not restored yet. The
+//! relay MACHINERY itself is unchanged (the same code path TEST-9/TEST-10
+//! prove for the NOT_CONNECTED / NOT_PERMITTED verdicts).
 
 use std::collections::BTreeSet;
 use std::time::Duration;
@@ -116,7 +116,8 @@ async fn list_capabilities_reflects_the_committed_manifest_no_server_ai_filterin
     // the mcp::use-gated globals — are present, so the list is a real
     // reflection of the manifest, not empty. (The jobs::use-gated
     // `workbench.openJobs` context-bearing vehicle left with the workbench;
-    // every kept manifest action is context "global".)
+    // the kept context-bearing action, `methods.applyPreset`, is described in
+    // TEST-106 (b).)
     for expected in ["app.navigate", "nav.aiAccess", "views.list"] {
         assert!(
             frontend_ids.contains(expected),
@@ -148,11 +149,9 @@ async fn describe_capability_surfaces_the_context_precondition() {
     let user = login(&server, "ctxdescriber").await;
 
     // A `"global"` action carries its context but is NOT a precondition (no
-    // `context_required` flag) — it is invokable from anywhere. (The only
-    // non-global manifest actions were the workbench instance actions; with
-    // the workbench stripped, every kept action is context "global", so the
-    // context_required shape has no kept vehicle — the machinery stays and
-    // returns to coverage when a context-bearing txr action appears.)
+    // `context_required` flag) — it is invokable from anywhere. (The
+    // context-bearing vehicle is the method picker's `methods.applyPreset`,
+    // below.)
     let navigate = tools_call(
         &server,
         &user,
@@ -166,4 +165,22 @@ async fn describe_capability_surfaces_the_context_precondition() {
         structured.get("context_required").is_none(),
         "a global action must not be flagged as a context precondition: {structured}"
     );
+
+    // A context-bearing action (`methods.applyPreset`, offered only while the
+    // choose-methods page's method picker is on screen) names its context AND
+    // is flagged as a precondition, so the agent opens that page before
+    // invoking it. It is an instance action (one mounted picker, its
+    // `view_id`) that replaces the selection, so no state token is required.
+    let preset = tools_call(
+        &server,
+        &user,
+        "describe_capability",
+        json!({ "operation_id": "methods.applyPreset" }),
+    )
+    .await;
+    let structured = &preset["structuredContent"];
+    assert_eq!(structured["context"], "txr.method-picker", "{structured}");
+    assert_eq!(structured["context_required"], true, "{structured}");
+    assert_eq!(structured["view_id_required"], true, "{structured}");
+    assert_eq!(structured["expected_token_required"], false, "{structured}");
 }

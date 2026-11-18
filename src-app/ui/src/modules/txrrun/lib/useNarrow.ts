@@ -26,12 +26,12 @@ function isNarrow(): boolean {
 }
 
 /**
- * app-shell ITEM-2 — the short-shell-window query. The audit's three
- * measured heights are 900 (the chrome fits expanded), 720 and 768 (the
- * fixed top would leave the list region nothing), so the E page's two
- * collapsible cards answer this query: below 800 px tall they render
- * COLLAPSED by default (the same one-line form the phone width uses), and
- * the user can expand them in place.
+ * app-shell ITEM-2 — the short-shell-window query. Below 800 px tall the E
+ * page's two collapsible cards render COLLAPSED by default (the same
+ * one-line form the phone width uses), and the user can expand them in
+ * place. Since the step-4 fix both cards scroll with the method list (the
+ * fixed top is the step line and the title only), so the collapse only
+ * saves scrolling; it no longer decides whether the list has any room.
  */
 const SHORT_QUERY = '(max-height: 799px)'
 

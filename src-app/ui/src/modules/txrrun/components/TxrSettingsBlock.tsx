@@ -22,7 +22,7 @@
  *   default) with the live sentence as its one-line summary; the rows are
  *   the same controls either way (only the chrome changes). The app-shell's
  *   short shell windows (720/768 px) use the same compact form via the
- *   `collapsed` prop (ITEM-2's fixed-top byte).
+ *   `collapsed` prop (less to scroll past on the E page).
  *
  * The block is CONTROLLED and presentational (the ITEM-7 rule): the rows
  * render `value`, every change reports the new full `RunSettings` up, the
@@ -59,6 +59,11 @@ export interface TxrSettingsBlockProps {
    *  default (the audit's fixed-top byte — the one-line summary form the
    *  phone width already uses); `undefined` keeps the width-driven state. */
   collapsed?: boolean
+  /** The Extra-inputs help line once the method list is known ("Used by 1
+   *  of the 5 methods that can run.", `covariatesUseLine`): it replaces the
+   *  general help. The disabled reason still wins when the file has no
+   *  extra-input columns. `null`/omitted keeps the general help. */
+  covariatesHelp?: string | null
   /** demo-mode ITEM-6: the demo offers only the recorded configuration —
    *  the rows are shown with their recorded values and LOCKED (the spec's
    *  "other controls are shown, disabled"), the More-settings (CPUs /
@@ -186,6 +191,7 @@ export function TxrSettingsBlock({
   onMoreSettings,
   collapsed,
   locked = false,
+  covariatesHelp = null,
 }: TxrSettingsBlockProps) {
   const [moreOpen, setMoreOpen] = useState(false)
   const narrow = useNarrow()
@@ -265,7 +271,9 @@ export function TxrSettingsBlock({
             {COVARIATES_DISABLED_REASON}
           </span>
         ) : (
-          <span style={HELP}>{SETTING_HELP.covariates}</span>
+          <span style={HELP} data-testid="txr-run-settings-covariates-help">
+            {covariatesHelp ?? SETTING_HELP.covariates}
+          </span>
         )}
       </div>
       {locked ? null : (

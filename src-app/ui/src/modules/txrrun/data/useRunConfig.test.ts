@@ -315,6 +315,31 @@ describe('useRunConfig (TEST-RUN-07)', () => {
     expect(result.current.loading).toBe(false)
   })
 
+  it('loadCount counts the landed loads and never moves on a save (the step-4 endless-PUT fix)', async () => {
+    api.get.mockRejectedValueOnce(new Error('down')).mockResolvedValueOnce({ config: engineConfig })
+    const { result } = renderHook(() => useRunConfig())
+    await settle()
+    // A failed load is not a landed load.
+    expect(result.current.loadCount).toBe(0)
+
+    await act(async () => {
+      result.current.retry()
+    })
+    await settle()
+    expect(result.current.loadCount).toBe(1)
+
+    // A save replaces `engine` (the hook's local view) but is not a load.
+    const engineBeforeSave = result.current.engine
+    await act(async () => {
+      void result.current.update(settingsB)
+    })
+    await advanceDebounce()
+    await settle()
+    expect(api.put).toHaveBeenCalledTimes(1)
+    expect(result.current.engine).not.toBe(engineBeforeSave)
+    expect(result.current.loadCount).toBe(1)
+  })
+
   it('serializes writes: an update while a PUT is on the wire waits one more debounce', async () => {
     api.get.mockResolvedValue({ config: null })
     const firstPut = deferred<void>()

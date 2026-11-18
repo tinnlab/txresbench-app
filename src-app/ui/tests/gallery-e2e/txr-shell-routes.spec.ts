@@ -4,7 +4,10 @@ import { expect, test } from '@playwright/test'
  * TEST-AS-2 (ITEM-2 half + app-shell ITEM-3's half) — the app-shell route
  * byte of the audit's section 4, driven over the shell-wrapped route
  * surfaces (`txr-shell-route-*`): each of the fourteen shell pages INSIDE
- * the real shell at 1440x900, 1280x720 and 1024x768.
+ * the real shell at 1440x900, 1280x720 and 1024x768, and at the desktop
+ * window's default 1200x800 and minimum 1000x640 (`desktop_window_config`,
+ * src-app/desktop/tauri/src/lib.rs; the step-4 fix: no size here was the
+ * desktop's, and the E list was 7 px tall at 1200x800 without a red leg).
  *
  * Measured legs (per route × size):
  *  · the document is in the shell-mode rules (the overflow-hidden byte the
@@ -14,6 +17,9 @@ import { expect, test } from '@playwright/test'
  *    nothing to scroll (the intermediate body scroller is unused by the
  *    pages, DEC-3's "the pages own their regions");
  *  · ONE OR TWO scroll regions (the audit's "no more than two");
+ *  · the regions have usable height: together at least 40 % of the routed
+ *    area (`MIN_REGION_SHARE`; a region that CAN scroll but is a few pixels
+ *    tall passed every other leg);
  *  · a region scrolls, the 56 px header does NOT move, and the keyboard
  *    (Tab → region, PageDown) scrolls that region;
  *  · the sticky bytes: the E list's section headers stick to the region's
@@ -68,7 +74,50 @@ const SIZES = [
   { width: 1440, height: 900 },
   { width: 1280, height: 720 },
   { width: 1024, height: 768 },
+  // The desktop window: its default and its minimum inner size, measured AS
+  // the window (`pinFrame`).
+  { width: 1200, height: 800, desktop: true },
+  { width: 1000, height: 640, desktop: true },
 ] as const
+
+/** The least share of the routed area (`#txr-main`, its AREA) a route's
+ *  scroll regions must cover together. Area, not summed heights: two short
+ *  regions side by side must not add up to a tall one. Measured at the
+ *  step-4 fix: every route but E between 49 % and 100 % at every size
+ *  here (Saved models at the desktop's 1000x640 is the lowest); E was 1 %
+ *  at 1200x800 before the fix and is 71 % or more after it. */
+const MIN_REGION_SHARE = 0.4
+
+/** The share of `main` covered by the union of `rects` (each clipped to
+ *  `main`): coordinate compression over the rects' edges, so overlapping or
+ *  side-by-side regions are counted once and by their real area. */
+function coveredShare(
+  main: { left: number; top: number; right: number; bottom: number },
+  rects: { left: number; top: number; right: number; bottom: number }[],
+): number {
+  const clipped = rects
+    .map(r => ({
+      left: Math.max(r.left, main.left),
+      top: Math.max(r.top, main.top),
+      right: Math.min(r.right, main.right),
+      bottom: Math.min(r.bottom, main.bottom),
+    }))
+    .filter(r => r.right > r.left && r.bottom > r.top)
+  const xs = [...new Set(clipped.flatMap(r => [r.left, r.right]))].sort((a, b) => a - b)
+  const ys = [...new Set(clipped.flatMap(r => [r.top, r.bottom]))].sort((a, b) => a - b)
+  let covered = 0
+  for (let i = 0; i + 1 < xs.length; i += 1) {
+    for (let j = 0; j + 1 < ys.length; j += 1) {
+      const cx = (xs[i] + xs[i + 1]) / 2
+      const cy = (ys[j] + ys[j + 1]) / 2
+      if (clipped.some(r => cx > r.left && cx < r.right && cy > r.top && cy < r.bottom)) {
+        covered += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j])
+      }
+    }
+  }
+  const area = (main.right - main.left) * (main.bottom - main.top)
+  return area > 0 ? covered / area : 0
+}
 
 /** Give the gallery frame the test viewport's height (the default frame is
  *  720 px — bounded — so the shell's height chain is definite; resizing the
@@ -88,6 +137,33 @@ async function sizeFrame(page: import('@playwright/test').Page, height: number) 
     if (!frame) throw new Error('no gallery frame')
     frame.style.height = `${h}px`
   }, height)
+  await page.waitForTimeout(200)
+}
+
+/** The desktop window's sizes are measured AS the window: the gallery frame
+ *  is pinned over the whole viewport, so the page gets the window's full
+ *  width and height. (`sizeFrame` keeps the gallery's own side chrome, which
+ *  takes about 80 px of the width; a narrower page wraps into a taller fixed
+ *  top: Saved models at 1000x640 has a 219 px region there and 288 px in the
+ *  real 1000 px window.) */
+async function pinFrame(
+  page: import('@playwright/test').Page,
+  size: { width: number; height: number },
+) {
+  await page.waitForFunction(
+    () => document.querySelector('[data-gallery-frame]') !== null && document.querySelector('#txr-main') !== null,
+    undefined,
+    { timeout: 90_000 },
+  )
+  await page.evaluate(({ width, height }) => {
+    const frame = document.querySelector<HTMLElement>('[data-gallery-frame]')
+    if (!frame) throw new Error('no gallery frame')
+    frame.style.position = 'fixed'
+    frame.style.inset = '0'
+    frame.style.width = `${width}px`
+    frame.style.height = `${height}px`
+    frame.style.zIndex = '9999'
+  }, size)
   await page.waitForTimeout(200)
 }
 
@@ -134,7 +210,8 @@ for (const route of SURFACES) {
       await page.setViewportSize(size)
       await page.goto(`${GALLERY}${route.slug}`, { waitUntil: 'domcontentloaded' })
       await page.waitForTimeout(SETTLE)
-      await sizeFrame(page, size.height)
+      if ('desktop' in size) await pinFrame(page, size)
+      else await sizeFrame(page, size.height)
 
       // Shell mode: the document rules are the fixed ones (DEC-1).
       const shell = await page.evaluate(() => ({
@@ -162,6 +239,30 @@ for (const route of SURFACES) {
         regions.length,
         `${route.label}@${size.width}x${size.height} region count`,
       ).toBeLessThanOrEqual(2)
+
+      // The regions have usable room (the step-4 leg): their union covers
+      // at least MIN_REGION_SHARE of the routed area's visible box.
+      const boxes = await page.evaluate(() => {
+        const box = (el: Element) => {
+          const r = el.getBoundingClientRect()
+          return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }
+        }
+        const main = document.querySelector<HTMLElement>('#txr-main')
+        if (main === null) return null
+        const r = main.getBoundingClientRect()
+        return {
+          // The routed area's visible box (clientHeight: a scrollbar or an
+          // overflow below is not room).
+          main: { left: r.left, top: r.top, right: r.right, bottom: r.top + main.clientHeight },
+          regions: Array.from(document.querySelectorAll('[role="region"]')).map(box),
+        }
+      })
+      expect(boxes, `${route.label}@${size.width}x${size.height} routed area`).not.toBeNull()
+      const share = coveredShare(boxes!.main, boxes!.regions)
+      expect(
+        share,
+        `${route.label}@${size.width}x${size.height} region share of the routed area (${Math.round(share * 100)} %)`,
+      ).toBeGreaterThanOrEqual(MIN_REGION_SHARE)
 
       // A scrollable region scrolls; the header stays put.
       const headerBefore = await page.locator('.txr-shell-header').boundingBox()
@@ -193,26 +294,86 @@ for (const route of SURFACES) {
   })
 }
 
-test('route Choose methods: the toolbar is fixed, the section headers stick to the region top, the run bar stays in the frame, PageDown scrolls', async ({
+test('route Choose methods: the settings and the toolbar scroll with the list in ONE region; the list has room at the desktop sizes; headers stick; the run bar stays; PageDown scrolls', async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
+  const label = 'Methods to choose'
+  const region = page.locator(`[aria-label="${label}"]`)
+
+  // The desktop window's default (1200x800) and minimum (1000x640): the
+  // region is most of the routed area (it was 7 px and 24 px before the
+  // step-4 fix, with the summary, the settings and the toolbar fixed above).
+  for (const size of [
+    { width: 1200, height: 800 },
+    { width: 1000, height: 640 },
+  ]) {
+    await page.setViewportSize(size)
+    await page.goto(`${GALLERY}txr-shell-route-choose-methods`, { waitUntil: 'domcontentloaded' })
+    await page.waitForTimeout(SETTLE)
+    await pinFrame(page, size)
+    await expect(page.getByTestId('txr-method-sections')).toBeVisible()
+    const room = await page.evaluate(l => {
+      const main = document.querySelector<HTMLElement>('#txr-main')!
+      const el = document.querySelector<HTMLElement>(`[aria-label="${l}"]`)!
+      return { main: main.clientHeight, region: el.clientHeight }
+    }, label)
+    expect(
+      room.region / room.main,
+      `E@${size.width}x${size.height}: the region is most of the routed area (${room.region} of ${room.main} px)`,
+    ).toBeGreaterThanOrEqual(0.6)
+  }
+
+  await page.setViewportSize({ width: 1200, height: 800 })
   await page.goto(`${GALLERY}txr-shell-route-choose-methods`, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(SETTLE)
-  await sizeFrame(page, 900)
+  await pinFrame(page, { width: 1200, height: 800 })
 
-  const label = 'Methods to choose'
-  await scrollRegionTo(page, label, 300)
-  // The toolbar (in the fixed top) did not move with the region.
-  const toolbar = await page.getByTestId('txr-method-toolbar').boundingBox()
-  expect(toolbar).not.toBeNull()
-  const regionBox = await page.locator(`[aria-label="${label}"]`).boundingBox()
-  expect(regionBox).not.toBeNull()
-  expect(toolbar!.y, 'the toolbar must sit ABOVE the region').toBeLessThan(regionBox!.y)
+  // Only the step line and the title are fixed: the summary, the settings
+  // card, the presets and the toolbar are inside the region.
+  const inside = await page.evaluate(l => {
+    const el = document.querySelector<HTMLElement>(`[aria-label="${l}"]`)!
+    const ids = ['txr-run-intro', 'txr-run-summary', 'txr-run-settings', 'txr-method-presets', 'txr-method-toolbar']
+    return Object.fromEntries(
+      ids.map(id => [id, el.contains(document.querySelector(`[data-testid="${id}"]`))]),
+    )
+  }, label)
+  for (const [id, isInside] of Object.entries(inside)) {
+    expect(isInside, `${id} is inside the region`).toBe(true)
+  }
+
+  // ...and they MOVE when the region scrolls.
+  const settingsBefore = await page.getByTestId('txr-run-settings').boundingBox()
+  const toolbarBefore = await page.getByTestId('txr-method-toolbar').boundingBox()
+  await scrollRegionTo(page, label, 200)
+  const scrolledBy = await region.evaluate(el => el.scrollTop)
+  expect(scrolledBy, 'the region scrolled').toBeGreaterThan(0)
+  const settingsAfter = await page.getByTestId('txr-run-settings').boundingBox()
+  const toolbarAfter = await page.getByTestId('txr-method-toolbar').boundingBox()
+  expect(
+    Math.abs(settingsBefore!.y - settingsAfter!.y - scrolledBy),
+    'the settings card moved with the region',
+  ).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(toolbarBefore!.y - toolbarAfter!.y - scrolledBy),
+    'the toolbar moved with the region',
+  ).toBeLessThanOrEqual(1)
+
+  // More settings open: the routed area still does not scroll (it scrolled
+  // by 56 px and pushed the top under the header before the fix).
+  await scrollRegionTo(page, label, 0)
+  await page.getByTestId('txr-run-settings-more').click()
+  await page.waitForTimeout(200)
+  await expect(page.getByTestId('txr-run-settings-cpus')).toBeVisible()
+  const routed = await routedArea(page)
+  expect(routed!.scrollHeight, 'the routed area does not scroll with More settings open').toBeLessThanOrEqual(
+    routed!.clientHeight + 1,
+  )
+
   // A visible section header sticks to the region's top.
-  const sticky = await page.evaluate(() => {
-    const region = document.querySelector<HTMLElement>('[aria-label="Methods to choose"]')!
-    const top = region.getBoundingClientRect().top
+  await scrollRegionTo(page, label, 900)
+  const sticky = await page.evaluate(l => {
+    const el = document.querySelector<HTMLElement>(`[aria-label="${l}"]`)!
+    const top = el.getBoundingClientRect().top
     const headers = Array.from(
       document.querySelectorAll<HTMLElement>('[data-testid^="txr-method-section-header-"]'),
     )
@@ -220,9 +381,57 @@ test('route Choose methods: the toolbar is fixed, the section headers stick to t
       .map(h => h.getBoundingClientRect().top)
       .filter(t => Math.abs(t - top) <= 2)
     return { headers: headers.length, stuck: stuck.length }
-  })
+  }, label)
   expect(sticky.headers).toBeGreaterThan(0)
   expect(sticky.stuck, 'a section header must stick to the region top').toBeGreaterThanOrEqual(1)
+
+  // Scrolled to its end, the region shows its LAST list item (a method row,
+  // a show-more link, a can't-run chip or row: whichever ends lowest) fully
+  // inside its box, and the box ends above the run bar (nothing hides under
+  // the bar).
+  await region.evaluate(el => {
+    el.scrollTop = el.scrollHeight
+  })
+  await page.waitForTimeout(150)
+  const end = await page.evaluate(l => {
+    const el = document.querySelector<HTMLElement>(`[aria-label="${l}"]`)!
+    const items = Array.from(
+      el.querySelectorAll<HTMLElement>(
+        [
+          '[data-testid^="txr-method-card-"]',
+          '[data-testid^="txr-method-section-more-"]',
+          '[data-testid^="txr-method-reason-"]',
+          '[data-testid^="txr-method-cannot-row-"]',
+        ].join(', '),
+      ),
+    ).map(item => ({ id: item.dataset.testid ?? '', box: item.getBoundingClientRect() }))
+    items.sort((a, b) => b.box.bottom - a.box.bottom)
+    const last = items[0]
+    const bar = document.querySelector<HTMLElement>('[data-testid="txr-run-bar"]')!
+    const regionBox = el.getBoundingClientRect()
+    return {
+      items: items.length,
+      lastId: last?.id ?? '',
+      lastTop: last?.box.top ?? 0,
+      lastBottom: last?.box.bottom ?? 0,
+      regionTop: regionBox.top,
+      regionBottom: regionBox.bottom,
+      barTop: bar.getBoundingClientRect().top,
+      atEnd: el.scrollTop + el.clientHeight >= el.scrollHeight - 1,
+    }
+  }, label)
+  expect(end.atEnd, 'the region reached its end').toBe(true)
+  expect(end.items, 'the list has items').toBeGreaterThan(0)
+  expect(end.lastTop, `the last item (${end.lastId}) starts inside the region`).toBeGreaterThanOrEqual(
+    end.regionTop - 1,
+  )
+  expect(end.lastBottom, `the last item (${end.lastId}) ends inside the region`).toBeLessThanOrEqual(
+    end.regionBottom + 1,
+  )
+  // It IS the end of the list: only the content's bottom padding is below it.
+  expect(end.regionBottom - end.lastBottom, `the last item (${end.lastId}) is at the list end`).toBeLessThanOrEqual(48)
+  expect(end.regionBottom, 'the region ends above the run bar').toBeLessThanOrEqual(end.barTop + 1)
+
   // The run bar never leaves the frame while the region scrolls.
   const bar = await page.getByTestId('txr-run-bar').boundingBox()
   const frame = await page.locator('[data-gallery-frame]').boundingBox()
@@ -231,12 +440,14 @@ test('route Choose methods: the toolbar is fixed, the section headers stick to t
   expect(bar!.y + bar!.height, 'the run bar stays inside the frame').toBeLessThanOrEqual(
     frame!.y + frame!.height + 1,
   )
+
   // Keyboard: Tab reaches the region; PageDown scrolls it (the audit leg).
-  await page.locator(`[aria-label="${label}"]`).focus()
-  const before = await page.locator(`[aria-label="${label}"]`).evaluate(el => el.scrollTop)
+  await scrollRegionTo(page, label, 0)
+  await region.focus()
+  const before = await region.evaluate(el => el.scrollTop)
   await page.keyboard.press('PageDown')
   await page.waitForTimeout(150)
-  const after = await page.locator(`[aria-label="${label}"]`).evaluate(el => el.scrollTop)
+  const after = await region.evaluate(el => el.scrollTop)
   expect(after, 'PageDown scrolls the region').toBeGreaterThan(before)
 })
 

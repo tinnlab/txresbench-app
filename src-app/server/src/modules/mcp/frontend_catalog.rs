@@ -365,23 +365,28 @@ mod tests {
         // The regen'd `frontend-actions.json` already carries `context` on
         // every action — confirm it deserializes onto the new field with the
         // expected values. STRIP (ITEM-6): the platform contexts
-        // (`workbench`, `dataset`) left with their modules (ITEM-4); every
-        // kept action is app/framework-owned and carries `"global"`, and a
-        // non-global context re-entering the committed manifest must fail
-        // here rather than ride the collector.
+        // (`workbench`, `dataset`) left with their modules (ITEM-4) and must
+        // not ride the collector back in. Every committed action is "global"
+        // except the app's own named contexts, which are pinned PAIR BY PAIR
+        // as (action id, context): `methods.applyPreset` on
+        // `txr.method-picker` (the choose-methods page's method picker,
+        // `src-app/ui/src/modules/txrlist/lib/methodPicker.ts`). Any other
+        // non-global action, or another context on a pinned action, fails.
         let catalog = build_from_str(MANIFEST_JSON);
         assert_eq!(
             catalog.get("app.navigate").expect("app.navigate").context,
             "global"
         );
-        let non_global: Vec<&str> = catalog
+        let mut non_global: Vec<(&str, &str)> = catalog
             .iter()
             .filter(|a| a.context != "global")
-            .map(|a| a.id.as_str())
+            .map(|a| (a.id.as_str(), a.context.as_str()))
             .collect();
-        assert!(
-            non_global.is_empty(),
-            "only app/framework actions are committed: {non_global:?}"
+        non_global.sort_unstable();
+        assert_eq!(
+            non_global,
+            vec![("methods.applyPreset", "txr.method-picker")],
+            "only the app's own contexts are committed: {non_global:?}"
         );
     }
 

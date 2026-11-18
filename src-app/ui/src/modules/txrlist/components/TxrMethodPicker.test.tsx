@@ -17,6 +17,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
 import type { TxrMethodCard } from '../types'
 import { TXRMETHOD_GROUP_ORDER } from '../lib/methodPicker'
 import { TxrMethodPicker } from './TxrMethodPicker'
@@ -259,6 +260,83 @@ describe('presets', () => {
     expect([...next].sort()).toEqual(['r1'])
   })
 
+  it('every set-taking preset shows its count, Fast included', () => {
+    renderPicker(CARDS)
+    expect(screen.getByTestId('txr-method-preset-all').textContent).toBe('All that can run (7)')
+    expect(screen.getByTestId('txr-method-preset-fast').textContent).toBe(
+      'Fast only, under 1 min each (1)',
+    )
+  })
+
+  it('when the three presets give the same set, the clicked one is the pressed one; a manual tick presses none', () => {
+    // Three runnable methods, one per family, all under a minute: the
+    // recommendation takes all three, so Recommended = All = Fast.
+    const equal = [
+      runnable('e1', 'Response call', { estimate: { seconds: 10, quality: 'measured' } }),
+      runnable('e2', 'Static risk', { estimate: { seconds: 20, quality: 'measured' } }),
+      runnable('e3', 'Dynamic risk', { estimate: { seconds: 30, quality: 'measured' } }),
+    ]
+    function Host() {
+      const [selected, setSelected] = useState<ReadonlySet<string>>(new Set(['e1', 'e2', 'e3']))
+      return (
+        <TxrMethodPicker
+          cards={equal}
+          loading={false}
+          error={null}
+          onRetry={() => {}}
+          selected={selected}
+          onSelectionChange={setSelected}
+          onChangeFiles={() => {}}
+          onChangeSettings={() => {}}
+        />
+      )
+    }
+    render(<Host />)
+    const pressed = (): string[] =>
+      (['recommended', 'all', 'fast', 'none'] as const).filter(
+        value => screen.getByTestId(`txr-method-preset-${value}`).getAttribute('aria-pressed') === 'true',
+      )
+    // Arrival (nothing clicked): the seeded set reads as Recommended.
+    expect(pressed()).toEqual(['recommended'])
+    fireEvent.click(screen.getByTestId('txr-method-preset-all'))
+    expect(pressed()).toEqual(['all'])
+    fireEvent.click(screen.getByTestId('txr-method-preset-fast'))
+    expect(pressed()).toEqual(['fast'])
+    fireEvent.click(screen.getByTestId('txr-method-preset-recommended'))
+    expect(pressed()).toEqual(['recommended'])
+    fireEvent.click(screen.getByTestId('txr-method-preset-all'))
+    expect(pressed()).toEqual(['all'])
+
+    // A manual tick: the selection is no preset's set.
+    fireEvent.click(screen.getByTestId('txr-method-checkbox-e2'))
+    expect(pressed()).toEqual([])
+  })
+
+  it('None is the pressed preset when no method is fast (never "Fast only")', () => {
+    function Host() {
+      const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+      return (
+        <TxrMethodPicker
+          cards={CARDS.filter(c => c.id !== 'r1')}
+          loading={false}
+          error={null}
+          onRetry={() => {}}
+          selected={selected}
+          onSelectionChange={setSelected}
+          onChangeFiles={() => {}}
+          onChangeSettings={() => {}}
+        />
+      )
+    }
+    render(<Host />)
+    expect(screen.getByTestId('txr-method-preset-none').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('txr-method-preset-fast').getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(screen.getByTestId('txr-method-preset-all'))
+    fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+    expect(screen.getByTestId('txr-method-preset-none').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('txr-method-preset-fast').getAttribute('aria-pressed')).toBe('false')
+  })
+
   it('the family filter and search restrict the sections and restore', () => {
     renderPicker(CARDS)
     const input = screen.getByTestId('txr-method-search')
@@ -270,6 +348,22 @@ describe('presets', () => {
     fireEvent.click(screen.getByTestId('txr-method-family-static-risk'))
     expect(screen.queryByTestId('txr-method-section-response-call')).toBeNull()
     expect(screen.getByTestId('txr-method-section-static-risk')).toBeTruthy()
+  })
+
+  it('a chip keeps the app border colour after it was pressed and released (no border shorthand mix)', () => {
+    renderPicker(CARDS)
+    const chip = screen.getByTestId('txr-method-family-static-risk')
+    expect(chip.style.borderColor).toBe('var(--txr-border)')
+    fireEvent.click(chip)
+    expect(chip.getAttribute('aria-pressed')).toBe('true')
+    expect(chip.style.borderColor).toBe('var(--txr-brand)')
+    fireEvent.click(chip)
+    expect(chip.getAttribute('aria-pressed')).toBe('false')
+    // React removes a dropped longhand; with a `border` shorthand beside it
+    // the colour fell back to the kit's own border colour.
+    expect(chip.style.borderColor).toBe('var(--txr-border)')
+    expect(chip.style.borderStyle).toBe('solid')
+    expect(chip.style.borderWidth).toBe('1px')
   })
 })
 
@@ -398,6 +492,43 @@ describe('ITEM-2 — the recompute state and the tab order', () => {
     expect(screen.getByTestId('txr-method-refreshing')).toBeTruthy()
     expect(screen.queryByTestId('txr-method-loading')).toBeNull()
     expect(screen.getByTestId('txr-method-picker')).toBeTruthy()
+  })
+
+  it('the host\'s re-check result shows in a status line, hidden while a re-check is in flight (step-4 fix)', () => {
+    const view = (refreshing: boolean, recheckResult: string | null) => (
+      <TxrMethodPicker
+        cards={CARDS}
+        loading={refreshing}
+        refreshing={refreshing}
+        error={null}
+        onRetry={() => {}}
+        selected={new Set()}
+        onSelectionChange={() => {}}
+        onChangeFiles={() => {}}
+        onChangeSettings={() => {}}
+        recheckResult={recheckResult}
+      />
+    )
+    const { rerender } = render(view(false, null))
+    const status = (): HTMLElement => screen.getByTestId('txr-method-recheck-result')
+    // Nothing re-checked yet: the live region is in the DOM, empty and out
+    // of the flow (it must exist before its text changes to be announced).
+    expect(status().getAttribute('role')).toBe('status')
+    expect(status().textContent).toBe('')
+    expect(status().style.position).toBe('absolute')
+
+    rerender(view(false, 'Checked again: the same 7 methods can run.'))
+    expect(status().textContent).toBe('Checked again: the same 7 methods can run.')
+    expect(status().style.position).toBe('')
+
+    // A new re-check starts: the old answer is hidden under the
+    // "Re-checking" line until the host has the new one.
+    rerender(view(true, 'Checked again: the same 7 methods can run.'))
+    expect(screen.getByTestId('txr-method-refreshing')).toBeTruthy()
+    expect(status().textContent).toBe('')
+    rerender(view(false, 'Checked again: 6 methods can run (was 7).'))
+    expect(screen.queryByTestId('txr-method-refreshing')).toBeNull()
+    expect(status().textContent).toBe('Checked again: 6 methods can run (was 7).')
   })
 
   it('the presets row precedes the toolbar (the ITEM-2 keyboard order: presets, then search)', () => {

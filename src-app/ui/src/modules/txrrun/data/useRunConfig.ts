@@ -41,6 +41,12 @@
  * - An epoch guard on BOTH operations discards an out-of-order response (an
  *   older GET resolving after a newer one, or an older PUT's failure
  *   landing after a newer PUT succeeded) — the `useListEstimate` discipline.
+ * - `loadCount` counts the GETs whose answer became the hook's view. A save
+ *   also replaces `engine` (the hook's local view after the PUT), so a
+ *   caller that must react to a LOAD only (the page's re-write of an edit
+ *   made before the sticky fields arrived) keys on `loadCount`, never on
+ *   `engine`: keying on `engine` re-wrote after every save, one PUT per
+ *   debounce for as long as the screen stayed open.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiClient } from '@/api-client'
@@ -72,6 +78,12 @@ export interface UseRunConfigResult {
   engine: TxrAppConfig | null
   /** True while the mount GET (or a retry GET) is in flight. */
   loading: boolean
+  /**
+   * How many GETs have landed as the hook's view (the mount load and each
+   * retry load that was not superseded by a newer save). It never changes on
+   * the hook's own saves, unlike `engine`.
+   */
+  loadCount: number
   /** The failure line of the last failed load or save; `null` when healthy. */
   error: string | null
   /**
@@ -103,6 +115,7 @@ export function useRunConfig(): UseRunConfigResult {
   const [settings, setSettings] = useState<RunSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [loadCount, setLoadCount] = useState(0)
 
   const engineRef = useRef<TxrAppConfig | null>(null)
   const pendingRef = useRef<PendingSave | null>(null)
@@ -143,6 +156,7 @@ export function useRunConfig(): UseRunConfigResult {
         if (saveVersion.current !== saveVersionAtStart) return
         engineRef.current = response
         setEngine(response)
+        setLoadCount(count => count + 1)
         // The honest never-configured answer stays `null` (TEST-RUN-07); a
         // present (even partial) config is the engine's fields over the
         // engine's own defaults.
@@ -246,5 +260,5 @@ export function useRunConfig(): UseRunConfigResult {
     runLoad()
   }, [runLoad, update])
 
-  return { settings, engine, loading, error, update, retry }
+  return { settings, engine, loading, loadCount, error, update, retry }
 }

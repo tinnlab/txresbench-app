@@ -1,4 +1,8 @@
 import { createModule } from '@txresbench/framework'
+// Side-effect import: registers the method picker's actions
+// (`methods.applyPreset`: the preset buttons of the choose-methods page), so
+// the palette and the AI can drive them, not only a click.
+import '@/core/actions/builtin/methodActions'
 
 /**
  * txrlist — TxResBench's shared model/method selection list.

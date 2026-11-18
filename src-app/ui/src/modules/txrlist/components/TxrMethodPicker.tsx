@@ -14,9 +14,12 @@
  *   Run button (DEC-3), so the picker reports every change through
  *   `lib/methodPicker.ts`'s pure rules (toggle, presets, group select-all);
  * - the picker owns the toolbar state (search query, family multi-filter,
- *   sort, the preset control derives its active segment from the selection),
- *   the per-section show-more, the can't-run section and the per-reason
- *   expansion.
+ *   sort, the preset last clicked), the per-section show-more, the can't-run
+ *   section and the per-reason expansion. The pressed preset is the one last
+ *   clicked while the selection still equals its set (`activePreset`: on a
+ *   small catalogue two presets often give the same methods, and the one the
+ *   user clicked is the one that shows), else the preset the selection
+ *   equals, else Custom.
  *
  * DISPLAY RULES:
  * - the family order + explainer + the preset/recommendation rules are
@@ -29,7 +32,11 @@
  *   list (title + id + the one-line reason + the one-line fix);
  * - zero runnable methods: the plan's plain statement (what blocks
  *   everything, what to change) + the two actions "Change files" / "Change
- *   settings".
+ *   settings";
+ * - a re-check (`refreshing` with cards on screen) shows the "Re-checking"
+ *   line; when it ends, the host's `recheckResult` ("Checked again: the same
+ *   5 methods can run.", `recheckLine`) shows in a status line, so a change
+ *   that leaves the list as it was is still visibly answered.
  *
  * The copy is location-neutral (qa-fixes2 ITEM-2 rules): no "on this
  * computer" anywhere; the deployment fact (fewer methods can start than the
@@ -40,19 +47,27 @@
  * the scroll region) while the toolbar state stays inside this component —
  * one state owner, one keyboard model, whichever box the toolbar ends up
  * in. Without `layout` the two pieces render inline exactly as before (the
- * gallery and the D/I screens keep the old composition).
+ * gallery and the D/I screens keep the old composition). Since the step-4
+ * fix the E page uses the inline composition too: its whole picker scrolls
+ * in the page's one region.
  */
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, Input, Select, Skeleton } from '@txresbench/kit'
+import { useAction } from '@/core/actions/useAction'
+import { useActiveContext } from '@/core/actions/activeContext'
+import { createVersioned } from '@/core/actions/versioned'
 import type { TxrMethodCard } from '../types'
 import {
+  activePreset,
+  fastSelection,
   filterMethodCards,
-  presetOf,
+  METHODS_APPLY_PRESET,
   presetSelection,
   reasonGroups,
   recommendedSelection,
   runnableCards,
   sortCards,
+  TXR_METHOD_PICKER_CONTEXT,
   TXRMETHOD_GROUP_ORDER,
   TXRMETHOD_GROUP_EXPLAINER,
   type TxrMethodGroupId,
@@ -119,6 +134,45 @@ const REFRESH_LINE: CSSProperties = {
   color: 'var(--txr-muted)',
 }
 
+/** The re-check result line (step-4 fix: after a re-check the user is told
+ *  what changed, or that nothing did). */
+const RECHECK_LINE: CSSProperties = { margin: 0, fontSize: 13, color: 'var(--txr-text-2)' }
+
+/** The empty status element: kept in the DOM (a live region must exist
+ *  before its text changes to be announced), out of the flow (an absolute
+ *  child takes no flex gap) and invisible. */
+const STATUS_EMPTY: CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  margin: 0,
+}
+
+/** What the picker instance reports to the action registry (`view.describe`,
+ *  `views.list`): the pressed preset, the counts, and whether the method list
+ *  is there yet (`loading` during the first load, `load_error` when that
+ *  load failed; the preset action is refused in both states). */
+type TxrMethodPickerSnapshot = {
+  preset: TxrMethodPreset | 'custom'
+  selected_count: number
+  runnable_count: number
+  loading: boolean
+  load_error: string | null
+}
+
+/** The preset action's refusal while the method list is not there yet (the
+ *  first load, or a first load that failed). The preset buttons are hidden
+ *  then; a preset applied to an empty list would select nothing and stop the
+ *  page's recommended selection on arrival. */
+export const TXRMETHOD_LIST_UNAVAILABLE = 'UNAVAILABLE: the method list has not loaded yet'
+
+/** A fresh `view_id` for one mounted picker (never reused). */
+function newViewId(): string {
+  return crypto.randomUUID()
+}
+
 /** The rows a section shows before "Show N more" (the plan's 6). */
 const SECTION_SHOW_FIRST = 6
 
@@ -143,6 +197,11 @@ export interface TxrMethodPickerProps {
   onChangeFiles(): void
   /** The zero-state's "Change settings" action (scroll to the settings). */
   onChangeSettings(): void
+  /** The line that answers the last re-check (`recheckLine`, computed by the
+   *  host, which knows when a new eligibility answer landed). Shown in a
+   *  `role="status"` line under the presets, hidden while a re-check is in
+   *  flight; `null`/omitted shows nothing. */
+  recheckResult?: string | null
   /** The host's own composition of the picker's two pieces (toolbar + list).
    *  Default: both inline in one column (the pre-ITEM-2 byte). */
   layout?(parts: TxrMethodPickerLayoutParts): ReactNode
@@ -157,13 +216,18 @@ export interface TxrMethodPickerLayoutParts {
   list: ReactNode
 }
 
-/** The family chip's toggleable pill (the kit Button wears the pill look). */
+/** The family chip's toggleable pill (the kit Button wears the pill look).
+ *  The border is written as LONGHANDS: the pressed looks override
+ *  `borderColor`, and with a `border` shorthand here React's removal of the
+ *  dropped `borderColor` on release left the kit's own border colour. */
 const FAMILY_CHIP: CSSProperties = {
   fontSize: 12.5,
   height: 'auto',
   padding: '3px 10px',
   borderRadius: 999,
-  border: '1px solid var(--txr-border)',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'var(--txr-border)',
   background: 'var(--txr-surface)',
   color: 'var(--txr-text-2)',
 }
@@ -192,6 +256,7 @@ export function TxrMethodPicker({
   onSelectionChange,
   onChangeFiles,
   onChangeSettings,
+  recheckResult = null,
   layout,
 }: TxrMethodPickerProps) {
   const [query, setQuery] = useState('')
@@ -200,12 +265,47 @@ export function TxrMethodPicker({
   const [expandedSections, setExpandedSections] = useState<ReadonlySet<string>>(new Set())
   const [cannotOpen, setCannotOpen] = useState(false)
   const [expandedReasons, setExpandedReasons] = useState<ReadonlySet<string>>(new Set())
+  /** The preset last applied (null until one is): it stays pressed while the
+   *  selection still equals its set (`activePreset`). */
+  const [chosenPreset, setChosenPreset] = useState<TxrMethodPreset | null>(null)
 
   const runnable = useMemo(() => runnableCards(cards), [cards])
   const cannot = useMemo(() => cards.filter(card => card.run.disabled), [cards])
   const reasonGroupsList = useMemo(() => reasonGroups(cards), [cards])
-  const preset = presetOf(selected, cards)
+  const preset = activePreset(selected, cards, chosenPreset)
   const filterActive = query.trim() !== '' || familyFilter.size > 0
+  // The first load and a failed first load: no list, no presets (the
+  // toolbar is not rendered) and the preset action is refused.
+  const firstLoad = loading && cards.length === 0
+  const firstError = error !== null && cards.length === 0
+  // The picker as an AI-controllable instance (`methods.applyPreset`,
+  // `core/actions/builtin/methodActions.ts`): one `view_id` per mounted
+  // picker, its snapshot versioned so every selection change, whoever made
+  // it, moves the `_state_token` the world-model reads return.
+  const [viewId] = useState(newViewId)
+  const snapshot: TxrMethodPickerSnapshot = {
+    preset,
+    selected_count: runnable.filter(card => selected.has(card.key)).length,
+    runnable_count: runnable.length,
+    loading: firstLoad,
+    load_error: firstError ? error : null,
+  }
+  const [versioned] = useState(() => createVersioned(viewId, snapshot))
+  const stamped = useRef({ selected, cards, chosenPreset, firstLoad, firstError })
+  useEffect(() => {
+    const last = stamped.current
+    if (
+      last.selected === selected &&
+      last.cards === cards &&
+      last.chosenPreset === chosenPreset &&
+      last.firstLoad === firstLoad &&
+      last.firstError === firstError
+    ) {
+      return
+    }
+    stamped.current = { selected, cards, chosenPreset, firstLoad, firstError }
+    versioned.set(snapshot)
+  })
 
   const shown = useMemo(() => {
     const filtered = filterMethodCards(runnable, query, familyFilter)
@@ -219,9 +319,36 @@ export function TxrMethodPicker({
     setFamilyFilter(next)
   }
 
-  const applyPreset = (value: TxrMethodPreset): void => {
-    onSelectionChange(new Set(presetSelection(value, cards)))
+  /** Apply a preset: the button's click and the `methods.applyPreset`
+   *  action run this same handler. */
+  const applyPreset = (value: TxrMethodPreset): TxrMethodPickerSnapshot => {
+    const keys = presetSelection(value, cards)
+    setChosenPreset(value)
+    onSelectionChange(new Set(keys))
+    return {
+      preset: value,
+      selected_count: keys.length,
+      runnable_count: runnable.length,
+      loading: false,
+      load_error: null,
+    }
   }
+
+  useAction(viewId, {
+    type: TXR_METHOD_PICKER_CONTEXT,
+    handlers: {
+      [METHODS_APPLY_PRESET]: params => {
+        // The buttons are not on screen until the list has loaded; the
+        // action is refused the same way (it would select nothing and stop
+        // the page's recommended seed).
+        if (firstLoad) throw new Error(TXRMETHOD_LIST_UNAVAILABLE)
+        if (firstError) throw new Error(`${TXRMETHOD_LIST_UNAVAILABLE} (${error})`)
+        return applyPreset((params as { preset: TxrMethodPreset }).preset)
+      },
+    },
+    getSnapshot: () => versioned.snapshot(),
+  })
+  useActiveContext(TXR_METHOD_PICKER_CONTEXT, { entityId: viewId })
 
   const toggleGroupAll = (group: TxrMethodGroupId, members: TxrMethodCard[]): void => {
     const memberKeys = members.map(member => member.key)
@@ -253,16 +380,16 @@ export function TxrMethodPicker({
 
   const recommendations = recommendedSelection(cards)
   const allKeys = presetSelection('all', cards)
-  const fastKeys = presetSelection('fast', cards)
+  const fastKeys = fastSelection(cards)
+  // Every set-taking preset shows its count, so a user can see when two of
+  // them give the same methods.
   const presets: { value: TxrMethodPreset; label: string }[] = [
     { value: 'recommended', label: `Recommended (${recommendations.length})` },
     { value: 'all', label: `All that can run (${allKeys.length})` },
-    { value: 'fast', label: 'Fast only (under 1 min each)' },
+    { value: 'fast', label: `Fast only, under 1 min each (${fastKeys.length})` },
     { value: 'none', label: 'None' },
   ]
 
-  const firstLoad = loading && cards.length === 0
-  const firstError = error !== null && cards.length === 0
 
   // The toolbar (the page may pin it OUTSIDE the list's scroll region): the
   // first-load and first-error states have no toolbar (the old early-return
@@ -303,6 +430,13 @@ export function TxrMethodPicker({
             Re-checking what can run with these settings…
           </div>
         ) : null}
+        <p
+          data-testid="txr-method-recheck-result"
+          role="status"
+          style={recheckResult !== null && !refreshing ? RECHECK_LINE : STATUS_EMPTY}
+        >
+          {refreshing ? null : recheckResult}
+        </p>
 
         <div data-testid="txr-method-toolbar" style={TOOLBAR}>
           <Input

@@ -28,6 +28,7 @@ const EXPECTED: Record<string, { permission: string; mutating: boolean }> = {
   'features.setGlobalFlag': { permission: 'features::manage', mutating: true },
   'features.setAccountFlag': { permission: 'features::manage', mutating: true },
   'features.clearAccountOverride': { permission: 'features::manage', mutating: true },
+  'methods.applyPreset': { permission: 'mcp::use', mutating: true },
 }
 
 // No removed-module path may sit in the allowlist. Its remaining entries are

@@ -51,6 +51,10 @@ import { ChooseMethodsPage } from './ChooseMethodsPage'
 import { RUN_CONFIG_DEBOUNCE_MS } from '../data/useRunConfig'
 import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import { DEMO_DISABLED_REASON, DEMO_SETTINGS_NOTE } from '@/modules/demo/copy'
+import { runAction } from '@/core/actions/defineAction'
+import { instancesOfType } from '@/core/actions/instanceRegistry'
+import '@/core/actions/builtin/methodActions'
+import '@/core/actions/builtin/worldModel'
 
 // jsdom has no working PointerEvent constructor; Base UI's controls (the
 // kit Switch/Segmented/Select) construct one on pointer interaction, which
@@ -513,6 +517,15 @@ describe('ChooseMethodsPage settings wiring (ITEM-7)', () => {
         label_day: null,
       },
     })
+
+    // The save is the last write: the hook's own PUT never triggers another
+    // one (the step-4 fix: an `engine`-keyed effect re-wrote after every
+    // save, one PUT per debounce window for as long as the page was open).
+    for (let window = 0; window < 5; window += 1) {
+      await settle(RUN_CONFIG_DEBOUNCE_MS)
+      await settle()
+    }
+    expect(api.putConfig).toHaveBeenCalledTimes(1)
   })
 
   it('fills the Extra-inputs names line from the patients inspection covariate_columns', async () => {
@@ -712,6 +725,39 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     })
     await settle(RUN_CONFIG_DEBOUNCE_MS + 50)
     expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('0 methods selected')
+  })
+
+  it('the clicked preset stays pressed when two presets give the same set (Recommended = All here); None never lights Fast', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    // The fixture's two runnable methods are one per family, so the
+    // recommendation takes both: Recommended = All; neither is under a
+    // minute, so Fast is empty.
+    const pressed = (value: string): string | null =>
+      screen.getByTestId(`txr-method-preset-${value}`).getAttribute('aria-pressed')
+    expect(pressed('recommended')).toBe('true')
+    expect(pressed('all')).toBe('false')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-preset-all'))
+      await Promise.resolve()
+    })
+    expect(pressed('all')).toBe('true')
+    expect(pressed('recommended')).toBe('false')
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+      await Promise.resolve()
+    })
+    expect(pressed('none')).toBe('true')
+    expect(pressed('fast')).toBe('false')
+    expect(screen.getByTestId('txr-method-preset-fast').textContent).toBe(
+      'Fast only, under 1 min each (0)',
+    )
   })
 
   it('search and the family multi-filter restrict the sections and restore', async () => {
@@ -1098,6 +1144,61 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
     expect(lastCall.inventory.decision_day).toBe(28)
   })
 
+  it('a re-check that changes nothing still answers: "Checked again: the same 2 methods can run." (step-4 fix)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
+
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-decision-day-opt-28'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-decision-day-opt-28'))
+      await Promise.resolve()
+    })
+    await settle()
+    // The eligibility answer is the same verdicts: the list looks the same,
+    // and the status line says so.
+    expect(api.eligibility.mock.calls.length).toBeGreaterThanOrEqual(2)
+    const status = screen.getByTestId('txr-method-recheck-result')
+    expect(status.getAttribute('role')).toBe('status')
+    expect(status.textContent).toBe('Checked again: the same 2 methods can run.')
+  })
+
+  it('the Extra-inputs help line says how many of the methods that can run use them (step-4 fix)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+    // Both runnable fixture methods take extra inputs (optional).
+    expect(screen.getByTestId('txr-run-settings-covariates-help').textContent).toBe(
+      'Used by 2 of the 2 methods that can run.',
+    )
+
+    // Turning the switch on re-checks; the line is still the count from the
+    // (same) answer, and the status line reports the re-check.
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-covariates'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-covariates'))
+      await Promise.resolve()
+    })
+    await settle()
+    const lastCall = api.eligibility.mock.calls[api.eligibility.mock.calls.length - 1][0]
+    expect(lastCall.inventory.covariates.length).toBe(1)
+    expect(screen.getByTestId('txr-run-settings-covariates-help').textContent).toBe(
+      'Used by 2 of the 2 methods that can run.',
+    )
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe(
+      'Checked again: the same 2 methods can run.',
+    )
+  })
+
   it('a method that stops being eligible is unticked with the toast; the still-eligible stay', async () => {
     api.getConfig.mockResolvedValue({ config: null })
     // The recommendation ticks both runnable methods; the SECOND answer (a
@@ -1139,6 +1240,10 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
     // direct-on left the selection; dynforest stayed.
     expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('1 method selected')
     expect(screen.getByText('1 method no longer fits these settings')).toBeTruthy()
+    // The step-4 status line names the change.
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe(
+      'Checked again: 1 method can run (was 2).',
+    )
   })
 
   it('the run bar is disabled with the reason when nothing is selected', async () => {
@@ -1208,5 +1313,298 @@ describe('demo mode (ITEM-6) — the recorded methods only, the locked setup, th
     expect((screen.getByTestId('txr-run-change-files') as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByTestId('txr-run-change-files-reason').textContent).toBe(DEMO_DISABLED_REASON)
     expect(screen.getByTestId('txr-run-bar-run').textContent).toContain('(demo)')
+  })
+})
+
+describe('step-4 fix: only the step line and the title are fixed; everything else scrolls in the one region', () => {
+  /** The page's one region (the ScrollRegion's labelled scroll container). */
+  const region = (): HTMLElement => {
+    const el = document.querySelector<HTMLElement>('[role="region"][aria-label="Methods to choose"]')
+    if (el === null) throw new Error('no "Methods to choose" region')
+    return el
+  }
+
+  /** True when `a` comes before `b` in document order. */
+  const before = (a: HTMLElement, b: HTMLElement): boolean =>
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+
+  it('the fixed top holds the step line and the h1 only', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    const tops = document.querySelectorAll<HTMLElement>('.txr-page-frame-top')
+    expect(tops.length).toBe(1)
+    const chrome = tops[0].firstElementChild as HTMLElement
+    const children = Array.from(chrome.children) as HTMLElement[]
+    expect(children.length).toBe(2)
+    expect(children[0].textContent).toBe('Step 4 of 4')
+    expect(children[1].tagName).toBe('H1')
+    expect(children[1].textContent).toBe('Choose the methods and settings')
+    for (const id of [
+      'txr-run-intro',
+      'txr-run-summary',
+      'txr-run-settings',
+      'txr-method-presets',
+      'txr-method-toolbar',
+    ]) {
+      expect(tops[0].querySelector(`[data-testid="${id}"]`), `${id} must not be in the fixed top`).toBeNull()
+    }
+  })
+
+  it('the intro, summary, settings, presets and toolbar are inside the region, in that order, before the list', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    const scroller = region()
+    const ids = [
+      'txr-run-intro',
+      'txr-run-summary',
+      'txr-run-settings',
+      'txr-method-presets',
+      'txr-method-toolbar',
+      'txr-method-sections',
+    ]
+    const nodes = ids.map(id => screen.getByTestId(id))
+    for (const [index, node] of nodes.entries()) {
+      expect(scroller.contains(node), `${ids[index]} is inside the region`).toBe(true)
+    }
+    for (let index = 1; index < nodes.length; index += 1) {
+      expect(before(nodes[index - 1], nodes[index]), `${ids[index - 1]} before ${ids[index]}`).toBe(true)
+    }
+    // The run bar stays in the frame's fixed bottom slot, outside the region.
+    const bar = screen.getByTestId('txr-run-bar')
+    expect(scroller.contains(bar)).toBe(false)
+    expect(bar.closest('.txr-page-frame-bottom')).not.toBeNull()
+    // One region: the page has no other scroll container of its own.
+    expect(document.querySelectorAll('[role="region"]').length).toBe(1)
+  })
+
+  it('the pending (null validation) state has the same structure', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore({ validation: null })
+    renderPage()
+    await settle()
+
+    const scroller = region()
+    const top = document.querySelector<HTMLElement>('.txr-page-frame-top')!
+    expect(top.querySelector('h1')!.textContent).toBe('Choose the methods and settings')
+    for (const id of ['txr-run-intro', 'txr-run-summary', 'txr-run-settings', 'txr-run-list-pending']) {
+      const node = screen.getByTestId(id)
+      expect(scroller.contains(node), `${id} is inside the region`).toBe(true)
+      expect(top.contains(node), `${id} is not in the fixed top`).toBe(false)
+    }
+    expect(
+      before(screen.getByTestId('txr-run-settings'), screen.getByTestId('txr-run-list-pending')),
+    ).toBe(true)
+  })
+
+  it('"Change settings" in the zero state scrolls the region to the settings card', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    // Every verdict cannot-run: the picker's zero state.
+    api.eligibility.mockResolvedValue({
+      ...eligibility(),
+      methods: eligibility().methods.map(method => ({
+        ...method,
+        status: 'cannot_run',
+        coverage: { eligible: 0, total: 18, fraction: 0 },
+        reasons: [{ code: 'DECISION_DAY_UNMET' }],
+      })),
+    })
+    const scrollIntoView = vi.fn()
+    const proto = Element.prototype as unknown as { scrollIntoView?: unknown }
+    const saved = proto.scrollIntoView
+    proto.scrollIntoView = scrollIntoView
+    try {
+      seedStore()
+      renderPage()
+      await settle()
+      expect(screen.getByTestId('txr-method-zero')).toBeTruthy()
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('txr-method-zero-change-settings'))
+        await Promise.resolve()
+      })
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      const target = scrollIntoView.mock.contexts[0] as HTMLElement
+      expect(region().contains(target), 'the scrolled element is inside the region').toBe(true)
+      expect(target.contains(screen.getByTestId('txr-run-settings'))).toBe(true)
+    } finally {
+      proto.scrollIntoView = saved
+    }
+  })
+})
+
+describe('step-4 review fixes: the preset action and the re-check line', () => {
+  it('methods.applyPreset is refused while the list is still loading, and the recommended seed still happens', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    let release: (value: unknown) => void = () => {}
+    api.eligibility.mockReturnValueOnce(
+      new Promise(resolve => {
+        release = resolve
+      }),
+    )
+    seedStore()
+    renderPage()
+    await settle()
+    expect(screen.getByTestId('txr-method-loading')).toBeTruthy()
+    const live = instancesOfType('txr.method-picker')
+    expect(live.length).toBe(1)
+
+    // The usual AI sequence: navigate, views.list, invoke at once.
+    let failure: unknown = null
+    await act(async () => {
+      try {
+        await runAction('methods.applyPreset', { view_id: live[0].id, preset: 'all' })
+      } catch (err) {
+        failure = err
+      }
+    })
+    expect(String(failure)).toContain('UNAVAILABLE: the method list has not loaded yet')
+
+    await act(async () => {
+      release(eligibility())
+      await Promise.resolve()
+    })
+    await settle()
+    // The arrival seed was not stopped: the recommendation is ticked.
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
+    expect(
+      screen.getByTestId('txr-method-preset-recommended').getAttribute('aria-pressed'),
+    ).toBe('true')
+  })
+
+  /** Pick a Segmented option (the kit commits on pointer down + click). */
+  async function pick(testId: string): Promise<void> {
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId(testId), { button: 0, pointerType: 'mouse' })
+      fireEvent.click(screen.getByTestId(testId))
+      await Promise.resolve()
+    })
+    await settle()
+  }
+
+  it('a failed re-check says so; the previous "Checked again" line never comes back', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+    await pick('txr-run-settings-decision-day-opt-28')
+    const status = () => screen.getByTestId('txr-method-recheck-result').textContent
+    expect(status()).toBe('Checked again: the same 2 methods can run.')
+
+    api.eligibility.mockRejectedValueOnce(new Error('eligibility down'))
+    const callsBefore = api.eligibility.mock.calls.length
+    await pick('txr-run-settings-decision-day-opt-84')
+    expect(api.eligibility.mock.calls.length).toBe(callsBefore + 1)
+    expect(status()).toBe('Could not check again: eligibility down. The list shows the last answer.')
+    // The list is still the last answer's.
+    expect(screen.getByTestId('txr-method-card-direct-on')).toBeTruthy()
+
+    // The next re-check that works replaces the failure line.
+    await pick('txr-run-settings-decision-day-opt-42')
+    expect(status()).toBe('Checked again: the same 2 methods can run.')
+  })
+
+  it('while Change files clears the validation, the Extra-inputs help does not count the old files\' methods', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+    const help = () => screen.getByTestId('txr-run-settings-covariates-help').textContent
+    expect(help()).toBe('Used by 2 of the 2 methods that can run.')
+
+    // A file change in the dialog nulls the validation: the list is pending.
+    await act(async () => {
+      useTxrIntakeStore.setState({ validation: null })
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-list-pending')).toBeTruthy()
+    expect(help()).toBe('Other columns of your file the methods may use.')
+
+    // The new files' validation lands: a FIRST answer again (no re-check
+    // line), and the help counts the new answer.
+    api.eligibility.mockResolvedValueOnce({
+      ...eligibility(),
+      methods: eligibility().methods.map(method =>
+        method.id === 'dynforest' ? { ...method, status: 'cannot_run', reasons: [{ code: 'MIN_DRAWS_UNMET' }] } : method,
+      ),
+    })
+    await act(async () => {
+      useTxrIntakeStore.setState({ validation: validation() })
+      await Promise.resolve()
+    })
+    await settle()
+    expect(help()).toBe('Used by the one method that can run.')
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
+  })
+
+  it('in demo mode the picker\'s state token stays put across re-renders (it moves only on a change)', async () => {
+    seedDemoMode('demo')
+    seedStore()
+    const view = renderPage()
+    await settle()
+    await settle(250)
+    const live = instancesOfType('txr.method-picker')
+    expect(live.length).toBe(1)
+    const token = async (): Promise<unknown> =>
+      ((await runAction('view.describe', { view_id: live[0].id })) as Record<string, unknown>)
+        ._state_token
+    const before = await token()
+
+    // Re-render the page with nothing changed.
+    for (let i = 0; i < 3; i += 1) {
+      view.rerender(
+        <MemoryRouter initialEntries={['/choose-methods']}>
+          <ChooseMethodsPage />
+          <LocationProbe />
+        </MemoryRouter>,
+      )
+      await settle()
+    }
+    expect(await token()).toBe(before)
+
+    // A real change still moves it.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+      await Promise.resolve()
+    })
+    expect(await token()).not.toBe(before)
+  })
+
+  it('no "Checked again" line on arrival when the sticky settings land after the first answer', async () => {
+    let releaseConfig: (value: unknown) => void = () => {}
+    api.getConfig.mockReturnValueOnce(
+      new Promise(resolve => {
+        releaseConfig = resolve
+      }),
+    )
+    seedStore()
+    renderPage()
+    await settle()
+    // The first answer is for the defaults (the sticky GET is in flight).
+    expect(api.eligibility.mock.calls.length).toBe(1)
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
+
+    // The sticky config turns the extra inputs on: a second request nobody
+    // asked for. Its answer is the new baseline, not a re-check line.
+    await act(async () => {
+      releaseConfig(stickyConfig)
+      await Promise.resolve()
+    })
+    await settle()
+    await settle()
+    expect(api.eligibility.mock.calls.length).toBe(2)
+    expect(api.eligibility.mock.calls[1][0].inventory.covariates.length).toBe(1)
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
+
+    // A change the user makes still gets its line.
+    await pick('txr-run-settings-decision-day-opt-28')
+    expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe(
+      'Checked again: the same 2 methods can run.',
+    )
   })
 })
