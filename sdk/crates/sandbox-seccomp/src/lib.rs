@@ -185,7 +185,12 @@ pub fn build_bpf() -> Result<(Vec<u8>, Vec<String>), String> {
                     .map_err(|e| format!("add_rule socket {}: {e}", f.name))?;
             }
         }
-        Err(_) => unresolved.push("socket".to_string()),
+        // The socket rule is the only guard against AF_VSOCK in the sandbox:
+        // without it, refuse to build the filter (the agent then refuses
+        // every sandboxed command that asks for seccomp) rather than run
+        // methods with vsock open. libseccomp resolves names from its own
+        // table, so this does not happen on x86_64 or aarch64.
+        Err(_) => return Err("socket(2) does not resolve here: the socket family rules cannot be added".into()),
     }
     let mut buf: Vec<u8> = Vec::new();
     let mut f = tempfile::tempfile().map_err(|e| format!("tempfile: {e}"))?;
@@ -357,9 +362,7 @@ mod tests {
         // Every reported unresolved name must be one we actually asked for.
         for name in &unresolved {
             assert!(
-                DENY_EPERM.contains(&name.as_str())
-                    || DENY_ENOSYS.contains(&name.as_str())
-                    || name == "socket",
+                DENY_EPERM.contains(&name.as_str()) || DENY_ENOSYS.contains(&name.as_str()),
                 "unresolved name '{name}' was never in a deny list"
             );
         }
@@ -606,8 +609,10 @@ mod tests {
                 None => assert_ne!(*got, 0, "{what} under the filter gave sockets"),
             }
         }
-        // The same vsock calls without the filter: at least one must answer
-        // otherwise, or the EAFNOSUPPORTs above prove nothing here.
+        // The same vsock calls without the filter. The bad-flag cases above
+        // already prove the filter answered (the kernel says EINVAL to them
+        // before it looks at the family); this only records that the
+        // kernel answers some of these calls differently.
         let bare: Vec<(&str, i32)> = cases[..5]
             .iter()
             .map(|(what, call, _)| (*what, make(*call)))

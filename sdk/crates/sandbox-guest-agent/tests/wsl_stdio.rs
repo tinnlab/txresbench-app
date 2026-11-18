@@ -44,13 +44,17 @@ const VSOCK_PROBE_ENV: &str = "TXR_VSOCK_PROBE";
 ///   kernel without vsock.
 /// - `vsock-bit-32`: `AF_VSOCK` with bit 32 of the register set, which the
 ///   kernel drops (`int domain`): the filter must compare the low 32 bits only.
+/// - `vsock-bit-32-bad-flag`: both at once. A kernel without vsock answers
+///   `vsock-bit-32` with EAFNOSUPPORT by itself; this one it answers EINVAL,
+///   so only a filter that compares the low 32 bits gives EAFNOSUPPORT.
 fn vsock_answers() -> Vec<(&'static str, String)> {
     let vsock = libc::AF_VSOCK as libc::c_long;
     let stream = libc::SOCK_STREAM as libc::c_long;
-    let calls: [(&'static str, libc::c_long, libc::c_long); 3] = [
+    let calls: [(&'static str, libc::c_long, libc::c_long); 4] = [
         ("vsock-socket", vsock, stream),
         ("vsock-bad-flag", vsock, stream | 0x4000_0000),
         ("vsock-bit-32", (1 << 32) | vsock, stream),
+        ("vsock-bit-32-bad-flag", (1 << 32) | vsock, stream | 0x4000_0000),
     ];
     calls
         .into_iter()
@@ -855,13 +859,16 @@ fn run_method(start: Start, fuse: bool) {
     assert_eq!(
         out,
         "hello from input\nidentity-file\nuid=1001\nroutes=0\n\
-         vsock-socket=EAFNOSUPPORT\nvsock-bad-flag=EAFNOSUPPORT\nvsock-bit-32=EAFNOSUPPORT\n",
+         vsock-socket=EAFNOSUPPORT\nvsock-bad-flag=EAFNOSUPPORT\nvsock-bit-32=EAFNOSUPPORT\n\
+         vsock-bit-32-bad-flag=EAFNOSUPPORT\n",
         "outside the sandbox: {outside:?}\nframes: {frames:?}\nagent stderr:\n{stderr}"
     );
-    assert!(
-        outside.contains(&("vsock-bad-flag", "EINVAL".to_string())),
-        "without the filter the kernel itself answers the bad flag: {outside:?}"
-    );
+    for call in ["vsock-bad-flag", "vsock-bit-32-bad-flag"] {
+        assert!(
+            outside.contains(&(call, "EINVAL".to_string())),
+            "without the filter the kernel itself answers {call}: {outside:?}"
+        );
+    }
     assert!(stdout_text(&frames, false).contains("layer-marker"), "{frames:?}");
     let exit = frames
         .iter()
