@@ -417,8 +417,10 @@ never weaken the contract to fit a method.
 
 ## 6. How the app picks up new layers
 
-> With the signed method list, an app release imports the published list (§9); the
-> app's `src-app/server/data/method-env-images.json` is then an imported copy.
+> With the signed method list, installed apps fetch a newly published list themselves
+> (§10), and an app release imports the published list as its built-in copy (§9); the
+> app's `src-app/server/data/method-env-images.json` is then an imported copy. The steps
+> below are the release path.
 
 The manifest is the only runtime-facing artifact of this node: it is embedded
 into the app at build time (DEC-6, `include_dir!` — dev builds read it from
@@ -633,3 +635,48 @@ they differ from the list).
 Before the first publish, `scripts/import-method-list.sh --bootstrap` writes a
 `sequence: 0` list from the app's current two files, without a signature (the app accepts
 an unsigned list only at sequence 0); any published list replaces it.
+
+---
+
+## 10. How installed apps get a new list
+
+An installed app runs on the newest valid list it knows: its built-in copy, the last good
+list it stored (`<app data>/method-list/v1/`), or the one it fetches. It asks the registry
+at start (in the background, never blocking the start), before each run starts (5 s to
+resolve, 30 s to pull a new list; any failure: the run goes on with the list in use) and
+when the user presses "Check for method updates" in Settings. There is no timer.
+
+A check resolves `ghcr.io/tinnlab/txresbench-method-list:v1` with the bundled oras
+(anonymous, the app's empty registry config) and pulls only a digest it has not seen, by
+digest, capped at 16 MiB. The signature is checked before anything reads the list; a list
+signed by a key the app does not trust, too large, not exactly the two files, older than
+the list in use (a rollback) or of the same sequence with other bytes is refused, its digest
+remembered (never pulled again) and never stored. A run keeps the list it started on; a
+screen that still shows an older list cannot start a run (`409 METHOD_LIST_CHANGED`: the
+screen reloads and asks the user to check the selection). Demo mode never moves off the
+built-in list.
+
+**Firewalls and proxies.** The app needs two hosts over HTTPS, for the method list and the
+environment downloads alike: `ghcr.io` and `pkg-containers.githubusercontent.com` (GHCR
+redirects every download there). oras uses `HTTPS_PROXY`/`NO_PROXY` and a custom CA bundle
+(`SSL_CERT_FILE`) from the app's environment. Offline, the app keeps working on the list it
+has.
+
+**Rehearsing with a personal package (debug builds only).** A debug build reads two
+variables a release build ignores:
+
+```sh
+# a throwaway key, and a list signed with it, pushed to a personal package
+minisign -G -W -p /path/test.pub -s /path/test.key
+# … assemble, sign (trusted comment "txresbench-method-list format=1 sequence=<N>") and
+# `oras push ghcr.io/<you>/txresbench-method-list-test:v1 method-list.json method-list.json.minisig`
+# (the package public, or a registry config with a token for the push only)
+TXR_METHOD_LIST_REF=ghcr.io/<you>/txresbench-method-list-test:v1 \
+TXR_METHOD_LIST_TEST_KEY=/path/test.pub \
+CONFIG_FILE=config/dev.yaml cargo run
+```
+
+A loopback reference (`127.0.0.1:<port>/…`, `localhost`, `[::1]`) is fetched over plain
+HTTP, any other host over HTTPS. The list must be above the app's built-in sequence and
+keep every built-in row (rule 3). `GET /api/methods/updates` shows the result.
+

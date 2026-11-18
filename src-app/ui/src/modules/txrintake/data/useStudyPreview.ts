@@ -33,6 +33,7 @@
  *   honest "updating failed" state, never a stale green).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMethodListRevision } from '@/lib/txr-method-list/revision'
 import { ApiClient } from '@/api-client'
 import type { EligibilityResponse, MarkerGroup, MethodEligibility } from '@/api-client/types'
 import { formatReasonLine } from '@/modules/txrlist/lib/format'
@@ -122,7 +123,13 @@ export function useStudyPreview(
   answers: StudyAnswers,
   groups: MarkerGroup[] | null,
 ): UseStudyPreviewResult {
-  const key = useMemo(() => requestKey(answers, groups), [answers, groups])
+  // The method list's revision is part of the key: a new list asks again (the
+  // verdicts are the list's), the old entries are simply never read.
+  const revision = useMethodListRevision()
+  const key = useMemo(
+    () => `${requestKey(answers, groups)}#${revision}`,
+    [answers, groups, revision],
+  )
   const [state, setState] = useState<StudyPreviewState>(EMPTY_STATE)
   const [refresh, setRefresh] = useState(0)
   const epoch = useRef(0)

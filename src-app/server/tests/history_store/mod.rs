@@ -25,7 +25,6 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::common::TestServer;
-use txresbench::modules::execution_engine::envmanifest;
 use txresbench::modules::execution_engine::repository::{
     MethodPatch, NewMethod, NewRun, TxrRepository,
 };
@@ -81,7 +80,7 @@ pub async fn pool(server: &TestServer) -> sqlx::SqlitePool {
 /// The catalogue-first facts of a seeded method row (label/version/group) —
 /// the engine's own record, never re-authored here.
 fn method_facts(method_id: &str) -> CatalogFacts {
-    let m = txresbench::modules::method_catalogue::catalogue::method(method_id)
+    let m = txresbench::modules::method_list::builtin().method(method_id)
         .expect("the seeded method is a catalogue method");
     CatalogFacts {
         label: m.id.clone(),
@@ -253,6 +252,7 @@ pub async fn seed_run(server: &TestServer, repo: &TxrRepository, spec: SeedRun) 
         cpus: spec.cpus,
         seed: spec.seed,
         estimate: spec.estimate,
+        method_list_sequence: None,
     };
     repo.insert_run(&run).await.expect("seed run");
 
@@ -345,7 +345,7 @@ fn counts_for(spec: &SeedRun) -> TxrRunCounts {
 /// own `TxrRunOutcomeSpec` rule mirrored: `survival` → Pfs at a pfs run, Os
 /// at an os run; `response` → Response; an unparsed combination → None).
 fn task_for(method_id: &str, endpoint: TxrEndpoint) -> Option<TxrTask> {
-    let m = txresbench::modules::method_catalogue::catalogue::method(method_id)?;
+    let m = txresbench::modules::method_list::builtin().method(method_id)?;
     if m.tasks.iter().any(|t| t == "response") {
         return Some(TxrTask::Response);
     }
@@ -440,7 +440,7 @@ pub async fn seed_produced_method(
     variant: &str,
 ) -> (String, u64) {
     let (dir, digest, size) = fixture_tree(model_dir, variant);
-    let entry = envmanifest::env_for(method_id).expect("a manifest entry for the method");
+    let entry = txresbench::modules::method_list::builtin().env_for(method_id).expect("a manifest entry for the method");
     repo.patch_method(
         run_id,
         method_id,
@@ -631,6 +631,7 @@ async fn the_engine_create_path_and_the_direct_seed_render_the_same_item() {
         cpus: row.cpus.map(|c| c as u32),
         seed: row.seed as u32,
         estimate,
+        method_list_sequence: None,
     };
     repo.insert_run(&new_run).await.expect("mirror run");
     sqlx::query(

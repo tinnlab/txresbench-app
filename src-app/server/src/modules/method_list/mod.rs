@@ -7,26 +7,124 @@
 //! (`scripts/publish-method-list.sh`); an app release imports it as its built-in copy
 //! (`scripts/import-method-list.sh`).
 //!
-//! This module verifies and parses a list:
+//! The app runs on the list: it embeds only the list's built-in copy
+//! (`data/method-list/method-list.json`), and every request and run asks one snapshot of the
+//! current list for its methods, markers and images.
+//!
 //! - [`keys`] — the trusted public keys, compiled in from `data/method-list/trusted-keys.json`;
 //! - [`verify`] — the minisign check on the raw bytes, before any parse; it is the only
 //!   maker of a [`verify::VerifiedList`];
-//! - [`format`] — the header, the two nested documents through their own loaders, and the
-//!   rules that tie them together.
+//! - [`format`] — the header, the two nested documents through their own loaders, the
+//!   rules that tie them together, and the lookups a snapshot answers;
+//! - [`runtime`] — the built-in list and the current one ([`current`]), moved to a newer
+//!   verified list between runs;
+//! - [`fetch`] — the published list through the bundled oras (resolve, then pull by digest,
+//!   capped); [`store`] — the last good list on disk; [`routes`] — `GET /api/methods/updates`
+//!   and `POST /api/methods/updates/check`.
 //!
-//! It is not an app module yet (no `ModuleEntry`, no routes): the app still embeds the two
-//! documents directly. Today its one consumer is the `txresbench check-method-list` command,
-//! the arbiter the publisher and the import run.
+//! The `txresbench check-method-list` command is the arbiter the publisher and the import
+//! run: it verifies and parses a list exactly as the app does.
 
+pub mod fetch;
 pub mod format;
 pub mod keys;
+pub mod routes;
+pub mod runtime;
+pub mod store;
+#[cfg(test)]
+pub(crate) mod test_sign;
 pub mod verify;
 
 use std::io::Read;
 use std::path::Path;
 
+use aide::axum::ApiRouter;
+use linkme::distributed_slice;
+
+use txresbench_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
+
+pub use format::MethodList;
+pub use runtime::{builtin, current};
+
 use keys::TrustedKeys;
 use verify::{VerifiedList, MAX_LIST_BYTES, MAX_SIGNATURE_BYTES};
+
+/// The module instance: the built-in list is checked at boot, then the runtime starts on
+/// the newest valid list and checks the registry once in the background.
+pub struct MethodListModule {
+    boot_check_spawned: bool,
+}
+
+impl AppModule for MethodListModule {
+    fn name(&self) -> &'static str {
+        "method_list"
+    }
+
+    fn description(&self) -> &'static str {
+        "The signed method list (catalogue + environment images): the built-in copy and the current list (TxResBench)."
+    }
+
+    fn init(&mut self, _ctx: &ModuleContext) -> Result<(), Box<dyn std::error::Error>> {
+        // The boot check: verify + parse the built-in list ONCE here. A refusal aborts
+        // the boot: a first-party list the app cannot read is never an empty one.
+        let list = runtime::ensure_builtin().map_err(|e| {
+            Box::<dyn std::error::Error>::from(format!("method list load failed: {e}"))
+        })?;
+        tracing::info!(
+            sequence = list.sequence,
+            methods = list.catalogue.methods.len(),
+            image_entries = list.images.envs.len(),
+            signed = list.signer.is_some(),
+            dev_manifest = runtime::dev_manifest_active(),
+            "method list: the built-in copy loaded"
+        );
+        let seams = runtime::production_seams(crate::modules::rootfs::data_root());
+        if let Some(why) = &seams.off_reason {
+            tracing::info!(reason = %why, "method list: updates are off");
+        }
+        let rt = runtime::install(runtime::ListRuntime::new(list.clone(), seams));
+        let active = rt.active();
+        tracing::info!(
+            sequence = active.list.sequence,
+            origin = ?active.origin,
+            "method list: in use"
+        );
+        // ONE detached check per boot: never blocks the boot (offline is a valid state),
+        // the result is the status.
+        if rt.updates_enabled() && !self.boot_check_spawned {
+            self.boot_check_spawned = true;
+            let rt = rt.clone();
+            tokio::spawn(async move {
+                let status = rt.check(runtime::CheckBudget::BACKGROUND).await;
+                tracing::info!(
+                    sequence = status.sequence,
+                    result = ?status.last_check,
+                    "method list: boot check finished"
+                );
+            });
+        }
+        Ok(())
+    }
+
+    fn register_routes(&self, router: ApiRouter) -> ApiRouter {
+        router.merge(routes::method_list_routes())
+    }
+}
+
+/// Module registration. Distinct order (45), before every reader of the list
+/// (`method_catalogue` 47, `file_validator` 48, `execution_engine` 49) — see
+/// `modules/mod.rs::module_order_is_unique` (46 is taken).
+#[distributed_slice(MODULE_ENTRIES)]
+static METHOD_LIST: ModuleEntry = ModuleEntry {
+    name: "method_list",
+    order: 45,
+    description: "The signed method list: built-in copy + current list (TxResBench).",
+    constructor: || {
+        Box::new(MethodListModule {
+            boot_check_spawned: false,
+        })
+    },
+};
 
 /// Read at most `cap` bytes of `path`; a longer file is refused without reading the rest.
 fn read_capped(path: &Path, cap: usize, what: &str) -> Result<Vec<u8>, String> {
@@ -120,6 +218,16 @@ pub fn check_method_list_cli(
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn method_list_registers_once_at_unique_order_45() {
+        let me: Vec<_> = MODULE_ENTRIES.iter().filter(|e| e.name == "method_list").collect();
+        assert_eq!(me.len(), 1, "{me:?}");
+        assert_eq!(me[0].order, 45);
+        let at_45: Vec<_> = MODULE_ENTRIES.iter().filter(|e| e.order == 45).map(|e| e.name).collect();
+        assert_eq!(at_45, vec!["method_list"]);
+        assert_eq!((me[0].constructor)().name(), "method_list");
+    }
 
     fn fixture(rel: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))

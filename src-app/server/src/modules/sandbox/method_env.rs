@@ -124,7 +124,7 @@ pub const ENV_DOWNLOAD_CANCELLED_CODE: &str = "ENV_DOWNLOAD_CANCELLED";
 /// never attempted against the host filesystem instead (module INV-2).
 /// (The shipped `env_image.rs` names the same host-tool condition
 /// `ENV_IMAGE_TOOL_MISSING` — one string, two provider families.)
-const ENV_TOOL_MISSING_CODE: &str = "ENV_IMAGE_TOOL_MISSING";
+pub(crate) const ENV_TOOL_MISSING_CODE: &str = "ENV_IMAGE_TOOL_MISSING";
 
 // ────────────────────────────── compiled constants ────────────────────────────
 
@@ -134,12 +134,12 @@ const ENV_TOOL_MISSING_CODE: &str = "ENV_IMAGE_TOOL_MISSING";
 /// compiled ref prefixes themselves live in `stack.rs`; the release-time
 /// prefix list assembled here is byte-identical to them, locked by a parity
 /// test.
-const TXR_REGISTRY_HOST: &str = "ghcr.io";
+pub(crate) const TXR_REGISTRY_HOST: &str = "ghcr.io";
 
 /// The OCI namespace under the registry host. Kept in one place because the
 /// debug-only loopback seam re-points the SAME namespace/repo names at another
-/// host.
-const TXR_REGISTRY_NAMESPACE: &str = "tinnlab";
+/// host. The method list (`method_list::fetch`) lives under it too.
+pub(crate) const TXR_REGISTRY_NAMESPACE: &str = "tinnlab";
 
 /// The per-language base-image repo name under the namespace.
 const TXR_ENVS_REPO: &str = "txresbench-env";
@@ -2021,8 +2021,9 @@ fn empty_registry_config() -> Result<PathBuf, AppError> {
 
 /// The oras arguments every call starts with: the subcommand (one word, or
 /// two for `blob fetch`), the app's empty registry config, and `--plain-http`
-/// when the dev seam names a loopback registry.
-fn oras_base_args(subcommand: &[&str], seams: &MethodEnvSeams) -> Result<Vec<String>, AppError> {
+/// when the dev seam names a loopback registry. The method list fetch
+/// (`method_list::fetch`) starts its calls the same way.
+pub(crate) fn oras_base_args(subcommand: &[&str], seams: &MethodEnvSeams) -> Result<Vec<String>, AppError> {
     let config = empty_registry_config()?;
     let mut args: Vec<String> = subcommand.iter().map(|w| (*w).to_string()).collect();
     args.push("--registry-config".to_string());
@@ -2043,7 +2044,9 @@ fn oras_base_args(subcommand: &[&str], seams: &MethodEnvSeams) -> Result<Vec<Str
 ///   byte counter — no oras-output parser);
 /// - a timeout kills the child and returns [`ENV_STAGING_TIMEOUT_CODE`] (a
 ///   non-zero tool exit is `ENV_REPOSITORY_UNKNOWN_CODE`).
-fn run_tool(
+///
+/// The method list fetch (`method_list::fetch`) runs oras through it too.
+pub(crate) fn run_tool(
     tool: &Path,
     args: &[String],
     timeout: Duration,

@@ -28,7 +28,7 @@ The steps are in `docs/runbooks/method-env-images-publish.md` §8 (updating a me
 |---|---|
 | `trusted-keys.json` | the minisign public keys the app trusts to sign a list, compiled into the app |
 | `method-list.schema.json` | the header schema (the nested documents keep their own) |
-| `method-list.json`, `method-list.json.minisig` | the built-in copy, written only by `scripts/import-method-list.sh` (sequence 0 = the unsigned bootstrap copy, before the first publish). Not present until the first import. |
+| `method-list.json`, `method-list.json.minisig` | the built-in copy, written only by `scripts/import-method-list.sh` (sequence 0 = the unsigned bootstrap copy, before the first publish; it has no `.minisig`). The app embeds this file and nothing else of the method facts. |
 
 `data/method-catalogue/catalogue.json` and `src-app/server/data/method-env-images.json`
 are the built-in list's two documents, extracted by the import to the paths the app and
@@ -57,3 +57,16 @@ the test key of `scripts/method-list/fixtures/` (its secret half is committed) i
 this file. A list signed by a key that is not here is refused by the app. Adding or
 removing a key reaches installed apps with the next app release; an app keeps its last
 good list in the meantime.
+
+## How the app uses the list
+
+The app embeds `method-list.json` (+ `.minisig`) and nothing else of the method facts. At
+start it uses the newest valid list among that built-in copy and the last good list it
+stored (`<app data>/method-list/v1/`), then asks the registry for a newer one in the
+background; it asks again before each run (short budgets) and from the Settings button,
+never on a timer. A list is verified before it is parsed, and the highest valid sequence
+wins (a lower one is a rollback, the same one with other bytes a conflict: both refused).
+Each request and each run reads ONE snapshot of the list; a run keeps its list to the end.
+Details: `docs/runbooks/method-env-images-publish.md` §10 and
+`src-app/server/src/modules/method_list/`.
+

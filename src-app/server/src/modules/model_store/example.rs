@@ -18,9 +18,10 @@
 //!    the data the run trains on: [`example_run_inputs`] canonicalizes
 //!    [`example_run_request`]'s own tables and config through
 //!    [`orchestrator::canonicalize_run`] (the run's `prepare_run` pass). It
-//!    is a function of the embedded catalogue + the embedded example + the
-//!    host's published env set only — no calibration, no host-CPU
-//!    dependence — and is computed once per process ([`example_methods`]).
+//!    is a function of the method list (its catalogue and this host's
+//!    published env set) + the embedded example only — no calibration, no
+//!    host-CPU dependence — and is computed once per list the process runs
+//!    on ([`example_methods`]).
 //! 2. The RUN is a real run through the engine's normal path
 //!    ([`orchestrator::start_run`], seam-injected so the test harness can
 //!    script the env/executor) over the embedded example training tables —
@@ -77,10 +78,10 @@ use crate::modules::file_validator::types::{
     CanonicalBundle, ParsedTable, ParsedTableSource, ProblemSeverity, TableFormat,
     ValidationResponse,
 };
-use crate::modules::method_catalogue::catalogue::catalogue;
 use crate::modules::method_catalogue::eligibility::{
-    eligibility_for, estimate_seconds_for, runtime_env_available, REFERENCE_CPUS,
+    eligibility_for, estimate_seconds_for, REFERENCE_CPUS,
 };
+use crate::modules::method_list::MethodList;
 use crate::modules::method_catalogue::types::{
     Catalogue, EligibilityRequest, EligibilityStatus, Method,
 };
@@ -213,13 +214,14 @@ fn require_training_side(request: &CreateRunRequest) -> Result<(), AppError> {
 /// ([`orchestrator::canonicalize_run`]), checked by
 /// [`require_training_side`] and [`error_free`].
 pub fn example_run_inputs() -> Result<ExampleRunInputs, AppError> {
-    run_inputs_of(example_run_request(&[]))
+    run_inputs_of(&crate::modules::method_list::current(), example_run_request(&[]))
 }
 
-fn run_inputs_of(request: CreateRunRequest) -> Result<ExampleRunInputs, AppError> {
+fn run_inputs_of(list: &MethodList, request: CreateRunRequest) -> Result<ExampleRunInputs, AppError> {
     require_training_side(&request)?;
-    let canonical = orchestrator::canonicalize_run(&request.input, &request.config, request.mode)
-        .map_err(not_valid)?;
+    let canonical =
+        orchestrator::canonicalize_run(list, &request.input, &request.config, request.mode)
+            .map_err(not_valid)?;
     let validation = error_free(canonical.validated)?;
     let train = canonical.train.ok_or_else(no_training_side)?;
     let settings = orchestrator::method_bundle_settings(&request.config, detect_cpus());
@@ -243,7 +245,12 @@ pub fn example_validation() -> Result<ValidationResponse, AppError> {
 
 fn validation_of(request: &CreateRunRequest) -> Result<ValidationResponse, AppError> {
     require_training_side(request)?;
-    orchestrator::validate_run(&request.input, &request.config, request.mode)
+    orchestrator::validate_run(
+        &crate::modules::method_list::current(),
+        &request.input,
+        &request.config,
+        request.mode,
+    )
         .map_err(not_valid)
         .and_then(error_free)
 }
@@ -256,20 +263,27 @@ fn validation_of(request: &CreateRunRequest) -> Result<ValidationResponse, AppEr
 /// a `BUNDLE_*` code; the estimate is the catalogue's (`REFERENCE_CPUS` —
 /// host-independent).
 pub fn pick_fast_methods(inputs: &ExampleRunInputs) -> Vec<String> {
-    pick_fast_methods_with(inputs, runtime_env_available)
+    pick_in(&crate::modules::method_list::current(), inputs)
+}
+
+/// The pick over one method list: its catalogue, and its host-arch images as
+/// the published-environment predicate.
+fn pick_in(list: &MethodList, inputs: &ExampleRunInputs) -> Vec<String> {
+    pick_from(&list.catalogue, inputs, |id| list.has_env(id))
 }
 
 /// [`pick_fast_methods`] with the published-environment predicate injected
-/// (production passes the host-arch [`runtime_env_available`]; the tests
-/// pass a fixed arch so the pick is checked on any host).
+/// (production passes the host-arch images; the tests pass a fixed arch so
+/// the pick is checked on any host).
+#[cfg(test)]
 fn pick_fast_methods_with(
     inputs: &ExampleRunInputs,
     env_available: impl Fn(&str) -> bool,
 ) -> Vec<String> {
-    pick_from(catalogue(), inputs, env_available)
+    pick_from(&crate::modules::method_list::current().catalogue, inputs, env_available)
 }
 
-/// The pick over a given catalogue (production: the embedded one; the tests
+/// The pick over a given catalogue (production: the current list's; the tests
 /// inject a modified copy to reach a method only the bundle stage refuses).
 fn pick_from(
     cat: &Catalogue,
@@ -357,23 +371,38 @@ fn first_passing(
 /// The pick's computation: the example run's inputs, then the pick. Pure and
 /// CPU-bound (validate + canonicalize + every candidate's bundles up to the
 /// cap), so it runs on the blocking pool ([`PickCache`]).
-fn compute_example_pick() -> Result<Vec<String>, AppError> {
+fn compute_example_pick(list: &MethodList) -> Result<Vec<String>, AppError> {
     #[cfg(test)]
     tests::PICK_COMPUTATIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    example_run_inputs().map(|inputs| pick_fast_methods(&inputs))
+    run_inputs_of(list, example_run_request(&[])).map(|inputs| pick_in(list, &inputs))
 }
 
-/// The process's example pick ([`PickCache`] over [`compute_example_pick`]).
-/// Every input is fixed for the process lifetime — the embedded example
-/// bytes, the embedded catalogue, the env manifest (itself loaded once) and
-/// the host arch (a compile-time constant) — so the stored outcome is what a
-/// fresh computation returns, and the endpoint's polls (every 1.5 s while
-/// the set trains) never redo the work.
-static EXAMPLE_PICK: PickCache = PickCache::new();
+/// The process's example pick, per method list ([`PickCache`] over
+/// [`compute_example_pick`]). Every input is fixed for one list — the
+/// embedded example bytes, the list's catalogue and images, and the host
+/// arch (a compile-time constant) — so the stored outcome is what a fresh
+/// computation returns, and the endpoint's polls (every 1.5 s while the set
+/// trains) never redo the work. When the app moves to a newer list, the pick
+/// is made again over it (one cache per list the process moves to; a
+/// handful at most, so the old ones are simply kept).
+static EXAMPLE_PICKS: std::sync::Mutex<Option<(u64, &'static PickCache)>> =
+    std::sync::Mutex::new(None);
 
-/// The example's method pick ([`EXAMPLE_PICK`]).
+/// The example's method pick ([`EXAMPLE_PICKS`]), over the current list.
 pub async fn example_methods() -> Result<Vec<String>, AppError> {
-    EXAMPLE_PICK.get(compute_example_pick).await
+    let list = crate::modules::method_list::current();
+    let cache: &'static PickCache = {
+        let mut slot = EXAMPLE_PICKS.lock().unwrap_or_else(|p| p.into_inner());
+        match *slot {
+            Some((sequence, cache)) if sequence == list.sequence => cache,
+            _ => {
+                let cache: &'static PickCache = Box::leak(Box::new(PickCache::new()));
+                *slot = Some((list.sequence, cache));
+                cache
+            }
+        }
+    };
+    cache.get(move || compute_example_pick(&list)).await
 }
 
 /// A failed pick as the cache keeps it ([`AppError`] is not `Clone`).
@@ -586,6 +615,7 @@ pub fn example_run_request(methods: &[String]) -> CreateRunRequest {
         },
         method_ids: methods.to_vec(),
         model_ids: Vec::new(),
+        method_list_sequence: None,
     }
 }
 
@@ -869,10 +899,21 @@ mod tests {
 
     use super::*;
     use crate::modules::execution_engine::bundle::{self, BundleError, MarkerSelection};
-    use crate::modules::execution_engine::envmanifest::{env_for_arch, EnvArch};
+    use crate::modules::execution_engine::envmanifest::{EnvArch, ManifestEntry};
     use crate::modules::method_catalogue::types::MarkerKind;
 
-    /// How many times [`EXAMPLE_PICK`]'s initializer ran in this process.
+    // The shipped list (the built-in method list), as one request reads it.
+    fn catalogue() -> &'static Catalogue {
+        &crate::modules::method_list::builtin().catalogue
+    }
+    fn env_for_arch(id: &str, arch: EnvArch) -> Option<&'static ManifestEntry> {
+        crate::modules::method_list::builtin().env_for_arch(id, arch)
+    }
+    fn runtime_env_available(id: &str) -> bool {
+        crate::modules::method_list::builtin().has_env(id)
+    }
+
+    /// How many times [`EXAMPLE_PICKS`]'s initializer ran in this process.
     pub(super) static PICK_COMPUTATIONS: AtomicUsize = AtomicUsize::new(0);
 
     fn inputs() -> ExampleRunInputs {
@@ -1170,7 +1211,7 @@ mod tests {
         let request = example_run_request(&picked);
         assert_eq!(request.method_ids, picked);
         assert_eq!(request.config, inputs.config, "the run's config");
-        let run = orchestrator::canonicalize_run(&request.input, &request.config, request.mode)
+        let run = orchestrator::canonicalize_run(crate::modules::method_list::builtin(), &request.input, &request.config, request.mode)
             .expect("the run canonicalizes its request");
         let run_train = run.train.expect("a train run has a training side");
         assert_eq!(
@@ -1212,7 +1253,7 @@ mod tests {
             &request.input,
             request.mode
         ));
-        let from_inputs = match run_inputs_of(request.clone()) {
+        let from_inputs = match run_inputs_of(crate::modules::method_list::builtin(), request.clone()) {
             Ok(_) => panic!("a run without a train side has no example inputs"),
             Err(e) => e,
         };
@@ -1230,7 +1271,7 @@ mod tests {
         // The real request passes the rule on both paths.
         let real = example_run_request(&[]);
         assert!(orchestrator::run_has_train_side(&real.input, real.mode));
-        assert!(validation_of(&real).is_ok() && run_inputs_of(real).is_ok());
+        assert!(validation_of(&real).is_ok() && run_inputs_of(crate::modules::method_list::builtin(), real).is_ok());
     }
 
     /// The cached pick is the pick of a fresh computation on this host, and

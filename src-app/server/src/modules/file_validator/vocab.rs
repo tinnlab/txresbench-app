@@ -43,7 +43,6 @@ use std::sync::OnceLock;
 use regex::Regex;
 
 use crate::modules::file_validator::types::{Limits, MarkerMatch, MatchKind};
-use crate::modules::method_catalogue::catalogue::marker_vocabulary;
 use crate::modules::method_catalogue::eligibility::parse_standard_ids;
 use crate::modules::method_catalogue::types::VocabularyMarker;
 
@@ -182,7 +181,8 @@ pub fn marker_matches(name: &str) -> Vec<MarkerMatch> {
 
 /// [`marker_matches`] plus the A05 truncation facts.
 pub fn marker_matches_set(name: &str) -> MarkerMatchSet {
-    marker_matches_in(marker_vocabulary(), name)
+    let list = crate::modules::method_list::current();
+    marker_matches_in(list.marker_vocabulary(), name)
 }
 
 /// The pure core: the ladder over an explicit vocabulary slice (the fixture

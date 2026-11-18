@@ -34,6 +34,7 @@ import type {
   MarkerVocabularyResponse,
   VocabularyMarker,
 } from '@/api-client/types'
+import { useMethodListRevision } from '@/lib/txr-method-list/revision'
 import { dropCached, fetchCached, readCached } from './fetchCache'
 
 export interface UseMarkersResult {
@@ -66,6 +67,9 @@ export function useMarkers(): UseMarkersResult {
   const [loading, setLoading] = useState(cached === undefined)
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
+  // A new method list drops the cache (fetchCache) and moves the revision:
+  // the vocabulary is fetched again.
+  const revision = useMethodListRevision()
 
   useEffect(() => {
     let cancelled = false
@@ -97,7 +101,7 @@ export function useMarkers(): UseMarkersResult {
     // `refresh` is the only reactive input: the vocabulary is ONE static
     // response with the module-level `MARKERS_KEY` identity (the plan's
     // stable-key rule) — a re-render never re-issues the fetch.
-  }, [refresh])
+  }, [refresh, revision])
 
   const refetch = useCallback(() => {
     // Drop first: a deliberate retry must hit the wire even for a key

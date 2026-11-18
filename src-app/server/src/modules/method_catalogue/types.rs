@@ -471,6 +471,10 @@ impl MethodSummary {
 pub struct MethodListResponse {
     pub methods: Vec<MethodSummary>,
     pub total: u32,
+    /// The sequence of the method list these rows come from: a screen sends it back
+    /// when it starts a run, and a run started from an older list is refused
+    /// (`409 METHOD_LIST_CHANGED`).
+    pub method_list_sequence: u64,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -792,6 +796,11 @@ pub struct EligibilityResponse {
     /// list header can say how many exist while still
     /// listing them.
     pub total_no_env: u32,
+    /// The sequence of the method list the verdicts come from (the HTTP surface
+    /// fills it; the pure engine leaves it out). A screen sends it back when it
+    /// starts a run (`409 METHOD_LIST_CHANGED` on another list).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method_list_sequence: Option<u64>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

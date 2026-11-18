@@ -315,7 +315,7 @@ async fn save_flow_records_the_run_models_into_a_set() {
         assert_eq!(m["task"], "pfs", "the run method row's task");
         assert_eq!(m["provenance"], "run");
     }
-    let detail_cat = txresbench::modules::method_catalogue::catalogue::method(METHOD_A)
+    let detail_cat = txresbench::modules::method_list::builtin().method(METHOD_A)
         .expect("catalogue");
     assert_eq!(models[0]["method_version"], detail_cat.version);
     assert_eq!(models[0]["group_label"], detail_cat.group_label);
@@ -667,7 +667,7 @@ async fn inventory_lists_filters_renames_and_deletes() {
         .expect("detail json");
     assert_eq!(detail["contract"], "2.0");
     assert_eq!(detail["features"][0], "M1");
-    let detail_cat = txresbench::modules::method_catalogue::catalogue::method("landmark-cox-current")
+    let detail_cat = txresbench::modules::method_list::builtin().method("landmark-cox-current")
         .expect("catalogue");
     assert_eq!(
         detail["marker_facts"]["count"].as_u64(),

@@ -259,7 +259,8 @@ impl MethodRow {
     pub fn into_method(self) -> Result<TxrRunMethod, AppError> {
         let state = self.state()?;
         let reason = self.reason();
-        let group_label = super::envmanifest::facts_for(&self.method_id)
+        let group_label = crate::modules::method_list::current()
+            .method(&self.method_id)
             .map(|m| m.group_label.clone())
             .unwrap_or_else(|| self.group.clone());
         let task = match &self.task {
@@ -383,6 +384,9 @@ pub struct NewRun {
     /// The estimate facts (None = never computed — CONS-EE-9b's "stores it on
     /// the run"; the provider's response is only a display fact).
     pub estimate: Option<TxrRunEstimate>,
+    /// The sequence of the method list the run took at its start (`None`:
+    /// a row not made by a run start, e.g. a seeded or replayed one).
+    pub method_list_sequence: Option<u64>,
 }
 
 /// The new method row (the F screen's row at classification time; the rest of
@@ -511,12 +515,14 @@ impl TxrRepository {
         let memory_total_bytes = new.memory_total_bytes.map(|v| v as i64);
         let cpus = new.cpus.map(|v| v as i32);
         let seed = new.seed as i32;
+        let method_list_sequence = new.method_list_sequence.map(|v| v as i64);
         sqlx::query_as!(
             RunRow,
             r#"INSERT INTO txr_runs
                  (id, created_at, status, mode, config, input_summary, model_ids,
-                  method_count, counts, dir, memory_total_bytes, cpus, seed, estimate)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                  method_count, counts, dir, memory_total_bytes, cpus, seed, estimate,
+                  method_list_sequence)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                RETURNING id as "id: Uuid", created_at as "created_at: DateTime<Utc>",
                          status, mode,
                          config as "config: serde_json::Value",
@@ -543,10 +549,28 @@ impl TxrRepository {
             cpus,
             seed,
             estimate,
+            method_list_sequence,
         )
         .fetch_one(&self.pool)
         .await
         .map_err(AppError::database_error)
+    }
+
+    /// The sequence of the method list a run took at its start (`None` for a
+    /// row that recorded none). `Err` only on a database failure; an unknown
+    /// run is `Ok(None)`.
+    pub async fn run_method_list_sequence(&self, id: Uuid) -> Result<Option<u64>, AppError> {
+        let row = sqlx::query!(
+            r#"SELECT method_list_sequence as "method_list_sequence?: i64"
+               FROM txr_runs WHERE id = $1"#,
+            id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(row
+            .and_then(|r| r.method_list_sequence)
+            .and_then(|v| u64::try_from(v).ok()))
     }
 
     /// The run row, or `None` (404 `RUN_NOT_FOUND` at the routes).
@@ -1550,6 +1574,7 @@ mod tests {
             cpus: Some(4),
             seed: 1,
             estimate: None,
+            method_list_sequence: None,
         }
     }
 

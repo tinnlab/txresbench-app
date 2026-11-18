@@ -104,20 +104,13 @@ impl AppModule for ExecutionEngineModule {
     }
 
     fn init(&mut self, ctx: &ModuleContext) -> Result<(), Box<dyn std::error::Error>> {
-        // The manifest boot check (INV-4 / PROV-method-env-images-1): parse +
-        // validate the embedded env manifest ONCE here, exactly like the
-        // `method_catalogue` module's boot check. An error is the boxed named
-        // refusal (`envmanifest::ManifestLoadError`) — module init errors
-        // abort the boot, so a malformed first-party manifest is never
-        // silently degraded into a per-method ENV_UNKNOWN forest. The
-        // catalogue facts (`envmanifest::facts_for`) need no boot-time call:
-        // the provider validates its own embed at ITS init (order 47, before
-        // this module).
-        envmanifest::ensure_loaded().map_err(|e| {
-            Box::<dyn std::error::Error>::from(format!(
-                "method env manifest load failed: {e}"
-            ))
-        })?;
+        // The images list is the method list's `images` half (INV-4 /
+        // PROV-method-env-images-1): the `method_list` module (order 45, before
+        // this one) checked the built-in copy, and a refusal there aborted the
+        // boot, so a malformed first-party list is never silently degraded into
+        // a per-method ENV_UNKNOWN forest. Each run reads one snapshot of the
+        // current list for its facts and images (`orchestrator::start_run`).
+        let list = crate::modules::method_list::current();
 
         // The pool the engine's repository + drive loop bind (CONS-EE-1/1b).
         // The inquiry/verification of the module-owned tables belongs to the
@@ -140,8 +133,9 @@ impl AppModule for ExecutionEngineModule {
             (*pool).clone(),
         )));
         tracing::info!(
-            envs = envmanifest::envs().len(),
-            "execution engine module initialized (embedded env manifest loaded)"
+            envs = list.images.envs.len(),
+            sequence = list.sequence,
+            "execution engine module initialized (method list loaded)"
         );
 
         // Boot reconcile of runs interrupted by an app restart (ITEM-7 /
@@ -255,6 +249,7 @@ mod tests {
             cpus: Some(4),
             seed: 1,
             estimate: None,
+            method_list_sequence: None,
         };
         repo.insert_run(&run).await.expect("run");
         repo.insert_method(&NewMethod {

@@ -90,7 +90,7 @@ use super::types::{
 };
 use crate::modules::execution_engine::envmanifest::{reuse_facts_for, ReuseFactsRefusal};
 use crate::modules::execution_engine::types::TxrTask;
-use crate::modules::method_catalogue::catalogue;
+use crate::modules::method_list::MethodList;
 use crate::modules::method_catalogue::eligibility::{
     estimate_quality_for, estimate_seconds_for, parse_standard_ids, required_marker_match,
     UnitMarkerRow,
@@ -110,6 +110,8 @@ pub async fn eligible(
     inventory: &InventoryEligibilityRequest,
 ) -> Result<ModelEligibilityResponse, AppError> {
     let repo = ModelStoreRepository::new(pool.clone());
+    // One snapshot of the current method list for every verdict of the call.
+    let list = crate::modules::method_list::current();
     let mut models = Vec::with_capacity(ids.len());
     for id in ids {
         let uuid = Uuid::parse_str(id).map_err(|_| model_not_found(id))?;
@@ -117,7 +119,7 @@ pub async fn eligible(
             .get_model(uuid)
             .await?
             .ok_or_else(|| model_not_found(id))?;
-        models.push(model_verdict(&row, inventory)?);
+        models.push(model_verdict_in(&list, &row, inventory)?);
     }
     let total_fit = models
         .iter()
@@ -159,8 +161,8 @@ fn parse_cell<T: serde::de::DeserializeOwned>(v: &Json, what: &str) -> Result<T,
 /// the default CPU count, exactly as the catalogue inventory path does). An
 /// absent method: no seconds, the weaker `estimate` quality (the pairing only
 /// renders when seconds are present).
-fn estimate_for(row: &ModelRow, patients: u32) -> (Option<f64>, TimingQuality) {
-    match catalogue::method(&row.method_id) {
+fn estimate_for(list: &MethodList, row: &ModelRow, patients: u32) -> (Option<f64>, TimingQuality) {
+    match list.method(&row.method_id) {
         Some(m) => (
             Some(estimate_seconds_for(m, patients, DEFAULT_ESTIMATE_CPUS)),
             estimate_quality_for(m),
@@ -169,14 +171,25 @@ fn estimate_for(row: &ModelRow, patients: u32) -> (Option<f64>, TimingQuality) {
     }
 }
 
-/// One model's verdict (the pure core — row + inventory, no HTTP, no I/O).
+/// The tests' shorthand for [`model_verdict_in`] over the current list.
+#[cfg(test)]
 fn model_verdict(
+    row: &ModelRow,
+    inv: &InventoryEligibilityRequest,
+) -> Result<ModelEligibility, AppError> {
+    model_verdict_in(&crate::modules::method_list::current(), row, inv)
+}
+
+/// One model's verdict (the pure core — list + row + inventory, no HTTP, no
+/// I/O): the method facts and the marker vocabulary come from `list`.
+fn model_verdict_in(
+    list: &MethodList,
     row: &ModelRow,
     inv: &InventoryEligibilityRequest,
 ) -> Result<ModelEligibility, AppError> {
     let task = parse_task(&row.task)?;
     let endpoint = parse_endpoint(&row.endpoint)?;
-    let (estimated_seconds, estimate_quality) = estimate_for(row, inv.patients);
+    let (estimated_seconds, estimate_quality) = estimate_for(list, row, inv.patients);
 
     // The requirement guard (DEC-6): a model with no recorded requirement at
     // all is cannot_run + MODEL_REQUIREMENTS_UNRECORDED — never a silent
@@ -212,7 +225,7 @@ fn model_verdict(
     // cannot run — the run refuses it, so the verdict says so first.
     let kept_facts = super::store::row_method_facts(row)?;
     if let Err(ReuseFactsRefusal::OtherVersion { .. }) =
-        reuse_facts_for(&row.method_id, &row.method_version, kept_facts.as_ref())
+        reuse_facts_for(&list.catalogue, &row.method_id, &row.method_version, kept_facts.as_ref())
     {
         return Ok(ModelEligibility {
             id: row.id.to_string(),
@@ -261,8 +274,8 @@ fn model_verdict(
     // Marker presence: the required rule (when recorded) with the provider's
     // matcher; else the recorded features (the instance's marker set).
     let resolved = match &required {
-        Some(rule) => required_resolution(inv, rule),
-        None => features_resolution(inv, &features),
+        Some(rule) => required_resolution(list, inv, rule),
+        None => features_resolution(list, inv, &features),
     };
     if !resolved.missing.is_empty() {
         reasons.push(ModelReason {
@@ -306,7 +319,7 @@ fn model_verdict(
     // Unit-family compatibility for the matched markers (the vocabulary's
     // family vs the inventory marker's — a percent value never satisfies a
     // concentration-family model; unknown on either side is not a mismatch).
-    unit_mismatches(&resolved.used, &mut reasons);
+    unit_mismatches(list, &resolved.used, &mut reasons);
 
     // Draw coverage + the decision-day rule over the model's used markers.
     let (mut coverage, mut min_draws, no_value) = draw_coverage(inv, &marker_facts, &resolved.used);
@@ -451,6 +464,7 @@ struct Resolution<'a> {
 /// forms, so `parse_standard_ids` round-trips it exactly; the `other`-system
 /// name/feature fallback rides the row's marker + dataset features).
 fn required_resolution<'a>(
+    list: &MethodList,
     inv: &'a InventoryEligibilityRequest,
     required: &RequiredMarkers,
 ) -> Resolution<'a> {
@@ -494,7 +508,7 @@ fn required_resolution<'a>(
                     id_system: String::new(),
                     id: id.clone(),
                 });
-            display_of(orig.id_system.as_str(), &orig.id, &orig.name)
+            display_of(list, orig.id_system.as_str(), &orig.id, &orig.name)
         })
         .collect();
     Resolution {
@@ -509,6 +523,7 @@ fn required_resolution<'a>(
 /// feature must resolve in the inventory (name equality, standard-id text,
 /// vocabulary names — see the module doc).
 fn features_resolution<'a>(
+    list: &MethodList,
     inv: &'a InventoryEligibilityRequest,
     features: &[String],
 ) -> Resolution<'a> {
@@ -521,7 +536,7 @@ fn features_resolution<'a>(
             .markers
             .iter()
             .filter(|mk| !mk.is_detection_call)
-            .find(|mk| feature_matches(mk, feature))
+            .find(|mk| feature_matches(list, mk, feature))
         {
             Some(mk) => {
                 if !used.iter().any(|u| std::ptr::eq(*u, mk)) {
@@ -531,7 +546,7 @@ fn features_resolution<'a>(
             }
             None => {
                 missing.push(feature.trim().to_ascii_lowercase());
-                missing_markers.push(display_of("other", feature.trim(), feature.trim()));
+                missing_markers.push(display_of(list, "other", feature.trim(), feature.trim()));
             }
         }
     }
@@ -551,7 +566,7 @@ fn features_resolution<'a>(
 /// insensitive equality against the marker's key/display name, a standard-id
 /// text of the feature against the marker's recorded ids, or the marker's
 /// vocabulary name/alias surface (the provider's `other`-system fallback).
-fn feature_matches(mk: &InventoryMarker, feature: &str) -> bool {
+fn feature_matches(list: &MethodList, mk: &InventoryMarker, feature: &str) -> bool {
     let f = feature.trim();
     if mk.key.eq_ignore_ascii_case(f) || mk.display_name.eq_ignore_ascii_case(f) {
         return true;
@@ -564,7 +579,7 @@ fn feature_matches(mk: &InventoryMarker, feature: &str) -> bool {
             }
         }
     }
-    names_of(mk).contains(&f.to_ascii_lowercase())
+    names_of(list, mk).contains(&f.to_ascii_lowercase())
 }
 
 /// The vocabulary entry for a `(system, id)` pair — the catalogue engine's
@@ -572,8 +587,12 @@ fn feature_matches(mk: &InventoryMarker, feature: &str) -> bool {
 /// canonical-cased, a foreign inventory must not silently skip the
 /// vocabulary checks). One definition for the unit-family, name and display
 /// lookups below.
-fn vocab_marker(system: &str, id: &str) -> Option<&'static crate::modules::method_catalogue::types::VocabularyMarker> {
-    catalogue::marker_vocabulary()
+fn vocab_marker<'l>(
+    list: &'l MethodList,
+    system: &str,
+    id: &str,
+) -> Option<&'l crate::modules::method_catalogue::types::VocabularyMarker> {
+    list.marker_vocabulary()
         .iter()
         .find(|v| v.system.as_str().eq_ignore_ascii_case(system) && v.id.eq_ignore_ascii_case(id))
 }
@@ -581,12 +600,12 @@ fn vocab_marker(system: &str, id: &str) -> Option<&'static crate::modules::metho
 /// The names a file marker answers to (its own + the resolved vocabulary
 /// marker's names/aliases — the definition the catalogue engine uses; the
 /// store binds it, never re-derives a marker list).
-fn names_of(mk: &InventoryMarker) -> BTreeSet<String> {
+fn names_of(list: &MethodList, mk: &InventoryMarker) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     names.insert(mk.key.trim().to_ascii_lowercase());
     names.insert(mk.display_name.trim().to_ascii_lowercase());
     for sid in &mk.standard_ids {
-        if let Some(v) = vocab_marker(&sid.system, &sid.id) {
+        if let Some(v) = vocab_marker(list, &sid.system, &sid.id) {
             names.insert(v.id.to_ascii_lowercase());
             names.insert(v.display_name.trim().to_ascii_lowercase());
             for a in &v.aliases {
@@ -621,8 +640,8 @@ fn standard_id_text(mk: &InventoryMarker) -> String {
 /// The `MissingMarker` row for a required id/feature — the display name from
 /// the vocabulary, the group id from the vocabulary's first group (the
 /// catalogue engine's construction).
-fn display_of(id_system: &str, id: &str, name: &str) -> MissingMarker {
-    let vocab = vocab_marker(id_system, id);
+fn display_of(list: &MethodList, id_system: &str, id: &str, name: &str) -> MissingMarker {
+    let vocab = vocab_marker(list, id_system, id);
     MissingMarker {
         id: id.to_string(),
         id_system: id_system.to_string(),
@@ -642,13 +661,13 @@ fn display_of(id_system: &str, id: &str, name: &str) -> MissingMarker {
 /// marker must be measured in the vocabulary's family; an unknown family on
 /// either side is not a mismatch, and `other`-system markers have no
 /// canonical family).
-fn unit_mismatches(used: &[&InventoryMarker], reasons: &mut Vec<ModelReason>) {
+fn unit_mismatches(list: &MethodList, used: &[&InventoryMarker], reasons: &mut Vec<ModelReason>) {
     for mk in used {
         for sid in &mk.standard_ids {
             if sid.system.eq_ignore_ascii_case("other") {
                 continue;
             }
-            if let Some(vocab) = vocab_marker(&sid.system, &sid.id) {
+            if let Some(vocab) = vocab_marker(list, &sid.system, &sid.id) {
                 if vocab.unit_family != UnitFamily::None
                     && mk.unit_family != UnitFamily::None
                     && vocab.unit_family != mk.unit_family
@@ -955,7 +974,7 @@ mod tests {
         assert_eq!(v.coverage.fraction, 1.0);
         assert_eq!(v.min_draws.required, 1);
         assert_eq!(v.min_draws.unmet_patients, 0);
-        let m = catalogue::method("cox-cutpoint-risk").expect("catalogue method");
+        let m = crate::modules::method_list::builtin().method("cox-cutpoint-risk").expect("catalogue method");
         assert_eq!(
             v.estimated_seconds,
             Some(estimate_seconds_for(m, 2, DEFAULT_ESTIMATE_CPUS)),
@@ -980,7 +999,7 @@ mod tests {
             56.0,
         );
         let method = "landmark-cox-current";
-        let cat = catalogue::method(method).expect("a catalogue method");
+        let cat = crate::modules::method_list::builtin().method(method).expect("a catalogue method");
 
         let mut same = base_row(method);
         same.method_version = cat.version.clone();
@@ -1260,7 +1279,7 @@ mod tests {
 
         // The store's required_resolution reports the SAME matched set (the
         // used marker is the CEA column, the missing set is empty).
-        let r = required_resolution(&inv, &required);
+        let r = required_resolution(crate::modules::method_list::builtin(), &inv, &required);
         assert!(r.missing.is_empty());
         assert_eq!(r.used.len(), 1);
         assert_eq!(r.used[0].key, "CEA_serum");
@@ -1272,7 +1291,7 @@ mod tests {
             1,
             56.0,
         );
-        let r2 = required_resolution(&inv2, &required);
+        let r2 = required_resolution(crate::modules::method_list::builtin(), &inv2, &required);
         assert_eq!(r2.missing, vec!["2039-6"]);
         assert_eq!(r2.fraction, 0.0);
         assert!(r2.used.is_empty());

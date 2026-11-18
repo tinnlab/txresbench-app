@@ -17,7 +17,7 @@
 //! be read (not a file hash, e.g. a demo row's `recorded`) is refused too.
 //!
 //! The functions here are pure over the list they are given; the run passes
-//! the boot-validated list (a later change passes the run's own snapshot).
+//! its own snapshot of the method list (the one it took at its start).
 
 use super::envmanifest::{base_pin, BaseArtifact, EnvArch, EnvLanguage, EnvManifest, ManifestEntry};
 use super::orchestrator::{base_env_id, base_env_ref, layer_env_ref};
@@ -46,16 +46,18 @@ pub struct PlanEnv {
 /// Where a [`PlanEnv`] came from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlanEnvSource {
-    /// The method list's entry for this computer (a train run).
-    List,
+    /// The method list's entry for this computer (a train run), from the
+    /// list with this sequence (the run's own snapshot).
+    List { sequence: u64 },
     /// A saved model's own record (a reuse run), even when the list supplied
     /// the tag and size of the same files.
     SavedModel { model_id: String },
 }
 
 impl PlanEnv {
-    /// A train run's environment: the list entry's layer and its base.
-    pub fn from_list(entry: &ManifestEntry, base: Option<&BaseArtifact>) -> PlanEnv {
+    /// A train run's environment: the list entry's layer and its base, from
+    /// the method list with `sequence`.
+    pub fn from_list(entry: &ManifestEntry, base: Option<&BaseArtifact>, sequence: u64) -> PlanEnv {
         let layer = layer_env_ref(entry);
         let base_ref = base_env_ref(entry, base);
         PlanEnv {
@@ -71,7 +73,7 @@ impl PlanEnv {
             layer_size: Some(entry.size_bytes),
             layer,
             base: base_ref,
-            source: PlanEnvSource::List,
+            source: PlanEnvSource::List { sequence },
         }
     }
 
@@ -575,7 +577,7 @@ mod tests {
             &[entry("cox-model", "amd64", "2.0.1", LAYER_V2, 9_000_000)],
         );
         let e = l.find("cox-model", EnvArch::Amd64).expect("entry");
-        let env = PlanEnv::from_list(e, l.base_for_entry(e));
+        let env = PlanEnv::from_list(e, l.base_for_entry(e), 7);
         assert_eq!(env.image.method_version.as_deref(), Some("2.0.1"));
         assert_eq!(env.image.arch.as_deref(), Some("amd64"));
         assert_eq!(env.image.layer_digest, LAYER_V2);
@@ -583,7 +585,7 @@ mod tests {
         assert_eq!(env.image.layer_tag, env.layer.tag);
         assert_eq!(env.image.base_tag, env.base.tag);
         assert_eq!(env.layer_size, Some(9_000_000));
-        assert_eq!(env.source, PlanEnvSource::List);
+        assert_eq!(env.source, PlanEnvSource::List { sequence: 7 });
         assert_eq!(env.describe(), "2.0.1");
     }
 }

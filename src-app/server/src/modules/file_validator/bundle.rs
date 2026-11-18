@@ -25,9 +25,18 @@ use crate::modules::file_validator::validate::resolve_request;
 use crate::modules::file_validator::vocab::normalize_marker_name;
 use crate::modules::method_catalogue::eligibility::is_companion;
 
-/// The canonical bundle (PROV-FV-5).
+/// The canonical bundle (PROV-FV-5), over the current method list's vocabulary.
 pub fn canonical_bundle(req: &ValidationRequest) -> Result<CanonicalBundle, ValidationError> {
-    let resolved = resolve_request(req)?;
+    let list = crate::modules::method_list::current();
+    canonical_bundle_with(list.marker_vocabulary(), req)
+}
+
+/// [`canonical_bundle`] against a given vocabulary (a run passes its own method list's).
+pub fn canonical_bundle_with(
+    vocabulary: &[crate::modules::method_catalogue::types::VocabularyMarker],
+    req: &ValidationRequest,
+) -> Result<CanonicalBundle, ValidationError> {
+    let resolved = resolve_request(vocabulary, req)?;
     let model = &resolved.model;
 
     // The covariate columns, one type per column (the tidy rule: a column is
@@ -122,7 +131,7 @@ pub fn canonical_bundle(req: &ValidationRequest) -> Result<CanonicalBundle, Vali
             .find(|c| {
                 c.key == effective || c.spellings.iter().any(|s| s.spelling == effective)
             })
-            .and_then(|c| c.mapping)
+            .and_then(|c| c.mapping.as_ref())
             .map(|e| e.id.clone());
         features.push(CanonicalFeature {
             feature: effective.clone(),

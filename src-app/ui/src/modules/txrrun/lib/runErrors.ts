@@ -15,6 +15,9 @@
  *   fresh list no longer knows). The dropped rows leave the selection with
  *   the notice; a run attempt with a selection NO source can attribute is
  *   never repeated silently — the error line surfaces instead.
+ * - `409 METHOD_LIST_CHANGED` — the app moved to a newer method list since
+ *   the screen loaded: the screen reloads its methods and says so
+ *   ([`METHOD_LIST_CHANGED_NOTICE`]); nothing is run until the user runs again.
  * - `409 RUN_ALREADY_ACTIVE` — the one-active-run contract: resolve the
  *   active run through `Txr.listRuns` (DEC-18) and the page navigates to
  *   its running screen; only when no active run answers does the error
@@ -27,6 +30,21 @@
 /** The 409's line (no active run answered — the honest racy state). */
 export const RUN_ALREADY_ACTIVE_LINE =
   'A run is already active for these files — the engine allows one at a time.'
+
+/** The `409 METHOD_LIST_CHANGED` notice: the app moved to a newer method list
+ *  since the screen loaded; the screen reloads its methods and the user checks
+ *  the selection before running again. */
+export const METHOD_LIST_CHANGED_NOTICE = 'The method list was updated; check your selection'
+
+/** Whether a create failure is the newer-method-list 409 (the engine's code). */
+export function isMethodListChanged(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    'error_code' in error &&
+    (error as { error_code: unknown }).error_code === 'METHOD_LIST_CHANGED'
+  )
+}
 
 /** The 404's line when neither source can name the dropped method. */
 export const RUN_METHODS_GONE_LINE =

@@ -384,6 +384,12 @@ pub struct CreateRunRequest {
     /// DEC-10 — assets are DATA to the engine, never an import).
     #[serde(default)]
     pub model_ids: Vec<TxrModelAsset>,
+    /// The method list the screen showed (`method_list_sequence` of the method
+    /// list and eligibility responses). When it is not the list the run starts
+    /// on, the run is refused with `409 METHOD_LIST_CHANGED`: a run never
+    /// starts from a selection made on another list. Absent: no check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method_list_sequence: Option<u64>,
 }
 
 /// The rerun record the engine persists beside a run (`<run_dir>/input/
@@ -1246,6 +1252,7 @@ mod tests {
             config: RunConfig::default(),
             method_ids: vec!["landmark-cox-current".to_string()],
             model_ids: Vec::new(),
+            method_list_sequence: None,
         }
     }
 

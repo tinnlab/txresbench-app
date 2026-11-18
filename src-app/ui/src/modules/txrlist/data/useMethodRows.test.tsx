@@ -23,7 +23,12 @@
  * reshapes a payload breaks the typecheck here (DEC-11's mechanical move).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, renderHook } from '@testing-library/react'
+import {
+  __resetMethodListRevisionForTests,
+  noteMethodListSequence,
+  shownMethodListSequence,
+} from '@/lib/txr-method-list/revision'
+import { act, cleanup, renderHook } from '@testing-library/react'
 import type {
   EligibilityResponse,
   InventoryEligibilityRequest,
@@ -32,12 +37,18 @@ import type {
   MethodSummary,
   Timing,
 } from '@/api-client/types'
-import { stableInventoryKey, useMethodRows } from './useMethodRows'
+import {
+  MIXED_LIST_LINE,
+  MIXED_LIST_RETRIES,
+  stableInventoryKey,
+  useMethodRows,
+} from './useMethodRows'
 
 const api = vi.hoisted(() => ({
   list: vi.fn(),
   eligibility: vi.fn(),
   estimate: vi.fn(),
+  updates: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -46,6 +57,7 @@ vi.mock('@/api-client', () => ({
       eligibility: api.eligibility,
       estimate: api.estimate,
     },
+    MethodList: { updates: api.updates },
   },
 }))
 
@@ -98,7 +110,11 @@ function verdict(
 
 /** The catalogue response the hook joins (one method in the fixture set). */
 function listResponse(): MethodListResponse {
-  return { methods: [summary({ id: 'direct-on', year: 2021, language: 'R' })], total: 1 }
+  return {
+    methods: [summary({ id: 'direct-on', year: 2021, language: 'R' })],
+    total: 1,
+    method_list_sequence: 0,
+  }
 }
 
 /** The eligibility response for the fixture set (the can-run verdict). */
@@ -151,11 +167,19 @@ beforeEach(() => {
   api.list.mockReset()
   api.eligibility.mockReset()
   api.estimate.mockReset()
+  api.updates.mockReset()
   api.list.mockResolvedValue(listResponse())
   api.eligibility.mockResolvedValue(eligibilityResponse())
+  // The status read of a method screen: unanswered by default (the hook's own
+  // responses name the list).
+  api.updates.mockRejectedValue(new Error('no status in this suite'))
+  __resetMethodListRevisionForTests()
 })
 
 afterEach(() => {
+  // Unmount every hook: a mounted one would answer the next test's method list
+  // change (a process-wide signal) and count its requests there.
+  cleanup()
   vi.restoreAllMocks()
 })
 
@@ -349,5 +373,63 @@ describe('useMethodRows (TEST-UL-11)', () => {
       ],
     })
     expect(stableInventoryKey(withPatientDraws)).not.toBe(stableInventoryKey(reversed))
+  })
+})
+
+describe('useMethodRows and the method list (PR 5)', () => {
+  it('reports the list the cards come from and notes it for a run request', async () => {
+    api.list.mockResolvedValue({ ...listResponse(), method_list_sequence: 7 })
+    api.eligibility.mockResolvedValue({ ...eligibilityResponse(), method_list_sequence: 7 })
+    const { result } = renderHook(() => useMethodRows(inventory()))
+    await act(async () => {})
+    expect(result.current.methodListSequence).toBe(7)
+    expect(shownMethodListSequence()).toBe(7)
+  })
+
+  it('a newer method list fetches the cards and verdicts again', async () => {
+    api.list.mockResolvedValue({ ...listResponse(), method_list_sequence: 7 })
+    api.eligibility.mockResolvedValue({ ...eligibilityResponse(), method_list_sequence: 7 })
+    const { result } = renderHook(() => useMethodRows(inventory()))
+    await act(async () => {})
+    expect(api.list).toHaveBeenCalledTimes(1)
+    api.list.mockResolvedValue({ ...listResponse(), method_list_sequence: 8 })
+    api.eligibility.mockResolvedValue({ ...eligibilityResponse(), method_list_sequence: 8 })
+    await act(async () => {
+      noteMethodListSequence(8)
+    })
+    await act(async () => {})
+    expect(api.list).toHaveBeenCalledTimes(2)
+    expect(api.eligibility).toHaveBeenCalledTimes(2)
+    expect(result.current.methodListSequence).toBe(8)
+    // The status of a method screen is read on mount (the poll's first read).
+    expect(api.updates).toHaveBeenCalled()
+  })
+
+  it('rows and verdicts named by two lists are fetched again, never joined', async () => {
+    // A newer list arrived between the two parallel requests: rows of #3, verdicts of #4.
+    api.list
+      .mockResolvedValueOnce({ ...listResponse(), method_list_sequence: 3 })
+      .mockResolvedValue({ ...listResponse(), method_list_sequence: 4 })
+    api.eligibility.mockResolvedValue({ ...eligibilityResponse(), method_list_sequence: 4 })
+    const { result } = renderHook(() => useMethodRows(inventory()))
+    await act(async () => {})
+    await act(async () => {})
+    expect(api.list).toHaveBeenCalledTimes(2)
+    expect(result.current.methodListSequence).toBe(4)
+    expect(result.current.error).toBeNull()
+    expect(result.current.cards).toHaveLength(1)
+  })
+
+  it('answers that keep naming two lists end in an error line, not mixed cards', async () => {
+    api.list.mockResolvedValue({ ...listResponse(), method_list_sequence: 3 })
+    api.eligibility.mockResolvedValue({ ...eligibilityResponse(), method_list_sequence: 4 })
+    const { result } = renderHook(() => useMethodRows(inventory()))
+    for (let i = 0; i <= MIXED_LIST_RETRIES + 1; i += 1) {
+      await act(async () => {})
+    }
+    expect(api.list).toHaveBeenCalledTimes(MIXED_LIST_RETRIES + 1)
+    expect(result.current.error).toBe(MIXED_LIST_LINE)
+    expect(result.current.cards).toHaveLength(0)
+    expect(result.current.methodListSequence).toBeNull()
   })
 })

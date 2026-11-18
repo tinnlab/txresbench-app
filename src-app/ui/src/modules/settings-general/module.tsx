@@ -3,6 +3,9 @@ import { IoMdPerson } from 'react-icons/io'
 import { SettingsLayoutDef } from '@/modules/settings/SettingsLayout'
 import { lazyWithPreload } from '@/utils/lazyWithPreload'
 import '@/modules/settings/types/SettingsSlots' // Register settings slot types
+// Side-effect import: registers `methodList.checkForUpdates` (the Methods card's button,
+// the palette and the AI agent run it). The sole runtime import site.
+import '@/core/actions/builtin/methodListActions'
 
 const GeneralSettings = lazyWithPreload(() => import('./GeneralSettings'))
 

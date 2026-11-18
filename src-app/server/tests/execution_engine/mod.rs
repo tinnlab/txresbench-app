@@ -330,6 +330,7 @@ pub fn cohort_run_request(
         },
         method_ids: methods.iter().map(|s| s.to_string()).collect(),
         model_ids: Vec::new(),
+        method_list_sequence: None,
     }
 }
 

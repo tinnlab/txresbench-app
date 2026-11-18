@@ -58,8 +58,7 @@ use crate::modules::file_validator::units::{
     unit_mismatch_problem, unit_mixed_problem, unit_unclassified_problem, MarkerUnitFacts,
     UnitAgreement,
 };
-use crate::modules::file_validator::vocab::{marker_matches_set, normalize_marker_name};
-use crate::modules::method_catalogue::catalogue::marker_vocabulary;
+use crate::modules::file_validator::vocab::{marker_matches_in, normalize_marker_name};
 use crate::modules::method_catalogue::eligibility::is_companion;
 use crate::modules::method_catalogue::types::{
     PatientDrawCounts, StandardId, UnitFamily, VocabularyMarker,
@@ -76,7 +75,8 @@ pub(crate) struct ResolvedMarker {
     /// Every raw spelling with its FILE rows, file order.
     pub spellings: Vec<crate::modules::file_validator::vocab::MarkerSpelling>,
     pub unit_cells: Vec<(String, u32)>,
-    pub mapping: Option<&'static VocabularyMarker>,
+    /// The confirmed vocabulary marker (a copy from the request's list snapshot).
+    pub mapping: Option<VocabularyMarker>,
 }
 
 impl ResolvedMarker {
@@ -104,13 +104,15 @@ pub(crate) struct ResolvedRequest {
 /// marker columns (the pure engine behind both the validate response and the
 /// canonical bundle — one resolution, one join/mapping contract).
 pub(crate) fn resolve_request(
+    vocabulary: &[VocabularyMarker],
     req: &ValidationRequest,
 ) -> Result<ResolvedRequest, ValidationError> {
     if req.mode == ValidationMode::Files && req.patients.is_none() {
         return Err(ValidationError::MissingPatients);
     }
     let model = build_model(req.patients.as_ref(), &req.measurements);
-    let (marker_columns, joined_groups) = resolve_marker_columns(&model, &req.joins, &req.mapping)?;
+    let (marker_columns, joined_groups) =
+        resolve_marker_columns(vocabulary, &model, &req.joins, &req.mapping)?;
     let spelling_to_key = marker_columns
         .iter()
         .flat_map(|c| {
@@ -132,6 +134,7 @@ pub(crate) fn resolve_request(
 /// The marker columns of the model: one per distinct normalized spelling, in
 /// file order, with the user's joins and mappings applied (both validated).
 fn resolve_marker_columns(
+    vocabulary: &[VocabularyMarker],
     model: &CanonicalModel,
     joins: &[JoinOffer],
     mapping: &[MarkerMapping],
@@ -222,7 +225,6 @@ fn resolve_marker_columns(
     }
 
     // Apply the mappings (the user-confirmed vocabulary identity).
-    let vocabulary = marker_vocabulary();
     for m in mapping {
         let Some(column) = columns.iter_mut().find(|c| c.key == m.key) else {
             return Err(ValidationError::InvalidJoin {
@@ -235,7 +237,7 @@ fn resolve_marker_columns(
             .ok_or_else(|| ValidationError::InvalidJoin {
                 key: m.marker_id.clone(),
             })?;
-        column.mapping = Some(entry);
+        column.mapping = Some(entry.clone());
     }
     Ok((columns, joined_groups))
 }
@@ -249,7 +251,7 @@ fn column_unit_verdict(
     column: &ResolvedMarker,
 ) -> (UnitStatus, Option<FileProblem>, UnitFamily) {
     let facts = column.unit_facts();
-    match column.mapping {
+    match &column.mapping {
         Some(entry) => {
             if facts.is_absent() {
                 return (UnitStatus::Absent, Some(unit_absent_problem(&column.key)), entry.unit_family);
@@ -465,7 +467,17 @@ fn patients_summary(rows: &[PatientRow]) -> PatientsSummary {
 /// cross-table + units + joins + outcome availability), the resolved marker
 /// columns, both summaries and the provider's own inventory body.
 pub fn validate(req: &ValidationRequest) -> Result<ValidationResponse, ValidationError> {
-    let resolved = resolve_request(req)?;
+    let list = crate::modules::method_list::current();
+    validate_with(list.marker_vocabulary(), req)
+}
+
+/// [`validate`] against a given vocabulary (a run passes its own method list's, so
+/// the run's validation and its eligibility read one list).
+pub fn validate_with(
+    vocabulary: &[VocabularyMarker],
+    req: &ValidationRequest,
+) -> Result<ValidationResponse, ValidationError> {
+    let resolved = resolve_request(vocabulary, req)?;
     let ResolvedRequest {
         parameters,
         model,
@@ -532,7 +544,7 @@ pub fn validate(req: &ValidationRequest) -> Result<ValidationResponse, Validatio
         if let Some(p) = unit_problem {
             problems.push(p);
         }
-        let set = marker_matches_set(&column.key);
+        let set = marker_matches_in(vocabulary, &column.key);
         if set.fuzzy_truncated {
             problems.push(FileProblem::new(
                 ProblemCode::A05VocabularyCandidatesTruncated,
@@ -623,7 +635,7 @@ fn build_inventory(resolved: &ResolvedRequest) -> InventoryEligibilityRequest {
     let mut inv_markers = Vec::new();
     for column in &resolved.marker_columns {
         let (_, _unit_problem, inventory_family) = column_unit_verdict(column);
-        let reference = column.mapping;
+        let reference = column.mapping.as_ref();
         let display_name = reference
             .map(|e| e.display_name.clone())
             .unwrap_or_else(|| column.key.clone());

@@ -22,10 +22,14 @@ use std::fmt;
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
+use sha2::{Digest, Sha256};
 
-use crate::modules::execution_engine::envmanifest::{parse_manifest, EnvManifest, ManifestLoadError};
+use crate::modules::execution_engine::envmanifest::{
+    parse_manifest, BaseArtifact, BaseRefFacts, EnvArch, EnvManifest, ManifestEntry,
+    ManifestLoadError,
+};
 use crate::modules::method_catalogue::catalogue::{parse_catalogue, CatalogueLoadError};
-use crate::modules::method_catalogue::types::Catalogue;
+use crate::modules::method_catalogue::types::{Catalogue, Method, VocabularyMarker};
 
 use super::verify::{SignedComment, Signer, VerifiedList};
 
@@ -35,7 +39,7 @@ pub const LIST_FORMAT: &str = "txresbench-method-list";
 pub const FORMAT_VERSION: u32 = 1;
 
 /// A parsed, checked method list.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MethodList {
     pub format_version: u32,
     pub sequence: u64,
@@ -44,6 +48,9 @@ pub struct MethodList {
     pub images: EnvManifest,
     /// `None` for the unsigned bootstrap copy (sequence 0).
     pub signer: Option<Signer>,
+    /// sha256 of the verified bytes (64 lowercase hex): two lists with one sequence
+    /// and other bytes are a conflict, never the same list.
+    pub sha256: String,
 }
 
 /// A named refusal of a verified list's body.
@@ -240,6 +247,7 @@ pub fn parse(list: VerifiedList) -> Result<MethodList, ListError> {
         catalogue,
         images,
         signer: list.signer().cloned(),
+        sha256: hex::encode(Sha256::digest(list.bytes())),
     })
 }
 
@@ -264,7 +272,54 @@ fn check_rules(catalogue: &Catalogue, images: &EnvManifest) -> Result<(), ListEr
     Ok(())
 }
 
+/// The lookups the app makes in one list. A request or a run takes one list (the current
+/// one, `super::current()`) and asks it everything, so its answers never mix two lists.
 impl MethodList {
+    /// The catalogue row of a method.
+    pub fn method(&self, id: &str) -> Option<&Method> {
+        self.catalogue.method(id)
+    }
+
+    /// The image entry of a method for this computer's chip type; `None` when the list
+    /// has none (the method cannot run here: `ENV_UNKNOWN`).
+    pub fn env_for(&self, method_id: &str) -> Option<&ManifestEntry> {
+        self.env_for_arch(method_id, EnvArch::host()?)
+    }
+
+    /// The image entry of a method for a chip type.
+    pub fn env_for_arch(&self, method_id: &str, arch: EnvArch) -> Option<&ManifestEntry> {
+        self.images.find(method_id, arch)
+    }
+
+    /// Whether a method has an image for this computer (the one runtime predicate the
+    /// screens' eligibility and the run's classification share).
+    pub fn has_env(&self, method_id: &str) -> bool {
+        self.env_for(method_id).is_some()
+    }
+
+    /// The base record an entry stacks on (`None` for a list without `bases`).
+    pub fn base_artifact_for(&self, entry: &ManifestEntry) -> Option<&BaseArtifact> {
+        self.images.base_for_entry(entry)
+    }
+
+    /// The base pairing facts of a method's entry for this computer, verbatim.
+    pub fn base_for(&self, env_id: &str) -> Option<BaseRefFacts<'_>> {
+        self.env_for(env_id).map(ManifestEntry::base)
+    }
+
+    /// The marker vocabulary.
+    pub fn marker_vocabulary(&self) -> &[VocabularyMarker] {
+        &self.catalogue.markers
+    }
+
+    /// The vocabulary marker with this `(system, id)` (identity is unique, checked at load).
+    pub fn vocabulary_marker(&self, system: &str, id: &str) -> Option<&VocabularyMarker> {
+        self.catalogue
+            .markers
+            .iter()
+            .find(|m| m.system.as_str() == system && m.id == id)
+    }
+
     /// Rule 3 against an older list: every row it has is still here (a retired method keeps
     /// its row with `runnable: false`; saved models and history keep their facts).
     pub fn keeps_rows_of(&self, older: &MethodList) -> Result<(), ListError> {

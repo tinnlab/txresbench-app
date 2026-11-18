@@ -27,8 +27,8 @@
 //! stateless, DEC-9, and the engine is replayed in-process by the execution
 //! engine — one code path with the HTTP surface, ITEM-5) plus ONE runtime
 //! stage: [`with_runtime_env`] rejoins the pure verdicts with the app's
-//! published environment set ([`runtime_env_available`] — the manifest's
-//! host-arch entry), because a method with no published environment can never
+//! published environment set ([`runtime_env_available`] — the images list's
+//! host-arch entry, from the same method list as the catalogue), because a method with no published environment can never
 //! start (CM-1) and the screens must not offer it. The production entry
 //! points ([`eligibility`], [`eligibility_for_runtime`]) apply the stage; the
 //! pure engines are the test seam and the provider bedrock.
@@ -90,8 +90,10 @@ use std::sync::OnceLock;
 
 use regex::Regex;
 
+use crate::modules::execution_engine::envmanifest::{EnvArch, EnvManifest};
 use crate::modules::method_catalogue::calibration;
 use crate::modules::method_catalogue::estimate::host_cpus;
+use crate::modules::method_list::MethodList;
 use crate::modules::method_catalogue::types::{
     Catalogue, CovariateMode, Coverage, EligibilityRequest, EligibilityResponse,
     EligibilityStatus, FileOutcomes, InventoryEligibilityRequest, InventoryMarker, MatchMode,
@@ -371,30 +373,43 @@ pub fn estimate_quality_for(method: &Method) -> TimingQuality {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Whether `method_id` has a published environment for THIS computer — the
-/// app's env manifest host-arch entry ([`execution_engine::envmanifest::env_for`]).
-/// This is the ONE runtime-env predicate: the eligibility stage below and the
-/// engine's run-start classification ([`execution_engine::orchestrator::classify`])
-/// look at the same manifest entry, so a method the screens mark cannot-run is
-/// exactly a method the engine will not start, and vice versa.
+/// host-arch entry of the images list (`images`, the `images` half of the
+/// same method list the catalogue came from). This is the ONE runtime-env
+/// predicate: the eligibility stage below and the engine's run-start
+/// classification ([`execution_engine::orchestrator::classify`]) look at the
+/// same list entry, so a method the screens mark cannot-run is exactly a
+/// method the engine will not start, and vice versa.
 ///
 /// Module note: `method_catalogue` is a provider of the execution engine, and
-/// this accessor reads the engine module's embedded manifest (the same crate,
-/// no runtime init order dependency — the manifest is a compile-time embed).
-/// The alternative — a predicate parameter at every call site — would let a
-/// consumer forget the runtime check (the original CM-1 defect was exactly a
-/// consumer that only ever saw marker verdicts); the cycle is deliberate and
-/// documented here so the two classifiers cannot drift.
-pub fn runtime_env_available(method_id: &str) -> bool {
-    crate::modules::execution_engine::envmanifest::env_for(method_id).is_some()
+/// this predicate reads the engine module's images type (the same crate, no
+/// runtime init order dependency). Every runtime-stage entry point takes the
+/// images list next to the catalogue, so a consumer cannot forget the runtime
+/// check (the original CM-1 defect was exactly a consumer that only ever saw
+/// marker verdicts) and the two halves always come from one list snapshot.
+pub fn runtime_env_available(images: &EnvManifest, method_id: &str) -> bool {
+    EnvArch::host().is_some_and(|arch| images.find(method_id, arch).is_some())
 }
 
-/// Run eligibility over the embedded catalogue (PROV-MC-7's in-process seam):
-/// the pure verdicts + the runtime-env stage ([`with_runtime_env`]).
-pub fn eligibility(req: &EligibilityRequest) -> EligibilityResponse {
-    with_runtime_env(eligibility_for(
-        crate::modules::method_catalogue::catalogue::catalogue(),
-        req,
-    ))
+/// Run eligibility over one method list (PROV-MC-7's in-process seam; the
+/// run's classification passes the run's own snapshot): the pure verdicts +
+/// the runtime-env stage ([`with_runtime_env`]), naming the list it answered
+/// from (`method_list_sequence`) exactly as the HTTP surface does.
+pub fn eligibility(list: &MethodList, req: &EligibilityRequest) -> EligibilityResponse {
+    eligibility_calibrated(list, req, &calibration::TimingCalibration::empty())
+}
+
+/// [`eligibility`] with the app's measured-time calibration — the HTTP
+/// surface's seat (`POST /api/methods/eligibility`): one path for the route
+/// and the in-process seam, so their answers never drift (TEST-MC-31).
+pub fn eligibility_calibrated(
+    list: &MethodList,
+    req: &EligibilityRequest,
+    calibration: &calibration::TimingCalibration,
+) -> EligibilityResponse {
+    let mut response =
+        eligibility_for_runtime_calibrated(&list.catalogue, &list.images, req, calibration);
+    response.method_list_sequence = Some(list.sequence);
+    response
 }
 
 /// Run eligibility over a given catalogue — the PURE engine (no runtime-env
@@ -429,9 +444,10 @@ pub fn eligibility_for_calibrated(
 /// (the engine's in-process seam is [`eligibility`], the same two steps).
 pub fn eligibility_for_runtime(
     cat: &Catalogue,
+    images: &EnvManifest,
     req: &EligibilityRequest,
 ) -> EligibilityResponse {
-    eligibility_for_runtime_calibrated(cat, req, &calibration::TimingCalibration::empty())
+    eligibility_for_runtime_calibrated(cat, images, req, &calibration::TimingCalibration::empty())
 }
 
 /// The runtime stage with the calibration applied (the eligibility route's
@@ -439,10 +455,11 @@ pub fn eligibility_for_runtime(
 /// engine itself stays DB-free).
 pub fn eligibility_for_runtime_calibrated(
     cat: &Catalogue,
+    images: &EnvManifest,
     req: &EligibilityRequest,
     calibration: &calibration::TimingCalibration,
 ) -> EligibilityResponse {
-    with_runtime_env(eligibility_for_calibrated(cat, req, calibration))
+    with_runtime_env(images, eligibility_for_calibrated(cat, req, calibration))
 }
 
 /// The RUNTIME-ENV stage (CM-1's fix): a catalogue method with no published
@@ -452,9 +469,9 @@ pub fn eligibility_for_runtime_calibrated(
 /// one detail line + the engine's run-row reason), the totals are recomputed,
 /// and `total_no_env` counts them (the catalogue still lists them; the count
 /// is the "N are not installed" fact the list header needs).
-fn with_runtime_env(mut resp: EligibilityResponse) -> EligibilityResponse {
+fn with_runtime_env(images: &EnvManifest, mut resp: EligibilityResponse) -> EligibilityResponse {
     for m in &mut resp.methods {
-        if runtime_env_available(&m.id) {
+        if runtime_env_available(images, &m.id) {
             continue;
         }
         m.status = EligibilityStatus::CannotRun;
@@ -493,6 +510,7 @@ fn with_runtime_env(mut resp: EligibilityResponse) -> EligibilityResponse {
         total_some,
         total_cannot,
         total_no_env,
+        method_list_sequence: resp.method_list_sequence,
     }
 }
 
@@ -627,6 +645,8 @@ fn finish(methods: Vec<MethodEligibility>) -> EligibilityResponse {
         // The pure core carries no env facts; the runtime-env stage
         // (with_runtime_env) fills the count.
         total_no_env: 0,
+        // The route names the list it answered from.
+        method_list_sequence: None,
     }
 }
 
@@ -2255,7 +2275,7 @@ mod tests {
         assert_eq!(pure.total_fit, 2, "the pure engine knows no env facts");
         assert_eq!(pure.total_no_env, 0);
 
-        let staged = eligibility_for_runtime(&cat, &req);
+        let staged = eligibility_for_runtime(&cat, &crate::modules::method_list::builtin().images, &req);
         assert_eq!(staged.total_fit, 1, "only the published-env method fits");
         assert_eq!(staged.total_some, 0);
         assert_eq!(staged.total_cannot, 1);
@@ -2270,5 +2290,26 @@ mod tests {
             Some(ReasonCode::EnvImageMissing),
             "the env fact is the FIRST reason (the row's one detail line)"
         );
+    }
+
+    /// The in-process seam names the list it answered from, exactly as the HTTP surface
+    /// does (TEST-MC-31 compares the two field by field).
+    #[test]
+    fn the_in_process_seam_names_its_method_list() {
+        let mut list = crate::modules::method_list::builtin().clone();
+        list.sequence = 41;
+        let req = EligibilityRequest::Preview {
+            preview: PreviewEligibilityRequest {
+                marker_groups: BTreeMap::new(),
+                before_treatment: None,
+                draws_during_treatment: None,
+                last_draw_day: None,
+            },
+        };
+        let answer = eligibility(&list, &req);
+        assert_eq!(answer.method_list_sequence, Some(41));
+        assert_eq!(answer.methods.len(), list.catalogue.methods.len());
+        // The pure engine names no list (it is given a catalogue, not a list).
+        assert_eq!(eligibility_for(&list.catalogue, &req).method_list_sequence, None);
     }
 }

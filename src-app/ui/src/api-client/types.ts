@@ -379,6 +379,9 @@ export interface ChangePasswordRequest {
   new_password: string
 }
 
+/** What the last check found. */
+export type CheckResult = 'not_checked' | 'current' | 'updated' | 'unreachable' | 'unavailable' | 'refused' | 'needs_newer_app' | 'off'
+
 /**
  * One covariate column's numeric-ness fact (an inspect-time report: a
  *  covariate known to a numeric rule is a usable covariate; a text column is
@@ -489,6 +492,13 @@ export interface CreateRunRequest {
   input: TxrRunInput
   /** Train mode: the selected catalogue method ids (≥ 1 — validate()). */
   method_ids?: string[]
+  /**
+   * The method list the screen showed (`method_list_sequence` of the method
+   *  list and eligibility responses). When it is not the list the run starts
+   *  on, the run is refused with `409 METHOD_LIST_CHANGED`: a run never
+   *  starts from a selection made on another list. Absent: no check.
+   */
+  method_list_sequence?: number
   mode: TxrRunMode
   /**
    * Reuse mode: the resolved model assets (`model-store`'s join shape,
@@ -549,6 +559,12 @@ export type EligibilityRequest = { preview: PreviewEligibilityRequest } | { inve
 
 /** The eligibility response — per-method verdicts plus the screen-B totals. */
 export interface EligibilityResponse {
+  /**
+   * The sequence of the method list the verdicts come from (the HTTP surface
+   *  fills it; the pure engine leaves it out). A screen sends it back when it
+   *  starts a run (`409 METHOD_LIST_CHANGED` on another list).
+   */
+  method_list_sequence?: number
   methods: MethodEligibility[]
   total_cannot: number
   total_fit: number
@@ -1097,6 +1113,9 @@ export interface LinkAccountRequest {
   password: string
 }
 
+/** Where the list in use came from. */
+export type ListOrigin = 'builtin' | 'disk' | 'live'
+
 /**
  * Optional pagination for the versions list. Defaults bound an
  *  un-paginated caller to the most recent `DEFAULT_PAGE_SIZE` versions
@@ -1459,8 +1478,32 @@ export interface MethodListQuery {
  *  roughly 400 rows; the list screen filters client-side (DEC-11).
  */
 export interface MethodListResponse {
+  /**
+   * The sequence of the method list these rows come from: a screen sends it back
+   *  when it starts a run, and a run started from an older list is refused
+   *  (`409 METHOD_LIST_CHANGED`).
+   */
+  method_list_sequence: number
   methods: MethodSummary[]
   total: number
+}
+
+/** `GET /api/methods/updates`: the list in use and the last check. */
+export interface MethodListStatus {
+  /** When the list in use was assembled (`YYYY-MM-DDTHH:MM:SSZ`). */
+  assembled_at: string
+  last_check: CheckResult
+  /** When the last check finished (in this or an earlier session). */
+  last_checked_at?: string
+  /** The last check's problem, in a plain sentence; `None` when it went well. */
+  last_error?: string
+  origin: ListOrigin
+  /** The sequence of the list in use (0: the built-in copy from before the first publish). */
+  sequence: number
+  /** Who signed the list in use; `None` for the unsigned built-in copy. */
+  signer?: string
+  /** Whether this app checks for newer lists (false in demo mode). */
+  updates_enabled: boolean
 }
 
 /** A method's marker-input summary (`markers{kind,count}`). */
@@ -4223,6 +4266,8 @@ export type ApiEndpointParameters = {
   'MethodCatalogue.estimate': EstimateRequest
   'MethodCatalogue.list': { frozen?: boolean; group?: MethodGroup; q?: string; runnable?: boolean }
   'MethodCatalogue.markers': void
+  'MethodList.checkUpdates': void
+  'MethodList.updates': void
   'ModelSets.deleteSet': { id: string; keep_files?: boolean }
   'ModelSets.exportSet': { id: string }
   'ModelSets.listSets': void
@@ -4357,6 +4402,8 @@ export type ApiEndpointResponses = {
   'MethodCatalogue.estimate': EstimateResponse
   'MethodCatalogue.list': MethodListResponse
   'MethodCatalogue.markers': MarkerVocabularyResponse
+  'MethodList.checkUpdates': MethodListStatus
+  'MethodList.updates': MethodListStatus
   'ModelSets.deleteSet': void
   'ModelSets.exportSet': void
   'ModelSets.listSets': ModelSetListResponse

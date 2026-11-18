@@ -113,6 +113,7 @@ async fn seed_run(
         cpus: Some(4),
         seed: 1,
         estimate: None,
+        method_list_sequence: None,
     };
     repo.insert_run(&run).await.expect("seed run");
     // One finished method with the FULL column facts (the G surface reads
@@ -260,9 +261,9 @@ async fn embedded_data_serves_the_surface_without_a_benchmark_tree() {
 
     // The embedded answers for a method WITH an entry (the manifest's
     // size_bytes is the F screen's denominator).
-    let entry = envmanifest::env_for("cox-cutpoint-risk").expect("entry");
+    let entry = txresbench::modules::method_list::builtin().env_for("cox-cutpoint-risk").expect("entry");
     assert!(entry.size_bytes > 0);
-    let facts = envmanifest::facts_for("cox-cutpoint-risk").expect("facts");
+    let facts = txresbench::modules::method_list::builtin().method("cox-cutpoint-risk").expect("facts");
     assert!(facts.group_label.as_str().len() > 0);
 }
 
@@ -290,7 +291,7 @@ fn a_mangled_manifest_refuses_with_the_named_loader_code() {
     // The SHIPPED bytes pass their own boot check (the first-party posture —
     // a corrupted install refuses loudly, a healthy one boots).
     assert!(
-        envmanifest::ensure_loaded().is_ok(),
+        txresbench::modules::method_list::runtime::ensure_builtin().is_ok(),
         "the committed manifest passes its boot validation"
     );
 }

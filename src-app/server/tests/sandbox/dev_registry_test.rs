@@ -125,7 +125,7 @@ async fn dev_registry_acceptance_child() {
     };
 
     // ── 1. the engine's own validator over the dev manifest ────────────────
-    let manifest = txresbench::modules::execution_engine::envmanifest::ensure_loaded()
+    let manifest = txresbench::modules::method_list::runtime::ensure_builtin().map(|l| &l.images)
         .map_err(|e| format!("the dev manifest failed the app's boot validation: {e}"))
         .unwrap_or_else(|e| fail(e));
     let arch = txresbench::modules::execution_engine::envmanifest::EnvArch::host()
@@ -142,7 +142,7 @@ async fn dev_registry_acceptance_child() {
     );
 
     // ── 2. the engine's own ref builders ───────────────────────────────────
-    let base_record = txresbench::modules::execution_engine::envmanifest::base_artifact_for(entry);
+    let base_record = txresbench::modules::method_list::builtin().base_artifact_for(entry);
     let base_ref =
         txresbench::modules::execution_engine::orchestrator::base_env_ref(entry, base_record);
     let layer_ref = txresbench::modules::execution_engine::orchestrator::layer_env_ref(entry);

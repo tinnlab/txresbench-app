@@ -35,7 +35,7 @@ use crate::modules::file_validator::units::{
     UnitAgreement,
 };
 use crate::modules::file_validator::vocab::{
-    marker_matches_set, normalize_marker_name, MarkerSpelling,
+    marker_matches_in, normalize_marker_name, MarkerSpelling,
 };
 use crate::modules::method_catalogue::types::UnitFamily;
 
@@ -406,8 +406,10 @@ pub fn inspect(req: &FileInspectionRequest) -> FileInspection {
     // The per-column facts (measurements only): A03 join offers, unit verdicts
     // (A04/A07) and the A05 candidate truncation.
     if kind == FileTableKind::Measurements {
+        // One snapshot of the current method list's vocabulary for the whole call.
+        let list = crate::modules::method_list::current();
         for column in inspect_columns(&model) {
-            let set = marker_matches_set(&column.key);
+            let set = marker_matches_in(list.marker_vocabulary(), &column.key);
             if column.spellings.len() > 1 {
                 problems.push(FileProblem::new(
                     ProblemCode::A03SpellingVariantGroup,

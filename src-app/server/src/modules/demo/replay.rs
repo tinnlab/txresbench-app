@@ -76,7 +76,6 @@ use uuid::Uuid;
 use txresbench_core::AppError;
 
 use super::bundle::{BundleConfiguration, BundleModel, DemoBundle};
-use crate::modules::execution_engine::envmanifest;
 use crate::modules::execution_engine::orchestrator;
 use crate::modules::execution_engine::repository::{
     MethodPatch, NewMethod, NewRun, TxrRepository,
@@ -344,7 +343,9 @@ pub fn lpt_schedule_seconds(seconds: &[f64], lanes: usize) -> f64 {
 /// download), with the image facts the same list entry gives (version, arch,
 /// tags) — what a real run's running patch writes.
 fn recorded_env_patch(method_id: &str) -> MethodPatch {
-    match envmanifest::env_for(method_id) {
+    // Demo mode never moves off the built-in list (the recordings' list).
+    let list = crate::modules::method_list::builtin();
+    match list.env_for(method_id) {
         Some(entry) => MethodPatch {
             env_base_digest: Some(entry.base_digest.clone()),
             env_layer_digest: Some(entry.layer_sha256.clone()),
@@ -353,7 +354,7 @@ fn recorded_env_patch(method_id: &str) -> MethodPatch {
             env_layer_tag: Some(entry.tag.clone()),
             env_base_tag: crate::modules::execution_engine::orchestrator::base_env_ref(
                 entry,
-                envmanifest::base_artifact_for(entry),
+                list.base_artifact_for(entry),
             )
             .tag,
             ..Default::default()
@@ -566,6 +567,7 @@ pub async fn rerun_replay(
         config: record.config,
         method_ids: record.method_ids,
         model_ids: record.model_ids,
+        method_list_sequence: None,
     };
     table_guard_ok(bundle, &req)?;
     if let Some(active) = TxrRepository::new(pool.clone()).active_run().await? {
@@ -635,7 +637,12 @@ fn table_guard_ok(bundle: &DemoBundle, req: &CreateRunRequest) -> Result<(), App
 /// example tables (the same one-path validation the engine runs) + the
 /// captured source names.
 fn demo_input_summary(req: &CreateRunRequest, config: &RunConfig) -> Result<TxrRunInputSummary, AppError> {
-    let validated = orchestrator::validate_run(&req.input, config, req.mode)?;
+    let validated = orchestrator::validate_run(
+        crate::modules::method_list::builtin(),
+        &req.input,
+        config,
+        req.mode,
+    )?;
     Ok(TxrRunInputSummary {
         patients: validated.patients.as_ref().map(|p| p.rows),
         predict_patients: match req.mode {
@@ -810,6 +817,7 @@ async fn stage_replay_run(
         cpus: Some(orchestrator::detect_cpus()),
         seed: TxrLimits::SEED,
         estimate: demo_estimate(&plan),
+        method_list_sequence: None,
     })
     .await?;
 
@@ -855,7 +863,7 @@ fn prepare_steps(
                     ))
                 })?;
                 let column = &record.train;
-                let facts = envmanifest::facts_for(method_id);
+                let facts = crate::modules::method_list::builtin().method(method_id);
                 steps.push(ReplayStep {
                     method_id: method_id.clone(),
                     outcome_method_id: method_id.clone(),
@@ -895,7 +903,8 @@ fn prepare_steps(
                     outcome_method_id: asset.method_id.clone(),
                     label: asset.method_id.clone(),
                     version: asset.method_version.clone(),
-                    group: envmanifest::facts_for(&asset.method_id)
+                    group: crate::modules::method_list::builtin()
+                        .method(&asset.method_id)
                         .map(|f| f.group.as_str().to_string())
                         .unwrap_or_default(),
                     task: reuse.task,
@@ -1973,6 +1982,7 @@ async fn seed_one_run(
         config: run_config.clone(),
         method_ids: recorded_method_ids(bundle, &cfg.id),
         model_ids: Vec::new(),
+        method_list_sequence: None,
     };
     let mut plan = ReplayPlan {
         run_id,
@@ -2009,6 +2019,7 @@ async fn seed_one_run(
         cpus: Some(orchestrator::detect_cpus()),
         seed: TxrLimits::SEED,
         estimate: demo_estimate(&plan),
+        method_list_sequence: None,
     })
     .await?;
 
@@ -2218,6 +2229,7 @@ mod tests {
             config: RunConfig::default(),
             method_ids: vec!["kelim".to_string()],
             model_ids: vec![],
+            method_list_sequence: None,
         };
         let steps = prepare_steps(&bundle, &req, config).expect("recorded method stages");
         assert_eq!(steps.len(), 1);
@@ -2291,6 +2303,7 @@ mod tests {
             cpus: None,
             seed: 1,
             estimate: None,
+            method_list_sequence: None,
         })
         .await
         .unwrap();
@@ -2335,6 +2348,7 @@ mod tests {
             cpus: None,
             seed: 1,
             estimate: None,
+            method_list_sequence: None,
         })
         .await
         .unwrap();

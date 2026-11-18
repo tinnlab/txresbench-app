@@ -38,7 +38,8 @@ Dockerfile's FROM base) is the method's own committed file at that commit,
 never the generated `index.json`.
 
 The manifest and schema are the contract `execution-engine`'s runtime reads
-(embed via `include_dir!` or read from disk in dev builds): the runtime
+(as the `images` half of the method list; the app embeds the list's built-in
+copy, and a debug build may replace the images with `TXR_ENV_MANIFEST`): the runtime
 fetches `oci_ref@digest`, verifies `layer_sha256` before mounting, and shows
 `size_bytes` before the download starts. Every layer is in ONE package:
 `oci_ref` is `ghcr.io/tinnlab/txr-method-env-layers` and the method and its

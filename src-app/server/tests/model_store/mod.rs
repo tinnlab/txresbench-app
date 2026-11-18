@@ -21,7 +21,6 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::common::TestServer;
-use txresbench::modules::execution_engine::envmanifest;
 use txresbench::modules::execution_engine::repository::{
     MethodPatch, NewMethod, NewRun, TxrRepository,
 };
@@ -29,7 +28,6 @@ use txresbench::modules::execution_engine::types::{
     RunConfig, TxrMethodState, TxrRunCounts, TxrRunFileNames, TxrRunInputSummary, TxrRunMode,
     TxrRunStatus, TxrTask,
 };
-use txresbench::modules::method_catalogue::catalogue;
 use txresbench::modules::sandbox::stack::tree_sha256;
 
 // ─────────────────────────────── shared helpers ──────────────────────────────
@@ -133,7 +131,7 @@ pub async fn seed_run_with_models(
 
     let mut method_rows = Vec::new();
     for mid in method_ids {
-        let facts = catalogue::method(mid).expect("catalogue method");
+        let facts = txresbench::modules::method_list::builtin().method(mid).expect("catalogue method");
         let bundle_dir = run_dir.join("bundles").join(mid);
         std::fs::create_dir_all(&bundle_dir).expect("seed bundle dir");
         // The contract 2.0 params.json field set (TEST-EE-18's layout); the
@@ -157,7 +155,7 @@ pub async fn seed_run_with_models(
         let model_dir = run_dir.join("models").join(mid);
         let (dir, digest, size) = fixture_tree(&model_dir, &format!("{mid}-{name}"));
         let _ = dir;
-        let entry = envmanifest::env_for(mid).expect("a manifest entry for the seeded method");
+        let entry = txresbench::modules::method_list::builtin().env_for(mid).expect("a manifest entry for the seeded method");
         let env = txresbench::modules::execution_engine::types::TxrMethodEnv::digests(
             entry
                 .base_digest
@@ -216,12 +214,13 @@ pub async fn seed_run_with_models(
         cpus: Some(4),
         seed: 1,
         estimate: None,
+        method_list_sequence: None,
     };
     repo.insert_run(&run).await.expect("seed run");
 
     for m in &method_rows {
-        let facts = catalogue::method(&m.method_id).expect("catalogue facts");
-        let entry = envmanifest::env_for(&m.method_id).expect("manifest entry");
+        let facts = txresbench::modules::method_list::builtin().method(&m.method_id).expect("catalogue facts");
+        let entry = txresbench::modules::method_list::builtin().env_for(&m.method_id).expect("manifest entry");
         let method = NewMethod {
             id: Uuid::new_v4(),
             run_id: run.id,

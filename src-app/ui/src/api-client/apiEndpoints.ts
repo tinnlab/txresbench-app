@@ -81,6 +81,8 @@ export const ApiEndpoints = {
   'MethodCatalogue.estimate': 'POST /api/methods/estimate',
   'MethodCatalogue.list': 'GET /api/methods',
   'MethodCatalogue.markers': 'GET /api/markers',
+  'MethodList.checkUpdates': 'POST /api/methods/updates/check',
+  'MethodList.updates': 'GET /api/methods/updates',
   'ModelSets.deleteSet': 'DELETE /api/txr/model-sets/{id}',
   'ModelSets.exportSet': 'GET /api/txr/model-sets/{id}/export',
   'ModelSets.listSets': 'GET /api/txr/model-sets',

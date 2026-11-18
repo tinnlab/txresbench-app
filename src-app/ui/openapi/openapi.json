@@ -2347,6 +2347,110 @@
         }
       }
     },
+    "/api/methods/updates": {
+      "get": {
+        "tags": [
+          "method-list"
+        ],
+        "description": "The method list in use (sequence, origin builtin | disk | live, when it was assembled, its signer) and the last check for a newer list (when, what it found, its problem in a plain sentence). Never asks the registry.",
+        "operationId": "MethodList.updates",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and manage your projects",
+                        "name": "ProjectsUse",
+                        "value": "projects::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: projects::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "`GET /api/methods/updates`: the list in use and the last check.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MethodListStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "projects::use"
+        ]
+      }
+    },
+    "/api/methods/updates/check": {
+      "post": {
+        "tags": [
+          "method-list"
+        ],
+        "description": "Check the registry for a newer method list now. A verified newer list is used from the next run on (a run already going keeps its own list); a problem never fails the call, it is the status. Two checks at once share one. In demo mode updates are off and the status says so.",
+        "operationId": "MethodList.checkUpdates",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and manage your projects",
+                        "name": "ProjectsUse",
+                        "value": "projects::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: projects::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "`GET /api/methods/updates`: the list in use and the last check.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MethodListStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "projects::use"
+        ]
+      }
+    },
     "/api/admin/features": {
       "get": {
         "tags": [
@@ -8096,6 +8200,51 @@
           "new_password"
         ]
       },
+      "CheckResult": {
+        "description": "What the last check found.",
+        "oneOf": [
+          {
+            "description": "No check yet.",
+            "type": "string",
+            "const": "not_checked"
+          },
+          {
+            "description": "The published list is the one in use (or older than the built-in copy).",
+            "type": "string",
+            "const": "current"
+          },
+          {
+            "description": "A newer published list was verified and is in use.",
+            "type": "string",
+            "const": "updated"
+          },
+          {
+            "description": "The registry could not be reached (no connection, DNS, a firewall, a timeout).",
+            "type": "string",
+            "const": "unreachable"
+          },
+          {
+            "description": "This build cannot fetch (no download tool next to the app).",
+            "type": "string",
+            "const": "unavailable"
+          },
+          {
+            "description": "The published list was refused (signature, key, size, contents, an older or a\n conflicting list): the app keeps the list it has.",
+            "type": "string",
+            "const": "refused"
+          },
+          {
+            "description": "The published list is of a newer format: a newer app is needed for it.",
+            "type": "string",
+            "const": "needs_newer_app"
+          },
+          {
+            "description": "Updates are off (demo mode; a debug build's dev images list).",
+            "type": "string",
+            "const": "off"
+          }
+        ]
+      },
       "CovariateColumn": {
         "description": "One covariate column's numeric-ness fact (an inspect-time report: a\n covariate known to a numeric rule is a usable covariate; a text column is\n a covariate the engine cannot use as a number).",
         "type": "object",
@@ -8277,6 +8426,15 @@
               "type": "string"
             }
           },
+          "method_list_sequence": {
+            "description": "The method list the screen showed (`method_list_sequence` of the method\n list and eligibility responses). When it is not the list the run starts\n on, the run is refused with `409 METHOD_LIST_CHANGED`: a run never\n starts from a selection made on another list. Absent: no check.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
           "mode": {
             "$ref": "#/components/schemas/TxrRunMode"
           },
@@ -8413,6 +8571,15 @@
         "description": "The eligibility response — per-method verdicts plus the screen-B totals.",
         "type": "object",
         "properties": {
+          "method_list_sequence": {
+            "description": "The sequence of the method list the verdicts come from (the HTTP surface\n fills it; the pure engine leaves it out). A screen sends it back when it\n starts a run (`409 METHOD_LIST_CHANGED` on another list).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
           "methods": {
             "type": "array",
             "items": {
@@ -9539,6 +9706,26 @@
           "password"
         ]
       },
+      "ListOrigin": {
+        "description": "Where the list in use came from.",
+        "oneOf": [
+          {
+            "description": "The copy built into this app release.",
+            "type": "string",
+            "const": "builtin"
+          },
+          {
+            "description": "The last good list a previous session fetched (`<data_root>/method-list/v1/`).",
+            "type": "string",
+            "const": "disk"
+          },
+          {
+            "description": "Fetched and verified in this session.",
+            "type": "string",
+            "const": "live"
+          }
+        ]
+      },
       "ListVersionsQuery": {
         "description": "Optional pagination for the versions list. Defaults bound an\n un-paginated caller to the most recent `DEFAULT_PAGE_SIZE` versions\n (newest first) instead of returning an unbounded set.",
         "type": "object",
@@ -10416,6 +10603,12 @@
         "description": "The `GET /api/methods` response — the full (unpaged) runnable set, bounded at\n roughly 400 rows; the list screen filters client-side (DEC-11).",
         "type": "object",
         "properties": {
+          "method_list_sequence": {
+            "description": "The sequence of the method list these rows come from: a screen sends it back\n when it starts a run, and a run started from an older list is refused\n (`409 METHOD_LIST_CHANGED`).",
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
           "methods": {
             "type": "array",
             "items": {
@@ -10430,7 +10623,63 @@
         },
         "required": [
           "methods",
-          "total"
+          "total",
+          "method_list_sequence"
+        ]
+      },
+      "MethodListStatus": {
+        "description": "`GET /api/methods/updates`: the list in use and the last check.",
+        "type": "object",
+        "properties": {
+          "assembled_at": {
+            "description": "When the list in use was assembled (`YYYY-MM-DDTHH:MM:SSZ`).",
+            "type": "string"
+          },
+          "last_check": {
+            "$ref": "#/components/schemas/CheckResult"
+          },
+          "last_checked_at": {
+            "description": "When the last check finished (in this or an earlier session).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_error": {
+            "description": "The last check's problem, in a plain sentence; `None` when it went well.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origin": {
+            "$ref": "#/components/schemas/ListOrigin"
+          },
+          "sequence": {
+            "description": "The sequence of the list in use (0: the built-in copy from before the first publish).",
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "signer": {
+            "description": "Who signed the list in use; `None` for the unsigned built-in copy.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updates_enabled": {
+            "description": "Whether this app checks for newer lists (false in demo mode).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sequence",
+          "origin",
+          "assembled_at",
+          "updates_enabled",
+          "last_check"
         ]
       },
       "MethodMarkers": {

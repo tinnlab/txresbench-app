@@ -71,6 +71,7 @@
 
 use std::fmt;
 
+use crate::modules::execution_engine::envmanifest::EnvManifest;
 use crate::modules::method_catalogue::calibration::{self, TimingCalibration};
 use crate::modules::method_catalogue::types::{
     Catalogue, EstimateRequest, EstimateResponse, Method, MethodEstimate, DEFAULT_ESTIMATE_CPUS,
@@ -144,12 +145,15 @@ impl fmt::Display for EstimateError {
 
 impl std::error::Error for EstimateError {}
 
-/// Run the estimate over the embedded catalogue — the runtime surface (the
+/// Run the estimate over one method list — the runtime surface (the
 /// no-published-environment refusal + the pure core; PROV-MC-7's in-process
 /// seam — the execution engine's create-time estimate goes through the same
 /// path, one code system).
-pub fn estimate(req: &EstimateRequest) -> Result<EstimateResponse, EstimateError> {
-    estimate_for_runtime(crate::modules::method_catalogue::catalogue::catalogue(), req)
+pub fn estimate(
+    list: &crate::modules::method_list::MethodList,
+    req: &EstimateRequest,
+) -> Result<EstimateResponse, EstimateError> {
+    estimate_for_runtime(&list.catalogue, &list.images, req)
 }
 
 /// The pure core over a given catalogue (no runtime-env stage — the test seam:
@@ -253,9 +257,10 @@ fn validate_estimate_request(req: &EstimateRequest) -> Result<u32, EstimateError
 /// a stray id is refused, never summed). The HTTP surface's seat.
 pub fn estimate_for_runtime(
     cat: &Catalogue,
+    images: &EnvManifest,
     req: &EstimateRequest,
 ) -> Result<EstimateResponse, EstimateError> {
-    estimate_for_runtime_calibrated(cat, req, &TimingCalibration::empty())
+    estimate_for_runtime_calibrated(cat, images, req, &TimingCalibration::empty())
 }
 
 /// The runtime stage with the app's measured-time calibration applied (the
@@ -263,6 +268,7 @@ pub fn estimate_for_runtime(
 /// and passed in — the engine itself stays DB-free).
 pub fn estimate_for_runtime_calibrated(
     cat: &Catalogue,
+    images: &EnvManifest,
     req: &EstimateRequest,
     calibration: &TimingCalibration,
 ) -> Result<EstimateResponse, EstimateError> {
@@ -278,7 +284,7 @@ pub fn estimate_for_runtime_calibrated(
                 method_id: id.clone(),
             });
         }
-        if !crate::modules::method_catalogue::eligibility::runtime_env_available(id) {
+        if !crate::modules::method_catalogue::eligibility::runtime_env_available(images, id) {
             return Err(EstimateError::MethodNotRunnable {
                 method_id: id.clone(),
             });
@@ -547,8 +553,7 @@ mod tests {
         // response every time (no wall-clock, no random source), and the
         // reference-point seconds equal the base facts (INV-3: the base IS the
         // generated runs.csv median).
-        let cat = crate::modules::method_catalogue::catalogue::ensure_loaded()
-            .expect("the committed catalogue loads");
+        let cat = &crate::modules::method_list::builtin().catalogue;
         let ids: Vec<&str> = vec!["landmark-cox-current", "asm-best-change-rule"];
         let r1 = estimate_for(cat, &req(&ids, 150, Some(4), 3)).unwrap();
         let r2 = estimate_for(cat, &req(&ids, 150, Some(4), 3)).unwrap();
@@ -588,14 +593,14 @@ mod tests {
         // published environment is METHOD_NOT_RUNNABLE (the
         // E screen never asks — its rows are disabled — a stray id is refused,
         // never summed). `crp-flare-response-kinetics` is a committed
-        // catalogue method NOT in the embedded manifest; `asm-best-change-rule`
+        // catalogue method NOT in the shipped manifest; `asm-best-change-rule`
         // IS (the manifest has 94 entries); `fx-noenv` is handcrafted and the
         // real catalogue does not know it — that refusal is UNKNOWN_METHOD
         // (the error names the real problem: no catalogue method at all).
-        let cat = crate::modules::method_catalogue::catalogue::ensure_loaded()
-            .expect("the committed catalogue loads");
+        let cat = &crate::modules::method_list::builtin().catalogue;
+        let images = &crate::modules::method_list::builtin().images;
         let err =
-            estimate_for_runtime(&cat, &req(&["crp-flare-response-kinetics"], 150, Some(4), 3))
+            estimate_for_runtime(cat, images, &req(&["crp-flare-response-kinetics"], 150, Some(4), 3))
                 .unwrap_err();
         assert_eq!(
             err,
@@ -604,13 +609,13 @@ mod tests {
             }
         );
         assert_eq!(err.code(), "METHOD_NOT_RUNNABLE");
-        let err = estimate_for_runtime(&cat, &req(&["fx-noenv"], 150, Some(4), 3)).unwrap_err();
+        let err = estimate_for_runtime(cat, images, &req(&["fx-noenv"], 150, Some(4), 3)).unwrap_err();
         assert_eq!(
             err,
             EstimateError::UnknownMethod { method_id: "fx-noenv".into() }
         );
         assert_eq!(err.code(), "UNKNOWN_METHOD");
-        let ok = estimate_for_runtime(&cat, &req(&["asm-best-change-rule"], 150, Some(4), 3));
+        let ok = estimate_for_runtime(cat, images, &req(&["asm-best-change-rule"], 150, Some(4), 3));
         assert!(ok.is_ok(), "a manifest method estimates: {:?}", ok.err());
         // The pure core does not consult the manifest: the same id on a
         // handcrafted catalogue stays estimable (refusal is a property of
@@ -619,6 +624,6 @@ mod tests {
         // the manifest check is the whole gate.
         let cat_h = catalogue_with(serde_json::json!([method_json("fx-noenv", 60.0, "measured", 1)]));
         assert!(estimate_for(&cat_h, &req(&["fx-noenv"], 150, Some(4), 3)).is_ok());
-        assert!(estimate_for_runtime(&cat_h, &req(&["fx-noenv"], 150, Some(4), 3)).is_err());
+        assert!(estimate_for_runtime(&cat_h, images, &req(&["fx-noenv"], 150, Some(4), 3)).is_err());
     }
 }

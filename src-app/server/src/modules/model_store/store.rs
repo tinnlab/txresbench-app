@@ -84,7 +84,6 @@ use crate::modules::execution_engine::types::{
     TxrEndpoint, TxrMethodEnv, TxrMethodFacts, TxrMethodState, TxrProducedModel, TxrRunSummary,
     TxrTask,
 };
-use crate::modules::method_catalogue::catalogue;
 use crate::modules::method_catalogue::types::RequiredMarkers;
 use crate::modules::{rootfs, sandbox};
 
@@ -955,6 +954,8 @@ pub fn detail_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelDetail
     let covariates: CovariateFacts = parse_row(&row.covariates, "txr_models.covariates")?;
     let features: Vec<String> = parse_row(&row.features, "txr_models.features")?;
     let env = row_env(row)?;
+    // One snapshot of the current method list for the whole detail.
+    let list = crate::modules::method_list::current();
     let mut warnings = Vec::new();
     // The model runs in the image it was trained in, so a list that moved on
     // is a note, not a problem — unless the image is for the other chip type,
@@ -972,7 +973,7 @@ pub fn detail_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelDetail
             detail: crate::modules::execution_engine::envimage::other_arch_message(recorded, host),
         });
     }
-    if let Some(cat) = catalogue::method(&row.method_id) {
+    if let Some(cat) = list.method(&row.method_id) {
         if cat.version != row.method_version {
             // A model that kept its run-shaping facts runs with them; one
             // saved before they were kept cannot run on another version's
@@ -995,13 +996,13 @@ pub fn detail_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelDetail
                 detail,
             });
         }
-        let entry = crate::modules::execution_engine::envmanifest::env_for(&row.method_id);
+        let entry = list.env_for(&row.method_id);
         if let (None, Some(entry)) = (other_arch, entry) {
             // The same pin the run's base ref verifies against (the base
             // record's file hash, or the old reading for a manifest without
             // `bases`).
-            use crate::modules::execution_engine::envmanifest::{base_artifact_for, base_pin};
-            let current_base = base_pin(entry, base_artifact_for(entry));
+            use crate::modules::execution_engine::envmanifest::base_pin;
+            let current_base = base_pin(entry, list.base_artifact_for(entry));
             if let Some(detail) = own_environment_note(&env, &entry.layer_sha256, current_base, &entry.tag) {
                 warnings.push(ModelWarning {
                     code: ModelWarningCode::DigestMismatch,
@@ -1216,13 +1217,15 @@ pub async fn save_from_run(
     // failure is reported, and the unreferenced trees are prunable; the
     // copy itself never lands a partial tree (staging + atomic rename).
     let mut saved_rows = Vec::with_capacity(chosen.len());
+    // One snapshot of the current method list for every model of the save.
+    let list = crate::modules::method_list::current();
     for mid in &chosen {
         let pm = produced_by[mid.as_str()];
         let method_row = engine
             .get_method(req.run_id, mid)
             .await?
             .expect("checked above");
-        let facts = save_facts(&summary, &method_row, pm)?;
+        let facts = save_facts(&list, &summary, &method_row, pm)?;
         // DEC-3's row-is-a-reference rule at the save boundary too: saving
         // the same produced tree+method into the same set again is the SAME
         // model — the existing row stands (a second row would violate the
@@ -1363,12 +1366,13 @@ struct SaveFacts<'a> {
     method_facts: Option<TxrMethodFacts>,
 }
 
-fn save_facts(
+fn save_facts<'a>(
+    list: &'a crate::modules::method_list::MethodList,
     summary: &TxrRunSummary,
     method_row: &MethodRow,
     produced: &TxrProducedModel,
-) -> Result<SaveFacts<'static>, AppError> {
-    let cat = catalogue::method(&produced.method_id).ok_or_else(|| {
+) -> Result<SaveFacts<'a>, AppError> {
+    let cat = list.method(&produced.method_id).ok_or_else(|| {
         AppError::new(
             StatusCode::CONFLICT,
             "METHOD_NOT_IN_CATALOGUE",
@@ -2519,9 +2523,9 @@ mod tests {
         let asset: crate::modules::execution_engine::types::TxrModelAsset =
             serde_json::from_value(serde_json::to_value(&assets[0]).unwrap()).expect("engine element");
         assert_eq!(asset.env, TxrMethodEnv::digests("e1".repeat(32), "f2".repeat(32)));
-        let facts = envmanifest::facts_for("landmark-cox-current").expect("a catalogue method");
+        let facts = crate::modules::method_list::builtin().method("landmark-cox-current").expect("a catalogue method");
         let env = resolve_recorded(
-            envmanifest::manifest(),
+            &crate::modules::method_list::builtin().images,
             envmanifest::EnvArch::host(),
             &asset,
             EnvLanguage::from_catalogue(&facts.language),
@@ -2575,16 +2579,16 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn a_record_that_names_no_file_gets_no_environment_note() {
-        use crate::modules::execution_engine::envmanifest::{self, EnvArch};
+        use crate::modules::execution_engine::envmanifest::EnvArch;
         let (root, _guard) = scratch_root("detail-no-file");
         let (pool, path) = test_pool().await;
         let repo = ModelStoreRepository::new(pool.clone());
         let (src, digest, _) = fixture_tree(&root, "no-file");
         let dir = copy_tree(&src, &digest).expect("tree");
         let host = EnvArch::host().expect("a supported test host");
-        let entry = envmanifest::envs()
+        let entry = crate::modules::method_list::builtin().images.envs
             .iter()
-            .find(|e| e.arch == host && catalogue::method(&e.method_id).is_some());
+            .find(|e| e.arch == host && crate::modules::method_list::builtin().method(&e.method_id).is_some());
         let Some(entry) = entry else {
             eprintln!(
                 "a_record_that_names_no_file_gets_no_environment_note: no listed method for {} \
@@ -2593,7 +2597,7 @@ mod tests {
             );
             return;
         };
-        let cat = catalogue::method(&entry.method_id).expect("row");
+        let cat = crate::modules::method_list::builtin().method(&entry.method_id).expect("row");
         let mut new = row_for(&dir, &digest, None, &entry.method_id);
         new.method_version = cat.version.clone();
         new.env_base_digest = Some("recorded".to_string());
@@ -2615,7 +2619,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn detail_notes_name_the_own_environment() {
-        use crate::modules::execution_engine::envmanifest::{self, EnvArch};
+        use crate::modules::execution_engine::envmanifest::EnvArch;
         let (root, _guard) = scratch_root("detail-notes");
         let (pool, path) = test_pool().await;
         let repo = ModelStoreRepository::new(pool.clone());
@@ -2643,12 +2647,12 @@ mod tests {
         );
 
         // A listed method on this chip type: its own image vs the list's.
-        match envmanifest::envs()
+        match crate::modules::method_list::builtin().images.envs
             .iter()
-            .find(|e| e.arch == host && catalogue::method(&e.method_id).is_some())
+            .find(|e| e.arch == host && crate::modules::method_list::builtin().method(&e.method_id).is_some())
         {
             Some(entry) => {
-                let cat = catalogue::method(&entry.method_id).expect("row");
+                let cat = crate::modules::method_list::builtin().method(&entry.method_id).expect("row");
                 let mut new = row_for(&dir, &digest, None, &entry.method_id);
                 new.method_version = "0.0.1".to_string();
                 new.env_layer_digest = Some("ab".repeat(32));
@@ -2733,7 +2737,7 @@ mod tests {
         let engine = TxrRepository::new(pool.clone());
         let repo = ModelStoreRepository::new(pool.clone());
         let method = "landmark-cox-current";
-        let cat = catalogue::method(method).expect("a catalogue method");
+        let cat = crate::modules::method_list::builtin().method(method).expect("a catalogue method");
         let want = serde_json::to_value(TxrMethodFacts::from_method(cat)).unwrap();
 
         let mut saved_ids = Vec::new();
@@ -2783,6 +2787,7 @@ mod tests {
                     cpus: Some(1),
                     seed: 1,
                     estimate: None,
+                    method_list_sequence: None,
                 })
                 .await
                 .expect("run");

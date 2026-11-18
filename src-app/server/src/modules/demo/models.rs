@@ -38,7 +38,6 @@ use txresbench_core::AppError;
 
 use crate::modules::execution_engine::repository::TxrRepository;
 use crate::modules::execution_engine::types::{CreateRunRequest, TxrMethodState, TxrRunMode};
-use crate::modules::method_catalogue::catalogue;
 use crate::modules::model_store::repository::{ExampleStateRow, ModelStoreRepository, NewModel};
 use crate::modules::model_store::types::{
     CovariateFacts, ExampleSetResponse, ExampleSetState, ModelProvenance, ModelSaveResponse,
@@ -68,6 +67,7 @@ fn recorded_input(run_dir: &Path) -> Result<CreateRunRequest, AppError> {
         config: record.config,
         method_ids: record.method_ids,
         model_ids: record.model_ids,
+        method_list_sequence: None,
     })
 }
 
@@ -84,7 +84,12 @@ fn example_marker_ids(
         config: &crate::modules::execution_engine::types::RunConfig,
         mode: TxrRunMode,
     ) -> Vec<String> {
-        crate::modules::execution_engine::orchestrator::validate_run(input, config, mode)
+        crate::modules::execution_engine::orchestrator::validate_run(
+            crate::modules::method_list::builtin(),
+            input,
+            config,
+            mode,
+        )
             .map(|v| v.inventory.markers.iter().map(|m| m.key.clone()).collect())
             .unwrap_or_default()
     }
@@ -110,7 +115,9 @@ fn new_model_from_bundle(
     digest: &str,
     trained_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> Result<NewModel, AppError> {
-    let cat = catalogue::method(method_id).ok_or_else(|| {
+    // Demo mode never moves off the built-in list (its recordings were made
+    // against it).
+    let cat = crate::modules::method_list::builtin().method(method_id).ok_or_else(|| {
         AppError::new(
             StatusCode::CONFLICT,
             "METHOD_NOT_IN_CATALOGUE",
@@ -298,7 +305,7 @@ pub async fn save_from_bundle(
             continue;
         }
         let stored = store::copy_tree(&src_tree, &digest)?;
-        let facts = crate::modules::execution_engine::envmanifest::facts_for(mid);
+        let facts = crate::modules::method_list::builtin().method(mid);
         let mut model = new_model_from_bundle(
             mid,
             &facts.map(|f| f.version.clone()).unwrap_or_else(|| method_row.version.clone()),
@@ -370,7 +377,7 @@ pub async fn ensure_example_set(pool: &SqlitePool) -> Result<ExampleSetResponse,
     for method in &bundle.methods {
         for record in &method.records {
             let Some(model) = &record.model else { continue };
-            let facts = crate::modules::execution_engine::envmanifest::facts_for(&method.method_id);
+            let facts = crate::modules::method_list::builtin().method(&method.method_id);
             let tree_dir = crate::modules::rootfs::data_root()
                 .join("demo-example-models")
                 .join(&method.method_id);

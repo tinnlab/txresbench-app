@@ -65,7 +65,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::modules::method_catalogue::catalogue as method_catalogue_catalog;
+use crate::modules::method_list::MethodList;
 use crate::modules::method_catalogue::eligibility::{
     estimate_quality_for, estimate_seconds_for, required_marker_match, UnitMarkerRow,
 };
@@ -89,7 +89,17 @@ pub fn eligible(
     inv: &InventoryEligibilityRequest,
     bundled_available: bool,
 ) -> PretrainedEligibilityEntry {
-    let method = method_catalogue_catalog::method(&entry.method_id);
+    eligible_in(&crate::modules::method_list::current(), entry, inv, bundled_available)
+}
+
+/// [`eligible`] over one method list (its method facts and marker vocabulary).
+fn eligible_in(
+    list: &MethodList,
+    entry: &PretrainedModel,
+    inv: &InventoryEligibilityRequest,
+    bundled_available: bool,
+) -> PretrainedEligibilityEntry {
+    let method = list.method(&entry.method_id);
     let (estimated_seconds, estimate_quality) = match method {
         Some(m) => (
             Some(estimate_seconds_for(m, inv.patients, DEFAULT_ESTIMATE_CPUS)),
@@ -126,7 +136,7 @@ pub fn eligible(
     // Marker presence: the recorded required rule (when present) through the
     // provider's matcher; else the file's value markers are the candidates.
     let resolved = match &entry.needs.required_markers {
-        Some(rule) => required_resolution(inv, rule),
+        Some(rule) => required_resolution(list, inv, rule),
         None => open_resolution(inv),
     };
     if !resolved.missing.is_empty() {
@@ -171,7 +181,7 @@ pub fn eligible(
     // consumes whatever the file carries — an unrelated mismatched marker
     // must not fail the whole verdict).
     if entry.needs.required_markers.is_some() {
-        unit_mismatches(&resolved.used, &mut reasons);
+        unit_mismatches(list, &resolved.used, &mut reasons);
     }
 
     // Draw coverage + the decision-day rule over the used markers.
@@ -239,13 +249,17 @@ pub fn eligibility_response(
     inv: &InventoryEligibilityRequest,
     bundled_available: &BTreeMap<String, bool>,
 ) -> PretrainedEligibilityResponse {
+    // One snapshot of the current method list for every verdict of the call.
+    let list = crate::modules::method_list::current();
     let entries: Vec<PretrainedEligibilityEntry> = ids
         .iter()
         .filter_map(|id| {
             active
                 .iter()
                 .find(|m| m.id == *id)
-                .map(|m| eligible(m, inv, bundled_available.get(id).copied().unwrap_or(false)))
+                .map(|m| {
+                    eligible_in(&list, m, inv, bundled_available.get(id).copied().unwrap_or(false))
+                })
         })
         .collect();
     finish(entries, ids.len())
@@ -383,6 +397,7 @@ struct Resolution<'a> {
 /// uses, so the installed row and the catalogue entry answer identically
 /// (TEST-PC-14).
 fn required_resolution<'a>(
+    list: &MethodList,
     inv: &'a InventoryEligibilityRequest,
     required: &RequiredMarkers,
 ) -> Resolution<'a> {
@@ -426,7 +441,7 @@ fn required_resolution<'a>(
                     id_system: String::new(),
                     id: id.clone(),
                 });
-            display_of(orig.id_system.as_str(), &orig.id, &orig.name)
+            display_of(list, orig.id_system.as_str(), &orig.id, &orig.name)
         })
         .collect();
     Resolution {
@@ -476,11 +491,12 @@ fn standard_id_text(mk: &InventoryMarker) -> String {
 /// The vocabulary entry for a `(system, id)` pair — the catalogue engine's
 /// own comparison (case-insensitive on both; a foreign inventory must not
 /// silently skip the vocabulary checks).
-fn vocab_marker(
+fn vocab_marker<'l>(
+    list: &'l MethodList,
     system: &str,
     id: &str,
-) -> Option<&'static crate::modules::method_catalogue::types::VocabularyMarker> {
-    method_catalogue_catalog::marker_vocabulary()
+) -> Option<&'l crate::modules::method_catalogue::types::VocabularyMarker> {
+    list.marker_vocabulary()
         .iter()
         .find(|v| v.system.as_str().eq_ignore_ascii_case(system) && v.id.eq_ignore_ascii_case(id))
 }
@@ -488,8 +504,8 @@ fn vocab_marker(
 /// The `MissingMarker` row for a required id — the display name from the
 /// vocabulary, the group id from the vocabulary's first group (the catalogue
 /// engine's construction).
-fn display_of(id_system: &str, id: &str, name: &str) -> MissingMarker {
-    let vocab = vocab_marker(id_system, id);
+fn display_of(list: &MethodList, id_system: &str, id: &str, name: &str) -> MissingMarker {
+    let vocab = vocab_marker(list, id_system, id);
     MissingMarker {
         id: id.to_string(),
         id_system: id_system.to_string(),
@@ -509,13 +525,13 @@ fn display_of(id_system: &str, id: &str, name: &str) -> MissingMarker {
 /// marker must be measured in the vocabulary's family; an unknown family on
 /// either side is not a mismatch, and `other`-system markers have no
 /// canonical family).
-fn unit_mismatches(used: &[&InventoryMarker], reasons: &mut Vec<PretrainedReason>) {
+fn unit_mismatches(list: &MethodList, used: &[&InventoryMarker], reasons: &mut Vec<PretrainedReason>) {
     for mk in used {
         for sid in &mk.standard_ids {
             if sid.system.eq_ignore_ascii_case("other") {
                 continue;
             }
-            if let Some(vocab) = vocab_marker(&sid.system, &sid.id) {
+            if let Some(vocab) = vocab_marker(list, &sid.system, &sid.id) {
                 if vocab.unit_family != UnitFamily::None
                     && mk.unit_family != UnitFamily::None
                     && vocab.unit_family != mk.unit_family
@@ -867,7 +883,7 @@ mod tests {
         assert_eq!(v.min_draws.required, 1);
         assert_eq!(v.min_draws.unmet_patients, 0);
         assert!(v.missing_markers.is_empty());
-        let m = method_catalogue_catalog::method("cox-cutpoint-risk").expect("method");
+        let m = crate::modules::method_list::builtin().method("cox-cutpoint-risk").expect("method");
         assert_eq!(
             v.estimated_seconds,
             Some(estimate_seconds_for(m, 3, DEFAULT_ESTIMATE_CPUS)),

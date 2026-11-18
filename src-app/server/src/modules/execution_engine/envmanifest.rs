@@ -1,48 +1,44 @@
-//! The engine's embedded runtime data: the per-method environment layer
-//! manifest + the catalogue-facts shim (PLAN ITEM-2).
+//! The environment images list (the per-method layer manifest) and the
+//! saved-model facts rule (PLAN ITEM-2).
 //!
-//! Two first-party data files reach the engine at run time, both compiled into
-//! the binary and both boot-validated (INV-4: the app ships its own copy of
-//! the data it needs; nothing is read from the benchmark tree at run time):
+//! The list (schema v2, `layer_schema: 1`; PROV-method-env-images-1) is the
+//! `images` half of the method list (`method_list`): the app embeds only the
+//! method list's built-in copy and may replace it, between runs, with a newer
+//! signed list (`method_list::runtime`). A request or a run asks one
+//! `MethodList` snapshot for its entries (`MethodList::env_for`,
+//! `env_for_arch`, `base_artifact_for`, `base_for`); this module keeps the
+//! loader and validator the method list's parse runs over the nested
+//! document ([`parse_manifest`]), the base pin rule ([`base_pin`]) and the
+//! saved-model facts rule ([`reuse_facts_for`]).
 //!
-//! 1. the env manifest `src-app/server/data/method-env-images.json`
-//!    (PROV-method-env-images-1, published by the `method-env-images` node,
-//!    schema v2, `layer_schema: 1`) — the layer artifact facts the engine
-//!    binds to when it drives the `sandbox` module's env manager
-//!    (CONS-EE-8/8c/8b): `env_for(method_id)` returns the host-arch entry
-//!    (oci ref, tag, layer pin + size, base pairing anchor, contract);
-//!    `base_for(env_id)` returns the base pairing facts verbatim. The
-//!    manifest's `base_ref` is NOT a runtime fetch target — the layer design
-//!    (design §7) makes the pairing the DIGEST anchor, and the sandbox module
-//!    owns the app's base namespace; the entry's language field is what the
-//!    engine maps to the app's own base image at run start (ITEM-8).
-//!    The optional top-level `bases` list holds the app-side base artifacts
-//!    (one per base and arch): their tag, the sha256 of the base squashfs
-//!    file the download is verified against, and the Docker base image they
-//!    were built from. A manifest with `bases` must give every entry its
-//!    base, and the entry's `base_ref`/`base_digest` must equal that base's
-//!    `source_ref`/`source_digest` (design §7's pairing, checked at load). A
-//!    manifest without `bases` predates the base publisher; its base pin is
-//!    the old `base_digest` reading ([`base_pin`]), kept until the committed
-//!    manifest is regenerated with bases.
-//! 2. the committed method catalogue (PROV-MC-1, `method_catalogue`) — the
-//!    group/tasks/draws/fitted facts the run rows + per-method classification
-//!    read (CONS-EE-9/9c). [`facts_for`] is the ONE shim: later items never
-//!    reach into the provider's module directly; a rename in the provider
-//!    breaks this node's compile before a consumer binds a drifted shape.
+//! An entry gives the layer artifact facts the engine binds to when it
+//! drives the `sandbox` module's env manager (CONS-EE-8/8c/8b): oci ref, tag,
+//! layer pin + size, base pairing anchor, contract. The manifest's
+//! `base_ref` is NOT a runtime fetch target — the layer design (design §7)
+//! makes the pairing the DIGEST anchor, and the sandbox module owns the
+//! app's base namespace; the entry's language field is what the engine maps
+//! to the app's own base image at run start (ITEM-8). The optional top-level
+//! `bases` list holds the app-side base artifacts (one per base and arch):
+//! their tag, the sha256 of the base squashfs file the download is verified
+//! against, and the Docker base image they were built from. A manifest with
+//! `bases` must give every entry its base, and the entry's
+//! `base_ref`/`base_digest` must equal that base's `source_ref`/
+//! `source_digest` (design §7's pairing, checked at load). A manifest without
+//! `bases` predates the base publisher; its base pin is the old
+//! `base_digest` reading ([`base_pin`]), kept until the list is regenerated
+//! with bases.
 //!
-//! ### First-party posture (the `method_catalogue::catalogue` discipline)
+//! ### First-party posture
 //!
-//! A manifest this binary cannot interpret is a BOOT REFUSAL, never a
-//! degraded state: module `init` calls [`ensure_loaded`], and a named
-//! [`ManifestLoadError`] aborts the boot (TEST-EE-05's mangled-manifest
-//! half; the hardened checks are unit-pinned here). A RUNNABLE method whose
+//! A built-in list this binary cannot interpret is a BOOT REFUSAL, never a
+//! degraded state (the `method_list` module's `init`; a named
+//! [`ManifestLoadError`] inside the list's refusal). A newer list that fails
+//! is refused and the app keeps the one it has. A RUNNABLE method whose
 //! entry is missing stays a runtime per-method decision — `env_for` → `None`
-//! → `cannot_run` + `ENV_UNKNOWN` at run start (TEST-EE-06): the manifest
-//! may grow a method's entry later than the catalogue does, and that is a
-//! method the app reports honestly, not a boot the catalogue and manifest
-//! disagree about (their coverage relation is checked at run start per
-//! method, never globally).
+//! → `cannot_run` + `ENV_UNKNOWN` at run start (TEST-EE-06): the list may
+//! grow a method's entry later than the catalogue row, and that is a method
+//! the app reports honestly (their coverage relation is checked at run start
+//! per method, never globally).
 //!
 //! The manifest's OCI refs pass through as DATA (INV-5): no registry host
 //! literal is spelled here — the layer ref check reuses the `sandbox` module's
@@ -51,11 +47,10 @@
 //! enforced by `method-env-images`'s own byte-parity guard + schema).
 
 use std::fmt;
-use std::sync::OnceLock;
 
 use serde::Deserialize;
 
-use crate::modules::method_catalogue::types::Method;
+use crate::modules::method_catalogue::types::{Catalogue, Method};
 
 /// The manifest schema version this module understands (PROV-method-env-images-1
 /// `schema_version`; the JSON Schema at
@@ -441,16 +436,16 @@ impl fmt::Display for ManifestLoadError {
         match self {
             ManifestLoadError::EmbedParse { message } => write!(
                 f,
-                "MANIFEST_EMBED_INVALID: the embedded env manifest is not valid schema-2 JSON: {message}"
+                "MANIFEST_EMBED_INVALID: the env manifest is not valid schema-2 JSON: {message}"
             ),
             ManifestLoadError::SchemaVersion { found } => write!(
                 f,
-                "MANIFEST_SCHEMA_VERSION: the embedded env manifest declares schema_version {found}, \
+                "MANIFEST_SCHEMA_VERSION: the env manifest declares schema_version {found}, \
                  this build understands {MANIFEST_SCHEMA_VERSION}"
             ),
             ManifestLoadError::EmptyEnvs => write!(
                 f,
-                "MANIFEST_EMPTY: the embedded env manifest carries zero env entries"
+                "MANIFEST_EMPTY: the env manifest carries zero env entries"
             ),
             ManifestLoadError::Unsorted { env_id, arch } => write!(
                 f,
@@ -554,33 +549,30 @@ impl fmt::Display for ManifestLoadError {
 impl std::error::Error for ManifestLoadError {}
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Embed + load (the `method_catalogue::catalogue` OnceLock shape)
+// The debug-only dev manifest override
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The embedded manifest bytes. `$CARGO_MANIFEST_DIR` is `src-app/server`, so
-/// `data/method-env-images.json` is the module's own data dir (the publisher's
-/// commit location, PROV-method-env-images-1).
-const MANIFEST_JSON: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/data/method-env-images.json"
-));
-
 /// ITEM-2 (qa-hardening): a DEBUG build may point the engine at a dev
-/// manifest (`TXR_ENV_MANIFEST=<path>`) — the dev publisher's schema-v2
-/// file whose pins are its own built digests. The bytes go through the SAME
-/// [`parse_manifest`] validator, so every `MANIFEST_*` check applies to the
-/// dev data too (nothing is skipped, nothing unverified). A RELEASE build
-/// never reads the variable — the `#[cfg]` halves make it the embedded bytes
+/// manifest (`TXR_ENV_MANIFEST=<path>`), the dev publisher's schema-v2 file
+/// whose pins are its own built digests. It replaces the images half of the
+/// built-in method list (`method_list::runtime`). The bytes go through the
+/// SAME [`parse_manifest`] validator, so every `MANIFEST_*` check applies to
+/// the dev data too (nothing is skipped, nothing unverified). A RELEASE build
+/// never reads the variable: the `#[cfg]` halves make it `None`
 /// unconditionally, so a dev manifest can never reach a shipped binary.
-fn manifest_bytes() -> Result<Vec<u8>, ManifestLoadError> {
-    if let Some(path) = manifest_override_path(&|k| std::env::var(k).ok()) {
-        return std::fs::read(&path).map_err(|e| ManifestLoadError::EmbedParse {
-            message: format!("read the TXR_ENV_MANIFEST override {}: {e}", path),
-        });
-    }
-    #[cfg(not(debug_assertions))]
-    {}
-    Ok(MANIFEST_JSON.to_vec())
+pub fn dev_manifest_override() -> Result<Option<EnvManifest>, ManifestLoadError> {
+    let Some(path) = dev_manifest_override_path() else {
+        return Ok(None);
+    };
+    let bytes = std::fs::read(&path).map_err(|e| ManifestLoadError::EmbedParse {
+        message: format!("read the TXR_ENV_MANIFEST override {}: {e}", path),
+    })?;
+    parse_manifest(&bytes).map(Some)
+}
+
+/// The override's path, when a debug build is given one.
+pub fn dev_manifest_override_path() -> Option<String> {
+    manifest_override_path(&|k| std::env::var(k).ok())
 }
 
 /// The pure env → path core of the override (injected read): a debug build
@@ -598,10 +590,6 @@ fn manifest_override_path(read: &impl Fn(&str) -> Option<String>) -> Option<Stri
         None
     }
 }
-
-/// The process-wide manifest, installed by the module's `init` (the boot
-/// check). `OnceLock`: the manifest is immutable for the process lifetime.
-static MANIFEST: OnceLock<EnvManifest> = OnceLock::new();
 
 /// Parse + validate a manifest from arbitrary bytes (the unit-test seam and
 /// the boot path share it — a corrupted-byte test exercises the REAL loader).
@@ -954,60 +942,6 @@ fn is_major_minor(s: &str) -> bool {
     major.bytes().all(|b| b.is_ascii_digit()) && minor.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// Load (once) the embedded manifest, or fail with the named error. The module
-/// `init` calls this and returns the error to the boot path — a refusal means
-/// the server does not serve (the first-party-data posture of
-/// `method_catalogue::catalogue::ensure_loaded`).
-pub fn ensure_loaded() -> Result<&'static EnvManifest, ManifestLoadError> {
-    if let Some(m) = MANIFEST.get() {
-        return Ok(m);
-    }
-    let parsed = parse_manifest(&manifest_bytes()?)?;
-    let _ = MANIFEST.set(parsed);
-    Ok(MANIFEST
-        .get()
-        .expect("the manifest is installed by this call or a concurrent one"))
-}
-
-/// The boot-validated manifest. Panics only when called before `init` in a
-/// build whose boot has not run — the window `init` closes.
-pub fn manifest() -> &'static EnvManifest {
-    ensure_loaded().expect(
-        "execution_engine: the embedded env manifest failed its boot check — a malformed \
-         first-party manifest is a boot refusal, not a silently empty one",
-    )
-}
-
-/// Every entry (the boot-validated set, in manifest order).
-pub fn envs() -> &'static [ManifestEntry] {
-    &manifest().envs
-}
-
-/// The host-arch entry for `method_id` (the artifact this machine can mount),
-/// or `None` when the manifest carries no entry for this method on this arch —
-/// the per-method `cannot_run` + `ENV_UNKNOWN` case of TEST-EE-06.
-pub fn env_for(method_id: &str) -> Option<&'static ManifestEntry> {
-    let arch = EnvArch::host()?;
-    env_for_arch(method_id, arch)
-}
-
-/// The `(method_id, arch)` lookup (the test seam + the host-arch driver).
-pub fn env_for_arch(method_id: &str, arch: EnvArch) -> Option<&'static ManifestEntry> {
-    manifest().find(method_id, arch)
-}
-
-/// The base pairing facts of `env_id`'s host-arch entry, verbatim (the design
-/// §7 digest anchor; TEST-EE-04 round-trips `base_digest`).
-pub fn base_for(env_id: &str) -> Option<BaseRefFacts<'static>> {
-    env_for(env_id).map(|e| e.base())
-}
-
-/// The base record of a boot-validated manifest entry, or `None` when the
-/// manifest carries no `bases` (the boot check guarantees one otherwise).
-pub fn base_artifact_for(entry: &ManifestEntry) -> Option<&'static BaseArtifact> {
-    manifest().base_for_entry(entry)
-}
-
 /// The 64-hex pin a base file is verified against, for `entry` and its base
 /// record. With a record it is the record's `squashfs_sha256`. Without one
 /// (a manifest from before the base publisher) it is the old reading, the
@@ -1024,21 +958,6 @@ pub fn base_pin<'a>(entry: &'a ManifestEntry, base: Option<&'a BaseArtifact>) ->
             .strip_prefix("sha256:")
             .unwrap_or(&entry.base_digest),
     }
-}
-
-/// The layer byte size for the F screen's download rows
-/// (`bytes_total` from the manifest's `size_bytes`, PROV-EE-3), host-arch.
-pub fn size_bytes(method_id: &str) -> Option<u64> {
-    env_for(method_id).map(|e| e.size_bytes)
-}
-
-/// The catalogue-facts accessor shim (CONS-EE-9/9c): the ONE seam to the
-/// provider's in-process `method(id)` — the group/tasks/min_draws/fitted/
-/// saves_model/frozen_model/uses_history/markers facts the run rows and the
-/// per-method classification read. Later items never re-parse the catalogue
-/// file and never reach into the provider's module under an unseamed path.
-pub fn facts_for(method_id: &str) -> Option<&'static Method> {
-    crate::modules::method_catalogue::catalogue::method(method_id)
 }
 
 /// Why a saved model's run-shaping facts cannot be had.
@@ -1081,12 +1000,13 @@ impl ReuseFactsRefusal {
 /// (which still gives everything that does not shape the run); a model that
 /// kept none uses the current row only when the row is the model's recorded
 /// `method_version` ("same version, same facts"), and is refused otherwise.
-pub fn reuse_facts_for(
+pub fn reuse_facts_for<'a>(
+    catalogue: &'a Catalogue,
     method_id: &str,
     method_version: &str,
     saved: Option<&super::types::TxrMethodFacts>,
-) -> Result<std::borrow::Cow<'static, Method>, ReuseFactsRefusal> {
-    let row = facts_for(method_id).ok_or_else(|| ReuseFactsRefusal::UnknownMethod {
+) -> Result<std::borrow::Cow<'a, Method>, ReuseFactsRefusal> {
+    let row = catalogue.method(method_id).ok_or_else(|| ReuseFactsRefusal::UnknownMethod {
         method_id: method_id.to_string(),
     })?;
     match saved {
@@ -1101,7 +1021,7 @@ pub fn reuse_facts_for(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST-EE-04 + TEST-EE-06 (unit halves): the embedded manifest parses against
+// TEST-EE-04 + TEST-EE-06 (unit halves): the shipped manifest parses against
 // schema v2 (fields per PROV-method-env-images-1), entries sorted by env_id,
 // `env_id == method_id` everywhere, `layer_schema == 1`, the synthetic
 // fixture round-trips `env_for`/`base_for` verbatim, and a runnable method
@@ -1112,6 +1032,31 @@ pub fn reuse_facts_for(
 mod tests {
     use super::*;
     use crate::modules::execution_engine::types::EngineReasonCode;
+    use crate::modules::method_list::{builtin, MethodList};
+
+    // The shipped images list is the built-in method list's `images` half; these read it
+    // the way a request reads one list snapshot.
+    fn shipped() -> &'static MethodList {
+        builtin()
+    }
+    fn ensure_loaded() -> Result<&'static EnvManifest, ManifestLoadError> {
+        Ok(&shipped().images)
+    }
+    fn env_for(method_id: &str) -> Option<&'static ManifestEntry> {
+        shipped().env_for(method_id)
+    }
+    fn env_for_arch(method_id: &str, arch: EnvArch) -> Option<&'static ManifestEntry> {
+        shipped().env_for_arch(method_id, arch)
+    }
+    fn base_for(env_id: &str) -> Option<BaseRefFacts<'static>> {
+        shipped().base_for(env_id)
+    }
+    fn size_bytes(method_id: &str) -> Option<u64> {
+        env_for(method_id).map(|e| e.size_bytes)
+    }
+    fn facts_for(method_id: &str) -> Option<&'static Method> {
+        shipped().method(method_id)
+    }
 
     /// A minimal two-entry manifest fixture: one amd64 R entry and one arm64
     /// Python entry (different bases, real-shaped digests) — the fixture the
