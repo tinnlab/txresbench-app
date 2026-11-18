@@ -1056,6 +1056,9 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     expect(screen.getByTestId('route-location').textContent).toBe('/choose-methods')
     // The cards and verdicts were fetched again for the new list.
     expect(api.eligibility.mock.calls.length).toBeGreaterThan(before)
+    // The reload keeps the user's choice (the store-backed ticks): the selection is not
+    // re-seeded, it is still the one method the user chose.
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('1 method selected')
   })
 
   it('a 409 with no active run answer surfaces the error line (the racy state is never hidden)', async () => {
