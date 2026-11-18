@@ -29,6 +29,69 @@ const ARTIFACTS_ROOT: &str = "/tmp/txresbench-artifacts-out";
 const WAIT: Duration = Duration::from_secs(30);
 /// Set by `sdk/scripts/test-guest-agent-linux.sh` in its throwaway container.
 const E2E_CONTAINER_ENV: &str = "TXR_GUEST_AGENT_E2E_CONTAINER";
+/// Set by the method in [`SCRIPT`] to make [`vsock_probe`] probe.
+const VSOCK_PROBE_ENV: &str = "TXR_VSOCK_PROBE";
+
+// ---- the vsock probe ----------------------------------------------------
+
+/// The calls a method could make for a vsock socket, each with what it
+/// answered: `created`, or the errno's name.
+///
+/// - `vsock-socket`: `socket(AF_VSOCK, SOCK_STREAM, 0)`, as a method would.
+/// - `vsock-bad-flag`: the same with a type flag no kernel knows. A kernel
+///   answers EINVAL before it looks at the family; the seccomp filter answers
+///   before the kernel. So EAFNOSUPPORT here comes from the filter, also on a
+///   kernel without vsock.
+/// - `vsock-bit-32`: `AF_VSOCK` with bit 32 of the register set, which the
+///   kernel drops (`int domain`): the filter must compare the low 32 bits only.
+/// - `vsock-bit-32-bad-flag`: both at once. A kernel without vsock answers
+///   `vsock-bit-32` with EAFNOSUPPORT by itself; this one it answers EINVAL,
+///   so only a filter that compares the low 32 bits gives EAFNOSUPPORT.
+fn vsock_answers() -> Vec<(&'static str, String)> {
+    let vsock = libc::AF_VSOCK as libc::c_long;
+    let stream = libc::SOCK_STREAM as libc::c_long;
+    let calls: [(&'static str, libc::c_long, libc::c_long); 4] = [
+        ("vsock-socket", vsock, stream),
+        ("vsock-bad-flag", vsock, stream | 0x4000_0000),
+        ("vsock-bit-32", (1 << 32) | vsock, stream),
+        ("vsock-bit-32-bad-flag", (1 << 32) | vsock, stream | 0x4000_0000),
+    ];
+    calls
+        .into_iter()
+        .map(|(name, domain, ty)| {
+            // SAFETY: a raw socket(2); a socket it makes is closed at once.
+            let fd = unsafe { libc::syscall(libc::SYS_socket, domain, ty, 0 as libc::c_long) };
+            let answer = if fd >= 0 {
+                unsafe { libc::close(fd as libc::c_int) };
+                "created".to_string()
+            } else {
+                match std::io::Error::last_os_error().raw_os_error() {
+                    Some(libc::EAFNOSUPPORT) => "EAFNOSUPPORT".to_string(),
+                    Some(libc::EINVAL) => "EINVAL".to_string(),
+                    Some(libc::EPERM) => "EPERM".to_string(),
+                    other => format!("errno {other:?}"),
+                }
+            };
+            (name, answer)
+        })
+        .collect()
+}
+
+/// Not a test of its own: the program the method in [`SCRIPT`] runs inside
+/// the sandbox (this test binary, bound at `/opt/vsock-probe`). With
+/// `TXR_VSOCK_PROBE=1` it prints a `<call>=<answer>` line per
+/// [`vsock_answers`]; without, it does nothing.
+#[test]
+fn vsock_probe() {
+    if std::env::var_os(VSOCK_PROBE_ENV).is_none() {
+        return;
+    }
+    // libtest has printed `test vsock_probe ... ` with no newline.
+    println!();
+    for (call, answer) in vsock_answers() {
+        println!("{call}={answer}");
+    }
+}
 
 // ---- without root -------------------------------------------------------
 
@@ -164,6 +227,8 @@ struct Fixture {
     layer: PathBuf,
     input: PathBuf,
     identity: PathBuf,
+    /// A copy of this test binary, the method's vsock probe.
+    probe: PathBuf,
 }
 
 impl Fixture {
@@ -221,6 +286,8 @@ impl Fixture {
         std::fs::write(input.join("in.txt"), b"hello from input\n").unwrap();
         let identity = root.join("identity.txt");
         std::fs::write(&identity, b"identity-file\n").unwrap();
+        let probe = root.join("vsock-probe");
+        std::fs::copy(std::env::current_exe().expect("this test binary"), &probe).unwrap();
         Fixture {
             _dir: dir,
             root,
@@ -228,6 +295,7 @@ impl Fixture {
             layer,
             input,
             identity,
+            probe,
         }
     }
 
@@ -242,6 +310,8 @@ impl Fixture {
             self.input.display().to_string(),
             "--ro".into(),
             self.identity.display().to_string(),
+            "--ro".into(),
+            self.probe.display().to_string(),
         ]
     }
 }
@@ -507,6 +577,9 @@ fn exec_request(script: &str) -> ExecRequest {
         "--ro-bind",
         "/host-mounts/1",
         "/etc/identity",
+        "--ro-bind",
+        "/host-mounts/2",
+        "/opt/vsock-probe",
     ]
     .into_iter()
     .map(String::from)
@@ -562,14 +635,16 @@ fn exec_request(script: &str) -> ExecRequest {
 
 /// The method: says it is ready, waits for the test's go (a file the test
 /// creates in the input dir, seen through the read-only bind), then reads the
-/// input and the layer, reports its uid and how many network routes it has
-/// (none: no network), writes outputs and exits 7.
+/// input and the layer, reports its uid, how many network routes it has
+/// (none: no network) and what its vsock calls answered (see
+/// [`vsock_answers`]), writes outputs and exits 7.
 const SCRIPT: &str = r#"echo ready > /run/progress
 while [ ! -e /input/go ]; do sleep 0.05; done
 cat /input/in.txt /etc/identity
 cat /opt/layer/marker >&2
 echo "uid=$(id -u)"
 echo "routes=$(grep -vc Iface /proc/net/route)"
+TXR_VSOCK_PROBE=1 /opt/vsock-probe --exact vsock_probe --nocapture --test-threads=1 | grep '^vsock-'
 if echo x > /input/new 2>/dev/null; then echo "input-writable"; fi
 echo result > /output/out.txt
 mkdir -p /output/sub && printf y > /output/sub/y
@@ -778,10 +853,22 @@ fn run_method(start: Start, fuse: bool) {
     assert!(rest.is_empty(), "nothing after ArtifactsDone: {rest:?}");
 
     let out = stdout_text(&frames, true);
+    // The filter refuses every vsock call in the sandbox. Out here, without
+    // it, the kernel answers otherwise (at least EINVAL for the bad flag).
+    let outside = vsock_answers();
     assert_eq!(
-        out, "hello from input\nidentity-file\nuid=1001\nroutes=0\n",
-        "frames: {frames:?}\nagent stderr:\n{stderr}"
+        out,
+        "hello from input\nidentity-file\nuid=1001\nroutes=0\n\
+         vsock-socket=EAFNOSUPPORT\nvsock-bad-flag=EAFNOSUPPORT\nvsock-bit-32=EAFNOSUPPORT\n\
+         vsock-bit-32-bad-flag=EAFNOSUPPORT\n",
+        "outside the sandbox: {outside:?}\nframes: {frames:?}\nagent stderr:\n{stderr}"
     );
+    for call in ["vsock-bad-flag", "vsock-bit-32-bad-flag"] {
+        assert!(
+            outside.contains(&(call, "EINVAL".to_string())),
+            "without the filter the kernel itself answers {call}: {outside:?}"
+        );
+    }
     assert!(stdout_text(&frames, false).contains("layer-marker"), "{frames:?}");
     let exit = frames
         .iter()
