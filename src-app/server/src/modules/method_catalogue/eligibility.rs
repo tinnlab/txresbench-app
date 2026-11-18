@@ -392,9 +392,24 @@ pub fn runtime_env_available(images: &EnvManifest, method_id: &str) -> bool {
 
 /// Run eligibility over one method list (PROV-MC-7's in-process seam; the
 /// run's classification passes the run's own snapshot): the pure verdicts +
-/// the runtime-env stage ([`with_runtime_env`]).
+/// the runtime-env stage ([`with_runtime_env`]), naming the list it answered
+/// from (`method_list_sequence`) exactly as the HTTP surface does.
 pub fn eligibility(list: &MethodList, req: &EligibilityRequest) -> EligibilityResponse {
-    with_runtime_env(&list.images, eligibility_for(&list.catalogue, req))
+    eligibility_calibrated(list, req, &calibration::TimingCalibration::empty())
+}
+
+/// [`eligibility`] with the app's measured-time calibration — the HTTP
+/// surface's seat (`POST /api/methods/eligibility`): one path for the route
+/// and the in-process seam, so their answers never drift (TEST-MC-31).
+pub fn eligibility_calibrated(
+    list: &MethodList,
+    req: &EligibilityRequest,
+    calibration: &calibration::TimingCalibration,
+) -> EligibilityResponse {
+    let mut response =
+        eligibility_for_runtime_calibrated(&list.catalogue, &list.images, req, calibration);
+    response.method_list_sequence = Some(list.sequence);
+    response
 }
 
 /// Run eligibility over a given catalogue — the PURE engine (no runtime-env
@@ -2275,5 +2290,26 @@ mod tests {
             Some(ReasonCode::EnvImageMissing),
             "the env fact is the FIRST reason (the row's one detail line)"
         );
+    }
+
+    /// The in-process seam names the list it answered from, exactly as the HTTP surface
+    /// does (TEST-MC-31 compares the two field by field).
+    #[test]
+    fn the_in_process_seam_names_its_method_list() {
+        let mut list = crate::modules::method_list::builtin().clone();
+        list.sequence = 41;
+        let req = EligibilityRequest::Preview {
+            preview: PreviewEligibilityRequest {
+                marker_groups: BTreeMap::new(),
+                before_treatment: None,
+                draws_during_treatment: None,
+                last_draw_day: None,
+            },
+        };
+        let answer = eligibility(&list, &req);
+        assert_eq!(answer.method_list_sequence, Some(41));
+        assert_eq!(answer.methods.len(), list.catalogue.methods.len());
+        // The pure engine names no list (it is given a catalogue, not a list).
+        assert_eq!(eligibility_for(&list.catalogue, &req).method_list_sequence, None);
     }
 }

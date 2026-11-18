@@ -64,7 +64,7 @@ use crate::modules::permissions::{with_permission, RequirePermissions};
 use crate::modules::permissions::ProjectsUse;
 
 use super::calibration::TimingCalibration;
-use super::eligibility::eligibility_for_runtime_calibrated;
+use super::eligibility::eligibility_calibrated;
 use super::estimate::estimate_for_runtime_calibrated;
 use super::types::{
     Catalogue, EligibilityRequest, EligibilityResponse, EstimateRequest, EstimateResponse,
@@ -268,10 +268,7 @@ async fn post_eligibility(
     let list = crate::modules::method_list::current();
     let calibration = load_calibration(&pool).await;
     let response = tokio::task::spawn_blocking(move || {
-        let mut response =
-            eligibility_for_runtime_calibrated(&list.catalogue, &list.images, &body, &calibration);
-        response.method_list_sequence = Some(list.sequence);
-        response
+        eligibility_calibrated(&list, &body, &calibration)
     })
     .await
     .map_err(|e| {
