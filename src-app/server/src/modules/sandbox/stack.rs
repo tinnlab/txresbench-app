@@ -974,16 +974,18 @@ pub struct ImageBindSource {
 /// component.
 ///
 /// None of these paths may have a symbolic link in it inside its image, the
-/// path itself or a directory above it. bwrap opens a bind source, and makes
-/// and mounts its destination, after it has moved the old root (the host on
-/// Linux, the VM's own root on macOS) to `/oldroot`, so a link there
-/// (`opt/x -> /oldroot/home/<user>`, or a chain of `../`) binds a path of the
-/// old root into the sandbox, or creates a file or dir in it. A link deeper
-/// inside a bound directory is fine: the sandboxed process resolves it inside
-/// the sandbox. Every entry is checked in the base, even one the sandbox does
-/// not bind the base under (`/code`), so the rule does not depend on which
-/// base dirs the argv binds. Both seams refuse such an image before bwrap
-/// runs: the Linux seam reads the mounted images
+/// path itself or a directory above it. bwrap resolves a bind source's links
+/// in the old root (the host on Linux, the VM's own root on macOS), and a
+/// `-try` source that does not resolve there it opens again after it has
+/// moved the old root to `/oldroot`; it makes and mounts a destination by
+/// its path in the new root, after that move. So a link there
+/// (`opt/x -> ../../../home/<user>`, `opt/x -> /oldroot/home/<user>`) binds
+/// a path of the old root into the sandbox, or creates a file or dir in it.
+/// A link deeper inside a bound directory is fine: the sandboxed process
+/// resolves it inside the sandbox. Every entry is checked in the base, even
+/// one the sandbox does not bind the base under (`/code`), so the rule does
+/// not depend on which base dirs the argv binds. Both seams refuse such an
+/// image before bwrap runs: the Linux seam reads the mounted images
 /// ([`assert_bind_sources_not_symlinked`]), a VM seam asks the VM
 /// ([`BindSourceProbe`]).
 pub fn image_bind_sources(layer_entries: &[String]) -> Result<Vec<ImageBindSource>, AppError> {

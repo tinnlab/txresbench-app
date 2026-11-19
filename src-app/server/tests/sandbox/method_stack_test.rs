@@ -411,14 +411,19 @@ fn build_linked_layer_rootfs(root: &Path, victim: &Path) {
     std::os::unix::fs::symlink(&target, root.join("opt/txr-layer")).expect("linked entry");
 }
 
-/// The linked-usr base: `usr` is a relative symbolic link with more `../` than
-/// any mount dir is deep. The host resolves it to its own `/usr`, so the mount
-/// counts as ready; bwrap, which keeps the host's root at `/oldroot` while it
-/// opens bind sources, climbs past it to its own empty root, so the PID-ns
-/// probe's `--ro-bind <base>/usr /usr` has no source and the probe fails.
-fn build_linked_usr_base_rootfs(root: &Path) {
-    std::fs::create_dir_all(root).expect("linked-usr base dir");
-    std::os::unix::fs::symlink(format!("{}usr", "../".repeat(64)), root.join("usr"))
+/// The linked-usr base: `usr` is a relative symbolic link, with more `../`
+/// than any mount dir is deep, to `usr_target`: an empty host dir outside
+/// every image. The host resolves the link, so the mount counts as ready, and
+/// so does bwrap, which resolves a bind source on the host before it moves
+/// the old root away: the PID-ns probe's `--ro-bind <base>/usr /usr` binds
+/// the empty dir, finds no `/bin/true` there, and the probe fails. Its `opt`
+/// dir is the parent of layer4's `/opt/txr-layer`, so the entry parent check
+/// (DEC-14) passes and only the link check or the probe can stop the run.
+fn build_linked_usr_base_rootfs(root: &Path, usr_target: &Path) {
+    std::fs::create_dir_all(root.join("opt")).expect("linked-usr base opt dir");
+    std::fs::create_dir_all(usr_target).expect("the linked usr's host dir");
+    let rel = usr_target.strip_prefix("/").expect("absolute usr target");
+    std::os::unix::fs::symlink(Path::new(&"../".repeat(64)).join(rel), root.join("usr"))
         .expect("linked usr");
 }
 
@@ -870,9 +875,9 @@ async fn stacked_run_child() {
             assert!(!ws.exists(), "refused before the run's workspace: nothing spawned");
             println!("PROBE_OK linked_layer_entry_refused");
         }
-        // A base whose `usr` is a symbolic link: the link check refuses it
-        // BEFORE the PID-ns probe binds that `usr` (the probe would fail the
-        // run as SANDBOX_UNAVAILABLE). Layer4 is the fixture layer that mounts
+        // A base whose `usr` is a symbolic link to an empty host dir: the
+        // link check refuses it BEFORE the PID-ns probe binds that `usr` (the
+        // probe would fail the run as SANDBOX_UNAVAILABLE). Layer4 is the fixture layer that mounts
         // here (it carries `usr/`); its own linked entry comes later in the
         // check's order than the base's fixed binds.
         "linked_base_usr" => {
@@ -1030,8 +1035,8 @@ fn assert_child_ran_one(stdout: &str) {
 }
 
 /// Build the fixture set once for the child legs: base + layer1 + layer2 + layer3 (packages)
-/// + layer4 (linked entry, with its host dir `victim`) + base2 (linked `usr`) squashfs under
-/// `work`. Returns the plain base DIR (for the PID-ns gate).
+/// + layer4 (linked entry, with its host dir `victim`) + base2 (`usr` linked to the empty host
+/// dir `base2-usr`) squashfs under `work`. Returns the plain base DIR (for the PID-ns gate).
 fn build_stack_fixtures(work: &Path) -> PathBuf {
     let base_dir = work.join("base-root");
     build_base_rootfs(&base_dir);
@@ -1051,7 +1056,7 @@ fn build_stack_fixtures(work: &Path) -> PathBuf {
     std::fs::write(victim.join("host.txt"), HOST_ONLY_TEXT).expect("victim file");
     build_linked_layer_rootfs(&work.join("layer4-root"), &victim);
     squash(&work.join("layer4-root"), &work.join("layer4.squashfs"));
-    build_linked_usr_base_rootfs(&work.join("base2-root"));
+    build_linked_usr_base_rootfs(&work.join("base2-root"), &work.join("base2-usr"));
     squash(&work.join("base2-root"), &work.join("base2.squashfs"));
     base_dir
 }
@@ -1653,9 +1658,9 @@ fn stacked_run_refuses_a_layer_entry_linked_out_of_the_image() {
 }
 
 /// Through the real Linux seam: the link check runs BEFORE the PID-ns probe.
-/// A base whose `usr` is a symbolic link that the host resolves to its own
-/// `/usr` but bwrap cannot resolve is refused with `ROOTFS_PATH_INVALID`; were
-/// the probe first, it would bind that `usr`, fail, and the run would end as
+/// A base whose `usr` is a symbolic link to an empty host dir is refused with
+/// `ROOTFS_PATH_INVALID`; were the probe first, it would bind that dir as
+/// `/usr`, find no `/bin/true`, fail, and the run would end as
 /// `SANDBOX_UNAVAILABLE` instead.
 #[test]
 fn stacked_run_checks_links_before_the_pidns_probe() {
