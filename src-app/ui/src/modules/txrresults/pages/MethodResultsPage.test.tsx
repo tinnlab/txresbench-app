@@ -474,7 +474,7 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
     expect(within(row).getByTestId('txr-bars-rsf-b').textContent).toContain('85%')
     expect(within(row).getAllByRole('progressbar').length).toBe(2)
     expect(view.getByTestId('txr-bars-footer').textContent).toContain(
-      'Chance of treatment failure by day 238, sorted by the first method. Showing 5 of 12.',
+      'Chance of progression or death by day 238, sorted by the first method. Showing 5 of 12.',
     )
   })
 

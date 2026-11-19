@@ -25,7 +25,7 @@ import {
   DIFFER_NONE,
   DIVERGENCE_PP,
   DIVERGENT_TOGGLE,
-  LEGEND_LABEL,
+  legendLabel,
   REASON_FALLBACK,
   SHARED_TOP_LEAD,
   SHARED_TOP_NONE,
@@ -306,10 +306,19 @@ describe('qa-fixes ITEM-4 — the names, legend and plain-voice notes (RES-03/04
     )
   })
 
-  it('spells the legend per outcome tab (RES-04: the no-response tab never reads "failure")', () => {
-    expect(LEGEND_LABEL.pfs).toBe('Chance of failure')
-    expect(LEGEND_LABEL.os).toBe('Chance of death')
-    expect(LEGEND_LABEL.response).toBe('Chance of no response')
+  it('spells the legend per outcome tab with the run day (RES-04: no tab reads "failure")', () => {
+    expect(legendLabel('pfs', 238)).toBe('Chance of progression or death by day 238')
+    expect(legendLabel('os', 365)).toBe('Chance of death by day 365')
+    expect(legendLabel('response', 238)).toBe('Chance of no response')
+    for (const outcome of ['pfs', 'os', 'response'] as const) {
+      expect(legendLabel(outcome, 238)).not.toMatch(/failure/i)
+    }
+  })
+
+  it('leaves the day out of the legend when the run has no usable day', () => {
+    expect(legendLabel('pfs', null)).toBe('Chance of progression or death')
+    expect(legendLabel('pfs', 0)).toBe('Chance of progression or death')
+    expect(legendLabel('os', Number.NaN)).toBe('Chance of death')
   })
 
   it('builds the mixed-outcome note (RES-04) with the hidden tasks named and counted', () => {

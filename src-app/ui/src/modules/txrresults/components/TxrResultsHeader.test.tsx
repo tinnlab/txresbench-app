@@ -614,6 +614,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         search=""
         sort="average-desc"
         outcome="pfs"
+        horizon={238}
         onFilterChange={vi.fn()}
         onSearchChange={onSearchChange}
         onSortChange={vi.fn()}
@@ -638,6 +639,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         search=""
         sort="average-desc"
         outcome="pfs"
+        horizon={238}
         onFilterChange={vi.fn()}
         onSearchChange={vi.fn()}
         onSortChange={onSortChange}
@@ -668,6 +670,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         search=""
         sort="average-desc"
         outcome="pfs"
+        horizon={238}
         onFilterChange={vi.fn()}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
@@ -698,6 +701,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         search=""
         sort="average-desc"
         outcome="pfs"
+        horizon={238}
         onFilterChange={onFilterChange}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
@@ -720,6 +724,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         search=""
         sort="average-desc"
         outcome="pfs"
+        horizon={238}
         onFilterChange={onFilterChange}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
@@ -738,6 +743,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         search=""
         sort="average-desc"
         outcome="pfs"
+        horizon={238}
         onFilterChange={onFilterChange}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
@@ -783,6 +789,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         search=""
         sort="average-desc"
         outcome="pfs"
+        horizon={238}
         onFilterChange={onFilterChange}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
@@ -801,6 +808,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         search=""
         sort="average-desc"
         outcome="pfs"
+        horizon={238}
         onFilterChange={vi.fn()}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
@@ -823,8 +831,8 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
   })
 })
 
-describe('the 0–100% legend (TEST-UR-4 — board copy)', () => {
-  it('reads the board bytes', () => {
+describe('the 0–100% legend (TEST-UR-4 — board copy, the run day named)', () => {
+  it('reads what the chance is of and by which day', () => {
     const view = render(
       <TxrMethodFilterBar
         columns={buildColumns(predictionsFixture(), 'pfs')}
@@ -832,12 +840,13 @@ describe('the 0–100% legend (TEST-UR-4 — board copy)', () => {
         search=""
         sort="average-desc"
         outcome="pfs"
+        horizon={238}
         onFilterChange={vi.fn()}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
       />,
     )
     const legend = view.getByTestId('txr-results-legend')
-    expect(legend.textContent).toBe('Chance of failure 0 to 100%')
+    expect(legend.textContent).toBe('Chance of progression or death by day 238 0 to 100%')
   })
 })
