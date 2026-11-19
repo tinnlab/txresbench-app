@@ -402,7 +402,7 @@
       "id": "sandbox.setupWsl",
       "title": "Set up WSL",
       "kind": "global",
-      "context": "wsl-setup",
+      "context": "txr.wsl-setup",
       "mutating": true,
       "stateful": false,
       "permission": "sandbox::settings::manage",

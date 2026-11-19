@@ -2,7 +2,7 @@
 /**
  * `sandbox.setupWsl` through the REAL command palette: listed only for a user
  * holding `sandbox::settings::manage`, and only while the app offers a setup
- * (the store keeps the `wsl-setup` context active then); choosing it runs the
+ * (the store keeps the `txr.wsl-setup` context active then); choosing it runs the
  * setup (`POST /api/sandbox/wsl/setup`).
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'

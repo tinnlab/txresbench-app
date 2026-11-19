@@ -25,7 +25,7 @@ import type { WslSetupResult, WslSetupStatus } from '@/api-client/types'
 import { registerActiveContext, unregisterActiveContext } from '@/core/actions/activeContext'
 
 /** The page context of the `sandbox.setupWsl` action: active while a setup is offered. */
-export const WSL_SETUP_CONTEXT = 'wsl-setup'
+export const WSL_SETUP_CONTEXT = 'txr.wsl-setup'
 
 /** How often a mounted notice re-reads the facts while a setup runs. */
 export const RUNNING_POLL_MS = 5000

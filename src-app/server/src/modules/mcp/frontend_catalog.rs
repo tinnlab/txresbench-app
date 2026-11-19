@@ -373,7 +373,9 @@ mod tests {
         // two model steps), both declared in
         // `src-app/ui/src/modules/txrintake/lib/stepTrail.ts`, and
         // `methods.applyPreset` on `txr.method-picker` (the choose-methods
-        // page's method picker, `src-app/ui/src/modules/txrlist/lib/methodPicker.ts`).
+        // page's method picker, `src-app/ui/src/modules/txrlist/lib/methodPicker.ts`),
+        // and `sandbox.setupWsl` on `txr.wsl-setup` (active while the app offers
+        // to set WSL up on Windows, `src-app/ui/src/lib/wsl-setup/wslSetup.ts`).
         // Any other non-global action, or another context on a pinned action,
         // fails.
         let catalog = build_from_str(MANIFEST_JSON);
@@ -393,6 +395,7 @@ mod tests {
                 ("flow.back", "txr.step"),
                 ("methods.applyPreset", "txr.method-picker"),
                 ("models.switchList", "txr.modelStep"),
+                ("sandbox.setupWsl", "txr.wsl-setup"),
             ],
             "only the app's own contexts are committed: {non_global:?}"
         );
