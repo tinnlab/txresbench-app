@@ -790,7 +790,13 @@ impl WriterState {
                 for entry in rd.flatten() {
                     let path = entry.path();
                     let Ok(rel) = path.strip_prefix(dir) else { continue };
-                    let rel = rel.to_string_lossy().into_owned();
+                    // Keyed the way the guest names outputs: parts joined
+                    // with `/` (Windows would print `sub\old.csv`).
+                    let rel = rel
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy())
+                        .collect::<Vec<_>>()
+                        .join("/");
                     let kind = entry.file_type().ok();
                     state.names.insert((i as u32, fold_name(&rel)), rel.clone());
                     // file_type() does not follow symlinks: a pre-existing
@@ -1164,6 +1170,24 @@ mod tests {
         w.chunk(0, "old.csv", 0, b"new").unwrap();
         w.current = None;
         assert_eq!(std::fs::read(root.0.join("old.csv")).unwrap(), b"new");
+    }
+
+    /// A nested file already in an output dir is keyed as the guest names it
+    /// (`sub/old.csv`), so it is overwritten like a top-level one (Windows
+    /// used to key it `sub\\old.csv` and refuse it as an existing file).
+    #[test]
+    fn writer_may_overwrite_a_nested_file_that_was_there_before_the_run() {
+        let root = TempDir::new();
+        std::fs::create_dir_all(root.0.join("sub").join("deeper")).unwrap();
+        std::fs::write(root.0.join("sub").join("old.csv"), b"stale").unwrap();
+        std::fs::write(root.0.join("sub").join("deeper").join("old.csv"), b"stale").unwrap();
+        let mut w = WriterState::new(out_dirs(&[&root.0]));
+        w.apply(WriterMsg::Chunk(0, "sub/old.csv".into(), 0, b"new".to_vec()));
+        w.apply(WriterMsg::Chunk(0, "sub/deeper/old.csv".into(), 0, b"newer".to_vec()));
+        w.current = None;
+        assert!(w.errors.is_empty(), "{:?}", w.errors);
+        assert_eq!(std::fs::read(root.0.join("sub").join("old.csv")).unwrap(), b"new");
+        assert_eq!(std::fs::read(root.0.join("sub").join("deeper").join("old.csv")).unwrap(), b"newer");
     }
 
     #[cfg(unix)]
