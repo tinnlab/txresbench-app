@@ -10,6 +10,7 @@
 export * from './types'
 export * from './stores/TxrIntake.store'
 export * from './components/TxrFileCard'
+export * from './components/TxrFileMessages'
 export * from './components/TxrFileDrop'
 export * from './components/TxrProblemList'
 export * from './components/TxrJoinOffer'

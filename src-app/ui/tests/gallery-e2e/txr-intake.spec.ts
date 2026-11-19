@@ -188,7 +188,7 @@ test.describe('txr-intake-c — the shared file-card flow (TEST-INT-15)', () => 
 
     // 1. The two cards start neutral; drop the patients file first.
     await dropCsv(page, 'txr-intake-file-drop-patients', 'fixture-patients.csv', fixtures.patients)
-    await expect(page.getByTestId('txr-intake-file-card-patients')).toContainText('30 rows read')
+    await expect(page.getByTestId('txr-intake-file-messages-patients')).toContainText('30 rows read')
     // One file only — NO validate call, the measurements card keeps its hold state.
     await expect(page.getByTestId('txr-intake-continue')).toBeDisabled()
 
@@ -333,7 +333,7 @@ test.describe('txr-intake-c — the real drag-and-drop path (TEST-INT-18, ITEM-8
       'text/csv',
     )
     await expect(zone).toHaveCount(0)
-    await expect(page.getByTestId('txr-intake-file-card-patients')).toContainText('30 rows read')
+    await expect(page.getByTestId('txr-intake-file-messages-patients')).toContainText('30 rows read')
   })
 })
 
