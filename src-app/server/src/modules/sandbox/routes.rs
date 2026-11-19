@@ -192,11 +192,11 @@ pub struct StackStatus {
     pub supported: bool,
     /// The degradation note when something short of hard-unavailable is wrong
     /// (e.g. `oras` not found for env downloads); `None` when nothing is noted.
-    /// On Windows, when methods cannot run: why, in the boot probe's words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     /// Windows only, while methods cannot run: what "Set up WSL" can do
-    /// (`wsl_setup::notice`). Absent on other systems and when methods can run.
+    /// (`wsl_setup::notice`); `reason` is then why methods cannot run, in the
+    /// start-up check's words. Absent on other systems and when methods can run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wsl_setup: Option<WslSetupStatus>,
     /// The compiled txr base-registry prefix — READ-ONLY (a release-time
@@ -494,7 +494,7 @@ fn setup_wsl_docs(op: TransformOperation) -> TransformOperation {
         .response::<200, Json<WslSetupResult>>()
         .response_with::<409, (), _>(|r| {
             r.description(
-                "Nothing to set up on this computer (WSL_SETUP_NOT_OFFERED), or a setup is running \
+                "Nothing to set up here (WSL_SETUP_NOT_OFFERED), or a setup is running \
                  (WSL_SETUP_RUNNING)",
             )
         })

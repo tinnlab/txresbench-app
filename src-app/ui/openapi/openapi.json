@@ -6358,7 +6358,7 @@
             }
           },
           "409": {
-            "description": "Nothing to set up on this computer (WSL_SETUP_NOT_OFFERED), or a setup is running (WSL_SETUP_RUNNING)"
+            "description": "Nothing to set up here (WSL_SETUP_NOT_OFFERED), or a setup is running (WSL_SETUP_RUNNING)"
           }
         },
         "security": [
@@ -14191,7 +14191,7 @@
         "type": "object",
         "properties": {
           "reason": {
-            "description": "The degradation note when something short of hard-unavailable is wrong\n (e.g. `oras` not found for env downloads); `None` when nothing is noted.\n On Windows, when methods cannot run: why, in the boot probe's words.",
+            "description": "The degradation note when something short of hard-unavailable is wrong\n (e.g. `oras` not found for env downloads); `None` when nothing is noted.",
             "type": [
               "string",
               "null"
@@ -14209,7 +14209,7 @@
             "description": "Map of the host tools the txr env fetch path resolves through\n (`method_env::tool_bin`): `{ \"oras\": \"<path>\" | null }`. Machine-\n readable so the admin view can render the exact gap; never trusted for\n anything security-relevant."
           },
           "wsl_setup": {
-            "description": "Windows only, while methods cannot run: what \"Set up WSL\" can do\n (`wsl_setup::notice`). Absent on other systems and when methods can run.",
+            "description": "Windows only, while methods cannot run: what \"Set up WSL\" can do\n (`wsl_setup::notice`); `reason` is then why methods cannot run, in the\n start-up check's words. Absent on other systems and when methods can run.",
             "anyOf": [
               {
                 "$ref": "#/components/schemas/WslSetupStatus"

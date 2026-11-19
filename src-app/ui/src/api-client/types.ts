@@ -2944,7 +2944,6 @@ export interface StackStatus {
   /**
    * The degradation note when something short of hard-unavailable is wrong
    *  (e.g. `oras` not found for env downloads); `None` when nothing is noted.
-   *  On Windows, when methods cannot run: why, in the boot probe's words.
    */
   reason?: string
   /**
@@ -2964,7 +2963,8 @@ export interface StackStatus {
   tool_bins: unknown
   /**
    * Windows only, while methods cannot run: what "Set up WSL" can do
-   *  (`wsl_setup::notice`). Absent on other systems and when methods can run.
+   *  (`wsl_setup::notice`); `reason` is then why methods cannot run, in the
+   *  start-up check's words. Absent on other systems and when methods can run.
    */
   wsl_setup?: WslSetupStatus
 }

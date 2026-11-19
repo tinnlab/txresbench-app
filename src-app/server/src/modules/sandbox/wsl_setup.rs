@@ -193,7 +193,7 @@ impl SetupState {
             let why = if inner.last.as_ref().is_some_and(|r| r.outcome == WslSetupOutcome::Done) {
                 "WSL is set up: restart Windows if it asked for it, then open the app again"
             } else {
-                "there is no WSL setup to run on this computer"
+                "there is no WSL setup to run here"
             };
             return Err(AppError::conflict_code(WSL_SETUP_NOT_OFFERED_CODE, why));
         };
