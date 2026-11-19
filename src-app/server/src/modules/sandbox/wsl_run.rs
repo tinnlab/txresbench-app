@@ -24,8 +24,9 @@
 //!   off), and wsl.exe is started without the app's `WSLENV`, so none of the
 //!   app's variables are copied into it;
 //! - every run starts the distro once before its first request
-//!   ([`ensure_distro`]), which also finds a distro removed, replaced or left
-//!   without its disk since the last run and sets it up again.
+//!   ([`ensure_distro`]), which also finds a distro removed or left without
+//!   its disk since the last run and sets it up again (one replaced by another
+//!   version of the app fails the run instead).
 //!
 //! What the user must have: WSL installed (`wsl --install --no-distribution`,
 //! which needs admin rights and a restart once) and new enough
@@ -530,7 +531,8 @@ static READY: std::sync::LazyLock<ReadyBuild> = std::sync::LazyLock::new(|| Arc:
 /// Make sure the app's distro is there, is the shipped build, and is started
 /// (every run calls this before its first request to the agent): the first
 /// run sets it up ([`ensure_distro_blocking`]); later runs start it and set it
-/// up again if it was removed, replaced or lost its disk meanwhile.
+/// up again if it was removed or lost its disk meanwhile, and fail if another
+/// version of the app replaced it ([`start_or_set_up`]).
 pub async fn ensure_distro() -> Result<(), AppError> {
     let runtime = RUNTIME
         .get()
@@ -549,16 +551,36 @@ async fn ensure_ready(ready: &ReadyBuild, wsl: Wsl, runtime: Runtime, data_root:
         .map_err(|e| wsl_error(format!("WSL setup task: {e}")))?
 }
 
+/// A process replaces another build of the app's distro only on its first
+/// setup. Once it has set up its own build, another build found there was put
+/// there by another version of the app on this Windows account (an installed
+/// app and a development build, say): replacing it back would stop that
+/// version's running method (`wsl --unregister` stops the distro), and that
+/// version would do the same on its next run. The run fails instead, and the
+/// next run is a first setup again, for when the other version is closed.
 fn start_or_set_up(wsl: &Wsl, runtime: &Runtime, data_root: &Path, ready: &mut Option<String>) -> Result<(), AppError> {
-    if ready.as_deref() == Some(runtime.version.as_str()) {
+    let first_setup = ready.as_deref() != Some(runtime.version.as_str());
+    if !first_setup {
         match distro_state(wsl, &distro_location(data_root))? {
             Distro::Build(b) if b == runtime.version => return Ok(()),
+            Distro::Build(b) => {
+                *ready = None;
+                return Err(replaced_by_another_version(&b, runtime));
+            }
             _ => *ready = None,
         }
     }
-    ensure_distro_blocking(wsl, runtime, data_root)?;
+    ensure_distro_blocking(wsl, runtime, data_root, first_setup)?;
     *ready = Some(runtime.version.clone());
     Ok(())
+}
+
+fn replaced_by_another_version(found: &str, runtime: &Runtime) -> AppError {
+    wsl_error(format!(
+        "another version of TxResBench on this computer replaced the app's WSL distro (it is now build \
+         {found}; this version needs {}); close the other version and start the run again",
+        runtime.version
+    ))
 }
 
 /// Whether WSL lists a distro of the app's name, in any state.
@@ -567,14 +589,20 @@ fn apps_distro_listed(wsl: &Wsl) -> Result<bool, AppError> {
 }
 
 /// Make sure the app's distro exists and is the shipped build: import it on
-/// first use (no admin rights needed), replace an older build of it or one
-/// whose disk was deleted, and refuse to touch a distro of that name the app
-/// did not create.
-fn ensure_distro_blocking(wsl: &Wsl, runtime: &Runtime, data_root: &Path) -> Result<(), AppError> {
+/// first use (no admin rights needed), replace another build of it (only when
+/// `replace_other_build`: see [`start_or_set_up`]) or one whose disk was
+/// deleted, and refuse to touch a distro of that name the app did not create.
+fn ensure_distro_blocking(
+    wsl: &Wsl,
+    runtime: &Runtime,
+    data_root: &Path,
+    replace_other_build: bool,
+) -> Result<(), AppError> {
     let location = distro_location(data_root);
     if apps_distro_listed(wsl)? {
         match distro_state(wsl, &location)? {
             Distro::Build(b) if b == runtime.version => return Ok(()),
+            Distro::Build(b) if !replace_other_build => return Err(replaced_by_another_version(&b, runtime)),
             // An older build of the app's own distro (it holds nothing but
             // the guest root; runs keep no state in it): replaced.
             Distro::Build(_) => unregister(wsl, "the app's outdated distro")?,
@@ -1248,12 +1276,12 @@ exit $code
     /// still importing or removing the app's distro) makes it listed but not
     /// found by its name, and refused an import. `mode` makes it fail its list
     /// (`list-fails`), behave as the in-box stub of a Windows without WSL
-    /// (`stub`), hang (`hang`), import slowly (`slow-import`), or end a
-    /// removal of the app's distro right after the next list
-    /// (`removed-after-list`). Every call is appended to `calls.txt`; an
-    /// import writes `tar-held.txt`: `held` when the tarball could be read but
-    /// not written during the import. Messages and error codes are WSL's own
-    /// (en-US).
+    /// (`stub`), hang (`hang`), import slowly (`slow-import`), end a removal
+    /// of the app's distro right after the next list (`removed-after-list`),
+    /// or not find it by its name once (`not-found-once`). Every call is
+    /// appended to `calls.txt`; an import writes `tar-held.txt`: `held` when
+    /// the tarball could be read but not written during the import. Messages
+    /// and error codes are WSL's own (en-US).
     const FAKE_WSL: &str = r#"
 $state = $args[0]
 $a = @($args | Select-Object -Skip 1)
@@ -1306,6 +1334,7 @@ if ($a[0] -eq '--import') {
 }
 if ($a[0] -eq '-d') {
     if ($installing -or -not [IO.File]::Exists($reg)) { Fail $notFound }
+    if ($mode -eq 'not-found-once') { [IO.File]::Delete($modeFile); Fail $notFound }
     $disk = Join-Path ([IO.File]::ReadAllText($reg)) 'ext4.vhdx'
     if (-not [IO.File]::Exists($disk)) { Fail "Failed to attach disk '$disk' to WSL2: The system cannot find the file specified.`r`nError code: Wsl/Service/CreateInstance/MountDisk/HCS/ERROR_FILE_NOT_FOUND" }
     $build = [IO.File]::ReadAllText($disk).Trim()
@@ -1382,8 +1411,16 @@ Fail ("unexpected call: " + ($a -join ' '))
             }
         }
 
+        /// The guest root of another build of the app, beside this one.
+        fn other_build(&self, build: &str) -> Runtime {
+            use sha2::Digest;
+            let rootfs = self.data_root.with_file_name(format!("{build}.tar"));
+            std::fs::write(&rootfs, build).unwrap();
+            Runtime { rootfs, version: build.to_string(), sha256: hex::encode(sha2::Sha256::digest(build.as_bytes())) }
+        }
+
         fn ensure(&self) -> Result<(), AppError> {
-            ensure_distro_blocking(&self.wsl, &self.runtime, &self.data_root)
+            ensure_distro_blocking(&self.wsl, &self.runtime, &self.data_root, true)
         }
 
         /// One run's check of the distro, in the process whose setup state
@@ -1593,6 +1630,57 @@ Fail ("unexpected call: " + ($a -join ' '))
         w.ensure().expect("set up anew");
         assert_eq!(w.calls(), ["--list", "-d", "--list", "--import", "-d"]);
         assert_eq!(w.registered_build().as_deref(), Some("wsl-7"));
+        w.remove();
+    }
+
+    /// Two versions of the app on one Windows account (an installed app and
+    /// a development build) share the distro's name. Each replaces the
+    /// other's build on its first setup only: a later run that finds the
+    /// other build fails and leaves it there (removing it would stop that
+    /// version's running method), and the run after that, once the other
+    /// version is closed, sets this version's build up again.
+    #[tokio::test]
+    async fn a_build_another_version_put_there_is_not_replaced_by_a_later_run() {
+        let w = FakeWsl::new("two-versions", "wsl-7");
+        let other = w.other_build("wsl-8");
+        let (mine, theirs) = (ReadyBuild::default(), ReadyBuild::default());
+        w.run(&mine, &w.runtime).await.expect("this version's first run: imported");
+        w.run(&theirs, &other).await.expect("the other version's first run: replaced");
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
+        let err = w.run(&mine, &w.runtime).await.expect_err("replaced by another version");
+        let text = err.to_string();
+        assert_eq!(err.error_code(), WSL_UNAVAILABLE_CODE);
+        assert!(text.contains("another version of TxResBench"), "{text}");
+        assert!(text.contains("close the other version and start the run again"), "{text}");
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-8"), "left there");
+        w.run(&theirs, &other).await.expect("the other version's runs go on");
+        // The other version is closed; the run is started again.
+        w.run(&mine, &w.runtime).await.expect("set up again");
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-7"));
+        assert_eq!(w.calls(), [
+            "--list", "--import", "-d",                       // mine: first setup
+            "--list", "-d", "--unregister", "--import", "-d", // theirs: first setup, replaces
+            "-d",                                             // mine: fails, removes nothing
+            "-d",                                             // theirs
+            "--list", "-d", "--unregister", "--import", "-d", // mine: a first setup again
+        ]);
+        w.remove();
+    }
+
+    /// A process that set the distro up and finds it gone on a later run
+    /// sets it up again, but another version's build found by that setup
+    /// (imported meanwhile) is left there all the same.
+    #[tokio::test]
+    async fn a_later_runs_setup_leaves_another_versions_build_there() {
+        let w = FakeWsl::new("two-versions-setup", "wsl-7");
+        let ready = ReadyBuild::default();
+        w.run(&ready, &w.runtime).await.expect("imported");
+        w.register(&w.location(), "wsl-8");
+        w.mode("not-found-once");
+        let err = w.run(&ready, &w.runtime).await.expect_err("another version's build");
+        assert!(err.to_string().contains("another version of TxResBench"), "{err}");
+        assert_eq!(w.calls(), ["--list", "--import", "-d", "-d", "--list", "-d"], "never removed");
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
         w.remove();
     }
 
