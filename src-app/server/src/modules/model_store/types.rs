@@ -705,14 +705,17 @@ pub enum ModelReasonCode {
     ResponseLabelMissing,
     #[serde(rename = "SURVIVAL_OUTCOME_MISSING")]
     SurvivalOutcomeMissing,
+    // The engine's marker-count rule (the provider's code, mapped 1:1).
+    #[serde(rename = "MARKER_COUNT_UNMET")]
+    MarkerCountUnmet,
     #[serde(rename = "MODEL_REQUIREMENTS_UNRECORDED")]
     ModelRequirementsUnrecorded,
 }
 
 impl ModelReasonCode {
-    /// The closed code list, in documentation order (13 provider codes + the
+    /// The closed code list, in documentation order (14 provider codes + the
     /// store's own).
-    pub const ALL: [ModelReasonCode; 14] = [
+    pub const ALL: [ModelReasonCode; 15] = [
         ModelReasonCode::RequiredMarkerMissing,
         ModelReasonCode::MarkerGroupMissing,
         ModelReasonCode::DetectionCallMissing,
@@ -726,6 +729,7 @@ impl ModelReasonCode {
         ModelReasonCode::TaskIncompatible,
         ModelReasonCode::ResponseLabelMissing,
         ModelReasonCode::SurvivalOutcomeMissing,
+        ModelReasonCode::MarkerCountUnmet,
         ModelReasonCode::ModelRequirementsUnrecorded,
     ];
 
@@ -745,6 +749,7 @@ impl ModelReasonCode {
             ModelReasonCode::TaskIncompatible => "TASK_INCOMPATIBLE",
             ModelReasonCode::ResponseLabelMissing => "RESPONSE_LABEL_MISSING",
             ModelReasonCode::SurvivalOutcomeMissing => "SURVIVAL_OUTCOME_MISSING",
+            ModelReasonCode::MarkerCountUnmet => "MARKER_COUNT_UNMET",
             ModelReasonCode::ModelRequirementsUnrecorded => "MODEL_REQUIREMENTS_UNRECORDED",
         }
     }
@@ -767,6 +772,7 @@ impl ModelReasonCode {
             ReasonCode::TaskIncompatible => ModelReasonCode::TaskIncompatible,
             ReasonCode::ResponseLabelMissing => ModelReasonCode::ResponseLabelMissing,
             ReasonCode::SurvivalOutcomeMissing => ModelReasonCode::SurvivalOutcomeMissing,
+            ReasonCode::MarkerCountUnmet => ModelReasonCode::MarkerCountUnmet,
         }
     }
 }

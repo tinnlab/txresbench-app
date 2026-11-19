@@ -11538,6 +11538,7 @@
           "TASK_INCOMPATIBLE",
           "RESPONSE_LABEL_MISSING",
           "SURVIVAL_OUTCOME_MISSING",
+          "MARKER_COUNT_UNMET",
           "MODEL_REQUIREMENTS_UNRECORDED"
         ]
       },
@@ -12961,6 +12962,7 @@
           "TASK_INCOMPATIBLE",
           "RESPONSE_LABEL_MISSING",
           "SURVIVAL_OUTCOME_MISSING",
+          "MARKER_COUNT_UNMET",
           "ASSET_NOT_AVAILABLE"
         ]
       },
@@ -13404,6 +13406,11 @@
             "description": "A survival method without event / survival-day columns.",
             "type": "string",
             "const": "SURVIVAL_OUTCOME_MISSING"
+          },
+          {
+            "description": "The method takes an exact number of markers (one, or its panel's\n count) and the file gives it a different number: the run engine's\n marker rule (`bundle::method_marker_set`) would refuse the run with\n `BUNDLE_MARKER_COUNT_UNMET`, so the verdict hides the method instead.\n Params: `expected`, `found`, `markers` (the file markers it would get).",
+            "type": "string",
+            "const": "MARKER_COUNT_UNMET"
           }
         ]
       },

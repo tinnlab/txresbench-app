@@ -936,7 +936,7 @@ mod tests {
     use super::*;
     use crate::modules::execution_engine::bundle::{self, BundleError, MarkerSelection};
     use crate::modules::execution_engine::envmanifest::{EnvArch, ManifestEntry};
-    use crate::modules::method_catalogue::types::MarkerKind;
+    use crate::modules::method_catalogue::types::{MarkerKind, ReasonCode};
 
     // The shipped list (the built-in method list), as one request reads it.
     fn catalogue() -> &'static Catalogue {
@@ -1111,9 +1111,11 @@ mod tests {
     }
 
     /// The three-marker example refuses every `single` method without a fixed
-    /// marker list (`BUNDLE_MARKER_COUNT_UNMET`), so none is picked — even
-    /// though eligibility says `CanRun` for them and they otherwise pass the
-    /// pick's filters (the methods the pick used to return).
+    /// marker list (`BUNDLE_MARKER_COUNT_UNMET`), so none is picked; since
+    /// FOLLOW-UP 1 eligibility applies the same count rule and says
+    /// `CannotRun` (`MARKER_COUNT_UNMET`) for them too, so they are never
+    /// offered. The set is the methods that otherwise pass the pick's filters
+    /// (the methods the pick used to return).
     #[test]
     fn a_single_marker_method_without_a_fixed_list_is_not_picked_on_the_three_marker_example() {
         let inputs = inputs();
@@ -1134,7 +1136,7 @@ mod tests {
         let single_without_list: Vec<String> = verdicts
             .methods
             .iter()
-            .filter(|m| m.status == EligibilityStatus::CanRun && amd64_env(&m.id))
+            .filter(|m| amd64_env(&m.id))
             .filter_map(|m| cat.method(&m.id))
             .filter(|m| {
                 m.saves_model
@@ -1147,10 +1149,21 @@ mod tests {
             .collect();
         assert!(
             !single_without_list.is_empty(),
-            "the catalogue has fast single-marker methods without a fixed list that \
-             eligibility lets run on the example (the case under test)"
+            "the catalogue has fast single-marker methods without a fixed list (the case \
+             under test)"
         );
         for id in &single_without_list {
+            let verdict = verdicts
+                .methods
+                .iter()
+                .find(|m| &m.id == id)
+                .expect("a verdict per catalogue method");
+            assert_eq!(verdict.status, EligibilityStatus::CannotRun, "{id}: hidden, not offered");
+            assert!(
+                verdict.reasons.iter().any(|r| r.code == ReasonCode::MarkerCountUnmet),
+                "{id}: the count rule names the cause: {:?}",
+                verdict.reasons
+            );
             let method = cat.method(id).expect("catalogue method");
             match orchestrator::train_bundle_preflight(
                 &inputs.train,

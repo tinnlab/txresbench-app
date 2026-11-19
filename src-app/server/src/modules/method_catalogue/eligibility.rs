@@ -96,7 +96,8 @@ use crate::modules::method_catalogue::estimate::host_cpus;
 use crate::modules::method_list::MethodList;
 use crate::modules::method_catalogue::types::{
     Catalogue, CovariateMode, Coverage, EligibilityRequest, EligibilityResponse,
-    EligibilityStatus, FileOutcomes, InventoryEligibilityRequest, InventoryMarker, MatchMode,
+    EligibilityStatus, FileOutcomes, InventoryEligibilityRequest, InventoryMarker, MarkerKind,
+    MatchMode,
     Method, MethodEligibility, MinDraws, MissingGroup, MissingMarker, PreviewEligibilityRequest,
     Reason, ReasonCode, RequiredMarker, RequiredMarkers, TimingQuality, UnitFamily,
     DEFAULT_ESTIMATE_CPUS,
@@ -806,6 +807,20 @@ fn inventory_method(
         }
     }
 
+    // Marker count (contract 2.0's count rule): the run engine gives a method
+    // that takes an exact number of markers the file's main markers (no fixed
+    // list) or the file markers its fixed list resolves to, and refuses any
+    // other number (`bundle::method_marker_set`, BUNDLE_MARKER_COUNT_UNMET). The
+    // verdict applies the same rule, so such a method is hidden instead of being
+    // offered and then failing (FOLLOW-UP 1, decided: hide it). A fixed list
+    // that already misses a marker is reported as REQUIRED_MARKER_MISSING only.
+    let list_missing = reasons.iter().any(|r| r.code == ReasonCode::RequiredMarkerMissing);
+    if !list_missing {
+        if let Some(reason) = marker_count_reason(m, inv, &resolved) {
+            reasons.push(reason);
+        }
+    }
+
     // Coverage (draw rule) over the method's markers.
     let (coverage, min_draws, no_value) = draw_coverage(inv, m, &resolved);
     if no_value > 0 {
@@ -852,6 +867,64 @@ fn inventory_method(
         ),
         estimate_quality: calibration::calibrated_estimate_quality_for(m, calibration),
     }
+}
+
+/// The engine's marker-count rule over the file inventory (the eligibility
+/// mirror of `execution_engine::bundle::method_marker_set`): the markers the
+/// method would be given are the file's main markers when it has no fixed list,
+/// or the distinct file markers its fixed list resolved to (`used`); a
+/// `__detected`/`__lod` companion is never a main marker (`is_companion`, the
+/// engine's own predicate). `None` when the count fits or the method takes any
+/// number of markers.
+fn marker_count_reason(
+    m: &Method,
+    inv: &InventoryEligibilityRequest,
+    used: &[&InventoryMarker],
+) -> Option<Reason> {
+    let expected = match m.markers.kind {
+        MarkerKind::Single => 1usize,
+        MarkerKind::Multi | MarkerKind::Panel => m.markers.count as usize,
+        MarkerKind::Any => return None,
+    };
+    let candidates: Vec<&InventoryMarker> = match &m.required_markers {
+        Some(_) => used.to_vec(),
+        None => inv.markers.iter().collect(),
+    };
+    let mut given: Vec<&InventoryMarker> = Vec::new();
+    for mk in candidates {
+        if is_companion(&mk.key) || given.iter().any(|g| g.key == mk.key) {
+            continue;
+        }
+        given.push(mk);
+    }
+    if given.len() == expected {
+        return None;
+    }
+    given.sort_by(|a, b| a.key.cmp(&b.key));
+    Some(Reason {
+        code: ReasonCode::MarkerCountUnmet,
+        params: BTreeMap::from([
+            ("expected".to_string(), serde_json::Value::from(expected as u64)),
+            ("found".to_string(), serde_json::Value::from(given.len() as u64)),
+            (
+                "markers".to_string(),
+                serde_json::Value::Array(
+                    given
+                        .iter()
+                        .map(|mk| {
+                            let name = if mk.display_name.trim().is_empty() {
+                                mk.key.clone()
+                            } else {
+                                mk.display_name.clone()
+                            };
+                            serde_json::Value::String(name)
+                        })
+                        .collect(),
+                ),
+            ),
+        ]),
+        group_id: None,
+    })
 }
 
 /// The structured required-marker resolution of the ENGINE (over the
@@ -1155,6 +1228,7 @@ fn verdict(reasons: &[Reason], eligible: u32, total: u32) -> EligibilityStatus {
                 | ReasonCode::TaskIncompatible
                 | ReasonCode::ResponseLabelMissing
                 | ReasonCode::SurvivalOutcomeMissing
+                | ReasonCode::MarkerCountUnmet
         )
     });
     if hard || (total > 0 && eligible == 0) {
@@ -2087,7 +2161,7 @@ mod tests {
     // ---- TEST-MC-27: the reason-code vocabulary + the outcome codes --------
 
     #[test]
-    fn reason_code_vocabulary_is_the_closed_thirteen() {
+    fn reason_code_vocabulary_is_the_closed_fourteen() {
         assert_eq!(
             ReasonCode::ALL.map(|c| c.as_str()).to_vec(),
             vec![
@@ -2104,8 +2178,140 @@ mod tests {
                 "TASK_INCOMPATIBLE",
                 "RESPONSE_LABEL_MISSING",
                 "SURVIVAL_OUTCOME_MISSING",
+                "MARKER_COUNT_UNMET",
             ]
         );
+    }
+
+    // ---- FOLLOW-UP 1: the engine's marker-count rule (hide, don't fail) ----
+
+    /// Three patients with a baseline and two on-treatment draws each.
+    fn three_patients() -> Vec<PatientDrawCounts> {
+        (0..3).map(|i| pat(&format!("p{i}"), 1, 2)).collect()
+    }
+
+    fn plain_marker(key: &str) -> InventoryMarker {
+        inv_marker(key, "concentration_mass", vec![], Some(three_patients()))
+    }
+
+    fn count_codes(v: &MethodEligibility) -> Vec<ReasonCode> {
+        v.reasons.iter().map(|r| r.code).collect()
+    }
+
+    fn count_reason(v: &MethodEligibility) -> &Reason {
+        v.reasons
+            .iter()
+            .find(|r| r.code == ReasonCode::MarkerCountUnmet)
+            .unwrap_or_else(|| panic!("no MARKER_COUNT_UNMET in {:?}", count_codes(v)))
+    }
+
+    /// kelim's shape (one marker, no fixed list) on a file with three markers:
+    /// the engine would refuse it (BUNDLE_MARKER_COUNT_UNMET), so the verdict
+    /// hides it, naming the expected and found counts and the markers.
+    #[test]
+    fn single_marker_method_without_a_list_cannot_run_on_three_markers() {
+        let m = method_json("fx-single", &[("markers", serde_json::json!({"kind": "single", "count": 1}))]);
+        let cat = one_method_catalogue(m);
+        let req = inventory_req(3, vec![plain_marker("M3"), plain_marker("M1"), plain_marker("M2")], vec![]);
+        let v = verdict_of(&cat, &req, "fx-single");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        let r = count_reason(&v);
+        assert_eq!(r.params["expected"], serde_json::json!(1));
+        assert_eq!(r.params["found"], serde_json::json!(3));
+        assert_eq!(
+            r.params["markers"],
+            serde_json::json!(["M1 display name", "M2 display name", "M3 display name"])
+        );
+    }
+
+    /// The same method on a one-marker file runs; a `__detected` companion is
+    /// never a main marker (the engine's `is_companion`), but a detection-unit
+    /// column under its own name is one (the engine gives it to the method).
+    #[test]
+    fn single_marker_method_counts_main_markers_like_the_engine() {
+        let m = method_json("fx-single", &[("markers", serde_json::json!({"kind": "single", "count": 1}))]);
+        let cat = one_method_catalogue(m);
+        let mut companion = plain_marker("M1__detected");
+        companion.is_detection_call = true;
+        let req = inventory_req(3, vec![plain_marker("M1"), companion], vec![]);
+        let v = verdict_of(&cat, &req, "fx-single");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", count_codes(&v));
+
+        let mut status_column = plain_marker("ctdna_status");
+        status_column.is_detection_call = true;
+        let req = inventory_req(3, vec![plain_marker("M1"), status_column], vec![]);
+        let v = verdict_of(&cat, &req, "fx-single");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert_eq!(count_reason(&v).params["found"], serde_json::json!(2));
+    }
+
+    /// A two-marker method without a list runs on exactly two markers only.
+    #[test]
+    fn multi_marker_method_without_a_list_needs_exactly_its_count() {
+        let m = method_json("fx-multi", &[("markers", serde_json::json!({"kind": "multi", "count": 2}))]);
+        let cat = one_method_catalogue(m);
+        let two = inventory_req(3, vec![plain_marker("M1"), plain_marker("M2")], vec![]);
+        let v = verdict_of(&cat, &two, "fx-multi");
+        assert!(!count_codes(&v).contains(&ReasonCode::MarkerCountUnmet), "{:?}", count_codes(&v));
+        assert_eq!(v.status, EligibilityStatus::CanRun);
+
+        let three = inventory_req(
+            3,
+            vec![plain_marker("M1"), plain_marker("M2"), plain_marker("M3")],
+            vec![],
+        );
+        let v = verdict_of(&cat, &three, "fx-multi");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert_eq!(count_reason(&v).params["expected"], serde_json::json!(2));
+        assert_eq!(count_reason(&v).params["found"], serde_json::json!(3));
+    }
+
+    /// A panel whose fixed list names fewer markers than its declared count
+    /// (lasso-logistic-mn-nremission's shape) can never get its count: the
+    /// list resolves, but the engine would still refuse it.
+    #[test]
+    fn panel_whose_list_is_shorter_than_its_count_cannot_run() {
+        let m = method_json("fx-short-panel", &[
+            ("markers", serde_json::json!({"kind": "panel", "count": 2})),
+            ("required_markers", serde_json::json!({
+                "markers": [{"name": "CEA", "id_system": "LOINC", "id": "2039-6"}],
+                "match": "all", "min_fraction": 1.0, "list_source": "t"})),
+        ]);
+        let cat = one_method_catalogue(m);
+        let cea = inv_marker("CEA", "concentration_mass", vec![sid("LOINC", "2039-6")], Some(three_patients()));
+        let req = inventory_req(3, vec![cea, plain_marker("M2")], vec![]);
+        let v = verdict_of(&cat, &req, "fx-short-panel");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert_eq!(count_reason(&v).params["expected"], serde_json::json!(2));
+        assert_eq!(count_reason(&v).params["found"], serde_json::json!(1));
+        assert_eq!(count_reason(&v).params["markers"], serde_json::json!(["CEA display name"]));
+    }
+
+    /// A fixed list that misses a marker keeps its one reason
+    /// (REQUIRED_MARKER_MISSING); a method that takes any number of markers
+    /// never gets the count reason.
+    #[test]
+    fn count_reason_is_not_added_for_a_missing_list_marker_or_an_any_method() {
+        let m = method_json("fx-single-list", &[
+            ("markers", serde_json::json!({"kind": "single", "count": 1})),
+            ("required_markers", serde_json::json!({
+                "markers": [{"name": "CA-125", "id_system": "LOINC", "id": "10334-1"}],
+                "match": "all", "min_fraction": 1.0, "list_source": "t"})),
+        ]);
+        let cat = one_method_catalogue(m);
+        let req = inventory_req(3, vec![plain_marker("M1"), plain_marker("M2")], vec![]);
+        let v = verdict_of(&cat, &req, "fx-single-list");
+        assert!(count_codes(&v).contains(&ReasonCode::RequiredMarkerMissing));
+        assert!(!count_codes(&v).contains(&ReasonCode::MarkerCountUnmet), "{:?}", count_codes(&v));
+
+        let any = one_method_catalogue(method_json("fx-any", &[]));
+        let req = inventory_req(
+            3,
+            vec![plain_marker("M1"), plain_marker("M2"), plain_marker("M3")],
+            vec![],
+        );
+        let v = verdict_of(&any, &req, "fx-any");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", count_codes(&v));
     }
 
     fn resp_method(m: serde_json::Value, outcomes: Option<FileOutcomes>) -> (MethodEligibility, Catalogue) {
