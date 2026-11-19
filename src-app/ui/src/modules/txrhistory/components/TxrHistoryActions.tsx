@@ -131,7 +131,7 @@ export function TxrHistoryActions({
             style={LINK}
             onClick={() => onDownload?.(runId)}
           >
-            Download predictions
+            {isDesktop ? 'Save predictions as CSV…' : 'Download predictions'}
           </Button>
         ) : null}
         {actions.reveal ? (

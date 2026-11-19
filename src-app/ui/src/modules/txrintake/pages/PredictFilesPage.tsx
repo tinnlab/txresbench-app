@@ -21,7 +21,7 @@ import {
   resolveMapping,
   validateRequest,
 } from '../lib/flow'
-import { fetchTemplateCsv, downloadText, templateFilename } from '../lib/download'
+import { fetchTemplateCsv, downloadText, templateFilename, templateSaveError } from '../lib/download'
 import { ROUTE_CONVENTIONS } from '../module'
 import { TxrFileCard } from '../components/TxrFileCard'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
@@ -265,6 +265,8 @@ export function PredictFilesPage() {
 
   const [busy, setBusy] = useState(false)
   const [cardError, setCardError] = useState<string | null>(null)
+  // Where the desktop app's Save dialog put the card's template/example.
+  const [cardSaved, setCardSaved] = useState<string | null>(null)
   const [validateError, setValidateError] = useState<string | null>(null)
   const [retryTick, setRetryTick] = useState(0)
 
@@ -374,11 +376,13 @@ export function PredictFilesPage() {
 
   /** The download links (CONS-UI-INTAKE-6, DEC-11) — one card error line. */
   const downloadCsv = useCallback(async (which: 'template' | 'example') => {
+    setCardSaved(null)
     try {
       const text = await fetchTemplateCsv('measurements', which)
-      downloadText(templateFilename('measurements', which), text)
+      const result = await downloadText(templateFilename('measurements', which), text)
+      if (result.status === 'saved') setCardSaved(result.path)
     } catch {
-      setCardError(`The measurements ${which} could not be downloaded. Try again.`)
+      setCardError(templateSaveError(`measurements ${which}`))
     }
   }, [])
 
@@ -595,6 +599,7 @@ export function PredictFilesPage() {
                     file={file}
                     busy={busy}
                     error={cardError}
+                    savedPath={cardSaved}
                     isExample={exampleSlots.predictMeasurements}
                     onPick={picked => void handlePick('measurements', picked)}
                     onRemove={handleRemove}

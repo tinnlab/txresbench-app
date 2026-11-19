@@ -939,7 +939,8 @@ describe('TxrHistoryActions (TEST-HIST-7 — the per-capability action variants)
       'Run again with the same settings',
     )
     expect(view.queryByTestId('txr-history-settings-again-run-1')).toBeNull()
-    expect(view.getByTestId('txr-history-download-run-1').textContent).toBe('Download predictions')
+    // The desktop app saves through the Save dialog (`@/core/saveFile`).
+    expect(view.getByTestId('txr-history-download-run-1').textContent).toBe('Save predictions as CSV…')
     expect(view.getByTestId('txr-history-open-folder-run-1').textContent).toBe('Open the folder')
     expect(view.getByTestId('txr-history-log-run-1').textContent).toBe('Show the log')
   })
@@ -977,6 +978,8 @@ describe('TxrHistoryActions (TEST-HIST-7 — the per-capability action variants)
     )
     expect(view.queryByTestId('txr-history-open-folder-run-1')).toBeNull()
     expect(view.getByTestId('txr-history-log-run-1')).toBeTruthy() // the log is every row's
+    // The website keeps the browser download wording.
+    expect(view.getByTestId('txr-history-download-run-1').textContent).toBe('Download predictions')
   })
 
   it('ITEM-2 (f): desktop offers "Delete this run" (the footer\'s promise is true); web mode hides it', () => {

@@ -1,6 +1,7 @@
 import { Button } from '@txresbench/kit'
 import type { CSSProperties } from 'react'
 import { useAppMode } from '../useAppMode'
+import { saveLabel } from '@/core/saveFile'
 
 /**
  * ExampleFileCard — the demo's example-table card (ITEM-5's reusable
@@ -118,7 +119,7 @@ export function ExampleFileCard({ kind, rows, markers, onDownloadExample, onDown
               style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
               onClick={onDownloadTemplate}
             >
-              Download the template (CSV)
+              {saveLabel('Save the template (CSV)…', 'Download the template (CSV)')}
             </Button>
           ) : null}
           {onDownloadExample !== undefined ? (
@@ -128,7 +129,7 @@ export function ExampleFileCard({ kind, rows, markers, onDownloadExample, onDown
               style={{ padding: 0 }}
               onClick={onDownloadExample}
             >
-              Download the full example (CSV)
+              {saveLabel('Save the full example (CSV)…', 'Download the full example (CSV)')}
             </Button>
           ) : null}
         </div>

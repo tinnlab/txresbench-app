@@ -64,7 +64,8 @@ import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
 import { runAction } from '@/core/actions/defineAction'
 import { Alert, Button, Input } from '@txresbench/kit'
 import { useModelInventory } from '../data/useModelInventory'
-import { downloadModelExport } from '../lib/export'
+import { downloadModelExport, modelExportLabel } from '../lib/export'
+import { SavedFileNotice } from '@/modules/txrshell/components/SavedFileNotice'
 import { formatMade, formatModelSublines, formatPredicts, formatTrainedOn } from '../lib/format'
 import { TxrDeleteModelDialog } from '../components/TxrDeleteModelDialog'
 import { TxrRenameModelDialog } from '../components/TxrRenameModelDialog'
@@ -280,6 +281,8 @@ export function ModelsPage() {
   const inventory = useModelInventory({ query: search, setId })
   const [rowDialog, setRowDialog] = useState<RowDialog>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  // Where the desktop app's Save dialog put an exported model file.
+  const [savedPath, setSavedPath] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -315,8 +318,10 @@ export function ModelsPage() {
     async (model: ModelSummary): Promise<void> => {
       setExporting(true)
       setActionError(null)
+      setSavedPath(null)
       try {
-        await downloadModelExport(model)
+        const result = await downloadModelExport(model)
+        if (result.status === 'saved') setSavedPath(result.path)
       } catch (error) {
         setActionError(errorText(error))
       } finally {
@@ -460,6 +465,9 @@ export function ModelsPage() {
             {actionError !== null ? (
               <Alert tone="error" data-testid="txr-models-j-action-error" title={actionError} />
             ) : null}
+            {savedPath !== null ? (
+              <SavedFileNotice path={savedPath} testId="txr-models-j-export-saved" />
+            ) : null}
           </div>
         }
         body={
@@ -579,7 +587,7 @@ export function ModelsPage() {
                             disabled={exporting}
                             onClick={() => void exportModel(model)}
                           >
-                            Export
+                            {modelExportLabel()}
                           </Button>{' '}
                           <Button
                             data-testid={`txr-models-rename-${model.id}`}

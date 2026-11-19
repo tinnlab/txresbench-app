@@ -21,7 +21,7 @@ import {
   resolveMapping,
   validateRequest,
 } from '../lib/flow'
-import { fetchTemplateCsv, downloadText, templateFilename } from '../lib/download'
+import { fetchTemplateCsv, downloadText, templateFilename, templateSaveError } from '../lib/download'
 import { ROUTE_CONVENTIONS } from '../module'
 import { TxrFileCard } from '../components/TxrFileCard'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
@@ -183,6 +183,8 @@ export function FilesPage() {
 
   const [busySlot, setBusySlot] = useState<Slot | null>(null)
   const [cardErrors, setCardErrors] = useState<Partial<Record<Slot, string>>>({})
+  // Where the desktop app's Save dialog put a card's template/example.
+  const [cardSaved, setCardSaved] = useState<Partial<Record<Slot, string>>>({})
   const [validateError, setValidateError] = useState<string | null>(null)
   const [retryTick, setRetryTick] = useState(0)
 
@@ -321,13 +323,15 @@ export function FilesPage() {
 
   /** The download links (CONS-UI-INTAKE-6, DEC-11) — one card error line. */
   const downloadCsv = useCallback(async (kind: FileTableKind, which: 'template' | 'example') => {
+    setCardSaved(prev => ({ ...prev, [kind]: undefined }))
     try {
       const text = await fetchTemplateCsv(kind, which)
-      downloadText(templateFilename(kind, which), text)
+      const result = await downloadText(templateFilename(kind, which), text)
+      if (result.status === 'saved') setCardSaved(prev => ({ ...prev, [kind]: result.path }))
     } catch {
       setCardErrors(prev => ({
         ...prev,
-        [kind]: `The ${which} could not be downloaded. Try again.`,
+        [kind]: templateSaveError(which),
       }))
     }
   }, [])
@@ -546,6 +550,7 @@ export function FilesPage() {
                     file={patients}
                     busy={busySlot === 'patients'}
                     error={cardErrors.patients ?? null}
+                    savedPath={cardSaved.patients ?? null}
                     isExample={exampleSlots.patients}
                     onPick={file => void handlePick('patients', file)}
                     onRemove={() => handleRemove('patients')}
@@ -565,6 +570,7 @@ export function FilesPage() {
                     file={measurements}
                     busy={busySlot === 'measurements'}
                     error={cardErrors.measurements ?? null}
+                    savedPath={cardSaved.measurements ?? null}
                     isExample={exampleSlots.measurements}
                     onPick={file => void handlePick('measurements', file)}
                     onRemove={() => handleRemove('measurements')}

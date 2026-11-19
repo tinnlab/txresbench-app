@@ -6,9 +6,9 @@
  * transport (INV-5 — the app's own loopback, never a host literal), the
  * response resolves to a `Blob` by the framework's content-type parse
  * switch (binary is the default branch), and the UI never re-parses the
- * container — the picked bytes are saved to the user's downloads, exactly
- * like the `txrintake` / `txrresults` CSV saves (blob + object URL +
- * anchor click, URL revoked on the same tick).
+ * container — the picked bytes are saved through `@/core/saveFile`, like
+ * the `txrintake` / `txrresults` CSV saves: the browser download on the
+ * website, the native Save dialog in the desktop app.
  *
  * The attachment's Content-Disposition filename is the provider's
  * response-header contract (the generated client exposes no header
@@ -21,6 +21,7 @@
  */
 import { ApiClient } from '@/api-client'
 import type { ModelSummary } from '@/api-client/types'
+import { saveFile, saveLabel, type SaveFileResult } from '@/core/saveFile'
 
 /** One path-safe stem from the model's display name (never empty). */
 function exportStem(name: string): string {
@@ -35,17 +36,12 @@ export function modelExportFilename(model: ModelSummary): string {
   return `${exportStem(model.name)}.txr`
 }
 
-/** Save a Blob as a browser download (blob + anchor, URL revoked after the
- *  click — the `ProvenanceExport` / txrintake precedent). */
-export function saveBlobAsFile(filename: string, blob: Blob): void {
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
+/** The Save dialog's file-type filter for a model file. */
+export const MODEL_FILE_FILTER = { name: 'TxResBench model', extensions: ['txr'] }
+
+/** The Export button's text: "Export…" opens the desktop Save dialog. */
+export function modelExportLabel(): string {
+  return saveLabel('Export…', 'Export')
 }
 
 /**
@@ -56,10 +52,10 @@ export function saveBlobAsFile(filename: string, blob: Blob): void {
  * response (a missing body) rejects loudly instead of saving nothing.
  * Rejects on any transport failure — the page's inline error line.
  */
-export async function downloadModelExport(model: ModelSummary): Promise<void> {
+export async function downloadModelExport(model: ModelSummary): Promise<SaveFileResult> {
   const body = (await ApiClient.Models.exportModel({ id: model.id })) as unknown as Blob | null
   if (body === null || typeof body !== 'object' || !('size' in body)) {
     throw new Error('the model export came back empty')
   }
-  saveBlobAsFile(modelExportFilename(model), body)
+  return saveFile({ filename: modelExportFilename(model), data: body, filter: MODEL_FILE_FILTER })
 }
