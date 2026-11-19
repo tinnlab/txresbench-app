@@ -17525,7 +17525,7 @@
             "const": "not_started"
           },
           {
-            "description": "The setup ran, but WSL is still missing or too old (`exit_code`,\n `output`).",
+            "description": "The setup ran, but WSL is not set up (`exit_code`, `output`).",
             "type": "string",
             "const": "failed"
           },

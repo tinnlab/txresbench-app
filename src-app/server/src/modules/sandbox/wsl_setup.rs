@@ -15,8 +15,9 @@
 //! `wsl --update` for an old WSL. Windows asks the person at the PC, so an AI
 //! caller can start the action but can never elevate by itself. One setup runs
 //! at a time; it ends as the installer's does: WSL is set up when the
-//! installer's check says so afterwards, or, where WSL was missing or of the
-//! old kind, when wsl.exe exited with 0 (Windows must restart then). Its
+//! installer's check says it is ready afterwards, or, after wsl.exe exited
+//! with 0, when the check says it is ready after a restart or, where WSL was
+//! missing or of the old kind, still finds it so (Windows must restart then). Its
 //! result is kept for the notice (`GET /api/sandbox/envs`' `stack.wsl_setup`,
 //! [`notice`]).
 //!
@@ -89,8 +90,7 @@ pub enum WslSetupOutcome {
     Declined,
     /// Windows could not start the setup (`windows_error`).
     NotStarted,
-    /// The setup ran, but WSL is still missing or too old (`exit_code`,
-    /// `output`).
+    /// The setup ran, but WSL is not set up (`exit_code`, `output`).
     Failed,
     /// No answer within [`SETUP_ANSWER_LIMIT`]: the setup may still be running
     /// (the status's `running` says so).
@@ -271,13 +271,15 @@ async fn run(
 }
 
 /// One setup, as the installer hook does it: run the commands as
-/// administrator, then check again; WSL is set up when the check says it is
-/// ready (now or after a restart), whatever the exit code. Windows must
-/// restart when the check says so, or when WSL was missing or of the old kind
-/// before (its Virtual Machine Platform is turned on then). Where WSL was
-/// missing or of the old kind, a setup that exits with 0 while the check
-/// still finds it so is done too, with a restart: WSL may answer only after
-/// Windows restarts.
+/// administrator, then check again. WSL is set up when the check says it is
+/// ready, whatever the exit code; Windows must restart when WSL was missing or
+/// of the old kind before (its Virtual Machine Platform is turned on then).
+/// Any other answer counts only after a setup that exited with 0 (an unknown
+/// code is not 0): WSL ready after a restart is a setup Windows must restart
+/// to finish, and so is WSL still missing or of the old kind where it was so
+/// before (WSL may answer only after Windows restarts). After a setup that
+/// failed, ready after a restart cannot tell a Virtual Machine Platform turned
+/// on from one still off: the setup failed, and no restart is asked for.
 fn set_up(host: &dyn SetupHost, offer: WslSetupOffer, before: WslStatus) -> WslSetupResult {
     let missing_or_legacy = |status| matches!(status, WslStatus::Missing | WslStatus::Legacy);
     match host.run_elevated(offer) {
@@ -286,9 +288,8 @@ fn set_up(host: &dyn SetupHost, offer: WslSetupOffer, before: WslStatus) -> WslS
             WslSetupResult { windows_error: Some(error), ..WslSetupResult::of(WslSetupOutcome::NotStarted) }
         }
         Launch::Exited { code, output } => match host.status_now() {
-            after @ (WslStatus::Ready | WslStatus::ReadyAfterRestart) => {
-                WslSetupResult::done(after == WslStatus::ReadyAfterRestart || missing_or_legacy(before))
-            }
+            WslStatus::Ready => WslSetupResult::done(missing_or_legacy(before)),
+            WslStatus::ReadyAfterRestart if code == Some(0) => WslSetupResult::done(true),
             after if code == Some(0) && missing_or_legacy(before) && missing_or_legacy(after) => {
                 WslSetupResult::done(true)
             }
@@ -822,6 +823,26 @@ mod tests {
             let (r, _) = run_once(before, launch, after).await;
             assert_eq!(r.outcome, WslSetupOutcome::Failed, "{before:?} -> {after:?}");
         }
+    }
+
+    /// As in the installer: the check saying WSL is ready after a restart
+    /// counts only after exit 0. After a failed setup (or an unknown code) it
+    /// cannot tell the Virtual Machine Platform turned on from one still off:
+    /// failed with the code and words, no restart asked for.
+    #[tokio::test]
+    async fn ready_after_a_restart_counts_only_after_exit_0() {
+        for before in [WslStatus::Missing, WslStatus::Old, WslStatus::Legacy] {
+            let (r, _) = run_once(before, exited(0, ""), WslStatus::ReadyAfterRestart).await;
+            assert_eq!(r, WslSetupResult::done(true), "{before:?}");
+            let (r, _) = run_once(before, exited(1, "Catastrophic failure"), WslStatus::ReadyAfterRestart).await;
+            assert_eq!(r, WslSetupResult::failed(Some(1), "Catastrophic failure".into()), "{before:?}");
+            let launch = Launch::Exited { code: None, output: String::new() };
+            let (r, _) = run_once(before, launch, WslStatus::ReadyAfterRestart).await;
+            assert_eq!(r, WslSetupResult::failed(None, String::new()), "{before:?}");
+        }
+        // Ready now still wins over a failing code.
+        let (r, _) = run_once(WslStatus::Missing, exited(1, ""), WslStatus::Ready).await;
+        assert_eq!(r, WslSetupResult::done(true));
     }
 
     #[tokio::test]
