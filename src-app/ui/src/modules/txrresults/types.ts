@@ -55,6 +55,25 @@ export interface TxrHeatmapColumn {
   values: (number | null)[]
   notes: (string | null)[]
   constantValue: number | null
+  /**
+   * The method's own results (its score and, when it returned one, its
+   * yes/no call), aligned to `values` (the response's patient order); null
+   * or absent = not recorded (a run from before they were kept, a demo
+   * replay).
+   */
+  native?: TxrNativeValues | null
+}
+
+/**
+ * One method's own results per patient, in the response's patient order:
+ * `scores` is the method's own score (higher = more likely failing, on the
+ * method's own scale — never comparable across methods), `calls` its yes/no
+ * answer (`1` = treatment judged failing, `0` = not failing), null when the
+ * method returns no calls.
+ */
+export interface TxrNativeValues {
+  scores: (number | null)[]
+  calls: (0 | 1 | null)[] | null
 }
 
 /**

@@ -848,3 +848,93 @@ describe('MethodResultsPage demo arm (TEST-DM-7, ITEM-7)', () => {
     expect(desktop.queryByTestId('txr-results-demo-label')).toBeNull()
   })
 })
+
+// ── The methods' own results (B) ────────────────────────────────────────────
+
+/** lm-cox-a returns yes/no calls + scores; rsf-b scores only; resp-c none recorded. */
+function predictionsWithOwn(): TxrPredictionsResponse {
+  const p = predictionsOf()
+  p.methods[0] = {
+    ...p.methods[0],
+    native_recorded: true,
+    scores: wireArray<number>(A_VALUES.map(v => v * 10)),
+    calls: wireArray<number>(A_VALUES.map(v => (v >= 0.5 ? 1 : 0))),
+  }
+  p.methods[1] = {
+    ...p.methods[1],
+    native_recorded: true,
+    scores: wireArray<number>(B_VALUES.map(v => -v)),
+  }
+  return p
+}
+
+describe("MethodResultsPage — the methods' own results (B)", () => {
+  it('the one-method tab shows the own answer and own score beside the chance', async () => {
+    api.getPredictions.mockResolvedValue(predictionsWithOwn())
+    const view = await renderLoaded('/analysis/run-1/results/methods/lm-cox-a')
+    await waitFor(() => view.getByTestId('txr-bars-header-own-score'))
+    expect(view.getByTestId('txr-bars-header-own-call').textContent).toBe('Own answer')
+    expect(view.getByTestId('txr-bars-header-own-score').textContent).toBe('Own score')
+    // S0002: A = 0.91 → call 1, score 9.1.
+    const row = view.getByTestId('txr-bars-row-S0002')
+    expect(within(row).getByTestId('txr-bars-own-call').textContent).toBe('Judged failing')
+    expect(within(row).getByTestId('txr-bars-own-score').textContent).toBe('9.1')
+    // S0001: A = 0.30 → call 0.
+    expect(within(view.getByTestId('txr-bars-row-S0001')).getByTestId('txr-bars-own-call').textContent).toBe(
+      'Not failing',
+    )
+    // The one-method tab has no separate own-results section.
+    expect(view.queryByTestId('txr-own-results')).toBeNull()
+  })
+
+  it('a method without calls shows only its own score; a method without own results says so', async () => {
+    api.getPredictions.mockResolvedValue(predictionsWithOwn())
+    const view = await renderLoaded('/analysis/run-1/results/methods/rsf-b')
+    await waitFor(() => view.getByTestId('txr-bars-header-own-score'))
+    expect(view.queryByTestId('txr-bars-header-own-call')).toBeNull()
+    expect(within(view.getByTestId('txr-bars-row-S0002')).getByTestId('txr-bars-own-score').textContent).toBe(
+      '-0.85',
+    )
+    view.unmount()
+    state().reset()
+    const other = await renderLoaded('/analysis/run-1/results/methods/resp-c')
+    await waitFor(() => other.getByTestId('txr-own-results-missing'))
+    expect(other.getByTestId('txr-own-results-missing').textContent).toBe(
+      'The own results of resp-c were not recorded for this run.',
+    )
+    expect(other.queryByTestId('txr-bars-header-own-score')).toBeNull()
+  })
+
+  it('a method with no chance at all still shows its own results', async () => {
+    const p = predictionsWithOwn()
+    p.methods[1] = {
+      ...p.methods[1],
+      prob_source: 'none',
+      probabilities: wireArray<number>(PATIENTS.map(() => null)),
+      notes: wireArray<string>(PATIENTS.map(() => 'this saved model has no score-to-chance conversion')),
+    }
+    api.getPredictions.mockResolvedValue(p)
+    const view = await renderLoaded('/analysis/run-1/results/methods/rsf-b')
+    const section = await waitFor(() => view.getByTestId('txr-own-results'))
+    expect(view.queryByTestId('txr-bars')).toBeNull()
+    expect(within(section).getByTestId('txr-own-header-rsf-b')).toBeTruthy()
+    expect(within(within(section).getByTestId('txr-own-row-S0002')).getByTestId('txr-own-value-rsf-b').textContent).toBe(
+      '-0.85',
+    )
+  })
+
+  it('the compare tab lists the tab’s methods’ own results under the bars, in the bars’ row order', async () => {
+    api.getPredictions.mockResolvedValue(predictionsWithOwn())
+    const view = await renderLoaded()
+    const section = await waitFor(() => view.getByTestId('txr-own-results'))
+    expect(within(section).getByTestId('txr-own-header-lm-cox-a')).toBeTruthy()
+    expect(within(section).getByTestId('txr-own-header-rsf-b')).toBeTruthy()
+    // resp-c is on the response tab, not the pfs compare tab.
+    expect(within(section).queryByTestId('txr-own-header-resp-c')).toBeNull()
+    const ids = (root: HTMLElement, prefix: string) =>
+      Array.from(root.querySelectorAll(`[data-testid^="${prefix}"]`)).map(el =>
+        (el.getAttribute('data-testid') ?? '').slice(prefix.length),
+      )
+    expect(ids(section, 'txr-own-row-')).toEqual(ids(view.getByTestId('txr-bars'), 'txr-bars-row-'))
+  })
+})

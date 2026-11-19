@@ -622,3 +622,63 @@ export function formatEmptyColumnsNote(
     })
     .join(' ')
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The methods' own results (the score + the yes/no call under the chances)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The section heading under the chance table. */
+export const OWN_RESULTS_TITLE = "Methods' own results"
+
+/** The section's one-line reading guide (the score scales differ per method). */
+export const OWN_RESULTS_INTRO =
+  'What each method itself returned for each patient, before its result was turned into a chance. ' +
+  'A higher score means the method judges the treatment more likely to fail; each method uses its own scale, ' +
+  'so scores of different methods cannot be compared.'
+
+/** The column heading of the one-method table's yes/no answer. */
+export const OWN_CALL_HEADING = 'Own answer'
+
+/** The column heading of the one-method table's score. */
+export const OWN_SCORE_HEADING = 'Own score'
+
+/** The header mark of a method whose chance above is its own (`prob_source: native`). */
+export const OWN_CHANCE_MARK = 'chance above is its own'
+
+/** The line instead of a table when no shown method has its own results recorded. */
+export const OWN_RESULTS_NONE_RECORDED =
+  "The methods' own results were not recorded for this run (it ran before they were kept, or these are recorded demo results)."
+
+/** The yes/no answer's words (`1` = treatment judged failing). */
+export function formatOwnCall(call: 0 | 1 | null): string | null {
+  if (call === 1) return 'Judged failing'
+  if (call === 0) return 'Not failing'
+  return null
+}
+
+/**
+ * A method's own score as plain text: up to 3 decimals with trailing zeros
+ * cut (`2.5`, `-0.125`, `12`), the exponent form for a tiny (< 0.001) or a
+ * huge (≥ 1e6) magnitude (`1.2e-5`) so it never prints as `0` or a wall of
+ * digits; null for no score. The exact value is in the CSV download.
+ */
+export function formatOwnScore(score: number | null): string | null {
+  if (score === null || !Number.isFinite(score)) return null
+  if (score === 0) return '0'
+  const abs = Math.abs(score)
+  if (abs < 0.001 || abs >= 1e6) {
+    const [mantissa, exponent] = score.toExponential(2).split('e')
+    return `${String(Number(mantissa))}e${Number(exponent)}`
+  }
+  return String(Number(score.toFixed(3)))
+}
+
+/**
+ * The one line naming the shown methods whose own results were not recorded
+ * (a run from before they were kept, a demo replay); null when every shown
+ * method has them. The names are the columns' display labels.
+ */
+export function formatOwnNotRecordedNote(labels: ReadonlyArray<string>): string | null {
+  if (labels.length === 0) return null
+  return `The own results of ${labels.join(', ')} were not recorded for this run.`
+}

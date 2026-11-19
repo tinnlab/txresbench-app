@@ -783,3 +783,97 @@ describe('ResultsPage demo arm (TEST-DM-7, ITEM-7)', () => {
     expect(desktop.queryByTestId('txr-results-demo-label')).toBeNull()
   })
 })
+
+// ── The methods' own results under the chances (B) ──────────────────────────
+
+/** The two finished columns, each with its own results: a yes/no method + a score-only one. */
+function twoColumnsWithOwn(): TxrPredictionsResponse {
+  const p = twoColumns()
+  p.methods[0] = {
+    ...p.methods[0],
+    native_recorded: true,
+    scores: wireArray<number>(PATIENTS.map((_, i) => (i % 5 === 4 ? null : i / 8))),
+    calls: wireArray<number>(PATIENTS.map((_, i) => (i % 5 === 4 ? null : i % 2))),
+  }
+  p.methods[1] = {
+    ...p.methods[1],
+    native_recorded: true,
+    scores: wireArray<number>(PATIENTS.map((_, i) => -i)),
+  }
+  return p
+}
+
+/** The patient ids of a table's data rows, in order (the row test-id suffix). */
+function rowIds(container: HTMLElement, prefix: string): string[] {
+  return Array.from(container.querySelectorAll(`[data-testid^="${prefix}"]`)).map(el =>
+    (el.getAttribute('data-testid') ?? '').slice(prefix.length),
+  )
+}
+
+describe("ResultsPage — the methods' own results (B)", () => {
+  it('shows each method’s own answer and score under the chances, in the chance table’s row order', async () => {
+    api.getPredictions.mockResolvedValue(twoColumnsWithOwn())
+    const view = await renderLoaded()
+    const section = await waitFor(() => view.getByTestId('txr-own-results'))
+    expect(within(section).getByText("Methods' own results")).toBeTruthy()
+    expect(within(section).getByTestId('txr-own-header-lm-cox-a')).toBeTruthy()
+    expect(within(section).getByTestId('txr-own-header-rsf-b')).toBeTruthy()
+    // The native-chance mark: the fixture's columns are `prob_source: native`.
+    expect(within(section).getByTestId('txr-own-chance-mark-lm-cox-a').textContent).toBe(
+      'chance above is its own',
+    )
+    // The same rows in the same order as the chance table (its default
+    // window: 100 rows, average-desc).
+    const ownIds = rowIds(section, 'txr-own-row-')
+    expect(ownIds.length).toBe(100)
+    const heatIds = rowIds(view.getByTestId('txr-heatmap'), 'txr-heatmap-row-')
+    expect(ownIds.slice(0, heatIds.length)).toEqual(heatIds)
+    // S0003: index 3 → call 1 ("Judged failing"), score 3/8 = 0.375; rsf-b -3.
+    const row = within(section).getByTestId('txr-own-row-S0003')
+    const [first, second] = within(row).getAllByTestId(/txr-own-value-/)
+    expect(first.textContent).toBe('Judged failing0.375')
+    expect(second.textContent).toBe('-3')
+    // A shown patient whose index is 4 mod 5 → no score and no call → a dash.
+    const blankId = ownIds.find(id => Number(id.slice(1)) % 5 === 4)
+    expect(blankId).toBeDefined()
+    const none = within(section).getByTestId(`txr-own-row-${blankId}`)
+    expect(within(none).getAllByTestId(/txr-own-value-/)[0].textContent).toBe('–')
+  })
+
+  it('says once that the own results were not recorded for a run from before they were kept', async () => {
+    const view = await renderLoaded()
+    const section = await waitFor(() => view.getByTestId('txr-own-results'))
+    expect(within(section).getByTestId('txr-own-results-none').textContent).toContain(
+      'were not recorded for this run',
+    )
+    expect(within(section).queryByTestId('txr-own-table')).toBeNull()
+  })
+
+  it('names a method without own results in one line and leaves its column out', async () => {
+    const p = twoColumnsWithOwn()
+    p.methods[1] = { ...p.methods[1], native_recorded: false, scores: wireArray<number>([]) }
+    api.getPredictions.mockResolvedValue(p)
+    const view = await renderLoaded()
+    const section = await waitFor(() => view.getByTestId('txr-own-results'))
+    expect(within(section).queryByTestId('txr-own-header-rsf-b')).toBeNull()
+    expect(within(section).getByTestId('txr-own-results-missing').textContent).toBe(
+      'The own results of rsf-b were not recorded for this run.',
+    )
+  })
+
+  it('follows the patient search like the chance table (and hides with no match)', async () => {
+    api.getPredictions.mockResolvedValue(twoColumnsWithOwn())
+    const view = await renderLoaded()
+    await waitFor(() => view.getByTestId('txr-own-results'))
+    act(() => {
+      state().setSearch('S001')
+    })
+    await waitFor(() =>
+      expect(rowIds(view.getByTestId('txr-own-results'), 'txr-own-row-').every(id => id.includes('S001'))).toBe(true),
+    )
+    act(() => {
+      state().setSearch('no-such-patient')
+    })
+    await waitFor(() => expect(view.queryByTestId('txr-own-results')).toBeNull())
+  })
+})
