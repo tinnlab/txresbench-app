@@ -1184,6 +1184,9 @@ impl StackMethodExecutor {
             return Ok(failed_outcome(io_failure(&e)));
         }
 
+        // The method's own results (its score + yes/no call) from the same
+        // final call, taken before the rows move into the chance column.
+        let native = super::predictions::native_column(&score);
         let (prob_source, rows) = match &conversion {
             Some(c) => (
                 TxrProbSource::Recalibrated,
@@ -1202,6 +1205,7 @@ impl StackMethodExecutor {
         if let Err(e) = super::predictions::write_chance_column(&ctx.run_dir, &method_id, &rows) {
             return Ok(failed_outcome(io_failure(&e)));
         }
+        record_native_column(&ctx.run_dir, &method_id, &native);
         // The fitted conversions (the shown one and every other covered
         // need) are recorded beside the column
         // (`output/<method_id>/conversions.json`, the package's
@@ -1365,6 +1369,10 @@ impl StackMethodExecutor {
                 return Ok(failed_outcome(reason));
             }
         };
+        // The saved model's own results on these patients (score + call),
+        // whatever happens to the chance below — a predict-only reuse with no
+        // matching conversion still shows what the model itself returned.
+        let native = super::predictions::native_column(&score);
 
         // The order (the package's `predict()` plus the app's cohort refit):
         // 1. a native probability column is served as it is;
@@ -1471,6 +1479,7 @@ impl StackMethodExecutor {
         if let Err(e) = super::predictions::write_chance_column(&ctx.run_dir, &method_id, &rows) {
             return Ok(failed_outcome(io_failure(&e)));
         }
+        record_native_column(&ctx.run_dir, &method_id, &native);
         if let Some((key, c)) = applied {
             let map = super::predictions::Conversions::from([(key, c)]);
             if let Err(e) = super::predictions::write_conversions(&ctx.run_dir, &method_id, &map) {
@@ -1869,6 +1878,24 @@ fn params_value(
         "seed": settings.seed,
         "threads": settings.threads,
     })
+}
+
+/// Record a finished method's own results (`output/<method_id>/native.csv`).
+/// The chance column is the run's result, so a failed write never fails the
+/// method: it is logged, and the results screens say the method's own results
+/// were not recorded (the same reading a run from before the file had).
+fn record_native_column(
+    run_dir: &Path,
+    method_id: &str,
+    native: &super::predictions::NativeColumn,
+) {
+    if let Err(e) = super::predictions::write_native_column(run_dir, method_id, native) {
+        tracing::warn!(
+            method_id = %method_id,
+            error = %e,
+            "execution engine: the method's own results could not be recorded"
+        );
+    }
 }
 
 /// The engine's reason for an I/O failure of the bundle/staging writes.
@@ -6980,6 +7007,17 @@ mod tests {
             let want = c.apply(bundle::parse_number(r)).expect("a scored risk");
             assert_eq!(p, &format!("{want:.6}"), "chance.csv = the recorded map(risk)");
         }
+        // The method's own results are recorded beside the chance column from
+        // the SAME final call: its score is the file's risk, unconverted.
+        let native = predictions::read_native_column(&run_dir, "ctdna-tf-four-group")
+            .expect("native.csv recorded for a finished train method");
+        let raw_ids = raw.col("patient_id").unwrap();
+        assert_eq!(native.rows.len(), raw_ids.len());
+        for (i, id) in raw_ids.iter().enumerate() {
+            let row = native.rows.iter().find(|n| &n.patient_id == id).expect("every patient");
+            assert_eq!(row.score, bundle::parse_number(&risks[i]), "the score is the method's own risk");
+        }
+        assert_eq!(native.has_call, raw.has("call"), "a call column only when the output had one");
     }
 
     #[tokio::test]
@@ -7799,6 +7837,22 @@ mod tests {
             !run_dir.join("output/m-1").join(predictions::CONVERSIONS_FILE).exists(),
             "nothing was applied, nothing recorded"
         );
+        // No chance, but the saved model's own results ARE recorded: what the
+        // model itself returned for these patients stays visible.
+        let native = predictions::read_native_column(&run_dir, "m-1")
+            .expect("native.csv recorded for a predict-only reuse");
+        assert_eq!(native.rows.len(), rows.len(), "one row per chance row");
+        let raw = bundle::parse_csv(
+            &std::fs::read_to_string(run_dir.join("output/m-1/predictions.csv")).unwrap(),
+        )
+        .unwrap();
+        let raw_ids = raw.col("patient_id").unwrap();
+        let raw_risk = raw.col("risk").unwrap();
+        for (i, id) in raw_ids.iter().enumerate() {
+            let row = native.rows.iter().find(|n| &n.patient_id == id).expect("every scored patient");
+            assert_eq!(row.score, bundle::parse_number(&raw_risk[i]));
+            assert!(row.score.is_some(), "{id}: a score although there is no chance");
+        }
         assert_eq!(calls.len(), 1, "one reuse call");
         assert_eq!(calls[0].mode, MethodRunMode::ReuseModel);
         assert_eq!(

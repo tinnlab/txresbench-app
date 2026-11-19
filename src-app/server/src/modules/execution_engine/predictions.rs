@@ -605,20 +605,169 @@ pub fn write_chance_column(
     method_id: &str,
     rows: &[PredictionRow],
 ) -> std::io::Result<()> {
+    write_patient_table(
+        run_dir,
+        method_id,
+        "chance.csv",
+        "patient_id,probability,note",
+        rows.iter().map(|r| {
+            (
+                r.patient_id.as_str(),
+                vec![
+                    r.probability.map(|p| format!("{p:.6}")).unwrap_or_default(),
+                    r.note.clone(),
+                ],
+            )
+        }),
+    )
+}
+
+/// Write one per-method patient table (`output/<method_id>/<file>`): the
+/// header line, then one line per patient — the patient id and every other
+/// field escaped by the module's one CSV codec (a number never needs it, so
+/// it is written as it is).
+fn write_patient_table<'a>(
+    run_dir: &std::path::Path,
+    method_id: &str,
+    file: &str,
+    header: &str,
+    lines: impl Iterator<Item = (&'a str, Vec<String>)>,
+) -> std::io::Result<()> {
     let out_dir = run_dir.join("output").join(method_id);
     std::fs::create_dir_all(&out_dir)?;
-    let mut csv = String::from("patient_id,probability,note\n");
-    for r in rows {
-        csv.push_str(&crate::modules::execution_engine::bundle::csv_cell(&r.patient_id));
-        csv.push(',');
-        if let Some(p) = r.probability {
-            csv.push_str(&format!("{p:.6}"));
+    let mut csv = format!("{header}\n");
+    for (patient_id, fields) in lines {
+        csv.push_str(&crate::modules::execution_engine::bundle::csv_cell(patient_id));
+        for field in &fields {
+            csv.push(',');
+            csv.push_str(&crate::modules::execution_engine::bundle::csv_cell(field));
         }
-        csv.push(',');
-        csv.push_str(&crate::modules::execution_engine::bundle::csv_cell(&r.note));
         csv.push('\n');
     }
-    std::fs::write(out_dir.join("chance.csv"), csv)
+    std::fs::write(out_dir.join(file), csv)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The method's own (native) result — `output/<method_id>/native.csv`
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The file the native column is recorded in, beside `chance.csv`.
+pub const NATIVE_FILE: &str = "native.csv";
+
+/// One predict-side patient's own result from the method: its score (the
+/// contract's `risk` for the shown outcome — "higher = more likely failing";
+/// the value the chance was made from) and, when the method returned one, its
+/// yes/no call (`1` = treatment judged failing). Both are None for a patient
+/// the method abstained on or never saw.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeRow {
+    pub patient_id: String,
+    pub score: Option<f64>,
+    pub call: Option<u8>,
+}
+
+/// One method's own results, in the chance column's row order. `has_call` is
+/// whether the method's `predictions.csv` carried a `call` column at all (a
+/// method that returns no call has no call values, never a column of blanks).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeColumn {
+    pub has_call: bool,
+    pub rows: Vec<NativeRow>,
+}
+
+/// The method's own results from one validated assembly: the score is the
+/// row's outcome-scoped risk ([`PredictionRow::risk`]), the call is the row's
+/// `call` value (looked up by patient id — a skipped patient has no row in
+/// the file). Validation already holds every `call` value to 0/1/empty.
+pub fn native_column(predictions: &MethodPredictions) -> NativeColumn {
+    let table = &predictions.table;
+    let calls: Option<BTreeMap<&str, Option<u8>>> = match (table.col("patient_id"), table.col("call")) {
+        (Some(ids), Some(col)) => Some(
+            ids.iter()
+                .zip(col.iter())
+                .map(|(id, text)| {
+                    let call = parse_number(text).and_then(|x| {
+                        if x == 1.0 {
+                            Some(1u8)
+                        } else if x == 0.0 {
+                            Some(0u8)
+                        } else {
+                            None
+                        }
+                    });
+                    (id.as_str(), call)
+                })
+                .collect(),
+        ),
+        _ => None,
+    };
+    NativeColumn {
+        has_call: calls.is_some(),
+        rows: predictions
+            .rows
+            .iter()
+            .map(|r| NativeRow {
+                patient_id: r.patient_id.clone(),
+                score: r.risk.filter(|x| x.is_finite()),
+                call: calls
+                    .as_ref()
+                    .and_then(|m| m.get(r.patient_id.as_str()).copied().flatten()),
+            })
+            .collect(),
+    }
+}
+
+/// Record the method's own results beside its chance column:
+/// `patient_id,score[,call]` — the score written exactly (Rust's shortest
+/// round-trip text), the call `0`/`1`, an empty field where there is none; the
+/// `call` column only when the method returned calls.
+pub fn write_native_column(
+    run_dir: &std::path::Path,
+    method_id: &str,
+    column: &NativeColumn,
+) -> std::io::Result<()> {
+    write_patient_table(
+        run_dir,
+        method_id,
+        NATIVE_FILE,
+        if column.has_call { "patient_id,score,call" } else { "patient_id,score" },
+        column.rows.iter().map(|r| {
+            let mut fields = vec![r.score.map(|s| format!("{s}")).unwrap_or_default()];
+            if column.has_call {
+                fields.push(r.call.map(|c| c.to_string()).unwrap_or_default());
+            }
+            (r.patient_id.as_str(), fields)
+        }),
+    )
+}
+
+/// Read one method's recorded own results; `None` when the run never recorded
+/// them (a run from before the file existed, a demo replay, a failed write) or
+/// the file cannot be read — the screens then say "not recorded".
+pub fn read_native_column(run_dir: &std::path::Path, method_id: &str) -> Option<NativeColumn> {
+    let text = std::fs::read_to_string(run_dir.join("output").join(method_id).join(NATIVE_FILE)).ok()?;
+    let table = crate::modules::execution_engine::bundle::parse_csv(&text).ok()?;
+    let ids = table.col("patient_id")?;
+    let scores = table.col("score")?;
+    let calls = table.col("call");
+    Some(NativeColumn {
+        has_call: calls.is_some(),
+        rows: ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| NativeRow {
+                patient_id: id.clone(),
+                score: scores
+                    .get(i)
+                    .and_then(|c| parse_number(c))
+                    .filter(|x| x.is_finite()),
+                call: calls
+                    .and_then(|col| col.get(i))
+                    .and_then(|c| parse_number(c))
+                    .and_then(|x| if x == 1.0 { Some(1) } else if x == 0.0 { Some(0) } else { None }),
+            })
+            .collect(),
+    })
 }
 
 /// The outcome-scoped risk values of every scored patient, in `expected`
@@ -2372,6 +2521,144 @@ mod tests {
             "a note, with a comma and \"quotes\"",
             "the codec's escaping survives the round trip"
         );
+        let _ = std::fs::remove_dir_all(&run_dir);
+    }
+
+    // ── the method's own results (native.csv) ───────────────────────────────
+
+    /// A yes/no method: the score is each row's risk, the call is the
+    /// file's `call` value looked up by patient id; a patient the method
+    /// abstained on, and a patient it never saw (a test-side skip), have
+    /// neither. The rows follow the chance column's order.
+    #[test]
+    fn native_column_takes_each_patients_score_and_call() {
+        let own: Vec<String> = vec!["risk".into(), "call".into()];
+        let spec = PredictionSpec {
+            method_id: "fake-call",
+            own_outputs: &own,
+            group: MethodGroup::ResponseCall,
+            constant_ok: None,
+        };
+        let text = csv(
+            &["patient_id", "risk", "call", "note"],
+            &[
+                &["T0002", "-0.75", "0", ""],
+                &["T0001", "2.5", "1", ""],
+                &["T0003", "", "", "fewer than 3 draws by day 56"],
+                &["T0004", "1.25", "1", ""],
+                &["T0005", "0.5", "0", ""],
+            ],
+        );
+        let skipped = vec![("T0009".to_string(), "no draw before treatment".to_string())];
+        let m = method_predictions(
+            Some(&text),
+            "{}",
+            &spec,
+            &expected(),
+            &skipped,
+            &["no_response".to_string()],
+            &[],
+            "no_response",
+            None,
+        )
+        .expect("the fixture is contract-valid");
+        let n = native_column(&m);
+        assert!(n.has_call);
+        let got: Vec<(&str, Option<f64>, Option<u8>)> = n
+            .rows
+            .iter()
+            .map(|r| (r.patient_id.as_str(), r.score, r.call))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("T0001", Some(2.5), Some(1)),
+                ("T0002", Some(-0.75), Some(0)),
+                ("T0003", None, None),
+                ("T0004", Some(1.25), Some(1)),
+                ("T0005", Some(0.5), Some(0)),
+                ("T0009", None, None),
+            ],
+            "the chance column's order: the expected patients, then the skips"
+        );
+    }
+
+    /// A method with no `call` column has no calls (never a column of
+    /// blanks), and its score is the OUTCOME-SCOPED risk — the value the
+    /// chance was made from (`risk_death` for the death outcome).
+    #[test]
+    fn native_column_without_calls_uses_the_outcome_scoped_risk() {
+        let own: Vec<String> = vec!["risk".into(), "risk_death".into()];
+        let spec = PredictionSpec {
+            method_id: "fake-death",
+            own_outputs: &own,
+            group: MethodGroup::StaticRisk,
+            constant_ok: None,
+        };
+        let text = csv(
+            &["patient_id", "risk", "risk_death"],
+            &[
+                &["T0001", "0.1", "10"],
+                &["T0002", "0.2", "20"],
+                &["T0003", "0.3", "30"],
+                &["T0004", "0.4", "40"],
+                &["T0005", "0.5", "50"],
+            ],
+        );
+        let m = method_predictions(
+            Some(&text),
+            "{}",
+            &spec,
+            &expected(),
+            &[],
+            &["death".to_string()],
+            &[238.0],
+            "death",
+            Some(238.0),
+        )
+        .expect("the fixture is contract-valid");
+        let n = native_column(&m);
+        assert!(!n.has_call);
+        assert!(n.rows.iter().all(|r| r.call.is_none()));
+        assert_eq!(n.rows[0].score, Some(10.0));
+        assert_eq!(n.rows[4].score, Some(50.0));
+    }
+
+    /// `native.csv` round-trips: the header names the call column only when
+    /// the method returned calls, the score is written exactly (no rounding —
+    /// it is the method's own number on its own scale), an empty field where
+    /// there is none; a missing file reads as "not recorded" (None).
+    #[test]
+    fn native_column_round_trips_through_native_csv() {
+        let run_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/txr-execution-engine-native/round-trip")
+            .join(uuid::Uuid::new_v4().simple().to_string());
+        let with_calls = NativeColumn {
+            has_call: true,
+            rows: vec![
+                NativeRow { patient_id: "P001".into(), score: Some(0.0000001), call: Some(1) },
+                NativeRow { patient_id: "P,002".into(), score: Some(-12.3456789), call: Some(0) },
+                NativeRow { patient_id: "P003".into(), score: None, call: None },
+            ],
+        };
+        write_native_column(&run_dir, "kelim", &with_calls).expect("writes");
+        let text = std::fs::read_to_string(run_dir.join("output/kelim").join(NATIVE_FILE)).unwrap();
+        assert_eq!(
+            text,
+            "patient_id,score,call\nP001,0.0000001,1\n\"P,002\",-12.3456789,0\nP003,,\n"
+        );
+        assert_eq!(read_native_column(&run_dir, "kelim"), Some(with_calls));
+
+        let no_calls = NativeColumn {
+            has_call: false,
+            rows: vec![NativeRow { patient_id: "P001".into(), score: Some(3.5), call: None }],
+        };
+        write_native_column(&run_dir, "cox", &no_calls).expect("writes");
+        let text = std::fs::read_to_string(run_dir.join("output/cox").join(NATIVE_FILE)).unwrap();
+        assert_eq!(text, "patient_id,score\nP001,3.5\n");
+        assert_eq!(read_native_column(&run_dir, "cox"), Some(no_calls));
+
+        assert_eq!(read_native_column(&run_dir, "never-recorded"), None);
         let _ = std::fs::remove_dir_all(&run_dir);
     }
 
