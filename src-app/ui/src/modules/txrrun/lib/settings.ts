@@ -146,7 +146,7 @@ export const SETTING_HELP: Record<'endpoint' | 'decision_day' | 'look_ahead_day'
   {
     endpoint: 'What each method should predict for each patient.',
     decision_day: 'The day you decide, counted from the start of treatment.',
-    look_ahead_day: 'How far after the decision day you want the prediction to hold.',
+    look_ahead_day: 'The day the prediction is for, counted from the start of treatment.',
     covariates: 'Other columns of your file the methods may use.',
   }
 
@@ -160,11 +160,13 @@ export const SETTING_ENDPOINT_WORD: Record<TxrEndpoint, string> = {
  *  plan's "disabled with the reason when the file has none"). */
 export const COVARIATES_DISABLED_REASON = 'your file has no extra-input columns'
 
-/** The live sentence: "<outcome> within <horizon> days, from the blood
- *  draws up to day <decision day>." — the card's one-line summary, in both
- *  the open card and the phone-width collapsed face. */
+/** The live sentence: "<outcome> by day <horizon> of treatment, from the
+ *  blood draws up to day <decision day>." — the card's one-line summary, in
+ *  both the open card and the phone-width collapsed face. Both days are
+ *  counted from the start of treatment (the engine's horizon is days since
+ *  the first dose: the training labels are "event by day <horizon>"). */
 export function settingsSentence(settings: Pick<RunSettings, 'endpoint' | 'decision_day' | 'look_ahead_day'>): string {
-  return `${SETTING_ENDPOINT_WORD[settings.endpoint]} within ${settings.look_ahead_day} days, from the blood draws up to day ${settings.decision_day}.`
+  return `${SETTING_ENDPOINT_WORD[settings.endpoint]} by day ${settings.look_ahead_day} of treatment, from the blood draws up to day ${settings.decision_day}.`
 }
 
 export function toRunConfig(

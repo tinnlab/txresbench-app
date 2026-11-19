@@ -211,7 +211,7 @@ test.describe('ITEM-2 — the settings sentence, the recompute + untick toast (t
     // The settings card's live sentence (the plan's words, the fixture's
     // values: decision day 56, horizon 238).
     await expect(page.getByTestId('txr-run-settings-sentence')).toHaveText(
-      'Progression or death within 238 days, from the blood draws up to day 56.',
+      'Progression or death by day 238 of treatment, from the blood draws up to day 56.',
     )
     // The small set: all six runnable, the recommendation ticks them.
     await expect(page.getByTestId('txr-run-bar-count')).toHaveText('6 methods selected')

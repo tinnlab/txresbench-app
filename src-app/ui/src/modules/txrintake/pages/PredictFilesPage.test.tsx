@@ -227,7 +227,7 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     expect(screen.getByText('What the models look for')).toBeTruthy()
     expect(
       screen.getByText(
-        'After you add the file we check which pretrained models can run on it. These are the draws most models use:',
+        'After you add the file we check which ready-made models can run on it. These are the draws most models use:',
       ),
     ).toBeTruthy()
     expect(screen.getByText('No outcomes are needed, and no patients file.')).toBeTruthy()
@@ -421,7 +421,7 @@ describe("ITEM-6 P1/F4 — the aside's bullets and items, the pick guard", () =>
     renderPredict()
     expect(
       screen.getByText(
-        'After you add the file we check which pretrained models can run on it. These are the draws most models use:',
+        'After you add the file we check which ready-made models can run on it. These are the draws most models use:',
       ),
     ).toBeTruthy()
     cleanup()
@@ -429,7 +429,7 @@ describe("ITEM-6 P1/F4 — the aside's bullets and items, the pick guard", () =>
     renderPredict()
     expect(
       screen.queryByText(
-        'After you add the file we check which pretrained models can run on it. These are the draws most models use:',
+        'After you add the file we check which ready-made models can run on it. These are the draws most models use:',
       ),
     ).toBeNull()
     expect(

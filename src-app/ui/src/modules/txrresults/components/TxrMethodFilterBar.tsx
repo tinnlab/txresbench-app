@@ -28,15 +28,15 @@
  * "Methods" (the select's aria-label "Which methods to show"; the option
  * labels "All N", "<Group> (<count>)", "Choose methods…" — method-group
  * labels + counts are data, the board's numbers are examples); the legend
- * reads "Chance of failure" + the alpha gradient + "0 to 100%" on the pfs
- * tab and the same board words for the other outcome tabs ("Chance of
- * death", "Chance of no response" — RES-04: the no-response tab must never
- * read "failure").
+ * reads "Chance of progression or death by day N" + the alpha gradient +
+ * "0 to 100%" on the pfs tab, "Chance of death by day N" on the os tab and
+ * "Chance of no response" on the response tab (RES-04: the no-response tab
+ * must never read "failure"; `legendLabel`).
  */
 import type { CSSProperties } from 'react'
 import { Input, MultiSelect, Select } from '@txresbench/kit'
 import type { TxrHeatmapColumn, TxrOutcomeKey, TxrSortKey } from '../types'
-import { LEGEND_LABEL } from '../lib/format'
+import { legendLabel } from '../lib/format'
 
 const ROW: CSSProperties = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }
 const LABEL: CSSProperties = { fontSize: 13.5, display: 'flex', gap: 6, alignItems: 'center' }
@@ -71,8 +71,10 @@ export interface TxrMethodFilterBarProps {
   search: string
   /** The active "Sort by" option. */
   sort: TxrSortKey
-  /** The active outcome tab — the legend's "Chance of …" word (RES-04). */
+  /** The active outcome tab — the legend's "Chance of …" words (RES-04). */
   outcome: TxrOutcomeKey
+  /** The run's look-ahead day — the legend's "by day N" (null or 0: no day shown). */
+  horizon: number | null
   onFilterChange: (filter: TxrMethodFilter | null) => void
   onSearchChange: (search: string) => void
   onSortChange: (sort: TxrSortKey) => void
@@ -129,6 +131,7 @@ export function TxrMethodFilterBar({
   search,
   sort,
   outcome,
+  horizon,
   onFilterChange,
   onSearchChange,
   onSortChange,
@@ -193,7 +196,7 @@ export function TxrMethodFilterBar({
         />
       ) : null}
       <span data-testid="txr-results-legend" style={LEGEND}>
-        {LEGEND_LABEL[outcome]}
+        {legendLabel(outcome, horizon)}
         <span aria-hidden style={LEGEND_GRADIENT} />
         {' '}0 to 100%
       </span>

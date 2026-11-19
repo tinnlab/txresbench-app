@@ -85,13 +85,18 @@ export interface TxrModelsEmptyStateProps {
   onRetry(): void
 }
 
-/** The whole-page message: the lead line, the body, the buttons (the first is the primary). */
+/** The whole-page message: the lead line, the intro, the body, the buttons (the first is the primary). */
 export function TxrModelsEmptyState({ message, testId, onRetry }: TxrModelsEmptyStateProps) {
   return (
     <div data-testid={testId} role="status" aria-live="polite" style={BOX}>
       <p data-testid={`${testId}-title`} style={TITLE}>
         {message.title}
       </p>
+      {message.intro !== null ? (
+        <p data-testid={`${testId}-intro`} style={BODY}>
+          {message.intro}
+        </p>
+      ) : null}
       {message.body !== null ? (
         <p data-testid={`${testId}-body`} style={BODY}>
           {message.body}

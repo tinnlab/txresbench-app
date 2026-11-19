@@ -131,12 +131,17 @@ pub fn other_arch_message(recorded: EnvArch, host: EnvArch) -> String {
         EnvArch::Amd64 => "an Intel/AMD computer",
         EnvArch::Arm64 => "an Apple-chip (ARM) computer",
     };
-    let this = match host {
+    format!("This saved model was made on {made_on}; it cannot run on {}", this_computer(host))
+}
+
+/// This computer named by its chip type, the way the chip-type messages say
+/// it: "this Intel/AMD computer", "this Mac (Apple chip)", "this ARM computer".
+pub fn this_computer(host: EnvArch) -> &'static str {
+    match host {
         EnvArch::Amd64 => "this Intel/AMD computer",
         EnvArch::Arm64 if cfg!(target_os = "macos") => "this Mac (Apple chip)",
         EnvArch::Arm64 => "this ARM computer",
-    };
-    format!("This saved model was made on {made_on}; it cannot run on {this}")
+    }
 }
 
 /// A reuse run's environment: the image the saved model `asset` was trained

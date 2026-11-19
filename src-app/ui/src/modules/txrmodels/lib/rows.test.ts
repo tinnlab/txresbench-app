@@ -78,7 +78,7 @@ describe('buildPretrainedRows — the D list rows (TEST-MOD-06)', () => {
     expect(rows[0].name).toBe('ps-1 · day 60')
     // The tag is the card's one-line description; the chip the kind pill.
     expect(rows[0].tag).toBe('Rule from the paper; colorectal')
-    expect(rows[0].chip).toEqual({ label: 'Published', tone: 'neutral' })
+    expect(rows[0].chip).toEqual({ label: 'Published rule', tone: 'neutral' })
     expect(rows[1].chip).toEqual({ label: 'Learned here', tone: 'accent' })
   })
 
@@ -205,7 +205,7 @@ describe('buildSavedRows — the I list rows (TEST-MOD-06)', () => {
     const pretrained = { ...TXRMODELS_SAVED[0], provenance: 'pretrained' as const }
     const rows = buildSavedRows([imported, pretrained, TXRMODELS_SAVED[0]], null)
     expect(rows[0].chip).toEqual({ label: 'Imported', tone: 'neutral' })
-    expect(rows[1].chip).toEqual({ label: 'Pretrained', tone: 'accent' })
+    expect(rows[1].chip).toEqual({ label: 'Ready-made', tone: 'accent' })
     expect(rows[2].chip).toEqual({ label: 'Trained by you', tone: 'accent' })
   })
 

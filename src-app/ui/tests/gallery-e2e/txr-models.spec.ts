@@ -217,7 +217,7 @@ test.describe('txr-models-d — choose the pretrained models (TEST-MOD-17)', () 
       'Add the patients\u2019 measurements you want to predict first.',
     )
     await expect(page.getByTestId('txr-models-d-empty-note')).toContainText(
-      'The published models of the benchmark are listed here once the file checks out',
+      'The ready-made models are listed here once the file checks out',
     )
     await expect(page.getByTestId('txr-models-d-empty-cta')).toHaveText(
       'Go to the measurements step',

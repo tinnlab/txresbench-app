@@ -1195,7 +1195,7 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
       'What do you want to predict?',
     )
     expect(screen.getByTestId('txr-run-settings-sentence').textContent).toBe(
-      'Progression or death within 238 days, from the blood draws up to day 84.',
+      'Progression or death by day 238 of treatment, from the blood draws up to day 84.',
     )
 
     // Change the outcome and the horizon: the sentence is the selection's.
@@ -1216,7 +1216,7 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
       await Promise.resolve()
     })
     expect(screen.getByTestId('txr-run-settings-sentence').textContent).toBe(
-      'Death within 365 days, from the blood draws up to day 84.',
+      'Death by day 365 of treatment, from the blood draws up to day 84.',
     )
   })
 

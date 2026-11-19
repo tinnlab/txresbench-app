@@ -3,7 +3,7 @@
  * (qa-fixes3 ITEM-2 (b); ITEM-7's rows kept as the row contract):
  *
  * - the card carries its title and a LIVE sentence at the top —
- *   "Progression or death within 238 days, from the blood draws up to day
+ *   "Progression or death by day 238 of treatment, from the blood draws up to day
  *   56." — built from the row values (`settingsSentence`, the ONE
  *   formatter, unit-tested), so the sentence can never drift from the
  *   selection;

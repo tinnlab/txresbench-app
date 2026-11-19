@@ -70,7 +70,7 @@ function verdictKey(inventory: InventoryEligibilityRequest, idsKey: string): str
 }
 
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : 'Failed to check pretrained models'
+  return err instanceof Error ? err.message : 'Failed to check the ready-made models'
 }
 
 export interface UsePretrainedEligibilityResult {

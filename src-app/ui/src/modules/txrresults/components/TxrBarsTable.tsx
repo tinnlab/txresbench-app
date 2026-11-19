@@ -114,15 +114,16 @@ const PERCENT: CSSProperties = {
   whiteSpace: 'nowrap',
 }
 
-/** The outcome word of the footer's "Chance of <phrase> by day N" (board pfs). */
+/** The outcome words of the footer's "Chance of <phrase> by day N" (the
+ *  legend's words: the pfs tab is progression or death, never "failure"). */
 export const OUTCOME_PHRASE: Record<TxrOutcomeKey, string> = {
-  pfs: 'treatment failure',
+  pfs: 'progression or death',
   os: 'death',
   response: 'no response',
 }
 
 /**
- * The footer's leading sentence: "Chance of treatment failure by day 238,
+ * The footer's leading sentence: "Chance of progression or death by day 238,
  * sorted by the first method." — the board's bytes with the outcome phrase
  * and the day from the run (never the board's example numbers).
  */

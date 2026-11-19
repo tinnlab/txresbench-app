@@ -1045,7 +1045,7 @@ describe('the dynamic no-models messages on Saved models (I)', () => {
     renderPage()
     await settle(0)
     const box = screen.getByTestId('txr-models-i-no-saved')
-    expect(box.textContent).toBe('You have no saved models yet.Checking the published models\u2026')
+    expect(box.textContent).toBe('You have no saved models yet.Checking the ready-made models\u2026')
     expect(screen.queryByTestId('txr-list')).toBeNull()
     expect(screen.getByTestId('txr-step-back-bar').lastElementChild).toBe(
       screen.getByTestId('txr-step-back'),
@@ -1061,7 +1061,7 @@ describe('the dynamic no-models messages on Saved models (I)', () => {
     renderPage()
     await settle(0)
     expect(screen.getByTestId('txr-models-i-no-saved').textContent).toContain(
-      '3 of the 5 published models can run on this file.',
+      '3 of the 5 ready-made models can run on this file.',
     )
     await click('txr-models-i-no-saved-action-use-published')
     expect(screen.getByTestId('route-location').textContent).toBe('/pretrained-models')
@@ -1077,7 +1077,7 @@ describe('the dynamic no-models messages on Saved models (I)', () => {
     renderPage()
     await settle(0)
     expect(screen.getByTestId('txr-models-i-no-saved').textContent).toContain(
-      'You have no saved models yet, and none of the 5 published models can run on this file.',
+      'You have no saved models yet, and none of the 5 ready-made models can run on this file.',
     )
     expect(screen.getByTestId('txr-models-i-no-saved-action-see-published')).toBeTruthy()
     await click('txr-models-i-no-saved-action-your-models')
@@ -1116,7 +1116,7 @@ describe('the dynamic no-models messages on Saved models (I)', () => {
     renderPage()
     await settle(0)
     expect(screen.getByTestId('txr-models-i-none-can-run').textContent).toContain(
-      `None of your ${TXRMODELS_SAVED.length} saved models can run on this file. Each row says what is missing. 1 published model can run on it.`,
+      `None of your ${TXRMODELS_SAVED.length} saved models can run on this file. Each row says what is missing. 1 ready-made model can run on it.`,
     )
     await click('txr-models-i-none-can-run-action-use-published')
     expect(screen.getByTestId('route-location').textContent).toBe('/pretrained-models')

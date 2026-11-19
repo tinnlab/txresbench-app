@@ -520,7 +520,7 @@ describe('PretrainedModelsPage — TEST-MOD-09 (screen D)', () => {
     // The row surface: mono id · day, the chip, the performance text, the
     // verdict, the time, the Model card action (INV-1's normalized rows).
     expect(screen.getByText('ps-1 \u00b7 day 60')).toBeTruthy()
-    expect(screen.getAllByText('Published').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Published rule').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Learned here').length).toBeGreaterThan(0)
     expect(screen.getByText('other cohorts: AUC 0.74')).toBeTruthy()
     expect(screen.getByText('other cohorts: c-index 0.65')).toBeTruthy()
@@ -710,7 +710,7 @@ describe('PretrainedModelsPage — TEST-MOD-09 (screen D)', () => {
     // identical empty block, so a pretrained direct visit had no clue it
     // was not the saved-models screen.
     expect(screen.getByTestId('txr-models-d-empty-note').textContent).toContain(
-      'The published models of the benchmark are listed here once the file checks out',
+      'The ready-made models are listed here once the file checks out',
     )
     // RES-20: a direct visit is not ON step 4 (the flow has not reached
     // it) and counts nothing — the step line and the "…" totals are gone.
@@ -744,7 +744,10 @@ describe('PretrainedModelsPage — TEST-MOD-09 (screen D)', () => {
     // file (here: none) and hands the user on.
     expect(screen.getByTestId('txr-models-d-no-catalogue')).toBeTruthy()
     expect(screen.getByTestId('txr-models-d-no-catalogue').textContent).toContain(
-      'No published models are available yet',
+      'No ready-made models yet',
+    )
+    expect(screen.getByTestId('txr-models-d-no-catalogue-intro').textContent).toBe(
+      'Ready-made models are already trained by the TxResBench team, so they predict without learning from your data. None have been released yet.',
     )
     expect(screen.queryByTestId('txr-list')).toBeNull()
     await act(async () => {
@@ -1248,8 +1251,11 @@ describe('the dynamic no-models messages on Pretrained models (D)', () => {
     renderPage()
     await settle(0)
     const box = screen.getByTestId('txr-models-d-no-catalogue')
-    expect(box.textContent).toContain('No published models are available yet.')
-    expect(box.textContent).toContain('You have 3 saved models; 2 can run on this file.')
+    expect(screen.getByTestId('txr-models-d-no-catalogue-title').textContent).toBe('No ready-made models yet')
+    expect(box.textContent).toContain('None have been released yet.')
+    expect(screen.getByTestId('txr-models-d-no-catalogue-body').textContent).toBe(
+      'You can predict with your own saved models instead: 2 of your 3 saved models can run on this file.',
+    )
     expect(screen.getByTestId('txr-models-d-no-catalogue-action-your-models')).toBeTruthy()
     await click('txr-models-d-no-catalogue-action-use-saved')
     expect(screen.getByTestId('route-location').textContent).toBe('/saved-models')
@@ -1277,7 +1283,7 @@ describe('the dynamic no-models messages on Pretrained models (D)', () => {
     renderPage()
     await settle(0)
     expect(screen.getByTestId('txr-models-d-no-catalogue').textContent).toContain(
-      'No published models are available yet, and you have no saved models.',
+      "You don't have any saved models yet. To make some, learn from patients whose outcomes you know.",
     )
     await click('txr-models-d-no-catalogue-action-learn')
     expect(screen.getByTestId('route-location').textContent).toBe('/study')
@@ -1305,7 +1311,7 @@ describe('the dynamic no-models messages on Pretrained models (D)', () => {
     savedVerdicts(1, 0, 0)
     await click('txr-models-d-no-catalogue-action-retry')
     expect(screen.getByTestId('txr-models-d-no-catalogue').textContent).toContain(
-      'You have 1 saved model; 1 can run on this file.',
+      'You can predict with your own saved model instead: it can run on this file.',
     )
   })
 
@@ -1338,7 +1344,7 @@ describe('the dynamic no-models messages on Pretrained models (D)', () => {
     await settle(0)
     const line = screen.getByTestId('txr-models-d-none-can-run')
     expect(line.textContent).toContain(
-      `None of the ${TXRMODELS_PRETRAINED.length} published models can run on this file. Each row says what is missing. 2 of your saved models can run on it.`,
+      `None of the ${TXRMODELS_PRETRAINED.length} ready-made models can run on this file. Each row says what is missing. 2 of your saved models can run on it.`,
     )
     await click('txr-models-d-none-can-run-action-use-saved')
     expect(screen.getByTestId('route-location').textContent).toBe('/saved-models')
@@ -1350,7 +1356,9 @@ describe('the dynamic no-models messages on Pretrained models (D)', () => {
     savedVerdicts(1, 1, 1)
     renderPage()
     await settle(0)
-    expect(screen.getByTestId('txr-models-d-no-catalogue').textContent).toContain('2 can run on this file')
+    expect(screen.getByTestId('txr-models-d-no-catalogue').textContent).toContain(
+      '2 of your 3 saved models can run on this file',
+    )
     // Hold the store's inventory on the previous file (as before its effect
     // runs): the verdicts it holds answer that file, not this one.
     const original = useTxrModelsStore.getState().loadInventory

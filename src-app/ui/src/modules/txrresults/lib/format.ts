@@ -74,15 +74,27 @@ export function compareCardTitle(aLabel: string, bLabel: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The legend label (qa-fixes RES-04 — the board's "Chance of failure" is the
-// pfs reading; the third outcome's tab must not read "failure")
+// The legend label (qa-fixes RES-04 — the third outcome's tab must not read
+// "failure"; the progression tab names what the chance is of, and the day)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The heatmap legend's label per outcome tab (the board's pfs words verbatim). */
-export const LEGEND_LABEL: Record<TxrOutcomeKey, string> = {
-  pfs: 'Chance of failure',
-  os: 'Chance of death',
-  response: 'Chance of no response',
+/**
+ * The heatmap legend's label per outcome tab: what the chance is of, and by
+ * which day (the run's look-ahead day, counted from the start of treatment).
+ * The progression tab used to read "Chance of failure", which did not say it
+ * is the same number as the header's "progression or death by day N". A day
+ * that is not a positive number is left out; the response tab has no day.
+ */
+export function legendLabel(outcome: TxrOutcomeKey, horizon: number | null): string {
+  const day = horizon !== null && Number.isFinite(horizon) && horizon > 0 ? ` by day ${horizon}` : ''
+  switch (outcome) {
+    case 'pfs':
+      return `Chance of progression or death${day}`
+    case 'os':
+      return `Chance of death${day}`
+    case 'response':
+      return 'Chance of no response'
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

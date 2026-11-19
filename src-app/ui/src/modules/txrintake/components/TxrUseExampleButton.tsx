@@ -39,7 +39,7 @@ import type { IntakeIntent } from '../types'
 
 /** The accessible name of each path's button (the plan's name rule). */
 const ACCESSIBLE_NAMES: Record<IntakeIntent, string> = {
-  pretrained: 'Use example data: predict with a pretrained model',
+  pretrained: 'Use example data: predict with a ready-made model',
   train: 'Use example data: learn from my data',
   reuse: 'Use example data: use a model I saved',
 }

@@ -280,11 +280,11 @@ describe('TxrSettingsBlock ITEM-2 — the "What do you want to predict?" card', 
       'What do you want to predict?',
     )
     expect(screen.getByTestId('txr-run-settings-sentence').textContent).toBe(
-      'Progression or death within 238 days, from the blood draws up to day 56.',
+      'Progression or death by day 238 of treatment, from the blood draws up to day 56.',
     )
     for (const help of [
       'The day you decide, counted from the start of treatment.',
-      'How far after the decision day you want the prediction to hold.',
+      'The day the prediction is for, counted from the start of treatment.',
       'Other columns of your file the methods may use.',
     ]) {
       expect(screen.getByText(help)).toBeTruthy()
@@ -301,7 +301,7 @@ describe('TxrSettingsBlock ITEM-2 — the "What do you want to predict?" card', 
       />,
     )
     expect(screen.getByTestId('txr-run-settings-sentence').textContent).toBe(
-      'Death within 365 days, from the blood draws up to day 84.',
+      'Death by day 365 of treatment, from the blood draws up to day 84.',
     )
   })
 

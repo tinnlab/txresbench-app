@@ -154,7 +154,7 @@ test.describe('txr-results-g — the populated heatmap (TEST-UR-14 + TEST-UR-15)
     await expect(row).toContainText('S0001')
 
     // ── the legend + the methods picker's All count (the pfs tab's 8 columns) ──
-    await expect(page.getByTestId('txr-results-legend')).toContainText('Chance of failure')
+    await expect(page.getByTestId('txr-results-legend')).toContainText('Chance of progression or death by day')
     await expect(page.getByTestId('txr-results-legend')).toContainText('0 to 100%')
 
     // ── the board row window: the story applied "Showing 14 of 38" ──
@@ -522,7 +522,7 @@ test.describe('txr-results-h — one-method view + the web-mode reveal gate (TES
 
     // ── the bar table: the board's sentence + the fixture's window ──
     await expect(page.getByTestId('txr-bars-footer')).toHaveText(
-      'Chance of treatment failure by day 238, sorted by the first method. Showing 8 of 40.',
+      'Chance of progression or death by day 238, sorted by the first method. Showing 8 of 40.',
     )
     await expect(page.getByTestId('txr-bars-show-more')).toHaveText('Show all 40')
     // The first-method sort: S0028 first (the fixture's top chance 93 %),

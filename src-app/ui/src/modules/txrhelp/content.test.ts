@@ -159,7 +159,7 @@ describe('help content — sections (TEST-HELP-1)', () => {
       'Choosing methods',
       'Status words on the screens',
       'Reading results',
-      'Saved models and pretrained models',
+      'Saved models and ready-made models',
       'Run history',
       'Privacy',
       'What the app keeps',

@@ -159,7 +159,7 @@ export function buildPretrainedRows(
     const chip = demo
       ? { label: DEMO_PRETRAINED_CHIP, tone: 'accent' as const }
       : card.kind === 'published-rule'
-        ? { label: 'Published', tone: 'neutral' as const }
+        ? { label: 'Published rule', tone: 'neutral' as const }
         : { label: 'Learned here', tone: 'accent' as const }
     if (verdict === undefined) {
       // The defensive fallback: a card the verdict payload does not know
@@ -223,7 +223,7 @@ export function buildSavedRows(
         ? { label: 'Trained by you', tone: 'accent' as const }
         : model.provenance === 'imported'
           ? { label: 'Imported', tone: 'neutral' as const }
-          : { label: 'Pretrained', tone: 'accent' as const }
+          : { label: 'Ready-made', tone: 'accent' as const }
     if (verdict === undefined) {
       return {
         key: model.id,

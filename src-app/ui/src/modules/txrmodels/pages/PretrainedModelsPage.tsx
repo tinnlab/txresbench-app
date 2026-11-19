@@ -177,7 +177,7 @@ const EMPTY_LINE = 'Add the patients\u2019 measurements you want to predict firs
  *  states; the pretrained path's list is the benchmark's published
  *  catalogue, and the note says so before the file gate). */
 const EMPTY_NOTE =
-  'The published models of the benchmark are listed here once the file checks out: each shows where it was learned and how well it transferred to other cohorts.'
+  'The ready-made models are listed here once the file checks out: each shows where it was learned and how well it transferred to other cohorts.'
 
 /** The not-ready state's CTA — the step that unlocks this one (RES-20: the
  *  old "Go to the start" landed on the landing page, not the predict-files
@@ -895,5 +895,5 @@ export function PretrainedModelsPage() {
 function cardsWithId0(cards: PretrainedSummary[]): PretrainedSummary {
   const first = cards[0]
   if (first !== undefined) return first
-  throw new Error('No pretrained models are available to run.')
+  throw new Error('No ready-made models are available to run.')
 }

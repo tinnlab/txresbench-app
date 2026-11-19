@@ -483,6 +483,7 @@ export function ResultsPage() {
                 search={search}
                 sort={sort}
                 outcome={outcomeTab}
+                horizon={horizon}
                 onFilterChange={filter => TxrResults.setMethodFilter(filter)}
                 onSearchChange={value => TxrResults.setSearch(value)}
                 onSortChange={value => TxrResults.setSort(value)}
