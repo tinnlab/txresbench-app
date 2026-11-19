@@ -4657,8 +4657,12 @@ async fn ensure_method_env(
             result = &mut ensure_task_handle => {
                 match result {
                     Ok(Ok((_base_mount, _layer_mount))) => {
-                        // The record: the verified pins (ensure verified the
-                        // bytes against exactly these digests).
+                        // The record: the pinned digests. ensure fetched
+                        // exactly these (a download is hashed against them);
+                        // a cache hit is hashed against them by ensure on
+                        // Linux, and on macOS and Windows by the run seam,
+                        // which verifies the bytes it hands to the guest
+                        // (the macOS VM's clone, `wsl_run::ImageHold`).
                         break EnvPhase::Ready(EnvFacts {
                             base,
                             layer,
