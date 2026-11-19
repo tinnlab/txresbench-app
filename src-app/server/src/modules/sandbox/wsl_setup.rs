@@ -15,8 +15,10 @@
 //! `wsl --update` for an old WSL. Windows asks the person at the PC, so an AI
 //! caller can start the action but can never elevate by itself. One setup runs
 //! at a time; it ends as the installer's does: WSL is set up when the
-//! installer's check says so afterwards. Its result is kept for the notice
-//! (`GET /api/sandbox/envs`' `stack.wsl_setup`, [`notice`]).
+//! installer's check says so afterwards, or, where WSL was missing or of the
+//! old kind, when wsl.exe exited with 0 (Windows must restart then). Its
+//! result is kept for the notice (`GET /api/sandbox/envs`' `stack.wsl_setup`,
+//! [`notice`]).
 //!
 //! The elevation is a seam ([`SetupHost`]): the tests drive [`run`] with a
 //! fake, and the Windows tests drive the real one with a stand-in program.
@@ -266,17 +268,24 @@ async fn run(
 /// administrator, then check again; WSL is set up when the check says it is
 /// ready (now or after a restart), whatever the exit code. Windows must
 /// restart when the check says so, or when WSL was missing or of the old kind
-/// before (its Virtual Machine Platform is turned on then).
+/// before (its Virtual Machine Platform is turned on then). Where WSL was
+/// missing or of the old kind, a setup that exits with 0 while the check
+/// still finds it so is done too, with a restart: WSL may answer only after
+/// Windows restarts.
 fn set_up(host: &dyn SetupHost, offer: WslSetupOffer, before: WslStatus) -> WslSetupResult {
+    let missing_or_legacy = |status| matches!(status, WslStatus::Missing | WslStatus::Legacy);
     match host.run_elevated(offer) {
         Launch::NotStarted { error: ERROR_CANCELLED } => WslSetupResult::of(WslSetupOutcome::Declined),
         Launch::NotStarted { error } => {
             WslSetupResult { windows_error: Some(error), ..WslSetupResult::of(WslSetupOutcome::NotStarted) }
         }
         Launch::Exited { code, output } => match host.status_now() {
-            after @ (WslStatus::Ready | WslStatus::ReadyAfterRestart) => WslSetupResult::done(
-                after == WslStatus::ReadyAfterRestart || matches!(before, WslStatus::Missing | WslStatus::Legacy),
-            ),
+            after @ (WslStatus::Ready | WslStatus::ReadyAfterRestart) => {
+                WslSetupResult::done(after == WslStatus::ReadyAfterRestart || missing_or_legacy(before))
+            }
+            after if code == Some(0) && missing_or_legacy(before) && missing_or_legacy(after) => {
+                WslSetupResult::done(true)
+            }
             _ => WslSetupResult::failed(code, last_words(&output)),
         },
     }
@@ -772,6 +781,32 @@ mod tests {
         // Exit 0 but still too old: failed too (the check decides).
         let (r, _) = run_once(WslStatus::Old, exited(0, ""), WslStatus::Old).await;
         assert_eq!(r, WslSetupResult::failed(Some(0), String::new()));
+    }
+
+    /// As in the installer: where WSL was missing or of the old kind, exit 0
+    /// with the check still finding it so is a setup Windows must restart to
+    /// finish. Any other code, an unknown one, or another status before or
+    /// after is a failure.
+    #[tokio::test]
+    async fn exit_0_where_wsl_stays_missing_or_old_kind_waits_for_a_restart() {
+        for (before, after) in [
+            (WslStatus::Missing, WslStatus::Missing),
+            (WslStatus::Missing, WslStatus::Legacy),
+            (WslStatus::Legacy, WslStatus::Legacy),
+            (WslStatus::Legacy, WslStatus::Missing),
+        ] {
+            let (r, _) = run_once(before, exited(0, "Restart Windows to finish."), after).await;
+            assert_eq!(r, WslSetupResult::done(true), "{before:?} -> {after:?}");
+        }
+        for (before, launch, after) in [
+            (WslStatus::Missing, exited(1, "no"), WslStatus::Missing),
+            (WslStatus::Legacy, Launch::Exited { code: None, output: String::new() }, WslStatus::Legacy),
+            (WslStatus::Missing, exited(0, ""), WslStatus::Old),
+            (WslStatus::Old, exited(0, ""), WslStatus::Legacy),
+        ] {
+            let (r, _) = run_once(before, launch, after).await;
+            assert_eq!(r.outcome, WslSetupOutcome::Failed, "{before:?} -> {after:?}");
+        }
     }
 
     #[tokio::test]
