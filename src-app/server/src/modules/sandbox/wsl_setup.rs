@@ -217,8 +217,13 @@ struct Running {
 }
 
 impl Running {
-    fn finish(self, result: WslSetupResult) {
-        self.state.lock().last = Some(result);
+    /// Keep the result and free the slot, then hand the result to `answer`:
+    /// whoever gets the answer and reads the status at once finds the setup
+    /// ended and its result kept.
+    fn finish(self, result: WslSetupResult, answer: impl FnOnce(WslSetupResult)) {
+        self.state.lock().last = Some(result.clone());
+        drop(self);
+        answer(result);
     }
 }
 
@@ -245,8 +250,9 @@ async fn run(
     tokio::task::spawn_blocking(move || {
         let result = set_up(host.as_ref(), offer, before);
         tracing::info!(?result, "sandbox: WSL setup ended");
-        running.finish(result.clone());
-        let _ = tx.send(result);
+        running.finish(result, |result| {
+            let _ = tx.send(result);
+        });
     });
     Ok(match tokio::time::timeout(limit, rx).await {
         Ok(Ok(result)) => result,
@@ -652,6 +658,15 @@ mod tests {
 
     const LIMIT: Duration = Duration::from_secs(30);
 
+    /// Wait for `cond`, failing (never hanging) after 10 s.
+    async fn until(what: &str, mut cond: impl FnMut() -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !cond() {
+            assert!(std::time::Instant::now() < deadline, "waited 10 s for: {what}");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
     async fn run_once(boot: WslStatus, launch: Launch, after: WslStatus) -> (WslSetupResult, Vec<WslSetupOffer>) {
         let host = Arc::new(FakeHost::new(launch, after));
         let result = run(Arc::default(), Some(boot), host.clone(), LIMIT).await.expect("offered");
@@ -764,9 +779,7 @@ mod tests {
         let state = Arc::<SetupState>::default();
         let (host, release) = FakeHost::held(exited(0, ""), WslStatus::ReadyAfterRestart);
         let first = tokio::spawn(run(state.clone(), Some(WslStatus::Missing), host.clone(), LIMIT));
-        while !state.status(None).running {
-            tokio::task::yield_now().await;
-        }
+        until("the first setup to run", || state.status(None).running).await;
         let e = run(state.clone(), Some(WslStatus::Missing), host.clone(), LIMIT).await.expect_err("one is running");
         assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_RUNNING_CODE));
         let s = state.status(Some(WslStatus::Missing));
@@ -803,13 +816,23 @@ mod tests {
         assert_eq!(e.error_code(), WSL_SETUP_RUNNING_CODE);
 
         release.send(()).unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        while state.status(None).running {
-            assert!(std::time::Instant::now() < deadline, "the setup's end frees the slot");
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        until("the setup's end to free the slot", || !state.status(None).running).await;
         let last = state.status(None).last.expect("kept");
         assert_eq!(last, WslSetupResult::failed(Some(5), "Error code: Wsl/0x80072ee7".into()));
+    }
+
+    #[test]
+    fn the_answer_comes_after_the_result_is_kept_and_the_slot_freed() {
+        let state = Arc::<SetupState>::default();
+        let (running, _, _) = state.begin(Some(WslStatus::Missing)).expect("offered");
+        let mut answered = None;
+        running.finish(WslSetupResult::done(true), |result| {
+            let now = state.status(Some(WslStatus::Missing));
+            assert!(!now.running, "the slot is free when the answer goes out");
+            assert_eq!(now.last.as_ref(), Some(&result), "the result is kept when the answer goes out");
+            answered = Some(result);
+        });
+        assert_eq!(answered, Some(WslSetupResult::done(true)));
     }
 
     #[test]
