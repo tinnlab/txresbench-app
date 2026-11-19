@@ -619,12 +619,16 @@ fn ensure_distro_blocking(
             // only an installed one can start). Another list tells which: a
             // distro still listed is WSL's to finish (an import goes on in
             // WSL's service after the app quits or stops waiting for it),
-            // and its dir, which may hold its disk, is left alone.
+            // and its dir, which may hold its disk, is left alone. Whose
+            // import or removal it is cannot be told (the user may be
+            // importing a distro of that name), so the command to remove it
+            // is given for the app's only.
             Distro::NotRegistered => {
                 if apps_distro_listed(wsl)? {
                     return Err(wsl_error(format!(
-                        "WSL is still setting up or removing the app's distro ({WSL_DISTRO}); try again in a \
-                         minute. If this persists, run `wsl --unregister {WSL_DISTRO}`"
+                        "WSL is still setting up or removing a distro named {WSL_DISTRO}; try again in a \
+                         minute. If this persists and the {WSL_DISTRO} distro is the app's, run \
+                         `wsl --unregister {WSL_DISTRO}` and start the run again: the app sets the distro up anew"
                     )));
                 }
             }
@@ -1736,7 +1740,10 @@ Fail ("unexpected call: " + ($a -join ' '))
     /// with it. The run fails with what to do, and the dir (with the disk WSL
     /// is writing) is left alone; once WSL is done, the next run finds the
     /// distro ready. A process that set the distro up meets the same on a
-    /// later run (another version of the app importing it, say).
+    /// later run (another version of the app importing it, say). Whose
+    /// import it is cannot be told (the user may be importing a distro of
+    /// that name), so the command that removes it is given for the app's
+    /// distro only.
     #[tokio::test]
     async fn a_distro_wsl_is_still_importing_fails_the_run_and_keeps_its_dir() {
         let w = FakeWsl::new("installing", "wsl-7");
@@ -1746,9 +1753,14 @@ Fail ("unexpected call: " + ($a -join ' '))
         let err = w.run(&ready, &w.runtime).await.expect_err("WSL is not done");
         let text = err.to_string();
         assert_eq!(err.error_code(), WSL_UNAVAILABLE_CODE);
-        assert!(text.contains("WSL is still setting up or removing the app's distro"), "{text}");
+        assert!(text.contains("WSL is still setting up or removing a distro named TxResBench"), "{text}");
         assert!(text.contains("try again in a minute"), "{text}");
-        assert!(text.contains("`wsl --unregister TxResBench`"), "{text}");
+        assert!(
+            text.contains("If this persists and the TxResBench distro is the app's, run `wsl --unregister TxResBench`"),
+            "{text}"
+        );
+        assert_eq!(text.matches("wsl --unregister").count(), 1, "the command is given only with its condition: {text}");
+        assert!(!text.contains("the app's distro"), "it may not be the app's: {text}");
         assert_eq!(w.calls(), ["--list", "-d", "--list"], "nothing removed, nothing imported");
         assert!(w.location().join(DISTRO_DISK_FILE).is_file(), "the disk is still there");
         w.installing(false);
@@ -1756,7 +1768,7 @@ Fail ("unexpected call: " + ($a -join ' '))
         assert_eq!(w.calls()[3..], ["--list", "-d"]);
         w.installing(true);
         let err = w.run(&ready, &w.runtime).await.expect_err("a later run: WSL is not done");
-        assert!(err.to_string().contains("WSL is still setting up or removing the app's distro"), "{err}");
+        assert!(err.to_string().contains("WSL is still setting up or removing a distro named TxResBench"), "{err}");
         assert_eq!(w.calls()[5..], ["-d", "--list", "-d", "--list"], "nothing removed, nothing imported");
         assert!(w.location().join(DISTRO_DISK_FILE).is_file(), "the disk is still there");
         w.remove();
