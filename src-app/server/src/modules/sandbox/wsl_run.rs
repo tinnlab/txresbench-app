@@ -561,14 +561,18 @@ fn start_or_set_up(wsl: &Wsl, runtime: &Runtime, data_root: &Path, ready: &mut O
     Ok(())
 }
 
+/// Whether WSL lists a distro of the app's name, in any state.
+fn apps_distro_listed(wsl: &Wsl) -> Result<bool, AppError> {
+    Ok(list_distros(wsl)?.iter().any(|n| n.eq_ignore_ascii_case(WSL_DISTRO)))
+}
+
 /// Make sure the app's distro exists and is the shipped build: import it on
 /// first use (no admin rights needed), replace an older build of it or one
 /// whose disk was deleted, and refuse to touch a distro of that name the app
 /// did not create.
 fn ensure_distro_blocking(wsl: &Wsl, runtime: &Runtime, data_root: &Path) -> Result<(), AppError> {
     let location = distro_location(data_root);
-    let listed = list_distros(wsl)?.iter().any(|n| n.eq_ignore_ascii_case(WSL_DISTRO));
-    if listed {
+    if apps_distro_listed(wsl)? {
         match distro_state(wsl, &location)? {
             Distro::Build(b) if b == runtime.version => return Ok(()),
             // An older build of the app's own distro (it holds nothing but
@@ -577,8 +581,21 @@ fn ensure_distro_blocking(wsl: &Wsl, runtime: &Runtime, data_root: &Path) -> Res
             // The app's distro, registered in the app's dir, without its
             // disk: it cannot start again, so it is set up anew.
             Distro::DiskLost => unregister(wsl, "the app's distro whose disk was deleted")?,
-            // Removed since it was listed.
-            Distro::NotRegistered => {}
+            // Listed, but WSL found no distro of that name to start: either
+            // it was removed since it was listed, or WSL is still importing
+            // or removing it (`--all` lists a distro in those states, but
+            // only an installed one can start). Another list tells which: a
+            // distro still listed is WSL's to finish (an import goes on in
+            // WSL's service after the app quits or stops waiting for it),
+            // and its dir, which may hold its disk, is left alone.
+            Distro::NotRegistered => {
+                if apps_distro_listed(wsl)? {
+                    return Err(wsl_error(format!(
+                        "WSL is still setting up or removing the app's distro ({WSL_DISTRO}); try again in a \
+                         minute. If this persists, run `wsl --unregister {WSL_DISTRO}`"
+                    )));
+                }
+            }
             Distro::Foreign => {
                 return Err(wsl_error(format!(
                     "a WSL distro named {WSL_DISTRO} exists that this app did not create; rename or remove \
@@ -588,8 +605,9 @@ fn ensure_distro_blocking(wsl: &Wsl, runtime: &Runtime, data_root: &Path) -> Res
         }
     }
     // Only here is the distro known not to be registered (not listed by a
-    // list that succeeded, just removed, or reported missing): nothing uses
-    // its dir now, so whatever an earlier distro left there can go.
+    // list that succeeded, just removed, or no longer listed by the second
+    // list): nothing uses its dir now, so whatever an earlier distro left
+    // there can go.
     match std::fs::remove_dir_all(&location) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -1226,12 +1244,16 @@ exit $code
     /// A stand-in wsl.exe with the state of a WSL in a dir: `registered`
     /// (present when the app's distro is registered) holds the dir it was
     /// imported into, whose `ext4.vhdx` holds its build id (empty: a distro
-    /// without the app's version file). `mode` makes it fail its list
+    /// without the app's version file); `installing` (present while WSL is
+    /// still importing or removing the app's distro) makes it listed but not
+    /// found by its name, and refused an import. `mode` makes it fail its list
     /// (`list-fails`), behave as the in-box stub of a Windows without WSL
-    /// (`stub`), hang (`hang`), or import slowly (`slow-import`). Every call
-    /// is appended to `calls.txt`; an import writes `tar-held.txt`: `held`
-    /// when the tarball could be read but not written during the import.
-    /// Messages and error codes are WSL's own (en-US).
+    /// (`stub`), hang (`hang`), import slowly (`slow-import`), or end a
+    /// removal of the app's distro right after the next list
+    /// (`removed-after-list`). Every call is appended to `calls.txt`; an
+    /// import writes `tar-held.txt`: `held` when the tarball could be read but
+    /// not written during the import. Messages and error codes are WSL's own
+    /// (en-US).
     const FAKE_WSL: &str = r#"
 $state = $args[0]
 $a = @($args | Select-Object -Skip 1)
@@ -1240,6 +1262,7 @@ $reg = Join-Path $state 'registered'
 $modeFile = Join-Path $state 'mode'
 $mode = ''
 if ([IO.File]::Exists($modeFile)) { $mode = [IO.File]::ReadAllText($modeFile).Trim() }
+$installing = [IO.File]::Exists((Join-Path $state 'installing'))
 function Fail($text) { [Console]::Error.Write($text + "`r`n"); exit -1 }
 if ($mode -eq 'stub') { [Console]::Error.Write("The Windows Subsystem for Linux is not installed. You can install by running 'wsl.exe --install'.`r`r`nFor more information please visit https://aka.ms/wslinstall`r`r`n"); exit 1 }
 if ($mode -eq 'hang') { Start-Sleep -Seconds 600; exit 0 }
@@ -1247,7 +1270,12 @@ $notFound = "There is no distribution with the supplied name.`r`nError code: Wsl
 if ($a[0] -eq '--list') {
     if ($mode -eq 'list-fails') { Fail "The remote procedure call failed.`r`nError code: Wsl/Service/0x800706be" }
     [Console]::Out.Write("Ubuntu`r`n")
-    if ([IO.File]::Exists($reg)) { [Console]::Out.Write("TxResBench`r`n") }
+    if ([IO.File]::Exists($reg) -or $installing) { [Console]::Out.Write("TxResBench`r`n") }
+    if ($mode -eq 'removed-after-list' -and [IO.File]::Exists($reg)) {
+        $disk = Join-Path ([IO.File]::ReadAllText($reg)) 'ext4.vhdx'
+        if ([IO.File]::Exists($disk)) { [IO.File]::Delete($disk) }
+        [IO.File]::Delete($reg); [IO.File]::Delete($modeFile)
+    }
     exit 0
 }
 if ($a[0] -eq '--unregister') {
@@ -1259,6 +1287,7 @@ if ($a[0] -eq '--unregister') {
 }
 if ($a[0] -eq '--import') {
     $base = $a[2]; $tar = $a[3]
+    if ($installing) { Fail "An illegal state change was requested.`r`nError code: Wsl/Service/RegisterDistro/E_ILLEGAL_STATE_CHANGE" }
     if ([IO.File]::Exists($reg)) { Fail "A distribution with the supplied name already exists. Use --name to choose a different name.`r`nError code: Wsl/Service/RegisterDistro/ERROR_ALREADY_EXISTS" }
     $disk = Join-Path $base 'ext4.vhdx'
     if ([IO.File]::Exists($disk)) { Fail "The file exists.`r`nError code: Wsl/Service/RegisterDistro/ERROR_FILE_EXISTS" }
@@ -1276,7 +1305,7 @@ if ($a[0] -eq '--import') {
     [Console]::Out.Write("Import in progress, this may take a few minutes.`r`nThe operation completed successfully.`r`n"); exit 0
 }
 if ($a[0] -eq '-d') {
-    if (-not [IO.File]::Exists($reg)) { Fail $notFound }
+    if ($installing -or -not [IO.File]::Exists($reg)) { Fail $notFound }
     $disk = Join-Path ([IO.File]::ReadAllText($reg)) 'ext4.vhdx'
     if (-not [IO.File]::Exists($disk)) { Fail "Failed to attach disk '$disk' to WSL2: The system cannot find the file specified.`r`nError code: Wsl/Service/CreateInstance/MountDisk/HCS/ERROR_FILE_NOT_FOUND" }
     $build = [IO.File]::ReadAllText($disk).Trim()
@@ -1343,8 +1372,24 @@ Fail ("unexpected call: " + ($a -join ' '))
                 .collect()
         }
 
+        /// WSL is (or is no longer) importing or removing the app's distro.
+        fn installing(&self, on: bool) {
+            let flag = self.state.join("installing");
+            if on {
+                std::fs::write(flag, "").unwrap();
+            } else {
+                std::fs::remove_file(flag).unwrap();
+            }
+        }
+
         fn ensure(&self) -> Result<(), AppError> {
             ensure_distro_blocking(&self.wsl, &self.runtime, &self.data_root)
+        }
+
+        /// One run's check of the distro, in the process whose setup state
+        /// is `ready`, running the guest root `runtime`.
+        async fn run(&self, ready: &ReadyBuild, runtime: &Runtime) -> Result<(), AppError> {
+            ensure_ready(ready, self.wsl.clone(), runtime.clone(), self.data_root.clone()).await
         }
 
         fn remove(self) {
@@ -1502,6 +1547,51 @@ Fail ("unexpected call: " + ($a -join ' '))
             .await
             .expect("the next run waited for the import");
         assert_eq!(w.calls().iter().filter(|c| *c == "--import").count(), 1, "{:?}", w.calls());
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-7"));
+        w.remove();
+    }
+
+    /// WSL lists a distro it is still importing or removing (`--all`), but
+    /// cannot start it ("no distribution with the supplied name"): the app
+    /// quit or stopped waiting during its import, and WSL's service went on
+    /// with it. The run fails with what to do, and the dir (with the disk WSL
+    /// is writing) is left alone; once WSL is done, the next run finds the
+    /// distro ready. A process that set the distro up meets the same on a
+    /// later run (another version of the app importing it, say).
+    #[tokio::test]
+    async fn a_distro_wsl_is_still_importing_fails_the_run_and_keeps_its_dir() {
+        let w = FakeWsl::new("installing", "wsl-7");
+        w.register(&w.location(), "wsl-7");
+        w.installing(true);
+        let ready = ReadyBuild::default();
+        let err = w.run(&ready, &w.runtime).await.expect_err("WSL is not done");
+        let text = err.to_string();
+        assert_eq!(err.error_code(), WSL_UNAVAILABLE_CODE);
+        assert!(text.contains("WSL is still setting up or removing the app's distro"), "{text}");
+        assert!(text.contains("try again in a minute"), "{text}");
+        assert!(text.contains("`wsl --unregister TxResBench`"), "{text}");
+        assert_eq!(w.calls(), ["--list", "-d", "--list"], "nothing removed, nothing imported");
+        assert!(w.location().join(DISTRO_DISK_FILE).is_file(), "the disk is still there");
+        w.installing(false);
+        w.run(&ready, &w.runtime).await.expect("WSL is done: ready");
+        assert_eq!(w.calls()[3..], ["--list", "-d"]);
+        w.installing(true);
+        let err = w.run(&ready, &w.runtime).await.expect_err("a later run: WSL is not done");
+        assert!(err.to_string().contains("WSL is still setting up or removing the app's distro"), "{err}");
+        assert_eq!(w.calls()[5..], ["-d", "--list", "-d", "--list"], "nothing removed, nothing imported");
+        assert!(w.location().join(DISTRO_DISK_FILE).is_file(), "the disk is still there");
+        w.remove();
+    }
+
+    /// A distro whose removal ends right after the list is no longer listed
+    /// by the second list: it is set up anew.
+    #[test]
+    fn a_distro_removed_after_it_was_listed_is_set_up_again() {
+        let w = FakeWsl::new("removed-after-list", "wsl-7");
+        w.register(&w.location(), "wsl-7");
+        w.mode("removed-after-list");
+        w.ensure().expect("set up anew");
+        assert_eq!(w.calls(), ["--list", "-d", "--list", "--import", "-d"]);
         assert_eq!(w.registered_build().as_deref(), Some("wsl-7"));
         w.remove();
     }
