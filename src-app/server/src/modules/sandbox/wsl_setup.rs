@@ -60,12 +60,18 @@ pub enum WslSetupOffer {
 /// The offer for the installer's status of this PC: install a missing WSL,
 /// update an old one or the WSL that came with Windows; nothing for the other
 /// statuses (WSL is ready, or the app cannot fix the reason by itself).
+///
+/// `ReadyAfterRestart` (WSL installed, its Virtual Machine Platform off or
+/// waiting for a restart) gets no offer either, although the installer asks
+/// to turn the platform on for it: the boot probe does not read the platform,
+/// so it never fails on that status, and a run on such a PC fails with the
+/// runner's own hint (turn the platform on, restart).
 fn offer_for(status: WslStatus) -> Option<WslSetupOffer> {
     match status {
         WslStatus::Missing => Some(WslSetupOffer::Install),
         WslStatus::Old | WslStatus::Legacy => Some(WslSetupOffer::Update),
+        WslStatus::ReadyAfterRestart => None,
         WslStatus::Ready
-        | WslStatus::ReadyAfterRestart
         | WslStatus::Unsupported
         | WslStatus::NoWslExe
         | WslStatus::Emulated
@@ -708,7 +714,16 @@ mod tests {
         // for a reason that is not WSL's (the app's WSL runtime is missing).
         let host = Arc::new(FakeHost::new(exited(0, ""), WslStatus::Ready));
         let state = Arc::<SetupState>::default();
-        for boot in [None, Some(WslStatus::Emulated), Some(WslStatus::Policy), Some(WslStatus::NoWslExe), Some(WslStatus::Ready)] {
+        for boot in [
+            None,
+            Some(WslStatus::Emulated),
+            Some(WslStatus::Policy),
+            Some(WslStatus::NoWslExe),
+            Some(WslStatus::Ready),
+            // The installer turns the Virtual Machine Platform on for this
+            // status; the app does not offer it (see `offer_for`).
+            Some(WslStatus::ReadyAfterRestart),
+        ] {
             let e = run(state.clone(), boot, host.clone(), LIMIT).await.expect_err("not offered");
             assert_eq!(e.status_code(), 409, "{boot:?}");
             assert_eq!(e.error_code(), WSL_SETUP_NOT_OFFERED_CODE, "{boot:?}");
