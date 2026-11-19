@@ -526,11 +526,12 @@ fn distro_location(data_root: &Path) -> PathBuf {
     data_root.join("wsl").join("distro")
 }
 
-/// The build of the app's distro this process set up, `None` until then. The
-/// lock is held for a whole check or setup, by the task doing it.
-type ReadyBuild = Arc<tokio::sync::Mutex<Option<String>>>;
+/// The build of the app's distro this process set up, `None` until a setup
+/// succeeds; never reset (see [`start_or_set_up`]). The lock is held for a
+/// whole check or setup, by the task doing it.
+type SetUpBuild = Arc<tokio::sync::Mutex<Option<String>>>;
 
-static READY: std::sync::LazyLock<ReadyBuild> = std::sync::LazyLock::new(|| Arc::new(tokio::sync::Mutex::new(None)));
+static SET_UP: std::sync::LazyLock<SetUpBuild> = std::sync::LazyLock::new(|| Arc::new(tokio::sync::Mutex::new(None)));
 
 /// Make sure the app's distro is there, is the shipped build, and is started
 /// (every run calls this before its first request to the agent): the first
@@ -542,11 +543,11 @@ pub async fn ensure_distro() -> Result<(), AppError> {
         .get()
         .cloned()
         .ok_or_else(|| wsl_error("the WSL runner was not set up (see the sandbox status at startup)"))?;
-    ensure_ready(&READY, Wsl::system(), runtime, crate::modules::rootfs::data_root()).await
+    ensure_ready(&SET_UP, Wsl::system(), runtime, crate::modules::rootfs::data_root()).await
 }
 
-async fn ensure_ready(ready: &ReadyBuild, wsl: Wsl, runtime: Runtime, data_root: PathBuf) -> Result<(), AppError> {
-    let mut guard = ready.clone().lock_owned().await;
+async fn ensure_ready(set_up: &SetUpBuild, wsl: Wsl, runtime: Runtime, data_root: PathBuf) -> Result<(), AppError> {
+    let mut guard = set_up.clone().lock_owned().await;
     // The blocking task owns the lock: a run cancelled meanwhile leaves an
     // import going on to its end with the lock held, so the next run waits
     // for it instead of starting a second import beside it.
@@ -555,34 +556,45 @@ async fn ensure_ready(ready: &ReadyBuild, wsl: Wsl, runtime: Runtime, data_root:
         .map_err(|e| wsl_error(format!("WSL setup task: {e}")))?
 }
 
-/// A process replaces another build of the app's distro only on its first
-/// setup. Once it has set up its own build, another build found there was put
-/// there by another version of the app on this Windows account (an installed
-/// app and a development build, say): replacing it back would stop that
-/// version's running method (`wsl --unregister` stops the distro), and that
-/// version would do the same on its next run. The run fails instead, and the
-/// next run is a first setup again, for when the other version is closed.
-fn start_or_set_up(wsl: &Wsl, runtime: &Runtime, data_root: &Path, ready: &mut Option<String>) -> Result<(), AppError> {
-    let first_setup = ready.as_deref() != Some(runtime.version.as_str());
+/// Only a process's first setup (until one succeeds) replaces another build
+/// of the app's distro: the build of the version this one updated, or that of
+/// another version of the app. Once this process has set its build up,
+/// another build found there can only come from another version of the app
+/// running on this Windows account (an installed app and a development build,
+/// say; an update restarts the app). Replacing it would stop that version's
+/// running method (`wsl --unregister` stops the distro), and that version
+/// would replace it back, so each run of this process fails instead and
+/// leaves it there, until this version is restarted. No failure resets
+/// `set_up`: runs go several at a time, so the next run is often already
+/// waiting on the lock, and a reset would let it replace the other build at
+/// once. A distro that is gone or lost its disk is still set up again. A
+/// first setup that fails sets nothing, so the next run is a first setup
+/// again (WSL may still have been importing the build of the version this one
+/// updated).
+fn start_or_set_up(
+    wsl: &Wsl,
+    runtime: &Runtime,
+    data_root: &Path,
+    set_up: &mut Option<String>,
+) -> Result<(), AppError> {
+    let first_setup = set_up.as_deref() != Some(runtime.version.as_str());
     if !first_setup {
         match distro_state(wsl, &distro_location(data_root))? {
             Distro::Build(b) if b == runtime.version => return Ok(()),
-            Distro::Build(b) => {
-                *ready = None;
-                return Err(replaced_by_another_version(&b, runtime));
-            }
-            _ => *ready = None,
+            Distro::Build(b) => return Err(replaced_by_another_version(&b, runtime)),
+            // Gone, without its disk, or not the app's: the setup says which.
+            Distro::NotRegistered | Distro::DiskLost | Distro::Foreign => {}
         }
     }
     ensure_distro_blocking(wsl, runtime, data_root, first_setup)?;
-    *ready = Some(runtime.version.clone());
+    *set_up = Some(runtime.version.clone());
     Ok(())
 }
 
 fn replaced_by_another_version(found: &str, runtime: &Runtime) -> AppError {
     wsl_error(format!(
         "another version of TxResBench on this computer replaced the app's WSL distro (it is now build \
-         {found}; this version needs {}); close the other version and start the run again",
+         {found}; this version needs {}): close the other version, then restart this one",
         runtime.version
     ))
 }
@@ -1570,9 +1582,9 @@ Fail ("unexpected call: " + ($a -join ' '))
         }
 
         /// One run's check of the distro, in the process whose setup state
-        /// is `ready`, running the guest root `runtime`.
-        async fn run(&self, ready: &ReadyBuild, runtime: &Runtime) -> Result<(), AppError> {
-            ensure_ready(ready, self.wsl.clone(), runtime.clone(), self.data_root.clone()).await
+        /// is `set_up`, running the guest root `runtime`.
+        async fn run(&self, set_up: &SetUpBuild, runtime: &Runtime) -> Result<(), AppError> {
+            ensure_ready(set_up, self.wsl.clone(), runtime.clone(), self.data_root.clone()).await
         }
 
         fn remove(self) {
@@ -1695,13 +1707,14 @@ Fail ("unexpected call: " + ($a -join ' '))
         w.remove();
     }
 
-    /// Every run starts the distro (one call), and a distro removed since
-    /// the last run is set up again instead of failing the run.
+    /// Every run starts the distro (one call), and a distro removed or left
+    /// without its disk since the last run is set up again instead of
+    /// failing the run, in the same process.
     #[tokio::test]
     async fn every_run_starts_the_distro_and_sets_up_one_removed_meanwhile() {
         let w = FakeWsl::new("recheck", "wsl-7");
-        let ready: ReadyBuild = Arc::new(tokio::sync::Mutex::new(None));
-        let run = || ensure_ready(&ready, w.wsl.clone(), w.runtime.clone(), w.data_root.clone());
+        let set_up: SetUpBuild = Arc::new(tokio::sync::Mutex::new(None));
+        let run = || ensure_ready(&set_up, w.wsl.clone(), w.runtime.clone(), w.data_root.clone());
         run().await.expect("first run: imported");
         assert_eq!(w.calls(), ["--list", "--import", "-d"]);
         run().await.expect("second run: started");
@@ -1709,7 +1722,11 @@ Fail ("unexpected call: " + ($a -join ' '))
         std::fs::remove_file(w.state.join("registered")).unwrap(); // `wsl --unregister TxResBench`
         run().await.expect("third run: set up again");
         assert_eq!(w.calls(), ["--list", "--import", "-d", "-d", "-d", "--list", "--import", "-d"]);
-        assert_eq!(ready.lock().await.as_deref(), Some("wsl-7"));
+        std::fs::remove_file(w.location().join(DISTRO_DISK_FILE)).unwrap();
+        run().await.expect("fourth run: its disk was deleted, set up again");
+        assert_eq!(w.calls()[8..], ["-d", "--list", "-d", "--unregister", "--import", "-d"]);
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-7"));
+        assert_eq!(set_up.lock().await.as_deref(), Some("wsl-7"));
         w.remove();
     }
 
@@ -1719,14 +1736,14 @@ Fail ("unexpected call: " + ($a -join ' '))
     async fn a_run_cancelled_during_the_import_does_not_let_a_second_import_start() {
         let w = FakeWsl::new("cancelled", "wsl-7");
         w.mode("slow-import");
-        let ready: ReadyBuild = Arc::new(tokio::sync::Mutex::new(None));
+        let set_up: SetUpBuild = Arc::new(tokio::sync::Mutex::new(None));
         let first = tokio::time::timeout(
             Duration::from_millis(2_500),
-            ensure_ready(&ready, w.wsl.clone(), w.runtime.clone(), w.data_root.clone()),
+            ensure_ready(&set_up, w.wsl.clone(), w.runtime.clone(), w.data_root.clone()),
         )
         .await;
         assert!(first.is_err(), "the first run was cancelled during its import");
-        ensure_ready(&ready, w.wsl.clone(), w.runtime.clone(), w.data_root.clone())
+        ensure_ready(&set_up, w.wsl.clone(), w.runtime.clone(), w.data_root.clone())
             .await
             .expect("the next run waited for the import");
         assert_eq!(w.calls().iter().filter(|c| *c == "--import").count(), 1, "{:?}", w.calls());
@@ -1749,8 +1766,8 @@ Fail ("unexpected call: " + ($a -join ' '))
         let w = FakeWsl::new("installing", "wsl-7");
         w.register(&w.location(), "wsl-7");
         w.installing(true);
-        let ready = ReadyBuild::default();
-        let err = w.run(&ready, &w.runtime).await.expect_err("WSL is not done");
+        let set_up = SetUpBuild::default();
+        let err = w.run(&set_up, &w.runtime).await.expect_err("WSL is not done");
         let text = err.to_string();
         assert_eq!(err.error_code(), WSL_UNAVAILABLE_CODE);
         assert!(text.contains("WSL is still setting up or removing a distro named TxResBench"), "{text}");
@@ -1764,10 +1781,10 @@ Fail ("unexpected call: " + ($a -join ' '))
         assert_eq!(w.calls(), ["--list", "-d", "--list"], "nothing removed, nothing imported");
         assert!(w.location().join(DISTRO_DISK_FILE).is_file(), "the disk is still there");
         w.installing(false);
-        w.run(&ready, &w.runtime).await.expect("WSL is done: ready");
+        w.run(&set_up, &w.runtime).await.expect("WSL is done: ready");
         assert_eq!(w.calls()[3..], ["--list", "-d"]);
         w.installing(true);
-        let err = w.run(&ready, &w.runtime).await.expect_err("a later run: WSL is not done");
+        let err = w.run(&set_up, &w.runtime).await.expect_err("a later run: WSL is not done");
         assert!(err.to_string().contains("WSL is still setting up or removing a distro named TxResBench"), "{err}");
         assert_eq!(w.calls()[5..], ["-d", "--list", "-d", "--list"], "nothing removed, nothing imported");
         assert!(w.location().join(DISTRO_DISK_FILE).is_file(), "the disk is still there");
@@ -1789,15 +1806,15 @@ Fail ("unexpected call: " + ($a -join ' '))
 
     /// Two versions of the app on one Windows account (an installed app and
     /// a development build) share the distro's name. Each replaces the
-    /// other's build on its first setup only: a later run that finds the
+    /// other's build on its first setup only: every later run that finds the
     /// other build fails and leaves it there (removing it would stop that
-    /// version's running method), and the run after that, once the other
-    /// version is closed, sets this version's build up again.
+    /// version's running method), the run after a failed one too, until this
+    /// version is restarted: its first setup then sets its build up again.
     #[tokio::test]
     async fn a_build_another_version_put_there_is_not_replaced_by_a_later_run() {
         let w = FakeWsl::new("two-versions", "wsl-7");
         let other = w.other_build("wsl-8");
-        let (mine, theirs) = (ReadyBuild::default(), ReadyBuild::default());
+        let (mine, theirs) = (SetUpBuild::default(), SetUpBuild::default());
         w.run(&mine, &w.runtime).await.expect("this version's first run: imported");
         w.run(&theirs, &other).await.expect("the other version's first run: replaced");
         assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
@@ -1805,19 +1822,45 @@ Fail ("unexpected call: " + ($a -join ' '))
         let text = err.to_string();
         assert_eq!(err.error_code(), WSL_UNAVAILABLE_CODE);
         assert!(text.contains("another version of TxResBench"), "{text}");
-        assert!(text.contains("close the other version and start the run again"), "{text}");
+        assert!(text.contains("it is now build wsl-8; this version needs wsl-7"), "{text}");
+        assert!(text.contains("close the other version, then restart this one"), "{text}");
         assert_eq!(w.registered_build().as_deref(), Some("wsl-8"), "left there");
         w.run(&theirs, &other).await.expect("the other version's runs go on");
-        // The other version is closed; the run is started again.
-        w.run(&mine, &w.runtime).await.expect("set up again");
+        let err = w.run(&mine, &w.runtime).await.expect_err("the run after a failed one");
+        assert!(err.to_string().contains("another version of TxResBench"), "{err}");
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-8"), "left there");
+        // The other version is closed, and this one restarted.
+        let restarted = SetUpBuild::default();
+        w.run(&restarted, &w.runtime).await.expect("set up again");
         assert_eq!(w.registered_build().as_deref(), Some("wsl-7"));
         assert_eq!(w.calls(), [
             "--list", "--import", "-d",                       // mine: first setup
             "--list", "-d", "--unregister", "--import", "-d", // theirs: first setup, replaces
             "-d",                                             // mine: fails, removes nothing
             "-d",                                             // theirs
-            "--list", "-d", "--unregister", "--import", "-d", // mine: a first setup again
+            "-d",                                             // mine: fails again
+            "--list", "-d", "--unregister", "--import", "-d", // mine, restarted: first setup
         ]);
+        w.remove();
+    }
+
+    /// Runs go several at a time (one per lane), so the run after a failed
+    /// one is often already waiting on the setup lock: after another version
+    /// took the distro over, every one of them fails, and none replaces it.
+    #[tokio::test]
+    async fn runs_waiting_on_each_other_never_replace_another_versions_build() {
+        let w = FakeWsl::new("two-versions-lanes", "wsl-7");
+        let other = w.other_build("wsl-8");
+        let (mine, theirs) = (SetUpBuild::default(), SetUpBuild::default());
+        w.run(&mine, &w.runtime).await.expect("mine: imported");
+        w.run(&theirs, &other).await.expect("theirs: replaced");
+        let (a, b, c) = tokio::join!(w.run(&mine, &w.runtime), w.run(&mine, &w.runtime), w.run(&mine, &w.runtime));
+        for result in [a, b, c] {
+            let err = result.expect_err("another version's build");
+            assert!(err.to_string().contains("another version of TxResBench"), "{err}");
+        }
+        assert_eq!(w.calls()[8..], ["-d", "-d", "-d"], "nothing removed, nothing imported");
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
         w.remove();
     }
 
@@ -1827,13 +1870,68 @@ Fail ("unexpected call: " + ($a -join ' '))
     #[tokio::test]
     async fn a_later_runs_setup_leaves_another_versions_build_there() {
         let w = FakeWsl::new("two-versions-setup", "wsl-7");
-        let ready = ReadyBuild::default();
-        w.run(&ready, &w.runtime).await.expect("imported");
+        let set_up = SetUpBuild::default();
+        w.run(&set_up, &w.runtime).await.expect("imported");
         w.register(&w.location(), "wsl-8");
         w.mode("not-found-once");
-        let err = w.run(&ready, &w.runtime).await.expect_err("another version's build");
+        let err = w.run(&set_up, &w.runtime).await.expect_err("another version's build");
         assert!(err.to_string().contains("another version of TxResBench"), "{err}");
         assert_eq!(w.calls(), ["--list", "--import", "-d", "-d", "--list", "-d"], "never removed");
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
+        w.remove();
+    }
+
+    /// A later run's setup that fails (WSL still importing another version's
+    /// build, a failed list) leaves this process set up: the run after it is
+    /// not a first setup, and the other version's build it finds is left
+    /// there all the same.
+    #[tokio::test]
+    async fn a_later_runs_failed_setup_does_not_let_the_next_run_replace_another_versions_build() {
+        let w = FakeWsl::new("two-versions-failed-setup", "wsl-7");
+        let mine = SetUpBuild::default();
+        w.run(&mine, &w.runtime).await.expect("imported");
+        // Another version's first setup removed this build and is importing
+        // its own, into its own data dir.
+        let theirs = w.data_root.with_file_name("other-data").join("wsl").join("distro");
+        w.register(&theirs, "wsl-8");
+        w.installing(true);
+        let err = w.run(&mine, &w.runtime).await.expect_err("WSL is not done");
+        assert!(err.to_string().contains("WSL is still setting up or removing"), "{err}");
+        w.installing(false);
+        let err = w.run(&mine, &w.runtime).await.expect_err("another version's build");
+        assert!(err.to_string().contains("another version of TxResBench"), "{err}");
+        assert_eq!(w.calls()[3..], ["-d", "--list", "-d", "--list", "-d"], "nothing removed, nothing imported");
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
+        // Gone again and the list fails; then the other version's build is back.
+        std::fs::remove_file(w.state.join("registered")).unwrap();
+        w.mode("list-fails");
+        let err = w.run(&mine, &w.runtime).await.expect_err("a failed list");
+        assert!(err.to_string().contains("WSL could not list its distros"), "{err}");
+        std::fs::remove_file(w.state.join("mode")).unwrap();
+        w.register(&theirs, "wsl-8");
+        let err = w.run(&mine, &w.runtime).await.expect_err("another version's build");
+        assert!(err.to_string().contains("another version of TxResBench"), "{err}");
+        assert_eq!(w.calls()[8..], ["-d", "--list", "-d"], "nothing removed, nothing imported");
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
+        w.remove();
+    }
+
+    /// A first setup that fails sets nothing up, so the next run is a first
+    /// setup again: here WSL was still importing the build of the version
+    /// this one updated (that version quit during its import); once WSL is
+    /// done, that older build is replaced, with no restart.
+    #[tokio::test]
+    async fn a_failed_first_setup_leaves_the_next_run_a_first_setup() {
+        let w = FakeWsl::new("first-setup-fails", "wsl-8");
+        w.register(&w.location(), "wsl-7");
+        w.installing(true);
+        let set_up = SetUpBuild::default();
+        let err = w.run(&set_up, &w.runtime).await.expect_err("WSL is not done");
+        assert!(err.to_string().contains("WSL is still setting up or removing"), "{err}");
+        assert_eq!(*set_up.lock().await, None);
+        w.installing(false);
+        w.run(&set_up, &w.runtime).await.expect("the older build is replaced");
+        assert_eq!(w.calls(), ["--list", "-d", "--list", "--list", "-d", "--unregister", "--import", "-d"]);
         assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
         w.remove();
     }
