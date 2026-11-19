@@ -3994,7 +3994,7 @@
         "tags": [
           "txr"
         ],
-        "description": "The predictions CSV download (board G's \"Download\"): header `patient_id` + one column per finished method (its id; probability, 6 decimals, empty when abstained) + one `notes` column (`\"<method_id>: <note>\"` per note, newline-joined in one cell). Works while the run is active (finished methods only). 409 PREDICTIONS_UNAVAILABLE when none finished.",
+        "description": "The predictions CSV download (board G's \"Download\"): header `patient_id` + one column per finished method (its id; probability, 6 decimals, empty when abstained) + one `notes` column (`\"<method_id>: <note>\"` per note, newline-joined in one cell), then the methods' own results: per method with them recorded, `<method_id>.score` (the method's own score, higher = more likely failing) and, when it returned calls, `<method_id>.call` (1 = treatment judged failing, 0 = not failing). Works while the run is active (finished methods only). 409 PREDICTIONS_UNAVAILABLE when none finished.",
         "operationId": "Txr.downloadPredictions",
         "responses": {
           "403": {
@@ -15620,6 +15620,22 @@
         "description": "One finished method's column (prob_source + coverage beside every value —\n INV-3).",
         "type": "object",
         "properties": {
+          "calls": {
+            "description": "The method's own yes/no call per patient (`1` = treatment judged\n failing, `0` = not failing), aligned to `patients`; present only when\n the method returned calls.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0
+            }
+          },
           "coverage": {
             "$ref": "#/components/schemas/TxrCoverage"
           },
@@ -15641,6 +15657,11 @@
           "method_id": {
             "type": "string"
           },
+          "native_recorded": {
+            "description": "Whether the method's own results were recorded for this column\n (`output/<method_id>/native.csv`). False for a run from before they\n were kept, a demo replay, or a failed write — `scores`/`calls` are then\n empty and the screens say \"not recorded\".",
+            "type": "boolean",
+            "default": false
+          },
           "notes": {
             "type": "array",
             "items": {
@@ -15655,6 +15676,18 @@
           },
           "probabilities": {
             "type": "array",
+            "items": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "format": "double"
+            }
+          },
+          "scores": {
+            "description": "The method's own score per patient (the contract's `risk` for the\n shown outcome: higher = more likely failing, on the method's own\n scale), aligned to `patients` like `probabilities`; null where the\n method gave no score.",
+            "type": "array",
+            "default": [],
             "items": {
               "type": [
                 "number",

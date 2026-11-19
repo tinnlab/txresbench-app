@@ -3596,6 +3596,12 @@ export type TxrPhase = 'idle' | 'env' | 'fit' | 'predict' | 'done'
  *  INV-3).
  */
 export interface TxrPredictionMethod {
+  /**
+   * The method's own yes/no call per patient (`1` = treatment judged
+   *  failing, `0` = not failing), aligned to `patients`; present only when
+   *  the method returned calls.
+   */
+  calls?: number | null[]
   coverage: TxrCoverage
   /**
    * The column's chances come from a FLAT conversion (kind `constant`):
@@ -3614,9 +3620,23 @@ export interface TxrPredictionMethod {
    */
   label: string
   method_id: string
+  /**
+   * Whether the method's own results were recorded for this column
+   *  (`output/<method_id>/native.csv`). False for a run from before they
+   *  were kept, a demo replay, or a failed write — `scores`/`calls` are then
+   *  empty and the screens say "not recorded".
+   */
+  native_recorded?: boolean
   notes: string | null[]
   prob_source: TxrProbSource
   probabilities: number | null[]
+  /**
+   * The method's own score per patient (the contract's `risk` for the
+   *  shown outcome: higher = more likely failing, on the method's own
+   *  scale), aligned to `patients` like `probabilities`; null where the
+   *  method gave no score.
+   */
+  scores?: number | null[]
   task: TxrTask
 }
 

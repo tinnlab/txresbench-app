@@ -951,6 +951,23 @@ pub struct TxrPredictionMethod {
     pub coverage: TxrCoverage,
     pub probabilities: Vec<Option<f64>>,
     pub notes: Vec<Option<String>>,
+    /// Whether the method's own results were recorded for this column
+    /// (`output/<method_id>/native.csv`). False for a run from before they
+    /// were kept, a demo replay, or a failed write — `scores`/`calls` are then
+    /// empty and the screens say "not recorded".
+    #[serde(default)]
+    pub native_recorded: bool,
+    /// The method's own score per patient (the contract's `risk` for the
+    /// shown outcome: higher = more likely failing, on the method's own
+    /// scale), aligned to `patients` like `probabilities`; null where the
+    /// method gave no score.
+    #[serde(default)]
+    pub scores: Vec<Option<f64>>,
+    /// The method's own yes/no call per patient (`1` = treatment judged
+    /// failing, `0` = not failing), aligned to `patients`; present only when
+    /// the method returned calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calls: Option<Vec<Option<u8>>>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
