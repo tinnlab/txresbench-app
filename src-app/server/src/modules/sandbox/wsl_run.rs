@@ -99,6 +99,10 @@ const AGENT_STDERR_KEEP: usize = 8 * 1024;
 /// its exit code) before it is stopped.
 const AGENT_EXIT_GRACE: Duration = Duration::from_secs(10);
 
+/// How long the agent's log is waited for once the exchange ended: a process
+/// left behind may hold its stderr open.
+const AGENT_LOG_WAIT: Duration = Duration::from_secs(5);
+
 /// The disk of a WSL 2 distro, in the dir it was imported into.
 const DISTRO_DISK_FILE: &str = "ext4.vhdx";
 
@@ -879,7 +883,7 @@ impl WslAgent {
                 None
             }
         };
-        let log = tokio::time::timeout(Duration::from_secs(5), log).await.ok().and_then(Result::ok).unwrap_or_default();
+        let log = tokio::time::timeout(AGENT_LOG_WAIT, log).await.ok().and_then(Result::ok).unwrap_or_default();
         match result {
             Ok(outcome) => Ok(outcome),
             Err(e) => Err(agent_failure(e, status, &log, &stdout_head)),
@@ -1185,9 +1189,11 @@ mod tests {
     /// its stdin byte for byte (exit 9 if not), then writes `frames` to its
     /// stdout, `log` to its stderr, and exits with `code`. With `hang` it does
     /// nothing at all; with `wsl-error` it is a wsl.exe that cannot start the
-    /// agent (WSL's message on stdout, exit -1). Its own arguments come first
-    /// (`none` for an empty one: powershell.exe may drop an empty argument,
-    /// and takes `-` for a parameter); the runner's are kept in `args.txt`.
+    /// agent (WSL's message on stdout, exit -1); with `log-held` it leaves a
+    /// process behind that holds its stdout and stderr open for 15 s. Its own
+    /// arguments come first (`none` for an empty one: powershell.exe may drop
+    /// an empty argument, and takes `-` for a parameter); the runner's are
+    /// kept in `args.txt`.
     const FAKE_AGENT: &str = r#"
 $want = [IO.File]::ReadAllBytes($args[0]); $frames = $args[1]; $log = $args[2]; $code = [int]$args[3]
 [IO.File]::WriteAllText($args[5], (($args | Select-Object -Skip 6) -join ' '))
@@ -1203,6 +1209,11 @@ if ($n -ne $want.Length -or [Convert]::ToBase64String($got) -ne [Convert]::ToBas
 }
 $b = [IO.File]::ReadAllBytes($frames); $o = [Console]::OpenStandardOutput(); $o.Write($b, 0, $b.Length); $o.Flush()
 if ($log -ne 'none') { [Console]::Error.WriteLine($log) }
+if ($args[4] -eq 'log-held') {
+    $si = New-Object Diagnostics.ProcessStartInfo 'powershell.exe', '-NoProfile -NonInteractive -Command Start-Sleep -Seconds 15'
+    $si.UseShellExecute = $false
+    [void][Diagnostics.Process]::Start($si)
+}
 exit $code
 "#;
 
@@ -1335,6 +1346,27 @@ exit $code
         assert_eq!(outcome.exit_code, -1);
         assert!(took >= budget, "{took:?}");
         assert!(took < budget + Duration::from_secs(5), "stopped at the budget, not after a grace: {took:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The agent's log is waited for [`AGENT_LOG_WAIT`] at most: a process
+    /// left behind that holds its stderr open does not hold the run.
+    #[test]
+    fn the_wait_for_the_agents_log_is_bounded() {
+        use sandbox_vm_protocol::{ExitStatus, Frame};
+        let frames = [Frame::Exit(ExitStatus { code: 0, timed_out: false }), Frame::ArtifactsDone];
+        let (agent, dir) = fake_agent("log-held", &request(), &frames, "agent: done", 0, "log-held");
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let started = Instant::now();
+        let outcome = rt
+            .block_on(AgentExec::exec(&agent, request(), Duration::from_secs(60), None, &[]))
+            .expect("the exchange succeeds");
+        let took = started.elapsed();
+        // The log's read goes on until the process left behind ends (15 s):
+        // not waited for here either.
+        rt.shutdown_background();
+        assert_eq!(outcome.exit_code, 0);
+        assert!(took < AGENT_LOG_WAIT + Duration::from_secs(5), "not held by the process left behind: {took:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
