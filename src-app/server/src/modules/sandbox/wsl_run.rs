@@ -527,8 +527,9 @@ fn distro_location(data_root: &Path) -> PathBuf {
 }
 
 /// The build of the app's distro this process set up, `None` until a setup
-/// succeeds; never reset (see [`start_or_set_up`]). The lock is held for a
-/// whole check or setup, by the task doing it.
+/// succeeds or removes another build of the distro; never reset (see
+/// [`start_or_set_up`]). The lock is held for a whole check or setup, by the
+/// task doing it.
 type SetUpBuild = Arc<tokio::sync::Mutex<Option<String>>>;
 
 static SET_UP: std::sync::LazyLock<SetUpBuild> = std::sync::LazyLock::new(|| Arc::new(tokio::sync::Mutex::new(None)));
@@ -556,20 +557,28 @@ async fn ensure_ready(set_up: &SetUpBuild, wsl: Wsl, runtime: Runtime, data_root
         .map_err(|e| wsl_error(format!("WSL setup task: {e}")))?
 }
 
-/// Only a process's first setup (until one succeeds) replaces another build
-/// of the app's distro: the build of the version this one updated, or that of
-/// another version of the app. Once this process has set its build up,
-/// another build found there can only come from another version of the app
-/// running on this Windows account (an installed app and a development build,
-/// say; an update restarts the app). Replacing it would stop that version's
-/// running method (`wsl --unregister` stops the distro), and that version
-/// would replace it back, so each run of this process fails instead and
-/// leaves it there, until this version is restarted. No failure resets
-/// `set_up`: runs go several at a time, so the next run is often already
-/// waiting on the lock, and a reset would let it replace the other build at
-/// once. A distro that is gone or lost its disk is still set up again. A
-/// first setup that fails sets nothing, so the next run is a first setup
-/// again (WSL may still have been importing the build of the version this one
+/// Only a process's first setup replaces another build of the app's distro:
+/// the build of the version this one updated, or that of another version of
+/// the app. The first setup ends when a setup succeeds or removes another
+/// build. After that, another build found there can only come from another
+/// version of the app running on this Windows account (an installed app and
+/// a development build, say; an update restarts the app). Replacing it would
+/// stop that version's running method (`wsl --unregister` stops the distro),
+/// and that version would replace it back, so each run of this process fails
+/// instead and leaves it there, until this version is restarted. No failure
+/// resets `set_up`: runs go several at a time, so the next run is often
+/// already waiting on the lock, and a reset would let it replace the other
+/// build at once. A distro that is gone or lost its disk is still set up
+/// again.
+///
+/// A first setup that removed another build and then failed counts as set
+/// up: that version may have imported its build again meanwhile (so this
+/// import found the name taken), and replacing it on every run would stop
+/// its method every time. A distro the next run finds gone is still set up
+/// again, so an update whose first setup removed the older build and then
+/// failed its import needs no restart. A first setup that fails before
+/// removing anything sets nothing, so the next run is a first setup again
+/// (WSL may still have been importing the build of the version this one
 /// updated).
 fn start_or_set_up(
     wsl: &Wsl,
@@ -586,9 +595,12 @@ fn start_or_set_up(
             Distro::NotRegistered | Distro::DiskLost | Distro::Foreign => {}
         }
     }
-    ensure_distro_blocking(wsl, runtime, data_root, first_setup)?;
-    *set_up = Some(runtime.version.clone());
-    Ok(())
+    let mut took_over = false;
+    let setup = ensure_distro_blocking(wsl, runtime, data_root, first_setup, &mut took_over);
+    if setup.is_ok() || took_over {
+        *set_up = Some(runtime.version.clone());
+    }
+    setup
 }
 
 fn replaced_by_another_version(found: &str, runtime: &Runtime) -> AppError {
@@ -606,24 +618,31 @@ fn apps_distro_listed(wsl: &Wsl) -> Result<bool, AppError> {
 
 /// Make sure the app's distro exists and is the shipped build: import it on
 /// first use (no admin rights needed), replace another build of it (only when
-/// `replace_other_build`: see [`start_or_set_up`]) or one whose disk was
-/// deleted, and refuse to touch a distro of that name the app did not create.
+/// `replace_other_build`: see [`start_or_set_up`]; `took_over` is set once it
+/// is removed) or one whose disk was deleted, and refuse to touch a distro of
+/// that name the app did not create.
 fn ensure_distro_blocking(
     wsl: &Wsl,
     runtime: &Runtime,
     data_root: &Path,
     replace_other_build: bool,
+    took_over: &mut bool,
 ) -> Result<(), AppError> {
     let location = distro_location(data_root);
-    // What to remove before the import (as an error names it).
+    // What to remove before the import (as an error names it), and whether
+    // it is another build of the app's distro.
     let mut remove = None;
+    let mut other_build = false;
     if apps_distro_listed(wsl)? {
         match distro_state(wsl, &location)? {
             Distro::Build(b) if b == runtime.version => return Ok(()),
             Distro::Build(b) if !replace_other_build => return Err(replaced_by_another_version(&b, runtime)),
             // An older build of the app's own distro (it holds nothing but
             // the guest root; runs keep no state in it): replaced.
-            Distro::Build(_) => remove = Some("the app's outdated distro"),
+            Distro::Build(_) => {
+                remove = Some("the app's outdated distro");
+                other_build = true;
+            }
             // The app's distro, registered in the app's dir, without its
             // disk: it cannot start again, so it is set up anew.
             Distro::DiskLost => remove = Some("the app's distro whose disk was deleted"),
@@ -660,6 +679,9 @@ fn ensure_distro_blocking(
     let tar = checked_guest_root(runtime)?;
     if let Some(which) = remove {
         unregister(wsl, which)?;
+        // Another build is gone (and the method its version ran in it
+        // stopped) whatever happens next.
+        *took_over = other_build;
     }
     // Only here is the distro known not to be registered (not listed by a
     // list that succeeded, just removed, or no longer listed by the second
@@ -1451,12 +1473,14 @@ exit $code
     /// (`list-fails`), behave as the in-box stub of a Windows without WSL
     /// (`stub`), hang (`hang`), import slowly (`slow-import`), end a removal
     /// of the app's distro right after the next list (`removed-after-list`),
-    /// or not find it by its name once (`not-found-once`). Every call is
-    /// appended to `calls.txt`; an import writes `tar-held.txt`: `held` when
-    /// the tarball could be read but not written during the import. Messages
-    /// and error codes are WSL's own (en-US), and its errors are on stdout,
-    /// as wsl.exe prints them (the stub's are on stderr, as seen on a Windows
-    /// without WSL).
+    /// not find it by its name once (`not-found-once`), fail the next import
+    /// (`import-fails-once`), or have the version whose build a removal
+    /// removed import it again at once, into the dir it was in (`race`).
+    /// Every call is appended to `calls.txt`; an import writes
+    /// `tar-held.txt`: `held` when the tarball could be read but not written
+    /// during the import. Messages and error codes are WSL's own (en-US), and
+    /// its errors are on stdout, as wsl.exe prints them (the stub's are on
+    /// stderr, as seen on a Windows without WSL).
     const FAKE_WSL: &str = r#"
 $state = $args[0]
 $a = @($args | Select-Object -Skip 1)
@@ -1483,17 +1507,21 @@ if ($a[0] -eq '--list') {
 }
 if ($a[0] -eq '--unregister') {
     if (-not [IO.File]::Exists($reg)) { Fail $notFound }
-    $disk = Join-Path ([IO.File]::ReadAllText($reg)) 'ext4.vhdx'
-    if ([IO.File]::Exists($disk)) { [IO.File]::Delete($disk) }
+    $dir = [IO.File]::ReadAllText($reg)
+    $disk = Join-Path $dir 'ext4.vhdx'
+    $build = ''
+    if ([IO.File]::Exists($disk)) { $build = [IO.File]::ReadAllText($disk); [IO.File]::Delete($disk) }
     [IO.File]::Delete($reg)
+    if ($mode -eq 'race') { [IO.File]::WriteAllText($disk, $build); [IO.File]::WriteAllText($reg, $dir) }
     [Console]::Out.Write("The operation completed successfully.`r`n"); exit 0
 }
 if ($a[0] -eq '--import') {
     $base = $a[2]; $tar = $a[3]
     if ($installing) { Fail "An illegal state change was requested.`r`nError code: Wsl/Service/RegisterDistro/E_ILLEGAL_STATE_CHANGE" }
-    if ([IO.File]::Exists($reg)) { Fail "A distribution with the supplied name already exists. Use --name to choose a different name.`r`nError code: Wsl/Service/RegisterDistro/ERROR_ALREADY_EXISTS" }
+    if ([IO.File]::Exists($reg)) { Fail "A distribution with the supplied name already exists. Use --name to chose a different name.`r`nError code: Wsl/Service/RegisterDistro/ERROR_ALREADY_EXISTS" }
     $disk = Join-Path $base 'ext4.vhdx'
-    if ([IO.File]::Exists($disk)) { Fail "The file exists.`r`nError code: Wsl/Service/RegisterDistro/ERROR_FILE_EXISTS" }
+    if ([IO.File]::Exists($disk)) { Fail "The supplied install location is already in use.`r`nError code: Wsl/Service/RegisterDistro/ERROR_FILE_EXISTS" }
+    if ($mode -eq 'import-fails-once') { [IO.File]::Delete($modeFile); Fail "Importing the distribution failed.`r`nError code: Wsl/Service/RegisterDistro/WSL_E_IMPORT_FAILED" }
     $held = 'held'
     try { $w = [IO.File]::Open($tar, 'Open', 'Write', 'ReadWrite, Delete'); $w.Close(); $held = 'not held' } catch { }
     [IO.File]::WriteAllText((Join-Path $state 'tar-held.txt'), $held)
@@ -1595,7 +1623,7 @@ Fail ("unexpected call: " + ($a -join ' '))
         }
 
         fn ensure(&self) -> Result<(), AppError> {
-            ensure_distro_blocking(&self.wsl, &self.runtime, &self.data_root, true)
+            ensure_distro_blocking(&self.wsl, &self.runtime, &self.data_root, true, &mut false)
         }
 
         /// One run's check of the distro, in the process whose setup state
@@ -1933,10 +1961,11 @@ Fail ("unexpected call: " + ($a -join ' '))
         w.remove();
     }
 
-    /// A first setup that fails sets nothing up, so the next run is a first
-    /// setup again: here WSL was still importing the build of the version
-    /// this one updated (that version quit during its import); once WSL is
-    /// done, that older build is replaced, with no restart.
+    /// A first setup that fails before removing anything sets nothing up, so
+    /// the next run is a first setup again: here WSL was still importing the
+    /// build of the version this one updated (that version quit during its
+    /// import); once WSL is done, that older build is replaced, with no
+    /// restart.
     #[tokio::test]
     async fn a_failed_first_setup_leaves_the_next_run_a_first_setup() {
         let w = FakeWsl::new("first-setup-fails", "wsl-8");
@@ -1950,6 +1979,38 @@ Fail ("unexpected call: " + ($a -join ' '))
         w.run(&set_up, &w.runtime).await.expect("the older build is replaced");
         assert_eq!(w.calls(), ["--list", "-d", "--list", "--list", "-d", "--unregister", "--import", "-d"]);
         assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
+        w.remove();
+    }
+
+    /// Another version that set the distro up imports its build again as
+    /// soon as this version's first setup removed it (its run was waiting
+    /// for the distro), so this import finds the name taken. That first
+    /// setup took the distro over all the same: the runs waiting behind it,
+    /// and every later run, fail and leave the other build there, so this
+    /// process removes it once only.
+    #[tokio::test]
+    async fn a_first_setup_that_removed_another_versions_build_and_failed_never_removes_it_again() {
+        let w = FakeWsl::new("race", "wsl-8");
+        let theirs = w.data_root.with_file_name("other-data").join("wsl").join("distro");
+        w.register(&theirs, "wsl-7");
+        w.mode("race");
+        let set_up = SetUpBuild::default();
+        let (a, b, c) =
+            tokio::join!(w.run(&set_up, &w.runtime), w.run(&set_up, &w.runtime), w.run(&set_up, &w.runtime));
+        let texts: Vec<String> = [a, b, c].into_iter().map(|r| r.expect_err("no run sets up").to_string()).collect();
+        let import_failed = texts.iter().filter(|t| t.contains("WSL could not import the app's distro")).count();
+        let other_build = texts.iter().filter(|t| t.contains("another version of TxResBench")).count();
+        assert_eq!((import_failed, other_build), (1, 2), "{texts:?}");
+        assert!(texts.iter().any(|t| t.contains("Wsl/Service/RegisterDistro/ERROR_ALREADY_EXISTS")), "{texts:?}");
+        let err = w.run(&set_up, &w.runtime).await.expect_err("a later run");
+        assert!(err.to_string().contains("another version of TxResBench"), "{err}");
+        assert_eq!(w.calls(), [
+            "--list", "-d", "--unregister", "--import", // the first setup: removed once, the import fails
+            "-d", "-d",                                 // the runs that waited: fail
+            "-d",                                       // a later run: fails
+        ]);
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-7"));
+        assert!(theirs.join(DISTRO_DISK_FILE).is_file());
         w.remove();
     }
 
@@ -1972,6 +2033,29 @@ Fail ("unexpected call: " + ($a -join ' '))
         assert_eq!(*set_up.lock().await, None);
         assert_eq!(w.registered_build().as_deref(), Some("wsl-7"));
         assert!(!w.location().exists(), "the app's distro dir is not touched either");
+        w.remove();
+    }
+
+    /// An update's first setup that removed the older build of the app's
+    /// distro (that of the version it replaced) and then failed its import
+    /// counts as set up; the next run finds no distro and imports this build,
+    /// with no restart.
+    #[tokio::test]
+    async fn an_update_whose_import_failed_after_removing_the_older_build_imports_on_the_next_run() {
+        let w = FakeWsl::new("update-import-fails", "wsl-8");
+        w.register(&w.location(), "wsl-7");
+        w.mode("import-fails-once");
+        let set_up = SetUpBuild::default();
+        let err = w.run(&set_up, &w.runtime).await.expect_err("the import failed");
+        assert!(err.to_string().contains("Wsl/Service/RegisterDistro/WSL_E_IMPORT_FAILED"), "{err}");
+        assert_eq!(set_up.lock().await.as_deref(), Some("wsl-8"), "the older build was removed");
+        assert_eq!(w.registered_build(), None);
+        w.run(&set_up, &w.runtime).await.expect("imported, no restart");
+        assert_eq!(w.calls(), [
+            "--list", "-d", "--unregister", "--import", // first setup: the older build removed, the import fails
+            "-d", "--list", "--import", "-d",           // next run: no distro, imported
+        ]);
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
         w.remove();
     }
 
