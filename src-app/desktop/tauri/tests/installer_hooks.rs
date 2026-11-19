@@ -66,6 +66,23 @@ fn block(name: &str) -> Vec<String> {
     lines[start + 1..end].to_vec()
 }
 
+/// The run-time lines of a block: without the compile-time `!` directives.
+fn instructions(block: &[String]) -> Vec<String> {
+    block.iter().filter(|l| !l.starts_with('!')).cloned().collect()
+}
+
+/// The lines from `first` (inclusive) to the next line that is one of `ends`
+/// (exclusive), in `lines`.
+fn span(lines: &[String], first: &str, ends: &[&str]) -> Vec<String> {
+    let start = lines.iter().position(|l| l == first).unwrap_or_else(|| panic!("no line {first}"));
+    let end = lines[start + 1..]
+        .iter()
+        .position(|l| ends.iter().any(|e| l.starts_with(e)))
+        .map(|n| start + 1 + n)
+        .unwrap_or(lines.len());
+    lines[start..end].to_vec()
+}
+
 fn json(text: &str) -> serde_json::Value {
     serde_json::from_str(text).unwrap()
 }
@@ -104,10 +121,11 @@ fn the_hook_runs_after_install_only_and_never_on_uninstall() {
 /// An update (`/UPDATE`), a passive (`/P`) or silent (`/S`) install never
 /// checks, asks or elevates: the skip check is the hook's first instruction,
 /// everything else depends on it, and it reads the flags itself (a renamed
-/// template variable would only be a compiler warning).
+/// template variable would only be a compiler warning). 32-bit Windows is
+/// skipped too, and says so.
 #[test]
 fn updates_and_unattended_installs_skip_the_wsl_step() {
-    let hook = block("NSIS_HOOK_POSTINSTALL");
+    let hook = instructions(&block("NSIS_HOOK_POSTINSTALL"));
     assert_eq!(hook[0], "Call TxrWslSkip");
     assert_eq!(hook[1], "${If} $TxrWslSkipped <> 1");
     assert_eq!(hook.last().unwrap(), "${EndIf}");
@@ -120,13 +138,78 @@ fn updates_and_unattended_installs_skip_the_wsl_step() {
         assert_eq!(skip[i + 1], "${IfNot} ${Errors}", "{check}");
         assert_eq!(skip[i + 2], "StrCpy $TxrWslSkipped 1", "{check}");
     }
-    for check in ["${If} ${Silent}", "${IfNot} ${RunningX64}"] {
-        assert_eq!(skip[at(check) + 1], "StrCpy $TxrWslSkipped 1", "{check}");
-    }
+    assert_eq!(skip[at("${If} ${Silent}") + 1], "StrCpy $TxrWslSkipped 1");
     assert!(at("${GetParameters} $R1") < at(r#"${GetOptions} $R1 "/UPDATE" $R0"#));
+    // The flags decide first; then 32-bit Windows; then the token.
+    let flags = at("${If} $TxrWslSkipped = 1");
+    assert!(at("${If} ${Silent}") < flags);
+    assert_eq!(skip[flags + 1], r#"StrCpy $TxrWslOutcome "skipped""#);
+    assert_eq!(skip[flags + 2], r#"DetailPrint "WSL check skipped (an update or an unattended install).""#);
+    let x86 = at("${ElseIfNot} ${RunningX64}");
+    assert_eq!(flags + 3, x86);
+    assert_eq!(skip[x86 + 1], "StrCpy $TxrWslSkipped 1");
+    assert_eq!(skip[x86 + 2], r#"StrCpy $TxrWslOutcome "skipped-32-bit""#);
+    assert!(skip[x86 + 3].starts_with(r#"DetailPrint "WSL check skipped: this is 32-bit Windows,"#), "{}", skip[x86 + 3]);
+    assert_eq!(skip[x86 + 4], "${Else}");
     for template_var in ["$UpdateMode", "$PassiveMode"] {
         assert!(!HOOKS.contains(template_var), "{template_var}");
     }
+}
+
+/// When this installer itself runs as administrator (an elevated token,
+/// TokenElevationTypeFull = 2), the check would run the app from a folder the
+/// user can write to with rights the user does not have: the hook skips, and
+/// says so. Any other token (1: UAC off; 3: the usual start) runs the check.
+#[test]
+fn an_installer_run_as_administrator_skips_the_check() {
+    let skip = block("TxrWslSkip");
+    let at = skip.iter().position(|l| l == "Call TxrReadElevationType").expect("the skip reads the token");
+    assert_eq!(skip[at - 1], "${Else}");
+    assert_eq!(skip[at + 1], "${If} $TxrElevationType = 2");
+    assert_eq!(skip[at + 2], "StrCpy $TxrWslSkipped 1");
+    assert_eq!(skip[at + 3], r#"StrCpy $TxrWslOutcome "skipped-elevated""#);
+    assert!(skip[at + 4].starts_with(r#"DetailPrint "WSL check skipped: this installer runs as administrator."#));
+    assert_eq!(skip[at + 5], "${EndIf}");
+    let lines = code_lines(HOOKS);
+    let uses: Vec<&String> =
+        lines.iter().filter(|l| l.contains("$TxrElevationType") && !l.starts_with("StrCpy $TxrElevationType ")).collect();
+    assert_eq!(uses, ["${If} $TxrElevationType = 2"], "the type decides only there");
+
+    // TOKEN_QUERY (8) on this process's token, TokenElevationType (18): a
+    // DWORD, kept only when the call succeeded (else 0, which runs the check).
+    let read = block("TxrReadElevationType");
+    let expected = [
+        "StrCpy $TxrElevationType 0",
+        "System::Call 'kernel32::GetCurrentProcess() p .R0'",
+        "System::Call 'advapi32::OpenProcessToken(p R0, i 8, *p .R1) i .R2'",
+        "${If} $R2 <> 0",
+        "System::Call 'advapi32::GetTokenInformation(p R1, i 18, *i .R3, i 4, *i .R4) i .R2'",
+        "${If} $R2 <> 0",
+        "StrCpy $TxrElevationType $R3",
+        "${EndIf}",
+        "System::Call 'kernel32::CloseHandle(p R1)'",
+        "${EndIf}",
+    ];
+    let body: Vec<&String> = read.iter().filter(|l| !l.starts_with("Push ") && !l.starts_with("Pop ")).collect();
+    assert_eq!(body, expected);
+}
+
+/// Compile-time guards against a changed template (Tauri runs makensis
+/// without -WX, so a missing define would only warn): the hook must come
+/// before the finish page (its restart texts apply only then), and the
+/// template must still define MAINBINARYNAME (the check's path).
+#[test]
+fn the_hook_stops_the_build_when_the_template_changed() {
+    let lines = code_lines(HOOKS);
+    assert_eq!(lines[0], "!ifdef MUI_FINISHPAGE_REBOOT_VARIABLES");
+    assert!(lines[1].starts_with(r#"!error ""#), "{}", lines[1]);
+    assert_eq!(lines[2], "!endif");
+    assert!(lines.iter().position(|l| l.starts_with("!define MUI_FINISHPAGE_")).unwrap() > 2);
+    let hook = block("NSIS_HOOK_POSTINSTALL");
+    assert_eq!(hook[0], "!ifndef MAINBINARYNAME");
+    assert!(hook[1].starts_with(r#"!error ""#), "{}", hook[1]);
+    assert_eq!(hook[2], "!endif");
+    assert_eq!(hook[3], "Call TxrWslSkip");
 }
 
 /// What runs as administrator is Windows' 32-bit cmd.exe starting the native
@@ -134,7 +217,7 @@ fn updates_and_unattended_installs_skip_the_wsl_step() {
 /// `--wsl-status`.
 #[test]
 fn only_windows_own_programs_run_as_administrator() {
-    let hook = block("NSIS_HOOK_POSTINSTALL");
+    let hook = instructions(&block("NSIS_HOOK_POSTINSTALL"));
     let expected = [
         format!(r#"StrCpy $TxrWslStatusCmd '"$INSTDIR\${{MAINBINARYNAME}}.exe" {WSL_STATUS_ARG}'"#),
         r#"StrCpy $TxrElevFile "$WINDIR\SysWOW64\cmd.exe""#.to_string(),
@@ -150,7 +233,7 @@ fn only_windows_own_programs_run_as_administrator() {
     assert_eq!(count("\"runas\""), 1);
     assert_eq!(count("ShellExecuteExW"), 1);
     // The elevated program and its parameters are set only in the hook macro
-    // (and copied into this run's parameters by TxrWslSetup).
+    // (and copied into this run's parameters by TxrWslAct).
     assert_eq!(count("StrCpy $TxrElevFile "), 1);
     assert_eq!(
         lines.iter().filter(|l| l.starts_with("StrCpy $TxrElevParams ")).cloned().collect::<Vec<_>>(),
@@ -162,6 +245,160 @@ fn only_windows_own_programs_run_as_administrator() {
         "only TxrWslElevate elevates"
     );
     assert!(block("TxrWslElevate").contains(&"Call TxrRunElevated".to_string()));
+    assert_eq!(lines.iter().filter(|l| *l == "Call TxrWslElevate").count(), 1, "only TxrWslAct");
+    assert!(block("TxrWslAct").contains(&"Call TxrWslElevate".to_string()));
+}
+
+/// After each Yes/No question, "Yes" (the one instruction `IDNO +2` skips)
+/// chooses the action: install where WSL is missing or its Virtual Machine
+/// Platform is not running (`wsl --install --no-distribution` turns it on),
+/// update where WSL is too old or of the old kind. "No" leaves it empty.
+#[test]
+fn each_answer_leads_to_its_action() {
+    let setup = block("TxrWslSetup");
+    let branch_ends = ["${ElseIf} ", "${Else}", "${EndIf}"];
+    for (status, question, action) in [
+        ("READY_AFTER_RESTART", "ASK_TURN_ON", "install"),
+        ("MISSING", "ASK_INSTALL", "install"),
+        ("OLD", "ASK_UPDATE_OLD", "update"),
+        ("LEGACY", "ASK_UPDATE_LEGACY", "update"),
+    ] {
+        let branch = span(&setup, &format!("${{ElseIf}} $TxrWslCode == ${{TXR_WSL_{status}}}"), &branch_ends);
+        assert_eq!(
+            branch[1..],
+            [
+                r#"StrCpy $TxrWslOutcome "declined""#.to_string(),
+                format!(r#"MessageBox MB_YESNO|MB_ICONQUESTION "${{TXR_MSG_{question}}}" /SD IDNO IDNO +2"#),
+                format!(r#"StrCpy $TxrWslAction "{action}""#),
+            ],
+            "{status}"
+        );
+    }
+    let sets: Vec<&String> = setup.iter().filter(|l| l.starts_with("StrCpy $TxrWslAction ")).collect();
+    assert_eq!(sets.len(), 5, "the reset and the four answers: {sets:?}");
+    assert_eq!(setup[0], r#"StrCpy $TxrWslAction """#);
+    let act = setup.iter().position(|l| l == "Call TxrWslAct").unwrap();
+    assert_eq!(setup[act - 1], r#"${If} $TxrWslAction != """#);
+}
+
+/// Each action runs its own command and, when that fails, says what to run
+/// by hand for that action: `wsl --update` for an update (`wsl --install`
+/// does not update an installed WSL).
+#[test]
+fn each_action_runs_its_own_command_and_messages() {
+    let act: Vec<String> = block("TxrWslAct");
+    let expected = [
+        r#"${If} $TxrWslAction == "install""#,
+        "StrCpy $TxrElevParams $TxrWslInstallParams",
+        r#"StrCpy $TxrWslMsgNoPermission "${TXR_MSG_NO_PERMISSION_INSTALL}""#,
+        r#"StrCpy $TxrWslMsgFailed "${TXR_MSG_FAILED_INSTALL}""#,
+        r#"${ElseIf} $TxrWslAction == "update""#,
+        "StrCpy $TxrElevParams $TxrWslUpdateParams",
+        r#"StrCpy $TxrWslMsgNoPermission "${TXR_MSG_NO_PERMISSION_UPDATE}""#,
+        r#"StrCpy $TxrWslMsgFailed "${TXR_MSG_FAILED_UPDATE}""#,
+        "${Else}",
+        "Return",
+        "${EndIf}",
+        "Call TxrWslElevate",
+    ];
+    assert_eq!(act, expected);
+    let message = |name: &str| {
+        let prefix = format!("!define TXR_MSG_{name} ");
+        code_lines(HOOKS)
+            .into_iter()
+            .find_map(|l| l.strip_prefix(&prefix).map(str::to_string))
+            .unwrap_or_else(|| panic!("no message {name}"))
+    };
+    for name in ["NO_PERMISSION_INSTALL", "FAILED_INSTALL"] {
+        let text = message(name);
+        assert!(text.contains("run: wsl --install --no-distribution, and restart Windows"), "{name}");
+        assert!(!text.contains("--update"), "{name}");
+        assert!(text.starts_with(r#""WSL 2 "#), "{name}");
+    }
+    for name in ["NO_PERMISSION_UPDATE", "FAILED_UPDATE"] {
+        let text = message(name);
+        assert!(
+            text.contains("run: wsl --update, then: wsl --install --no-distribution, and restart Windows"),
+            "{name}"
+        );
+        assert!(text.starts_with(r#""WSL was not updated"#) || text.starts_with(r#""WSL could not be updated"#), "{name}");
+    }
+}
+
+/// Windows' "No" to the permission prompt (ShellExecuteEx fails with 1223,
+/// ERROR_CANCELLED) gets the no-permission message; any other failure to
+/// start gets the failed message with Windows' error.
+#[test]
+fn windows_refusal_and_other_errors_show_their_messages() {
+    let elevate = block("TxrWslElevate");
+    let not_started = span(&elevate, "${If} $TxrElevStarted <> 1", &["Return"]);
+    let expected = [
+        "${If} $TxrElevStarted <> 1",
+        "${If} $TxrElevError == 1223",
+        r#"StrCpy $TxrWslOutcome "no-permission""#,
+        r#"DetailPrint "WSL 2 was not set up: Windows did not get permission.""#,
+        r#"MessageBox MB_OK|MB_ICONINFORMATION "$TxrWslMsgNoPermission" /SD IDOK"#,
+        "${Else}",
+        r#"StrCpy $TxrWslOutcome "not-started""#,
+        r#"DetailPrint "The WSL setup could not start (Windows error $TxrElevError).""#,
+        r#"MessageBox MB_OK|MB_ICONEXCLAMATION "$TxrWslMsgFailed$\r$\n$\r$\n(Windows error $TxrElevError)" /SD IDOK"#,
+        "${EndIf}",
+    ];
+    assert_eq!(not_started, expected);
+    let lines = code_lines(HOOKS);
+    let shown = |var: &str| lines.iter().filter(|l| l.starts_with("MessageBox ") && l.contains(var)).count();
+    assert_eq!(shown("$TxrWslMsgNoPermission"), 1);
+    assert_eq!(shown("$TxrWslMsgFailed"), 3, "not started, and failed with or without an exit code");
+}
+
+/// A setup that ended without an error where WSL was missing or of the old
+/// kind, and a second check that still finds it missing or of the old kind:
+/// Windows must restart first (wsl.exe exits with 0 then), so the restart is
+/// offered, not the failed message. An exit code that is not known is never
+/// shown as a code.
+#[test]
+fn a_setup_without_an_error_that_needs_a_restart_is_not_a_failure() {
+    let elevate = block("TxrWslElevate");
+    let pending = span(&elevate, "${If} $TxrElevExit == 0", &[r#"StrCpy $TxrWslOutcome "failed""#]);
+    assert_eq!(
+        pending[..9],
+        [
+            "${If} $TxrElevExit == 0",
+            "${If} $TxrWslFirstCode == ${TXR_WSL_MISSING}",
+            "${OrIf} $TxrWslFirstCode == ${TXR_WSL_LEGACY}",
+            "${If} $TxrWslCode == ${TXR_WSL_MISSING}",
+            "${OrIf} $TxrWslCode == ${TXR_WSL_LEGACY}",
+            r#"StrCpy $TxrWslOutcome "restart-pending""#,
+            r#"DetailPrint "The WSL setup ended without an error, but WSL 2 answers only after Windows restarts. TxResBench checks WSL again when it starts.""#,
+            "Call TxrWslOfferRestart",
+            "Return",
+        ]
+    );
+    let lines = code_lines(HOOKS);
+    assert!(!lines.iter().any(|l| l.starts_with("StrCpy $TxrElevExit ") && l != r#"StrCpy $TxrElevExit """# && l != "StrCpy $TxrElevExit $R2"));
+    let with_code = lines.iter().position(|l| l.contains("(The setup ended with code $TxrElevExit.)")).unwrap();
+    assert_eq!(lines[with_code - 3], r#"${If} $TxrElevExit == """#);
+    assert_eq!(lines[with_code - 2], r#"MessageBox MB_OK|MB_ICONEXCLAMATION "$TxrWslMsgFailed" /SD IDOK"#);
+    assert_eq!(lines[with_code - 1], "${Else}");
+    assert!(finish_reboot_text().contains("TxResBench checks WSL again when it starts."));
+}
+
+/// The finish page's text when a restart is needed.
+fn finish_reboot_text() -> String {
+    code_lines(HOOKS)
+        .into_iter()
+        .find_map(|l| l.strip_prefix("!define MUI_FINISHPAGE_TEXT_REBOOT ").map(str::to_string))
+        .unwrap()
+}
+
+/// The questions that lead to a download say how big it is.
+#[test]
+fn the_download_questions_give_the_size() {
+    for name in ["ASK_INSTALL", "ASK_UPDATE_OLD", "ASK_UPDATE_LEGACY"] {
+        let prefix = format!("!define TXR_MSG_{name} ");
+        let text = code_lines(HOOKS).into_iter().find_map(|l| l.strip_prefix(&prefix).map(str::to_string)).unwrap();
+        assert!(text.contains("download") && text.contains("(about 400 MB)"), "{name}");
+    }
 }
 
 #[test]
@@ -266,8 +503,8 @@ fn the_hook_relies_on_the_template_only_for_the_listed_names() {
         .collect();
     let nsis_vars = ["INSTDIR", "WINDIR", "HWNDPARENT", "R0", "R1", "R2", "R3", "R4", "R5"];
     let header_defines = [
-        "If", "IfNot", "ElseIf", "Else", "EndIf", "OrIf", "Errors", "Silent", "RunningX64", "GetOptions",
-        "GetParameters",
+        "If", "IfNot", "ElseIf", "ElseIfNot", "Else", "EndIf", "OrIf", "Errors", "Silent", "RunningX64",
+        "GetOptions", "GetParameters",
     ];
     let template: BTreeSet<&str> = TEMPLATE_NAMES.into_iter().collect();
     let mut used_template = BTreeSet::new();
@@ -313,6 +550,7 @@ fn the_hook_relies_on_the_template_only_for_the_listed_names() {
 #[test]
 fn the_messages_name_the_command_and_one_link() {
     assert!(HOOKS.contains("run: wsl --install --no-distribution, and restart Windows"));
+    assert!(HOOKS.contains("run: wsl --update, then: wsl --install --no-distribution, and restart Windows"));
     let links: Vec<&str> = HOOKS
         .match_indices("https://")
         .map(|(at, _)| HOOKS[at..].split(['"', ' ', '\n']).next().unwrap())
