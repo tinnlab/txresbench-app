@@ -55,7 +55,7 @@
 //! |---|---|
 //! | R02 required columns | `patient_id` + the board's four outcome columns in a patients table; `patient_id, day, marker, value` in a measurements table (the outcome columns are REQUIRED per the owner decision on the board column set; `responder`/`response_day` stay optional) |
 //! | R03 column types | ids/marker/unit are strings (ids stay strings even when numeric — the tidy type definition); day/value/response day are float64; event/responder are int64 (integral only) |
-//! | R04 nullability | `patient_id`, `day`, `marker` and a present `time_unit` cell are NOT NULL; value, unit, outcomes and covariates are nullable |
+//! | R04 nullability | `patient_id`, `day`, `marker` and a present `time_unit` cell are NOT NULL; value, unit, outcomes and covariates are nullable; only columns the file resolves are checked (a missing required column is R02's one report) |
 //! | R05 allowed values | `pfs_event`/`os_event`/`responder` in {0,1}; the app has no `day_source`/position enumerations (derived, R09/R11/R16/R17) and `time_unit` is R12 |
 //! | R06 minimum | outcome days ≥ 0 (pfs/os/response day) |
 //! | R07 unique keys | `patient_id` unique; `(patient_id, day, marker)` unique (the derived-sample x feature key); `feature` unique |
@@ -517,11 +517,7 @@ pub fn check_required_columns_in(
     table_name: &str,
 ) -> Vec<FileProblem> {
     let mut out = Vec::new();
-    let resolved: BTreeSet<String> = shape
-        .columns
-        .iter()
-        .filter_map(|c| resolve_column_role(c, kind).map(|r| r.wire_key()))
-        .collect();
+    let resolved = resolved_roles(shape, kind);
     for role in required_roles(kind) {
         let key = role.wire_key();
         if !resolved.contains(&key) {
@@ -533,6 +529,33 @@ pub fn check_required_columns_in(
         }
     }
     out
+}
+
+/// The wire keys of the roles a table shape's columns resolve to (DEC-5).
+fn resolved_roles(shape: &TableShape, kind: FileTableKind) -> BTreeSet<String> {
+    shape
+        .columns
+        .iter()
+        .filter_map(|c| resolve_column_role(c, kind).map(|r| r.wire_key()))
+        .collect()
+}
+
+/// The REQUIRED roles a table shape does not resolve: the columns R02 reports
+/// once, on the header row. The model carries a blank value for such a column
+/// on every row (there is nothing to read), so the per-row rules skip these
+/// roles — a missing column is never reported again row by row (a file with
+/// no header row, or with other column names, would otherwise get one R04
+/// per row). An absent shape (predict mode) has no rows.
+fn missing_required_roles(shape: Option<&TableShape>, kind: FileTableKind) -> Vec<ColumnRole> {
+    let Some(shape) = shape else {
+        return Vec::new();
+    };
+    let resolved = resolved_roles(shape, kind);
+    required_roles(kind)
+        .iter()
+        .filter(|r| !resolved.contains(&r.wire_key()))
+        .cloned()
+        .collect()
 }
 
 /// A02 — no outcome column (the app's adaptation of the R14 no-outcome case,
@@ -640,13 +663,19 @@ pub fn check_column_types(model: &CanonicalModel) -> Vec<FileProblem> {
 /// R04 — nullability: `patient_id`, `day` and `marker` are NOT NULL; `value`,
 /// `unit`, the outcome columns and covariates are nullable (missing units are
 /// A07's business, missing outcome times R18's). A present `time_unit` column
-/// is NOT NULL too (a blank cell is R04, a non-`days` value R12).
+/// is NOT NULL too (a blank cell is R04, a non-`days` value R12). Only columns
+/// the file resolves are checked: a missing required column is R02's report
+/// (once), not an empty value on every row.
 pub fn check_nullability(model: &CanonicalModel) -> Vec<FileProblem> {
     let mut out = Vec::new();
+    let p_missing =
+        missing_required_roles(model.patients_shape.as_ref(), FileTableKind::Patients);
+    let m_missing =
+        missing_required_roles(Some(&model.measurements_shape), FileTableKind::Measurements);
     for row in &model.patients {
-        let cells = [("patient_id", &row.patient_id)];
-        for (_, cell) in cells {
-            if cell.blank() {
+        let cells = [(ColumnRole::PatientId, &row.patient_id)];
+        for (role, cell) in cells {
+            if cell.blank() && !p_missing.contains(&role) {
                 out.push(problem(
                     ProblemCode::R04Nullability,
                     ProblemSeverity::Error,
@@ -667,9 +696,13 @@ pub fn check_nullability(model: &CanonicalModel) -> Vec<FileProblem> {
         }
     }
     for row in &model.values {
-        let cells = [("patient_id", &row.patient_id), ("day", &row.day), ("marker", &row.marker)];
-        for (_, cell) in cells {
-            if cell.blank() {
+        let cells = [
+            (ColumnRole::PatientId, &row.patient_id),
+            (ColumnRole::Day, &row.day),
+            (ColumnRole::Marker, &row.marker),
+        ];
+        for (role, cell) in cells {
+            if cell.blank() && !m_missing.contains(&role) {
                 out.push(problem(
                     ProblemCode::R04Nullability,
                     ProblemSeverity::Error,
@@ -1114,15 +1147,38 @@ pub fn check_null_iff(model: &CanonicalModel) -> Vec<FileProblem> {
 
 /// R18 — paired null: pfs time/event both-or-neither, os same. The app adds
 /// the responder/response_day pair (DEC-7: both-or-neither, matching the
-/// three-pair shape engine consumes).
+/// three-pair shape engine consumes). A pair with a missing required column
+/// is R02's report (once), so it is not checked row by row.
 pub fn check_paired_null(model: &CanonicalModel) -> Vec<FileProblem> {
     let mut out = Vec::new();
+    let missing = missing_required_roles(model.patients_shape.as_ref(), FileTableKind::Patients);
     for row in &model.patients {
-        for (time, event, time_name, event_name) in [
-            (&row.pfs_days, &row.pfs_event, "pfs_days", "pfs_event"),
-            (&row.os_days, &row.os_event, "os_days", "os_event"),
-            (&row.responder, &row.response_day, "responder", "response_day"),
+        for (time, event, time_name, event_name, roles) in [
+            (
+                &row.pfs_days,
+                &row.pfs_event,
+                "pfs_days",
+                "pfs_event",
+                [ColumnRole::PfsDays, ColumnRole::PfsEvent],
+            ),
+            (
+                &row.os_days,
+                &row.os_event,
+                "os_days",
+                "os_event",
+                [ColumnRole::OsDays, ColumnRole::OsEvent],
+            ),
+            (
+                &row.responder,
+                &row.response_day,
+                "responder",
+                "response_day",
+                [ColumnRole::Responder, ColumnRole::ResponseDay],
+            ),
         ] {
+            if roles.iter().any(|r| missing.contains(r)) {
+                continue;
+            }
             let t = time.text();
             let e = event.text();
             match (t, e) {
@@ -1772,6 +1828,33 @@ mod tests {
     }
 
     #[test]
+    fn test_fv1_missing_required_column_is_r02_once_not_r04_per_row() {
+        // The measurements file has no day column: the model's day cells are
+        // blank on every row, and R02 names the column once.
+        let mut m = model_with(vec![
+            value(Some("P1"), None, Some("M1"), Some("1.0"), 3),
+            value(None, None, Some("M1"), Some("2.0"), 4),
+        ])
+        .with_features();
+        m.measurements_shape =
+            TableShape::new(1, vec!["patient_id".into(), "marker".into(), "value".into()]);
+        let problems = validate_model(&m);
+        let r02: Vec<_> = problems
+            .iter()
+            .filter(|p| p.code == ProblemCode::R02RequiredColumns)
+            .collect();
+        assert_eq!(r02.len(), 1, "one R02 for day: {problems:?}");
+        assert_eq!(r02[0].column.as_deref(), Some("day"));
+        // The resolved patient_id column still reports its blank cell.
+        let r04: Vec<_> = problems
+            .iter()
+            .filter(|p| p.code == ProblemCode::R04Nullability)
+            .map(|p| (p.row, p.column.clone()))
+            .collect();
+        assert_eq!(r04, vec![(Some(4), Some("patient_id".to_string()))], "{problems:?}");
+    }
+
+    #[test]
     fn test_fv1_event_two_is_r05() {
         let mut m = valid_model();
         m.patients[0].pfs_event = cell(Some("2"), 2, "pfs_event");
@@ -2002,6 +2085,29 @@ mod tests {
             .collect();
         assert_eq!(r18.len(), 1, "one R18: {problems:?}");
         assert!(r18[0].message.contains("pfs_days") && r18[0].message.contains("pfs_event"));
+    }
+
+    #[test]
+    fn test_fv4_missing_pfs_event_column_is_r02_once_not_r18_per_row() {
+        let mut m = valid_model();
+        m.patients_shape = Some(TableShape::new(
+            1,
+            vec!["patient_id".into(), "pfs_days".into(), "os_days".into(), "os_event".into()],
+        ));
+        for p in &mut m.patients {
+            p.pfs_event = cell(None, p.pfs_days.row, "");
+        }
+        let problems = validate_model(&m);
+        let r02: Vec<_> = problems
+            .iter()
+            .filter(|p| p.code == ProblemCode::R02RequiredColumns)
+            .collect();
+        assert_eq!(r02.len(), 1, "one R02 for pfs_event: {problems:?}");
+        assert_eq!(r02[0].column.as_deref(), Some("pfs_event"));
+        assert!(
+            !problems.iter().any(|p| p.code == ProblemCode::R18EventHasTime),
+            "no per-row R18 for a missing column: {problems:?}"
+        );
     }
 
     #[test]
