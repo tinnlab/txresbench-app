@@ -6,11 +6,12 @@
 //! this seam runs the SAME guest agent as the macOS VM inside a WSL distro the
 //! app owns ([`WSL_DISTRO`], imported once from the guest root the app ships):
 //!
-//! - each request to the agent is one `wsl.exe -d TxResBench -u root --exec
-//!   txresbench-sandbox-agent --stdio --base <img> --layer <img> --ro <dir>...`
-//!   process, speaking `sandbox-vm-protocol` over its stdin/stdout (the shared
-//!   exchange in `vm_exchange`); the agent mounts everything in a private mount
-//!   namespace, so nothing is left mounted in the distro after a request;
+//! - each request to the agent is one `wsl.exe -d TxResBench -u root --cd /
+//!   --exec txresbench-sandbox-agent --stdio --base <img> --layer <img> --ro
+//!   <dir>...` process, speaking `sandbox-vm-protocol` over its stdin/stdout
+//!   (the shared exchange in `vm_exchange`); the agent mounts everything in a
+//!   private mount namespace, so nothing is left mounted in the distro after a
+//!   request;
 //! - the images and the read-only inputs stay where they are on the Windows
 //!   disk and are read through WSL's `/mnt/<drive>` mounts: the images are held
 //!   open for the whole run so that nothing can change or delete them
@@ -20,15 +21,20 @@
 //!   seam (`service::run_method_in_stack`, Windows); bwrap's `--unshare-net`
 //!   keeps the method off the network;
 //! - the distro cannot start Windows programs (its `wsl.conf` turns interop
-//!   off).
+//!   off), and wsl.exe is started without the app's `WSLENV`, so none of the
+//!   app's variables are copied into it;
+//! - every run starts the distro once before its first request
+//!   ([`ensure_distro`]), which also finds a distro removed, replaced or left
+//!   without its disk since the last run and sets it up again.
 //!
 //! What the user must have: WSL installed (`wsl --install --no-distribution`,
 //! which needs admin rights and a restart once) and new enough
 //! ([`wsl_version_ok`]). The probe ([`probe_host`]) says which step is missing.
 
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
 use sandbox_vm_protocol::ExecRequest;
@@ -88,6 +94,9 @@ const AGENT_EXIT_TRANSPORT: i32 = 4;
 /// How much of an agent's stderr (its log) is kept for error messages.
 const AGENT_STDERR_KEEP: usize = 8 * 1024;
 
+/// The disk of a WSL 2 distro, in the dir it was imported into.
+const DISTRO_DISK_FILE: &str = "ext4.vhdx";
+
 fn wsl_error(message: impl Into<String>) -> AppError {
     AppError::new(StatusCode::SERVICE_UNAVAILABLE, WSL_UNAVAILABLE_CODE, message.into())
 }
@@ -101,13 +110,75 @@ fn wsl_exe() -> PathBuf {
     windows.join("System32").join("wsl.exe")
 }
 
-/// A wsl.exe command line: UTF-8 messages (`WSL_UTF8=1`; by default wsl.exe
-/// prints its own messages in UTF-16) and no console window.
-fn wsl_command() -> std::process::Command {
-    use std::os::windows::process::CommandExt;
-    let mut cmd = std::process::Command::new(wsl_exe());
-    cmd.env("WSL_UTF8", "1").creation_flags(CREATE_NO_WINDOW);
-    cmd
+/// The wsl.exe this runner starts: the system's own ([`wsl_exe`]), or in the
+/// tests a stand-in program with leading arguments of its own.
+#[derive(Clone, Debug)]
+struct Wsl {
+    program: PathBuf,
+    lead: Vec<OsString>,
+}
+
+impl Wsl {
+    fn system() -> Self {
+        Self { program: wsl_exe(), lead: Vec::new() }
+    }
+
+    /// A wsl.exe command line: UTF-8 messages (`WSL_UTF8=1`; by default
+    /// wsl.exe prints its own messages in UTF-16), no `WSLENV` (it names the
+    /// Windows variables WSL copies into Linux: none of the app's go there),
+    /// and no console window.
+    fn command(&self) -> std::process::Command {
+        use std::os::windows::process::CommandExt;
+        let mut cmd = std::process::Command::new(&self.program);
+        cmd.args(&self.lead).env("WSL_UTF8", "1").env_remove("WSLENV").creation_flags(CREATE_NO_WINDOW);
+        cmd
+    }
+
+    /// Run a wsl.exe command to completion, killing it after `timeout`.
+    fn run<A: AsRef<OsStr>>(&self, args: &[A], timeout: Duration) -> Result<WslOutput, String> {
+        use std::io::Read;
+        let mut child = self
+            .command()
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("cannot start {}: {e}", self.program.display()))?;
+        // Both pipes are drained at once: a full stderr pipe must not stall
+        // wsl.exe while stdout is being read.
+        let drain = |pipe: Option<Box<dyn Read + Send>>| {
+            std::thread::spawn(move || {
+                let mut buf = Vec::new();
+                if let Some(mut p) = pipe {
+                    let _ = p.read_to_end(&mut buf);
+                }
+                buf
+            })
+        };
+        let out = drain(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+        let err = drain(child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+        let deadline = Instant::now() + timeout;
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) if Instant::now() >= deadline => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(format!("wsl.exe did not finish within {} s", timeout.as_secs()));
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+                Err(e) => return Err(format!("wait for wsl.exe: {e}")),
+            }
+        };
+        let o = out.join().unwrap_or_default();
+        let e = err.join().unwrap_or_default();
+        Ok(WslOutput {
+            code: status.code(),
+            stdout: String::from_utf8_lossy(&o).into_owned(),
+            stderr: String::from_utf8_lossy(&e).into_owned(),
+        })
+    }
 }
 
 /// What a finished wsl.exe command printed.
@@ -136,49 +207,31 @@ impl WslOutput {
     }
 }
 
-/// Run a wsl.exe management command to completion, killing it after `timeout`.
-fn run_wsl(args: &[&std::ffi::OsStr], timeout: Duration) -> Result<WslOutput, String> {
-    use std::io::Read;
-    let mut child = wsl_command()
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("cannot start {}: {e}", wsl_exe().display()))?;
-    // Both pipes are drained at once: a full stderr pipe must not stall
-    // wsl.exe while stdout is being read.
-    let drain = |pipe: Option<Box<dyn Read + Send>>| {
-        std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            if let Some(mut p) = pipe {
-                let _ = p.read_to_end(&mut buf);
-            }
-            buf
-        })
-    };
-    let out = drain(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
-    let err = drain(child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
-    let deadline = std::time::Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if std::time::Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!("wsl.exe did not finish within {} s", timeout.as_secs()));
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(e) => return Err(format!("wait for wsl.exe: {e}")),
-        }
-    };
-    let o = out.join().unwrap_or_default();
-    let e = err.join().unwrap_or_default();
-    Ok(WslOutput {
-        code: status.code(),
-        stdout: String::from_utf8_lossy(&o).into_owned(),
-        stderr: String::from_utf8_lossy(&e).into_owned(),
-    })
+/// The wsl.exe arguments that run `argv` as root in the app's distro, from
+/// `/` (not the app's working dir, which WSL would translate and enter), with
+/// no shell in between.
+fn in_distro(argv: &[&str]) -> Vec<String> {
+    let mut a: Vec<String> = ["-d", WSL_DISTRO, "-u", "root", "--cd", "/", "--exec"].map(String::from).to_vec();
+    a.extend(argv.iter().map(|s| s.to_string()));
+    a
+}
+
+/// The error name in wsl.exe's error code: the last part of the
+/// `Wsl/<context>/.../<name>` word after the (translated) "Error code:" label,
+/// e.g. `ERROR_FILE_NOT_FOUND` in `Wsl/Service/CreateInstance/MountDisk/HCS/
+/// ERROR_FILE_NOT_FOUND` (a known error by its name, any other as `0x…`;
+/// `wslutil::ErrorToString` in WSL's source).
+fn wsl_error_name(text: &str) -> Option<&str> {
+    text.split_whitespace()
+        .filter(|w| w.starts_with("Wsl/"))
+        .last()
+        .and_then(|code| code.rsplit('/').next())
+}
+
+/// The in-box wsl.exe of a Windows without WSL prints only that WSL is not
+/// installed (translated) and this address, with no error code.
+fn wsl_not_installed(text: &str) -> bool {
+    wsl_error_name(text).is_none() && text.contains("aka.ms/wslinstall")
 }
 
 /// The WSL version from `wsl --version`: the first `a.b.c[.d]` number on the
@@ -311,7 +364,7 @@ fn probe() -> Result<HostCapabilities, String> {
              `{WSL_INSTALL_COMMAND}`, then restart Windows"
         ));
     }
-    let out = run_wsl(&["--version".as_ref()], WSL_QUERY_TIMEOUT)?;
+    let out = Wsl::system().run(&["--version"], WSL_QUERY_TIMEOUT)?;
     let version = if out.ok() { parse_wsl_version(&out.stdout) } else { None };
     match version {
         None => {
@@ -348,12 +401,15 @@ fn one_line(text: &str) -> String {
     t.chars().take(300).collect()
 }
 
-/// The names of the installed WSL distros.
-fn list_distros() -> Result<Vec<String>, AppError> {
-    let out = run_wsl(&["--list".as_ref(), "--quiet".as_ref()], WSL_QUERY_TIMEOUT).map_err(wsl_error)?;
-    // With no distro at all, `wsl --list` fails with a message: an empty list.
+/// The names of the registered WSL distros, in every state (`--all`: one
+/// being imported or removed right now is listed too). With no distro at all
+/// a quiet list prints nothing and succeeds (WSL's `ListDistributionsHelper`,
+/// 2.5.10 on), so a failed list is an error, never an empty list: taken for
+/// "no distro", it would set up anew a distro that may still be registered.
+fn list_distros(wsl: &Wsl) -> Result<Vec<String>, AppError> {
+    let out = wsl.run(&["--list", "--quiet", "--all"], WSL_QUERY_TIMEOUT).map_err(wsl_error)?;
     if !out.ok() {
-        return Ok(Vec::new());
+        return Err(wsl_failure("WSL could not list its distros", &out.text()));
     }
     Ok(out
         .stdout
@@ -364,36 +420,69 @@ fn list_distros() -> Result<Vec<String>, AppError> {
         .collect())
 }
 
-/// The build id inside the distro, `None` when it has no version file (it is
-/// not the app's), or an error when WSL cannot start it.
-fn distro_version() -> Result<Option<String>, AppError> {
-    let out = run_wsl(
-        &[
-            "-d".as_ref(),
-            WSL_DISTRO.as_ref(),
-            "-u".as_ref(),
-            "root".as_ref(),
-            "--exec".as_ref(),
-            GUEST_BUSYBOX_PATH.as_ref(),
-            "cat".as_ref(),
-            DISTRO_VERSION_FILE.as_ref(),
-        ],
-        WSL_START_TIMEOUT,
-    )
-    .map_err(wsl_error)?;
-    if out.ok() {
-        return Ok(Some(out.stdout.trim().to_string()));
-    }
-    let text = out.text();
-    // busybox ran but the file is not there: a distro that is not the app's.
-    if text.contains(DISTRO_VERSION_FILE) || text.to_ascii_lowercase().contains("no such file") {
-        return Ok(None);
-    }
-    Err(wsl_start_error(&text))
+/// What starting the app's distro found.
+#[derive(Debug, PartialEq)]
+enum Distro {
+    /// It started; this is its build id.
+    Build(String),
+    /// It started but has no build id: not the app's distro.
+    Foreign,
+    /// WSL has no distro of that name.
+    NotRegistered,
+    /// It is registered in the app's own dir, but its disk there is gone.
+    DiskLost,
 }
 
-/// A WSL start or import failure, with what to do for the common causes.
-fn wsl_start_error(text: &str) -> AppError {
+/// Start the app's distro and read its build id. Also the start every run
+/// makes before its first request: a WSL that idled out boots here, under
+/// [`WSL_START_TIMEOUT`], not in a request's shorter budget.
+fn distro_state(wsl: &Wsl, location: &Path) -> Result<Distro, AppError> {
+    let out = wsl
+        .run(&in_distro(&[GUEST_BUSYBOX_PATH, "cat", DISTRO_VERSION_FILE]), WSL_START_TIMEOUT)
+        .map_err(wsl_error)?;
+    if out.ok() {
+        let build = out.stdout.trim();
+        return Ok(if build.is_empty() { Distro::Foreign } else { Distro::Build(build.to_string()) });
+    }
+    let text = out.text();
+    match wsl_error_name(&text) {
+        Some("WSL_E_DISTRO_NOT_FOUND") => return Ok(Distro::NotRegistered),
+        Some("ERROR_FILE_NOT_FOUND" | "ERROR_PATH_NOT_FOUND") if disk_lost_at(location, &text) => {
+            return Ok(Distro::DiskLost);
+        }
+        Some(_) => return Err(wsl_failure("WSL could not start the app's distro", &text)),
+        None => {}
+    }
+    // busybox ran but the file is not there (or there is no busybox): a
+    // distro that is not the app's.
+    if text.contains(DISTRO_VERSION_FILE) || text.to_ascii_lowercase().contains("no such file") {
+        return Ok(Distro::Foreign);
+    }
+    Err(wsl_failure("WSL could not start the app's distro", &text))
+}
+
+/// Whether WSL failed to attach the disk in the app's own dir ("Failed to
+/// attach disk '<dir>\ext4.vhdx' to WSL2: ..."; the path is never translated)
+/// and that file is really gone: the distro WSL has registered is the one the
+/// app imported there, and its disk was deleted.
+fn disk_lost_at(location: &Path, text: &str) -> bool {
+    let disk = location.join(DISTRO_DISK_FILE);
+    if disk.exists() {
+        return false;
+    }
+    let norm = |t: &str| t.replace('/', "\\").to_lowercase();
+    norm(text).contains(&norm(&disk.to_string_lossy()))
+}
+
+/// A failed wsl.exe command, with what to do for the common causes.
+fn wsl_failure(what: &str, text: &str) -> AppError {
+    if wsl_not_installed(text) {
+        return wsl_error(format!(
+            "methods run in WSL 2, which is not installed on this computer: open PowerShell as \
+             administrator, run `{WSL_INSTALL_COMMAND}`, then restart Windows [wsl.exe said: {}]",
+            one_line(text)
+        ));
+    }
     let lower = text.to_ascii_lowercase();
     let hint = if lower.contains("0x80370102") || lower.contains("virtual machine platform") {
         format!(
@@ -403,54 +492,90 @@ fn wsl_start_error(text: &str) -> AppError {
         )
     } else if lower.contains("0x8004032d") || lower.contains("not supported") {
         " (this Windows does not support WSL 2)".to_string()
+    } else if matches!(wsl_error_name(text), Some("ERROR_FILE_NOT_FOUND" | "ERROR_PATH_NOT_FOUND")) {
+        format!(
+            " (a file of the distro is missing; if the {WSL_DISTRO} distro is the app's, run \
+             `wsl --unregister {WSL_DISTRO}` and start the run again: the app sets the distro up anew)"
+        )
     } else {
         String::new()
     };
-    wsl_error(format!("WSL could not start the app's distro: {}{hint}", one_line(text)))
+    wsl_error(format!("{what}: {}{hint}", one_line(text)))
 }
 
-/// One distro setup at a time in this process.
-static DISTRO_LOCK: tokio::sync::Mutex<Option<String>> = tokio::sync::Mutex::const_new(None);
+/// Remove the app's distro from WSL (with its disk).
+fn unregister(wsl: &Wsl, which: &str) -> Result<(), AppError> {
+    let out = wsl.run(&["--unregister", WSL_DISTRO], WSL_QUERY_TIMEOUT).map_err(wsl_error)?;
+    if !out.ok() {
+        return Err(wsl_failure(&format!("WSL could not remove {which}"), &out.text()));
+    }
+    Ok(())
+}
 
-/// Make sure the app's distro exists and is the shipped build: import it on
-/// first use (no admin rights needed), replace an older build of it, and
-/// refuse to touch a distro of that name the app did not create.
+/// Where the app imports its distro (WSL keeps the distro's disk there).
+fn distro_location(data_root: &Path) -> PathBuf {
+    data_root.join("wsl").join("distro")
+}
+
+/// The build of the app's distro this process set up, `None` until then. The
+/// lock is held for a whole check or setup, by the task doing it.
+type ReadyBuild = Arc<tokio::sync::Mutex<Option<String>>>;
+
+static READY: std::sync::LazyLock<ReadyBuild> = std::sync::LazyLock::new(|| Arc::new(tokio::sync::Mutex::new(None)));
+
+/// Make sure the app's distro is there, is the shipped build, and is started
+/// (every run calls this before its first request to the agent): the first
+/// run sets it up ([`ensure_distro_blocking`]); later runs start it and set it
+/// up again if it was removed, replaced or lost its disk meanwhile.
 pub async fn ensure_distro() -> Result<(), AppError> {
     let runtime = RUNTIME
         .get()
         .cloned()
         .ok_or_else(|| wsl_error("the WSL runner was not set up (see the sandbox status at startup)"))?;
-    let mut ready = DISTRO_LOCK.lock().await;
-    if ready.as_deref() == Some(runtime.version.as_str()) {
-        return Ok(());
-    }
-    let data_root = crate::modules::rootfs::data_root();
-    let version = runtime.version.clone();
-    tokio::task::spawn_blocking(move || ensure_distro_blocking(&runtime, &data_root))
+    ensure_ready(&READY, Wsl::system(), runtime, crate::modules::rootfs::data_root()).await
+}
+
+async fn ensure_ready(ready: &ReadyBuild, wsl: Wsl, runtime: Runtime, data_root: PathBuf) -> Result<(), AppError> {
+    let mut guard = ready.clone().lock_owned().await;
+    // The blocking task owns the lock: a run cancelled meanwhile leaves an
+    // import going on to its end with the lock held, so the next run waits
+    // for it instead of starting a second import beside it.
+    tokio::task::spawn_blocking(move || start_or_set_up(&wsl, &runtime, &data_root, &mut guard))
         .await
-        .map_err(|e| wsl_error(format!("WSL setup task: {e}")))??;
-    *ready = Some(version);
+        .map_err(|e| wsl_error(format!("WSL setup task: {e}")))?
+}
+
+fn start_or_set_up(wsl: &Wsl, runtime: &Runtime, data_root: &Path, ready: &mut Option<String>) -> Result<(), AppError> {
+    if ready.as_deref() == Some(runtime.version.as_str()) {
+        match distro_state(wsl, &distro_location(data_root))? {
+            Distro::Build(b) if b == runtime.version => return Ok(()),
+            _ => *ready = None,
+        }
+    }
+    ensure_distro_blocking(wsl, runtime, data_root)?;
+    *ready = Some(runtime.version.clone());
     Ok(())
 }
 
-fn ensure_distro_blocking(runtime: &Runtime, data_root: &Path) -> Result<(), AppError> {
-    let installed = list_distros()?.iter().any(|n| n.eq_ignore_ascii_case(WSL_DISTRO));
-    if installed {
-        match distro_version()? {
-            Some(v) if v == runtime.version => return Ok(()),
-            Some(_) => {
-                // An older build of the app's own distro: replace it (it holds
-                // nothing but the guest root; runs keep no state in it).
-                let out = run_wsl(&["--unregister".as_ref(), WSL_DISTRO.as_ref()], WSL_QUERY_TIMEOUT)
-                    .map_err(wsl_error)?;
-                if !out.ok() {
-                    return Err(wsl_error(format!(
-                        "WSL could not remove the app's outdated distro: {}",
-                        one_line(&out.text())
-                    )));
-                }
-            }
-            None => {
+/// Make sure the app's distro exists and is the shipped build: import it on
+/// first use (no admin rights needed), replace an older build of it or one
+/// whose disk was deleted, and refuse to touch a distro of that name the app
+/// did not create.
+fn ensure_distro_blocking(wsl: &Wsl, runtime: &Runtime, data_root: &Path) -> Result<(), AppError> {
+    let location = distro_location(data_root);
+    let listed = list_distros(wsl)?.iter().any(|n| n.eq_ignore_ascii_case(WSL_DISTRO));
+    if listed {
+        match distro_state(wsl, &location)? {
+            Distro::Build(b) if b == runtime.version => return Ok(()),
+            // An older build of the app's own distro (it holds nothing but
+            // the guest root; runs keep no state in it): replaced.
+            Distro::Build(_) => unregister(wsl, "the app's outdated distro")?,
+            // The app's distro, registered in the app's dir, without its
+            // disk: it cannot start again, so it is set up anew.
+            Distro::DiskLost => unregister(wsl, "the app's distro whose disk was deleted")?,
+            // Removed since it was listed.
+            Distro::NotRegistered => {}
+            Distro::Foreign => {
                 return Err(wsl_error(format!(
                     "a WSL distro named {WSL_DISTRO} exists that this app did not create; rename or remove \
                      it (`wsl --unregister {WSL_DISTRO}` deletes it and everything in it)"
@@ -458,7 +583,38 @@ fn ensure_distro_blocking(runtime: &Runtime, data_root: &Path) -> Result<(), App
             }
         }
     }
-    let actual = sha256_file(&runtime.rootfs).map_err(|e| wsl_error(format!("read the WSL guest root: {e}")))?;
+    // Only here is the distro known not to be registered (not listed by a
+    // list that succeeded, just removed, or reported missing): nothing uses
+    // its dir now, so whatever an earlier distro left there can go.
+    match std::fs::remove_dir_all(&location) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(wsl_error(format!(
+                "remove what an earlier WSL distro left in {}: {e}",
+                location.display()
+            )));
+        }
+    }
+    std::fs::create_dir_all(&location).map_err(|e| wsl_error(format!("create {}: {e}", location.display())))?;
+    import(wsl, runtime, &location)?;
+    let found = match distro_state(wsl, &location)? {
+        Distro::Build(b) if b == runtime.version => return Ok(()),
+        Distro::Build(b) => format!("reports build {b}"),
+        Distro::Foreign => "has no build id".to_string(),
+        Distro::NotRegistered => "is not registered".to_string(),
+        Distro::DiskLost => "has no disk".to_string(),
+    };
+    Err(wsl_error(format!("the imported WSL distro {found}, expected build {}", runtime.version)))
+}
+
+/// Import the shipped guest root as the app's distro. The tarball is held
+/// open from its checksum to the end of the import: nothing can change or
+/// replace it in between (WSL opens it to read, which the hold allows).
+fn import(wsl: &Wsl, runtime: &Runtime, location: &Path) -> Result<(), AppError> {
+    let tar = open_held(&runtime.rootfs)
+        .map_err(|e| wsl_error(format!("open the WSL guest root {}: {e}", runtime.rootfs.display())))?;
+    let actual = sha256_of(&tar).map_err(|e| wsl_error(format!("read the WSL guest root: {e}")))?;
     if actual != runtime.sha256 {
         return Err(wsl_error(format!(
             "the WSL guest root {} does not match its checksum (sha256 {actual}, expected {})",
@@ -466,43 +622,37 @@ fn ensure_distro_blocking(runtime: &Runtime, data_root: &Path) -> Result<(), App
             runtime.sha256
         )));
     }
-    let location = data_root.join("wsl").join("distro");
-    // A dir left by an earlier, removed distro would make the import fail.
-    let _ = std::fs::remove_dir_all(&location);
-    std::fs::create_dir_all(&location)
-        .map_err(|e| wsl_error(format!("create {}: {e}", location.display())))?;
-    let out = run_wsl(
-        &[
-            "--import".as_ref(),
-            WSL_DISTRO.as_ref(),
-            location.as_os_str(),
-            runtime.rootfs.as_os_str(),
-            "--version".as_ref(),
-            "2".as_ref(),
-        ],
-        WSL_IMPORT_TIMEOUT,
-    )
-    .map_err(wsl_error)?;
+    let args: [&OsStr; 6] = [
+        "--import".as_ref(),
+        WSL_DISTRO.as_ref(),
+        location.as_os_str(),
+        runtime.rootfs.as_os_str(),
+        "--version".as_ref(),
+        "2".as_ref(),
+    ];
+    let out = wsl.run(&args, WSL_IMPORT_TIMEOUT).map_err(wsl_error)?;
+    drop(tar);
     if !out.ok() {
-        return Err(wsl_start_error(&out.text()));
+        return Err(wsl_failure("WSL could not import the app's distro", &out.text()));
     }
-    match distro_version()? {
-        Some(v) if v == runtime.version => Ok(()),
-        other => Err(wsl_error(format!(
-            "the imported WSL distro reports build {other:?}, expected {}",
-            runtime.version
-        ))),
-    }
+    Ok(())
 }
 
-fn sha256_file(path: &Path) -> std::io::Result<String> {
+/// Open a file to read it, sharing it only with readers: until the handle is
+/// closed, Windows refuses anyone else's write, rename or delete of it.
+fn open_held(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_SHARE_READ: u32 = 0x1;
+    std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(path)
+}
+
+/// The sha256 of everything read from `reader`.
+fn sha256_of(mut reader: impl std::io::Read) -> std::io::Result<String> {
     use sha2::{Digest, Sha256};
-    use std::io::Read;
-    let mut f = std::fs::File::open(path)?;
     let mut h = Sha256::new();
     let mut buf = vec![0u8; 1 << 20];
     loop {
-        let n = f.read(&mut buf)?;
+        let n = reader.read(&mut buf)?;
         if n == 0 {
             break;
         }
@@ -585,9 +735,8 @@ pub struct WslAgent {
     base: String,
     layer: String,
     ro: Vec<String>,
-    /// Tests: a stand-in for `wsl.exe` and its arguments.
-    #[cfg(test)]
-    fake: Option<(PathBuf, Vec<String>)>,
+    /// The wsl.exe each request starts (tests: a stand-in agent).
+    wsl: Wsl,
 }
 
 impl WslAgent {
@@ -598,17 +747,13 @@ impl WslAgent {
             base: win_to_wsl(base)?,
             layer: win_to_wsl(layer)?,
             ro: ro.iter().map(|p| win_to_wsl(p)).collect::<Result<_, _>>()?,
-            #[cfg(test)]
-            fake: None,
+            wsl: Wsl::system(),
         })
     }
 
     /// The agent's command line after `wsl.exe` (also used by the tests).
     pub(crate) fn args(&self) -> Vec<String> {
-        let mut a: Vec<String> = ["-d", WSL_DISTRO, "-u", "root", "--exec", GUEST_AGENT_PATH, "--stdio"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let mut a = in_distro(&[GUEST_AGENT_PATH, "--stdio"]);
         a.extend(["--base".to_string(), self.base.clone(), "--layer".to_string(), self.layer.clone()]);
         for r in &self.ro {
             a.extend(["--ro".to_string(), r.clone()]);
@@ -622,15 +767,6 @@ impl WslAgent {
         super::vm_exchange::read_layer_plan(self).await
     }
 
-    /// The program and arguments one request starts.
-    fn command(&self) -> (PathBuf, Vec<String>) {
-        #[cfg(test)]
-        if let Some(fake) = &self.fake {
-            return fake.clone();
-        }
-        (wsl_exe(), self.args())
-    }
-
     async fn run(
         &self,
         req: ExecRequest,
@@ -638,17 +774,14 @@ impl WslAgent {
         sink: Option<&Arc<dyn ProgressSink>>,
         artifact_dirs: &[OutputDir],
     ) -> Result<VmExecOutcome, AppError> {
-        let (program, args) = self.command();
-        let mut child = tokio::process::Command::new(&program)
-            .args(args)
-            .env("WSL_UTF8", "1")
-            .creation_flags(CREATE_NO_WINDOW)
+        let mut child = tokio::process::Command::from(self.wsl.command())
+            .args(self.args())
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|e| wsl_error(format!("cannot start {}: {e}", program.display())))?;
+            .map_err(|e| wsl_error(format!("cannot start {}: {e}", self.wsl.program.display())))?;
         let (Some(stdin), Some(stdout), Some(mut stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take())
         else {
             return Err(wsl_error("wsl.exe started without its pipes"));
@@ -772,7 +905,8 @@ mod tests {
         assert_eq!(
             agent.args(),
             [
-                "-d", "TxResBench", "-u", "root", "--exec", "/usr/bin/txresbench-sandbox-agent", "--stdio",
+                "-d", "TxResBench", "-u", "root", "--cd", "/", "--exec", "/usr/bin/txresbench-sandbox-agent",
+                "--stdio",
                 "--base", "/mnt/c/cache/base.sqfs", "--layer", "/mnt/c/cache/layer.sqfs",
                 "--ro", "/mnt/c/run/input", "--ro", "/mnt/c/run/identity",
             ]
@@ -845,8 +979,11 @@ mod tests {
             seen += 1;
         }
         assert!(seen >= 2, "the const and the module docs name it");
-        let e = wsl_start_error("Error code: Wsl/Service/CreateInstance/0x80370102");
+        let e = wsl_failure("WSL could not start the app's distro", "Error code: Wsl/Service/CreateInstance/0x80370102");
         assert!(e.to_string().contains("`wsl --install --no-distribution`"), "{e}");
+        let e = wsl_failure("WSL could not list its distros", STUB_SAYS);
+        assert!(e.to_string().contains("`wsl --install --no-distribution`"), "{e}");
+        assert!(e.to_string().contains("not installed on this computer"), "{e}");
     }
 
     /// Exit 4 is not only a lost connection: a request the agent refuses for
@@ -867,24 +1004,86 @@ mod tests {
         assert!(text.contains("protocol version is not served"), "{text}");
     }
 
-    /// A stand-in agent process: PowerShell writes `frames` to its stdout (it
-    /// does not read the request), `log` to its stderr, and exits with `code`;
-    /// the real pipes, log capture and exit-code handling of [`WslAgent`] run.
-    fn fake_agent(tag: &str, frames: &[sandbox_vm_protocol::Frame], log: &str, code: i32) -> (WslAgent, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("txr-wsl-fake-agent-{tag}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+    /// What the in-box wsl.exe of a Windows without WSL prints (seen on a
+    /// Windows 11 VM, on stderr in UTF-16, exit 1).
+    const STUB_SAYS: &str = "The Windows Subsystem for Linux is not installed. You can install by running \
+                             'wsl.exe --install'.\r\r\nFor more information please visit https://aka.ms/wslinstall";
+
+    fn powershell() -> PathBuf {
+        wsl_exe().with_file_name("WindowsPowerShell").join("v1.0").join("powershell.exe")
+    }
+
+    /// A fresh dir for one test.
+    fn test_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("txr-wsl-{tag}-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
-        let bytes: Vec<u8> = frames.iter().flat_map(sandbox_vm_protocol::encode).collect();
+        dir
+    }
+
+    /// A stand-in for wsl.exe started the way the runner starts it: PowerShell
+    /// runs `script` with `args` first, then the runner's own arguments.
+    fn stand_in(dir: &Path, script: &str, args: &[&OsStr]) -> Wsl {
+        let file = dir.join("stand-in.ps1");
+        std::fs::write(&file, script).unwrap();
+        let mut lead: Vec<OsString> = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        lead.push(file.into_os_string());
+        lead.extend(args.iter().map(|a| a.to_os_string()));
+        Wsl { program: powershell(), lead }
+    }
+
+    /// A stand-in agent: it checks that the request `exec_over` sends reaches
+    /// its stdin byte for byte (exit 9 if not), then writes `frames` to its
+    /// stdout, `log` to its stderr, and exits with `code`. Its own arguments
+    /// come first (`none` for an empty one:
+    /// powershell.exe may drop an empty argument, and takes `-` for a
+    /// parameter); the runner's are kept in `args.txt`.
+    const FAKE_AGENT: &str = r#"
+$want = [IO.File]::ReadAllBytes($args[0]); $frames = $args[1]; $log = $args[2]; $code = [int]$args[3]
+[IO.File]::WriteAllText($args[4], (($args | Select-Object -Skip 5) -join ' '))
+$in = [Console]::OpenStandardInput()
+$got = New-Object byte[] $want.Length; $n = 0
+while ($n -lt $want.Length) { $r = $in.Read($got, $n, $want.Length - $n); if ($r -le 0) { break }; $n += $r }
+if ($n -ne $want.Length -or [Convert]::ToBase64String($got) -ne [Convert]::ToBase64String($want)) {
+    [Console]::Error.WriteLine("fake agent: the request on stdin is not the one sent ($n bytes)"); exit 9
+}
+$b = [IO.File]::ReadAllBytes($frames); $o = [Console]::OpenStandardOutput(); $o.Write($b, 0, $b.Length); $o.Flush()
+if ($log -ne 'none') { [Console]::Error.WriteLine($log) }
+exit $code
+"#;
+
+    /// [`FAKE_AGENT`] as the wsl.exe of a [`WslAgent`]: the real pipes, log
+    /// capture, exit-code handling and command line of the runner run.
+    fn fake_agent(
+        tag: &str,
+        req: &ExecRequest,
+        frames: &[sandbox_vm_protocol::Frame],
+        log: &'static str,
+        code: i32,
+    ) -> (WslAgent, PathBuf) {
+        let dir = test_dir(&format!("fake-agent-{tag}"));
+        let request = dir.join("request.bin");
+        std::fs::write(&request, sandbox_vm_protocol::encode(&sandbox_vm_protocol::Frame::Exec(req.clone()))).unwrap();
         let frames_file = dir.join("frames.bin");
-        std::fs::write(&frames_file, bytes).unwrap();
-        let script = format!(
-            "$b=[IO.File]::ReadAllBytes('{}'); $o=[Console]::OpenStandardOutput(); $o.Write($b,0,$b.Length); \
-             $o.Flush(); [Console]::Error.WriteLine('{log}'); exit {code}",
-            frames_file.display()
-        );
+        std::fs::write(&frames_file, frames.iter().flat_map(sandbox_vm_protocol::encode).collect::<Vec<u8>>()).unwrap();
+        let code = code.to_string();
+        let args_file = dir.join("args.txt");
+        let or_none = |s: &'static str| if s.is_empty() { "none" } else { s };
+        let log = or_none(log);
         let mut agent = WslAgent::new(Path::new(r"C:\img\base.sqfs"), Path::new(r"C:\img\layer.sqfs"), &[]).unwrap();
-        let powershell = wsl_exe().with_file_name("WindowsPowerShell").join("v1.0").join("powershell.exe");
-        agent.fake = Some((powershell, ["-NoProfile", "-NonInteractive", "-Command", &script].map(String::from).to_vec()));
+        agent.wsl = stand_in(
+            &dir,
+            FAKE_AGENT,
+            &[
+                request.as_os_str(),
+                frames_file.as_os_str(),
+                log.as_ref(),
+                code.as_ref(),
+                args_file.as_os_str(),
+            ],
+        );
         (agent, dir)
     }
 
@@ -912,23 +1111,42 @@ mod tests {
             Frame::ArtifactChunk { mount_index: 0, rel_path: "pred.csv".into(), offset: 0, data: b"id,p\n1,0.5\n".to_vec() },
             Frame::ArtifactsDone,
         ];
-        let (agent, dir) = fake_agent("ok", &frames, "agent: done", 0);
+        let (agent, dir) = fake_agent("ok", &request(), &frames, "agent: done", 0);
         let out = dir.join("out");
         std::fs::create_dir_all(&out).unwrap();
         let dirs = [OutputDir { host: out.clone(), sandbox_path: "/output".into() }];
         let outcome = AgentExec::exec(&agent, request(), Duration::from_secs(60), None, &dirs)
             .await
-            .expect("the exchange succeeds");
+            .expect("the exchange succeeds (and the request reached the agent's stdin)");
         assert_eq!(outcome.exit_code, 0);
         assert_eq!(outcome.stdout, b"hello\n");
         assert!(outcome.incomplete.is_empty(), "{:?}", outcome.incomplete);
         assert_eq!(std::fs::read(out.join("pred.csv")).unwrap(), b"id,p\n1,0.5\n");
+        let args = std::fs::read_to_string(dir.join("args.txt")).unwrap();
+        assert!(args.starts_with("-d TxResBench -u root --cd / --exec /usr/bin/txresbench-sandbox-agent --stdio"), "{args}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The stand-in agent refuses a request that is not the one sent, so the
+    /// check above is real: a different request fails the exchange.
+    #[tokio::test]
+    async fn the_stand_in_agent_refuses_a_request_it_was_not_sent() {
+        // Of the same length, so the stand-in reads it whole before comparing.
+        let mut other = request();
+        other.argv = vec!["TRUE".into()];
+        let (agent, dir) = fake_agent("other-request", &other, &[], "", 0);
+        let err = AgentExec::exec(&agent, request(), Duration::from_secs(60), None, &[])
+            .await
+            .err()
+            .expect("a different request is refused");
+        assert!(err.to_string().contains("the request on stdin is not the one sent"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
     async fn an_agent_that_cannot_mount_says_why() {
-        let (agent, dir) = fake_agent("mount", &[], "error: mount /sandbox-rootfs: squashfs not supported", 3);
+        let (agent, dir) =
+            fake_agent("mount", &request(), &[], "error: mount /sandbox-rootfs: squashfs not supported", 3);
         let err = AgentExec::exec(&agent, request(), Duration::from_secs(60), None, &[])
             .await
             .err()
@@ -939,6 +1157,315 @@ mod tests {
         assert!(text.contains("squashfs not supported"), "{text}");
         assert!(!text.contains("VM"), "no macOS wording on Windows: {text}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// wsl.exe runs with UTF-8 messages and without the app's `WSLENV`, so
+    /// none of the app's variables are copied into the distro.
+    #[test]
+    fn wsl_exe_gets_utf8_messages_and_no_wslenv() {
+        let cmd = Wsl::system().command();
+        let envs: Vec<(&OsStr, Option<&OsStr>)> = cmd.get_envs().collect();
+        assert!(envs.contains(&(OsStr::new("WSLENV"), None)), "{envs:?}");
+        assert!(envs.contains(&(OsStr::new("WSL_UTF8"), Some(OsStr::new("1")))), "{envs:?}");
+        assert_eq!(cmd.get_program(), wsl_exe().as_os_str());
+        assert_eq!(
+            in_distro(&["/bin/busybox", "true"]),
+            ["-d", "TxResBench", "-u", "root", "--cd", "/", "--exec", "/bin/busybox", "true"]
+        );
+    }
+
+    /// A stand-in wsl.exe with the state of a WSL in a dir: `registered`
+    /// (present when the app's distro is registered) holds the dir it was
+    /// imported into, whose `ext4.vhdx` holds its build id (empty: a distro
+    /// without the app's version file). `mode` makes it fail its list
+    /// (`list-fails`), behave as the in-box stub of a Windows without WSL
+    /// (`stub`), hang (`hang`), or import slowly (`slow-import`). Every call
+    /// is appended to `calls.txt`; an import writes `tar-held.txt`: `held`
+    /// when the tarball could be read but not written during the import.
+    /// Messages and error codes are WSL's own (en-US).
+    const FAKE_WSL: &str = r#"
+$state = $args[0]
+$a = @($args | Select-Object -Skip 1)
+[IO.File]::AppendAllText((Join-Path $state 'calls.txt'), (($a -join ' ') + "`n"))
+$reg = Join-Path $state 'registered'
+$modeFile = Join-Path $state 'mode'
+$mode = ''
+if ([IO.File]::Exists($modeFile)) { $mode = [IO.File]::ReadAllText($modeFile).Trim() }
+function Fail($text) { [Console]::Error.Write($text + "`r`n"); exit -1 }
+if ($mode -eq 'stub') { [Console]::Error.Write("The Windows Subsystem for Linux is not installed. You can install by running 'wsl.exe --install'.`r`r`nFor more information please visit https://aka.ms/wslinstall`r`r`n"); exit 1 }
+if ($mode -eq 'hang') { Start-Sleep -Seconds 600; exit 0 }
+$notFound = "There is no distribution with the supplied name.`r`nError code: Wsl/Service/WSL_E_DISTRO_NOT_FOUND"
+if ($a[0] -eq '--list') {
+    if ($mode -eq 'list-fails') { Fail "The remote procedure call failed.`r`nError code: Wsl/Service/0x800706be" }
+    [Console]::Out.Write("Ubuntu`r`n")
+    if ([IO.File]::Exists($reg)) { [Console]::Out.Write("TxResBench`r`n") }
+    exit 0
+}
+if ($a[0] -eq '--unregister') {
+    if (-not [IO.File]::Exists($reg)) { Fail $notFound }
+    $disk = Join-Path ([IO.File]::ReadAllText($reg)) 'ext4.vhdx'
+    if ([IO.File]::Exists($disk)) { [IO.File]::Delete($disk) }
+    [IO.File]::Delete($reg)
+    [Console]::Out.Write("The operation completed successfully.`r`n"); exit 0
+}
+if ($a[0] -eq '--import') {
+    $base = $a[2]; $tar = $a[3]
+    if ([IO.File]::Exists($reg)) { Fail "A distribution with the supplied name already exists. Use --name to choose a different name.`r`nError code: Wsl/Service/RegisterDistro/ERROR_ALREADY_EXISTS" }
+    $disk = Join-Path $base 'ext4.vhdx'
+    if ([IO.File]::Exists($disk)) { Fail "The file exists.`r`nError code: Wsl/Service/RegisterDistro/ERROR_FILE_EXISTS" }
+    $held = 'held'
+    try { $w = [IO.File]::Open($tar, 'Open', 'Write', 'ReadWrite, Delete'); $w.Close(); $held = 'not held' } catch { }
+    [IO.File]::WriteAllText((Join-Path $state 'tar-held.txt'), $held)
+    # As WSL: the tarball is opened to read, sharing read + delete.
+    $f = [IO.File]::Open($tar, 'Open', 'Read', 'Read, Delete')
+    $build = (New-Object IO.StreamReader($f)).ReadToEnd().Trim()
+    $f.Close()
+    if ($mode -eq 'slow-import') { Start-Sleep -Seconds 4 }
+    [void][IO.Directory]::CreateDirectory($base)
+    [IO.File]::WriteAllText($disk, $build)
+    [IO.File]::WriteAllText($reg, $base)
+    [Console]::Out.Write("Import in progress, this may take a few minutes.`r`nThe operation completed successfully.`r`n"); exit 0
+}
+if ($a[0] -eq '-d') {
+    if (-not [IO.File]::Exists($reg)) { Fail $notFound }
+    $disk = Join-Path ([IO.File]::ReadAllText($reg)) 'ext4.vhdx'
+    if (-not [IO.File]::Exists($disk)) { Fail "Failed to attach disk '$disk' to WSL2: The system cannot find the file specified.`r`nError code: Wsl/Service/CreateInstance/MountDisk/HCS/ERROR_FILE_NOT_FOUND" }
+    $build = [IO.File]::ReadAllText($disk).Trim()
+    if ($build -eq '') { [Console]::Error.Write("cat: can't open '/etc/txresbench-wsl-version': No such file or directory`n"); exit 1 }
+    [Console]::Out.Write($build + "`n"); exit 0
+}
+Fail ("unexpected call: " + ($a -join ' '))
+"#;
+
+    /// One test's WSL: the stand-in, its state dir, the app's data root, and
+    /// a guest root tarball whose content is its build id.
+    struct FakeWsl {
+        wsl: Wsl,
+        state: PathBuf,
+        data_root: PathBuf,
+        runtime: Runtime,
+    }
+
+    impl FakeWsl {
+        fn new(tag: &str, build: &str) -> Self {
+            use sha2::Digest;
+            let dir = test_dir(&format!("fake-wsl-{tag}"));
+            let state = dir.join("state");
+            let data_root = dir.join("data");
+            std::fs::create_dir_all(&state).unwrap();
+            std::fs::create_dir_all(&data_root).unwrap();
+            let rootfs = dir.join(ROOTFS_FILE);
+            std::fs::write(&rootfs, build).unwrap();
+            let runtime = Runtime {
+                rootfs,
+                version: build.to_string(),
+                sha256: hex::encode(sha2::Sha256::digest(build.as_bytes())),
+            };
+            let wsl = stand_in(&dir, FAKE_WSL, &[state.as_os_str()]);
+            Self { wsl, state, data_root, runtime }
+        }
+
+        fn mode(&self, mode: &str) {
+            std::fs::write(self.state.join("mode"), mode).unwrap();
+        }
+
+        /// A distro of the app's name registered in `dir`, whose build id is `build`.
+        fn register(&self, dir: &Path, build: &str) {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join(DISTRO_DISK_FILE), build).unwrap();
+            std::fs::write(self.state.join("registered"), dir.as_os_str().to_string_lossy().as_bytes()).unwrap();
+        }
+
+        fn registered_build(&self) -> Option<String> {
+            let dir = std::fs::read_to_string(self.state.join("registered")).ok()?;
+            std::fs::read_to_string(Path::new(&dir).join(DISTRO_DISK_FILE)).ok()
+        }
+
+        fn location(&self) -> PathBuf {
+            distro_location(&self.data_root)
+        }
+
+        /// The calls so far, by their first argument.
+        fn calls(&self) -> Vec<String> {
+            std::fs::read_to_string(self.state.join("calls.txt"))
+                .unwrap_or_default()
+                .lines()
+                .map(|l| l.split_whitespace().next().unwrap_or("").to_string())
+                .collect()
+        }
+
+        fn ensure(&self) -> Result<(), AppError> {
+            ensure_distro_blocking(&self.wsl, &self.runtime, &self.data_root)
+        }
+
+        fn remove(self) {
+            let _ = std::fs::remove_dir_all(self.state.parent().unwrap());
+        }
+    }
+
+    #[test]
+    fn the_first_run_imports_the_distro_from_the_held_guest_root() {
+        let w = FakeWsl::new("first", "wsl-7");
+        w.ensure().expect("imported");
+        assert_eq!(w.calls(), ["--list", "--import", "-d"]);
+        let calls = std::fs::read_to_string(w.state.join("calls.txt")).unwrap();
+        assert!(calls.starts_with("--list --quiet --all\n"), "{calls}");
+        assert!(calls.contains("\n-d TxResBench -u root --cd / --exec /bin/busybox cat /etc/txresbench-wsl-version\n"), "{calls}");
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-7"));
+        assert!(w.location().join(DISTRO_DISK_FILE).is_file());
+        assert_eq!(
+            std::fs::read_to_string(w.state.join("tar-held.txt")).unwrap(),
+            "held",
+            "the tarball cannot be written between its checksum and the end of the import"
+        );
+        w.remove();
+    }
+
+    #[test]
+    fn a_guest_root_that_does_not_match_its_checksum_is_not_imported() {
+        let mut w = FakeWsl::new("bad-sum", "wsl-7");
+        w.runtime.sha256 = "0".repeat(64);
+        let err = w.ensure().expect_err("refused");
+        assert!(err.to_string().contains("does not match its checksum"), "{err}");
+        assert_eq!(w.calls(), ["--list"]);
+        w.remove();
+    }
+
+    /// A list that fails for any reason is an error: the app's distro may be
+    /// registered (here it is, stopped), and its disk must stay where it is.
+    #[test]
+    fn a_failed_list_is_an_error_and_never_touches_the_distros_disk() {
+        let w = FakeWsl::new("list-fails", "wsl-7");
+        w.register(&w.location(), "wsl-7");
+        w.mode("list-fails");
+        let err = w.ensure().expect_err("a failed list is not an empty one");
+        assert_eq!(err.error_code(), WSL_UNAVAILABLE_CODE);
+        assert!(err.to_string().contains("WSL could not list its distros"), "{err}");
+        assert!(err.to_string().contains("Wsl/Service/0x800706be"), "{err}");
+        assert_eq!(w.calls(), ["--list"], "nothing removed, nothing imported");
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-7"));
+        assert!(w.location().join(DISTRO_DISK_FILE).is_file(), "the disk is still there");
+        w.remove();
+    }
+
+    #[test]
+    fn without_wsl_the_message_says_how_to_install_it() {
+        let w = FakeWsl::new("stub", "wsl-7");
+        w.mode("stub");
+        let err = w.ensure().expect_err("no WSL");
+        assert!(err.to_string().contains("`wsl --install --no-distribution`"), "{err}");
+        assert_eq!(w.calls(), ["--list"]);
+        w.remove();
+    }
+
+    #[test]
+    fn an_older_build_of_the_apps_distro_is_replaced() {
+        let w = FakeWsl::new("older", "wsl-8");
+        w.register(&w.location(), "wsl-7");
+        w.ensure().expect("replaced");
+        assert_eq!(w.calls(), ["--list", "-d", "--unregister", "--import", "-d"]);
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
+        w.remove();
+    }
+
+    #[test]
+    fn the_current_build_is_left_as_it_is() {
+        let w = FakeWsl::new("current", "wsl-7");
+        w.register(&w.location(), "wsl-7");
+        w.ensure().expect("ready");
+        assert_eq!(w.calls(), ["--list", "-d"]);
+        w.remove();
+    }
+
+    #[test]
+    fn a_distro_the_app_did_not_create_is_refused_and_left_alone() {
+        let w = FakeWsl::new("foreign", "wsl-7");
+        let theirs = w.data_root.join("theirs");
+        w.register(&theirs, "");
+        let err = w.ensure().expect_err("not the app's");
+        assert!(err.to_string().contains("that this app did not create"), "{err}");
+        assert_eq!(w.calls(), ["--list", "-d"], "never removed");
+        assert!(theirs.join(DISTRO_DISK_FILE).is_file());
+        w.remove();
+    }
+
+    /// The app's distro whose disk was deleted cannot start again: the app
+    /// owns its dir, so it removes the registration and imports anew.
+    #[test]
+    fn the_apps_distro_whose_disk_was_deleted_is_set_up_again() {
+        let w = FakeWsl::new("disk-lost", "wsl-7");
+        w.ensure().expect("imported");
+        std::fs::remove_file(w.location().join(DISTRO_DISK_FILE)).unwrap();
+        w.ensure().expect("set up again");
+        assert_eq!(w.calls(), ["--list", "--import", "-d", "--list", "-d", "--unregister", "--import", "-d"]);
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-7"));
+        w.remove();
+    }
+
+    /// A distro of the app's name whose missing disk is NOT in the app's dir
+    /// is not the app's to remove: the message says what to do instead.
+    #[test]
+    fn a_missing_disk_elsewhere_is_reported_not_removed() {
+        let w = FakeWsl::new("disk-elsewhere", "wsl-7");
+        let theirs = w.data_root.join("theirs");
+        w.register(&theirs, "wsl-7");
+        std::fs::remove_file(theirs.join(DISTRO_DISK_FILE)).unwrap();
+        let err = w.ensure().expect_err("not the app's disk");
+        let text = err.to_string();
+        assert!(text.contains("ERROR_FILE_NOT_FOUND"), "{text}");
+        assert!(text.contains("`wsl --unregister TxResBench`"), "{text}");
+        assert_eq!(w.calls(), ["--list", "-d"], "never removed");
+        w.remove();
+    }
+
+    /// Every run starts the distro (one call), and a distro removed since
+    /// the last run is set up again instead of failing the run.
+    #[tokio::test]
+    async fn every_run_starts_the_distro_and_sets_up_one_removed_meanwhile() {
+        let w = FakeWsl::new("recheck", "wsl-7");
+        let ready: ReadyBuild = Arc::new(tokio::sync::Mutex::new(None));
+        let run = || ensure_ready(&ready, w.wsl.clone(), w.runtime.clone(), w.data_root.clone());
+        run().await.expect("first run: imported");
+        assert_eq!(w.calls(), ["--list", "--import", "-d"]);
+        run().await.expect("second run: started");
+        assert_eq!(w.calls(), ["--list", "--import", "-d", "-d"], "one start, nothing else");
+        std::fs::remove_file(w.state.join("registered")).unwrap(); // `wsl --unregister TxResBench`
+        run().await.expect("third run: set up again");
+        assert_eq!(w.calls(), ["--list", "--import", "-d", "-d", "-d", "--list", "--import", "-d"]);
+        assert_eq!(ready.lock().await.as_deref(), Some("wsl-7"));
+        w.remove();
+    }
+
+    /// A run cancelled during the import leaves the import running with the
+    /// setup lock: the next run waits for it, and never imports a second time.
+    #[tokio::test]
+    async fn a_run_cancelled_during_the_import_does_not_let_a_second_import_start() {
+        let w = FakeWsl::new("cancelled", "wsl-7");
+        w.mode("slow-import");
+        let ready: ReadyBuild = Arc::new(tokio::sync::Mutex::new(None));
+        let first = tokio::time::timeout(
+            Duration::from_millis(2_500),
+            ensure_ready(&ready, w.wsl.clone(), w.runtime.clone(), w.data_root.clone()),
+        )
+        .await;
+        assert!(first.is_err(), "the first run was cancelled during its import");
+        ensure_ready(&ready, w.wsl.clone(), w.runtime.clone(), w.data_root.clone())
+            .await
+            .expect("the next run waited for the import");
+        assert_eq!(w.calls().iter().filter(|c| *c == "--import").count(), 1, "{:?}", w.calls());
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-7"));
+        w.remove();
+    }
+
+    #[test]
+    fn a_wsl_command_that_hangs_is_stopped_at_its_budget() {
+        let w = FakeWsl::new("hang", "wsl-7");
+        w.mode("hang");
+        let started = Instant::now();
+        let err = w.wsl.run(&["--list", "--quiet", "--all"], Duration::from_secs(3)).err().expect("timed out");
+        assert!(err.contains("did not finish within 3 s"), "{err}");
+        assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
+        w.remove();
     }
 
     #[test]
