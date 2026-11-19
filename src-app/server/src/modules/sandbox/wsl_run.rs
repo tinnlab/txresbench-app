@@ -1603,8 +1603,10 @@ exit $code
     /// (`stub`), hang (`hang`), import slowly (`slow-import`), end a removal
     /// of the app's distro right after the next list (`removed-after-list`),
     /// not find it by its name once (`not-found-once`), fail the next import
-    /// (`import-fails-once`), or have the version whose build a removal
-    /// removed import it again at once, into the dir it was in (`race`).
+    /// (`import-fails-once`), fail the next removal as WSL does while it
+    /// exports or converts the distro (`unregister-fails-once`), or have the
+    /// version whose build a removal removed import it again at once, into
+    /// the dir it was in (`race`).
     /// Every call is appended to `calls.txt`; an import writes
     /// `tar-held.txt`: `held` when the tarball could be read but not written
     /// during the import. Messages and error codes are WSL's own (en-US), and
@@ -1636,6 +1638,7 @@ if ($a[0] -eq '--list') {
 }
 if ($a[0] -eq '--unregister') {
     if (-not [IO.File]::Exists($reg)) { Fail $notFound }
+    if ($mode -eq 'unregister-fails-once') { [IO.File]::Delete($modeFile); Fail "An install, uninstall, or conversion is in progress for this distribution.`r`nError code: Wsl/Service/UnregisterDistro/0x8000000d" }
     $dir = [IO.File]::ReadAllText($reg)
     $disk = Join-Path $dir 'ext4.vhdx'
     $build = ''
@@ -1646,7 +1649,7 @@ if ($a[0] -eq '--unregister') {
 }
 if ($a[0] -eq '--import') {
     $base = $a[2]; $tar = $a[3]
-    if ($installing) { Fail "An illegal state change was requested.`r`nError code: Wsl/Service/RegisterDistro/E_ILLEGAL_STATE_CHANGE" }
+    if ($installing) { Fail "An install, uninstall, or conversion is in progress for this distribution.`r`nError code: Wsl/Service/RegisterDistro/0x8000000d" }
     if ([IO.File]::Exists($reg)) { Fail "A distribution with the supplied name already exists. Use --name to chose a different name.`r`nError code: Wsl/Service/RegisterDistro/ERROR_ALREADY_EXISTS" }
     $disk = Join-Path $base 'ext4.vhdx'
     if ([IO.File]::Exists($disk)) { Fail "The supplied install location is already in use.`r`nError code: Wsl/Service/RegisterDistro/ERROR_FILE_EXISTS" }
@@ -2185,6 +2188,35 @@ Fail ("unexpected call: " + ($a -join ' '))
             "-d", "--list", "--import", "-d",           // next run: no distro, imported
         ]);
         assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
+        w.remove();
+    }
+
+    /// An update's first setup whose removal of the older build failed (WSL
+    /// was exporting that distro, say) removed nothing, so it is no takeover:
+    /// the next run is a first setup again and replaces the older build, with
+    /// no restart. Counted as set up, it would leave every later run failing
+    /// on "another version" with no other version running.
+    #[tokio::test]
+    async fn an_update_whose_removal_of_the_older_build_failed_replaces_it_on_the_next_run() {
+        let w = FakeWsl::new("update-unregister-fails", "wsl-8");
+        w.register(&w.location(), "wsl-7");
+        w.mode("unregister-fails-once");
+        let set_up = SetUpBuild::default();
+        let err = w.run(&set_up, &w.runtime).await.expect_err("the removal failed");
+        let text = err.to_string();
+        assert_eq!(err.error_code(), WSL_UNAVAILABLE_CODE);
+        assert!(text.contains("WSL could not remove the app's outdated distro"), "{text}");
+        assert!(text.contains("Wsl/Service/UnregisterDistro/0x8000000d"), "{text}");
+        assert_eq!(*set_up.lock().await, None, "nothing was removed: no takeover");
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-7"), "the older build is still there");
+        assert_eq!(w.calls(), ["--list", "-d", "--unregister"]);
+        w.run(&set_up, &w.runtime).await.expect("the older build is replaced, no restart");
+        assert_eq!(w.calls(), [
+            "--list", "-d", "--unregister",                   // first setup: the removal fails
+            "--list", "-d", "--unregister", "--import", "-d", // next run: a first setup again, replaces
+        ]);
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
+        assert_eq!(set_up.lock().await.as_deref(), Some("wsl-8"));
         w.remove();
     }
 
