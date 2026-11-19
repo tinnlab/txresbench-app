@@ -411,6 +411,11 @@ fn normalize_digest_part(d: &str) -> Result<String, AppError> {
 /// or `/code`. Refused with [`ENV_LAYER_ENTRY_INVALID_CODE`] — an unvalidated
 /// path must never reach a bind (a `..`-laden entry would let the bind source
 /// escape the layer dir).
+/// The longest layer entry and the longest component of one: Linux's PATH_MAX
+/// and NAME_MAX.
+const MAX_LAYER_ENTRY_BYTES: usize = 4096;
+const MAX_LAYER_ENTRY_NAME_BYTES: usize = 255;
+
 pub fn validate_layer_entry(entry: &str) -> Result<(), AppError> {
     let invalid = |why: &str| {
         Err(AppError::new(
@@ -422,9 +427,21 @@ pub fn validate_layer_entry(entry: &str) -> Result<(), AppError> {
     if !entry.starts_with('/') {
         return invalid("an entry must be an absolute path");
     }
+    // A name no file system can hold is the image's fault: refuse it here,
+    // before the link checks try to look it up (and report a failed lookup
+    // as the sandbox's).
+    if entry.contains('\0') {
+        return invalid("an entry must not contain a NUL byte");
+    }
+    if entry.len() > MAX_LAYER_ENTRY_BYTES {
+        return invalid("an entry must be at most 4096 bytes long");
+    }
     for comp in entry[1..].split('/') {
         if comp.is_empty() || comp == "." || comp == ".." {
             return invalid("components must be non-empty and free of . / ..");
+        }
+        if comp.len() > MAX_LAYER_ENTRY_NAME_BYTES {
+            return invalid("each component must be at most 255 bytes long");
         }
     }
     let in_prefix = ALLOWED_LAYER_ENTRY_PREFIXES.iter().any(|p| {
@@ -2039,9 +2056,23 @@ mod tests {
             "/etc/passwd",   // outside
             "/code//x",      // empty component
             "/code/./x",     // "." component
+            "/opt/x\0y",     // NUL byte
         ] {
             let err = validate_layer_entry(bad).expect_err(&format!("{bad} must be refused"));
             assert_eq!(err.error_code(), ENV_LAYER_ENTRY_INVALID_CODE, "{bad}");
+        }
+        // Lengths: a component of 255 bytes and an entry of 4096 pass; one
+        // byte more of either is refused as the image's fault (400).
+        let name = |n: usize| "a".repeat(n);
+        assert!(validate_layer_entry(&format!("/opt/{}", name(255))).is_ok());
+        let long_entry = format!("/opt/{}", vec![name(200); 30].join("/"));
+        let long_entry = &long_entry[..4096];
+        assert!(!long_entry.ends_with('/'));
+        assert!(validate_layer_entry(long_entry).is_ok(), "4096 bytes");
+        for bad in [format!("/opt/{}", name(256)), format!("{long_entry}a")] {
+            let err = validate_layer_entry(&bad).expect_err("too long");
+            assert_eq!(err.error_code(), ENV_LAYER_ENTRY_INVALID_CODE);
+            assert_eq!(err.status_code(), 400);
         }
         validate_layer_entries(&["/code".into(), "/usr/local".into()])
             .expect("the list validator accepts a valid list");
@@ -2424,6 +2455,10 @@ mod tests {
     // run's verified model or a fit run's read-write `/model`, `/input`,
     // `/output`, the progress FIFO), a destination under such a tree must be a
     // layer entry's own bind; every other one sits in bwrap's tmpfs root.
+    // A layer entry's own bind under a `--symlink` tree (/bin -> usr/bin)
+    // would not be covered (the base walk follows the entry's path, bwrap the
+    // link); validate_layer_entry keeps entries under /usr/local, /opt and
+    // /code, so none lands there.
     #[test]
     fn stacked_argv_binds_only_the_checked_image_paths() {
         let mount = |host: &str, at: &str, mode| ExtraMount {
@@ -2441,13 +2476,19 @@ mod tests {
         for a in [reuse, fit] {
             let mut bound = Vec::new();
             for (i, word) in a.iter().enumerate() {
-                let (image, rel) = if let Some(rel) = word.strip_prefix("/mnt/base/") {
+                // A bare mount root counts too (an empty rel), so binding a
+                // whole image is caught, not skipped.
+                let in_image = |root: &str| {
+                    (word == root).then_some("").or_else(|| word.strip_prefix(&format!("{root}/")))
+                };
+                let (image, rel) = if let Some(rel) = in_image("/mnt/base") {
                     (BindImage::Base, rel)
-                } else if let Some(rel) = word.strip_prefix("/mnt/layer/") {
+                } else if let Some(rel) = in_image("/mnt/layer") {
                     (BindImage::Layer, rel)
                 } else {
                     continue;
                 };
+                assert!(!rel.is_empty(), "`{} {word}` binds a whole image", a[i - 1]);
                 assert!(
                     matches!(a[i - 1].as_str(), "--ro-bind" | "--ro-bind-try"),
                     "{word} is not the source of a read-only bind"
@@ -2471,7 +2512,9 @@ mod tests {
             let trees: Vec<&str> = made
                 .iter()
                 .filter(|(op, src, _)| {
-                    *op == "--symlink" || src.starts_with("/mnt/base/") || src.starts_with("/mnt/layer/")
+                    *op == "--symlink"
+                        || Path::new(src).starts_with("/mnt/base")
+                        || Path::new(src).starts_with("/mnt/layer")
                 })
                 .map(|(_, _, at)| *at)
                 .collect();
