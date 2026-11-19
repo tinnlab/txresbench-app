@@ -516,3 +516,61 @@ async fn example_set_is_created_once_and_recreated_after_deletion() {
     let (_, total2) = run_repo.list_run_summaries(50, 0).await.expect("runs");
     assert_eq!(total2, 2, "the recreation trained a fresh run");
 }
+
+/// An executor on a machine that cannot run methods at all (Windows without
+/// WSL 2): it says why, and fails if it is ever asked to run one.
+struct NoRunnerExecutor {
+    asked: AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl MethodExecutor for NoRunnerExecutor {
+    async fn execute(&self, _ctx: MethodRunContext) -> Result<MethodOutcome, AppError> {
+        self.asked.fetch_add(1, Ordering::SeqCst);
+        Err(AppError::internal_error("no method may run on this machine"))
+    }
+
+    fn runner_unavailable(&self) -> Option<String> {
+        Some("methods run in WSL 2, which is not installed: run `wsl --install --no-distribution`".into())
+    }
+}
+
+/// "Use example" on a machine that cannot run methods says why (the
+/// executor's reason), starts no run, and keeps no half-made set; the
+/// environment pick is not blamed.
+#[tokio::test]
+async fn a_machine_that_cannot_run_methods_gets_the_reason_and_no_run() {
+    let server = TestServer::spawn().await;
+    let token = owner_token(&server).await;
+    let pool = pool(&server).await;
+    let _g = rootfs::scoped_data_root(scratch_dir("example-no-runner"));
+
+    let me: Value = server
+        .client
+        .get(server.api_url("/auth/me"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("me")
+        .json()
+        .await
+        .expect("me json");
+    let owner = Uuid::parse_str(me["user"]["id"].as_str().expect("user id")).expect("uuid");
+
+    let executor = Arc::new(NoRunnerExecutor { asked: AtomicUsize::new(0) });
+    let seams = ExampleRunSeams {
+        runtime: Arc::new(RunRuntime::new()),
+        env: Arc::new(FakeExampleEnv),
+        executor: executor.clone(),
+    };
+    let resp = example::ensure_example_set(&pool, &seams, owner).await.expect("ensure");
+    assert_eq!(resp.state, ExampleSetState::Failed, "{resp:?}");
+    let error = resp.error.clone().unwrap_or_default();
+    assert!(error.contains("wsl --install"), "the runner's reason is shown: {error}");
+    assert!(!error.contains("published environment"), "environments are not blamed: {error}");
+    assert_eq!(resp.run_id, None, "no run was started");
+    assert_eq!(resp.set_id, None);
+    let (_, total) = TxrRepository::new(pool.clone()).list_run_summaries(50, 0).await.expect("runs");
+    assert_eq!(total, 0, "no run row exists");
+    assert_eq!(executor.asked.load(Ordering::SeqCst), 0, "no method was asked to run");
+}

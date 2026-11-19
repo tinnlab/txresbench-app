@@ -16,9 +16,9 @@ use txresbench_core::AppError;
 
 use super::stack::{MethodRunMode, MethodRunRequest, MethodRunResult, ModelMount};
 use super::types::ExtraMount;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use super::backend::{ProgressFrame, ProgressSink};
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use std::sync::Arc;
 
 /// Resolve the effective wall-clock timeout: a client value is clamped to the
@@ -877,7 +877,350 @@ pub async fn run_method_in_stack(
     ))
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+/// Windows: the macOS run (above) with the guest agent in the app's WSL 2
+/// distro instead of a per-run VM (`wsl_run`). Every request to the agent is
+/// one `wsl.exe` process speaking the same protocol over its stdin/stdout,
+/// with the agent's mounts private to that process. The images and the
+/// read-only inputs are read in place through WSL's `/mnt/<drive>` mounts —
+/// the images held open against any change for the whole run and verified
+/// first — and the outputs are written in the agent's tmpfs and streamed back,
+/// as on macOS. The bwrap argv is the same builder with the same guest paths.
+#[cfg(target_os = "windows")]
+pub async fn run_method_in_stack(
+    pool: &SqlitePool,
+    req: &MethodRunRequest,
+    mounts: &[ExtraMount],
+    job_id: Uuid,
+    sink: Option<Arc<dyn ProgressSink>>,
+) -> Result<MethodRunResult, AppError> {
+    use super::method_env::EnvKind;
+    use super::types::{CgroupMode, HardeningCapabilities, MountMode, PidNsMode, SandboxContext, SeccompMode};
+    use super::vm_exchange as vx;
+    use super::wsl_run::{ImageHold, WslAgent};
+    use std::path::{Path, PathBuf};
+
+    /// Room for everything the workload writes (outputs + home) in the agent's
+    /// tmpfs (WSL's memory) until it is streamed back.
+    const OUTPUT_BUDGET_MIB: u32 = 2048;
+
+    let state = super::config::get_state().ok_or_else(|| {
+        unavailable(format!(
+            "methods cannot run on this computer yet: {}",
+            super::wsl_run::runner_unavailable().unwrap_or_else(|| "the sandbox did not start".into())
+        ))
+    })?;
+    let limits = super::settings_cache::get(pool).await;
+
+    // ── caller-data boundaries, before any filesystem / WSL work ────────────
+    super::stack::validate_oci_ref(&req.base.oci_ref)?;
+    super::stack::validate_oci_ref(&req.layer.oci_ref)?;
+    validate_model_contract(req.mode, &req.model, &req.model_out_dir)?;
+
+    // ── the verified model (INV-4), BEFORE any environment work ────────────
+    // As on Linux, the saved model is verified where it is and bound read-only.
+    let model_verified = match &req.model {
+        Some(m) => {
+            let (host, pin) = (m.host_path.clone(), m.tree_sha256.clone());
+            tokio::task::spawn_blocking(move || {
+                if !host.is_dir() {
+                    return Err(unavailable(format!(
+                        "the saved model {} is not a directory; on Windows run inputs reach the WSL \
+                         agent as directories",
+                        host.display()
+                    )));
+                }
+                super::stack::verify_model_tree(&host, &pin)
+            })
+            .await
+            .map_err(|e| unavailable(format!("model verification task join: {e}")))??;
+            true
+        }
+        None => false,
+    };
+
+    // ── fetch / verify base + layer (INV-1), held for the whole run ─────────
+    // `mount_dir` is the cached squashfs IMAGE (`method_env::ready_artifact_path`).
+    // Instead of a private copy (no cheap file clones on NTFS), the cache files
+    // are held open with a share mode that lets nothing write, replace or
+    // delete them until the run ends, and verified while held.
+    let budget = limits.staging_budget();
+    let (base, layer, image_hold) = {
+        let base_ref = req.base.clone();
+        let layer_ref = req.layer.clone();
+        tokio::task::spawn_blocking(move || {
+            let manager = super::method_env::manager();
+            let base = manager.ensure(&base_ref, EnvKind::Base, budget)?;
+            let layer = manager.ensure(&layer_ref, EnvKind::Layer, budget)?;
+            for (artifact, what) in [(&base, "base"), (&layer, "layer")] {
+                if !artifact.mount_dir.is_file() {
+                    return Err(unavailable(format!(
+                        "the {what} environment at {} is not an image file; on Windows a method \
+                         environment must be a squashfs image the WSL agent can mount",
+                        artifact.mount_dir.display()
+                    )));
+                }
+            }
+            let hold = ImageHold::verify(&[
+                (base.mount_dir.clone(), base_ref.digest.clone()),
+                (layer.mount_dir.clone(), layer_ref.digest.clone()),
+            ])?;
+            Ok::<_, AppError>((base, layer, hold))
+        })
+        .await
+        .map_err(|e| unavailable(format!("method env staging task join: {e}")))??
+    };
+
+    // ── the app's WSL distro (imported on first use) ────────────────────────
+    super::wsl_run::ensure_distro().await?;
+
+    // ── workspace + staging (ITEM-17: outside the workspace) ────────────────
+    let workspace = state.workspace_root.join(job_id.to_string());
+    create_private_dir(&workspace)?;
+    let staging = super::outputs::staging_dir(&state.staging_root, job_id);
+    create_private_dir(&staging)?;
+    for (dir, what) in [
+        (&req.outputs_dir, "outputs dir"),
+        (&req.bundle_dir, "bundle dir"),
+    ] {
+        ensure_staging_dir(&workspace, dir, what)?;
+    }
+    if let Some(mdir) = &req.model_out_dir {
+        ensure_staging_dir(&workspace, mdir, "model-out dir")?;
+    }
+    if !req.bundle_dir.is_dir() {
+        return Err(AppError::new(
+            axum::http::StatusCode::BAD_REQUEST,
+            RUN_BUNDLE_MISSING_CODE,
+            format!(
+                "the input bundle at {} does not exist; write the contract-shaped \
+                 bundle (params.json, train/, test/) before running",
+                req.bundle_dir.display()
+            ),
+        ));
+    }
+    create_private_dir(&req.outputs_dir)?;
+    if let Some(mdir) = &req.model_out_dir {
+        create_private_dir(mdir)?;
+    }
+
+    // ── the run's mounts: the request's own dirs, caller mounts first ───────
+    let mut run_mounts: Vec<ExtraMount> = Vec::with_capacity(mounts.len() + 2);
+    run_mounts.extend(mounts.iter().cloned());
+    push_mount_if_absent(&mut run_mounts, ExtraMount {
+        host_path: req.bundle_dir.clone(),
+        sandbox_path: "/input".into(),
+        mode: MountMode::ReadOnly,
+    });
+    push_mount_if_absent(&mut run_mounts, ExtraMount {
+        host_path: req.outputs_dir.clone(),
+        sandbox_path: "/output".into(),
+        mode: MountMode::ReadWrite,
+    });
+    if let Some(mount) = fit_model_mount(req.mode, &req.model_out_dir) {
+        push_mount_if_absent(&mut run_mounts, mount);
+    }
+
+    // ── record BOTH digests before the method runs (INV-6) ──────────────────
+    super::env_image::write_run_env_digest(&workspace, base.digest.as_deref());
+    super::stack::write_run_layer_digest(&workspace, layer.digest.as_deref());
+
+    // ── read-only inputs: bound in place, `ro[i]` is `/host-mounts/<i>` ─────
+    // Guest paths are built as `/`-separated text: `Path::join` on Windows
+    // would put `\` into a Linux path.
+    let identity = super::sandbox::SyntheticIdentity::ensure(&state.workspace_root)?;
+    let identity_dir = identity
+        .passwd()
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| unavailable("the synthetic identity files have no parent dir"))?;
+    let mut ro_hosts: Vec<(PathBuf, String)> = run_mounts
+        .iter()
+        .filter(|m| matches!(m.mode, MountMode::ReadOnly))
+        .map(|m| (m.host_path.clone(), m.sandbox_path.clone()))
+        .collect();
+    let model_share = req.model.as_ref().map(|m| {
+        ro_hosts.push((m.host_path.clone(), super::stack::MODEL_SANDBOX_PATH.to_string()));
+        ro_hosts.len() - 1
+    });
+    ro_hosts.push((identity_dir, "the synthetic identity".to_string()));
+    let identity_share = ro_hosts.len() - 1;
+    for (host, sandbox_path) in &ro_hosts {
+        // The agent bind-mounts each input at a directory mount point.
+        if !host.is_dir() {
+            return Err(unavailable(format!(
+                "the read-only mount {} for {sandbox_path} is not a directory; on Windows run inputs \
+                 reach the WSL agent as directories",
+                host.display()
+            )));
+        }
+    }
+    let share_guest = |i: usize| format!("{}/{i}", vx::GUEST_EXTRA_MOUNTS_DIR);
+
+    // ── host mounts → guest paths (RW: guest tmpfs dirs streamed back) ──────
+    let mut collect_artifacts: Vec<String> = Vec::new();
+    let mut artifact_dirs: Vec<vx::OutputDir> = Vec::new();
+    let mut guest_mounts: Vec<ExtraMount> = Vec::with_capacity(run_mounts.len());
+    let mut ro_index = 0usize;
+    for m in &run_mounts {
+        let guest = match m.mode {
+            MountMode::ReadOnly => {
+                ro_index += 1;
+                share_guest(ro_index - 1)
+            }
+            MountMode::ReadWrite => {
+                let guest = format!("{}/{}", vx::GUEST_ARTIFACTS_OUT_DIR, collect_artifacts.len());
+                collect_artifacts.push(guest.clone());
+                artifact_dirs.push(vx::OutputDir {
+                    host: m.host_path.clone(),
+                    sandbox_path: m.sandbox_path.clone(),
+                });
+                guest
+            }
+        };
+        guest_mounts.push(ExtraMount {
+            host_path: PathBuf::from(guest),
+            sandbox_path: m.sandbox_path.clone(),
+            mode: m.mode.clone(),
+        });
+    }
+    let guest_model_mount = model_share.map(|i| ExtraMount {
+        host_path: PathBuf::from(share_guest(i)),
+        sandbox_path: super::stack::MODEL_SANDBOX_PATH.into(),
+        mode: MountMode::ReadOnly,
+    });
+    let guest_identity = share_guest(identity_share);
+    let guest_identity_file = |host: &Path| -> PathBuf {
+        PathBuf::from(format!(
+            "{guest_identity}/{}",
+            host.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+        ))
+    };
+    // The workload's home: guest-local scratch, never copied back (as macOS).
+    let guest_home = format!("{}/home", vx::GUEST_ARTIFACTS_OUT_DIR);
+
+    // ── the agent for this run, and the layer plan read with it ─────────────
+    let ro_paths: Vec<PathBuf> = ro_hosts.iter().map(|(h, _)| h.clone()).collect();
+    let agent = WslAgent::new(&base.mount_dir, &layer.mount_dir, &ro_paths)?;
+    let (layer_entries, command) = agent.read_layer_plan().await?;
+
+    // ── the stacked argv, with guest paths ──────────────────────────────────
+    let caps = HardeningCapabilities {
+        bwrap_path: PathBuf::from(vx::GUEST_BWRAP_PATH),
+        // WSL 2 runs a real Linux kernel: bwrap's PID namespace works; cgroup
+        // + seccomp are applied by the agent.
+        pid_namespace: PidNsMode::Strict,
+        cgroup: CgroupMode::None,
+        seccomp: SeccompMode::NotLinked,
+    };
+    let guest_ctx = SandboxContext {
+        job_id,
+        workspace: PathBuf::from(&guest_home),
+    };
+    let seccomp_fd = Some(vx::GUEST_SECCOMP_FD);
+    let fifo = sink.is_some().then_some(sandbox_vm_protocol::PROGRESS_GUEST_FIFO_PATH);
+    let argv = super::stack::build_stacked_bwrap_argv(
+        &caps,
+        &guest_ctx,
+        Path::new(vx::GUEST_BASE_MOUNT),
+        Path::new(vx::GUEST_LAYER_MOUNT),
+        &layer_entries,
+        &command,
+        &guest_identity_file(identity.passwd()),
+        &guest_identity_file(identity.group()),
+        &guest_identity_file(identity.mask()),
+        seccomp_fd,
+        &limits,
+        &guest_mounts,
+        guest_model_mount.as_ref(),
+        req.n_cpu,
+        fifo,
+        req.mode.sigbench_mode(),
+    )?;
+
+    // ── run: live log frames + milestones, streamed outputs, timeout ────────
+    let effective_timeout = clamp_timeout(req.timeout_secs, limits.timeout_secs);
+    let exec = sandbox_vm_protocol::ExecRequest {
+        protocol_version: sandbox_vm_protocol::PROTOCOL_VERSION,
+        request_id: 1,
+        bwrap_path: vx::GUEST_BWRAP_PATH.to_string(),
+        argv,
+        timeout_ms: effective_timeout.saturating_mul(1000),
+        seccomp_fd,
+        // WSL sizes its own VM, so there is no VM RAM to fit the limit into;
+        // with no cap configured the cgroup limit is "no limit" (0 would mean
+        // zero bytes).
+        cgroup: Some(sandbox_vm_protocol::CgroupLimits {
+            memory_max_bytes: match limits.memory_max_bytes.max(0) as u64 {
+                0 => u64::MAX,
+                cap => cap,
+            },
+            memory_swap_max_bytes: limits.memory_swap_max_bytes.max(0) as u64,
+            pids_max: limits.pids_max.max(0) as u64,
+            cpu_max: limits.cpu_max.clone(),
+        }),
+        progress: sink.is_some(),
+        collect_artifacts,
+        artifacts: sandbox_vm_protocol::ArtifactOptions {
+            tmpfs_size: Some(format!("{OUTPUT_BUDGET_MIB}m")),
+            tmpfs_root: Some(vx::GUEST_ARTIFACTS_OUT_DIR.to_string()),
+            scratch_dirs: vec![guest_home.clone()],
+            total_cap_bytes: u64::from(OUTPUT_BUDGET_MIB) * 1024 * 1024,
+        },
+    };
+    let command_budget = std::time::Duration::from_secs(effective_timeout.saturating_add(60));
+    let mut outcome = vx::AgentExec::exec(&agent, exec, command_budget, sink.as_ref(), &artifact_dirs).await?;
+    drop(image_hold);
+    if !outcome.incomplete.is_empty() {
+        if outcome.exit_code == 0 && !outcome.timed_out {
+            return Err(vx::outputs_incomplete(&outcome.incomplete, &outcome.stderr_tail));
+        }
+        let note = format!(
+            "\n[txresbench] the method's outputs could not all be copied back from WSL: {}\n",
+            outcome.incomplete.join("; ")
+        );
+        outcome.stderr.extend_from_slice(note.as_bytes());
+    }
+    // Windows does not let the app create symlinks: an output symlink is left
+    // out, and the run says which (one in the saved model's dir fails the run
+    // instead: the writer lists it with the outputs that did not come back).
+    if !outcome.left_out_symlinks.is_empty() {
+        tracing::warn!(links = ?outcome.left_out_symlinks, "WSL run: output symlinks were not recreated");
+        let note = format!(
+            "\n[txresbench] {} output symlink(s) were not recreated on Windows: {}\n",
+            outcome.left_out_symlinks.len(),
+            outcome.left_out_symlinks.join("; ")
+        );
+        outcome.stderr.extend_from_slice(note.as_bytes());
+    }
+
+    // ── the fit's /model digest (DEC-6), over the files written back ────────
+    let model_out_digest = match &req.model_out_dir {
+        Some(d) if d.is_dir() => Some(super::stack::tree_sha256(d)?),
+        _ => None,
+    };
+    let base_env_digest =
+        super::env_image::read_run_env_digest(&workspace).unwrap_or_default();
+    let layer_env_digest =
+        super::stack::read_run_layer_digest(&workspace).unwrap_or_default();
+
+    Ok(map_run_result(
+        StackRunOutcome {
+            exit_code: outcome.exit_code,
+            stdout: super::sandbox::lossy_string_with_marker(outcome.stdout, outcome.stdout_truncated),
+            stderr: super::sandbox::lossy_string_with_marker(outcome.stderr, outcome.stderr_truncated),
+            stdout_truncated: outcome.stdout_truncated,
+            stderr_truncated: outcome.stderr_truncated,
+            timed_out: outcome.timed_out,
+            duration_ms: outcome.duration_ms,
+        },
+        base_env_digest,
+        layer_env_digest,
+        model_verified,
+        model_out_digest,
+    ))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub async fn run_method_in_stack(
     _pool: &SqlitePool,
     _req: &MethodRunRequest,
@@ -894,7 +1237,7 @@ pub async fn run_method_in_stack(
 /// trained model into the caller's staging tree. `None` for a reuse run (its
 /// verification + read-only bind is the separate [`ModelMount`] path — never
 /// both, enforced by [`validate_model_contract`]). Pure + testable.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn fit_model_mount(
     mode: MethodRunMode,
     model_out_dir: &Option<std::path::PathBuf>,
@@ -916,7 +1259,7 @@ fn fit_model_mount(
 /// client-chosen path — the REST route builds its request from the staging
 /// tree). Creation is the caller's staging responsibility — this only refuses
 /// the violating shape before any bind.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn ensure_staging_dir(
     workspace: &std::path::Path,
     dir: &std::path::Path,
@@ -942,7 +1285,7 @@ fn ensure_staging_dir(
 /// caller's mount list is authoritative for a path it names (the engine hands
 /// `/input` + `/output` itself), while the request's own dirs stay the
 /// guarantee for the paths it did NOT name.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn push_mount_if_absent(mounts: &mut Vec<ExtraMount>, mount: ExtraMount) {
     if mounts.iter().any(|m| m.sandbox_path == mount.sandbox_path) {
         return;
@@ -954,7 +1297,7 @@ fn push_mount_if_absent(mounts: &mut Vec<ExtraMount>, mount: ExtraMount) {
 /// carrier of GAP-2: [`ProgressFrame`] is the sink trait's only data shape,
 /// so a log line rides it with a log phase, `pct: None`, the line text as the
 /// message). Pure + testable.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn log_frame(phase: &str, line: &str) -> ProgressFrame {
     ProgressFrame {
         phase: phase.to_string(),
@@ -966,7 +1309,7 @@ fn log_frame(phase: &str, line: &str) -> ProgressFrame {
 /// Forward one raw output line to the sink (trimmed of its line terminators,
 /// never of leading whitespace — log panes keep indentation). Empty lines are
 /// dropped from the live stream but still captured in the returned buffer.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 pub(crate) fn forward_log_line(
     line: &[u8],
     sink: Option<&dyn ProgressSink>,
@@ -1088,7 +1431,7 @@ where
 
 /// Append up to the capture cap; mark truncation when more bytes existed
 /// (the capture is capped, the drain is not — the child can finish).
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 pub(crate) fn append_capped(buf: &mut Vec<u8>, chunk: &[u8], truncated: &mut bool) {
     let remain = super::sandbox::OUTPUT_CAP_BYTES.saturating_sub(buf.len());
     if chunk.len() > remain {
@@ -1229,12 +1572,19 @@ fn drain_method_fifo(path: &std::path::Path, stop: std::sync::Arc<std::sync::ato
 }
 
 /// Create a directory with 0700 perms (owner-only). On non-Unix, best-effort.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 fn create_private_dir(path: &std::path::Path) -> Result<(), AppError> {
-    use std::os::unix::fs::DirBuilderExt;
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    // Unix: owner-only (0700). Windows: the app data dir is in the user's
+    // profile, whose permissions already keep other users out; new dirs
+    // inherit them.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder
         .create(path)
         .map_err(|e| {
             AppError::new(

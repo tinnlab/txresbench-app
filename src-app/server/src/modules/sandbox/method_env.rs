@@ -926,8 +926,11 @@ impl MethodEnvManager {
             // the CLONE (the bytes the VM reads) — skipping that hash only
             // when this process already verified the cache file and its
             // identity, ctime included, is unchanged — so hashing the cache
-            // file here as well would read each image twice.
-            if !cfg!(target_os = "macos") {
+            // file here as well would read each image twice. Windows: the run
+            // seam holds the cache file against any change and hashes the
+            // held bytes on every run (`wsl_run::ImageHold`), so here too the
+            // hash would be a second read of each image.
+            if !cfg!(any(target_os = "macos", target_os = "windows")) {
                 verify_payload_bytes(&cached, &r.digest)?;
             }
             remaining(deadline_at, "mount the cached artifact")?;
@@ -1546,13 +1549,15 @@ fn is_executable(path: &Path) -> bool {
 /// cache. Linux: the squashfuse mount dir (`rootfs::ensure_ready_by_digest`).
 /// macOS: the cached squashfs image itself — the method VM attaches it as a
 /// read-only disk, so nothing is mounted on the host
-/// (`service::run_method_in_stack`, macOS). Callers verified the bytes first.
+/// (`service::run_method_in_stack`, macOS). Windows: the image too — the WSL
+/// agent mounts it (`service::run_method_in_stack`, Windows). Callers
+/// verified the bytes first.
 fn ready_artifact_path(digest: &str) -> Result<PathBuf, AppError> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         crate::modules::rootfs::cached_image_by_digest(digest)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         crate::modules::rootfs::ensure_ready_by_digest(digest)
     }
@@ -3764,6 +3769,27 @@ mod tests {
             }
         }
         assert!(!calls.exists(), "no download was started");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Where the run seam verifies the image bytes it hands over itself (the
+    /// macOS VM's private clone, the Windows hold of the cache file), a cache
+    /// hit is served here without a hash, so a run hashes each image once: a
+    /// cache file that no longer matches its digest is still served, and the
+    /// run seam refuses it (`wsl_run`: a held image is hashed on every run).
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn a_cache_hit_is_left_to_the_run_seams_own_hash() {
+        let (root, _guard) = data_root();
+        let digest = cache_bytes(b"the env's file");
+        let cached = crate::modules::rootfs::cache::squashfs_path_for(&digest);
+        std::fs::write(&cached, b"bytes changed in the cache").unwrap();
+        let m = MethodEnvManager::with_seams(loopback_seams());
+        let got = m
+            .ensure(&file_address("fixture-layer", &digest), EnvKind::Layer, Duration::from_secs(30))
+            .expect("served without a hash: the run seam hashes what it hands over");
+        assert_eq!(got.mount_dir, cached);
+        assert_eq!(got.digest.as_deref(), Some(digest.as_str()));
         let _ = std::fs::remove_dir_all(&root);
     }
 

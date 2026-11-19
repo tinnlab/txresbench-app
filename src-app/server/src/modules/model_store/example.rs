@@ -771,13 +771,19 @@ async fn start_fresh(
     methods: &[String],
 ) -> Result<ExampleSetResponse, AppError> {
     let repo = ModelStoreRepository::new(pool.clone());
-    if methods.is_empty() {
+    // A machine that cannot run methods at all (Windows without WSL 2) gets
+    // that reason, not a run that cannot start or a word on environments.
+    let runner_missing = seams.executor.runner_unavailable();
+    if methods.is_empty() || runner_missing.is_some() {
         // The plan's honest fallback: no fast method with a published
         // environment can run on the example data — say so, never a fake
         // set, never a half-empty one. When the list has no image for this
         // computer's chip type at all, say THAT: training would fail the
         // same way, so "train your own models" would be wrong advice.
-        let error = empty_pick_message(&crate::modules::method_list::current(), EnvArch::host());
+        let error = match &runner_missing {
+            Some(reason) => format!("methods cannot run on this computer yet: {reason}"),
+            None => empty_pick_message(&crate::modules::method_list::current(), EnvArch::host()),
+        };
         let _ = repo
             .upsert_example_state(&ExampleStateRow {
                 state: ExampleSetState::Failed.as_str().to_string(),
