@@ -4659,9 +4659,9 @@ async fn ensure_method_env(
                     Ok(Ok((_base_mount, _layer_mount))) => {
                         // The record: the pinned digests. ensure fetched
                         // exactly these (a download is hashed against them);
-                        // a cache hit is hashed against them by ensure on
+                        // a cache hit is verified against them by ensure on
                         // Linux, and on macOS and Windows by the run seam,
-                        // which verifies the bytes it hands to the guest
+                        // which checks the bytes it hands to the guest
                         // (the macOS VM's clone, `wsl_run::ImageHold`).
                         break EnvPhase::Ready(EnvFacts {
                             base,
