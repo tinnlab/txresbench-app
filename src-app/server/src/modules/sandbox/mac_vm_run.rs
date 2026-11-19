@@ -1084,6 +1084,32 @@ impl MethodVm {
         }
         let entries = stack::parse_layer_manifest(&read.stdout, &format!("{manifest} (in the method VM)"))?;
 
+        // No path bwrap binds out of the base or the layer, nor the base where
+        // a layer entry's bind lands, may have a symbolic link in it: bwrap
+        // would follow it into the VM's own root.
+        let probe = stack::BindSourceProbe::new(&entries, GUEST_BASE_MOUNT, GUEST_LAYER_MOUNT)?;
+        let links = self.check(&probe.argv()).await?;
+        let not_checked = |why: String| {
+            vm_error(format!(
+                "The method VM could not check the method and base images for symbolic links: {why}"
+            ))
+        };
+        if links.timed_out {
+            return Err(not_checked("the check timed out".to_string()));
+        }
+        if links.stdout_truncated {
+            return Err(not_checked("its answer was too long".to_string()));
+        }
+        if links.exit_code != 0 {
+            let mut why = format!("the check failed with exit status {}", links.exit_code);
+            let stderr = String::from_utf8_lossy(&links.stderr);
+            if !stderr.trim().is_empty() {
+                why.push_str(&format!(": {}", stderr.trim()));
+            }
+            return Err(not_checked(why));
+        }
+        probe.verdict(&links.stdout, not_checked)?;
+
         // DEC-14: every entry's parent must exist in the base. One check call
         // prints the parents that are NOT directories under the base mount.
         let parents = stack::entry_parent_dirs(&entries)?;
@@ -2571,6 +2597,213 @@ mod tests {
         }
         fn milestone(&self, f: super::super::backend::MilestoneFrame) {
             self.0.lock().unwrap().push(format!("m:{}:{}", f.id, f.status));
+        }
+    }
+
+    // ── read_layer_plan through a fake agent (the in-VM link probe) ────────────
+
+    /// A reply a test puts in place of running a request: `(stdout, exit code,
+    /// timed out)`.
+    type Reply = Arc<dyn Fn(&ExecRequest) -> Option<(Vec<u8>, i32, bool)> + Send + Sync>;
+
+    /// A `MethodVm` whose socket is served by a fake guest agent: each request
+    /// runs on the host (its busybox applet, `cat` or `sh`, from PATH) with the
+    /// guest image mounts mapped to `base` and `layer`, unless `reply` answers
+    /// it, and comes back as the agent's frames. Returns the requests it got.
+    async fn vm_with_fake_agent(
+        base: &Path,
+        layer: &Path,
+        reply: Reply,
+    ) -> (MethodVm, Arc<Mutex<Vec<ExecRequest>>>) {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        // Short: the socket path must fit sun_path.
+        let run_dir = std::env::temp_dir().join(format!("w41-{}", &id[..8]));
+        std::fs::create_dir_all(&run_dir).unwrap();
+        let socket_path = run_dir.join("a.sock");
+        let listener = tokio::net::UnixListener::bind(&socket_path).unwrap();
+        let requests: Arc<Mutex<Vec<ExecRequest>>> = Arc::new(Mutex::new(Vec::new()));
+        let seen = requests.clone();
+        let (base, layer) = (base.to_string_lossy().into_owned(), layer.to_string_lossy().into_owned());
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let mut decoder = Decoder::new();
+                let mut buf = vec![0u8; 64 * 1024];
+                let req = loop {
+                    match stream.read(&mut buf).await {
+                        Ok(0) | Err(_) => break None,
+                        Ok(n) => decoder.feed(&buf[..n]),
+                    }
+                    if let Ok(Some(Frame::Exec(req))) = decoder.next_frame() {
+                        break Some(req);
+                    }
+                };
+                let Some(req) = req else { continue };
+                seen.lock().unwrap().push(req.clone());
+                let (stdout, stderr, code, timed_out) = match reply(&req) {
+                    Some((stdout, code, timed_out)) => (stdout, Vec::new(), code, timed_out),
+                    None => {
+                        let argv: Vec<String> = req
+                            .argv
+                            .iter()
+                            .map(|a| a.replace(GUEST_BASE_MOUNT, &base).replace(GUEST_LAYER_MOUNT, &layer))
+                            .collect();
+                        let out = tokio::process::Command::new(&argv[0])
+                            .args(&argv[1..])
+                            .output()
+                            .await
+                            .unwrap();
+                        (out.stdout, out.stderr, out.status.code().unwrap_or(-1), false)
+                    }
+                };
+                let exit = sandbox_vm_protocol::ExitStatus { code, timed_out };
+                for frame in [Frame::Stdout(stdout), Frame::Stderr(stderr), Frame::Exit(exit), Frame::ArtifactsDone] {
+                    let _ = stream.write_all(&encode(&frame)).await;
+                }
+            }
+        });
+        let child = tokio::process::Command::new("/bin/sleep")
+            .arg("300")
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        (MethodVm { child, socket_path, run_dir }, requests)
+    }
+
+    fn no_reply() -> Reply {
+        Arc::new(|_| None)
+    }
+
+    /// The link probe's request: the only check whose first pair names the base mount.
+    fn is_link_probe(req: &ExecRequest) -> bool {
+        req.argv.get(4).map(String::as_str) == Some(GUEST_BASE_MOUNT)
+    }
+
+    /// A base and a layer the plan accepts (links only deeper inside bound
+    /// dirs), with a layer manifest naming `/code` and `/opt/txr-layer`.
+    fn plan_images(root: &Path) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::symlink;
+        let (base, layer) = (root.join("base"), root.join("layer"));
+        for dir in ["usr/bin", "etc/ssl/certs", "opt/txr-layer"] {
+            std::fs::create_dir_all(base.join(dir)).unwrap();
+        }
+        symlink("/oldroot/etc/shadow", base.join("etc/ssl/certs/ca.pem")).unwrap();
+        for dir in ["code", "opt/txr-layer/bin"] {
+            std::fs::create_dir_all(layer.join(dir)).unwrap();
+        }
+        std::fs::write(layer.join("code/run.sh"), "").unwrap();
+        symlink("/oldroot/home", layer.join("opt/txr-layer/bin/home")).unwrap();
+        std::fs::write(layer.join(stack::LAYER_MANIFEST_FILE), br#"["/code", "/opt/txr-layer"]"#).unwrap();
+        (base, layer)
+    }
+
+    // The plan asks the VM about every image path a bind uses, with the exact
+    // guest argv, right after the manifest is read and before the other checks.
+    #[tokio::test]
+    async fn layer_plan_probes_the_bind_sources_in_the_vm() {
+        let root = TempDir::new();
+        let (base, layer) = plan_images(&root.0);
+        let (vm, requests) = vm_with_fake_agent(&base, &layer, no_reply()).await;
+        let (entries, command) = vm.read_layer_plan().await.expect("clean images pass");
+        assert_eq!(entries, vec!["/code".to_string(), "/opt/txr-layer".to_string()]);
+        assert_eq!(command, "bash /code/run.sh");
+        let requests = requests.lock().unwrap().clone();
+        let probe = stack::BindSourceProbe::new(&entries, GUEST_BASE_MOUNT, GUEST_LAYER_MOUNT).unwrap();
+        assert_eq!(requests.len(), 5, "manifest, links, parents, method.json, scripts");
+        assert_eq!(requests[1].bwrap_path, GUEST_BUSYBOX_PATH, "busybox, outside bwrap");
+        assert_eq!(requests[1].argv, probe.argv(), "the probe's own argv, guest paths");
+        assert_eq!(requests.iter().filter(|r| is_link_probe(r)).count(), 1);
+    }
+
+    // A link in a layer entry, in a base bind or in the base where a layer
+    // entry's bind lands is refused with its code before any later check, in
+    // plain words that name no guest mount; the probe ran for real in `/bin/sh`.
+    #[tokio::test]
+    async fn layer_plan_refuses_a_linked_bind_source() {
+        for (image, rel, target, code, says) in [
+            (
+                "layer",
+                "opt/txr-layer",
+                "/oldroot/home/user",
+                stack::ENV_LAYER_ENTRY_INVALID_CODE,
+                "The method image is refused: its path /opt/txr-layer is a symbolic link",
+            ),
+            (
+                "layer",
+                "code",
+                "../../../../oldroot/home",
+                stack::ENV_LAYER_ENTRY_INVALID_CODE,
+                "The method image is refused: its path /code is a symbolic link",
+            ),
+            (
+                "base",
+                "usr",
+                "/oldroot/usr",
+                stack::ROOTFS_PATH_INVALID_CODE,
+                "The base image is refused: its path /usr is a symbolic link",
+            ),
+            (
+                "base",
+                "opt/txr-layer",
+                "/oldroot/home/user/created-by-bwrap",
+                stack::ENV_LAYER_ENTRY_INVALID_CODE,
+                "puts files at /opt/txr-layer, and in the base image that path is a symbolic link",
+            ),
+            (
+                "base",
+                "code",
+                "/oldroot/home/user",
+                stack::ENV_LAYER_ENTRY_INVALID_CODE,
+                "puts files at /code, and in the base image that path is a symbolic link",
+            ),
+        ] {
+            let root = TempDir::new();
+            let (base, layer) = plan_images(&root.0);
+            let path = if image == "base" { base.join(rel) } else { layer.join(rel) };
+            if path.exists() {
+                std::fs::remove_dir_all(&path).unwrap();
+            }
+            std::os::unix::fs::symlink(target, &path).unwrap();
+            let (vm, requests) = vm_with_fake_agent(&base, &layer, no_reply()).await;
+            let err = vm.read_layer_plan().await.expect_err("a linked bind source is refused");
+            assert_eq!(err.error_code(), code, "{image} {rel}: {err}");
+            let text = err.to_string();
+            assert!(text.contains(says), "{image} {rel}: {text}");
+            assert!(!text.contains(GUEST_BASE_MOUNT) && !text.contains(GUEST_LAYER_MOUNT), "{text}");
+            assert!(!text.contains(") (") && !text.contains("bind"), "{text}");
+            assert_eq!(requests.lock().unwrap().len(), 2, "refused right after the probe");
+        }
+    }
+
+    // A probe that fails, times out, is cut off, could not look, or answers
+    // something else is a VM error that says why: the plan is never read as
+    // "no links".
+    #[tokio::test]
+    async fn layer_plan_fails_closed_on_a_broken_probe() {
+        // Valid but cut off: empty lines name nothing, so only the cut-off
+        // flag stops the plan.
+        let too_long = vec![b'\n'; super::super::sandbox::OUTPUT_CAP_BYTES + 1];
+        for (stdout, code, timed_out, why) in [
+            (b"garbage\n".to_vec(), 0, false, "it gave an unexpected answer \"garbage\""),
+            (Vec::new(), 1, false, "the check failed with exit status 1"),
+            (b"99\n".to_vec(), 0, false, "it gave an unexpected answer \"99\""),
+            (b"unreadable 0\n".to_vec(), 0, false, "a folder on the path /usr of the base image could not be read"),
+            (Vec::new(), -1, true, "the check timed out"),
+            (too_long, 0, false, "its answer was too long"),
+        ] {
+            let root = TempDir::new();
+            let (base, layer) = plan_images(&root.0);
+            let answer = stdout.clone();
+            let reply: Reply = Arc::new(move |req| is_link_probe(req).then(|| (answer.clone(), code, timed_out)));
+            let (vm, requests) = vm_with_fake_agent(&base, &layer, reply).await;
+            let err = vm.read_layer_plan().await.expect_err("a broken probe fails the plan");
+            assert_eq!(err.error_code(), VM_UNAVAILABLE_CODE, "{why}: {err}");
+            assert_eq!(
+                err.to_string(),
+                format!("The method VM could not check the method and base images for symbolic links: {why}"),
+                "exit {code}, timed out {timed_out}, {} bytes",
+                stdout.len()
+            );
+            assert_eq!(requests.lock().unwrap().len(), 2);
         }
     }
 

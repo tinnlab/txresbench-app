@@ -71,8 +71,25 @@ pub const ENV_REF_HOST_UNALLOWED_CODE: &str = "ENV_REF_HOST_UNALLOWED";
 
 /// A `layer-manifest.json` mount entry that is not an absolute `..`-free path
 /// under `/usr/local`, `/opt` or `/code` (DEC-14, TEST-03). Refused before any
-/// bind is built — never a bind of an unvalidated path.
+/// bind is built — never a bind of an unvalidated path. Also an entry with a
+/// symbolic link on its path, in the layer or in the base at the same path
+/// ([`image_bind_sources`]).
 pub const ENV_LAYER_ENTRY_INVALID_CODE: &str = "ENV_LAYER_ENTRY_INVALID";
+
+/// A base or layer path the stacked argv binds cannot be bound safely: the
+/// image's mount path is not valid UTF-8, or a path the sandbox always binds
+/// out of the BASE image has a symbolic link in it ([`image_bind_sources`]).
+/// Refused before any bind. (A link on a layer entry's path, in the layer or
+/// in the base, is [`ENV_LAYER_ENTRY_INVALID_CODE`].)
+pub(crate) const ROOTFS_PATH_INVALID_CODE: &str = "ROOTFS_PATH_INVALID";
+
+/// The method sandbox cannot run here (503): the code of
+/// `service::run_method_in_stack` for a host that cannot run it, and of the
+/// PID-ns probe for a mounted base it cannot use. The Linux seam's link check
+/// gives it when it could not read a path of a mounted image (a squashfuse
+/// that died, an I/O error, a folder the server may not enter): the host could
+/// not look, which says nothing against the image.
+const SANDBOX_UNAVAILABLE_CODE: &str = "SANDBOX_UNAVAILABLE";
 
 /// The reusable model tree's computed sha256 does not equal the digest the
 /// caller declared in [`ModelMount::tree_sha256`] (DEC-7, TEST-04). Raised
@@ -88,7 +105,7 @@ pub const MODEL_TREE_READ_FAILED_CODE: &str = "MODEL_TREE_READ_FAILED";
 /// (non-UTF-8). Refused before any bind: [`verify_model_tree`] hashes the REAL
 /// directory, so a lossy string would bind a DIFFERENT host path than the one
 /// whose bytes were verified — INV-4's "digest-verified before the bind" would
-/// be mechanically false. Mirrors the base/layer [`ROOTFS_PATH_INVALID`] guard
+/// be mechanically false. Mirrors the base/layer [`ROOTFS_PATH_INVALID_CODE`] guard
 /// of the shipped spawn path; the extra-mount host paths keep the shipped
 /// builder's lossy `display()` (server-constructed ASCII staging paths).
 pub const MODEL_PATH_INVALID_CODE: &str = "MODEL_PATH_INVALID";
@@ -394,6 +411,11 @@ fn normalize_digest_part(d: &str) -> Result<String, AppError> {
 /// or `/code`. Refused with [`ENV_LAYER_ENTRY_INVALID_CODE`] — an unvalidated
 /// path must never reach a bind (a `..`-laden entry would let the bind source
 /// escape the layer dir).
+/// The longest layer entry and the longest component of one: Linux's PATH_MAX
+/// and NAME_MAX.
+const MAX_LAYER_ENTRY_BYTES: usize = 4096;
+const MAX_LAYER_ENTRY_NAME_BYTES: usize = 255;
+
 pub fn validate_layer_entry(entry: &str) -> Result<(), AppError> {
     let invalid = |why: &str| {
         Err(AppError::new(
@@ -405,9 +427,21 @@ pub fn validate_layer_entry(entry: &str) -> Result<(), AppError> {
     if !entry.starts_with('/') {
         return invalid("an entry must be an absolute path");
     }
+    // A name no file system can hold is the image's fault: refuse it here,
+    // before the link checks try to look it up (and report a failed lookup
+    // as the sandbox's).
+    if entry.contains('\0') {
+        return invalid("an entry must not contain a NUL byte");
+    }
+    if entry.len() > MAX_LAYER_ENTRY_BYTES {
+        return invalid("an entry must be at most 4096 bytes long");
+    }
     for comp in entry[1..].split('/') {
         if comp.is_empty() || comp == "." || comp == ".." {
             return invalid("components must be non-empty and free of . / ..");
+        }
+        if comp.len() > MAX_LAYER_ENTRY_NAME_BYTES {
+            return invalid("each component must be at most 255 bytes long");
         }
     }
     let in_prefix = ALLOWED_LAYER_ENTRY_PREFIXES.iter().any(|p| {
@@ -493,7 +527,7 @@ pub(crate) fn build_stacked_bwrap_argv(
     if base_dir.to_str().is_none() || layer_dir.to_str().is_none() {
         return Err(AppError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "ROOTFS_PATH_INVALID",
+            ROOTFS_PATH_INVALID_CODE,
             "a stacked base/layer mount path is not valid UTF-8; refusing to build the sandbox",
         ));
     }
@@ -929,6 +963,288 @@ pub fn assert_entry_parents_with(
         }
     }
     Ok(())
+}
+
+// ─────────────────────── bind sources: no symbolic links ──────────────────────
+
+/// Which image a checked path is in, and what the stacked argv does with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindImage {
+    /// The base rootfs: the source of one of the hardening prefix's fixed binds.
+    Base,
+    /// The method layer: the source of one manifest entry's bind.
+    Layer,
+    /// The base rootfs at a layer entry's path: where that entry's bind lands.
+    /// bwrap makes the mount point (an empty file, or the dir and its parents)
+    /// and mounts over it by that path in the new root, after the base's `usr`
+    /// and `opt` are bound at `/usr` and `/opt`, so it follows a link there:
+    /// a base `usr/local/x -> /oldroot/home/<user>/f` under a layer file entry
+    /// `/usr/local/x` makes bwrap create the empty file `f` in the host's home.
+    EntryInBase,
+}
+
+/// One image path the stacked argv binds from, or binds a layer entry onto,
+/// relative to the image's root (`usr`, `opt/txr-layer`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageBindSource {
+    pub image: BindImage,
+    pub rel: String,
+}
+
+/// Every image path the stacked argv binds from or onto, in argv order: the
+/// base's fixed binds ([`super::sandbox::ROOTFS_BIND_PATHS`]), then for each
+/// layer entry the entry in the layer (the bind's source) and the entry in
+/// the base (where the bind lands). The entries are validated first
+/// ([`validate_layer_entries`]), so no path here has an empty, `.` or `..`
+/// component.
+///
+/// None of these paths may have a symbolic link in it inside its image, the
+/// path itself or a directory above it. bwrap resolves a bind source's links
+/// in the old root (the host on Linux, the VM's own root on macOS), and a
+/// `-try` source that does not resolve there it opens again after it has
+/// moved the old root to `/oldroot`; it makes and mounts a destination by
+/// its path in the new root, after that move. So a link there
+/// (`opt/x -> ../../../home/<user>`, `opt/x -> /oldroot/home/<user>`) binds
+/// a path of the old root into the sandbox, or creates a file or dir in it.
+/// A link deeper inside a bound directory is fine: the sandboxed process
+/// resolves it inside the sandbox. Every entry is checked in the base, even
+/// one the sandbox does not bind the base under (`/code`), so the rule does
+/// not depend on which base dirs the argv binds. Both seams refuse such an
+/// image before bwrap runs: the Linux seam reads the mounted images
+/// ([`assert_bind_sources_not_symlinked`]), a VM seam asks the VM
+/// ([`BindSourceProbe`]).
+pub fn image_bind_sources(layer_entries: &[String]) -> Result<Vec<ImageBindSource>, AppError> {
+    validate_layer_entries(layer_entries)?;
+    let base = super::sandbox::ROOTFS_BIND_PATHS.iter().map(|rel| ImageBindSource {
+        image: BindImage::Base,
+        rel: (*rel).to_string(),
+    });
+    let entries = layer_entries.iter().flat_map(|entry| {
+        let rel = entry.trim_start_matches('/');
+        [BindImage::Layer, BindImage::EntryInBase].map(|image| ImageBindSource {
+            image,
+            rel: rel.to_string(),
+        })
+    });
+    Ok(base.chain(entries).collect())
+}
+
+/// What a refused path has, as the end of a sentence about the path.
+const LINK_ON_PATH: &str = "is a symbolic link, or a folder above it is one. A link there can \
+     lead outside the image, so it is not allowed";
+
+/// The name of the image a checked path is in, for a message.
+fn image_name(image: BindImage) -> &'static str {
+    match image {
+        BindImage::Layer => "method image",
+        BindImage::Base | BindImage::EntryInBase => "base image",
+    }
+}
+
+/// The refusal of one checked path with a symbolic link on it
+/// ([`LINK_ON_PATH`]): a layer entry's path, in the layer or in the base, is
+/// [`ENV_LAYER_ENTRY_INVALID_CODE`]; a fixed bind of the base
+/// [`ROOTFS_PATH_INVALID_CODE`]. The message names the path inside its image
+/// only, never where the image is mounted.
+fn bind_source_refused(src: &ImageBindSource) -> AppError {
+    let (rel, found) = (&src.rel, LINK_ON_PATH);
+    let (code, message) = match src.image {
+        BindImage::Base => (
+            ROOTFS_PATH_INVALID_CODE,
+            format!("The base image is refused: its path /{rel} {found}."),
+        ),
+        BindImage::Layer => (
+            ENV_LAYER_ENTRY_INVALID_CODE,
+            format!("The method image is refused: its path /{rel} {found}."),
+        ),
+        BindImage::EntryInBase => (
+            ENV_LAYER_ENTRY_INVALID_CODE,
+            format!(
+                "The method image cannot run on this base image: the method image puts files \
+                 at /{rel}, and in the base image that path {found}."
+            ),
+        ),
+    };
+    AppError::new(StatusCode::BAD_REQUEST, code, message)
+}
+
+/// The Linux seam's check (see [`image_bind_sources`]): refuse the run when
+/// a path the stacked argv binds from or onto has a symbolic link in it in
+/// the mounted base or layer. Each component is read with `symlink_metadata`,
+/// never followed, from the image's root down. A component that does not
+/// exist, or sits under anything but a dir (a file, a FIFO, a device, a
+/// socket), ends the walk: nothing is followed there (`--ro-bind-try` skips a
+/// missing source, and bwrap stops the run on a missing `usr` or on a path
+/// under a non-dir, "Not a directory"). A component that cannot be read for
+/// another reason (a squashfuse that died, an I/O error, a folder the server
+/// may not enter) is never skipped: the run fails as
+/// [`SANDBOX_UNAVAILABLE_CODE`], the code the PID-ns probe right after gives a
+/// base it cannot use, never as a refused image, since the host could not
+/// look (a VM seam fails it as its own VM error). The images are squashfs
+/// that the app mounts read-only (squashfuse over the cache file verified
+/// against its pin), so the answer cannot change between this check and
+/// bwrap; the legacy `TXR_ENV_ROOTFS_DIR` seam is a dir the operator provides
+/// and vouches for.
+pub fn assert_bind_sources_not_symlinked(
+    base_dir: &Path,
+    layer_dir: &Path,
+    layer_entries: &[String],
+) -> Result<(), AppError> {
+    for src in image_bind_sources(layer_entries)? {
+        let root = match src.image {
+            BindImage::Base | BindImage::EntryInBase => base_dir,
+            BindImage::Layer => layer_dir,
+        };
+        let mut path = root.to_path_buf();
+        for component in src.rel.split('/') {
+            path.push(component);
+            match std::fs::symlink_metadata(&path) {
+                Ok(meta) if meta.file_type().is_symlink() => {
+                    return Err(bind_source_refused(&src));
+                }
+                Ok(_) => {}
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                    ) =>
+                {
+                    break;
+                }
+                Err(e) => {
+                    let at = path.strip_prefix(root).unwrap_or(&path).display();
+                    return Err(AppError::new(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        SANDBOX_UNAVAILABLE_CODE,
+                        format!(
+                            "The method sandbox could not check the method and base images for \
+                             symbolic links: on the path /{} of the {}, reading /{at} failed: {e}",
+                            src.rel,
+                            image_name(src.image)
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The shell text of [`BindSourceProbe`], for the VM's busybox `sh`. Its
+/// arguments are pairs `<image mount> <path inside the image>`. It walks each
+/// path from the mount down and prints the pair's index (from 0, one per line)
+/// when a component is a symbolic link: `[ -L ]` reads the link itself, so a
+/// dangling link counts. A component that does not exist, or sits under
+/// anything but a dir (a file, a FIFO, a device, a socket), ends the pair's
+/// walk, as on the Linux seam, where bwrap then stops the run ("Not a
+/// directory"). `[ ]` cannot tell a missing name from one it was not allowed
+/// to look at, so when the walk stops on a missing component, the component
+/// above it, when it is a dir or is not there at all (the image's mount
+/// included), must be a dir the shell can enter; when it is not, the walk
+/// could not look: the script prints [`PROBE_UNREADABLE`] and the index,
+/// which [`BindSourceProbe::verdict`] never reads as clean (a VM error, never
+/// a refused image). `cd` is the kernel's own search check, so this holds
+/// for root (the VM's agent) and for any other user alike; `[ -x ]` is not
+/// (busybox reports a mode-000 dir as not searchable for root). A component
+/// the kernel cannot read for another reason (an I/O error on the image)
+/// looks missing to `[ ]`, and bwrap cannot open a path through it either.
+/// The script exits non-zero when its arguments are not pairs.
+const BIND_SOURCE_PROBE_SCRIPT: &str = r#"i=0
+while [ "$#" -ge 2 ]; do
+  d=$1
+  rest=$2
+  shift 2
+  while [ -n "$rest" ]; do
+    p=$d/${rest%%/*}
+    case $rest in */*) rest=${rest#*/} ;; *) rest= ;; esac
+    if [ -L "$p" ]; then echo "$i"; break; fi
+    if [ ! -e "$p" ]; then
+      if [ -e "$d" ] && [ ! -d "$d" ]; then :
+      elif ! (CDPATH= cd -- "$d") 2>/dev/null; then echo "unreadable $i"; fi
+      break
+    fi
+    d=$p
+  done
+  i=$((i + 1))
+done
+[ "$#" -eq 0 ]"#;
+
+/// The answer line of a pair [`BIND_SOURCE_PROBE_SCRIPT`] could not walk, before the pair's index.
+const PROBE_UNREADABLE: &str = "unreadable ";
+
+/// The check of a VM seam (see [`image_bind_sources`]): there the images
+/// are mounted inside the VM (macOS; the Windows runner's VM too), so the VM
+/// answers, with its busybox outside bwrap. Run [`Self::argv`] there, then
+/// hand its stdout to [`Self::verdict`]; a seam treats a failed, timed-out or
+/// truncated probe as its own VM error.
+pub struct BindSourceProbe {
+    sources: Vec<ImageBindSource>,
+    argv: Vec<String>,
+}
+
+impl BindSourceProbe {
+    /// The probe of `layer_entries` (validated here) and the base's fixed binds,
+    /// over the images mounted at `base_mount` and `layer_mount` in the VM.
+    pub fn new(layer_entries: &[String], base_mount: &str, layer_mount: &str) -> Result<Self, AppError> {
+        let sources = image_bind_sources(layer_entries)?;
+        let mut argv: Vec<String> = ["sh", "-c", BIND_SOURCE_PROBE_SCRIPT, "sh"]
+            .iter()
+            .map(|a| a.to_string())
+            .collect();
+        for src in &sources {
+            let mount = match src.image {
+                BindImage::Base | BindImage::EntryInBase => base_mount,
+                BindImage::Layer => layer_mount,
+            };
+            argv.push(mount.to_string());
+            argv.push(src.rel.clone());
+        }
+        Ok(Self { sources, argv })
+    }
+
+    /// The busybox argv: `sh -c <script> sh <mount> <path> <mount> <path> …`.
+    pub fn argv(&self) -> Vec<&str> {
+        self.argv.iter().map(String::as_str).collect()
+    }
+
+    /// Read the stdout of a probe that exited 0: the first path it named (in
+    /// argv order) is refused as on the Linux seam. A path it could not walk,
+    /// or output that is not a list of this probe's answers, is
+    /// `broken(why)`, never read as "no links".
+    pub fn verdict(&self, stdout: &[u8], broken: impl FnOnce(String) -> AppError) -> Result<(), AppError> {
+        let Ok(text) = std::str::from_utf8(stdout) else {
+            return Err(broken("its answer is not text".to_string()));
+        };
+        let index_of = |digits: &str| {
+            digits
+                .parse::<usize>()
+                .ok()
+                .filter(|i| *i < self.sources.len() && digits.bytes().all(|b| b.is_ascii_digit()))
+        };
+        let (mut link, mut unreadable): (Option<usize>, Option<usize>) = (None, None);
+        for line in text.lines().filter(|l| !l.is_empty()) {
+            let (seen, digits) = match line.strip_prefix(PROBE_UNREADABLE) {
+                Some(digits) => (&mut unreadable, digits),
+                None => (&mut link, line),
+            };
+            let Some(index) = index_of(digits) else {
+                return Err(broken(format!("it gave an unexpected answer {line:?}")));
+            };
+            *seen = Some(seen.map_or(index, |first| first.min(index)));
+        }
+        if let Some(index) = unreadable {
+            let src = &self.sources[index];
+            return Err(broken(format!(
+                "a folder on the path /{} of the {} could not be read",
+                src.rel,
+                image_name(src.image)
+            )));
+        }
+        match link {
+            None => Ok(()),
+            Some(index) => Err(bind_source_refused(&self.sources[index])),
+        }
+    }
 }
 
 /// Derive the in-sandbox shell command that runs the method wrapper
@@ -1740,9 +2056,23 @@ mod tests {
             "/etc/passwd",   // outside
             "/code//x",      // empty component
             "/code/./x",     // "." component
+            "/opt/x\0y",     // NUL byte
         ] {
             let err = validate_layer_entry(bad).expect_err(&format!("{bad} must be refused"));
             assert_eq!(err.error_code(), ENV_LAYER_ENTRY_INVALID_CODE, "{bad}");
+        }
+        // Lengths: a component of 255 bytes and an entry of 4096 pass; one
+        // byte more of either is refused as the image's fault (400).
+        let name = |n: usize| "a".repeat(n);
+        assert!(validate_layer_entry(&format!("/opt/{}", name(255))).is_ok());
+        let long_entry = format!("/opt/{}", vec![name(200); 30].join("/"));
+        let long_entry = &long_entry[..4096];
+        assert!(!long_entry.ends_with('/'));
+        assert!(validate_layer_entry(long_entry).is_ok(), "4096 bytes");
+        for bad in [format!("/opt/{}", name(256)), format!("{long_entry}a")] {
+            let err = validate_layer_entry(&bad).expect_err("too long");
+            assert_eq!(err.error_code(), ENV_LAYER_ENTRY_INVALID_CODE);
+            assert_eq!(err.status_code(), 400);
         }
         validate_layer_entries(&["/code".into(), "/usr/local".into()])
             .expect("the list validator accepts a valid list");
@@ -2072,5 +2402,501 @@ mod tests {
         assert_eq!(read_run_layer_digest(&root), None, "malformed → None");
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ── no symbolic link in a bind source's path inside its image ────────────
+
+    const LINK_ENTRIES: [&str; 3] = ["/code", "/opt/txr-layer", "/usr/local/lib/R/site-library/pkg"];
+
+    fn link_entries() -> Vec<String> {
+        LINK_ENTRIES.iter().map(|e| e.to_string()).collect()
+    }
+
+    /// The bwrap options of `argv` before its `--` terminator that make or
+    /// mount a path in the new root, as `(option, source, that path)`; the
+    /// source is empty for a one-path option (`--tmpfs /tmp`). Options that
+    /// name no such path (`--setenv`, `--chdir`) are left out, and an option
+    /// this does not know fails the test, so a new kind of destination is
+    /// looked at before it can pass.
+    fn bwrap_destinations(argv: &[String]) -> Vec<(&str, &str, &str)> {
+        let mut out = Vec::new();
+        let mut i = 0;
+        while argv[i] != "--" {
+            let op = argv[i].as_str();
+            let (args, makes_a_path) = match op {
+                "--clearenv" | "--unshare-user" | "--unshare-uts" | "--unshare-ipc"
+                | "--unshare-cgroup-try" | "--unshare-net" | "--unshare-pid" | "--as-pid-1"
+                | "--new-session" | "--die-with-parent" => (0, false),
+                "--uid" | "--gid" | "--seccomp" | "--chdir" => (1, false),
+                "--setenv" => (2, false),
+                "--dev" | "--tmpfs" | "--proc" | "--dir" | "--mqueue" | "--remount-ro" => (1, true),
+                "--bind" | "--bind-try" | "--ro-bind" | "--ro-bind-try" | "--dev-bind"
+                | "--dev-bind-try" | "--symlink" | "--file" | "--bind-data" | "--ro-bind-data"
+                | "--chmod" => (2, true),
+                other => panic!("the bwrap option {other} is new here: say whether it makes or mounts a path"),
+            };
+            if makes_a_path {
+                let src = if args == 2 { argv[i + 1].as_str() } else { "" };
+                out.push((op, src, argv[i + args].as_str()));
+            }
+            i += 1 + args;
+        }
+        out
+    }
+
+    // The check reads exactly the image paths the stacked argv binds from or
+    // onto: every argv word under the base or the layer mount is the source of
+    // a bind, a layer entry's bind lands at the entry's own path (checked in
+    // the base), and the list is `image_bind_sources`, in order. That list is
+    // whole only while no other destination resolves through a tree bwrap
+    // bound out of an image (the base's `usr`, `opt` and `etc/…` paths, a layer
+    // entry) or through a link bwrap made (`/bin -> usr/bin`): bwrap would
+    // follow an unchecked link there. So with every mount a run makes (a reuse
+    // run's verified model or a fit run's read-write `/model`, `/input`,
+    // `/output`, the progress FIFO), a destination under such a tree must be a
+    // layer entry's own bind; every other one sits in bwrap's tmpfs root.
+    // A layer entry's own bind under a `--symlink` tree (/bin -> usr/bin)
+    // would not be covered (the base walk follows the entry's path, bwrap the
+    // link); validate_layer_entry keeps entries under /usr/local, /opt and
+    // /code, so none lands there.
+    #[test]
+    fn stacked_argv_binds_only_the_checked_image_paths() {
+        let mount = |host: &str, at: &str, mode| ExtraMount {
+            host_path: PathBuf::from(host),
+            sandbox_path: at.into(),
+            mode,
+        };
+        let input = mount("/host/bundle", "/input", MountMode::ReadOnly);
+        let output = mount("/host/out", "/output", MountMode::ReadWrite);
+        let model_out = mount("/host/model-out", MODEL_SANDBOX_PATH, MountMode::ReadWrite);
+        let fifo = Some("/host/fifo");
+        let reuse = [input.clone(), output.clone()];
+        let reuse = stacked_full(&LINK_ENTRIES, &reuse, Some(&model_mount()), 4, Some("predict"), fifo, Some(7));
+        let fit = stacked_full(&LINK_ENTRIES, &[input, output, model_out], None, 4, Some("fit"), fifo, Some(7));
+        for a in [reuse, fit] {
+            let mut bound = Vec::new();
+            for (i, word) in a.iter().enumerate() {
+                // A bare mount root counts too (an empty rel), so binding a
+                // whole image is caught, not skipped.
+                let in_image = |root: &str| {
+                    (word == root).then_some("").or_else(|| word.strip_prefix(&format!("{root}/")))
+                };
+                let (image, rel) = if let Some(rel) = in_image("/mnt/base") {
+                    (BindImage::Base, rel)
+                } else if let Some(rel) = in_image("/mnt/layer") {
+                    (BindImage::Layer, rel)
+                } else {
+                    continue;
+                };
+                assert!(!rel.is_empty(), "`{} {word}` binds a whole image", a[i - 1]);
+                assert!(
+                    matches!(a[i - 1].as_str(), "--ro-bind" | "--ro-bind-try"),
+                    "{word} is not the source of a read-only bind"
+                );
+                bound.push(ImageBindSource { image, rel: rel.to_string() });
+                if image == BindImage::Layer {
+                    assert_eq!(a[i + 1], format!("/{rel}"), "a layer entry lands at its own path");
+                    bound.push(ImageBindSource { image: BindImage::EntryInBase, rel: rel.to_string() });
+                }
+            }
+            assert_eq!(bound, image_bind_sources(&link_entries()).unwrap());
+            assert_eq!(
+                bound.len(),
+                super::super::sandbox::ROOTFS_BIND_PATHS.len() + 2 * LINK_ENTRIES.len()
+            );
+
+            let made = bwrap_destinations(&a);
+            for run_path in [MODEL_SANDBOX_PATH, "/input", "/output", PROGRESS_FIFO_SANDBOX_PATH] {
+                assert!(made.iter().any(|(_, _, at)| *at == run_path), "the run mounts {run_path}");
+            }
+            let trees: Vec<&str> = made
+                .iter()
+                .filter(|(op, src, _)| {
+                    *op == "--symlink"
+                        || Path::new(src).starts_with("/mnt/base")
+                        || Path::new(src).starts_with("/mnt/layer")
+                })
+                .map(|(_, _, at)| *at)
+                .collect();
+            for rel in super::super::sandbox::ROOTFS_BIND_PATHS {
+                assert!(trees.iter().any(|t| *t == format!("/{rel}")), "/{rel} is bound from the base");
+            }
+            for (op, src, at) in &made {
+                let under = |tree: &&&str| at.strip_prefix(**tree).is_some_and(|rest| rest.starts_with('/'));
+                let Some(tree) = trees.iter().find(under) else { continue };
+                assert!(
+                    *op == "--ro-bind-try" && LINK_ENTRIES.contains(at) && *src == format!("/mnt/layer{at}"),
+                    "`{op} {src} {at}` lands under {tree}, which bwrap bound out of an image or made a \
+                     link to: only a layer entry's own bind may"
+                );
+            }
+        }
+    }
+
+    /// A dir under the system temp dir, removed on drop.
+    #[cfg(unix)]
+    struct Scratch(PathBuf);
+    #[cfg(unix)]
+    impl Scratch {
+        fn new() -> Self {
+            let dir = std::env::temp_dir().join(format!("stack-links-{}", Uuid::new_v4().simple()));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+    #[cfg(unix)]
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Gives a dir back its 0755 mode on drop, so a test that takes the mode
+    /// away and then fails still leaves a dir [`Scratch`] can remove.
+    #[cfg(unix)]
+    struct RestoreMode(PathBuf);
+    #[cfg(unix)]
+    impl Drop for RestoreMode {
+        fn drop(&mut self) {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+        }
+    }
+
+    /// A base and a layer the check accepts: every bound path is a real dir or
+    /// file, and the links sit DEEPER inside bound dirs (resolved inside the
+    /// sandbox, so allowed) or under an entry's path in the base (covered by
+    /// the entry's bind), some pointing at `/oldroot` and some dangling. The
+    /// base has no `etc/R` (an optional bind) and no `code` (where nothing of
+    /// the base is bound).
+    #[cfg(unix)]
+    fn clean_images(root: &Path) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::symlink;
+        let (base, layer) = (root.join("base"), root.join("layer"));
+        for dir in [
+            "usr/bin",
+            "usr/lib",
+            "usr/local/lib/R/site-library/pkg",
+            "etc/ssl/certs",
+            "etc/alternatives",
+            "opt/txr-layer",
+        ] {
+            std::fs::create_dir_all(base.join(dir)).unwrap();
+        }
+        std::fs::write(base.join("etc/resolv.conf"), "").unwrap();
+        std::fs::write(base.join("usr/bin/bash"), "").unwrap();
+        symlink("bash", base.join("usr/bin/sh")).unwrap();
+        symlink("/oldroot/etc/shadow", base.join("etc/ssl/certs/ca.pem")).unwrap();
+        symlink("../../usr/bin/missing", base.join("etc/alternatives/blas")).unwrap();
+        symlink("/oldroot/home", base.join("opt/txr-layer/home")).unwrap();
+        symlink("/oldroot", base.join("usr/local/lib/R/site-library/pkg/up")).unwrap();
+        for dir in ["code", "opt/txr-layer/bin", "opt/txr-layer/lib", "usr/local/lib/R/site-library/pkg"] {
+            std::fs::create_dir_all(layer.join(dir)).unwrap();
+        }
+        std::fs::write(layer.join("code/run.sh"), "").unwrap();
+        symlink("/oldroot/home", layer.join("code/data")).unwrap();
+        symlink("../lib/tool", layer.join("opt/txr-layer/bin/tool")).unwrap();
+        symlink("../../../../../../../../oldroot", layer.join("usr/local/lib/R/site-library/pkg/up")).unwrap();
+        (base, layer)
+    }
+
+    /// Replace `path` (a dir, a file or nothing) with a symbolic link to `target`.
+    #[cfg(unix)]
+    fn make_link(path: &Path, target: &str) {
+        if path.is_dir() && !path.is_symlink() {
+            std::fs::remove_dir_all(path).unwrap();
+        } else if path.symlink_metadata().is_ok() {
+            std::fs::remove_file(path).unwrap();
+        }
+        std::os::unix::fs::symlink(target, path).unwrap();
+    }
+
+    /// The code [`probe_with_host_sh`] gives an answer `verdict` calls broken.
+    #[cfg(unix)]
+    const PROBE_BROKEN: &str = "PROBE_BROKEN";
+
+    /// The VM seam's probe, with the host's `/bin/sh` standing in for the
+    /// VM's busybox: the probe's own argv over `base` / `layer`, its stdout read
+    /// by `verdict` (a broken answer is [`PROBE_BROKEN`]). The shell logic runs
+    /// for real, not only its text, as the test's own user.
+    #[cfg(unix)]
+    fn probe_with_host_sh(base: &Path, layer: &Path, entries: &[String]) -> Result<(), AppError> {
+        let probe = BindSourceProbe::new(entries, base.to_str().unwrap(), layer.to_str().unwrap())?;
+        let argv = probe.argv();
+        assert_eq!(&argv[..2], ["sh", "-c"], "a busybox `sh -c` call");
+        let out = std::process::Command::new("/bin/sh").args(&argv[1..]).output().expect("run /bin/sh");
+        assert!(
+            out.status.success(),
+            "the probe exits 0 on pairs: {:?} {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        probe.verdict(&out.stdout, |why| AppError::new(StatusCode::IM_A_TEAPOT, PROBE_BROKEN, why))
+    }
+
+    /// What every refusal of a linked path says: plain words naming the path
+    /// inside its image, never where the image is mounted.
+    #[cfg(unix)]
+    fn assert_plain_refusal(err: &AppError, mounts: &[&Path]) {
+        let text = err.to_string();
+        assert!(text.contains("is a symbolic link, or a folder above it is one"), "{text}");
+        assert!(!text.contains(") (") && !text.contains("bind"), "{text}");
+        for mount in mounts {
+            assert!(!text.contains(mount.to_str().unwrap()), "names no mount: {text}");
+        }
+    }
+
+    // Both seams accept the clean images (links deeper inside bound dirs or
+    // under an entry's path in the base, absent optional paths) and refuse
+    // every link in a bound path, the path itself or a dir above it: absolute,
+    // relative `../`, under a linked parent, a link that stays inside the
+    // image, a dangling one; in the layer (ENV_LAYER_ENTRY_INVALID), in the
+    // base's fixed binds (ROOTFS_PATH_INVALID) and in the base where a layer
+    // entry's bind lands (ENV_LAYER_ENTRY_INVALID). Both give the same words.
+    #[cfg(unix)]
+    #[test]
+    fn both_seams_refuse_a_link_in_a_bind_source_path() {
+        let scratch = Scratch::new();
+        let (base, layer) = clean_images(&scratch.0);
+        assert_bind_sources_not_symlinked(&base, &layer, &link_entries()).expect("clean images pass");
+        probe_with_host_sh(&base, &layer, &link_entries()).expect("clean images pass the probe");
+        // An entry neither image carries: nothing to bind, nothing to refuse.
+        let absent = vec!["/opt/not-in-layer/x".to_string()];
+        assert_bind_sources_not_symlinked(&base, &layer, &absent).expect("absent entry passes");
+        probe_with_host_sh(&base, &layer, &absent).expect("absent entry passes the probe");
+        drop(scratch);
+
+        let entry_in_base = "The method image cannot run on this base image: the method image puts files at";
+        let cases: [(&str, &str, &str, &str, &str); 14] = [
+            ("layer", "opt/txr-layer", "/oldroot/home/user", ENV_LAYER_ENTRY_INVALID_CODE, "The method image is refused: its path /opt/txr-layer is"),
+            ("layer", "opt/txr-layer", "../../../../../../../../home/user", ENV_LAYER_ENTRY_INVALID_CODE, "its path /opt/txr-layer is"),
+            ("layer", "usr/local", "/oldroot/usr/local", ENV_LAYER_ENTRY_INVALID_CODE, "its path /usr/local/lib/R/site-library/pkg is"),
+            ("layer", "usr", "usr-real", ENV_LAYER_ENTRY_INVALID_CODE, "its path /usr/local/lib/R/site-library/pkg is"),
+            ("layer", "code", "/no/such/dir", ENV_LAYER_ENTRY_INVALID_CODE, "The method image is refused: its path /code is"),
+            ("base", "usr", "/oldroot/usr", ROOTFS_PATH_INVALID_CODE, "The base image is refused: its path /usr is"),
+            ("base", "etc/ssl", "../../oldroot/etc/ssl", ROOTFS_PATH_INVALID_CODE, "its path /etc/ssl/certs is"),
+            ("base", "etc/R", "/oldroot/etc", ROOTFS_PATH_INVALID_CODE, "its path /etc/R is"),
+            ("base", "etc/resolv.conf", "/run/missing/resolv.conf", ROOTFS_PATH_INVALID_CODE, "its path /etc/resolv.conf is"),
+            // Where a layer entry's bind lands, in the base.
+            ("base", "opt/txr-layer", "/oldroot/home/user/created-by-bwrap", ENV_LAYER_ENTRY_INVALID_CODE, "puts files at /opt/txr-layer, and in the base image that path is"),
+            ("base", "usr/local", "/oldroot/home/user", ENV_LAYER_ENTRY_INVALID_CODE, "puts files at /usr/local/lib/R/site-library/pkg, and"),
+            ("base", "usr/local/lib/R/site-library/pkg", "../../../../../../../../oldroot/home", ENV_LAYER_ENTRY_INVALID_CODE, "puts files at /usr/local/lib/R/site-library/pkg, and"),
+            ("base", "usr/local/lib/R/site-library/pkg", "/no/such/dir", ENV_LAYER_ENTRY_INVALID_CODE, entry_in_base),
+            ("base", "code", "/oldroot/home/user", ENV_LAYER_ENTRY_INVALID_CODE, "puts files at /code, and"),
+        ];
+        for (image, rel, target, code, says) in cases {
+            let scratch = Scratch::new();
+            let (base, layer) = clean_images(&scratch.0);
+            if (image, rel) == ("layer", "usr") {
+                std::fs::rename(layer.join("usr"), layer.join("usr-real")).unwrap();
+            }
+            let root = if image == "base" { &base } else { &layer };
+            make_link(&root.join(rel), target);
+            let case = format!("{image} {rel} -> {target}");
+            let host = assert_bind_sources_not_symlinked(&base, &layer, &link_entries())
+                .expect_err(&format!("Linux seam refuses {case}"));
+            assert_eq!(host.error_code(), code, "Linux seam, {case}: {host}");
+            let vm = probe_with_host_sh(&base, &layer, &link_entries())
+                .expect_err(&format!("VM probe refuses {case}"));
+            assert_eq!(vm.error_code(), code, "VM probe, {case}: {vm}");
+            assert_eq!(host.to_string(), vm.to_string(), "{case}: both seams say the same");
+            assert!(host.to_string().contains(says), "{case}: {host}");
+            assert_plain_refusal(&host, &[&base, &layer]);
+        }
+    }
+
+    /// Put a non-dir of `kind` (a file, a FIFO or a socket) at `path`, where
+    /// the clean images have a dir.
+    #[cfg(unix)]
+    fn make_non_dir(path: &Path, kind: &str) {
+        std::fs::remove_dir_all(path).unwrap();
+        match kind {
+            "file" => std::fs::write(path, "").unwrap(),
+            "FIFO" => {
+                let made = std::process::Command::new("mkfifo").arg(path).status().expect("run mkfifo");
+                assert!(made.success(), "mkfifo {}", path.display());
+            }
+            "socket" => {
+                // Made under a short name (a socket's path must fit sun_path), then moved.
+                let id = Uuid::new_v4().simple().to_string();
+                let short = std::env::temp_dir().join(format!("w41s-{}", &id[..8]));
+                drop(std::os::unix::net::UnixListener::bind(&short).unwrap());
+                std::fs::rename(&short, path).unwrap();
+            }
+            _ => unreachable!("{kind}"),
+        }
+        let meta = path.symlink_metadata().unwrap();
+        assert!(!meta.is_dir() && !meta.file_type().is_symlink(), "a {kind} at {}", path.display());
+    }
+
+    // A component that is not a dir (a file, a FIFO, a socket) ends the walk
+    // like a missing one, on both seams: bwrap stops the run on a path under
+    // it ("Can't find source path …: Not a directory"), so nothing is
+    // followed. A dir the check cannot read is never read as clean, and on
+    // either seam it is the host or the VM that could not look, never a
+    // refused image: as a non-root user the host walk fails the run as
+    // SANDBOX_UNAVAILABLE and the VM probe answers that it could not look
+    // (broken, a VM error); root reads every dir and finds the link the dir
+    // hides.
+    #[cfg(unix)]
+    #[test]
+    fn the_walks_stop_at_a_non_dir_and_never_pass_an_unreadable_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        for kind in ["file", "FIFO", "socket"] {
+            let scratch = Scratch::new();
+            let (base, layer) = clean_images(&scratch.0);
+            make_non_dir(&layer.join("opt"), kind);
+            make_non_dir(&base.join("usr/local"), kind);
+            if let Err(e) = assert_bind_sources_not_symlinked(&base, &layer, &link_entries()) {
+                panic!("a {kind} where a dir is expected passes: {e}");
+            }
+            if let Err(e) = probe_with_host_sh(&base, &layer, &link_entries()) {
+                panic!("a {kind} where a dir is expected passes the probe: {e}");
+            }
+        }
+
+        // A link on an entry's path, under a dir only root can read.
+        let scratch = Scratch::new();
+        let (base, layer) = clean_images(&scratch.0);
+        make_link(&layer.join("usr/local/lib/R/site-library/pkg"), "/oldroot/home/user");
+        let unreadable = layer.join("usr/local/lib");
+        std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let _restore = RestoreMode(unreadable.clone());
+        let as_root = std::fs::symlink_metadata(unreadable.join("R")).is_ok();
+
+        let host = assert_bind_sources_not_symlinked(&base, &layer, &link_entries())
+            .expect_err("an unreadable dir is never clean");
+        let vm = probe_with_host_sh(&base, &layer, &link_entries())
+            .expect_err("an unreadable dir is never clean to the probe");
+        if as_root {
+            assert_eq!(host.error_code(), ENV_LAYER_ENTRY_INVALID_CODE, "root finds the link: {host}");
+            assert_plain_refusal(&host, &[&base, &layer]);
+            assert_eq!(vm.error_code(), ENV_LAYER_ENTRY_INVALID_CODE, "root finds the link: {vm}");
+        } else {
+            assert_eq!(host.error_code(), SANDBOX_UNAVAILABLE_CODE, "the host could not look: {host}");
+            assert_eq!(host.status_code(), 503, "{host}");
+            let host = host.to_string();
+            assert!(
+                host.starts_with(
+                    "The method sandbox could not check the method and base images for symbolic \
+                     links: on the path /usr/local/lib/R/site-library/pkg of the method image, \
+                     reading /usr/local/lib/R failed: "
+                ),
+                "{host}"
+            );
+            assert!(!host.contains("refused") && !host.contains(") ("), "{host}");
+            assert!(!host.contains(layer.to_str().unwrap()), "names no mount: {host}");
+            assert_eq!(vm.error_code(), PROBE_BROKEN, "the probe could not look: {vm}");
+            assert!(
+                vm.to_string()
+                    .contains("a folder on the path /usr/local/lib/R/site-library/pkg of the method image"),
+                "{vm}"
+            );
+        }
+    }
+
+    // The probe's argv names each path as a `<mount> <path>` pair in argv
+    // order; its answer is read strictly: the first named path (argv order)
+    // is refused, a path it could not walk is `broken` even next to a link,
+    // and an answer that is not this probe's is `broken`.
+    #[test]
+    fn the_vm_probe_argv_and_answer() {
+        let probe = BindSourceProbe::new(&link_entries(), "/vm/base", "/vm/layer").unwrap();
+        let mut want = vec!["sh", "-c", BIND_SOURCE_PROBE_SCRIPT, "sh"];
+        for rel in super::super::sandbox::ROOTFS_BIND_PATHS {
+            want.extend(["/vm/base", rel]);
+        }
+        for rel in ["code", "opt/txr-layer", "usr/local/lib/R/site-library/pkg"] {
+            want.extend(["/vm/layer", rel, "/vm/base", rel]);
+        }
+        assert_eq!(probe.argv(), want);
+
+        let broken = |why: String| AppError::new(StatusCode::IM_A_TEAPOT, "BROKEN", why);
+        probe.verdict(b"", broken).expect("no index → no link");
+        probe.verdict(b"\n", broken).expect("an empty line names nothing");
+        let err = probe.verdict(b"8\n", broken).unwrap_err();
+        assert_eq!(err.error_code(), ENV_LAYER_ENTRY_INVALID_CODE);
+        assert_eq!(
+            err.to_string(),
+            "The method image is refused: its path /opt/txr-layer is a symbolic link, or a folder \
+             above it is one. A link there can lead outside the image, so it is not allowed."
+        );
+        let err = probe.verdict(b"9\n", broken).unwrap_err();
+        assert_eq!(err.error_code(), ENV_LAYER_ENTRY_INVALID_CODE, "where the entry lands in the base");
+        assert_eq!(
+            err.to_string(),
+            "The method image cannot run on this base image: the method image puts files at \
+             /opt/txr-layer, and in the base image that path is a symbolic link, or a folder above \
+             it is one. A link there can lead outside the image, so it is not allowed."
+        );
+        let err = probe.verdict(b"11\n0\n", broken).unwrap_err();
+        assert_eq!(err.error_code(), ROOTFS_PATH_INVALID_CODE, "the first in argv order");
+        assert!(err.to_string().starts_with("The base image is refused: its path /usr is a"), "{err}");
+        for answer in [&b"unreadable 10\n"[..], b"0\nunreadable 10\n", b"unreadable 11\nunreadable 10\n0\n"] {
+            let err = probe.verdict(answer, broken).unwrap_err();
+            assert_eq!(err.error_code(), "BROKEN", "{:?}: {err}", String::from_utf8_lossy(answer));
+            assert_eq!(
+                err.to_string(),
+                "a folder on the path /usr/local/lib/R/site-library/pkg of the method image could not be read"
+            );
+        }
+        let err = probe.verdict(b"unreadable 3\n", broken).unwrap_err();
+        assert!(err.to_string().ends_with("/etc/alternatives of the base image could not be read"), "{err}");
+        for bad in [
+            &b"12\n"[..],
+            b"x\n",
+            b"+1\n",
+            b"-1\n",
+            b" 1\n",
+            b"1 \n",
+            b"0\n\xff\n",
+            b"unreadable\n",
+            b"unreadable 12\n",
+            b"unreadable  1\n",
+            b"unreadable +1\n",
+            b"Unreadable 1\n",
+        ] {
+            let err = probe.verdict(bad, broken).unwrap_err();
+            assert_eq!(err.error_code(), "BROKEN", "{:?}: {err}", String::from_utf8_lossy(bad));
+        }
+
+        let err = BindSourceProbe::new(&["/opt/../etc".to_string()], "/b", "/l")
+            .err()
+            .expect("an invalid entry is refused before any probe");
+        assert_eq!(err.error_code(), ENV_LAYER_ENTRY_INVALID_CODE);
+    }
+
+    // The probe's script exits non-zero when its arguments are not pairs, so a
+    // call the seam got wrong is a failed check, never an empty answer.
+    #[cfg(unix)]
+    #[test]
+    fn the_vm_probe_script_refuses_an_odd_argument_list() {
+        let out = std::process::Command::new("/bin/sh")
+            .args(["-c", BIND_SOURCE_PROBE_SCRIPT, "sh", "/b", "usr", "/l"])
+            .output()
+            .expect("run /bin/sh");
+        assert!(!out.status.success(), "odd arguments → non-zero exit");
+        let out = std::process::Command::new("/bin/sh")
+            .args(["-c", BIND_SOURCE_PROBE_SCRIPT, "sh"])
+            .output()
+            .expect("run /bin/sh");
+        assert!(out.status.success() && out.stdout.is_empty(), "no pairs → nothing to say");
+    }
+
+    // The probe never reads "could not look" as "missing": a mount that is
+    // not there at all is a walk it could not do, while a path missing from
+    // a mount it can enter is nothing to refuse.
+    #[cfg(unix)]
+    #[test]
+    fn the_vm_probe_script_cannot_pass_a_missing_mount() {
+        let scratch = Scratch::new();
+        let gone = scratch.0.join("not-mounted");
+        let here = scratch.0.to_str().unwrap();
+        let out = std::process::Command::new("/bin/sh")
+            .args(["-c", BIND_SOURCE_PROBE_SCRIPT, "sh", gone.to_str().unwrap(), "usr", here, "usr"])
+            .output()
+            .expect("run /bin/sh");
+        assert!(out.status.success(), "{out:?}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "unreadable 0\n");
     }
 }
