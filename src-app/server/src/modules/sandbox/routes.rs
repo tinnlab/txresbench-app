@@ -33,6 +33,7 @@ use super::service::run_method_in_stack;
 use super::settings::{SandboxResourceLimits, SandboxSettingsRepository, UpdateSandboxResourceLimits};
 use super::settings_cache;
 use super::stack::{MethodRunRequest, MethodRunResult};
+use super::wsl_setup::{self, WslSetupResult, WslSetupStatus};
 use crate::modules::rootfs::{self, cache, RootfsStatus};
 
 /// Combined sandbox status for the admin UI.
@@ -63,6 +64,7 @@ pub fn sandbox_routes() -> ApiRouter {
             get_with(env_status, env_status_docs).delete_with(delete_env, delete_env_docs),
         )
         .api_route("/sandbox/method-run", post_with(method_run, method_run_docs))
+        .api_route("/sandbox/wsl/setup", post_with(setup_wsl, setup_wsl_docs))
 }
 
 // ─────────────────────────────── status ───────────────────────────────
@@ -175,6 +177,7 @@ pub const LIST_ENVS_DOC_ID: &str = "Sandbox.listEnvs";
 pub const ENV_STATUS_DOC_ID: &str = "Sandbox.envStatus";
 pub const DELETE_ENV_DOC_ID: &str = "Sandbox.deleteEnv";
 pub const METHOD_RUN_DOC_ID: &str = "Sandbox.methodRun";
+pub const SETUP_WSL_DOC_ID: &str = "Sandbox.setupWsl";
 
 /// The stacked-mode availability half of [`EnvIndexStatus`] (PROV-SS-5).
 ///
@@ -189,8 +192,13 @@ pub struct StackStatus {
     pub supported: bool,
     /// The degradation note when something short of hard-unavailable is wrong
     /// (e.g. `oras` not found for env downloads); `None` when nothing is noted.
+    /// On Windows, when methods cannot run: why, in the boot probe's words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Windows only, while methods cannot run: what "Set up WSL" can do
+    /// (`wsl_setup::notice`). Absent on other systems and when methods can run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wsl_setup: Option<WslSetupStatus>,
     /// The compiled txr base-registry prefix — READ-ONLY (a release-time
     /// security boundary, displayed exactly like
     /// [`SandboxStatus::env_registry_base`]).
@@ -288,6 +296,10 @@ async fn list_envs(
 ) -> ApiResult<Json<EnvIndexStatus>> {
     let oras = method_env::tool_bin("oras");
     let (supported, reason) = stack_availability(init_status(), oras.is_some());
+    let (reason, wsl_setup) = match wsl_setup::notice() {
+        Some((why, status)) => (Some(why), Some(status)),
+        None => (reason, None),
+    };
     let (base, layers) = split_envs(method_env::manager().list());
     Ok((
         StatusCode::OK,
@@ -295,6 +307,7 @@ async fn list_envs(
             stack: StackStatus {
                 supported,
                 reason,
+                wsl_setup,
                 // The EFFECTIVE base prefix: a debug build with the dev
                 // registry seam reports the loopback host, a release build the
                 // compiled ghcr.io prefix — the surface never claims a fetch
@@ -459,6 +472,34 @@ fn method_run_docs(op: TransformOperation) -> TransformOperation {
         })
 }
 
+/// `POST /api/sandbox/wsl/setup` — install or update WSL 2 on this Windows
+/// PC, when the boot probe found it missing or too old (`wsl_setup`): the
+/// installer's own commands, run as administrator after Windows' permission
+/// prompt (UAC), which only the person at the PC can answer. Waits for the
+/// end and answers how it went (`done`: the app must start again, after a
+/// Windows restart when `restart_windows`). Gated `SandboxSettingsManage`
+/// (it changes the machine). 409 `WSL_SETUP_NOT_OFFERED` when there is
+/// nothing to set up (any other system, methods can run, a reason the app
+/// cannot fix, a setup already done), 409 `WSL_SETUP_RUNNING` while one runs.
+async fn setup_wsl(_auth: RequirePermissions<(SandboxSettingsManage,)>) -> ApiResult<Json<WslSetupResult>> {
+    let result = wsl_setup::run_here().await.map_err(|e| e.to_api_error())?;
+    Ok((StatusCode::OK, Json(result)))
+}
+
+fn setup_wsl_docs(op: TransformOperation) -> TransformOperation {
+    with_permission::<(SandboxSettingsManage,)>(op)
+        .id(SETUP_WSL_DOC_ID)
+        .tag("sandbox")
+        .summary("Windows: install or update WSL 2 as administrator (asks the person at the PC), and wait for it")
+        .response::<200, Json<WslSetupResult>>()
+        .response_with::<409, (), _>(|r| {
+            r.description(
+                "Nothing to set up on this computer (WSL_SETUP_NOT_OFFERED), or a setup is running \
+                 (WSL_SETUP_RUNNING)",
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -493,6 +534,7 @@ mod tests {
         assert_eq!(ENV_STATUS_DOC_ID, "Sandbox.envStatus");
         assert_eq!(DELETE_ENV_DOC_ID, "Sandbox.deleteEnv");
         assert_eq!(METHOD_RUN_DOC_ID, "Sandbox.methodRun");
+        assert_eq!(SETUP_WSL_DOC_ID, "Sandbox.setupWsl");
     }
 
     // The query flag defaults to no-prune (an explicit `?prune=true` is the

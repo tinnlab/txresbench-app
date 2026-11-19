@@ -2944,6 +2944,7 @@ export interface StackStatus {
   /**
    * The degradation note when something short of hard-unavailable is wrong
    *  (e.g. `oras` not found for env downloads); `None` when nothing is noted.
+   *  On Windows, when methods cannot run: why, in the boot probe's words.
    */
   reason?: string
   /**
@@ -2961,6 +2962,11 @@ export interface StackStatus {
    *  anything security-relevant.
    */
   tool_bins: unknown
+  /**
+   * Windows only, while methods cannot run: what "Set up WSL" can do
+   *  (`wsl_setup::notice`). Absent on other systems and when methods can run.
+   */
+  wsl_setup?: WslSetupStatus
 }
 
 /** A standard identifier of a file marker column (`(system, id)`). */
@@ -4207,6 +4213,44 @@ export interface VocabularyMarker {
   unit_family: UnitFamily
 }
 
+/** What the "Set up WSL" button does on this PC. */
+export type WslSetupOffer = 'install' | 'update'
+
+/** How a setup ended. */
+export type WslSetupOutcome = 'done' | 'declined' | 'not_started' | 'failed' | 'timed_out'
+
+/** The result of a setup. */
+export interface WslSetupResult {
+  /** `failed`: the setup's exit code (wsl.exe's), when Windows gave one. */
+  exit_code?: number
+  outcome: WslSetupOutcome
+  /**
+   * `failed`: the last lines wsl.exe printed (empty when it printed nothing
+   *  or its words could not be kept).
+   */
+  output: string
+  /** `done`: Windows must restart before WSL can be used. */
+  restart_windows: boolean
+  /** `not_started`: Windows' error. */
+  windows_error?: number
+}
+
+/**
+ * What the notice shows about the setup (`GET /api/sandbox/envs`'
+ *  `stack.wsl_setup`, Windows only, while methods cannot run).
+ */
+export interface WslSetupStatus {
+  /** The last setup's result since the app started. */
+  last?: WslSetupResult
+  /**
+   * What "Set up WSL" does here; absent when the app cannot set WSL up
+   *  (the stack's `reason` says why) or a setup is done (restart).
+   */
+  offer?: WslSetupOffer
+  /** A setup started from the app is running. */
+  running: boolean
+}
+
 // API endpoint parameters
 export type ApiEndpointParameters = {
   'Account.acceptInvitation': AcceptInvitationRequest
@@ -4323,6 +4367,7 @@ export type ApiEndpointParameters = {
   'Sandbox.getStatus': void
   'Sandbox.listEnvs': void
   'Sandbox.methodRun': MethodRunRequest
+  'Sandbox.setupWsl': void
   'Sandbox.updateSettings': UpdateSandboxResourceLimits
   'Sync.subscribe': void
   'Txr.clearRuns': { delete_files?: boolean }
@@ -4459,6 +4504,7 @@ export type ApiEndpointResponses = {
   'Sandbox.getStatus': SandboxStatus
   'Sandbox.listEnvs': EnvIndexStatus
   'Sandbox.methodRun': MethodRunResult
+  'Sandbox.setupWsl': WslSetupResult
   'Sandbox.updateSettings': SandboxResourceLimits
   'Sync.subscribe': SyncSseEvent
   'Txr.clearRuns': void

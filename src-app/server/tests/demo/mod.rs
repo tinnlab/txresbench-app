@@ -98,7 +98,7 @@ fn every_openapi_operation_is_classified() {
 
 /// The framework surface is blocked, and the count is derived from the table
 /// (the spec's stale "141" is re-counted on this tree — the strip removed the
-/// platform modules, so the framework surface is 70 operations).
+/// platform modules, so the framework surface is 71 operations).
 #[test]
 fn framework_routes_are_all_blocked() {
     use txresbench::modules::demo::allowlist::{ROUTE_POLICY, RouteClass, is_framework_path};
@@ -107,7 +107,7 @@ fn framework_routes_are_all_blocked() {
         .iter()
         .filter(|r| is_framework_path(r.path))
         .collect::<Vec<_>>();
-    assert_eq!(framework_rows.len(), 70, "the framework surface is 70 ops on this tree");
+    assert_eq!(framework_rows.len(), 71, "the framework surface is 71 ops on this tree");
     for row in framework_rows {
         assert_eq!(
             row.class,

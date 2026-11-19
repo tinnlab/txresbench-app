@@ -11,6 +11,7 @@ mod dev_registry_test;
 mod method_env_layer_test;
 mod method_stack_test;
 mod settings_test;
+mod wsl_setup_test;
 
 /// First-run setup → returns the owner's access token.
 async fn setup_admin(server: &TestServer) -> String {

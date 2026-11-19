@@ -6315,6 +6315,62 @@
         ]
       }
     },
+    "/api/sandbox/wsl/setup": {
+      "post": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Windows: install or update WSL 2 as administrator (asks the person at the PC), and wait for it",
+        "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits",
+        "operationId": "Sandbox.setupWsl",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Change sandbox resource limits",
+                        "name": "SandboxSettingsManage",
+                        "value": "sandbox::settings::manage"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: sandbox::settings::manage",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The result of a setup.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WslSetupResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nothing to set up on this computer (WSL_SETUP_NOT_OFFERED), or a setup is running (WSL_SETUP_RUNNING)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "sandbox::settings::manage"
+        ]
+      }
+    },
     "/api/app/mode": {
       "get": {
         "tags": [
@@ -14135,7 +14191,7 @@
         "type": "object",
         "properties": {
           "reason": {
-            "description": "The degradation note when something short of hard-unavailable is wrong\n (e.g. `oras` not found for env downloads); `None` when nothing is noted.",
+            "description": "The degradation note when something short of hard-unavailable is wrong\n (e.g. `oras` not found for env downloads); `None` when nothing is noted.\n On Windows, when methods cannot run: why, in the boot probe's words.",
             "type": [
               "string",
               "null"
@@ -14151,6 +14207,17 @@
           },
           "tool_bins": {
             "description": "Map of the host tools the txr env fetch path resolves through\n (`method_env::tool_bin`): `{ \"oras\": \"<path>\" | null }`. Machine-\n readable so the admin view can render the exact gap; never trusted for\n anything security-relevant."
+          },
+          "wsl_setup": {
+            "description": "Windows only, while methods cannot run: what \"Set up WSL\" can do\n (`wsl_setup::notice`). Absent on other systems and when methods can run.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WslSetupStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -17422,6 +17489,126 @@
           "unit_family",
           "canonical_unit",
           "n_methods"
+        ]
+      },
+      "WslSetupOffer": {
+        "description": "What the \"Set up WSL\" button does on this PC.",
+        "oneOf": [
+          {
+            "description": "`wsl --install --no-distribution`.",
+            "type": "string",
+            "const": "install"
+          },
+          {
+            "description": "`wsl --update`, then `wsl --install --no-distribution`.",
+            "type": "string",
+            "const": "update"
+          }
+        ]
+      },
+      "WslSetupOutcome": {
+        "description": "How a setup ended.",
+        "oneOf": [
+          {
+            "description": "WSL is set up. The app must start again to use it.",
+            "type": "string",
+            "const": "done"
+          },
+          {
+            "description": "The person said No to Windows' permission prompt: nothing changed.",
+            "type": "string",
+            "const": "declined"
+          },
+          {
+            "description": "Windows could not start the setup (`windows_error`).",
+            "type": "string",
+            "const": "not_started"
+          },
+          {
+            "description": "The setup ran, but WSL is still missing or too old (`exit_code`,\n `output`).",
+            "type": "string",
+            "const": "failed"
+          },
+          {
+            "description": "No answer within [`SETUP_ANSWER_LIMIT`]: the setup may still be running\n (the status's `running` says so).",
+            "type": "string",
+            "const": "timed_out"
+          }
+        ]
+      },
+      "WslSetupResult": {
+        "description": "The result of a setup.",
+        "type": "object",
+        "properties": {
+          "exit_code": {
+            "description": "`failed`: the setup's exit code (wsl.exe's), when Windows gave one.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/WslSetupOutcome"
+          },
+          "output": {
+            "description": "`failed`: the last lines wsl.exe printed (empty when it printed nothing\n or its words could not be kept).",
+            "type": "string"
+          },
+          "restart_windows": {
+            "description": "`done`: Windows must restart before WSL can be used.",
+            "type": "boolean"
+          },
+          "windows_error": {
+            "description": "`not_started`: Windows' error.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "outcome",
+          "restart_windows",
+          "output"
+        ]
+      },
+      "WslSetupStatus": {
+        "description": "What the notice shows about the setup (`GET /api/sandbox/envs`'\n `stack.wsl_setup`, Windows only, while methods cannot run).",
+        "type": "object",
+        "properties": {
+          "last": {
+            "description": "The last setup's result since the app started.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WslSetupResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "offer": {
+            "description": "What \"Set up WSL\" does here; absent when the app cannot set WSL up\n (the stack's `reason` says why) or a setup is done (restart).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WslSetupOffer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "running": {
+            "description": "A setup started from the app is running.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "running"
         ]
       }
     }

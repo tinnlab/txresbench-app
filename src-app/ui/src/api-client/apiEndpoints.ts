@@ -118,6 +118,7 @@ export const ApiEndpoints = {
   'Sandbox.getStatus': 'GET /api/sandbox/status',
   'Sandbox.listEnvs': 'GET /api/sandbox/envs',
   'Sandbox.methodRun': 'POST /api/sandbox/method-run',
+  'Sandbox.setupWsl': 'POST /api/sandbox/wsl/setup',
   'Sandbox.updateSettings': 'PUT /api/sandbox/settings',
   'Sync.subscribe': 'GET /api/sync/subscribe',
   'Txr.clearRuns': 'DELETE /api/txr/runs',
