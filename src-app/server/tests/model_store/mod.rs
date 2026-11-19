@@ -117,6 +117,20 @@ pub async fn seed_run_with_models(
     name: &str,
     method_ids: &[&str],
 ) -> (Uuid, PathBuf) {
+    seed_run_with_marked_models(server, repo, name, method_ids, &["M1", "M2"]).await
+}
+
+/// [`seed_run_with_models`] with the markers each model records (its
+/// params.json `markers`). A method that takes exactly one marker is only ever
+/// trained on one (the run engine's count rule), so a test that checks such a
+/// model's eligibility seeds it with one.
+pub async fn seed_run_with_marked_models(
+    server: &TestServer,
+    repo: &TxrRepository,
+    name: &str,
+    method_ids: &[&str],
+    markers: &[&str],
+) -> (Uuid, PathBuf) {
     let run_dir = server
         .data_dir()
         .join(format!("analysis-2026-10-26-1002-{}-{}", name, id8()));
@@ -142,7 +156,7 @@ pub async fn seed_run_with_models(
                 "landmark_day": 56.0,
                 "horizons": [238.0],
                 "outcomes": [{"task": "pfs", "column": "pfs_event"}],
-                "markers": ["M1", "M2"],
+                "markers": markers,
                 "baseline_max_day": 0.0,
                 "covariates": false,
                 "method_params": {},
@@ -189,7 +203,7 @@ pub async fn seed_run_with_models(
         input_summary: TxrRunInputSummary {
             patients: Some(2),
             predict_patients: None,
-            markers: 2,
+            markers: markers.len() as u32,
             events: Some(1),
             file_names: TxrRunFileNames {
                 patients: Some("patients.csv".to_string()),

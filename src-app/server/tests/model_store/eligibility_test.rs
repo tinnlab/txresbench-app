@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::common::TestServer;
-use super::{error_code, owner_token, pool, seed_run_with_models};
+use super::{error_code, owner_token, pool, seed_run_with_marked_models};
 use txresbench::modules::execution_engine::repository::TxrRepository;
 
 /// The two seeded methods (real catalogue + env-manifest entries, so the save
@@ -17,9 +17,11 @@ use txresbench::modules::execution_engine::repository::TxrRepository;
 const METHOD_A: &str = "cox-cutpoint-risk";
 const METHOD_B: &str = "landmark-cox-current";
 
-/// The file inventory (the validator-built shape): 6 patients, markers M1/M2,
-/// draws at day 0/14/28/56 (baseline only for two patients — the
-/// needs-baseline model's `can_run_some`), survival outcome columns present.
+/// The file inventory (the validator-built shape): 6 patients, one marker M1
+/// (both seeded methods take exactly one marker, so their models were trained on
+/// one and the run engine gives them the file's one main marker), draws at day
+/// 0/14/28/56 (baseline only for two patients — the needs-baseline model's
+/// `can_run_some`), survival outcome columns present.
 fn inventory() -> Value {
     json!({
         "patients": 6,
@@ -44,25 +46,6 @@ fn inventory() -> Value {
                     {"patient_key": "S0005", "baseline_draws": 0, "ontreatment_draws": 2},
                     {"patient_key": "S0006", "baseline_draws": 0, "ontreatment_draws": 0}
                 ]
-            },
-            {
-                "key": "M2",
-                "display_name": "M2",
-                "unit_family": "none",
-                "standard_ids": [],
-                "is_detection_call": false,
-                "has_detection_companion": false,
-                "n_patients_with_value": 6,
-                "n_patients_with_baseline": 2,
-                "n_patients_with_ontreatment": 6,
-                "per_patient": [
-                    {"patient_key": "S0001", "baseline_draws": 1, "ontreatment_draws": 1},
-                    {"patient_key": "S0002", "baseline_draws": 0, "ontreatment_draws": 2},
-                    {"patient_key": "S0003", "baseline_draws": 1, "ontreatment_draws": 2},
-                    {"patient_key": "S0004", "baseline_draws": 0, "ontreatment_draws": 1},
-                    {"patient_key": "S0005", "baseline_draws": 0, "ontreatment_draws": 1},
-                    {"patient_key": "S0006", "baseline_draws": 0, "ontreatment_draws": 0}
-                ]
             }
         ],
         "covariates": [],
@@ -82,7 +65,7 @@ async fn per_model_eligibility_uses_the_one_inventory_shape() {
     let token = owner_token(&server).await;
     let repo = TxrRepository::new(pool(&server).await);
     let (run_id, _run_dir) =
-        seed_run_with_models(&server, &repo, "elig-ms13", &[METHOD_A, METHOD_B]).await;
+        seed_run_with_marked_models(&server, &repo, "elig-ms13", &[METHOD_A, METHOD_B], &["M1"]).await;
 
     let resp = server
         .client
@@ -124,7 +107,7 @@ async fn per_model_eligibility_uses_the_one_inventory_shape() {
     assert_eq!(models[0]["id"], ids[0]);
     assert_eq!(models[1]["id"], ids[1]);
 
-    // METHOD_A — cox-cutpoint-risk: recorded features M1/M2 present, recorded
+    // METHOD_A — cox-cutpoint-risk: recorded features (M1) present, recorded
     // draw rule 1 (no baseline) met by every patient; S0006 has values only
     // after the decision day → the soft DECISION_DAY_UNMET reason, eligible 5
     // of 6 → can_run_some, NOT can_run. (The seed's recorded min_draws is the

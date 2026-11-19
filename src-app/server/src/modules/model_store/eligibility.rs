@@ -304,8 +304,8 @@ fn model_verdict_in(
     ) {
         // The reuse run gives the model the file's main markers (no fixed
         // list) or the markers its list resolves to, through the engine's
-        // count rule (`bundle::method_marker_set`) — NOT the recorded
-        // features; any other number than the model takes is refused there
+        // count rule (`bundle::method_marker_set`) — NOT the marker set it was
+        // saved with; any other number than the model takes is refused there
         // (BUNDLE_MARKER_COUNT_UNMET), so the verdict hides it (FOLLOW-UP 1).
         reasons.push(ModelReason {
             code: ModelReasonCode::MarkerCountUnmet,
@@ -1001,7 +1001,7 @@ mod tests {
     }
 
     /// FOLLOW-UP 1: a saved one-marker model without a fixed list (kelim's
-    /// shape) on a file with three markers. Its recorded feature (M1) is
+    /// shape) on a file with three markers. Its recorded marker (M1) is
     /// there, but the reuse run gives it all three main markers and the
     /// engine refuses that number, so the verdict hides it; on a file with
     /// just its marker it runs.
@@ -1237,7 +1237,7 @@ mod tests {
         // file marker carrying that id satisfies it (the name M1 too).
         let mut frow = row.clone();
         frow.features = json!(["LOINC 2039-6 CEA", "M1"]);
-        // Two recorded features = a two-marker model (the base row's facts are
+        // Two recorded markers = a two-marker model (the base row's facts are
         // one-marker, which the engine's count rule refuses on two markers).
         frow.marker_facts = json!({"kind": "multi", "count": 2, "min_draws": 1, "needs_baseline": false, "uses_history": "landmark", "needs_detection_call": false, "marker_groups_required": []});
         let inv = inventory(
