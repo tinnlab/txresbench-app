@@ -92,8 +92,8 @@ use crate::modules::execution_engine::envmanifest::{reuse_facts_for, ReuseFactsR
 use crate::modules::execution_engine::types::TxrTask;
 use crate::modules::method_list::MethodList;
 use crate::modules::method_catalogue::eligibility::{
-    estimate_quality_for, estimate_seconds_for, parse_standard_ids, required_marker_match,
-    UnitMarkerRow,
+    estimate_quality_for, estimate_seconds_for, marker_count_params, marker_count_unmet,
+    parse_standard_ids, required_marker_match, UnitMarkerRow,
 };
 use crate::modules::method_catalogue::types::{
     CovariateMode, Coverage, EligibilityStatus, InventoryEligibilityRequest, InventoryMarker,
@@ -295,6 +295,22 @@ fn model_verdict_in(
             ]),
         });
         missing_markers = resolved.missing_markers.clone();
+    } else if let Some((expected, given)) = marker_count_unmet(
+        marker_facts.kind,
+        marker_facts.count,
+        required.is_some(),
+        &resolved.used,
+        inv,
+    ) {
+        // The reuse run gives the model the file's main markers (no fixed
+        // list) or the markers its list resolves to, through the engine's
+        // count rule (`bundle::method_marker_set`) — NOT the recorded
+        // features; any other number than the model takes is refused there
+        // (BUNDLE_MARKER_COUNT_UNMET), so the verdict hides it (FOLLOW-UP 1).
+        reasons.push(ModelReason {
+            code: ModelReasonCode::MarkerCountUnmet,
+            params: marker_count_params(expected, &given),
+        });
     }
 
     // A model that consumed the detection call needs the file to carry one.
@@ -808,6 +824,7 @@ fn verdict(reasons: &[ModelReason], eligible: u32, total: u32) -> EligibilitySta
             r.code,
             ModelReasonCode::NotRunnable
                 | ModelReasonCode::RequiredMarkerMissing
+                | ModelReasonCode::MarkerCountUnmet
                 | ModelReasonCode::MarkerGroupMissing
                 | ModelReasonCode::DetectionCallMissing
                 | ModelReasonCode::CovariateMissing
@@ -981,6 +998,44 @@ mod tests {
             "the catalogue estimator's value"
         );
         assert_eq!(v.estimate_quality, estimate_quality_for(m));
+    }
+
+    /// FOLLOW-UP 1: a saved one-marker model without a fixed list (kelim's
+    /// shape) on a file with three markers. Its recorded feature (M1) is
+    /// there, but the reuse run gives it all three main markers and the
+    /// engine refuses that number, so the verdict hides it; on a file with
+    /// just its marker it runs.
+    #[test]
+    fn a_one_marker_model_without_a_list_cannot_run_on_three_markers() {
+        let row = base_row("cox-cutpoint-risk");
+        let per = vec![("S0001", 1, 2), ("S0002", 1, 3)];
+        let three = inventory(
+            vec![
+                marker("M2", "M2", UnitFamily::None, vec![], per.clone(), false),
+                marker("M1", "M1", UnitFamily::None, vec![], per.clone(), false),
+                marker("M3", "M3", UnitFamily::None, vec![], per.clone(), false),
+            ],
+            2,
+            56.0,
+        );
+        let v = model_verdict(&row, &three).expect("verdict");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        let r = v
+            .reasons
+            .iter()
+            .find(|r| r.code == ModelReasonCode::MarkerCountUnmet)
+            .unwrap_or_else(|| panic!("no MARKER_COUNT_UNMET in {:?}", code_names(&v)));
+        assert_eq!(r.params["expected"], json!(1));
+        assert_eq!(r.params["found"], json!(3));
+        assert_eq!(r.params["markers"], json!(["M1", "M2", "M3"]));
+
+        let one = inventory(
+            vec![marker("M1", "M1", UnitFamily::None, vec![], per, false)],
+            2,
+            56.0,
+        );
+        let v = model_verdict(&row, &one).expect("verdict");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "{:?}", code_names(&v));
     }
 
     /// TEST-MS-11 — a model of a method the app no longer ships (absent from
@@ -1182,6 +1237,9 @@ mod tests {
         // file marker carrying that id satisfies it (the name M1 too).
         let mut frow = row.clone();
         frow.features = json!(["LOINC 2039-6 CEA", "M1"]);
+        // Two recorded features = a two-marker model (the base row's facts are
+        // one-marker, which the engine's count rule refuses on two markers).
+        frow.marker_facts = json!({"kind": "multi", "count": 2, "min_draws": 1, "needs_baseline": false, "uses_history": "landmark", "needs_detection_call": false, "marker_groups_required": []});
         let inv = inventory(
             vec![
                 marker("CEA_serum", "CEA", UnitFamily::None, vec!["LOINC:2039-6"], vec![("S0001", 1, 2)], false),

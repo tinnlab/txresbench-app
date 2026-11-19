@@ -870,27 +870,32 @@ fn inventory_method(
 }
 
 /// The engine's marker-count rule over the file inventory (the eligibility
-/// mirror of `execution_engine::bundle::method_marker_set`): the markers the
-/// method would be given are the file's main markers when it has no fixed list,
-/// or the distinct file markers its fixed list resolved to (`used`); a
-/// `__detected`/`__lod` companion is never a main marker (`is_companion`, the
-/// engine's own predicate). `None` when the count fits or the method takes any
-/// number of markers.
-fn marker_count_reason(
-    m: &Method,
-    inv: &InventoryEligibilityRequest,
-    used: &[&InventoryMarker],
-) -> Option<Reason> {
-    let expected = match m.markers.kind {
+/// mirror of `execution_engine::bundle::method_marker_set`, shared by the
+/// method, saved-model and ready-made model verdicts, which all run through
+/// that rule): the markers a method or model would be given are the file's
+/// main markers when it has no fixed list, or the distinct file markers its
+/// fixed list resolved to (`used`); a `__detected`/`__lod` companion is never a
+/// main marker (`is_companion`, the engine's own predicate). Returns the
+/// expected count and the markers it would be given when they differ; `None`
+/// when the count fits or the kind takes any number of markers.
+pub(crate) fn marker_count_unmet<'a>(
+    kind: MarkerKind,
+    count: u32,
+    has_fixed_list: bool,
+    used: &[&'a InventoryMarker],
+    inv: &'a InventoryEligibilityRequest,
+) -> Option<(usize, Vec<&'a InventoryMarker>)> {
+    let expected = match kind {
         MarkerKind::Single => 1usize,
-        MarkerKind::Multi | MarkerKind::Panel => m.markers.count as usize,
+        MarkerKind::Multi | MarkerKind::Panel => count as usize,
         MarkerKind::Any => return None,
     };
-    let candidates: Vec<&InventoryMarker> = match &m.required_markers {
-        Some(_) => used.to_vec(),
-        None => inv.markers.iter().collect(),
+    let candidates: Vec<&'a InventoryMarker> = if has_fixed_list {
+        used.to_vec()
+    } else {
+        inv.markers.iter().collect()
     };
-    let mut given: Vec<&InventoryMarker> = Vec::new();
+    let mut given: Vec<&'a InventoryMarker> = Vec::new();
     for mk in candidates {
         if is_companion(&mk.key) || given.iter().any(|g| g.key == mk.key) {
             continue;
@@ -901,28 +906,54 @@ fn marker_count_reason(
         return None;
     }
     given.sort_by(|a, b| a.key.cmp(&b.key));
+    Some((expected, given))
+}
+
+/// The params of a `MARKER_COUNT_UNMET` reason: `expected`, `found` and
+/// `markers` (the display names of the markers the run would be given).
+pub(crate) fn marker_count_params(
+    expected: usize,
+    given: &[&InventoryMarker],
+) -> BTreeMap<String, serde_json::Value> {
+    BTreeMap::from([
+        ("expected".to_string(), serde_json::Value::from(expected as u64)),
+        ("found".to_string(), serde_json::Value::from(given.len() as u64)),
+        (
+            "markers".to_string(),
+            serde_json::Value::Array(
+                given
+                    .iter()
+                    .map(|mk| {
+                        let name = if mk.display_name.trim().is_empty() {
+                            mk.key.clone()
+                        } else {
+                            mk.display_name.clone()
+                        };
+                        serde_json::Value::String(name)
+                    })
+                    .collect(),
+            ),
+        ),
+    ])
+}
+
+/// A method's `MARKER_COUNT_UNMET` reason (its catalogue kind, count and
+/// fixed list), or `None` when the file gives it the number it takes.
+fn marker_count_reason(
+    m: &Method,
+    inv: &InventoryEligibilityRequest,
+    used: &[&InventoryMarker],
+) -> Option<Reason> {
+    let (expected, given) = marker_count_unmet(
+        m.markers.kind,
+        m.markers.count,
+        m.required_markers.is_some(),
+        used,
+        inv,
+    )?;
     Some(Reason {
         code: ReasonCode::MarkerCountUnmet,
-        params: BTreeMap::from([
-            ("expected".to_string(), serde_json::Value::from(expected as u64)),
-            ("found".to_string(), serde_json::Value::from(given.len() as u64)),
-            (
-                "markers".to_string(),
-                serde_json::Value::Array(
-                    given
-                        .iter()
-                        .map(|mk| {
-                            let name = if mk.display_name.trim().is_empty() {
-                                mk.key.clone()
-                            } else {
-                                mk.display_name.clone()
-                            };
-                            serde_json::Value::String(name)
-                        })
-                        .collect(),
-                ),
-            ),
-        ]),
+        params: marker_count_params(expected, &given),
         group_id: None,
     })
 }
