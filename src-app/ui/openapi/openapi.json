@@ -6020,7 +6020,7 @@
           "sandbox"
         ],
         "summary": "Update sandbox resource limits",
-        "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits",
+        "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits, remove method environments, and set up WSL on Windows",
         "operationId": "Sandbox.updateSettings",
         "requestBody": {
           "description": "A `SandboxResourceLimits` snapshot carrying a job's resolved per-job caps —\n used to drive `CgroupScope::create` on the streaming path (it takes the same\n limits shape the batch path uses). Overlays the resolved profile onto the\n PUT body — every field optional (absent = leave unchanged).",
@@ -6045,7 +6045,7 @@
                   "details": {
                     "required_permissions": [
                       {
-                        "description": "Change sandbox resource limits",
+                        "description": "Change sandbox resource limits, remove method environments, and set up WSL on Windows",
                         "name": "SandboxSettingsManage",
                         "value": "sandbox::settings::manage"
                       }
@@ -6191,7 +6191,7 @@
           "sandbox"
         ],
         "summary": "Cancel + forget a method env (optionally prune its cached artifact)",
-        "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits",
+        "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits, remove method environments, and set up WSL on Windows",
         "operationId": "Sandbox.deleteEnv",
         "parameters": [
           {
@@ -6216,7 +6216,7 @@
                   "details": {
                     "required_permissions": [
                       {
-                        "description": "Change sandbox resource limits",
+                        "description": "Change sandbox resource limits, remove method environments, and set up WSL on Windows",
                         "name": "SandboxSettingsManage",
                         "value": "sandbox::settings::manage"
                       }
@@ -6321,7 +6321,7 @@
           "sandbox"
         ],
         "summary": "Windows: install or update WSL 2 as administrator (asks the person at the PC), and wait for it",
-        "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits",
+        "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits, remove method environments, and set up WSL on Windows",
         "operationId": "Sandbox.setupWsl",
         "responses": {
           "403": {
@@ -6335,7 +6335,7 @@
                   "details": {
                     "required_permissions": [
                       {
-                        "description": "Change sandbox resource limits",
+                        "description": "Change sandbox resource limits, remove method environments, and set up WSL on Windows",
                         "name": "SandboxSettingsManage",
                         "value": "sandbox::settings::manage"
                       }
