@@ -179,8 +179,9 @@ fn map_run_result(
 ///
 /// The run: `ensure` the base + layer artifacts (verify bytes against the
 /// pinned digests — INV-1), parse the layer's `layer-manifest.json` (validated
-/// entries — PROV-SS-2), refuse a bind source with a symbolic link in its path
-/// inside its image, assert each entry's parent exists in the base
+/// entries — PROV-SS-2), refuse a bind source, or the base where a layer
+/// entry's bind lands, with a symbolic link in its path inside its image,
+/// assert each entry's parent exists in the base
 /// (DEC-14), derive the wrapper command from the layer's `/code`, VERIFY the
 /// model tree for a reuse run (INV-4, before any spawn), build the stacked
 /// argv (hardening prefix reused — INV-5), spawn, drive stdout/stderr LIVE to
@@ -253,9 +254,10 @@ pub async fn run_method_in_stack(
 
     // ── layer manifest + entry parents + the wrapper command (PROV-SS-2) ────
     let layer_entries = super::stack::layer_entries_from_manifest(&layer_dir)?;
-    // No path bwrap binds out of the base or the layer may have a symbolic link
-    // in it: bwrap would follow it into the host. Before the PID-ns probe
-    // below, which binds the base's `usr` too.
+    // No path bwrap binds out of the base or the layer, nor the base where a
+    // layer entry's bind lands, may have a symbolic link in it: bwrap would
+    // follow it into the host. Before the PID-ns probe below, which binds the
+    // base's `usr` too (method_stack_test's linked-base-usr run pins the order).
     super::stack::assert_bind_sources_not_symlinked(&base_dir, &layer_dir, &layer_entries)?;
     super::stack::assert_entry_parents_exist(&base_dir, &layer_entries)?;
     let command = super::stack::method_entry_command(&layer_dir)?;
@@ -412,7 +414,7 @@ pub async fn run_method_in_stack(
 /// images are mounted: macOS can neither mount
 /// squashfs nor run bwrap, so the base + layer images boot a per-run Linux VM
 /// as read-only disks ([`super::mac_vm_run`]), the layer checks (manifest,
-/// links in bind sources, entry parents, wrapper command) run inside it with
+/// links in bind paths, entry parents, wrapper command) run inside it with
 /// the same `stack` rules,
 /// and the SAME stacked bwrap argv — built with guest paths — runs there.
 ///

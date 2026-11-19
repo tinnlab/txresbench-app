@@ -114,6 +114,8 @@ const LAYER4_ID: &str = "mst-layer-a4q4";
 /// What the linked layer's wrapper prints from `/opt/txr-layer`; the file sits
 /// in a host dir outside every image.
 const HOST_ONLY_TEXT: &str = "HOST-ONLY-TEXT-7Q2";
+/// The base whose `usr` is a symbolic link the host and bwrap resolve apart.
+const BASE2_ID: &str = "mst-base-lnq4";
 
 // ────────────────────────────── shell helpers ────────────────────────────────
 
@@ -407,6 +409,17 @@ fn build_linked_layer_rootfs(root: &Path, victim: &Path) {
     std::fs::create_dir_all(root.join("opt")).expect("layer opt dir");
     let target = Path::new("/oldroot").join(victim.strip_prefix("/").expect("absolute victim"));
     std::os::unix::fs::symlink(&target, root.join("opt/txr-layer")).expect("linked entry");
+}
+
+/// The linked-usr base: `usr` is a relative symbolic link with more `../` than
+/// any mount dir is deep. The host resolves it to its own `/usr`, so the mount
+/// counts as ready; bwrap, which keeps the host's root at `/oldroot` while it
+/// opens bind sources, climbs past it to its own empty root, so the PID-ns
+/// probe's `--ro-bind <base>/usr /usr` has no source and the probe fails.
+fn build_linked_usr_base_rootfs(root: &Path) {
+    std::fs::create_dir_all(root).expect("linked-usr base dir");
+    std::os::unix::fs::symlink(format!("{}usr", "../".repeat(64)), root.join("usr"))
+        .expect("linked usr");
 }
 
 /// Write a contract-shaped input bundle (the layout CONS-SS-1 names; the
@@ -857,6 +870,47 @@ async fn stacked_run_child() {
             assert!(!ws.exists(), "refused before the run's workspace: nothing spawned");
             println!("PROBE_OK linked_layer_entry_refused");
         }
+        // A base whose `usr` is a symbolic link: the link check refuses it
+        // BEFORE the PID-ns probe binds that `usr` (the probe would fail the
+        // run as SANDBOX_UNAVAILABLE). Layer4 is the fixture layer that mounts
+        // here (it carries `usr/`); its own linked entry comes later in the
+        // check's order than the base's fixed binds.
+        "linked_base_usr" => {
+            let base2_sqfs = PathBuf::from(std::env::var_os("TXR_MST_BASE2_SQFS").expect("base2"));
+            let base2_pin = sha256_hex(&std::fs::read(&base2_sqfs).expect("read base2 fixture"));
+            let layer4_sqfs =
+                PathBuf::from(std::env::var_os("TXR_MST_LAYER4_SQFS").expect("layer4"));
+            let layer4_pin = sha256_hex(&std::fs::read(&layer4_sqfs).expect("read layer4 fixture"));
+            let job = Uuid::new_v4();
+            let ws = data_dir.join("sandboxes").join(job.to_string());
+            let request = MethodRunRequest {
+                base: EnvRef {
+                    env_id: BASE2_ID.to_string(),
+                    oci_ref: TXR_BASE_REGISTRY_PREFIX.to_string(),
+                    digest: base2_pin,
+                    tag: None,
+                },
+                layer: layer_ref(LAYER4_ID, &layer4_pin),
+                mode: MethodRunMode::FitPredict,
+                bundle_dir: bundle.clone(),
+                outputs_dir: work.join("outputs-linked-base"),
+                model: None,
+                model_out_dir: Some(work.join("model-out-linked-base")),
+                n_cpu: 1,
+                timeout_secs: Some(300),
+            };
+            let err = match run_method_in_stack(&pool, &request, &[] as &[ExtraMount], job, None).await {
+                Ok(r) => fail(format!("the linked-usr base ran (exit {})", r.exit_code)),
+                Err(e) => e,
+            };
+            assert_eq!(err.error_code(), "ROOTFS_PATH_INVALID", "the link check, not the probe: {err}");
+            assert!(
+                err.to_string().starts_with("The base image is refused: its path /usr is a symbolic link"),
+                "{err}"
+            );
+            assert!(!ws.exists(), "refused before the run's workspace: nothing spawned");
+            println!("PROBE_OK linked_base_usr_refused");
+        }
         other => fail(format!("unknown scenario {other:?}")),
     }
 }
@@ -914,7 +968,9 @@ fn spawn_child(work: &Path, data_dir: &Path, scenario: &str) -> (bool, String) {
         .env("TXR_MST_LAYER2_SQFS", work.join("layer2.squashfs"))
         .env("TXR_MST_LAYER3_SQFS", work.join("layer3.squashfs"))
         .env("TXR_MST_LAYER4_SQFS", work.join("layer4.squashfs"))
+        .env("TXR_MST_BASE2_SQFS", work.join("base2.squashfs"))
         .env(format!("TXR_ENV_ROOTFS_SQUASHFS__{BASE_ID}"), work.join("base.squashfs"))
+        .env(format!("TXR_ENV_ROOTFS_SQUASHFS__{BASE2_ID}"), work.join("base2.squashfs"))
         .env(
             format!("TXR_ENV_ROOTFS_SQUASHFS__{LAYER1_ID}"),
             work.join("layer1.squashfs"),
@@ -974,8 +1030,8 @@ fn assert_child_ran_one(stdout: &str) {
 }
 
 /// Build the fixture set once for the child legs: base + layer1 + layer2 + layer3 (packages)
-/// + layer4 (linked entry, with its host dir `victim`) squashfs under `work`. Returns the plain
-/// base DIR (for the PID-ns gate).
+/// + layer4 (linked entry, with its host dir `victim`) + base2 (linked `usr`) squashfs under
+/// `work`. Returns the plain base DIR (for the PID-ns gate).
 fn build_stack_fixtures(work: &Path) -> PathBuf {
     let base_dir = work.join("base-root");
     build_base_rootfs(&base_dir);
@@ -995,6 +1051,8 @@ fn build_stack_fixtures(work: &Path) -> PathBuf {
     std::fs::write(victim.join("host.txt"), HOST_ONLY_TEXT).expect("victim file");
     build_linked_layer_rootfs(&work.join("layer4-root"), &victim);
     squash(&work.join("layer4-root"), &work.join("layer4.squashfs"));
+    build_linked_usr_base_rootfs(&work.join("base2-root"));
+    squash(&work.join("base2-root"), &work.join("base2.squashfs"));
     base_dir
 }
 
@@ -1588,6 +1646,33 @@ fn stacked_run_refuses_a_layer_entry_linked_out_of_the_image() {
     std::fs::create_dir_all(&data).expect("data dir");
     let (ok, stdout) = spawn_child(&work, &data, "linked_layer_entry");
     assert!(ok, "the linked-layer child must run clean");
+    assert_child_ran_one(&stdout);
+    if let Some(reason) = child_skipped(&stdout) {
+        record_skip(name, &format!("child: {reason}"));
+    }
+}
+
+/// Through the real Linux seam: the link check runs BEFORE the PID-ns probe.
+/// A base whose `usr` is a symbolic link that the host resolves to its own
+/// `/usr` but bwrap cannot resolve is refused with `ROOTFS_PATH_INVALID`; were
+/// the probe first, it would bind that `usr`, fail, and the run would end as
+/// `SANDBOX_UNAVAILABLE` instead.
+#[test]
+fn stacked_run_checks_links_before_the_pidns_probe() {
+    let name = "stacked_run_checks_links_before_the_pidns_probe";
+    let Some(()) = stack_gate(name) else {
+        return;
+    };
+    let work = scratch();
+    let _guard = WorkGuard(work.clone());
+    let base_dir = build_stack_fixtures(&work);
+    let Some(()) = stack_gate_pidns(name, &base_dir) else {
+        return;
+    };
+    let data = work.join("data");
+    std::fs::create_dir_all(&data).expect("data dir");
+    let (ok, stdout) = spawn_child(&work, &data, "linked_base_usr");
+    assert!(ok, "the linked-usr base child must run clean");
     assert_child_ran_one(&stdout);
     if let Some(reason) = child_skipped(&stdout) {
         record_skip(name, &format!("child: {reason}"));
