@@ -1180,8 +1180,9 @@ pub async fn run_method_in_stack(
         );
         outcome.stderr.extend_from_slice(note.as_bytes());
     }
-    // Windows does not let the app create symlinks: every output symlink is
-    // left out, and the run says which.
+    // Windows does not let the app create symlinks: an output symlink is left
+    // out, and the run says which (one in the saved model's dir fails the run
+    // instead: the writer lists it with the outputs that did not come back).
     if !outcome.left_out_symlinks.is_empty() {
         tracing::warn!(links = ?outcome.left_out_symlinks, "WSL run: output symlinks were not recreated");
         let note = format!(

@@ -759,6 +759,11 @@ fn make_symlink(_target: &str, _dest: &Path) -> Result<(), String> {
     Err("symlinks are not created on Windows".into())
 }
 
+/// Why a symlink in the saved model's dir fails a Windows run.
+const MODEL_LINK_REFUSED: &str = "the method saved a symbolic link with its model, and Windows does \
+                                  not let the app create links, so the saved model would be missing \
+                                  that file; the method has to save the file itself instead of a link";
+
 /// Fold a relative path the way APFS compares names: Unicode NFC, lowercase.
 fn fold_name(rel_path: &str) -> String {
     use unicode_normalization::UnicodeNormalization;
@@ -965,9 +970,14 @@ impl WriterState {
         // error, never a note.
         self.check_rel(mount_index, rel_path)?;
         // Windows: creating a symlink needs a privilege (Developer Mode or an
-        // administrator) the app does not have, so every output symlink is
-        // left out with a note.
+        // administrator) the app does not have, so an output symlink is left
+        // out with a note. Not in the saved model's dir: a model missing a
+        // file it links to would be saved as if complete (its digest skips
+        // links) and fail only when it is reused, so the run fails now.
         if cfg!(windows) {
+            if self.is_model_dir(mount_index) {
+                return Err(MODEL_LINK_REFUSED.into());
+            }
             return Ok(self.leave_out(rel_path, target));
         }
         let sandbox_root = self
@@ -1016,6 +1026,14 @@ impl WriterState {
         }
         // symlink() refuses an existing name, so nothing is ever replaced.
         make_symlink(&link_target, &dest)
+    }
+
+    /// Whether output dir `mount_index` is the saved model's
+    /// ([`stack::MODEL_SANDBOX_PATH`] in the workload's sandbox).
+    fn is_model_dir(&self, mount_index: u32) -> bool {
+        self.sandbox_paths
+            .get(mount_index as usize)
+            .is_some_and(|p| p.trim_end_matches('/') == stack::MODEL_SANDBOX_PATH)
     }
 
     /// Record a symlink that is not recreated because it leaves its dir.
@@ -1473,6 +1491,30 @@ mod tests {
         assert_eq!(w.notes, ["link.csv -> pred.csv"]);
         assert_eq!(w.errors.len(), 1, "an unsafe link path is still an error: {:?}", w.errors);
         assert!(std::fs::symlink_metadata(root.0.join("link.csv")).is_err());
+    }
+
+    /// Windows: a symlink the method left with its saved model fails the run
+    /// with a plain reason (the model would be saved without that file); in
+    /// any other output dir it is left out with a note.
+    #[cfg(windows)]
+    #[test]
+    fn windows_fails_a_symlink_in_the_saved_models_dir() {
+        let root = TempDir::new();
+        let (out, model) = (root.0.join("out"), root.0.join("model"));
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::create_dir_all(&model).unwrap();
+        let dirs = vec![
+            OutputDir { host: out.clone(), sandbox_path: "/output".into() },
+            OutputDir { host: model.clone(), sandbox_path: stack::MODEL_SANDBOX_PATH.into() },
+        ];
+        let mut w = WriterState::new(dirs);
+        w.apply(WriterMsg::Symlink(0, "latest.csv".into(), "pred.csv".into()));
+        w.apply(WriterMsg::Symlink(1, "weights.bin".into(), "ckpt/weights-10.bin".into()));
+        assert_eq!(w.notes, ["latest.csv -> pred.csv"]);
+        assert_eq!(w.errors.len(), 1, "{:?}", w.errors);
+        assert!(w.errors[0].starts_with("weights.bin: "), "{:?}", w.errors);
+        assert!(w.errors[0].contains("symbolic link with its model"), "{:?}", w.errors);
+        assert!(std::fs::symlink_metadata(model.join("weights.bin")).is_err());
     }
 
     /// Windows: a junction (`mklink /J`, which needs no privilege) already in
