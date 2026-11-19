@@ -94,6 +94,10 @@ const AGENT_EXIT_TRANSPORT: i32 = 4;
 /// How much of an agent's stderr (its log) is kept for error messages.
 const AGENT_STDERR_KEEP: usize = 8 * 1024;
 
+/// How long an agent whose exchange ended within its budget gets to exit (for
+/// its exit code) before it is stopped.
+const AGENT_EXIT_GRACE: Duration = Duration::from_secs(10);
+
 /// The disk of a WSL 2 distro, in the dir it was imported into.
 const DISTRO_DISK_FILE: &str = "ext4.vhdx";
 
@@ -802,15 +806,21 @@ impl WslAgent {
             kept
         });
         let stream = tokio::io::join(stdout, stdin);
+        let started = Instant::now();
+        // The stream (the agent's stdin with it) is closed when this returns.
         let result = exec_over(stream, req, host_budget, sink, artifact_dirs).await;
-        let status = match tokio::time::timeout(Duration::from_secs(10), child.wait()).await {
+        // Past its budget the agent did not answer in time: it is stopped at
+        // once. Otherwise it has ended or is ending: a moment to exit, for
+        // its exit code.
+        let grace = if started.elapsed() >= host_budget { Duration::ZERO } else { AGENT_EXIT_GRACE };
+        let status = match tokio::time::timeout(grace, child.wait()).await {
             Ok(Ok(status)) => status.code(),
             _ => {
-                let _ = child.start_kill();
+                let _ = child.kill().await;
                 None
             }
         };
-        let log = log.await.unwrap_or_default();
+        let log = tokio::time::timeout(Duration::from_secs(5), log).await.ok().and_then(Result::ok).unwrap_or_default();
         match result {
             Ok(outcome) => Ok(outcome),
             Err(e) => Err(agent_failure(e, status, &log)),
@@ -1036,13 +1046,14 @@ mod tests {
 
     /// A stand-in agent: it checks that the request `exec_over` sends reaches
     /// its stdin byte for byte (exit 9 if not), then writes `frames` to its
-    /// stdout, `log` to its stderr, and exits with `code`. Its own arguments
-    /// come first (`none` for an empty one:
+    /// stdout, `log` to its stderr, and exits with `code`. With `hang` it does
+    /// nothing at all. Its own arguments come first (`none` for an empty one:
     /// powershell.exe may drop an empty argument, and takes `-` for a
     /// parameter); the runner's are kept in `args.txt`.
     const FAKE_AGENT: &str = r#"
 $want = [IO.File]::ReadAllBytes($args[0]); $frames = $args[1]; $log = $args[2]; $code = [int]$args[3]
-[IO.File]::WriteAllText($args[4], (($args | Select-Object -Skip 5) -join ' '))
+[IO.File]::WriteAllText($args[5], (($args | Select-Object -Skip 6) -join ' '))
+if ($args[4] -eq 'hang') { Start-Sleep -Seconds 600; exit 0 }
 $in = [Console]::OpenStandardInput()
 $got = New-Object byte[] $want.Length; $n = 0
 while ($n -lt $want.Length) { $r = $in.Read($got, $n, $want.Length - $n); if ($r -le 0) { break }; $n += $r }
@@ -1062,6 +1073,7 @@ exit $code
         frames: &[sandbox_vm_protocol::Frame],
         log: &'static str,
         code: i32,
+        mode: &'static str,
     ) -> (WslAgent, PathBuf) {
         let dir = test_dir(&format!("fake-agent-{tag}"));
         let request = dir.join("request.bin");
@@ -1071,7 +1083,7 @@ exit $code
         let code = code.to_string();
         let args_file = dir.join("args.txt");
         let or_none = |s: &'static str| if s.is_empty() { "none" } else { s };
-        let log = or_none(log);
+        let (log, mode) = (or_none(log), or_none(mode));
         let mut agent = WslAgent::new(Path::new(r"C:\img\base.sqfs"), Path::new(r"C:\img\layer.sqfs"), &[]).unwrap();
         agent.wsl = stand_in(
             &dir,
@@ -1081,6 +1093,7 @@ exit $code
                 frames_file.as_os_str(),
                 log.as_ref(),
                 code.as_ref(),
+                mode.as_ref(),
                 args_file.as_os_str(),
             ],
         );
@@ -1111,7 +1124,7 @@ exit $code
             Frame::ArtifactChunk { mount_index: 0, rel_path: "pred.csv".into(), offset: 0, data: b"id,p\n1,0.5\n".to_vec() },
             Frame::ArtifactsDone,
         ];
-        let (agent, dir) = fake_agent("ok", &request(), &frames, "agent: done", 0);
+        let (agent, dir) = fake_agent("ok", &request(), &frames, "agent: done", 0, "");
         let out = dir.join("out");
         std::fs::create_dir_all(&out).unwrap();
         let dirs = [OutputDir { host: out.clone(), sandbox_path: "/output".into() }];
@@ -1134,7 +1147,7 @@ exit $code
         // Of the same length, so the stand-in reads it whole before comparing.
         let mut other = request();
         other.argv = vec!["TRUE".into()];
-        let (agent, dir) = fake_agent("other-request", &other, &[], "", 0);
+        let (agent, dir) = fake_agent("other-request", &other, &[], "", 0, "");
         let err = AgentExec::exec(&agent, request(), Duration::from_secs(60), None, &[])
             .await
             .err()
@@ -1146,7 +1159,7 @@ exit $code
     #[tokio::test]
     async fn an_agent_that_cannot_mount_says_why() {
         let (agent, dir) =
-            fake_agent("mount", &request(), &[], "error: mount /sandbox-rootfs: squashfs not supported", 3);
+            fake_agent("mount", &request(), &[], "error: mount /sandbox-rootfs: squashfs not supported", 3, "");
         let err = AgentExec::exec(&agent, request(), Duration::from_secs(60), None, &[])
             .await
             .err()
@@ -1156,6 +1169,31 @@ exit $code
         assert!(text.contains("could not be mounted in WSL"), "{text}");
         assert!(text.contains("squashfs not supported"), "{text}");
         assert!(!text.contains("VM"), "no macOS wording on Windows: {text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An agent that hangs (it never reads the request, never answers) comes
+    /// back timed out at its budget, and is stopped then, not seconds later.
+    /// The request is larger than a pipe's buffer, so sending it blocks too.
+    #[tokio::test]
+    async fn a_hung_agent_comes_back_timed_out_within_its_budget() {
+        let mut req = request();
+        req.argv = vec!["x".repeat(512 * 1024)];
+        let (agent, dir) = fake_agent("hung", &req, &[], "", 0, "hang");
+        let budget = Duration::from_secs(4);
+        let started = Instant::now();
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(60),
+            AgentExec::exec(&agent, req, budget, None, &[]),
+        )
+        .await
+        .expect("the exchange came back")
+        .expect("a host timeout is an outcome");
+        let took = started.elapsed();
+        assert!(outcome.timed_out);
+        assert_eq!(outcome.exit_code, -1);
+        assert!(took >= budget, "{took:?}");
+        assert!(took < budget + Duration::from_secs(5), "stopped at the budget, not after a grace: {took:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -197,10 +197,16 @@ where
         0 => u64::MAX,
         cap => cap,
     };
-    stream
-        .write_all(&encode(&Frame::Exec(req)))
-        .await
-        .map_err(|e| vm_error(format!("send the command to {GUEST}: {e}")))?;
+    let deadline = started + host_budget;
+    // The request is sent within the budget too: an agent that hangs before
+    // reading it would otherwise block this write forever once the request
+    // is larger than the pipe's buffer.
+    let mut host_timed_out = false;
+    match tokio::time::timeout(host_budget, stream.write_all(&encode(&Frame::Exec(req)))).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => return Err(vm_error(format!("send the command to {GUEST}: {e}"))),
+        Err(_) => host_timed_out = true,
+    }
 
     let sink_ref = sink.map(|s| s.as_ref());
     let mut decoder = Decoder::new();
@@ -208,19 +214,17 @@ where
     let mut out = LineCapture::new(LOG_PHASE_STDOUT, false);
     let mut err = LineCapture::new(LOG_PHASE_STDERR, true);
     let mut exit: Option<(i32, bool)> = None;
-    let mut host_timed_out = false;
     let mut outputs_done = false;
     // Outputs that did not make it back (agent-reported, a stalled or
     // cut-off copy-back, or a failed host write).
     let mut incomplete: Vec<String> = Vec::new();
-    let deadline = started + host_budget;
     // Output files are written by one blocking thread, never on the async
     // executor.
     let mut writer = ArtifactWriter::start(artifact_dirs.to_vec(), output_budget);
     // Set when the command's exit arrives: the copy-back's overall limit.
     let mut copy_back_until: Option<Instant> = None;
 
-    'read: loop {
+    'read: while !host_timed_out {
         // Checked every turn: a guest that floods frames never lets the
         // read below time out.
         if copy_back_until.is_some_and(|until| Instant::now() >= until) {
@@ -1229,6 +1233,38 @@ mod tests {
         assert!(w.errors.is_empty(), "{:?}", w.errors);
         assert_eq!(std::fs::read(root.0.join("sub").join("old.csv")).unwrap(), b"new");
         assert_eq!(std::fs::read(root.0.join("sub").join("deeper").join("old.csv")).unwrap(), b"newer");
+    }
+
+    /// A request the agent never reads (it hangs before reading, and the
+    /// request is larger than the stream's buffer) still comes back as timed
+    /// out within the budget, never as a write blocked forever.
+    #[tokio::test]
+    async fn a_request_the_agent_never_reads_times_out_within_the_budget() {
+        let (host, _agent_end_never_read) = tokio::io::duplex(1024);
+        let mut req = ExecRequest {
+            protocol_version: sandbox_vm_protocol::PROTOCOL_VERSION,
+            request_id: 1,
+            bwrap_path: GUEST_BWRAP_PATH.into(),
+            argv: vec!["x".repeat(256 * 1024)],
+            timeout_ms: 1_000,
+            seccomp_fd: None,
+            cgroup: None,
+            progress: false,
+            collect_artifacts: Vec::new(),
+            artifacts: Default::default(),
+        };
+        req.argv.push("y".into());
+        let started = Instant::now();
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(20),
+            exec_over(host, req, Duration::from_millis(500), None, &[]),
+        )
+        .await
+        .expect("the exchange came back instead of blocking on the write")
+        .expect("a host timeout is an outcome, not an error");
+        assert!(outcome.timed_out);
+        assert_eq!(outcome.exit_code, -1);
+        assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
     }
 
     /// The messages name where the agent runs on this platform (the macOS
