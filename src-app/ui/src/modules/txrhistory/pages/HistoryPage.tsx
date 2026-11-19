@@ -53,7 +53,8 @@ import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { DemoRetentionBlock, useAppMode, useDemoUsage } from '@/modules/demo'
 import { modelsPath } from '@/modules/txrmodels'
-import { downloadPredictionsCsv, resultsPath, revealRunDir } from '@/modules/txrresults'
+import { downloadPredictionsCsv, predictionsSaveError, resultsPath, revealRunDir } from '@/modules/txrresults'
+import { SavedFileNotice } from '@/modules/txrshell/components/SavedFileNotice'
 import { runningPath } from '@/modules/txrrun'
 import { runAction } from '@/core/actions/defineAction'
 import { TxrHistory, useTxrHistory } from '../index'
@@ -94,7 +95,6 @@ const REGION_CONTENT: CSSProperties = {
 const ALERT_ROW: CSSProperties = { flexGrow: 0 }
 
 /** The failure words of the row actions (never blank, never a no-op). */
-const DOWNLOAD_FAILED = 'The predictions could not be downloaded. Try again.'
 const RERUN_FAILED = 'The run could not be started again. Try again.'
 const SETTINGS_AGAIN_FAILED = 'The settings could not be saved. Try again.'
 const DELETE_FAILED = 'The run could not be deleted. Try again.'
@@ -115,6 +115,8 @@ export function HistoryPage() {
   const navigate = useNavigate()
   const state = useStore(useTxrHistory)
   const [actionError, setActionError] = useState<string | null>(null)
+  // Where the desktop app's Save dialog put a run's predictions CSV.
+  const [savedPath, setSavedPath] = useState<string | null>(null)
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('History')
   // ITEM-7: the demo's footer is the shared-pool statement + the "n of 50
@@ -183,7 +185,12 @@ export function HistoryPage() {
 
   const handleDownload = (runId: string): void => {
     setActionError(null)
-    void downloadPredictionsCsv(runId).catch(() => setActionError(DOWNLOAD_FAILED))
+    setSavedPath(null)
+    void downloadPredictionsCsv(runId)
+      .then(result => {
+        if (result.status === 'saved') setSavedPath(result.path)
+      })
+      .catch(() => setActionError(predictionsSaveError()))
   }
 
   const handleReveal = (runId: string): void => {
@@ -260,6 +267,11 @@ export function HistoryPage() {
               {actionError !== null ? (
                 <div style={ALERT_ROW}>
                   <Alert data-testid="txr-history-action-error" tone="error" title={actionError} />
+                </div>
+              ) : null}
+              {savedPath !== null ? (
+                <div style={ALERT_ROW}>
+                  <SavedFileNotice path={savedPath} testId="txr-history-download-saved" />
                 </div>
               ) : null}
               <TxrHistoryList

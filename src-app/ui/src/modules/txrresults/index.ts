@@ -12,5 +12,5 @@
  * The module's stores, components and pages are internal.
  */
 export * from './routes'
-export { downloadPredictionsCsv } from './lib/download'
+export { downloadPredictionsCsv, predictionsSaveError } from './lib/download'
 export { revealRunDir } from './lib/reveal'

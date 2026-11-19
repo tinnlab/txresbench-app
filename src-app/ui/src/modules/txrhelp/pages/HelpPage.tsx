@@ -71,6 +71,8 @@ import { TXRLIST_STATUS_COLORS } from '@/modules/txrlist/components/TxrListRow'
 // already recorded for `txrrun`).
 import { TxrUseExampleButton } from '@/modules/txrintake/components/TxrUseExampleButton'
 import { runAction } from '@/core/actions/defineAction'
+import { saveFile, saveLabel } from '@/core/saveFile'
+import { SavedFileNotice } from '@/modules/txrshell/components/SavedFileNotice'
 import {
   ELIGIBILITY_STATUSES,
   HELP_SECTIONS,
@@ -530,6 +532,8 @@ function ColumnTable({ card, query }: { card: FileCardContent; query: string }) 
  *  rows" and the template download (the app's own template endpoint). */
 function FileCard({ card }: { card: FileCardContent }) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  // Where the desktop app's Save dialog put the template.
+  const [savedPath, setSavedPath] = useState<string | null>(null)
   const copyExampleRows = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(card.exampleRows)
@@ -540,20 +544,20 @@ function FileCard({ card }: { card: FileCardContent }) {
   }, [card.exampleRows])
 
   const downloadTemplate = useCallback(async (kind: FileTableKind) => {
+    setSavedPath(null)
     try {
       const body = (await ApiClient.FileValidation.template({ kind })) as unknown as string
       if (typeof body !== 'string' || body.length === 0) {
         throw new Error('empty template body')
       }
-      const blob = new Blob([body], { type: 'text/csv;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `${kind}_template.csv`
-      document.body.appendChild(anchor)
-      anchor.click()
-      anchor.remove()
-      URL.revokeObjectURL(url)
+      // The browser download on the website; the Save dialog in the desktop
+      // app, whose window has no download handler (`@/core/saveFile`).
+      const result = await saveFile({
+        filename: `${kind}_template.csv`,
+        data: body,
+        filter: { name: 'CSV', extensions: ['csv'] },
+      })
+      if (result.status === 'saved') setSavedPath(result.path)
       setCopyState('idle')
     } catch {
       setCopyState('failed')
@@ -588,7 +592,7 @@ function FileCard({ card }: { card: FileCardContent }) {
           data-testid={`txr-help-download-template-${card.file}`}
           onClick={() => void downloadTemplate(card.file)}
         >
-          Download the template (CSV)
+          {saveLabel('Save the template (CSV)…', 'Download the template (CSV)')}
         </Button>
         <span role="status" style={{ fontSize: 12.5, color: 'var(--txr-muted)' }}>
           {copyState === 'copied'
@@ -598,6 +602,9 @@ function FileCard({ card }: { card: FileCardContent }) {
               : ''}
         </span>
       </div>
+      {savedPath !== null ? (
+        <SavedFileNotice path={savedPath} testId={`txr-help-template-saved-${card.file}`} />
+      ) : null}
     </section>
   )
 }

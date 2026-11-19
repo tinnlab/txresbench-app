@@ -48,6 +48,8 @@ import {
   predictMeasurementsStatus,
 } from '../lib/flow'
 import type { CardStatus } from '../lib/flow'
+import { exampleLinkLabel, templateLinkLabel } from '../lib/download'
+import { SavedFileNotice } from '@/modules/txrshell/components/SavedFileNotice'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../types'
 import { TxrColumnOffer } from './TxrColumnOffer'
@@ -66,6 +68,8 @@ export interface TxrFileCardProps {
   file: LoadedFile | null
   busy: boolean
   error: string | null
+  /** Where the desktop app's Save dialog put this card's template/example (null: nothing to show). */
+  savedPath?: string | null
   onPick: (file: File) => void
   onRemove: () => void
   onAcceptJoin: (offer: JoinOffer) => void
@@ -334,6 +338,7 @@ export function TxrFileCard(props: TxrFileCardProps) {
     file,
     busy,
     error,
+    savedPath = null,
     onPick,
     onRemove,
     onAcceptJoin,
@@ -445,7 +450,7 @@ export function TxrFileCard(props: TxrFileCardProps) {
             style={DOWNLOAD_LINK}
             onClick={onDownloadTemplate}
           >
-            Download the template (CSV)
+            {templateLinkLabel()}
           </Button>
           <Button
             variant="link"
@@ -453,7 +458,7 @@ export function TxrFileCard(props: TxrFileCardProps) {
             style={DOWNLOAD_LINK_PLAIN}
             onClick={onDownloadExample}
           >
-            Download the full example
+            {exampleLinkLabel(false)}
           </Button>
         </div>
 
@@ -461,6 +466,9 @@ export function TxrFileCard(props: TxrFileCardProps) {
           <Alert tone="error" data-testid={`txr-intake-file-error-${kind}`}>
             {error}
           </Alert>
+        ) : null}
+        {savedPath !== null ? (
+          <SavedFileNotice path={savedPath} testId={`txr-intake-file-saved-${kind}`} />
         ) : null}
 
         {file === null ? (

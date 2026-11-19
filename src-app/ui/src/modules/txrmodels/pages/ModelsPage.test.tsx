@@ -358,6 +358,44 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     createElement.mockRestore()
   })
 
+  it('in the desktop app, Export… opens the Save dialog, writes the file and says where it went', async () => {
+    const invoke = vi.fn((cmd: string, ..._rest: unknown[]) =>
+      Promise.resolve(cmd === 'plugin:dialog|save' ? '/Users/me/Models/CRC-cohort-day-60.txr' : null),
+    )
+    ;(window as unknown as { __TAURI__?: unknown }).__TAURI__ = { core: { invoke } }
+    try {
+      renderPage()
+      await settle(0)
+      const button = screen.getByTestId(`txr-models-export-${RUN_ROW.id}`)
+      expect(button.textContent).toBe('Export…')
+      await act(async () => {
+        fireEvent.click(button)
+        await Promise.resolve()
+      })
+      await vi.waitFor(() => expect(screen.getByTestId('txr-models-j-export-saved')).toBeTruthy())
+      expect(invoke.mock.calls[0][0]).toBe('plugin:dialog|save')
+      expect(invoke.mock.calls[0][1]).toMatchObject({
+        options: {
+          defaultPath: 'CRC-cohort-day-60.txr',
+          filters: [{ name: 'TxResBench model', extensions: ['txr'] }],
+        },
+      })
+      expect(invoke.mock.calls[1][0]).toBe('save_file')
+      expect(createObjectURL).not.toHaveBeenCalled()
+      expect(screen.getByTestId('txr-models-j-export-saved').textContent).toContain(
+        'Saved to /Users/me/Models/CRC-cohort-day-60.txr',
+      )
+    } finally {
+      delete (window as unknown as { __TAURI__?: unknown }).__TAURI__
+    }
+  })
+
+  it('on the website the button still says Export', async () => {
+    renderPage()
+    await settle(0)
+    expect(screen.getByTestId(`txr-models-export-${RUN_ROW.id}`).textContent).toBe('Export')
+  })
+
   it('Rename opens the dialog with the current label prefilled and PATCHes; Delete confirms with the board promise and DELETEs', async () => {
     renderPage()
     await settle(0)

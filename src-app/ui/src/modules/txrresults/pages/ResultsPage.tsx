@@ -14,6 +14,8 @@ import type { TxrOutcomeKey } from '../types'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, viewOf } from '../lib/heatmap'
 import { downloadPredictionsCsv } from '../index'
+import { predictionsSaveError, predictionsSaveLabel } from '../lib/download'
+import { SavedFileNotice } from '@/modules/txrshell/components/SavedFileNotice'
 import {
   formatPredictionsTitle,
   subtitleFactsOf,
@@ -183,6 +185,9 @@ export function ResultsPage() {
     patientLimit,
   } = state
   const [downloadFailed, setDownloadFailed] = useState(false)
+  // The desktop app's Save dialog result: where the CSV was saved (null on
+  // the website, after a cancel, or before any save).
+  const [savedPath, setSavedPath] = useState<string | null>(null)
   // R2-G1: the tab/title byte is the page's own h1 (the header's
   // "Predictions for N patients"; "Predictions" while the run loads). A run
   // that cannot be found (404 — or a malformed id's 400, ITEM-6 R3-results-8)
@@ -416,7 +421,7 @@ export function ResultsPage() {
                 totalCount={0}
                 onShowAll={null}
                 download={{
-                  label: 'Download all predictions (CSV)',
+                  label: predictionsSaveLabel(),
                   disabled: true,
                   onClick: () => {},
                 }}
@@ -438,7 +443,12 @@ export function ResultsPage() {
   const handleDownload = () => {
     if (!runId) return
     setDownloadFailed(false)
-    void downloadPredictionsCsv(runId).catch(() => setDownloadFailed(true))
+    setSavedPath(null)
+    void downloadPredictionsCsv(runId)
+      .then(result => {
+        if (result.status === 'saved') setSavedPath(result.path)
+      })
+      .catch(() => setDownloadFailed(true))
   }
 
   return (
@@ -466,8 +476,11 @@ export function ResultsPage() {
             />
             {downloadFailed ? (
               <div data-testid="txr-results-download-error" role="alert" style={DOWNLOAD_ERROR}>
-                The predictions could not be downloaded. Try again.
+                {predictionsSaveError()}
               </div>
+            ) : null}
+            {savedPath !== null ? (
+              <SavedFileNotice path={savedPath} testId="txr-results-download-saved" />
             ) : null}
             <div className="txr-results-controls" style={CONTROLS_ROW}>
               <TxrOutcomeTabs
@@ -530,7 +543,7 @@ export function ResultsPage() {
               totalCount={view.totalCount}
               onShowAll={view.shownCount < view.totalCount ? () => TxrResults.setPatientLimit(-1) : null}
               download={{
-                label: 'Download all predictions (CSV)',
+                label: predictionsSaveLabel(),
                 disabled: predictionsError === 'unavailable',
                 onClick: handleDownload,
               }}

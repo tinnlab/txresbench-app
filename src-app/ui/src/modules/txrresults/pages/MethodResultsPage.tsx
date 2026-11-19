@@ -14,6 +14,8 @@ import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, compareReport, divergentPatients, sortByFirstMethod, viewOf } from '../lib/heatmap'
 import { compareResultsPath, methodResultsPath, downloadPredictionsCsv } from '../index'
+import { predictionsSaveError, predictionsSaveLabel } from '../lib/download'
+import { SavedFileNotice } from '@/modules/txrshell/components/SavedFileNotice'
 import { formatConstantNote, formatEmptyColumnsNote, formatGroupedChanceNote, formatMixedOutcomeNote, txrRunFailed } from '../lib/format'
 import { troubleRowsOf } from '../lib/trouble'
 import { subtitleFactsOf, TxrResultsBar, TxrResultsHeader } from '../components/TxrResultsHeader'
@@ -222,6 +224,8 @@ export function MethodResultsPage() {
     chanceDialogOpen,
   } = state
   const [downloadFailed, setDownloadFailed] = useState(false)
+  // Where the desktop app's Save dialog put the CSV (null on the website).
+  const [savedPath, setSavedPath] = useState<string | null>(null)
 
   // Load on mount + on a run-id change (the store resets first; a different
   // run id never bleeds into this URL's view, DEC-3).
@@ -537,7 +541,7 @@ export function MethodResultsPage() {
                 totalCount={0}
                 onShowAll={null}
                 download={{
-                  label: 'Download predictions (CSV)',
+                  label: predictionsSaveLabel(false),
                   disabled: true,
                   onClick: () => {},
                 }}
@@ -590,7 +594,12 @@ export function MethodResultsPage() {
   const handleDownload = () => {
     if (!runId) return
     setDownloadFailed(false)
-    void downloadPredictionsCsv(runId).catch(() => setDownloadFailed(true))
+    setSavedPath(null)
+    void downloadPredictionsCsv(runId)
+      .then(result => {
+        if (result.status === 'saved') setSavedPath(result.path)
+      })
+      .catch(() => setDownloadFailed(true))
   }
 
   const activeColumnMethod = activeColumn ? { ...activeColumn } : null
@@ -626,8 +635,11 @@ export function MethodResultsPage() {
             />
             {downloadFailed ? (
               <div data-testid="txr-results-download-error" role="alert" style={DOWNLOAD_ERROR}>
-                The predictions could not be downloaded. Try again.
+                {predictionsSaveError()}
               </div>
+            ) : null}
+            {savedPath !== null ? (
+              <SavedFileNotice path={savedPath} testId="txr-results-download-saved" />
             ) : null}
             <TxrMethodTabs
               columns={allColumns}
@@ -731,7 +743,7 @@ export function MethodResultsPage() {
               totalCount={0}
               onShowAll={null}
               download={{
-                label: 'Download predictions (CSV)',
+                label: predictionsSaveLabel(false),
                 disabled: predictionsError === 'unavailable',
                 onClick: handleDownload,
               }}

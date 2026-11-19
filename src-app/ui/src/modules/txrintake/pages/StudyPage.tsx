@@ -67,12 +67,17 @@ const PAGE_ROOT: CSSProperties = {
   flexDirection: 'column',
 }
 
-/** The fixed top's content (the page's heading block). */
+/** The fixed top's content (the page's heading block). It starts where the
+ *  body below starts: the body row is full width with the same 48 px side
+ *  padding, so the heading is LEFT-aligned (the 1280 px cap only keeps the
+ *  intro's lines readable). A centred heading (`margin: 0 auto`) drifted right
+ *  of the body on any window wider than ~1280 px — the "Step 2 of 4" line
+ *  moved and left a gap on its left. */
 const PAGE_TOP: CSSProperties = {
   boxSizing: 'border-box',
   padding: '40px 48px 10px',
   maxWidth: 1280,
-  margin: '0 auto',
+  margin: 0,
   width: '100%',
 }
 

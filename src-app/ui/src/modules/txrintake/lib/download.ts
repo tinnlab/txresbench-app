@@ -4,8 +4,8 @@
  * "Download the full example" links are the file surface's own content
  * (CONS-UI-INTAKE-6, DEC-11): fetch the 200 `text/csv` body through
  * `@/api-client` (never a server path, never a file:// URL) and save it
- * with the blob + anchor pattern (`ProvenanceExport.store.ts` precedent),
- * revoking the object URL after the click.
+ * through `@/core/saveFile` (the browser download on the website, the native
+ * Save dialog in the desktop app).
  *
  * The template bodies are the committed synthetic headers (PROV-FV-4):
  * `patients_template.csv` / `measurements_template.csv`; the example bodies
@@ -14,24 +14,32 @@
  */
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
+import { saveFile, saveLabel, type SaveFileResult } from '@/core/saveFile'
 
 /**
- * Save `text` as a file download (`blob` + temporary anchor, then revoke).
- * The ProvenanceExport precedent: the anchor is appended to the document
- * (Safari needs it in the tree), clicked, removed, and the object URL is
- * revoked on the same tick — the blob stays alive for the click that is
- * already queued.
+ * Save one template/example CSV: the browser download on the website, the
+ * native Save dialog in the desktop app (`@/core/saveFile` — the app window
+ * has no download handler, so the old blob + link did nothing there).
  */
-export function downloadText(filename: string, text: string): void {
-  const blob = new Blob([text], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
+export function downloadText(filename: string, text: string): Promise<SaveFileResult> {
+  return saveFile({ filename, data: text, filter: { name: 'CSV', extensions: ['csv'] } })
+}
+
+/** The template link's text (the app opens the Save dialog). */
+export function templateLinkLabel(): string {
+  return saveLabel('Save the template (CSV)…', 'Download the template (CSV)')
+}
+
+/** The full-example link's text, with the card's own wording for "(CSV)". */
+export function exampleLinkLabel(withCsv: boolean): string {
+  return withCsv
+    ? saveLabel('Save the full example (CSV)…', 'Download the full example (CSV)')
+    : saveLabel('Save the full example…', 'Download the full example')
+}
+
+/** A card's error line after a failed save or download of its template/example. */
+export function templateSaveError(what: string): string {
+  return saveLabel(`The ${what} could not be saved. Try again.`, `The ${what} could not be downloaded. Try again.`)
 }
 
 /**

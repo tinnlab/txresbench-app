@@ -20,6 +20,7 @@ import { resetDemoMode, seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
 import { HELP_SECTIONS, PROBLEM_HELP, QUICK_START } from '../content'
 import { helpPath } from '../routes'
 import { HelpPage } from './HelpPage'
+import { ApiClient } from '@/api-client'
 
 function renderHelp(initialEntries: string[] = ['/help']) {
   return render(
@@ -179,6 +180,39 @@ describe('HelpPage render (TEST-HELP-3)', () => {
     const measurements = screen.getByTestId('txr-help-filecard-measurements')
     expect(within(measurements).getByTestId('txr-help-column-unit-optional')).toBeTruthy()
     expect(within(measurements).getByTestId('txr-help-download-template-measurements')).toBeTruthy()
+  })
+
+  it('the template button keeps the download wording on the website', () => {
+    renderHelp()
+    expect(screen.getByTestId('txr-help-download-template-measurements').textContent).toBe(
+      'Download the template (CSV)',
+    )
+  })
+
+  it('in the desktop app the template button opens the Save dialog and names the saved file', async () => {
+    const invoke = vi.fn((cmd: string, ..._rest: unknown[]) =>
+      Promise.resolve(cmd === 'plugin:dialog|save' ? '/Users/me/measurements_template.csv' : null),
+    )
+    ;(window as unknown as { __TAURI__?: unknown }).__TAURI__ = { core: { invoke } }
+    const template = vi
+      .spyOn(ApiClient.FileValidation, 'template')
+      .mockResolvedValue('patient_id,day,marker,value\n' as never)
+    try {
+      renderHelp()
+      const button = screen.getByTestId('txr-help-download-template-measurements')
+      expect(button.textContent).toBe('Save the template (CSV)…')
+      fireEvent.click(button)
+      await vi.waitFor(() =>
+        expect(screen.getByTestId('txr-help-template-saved-measurements').textContent).toContain(
+          'Saved to /Users/me/measurements_template.csv',
+        ),
+      )
+      expect(template).toHaveBeenCalledWith({ kind: 'measurements' })
+      expect(invoke.mock.calls[0][1]).toMatchObject({ options: { defaultPath: 'measurements_template.csv' } })
+      expect(invoke.mock.calls[1][0]).toBe('save_file')
+    } finally {
+      delete (window as unknown as { __TAURI__?: unknown }).__TAURI__
+    }
   })
 
   it('the search filters sections and troubleshooting entries, and the clear button restores', () => {

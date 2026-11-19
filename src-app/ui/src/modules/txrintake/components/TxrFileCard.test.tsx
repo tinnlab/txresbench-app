@@ -133,7 +133,7 @@ function seedValidation(validation: ValidationResponse) {
 }
 
 function renderCard(
-  props: Partial<Pick<TxrFileCardProps, 'kind' | 'mode' | 'file' | 'busy' | 'error'>> = {},
+  props: Partial<Pick<TxrFileCardProps, 'kind' | 'mode' | 'file' | 'busy' | 'error' | 'savedPath'>> = {},
 ) {
   const callbacks = {
     onPick: vi.fn(),
@@ -155,6 +155,7 @@ function renderCard(
         file={props.file ?? null}
         busy={props.busy ?? false}
         error={props.error ?? null}
+        savedPath={props.savedPath ?? null}
         {...callbacks}
       />
     </MemoryRouter>,
@@ -256,6 +257,35 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     fireEvent.change(input, { target: { files: [file] } })
     expect(callbacks.onPick).toHaveBeenCalledTimes(1)
     expect(callbacks.onPick.mock.calls[0][0]).toBe(file)
+  })
+
+  it('the two links keep the download wording on the website', () => {
+    renderCard()
+    expect(screen.getByTestId('txr-intake-download-template-patients').textContent).toBe(
+      'Download the template (CSV)',
+    )
+    expect(screen.getByTestId('txr-intake-download-example-patients').textContent).toBe(
+      'Download the full example',
+    )
+    expect(screen.queryByTestId('txr-intake-file-saved-patients')).toBeNull()
+  })
+
+  it('in the desktop app the links say Save, and a saved file is named with a Show button', () => {
+    ;(window as unknown as { __TAURI__?: unknown }).__TAURI__ = { core: { invoke: vi.fn() } }
+    try {
+      renderCard({ savedPath: '/Users/me/patients_template.csv' })
+      expect(screen.getByTestId('txr-intake-download-template-patients').textContent).toBe(
+        'Save the template (CSV)…',
+      )
+      expect(screen.getByTestId('txr-intake-download-example-patients').textContent).toBe(
+        'Save the full example…',
+      )
+      const saved = screen.getByTestId('txr-intake-file-saved-patients')
+      expect(saved.textContent).toContain('Saved to /Users/me/patients_template.csv')
+      expect(screen.getByTestId('txr-intake-file-saved-patients-show')).toBeTruthy()
+    } finally {
+      delete (window as unknown as { __TAURI__?: unknown }).__TAURI__
+    }
   })
 
   it('the card error renders as the kit Alert', () => {

@@ -3,8 +3,9 @@
 // TEST-UR-8 (ITEM-10) — the CSV download seam (PROV-UR-6 / DEC-13, INV-3,
 // EXAMPLE-UR-5): `downloadPredictionsCsv` calls the generated
 // `ApiClient.Txr.downloadPredictions` exactly once with the run id and
-// saves the transport's text under `predictions-<runId>.csv` via a Blob +
-// objectURL + anchor (the anchor click spy, the ProvenanceExport idiom) —
+// saves the transport's text under `predictions-<runId>.csv`: on the website
+// via a Blob + objectURL + anchor (the anchor click spy), in the desktop app
+// through the native Save dialog + the `save_file` command (`@/core/saveFile`) —
 // and a 409 / 404 / network failure REJECTS (never a silent no-op; the
 // pages surface the rejection as their inline error state), with no raw
 // fetch and no host literal anywhere (the seam passes through the
@@ -16,7 +17,12 @@
 // suite, as the acceptance row demands.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { downloadPredictionsCsv, predictionsCsvNameOf, saveTextAsFile } from './download'
+import {
+  downloadPredictionsCsv,
+  predictionsCsvNameOf,
+  predictionsSaveError,
+  predictionsSaveLabel,
+} from './download'
 
 const api = vi.hoisted(() => ({
   downloadPredictions: vi.fn(),
@@ -77,7 +83,9 @@ describe('downloadPredictionsCsv (TEST-UR-8)', () => {
   })
 
   it('calls the generated client exactly once with the run id', async () => {
-    await downloadPredictionsCsv('run-1')
+    const capture = captureAnchor()
+    await expect(downloadPredictionsCsv('run-1')).resolves.toEqual({ status: 'downloaded' })
+    capture.restore()
     expect(api.downloadPredictions).toHaveBeenCalledTimes(1)
     expect(api.downloadPredictions).toHaveBeenCalledWith({ id: 'run-1' })
   })
@@ -139,12 +147,66 @@ describe('downloadPredictionsCsv (TEST-UR-8)', () => {
     expect(fromBarrel).toBe(downloadPredictionsCsv)
   })
 
-  it('keeps saveTextAsFile the single blob + anchor implementation', () => {
-    // The seam's file-write primitive is the lib's own export; a page-local
-    // duplicate would not be this function.
+  it('says Download on the website (no Tauri bridge)', () => {
+    expect(predictionsSaveLabel()).toBe('Download all predictions (CSV)')
+    expect(predictionsSaveLabel(false)).toBe('Download predictions (CSV)')
+    expect(predictionsSaveError()).toBe('The predictions could not be downloaded. Try again.')
+  })
+})
+
+describe('downloadPredictionsCsv in the desktop app (the Save dialog)', () => {
+  const invoke = vi.fn()
+
+  beforeEach(() => {
+    api.downloadPredictions.mockReset()
+    api.downloadPredictions.mockResolvedValue(CSV_TEXT)
+    invoke.mockReset()
+    ;(window as unknown as { __TAURI__?: unknown }).__TAURI__ = { core: { invoke } }
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__
+    vi.restoreAllMocks()
+  })
+
+  it('opens the Save dialog with the CSV name and writes the bytes where the user chose', async () => {
+    invoke.mockImplementation((cmd: string) =>
+      Promise.resolve(cmd === 'plugin:dialog|save' ? '/Users/me/Desktop/run 1.csv' : null),
+    )
     const capture = captureAnchor()
-    saveTextAsFile('predictions-run-1.csv', CSV_TEXT)
-    expect(capture.anchor()?.download).toBe('predictions-run-1.csv')
+    await expect(downloadPredictionsCsv('run-1')).resolves.toEqual({
+      status: 'saved',
+      path: '/Users/me/Desktop/run 1.csv',
+    })
+    const [dialogCmd, dialogArgs] = invoke.mock.calls[0]
+    expect(dialogCmd).toBe('plugin:dialog|save')
+    expect(dialogArgs).toMatchObject({
+      options: { defaultPath: 'predictions-run-1.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] },
+    })
+    const [writeCmd, bytes, options] = invoke.mock.calls[1]
+    expect(writeCmd).toBe('save_file')
+    expect(new TextDecoder().decode(bytes as Uint8Array)).toBe(CSV_TEXT)
+    expect(options).toEqual({ headers: { 'x-txr-save-path': encodeURIComponent('/Users/me/Desktop/run 1.csv') } })
+    expect(capture.anchor()).toBeUndefined()
     capture.restore()
+  })
+
+  it('a cancelled dialog writes nothing and is not an error', async () => {
+    invoke.mockResolvedValue(null)
+    await expect(downloadPredictionsCsv('run-1')).resolves.toEqual({ status: 'cancelled' })
+    expect(invoke).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failed write rejects (the page shows its error line)', async () => {
+    invoke.mockImplementation((cmd: string) =>
+      cmd === 'plugin:dialog|save' ? Promise.resolve('/Users/me/run.csv') : Promise.reject(new Error('disk full')),
+    )
+    await expect(downloadPredictionsCsv('run-1')).rejects.toThrow('disk full')
+  })
+
+  it('says Save as CSV in the app', () => {
+    expect(predictionsSaveLabel()).toBe('Save all predictions as CSV…')
+    expect(predictionsSaveLabel(false)).toBe('Save predictions as CSV…')
+    expect(predictionsSaveError()).toBe('The predictions could not be saved. Try again.')
   })
 })

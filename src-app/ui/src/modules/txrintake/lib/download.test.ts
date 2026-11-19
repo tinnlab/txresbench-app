@@ -10,8 +10,15 @@
  * ITEM-8 completes the row with the full kind × source routing (every
  * pair reaches its own endpoint with its own filename).
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { downloadText, fetchTemplateCsv, templateFilename } from './download'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  downloadText,
+  exampleLinkLabel,
+  fetchTemplateCsv,
+  templateFilename,
+  templateLinkLabel,
+  templateSaveError,
+} from './download'
 
 const api = vi.hoisted(() => ({
   template: vi.fn(),
@@ -117,5 +124,44 @@ describe('lib/download.ts (TEST-INT-8 rows, ITEM-6)', () => {
     expect(templateFilename('measurements', 'template')).toBe('measurements_template.csv')
     expect(templateFilename('patients', 'example')).toBe('patients_example.csv')
     expect(templateFilename('measurements', 'example')).toBe('measurements_example.csv')
+  })
+})
+
+describe('the template/example save: website download vs the desktop Save dialog', () => {
+  it('the website keeps the download wording', () => {
+    expect(templateLinkLabel()).toBe('Download the template (CSV)')
+    expect(exampleLinkLabel(false)).toBe('Download the full example')
+    expect(exampleLinkLabel(true)).toBe('Download the full example (CSV)')
+    expect(templateSaveError('example')).toBe('The example could not be downloaded. Try again.')
+  })
+
+  describe('in the desktop app', () => {
+    const invoke = vi.fn()
+    beforeEach(() => {
+      invoke.mockReset()
+      ;(window as unknown as { __TAURI__?: unknown }).__TAURI__ = { core: { invoke } }
+    })
+    afterEach(() => {
+      delete (window as unknown as { __TAURI__?: unknown }).__TAURI__
+    })
+
+    it('says Save and opens the Save dialog with a CSV filter instead of the link', async () => {
+      expect(templateLinkLabel()).toBe('Save the template (CSV)…')
+      expect(exampleLinkLabel(false)).toBe('Save the full example…')
+      expect(exampleLinkLabel(true)).toBe('Save the full example (CSV)…')
+      expect(templateSaveError('template')).toBe('The template could not be saved. Try again.')
+      invoke.mockImplementation((cmd: string) =>
+        Promise.resolve(cmd === 'plugin:dialog|save' ? '/Users/me/patients_template.csv' : null),
+      )
+      await expect(downloadText('patients_template.csv', 'patient_id\n')).resolves.toEqual({
+        status: 'saved',
+        path: '/Users/me/patients_template.csv',
+      })
+      expect(invoke.mock.calls[0][1]).toMatchObject({
+        options: { defaultPath: 'patients_template.csv', filters: [{ name: 'CSV', extensions: ['csv'] }] },
+      })
+      expect(invoke.mock.calls[1][0]).toBe('save_file')
+      expect(clickSpy).not.toHaveBeenCalled()
+    })
   })
 })

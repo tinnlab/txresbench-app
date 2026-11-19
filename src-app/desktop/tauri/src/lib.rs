@@ -9,6 +9,7 @@
 mod bundled_models;
 mod commands;
 mod config;
+mod save_file;
 mod server_boot;
 // `pub`: the loopback-seam integration suite (tests/update_check_seam.rs) is
 // a separate crate and drives the runtime through this module's injected
@@ -30,6 +31,9 @@ pub fn register_invoke_handler<R: tauri::Runtime>(
         commands::get_server_port,
         commands::auto_login,
         commands::reveal_in_file_manager,
+        // Saving a file the user chose in the native Save dialog: the window
+        // has no browser download handler (`save_file.rs`).
+        save_file::save_file,
         // ITEM-4 (PROV-IR-6): the update-check surface. The webview has no
         // update screen today (DEC-2's native prompt); the commands are the
         // status/check/install seam a future UI surface would call, and
@@ -321,6 +325,23 @@ mod tests {
     /// a valid `#[tauri::command]` signature, and this proves the list names
     /// it — removing the line from `register_invoke_handler` fails this test,
     /// leaving the UI's `reveal_in_file_manager` invoke unmapped.
+    /// The Save-as command is wired into the invoke handler list (the same
+    /// source pin as the reveal command): the UI's `saveFile` invoke would be
+    /// unmapped without it.
+    #[test]
+    fn register_invoke_handler_wires_the_save_file_command() {
+        const SRC: &str = include_str!("lib.rs");
+        assert!(
+            SRC.contains("save_file::save_file,"),
+            "register_invoke_handler must register the save-file command",
+        );
+        const CAPS: &str = include_str!("../capabilities/default.json");
+        assert!(
+            CAPS.contains("\"dialog:allow-save\""),
+            "the Save dialog the UI opens before saving needs dialog:allow-save",
+        );
+    }
+
     #[test]
     fn register_invoke_handler_wires_the_reveal_command() {
         const SRC: &str = include_str!("lib.rs");
