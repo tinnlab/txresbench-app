@@ -862,10 +862,12 @@ impl WslAgent {
             }
             kept
         });
-        let stream = tokio::io::join(stdout, stdin);
+        let mut stream = tokio::io::join(FirstBytes { inner: stdout, kept: Vec::new() }, stdin);
         let started = Instant::now();
-        // The stream (the agent's stdin with it) is closed when this returns.
-        let result = exec_over(stream, req, host_budget, sink, artifact_dirs).await;
+        let result = exec_over(&mut stream, req, host_budget, sink, artifact_dirs).await;
+        let stdout_head = std::mem::take(&mut stream.reader_mut().kept);
+        // Closes the agent's stdin.
+        drop(stream);
         // Past its budget the agent did not answer in time: it is stopped at
         // once. Otherwise it has ended or is ending: a moment to exit, for
         // its exit code.
@@ -880,9 +882,51 @@ impl WslAgent {
         let log = tokio::time::timeout(Duration::from_secs(5), log).await.ok().and_then(Result::ok).unwrap_or_default();
         match result {
             Ok(outcome) => Ok(outcome),
-            Err(e) => Err(agent_failure(e, status, &log)),
+            Err(e) => Err(agent_failure(e, status, &log, &stdout_head)),
         }
     }
+}
+
+/// How many of the first bytes of an agent's stdout are kept: enough for a
+/// message wsl.exe printed there instead of starting the agent.
+const STDOUT_HEAD_KEEP: usize = 512;
+
+/// The agent's stdout, keeping the first [`STDOUT_HEAD_KEEP`] bytes read.
+struct FirstBytes<R> {
+    inner: R,
+    kept: Vec<u8>,
+}
+
+impl<R: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for FirstBytes<R> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let polled = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
+        if let std::task::Poll::Ready(Ok(())) = polled {
+            let room = STDOUT_HEAD_KEEP.saturating_sub(self.kept.len());
+            let new = &buf.filled()[before..];
+            let take = new.len().min(room);
+            self.kept.extend_from_slice(&new[..take]);
+        }
+        polled
+    }
+}
+
+/// What wsl.exe printed in place of the agent's frames, as one bounded line:
+/// wsl.exe prints its own errors (a distro it cannot find or start) on
+/// stdout, the agent's protocol channel, where they fail as a frame (a "frame
+/// payload too large" of the text's bytes). `None` when the first frame
+/// decodes (or is not whole yet): stdout is the agent's.
+fn printed_instead_of_frames(head: &[u8]) -> Option<String> {
+    let mut decoder = sandbox_vm_protocol::Decoder::new();
+    decoder.feed(head);
+    decoder.next_frame().is_err().then(|| {
+        let text: String = String::from_utf8_lossy(head).chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+        one_line(&text)
+    })
 }
 
 impl AgentExec for WslAgent {
@@ -897,10 +941,17 @@ impl AgentExec for WslAgent {
     }
 }
 
-/// An exchange that failed: say what the agent (or wsl.exe) reported.
-fn agent_failure(e: AppError, status: Option<i32>, log: &[u8]) -> AppError {
+/// An exchange that failed: say what the agent (or wsl.exe) reported, on its
+/// stderr (`log`, its last bytes) or on stdout in place of the agent's frames
+/// (`stdout_head`, its first bytes).
+fn agent_failure(e: AppError, status: Option<i32>, log: &[u8], stdout_head: &[u8]) -> AppError {
     let log = String::from_utf8_lossy(log);
-    let tail: String = log.trim().lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+    let printed = printed_instead_of_frames(stdout_head);
+    let tail: String = printed
+        .into_iter()
+        .chain(log.trim().lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().map(str::to_string))
+        .collect::<Vec<_>>()
+        .join("\n");
     let what = match status {
         Some(AGENT_EXIT_SETUP) => "the method environment could not be mounted in WSL",
         Some(AGENT_EXIT_BAD_ARGS) => "the WSL agent refused its arguments (an app and guest root mismatch)",
@@ -1022,7 +1073,12 @@ mod tests {
     #[test]
     fn a_failed_exchange_names_the_agents_reason() {
         let base = wsl_error("read from the app's WSL distro: broken pipe");
-        let e = agent_failure(base, Some(AGENT_EXIT_SETUP), b"info: start\nerror: mount /sandbox-rootfs: squashfs not supported\n");
+        let e = agent_failure(
+            base,
+            Some(AGENT_EXIT_SETUP),
+            b"info: start\nerror: mount /sandbox-rootfs: squashfs not supported\n",
+            b"",
+        );
         assert_eq!(e.error_code(), WSL_UNAVAILABLE_CODE);
         assert!(e.to_string().contains("could not be mounted in WSL"), "{e}");
         assert!(e.to_string().contains("squashfs not supported"), "{e}");
@@ -1063,12 +1119,36 @@ mod tests {
             base,
             Some(AGENT_EXIT_TRANSPORT),
             b"error: the request's protocol version is not served by this agent\n",
+            b"",
         );
         let text = e.to_string();
         assert_eq!(e.error_code(), WSL_UNAVAILABLE_CODE);
         assert!(text.contains("the exchange between the app and the WSL agent failed"), "{text}");
         assert!(!text.contains("lost its connection"), "{text}");
         assert!(text.contains("protocol version is not served"), "{text}");
+    }
+
+    /// What wsl.exe prints on stdout (its own errors), where the agent's
+    /// frames go.
+    const WSL_NOT_FOUND_ON_STDOUT: &[u8] =
+        b"There is no distribution with the supplied name.\r\nError code: Wsl/Service/WSL_E_DISTRO_NOT_FOUND\r\n";
+
+    /// Text in place of the agent's first frame is shown as one bounded
+    /// line; the stdout of an agent whose first frame decodes is not.
+    #[test]
+    fn what_wsl_exe_printed_in_place_of_the_agents_frames_is_one_bounded_line() {
+        assert_eq!(
+            printed_instead_of_frames(WSL_NOT_FOUND_ON_STDOUT).as_deref(),
+            Some("There is no distribution with the supplied name. Error code: Wsl/Service/WSL_E_DISTRO_NOT_FOUND")
+        );
+        let long = format!("Error\x1b[31m\0 {}", "x".repeat(2 * STDOUT_HEAD_KEEP));
+        let shown = printed_instead_of_frames(&long.as_bytes()[..STDOUT_HEAD_KEEP]).expect("text");
+        assert!(shown.chars().count() <= 300 && !shown.chars().any(char::is_control), "{shown:?}");
+        let mut framed = sandbox_vm_protocol::encode(&sandbox_vm_protocol::Frame::Stdout(b"hello".to_vec()));
+        framed.extend_from_slice(WSL_NOT_FOUND_ON_STDOUT);
+        assert_eq!(printed_instead_of_frames(&framed), None, "the first frame decodes");
+        assert_eq!(printed_instead_of_frames(&framed[..3]), None, "the first frame is not whole yet");
+        assert_eq!(printed_instead_of_frames(b""), None);
     }
 
     /// What the in-box wsl.exe of a Windows without WSL prints (seen on a
@@ -1104,13 +1184,17 @@ mod tests {
     /// A stand-in agent: it checks that the request `exec_over` sends reaches
     /// its stdin byte for byte (exit 9 if not), then writes `frames` to its
     /// stdout, `log` to its stderr, and exits with `code`. With `hang` it does
-    /// nothing at all. Its own arguments come first (`none` for an empty one:
-    /// powershell.exe may drop an empty argument, and takes `-` for a
-    /// parameter); the runner's are kept in `args.txt`.
+    /// nothing at all; with `wsl-error` it is a wsl.exe that cannot start the
+    /// agent (WSL's message on stdout, exit -1). Its own arguments come first
+    /// (`none` for an empty one: powershell.exe may drop an empty argument,
+    /// and takes `-` for a parameter); the runner's are kept in `args.txt`.
     const FAKE_AGENT: &str = r#"
 $want = [IO.File]::ReadAllBytes($args[0]); $frames = $args[1]; $log = $args[2]; $code = [int]$args[3]
 [IO.File]::WriteAllText($args[5], (($args | Select-Object -Skip 6) -join ' '))
 if ($args[4] -eq 'hang') { Start-Sleep -Seconds 600; exit 0 }
+if ($args[4] -eq 'wsl-error') {
+    [Console]::Out.Write("There is no distribution with the supplied name.`r`nError code: Wsl/Service/WSL_E_DISTRO_NOT_FOUND`r`n"); exit -1
+}
 $in = [Console]::OpenStandardInput()
 $got = New-Object byte[] $want.Length; $n = 0
 while ($n -lt $want.Length) { $r = $in.Read($got, $n, $want.Length - $n); if ($r -le 0) { break }; $n += $r }
@@ -1254,6 +1338,27 @@ exit $code
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// wsl.exe prints its own error on stdout, where the agent's frames go:
+    /// the error shows WSL's message, not only a frame that does not decode.
+    #[tokio::test]
+    async fn a_wsl_error_in_place_of_the_agent_is_shown_to_the_user() {
+        let (agent, dir) = fake_agent("wsl-error", &request(), &[], "", 0, "wsl-error");
+        let err = AgentExec::exec(&agent, request(), Duration::from_secs(60), None, &[])
+            .await
+            .err()
+            .expect("no agent ran");
+        assert_eq!(err.error_code(), WSL_UNAVAILABLE_CODE);
+        let text = err.to_string();
+        assert!(
+            text.contains(
+                "\nWSL reported:\nThere is no distribution with the supplied name. Error code: \
+                 Wsl/Service/WSL_E_DISTRO_NOT_FOUND"
+            ),
+            "{text}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// wsl.exe runs with UTF-8 messages and without the app's `WSLENV`, so
     /// none of the app's variables are copied into the distro.
     #[test]
@@ -1281,7 +1386,9 @@ exit $code
     /// or not find it by its name once (`not-found-once`). Every call is
     /// appended to `calls.txt`; an import writes `tar-held.txt`: `held` when
     /// the tarball could be read but not written during the import. Messages
-    /// and error codes are WSL's own (en-US).
+    /// and error codes are WSL's own (en-US), and its errors are on stdout,
+    /// as wsl.exe prints them (the stub's are on stderr, as seen on a Windows
+    /// without WSL).
     const FAKE_WSL: &str = r#"
 $state = $args[0]
 $a = @($args | Select-Object -Skip 1)
@@ -1291,7 +1398,7 @@ $modeFile = Join-Path $state 'mode'
 $mode = ''
 if ([IO.File]::Exists($modeFile)) { $mode = [IO.File]::ReadAllText($modeFile).Trim() }
 $installing = [IO.File]::Exists((Join-Path $state 'installing'))
-function Fail($text) { [Console]::Error.Write($text + "`r`n"); exit -1 }
+function Fail($text) { [Console]::Out.Write($text + "`r`n"); exit -1 }
 if ($mode -eq 'stub') { [Console]::Error.Write("The Windows Subsystem for Linux is not installed. You can install by running 'wsl.exe --install'.`r`r`nFor more information please visit https://aka.ms/wslinstall`r`r`n"); exit 1 }
 if ($mode -eq 'hang') { Start-Sleep -Seconds 600; exit 0 }
 $notFound = "There is no distribution with the supplied name.`r`nError code: Wsl/Service/WSL_E_DISTRO_NOT_FOUND"
