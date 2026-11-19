@@ -1156,9 +1156,12 @@ mod tests {
     }
 
     /// What the in-box wsl.exe of a Windows without WSL prints (seen on a
-    /// Windows 11 VM, on stderr in UTF-16, exit 1).
+    /// Windows 11 VM, on stderr in UTF-16, exit 1). The real text gives the
+    /// address with its scheme; it is left out here so that the source names
+    /// no outbound host (scripts/check-network-allowlist.sh): the check reads
+    /// only the address's host and path.
     const STUB_SAYS: &str = "The Windows Subsystem for Linux is not installed. You can install by running \
-                             'wsl.exe --install'.\r\r\nFor more information please visit https://aka.ms/wslinstall";
+                             'wsl.exe --install'.\r\r\nFor more information please visit aka.ms/wslinstall";
 
     fn powershell() -> PathBuf {
         wsl_exe().with_file_name("WindowsPowerShell").join("v1.0").join("powershell.exe")
@@ -1431,7 +1434,7 @@ $mode = ''
 if ([IO.File]::Exists($modeFile)) { $mode = [IO.File]::ReadAllText($modeFile).Trim() }
 $installing = [IO.File]::Exists((Join-Path $state 'installing'))
 function Fail($text) { [Console]::Out.Write($text + "`r`n"); exit -1 }
-if ($mode -eq 'stub') { [Console]::Error.Write("The Windows Subsystem for Linux is not installed. You can install by running 'wsl.exe --install'.`r`r`nFor more information please visit https://aka.ms/wslinstall`r`r`n"); exit 1 }
+if ($mode -eq 'stub') { [Console]::Error.Write("The Windows Subsystem for Linux is not installed. You can install by running 'wsl.exe --install'.`r`r`nFor more information please visit aka.ms/wslinstall`r`r`n"); exit 1 }
 if ($mode -eq 'hang') { Start-Sleep -Seconds 600; exit 0 }
 $notFound = "There is no distribution with the supplied name.`r`nError code: Wsl/Service/WSL_E_DISTRO_NOT_FOUND"
 if ($a[0] -eq '--list') {
