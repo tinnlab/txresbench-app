@@ -12,7 +12,7 @@
 ;     harmless parameters in the "elevate" and "act" scenarios.
 ;
 ;   txr-harness.exe /WORK=<dir> /SCENARIO=<name> [/S] [/P] [/UPDATE] [/AUTO]
-;                   [/NOAPP] [/ACTION=install|update] [/EXIT=<n>] [/NOELEVFILE] [/SLOW]
+;                   [/NOAPP] [/ACTION=install|turn-on|update] [/EXIT=<n>] [/NOELEVFILE] [/SLOW]
 ;
 ; Scenarios (each writes <work>\result.txt, one key=value per line):
 ;   hook        the production NSIS_HOOK_POSTINSTALL, as Tauri inserts it
@@ -22,9 +22,10 @@
 ;   elevate     TxrRunElevated: SysWOW64\cmd.exe as administrator runs
 ;               Sysnative\whoami.exe /groups > <work>\elev-groups.txt, exit 7
 ;   act         the "Yes" path: the first check (status-codes.txt), then
-;               TxrWslAct with /ACTION; the install and update parameters are
-;               harmless commands that write "install" or "update" to
-;               <work>\elev-ran.txt and exit with /EXIT (default 0);
+;               TxrWslAct with /ACTION (install, turn-on or update); the
+;               install and update parameters are harmless commands that write
+;               "install" or "update" to <work>\elev-ran.txt and exit with
+;               /EXIT (default 0); turn-on runs the install parameters;
 ;               /NOELEVFILE: the program to elevate does not exist;
 ;               /SLOW: the commands take about 5 s (ping) before they write
 ;   elevation   TxrReadElevationType alone
@@ -33,8 +34,10 @@
 ; Build: makensis -WX -DTXR_HOOKS=<path of installer-hooks.nsh> hook-harness.nsi
 ; The hook's compile-time guards (hook-harness-test.ps1 -Makensis): with
 ; -DTXR_TEST_NO_MAINBINARYNAME the template's MAINBINARYNAME is missing, with
-; -DTXR_TEST_FINISH_PAGE_FIRST the hook is included after the finish page; both
-; must fail to compile.
+; -DTXR_TEST_FINISH_PAGE_FIRST the hook is included after the finish page, with
+; -DTXR_TEST_NO_REBOOT_SUPPORT the finish page cannot offer a restart
+; (MUI_FINISHPAGE_NOREBOOTSUPPORT), with -DTXR_TEST_NO_FINISH_PAGE there is no
+; finish page; each must fail to compile.
 
 Unicode true
 ManifestDPIAware true
@@ -68,8 +71,13 @@ Var Exit
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "Create desktop shortcut"
 !define MUI_FINISHPAGE_SHOWREADME_FUNCTION CreateOrUpdateDesktopShortcut
 !insertmacro MUI_PAGE_INSTFILES
-!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipFinishIfAuto
-!insertmacro MUI_PAGE_FINISH
+!ifndef TXR_TEST_NO_FINISH_PAGE
+  !ifdef TXR_TEST_NO_REBOOT_SUPPORT
+    !define MUI_FINISHPAGE_NOREBOOTSUPPORT
+  !endif
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipFinishIfAuto
+  !insertmacro MUI_PAGE_FINISH
+!endif
 !insertmacro MUI_LANGUAGE "English"
 
 ; Tauri's own function, called by the hook when it offers a restart.
@@ -88,12 +96,14 @@ FunctionEnd
   Pop $R0
 !macroend
 
+!ifndef TXR_TEST_NO_FINISH_PAGE
 Function SkipFinishIfAuto
   !insertmacro HasOption "/AUTO"
   ${IfNot} ${Errors}
     Abort
   ${EndIf}
 FunctionEnd
+!endif
 
 Function .onInit
   ${GetParameters} $R1

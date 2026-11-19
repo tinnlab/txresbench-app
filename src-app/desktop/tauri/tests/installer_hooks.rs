@@ -159,24 +159,42 @@ fn updates_and_unattended_installs_skip_the_wsl_step() {
 /// When this installer itself runs as administrator (an elevated token,
 /// TokenElevationTypeFull = 2), the check would run the app from a folder the
 /// user can write to with rights the user does not have: the hook skips, and
-/// says so. Any other token (1: UAC off; 3: the usual start) runs the check.
+/// says so. Only a token known not to be elevated (1: UAC off; 3: the usual
+/// start) runs the check; a type Windows did not give (0) skips too.
 #[test]
 fn an_installer_run_as_administrator_skips_the_check() {
     let skip = block("TxrWslSkip");
     let at = skip.iter().position(|l| l == "Call TxrReadElevationType").expect("the skip reads the token");
     assert_eq!(skip[at - 1], "${Else}");
-    assert_eq!(skip[at + 1], "${If} $TxrElevationType = 2");
-    assert_eq!(skip[at + 2], "StrCpy $TxrWslSkipped 1");
-    assert_eq!(skip[at + 3], r#"StrCpy $TxrWslOutcome "skipped-elevated""#);
-    assert!(skip[at + 4].starts_with(r#"DetailPrint "WSL check skipped: this installer runs as administrator."#));
-    assert_eq!(skip[at + 5], "${EndIf}");
+    let decision = &skip[at + 1..at + 13];
+    let expected = [
+        "${If} $TxrElevationType <> 1",
+        "${AndIf} $TxrElevationType <> 3",
+        "StrCpy $TxrWslSkipped 1",
+        "${If} $TxrElevationType = 2",
+        r#"StrCpy $TxrWslOutcome "skipped-elevated""#,
+        r#"DetailPrint "WSL check skipped: this installer runs as administrator. TxResBench checks WSL when it starts; to set WSL up from here, run this installer again without administrator rights.""#,
+        "${Else}",
+        r#"StrCpy $TxrWslOutcome "skipped-elevation-unknown""#,
+        r#"DetailPrint "WSL check skipped: Windows did not say whether this installer runs as administrator (elevation type $TxrElevationType). TxResBench checks WSL when it starts.""#,
+        "${EndIf}",
+        "${EndIf}",
+        "${EndIf}",
+    ];
+    assert_eq!(decision, expected);
     let lines = code_lines(HOOKS);
-    let uses: Vec<&String> =
-        lines.iter().filter(|l| l.contains("$TxrElevationType") && !l.starts_with("StrCpy $TxrElevationType ")).collect();
-    assert_eq!(uses, ["${If} $TxrElevationType = 2"], "the type decides only there");
+    let uses: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.contains("$TxrElevationType") && !l.starts_with("StrCpy $TxrElevationType ") && !l.starts_with("DetailPrint "))
+        .collect();
+    assert_eq!(
+        uses,
+        ["${If} $TxrElevationType <> 1", "${AndIf} $TxrElevationType <> 3", "${If} $TxrElevationType = 2"],
+        "the type decides only there"
+    );
 
     // TOKEN_QUERY (8) on this process's token, TokenElevationType (18): a
-    // DWORD, kept only when the call succeeded (else 0, which runs the check).
+    // DWORD, kept only when the call succeeded (else 0, which skips the check).
     let read = block("TxrReadElevationType");
     let expected = [
         "StrCpy $TxrElevationType 0",
@@ -196,8 +214,12 @@ fn an_installer_run_as_administrator_skips_the_check() {
 
 /// Compile-time guards against a changed template (Tauri runs makensis
 /// without -WX, so a missing define would only warn): the hook must come
-/// before the finish page (its restart texts apply only then), and the
-/// template must still define MAINBINARYNAME (the check's path).
+/// before the finish page (its restart texts apply only then), the template
+/// must still define MAINBINARYNAME (the check's path), and by the Install
+/// section (after the pages) a finish page that can offer a restart must be
+/// there: MUI2 defines MUI_FINISHPAGE_REBOOT_VARIABLES only for a finish page
+/// without MUI_FINISHPAGE_NOREBOOTSUPPORT, and without one the restart offer
+/// would silently disappear.
 #[test]
 fn the_hook_stops_the_build_when_the_template_changed() {
     let lines = code_lines(HOOKS);
@@ -209,7 +231,12 @@ fn the_hook_stops_the_build_when_the_template_changed() {
     assert_eq!(hook[0], "!ifndef MAINBINARYNAME");
     assert!(hook[1].starts_with(r#"!error ""#), "{}", hook[1]);
     assert_eq!(hook[2], "!endif");
-    assert_eq!(hook[3], "Call TxrWslSkip");
+    assert_eq!(hook[3], "!ifndef MUI_FINISHPAGE_REBOOT_VARIABLES");
+    assert_eq!(hook[4], r#"!error "installer-hooks.nsh: the installer has no finish page that can offer a restart""#);
+    assert_eq!(hook[5], "!endif");
+    assert_eq!(hook[6], "Call TxrWslSkip");
+    // The guards are the macro's only compile-time lines.
+    assert_eq!(hook.iter().filter(|l| l.starts_with('!')).count(), 6);
 }
 
 /// What runs as administrator is Windows' 32-bit cmd.exe starting the native
@@ -237,7 +264,12 @@ fn only_windows_own_programs_run_as_administrator() {
     assert_eq!(count("StrCpy $TxrElevFile "), 1);
     assert_eq!(
         lines.iter().filter(|l| l.starts_with("StrCpy $TxrElevParams ")).cloned().collect::<Vec<_>>(),
-        ["StrCpy $TxrElevParams $TxrWslInstallParams", "StrCpy $TxrElevParams $TxrWslUpdateParams"]
+        [
+            "StrCpy $TxrElevParams $TxrWslInstallParams",
+            "StrCpy $TxrElevParams $TxrWslInstallParams",
+            "StrCpy $TxrElevParams $TxrWslUpdateParams"
+        ],
+        "install, turn-on, update"
     );
     assert_eq!(
         lines.iter().filter(|l| *l == "Call TxrRunElevated").count(),
@@ -250,15 +282,15 @@ fn only_windows_own_programs_run_as_administrator() {
 }
 
 /// After each Yes/No question, "Yes" (the one instruction `IDNO +2` skips)
-/// chooses the action: install where WSL is missing or its Virtual Machine
-/// Platform is not running (`wsl --install --no-distribution` turns it on),
-/// update where WSL is too old or of the old kind. "No" leaves it empty.
+/// chooses the action: install where WSL is missing, turn-on where its
+/// Virtual Machine Platform is not running, update where WSL is too old or
+/// of the old kind. "No" leaves it empty.
 #[test]
 fn each_answer_leads_to_its_action() {
     let setup = block("TxrWslSetup");
     let branch_ends = ["${ElseIf} ", "${Else}", "${EndIf}"];
     for (status, question, action) in [
-        ("READY_AFTER_RESTART", "ASK_TURN_ON", "install"),
+        ("READY_AFTER_RESTART", "ASK_TURN_ON", "turn-on"),
         ("MISSING", "ASK_INSTALL", "install"),
         ("OLD", "ASK_UPDATE_OLD", "update"),
         ("LEGACY", "ASK_UPDATE_LEGACY", "update"),
@@ -283,7 +315,9 @@ fn each_answer_leads_to_its_action() {
 
 /// Each action runs its own command and, when that fails, says what to run
 /// by hand for that action: `wsl --update` for an update (`wsl --install`
-/// does not update an installed WSL).
+/// does not update an installed WSL). Turning the Virtual Machine Platform on
+/// runs `wsl --install --no-distribution` too, but downloads nothing: its
+/// failure has its own message, without the internet connection.
 #[test]
 fn each_action_runs_its_own_command_and_messages() {
     let act: Vec<String> = block("TxrWslAct");
@@ -292,6 +326,10 @@ fn each_action_runs_its_own_command_and_messages() {
         "StrCpy $TxrElevParams $TxrWslInstallParams",
         r#"StrCpy $TxrWslMsgNoPermission "${TXR_MSG_NO_PERMISSION_INSTALL}""#,
         r#"StrCpy $TxrWslMsgFailed "${TXR_MSG_FAILED_INSTALL}""#,
+        r#"${ElseIf} $TxrWslAction == "turn-on""#,
+        "StrCpy $TxrElevParams $TxrWslInstallParams",
+        r#"StrCpy $TxrWslMsgNoPermission "${TXR_MSG_NO_PERMISSION_INSTALL}""#,
+        r#"StrCpy $TxrWslMsgFailed "${TXR_MSG_FAILED_TURN_ON}""#,
         r#"${ElseIf} $TxrWslAction == "update""#,
         "StrCpy $TxrElevParams $TxrWslUpdateParams",
         r#"StrCpy $TxrWslMsgNoPermission "${TXR_MSG_NO_PERMISSION_UPDATE}""#,
@@ -314,6 +352,19 @@ fn each_action_runs_its_own_command_and_messages() {
         assert!(text.contains("run: wsl --install --no-distribution, and restart Windows"), "{name}");
         assert!(!text.contains("--update"), "{name}");
         assert!(text.starts_with(r#""WSL 2 "#), "{name}");
+    }
+    assert!(message("FAILED_INSTALL").contains("Check the internet connection"));
+    let turn_on = message("FAILED_TURN_ON");
+    assert!(
+        turn_on.starts_with(r#""The Windows component WSL 2 needs (Virtual Machine Platform) could not be turned on."#),
+        "{turn_on}"
+    );
+    assert!(turn_on.contains("run: wsl --install --no-distribution, and restart Windows"), "{turn_on}");
+    for name in ["ASK_TURN_ON", "FAILED_TURN_ON"] {
+        let text = message(name).to_lowercase();
+        for word in ["internet", "download", "--update"] {
+            assert!(!text.contains(word), "{name}: {word}");
+        }
     }
     for name in ["NO_PERMISSION_UPDATE", "FAILED_UPDATE"] {
         let text = message(name);
@@ -363,35 +414,64 @@ fn windows_refusal_and_other_errors_show_their_messages() {
     assert_eq!(shown("$TxrWslMsgFailed"), 3, "not started, and failed with or without an exit code");
 }
 
-/// A setup that ended without an error where WSL was missing or of the old
-/// kind, and a second check that still finds it missing or of the old kind:
-/// Windows must restart first (wsl.exe exits with 0 then), so the restart is
-/// offered, not the failed message. An exit code that is not known is never
-/// shown as a code.
+/// After the setup, the second check and the setup's exit code decide:
+/// - READY: set up, whatever the exit code; a restart is offered after WSL
+///   was installed where it was missing or of the old kind;
+/// - READY_AFTER_RESTART: set up, restart offered, only when the setup ended
+///   without an error (exit code 0). The check cannot tell a Virtual Machine
+///   Platform turned on and waiting for a restart from one still off, so
+///   after a failed setup (or a closed window) this is a failure, with no
+///   restart offer, whatever the first check said;
+/// - MISSING or LEGACY after a setup without an error that started from
+///   MISSING or LEGACY: Windows must restart first (wsl.exe exits with 0
+///   then), so the restart is offered, not the failed message;
+/// - anything else: the failed message, with the exit code when known.
 #[test]
-fn a_setup_without_an_error_that_needs_a_restart_is_not_a_failure() {
+fn the_second_check_and_the_exit_code_decide_the_outcome() {
     let elevate = block("TxrWslElevate");
-    let pending = span(&elevate, "${If} $TxrElevExit == 0", &[r#"StrCpy $TxrWslOutcome "failed""#]);
-    assert_eq!(
-        pending[..9],
-        [
-            "${If} $TxrElevExit == 0",
-            "${If} $TxrWslFirstCode == ${TXR_WSL_MISSING}",
-            "${OrIf} $TxrWslFirstCode == ${TXR_WSL_LEGACY}",
-            "${If} $TxrWslCode == ${TXR_WSL_MISSING}",
-            "${OrIf} $TxrWslCode == ${TXR_WSL_LEGACY}",
-            r#"StrCpy $TxrWslOutcome "restart-pending""#,
-            r#"DetailPrint "The WSL setup ended without an error, but WSL 2 answers only after Windows restarts. TxResBench checks WSL again when it starts.""#,
-            "Call TxrWslOfferRestart",
-            "Return",
-        ]
-    );
+    let from = elevate.iter().position(|l| l == "Call TxrWslRunStatus").expect("a second check");
+    let expected = [
+        "Call TxrWslRunStatus",
+        "${If} $TxrWslCode == ${TXR_WSL_READY}",
+        r#"StrCpy $TxrWslOutcome "set-up""#,
+        r#"DetailPrint "WSL 2 is set up.""#,
+        "${If} $TxrWslFirstCode == ${TXR_WSL_MISSING}",
+        "${OrIf} $TxrWslFirstCode == ${TXR_WSL_LEGACY}",
+        "Call TxrWslOfferRestart",
+        "${EndIf}",
+        "Return",
+        "${EndIf}",
+        "${If} $TxrElevExit == 0",
+        "${If} $TxrWslCode == ${TXR_WSL_READY_AFTER_RESTART}",
+        r#"StrCpy $TxrWslOutcome "set-up""#,
+        r#"DetailPrint "WSL 2 is set up; it runs after Windows restarts.""#,
+        "Call TxrWslOfferRestart",
+        "Return",
+        "${EndIf}",
+        "${If} $TxrWslFirstCode == ${TXR_WSL_MISSING}",
+        "${OrIf} $TxrWslFirstCode == ${TXR_WSL_LEGACY}",
+        "${If} $TxrWslCode == ${TXR_WSL_MISSING}",
+        "${OrIf} $TxrWslCode == ${TXR_WSL_LEGACY}",
+        r#"StrCpy $TxrWslOutcome "restart-pending""#,
+        r#"DetailPrint "The WSL setup ended without an error, but WSL 2 answers only after Windows restarts. TxResBench checks WSL again when it starts.""#,
+        "Call TxrWslOfferRestart",
+        "Return",
+        "${EndIf}",
+        "${EndIf}",
+        "${EndIf}",
+        r#"StrCpy $TxrWslOutcome "failed""#,
+        r#"DetailPrint "WSL 2 was not set up (check code $TxrWslCode).""#,
+        r#"${If} $TxrElevExit == """#,
+        r#"MessageBox MB_OK|MB_ICONEXCLAMATION "$TxrWslMsgFailed" /SD IDOK"#,
+        "${Else}",
+        r#"MessageBox MB_OK|MB_ICONEXCLAMATION "$TxrWslMsgFailed$\r$\n$\r$\n(The setup ended with code $TxrElevExit.)" /SD IDOK"#,
+        "${EndIf}",
+    ];
+    assert_eq!(elevate[from..], expected);
+    // The exit code is "" when not known, or what GetExitCodeProcess gave; it
+    // is compared as text (`==`), so "" is not 0, and is never shown as a code.
     let lines = code_lines(HOOKS);
     assert!(!lines.iter().any(|l| l.starts_with("StrCpy $TxrElevExit ") && l != r#"StrCpy $TxrElevExit """# && l != "StrCpy $TxrElevExit $R2"));
-    let with_code = lines.iter().position(|l| l.contains("(The setup ended with code $TxrElevExit.)")).unwrap();
-    assert_eq!(lines[with_code - 3], r#"${If} $TxrElevExit == """#);
-    assert_eq!(lines[with_code - 2], r#"MessageBox MB_OK|MB_ICONEXCLAMATION "$TxrWslMsgFailed" /SD IDOK"#);
-    assert_eq!(lines[with_code - 1], "${Else}");
     assert!(finish_reboot_text().contains("TxResBench checks WSL again when it starts."));
 }
 
@@ -515,7 +595,7 @@ fn the_hook_relies_on_the_template_only_for_the_listed_names() {
         .collect();
     let nsis_vars = ["INSTDIR", "WINDIR", "HWNDPARENT", "R0", "R1", "R2", "R3", "R4", "R5"];
     let header_defines = [
-        "If", "IfNot", "ElseIf", "ElseIfNot", "Else", "EndIf", "OrIf", "Errors", "Silent", "RunningX64",
+        "If", "IfNot", "ElseIf", "ElseIfNot", "Else", "EndIf", "OrIf", "AndIf", "Errors", "Silent", "RunningX64",
         "GetOptions", "GetParameters",
     ];
     let template: BTreeSet<&str> = TEMPLATE_NAMES.into_iter().collect();

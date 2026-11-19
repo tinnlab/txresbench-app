@@ -12,7 +12,7 @@
 ;      update must never ask anything or need admin rights. The flags are read
 ;      from the command line here, not from the template's variables. It also
 ;      does nothing on 32-bit Windows, and when the installer itself runs as
-;      administrator (see below);
+;      administrator or Windows does not say whether it does (see below);
 ;   2. asks the app what WSL this PC has: `txresbench-desktop.exe --wsl-status`
 ;      (src-app/server/src/modules/sandbox/wsl_status.rs; the same checks as the
 ;      app's own) exits with one of the TXR_WSL_* codes below;
@@ -32,13 +32,16 @@
 ; can write to, so it must never run with rights the user does not have: when
 ; this installer itself runs as administrator (Run as administrator, an
 ; elevated terminal: an elevated token, TokenElevationTypeFull), the hook does
-; nothing. With UAC turned off (TokenElevationTypeDefault) no prompt separates
-; the user from administrator rights, and the hook runs as usual.
+; nothing, nor when Windows does not say what the token is. With UAC turned off
+; (TokenElevationTypeDefault) no prompt separates the user from administrator
+; rights, and the hook runs as usual.
 ; Only the System plug-in, which Tauri ships and signs, is used.
 
 ; The restart texts below are read by the first finish page inserted after
-; them. MUI2 defines this name when a finish page is inserted: if it is there,
-; Tauri's template has moved this file below its finish page.
+; them. MUI2 defines this name when it inserts a finish page that can offer a
+; restart (Finish.nsh): if it is there, Tauri's template has moved this file
+; below its finish page. NSIS_HOOK_POSTINSTALL checks the other side: by the
+; Install section, after the pages, such a finish page must be there.
 !ifdef MUI_FINISHPAGE_REBOOT_VARIABLES
   !error "installer-hooks.nsh is included after the finish page: its restart texts would not apply"
 !endif
@@ -66,6 +69,7 @@
 !define TXR_MSG_NO_PERMISSION_INSTALL "WSL 2 was not set up because Windows did not get permission. TxResBench is installed, but it cannot run methods yet.$\r$\n$\r$\nTo set up WSL 2 later, run this installer again, or open PowerShell as administrator, run: wsl --install --no-distribution, and restart Windows."
 !define TXR_MSG_NO_PERMISSION_UPDATE "WSL was not updated because Windows did not get permission. TxResBench is installed, but it cannot run methods yet.$\r$\n$\r$\nTo update WSL later, run this installer again, or open PowerShell as administrator, run: wsl --update, then: wsl --install --no-distribution, and restart Windows."
 !define TXR_MSG_FAILED_INSTALL "WSL 2 could not be set up. TxResBench is installed, but it cannot run methods yet.$\r$\n$\r$\nCheck the internet connection and run this installer again, or open PowerShell as administrator, run: wsl --install --no-distribution, and restart Windows. On a computer managed by an organization, WSL may be turned off; ask your IT department."
+!define TXR_MSG_FAILED_TURN_ON "The Windows component WSL 2 needs (Virtual Machine Platform) could not be turned on. TxResBench is installed, but it cannot run methods yet.$\r$\n$\r$\nRun this installer again, or open PowerShell as administrator, run: wsl --install --no-distribution, and restart Windows. On a computer managed by an organization, the component may be blocked; ask your IT department."
 !define TXR_MSG_FAILED_UPDATE "WSL could not be updated. TxResBench is installed, but it cannot run methods yet.$\r$\n$\r$\nCheck the internet connection and run this installer again, or open PowerShell as administrator, run: wsl --update, then: wsl --install --no-distribution, and restart Windows. On a computer managed by an organization, WSL may be turned off; ask your IT department."
 !define TXR_MSG_POLICY "TxResBench runs methods inside WSL 2, which your organization has turned off on this computer. TxResBench is installed, but it cannot run methods here. Ask your IT department to allow WSL."
 !define TXR_MSG_NO_WSL_EXE "TxResBench runs methods inside WSL 2, which this version of Windows cannot install by itself. TxResBench is installed; to install WSL, see https://learn.microsoft.com/windows/wsl/install-manual"
@@ -79,12 +83,12 @@
 !define MUI_FINISHPAGE_TEXT_REBOOTNOW "Restart now"
 !define MUI_FINISHPAGE_TEXT_REBOOTLATER "Restart later"
 
-Var TxrWslSkipped         ; 1: no WSL step (an update, an unattended install, 32-bit Windows, run as administrator)
+Var TxrWslSkipped         ; 1: no WSL step (an update, an unattended install, 32-bit Windows, run as administrator or not known)
 Var TxrElevationType      ; this installer's TOKEN_ELEVATION_TYPE (2: run as administrator), 0 if unknown
 Var TxrWslStatusCmd       ; the check's command line
 Var TxrWslCode            ; the check's exit code, or "error"
 Var TxrWslFirstCode       ; the first check's code
-Var TxrWslAction          ; "", "install" or "update"
+Var TxrWslAction          ; "", "install", "turn-on" or "update"
 Var TxrWslOutcome         ; what happened, in one word (the log and the tests)
 Var TxrElevFile           ; the program to run as administrator
 Var TxrWslInstallParams   ; its parameters to install WSL (or turn its Windows component on)
@@ -101,6 +105,12 @@ Var TxrElevExit           ; its exit code when it ran, "" if not known
   !ifndef MAINBINARYNAME
     !error "installer-hooks.nsh: the installer template no longer defines MAINBINARYNAME"
   !endif
+  ; The restart is offered on the finish page; without a finish page, or with
+  ; one that has no restart support (MUI_FINISHPAGE_NOREBOOTSUPPORT), the offer
+  ; would silently disappear.
+  !ifndef MUI_FINISHPAGE_REBOOT_VARIABLES
+    !error "installer-hooks.nsh: the installer has no finish page that can offer a restart"
+  !endif
   Call TxrWslSkip
   ${If} $TxrWslSkipped <> 1
     StrCpy $TxrWslStatusCmd '"$INSTDIR\${MAINBINARYNAME}.exe" --wsl-status'
@@ -113,7 +123,8 @@ Var TxrElevExit           ; its exit code when it ran, "" if not known
 
 ; Sets $TxrWslSkipped to 1, and says why, when there is no WSL step: on an
 ; update (/UPDATE), a passive (/P) or silent (/S) install; on 32-bit Windows
-; (where the app cannot run); and when this installer runs as administrator.
+; (where the app cannot run); and when this installer runs as administrator, or
+; its token's elevation type cannot be read.
 Function TxrWslSkip
   Push $R0
   Push $R1
@@ -142,10 +153,18 @@ Function TxrWslSkip
     DetailPrint "WSL check skipped: this is 32-bit Windows, where TxResBench cannot run methods."
   ${Else}
     Call TxrReadElevationType
-    ${If} $TxrElevationType = 2
+    ; Only a token known not to be elevated runs the check: 1 (UAC off) or 3
+    ; (the usual start).
+    ${If} $TxrElevationType <> 1
+    ${AndIf} $TxrElevationType <> 3
       StrCpy $TxrWslSkipped 1
-      StrCpy $TxrWslOutcome "skipped-elevated"
-      DetailPrint "WSL check skipped: this installer runs as administrator. TxResBench checks WSL when it starts; to set WSL up from here, run this installer again without administrator rights."
+      ${If} $TxrElevationType = 2
+        StrCpy $TxrWslOutcome "skipped-elevated"
+        DetailPrint "WSL check skipped: this installer runs as administrator. TxResBench checks WSL when it starts; to set WSL up from here, run this installer again without administrator rights."
+      ${Else}
+        StrCpy $TxrWslOutcome "skipped-elevation-unknown"
+        DetailPrint "WSL check skipped: Windows did not say whether this installer runs as administrator (elevation type $TxrElevationType). TxResBench checks WSL when it starts."
+      ${EndIf}
     ${EndIf}
   ${EndIf}
   Pop $R1
@@ -205,7 +224,7 @@ Function TxrWslSetup
     ; turns on what is off and does nothing more when it is only waiting.
     StrCpy $TxrWslOutcome "declined"
     MessageBox MB_YESNO|MB_ICONQUESTION "${TXR_MSG_ASK_TURN_ON}" /SD IDNO IDNO +2
-    StrCpy $TxrWslAction "install"
+    StrCpy $TxrWslAction "turn-on"
   ${ElseIf} $TxrWslCode == ${TXR_WSL_MISSING}
     StrCpy $TxrWslOutcome "declined"
     MessageBox MB_YESNO|MB_ICONQUESTION "${TXR_MSG_ASK_INSTALL}" /SD IDNO IDNO +2
@@ -239,13 +258,19 @@ Function TxrWslSetup
   ${EndIf}
 FunctionEnd
 
-; Runs $TxrWslAction ("install" or "update") with its own parameters and its
-; own messages, then checks again.
+; Runs $TxrWslAction ("install", "turn-on" or "update") with its own parameters
+; and its own messages, then checks again. Turning the Virtual Machine Platform
+; on is `wsl --install --no-distribution` too, but it downloads nothing, so its
+; failure says nothing about the internet connection.
 Function TxrWslAct
   ${If} $TxrWslAction == "install"
     StrCpy $TxrElevParams $TxrWslInstallParams
     StrCpy $TxrWslMsgNoPermission "${TXR_MSG_NO_PERMISSION_INSTALL}"
     StrCpy $TxrWslMsgFailed "${TXR_MSG_FAILED_INSTALL}"
+  ${ElseIf} $TxrWslAction == "turn-on"
+    StrCpy $TxrElevParams $TxrWslInstallParams
+    StrCpy $TxrWslMsgNoPermission "${TXR_MSG_NO_PERMISSION_INSTALL}"
+    StrCpy $TxrWslMsgFailed "${TXR_MSG_FAILED_TURN_ON}"
   ${ElseIf} $TxrWslAction == "update"
     StrCpy $TxrElevParams $TxrWslUpdateParams
     StrCpy $TxrWslMsgNoPermission "${TXR_MSG_NO_PERMISSION_UPDATE}"
@@ -259,7 +284,7 @@ FunctionEnd
 ; Runs $TxrElevFile with $TxrElevParams as administrator, checks again, and
 ; says what happened.
 Function TxrWslElevate
-  DetailPrint "Setting up WSL 2 from Microsoft. This can take several minutes; a separate window shows the progress."
+  DetailPrint "Setting up WSL 2. This can take several minutes; a separate window shows the progress."
   Call TxrRunElevated
   ${If} $TxrElevStarted <> 1
     ${If} $TxrElevError == 1223
@@ -279,24 +304,35 @@ Function TxrWslElevate
     DetailPrint "The WSL setup ended with code $TxrElevExit."
   ${EndIf}
   Call TxrWslRunStatus
+  ; WSL 2 works now. After WSL was installed where it was missing or of the
+  ; old kind (the Virtual Machine Platform is turned on then), Windows may
+  ; still need a restart: wsl.exe exits with 0 also then (it only prints so).
   ${If} $TxrWslCode == ${TXR_WSL_READY}
-  ${OrIf} $TxrWslCode == ${TXR_WSL_READY_AFTER_RESTART}
     StrCpy $TxrWslOutcome "set-up"
     DetailPrint "WSL 2 is set up."
-    ; wsl.exe exits with 0 also when Windows must restart (it only prints so).
-    ; A restart is due when the check says so, and after WSL was installed
-    ; where it was missing or of the old kind (the Virtual Machine Platform is
-    ; turned on then).
-    ${If} $TxrWslCode == ${TXR_WSL_READY_AFTER_RESTART}
-    ${OrIf} $TxrWslFirstCode == ${TXR_WSL_MISSING}
+    ${If} $TxrWslFirstCode == ${TXR_WSL_MISSING}
     ${OrIf} $TxrWslFirstCode == ${TXR_WSL_LEGACY}
       Call TxrWslOfferRestart
     ${EndIf}
     Return
   ${EndIf}
-  ; Where WSL was missing or of the old kind, a setup that ended without an
-  ; error may leave WSL answering only after Windows restarts.
+  ; Any other answer counts only after a setup that ended without an error.
+  ; A second check of READY_AFTER_RESTART cannot tell a component turned on
+  ; and waiting for a restart from one still off; where the first check said
+  ; the same, the exit code is the only sign that the setup turned it on.
+  ; After a setup that failed (or whose window was closed), whatever the first
+  ; check said, the hook shows the failed message, which says what to run and
+  ; to restart, and offers no restart: a restart is not known to help then,
+  ; and the finish page would say Windows must restart to finish setting up.
   ${If} $TxrElevExit == 0
+    ${If} $TxrWslCode == ${TXR_WSL_READY_AFTER_RESTART}
+      StrCpy $TxrWslOutcome "set-up"
+      DetailPrint "WSL 2 is set up; it runs after Windows restarts."
+      Call TxrWslOfferRestart
+      Return
+    ${EndIf}
+    ; Where WSL was missing or of the old kind, WSL may answer only after
+    ; Windows restarts.
     ${If} $TxrWslFirstCode == ${TXR_WSL_MISSING}
     ${OrIf} $TxrWslFirstCode == ${TXR_WSL_LEGACY}
       ${If} $TxrWslCode == ${TXR_WSL_MISSING}

@@ -110,11 +110,15 @@ foreach ($c in @(
 }
 
 # 2. The production hook on an interactive install, on the paths without a dialog.
-#    It reads its token's elevation type and, unless that is 2 (run as
-#    administrator, skipped), runs the check.
+#    It reads its token's elevation type and runs the check only when that is
+#    1 (UAC off) or 3 (the usual start); 2 (run as administrator) skips, and so
+#    does a type Windows did not give.
 if ($elevation -eq '2') {
   Run-Case 'hook-elevated' @('0') @('/SCENARIO=hook', '/AUTO') @{
     skipped = '1'; outcome = 'skipped-elevated'; elevation = '2'; reboot = '0'; started = '' } $calls
+} elseif ($elevation -ne '1' -and $elevation -ne '3') {
+  Run-Case 'hook-elevation-unknown' @('0') @('/SCENARIO=hook', '/AUTO') @{
+    skipped = '1'; outcome = 'skipped-elevation-unknown'; reboot = '0'; started = '' } $calls
 } else {
   foreach ($c in @(
       @{ n = 'hook-ready'; code = '0'; f = @(); e = @{ first = '0'; code = '0'; outcome = 'ready' }; x = $calledOnce },
@@ -161,9 +165,12 @@ Run-Case 'elevate' @() @('/SCENARIO=elevate', '/S') @{ started = '1'; error = '0
 #    action's name), carries its own messages, and the second check and the
 #    setup's exit code decide the outcome and the restart.
 $messages = @{
-  install = @{ msg_no_permission = 'WSL 2 was not set up because'; msg_failed = 'WSL 2 could not be set up.' }
-  update  = @{ msg_no_permission = 'WSL was not updated because'; msg_failed = 'WSL could not be updated.' }
+  install   = @{ msg_no_permission = 'WSL 2 was not set up because'; msg_failed = 'WSL 2 could not be set up.' }
+  'turn-on' = @{ msg_no_permission = 'WSL 2 was not set up because'; msg_failed = 'The Windows component WSL 2 needs' }
+  update    = @{ msg_no_permission = 'WSL was not updated because'; msg_failed = 'WSL could not be updated.' }
 }
+# Turning the Virtual Machine Platform on runs the install parameters.
+$paramsOf = @{ install = 'install'; 'turn-on' = 'install'; update = 'update' }
 # The action is the one the case expects (checked with the other keys).
 $actChecks = { param($case, $dir, $r, $ran)
   $action = $r['action']
@@ -172,10 +179,11 @@ $actChecks = { param($case, $dir, $r, $ran)
     Check $case $k ($r[$k].StartsWith($want)) "want '$want...', got '$($r[$k])'"
   }
   $f = Join-Path $dir 'elev-ran.txt'
+  $params = $paramsOf[$action]
   if ($ran) {
     $got = if (Test-Path $f) { (Get-Content $f -Raw).Trim() } else { '(none)' }
-    Check $case 'the action ran its own parameters' ($got -eq $action) "ran '$got'"
-    Check $case 'elev_params' ($r['elev_params'] -eq $r["$($action)_params"]) "got '$($r['elev_params'])'"
+    Check $case 'the action ran its own parameters' ($got -eq $params) "ran '$got'"
+    Check $case 'elev_params' ($r['elev_params'] -eq $r["$($params)_params"]) "got '$($r['elev_params'])'"
   } else {
     Check $case 'nothing ran' (-not (Test-Path $f)) 'elev-ran.txt exists'
   }
@@ -183,8 +191,8 @@ $actChecks = { param($case, $dir, $r, $ran)
 foreach ($c in @(
     @{ n = 'act-missing-ready'; a = 'install'; codes = @('21', '0'); x = '0'; o = 'set-up'; b = '1' },
     @{ n = 'act-missing-restart'; a = 'install'; codes = @('21', '20'); x = '0'; o = 'set-up'; b = '1' },
-    @{ n = 'act-turn-on-restart'; a = 'install'; codes = @('20', '20'); x = '0'; o = 'set-up'; b = '1' },
-    @{ n = 'act-turn-on-ready'; a = 'install'; codes = @('20', '0'); x = '0'; o = 'set-up'; b = '0' },
+    @{ n = 'act-turn-on-restart'; a = 'turn-on'; codes = @('20', '20'); x = '0'; o = 'set-up'; b = '1' },
+    @{ n = 'act-turn-on-ready'; a = 'turn-on'; codes = @('20', '0'); x = '0'; o = 'set-up'; b = '0' },
     @{ n = 'act-old-ready'; a = 'update'; codes = @('22', '0'); x = '0'; o = 'set-up'; b = '0' },
     @{ n = 'act-old-restart'; a = 'update'; codes = @('22', '20'); x = '0'; o = 'set-up'; b = '1' },
     @{ n = 'act-legacy-ready'; a = 'update'; codes = @('23', '0'); x = '0'; o = 'set-up'; b = '1' },
@@ -196,7 +204,17 @@ foreach ($c in @(
     @{ n = 'act-legacy-failed'; a = 'update'; codes = @('23', '23'); x = '1'; o = 'failed'; b = '0' },
     @{ n = 'act-old-still'; a = 'update'; codes = @('22', '22'); x = '0'; o = 'failed'; b = '0' },
     @{ n = 'act-missing-then-old'; a = 'install'; codes = @('21', '22'); x = '0'; o = 'failed'; b = '0' },
-    @{ n = 'act-turn-on-then-missing'; a = 'install'; codes = @('20', '21'); x = '0'; o = 'failed'; b = '0' },
+    @{ n = 'act-turn-on-then-missing'; a = 'turn-on'; codes = @('20', '21'); x = '0'; o = 'failed'; b = '0' },
+    # A second check of 20 counts only after a setup without an error: a
+    # failed turn-on (or a closed window) is reported, with no restart offer,
+    # and so is a failed install or update, whatever the first check said.
+    @{ n = 'act-turn-on-failed'; a = 'turn-on'; codes = @('20', '20'); x = '1'; o = 'failed'; b = '0' },
+    @{ n = 'act-turn-on-window-closed'; a = 'turn-on'; codes = @('20', '20'); x = '-1073741510'; o = 'failed'; b = '0' },
+    @{ n = 'act-missing-failed-20'; a = 'install'; codes = @('21', '20'); x = '1'; o = 'failed'; b = '0' },
+    @{ n = 'act-old-failed-20'; a = 'update'; codes = @('22', '20'); x = '1'; o = 'failed'; b = '0' },
+    @{ n = 'act-legacy-failed-20'; a = 'update'; codes = @('23', '20'); x = '1'; o = 'failed'; b = '0' },
+    # A check that finds WSL 2 working wins over the exit code.
+    @{ n = 'act-turn-on-failed-ready'; a = 'turn-on'; codes = @('20', '0'); x = '1'; o = 'set-up'; b = '0' },
     @{ n = 'act-missing-check-gone'; a = 'install'; codes = @('21'); x = '0'; o = 'failed'; b = '0' },
     # The hook waits for the setup however long it takes (here about 5 s).
     @{ n = 'act-slow-setup'; a = 'install'; codes = @('21', '0'); x = '3'; o = 'set-up'; b = '1'; slow = $true })) {
@@ -219,6 +237,7 @@ foreach ($c in @(
 #    2, not 1223): the "failed" message of the action, no second check.
 foreach ($c in @(
     @{ n = 'act-not-started-install'; a = 'install'; code = '21' },
+    @{ n = 'act-not-started-turn-on'; a = 'turn-on'; code = '20' },
     @{ n = 'act-not-started-update'; a = 'update'; code = '22' })) {
   Run-Case $c.n @($c.code, '0') @('/SCENARIO=act', '/S', "/ACTION=$($c.a)", '/NOELEVFILE') @{
     first = $c.code; code = $c.code; action = $c.a; outcome = 'not-started'; started = '0'; error = '2'
@@ -232,12 +251,18 @@ foreach ($c in @(
 # 7. The token's elevation type, as the hook reads it, is the one Windows reports.
 Run-Case 'elevation' @() @('/SCENARIO=elevation', '/S') @{ elevation = $elevation; outcome = '' } $calls
 
-# 8. The compile-time guards: a template without MAINBINARYNAME, or one that
-#    includes the hook after its finish page, does not build.
+# 8. The compile-time guards: a template without MAINBINARYNAME, one that
+#    includes the hook after its finish page, one whose finish page cannot offer
+#    a restart, and one without a finish page do not build; the harness as it is
+#    builds, with no warning.
 if ($Makensis) {
+  $noRestart = 'has no finish page that can offer a restart'
   foreach ($c in @(
+      @{ n = 'guard-normal-build'; d = '-DTXR_TEST_NONE'; want = '' },
       @{ n = 'guard-no-mainbinaryname'; d = '-DTXR_TEST_NO_MAINBINARYNAME'; want = 'no longer defines MAINBINARYNAME' },
-      @{ n = 'guard-finish-page-first'; d = '-DTXR_TEST_FINISH_PAGE_FIRST'; want = 'is included after the finish page' })) {
+      @{ n = 'guard-finish-page-first'; d = '-DTXR_TEST_FINISH_PAGE_FIRST'; want = 'is included after the finish page' },
+      @{ n = 'guard-no-reboot-support'; d = '-DTXR_TEST_NO_REBOOT_SUPPORT'; want = $noRestart },
+      @{ n = 'guard-no-finish-page'; d = '-DTXR_TEST_NO_FINISH_PAGE'; want = $noRestart })) {
     $dir = Join-Path $Work $c.n
     if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
     New-Item -ItemType Directory $dir | Out-Null
@@ -247,9 +272,16 @@ if ($Makensis) {
     $code = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     Pop-Location
-    Check $c.n 'makensis fails' ($code -ne 0) "exit $code"
-    Check $c.n 'with the guard''s message' ($out.Contains($c.want)) (($out.Trim() -split "`n" | Select-Object -Last 3) -join ' | ')
-    Check $c.n 'no harness built' (-not (Test-Path (Join-Path $dir 'txr-harness.exe'))) 'txr-harness.exe exists'
+    $built = Test-Path (Join-Path $dir 'txr-harness.exe')
+    $tail = ($out.Trim() -split "`n" | Select-Object -Last 3) -join ' | '
+    if ($c.want -eq '') {
+      Check $c.n 'makensis succeeds' ($code -eq 0) "exit $code - $tail"
+      Check $c.n 'harness built' $built 'txr-harness.exe missing'
+    } else {
+      Check $c.n 'makensis fails' ($code -ne 0) "exit $code"
+      Check $c.n 'with the guard''s message' ($out.Contains($c.want)) $tail
+      Check $c.n 'no harness built' (-not $built) 'txr-harness.exe exists'
+    }
     Write-Output ("ran  {0,-28} makensis exit={1}" -f $c.n, $code)
   }
 }
