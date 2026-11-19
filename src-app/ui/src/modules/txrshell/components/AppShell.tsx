@@ -8,6 +8,7 @@ import { isMacDesktop } from '@/core/platform'
 import { TxrThemeToggle } from '../TxrThemeToggle'
 import { shellModeClass, useShellMode } from '../lib/shellMode'
 import { DemoHeaderDownload, DemoMenuDownload, DemoNoticeBar } from '@/modules/demo'
+import { WslSetupNotice } from './WslSetupNotice'
 
 /**
  * txrshell — AppShell (app-shell ITEM-1, DEC-1/DEC-2).
@@ -215,6 +216,11 @@ export function AppShell({ children }: AppShellProps) {
           (the plan's "the page layout leaves its height"). Absent in desktop
           and while the boot mode read is pending. */}
       <DemoNoticeBar />
+      {/* Windows only: why methods cannot run (WSL 2 missing or too old) and
+          "Set up WSL". The same slot and rule as the demo bar (flex: none,
+          the routed area leaves its height); the two never show together
+          (this one is desktop only). Absent elsewhere and when methods run. */}
+      <WslSetupNotice />
       {/* The routed area: the shell's skip-link target. In shell mode it is
           the ONE scroller before the pages own their regions (ITEM-2/3); in
           flow mode the document scrolls and this div is plain content. */}

@@ -1,6 +1,9 @@
 import { createModule } from '@txresbench/framework'
 import TxrLayout from './TxrLayout'
 import { NotFoundPage } from './pages/NotFoundPage'
+// Side-effect import: registers `sandbox.setupWsl` (the shell's WSL notice button, the
+// palette and the AI agent run it). The sole runtime import site.
+import '@/core/actions/builtin/wslSetupActions'
 
 /**
  * txrshell — TxResBench's own shell: the top-nav layout (New analysis / Models /

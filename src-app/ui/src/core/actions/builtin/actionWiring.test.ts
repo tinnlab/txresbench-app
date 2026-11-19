@@ -15,6 +15,7 @@ import './mcpSettingsActions'
 import './featureFlagActions'
 import './methodActions'
 import './stepActions'
+import './wslSetupActions'
 import { getActionMeta } from '../defineAction'
 
 const NEW_IDS = [
@@ -28,6 +29,7 @@ const NEW_IDS = [
   'flow.startPath',
   'models.useModel',
   'history.useSettingsAgain',
+  'sandbox.setupWsl',
 ]
 
 // owning module.tsx → the builtin file it must side-effect-import
@@ -36,6 +38,7 @@ const MODULE_IMPORTS: Record<string, string[]> = {
   'src/modules/features/module.tsx': ['@/core/actions/builtin/featureFlagActions'],
   'src/modules/txrlist/module.tsx': ['@/core/actions/builtin/methodActions'],
   'src/modules/txrintake/module.tsx': ['@/core/actions/builtin/stepActions'],
+  'src/modules/txrshell/module.tsx': ['@/core/actions/builtin/wslSetupActions'],
 }
 
 const SRC_ROOT = resolve(__dirname, '../../../..')
