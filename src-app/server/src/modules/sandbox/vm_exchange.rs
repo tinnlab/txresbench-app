@@ -93,6 +93,12 @@ const GUEST: &str = "the method VM";
 #[cfg(windows)]
 const GUEST: &str = "the app's WSL distro";
 
+/// [`GUEST`] at the start of a sentence.
+#[cfg(target_os = "macos")]
+const GUEST_CAPITALIZED: &str = "The method VM";
+#[cfg(windows)]
+const GUEST_CAPITALIZED: &str = "The app's WSL distro";
+
 /// What stopped when an exchange ended early: the whole VM on macOS, the
 /// request's own agent process on Windows.
 #[cfg(target_os = "macos")]
@@ -385,12 +391,13 @@ pub async fn read_layer_plan<A: AgentExec>(agent: &A) -> Result<(Vec<String>, St
 
     // No path bwrap binds out of the base or the layer, nor the base where
     // a layer entry's bind lands, may have a symbolic link in it: bwrap
-    // would follow it into the VM's own root.
+    // would follow it into the guest's own root (the method VM's; on Windows
+    // the app's WSL distro's, which has the Windows drives under `/mnt`).
     let probe = stack::BindSourceProbe::new(&entries, GUEST_BASE_MOUNT, GUEST_LAYER_MOUNT)?;
     let links = check(agent, &probe.argv()).await?;
     let not_checked = |why: String| {
         vm_error(format!(
-            "The method VM could not check the method and base images for symbolic links: {why}"
+            "{GUEST_CAPITALIZED} could not check the method and base images for symbolic links: {why}"
         ))
     };
     if links.timed_out {

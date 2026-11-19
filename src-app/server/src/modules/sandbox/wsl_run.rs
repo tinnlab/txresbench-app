@@ -1030,6 +1030,8 @@ fn agent_failure(e: AppError, status: Option<i32>, log: &[u8], stdout_head: &[u8
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::stack;
+    use super::super::vm_exchange::{GUEST_BASE_MOUNT, GUEST_LAYER_MOUNT, VM_UNAVAILABLE_CODE};
 
     #[test]
     fn wsl_versions_free_of_the_cve_are_accepted() {
@@ -1248,18 +1250,37 @@ mod tests {
     /// stdout, `log` to its stderr, and exits with `code`. With `hang` it does
     /// nothing at all; with `wsl-error` it is a wsl.exe that cannot start the
     /// agent (WSL's message on stdout, exit -1); with `log-held` it leaves a
-    /// process behind that holds its stdout and stderr open for 15 s. Its own
+    /// process behind that holds its stdout and stderr open for 15 s; with
+    /// `seq` it answers request after request, one process each: the dir in
+    /// place of the request file keeps the i-th request it reads as
+    /// `got-<i>.bin` (one frame: a tag, a big-endian u32 length, the payload)
+    /// and holds the frames it answers with as `answer-<i>.bin`. Its own
     /// arguments come first (`none` for an empty one: powershell.exe may drop
     /// an empty argument, and takes `-` for a parameter); the runner's are
     /// kept in `args.txt`.
     const FAKE_AGENT: &str = r#"
-$want = [IO.File]::ReadAllBytes($args[0]); $frames = $args[1]; $log = $args[2]; $code = [int]$args[3]
+$frames = $args[1]; $log = $args[2]; $code = [int]$args[3]
 [IO.File]::WriteAllText($args[5], (($args | Select-Object -Skip 6) -join ' '))
 if ($args[4] -eq 'hang') { Start-Sleep -Seconds 600; exit 0 }
 if ($args[4] -eq 'wsl-error') {
     [Console]::Out.Write("There is no distribution with the supplied name.`r`nError code: Wsl/Service/WSL_E_DISTRO_NOT_FOUND`r`n"); exit -1
 }
 $in = [Console]::OpenStandardInput()
+if ($args[4] -eq 'seq') {
+    $dir = $args[0]
+    $head = New-Object byte[] 5; $n = 0
+    while ($n -lt 5) { $r = $in.Read($head, $n, 5 - $n); if ($r -le 0) { break }; $n += $r }
+    $len = ([int]$head[1] -shl 24) -bor ([int]$head[2] -shl 16) -bor ([int]$head[3] -shl 8) -bor [int]$head[4]
+    $got = New-Object byte[] (5 + $len); [Array]::Copy($head, $got, 5)
+    while ($n -lt $got.Length) { $r = $in.Read($got, $n, $got.Length - $n); if ($r -le 0) { break }; $n += $r }
+    $i = @(Get-ChildItem -LiteralPath $dir -Filter 'got-*.bin').Count
+    [IO.File]::WriteAllBytes((Join-Path $dir "got-$i.bin"), $got)
+    $answer = Join-Path $dir "answer-$i.bin"
+    if (-not [IO.File]::Exists($answer)) { [Console]::Error.WriteLine("fake agent: no answer for request $i"); exit 9 }
+    $b = [IO.File]::ReadAllBytes($answer); $o = [Console]::OpenStandardOutput(); $o.Write($b, 0, $b.Length); $o.Flush()
+    exit 0
+}
+$want = [IO.File]::ReadAllBytes($args[0])
 $got = New-Object byte[] $want.Length; $n = 0
 while ($n -lt $want.Length) { $r = $in.Read($got, $n, $want.Length - $n); if ($r -le 0) { break }; $n += $r }
 if ($n -ne $want.Length -or [Convert]::ToBase64String($got) -ne [Convert]::ToBase64String($want)) {
@@ -1308,6 +1329,114 @@ exit $code
             ],
         );
         (agent, dir)
+    }
+
+    /// [`FAKE_AGENT`] answering the requests a run makes one after another
+    /// (`seq`): the i-th gets `answers[i]`. The requests it got are read back
+    /// from the returned dir with [`requests_got`].
+    fn fake_agent_answering(tag: &str, answers: &[Vec<sandbox_vm_protocol::Frame>]) -> (WslAgent, PathBuf) {
+        let dir = test_dir(&format!("fake-agent-{tag}"));
+        for (i, frames) in answers.iter().enumerate() {
+            let bytes: Vec<u8> = frames.iter().flat_map(sandbox_vm_protocol::encode).collect();
+            std::fs::write(dir.join(format!("answer-{i}.bin")), bytes).unwrap();
+        }
+        let args_file = dir.join("args.txt");
+        let mut agent = WslAgent::new(Path::new(r"C:\img\base.sqfs"), Path::new(r"C:\img\layer.sqfs"), &[]).unwrap();
+        agent.wsl = stand_in(
+            &dir,
+            FAKE_AGENT,
+            &[dir.as_os_str(), "none".as_ref(), "none".as_ref(), "0".as_ref(), "seq".as_ref(), args_file.as_os_str()],
+        );
+        (agent, dir)
+    }
+
+    /// The requests a `seq` stand-in got, in order.
+    fn requests_got(dir: &Path) -> Vec<ExecRequest> {
+        (0..)
+            .map_while(|i| std::fs::read(dir.join(format!("got-{i}.bin"))).ok())
+            .map(|bytes| {
+                let mut decoder = sandbox_vm_protocol::Decoder::new();
+                decoder.feed(&bytes);
+                match decoder.next_frame() {
+                    Ok(Some(sandbox_vm_protocol::Frame::Exec(req))) => req,
+                    other => panic!("not one request: {other:?}"),
+                }
+            })
+            .collect()
+    }
+
+    /// A check's answer: what it printed, then its exit status.
+    fn answer(stdout: &[u8], code: i32) -> Vec<sandbox_vm_protocol::Frame> {
+        use sandbox_vm_protocol::{ExitStatus, Frame};
+        vec![Frame::Stdout(stdout.to_vec()), Frame::Exit(ExitStatus { code, timed_out: false }), Frame::ArtifactsDone]
+    }
+
+    /// The layer manifest [`answer`]ed by the plan tests, and its entries.
+    const PLAN_MANIFEST: &[u8] = br#"["/code", "/opt/txr-layer"]"#;
+
+    fn plan_entries() -> Vec<String> {
+        vec!["/code".to_string(), "/opt/txr-layer".to_string()]
+    }
+
+    /// The layer plan, read through the agent in the app's WSL distro, asks
+    /// it about every image path a bind uses (the link probe of the shared
+    /// exchange), with the probe's own argv, right after the manifest and
+    /// before the other checks; an answer naming no link lets the plan go on.
+    #[tokio::test]
+    async fn the_layer_plan_probes_the_bind_sources_in_the_distro() {
+        let (agent, dir) = fake_agent_answering(
+            "plan",
+            &[
+                answer(PLAN_MANIFEST, 0), // the manifest
+                answer(b"", 0),           // the link probe: no link
+                answer(b"", 0),           // the entries' parents: all there
+                answer(b"", 1),           // method.json: none
+                answer(b"run.sh\n", 0),  // the wrapper scripts there
+            ],
+        );
+        let (entries, command) = agent.read_layer_plan().await.expect("images without links pass");
+        assert_eq!(entries, plan_entries());
+        assert_eq!(command, "bash /code/run.sh");
+        let requests = requests_got(&dir);
+        let probe = stack::BindSourceProbe::new(&entries, GUEST_BASE_MOUNT, GUEST_LAYER_MOUNT).unwrap();
+        assert_eq!(requests.len(), 5, "manifest, links, parents, method.json, scripts");
+        assert_eq!(requests[1].bwrap_path, GUEST_BUSYBOX_PATH, "busybox, outside bwrap");
+        assert_eq!(requests[1].argv, probe.argv(), "the probe's own argv, guest paths");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A linked layer entry the probe in the distro names refuses the plan
+    /// with its code, in words that name no guest mount, before any later
+    /// check; a probe that fails is an error that names the distro, never
+    /// read as "no links".
+    #[tokio::test]
+    async fn the_layer_plan_refuses_a_link_the_probe_in_the_distro_finds() {
+        let probe = stack::BindSourceProbe::new(&plan_entries(), GUEST_BASE_MOUNT, GUEST_LAYER_MOUNT).unwrap();
+        // The probe's answer for /opt/txr-layer in the method image: its pair's index.
+        let linked = probe.argv()[4..]
+            .chunks(2)
+            .position(|pair| pair == [GUEST_LAYER_MOUNT, "opt/txr-layer"])
+            .expect("the layer entry is probed");
+        let (agent, dir) =
+            fake_agent_answering("plan-link", &[answer(PLAN_MANIFEST, 0), answer(format!("{linked}\n").as_bytes(), 0)]);
+        let err = agent.read_layer_plan().await.expect_err("a linked layer entry is refused");
+        assert_eq!(err.error_code(), stack::ENV_LAYER_ENTRY_INVALID_CODE, "{err}");
+        let text = err.to_string();
+        assert!(text.contains("The method image is refused: its path /opt/txr-layer is a symbolic link"), "{text}");
+        assert!(!text.contains(GUEST_BASE_MOUNT) && !text.contains(GUEST_LAYER_MOUNT), "{text}");
+        assert_eq!(requests_got(&dir).len(), 2, "refused right after the probe");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let (agent, dir) = fake_agent_answering("plan-probe-fails", &[answer(PLAN_MANIFEST, 0), answer(b"", 1)]);
+        let err = agent.read_layer_plan().await.expect_err("a failed probe fails the plan");
+        assert_eq!(err.error_code(), VM_UNAVAILABLE_CODE);
+        assert_eq!(
+            err.to_string(),
+            "The app's WSL distro could not check the method and base images for symbolic links: the check \
+             failed with exit status 1"
+        );
+        assert_eq!(requests_got(&dir).len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn request() -> ExecRequest {
