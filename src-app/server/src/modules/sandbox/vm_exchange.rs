@@ -1475,6 +1475,39 @@ mod tests {
         assert!(std::fs::symlink_metadata(root.0.join("link.csv")).is_err());
     }
 
+    /// Windows: a junction (`mklink /J`, which needs no privilege) already in
+    /// an output dir is never written through, as a file or as a parent dir.
+    #[cfg(windows)]
+    #[test]
+    fn windows_never_writes_through_a_junction_in_the_output_dir() {
+        let root = TempDir::new();
+        let (out, elsewhere) = (root.0.join("out"), root.0.join("elsewhere"));
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("keep.csv"), b"keep").unwrap();
+        let made = std::process::Command::new("cmd")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(out.join("sub"))
+            .arg(&elsewhere)
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+        assert!(elsewhere.join("keep.csv").exists() && out.join("sub").join("keep.csv").exists());
+        let mut w = WriterState::new(out_dirs(&[&out]));
+        w.apply(WriterMsg::Chunk(0, "sub/x.csv".into(), 0, b"evil".to_vec()));
+        w.apply(WriterMsg::Chunk(0, "sub/keep.csv".into(), 0, b"evil".to_vec()));
+        w.apply(WriterMsg::Chunk(0, "sub".into(), 0, b"evil".to_vec()));
+        w.apply(WriterMsg::Dir(0, "sub/d".into()));
+        w.current = None;
+        assert_eq!(w.errors.len(), 4, "{:?}", w.errors);
+        assert!(!elsewhere.join("x.csv").exists());
+        assert!(!elsewhere.join("d").exists());
+        assert_eq!(std::fs::read(elsewhere.join("keep.csv")).unwrap(), b"keep");
+        // The junction itself is removed with the temp dir, not what it points to.
+        std::fs::remove_dir(out.join("sub")).unwrap();
+        assert!(elsewhere.join("keep.csv").exists());
+    }
+
     #[test]
     fn progress_bytes_route_milestones_and_progress() {
         let rec = Rec(Mutex::new(Vec::new()));
