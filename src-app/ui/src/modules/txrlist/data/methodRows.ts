@@ -102,6 +102,8 @@ function reasonFixOf(code: string | null, missingMarkers: ReadonlyArray<{ displa
     }
     case 'DETECTION_CALL_MISSING':
       return 'Add a detection-call column (present or absent)'
+    case 'MARKER_COUNT_UNMET':
+      return 'Use a file with just the markers this method takes.'
     case 'MARKER_GROUP_MISSING':
     case 'UNIT_MISMATCH':
       return 'Add a column with the marker the method needs.'

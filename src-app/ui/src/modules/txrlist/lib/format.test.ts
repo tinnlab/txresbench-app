@@ -165,6 +165,9 @@ describe('formatReasonLine', () => {
     expect(formatReasonLine('cannot', SOME('SURVIVAL_OUTCOME_MISSING'), COVERAGE(38, 38), minDraws, [])).toBe(
       'needs survival times in your file',
     )
+    expect(formatReasonLine('cannot', SOME('MARKER_COUNT_UNMET'), COVERAGE(38, 38), minDraws, [])).toBe(
+      'takes a set number of markers; your file has a different number',
+    )
     expect(formatReasonLine('cannot', SOME('MODEL_REQUIREMENTS_UNRECORDED'), COVERAGE(38, 38), minDraws, [])).toBe(
       'its requirements weren\'t recorded',
     )
@@ -257,6 +260,7 @@ describe('formatReasonLine', () => {
       'TASK_INCOMPATIBLE',
       'RESPONSE_LABEL_MISSING',
       'SURVIVAL_OUTCOME_MISSING',
+      'MARKER_COUNT_UNMET',
       'MODEL_REQUIREMENTS_UNRECORDED',
       'ASSET_NOT_AVAILABLE',
     ]

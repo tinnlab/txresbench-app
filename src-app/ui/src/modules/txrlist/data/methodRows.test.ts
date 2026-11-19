@@ -154,6 +154,27 @@ describe('buildMethodCards — the screen-E catalogue × eligibility join', () =
     expect(cards[0].run.reasonFix).toBe('Add a column named LDH')
   })
 
+  it('a method the file gives the wrong number of markers is a cannot card with its own line and fix (FOLLOW-UP 1)', () => {
+    const m = summary({ id: 'kelim', year: 2021, language: 'R' })
+    const cards = buildMethodCards(
+      [m],
+      eligibility([
+        verdict('kelim', {
+          status: 'cannot_run',
+          estimated_seconds: 3,
+          reasons: [{ code: 'MARKER_COUNT_UNMET', params: { expected: 1, found: 3, markers: ['M1', 'M2', 'M3'] } }],
+          coverage: { eligible: 151, total: 151, fraction: 1 },
+        }),
+      ]),
+    )
+    expect(cards[0].run.status).toBe('cannot')
+    expect(cards[0].run.disabled).toBe(true)
+    expect(cards[0].estimate).toBeNull()
+    expect(cards[0].run.reasonCode).toBe('MARKER_COUNT_UNMET')
+    expect(cards[0].run.reasonLine).toBe('takes a set number of markers; your file has a different number')
+    expect(cards[0].run.reasonFix).toBe('Use a file with just the markers this method takes.')
+  })
+
   it('an unrunnable row carries the DATA reason beside the environment reason (qa-fixes4 ITEM-3, methods-r3 R2-6)', () => {
     // The runtime-env stage pushes ENV_IMAGE_MISSING FIRST; the file's
     // reasons follow — the row must show both, never the env line alone.

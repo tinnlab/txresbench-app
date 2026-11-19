@@ -37,7 +37,7 @@ import type { TxrMethodNeeds, TxrMethodRank, TxrRunStatus } from '../types'
 /**
  * The reason-code vocabulary the formatter renders.
  *
- * The provider's own 13 codes (PROV-MC-5, `ReasonCode` from the generated
+ * The provider's own 14 codes (PROV-MC-5, `ReasonCode` from the generated
  * api-client — the closed set `method-catalogue` may emit) plus the two
  * model-list codes the grown branches render (PROV-MS-9
  * `MODEL_REQUIREMENTS_UNRECORDED`, PROV-PC-8 `ASSET_NOT_AVAILABLE` — the
@@ -157,6 +157,9 @@ export function formatMissingItem(missing: ReadonlyArray<{ display_name?: string
  * - `TASK_INCOMPATIBLE` → "needs an outcome column your file lacks";
  * - `RESPONSE_LABEL_MISSING` → "needs a response label in your file";
  * - `SURVIVAL_OUTCOME_MISSING` → "needs survival times in your file";
+ * - `MARKER_COUNT_UNMET` → "takes a set number of markers; your file has a
+ *   different number" (the run engine's marker-count rule; a constant line,
+ *   since the templates never read `params`);
  * - `MODEL_REQUIREMENTS_UNRECORDED` → "its requirements weren't
  *   recorded";
  * - `ASSET_NOT_AVAILABLE` → "the model file isn't available";
@@ -220,6 +223,8 @@ export function formatReasonLine(
       return 'needs a response label in your file'
     case 'SURVIVAL_OUTCOME_MISSING':
       return 'needs survival times in your file'
+    case 'MARKER_COUNT_UNMET':
+      return 'takes a set number of markers; your file has a different number'
     case 'MODEL_REQUIREMENTS_UNRECORDED':
       return "its requirements weren't recorded"
     case 'ASSET_NOT_AVAILABLE':

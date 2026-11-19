@@ -210,6 +210,14 @@ describe('reasonGroups (the per-reason partition of the cannot cards)', () => {
     expect(groups.reduce((sum, g) => sum + g.count, 0)).toBe(cannot.length)
   })
 
+  it('a method that takes a set number of markers gets its own group, not the catch-all', () => {
+    const count = card({ id: 'k', run: { status: 'cannot', coverageLine: '', reasonCode: 'MARKER_COUNT_UNMET', reasonLine: 'takes a set number of markers; your file has a different number', reasonLines: ['takes a set number of markers; your file has a different number'], reasonFix: '', disabled: true } })
+    const groups = reasonGroups([...RUNNABLE, count])
+    expect(groups.map(g => g.key)).toEqual(['marker-count'])
+    expect(groups[0].label).toBe('Takes a set number of markers')
+    expect(groups[0].fix).toBe('Use a file with just the markers this method takes.')
+  })
+
   it('an unknown reason code lands in the catch-all group (never dropped)', () => {
     const foreign = card({ id: 'z', run: { status: 'cannot', coverageLine: '', reasonCode: 'FOREIGN_CODE', reasonLine: 'cannot run with this file', reasonLines: ['cannot run with this file'], reasonFix: '', disabled: true } })
     const groups = reasonGroups([foreign])
@@ -217,10 +225,11 @@ describe('reasonGroups (the per-reason partition of the cannot cards)', () => {
     expect(groups[0].cards[0].id).toBe('z')
   })
 
-  it('the reason-group vocabulary is the plan\'s five named reasons plus one catch-all', () => {
+  it('the reason-group vocabulary is the plan\'s five named reasons, the marker-count rule and one catch-all', () => {
     expect(TXRMETHOD_REASON_GROUPS.map(g => g.key)).toEqual([
       'environment',
       'marker',
+      'marker-count',
       'outcome',
       'draws',
       'covariates',
