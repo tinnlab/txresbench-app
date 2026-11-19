@@ -820,7 +820,7 @@ mod tests {
 
     #[test]
     fn a_failed_exchange_names_the_agents_reason() {
-        let base = wsl_error("read from the method VM: broken pipe");
+        let base = wsl_error("read from the app's WSL distro: broken pipe");
         let e = agent_failure(base, Some(AGENT_EXIT_SETUP), b"info: start\nerror: mount /sandbox-rootfs: squashfs not supported\n");
         assert_eq!(e.error_code(), WSL_UNAVAILABLE_CODE);
         assert!(e.to_string().contains("could not be mounted in WSL"), "{e}");
@@ -937,6 +937,7 @@ mod tests {
         let text = err.to_string();
         assert!(text.contains("could not be mounted in WSL"), "{text}");
         assert!(text.contains("squashfs not supported"), "{text}");
+        assert!(!text.contains("VM"), "no macOS wording on Windows: {text}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

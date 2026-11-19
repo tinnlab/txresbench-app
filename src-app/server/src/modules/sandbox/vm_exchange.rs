@@ -85,6 +85,30 @@ pub const VM_UNAVAILABLE_CODE: &str = "SANDBOX_VM_UNAVAILABLE";
 /// VM; the run is refused rather than kept with partial outputs.
 pub const VM_OUTPUTS_INCOMPLETE_CODE: &str = "SANDBOX_VM_OUTPUTS_INCOMPLETE";
 
+/// Where the guest agent runs, as messages name it: the macOS method VM, or
+/// the Windows app's WSL distro. Only the words differ by platform: every
+/// error CODE is the same on both (the UI maps the codes).
+#[cfg(target_os = "macos")]
+const GUEST: &str = "the method VM";
+#[cfg(windows)]
+const GUEST: &str = "the app's WSL distro";
+
+/// What stopped when an exchange ended early: the whole VM on macOS, the
+/// request's own agent process on Windows.
+#[cfg(target_os = "macos")]
+const GUEST_AGENT: &str = "the method VM";
+#[cfg(windows)]
+const GUEST_AGENT: &str = "the agent in the app's WSL distro";
+
+/// Why the agent can have stopped without an exit status, and where to look.
+/// On Windows the runner adds what WSL reported itself.
+#[cfg(target_os = "macos")]
+const GUEST_STOPPED_WHY: &str = "the VM crashed or ran out of memory, or its guest agent is a \
+                                 different protocol version than this app; see the VM log";
+#[cfg(windows)]
+const GUEST_STOPPED_WHY: &str = "WSL stopped it or ran out of memory, or the agent is a different \
+                                 protocol version than this app";
+
 pub(crate) fn vm_error(message: impl Into<String>) -> AppError {
     AppError::new(StatusCode::SERVICE_UNAVAILABLE, VM_UNAVAILABLE_CODE, message.into())
 }
@@ -176,7 +200,7 @@ where
     stream
         .write_all(&encode(&Frame::Exec(req)))
         .await
-        .map_err(|e| vm_error(format!("send the command to the method VM: {e}")))?;
+        .map_err(|e| vm_error(format!("send the command to {GUEST}: {e}")))?;
 
     let sink_ref = sink.map(|s| s.as_ref());
     let mut decoder = Decoder::new();
@@ -221,7 +245,7 @@ where
                 break;
             }
             Ok(Err(e)) => {
-                return Err(vm_error(format!("read from the method VM: {e}")));
+                return Err(vm_error(format!("read from {GUEST}: {e}")));
             }
             Err(_) if exit.is_some() => {
                 let over = copy_back_until.is_some_and(|until| Instant::now() >= until);
@@ -274,7 +298,7 @@ where
                     break 'read;
                 }
                 Err(e) => {
-                    return Err(vm_error(format!("method VM protocol error: {e}")));
+                    return Err(vm_error(format!("protocol error in the exchange with {GUEST}: {e}")));
                 }
             }
         }
@@ -284,7 +308,7 @@ where
     let report = writer.finish().await;
     incomplete.extend(report.errors);
     if exit.is_some() && !outputs_done && incomplete.is_empty() {
-        incomplete.push("the VM stopped before the output copy-back finished".into());
+        incomplete.push(format!("{GUEST_AGENT} stopped before the output copy-back finished"));
     }
     finish_listed(&mut incomplete);
     let (exit_code, timed_out) = match exit {
@@ -294,11 +318,10 @@ where
         // stopped (crash, guest out of memory, launcher killed). That is
         // a VM failure, not a timeout and not the workload's own result.
         None => {
-            return Err(vm_error(
-                "the method VM stopped before the command finished: no exit status came \
-                 back (the VM crashed or ran out of memory, or its guest agent is a \
-                 different protocol version than this app; see the VM log)",
-            ));
+            return Err(vm_error(format!(
+                "{GUEST_AGENT} stopped before the command finished: no exit status came back \
+                 ({GUEST_STOPPED_WHY})"
+            )));
         }
     };
     Ok(VmExecOutcome {
@@ -340,7 +363,7 @@ pub async fn read_layer_plan<A: AgentExec>(agent: &A) -> Result<(Vec<String>, St
     let manifest = format!("{GUEST_LAYER_MOUNT}/{}", stack::LAYER_MANIFEST_FILE);
     let read = check(agent, &["cat", &manifest]).await?;
     if read.timed_out {
-        return Err(vm_error(format!("reading {manifest} in the method VM timed out")));
+        return Err(vm_error(format!("reading {manifest} in {GUEST} timed out")));
     }
     if read.exit_code != 0 || read.stdout_truncated {
         let why = if read.stdout_truncated {
@@ -351,10 +374,10 @@ pub async fn read_layer_plan<A: AgentExec>(agent: &A) -> Result<(Vec<String>, St
         return Err(AppError::new(
             StatusCode::BAD_REQUEST,
             stack::ENV_LAYER_MANIFEST_INVALID_CODE,
-            format!("read {manifest} in the method VM: {why}"),
+            format!("read {manifest} in {GUEST}: {why}"),
         ));
     }
-    let entries = stack::parse_layer_manifest(&read.stdout, &format!("{manifest} (in the method VM)"))?;
+    let entries = stack::parse_layer_manifest(&read.stdout, &format!("{manifest} (in {GUEST})"))?;
 
     // No path bwrap binds out of the base or the layer, nor the base where
     // a layer entry's bind lands, may have a symbolic link in it: bwrap
@@ -396,7 +419,7 @@ pub async fn read_layer_plan<A: AgentExec>(agent: &A) -> Result<(Vec<String>, St
         let probe = check(agent, &argv).await?;
         if probe.exit_code != 0 || probe.timed_out {
             return Err(vm_error(format!(
-                "check the layer's parent dirs in the method VM: {}",
+                "check the layer's parent dirs in {GUEST}: {}",
                 String::from_utf8_lossy(&probe.stderr).trim()
             )));
         }
@@ -409,7 +432,7 @@ pub async fn read_layer_plan<A: AgentExec>(agent: &A) -> Result<(Vec<String>, St
     }
     stack::assert_entry_parents_with(
         &entries,
-        &format!("{GUEST_BASE_MOUNT} (in the method VM)"),
+        &format!("{GUEST_BASE_MOUNT} (in {GUEST})"),
         |rel| !missing.contains(rel),
     )?;
 
@@ -417,13 +440,13 @@ pub async fn read_layer_plan<A: AgentExec>(agent: &A) -> Result<(Vec<String>, St
     let method_json_path = format!("{GUEST_LAYER_MOUNT}/code/method.json");
     let method_json = check(agent, &["cat", &method_json_path]).await?;
     if method_json.timed_out {
-        return Err(vm_error("reading the layer's method.json in the method VM timed out"));
+        return Err(vm_error(format!("reading the layer's method.json in {GUEST} timed out")));
     }
     if method_json.stdout_truncated {
         return Err(AppError::new(
             StatusCode::BAD_REQUEST,
             stack::METHOD_ENTRYPOINT_MISSING_CODE,
-            "the layer's /code/method.json is larger than the 1 MiB the VM check reads",
+            format!("the layer's /code/method.json is larger than the 1 MiB a check in {GUEST} reads"),
         ));
     }
     // A non-zero exit is a missing method.json (allowed: presence order).
@@ -436,7 +459,7 @@ pub async fn read_layer_plan<A: AgentExec>(agent: &A) -> Result<(Vec<String>, St
     let present_out = check(agent, &argv).await?;
     if present_out.exit_code != 0 || present_out.timed_out {
         return Err(vm_error(format!(
-            "list the layer's wrapper scripts in the method VM: {}",
+            "list the layer's wrapper scripts in {GUEST}: {}",
             String::from_utf8_lossy(&present_out.stderr).trim()
         )));
     }
@@ -447,7 +470,7 @@ pub async fn read_layer_plan<A: AgentExec>(agent: &A) -> Result<(Vec<String>, St
     let command = stack::method_entry_command_with(
         method_json.as_deref(),
         |s| present.contains(s),
-        &format!("{GUEST_LAYER_MOUNT} (in the method VM)"),
+        &format!("{GUEST_LAYER_MOUNT} (in {GUEST})"),
     )?;
     Ok((entries, command))
 }
@@ -500,7 +523,7 @@ fn push_listed(list: &mut Vec<String>, entry: String) {
 pub fn outputs_incomplete(incomplete: &[String], stderr_tail: &[u8]) -> AppError {
     let tail = String::from_utf8_lossy(stderr_tail);
     let mut message = format!(
-        "the method's outputs could not all be copied back from the method VM: {}",
+        "the method's outputs could not all be copied back from {GUEST}: {}",
         incomplete.join("; ")
     );
     if !tail.trim().is_empty() {
@@ -1206,6 +1229,39 @@ mod tests {
         assert!(w.errors.is_empty(), "{:?}", w.errors);
         assert_eq!(std::fs::read(root.0.join("sub").join("old.csv")).unwrap(), b"new");
         assert_eq!(std::fs::read(root.0.join("sub").join("deeper").join("old.csv")).unwrap(), b"newer");
+    }
+
+    /// The messages name where the agent runs on this platform (the macOS
+    /// method VM, the Windows app's WSL distro); the error codes are the same.
+    #[tokio::test]
+    async fn messages_name_this_platforms_guest_with_the_same_codes() {
+        let (host, agent_end) = tokio::io::duplex(64 * 1024);
+        drop(agent_end); // the agent stops before any exit status
+        let req = ExecRequest {
+            protocol_version: sandbox_vm_protocol::PROTOCOL_VERSION,
+            request_id: 1,
+            bwrap_path: GUEST_BWRAP_PATH.into(),
+            argv: vec!["true".into()],
+            timeout_ms: 1_000,
+            seccomp_fd: None,
+            cgroup: None,
+            progress: false,
+            collect_artifacts: Vec::new(),
+            artifacts: Default::default(),
+        };
+        let stopped = exec_over(host, req, Duration::from_secs(5), None, &[]).await.err().expect("no exit status");
+        let incomplete = outputs_incomplete(&["pred.csv: write failed".into()], b"");
+        assert_eq!(stopped.error_code(), VM_UNAVAILABLE_CODE);
+        assert_eq!(incomplete.error_code(), VM_OUTPUTS_INCOMPLETE_CODE);
+        for text in [stopped.to_string(), incomplete.to_string()] {
+            if cfg!(target_os = "macos") {
+                assert!(text.contains("the method VM"), "{text}");
+                assert!(!text.contains("WSL"), "{text}");
+            } else {
+                assert!(text.contains("the app's WSL distro"), "{text}");
+                assert!(!text.contains("VM"), "no macOS wording on Windows: {text}");
+            }
+        }
     }
 
     #[cfg(unix)]
