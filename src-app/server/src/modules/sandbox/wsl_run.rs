@@ -615,16 +615,18 @@ fn ensure_distro_blocking(
     replace_other_build: bool,
 ) -> Result<(), AppError> {
     let location = distro_location(data_root);
+    // What to remove before the import (as an error names it).
+    let mut remove = None;
     if apps_distro_listed(wsl)? {
         match distro_state(wsl, &location)? {
             Distro::Build(b) if b == runtime.version => return Ok(()),
             Distro::Build(b) if !replace_other_build => return Err(replaced_by_another_version(&b, runtime)),
             // An older build of the app's own distro (it holds nothing but
             // the guest root; runs keep no state in it): replaced.
-            Distro::Build(_) => unregister(wsl, "the app's outdated distro")?,
+            Distro::Build(_) => remove = Some("the app's outdated distro"),
             // The app's distro, registered in the app's dir, without its
             // disk: it cannot start again, so it is set up anew.
-            Distro::DiskLost => unregister(wsl, "the app's distro whose disk was deleted")?,
+            Distro::DiskLost => remove = Some("the app's distro whose disk was deleted"),
             // Listed, but WSL found no distro of that name to start: either
             // it was removed since it was listed, or WSL is still importing
             // or removing it (`--all` lists a distro in those states, but
@@ -652,6 +654,13 @@ fn ensure_distro_blocking(
             }
         }
     }
+    // The guest root is checked before anything is removed: one that does
+    // not match its checksum (a broken development build, say) never costs
+    // the distro there, nor stops the method another version runs in it.
+    let tar = checked_guest_root(runtime)?;
+    if let Some(which) = remove {
+        unregister(wsl, which)?;
+    }
     // Only here is the distro known not to be registered (not listed by a
     // list that succeeded, just removed, or no longer listed by the second
     // list): nothing uses its dir now, so whatever an earlier distro left
@@ -667,7 +676,7 @@ fn ensure_distro_blocking(
         }
     }
     std::fs::create_dir_all(&location).map_err(|e| wsl_error(format!("create {}: {e}", location.display())))?;
-    import(wsl, runtime, &location)?;
+    import(wsl, runtime, &location, tar)?;
     let found = match distro_state(wsl, &location)? {
         Distro::Build(b) if b == runtime.version => return Ok(()),
         Distro::Build(b) => format!("reports build {b}"),
@@ -678,10 +687,11 @@ fn ensure_distro_blocking(
     Err(wsl_error(format!("the imported WSL distro {found}, expected build {}", runtime.version)))
 }
 
-/// Import the shipped guest root as the app's distro. The tarball is held
-/// open from its checksum to the end of the import: nothing can change or
-/// replace it in between (WSL opens it to read, which the hold allows).
-fn import(wsl: &Wsl, runtime: &Runtime, location: &Path) -> Result<(), AppError> {
+/// The shipped guest root, opened held and checked against its checksum. It
+/// is held from its checksum to the end of the import ([`import`] takes it):
+/// nothing can change or replace it in between (WSL opens it to read, which
+/// the hold allows).
+fn checked_guest_root(runtime: &Runtime) -> Result<std::fs::File, AppError> {
     let tar = open_held(&runtime.rootfs)
         .map_err(|e| wsl_error(format!("open the WSL guest root {}: {e}", runtime.rootfs.display())))?;
     let actual = sha256_of(&tar).map_err(|e| wsl_error(format!("read the WSL guest root: {e}")))?;
@@ -692,6 +702,13 @@ fn import(wsl: &Wsl, runtime: &Runtime, location: &Path) -> Result<(), AppError>
             runtime.sha256
         )));
     }
+    Ok(tar)
+}
+
+/// Import the shipped guest root as the app's distro; `tar` is the guest root
+/// held since its checksum ([`checked_guest_root`]), released once WSL is
+/// done with it.
+fn import(wsl: &Wsl, runtime: &Runtime, location: &Path, tar: std::fs::File) -> Result<(), AppError> {
     let args: [&OsStr; 6] = [
         "--import".as_ref(),
         WSL_DISTRO.as_ref(),
@@ -1933,6 +1950,28 @@ Fail ("unexpected call: " + ($a -join ' '))
         w.run(&set_up, &w.runtime).await.expect("the older build is replaced");
         assert_eq!(w.calls(), ["--list", "-d", "--list", "--list", "-d", "--unregister", "--import", "-d"]);
         assert_eq!(w.registered_build().as_deref(), Some("wsl-8"));
+        w.remove();
+    }
+
+    /// A guest root that does not match its checksum (a broken development
+    /// build) is refused before anything is removed: another version's build
+    /// stays there, on this run and on the next (a first setup again, since
+    /// nothing was removed).
+    #[tokio::test]
+    async fn a_guest_root_that_does_not_match_its_checksum_removes_nothing() {
+        let mut w = FakeWsl::new("bad-sum-other", "wsl-8");
+        w.runtime.sha256 = "0".repeat(64);
+        let theirs = w.data_root.with_file_name("other-data").join("wsl").join("distro");
+        w.register(&theirs, "wsl-7");
+        let set_up = SetUpBuild::default();
+        for _ in 0..2 {
+            let err = w.run(&set_up, &w.runtime).await.expect_err("refused");
+            assert!(err.to_string().contains("does not match its checksum"), "{err}");
+        }
+        assert_eq!(w.calls(), ["--list", "-d", "--list", "-d"], "nothing removed, nothing imported");
+        assert_eq!(*set_up.lock().await, None);
+        assert_eq!(w.registered_build().as_deref(), Some("wsl-7"));
+        assert!(!w.location().exists(), "the app's distro dir is not touched either");
         w.remove();
     }
 
