@@ -30,11 +30,15 @@ const api = vi.hoisted(() => ({
   list: vi.fn(),
   example: vi.fn(),
   exampleSet: vi.fn(),
+  pretrained: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
     MethodCatalogue: {
       list: api.list,
+    },
+    Pretrained: {
+      listModels: api.pretrained,
     },
     FileValidation: {
       example: api.example,
@@ -91,7 +95,10 @@ beforeEach(() => {
   api.list.mockReset()
   api.example.mockReset()
   api.exampleSet.mockReset()
+  api.pretrained.mockReset()
   api.list.mockResolvedValue({ methods: [], total: RUNNABLE_COUNT })
+  // One released ready-made model: card 1 is the recommended way in.
+  api.pretrained.mockResolvedValue({ models: [{ id: 'relchange-threshold' }], origin: 'embedded' })
   api.example.mockImplementation(({ kind }: { kind: 'patients' | 'measurements' | 'predict-measurements' }) =>
     Promise.resolve(
       kind === 'patients' ? PATIENTS_CSV : kind === 'measurements' ? MEASUREMENTS_CSV : PREDICT_CSV,
@@ -118,12 +125,13 @@ afterEach(() => {
 })
 
 describe('StartPage (TEST-INT-11, ITEM-4)', () => {
-  it('renders the three path cards with the board copy', () => {
+  it('renders the three path cards with the board copy', async () => {
     renderStart()
     const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
     expect(within(pretrained).getByText('Quickest')).toBeTruthy()
-    expect(within(pretrained).getByText(/Predict with a pretrained model/)).toBeTruthy()
-    expect(within(pretrained).getByText('Recommended to start')).toBeTruthy()
+    expect(within(pretrained).getByText(/Predict with a ready-made model/)).toBeTruthy()
+    expect(await within(pretrained).findByText('Recommended to start')).toBeTruthy()
+    expect(within(pretrained).queryByTestId('txr-intake-start-card-pretrained-none')).toBeNull()
     expect(screen.getByText('Most flexible')).toBeTruthy()
     expect(screen.getByText('Learn from my data')).toBeTruthy()
     expect(screen.getByText('Repeat a past analysis')).toBeTruthy()
@@ -303,7 +311,7 @@ describe('ITEM-6 L1/L2/L3 — the banner link, the board dots, the distinct save
     expect(screen.getByTestId('txr-use-example-pretrained')).toBeTruthy()
     expect(screen.getByTestId('txr-use-example-reuse')).toBeTruthy()
     expect(
-      screen.getByRole('button', { name: 'Use example data: predict with a pretrained model' }),
+      screen.getByRole('button', { name: 'Use example data: predict with a ready-made model' }),
     ).toBeTruthy()
     expect(
       screen.getByRole('button', { name: 'Use example data: learn from my data' }),
@@ -479,5 +487,52 @@ describe('demo mode (ITEM-6) — the card example actions are the primary', () =
     expect(screen.getByTestId('txr-intake-start-card-pretrained-cta').textContent).toBe('Add the patients to predict')
     expect(screen.getByTestId('txr-intake-start-card-reuse-cta').textContent).toBe('Predict with a model I saved')
     expect(screen.getByText(/Prefer to try it first/)).toBeTruthy()
+  })
+})
+
+describe('card 1 while no ready-made model is released (the badge follows the catalogue)', () => {
+  it('an empty catalogue: no "Recommended to start" badge, and the card says none are released yet', async () => {
+    api.pretrained.mockResolvedValue({ models: [], origin: 'embedded' })
+    renderStart()
+    const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
+    const note = await within(pretrained).findByTestId('txr-intake-start-card-pretrained-none')
+    expect(note.textContent).toBe(
+      'No ready-made models have been released yet. You can still use your saved models.',
+    )
+    expect(within(pretrained).queryByText('Recommended to start')).toBeNull()
+    // The card still works: its button starts the predict path.
+    expect(screen.getByTestId('txr-intake-start-card-pretrained-cta')).toBeTruthy()
+  })
+
+  it('while the catalogue loads: neither the badge nor the note', () => {
+    api.pretrained.mockReturnValue(new Promise(() => {}))
+    renderStart()
+    const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
+    expect(within(pretrained).queryByText('Recommended to start')).toBeNull()
+    expect(within(pretrained).queryByTestId('txr-intake-start-card-pretrained-none')).toBeNull()
+  })
+
+  it('a failed catalogue read: neither the badge nor the note (never a false "none released")', async () => {
+    api.pretrained.mockRejectedValue(new Error('catalogue down'))
+    renderStart()
+    await waitFor(() => expect(api.pretrained).toHaveBeenCalled())
+    // Let the rejection settle.
+    await Promise.resolve()
+    const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
+    expect(within(pretrained).queryByText('Recommended to start')).toBeNull()
+    expect(within(pretrained).queryByTestId('txr-intake-start-card-pretrained-none')).toBeNull()
+  })
+
+  it('a released model brings the badge back on the next visit (the catalogue is asked on every mount)', async () => {
+    api.pretrained.mockResolvedValueOnce({ models: [], origin: 'embedded' })
+    const first = renderStart()
+    expect(await screen.findByTestId('txr-intake-start-card-pretrained-none')).toBeTruthy()
+    first.unmount()
+    api.pretrained.mockResolvedValueOnce({ models: [{ id: 'relchange-threshold' }], origin: 'live' })
+    renderStart()
+    const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
+    expect(await within(pretrained).findByText('Recommended to start')).toBeTruthy()
+    expect(within(pretrained).queryByTestId('txr-intake-start-card-pretrained-none')).toBeNull()
+    expect(api.pretrained).toHaveBeenCalledTimes(2)
   })
 })

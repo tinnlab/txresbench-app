@@ -6,6 +6,7 @@ import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { useRunnableMethodCount } from '../data/useRunnableMethodCount'
+import { useReadyMadeModelCount } from '../data/useReadyMadeModelCount'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
 import { beginPath } from '../lib/stepTrail'
 import { runAction } from '@/core/actions/defineAction'
@@ -25,6 +26,9 @@ import type { IntakeIntent } from '../types'
  * via `useRunnableMethodCount`); the pretrained + saved cards carry no count
  * clauses until their nodes exist (pretrained-catalogue wave 4, model-store
  * wave 3 — no edge; OWNER-7, DEC-6).
+ * The first card (ready-made models, the pretrained catalogue) shows the
+ * "Recommended to start" badge only when the catalogue has a model; while it
+ * is empty the card says none are released yet (`useReadyMadeModelCount`).
  *
  * Intent navigation (PROV-UI-INTAKE-1 + DEC-20): each card's button sets the
  * intent FIRST (the store's `setIntent` maps it to the flow's mode) and then
@@ -149,7 +153,15 @@ const CARD_BULLETS: CSSProperties = {
 
 const CARD_BULLET: CSSProperties = { margin: '3px 0' }
 
-/** The "Recommended to start" pill (board inline span; var(--txr-success-soft)/var(--txr-success-ink)). */
+/** The card-1 note while no ready-made model is released (in place of the badge). */
+const CARD_NOTE: CSSProperties = { margin: 0, fontSize: 13.5, color: 'var(--txr-muted)' }
+
+/** The card-1 note's text while the ready-made catalogue is empty. */
+export const NO_READY_MADE_NOTE =
+  'No ready-made models have been released yet. You can still use your saved models.'
+
+/** The "Recommended to start" pill (board inline span; var(--txr-success-soft)/var(--txr-success-ink)).
+ *  Shown only when the ready-made catalogue has at least one model. */
 const RECOMMENDED_BADGE: CSSProperties = {
   fontSize: 12.5,
   padding: '2px 10px',
@@ -267,6 +279,9 @@ function CardActions({
 
 export function StartPage() {
   const { count } = useRunnableMethodCount()
+  // Card 1 is the recommended way in only when a ready-made model exists;
+  // null (loading or failed) shows neither the badge nor the note.
+  const { count: readyMadeCount } = useReadyMadeModelCount()
   const { isDemo } = useAppMode()
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('What do you want to do?')
@@ -311,13 +326,22 @@ export function StartPage() {
                 <section style={CARD_ACCENT} data-testid="txr-intake-start-card-pretrained">
                   <div style={CARD_EYEBROW}>Quickest</div>
                   <h2 style={CARD_TITLE}>
-                    Predict with a pretrained model
-                    <span style={RECOMMENDED_BADGE}>Recommended to start</span>
+                    Predict with a ready-made model
+                    {readyMadeCount !== null && readyMadeCount > 0 ? (
+                      <span data-testid="txr-intake-start-card-pretrained-badge" style={RECOMMENDED_BADGE}>
+                        Recommended to start
+                      </span>
+                    ) : null}
                   </h2>
                   <p style={CARD_BODY}>
                     Add the blood measurements of the patients you want predictions for. The app shows
-                    which pretrained models can run on them, and you pick as many as you like.
+                    which ready-made models can run on them, and you pick as many as you like.
                   </p>
+                  {readyMadeCount === 0 ? (
+                    <p data-testid="txr-intake-start-card-pretrained-none" style={CARD_NOTE}>
+                      {NO_READY_MADE_NOTE}
+                    </p>
+                  ) : null}
                   <ul style={CARD_BULLETS}>
                     <li style={CARD_BULLET}>Works with a small cohort, and with no outcomes</li>
                     <li style={CARD_BULLET}>
