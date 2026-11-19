@@ -48,6 +48,8 @@ use super::vm_exchange::{
     app_needs_version, exec_over, marker_serves, AgentExec, OutputDir, VmExecOutcome, GUEST_AGENT_PATH,
     GUEST_BUSYBOX_PATH, GUEST_BWRAP_PATH,
 };
+use super::win_registry::{hklm_dword, hklm_key_exists, service_exists, windows_build};
+use super::wsl_status::{classify, parse_wsl_version, wsl_version_ok, VersionRun, WslFacts, WslStatus};
 
 /// The app's own WSL distro.
 pub const WSL_DISTRO: &str = "TxResBench";
@@ -243,24 +245,6 @@ fn wsl_not_installed(text: &str) -> bool {
     wsl_error_name(text).is_none() && text.contains("aka.ms/wslinstall")
 }
 
-/// The WSL version from `wsl --version`: the first `a.b.c[.d]` number on the
-/// first line (`WSL version: 2.6.1.0`; the label is translated on other
-/// Windows languages, the number is not).
-pub(crate) fn parse_wsl_version(text: &str) -> Option<(u32, u32, u32)> {
-    let first = text.replace('\0', "");
-    let first = first.lines().find(|l| !l.trim().is_empty())?;
-    first.split(|c: char| !(c.is_ascii_digit() || c == '.')).find_map(|word| {
-        let nums: Vec<u32> = word.split('.').map(|n| n.parse().ok()).collect::<Option<_>>()?;
-        (nums.len() >= 3).then(|| (nums[0], nums[1], nums[2]))
-    })
-}
-
-/// Whether this WSL is new enough: free of CVE-2025-53788 (a local privilege
-/// escalation in WSL fixed in 2.5.10 and 2.6.1).
-pub(crate) fn wsl_version_ok(v: (u32, u32, u32)) -> bool {
-    v >= (2, 6, 1) || ((2, 5, 10) <= v && v < (2, 6, 0))
-}
-
 /// The CPU this Windows really runs on, if it differs from this app's build:
 /// an x64 app emulated on ARM64 Windows would ship an x64 guest root that the
 /// ARM64 WSL kernel cannot run.
@@ -408,6 +392,75 @@ fn probe() -> Result<HostCapabilities, String> {
 fn one_line(text: &str) -> String {
     let t: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     t.chars().take(300).collect()
+}
+
+/// The WSL step of the Windows installer (`txresbench-desktop.exe
+/// --wsl-status`; `src-app/desktop/tauri/windows/installer-hooks.nsh` acts on
+/// the exit code): the probe's checks in the probe's order, plus what the
+/// installer needs to choose between installing and updating WSL and to offer
+/// a restart. The decision is [`classify`]'s. Never starts WSL's VM. Gives the
+/// status and one line saying what was found.
+pub fn installer_status() -> (WslStatus, String) {
+    let facts = installer_facts();
+    (classify(&facts), describe_facts(&facts))
+}
+
+fn installer_facts() -> WslFacts {
+    let mut facts = WslFacts {
+        emulated: emulated_on().is_some(),
+        turned_off_by_policy: hklm_dword(r"SOFTWARE\Policies\WSL", "AllowWSL") == Some(0),
+        wsl_exe_present: wsl_exe().is_file(),
+        ..WslFacts::default()
+    };
+    if facts.emulated || facts.turned_off_by_policy || !facts.wsl_exe_present {
+        return facts;
+    }
+    facts.version_run = version_run(&Wsl::system());
+    facts.inbox_wsl_on = service_exists("LxssManager");
+    facts.package_registered = hklm_key_exists(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Lxss\MSI");
+    // WSL's own test before it turns the Virtual Machine Platform on; an
+    // unknown build counts as a new one (a restart offered for nothing at worst).
+    facts.vm_platform_running = service_exists("HNS")
+        && service_exists("vmcompute")
+        && (windows_build().is_some_and(|b| b < 22621) || service_exists("vfpext"));
+    facts
+}
+
+/// `wsl --version`, started and read as the probe does: the same wsl.exe
+/// command line ([`Wsl::run`]), the version from the standard output of a
+/// successful run, and what wsl.exe said on both streams ([`WslOutput::text`]).
+/// `None` when it could not start or did not finish in time.
+fn version_run(wsl: &Wsl) -> Option<VersionRun> {
+    let out = wsl.run(&["--version"], WSL_QUERY_TIMEOUT).ok()?;
+    Some(VersionRun { exit_ok: out.ok(), text: out.text(), stdout: out.stdout })
+}
+
+fn describe_facts(f: &WslFacts) -> String {
+    let version = match &f.version_run {
+        None => "no answer".to_string(),
+        Some(run) => {
+            // What the app makes of the same answer (`wsl_failure`).
+            let how = if run.exit_ok {
+                "exit 0".to_string()
+            } else if wsl_not_installed(&run.text) {
+                "failed, not installed".to_string()
+            } else if let Some(name) = wsl_error_name(&run.text) {
+                format!("failed, {name}")
+            } else {
+                "failed".to_string()
+            };
+            format!("{how} \"{}\"", one_line(&run.text).chars().take(80).collect::<String>())
+        }
+    };
+    format!(
+        "emulated={} policy_off={} wsl_exe={} version=[{version}] inbox_wsl={} package={} vm_platform={}",
+        f.emulated,
+        f.turned_off_by_policy,
+        f.wsl_exe_present,
+        f.inbox_wsl_on,
+        f.package_registered,
+        f.vm_platform_running
+    )
 }
 
 /// The names of the registered WSL distros, in every state (`--all`: one
@@ -1034,32 +1087,6 @@ mod tests {
     use super::super::vm_exchange::{GUEST_BASE_MOUNT, GUEST_LAYER_MOUNT, VM_UNAVAILABLE_CODE};
 
     #[test]
-    fn wsl_versions_free_of_the_cve_are_accepted() {
-        assert!(wsl_version_ok((2, 6, 1)));
-        assert!(wsl_version_ok((2, 7, 0)));
-        assert!(wsl_version_ok((3, 0, 0)));
-        assert!(wsl_version_ok((2, 5, 10)));
-        assert!(wsl_version_ok((2, 5, 11)));
-        assert!(!wsl_version_ok((2, 6, 0)));
-        assert!(!wsl_version_ok((2, 5, 9)));
-        assert!(!wsl_version_ok((2, 4, 13)));
-        assert!(!wsl_version_ok((1, 2, 5)));
-    }
-
-    #[test]
-    fn the_wsl_version_is_read_from_the_first_line_in_any_language() {
-        let en = "WSL version: 2.6.1.0\nKernel version: 6.6.87.2-1\nWSLg version: 1.0.66\n";
-        assert_eq!(parse_wsl_version(en), Some((2, 6, 1)));
-        let de = "WSL-Version: 2.5.10.0\nKernelversion: 6.6.87.2-1\n";
-        assert_eq!(parse_wsl_version(de), Some((2, 5, 10)));
-        // UTF-16 read as bytes leaves NULs between the characters.
-        let utf16ish: String = "WSL version: 2.6.2.0".chars().flat_map(|c| [c, '\0']).collect();
-        assert_eq!(parse_wsl_version(&utf16ish), Some((2, 6, 2)));
-        assert_eq!(parse_wsl_version("Invalid command line option: --version"), None);
-        assert_eq!(parse_wsl_version(""), None);
-    }
-
-    #[test]
     fn windows_paths_map_to_wsl_drive_mounts() {
         let p = |s: &str| win_to_wsl(Path::new(s));
         assert_eq!(p(r"C:\Users\Khoi\.txresbench\x.sqfs").unwrap(), "/mnt/c/Users/Khoi/.txresbench/x.sqfs");
@@ -1168,6 +1195,16 @@ mod tests {
         let e = wsl_failure("WSL could not list its distros", STUB_SAYS);
         assert!(e.to_string().contains("`wsl --install --no-distribution`"), "{e}");
         assert!(e.to_string().contains("not installed on this computer"), "{e}");
+    }
+
+    /// The installer's check on this PC (whatever its WSL): a status the
+    /// installer knows, and a line saying what was found.
+    #[test]
+    fn the_installer_check_reads_this_windows() {
+        let (status, line) = installer_status();
+        assert!(WslStatus::ALL.contains(&status), "{status:?}");
+        assert_ne!(status, WslStatus::Unsupported);
+        assert!(line.contains("wsl_exe="), "{line}");
     }
 
     /// Exit 4 is not only a lost connection: a request the agent refuses for
@@ -1821,6 +1858,32 @@ Fail ("unexpected call: " + ($a -join ' '))
         let err = w.ensure().expect_err("no WSL");
         assert!(err.to_string().contains("`wsl --install --no-distribution`"), "{err}");
         assert_eq!(w.calls(), ["--list"]);
+        w.remove();
+    }
+
+    /// The installer's check runs and reads `wsl --version` as the probe does:
+    /// the version from a successful run's standard output; on a Windows
+    /// without WSL, what the in-box wsl.exe said on its standard error, read
+    /// as the app reads it.
+    #[test]
+    fn the_installer_check_reads_wsl_version_as_the_app_does() {
+        let dir = test_dir("installer-version");
+        let wsl = stand_in(&dir, r#"[Console]::Out.Write("WSL version: 2.5.9.0`r`nKernel version: 6.6.87.2-1`r`n"); exit 0"#, &[]);
+        let run = version_run(&wsl).expect("it answered");
+        assert!(run.exit_ok, "{run:?}");
+        let facts = WslFacts { wsl_exe_present: true, version_run: Some(run), ..WslFacts::default() };
+        assert_eq!(classify(&facts), WslStatus::Old);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let w = FakeWsl::new("installer-stub", "wsl-7");
+        w.mode("stub");
+        let run = version_run(&w.wsl).expect("it answered");
+        assert!(!run.exit_ok && run.stdout.is_empty(), "{run:?}");
+        let facts = WslFacts { wsl_exe_present: true, version_run: Some(run), ..WslFacts::default() };
+        assert_eq!(classify(&facts), WslStatus::Missing);
+        let line = describe_facts(&facts);
+        assert!(line.contains("version=[failed, not installed \"The Windows Subsystem for Linux is not installed."), "{line}");
+        assert_eq!(w.calls(), ["--version"]);
         w.remove();
     }
 
