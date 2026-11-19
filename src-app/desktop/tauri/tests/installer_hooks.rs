@@ -325,6 +325,18 @@ fn each_action_runs_its_own_command_and_messages() {
     }
 }
 
+/// The hook waits for the elevated setup however long it takes (a download
+/// of minutes; the user can close its window), then reads its exit code.
+#[test]
+fn the_hook_waits_for_the_setup_without_a_time_limit() {
+    let run = block("TxrRunElevated");
+    let wait = run.iter().position(|l| l.contains("WaitForSingleObject")).expect("a wait");
+    assert_eq!(run[wait], "System::Call 'kernel32::WaitForSingleObject(p R1, i -1) i .R2'");
+    assert_eq!(run[wait + 1], "System::Call 'kernel32::GetExitCodeProcess(p R1, *i .R2) i'");
+    // SEE_MASK_NOCLOSEPROCESS (0x40) gives the process handle to wait on.
+    assert!(run.iter().any(|l| l.starts_with("System::Call '*(&l4, i 0x540, ")));
+}
+
 /// Windows' "No" to the permission prompt (ShellExecuteEx fails with 1223,
 /// ERROR_CANCELLED) gets the no-permission message; any other failure to
 /// start gets the failed message with Windows' error.
