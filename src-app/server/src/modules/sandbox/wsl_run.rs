@@ -33,7 +33,7 @@
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
@@ -698,39 +698,50 @@ pub struct ImageHold {
     _files: Vec<std::fs::File>,
 }
 
-/// Image identities already verified in this process: (digest → (size,
-/// creation time, last write time)). A held file cannot change, so a file
-/// with the same identity as one verified before holds the same bytes.
-static VERIFIED: std::sync::LazyLock<Mutex<std::collections::HashMap<String, (u64, u64, u64)>>> =
-    std::sync::LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
-
 impl ImageHold {
     /// Open each `(path, digest)` read-only, sharing it only with readers,
-    /// then verify the bytes (skipped when this exact file was verified
-    /// before in this process).
+    /// then verify the bytes through the held handles, on every run: a file's
+    /// size and times are no proof of its bytes (any writer can set them), and
+    /// what the WSL agent reads is what was hashed here. The images are
+    /// hashed at once (each is a full read).
     pub fn verify(images: &[(PathBuf, String)]) -> Result<Self, AppError> {
-        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
-        const FILE_SHARE_READ: u32 = 0x1;
-        let mut files = Vec::with_capacity(images.len());
-        for (path, digest) in images {
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .share_mode(FILE_SHARE_READ)
-                .open(path)
-                .map_err(|e| wsl_error(format!("open the environment image {}: {e}", path.display())))?;
-            let md = file
-                .metadata()
-                .map_err(|e| wsl_error(format!("read the environment image {}: {e}", path.display())))?;
-            let identity = (md.file_size(), md.creation_time(), md.last_write_time());
-            let known = VERIFIED.lock().unwrap_or_else(|p| p.into_inner()).get(digest) == Some(&identity);
-            if !known {
-                super::method_env::verify_image_file(path, digest)?;
-                VERIFIED.lock().unwrap_or_else(|p| p.into_inner()).insert(digest.clone(), identity);
-            }
-            files.push(file);
+        let files = images
+            .iter()
+            .map(|(path, _)| {
+                open_held(path).map_err(|e| wsl_error(format!("open the environment image {}: {e}", path.display())))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let verdicts: Vec<_> = std::thread::scope(|scope| {
+            let hashing: Vec<_> = files
+                .iter()
+                .zip(images)
+                .map(|(file, (path, digest))| scope.spawn(move || verify_held(file, path, digest)))
+                .collect();
+            hashing.into_iter().map(|h| h.join()).collect()
+        });
+        for verdict in verdicts {
+            verdict.map_err(|_| wsl_error("image verification stopped unexpectedly"))??;
         }
         Ok(Self { _files: files })
     }
+}
+
+/// INV-1 for a held image: its bytes must hash to the pinned digest.
+fn verify_held(file: &std::fs::File, path: &Path, digest: &str) -> Result<(), AppError> {
+    let actual = sha256_of(file)
+        .map_err(|e| wsl_error(format!("read the environment image {}: {e}", path.display())))?;
+    if actual != digest {
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            super::method_env::ENV_VERIFY_FAILED_CODE,
+            format!(
+                "environment artifact {} does not match its pinned digest: expected {digest}, computed \
+                 {actual} — refusing to mount a tampered or swapped environment",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// The guest agent for one run: every request starts a fresh agent process
@@ -1523,6 +1534,31 @@ Fail ("unexpected call: " + ($a -join ' '))
         std::fs::write(&img, b"changed").expect("released");
         let err = ImageHold::verify(&[(img.clone(), digest)]).err().expect("changed bytes are refused");
         assert!(!err.to_string().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Every run hashes the bytes it holds: an image rewritten between two
+    /// runs with the same size and its old creation and write times (any
+    /// writer can set them) is refused on the next run.
+    #[test]
+    fn a_held_image_is_hashed_on_every_run() {
+        use sha2::Digest;
+        use std::os::windows::fs::FileTimesExt;
+        let dir = test_dir("rehash");
+        let img = dir.join("layer.sqfs");
+        std::fs::write(&img, b"image bytes A").unwrap();
+        let digest = hex::encode(sha2::Sha256::digest(b"image bytes A"));
+        let md = std::fs::metadata(&img).unwrap();
+        let (created, modified) = (md.created().unwrap(), md.modified().unwrap());
+        drop(ImageHold::verify(&[(img.clone(), digest.clone())]).expect("first run: verified"));
+        std::fs::write(&img, b"image bytes B").unwrap();
+        let f = std::fs::OpenOptions::new().write(true).open(&img).unwrap();
+        f.set_times(std::fs::FileTimes::new().set_created(created).set_modified(modified)).unwrap();
+        drop(f);
+        let md = std::fs::metadata(&img).unwrap();
+        assert_eq!((md.len(), md.created().unwrap(), md.modified().unwrap()), (13, created, modified));
+        let err = ImageHold::verify(&[(img.clone(), digest)]).err().expect("the rewritten bytes are refused");
+        assert_eq!(err.error_code(), super::super::method_env::ENV_VERIFY_FAILED_CODE);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
