@@ -110,7 +110,7 @@ test.describe('txr-run-e — choose the methods and settings (TEST-RUN-24, qa-fi
       'What do you want to predict?',
     )
     await expect(page.getByTestId('txr-run-settings-sentence')).toHaveText(
-      'Progression or death within 238 days, from the blood draws up to day 56.',
+      'Progression or death by day 238 of treatment, from the blood draws up to day 56.',
     )
     for (const label of ['Predict', 'Decision day', 'Look ahead to', 'Extra inputs', 'More settings']) {
       await expect(settings).toContainText(label)
