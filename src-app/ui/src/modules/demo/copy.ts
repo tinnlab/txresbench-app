@@ -114,7 +114,7 @@ export const DEMO_HELP_CAN = [
 export const DEMO_HELP_CANNOT = [
   'Upload your own files: the example tables are the only tables the demo accepts.',
   'Rename, delete, export or import runs and models, or clear the history — the demo keeps its own limits instead.',
-  'Install or refresh pretrained models: the cards shown are included in the demo.',
+  'Install or refresh ready-made models: the cards shown are included in the demo.',
   'Type a name of your own: saved set names are generated for you.',
 ]
 

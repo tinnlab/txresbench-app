@@ -561,7 +561,7 @@ test.describe('txr-help — the quick-start example actions (qa-fixes3 ITEM-5)',
   test('each card carries its one-line "Try it with example data" action with the path\'s accessible name', async ({ page }) => {
     await openHelp(page, { width: 1440, height: 900 })
     const cards: Array<{ id: string; path: string; name: string }> = [
-      { id: 'pretrained', path: 'pretrained', name: 'Use example data: predict with a pretrained model' },
+      { id: 'pretrained', path: 'pretrained', name: 'Use example data: predict with a ready-made model' },
       { id: 'learn', path: 'train', name: 'Use example data: learn from my data' },
       { id: 'saved', path: 'reuse', name: 'Use example data: use a model I saved' },
     ]

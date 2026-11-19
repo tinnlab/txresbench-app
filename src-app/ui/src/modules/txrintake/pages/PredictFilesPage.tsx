@@ -512,7 +512,7 @@ export function PredictFilesPage() {
             <p data-testid="txr-intake-predict-path" style={INTRO}>
               {intent === 'reuse'
                 ? 'This is the saved-model path — you will pick from the models you saved.'
-                : 'This is the pretrained-model path — you will pick from the pretrained models.'}
+                : 'This is the ready-made model path — you will pick from the ready-made models.'}
             </p>
 
             <div
@@ -618,7 +618,7 @@ export function PredictFilesPage() {
                       a saved-model flow reads its own words. */}
                   {intent === 'reuse'
                     ? 'After you add the file we check which of your saved models can run on it. These are the draws most models use:'
-                    : 'After you add the file we check which pretrained models can run on it. These are the draws most models use:'}
+                    : 'After you add the file we check which ready-made models can run on it. These are the draws most models use:'}
                 </p>
                 <ul style={ASIDE_LIST}>
                   <li style={ASIDE_ITEM}>

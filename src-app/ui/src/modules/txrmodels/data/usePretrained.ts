@@ -64,7 +64,7 @@ export interface UsePretrainedResult {
 
 /** The failure line for the list (the Datasets-store idiom). */
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : 'Failed to load pretrained models'
+  return err instanceof Error ? err.message : 'Failed to load the ready-made models'
 }
 
 export function usePretrained(): UsePretrainedResult {

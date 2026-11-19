@@ -47,8 +47,8 @@ export const QUICK_START: readonly QuickStartCard[] = [
   {
     id: 'pretrained',
     eyebrow: 'Quickest',
-    title: 'Predict with a pretrained model',
-    text: 'Add the blood measurements of the patients you want predictions for. The app shows which pretrained models can run on them.',
+    title: 'Predict with a ready-made model',
+    text: 'Add the blood measurements of the patients you want predictions for. The app shows which ready-made models can run on them. Ready-made models are already trained by the TxResBench team, so they predict without learning from your data.',
     screen: 'Predict files',
     route: '/predict-files',
     cta: 'Add the patients to predict',
@@ -119,7 +119,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
             number: 1,
             name: 'Start',
             lines: [
-              'Pick the way in: a pretrained model, learn from my data, or a model I saved.',
+              'Pick the way in: a ready-made model, learn from my data, or a model I saved.',
               'The three cards name what each way needs.',
             ],
             screen: 'Start',
@@ -127,7 +127,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               {
                 kind: 'bullets',
                 items: [
-                  '"Predict with a pretrained model" — button "Add the patients to predict".',
+                  '"Predict with a ready-made model" — button "Add the patients to predict".',
                   '"Learn from my data" — button "Add my data".',
                   '"Use a model I saved" — button "Predict with a model I saved".',
                   'Not sure? "Answer a few questions about your study on the next screen", or load "Try the example data" to explore with the project\'s own sample files.',
@@ -394,7 +394,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
   },
   {
     id: 'models',
-    title: 'Saved models and pretrained models',
+    title: 'Saved models and ready-made models',
     blocks: [
       {
         kind: 'paragraph',
@@ -403,7 +403,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       {
         kind: 'bullets',
         items: [
-          'Pretrained models — the project\'s published models, checked against your measurements file on the models screen: which ones can run, what they were learned on, how they performed on other cohorts, and their time.',
+          'Ready-made models — models the TxResBench team has already trained and released, checked against your measurements file on the models screen: which ones can run, what they were learned on, how they performed on other cohorts, and their time.',
           'Saved models — the models you trained, grouped by training run. Add the patients to predict and pick from them; the training data never has to be re-uploaded, and the app checks the new patients have the markers each model needs.',
           'Your models — the inventory of everything you saved: model, method, what it predicts, decision day, what it was trained on and when it was made. Rename, or delete a set to remove its files. "Open a model file" reads one you saved as a file.',
         ],
