@@ -48,8 +48,10 @@ use super::vm_exchange::{
     app_needs_version, exec_over, marker_serves, AgentExec, OutputDir, VmExecOutcome, GUEST_AGENT_PATH,
     GUEST_BUSYBOX_PATH, GUEST_BWRAP_PATH,
 };
-use super::win_registry::{hklm_dword, hklm_key_exists, service_exists, windows_build};
-use super::wsl_status::{classify, parse_wsl_version, wsl_version_ok, VersionRun, WslFacts, WslStatus};
+use super::win_registry;
+use super::wsl_status::{
+    classify, gather_facts, parse_wsl_version, wsl_version_ok, FactReader, VersionRun, WslFacts, WslStatus,
+};
 
 /// The app's own WSL distro.
 pub const WSL_DISTRO: &str = "TxResBench";
@@ -401,29 +403,36 @@ fn one_line(text: &str) -> String {
 /// a restart. The decision is [`classify`]'s. Never starts WSL's VM. Gives the
 /// status and one line saying what was found.
 pub fn installer_status() -> (WslStatus, String) {
-    let facts = installer_facts();
+    let facts = gather_facts(&ThisPc);
     (classify(&facts), describe_facts(&facts))
 }
 
-fn installer_facts() -> WslFacts {
-    let mut facts = WslFacts {
-        emulated: emulated_on().is_some(),
-        turned_off_by_policy: hklm_dword(r"SOFTWARE\Policies\WSL", "AllowWSL") == Some(0),
-        wsl_exe_present: wsl_exe().is_file(),
-        ..WslFacts::default()
-    };
-    if facts.emulated || facts.turned_off_by_policy || !facts.wsl_exe_present {
-        return facts;
+/// This Windows, as the installer's check reads it ([`gather_facts`] says
+/// what is read).
+struct ThisPc;
+
+impl FactReader for ThisPc {
+    fn emulated(&self) -> bool {
+        emulated_on().is_some()
     }
-    facts.version_run = version_run(&Wsl::system());
-    facts.inbox_wsl_on = service_exists("LxssManager");
-    facts.package_registered = hklm_key_exists(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Lxss\MSI");
-    // WSL's own test before it turns the Virtual Machine Platform on; an
-    // unknown build counts as a new one (a restart offered for nothing at worst).
-    facts.vm_platform_running = service_exists("HNS")
-        && service_exists("vmcompute")
-        && (windows_build().is_some_and(|b| b < 22621) || service_exists("vfpext"));
-    facts
+    fn wsl_exe_present(&self) -> bool {
+        wsl_exe().is_file()
+    }
+    fn version_run(&self) -> Option<VersionRun> {
+        version_run(&Wsl::system())
+    }
+    fn hklm_dword(&self, key: &str, value: &str) -> Option<u32> {
+        win_registry::hklm_dword(key, value)
+    }
+    fn hklm_key_exists(&self, key: &str) -> bool {
+        win_registry::hklm_key_exists(key)
+    }
+    fn service_exists(&self, name: &str) -> bool {
+        win_registry::service_exists(name)
+    }
+    fn windows_build(&self) -> Option<u32> {
+        win_registry::windows_build()
+    }
 }
 
 /// `wsl --version`, started and read as the probe does: the same wsl.exe
@@ -1205,6 +1214,19 @@ mod tests {
         assert!(WslStatus::ALL.contains(&status), "{status:?}");
         assert_ne!(status, WslStatus::Unsupported);
         assert!(line.contains("wsl_exe="), "{line}");
+
+        // Each reading reads what its name says, on entries every Windows
+        // 10/11 has, or never has.
+        let nt = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
+        assert_eq!(ThisPc.hklm_dword(nt, "CurrentMajorVersionNumber"), Some(10));
+        assert_eq!(ThisPc.hklm_dword(nt, "TxrNoSuchValue"), None);
+        assert!(ThisPc.hklm_key_exists(nt));
+        assert!(!ThisPc.hklm_key_exists(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\TxrNoSuchKey"));
+        assert!(ThisPc.service_exists("RpcSs"));
+        assert!(!ThisPc.service_exists("TxrNoSuchService"));
+        assert!(ThisPc.windows_build().is_some_and(|b| b >= 10240), "{:?}", ThisPc.windows_build());
+        assert_eq!(ThisPc.wsl_exe_present(), wsl_exe().is_file());
+        assert_eq!(ThisPc.emulated(), emulated_on().is_some());
     }
 
     /// Exit 4 is not only a lost connection: a request the agent refuses for

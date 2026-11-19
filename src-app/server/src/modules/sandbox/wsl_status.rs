@@ -4,11 +4,12 @@
 //! installer sets WSL up when the PC does not have it: its hook
 //! (`src-app/desktop/tauri/windows/installer-hooks.nsh`) runs
 //! `txresbench-desktop.exe --wsl-status` and acts on the exit code, a
-//! [`WslStatus`]. `wsl_run::installer_status` gathers the [`WslFacts`] on
-//! Windows; [`classify`] turns them into the status. Both the version rule and
-//! this decision live here, without I/O, so that they are tested on every
-//! platform and the installer and the app's own check (`wsl_run::probe_host`)
-//! apply the same rule.
+//! [`WslStatus`]. [`gather_facts`] reads the [`WslFacts`] through a
+//! [`FactReader`] (`wsl_run::installer_status` passes one that reads Windows);
+//! [`classify`] turns them into the status. The version rule, what is read
+//! where, and the decision live here, without I/O, so that they are tested on
+//! every platform and the installer and the app's own check
+//! (`wsl_run::probe_host`) apply the same rule.
 
 /// The exit codes of `txresbench-desktop.exe --wsl-status`: the installer
 /// hook's contract. The hook's `!define TXR_WSL_<NAME>` lines carry the same
@@ -108,6 +109,49 @@ pub struct WslFacts {
     /// and `vfpext` too on Windows builds 22621 and later (the test WSL itself
     /// uses before it turns the component on).
     pub vm_platform_running: bool,
+}
+
+/// Where the installer's check reads this PC: Windows itself
+/// (`wsl_run::installer_status`), or a stand-in in the tests.
+pub trait FactReader {
+    /// This is the x64 build running on ARM64 Windows.
+    fn emulated(&self) -> bool;
+    /// `%SystemRoot%\System32\wsl.exe` exists.
+    fn wsl_exe_present(&self) -> bool;
+    /// `wsl --version` (see [`WslFacts::version_run`]).
+    fn version_run(&self) -> Option<VersionRun>;
+    /// A REG_DWORD value under `HKLM\<key>` (the 64-bit view), if there is one.
+    fn hklm_dword(&self, key: &str, value: &str) -> Option<u32>;
+    /// `HKLM\<key>` exists (the 64-bit view).
+    fn hklm_key_exists(&self, key: &str) -> bool;
+    /// A Windows service of this name is installed.
+    fn service_exists(&self, name: &str) -> bool;
+    /// The Windows build number (22621 = Windows 11 22H2).
+    fn windows_build(&self) -> Option<u32>;
+}
+
+/// The facts the installer's check decides on, read from `pc`. Once the app
+/// cannot use WSL here whatever WSL does (emulated, turned off by policy, no
+/// wsl.exe), nothing more is read: `wsl --version` is not run.
+pub fn gather_facts(pc: &impl FactReader) -> WslFacts {
+    let mut facts = WslFacts {
+        emulated: pc.emulated(),
+        turned_off_by_policy: pc.hklm_dword(r"SOFTWARE\Policies\WSL", "AllowWSL") == Some(0),
+        wsl_exe_present: pc.wsl_exe_present(),
+        ..WslFacts::default()
+    };
+    if facts.emulated || facts.turned_off_by_policy || !facts.wsl_exe_present {
+        return facts;
+    }
+    facts.version_run = pc.version_run();
+    facts.inbox_wsl_on = pc.service_exists("LxssManager");
+    facts.package_registered = pc.hklm_key_exists(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Lxss\MSI");
+    // WSL's own test before it turns the Virtual Machine Platform on; an
+    // unknown build counts as a new one (a restart offered for nothing at worst).
+    facts.vm_platform_running = pc.service_exists("HNS")
+        && pc.service_exists("vmcompute")
+        && (pc.windows_build().is_some_and(|b| b < 22621) || pc.service_exists("vfpext"));
+    facts
 }
 
 /// The installer's decision. The order is the probe's: emulation first, then
@@ -299,5 +343,186 @@ mod tests {
         // 1 is what a crashed or refused program commonly returns: never a status.
         assert!(!codes.contains(&1));
         assert_eq!(WslStatus::Ready.code(), 0);
+    }
+
+    /// A stand-in PC for [`gather_facts`]: its registry values and keys, its
+    /// services, its build, and what `wsl --version` gives. Names compare as
+    /// Windows compares them (without case). It records each reading.
+    #[derive(Default)]
+    struct Pc {
+        emulated: bool,
+        wsl_exe: bool,
+        version: Option<VersionRun>,
+        dwords: Vec<(&'static str, &'static str, u32)>,
+        keys: Vec<&'static str>,
+        services: Vec<&'static str>,
+        build: Option<u32>,
+        read: std::cell::RefCell<Vec<String>>,
+    }
+
+    impl Pc {
+        /// A PC whose wsl.exe answers `wsl --version` with `version`.
+        fn with_wsl(version: &str) -> Self {
+            Pc {
+                wsl_exe: true,
+                version: Some(VersionRun {
+                    exit_ok: true,
+                    stdout: format!("WSL version: {version}\n"),
+                    ..VersionRun::default()
+                }),
+                ..Pc::default()
+            }
+        }
+
+        fn readings(&self) -> Vec<String> {
+            self.read.borrow().clone()
+        }
+    }
+
+    impl FactReader for Pc {
+        fn emulated(&self) -> bool {
+            self.read.borrow_mut().push("emulated".into());
+            self.emulated
+        }
+        fn wsl_exe_present(&self) -> bool {
+            self.read.borrow_mut().push("wsl.exe".into());
+            self.wsl_exe
+        }
+        fn version_run(&self) -> Option<VersionRun> {
+            self.read.borrow_mut().push("wsl --version".into());
+            self.version.clone()
+        }
+        fn hklm_dword(&self, key: &str, value: &str) -> Option<u32> {
+            self.read.borrow_mut().push(format!("dword {key} {value}"));
+            self.dwords
+                .iter()
+                .find(|(k, v, _)| k.eq_ignore_ascii_case(key) && v.eq_ignore_ascii_case(value))
+                .map(|(_, _, data)| *data)
+        }
+        fn hklm_key_exists(&self, key: &str) -> bool {
+            self.read.borrow_mut().push(format!("key {key}"));
+            self.keys.iter().any(|k| k.eq_ignore_ascii_case(key))
+        }
+        fn service_exists(&self, name: &str) -> bool {
+            self.read.borrow_mut().push(format!("service {name}"));
+            self.services.iter().any(|s| s.eq_ignore_ascii_case(name))
+        }
+        fn windows_build(&self) -> Option<u32> {
+            self.read.borrow_mut().push("build".into());
+            self.build
+        }
+    }
+
+    const POLICY_KEY: &str = r"SOFTWARE\Policies\WSL";
+    const WSL_MSI_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Lxss\MSI";
+
+    /// `AllowWSL` = 0 under the WSL policy key turns WSL off; 1, another
+    /// value name or another key does not.
+    #[test]
+    fn the_policy_is_allow_wsl_zero_under_the_wsl_policy_key() {
+        let off = Pc { dwords: vec![(POLICY_KEY, "AllowWSL", 0)], ..Pc::with_wsl("2.6.1.0") };
+        let facts = gather_facts(&off);
+        assert!(facts.turned_off_by_policy);
+        assert_eq!(classify(&facts), WslStatus::Policy);
+        assert!(!off.readings().contains(&"wsl --version".to_string()), "{:?}", off.readings());
+
+        for pc in [
+            Pc { dwords: vec![(POLICY_KEY, "AllowWSL", 1)], ..Pc::with_wsl("2.6.1.0") },
+            Pc { dwords: vec![(POLICY_KEY, "AllowInboxWSL", 0)], ..Pc::with_wsl("2.6.1.0") },
+            Pc { dwords: vec![(r"SOFTWARE\Policies\Microsoft\WSL", "AllowWSL", 0)], ..Pc::with_wsl("2.6.1.0") },
+            Pc::with_wsl("2.6.1.0"),
+        ] {
+            let facts = gather_facts(&pc);
+            assert!(!facts.turned_off_by_policy, "{:?}", pc.dwords);
+            assert!(pc.readings().contains(&"wsl --version".to_string()), "{:?}", pc.dwords);
+        }
+    }
+
+    /// Emulated, turned off or without wsl.exe: the app cannot use WSL here,
+    /// so `wsl --version` is not run and nothing else is read.
+    #[test]
+    fn nothing_more_is_read_once_wsl_cannot_be_used() {
+        let reads_beyond = |pc: &Pc| {
+            pc.readings()
+                .into_iter()
+                .filter(|r| r == "wsl --version" || r.starts_with("service ") || r.starts_with("key ") || r == "build")
+                .collect::<Vec<_>>()
+        };
+        let emulated = Pc { emulated: true, ..Pc::with_wsl("2.6.1.0") };
+        assert_eq!(classify(&gather_facts(&emulated)), WslStatus::Emulated);
+        assert!(reads_beyond(&emulated).is_empty(), "{:?}", emulated.readings());
+        let no_exe = Pc { wsl_exe: false, ..Pc::with_wsl("2.6.1.0") };
+        assert_eq!(classify(&gather_facts(&no_exe)), WslStatus::NoWslExe);
+        assert!(reads_beyond(&no_exe).is_empty(), "{:?}", no_exe.readings());
+        let off = Pc { dwords: vec![(POLICY_KEY, "AllowWSL", 0)], ..Pc::with_wsl("2.6.1.0") };
+        gather_facts(&off);
+        assert!(reads_beyond(&off).is_empty(), "{:?}", off.readings());
+    }
+
+    #[test]
+    fn the_answer_of_wsl_version_is_kept_as_it_came() {
+        let pc = Pc::with_wsl("2.5.9.0");
+        let facts = gather_facts(&pc);
+        assert_eq!(facts.version_run.as_ref().map(|r| r.stdout.as_str()), Some("WSL version: 2.5.9.0\n"));
+        assert_eq!(classify(&facts), WslStatus::Old);
+        let silent = Pc { version: None, ..Pc::with_wsl("") };
+        assert!(gather_facts(&silent).version_run.is_none());
+    }
+
+    /// The WSL that came with Windows is its service, LxssManager.
+    #[test]
+    fn the_inbox_wsl_is_the_lxssmanager_service() {
+        let pc = Pc { version: None, services: vec!["LxssManager"], ..Pc::with_wsl("") };
+        let facts = gather_facts(&pc);
+        assert!(facts.inbox_wsl_on && !facts.package_registered);
+        assert_eq!(classify(&facts), WslStatus::Legacy);
+        let other = Pc { version: None, services: vec!["WslService"], ..Pc::with_wsl("") };
+        assert!(!gather_facts(&other).inbox_wsl_on);
+    }
+
+    /// The WSL package registers itself under `...\Lxss\MSI`; the `Lxss` key
+    /// alone (distros of the old WSL) is not the package.
+    #[test]
+    fn the_wsl_package_is_its_msi_key() {
+        let pc = Pc { version: None, keys: vec![WSL_MSI_KEY], ..Pc::with_wsl("") };
+        let facts = gather_facts(&pc);
+        assert!(facts.package_registered && !facts.inbox_wsl_on);
+        assert_eq!(classify(&facts), WslStatus::Legacy);
+        let lxss = Pc {
+            version: None,
+            keys: vec![r"SOFTWARE\Microsoft\Windows\CurrentVersion\Lxss"],
+            ..Pc::with_wsl("")
+        };
+        let facts = gather_facts(&lxss);
+        assert!(!facts.package_registered);
+        assert_eq!(classify(&facts), WslStatus::Missing);
+    }
+
+    /// The Virtual Machine Platform runs when the services HNS and vmcompute
+    /// exist, and vfpext too from build 22621 on (or when the build is not
+    /// known): WSL's own test.
+    #[test]
+    fn the_virtual_machine_platform_is_wsls_service_test() {
+        let cases: [(&[&'static str], Option<u32>, bool); 12] = [
+            (&["HNS", "vmcompute"], Some(19045), true),
+            (&["HNS", "vmcompute"], Some(22000), true),
+            (&["HNS", "vmcompute"], Some(22620), true),
+            (&["HNS", "vmcompute"], Some(22621), false),
+            (&["HNS", "vmcompute"], Some(26100), false),
+            (&["HNS", "vmcompute"], None, false),
+            (&["HNS", "vmcompute", "vfpext"], Some(22621), true),
+            (&["HNS", "vmcompute", "vfpext"], None, true),
+            (&["vmcompute", "vfpext"], Some(26100), false),
+            (&["HNS", "vfpext"], Some(26100), false),
+            (&["vmcompute"], Some(19045), false),
+            (&["HNS"], Some(19045), false),
+        ];
+        for (services, build, running) in cases {
+            let pc = Pc { services: services.to_vec(), build, ..Pc::with_wsl("2.6.1.0") };
+            let facts = gather_facts(&pc);
+            assert_eq!(facts.vm_platform_running, running, "{services:?} {build:?}");
+            let want = if running { WslStatus::Ready } else { WslStatus::ReadyAfterRestart };
+            assert_eq!(classify(&facts), want, "{services:?} {build:?}");
+        }
     }
 }
