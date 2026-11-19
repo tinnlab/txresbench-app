@@ -351,6 +351,24 @@ describe('StudyPage (screen B, ITEM-5)', () => {
 })
 
 
+describe('the heading block lines up with the body at every window width', () => {
+  it('the step line block starts at the body row\'s left edge: same side padding, never centred', () => {
+    renderStudy()
+    const page = screen.getByTestId('txr-intake-study')
+    const top = page.querySelector('.txr-intake-page-top') as HTMLElement
+    const row = page.querySelector('.txr-shell-regions-row') as HTMLElement
+    expect(top.textContent).toContain('Step 2 of 4')
+    // The body row is full width; a centred (auto-margin) heading drifts right
+    // of it once the window is wider than the heading's 1280 px cap (measured
+    // in WebKit: at 2000 px the step line sat at x=408 over a body at x=48).
+    expect(row.style.maxWidth).toBe('')
+    expect(top.style.marginLeft).toBe('0px')
+    expect(top.style.marginRight).toBe('0px')
+    expect(top.style.paddingLeft).toBe(row.style.paddingLeft)
+    expect(top.style.paddingLeft).toBe('48px')
+  })
+})
+
 describe('ITEM-6 S1/S2/S4 — the panel spacing, the id wrapping, the flush Show all link', () => {
   it('the panel headline keeps a space between the number and "of" (S1)', async () => {
     renderStudy()
