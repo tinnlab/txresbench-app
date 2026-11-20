@@ -71,13 +71,22 @@ const ERROR_CANCELLED: u32 = 1223;
 /// How long a declined setup is not offered again.
 const DECLINE_PAUSE_SECS: u64 = 60;
 
-/// Without Windows' boot counter ([`Machine::boot_id`]): how far apart two
-/// readings of Windows' start time may be and still name the same start. The
-/// reading is the clock minus the time since the start, to the second, so it
-/// moves with the clock's corrections, after a week or two by more than this
-/// at worst: the app then forgets "restart Windows" and offers the setup
-/// again. A restart is minutes apart.
+/// How far apart two readings of Windows' start time may be and still name
+/// the same start. The reading is the clock minus the time since the start,
+/// to the second, so it moves with the clock's corrections. Without Windows'
+/// boot counter ([`Machine::boot_id`]) this is all the slack: after a week or
+/// two the reading may have moved by more at worst, and the app then forgets
+/// "restart Windows" and offers the setup again. A restart is minutes apart.
 const SAME_BOOT_SLACK_SECS: u64 = 60;
+
+/// With Windows' boot counter the same in both readings, the slack grows by
+/// a second for every this many seconds since the setup started (200 ppm, a
+/// clock's corrections at worst; two weeks: about 4 minutes more). The
+/// counter says whether Windows restarted; the start times must still agree,
+/// so that a Windows that keeps the counter but stopped moving it does not
+/// say "restart Windows" for ever: once they drift apart, the setup is
+/// offered again.
+const BOOT_DRIFT_SECS_PER_SEC: u64 = 5000;
 
 /// How far Windows' running time, read twice in the same start, may seem to
 /// go back (each reading is to the second).
@@ -384,27 +393,31 @@ impl SetupState {
         }
     }
 
-    /// Windows has not restarted since `marker` was written. Windows' boot
-    /// counter decides when both readings have it: it does not drift, where
-    /// the start time read from the clock moves with the clock's corrections.
-    /// As the counter is not documented by Microsoft, a restart is also seen
-    /// when Windows has run for less time now than it had then. Without the
-    /// counter, the two start times must agree within
+    /// Windows has not restarted since `marker` was written. When both
+    /// readings have Windows' boot counter: the same counter, Windows has run
+    /// no less time now than it had then, and the two start times agree
+    /// within [`SAME_BOOT_SLACK_SECS`] plus a second for every
+    /// [`BOOT_DRIFT_SECS_PER_SEC`] since the setup started. The counter does
+    /// not drift, where the start time read from the clock moves with the
+    /// clock's corrections; but the counter is not documented by Microsoft,
+    /// so a counter that stopped moving must not hide a restart for ever.
+    /// Without the counter, the two start times must agree within
     /// [`SAME_BOOT_SLACK_SECS`]. Not known: not the same boot (the setup is
     /// offered again rather than "restart Windows" for ever).
     fn same_boot(&self, marker: &Marker) -> bool {
+        let now = self.machine.now();
         let boot_now = self.machine.boot_time();
+        let starts_within =
+            |slack: u64| matches!((marker.boot_time, boot_now), (Some(then), Some(now)) if then.abs_diff(now) <= slack);
         match (marker.boot_id, self.machine.boot_id()) {
             (Some(id_then), Some(id_now)) => {
                 let ran_then = marker.boot_time.map(|boot| marker.started_at.saturating_sub(boot));
-                let ran_now = boot_now.map(|boot| self.machine.now().saturating_sub(boot));
+                let ran_now = boot_now.map(|boot| now.saturating_sub(boot));
                 let ran_less = matches!((ran_then, ran_now), (Some(then), Some(now)) if now + UPTIME_SLACK_SECS < then);
-                id_then == id_now && !ran_less
+                let drift = now.saturating_sub(marker.started_at) / BOOT_DRIFT_SECS_PER_SEC;
+                id_then == id_now && !ran_less && starts_within(SAME_BOOT_SLACK_SECS + drift)
             }
-            _ => matches!(
-                (marker.boot_time, boot_now),
-                (Some(then), Some(now)) if then.abs_diff(now) <= SAME_BOOT_SLACK_SECS
-            ),
+            _ => starts_within(SAME_BOOT_SLACK_SECS),
         }
     }
 
@@ -2072,13 +2085,14 @@ mod tests {
         assert!(host.questions().is_empty());
     }
 
-    /// With Windows' boot counter in both readings, the counter says whether
-    /// Windows restarted, whatever the clock did meanwhile: two weeks of the
-    /// clock's corrections (its reading of the start ten minutes off) still
-    /// say "restart Windows"; a new counter is a restart. A counter that did
-    /// not move while Windows ran for less time than when the setup started
-    /// is a restart too. Without the counter in either reading, the clock
-    /// decides (within a minute), as before.
+    /// With Windows' boot counter in both readings, a new counter is a
+    /// restart, and the same counter lets the clock's reading of the start
+    /// drift with the time since the setup: two weeks later four minutes off
+    /// still say "restart Windows", ten minutes off do not (a counter that
+    /// stopped moving). A counter that did not move while Windows ran for
+    /// less time than when the setup started is a restart too. Without the
+    /// counter in either reading, the clock decides within a minute, as
+    /// before, however long ago the setup was.
     #[test]
     fn windows_boot_counter_says_whether_windows_restarted() {
         let dir = TestDir::new("boot-id");
@@ -2094,8 +2108,11 @@ mod tests {
         };
 
         machine.pass(14 * 24 * 3600);
+        *machine.boot.lock().unwrap() = Some(BOOT + 240);
+        assert!(waits(&machine), "the same start: the clock moved four minutes in two weeks, the counter did not");
         *machine.boot.lock().unwrap() = Some(BOOT + 600);
-        assert!(waits(&machine), "the same start: the clock moved, the counter did not");
+        assert!(!waits(&machine), "ten minutes in two weeks: a counter that stopped moving, offered again");
+        *machine.boot.lock().unwrap() = Some(BOOT + 240);
         *machine.boot_id.lock().unwrap() = Some(9);
         assert!(!waits(&machine), "a new counter: Windows restarted");
 
@@ -2106,10 +2123,13 @@ mod tests {
         *machine.boot.lock().unwrap() = Some(T0 + 100);
         assert!(!waits(&machine), "a counter that did not move with a shorter running time");
 
-        // No counter now: the clock decides.
+        // No counter now: the clock decides, within a minute only.
         *machine.boot_id.lock().unwrap() = None;
+        machine.now.store(T0 + 14 * 24 * 3600, Ordering::SeqCst);
         *machine.boot.lock().unwrap() = Some(BOOT + 2);
         assert!(waits(&machine), "the clock within a minute");
+        *machine.boot.lock().unwrap() = Some(BOOT + 240);
+        assert!(!waits(&machine), "the clock four minutes off: no drift allowed without the counter");
         *machine.boot.lock().unwrap() = Some(BOOT + 600);
         assert!(!waits(&machine), "the clock ten minutes off");
         // A marker without the counter (an older build's), a counter now: the clock decides.
@@ -2125,6 +2145,63 @@ mod tests {
     /// A marker of a setup that ended otherwise, of a decline a minute ago
     /// or more or without its time (an older build's), or a marker that
     /// cannot be read: offered, no pause.
+    /// The boot rule with the counter the same in both readings, on
+    /// injected values: the start times may differ by 60 s plus a second per
+    /// 5000 s since the setup; no start time read: not the same boot.
+    #[test]
+    fn a_boot_counter_that_stops_moving_does_not_say_restart_windows_for_ever() {
+        let marker = |started_at: u64, boot_time: Option<u64>| Marker {
+            started_at,
+            boot_time,
+            boot_id: Some(8),
+            app: None,
+            process: None,
+            result: Some(WslSetupResult::done(true)),
+            ended_at: Some(started_at),
+        };
+        let same_boot = |marker: &Marker, now: u64, boot: Option<u64>, boot_id: Option<u32>| {
+            let machine = FakeMachine::new(None);
+            machine.now.store(now, Ordering::SeqCst);
+            *machine.boot.lock().unwrap() = boot;
+            *machine.boot_id.lock().unwrap() = boot_id;
+            SetupState::new(machine).same_boot(marker)
+        };
+        let m = marker(T0, Some(BOOT));
+        const DAY: u64 = 24 * 3600;
+        for (now, boot, same, why) in [
+            (T0 + 600, BOOT, true, "the same start"),
+            (T0 + 600, BOOT + 60, true, "a minute off, just after the setup"),
+            (T0 + 600, BOOT - 60, true, "a minute off the other way"),
+            (T0 + 600, BOOT + 61, false, "more than a minute off, just after the setup"),
+            (T0 + 600, BOOT - 61, false, "more than a minute off the other way"),
+            // 14 days: 60 + 1_209_600 / 5000 = 301 s.
+            (T0 + 14 * DAY, BOOT + 301, true, "two weeks: up to 301 s off"),
+            (T0 + 14 * DAY, BOOT + 302, false, "two weeks: 302 s off"),
+            // A year: 60 + 31_536_000 / 5000 = 6367 s.
+            (T0 + 365 * DAY, BOOT + 6367, true, "a year: up to 6367 s off"),
+            (T0 + 365 * DAY, BOOT + 6368, false, "a year: 6368 s off"),
+            // A restart that kept the counter, read days later: far off.
+            (T0 + 3 * DAY, T0 + DAY, false, "a restart a day after the setup"),
+        ] {
+            assert_eq!(same_boot(&m, now, Some(boot), Some(8)), same, "{why}");
+        }
+        // A new counter: a restart, however close the start times.
+        assert!(!same_boot(&m, T0 + 600, Some(BOOT), Some(9)));
+        // No start time read, then or now: not the same boot.
+        assert!(!same_boot(&m, T0 + 600, None, Some(8)));
+        assert!(!same_boot(&marker(T0, None), T0 + 600, Some(BOOT), Some(8)));
+        // The clock put back 50 s, 10 s after the setup: no drift, the
+        // minute only.
+        assert!(same_boot(&m, T0 - 40, Some(BOOT - 50), Some(8)));
+        assert!(!same_boot(&m, T0 - 40, Some(BOOT - 61), Some(8)));
+        // Started 20 s after Windows did, restarted 10 s later with the
+        // counter kept, read 5 s after: the start times are 50 s apart
+        // (within the minute), but Windows has run 5 s where it had run 20.
+        let early = marker(T0, Some(T0 - 20));
+        assert!(!same_boot(&early, T0 + 35, Some(T0 + 30), Some(8)), "ran less: restarted");
+        assert!(same_boot(&early, T0 + 35, Some(T0 - 20), Some(8)), "the same start");
+    }
+
     #[test]
     fn a_marker_of_another_outcome_or_unreadable_is_nothing() {
         let dir = TestDir::new("marker-other");
