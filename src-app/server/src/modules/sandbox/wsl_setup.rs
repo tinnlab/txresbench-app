@@ -2202,9 +2202,6 @@ mod tests {
         assert!(waits(&machine), "an older marker, the clock agrees");
     }
 
-    /// A marker of a setup that ended otherwise, of a decline a minute ago
-    /// or more or without its time (an older build's), or a marker that
-    /// cannot be read: offered, no pause.
     /// The boot rule with the counter the same in both readings, on
     /// injected values: the start times may differ by 60 s plus a second per
     /// 5000 s since the setup; no start time read: not the same boot.
@@ -2262,6 +2259,9 @@ mod tests {
         assert!(same_boot(&early, T0 + 35, Some(T0 - 20), Some(8)), "the same start");
     }
 
+    /// A marker of a setup that ended otherwise, of a decline a minute ago
+    /// or more or without its time (an older build's), or a marker that
+    /// cannot be read: offered, no pause.
     #[test]
     fn a_marker_of_another_outcome_or_unreadable_is_nothing() {
         let dir = TestDir::new("marker-other");
