@@ -240,3 +240,132 @@ fn a_headless_server_without_a_key_makes_and_prints_one() {
     let _ = std::fs::remove_dir_all(&dir);
     assert_ne!(key, TEST_LOCAL_API_KEY);
 }
+
+// ───────────────── the guard: no route can skip the lock ─────────────────
+
+/// Every operation in the committed OpenAPI document (the app's documented
+/// routes, 132 at the time of writing), plus the plain routes it does not list
+/// (the MCP JSON-RPC and SSE routes, the debug sentinel) and a path that does
+/// not exist, is called WITHOUT the key against a real booted server. Each must
+/// be refused with 403. The only answers that may be anything else are the two
+/// outside-AI-client routes ([`txresbench::modules::local_api_lock::BEARER_ONLY_ROUTES`]),
+/// and those are checked to refuse an Origin.
+///
+/// This is what makes "a new route cannot skip the check" a test and not a
+/// promise: a route added to the spec is enumerated here with no edit to this
+/// file, and one that answers anything but 403 names itself in the failure.
+#[tokio::test]
+async fn every_route_is_behind_the_lock() {
+    use txresbench::modules::local_api_lock::BEARER_ONLY_ROUTES;
+
+    let server = TestServer::spawn().await;
+    let spec: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/openapi/openapi.json"),
+        )
+        .expect("the committed OpenAPI document"),
+    )
+    .unwrap();
+
+    let mut routes: Vec<(String, String)> = Vec::new();
+    for (path, item) in spec["paths"].as_object().expect("paths") {
+        for (method, _) in item.as_object().expect("path item") {
+            if matches!(method.as_str(), "get" | "post" | "put" | "patch" | "delete") {
+                routes.push((method.to_uppercase(), path.clone()));
+            }
+        }
+    }
+    assert!(routes.len() > 100, "the spec enumeration found only {} operations", routes.len());
+    // Not in the spec (plain axum routes) and one that is not a route at all.
+    for (m, p) in [
+        ("POST", "/api/mcp"),
+        ("GET", "/api/mcp"),
+        ("GET", "/api/mcp/agent/stream"),
+        ("GET", "/api/this-route-does-not-exist"),
+        ("GET", "/__worktree"),
+        ("GET", "/"),
+    ] {
+        routes.push((m.to_string(), p.to_string()));
+    }
+
+    let exempt = |m: &str, p: &str| {
+        m == "POST"
+            && BEARER_ONLY_ROUTES.iter().any(|r| p == format!("/api{r}"))
+    };
+    let client = bare();
+    let mut not_refused = Vec::new();
+    for (method, path) in &routes {
+        // `{id}`-style parameters: any value (the lock answers before routing).
+        let concrete = regex_lite_params(path);
+        let url = server.root_url(&concrete);
+        let r = client
+            .request(method.parse().unwrap(), &url)
+            .send()
+            .await
+            .unwrap_or_else(|e| panic!("{method} {path}: {e}"));
+        let status = r.status().as_u16();
+        if exempt(method, path) {
+            assert_ne!(status, 403, "{method} {path} is a bearer-only route: it skips only the key");
+            // ...and it must still refuse a browser page: any Origin is a 403.
+            let r = client
+                .request(method.parse().unwrap(), &url)
+                .header("origin", "https://evil.example")
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status().as_u16(), 403, "{method} {path} with an Origin");
+        } else if status != 403 {
+            not_refused.push(format!("{method} {path} -> {status}"));
+        }
+    }
+    assert!(
+        not_refused.is_empty(),
+        "these routes answered without the local-API key (the lock must cover every route):\n{}",
+        not_refused.join("\n")
+    );
+}
+
+/// `/api/x/{id}/y` -> `/api/x/00000000-0000-0000-0000-000000000000/y`.
+fn regex_lite_params(path: &str) -> String {
+    let mut out = String::new();
+    let mut in_param = false;
+    for c in path.chars() {
+        match c {
+            '{' => {
+                in_param = true;
+                out.push_str("00000000-0000-0000-0000-000000000000");
+            }
+            '}' => in_param = false,
+            _ if !in_param => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The wiring half of the guard: axum's `Router::layer` wraps only the routes
+/// registered BEFORE it, so a route added to `build_app` after the lock's
+/// `.layer(...)` would sit outside it. The source of `build_app` must not
+/// register a route, merge or nest a router, or set a fallback after the lock.
+#[test]
+fn build_app_adds_no_route_after_the_lock() {
+    const LIB: &str = include_str!("../../src/lib.rs");
+    let start = LIB.find("async fn build_app(").expect("build_app");
+    let end = LIB[start..].find("\n}\n").map(|i| start + i).expect("end of build_app");
+    let body = &LIB[start..end];
+    let lock = body
+        .find("modules::local_api_lock::enforce")
+        .expect("build_app installs the lock");
+    let after: String = body[lock..]
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for forbidden in [".route(", ".api_route(", ".merge(", ".nest(", ".fallback(", ".nest_service("] {
+        assert!(
+            !after.contains(forbidden),
+            "build_app must not call `{forbidden}` after the local API lock is layered: \
+             that route would sit outside the lock"
+        );
+    }
+}
