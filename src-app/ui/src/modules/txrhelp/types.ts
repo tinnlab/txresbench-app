@@ -68,7 +68,7 @@ export interface QuickStartTryExample {
  *  three ways in; each button goes to the screen that starts it). */
 export interface QuickStartCard {
   id: 'pretrained' | 'learn' | 'saved'
-  /** The card's eyebrow ("Quickest", ...). */
+  /** The card's eyebrow ("Most flexible", ...). */
   eyebrow: string
   title: string
   /** One or two short sentences. */

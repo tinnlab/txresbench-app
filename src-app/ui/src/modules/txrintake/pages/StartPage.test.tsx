@@ -15,7 +15,7 @@
  * `MemoryRouter` the page renders in.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import '@/core/actions/builtin/stepActions'
 import { RouterBridge } from '@/core/actions/navigateBridge'
@@ -567,18 +567,27 @@ describe('the card layout (the user, 2026-11-19)', () => {
     expect(store().intent).toBe('reuse')
   })
 
+  /** Waits until the saved-models read has settled (resolved or failed) and
+   *  the page has re-rendered with its result, so a "no note" check runs on
+   *  the loaded count, not before it arrives. */
+  async function settleSavedRead() {
+    await waitFor(() => expect(api.saved).toHaveBeenCalled())
+    await act(async () => {
+      await (api.saved.mock.results[0].value as Promise<unknown>).catch(() => {})
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+  }
+
   it('some saved models: no note on the saved-model card', async () => {
     renderStart()
-    await waitFor(() => expect(api.saved).toHaveBeenCalled())
-    await Promise.resolve()
+    await settleSavedRead()
     expect(screen.queryByTestId('txr-intake-start-card-reuse-none')).toBeNull()
   })
 
   it('a failed or pending saved-models read: no note (never a false "none saved")', async () => {
     api.saved.mockRejectedValue(new Error('store down'))
     renderStart()
-    await waitFor(() => expect(api.saved).toHaveBeenCalled())
-    await Promise.resolve()
+    await settleSavedRead()
     expect(screen.queryByTestId('txr-intake-start-card-reuse-none')).toBeNull()
   })
 })

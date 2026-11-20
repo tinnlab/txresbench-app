@@ -162,14 +162,22 @@ const STEP_LINE_TEXT: CSSProperties = {
   color: 'var(--txr-brand)',
 }
 
-/** The line as a button: the text look, with no button box, so the line keeps
- *  its place and height (PR #32's heading position stays as it was). */
+/** The line's box: the former step line's 12 px text at the shell's 1.5 line
+ *  height, so the line stays 18 px tall and the heading below does not move
+ *  (PR #32's heading position). A flex box, so no taller text strut is added. */
+const STEP_LINE_BOX: CSSProperties = {
+  display: 'flex',
+  fontSize: 12,
+  lineHeight: 1.5,
+}
+
+/** The line as a button: the text look, with no button box of its own. */
 const STEP_LINE_BUTTON: CSSProperties = {
   ...STEP_LINE_TEXT,
   height: 'auto',
   padding: 0,
   gap: 6,
-  lineHeight: 'normal',
+  lineHeight: 'inherit',
   border: 0,
 }
 
@@ -181,7 +189,7 @@ const STEP_LINE_BUTTON: CSSProperties = {
 export function TxrStepLine({ step, of }: { step: number; of: number }) {
   const blockedReason = useStore(useStepTrailStore, s => s.current?.blockedReason ?? null)
   return (
-    <div data-testid="txr-step-line">
+    <div data-testid="txr-step-line" style={STEP_LINE_BOX}>
       <Button
         data-testid="txr-step-line-back"
         variant="link"

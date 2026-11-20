@@ -260,6 +260,17 @@ describe('TxrStepLine (the "← Step x of y" line)', () => {
     expect(style.color).toBe('var(--txr-brand)')
     expect(style.padding).toBe('0px')
     expect(style.height).toBe('auto')
+    expect(style.lineHeight).toBe('inherit')
+  })
+
+  it('keeps the former line box: 12 px text at line height 1.5 (18 px), in a flex box', () => {
+    // The former step line was a 12 px div under the shell's line height 1.5.
+    // The wrapper carries the same box, so the heading below stays where it was.
+    renderFlow('/study')
+    const box = screen.getByTestId('txr-step-line').style
+    expect(box.fontSize).toBe('12px')
+    expect(box.lineHeight).toBe('1.5')
+    expect(box.display).toBe('flex')
   })
 
   it('runs the registered flow.back, the same action as the Back button', async () => {
