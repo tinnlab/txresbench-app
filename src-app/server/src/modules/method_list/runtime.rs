@@ -768,6 +768,16 @@ pub fn production_seams_with(data_root: PathBuf, inputs: SeamInputs<'_>) -> Runt
             Err(e) => return off(&format!("{}: {e}", fetch::TEST_KEY_ENV)),
         }
     }
+    if keys.keys().is_empty() {
+        // No key can verify a list, so a fetch could only end in a refused list.
+        return RuntimeSeams {
+            data_root,
+            source: None,
+            off_reason: Some("no trusted keys are compiled in".to_string()),
+            keys,
+            coalesce: COALESCE_WINDOW,
+        };
+    }
     if list_ref != fetch::ListRef::production() {
         tracing::warn!(reference = %list_ref.tag_ref(), "method list: fetching from the debug reference");
     }
@@ -1469,7 +1479,15 @@ mod tests {
             read: &|_| None,
             debug: true,
         };
-        let on = production_seams_with(root.clone(), inputs(false, false));
+        let with_key = |demo: bool, dev_manifest: bool| {
+            // The compiled-in key set is empty today, so "updates on" needs an injected key.
+            let read = |k: &str| (k == super::fetch::TEST_KEY_ENV).then(fixture_pub_path);
+            production_seams_with(
+                root.clone(),
+                SeamInputs { demo, dev_manifest, read: &read, debug: true },
+            )
+        };
+        let on = with_key(false, false);
         assert!(on.source.is_some() && on.off_reason.is_none());
         let demo = production_seams_with(root.clone(), inputs(true, false));
         assert!(demo.source.is_none());
@@ -1489,6 +1507,33 @@ mod tests {
             SeamInputs { demo: false, dev_manifest: false, read: &read, debug: false },
         );
         assert_eq!(release.keys.fingerprint(), TrustedKeys::builtin().unwrap().fingerprint());
+    }
+
+    #[test]
+    fn production_seams_are_off_without_a_trusted_key() {
+        let root = scratch("no-keys");
+        let none = |_: &str| None;
+        let seams = production_seams_with(
+            root.clone(),
+            SeamInputs { demo: false, dev_manifest: false, read: &none, debug: true },
+        );
+        if TrustedKeys::builtin().unwrap().keys().is_empty() {
+            assert!(seams.source.is_none(), "no registry call without a key that can verify");
+            assert_eq!(seams.off_reason.as_deref(), Some("no trusted keys are compiled in"));
+            let release = production_seams_with(
+                root.clone(),
+                SeamInputs { demo: false, dev_manifest: false, read: &none, debug: false },
+            );
+            assert!(release.source.is_none() && release.off_reason.is_some());
+        }
+        // A debug build with the test key turns updates on again.
+        let read = |k: &str| (k == super::fetch::TEST_KEY_ENV).then(fixture_pub_path);
+        let with_key = production_seams_with(
+            root,
+            SeamInputs { demo: false, dev_manifest: false, read: &read, debug: true },
+        );
+        assert!(with_key.source.is_some() && with_key.off_reason.is_none());
+        assert!(!with_key.keys.keys().is_empty());
     }
 
     #[test]
