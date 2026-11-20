@@ -18,11 +18,11 @@
 //!
 //! Nothing runs as administrator unless a person confirms in the app's own
 //! dialog first ([`question`]): a window on this PC that no caller of the
-//! route can answer. That dialog is the barrier. Windows' permission prompt
-//! (UAC) may come after it, but is not relied on: with UAC off or set to
-//! never notify, or with the app itself run as administrator, Windows
-//! elevates without asking anyone. After a No (in the dialog or in Windows'
-//! prompt) the setup is not offered again for [`DECLINE_PAUSE_SECS`], so that
+//! route can answer, and that no letter key answers ([`buttons`]). That
+//! dialog is the barrier. Windows' permission prompt (UAC) may come after it,
+//! but is not relied on: with UAC off or set to never notify, or with the app
+//! itself run as administrator, Windows elevates without asking anyone. After
+//! a decline (in the dialog or in Windows' prompt) the setup is not offered again for [`DECLINE_PAUSE_SECS`], so that
 //! a caller cannot put the question up again and again. [`check_caller`]
 //! refuses a page whose web origin is not one of the app window's, and a
 //! request to another name for this PC; it does not prove that a request
@@ -117,8 +117,8 @@ fn offer_for(status: WslStatus) -> Option<WslSetupOffer> {
 pub enum WslSetupOutcome {
     /// WSL is set up. The app must start again to use it.
     Done,
-    /// The person said No (in the app's dialog or to Windows' permission
-    /// prompt): nothing changed.
+    /// The person did not go on (Not now in the app's dialog, or No in
+    /// Windows' permission prompt): nothing changed.
     Declined,
     /// Windows could not start the setup (`windows_error`).
     NotStarted,
@@ -206,9 +206,9 @@ enum Launch {
 
 /// The seam between the setup's rules and Windows.
 trait SetupHost: Send + Sync {
-    /// Ask the person at the PC, in the app's own Yes/No dialog, whether to go
-    /// on (`true`: Yes).
-    fn confirm(&self, question: &str) -> bool;
+    /// Ask the person at the PC, in the app's own dialog, whether to go on
+    /// (`true`: they chose the question's `go` button).
+    fn confirm(&self, question: &Question) -> bool;
     /// Run the installer's commands for `offer` as administrator and wait for
     /// them to end; `started` gets the elevated process once Windows started
     /// it.
@@ -439,41 +439,81 @@ fn start(state: &Arc<SetupState>, boot: Option<WslStatus>, host: Arc<dyn SetupHo
     Ok(status)
 }
 
+/// The app's question before anything runs as administrator: its words, and
+/// the label of the button that goes on (the other is [`NOT_NOW`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Question {
+    text: &'static str,
+    go: &'static str,
+}
+
 /// The app's question before anything runs as administrator, in the
 /// installer's words, saying where the request came from.
-fn question(before: WslStatus) -> &'static str {
+fn question(before: WslStatus) -> Question {
     match before {
-        WslStatus::Missing => {
-            "TxResBench runs methods inside WSL 2 (Windows Subsystem for Linux), which is not installed.\r\n\r\n\
+        WslStatus::Missing => Question {
+            go: "Install WSL",
+            text: "TxResBench runs methods inside WSL 2 (Windows Subsystem for Linux), which is not installed.\r\n\r\n\
              Install WSL 2 now? It is downloaded from Microsoft (about 400 MB). Windows may also ask for \
              permission, and Windows usually needs a restart afterwards.\r\n\r\n\
              This was asked for in TxResBench: with its Set up WSL button, its command palette or an AI assistant \
-             connected to it. Choose No to change nothing."
-        }
-        WslStatus::Legacy => {
-            "TxResBench runs methods inside WSL 2 (Windows Subsystem for Linux). The WSL installed is an older \
+             connected to it. To change nothing, choose Not now.",
+        },
+        WslStatus::Legacy => Question {
+            go: "Update WSL",
+            text: "TxResBench runs methods inside WSL 2 (Windows Subsystem for Linux). The WSL installed is an older \
              kind that TxResBench cannot use.\r\n\r\n\
              Update WSL now? The update is downloaded from Microsoft (about 400 MB). Windows may also ask for \
              permission. Linux programs running in WSL will be closed, and Windows may need a restart \
              afterwards.\r\n\r\n\
              This was asked for in TxResBench: with its Update WSL button, its command palette or an AI assistant \
-             connected to it. Choose No to change nothing."
-        }
+             connected to it. To change nothing, choose Not now.",
+        },
         // `Old`: the only other status offered a setup (`offer_for`).
-        _ => {
-            "TxResBench runs methods inside WSL 2 (Windows Subsystem for Linux). The WSL installed is too old: \
+        _ => Question {
+            go: "Update WSL",
+            text: "TxResBench runs methods inside WSL 2 (Windows Subsystem for Linux). The WSL installed is too old: \
              it has a known security flaw that newer versions fix.\r\n\r\n\
              Update WSL now? The update is downloaded from Microsoft (about 400 MB). Windows may also ask for \
              permission. Linux programs running in WSL will be closed.\r\n\r\n\
              This was asked for in TxResBench: with its Update WSL button, its command palette or an AI assistant \
-             connected to it. Choose No to change nothing."
-        }
+             connected to it. To change nothing, choose Not now.",
+        },
     }
 }
 
 /// The question's title.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 const QUESTION_TITLE: &str = "TxResBench: set up WSL";
+
+/// The label of the question's other button, the default.
+const NOT_NOW: &str = "Not now";
+
+/// The ids of the question's two buttons (the dialog's answer).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const GO_BUTTON: i32 = 100;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const NOT_NOW_BUTTON: i32 = 101;
+
+/// The question's buttons (id, label): `question.go` and [`NOT_NOW`], the
+/// default. No label has an `&`, so no letter key presses either: someone
+/// typing in the app as the question comes up (an agent may start a setup
+/// at any moment) cannot answer it. (Windows' own Yes and No are "&Yes" and
+/// "&No": a "y" would say Yes.) Enter and Space press the default, Not now;
+/// Esc closes the dialog, which is a No too.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn buttons(question: &Question) -> [(i32, &'static str); 2] {
+    [(GO_BUTTON, question.go), (NOT_NOW_BUTTON, NOT_NOW)]
+}
+
+/// The dialog's answer, from `TaskDialogIndirect`'s result and the button
+/// that closed it: go on only after the go button. A dialog Windows did not
+/// show (a failed result), one closed with Esc or its close box
+/// (`IDCANCEL`), and Not now are a No.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn goes_on(result: i32, button: i32) -> bool {
+    result == 0 && button == GO_BUTTON
+}
 
 /// One setup, as the installer hook does it: ask, run the commands as
 /// administrator, then check again. WSL is set up when the check says it is
@@ -491,7 +531,7 @@ fn set_up(
     before: WslStatus,
     started: &mut dyn FnMut(ElevatedProcess),
 ) -> WslSetupResult {
-    if !host.confirm(question(before)) {
+    if !host.confirm(&question(before)) {
         return WslSetupResult::of(WslSetupOutcome::Declined);
     }
     let missing_or_legacy = |status| matches!(status, WslStatus::Missing | WslStatus::Legacy);
@@ -675,7 +715,7 @@ fn system_host() -> Arc<dyn SetupHost> {
 fn system_host() -> Arc<dyn SetupHost> {
     struct NoWindows;
     impl SetupHost for NoWindows {
-        fn confirm(&self, _question: &str) -> bool {
+        fn confirm(&self, _question: &Question) -> bool {
             false
         }
         fn run_elevated(&self, _offer: WslSetupOffer, _started: &mut dyn FnMut(ElevatedProcess)) -> Launch {
@@ -757,8 +797,8 @@ fn last_words(output: &str) -> String {
     kept.chars().skip(skip).collect()
 }
 
-/// The setup through Windows: the app's own dialog, then `ShellExecuteExW`
-/// with the "runas" verb.
+/// The setup through Windows: the app's own dialog (`TaskDialogIndirect`),
+/// then `ShellExecuteExW` with the "runas" verb.
 #[cfg(target_os = "windows")]
 mod elevated {
     use std::ffi::OsStr;
@@ -766,17 +806,20 @@ mod elevated {
     use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
 
-    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, HWND, LPARAM, WAIT_TIMEOUT};
+    use windows_sys::core::{BOOL, HRESULT};
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, HWND, LPARAM, WAIT_TIMEOUT, WPARAM};
     use windows_sys::Win32::System::Threading::{
         GetProcessId, GetProcessTimes, OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
         PROCESS_SYNCHRONIZE,
     };
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        MB_DEFBUTTON2, MB_ICONQUESTION, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO,
+    use windows_sys::Win32::UI::Controls::{
+        TASKDIALOGCONFIG, TASKDIALOG_BUTTON, TDF_ALLOW_DIALOG_CANCELLATION, TDF_POSITION_RELATIVE_TO_WINDOW,
+        TDM_SET_BUTTON_ELEVATION_REQUIRED_STATE, TDN_CREATED,
     };
 
     use super::{
-        decode_output, setup_params, ElevatedProcess, Launch, SetupHost, WslSetupOffer, WslStatus, QUESTION_TITLE,
+        buttons, decode_output, setup_params, ElevatedProcess, Launch, Question, SetupHost, WslSetupOffer, WslStatus,
+        GO_BUTTON, NOT_NOW_BUTTON, QUESTION_TITLE,
     };
 
     // The app is a 64-bit program: its System32 is the real one, where wsl.exe
@@ -793,10 +836,9 @@ mod elevated {
     /// How much of the output's end is read.
     const OUTPUT_TAIL: u64 = 64 * 1024;
 
-    /// The app's question: Yes and No, No the default (a key pressed while the
-    /// dialog takes the focus does not say Yes), above every window and in
-    /// front.
-    pub(super) const QUESTION_STYLE: u32 = MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2 | MB_TOPMOST | MB_SETFOREGROUND;
+    /// The question's dialog: Esc and the close box allowed (a No), centred
+    /// on its owner.
+    pub(super) const DIALOG_FLAGS: i32 = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
 
     fn wide(s: &OsStr) -> Vec<u16> {
         s.encode_wide().chain(std::iter::once(0)).collect()
@@ -867,7 +909,6 @@ mod elevated {
     /// visible top-level window without an owner; null when it has none (the
     /// server runs alone, or in a test).
     pub(super) fn main_window() -> HWND {
-        use windows_sys::core::BOOL;
         use windows_sys::Win32::System::Threading::GetCurrentProcessId;
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             EnumWindows, GetWindow, GetWindowThreadProcessId, IsWindowVisible, GW_OWNER,
@@ -891,19 +932,117 @@ mod elevated {
         found
     }
 
-    /// The app's Yes/No question (`MessageBoxW`), owned by the app's main
-    /// window when it has one; `true`: Yes. Never in a test: nobody could
-    /// answer it (in the test VM, over SSH, it would wait for ever).
-    fn ask(title: &str, text: &str) -> bool {
+    /// `TaskDialogIndirect` (commctrl.h).
+    pub(super) type TaskDialogIndirect =
+        unsafe extern "system" fn(*const TASKDIALOGCONFIG, *mut i32, *mut i32, *mut BOOL) -> HRESULT;
+
+    /// `TaskDialogIndirect`, from the Common Controls 6 that this process's
+    /// manifest asks for. The desktop app's does: tauri-build's default
+    /// manifest names Microsoft.Windows.Common-Controls 6.0.0.0 (it is in the
+    /// built txresbench-desktop.exe). `None` in a process without one (the
+    /// server run by itself, a test): the comctl32 Windows loads then is the
+    /// old one, which has no task dialog. Looked up, not linked, so that such
+    /// a process still starts; the library stays loaded, so the function
+    /// stays valid.
+    pub(super) fn task_dialog() -> Option<TaskDialogIndirect> {
+        use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+        let name = wide(OsStr::new("comctl32.dll"));
+        // SAFETY: `name` is NUL-terminated and outlives the call.
+        let module = unsafe { LoadLibraryW(name.as_ptr()) };
+        if module.is_null() {
+            return None;
+        }
+        // SAFETY: `module` is loaded; the name is NUL-terminated ASCII.
+        let found = unsafe { GetProcAddress(module, b"TaskDialogIndirect\0".as_ptr()) }?;
+        // SAFETY: comctl32's TaskDialogIndirect has this signature (commctrl.h).
+        Some(unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, TaskDialogIndirect>(found) })
+    }
+
+    /// The question's words, as the dialog reads them.
+    pub(super) struct Dialog {
+        title: Vec<u16>,
+        text: Vec<u16>,
+        labels: [(i32, Vec<u16>); 2],
+    }
+
+    impl Dialog {
+        pub(super) fn new(title: &str, question: &Question) -> Self {
+            let text = |s: &str| wide(OsStr::new(s));
+            let labels = buttons(question).map(|(id, label)| (id, text(label)));
+            Self { title: text(title), text: text(question.text), labels }
+        }
+
+        /// The dialog's buttons ([`buttons`]), pointing into `self`.
+        pub(super) fn buttons(&self) -> [TASKDIALOG_BUTTON; 2] {
+            self.labels.each_ref().map(|(id, label)| TASKDIALOG_BUTTON { nButtonID: *id, pszButtonText: label.as_ptr() })
+        }
+
+        /// The dialog, owned by `owner` (null: none), pointing into `self`
+        /// and `buttons`, which must outlive its use: the question's words
+        /// and its two buttons only, Not now the default ([`DIALOG_FLAGS`];
+        /// [`on_dialog`] puts it above every window, in front).
+        pub(super) fn config(&self, owner: HWND, buttons: &[TASKDIALOG_BUTTON; 2]) -> TASKDIALOGCONFIG {
+            TASKDIALOGCONFIG {
+                cbSize: std::mem::size_of::<TASKDIALOGCONFIG>() as u32,
+                hwndParent: owner,
+                dwFlags: DIALOG_FLAGS,
+                pszWindowTitle: self.title.as_ptr(),
+                pszContent: self.text.as_ptr(),
+                cButtons: buttons.len() as u32,
+                pButtons: buttons.as_ptr(),
+                nDefaultButton: NOT_NOW_BUTTON,
+                pfCallback: Some(on_dialog),
+                ..Default::default()
+            }
+        }
+    }
+
+    /// The dialog's callback: once the dialog is made, it goes above every
+    /// window and in front (as a message box's MB_TOPMOST and
+    /// MB_SETFOREGROUND), and the go button gets Windows' shield (it runs as
+    /// administrator).
+    pub(super) unsafe extern "system" fn on_dialog(window: HWND, msg: u32, _: WPARAM, _: LPARAM, _: isize) -> HRESULT {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SendMessageW, SetForegroundWindow, SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
+        };
+        if msg == TDN_CREATED as u32 {
+            // SAFETY: `window` is the dialog TaskDialogIndirect made (in a
+            // test, a window of the test's own).
+            unsafe {
+                SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+                SetForegroundWindow(window);
+                SendMessageW(window, TDM_SET_BUTTON_ELEVATION_REQUIRED_STATE as u32, GO_BUTTON as WPARAM, 1);
+            }
+        }
+        0 // S_OK
+    }
+
+    /// The app's question (`TaskDialogIndirect`, [`Dialog`]), owned by the
+    /// app's main window when it has one; `true`: the go button. Without
+    /// Common Controls 6 ([`task_dialog`]) nothing is shown and the answer is
+    /// No. Never in a test: nobody could answer it (in the test VM, over SSH,
+    /// it would wait for ever).
+    fn ask(title: &str, question: &Question) -> bool {
         #[cfg(test)]
-        panic!("the app's own dialog is never shown in a test ({title}: {text})");
+        panic!("the app's own dialog is never shown in a test ({title}: {question:?})");
         #[cfg(not(test))]
         {
-            use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, IDYES};
-            let (title, text) = (wide(OsStr::new(title)), wide(OsStr::new(text)));
-            // SAFETY: both strings are NUL-terminated and outlive the call;
-            // a null owner is allowed.
-            unsafe { MessageBoxW(main_window(), text.as_ptr(), title.as_ptr(), QUESTION_STYLE) == IDYES }
+            let Some(task_dialog) = task_dialog() else {
+                tracing::warn!(
+                    "sandbox: the WSL setup's question needs Common Controls 6 (the desktop app's manifest); \
+                     this process has none, so the setup does not go on"
+                );
+                return false;
+            };
+            let dialog = Dialog::new(title, question);
+            let buttons = dialog.buttons();
+            let config = dialog.config(main_window(), &buttons);
+            let mut button = 0;
+            // SAFETY: `config` points into `dialog` and `buttons`, which
+            // outlive the call; `button` is written by it; the radio button
+            // and check box answers are not asked for (null).
+            let result = unsafe { task_dialog(&config, &mut button, std::ptr::null_mut(), std::ptr::null_mut()) };
+            super::goes_on(result, button)
         }
     }
 
@@ -945,7 +1084,7 @@ mod elevated {
     }
 
     impl SetupHost for ElevatedSetup {
-        fn confirm(&self, question: &str) -> bool {
+        fn confirm(&self, question: &Question) -> bool {
             ask(QUESTION_TITLE, question)
         }
 
@@ -1090,7 +1229,7 @@ mod tests {
         launch: Mutex<Option<Launch>>,
         after: WslStatus,
         hold: Mutex<Option<mpsc::Receiver<()>>>,
-        questions: Mutex<Vec<String>>,
+        questions: Mutex<Vec<Question>>,
         offers: Mutex<Vec<WslSetupOffer>>,
         /// The elevated process it reports as started.
         process: Option<ElevatedProcess>,
@@ -1123,14 +1262,14 @@ mod tests {
             self.offers.lock().unwrap().clone()
         }
 
-        fn questions(&self) -> Vec<String> {
+        fn questions(&self) -> Vec<Question> {
             self.questions.lock().unwrap().clone()
         }
     }
 
     impl SetupHost for FakeHost {
-        fn confirm(&self, question: &str) -> bool {
-            self.questions.lock().unwrap().push(question.to_string());
+        fn confirm(&self, question: &Question) -> bool {
+            self.questions.lock().unwrap().push(*question);
             self.yes
         }
         fn run_elevated(&self, offer: WslSetupOffer, started: &mut dyn FnMut(ElevatedProcess)) -> Launch {
@@ -1327,17 +1466,42 @@ mod tests {
         for (status, verb) in
             [(WslStatus::Missing, "Install WSL 2 now?"), (WslStatus::Old, "Update WSL now?"), (WslStatus::Legacy, "Update WSL now?")]
         {
-            let q = question(status);
-            for words in [verb, "Microsoft", "about 400 MB", "Windows may also ask for permission", "in TxResBench", "AI assistant", "Choose No to change nothing"] {
+            let q = question(status).text;
+            for words in [verb, "Microsoft", "about 400 MB", "Windows may also ask for permission", "in TxResBench", "AI assistant", "To change nothing, choose Not now."] {
                 assert!(q.contains(words), "{status:?}: {words:?} in {q:?}");
             }
             // With UAC off or never notifying, or the app run as administrator,
             // Windows asks nothing: the question never says it will.
             assert!(!q.contains("will ask") && !q.contains("asks next"), "{status:?}: {q:?}");
         }
-        assert!(question(WslStatus::Missing).contains("usually needs a restart"));
-        assert!(question(WslStatus::Legacy).contains("older kind") && question(WslStatus::Legacy).contains("may need a restart"));
-        assert!(question(WslStatus::Old).contains("security flaw"));
+        assert!(question(WslStatus::Missing).text.contains("usually needs a restart"));
+        let legacy = question(WslStatus::Legacy).text;
+        assert!(legacy.contains("older kind") && legacy.contains("may need a restart"));
+        assert!(question(WslStatus::Old).text.contains("security flaw"));
+    }
+
+    /// The question's buttons: the setup's own verb and Not now. No label has
+    /// an `&`, so no letter key presses one (a "y" typed into the app as a
+    /// message box's "&Yes" came up would have said Yes). Only the go button
+    /// goes on: Not now, Esc or the close box (IDCANCEL), and a dialog
+    /// Windows did not show are a No.
+    #[test]
+    fn the_question_cannot_be_answered_by_a_letter_key() {
+        for (status, go) in [(WslStatus::Missing, "Install WSL"), (WslStatus::Old, "Update WSL"), (WslStatus::Legacy, "Update WSL")] {
+            let q = question(status);
+            assert_eq!(buttons(&q), [(GO_BUTTON, go), (NOT_NOW_BUTTON, NOT_NOW)], "{status:?}");
+            assert!(buttons(&q).iter().all(|(_, label)| !label.contains('&')), "{status:?}");
+            assert_ne!(GO_BUTTON, NOT_NOW_BUTTON);
+            // The words name the buttons the dialog has.
+            assert!(q.text.contains(NOT_NOW) && !q.text.contains("Yes") && !q.text.contains("Choose No"), "{q:?}");
+        }
+        assert_eq!(NOT_NOW, "Not now");
+        assert!(goes_on(0, GO_BUTTON));
+        const IDCANCEL: i32 = 2;
+        const E_OUTOFMEMORY: i32 = 0x8007_000E_u32 as i32;
+        for (result, button) in [(0, NOT_NOW_BUTTON), (0, IDCANCEL), (0, 0), (E_OUTOFMEMORY, GO_BUTTON), (1, GO_BUTTON)] {
+            assert!(!goes_on(result, button), "{result:#x} {button}");
+        }
     }
 
     #[test]
@@ -1795,8 +1959,11 @@ mod tests {
         use std::sync::mpsc;
         use std::time::Duration;
 
-        use super::super::elevated::{self, system_dir, ElevatedSetup, QUESTION_STYLE};
-        use super::super::{ElevatedProcess, Launch, SetupHost, WslSetupOffer};
+        use super::super::elevated::{self, system_dir, Dialog, ElevatedSetup, DIALOG_FLAGS};
+        use super::super::{
+            question, ElevatedProcess, Launch, SetupHost, WslSetupOffer, WslStatus, GO_BUTTON, NOT_NOW_BUTTON,
+            QUESTION_TITLE,
+        };
 
         fn test_dir(tag: &str) -> PathBuf {
             let dir = std::env::temp_dir().join(format!("txr-wsl-setup-{tag}-{}", uuid::Uuid::new_v4().simple()));
@@ -2016,19 +2183,125 @@ mod tests {
             assert!(a > 1_500_000_000, "{a}");
         }
 
-        /// The question: Yes/No, No by default, above every window, in front;
-        /// with no window of its own in a test process, no owner. The dialog
-        /// itself is never shown in a test.
+        fn wide(s: &std::ffi::OsStr) -> Vec<u16> {
+            use std::os::windows::ffi::OsStrExt;
+            s.encode_wide().chain(std::iter::once(0)).collect()
+        }
+
+        /// A NUL-terminated UTF-16 string the dialog points to.
+        fn read(p: *const u16) -> String {
+            // SAFETY: `p` points into a live NUL-terminated buffer of the test.
+            unsafe {
+                let len = (0..).take_while(|&i| *p.add(i) != 0).count();
+                String::from_utf16_lossy(std::slice::from_raw_parts(p, len))
+            }
+        }
+
+        /// The question: a task dialog with the question's words and its two
+        /// buttons only (no Windows buttons, whose labels have letter keys),
+        /// Not now the default, Esc and the close box allowed (a No), centred
+        /// on the owner, and the callback that puts it on top. A test process
+        /// has no window of its own: no owner. The dialog itself is never
+        /// shown in a test.
         #[test]
-        fn the_question_is_a_yes_no_dialog_no_by_default_on_top() {
-            use windows_sys::Win32::UI::WindowsAndMessaging::{
-                MB_DEFBUTTON2, MB_ICONQUESTION, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO,
-            };
-            assert_eq!(QUESTION_STYLE, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2 | MB_TOPMOST | MB_SETFOREGROUND);
-            assert_eq!(QUESTION_STYLE, 0x4 | 0x20 | 0x100 | 0x4_0000 | 0x1_0000);
-            assert!(elevated::main_window().is_null(), "a test process has no window");
-            let shown = std::panic::catch_unwind(|| ElevatedSetup::system().confirm("question"));
+        fn the_question_is_a_task_dialog_with_not_now_the_default() {
+            use windows_sys::Win32::UI::Controls::{TDF_ALLOW_DIALOG_CANCELLATION, TDF_POSITION_RELATIVE_TO_WINDOW};
+            let q = question(WslStatus::Missing);
+            let dialog = Dialog::new(QUESTION_TITLE, &q);
+            let buttons = dialog.buttons();
+            let config = dialog.config(elevated::main_window(), &buttons);
+            // Copies: the struct is packed.
+            let (flags, common, count, default) = (config.dwFlags, config.dwCommonButtons, config.cButtons, config.nDefaultButton);
+            let (owner, callback, title, text) = (config.hwndParent, config.pfCallback, config.pszWindowTitle, config.pszContent);
+            assert_eq!(DIALOG_FLAGS, TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW);
+            assert_eq!(flags, DIALOG_FLAGS);
+            assert_eq!((common, count, default), (0, 2, NOT_NOW_BUTTON), "only the two buttons, Not now the default");
+            assert!(std::ptr::eq(config.pButtons, buttons.as_ptr()));
+            let labels: Vec<(i32, String)> = buttons.iter().map(|b| (b.nButtonID, read(b.pszButtonText))).collect();
+            assert_eq!(labels, [(GO_BUTTON, "Install WSL".to_string()), (NOT_NOW_BUTTON, "Not now".to_string())]);
+            assert_eq!((read(title), read(text)), (QUESTION_TITLE.to_string(), q.text.to_string()));
+            assert!(callback.is_some(), "the callback puts it on top");
+            assert!(owner.is_null() && elevated::main_window().is_null(), "a test process has no window");
+            let shown = std::panic::catch_unwind(|| ElevatedSetup::system().confirm(&q));
             assert!(shown.is_err(), "the real dialog is never shown in a test");
+        }
+
+        /// The dialog's callback puts the dialog above every window, once it
+        /// is made: tried on a hidden window of the test's own, never shown.
+        #[test]
+        fn the_dialog_goes_above_every_window_when_made() {
+            use windows_sys::Win32::UI::Controls::TDN_CREATED;
+            use windows_sys::Win32::UI::WindowsAndMessaging::{
+                CreateWindowExW, DestroyWindow, GetWindowLongPtrW, IsWindowVisible, GWL_EXSTYLE, WS_EX_TOPMOST, WS_POPUP,
+            };
+            let class = wide(std::ffi::OsStr::new("STATIC"));
+            // SAFETY: a plain hidden popup of the system's STATIC class; no
+            // parent, menu or creation data.
+            let window = unsafe {
+                CreateWindowExW(0, class.as_ptr(), std::ptr::null(), WS_POPUP, 0, 0, 10, 10, std::ptr::null_mut(),
+                    std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null())
+            };
+            assert!(!window.is_null(), "{}", std::io::Error::last_os_error());
+            // SAFETY: `window` is the test's window, alive until destroyed below.
+            let topmost = || unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) } as u32 & WS_EX_TOPMOST != 0;
+            assert!(!topmost());
+            // Another notification than "made" changes nothing.
+            // SAFETY: as TaskDialogIndirect calls it, with the test's window.
+            assert_eq!(unsafe { elevated::on_dialog(window, TDN_CREATED as u32 + 1, 0, 0, 0) }, 0);
+            assert!(!topmost());
+            // SAFETY: as above.
+            assert_eq!(unsafe { elevated::on_dialog(window, TDN_CREATED as u32, 0, 0, 0) }, 0);
+            assert!(topmost(), "above every window");
+            // SAFETY: the test's window.
+            unsafe {
+                assert_eq!(IsWindowVisible(window), 0, "never shown");
+                DestroyWindow(window);
+            }
+        }
+
+        /// The tauri-build default manifest, embedded in txresbench-desktop.exe
+        /// (read back from the built exe with mt.exe).
+        const DESKTOP_MANIFEST: &str = r#"<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0"
+        processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*" />
+    </dependentAssembly>
+  </dependency>
+</assembly>"#;
+
+        /// TaskDialogIndirect is in Common Controls 6 only. The test binary has
+        /// no manifest asking for it (as the server run by itself): the lookup
+        /// finds nothing, so the question would be a No. With the desktop app's
+        /// manifest active it is found. Nothing is shown.
+        #[test]
+        fn the_task_dialog_comes_with_the_desktop_apps_manifest() {
+            use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+            use windows_sys::Win32::System::ApplicationInstallationAndServicing::{
+                ActivateActCtx, CreateActCtxW, DeactivateActCtx, ReleaseActCtx, ACTCTXW,
+            };
+            assert!(elevated::task_dialog().is_none(), "the test binary loads the old comctl32");
+
+            let dir = test_dir("manifest");
+            let manifest = dir.join("desktop.manifest");
+            std::fs::write(&manifest, DESKTOP_MANIFEST).unwrap();
+            let source = wide(manifest.as_os_str());
+            let ctx = ACTCTXW { cbSize: std::mem::size_of::<ACTCTXW>() as u32, lpSource: source.as_ptr(), ..Default::default() };
+            // SAFETY: `ctx` is filled as the call expects; `source` outlives it.
+            let handle = unsafe { CreateActCtxW(&ctx) };
+            assert!(handle != INVALID_HANDLE_VALUE, "{}", std::io::Error::last_os_error());
+            let mut cookie = 0usize;
+            // SAFETY: `handle` is the context just made; this thread activates
+            // it, looks the function up, and deactivates and releases it.
+            let found = unsafe {
+                assert!(ActivateActCtx(handle, &mut cookie) != 0, "{}", std::io::Error::last_os_error());
+                let found = elevated::task_dialog();
+                DeactivateActCtx(0, cookie);
+                ReleaseActCtx(handle);
+                found
+            };
+            let _ = std::fs::remove_dir_all(&dir);
+            assert!(found.is_some(), "Common Controls 6 has TaskDialogIndirect");
         }
     }
 }

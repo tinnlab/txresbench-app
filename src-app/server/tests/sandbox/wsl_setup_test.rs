@@ -9,9 +9,9 @@
 //! unit-tested in `sandbox::wsl_setup` behind its seams.
 //!
 //! On a Windows PC that IS offered a setup (WSL missing or too old, like the
-//! test VM), an accepted POST would start a real setup: the app's own Yes/No
-//! dialog, which nobody can answer in a test, then (on a Yes) an install as
-//! administrator. The tests check what the notice reads there and skip every
+//! test VM), an accepted POST would start a real setup: the app's own
+//! dialog, which nobody can answer in a test, then (on Install WSL) an
+//! install as administrator. The tests check what the notice reads there and skip every
 //! POST that could be accepted (recorded); the refused ones run everywhere.
 
 use serde_json::Value;
