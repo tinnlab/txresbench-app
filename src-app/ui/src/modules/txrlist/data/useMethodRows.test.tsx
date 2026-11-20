@@ -184,6 +184,23 @@ afterEach(() => {
 })
 
 describe('useMethodRows (TEST-UL-11)', () => {
+  it('makes no card for a retired method, even if the list carries its row', async () => {
+    api.list.mockResolvedValue({
+      methods: [
+        summary({ id: 'direct-on', year: 2021, language: 'R' }),
+        summary({ id: 'retired-one', year: 2019, language: 'R', runnable: false }),
+      ],
+      total: 2,
+      method_list_sequence: 0,
+    })
+    const { result } = renderHook(({ inv }) => useMethodRows(inv), {
+      initialProps: { inv: inventory() },
+    })
+    await act(async () => {})
+
+    expect(result.current.cards.map(card => card.id)).toEqual(['direct-on'])
+  })
+
   it('fetches list + eligibility once and joins the verdicts into cards', async () => {
     const inv = inventory()
     const { result } = renderHook(({ inv }) => useMethodRows(inv), {
@@ -193,9 +210,9 @@ describe('useMethodRows (TEST-UL-11)', () => {
 
     expect(api.list).toHaveBeenCalledTimes(1)
     expect(api.eligibility).toHaveBeenCalledTimes(1)
-    // The full runnable catalogue (no query filters — D33, the shipped set is
-    // the runnable one); the inventory is the request's tagged-union body.
-    expect(api.list).toHaveBeenCalledWith({})
+    // The runnable catalogue (a retired method is not asked for); the inventory is
+    // the request's tagged-union body.
+    expect(api.list).toHaveBeenCalledWith({ runnable: true })
     expect(api.eligibility).toHaveBeenCalledWith({ inventory: inv })
     expect(result.current.loading).toBe(false)
     expect(result.current.error).toBeNull()

@@ -34,8 +34,9 @@
 //! pure engines are the test seam and the provider bedrock.
 //!
 //! Status lattice per method:
-//! - `cannot_run` when a hard requirement fails: not runnable
-//!   ([`ReasonCode::NotRunnable`]) or no published environment
+//! - A retired method (`runnable: false`) is left out of every answer: it has
+//!   no verdict and is not counted in the totals.
+//! - `cannot_run` when a hard requirement fails: no published environment
 //!   ([`ReasonCode::EnvImageMissing`], the runtime stage), a required marker
 //!   absent ([`ReasonCode::RequiredMarkerMissing`]) or an unchecked board
 //!   group (preview only, [`ReasonCode::MarkerGroupMissing`]), the detection
@@ -415,8 +416,7 @@ pub fn eligibility_calibrated(
 
 /// Run eligibility over a given catalogue — the PURE engine (no runtime-env
 /// stage; the test seam: handcrafted catalogues can exercise every rule,
-/// including the NOT_RUNNABLE case the shipped runnable-only set never
-/// triggers — DEC-2). Production consumers call [`eligibility`] or
+/// including a retired method, which gets no verdict). Production consumers call [`eligibility`] or
 /// [`eligibility_for_runtime`], never this directly.
 pub fn eligibility_for(cat: &Catalogue, req: &EligibilityRequest) -> EligibilityResponse {
     eligibility_for_calibrated(cat, req, &calibration::TimingCalibration::empty())
@@ -530,16 +530,10 @@ fn preview_eligibility(cat: &Catalogue, req: &PreviewEligibilityRequest) -> Elig
         .draws_during_treatment
         .map(|draws| draws + if req.before_treatment.as_deref() == Some("always") { 1 } else { 0 });
     let mut methods = Vec::with_capacity(cat.methods.len());
-    for m in &cat.methods {
+    // A retired method (`runnable: false`) is not offered: it gets no verdict.
+    for m in cat.methods.iter().filter(|m| m.runnable) {
         let mut reasons: Vec<Reason> = Vec::new();
         let mut missing_groups: Vec<MissingGroup> = Vec::new();
-        if !m.runnable {
-            reasons.push(Reason {
-                code: ReasonCode::NotRunnable,
-                params: BTreeMap::new(),
-                group_id: None,
-            });
-        }
         for gid in &m.marker_groups_required {
             if !req.marker_groups.get(gid).copied().unwrap_or(false) {
                 let label = cat
@@ -577,7 +571,7 @@ fn preview_eligibility(cat: &Catalogue, req: &PreviewEligibilityRequest) -> Elig
         // The schedule's patient split: a "sometimes" before-treatment answer
         // means some patients have no baseline draw.
         let some_baseline = m.needs_baseline && req.before_treatment.as_deref() == Some("sometimes");
-        let status = if !m.runnable || !missing_groups.is_empty() || !schedule_ok {
+        let status = if !missing_groups.is_empty() || !schedule_ok {
             EligibilityStatus::CannotRun
         } else if some_baseline {
             EligibilityStatus::CanRunSome
@@ -619,7 +613,8 @@ fn inventory_eligibility(
     calibration: &calibration::TimingCalibration,
 ) -> EligibilityResponse {
     let mut methods = Vec::with_capacity(cat.methods.len());
-    for m in &cat.methods {
+    // A retired method (`runnable: false`) is not offered: it gets no verdict.
+    for m in cat.methods.iter().filter(|m| m.runnable) {
         methods.push(inventory_method(cat, inv, m, calibration));
     }
     finish(methods)
@@ -660,14 +655,6 @@ fn inventory_method(
 ) -> MethodEligibility {
     let mut reasons: Vec<Reason> = Vec::new();
     let mut missing_markers: Vec<MissingMarker> = Vec::new();
-
-    if !m.runnable {
-        reasons.push(Reason {
-            code: ReasonCode::NotRunnable,
-            params: BTreeMap::new(),
-            group_id: None,
-        });
-    }
 
     // Outcome availability (the reconcile-grown codes; the request carries
     // them when the consumer knows the file's outcome columns).
@@ -1275,8 +1262,7 @@ fn verdict(reasons: &[Reason], eligible: u32, total: u32) -> EligibilityStatus {
 // TEST-MC-1/2/3/4 + TEST-MC-27 — the port fixtures' expected values were
 // produced by running data.py on the same strings (INV-2); the lattice cases
 // are pinned over handcrafted catalogues so every rule can be exercised
-// (the shipped catalogue is the runnable set — DEC-2 — and never triggers
-// NOT_RUNNABLE).
+// (a retired method gets no verdict).
 // ─────────────────────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
@@ -1971,17 +1957,23 @@ mod tests {
     }
 
     #[test]
-    fn lattice_not_runnable_without_env_image() {
-        // The shipped catalogue never carries one (DEC-2, boot-validated), so
-        // the rule is exercised through the handcrafted-catalogue seam.
-        let m = method_json("fx-not-runnable", &[
-            ("runnable", serde_json::json!(false)),
+    fn retired_method_gets_no_verdict_and_is_not_counted() {
+        // A method the list retires (`runnable: false`) leaves every answer:
+        // no verdict row, no count in any total.
+        let methods = serde_json::json!([
+            method_json("fx-live", &[]),
+            method_json("fx-retired", &[("runnable", serde_json::json!(false))]),
         ]);
-        let cat = one_method_catalogue(m);
-        let req = inventory_req(1, vec![], vec![]);
-        let v = verdict_of(&cat, &req, "fx-not-runnable");
-        assert_eq!(v.status, EligibilityStatus::CannotRun);
-        assert!(v.reasons.iter().any(|r| r.code == ReasonCode::NotRunnable));
+        let cat = catalogue_with(methods, serde_json::json!([]));
+        let req = EligibilityRequest::Inventory { inventory: inventory_req(1, vec![], vec![]) };
+        let resp = eligibility_for(&cat, &req);
+        assert!(resp.methods.iter().any(|m| m.id == "fx-live"), "non-vacuity: the live method has a verdict");
+        assert!(resp.methods.iter().all(|m| m.id != "fx-retired"));
+        assert_eq!(
+            resp.total_fit + resp.total_some + resp.total_cannot,
+            resp.methods.len() as u32
+        );
+        assert_eq!(resp.methods.len(), 1);
     }
 
     /// The engine's OWN min_fraction resolution (TEST-MC-3's engine half; the
@@ -2133,7 +2125,9 @@ mod tests {
         let vfree = resp.methods.iter().find(|m| m.id == "fx-free").unwrap();
         assert_eq!(vfree.status, EligibilityStatus::CanRun);
         assert_eq!(resp.total_fit, 1);
-        assert_eq!(resp.total_cannot, 2);
+        // The retired `fx-nope` has no verdict and is not counted.
+        assert!(resp.methods.iter().all(|m| m.id != "fx-nope"));
+        assert_eq!(resp.total_cannot, 1);
         assert_eq!(resp.total_some, 0);
     }
 

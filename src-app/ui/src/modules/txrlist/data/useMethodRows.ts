@@ -117,7 +117,9 @@ export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethod
     setLoading(true)
     setError(null)
     void Promise.all([
-      ApiClient.MethodCatalogue.list({}),
+      // Only runnable methods are offered: a method the list retires keeps its row for
+      // saved models, but never becomes a card.
+      ApiClient.MethodCatalogue.list({ runnable: true }),
       ApiClient.MethodCatalogue.eligibility({ inventory }),
     ])
       .then(([list, eligibility]) => {
@@ -138,7 +140,7 @@ export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethod
           return
         }
         mixed.current = 0
-        setCards(buildMethodCards(list.methods, eligibility))
+        setCards(buildMethodCards(list.methods.filter(method => method.runnable), eligibility))
         setNoEnvCount(eligibility.total_no_env ?? 0)
         const sequence = eligibility.method_list_sequence ?? list.method_list_sequence ?? null
         setMethodListSequence(sequence)

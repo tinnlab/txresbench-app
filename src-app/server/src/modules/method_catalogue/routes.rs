@@ -27,8 +27,8 @@
 //! - `POST /api/methods/estimate`: every engine failure is a `400` carrying
 //!   the engine's named code (`UNKNOWN_METHOD` — the first unknown id in
 //!   request order, `METHOD_NOT_RUNNABLE`, `INVALID_CPUS`, `INVALID_AT_A_TIME`).
-//!   `METHOD_NOT_RUNNABLE` is unreachable on the shipped runnable-only set
-//!   (DEC-2) and is exercised through the engine's handcrafted-catalogue seam
+//!   `METHOD_NOT_RUNNABLE` is reachable only for a method the list retires
+//!   (`runnable: false`; the row is kept for saved models) and is exercised through the engine's handcrafted-catalogue seam
 //!   (ITEM-4's unit tests) — never silently dropped here.
 //! - `POST /api/methods/eligibility`: a body that is syntactically invalid JSON
 //!   is the framework's `400` (JsonSyntaxError); a body that parses but does
@@ -125,9 +125,9 @@ pub struct MethodListQuery {
     /// static-risk | dynamic-risk`).
     #[serde(default)]
     pub group: Option<MethodGroup>,
-    /// Filter to runnable / non-runnable entries. (The shipped catalogue is the
-    /// runnable set — DEC-2 — so this is a contract future for the fixture
-    /// world and for consumers that must reason about both.)
+    /// Filter to runnable / non-runnable entries. A method the list retires
+    /// keeps its row (`runnable: false`) so saved models and history still
+    /// resolve it; a screen that offers methods asks for `runnable: true`.
     #[serde(default)]
     pub runnable: Option<bool>,
     /// Filter to frozen-model entries.
@@ -155,7 +155,7 @@ fn filter_methods<'a>(cat: &'a Catalogue, q: &MethodListQuery) -> Vec<&'a Method
         .collect()
 }
 
-/// `GET /api/methods` — the full (unpaged) runnable set as list rows, in the
+/// `GET /api/methods` — the full (unpaged) set as list rows (retired rows included unless `runnable: true` is asked), in the
 /// catalogue's stable order.
 async fn list_methods(
     _auth: RequirePermissions<(ProjectsUse,)>,
@@ -179,7 +179,7 @@ async fn list_methods(
 
 fn list_methods_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(ProjectsUse,)>(op)
-        .description("List the method catalogue rows (unpaged — the bounded runnable set; the list screen filters client-side). Optional `group`/`runnable`/`frozen`/`q` filters; `q` is a case-insensitive substring on the method id.")
+        .description("List the method catalogue rows (unpaged — the bounded set; a screen that offers methods asks `runnable=true`, retired rows stay for saved models; the list screen filters client-side). Optional `group`/`runnable`/`frozen`/`q` filters; `q` is a case-insensitive substring on the method id.")
         .id("MethodCatalogue.list")
         .tag("method-catalogue")
         .response::<200, Json<MethodListResponse>>()
@@ -387,7 +387,7 @@ mod tests {
         assert!(combined.iter().all(|m| m.group == MethodGroup::DynamicRisk && m.id.contains("cox")));
 
         // The runnable/frozen booleans are contract filters; on the shipped
-        // runnable-only set the runnable=true filter is the whole set.
+        // set (no retired row) the runnable=true filter is the whole set.
         let runnable = filter_methods(
             cat,
             &MethodListQuery {
@@ -396,6 +396,33 @@ mod tests {
             },
         );
         assert_eq!(runnable.len(), all.len());
+    }
+
+    /// A retired method (`runnable: false`) is left out when a screen asks for
+    /// `runnable: true`, is listed on `runnable: false`, and is still
+    /// resolvable by id (saved models and history name it).
+    #[test]
+    fn retired_method_leaves_the_runnable_list_but_stays_reachable_by_id() {
+        let mut cat = catalogue::catalogue().clone();
+        let retired_id = cat.methods[0].id.clone();
+        cat.methods[0].runnable = false;
+
+        let runnable = filter_methods(
+            &cat,
+            &MethodListQuery { runnable: Some(true), ..Default::default() },
+        );
+        assert_eq!(runnable.len(), cat.methods.len() - 1, "non-vacuity: the others stay");
+        assert!(runnable.iter().all(|m| m.id != retired_id));
+
+        let retired = filter_methods(
+            &cat,
+            &MethodListQuery { runnable: Some(false), ..Default::default() },
+        );
+        assert_eq!(retired.len(), 1);
+        assert_eq!(retired[0].id, retired_id);
+
+        let by_id = cat.method(&retired_id).expect("a saved model's method still resolves");
+        assert!(!by_id.runnable);
     }
 
     /// TEST-MC-26 (unit half): the `MethodSummary` JSON-schema surface carries
