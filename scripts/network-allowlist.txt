@@ -51,6 +51,11 @@ appleid.apple.com
 ipc.localhost
 # The Tauri config `$schema` document (a JSON-schema identifier, never fetched).
 schema.tauri.app
+# Never dialled: the web origin of the app's own window on Windows (Tauri 2
+# serves the page at http://tauri.localhost, https:// with useHttpsScheme; a
+# *.localhost name is this PC). The WSL setup route takes requests only from
+# the app's own window (`wsl_setup::APP_ORIGINS`), where this literal is.
+tauri.localhost
 # Not a host list entry: when a Windows PC lacks WSL, the Windows installer
 # (src-app/desktop/tauri/windows/installer-hooks.nsh) asks Microsoft's own
 # wsl.exe to download it (`wsl --install --no-distribution` / `wsl --update`,
