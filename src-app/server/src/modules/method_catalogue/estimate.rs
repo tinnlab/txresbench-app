@@ -157,8 +157,8 @@ pub fn estimate(
 }
 
 /// The pure core over a given catalogue (no runtime-env stage — the test seam:
-/// a handcrafted catalogue can exercise the METHOD_NOT_RUNNABLE case the
-/// shipped runnable-only set never triggers — DEC-2, same posture as
+/// it exercises the METHOD_NOT_RUNNABLE case; on the shipped data a RETIRED
+/// row (`runnable: false`) triggers it, DEC-2, same posture as
 /// `eligibility_for`). Production consumers call [`estimate`] or
 /// [`estimate_for_runtime`]. `cpus: None` resolves through [`host_cpus`].
 pub fn estimate_for(

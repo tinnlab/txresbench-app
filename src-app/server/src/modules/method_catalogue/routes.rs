@@ -386,8 +386,10 @@ mod tests {
         );
         assert!(combined.iter().all(|m| m.group == MethodGroup::DynamicRisk && m.id.contains("cox")));
 
-        // The runnable/frozen booleans are contract filters; on the shipped
-        // set (no retired row) the runnable=true filter is the whole set.
+        // The runnable/frozen booleans are contract filters: on the shipped
+        // set the runnable=true filter is the runnable rows — the 70 retired
+        // rows stay out of the list a screen offers (`runnable: false` asks
+        // exactly for them).
         let runnable = filter_methods(
             cat,
             &MethodListQuery {
@@ -395,7 +397,14 @@ mod tests {
                 ..Default::default()
             },
         );
-        assert_eq!(runnable.len(), all.len());
+        let runnable_rows = cat.methods.iter().filter(|m| m.runnable).count();
+        assert_eq!(runnable.len(), runnable_rows);
+        assert_eq!(runnable.len(), 359, "the shipped catalogue's runnable rows");
+        assert_eq!(
+            runnable.len(),
+            cat.methods.len() - 70,
+            "the 70 retired rows are left out of the runnable list"
+        );
     }
 
     /// A retired method (`runnable: false`) is left out when a screen asks for
@@ -405,21 +414,41 @@ mod tests {
     fn retired_method_leaves_the_runnable_list_but_stays_reachable_by_id() {
         let mut cat = catalogue::catalogue().clone();
         let retired_id = cat.methods[0].id.clone();
+        assert!(
+            cat.methods[0].runnable,
+            "the test retires a RUNNABLE row (of the 359), so the runnable list loses exactly one"
+        );
         cat.methods[0].runnable = false;
 
         let runnable = filter_methods(
             &cat,
             &MethodListQuery { runnable: Some(true), ..Default::default() },
         );
-        assert_eq!(runnable.len(), cat.methods.len() - 1, "non-vacuity: the others stay");
+        assert_eq!(
+            runnable.len(),
+            cat.methods.iter().filter(|m| m.runnable).count(),
+            "non-vacuity: the others stay"
+        );
+        assert_eq!(
+            runnable.len(),
+            358,
+            "the 359 runnable rows minus the one this test retires"
+        );
         assert!(runnable.iter().all(|m| m.id != retired_id));
 
         let retired = filter_methods(
             &cat,
             &MethodListQuery { runnable: Some(false), ..Default::default() },
         );
-        assert_eq!(retired.len(), 1);
-        assert_eq!(retired[0].id, retired_id);
+        // The shipped set already carries 70 retired rows; the `runnable:
+        // false` list is those 70 PLUS the one this test just retired.
+        assert_eq!(
+            retired.len(),
+            cat.methods.iter().filter(|m| !m.runnable).count(),
+            "the runnable:false list is every retired row"
+        );
+        assert_eq!(retired.len(), 71, "70 shipped-retired + the one this test retires");
+        assert_eq!(retired[0].id, retired_id, "the test-retired row is listed first");
 
         let by_id = cat.method(&retired_id).expect("a saved model's method still resolves");
         assert!(!by_id.runnable);

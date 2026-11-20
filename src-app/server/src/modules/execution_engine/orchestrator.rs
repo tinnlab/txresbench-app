@@ -5725,7 +5725,7 @@ mod tests {
     #[test]
     fn starts_from_the_validators_own_marker_count_and_classification() {
         let req = run_request(
-            &["landmark-cox-current", "jm-mem-lq", "bayes-pt-cure-joint"],
+            &["landmark-cox-current", "jm-mem-lq", "coxh-score-survival"],
             2,
             true,
         );
@@ -5765,10 +5765,10 @@ mod tests {
             "the row's detail line is the engine's plain reason"
         );
 
-        let bayes = by_id["bayes-pt-cure-joint"];
-        assert!(bayes.cannot_run);
+        let coxh = by_id["coxh-score-survival"];
+        assert!(coxh.cannot_run);
         assert_eq!(
-            bayes.reason.as_ref().map(|r| r.code.as_str()),
+            coxh.reason.as_ref().map(|r| r.code.as_str()),
             Some("ENV_IMAGE_MISSING"),
             "task-less method is compatible with the file's outcomes (owner rule 2026-10-20) \
              but has no published environment — the cannot-run reason is the env entry, never \
