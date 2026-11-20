@@ -47,6 +47,7 @@ import type {
   ValidationResponse,
 } from '@/api-client/types'
 import type { TxrIntakeState } from '@/modules/txrintake'
+import type { FileTimeline } from '@/api-client/types'
 import {
   STEP_BACK_DIALOG_OPEN,
   STEP_BACK_STARTING_REASON,
@@ -64,6 +65,7 @@ import { DEMO_DISABLED_REASON, DEMO_SETTINGS_NOTE } from '@/modules/demo/copy'
 import { runAction } from '@/core/actions/defineAction'
 import { instancesOfType } from '@/core/actions/instanceRegistry'
 import '@/core/actions/builtin/methodActions'
+import '@/core/actions/builtin/dayActions'
 import '@/core/actions/builtin/worldModel'
 
 // jsdom has no working PointerEvent constructor; Base UI's controls (the
@@ -399,6 +401,27 @@ async function settle(ms = 0): Promise<void> {
   })
 }
 
+/** The value in a day field's number box. */
+function dayValue(testId: string): string {
+  return (screen.getByTestId(`${testId}-input`) as HTMLInputElement).value
+}
+
+/** Type a day into a day field's box and press Enter (inside an act). */
+function typeDayNow(testId: string, day: number): void {
+  const input = screen.getByTestId(`${testId}-input`)
+  fireEvent.change(input, { target: { value: String(day) } })
+  fireEvent.keyDown(input, { key: 'Enter' })
+}
+
+/** Type a day into a day field and let the action and the page settle. */
+async function typeDay(testId: string, day: number): Promise<void> {
+  await act(async () => {
+    typeDayNow(testId, day)
+    await Promise.resolve()
+  })
+  await settle()
+}
+
 /** Select the method by its card checkbox (the picker's own toggle). */
 async function selectRow(key: string): Promise<void> {
   await act(async () => {
@@ -479,12 +502,10 @@ describe('ChooseMethodsPage settings wiring (ITEM-7)', () => {
     await settle()
 
     // The intake's decision day (84) beats the sticky 56; the sticky's
-    // other fields carry (endpoint os, horizon 365, at-a-time 4...).
-    const dayChip = screen.getByTestId('txr-run-settings-decision-day-opt-84')
-    expect(dayChip.getAttribute('data-state')).toBe('on')
-    expect(
-      screen.getByTestId('txr-run-settings-look-ahead-opt-365').getAttribute('data-state'),
-    ).toBe('on')
+    // other fields carry (endpoint os, at-a-time 4...). The look-ahead is this
+    // analysis' own: decision day + 182 (the sticky 365 belongs to a past one).
+    expect(dayValue('txr-run-settings-decision-day')).toBe('84')
+    expect(dayValue('txr-run-settings-look-ahead')).toBe('266')
     expect(
       screen.getByTestId('txr-run-settings-endpoint-opt-os').getAttribute('data-state'),
     ).toBe('on')
@@ -526,7 +547,7 @@ describe('ChooseMethodsPage settings wiring (ITEM-7)', () => {
       config: {
         endpoint: 'os',
         decision_day: 84,
-        look_ahead_day: 238,
+        look_ahead_day: 266,
         covariates: false,
         at_a_time: 3,
         cpus: null,
@@ -589,9 +610,7 @@ describe('ChooseMethodsPage settings wiring (ITEM-7)', () => {
     // error line names the failure, the retry re-loads.
     expect(screen.getByTestId('txr-run-settings-error')).toBeTruthy()
     expect(screen.getByTestId('txr-run-settings')).toBeTruthy()
-    expect(
-      screen.getByTestId('txr-run-settings-look-ahead-opt-238').getAttribute('data-state'),
-    ).toBe('on')
+    expect(dayValue('txr-run-settings-look-ahead')).toBe('266')
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('txr-run-settings-retry'))
@@ -600,9 +619,7 @@ describe('ChooseMethodsPage settings wiring (ITEM-7)', () => {
     await settle()
     await settle()
     expect(screen.queryByTestId('txr-run-settings-error')).toBeNull()
-    expect(
-      screen.getByTestId('txr-run-settings-look-ahead-opt-365').getAttribute('data-state'),
-    ).toBe('on')
+    expect(dayValue('txr-run-settings-look-ahead')).toBe('266')
   })
 
   it('an edit made against the not-yet-loaded defaults is never reverted by the retry load', async () => {
@@ -627,14 +644,12 @@ describe('ChooseMethodsPage settings wiring (ITEM-7)', () => {
     await settle()
 
     // The user's choice survives; the retry-loaded sticky fields carry
-    // for the untouched rows (horizon 365), and the write-through body
+    // for the untouched rows, the look-ahead stays this analysis' own, and the write-through body
     // never falls back to defaults for fields the user did not touch.
     expect(
       screen.getByTestId('txr-run-settings-endpoint-opt-os').getAttribute('data-state'),
     ).toBe('on')
-    expect(
-      screen.getByTestId('txr-run-settings-look-ahead-opt-365').getAttribute('data-state'),
-    ).toBe('on')
+    expect(dayValue('txr-run-settings-look-ahead')).toBe('266')
     await settle(RUN_CONFIG_DEBOUNCE_MS)
     await settle()
     expect(api.putConfig).toHaveBeenCalledTimes(1)
@@ -642,7 +657,7 @@ describe('ChooseMethodsPage settings wiring (ITEM-7)', () => {
       config: {
         endpoint: 'os',
         decision_day: 84,
-        look_ahead_day: 365,
+        look_ahead_day: 266,
         covariates: true,
         at_a_time: 3,
         cpus: 2,
@@ -867,7 +882,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     expect(request.config).toEqual({
       endpoint: 'pfs',
       decision_day: 84,
-      look_ahead_day: 238,
+      look_ahead_day: 266,
       covariates: false,
       at_a_time: 3,
       cpus: null,
@@ -1195,7 +1210,7 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
       'What do you want to predict?',
     )
     expect(screen.getByTestId('txr-run-settings-sentence').textContent).toBe(
-      'Progression or death by day 238 of treatment, from the blood draws up to day 84.',
+      'Progression or death by day 266 of treatment, from the blood draws up to day 84.',
     )
 
     // Change the outcome and the horizon: the sentence is the selection's.
@@ -1208,11 +1223,7 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
       await Promise.resolve()
     })
     await act(async () => {
-      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-look-ahead-opt-365'), {
-        button: 0,
-        pointerType: 'mouse',
-      })
-      fireEvent.click(screen.getByTestId('txr-run-settings-look-ahead-opt-365'))
+      typeDayNow('txr-run-settings-look-ahead', 365)
       await Promise.resolve()
     })
     expect(screen.getByTestId('txr-run-settings-sentence').textContent).toBe(
@@ -1242,11 +1253,7 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
         }),
     )
     await act(async () => {
-      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-decision-day-opt-28'), {
-        button: 0,
-        pointerType: 'mouse',
-      })
-      fireEvent.click(screen.getByTestId('txr-run-settings-decision-day-opt-28'))
+      typeDayNow('txr-run-settings-decision-day', 28)
       await Promise.resolve()
     })
     expect(screen.getByTestId('txr-method-refreshing')).toBeTruthy()
@@ -1268,11 +1275,7 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
     expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-decision-day-opt-28'), {
-        button: 0,
-        pointerType: 'mouse',
-      })
-      fireEvent.click(screen.getByTestId('txr-run-settings-decision-day-opt-28'))
+      typeDayNow('txr-run-settings-decision-day', 28)
       await Promise.resolve()
     })
     await settle()
@@ -1344,11 +1347,7 @@ describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence a
     expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-decision-day-opt-28'), {
-        button: 0,
-        pointerType: 'mouse',
-      })
-      fireEvent.click(screen.getByTestId('txr-run-settings-decision-day-opt-28'))
+      typeDayNow('txr-run-settings-decision-day', 28)
       await Promise.resolve()
     })
     await settle()
@@ -1608,20 +1607,20 @@ describe('step-4 review fixes: the preset action and the re-check line', () => {
     seedStore()
     renderPage()
     await settle()
-    await pick('txr-run-settings-decision-day-opt-28')
+    await typeDay('txr-run-settings-decision-day', 28)
     const status = () => screen.getByTestId('txr-method-recheck-result').textContent
     expect(status()).toBe('Checked again: the same 2 methods can run.')
 
     api.eligibility.mockRejectedValueOnce(new Error('eligibility down'))
     const callsBefore = api.eligibility.mock.calls.length
-    await pick('txr-run-settings-decision-day-opt-84')
+    await typeDay('txr-run-settings-decision-day', 84)
     expect(api.eligibility.mock.calls.length).toBe(callsBefore + 1)
     expect(status()).toBe('Could not check again: eligibility down. The list shows the last answer.')
     // The list is still the last answer's.
     expect(screen.getByTestId('txr-method-card-direct-on')).toBeTruthy()
 
     // The next re-check that works replaces the failure line.
-    await pick('txr-run-settings-decision-day-opt-42')
+    await typeDay('txr-run-settings-decision-day', 42)
     expect(status()).toBe('Checked again: the same 2 methods can run.')
   })
 
@@ -1718,7 +1717,7 @@ describe('step-4 review fixes: the preset action and the re-check line', () => {
     expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe('')
 
     // A change the user makes still gets its line.
-    await pick('txr-run-settings-decision-day-opt-28')
+    await typeDay('txr-run-settings-decision-day', 28)
     expect(screen.getByTestId('txr-method-recheck-result').textContent).toBe(
       'Checked again: the same 2 methods can run.',
     )
@@ -1848,7 +1847,7 @@ describe('the step Back on Choose methods (E)', () => {
     expect(routeAt()).toBe('/predict-files')
   })
 
-  it('the "← Step 4 of 4" line goes where Back goes: the trail\u2019s step, or the file step with no trail', async () => {
+  it('the "← Step 4 of 4" line goes where Back goes: the trail\u2019s step, or the study step with no trail', async () => {
     useStepTrailStore.setState({ trail: ['/history'] })
     seedStore()
     renderFlow()
@@ -1863,7 +1862,7 @@ describe('the step Back on Choose methods (E)', () => {
     renderFlow()
     await settle()
     await click('txr-step-line-back')
-    expect(routeAt()).toBe('/files')
+    expect(routeAt()).toBe('/study')
   })
 
   it('row 10 — reached from History: Back goes to History', async () => {
@@ -1964,3 +1963,99 @@ describe('the step Back on Choose methods (E)', () => {
     expect(routeAt()).toBe('/choose-methods')
   })
 })
+
+describe('ChooseMethodsPage day settings (the files\u2019 suggestions, the look-ahead limits)', () => {
+  /** 12 patients: draws on 28 and 56; 6 events at day 300, 6 followed to day 500. */
+  const FACTS: FileTimeline = {
+    draw_days: Array.from({ length: 12 }, () => [28, 56]),
+    outcomes: [
+      ...Array.from({ length: 6 }, () => ({ pfs: { days: 300, event: 1 } })),
+      ...Array.from({ length: 6 }, () => ({ pfs: { days: 500, event: 0 } })),
+    ],
+    limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10 },
+  }
+
+  it('starts the look-ahead at the files\u2019 default and suggests the decision days of the files', async () => {
+    api.getConfig.mockResolvedValue(stickyConfig)
+    seedStore({ dayFacts: FACTS, parameters: { decision_day: 56, baseline_max_day: 0 } })
+    renderPage()
+    await settle()
+    expect(dayValue('txr-run-settings-decision-day')).toBe('56')
+    expect(dayValue('txr-run-settings-look-ahead')).toBe('238')
+    expect(screen.getByTestId('txr-run-settings-decision-day-suggestion-28')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-settings-look-ahead-coverage').textContent).toBe(
+      'Day 238: 12 of 12 patients have a known outcome',
+    )
+  })
+
+  it('a chosen look-ahead is this analysis\u2019 own: kept in the intake store and sent with the run', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore({ dayFacts: FACTS, parameters: { decision_day: 56, baseline_max_day: 0 } })
+    renderPage()
+    await settle()
+    await typeDay('txr-run-settings-look-ahead', 400)
+    expect(store().lookAheadDay).toBe(400)
+    expect(dayValue('txr-run-settings-look-ahead')).toBe('400')
+    expect(screen.getByTestId('txr-run-settings-sentence').textContent).toBe(
+      'Progression or death by day 400 of treatment, from the blood draws up to day 56.',
+    )
+  })
+
+  it('History\u2019s look-ahead (set in the intake store) is the one step 4 starts at', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore({ dayFacts: FACTS, lookAheadDay: 365, parameters: { decision_day: 56, baseline_max_day: 0 } })
+    renderPage()
+    await settle()
+    expect(dayValue('txr-run-settings-look-ahead')).toBe('365')
+  })
+
+  it('a look-ahead where no patient has a known outcome blocks Run with the reason', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    const censored: FileTimeline = {
+      ...FACTS,
+      outcomes: Array.from({ length: 12 }, () => ({ pfs: { days: 100, event: 0 } })),
+    }
+    seedStore({
+      dayFacts: censored,
+      lookAheadDay: 400,
+      parameters: { decision_day: 56, baseline_max_day: 0 },
+    })
+    renderPage()
+    await settle()
+    await settle(250)
+    const reason =
+      'No patient has a known outcome by day 400, so the chance cannot be worked out. Choose an earlier day.'
+    expect(screen.getByTestId('txr-run-settings-look-ahead-blocked').textContent).toBe(reason)
+    expect(screen.getByTestId('txr-run-bar-blocked-reason').textContent).toBe(reason)
+    expect(screen.getByTestId('txr-run-bar-run').hasAttribute('disabled')).toBe(true)
+  })
+
+  it('runSettings.setDay sets the days through the same handler, and refuses a day outside the limits', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore({ dayFacts: FACTS, parameters: { decision_day: 56, baseline_max_day: 0 } })
+    renderPage()
+    await settle()
+    const live = instancesOfType('txr.run-settings')
+    expect(live.length).toBe(1)
+    await act(async () => {
+      await runAction('runSettings.setDay', { view_id: live[0].id, field: 'look_ahead_day', day: 450 })
+    })
+    expect(dayValue('txr-run-settings-look-ahead')).toBe('450')
+    expect(store().lookAheadDay).toBe(450)
+    await act(async () => {
+      await runAction('runSettings.setDay', { view_id: live[0].id, field: 'decision_day', day: 28 })
+    })
+    expect(dayValue('txr-run-settings-decision-day')).toBe('28')
+    let failure: unknown = null
+    await act(async () => {
+      try {
+        await runAction('runSettings.setDay', { view_id: live[0].id, field: 'look_ahead_day', day: 20 })
+      } catch (err) {
+        failure = err
+      }
+    })
+    expect(String(failure)).toContain('Choose a day after the decision day (day 28).')
+    expect(dayValue('txr-run-settings-look-ahead')).toBe('450')
+  })
+})
+

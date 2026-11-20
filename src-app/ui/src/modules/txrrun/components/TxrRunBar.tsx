@@ -44,6 +44,8 @@ export interface TxrRunBarProps {
   runLabelSuffix?: string
   /** The step's Back button, rendered just before Run (absent: nothing extra). */
   back?: ReactNode
+  /** Why the run cannot start with these settings (a day outside its limits), or null. */
+  blockedReason?: string | null
 }
 
 /** The board bar's container look (the E run bar's own two-line grid). */
@@ -118,6 +120,7 @@ export function TxrRunBar({
   onRun,
   runLabelSuffix,
   back,
+  blockedReason = null,
 }: TxrRunBarProps) {
   const empty = selectedCount === 0
   return (
@@ -153,12 +156,16 @@ export function TxrRunBar({
           <span data-testid="txr-run-bar-empty-reason" style={EMPTY_REASON}>
             {RUN_BAR_EMPTY_REASON}
           </span>
+        ) : blockedReason !== null ? (
+          <span data-testid="txr-run-bar-blocked-reason" style={EMPTY_REASON}>
+            {blockedReason}
+          </span>
         ) : null}
         {back}
         <Button
           data-testid="txr-run-bar-run"
           style={RUN_BUTTON}
-          disabled={empty}
+          disabled={empty || blockedReason !== null}
           onClick={() => onRun({ atATime, saveModels: saveModels.checked })}
         >
           Run {selectedCount} {pluralize('method', selectedCount)}

@@ -61,6 +61,7 @@
  * Copy rule (INV-4): the totals line's count is the store's own; the
  * boards' numbers are never constants here.
  */
+import { TxrModelHorizonLine } from '../components/TxrModelHorizonLine'
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
@@ -642,6 +643,11 @@ export function SavedModelsPage() {
   // kit ScrollArea is dropped); the not-ready branch renders the same frame
   // without the list chrome.
 
+  // The look-ahead the run will use (the first chosen model's own, in the
+  // run's order).
+  const chosenHorizons = saved.summaries
+    .filter(model => selection.has(model.id))
+    .map(model => model.horizon)
   /** The page's fixed top (the list's toolbar joins it in the list branch). */
   const pageTop = (toolbar: ReactNode | null): ReactNode => (
     <div className="txr-models-i-top" style={PAGE_TOP}>
@@ -659,12 +665,15 @@ export function SavedModelsPage() {
               validated predict file yet) is not ON step 4 — the step line
               would claim a position the flow has not reached (RES-20); the
               totals line stays hidden too (nothing has been checked). */}
-          {validation !== null ? <TxrStepLine step={4} of={4} /> : null}
+          {validation !== null ? <TxrStepLine step="saved-models" /> : null}
           <h1 style={TITLE}>Choose the saved models to run</h1>
           {validation !== null ? (
             <p data-testid="txr-models-i-checked" style={CHECK_LINE}>
               {checkedLine(validation)}
             </p>
+          ) : null}
+          {validation !== null ? (
+            <TxrModelHorizonLine testId="txr-models-i-horizon" horizons={chosenHorizons} />
           ) : null}
         </div>
         {validation !== null ? (
