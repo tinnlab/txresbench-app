@@ -349,6 +349,9 @@ pub async fn boot_in_background(config: ServerConfig, secret: String) -> Result<
         modules::local_api_lock::LockMode::Desktop,
         &config.server.api_prefix,
     );
+    // Only the desktop app offers to set up WSL (`wsl_setup`); the headless
+    // server never marks itself.
+    modules::sandbox::wsl_setup::mark_desktop_app();
     let (app, pool, jwt) = build_app(&config, &demo, Some(&lock)).await?;
     let listener = tokio::net::TcpListener::bind(config.server_address()).await?;
     let addr = listener.local_addr()?;
@@ -357,8 +360,6 @@ pub async fn boot_in_background(config: ServerConfig, secret: String) -> Result<
     // accepts a connection.
     lock.set_port(addr.port());
     modules::mcp::set_loopback(addr, Some(lock.secret().to_string()));
-    // The WSL setup route takes requests to this port only (`wsl_setup::check_caller`).
-    modules::sandbox::wsl_setup::note_server_port(addr.port());
     tracing::info!(
         "TxResBench listening on http://{addr}{}",
         config.server.api_prefix
@@ -401,8 +402,6 @@ pub async fn serve_blocking(
         lock.set_port(addr.port());
     }
     modules::mcp::set_loopback(addr, lock.as_ref().map(|l| l.secret().to_string()));
-    // The WSL setup route takes requests to this port only (`wsl_setup::check_caller`).
-    modules::sandbox::wsl_setup::note_server_port(addr.port());
     println!("TxResBench listening on http://{}/api", addr);
 
     txresbench_framework::serve(listener, app).await?;

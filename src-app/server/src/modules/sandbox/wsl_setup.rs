@@ -24,11 +24,14 @@
 //! but is not relied on: with UAC off or set to never notify, or with the app
 //! itself run as administrator, Windows elevates without asking anyone. After
 //! a decline (in the dialog or in Windows' prompt) the setup is not offered again for [`DECLINE_PAUSE_SECS`], so that
-//! a caller cannot put the question up again and again. [`check_caller`]
-//! refuses a page whose web origin is not one of the app window's, and a
-//! request to another name for this PC; it does not prove that a request
-//! comes from TxResBench's own window (its origin on Windows,
-//! `http://tauri.localhost`, is every Tauri 2 app's).
+//! a caller cannot put the question up again and again.
+//!
+//! Only the desktop app offers a setup ([`mark_desktop_app`]). Its server is
+//! behind the local API lock (`modules::local_api_lock`: the app's own window,
+//! or a caller holding the app's per-run key), and its window is on this PC.
+//! A headless server (`serve_blocking`) never offers one: its key may be
+//! given to programs on other machines, and nobody may be at the PC it runs
+//! on to answer the question.
 //!
 //! One setup runs at a time; it ends as the installer's does: WSL is set up
 //! when the installer's check says it is ready afterwards, or, after wsl.exe
@@ -47,24 +50,21 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use axum::http::{header, HeaderMap};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use txresbench_core::AppError;
 
 use super::wsl_status::WslStatus;
 
-/// The setup is not offered on this PC (not Windows, methods can run, the
-/// reason is not one the app can fix, or a setup already finished).
+/// The setup is not offered on this PC (not Windows, not the desktop app,
+/// methods can run, the reason is not one the app can fix, or a setup
+/// already finished).
 pub const WSL_SETUP_NOT_OFFERED_CODE: &str = "WSL_SETUP_NOT_OFFERED";
 /// A setup is still running (started from this app, from the app before it
 /// was last closed, or from a second app open beside it).
 pub const WSL_SETUP_RUNNING_CODE: &str = "WSL_SETUP_RUNNING";
 /// The last setup was declined less than [`DECLINE_PAUSE_SECS`] ago.
 const WSL_SETUP_DECLINED_RECENTLY_CODE: &str = "WSL_SETUP_DECLINED_RECENTLY";
-/// The request came from a web page whose origin is not one of the app
-/// window's, or to a name that is not this PC's loopback address (403).
-const WSL_SETUP_NOT_FROM_THE_APP_CODE: &str = "WSL_SETUP_NOT_FROM_THE_APP";
 
 /// Windows' `ERROR_CANCELLED`: the person said No to the UAC prompt.
 const ERROR_CANCELLED: u32 = 1223;
@@ -538,8 +538,8 @@ struct Question {
 /// The app's question before anything runs as administrator, in the
 /// installer's words, saying where the request may have come from: the
 /// app's button, its palette, an AI assistant, or any other program on this
-/// PC (a request without a web origin passes [`check_caller`], and the
-/// route's token needs no sign-in).
+/// PC (the local API lock lets through the app's own window and any caller
+/// holding the app's per-run key, and the route's token needs no sign-in).
 fn question(before: WslStatus) -> Question {
     match before {
         WslStatus::Missing => Question {
@@ -656,65 +656,6 @@ fn set_up(
     }
 }
 
-/// The web origins of the app's own window: Tauri 2 serves the page from its
-/// own protocol, `http://tauri.localhost` on Windows (`https://` with Tauri's
-/// `useHttpsScheme`) and `tauri://localhost` on macOS and Linux.
-const APP_ORIGINS: &[&str] = &["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"];
-
-/// A debug build's page: `tauri dev` and `npm run dev` load the UI from the
-/// dev server (`devUrl` in tauri.conf.json, Vite's port).
-const DEV_ORIGINS: &[&str] = &["http://localhost:5173", "http://127.0.0.1:5173"];
-
-/// The loopback names of this PC a `Host` header may carry.
-const LOOPBACK_NAMES: &[&str] = &["127.0.0.1", "localhost", "[::1]"];
-
-/// The port this server listens on, once it is bound.
-static SERVER_PORT: OnceLock<u16> = OnceLock::new();
-
-/// The server is bound to `port` (called once at start, after the bind).
-pub fn note_server_port(port: u16) {
-    let _ = SERVER_PORT.set(port);
-}
-
-/// Refuse a request from a web page whose origin is not one of the app
-/// window's ([`APP_ORIGINS`]), and one sent to another name than this PC's
-/// loopback address. A browser always sends the page's origin with a POST,
-/// so a page from another site open in a browser on this PC is refused by
-/// its `Origin`; one whose own name was made to point at this PC ("DNS
-/// rebinding") is refused by its `Host`, which must be a loopback name with
-/// this server's port (`port`; `None`: not known, refused). A request with
-/// no origin passes: it is no browser's (the MCP dispatch over loopback, a
-/// script). `dev`: a debug build, which also takes the dev server's page.
-///
-/// This does not identify TxResBench's own window: its origin on Windows,
-/// `http://tauri.localhost`, is the window origin of every Tauri 2 app, and
-/// a page that a web server on this PC serves under that name (browsers send
-/// `*.localhost` names to this PC) has it too. The app's own dialog
-/// ([`question`]) is what no caller of the route can pass.
-fn check_caller(headers: &HeaderMap, port: Option<u16>, dev: bool) -> Result<(), AppError> {
-    let refuse = |why: String| Err(AppError::forbidden(WSL_SETUP_NOT_FROM_THE_APP_CODE, why));
-    let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("");
-    let loopback = port.is_some_and(|port| {
-        LOOPBACK_NAMES.iter().any(|name| host.eq_ignore_ascii_case(&format!("{name}:{port}")))
-    });
-    if !loopback {
-        return refuse(format!("a WSL setup is started only through this PC's loopback address, not {host:?}"));
-    }
-    let mut origins = headers.get_all(header::ORIGIN).iter();
-    match (origins.next(), origins.next()) {
-        (None, _) => Ok(()),
-        (Some(origin), None) => {
-            let origin = origin.to_str().unwrap_or("");
-            if APP_ORIGINS.contains(&origin) || (dev && DEV_ORIGINS.contains(&origin)) {
-                Ok(())
-            } else {
-                refuse(format!("a WSL setup is not started from a page at {origin:?}"))
-            }
-        }
-        (Some(_), Some(_)) => refuse("a request with more than one origin".to_string()),
-    }
-}
-
 /// The setup's state in this app.
 fn state() -> Arc<SetupState> {
     static STATE: std::sync::LazyLock<Arc<SetupState>> =
@@ -748,21 +689,41 @@ fn runner_unavailable() -> Option<String> {
     }
 }
 
-/// Windows, while methods cannot run: why (the probe's sentence), and the
-/// setup's status for the notice. `None` when methods can run and on other
-/// systems.
-pub fn notice() -> Option<(String, WslSetupStatus)> {
-    let why = runner_unavailable()?;
-    Some((why, state().status(boot_status())))
+/// Set once when this process is the desktop app ([`mark_desktop_app`]).
+static DESKTOP_APP: OnceLock<()> = OnceLock::new();
+
+/// This process is the desktop app: called once by its server at start
+/// (`boot_in_background`), and by nothing else. Only the desktop app offers
+/// a setup.
+pub fn mark_desktop_app() {
+    let _ = DESKTOP_APP.set(());
 }
 
-/// `POST /api/sandbox/wsl/setup` after its permission check: refused when
-/// [`check_caller`] refuses it (a page from another web origin, another name
-/// for this PC); else a setup starts on this PC, and the answer is its status
-/// (`running`).
-pub fn start_here(headers: &HeaderMap) -> Result<WslSetupStatus, AppError> {
-    check_caller(headers, SERVER_PORT.get().copied(), cfg!(debug_assertions))?;
-    start(&state(), boot_status(), system_host())
+/// The probe's status `probe` where a setup may be offered: in the desktop
+/// app (`desktop`) only. Elsewhere there is nothing to set up.
+fn offered_for(desktop: bool, probe: Option<WslStatus>) -> Option<WslStatus> {
+    probe.filter(|_| desktop)
+}
+
+/// The probe's status where this process may offer a setup ([`offered_for`]).
+fn setup_status() -> Option<WslStatus> {
+    offered_for(DESKTOP_APP.get().is_some(), boot_status())
+}
+
+/// Windows, while methods cannot run: why (the probe's sentence), and the
+/// setup's status for the notice (no offer outside the desktop app). `None`
+/// when methods can run and on other systems.
+pub fn notice() -> Option<(String, WslSetupStatus)> {
+    let why = runner_unavailable()?;
+    Some((why, state().status(setup_status())))
+}
+
+/// `POST /api/sandbox/wsl/setup` after its permission check (the local API
+/// lock checked the caller before any route ran): a setup starts on this PC,
+/// and the answer is its status (`running`). Refused (409) where nothing is
+/// offered, and in any process that is not the desktop app.
+pub fn start_here() -> Result<WslSetupStatus, AppError> {
+    start(&state(), setup_status(), system_host())
 }
 
 /// This PC, for the setup's state.
@@ -1645,6 +1606,40 @@ mod tests {
         assert!(!dir.marker().exists(), "no marker");
     }
 
+    /// Only the desktop app offers a setup: elsewhere (a headless server)
+    /// every status the probe can find is nothing to set up, so the notice
+    /// has no offer and the route refuses without asking anything.
+    #[test]
+    fn only_the_desktop_app_offers_a_setup() {
+        for s in WslStatus::ALL {
+            assert_eq!(offered_for(true, Some(s)), Some(s), "{s:?}");
+            assert_eq!(offered_for(false, Some(s)), None, "{s:?}");
+        }
+        assert_eq!(offered_for(true, None), None);
+
+        let host = Arc::new(FakeHost::new(exited(0, ""), WslStatus::Ready));
+        let dir = TestDir::new("headless");
+        let state = SetupState::new(FakeMachine::new(Some(dir.marker())));
+        for boot in [WslStatus::Missing, WslStatus::Old, WslStatus::Legacy] {
+            assert!(state.status(offered_for(true, Some(boot))).offer.is_some(), "{boot:?} in the desktop app");
+            assert_eq!(state.status(offered_for(false, Some(boot))), status(None, false, None), "{boot:?}");
+            let e = start(&state, offered_for(false, Some(boot)), host.clone()).expect_err("not the desktop app");
+            assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_NOT_OFFERED_CODE), "{boot:?}");
+        }
+        assert!(host.questions().is_empty() && host.offers().is_empty(), "nothing asked, nothing ran");
+        assert!(!dir.marker().exists(), "no marker");
+    }
+
+    /// The route in a process that is not the desktop app (a test, like a
+    /// headless server) refuses: nothing to set up.
+    #[test]
+    fn the_route_outside_the_desktop_app_refuses() {
+        assert!(DESKTOP_APP.get().is_none(), "no test marks itself the desktop app");
+        assert_eq!(setup_status(), None);
+        let e = start_here().expect_err("not the desktop app");
+        assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_NOT_OFFERED_CODE));
+    }
+
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn elsewhere_than_windows_nothing_is_offered() {
@@ -2292,84 +2287,6 @@ mod tests {
         std::fs::write(dir.marker(), b"{ not json").unwrap();
         let s = SetupState::new(machine).status(Some(WslStatus::Missing));
         assert_eq!(s, status(Some(WslSetupOffer::Install), false, None));
-    }
-
-    fn headers(pairs: &[(header::HeaderName, &str)]) -> HeaderMap {
-        let mut map = HeaderMap::new();
-        for (name, value) in pairs {
-            map.append(name.clone(), value.parse().unwrap());
-        }
-        map
-    }
-
-    const PORT: u16 = 43_117;
-
-    #[test]
-    fn the_apps_own_window_and_programs_on_this_pc_may_start_a_setup() {
-        let host = (header::HOST, "127.0.0.1:43117");
-        for origin in ["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"] {
-            assert!(check_caller(&headers(&[host.clone(), (header::ORIGIN, origin)]), Some(PORT), false).is_ok(), "{origin}");
-        }
-        // No origin: not a browser (the MCP dispatch over loopback, a script).
-        assert!(check_caller(&headers(&[host.clone()]), Some(PORT), false).is_ok());
-        for name in ["localhost:43117", "LOCALHOST:43117", "[::1]:43117"] {
-            assert!(check_caller(&headers(&[(header::HOST, name)]), Some(PORT), false).is_ok(), "{name}");
-        }
-        // The dev server's page, in a debug build only.
-        for origin in ["http://localhost:5173", "http://127.0.0.1:5173"] {
-            let h = headers(&[host.clone(), (header::ORIGIN, origin)]);
-            assert!(check_caller(&h, Some(PORT), true).is_ok(), "{origin}");
-            assert!(check_caller(&h, Some(PORT), false).is_err(), "{origin} in a release build");
-        }
-    }
-
-    #[test]
-    fn a_web_page_or_another_name_for_this_pc_is_refused() {
-        let refused = |h: HeaderMap, port: Option<u16>| {
-            let e = check_caller(&h, port, true).expect_err("refused");
-            assert_eq!((e.status_code(), e.error_code()), (403, WSL_SETUP_NOT_FROM_THE_APP_CODE), "{h:?}");
-        };
-        let host = (header::HOST, "127.0.0.1:43117");
-        for origin in [
-            "https://evil.example",
-            "null",
-            "http://tauri.localhost.evil.example",
-            "http://tauri.localhost:8080",
-            "http://localhost:43117",
-            "http://127.0.0.1:43117",
-            "tauri://localhost/",
-            "",
-        ] {
-            refused(headers(&[host.clone(), (header::ORIGIN, origin)]), Some(PORT));
-        }
-        // Two origins.
-        refused(headers(&[host.clone(), (header::ORIGIN, "tauri://localhost"), (header::ORIGIN, "https://evil.example")]), Some(PORT));
-        // DNS rebinding: a page whose own name now points at this PC sends
-        // its own name and is "same-origin" to itself, even from the app's port.
-        for name in ["evil.example:43117", "127.0.0.1.evil.example:43117", "127.0.0.1:43118", "127.0.0.1", "localhost.:43117", ""] {
-            refused(headers(&[(header::HOST, name)]), Some(PORT));
-        }
-        refused(headers(&[]), Some(PORT));
-        refused(headers(&[(header::HOST, "evil.example:43117"), (header::ORIGIN, "http://evil.example:43117")]), Some(PORT));
-        // The server's port not known: refused.
-        refused(headers(&[host]), None);
-    }
-
-    /// The route's check runs before any setup: a web page is refused (403)
-    /// where a program on this PC is answered (here: nothing to set up, 409).
-    #[test]
-    fn the_route_refuses_a_web_page_before_anything_else() {
-        note_server_port(PORT);
-        let host = (header::HOST, "localhost:43117");
-        let e = start_here(&headers(&[host.clone(), (header::ORIGIN, "https://evil.example")])).expect_err("a web page");
-        assert_eq!((e.status_code(), e.error_code()), (403, WSL_SETUP_NOT_FROM_THE_APP_CODE));
-        let e = start_here(&headers(&[(header::HOST, "evil.example:43117")])).expect_err("rebinding");
-        assert_eq!((e.status_code(), e.error_code()), (403, WSL_SETUP_NOT_FROM_THE_APP_CODE));
-        for allowed in [headers(&[host.clone()]), headers(&[host, (header::ORIGIN, "tauri://localhost")])] {
-            // In a test nothing is offered (no boot probe ran).
-            let e = start_here(&allowed).expect_err("nothing offered");
-            assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_NOT_OFFERED_CODE), "{allowed:?}");
-        }
     }
 
     /// The commands are the installer hook's, read no input (the window is

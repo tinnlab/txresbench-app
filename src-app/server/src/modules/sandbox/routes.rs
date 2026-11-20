@@ -13,7 +13,7 @@ use aide::axum::routing::{get_with, post_with};
 use aide::axum::ApiRouter;
 use aide::transform::TransformOperation;
 use axum::extract::{Path, Query};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::{Extension, Json};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -480,19 +480,16 @@ fn method_run_docs(op: TransformOperation) -> TransformOperation {
 /// person at the PC confirms in the app's own dialog (no caller of this route
 /// can answer it); Windows may also ask for permission (not with UAC off or
 /// never notifying, or with the app run as administrator). Gated
-/// `SandboxSettingsManage` (it changes the machine); 403
-/// `WSL_SETUP_NOT_FROM_THE_APP` for a page from another web origin than the
-/// app window's or a request to another name for this PC (the check does not
-/// tell TxResBench's window from another Tauri app's: the dialog does). 409
-/// `WSL_SETUP_NOT_OFFERED` when there is nothing to set up (any other system,
-/// methods can run, a reason the app cannot fix, a setup done and waiting for
-/// a restart), `WSL_SETUP_RUNNING` while one runs, `WSL_SETUP_DECLINED_RECENTLY`
-/// for a minute after a No.
+/// `SandboxSettingsManage` (it changes the machine); the caller was checked
+/// before any route by the local API lock. 409 `WSL_SETUP_NOT_OFFERED` when
+/// there is nothing to set up (any other system, a server that is not the
+/// desktop app, methods can run, a reason the app cannot fix, a setup done
+/// and waiting for a restart), `WSL_SETUP_RUNNING` while one runs,
+/// `WSL_SETUP_DECLINED_RECENTLY` for a minute after a No.
 async fn setup_wsl(
     _auth: RequirePermissions<(SandboxSettingsManage,)>,
-    headers: HeaderMap,
 ) -> ApiResult<Json<WslSetupStatus>> {
-    let status = wsl_setup::start_here(&headers).map_err(|e| e.to_api_error())?;
+    let status = wsl_setup::start_here().map_err(|e| e.to_api_error())?;
     Ok((StatusCode::ACCEPTED, Json(status)))
 }
 

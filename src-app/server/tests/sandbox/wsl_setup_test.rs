@@ -1,23 +1,16 @@
-//! `POST /api/sandbox/wsl/setup` on a machine with nothing to set up (any
-//! system but a Windows PC whose WSL is missing or too old): 409
-//! `WSL_SETUP_NOT_OFFERED`, and nothing changes. A page from another web
-//! origin (its `Origin`) or a request to another name for this PC (its
-//! `Host`) is refused before anything else (403 `WSL_SETUP_NOT_FROM_THE_APP`).
-//! The app window's origins pass that check (it does not tell TxResBench's
-//! window from another Tauri app's; the app's own dialog does). The setup
-//! itself (the offer, the app's own question, one at a time, the result) is
-//! unit-tested in `sandbox::wsl_setup` behind its seams.
-//!
-//! On a Windows PC that IS offered a setup (WSL missing or too old, like the
-//! test VM), an accepted POST would start a real setup: the app's own
-//! dialog, which nobody can answer in a test, then (on Install WSL) an
-//! install as administrator. The tests check what the notice reads there and skip every
-//! POST that could be accepted (recorded); the refused ones run everywhere.
+//! `POST /api/sandbox/wsl/setup` on the headless server the tests run: only
+//! the desktop app offers a setup, so this server never does, on any system
+//! (a Windows PC whose WSL is missing or too old, like the test VM,
+//! included). The notice has no offer, the POST is refused with 409
+//! `WSL_SETUP_NOT_OFFERED`, and nothing changes. Like every route, it is
+//! behind the local API lock: without the key it is refused before anything
+//! else. The setup itself (the offer, the app's own question, one at a
+//! time, the result) is unit-tested in `sandbox::wsl_setup` behind its seams.
 
 use serde_json::Value;
 
 use super::{restricted_user_token, setup_admin};
-use crate::common::{record_skip, TestServer};
+use crate::common::TestServer;
 
 async fn stack(server: &TestServer, token: &str) -> Value {
     let resp = server
@@ -43,8 +36,7 @@ async fn post_setup(server: &TestServer, token: &str) -> reqwest::Response {
 }
 
 #[tokio::test]
-async fn a_setup_with_nothing_offered_is_refused_and_changes_nothing() {
-    let name = stringify!(a_setup_with_nothing_offered_is_refused_and_changes_nothing);
+async fn a_headless_server_offers_no_setup_and_refuses_one() {
     let server = TestServer::spawn().await;
     let token = setup_admin(&server).await;
 
@@ -54,11 +46,7 @@ async fn a_setup_with_nothing_offered_is_refused_and_changes_nothing() {
         assert_eq!(before["supported"], false, "{before}");
         assert!(before["reason"].as_str().is_some_and(|r| !r.is_empty()), "the notice says why: {before}");
         assert_eq!(setup["running"], false, "{setup}");
-        if let Some(offer) = setup.get("offer") {
-            assert!(offer == "install" || offer == "update", "{setup}");
-            record_skip(name, "this Windows PC is offered a real WSL setup: a POST would set WSL up as administrator");
-            return;
-        }
+        assert!(setup.get("offer").is_none(), "only the desktop app offers a setup: {setup}");
     }
 
     for _ in 0..2 {
@@ -72,8 +60,7 @@ async fn a_setup_with_nothing_offered_is_refused_and_changes_nothing() {
     assert_eq!(after, before, "the refused setup changed nothing");
 }
 
-/// The permission is checked before anything else, so this never reaches a
-/// setup, even where one is offered.
+/// The permission is checked before the route runs.
 #[tokio::test]
 async fn a_setup_needs_the_sandbox_manage_permission() {
     let server = TestServer::spawn().await;
@@ -83,50 +70,19 @@ async fn a_setup_needs_the_sandbox_manage_permission() {
     assert_eq!(resp.status().as_u16(), 403, "a user without sandbox::settings::manage");
 }
 
-async fn post_setup_with(server: &TestServer, token: &str, headers: &[(&str, String)]) -> reqwest::Response {
-    let mut request = server.client.post(server.api_url("/sandbox/wsl/setup")).bearer_auth(token);
-    for (name, value) in headers {
-        request = request.header(*name, value);
-    }
-    request.send().await.expect("post setup")
-}
-
-async fn refused_as_not_from_the_app(resp: reqwest::Response, what: &str) {
-    assert_eq!(resp.status().as_u16(), 403, "{what}");
-    let body: Value = resp.json().await.expect("403 json");
-    assert_eq!(body["error_code"], "WSL_SETUP_NOT_FROM_THE_APP", "{what}: {body}");
-}
-
-/// A web page in a browser on this PC sends its origin, and one whose own
-/// name was made to point at this PC ("DNS rebinding") sends that name as
-/// the `Host`: both are refused before anything else, also where a setup is
-/// offered. The app window's origins pass this check.
+/// Without the local API key the lock refuses the request before the route
+/// (403, no body), whatever the token.
 #[tokio::test]
-async fn a_setup_from_a_web_page_or_another_name_is_refused() {
-    let name = stringify!(a_setup_from_a_web_page_or_another_name_is_refused);
+async fn a_setup_without_the_local_api_key_is_refused() {
     let server = TestServer::spawn().await;
     let token = setup_admin(&server).await;
-    let port = reqwest::Url::parse(&server.api_url("/")).expect("url").port().expect("port");
     let before = stack(&server, &token).await;
-
-    for origin in ["https://evil.example", "null", "http://localhost:3000"] {
-        let resp = post_setup_with(&server, &token, &[("Origin", origin.to_string())]).await;
-        refused_as_not_from_the_app(resp, origin).await;
-    }
-    for host in [format!("evil.example:{port}"), format!("127.0.0.1:{}", port.wrapping_add(1))] {
-        let resp = post_setup_with(&server, &token, &[("Host", host.clone())]).await;
-        refused_as_not_from_the_app(resp, &host).await;
-    }
-
-    if before.get("wsl_setup").and_then(|s| s.get("offer")).is_some() {
-        record_skip(name, "this Windows PC is offered a real WSL setup: an accepted POST would start it");
-    } else {
-        for origin in ["http://tauri.localhost", "tauri://localhost"] {
-            let resp = post_setup_with(&server, &token, &[("Origin", origin.to_string())]).await;
-            assert_eq!(resp.status().as_u16(), 409, "the app window's origin passes the check: {origin}");
-            let body: Value = resp.json().await.expect("409 json");
-            assert_eq!(body["error_code"], "WSL_SETUP_NOT_OFFERED", "{origin}: {body}");
-        }
-    }
-    assert_eq!(stack(&server, &token).await, before, "the refused setups changed nothing");
+    let resp = reqwest::Client::new()
+        .post(server.api_url("/sandbox/wsl/setup"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .expect("post setup");
+    assert_eq!(resp.status().as_u16(), 403, "no key");
+    assert_eq!(stack(&server, &token).await, before, "the refused setup changed nothing");
 }
