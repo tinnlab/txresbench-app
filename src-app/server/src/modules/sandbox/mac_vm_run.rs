@@ -94,6 +94,8 @@ const RUNTIME_ARCHIVE: &str = "sandbox-vm-runtime.tar";
 /// Written last into an unpacked runtime, holding the archive's sha256: a runtime dir without it
 /// is unfinished and never used.
 const RUNTIME_COMPLETE: &str = ".complete";
+/// The temporary dir a runtime is unpacked into, `<prefix><pid>`, before it is renamed into place.
+const UNPACK_PREFIX: &str = ".runtime-unpack-";
 
 /// The unpacked shipped runtime, set by [`probe_host`] when the app carries one.
 static RUNTIME_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
@@ -116,7 +118,8 @@ fn runtime_archive() -> Option<PathBuf> {
 /// Unpack the shipped runtime `archive` into `<root>/sandbox-vm/runtime-<sha12>/` once, and return
 /// that dir. The archive must match the sha256 in `<archive>.sha256`; it is unpacked into a temporary
 /// dir, checked, marked complete, then renamed into place, so a half-unpacked runtime is never used.
-/// Runtimes from earlier app versions are removed.
+/// Runtimes from earlier app versions are removed, and so are temporary unpack dirs that processes
+/// which are no longer running left behind.
 pub(crate) fn ensure_runtime_in(root: &Path, archive: &Path) -> Result<PathBuf, String> {
     let sha_file = PathBuf::from(format!("{}.sha256", archive.display()));
     let expected = std::fs::read_to_string(&sha_file)
@@ -140,7 +143,7 @@ pub(crate) fn ensure_runtime_in(root: &Path, archive: &Path) -> Result<PathBuf, 
             ));
         }
         std::fs::create_dir_all(&base).map_err(|e| format!("create {}: {e}", base.display()))?;
-        let tmp = base.join(format!(".runtime-unpack-{}", std::process::id()));
+        let tmp = base.join(format!("{UNPACK_PREFIX}{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).map_err(|e| format!("create {}: {e}", tmp.display()))?;
         let unpacked = (|| {
@@ -202,17 +205,34 @@ pub(crate) fn ensure_runtime_in(root: &Path, archive: &Path) -> Result<PathBuf, 
             }
         }
     }
-    // Runtimes of earlier app versions are no longer used.
+    // Runtimes of earlier app versions are no longer used, and an unpack dir whose process is gone
+    // was left by an unpack that was killed half way. An unpack dir of a live process (another app
+    // or server unpacking right now) is kept.
     if let Ok(entries) = std::fs::read_dir(&base) {
         for entry in entries.flatten() {
             let path = entry.path();
             let name = entry.file_name();
-            if path != dir && name.to_string_lossy().starts_with("runtime-") {
+            let name = name.to_string_lossy();
+            let stale = if let Some(pid) = name.strip_prefix(UNPACK_PREFIX) {
+                pid.parse::<libc::pid_t>()
+                    .is_ok_and(|pid| pid > 0 && pid as u32 != std::process::id() && !process_alive(pid))
+            } else {
+                path != dir && name.starts_with("runtime-")
+            };
+            if stale {
                 let _ = std::fs::remove_dir_all(&path);
             }
         }
     }
     Ok(dir)
+}
+
+/// Whether a process with this pid exists. Signal 0 sends nothing, it only checks the pid; a
+/// process of another user (EPERM) exists too.
+fn process_alive(pid: libc::pid_t) -> bool {
+    // SAFETY: kill with signal 0 delivers no signal.
+    let rc = unsafe { libc::kill(pid, 0) };
+    rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 fn sha256_file(path: &Path) -> std::io::Result<String> {
@@ -1174,6 +1194,38 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dir.join("share/guest-root/etc/tag")).unwrap(), "v2");
         assert!(dir.join("bin").join(LAUNCHER_BIN).is_file());
         assert!(!old.exists(), "the earlier version's runtime is removed");
+    }
+
+    #[test]
+    fn an_unpack_left_by_a_dead_process_is_removed_and_a_live_ones_kept() {
+        let t = TempDir::new();
+        let data = t.0.join("data");
+        let base = data.join("sandbox-vm");
+        // A pid that is no longer running: a child that has exited and been reaped.
+        let mut child = std::process::Command::new("/usr/bin/true").spawn().unwrap();
+        let dead_pid = child.id();
+        child.wait().unwrap();
+        // A pid that is running: the process that started this test.
+        let live_pid = std::os::unix::process::parent_id();
+        let half = |pid: u32| {
+            let d = base.join(format!("{UNPACK_PREFIX}{pid}"));
+            std::fs::create_dir_all(d.join("share/guest-root/etc")).unwrap();
+            std::fs::write(d.join("share/guest-root/etc/tag"), "half").unwrap();
+            d
+        };
+        let dead = half(dead_pid);
+        let live = half(live_pid);
+        let v1 = runtime_archive_fixture(&t.0, true, "v1");
+        // A start that unpacks the runtime removes the dead process's leftover...
+        let dir = ensure_runtime_in(&data, &v1).unwrap();
+        assert!(dir.join("bin").join(LAUNCHER_BIN).is_file());
+        assert!(!dead.exists(), "the dead process's unpack is removed");
+        assert!(live.is_dir(), "a running process's unpack is kept");
+        // ...and so does a start that finds the runtime already unpacked.
+        let dead = half(dead_pid);
+        assert_eq!(ensure_runtime_in(&data, &v1).unwrap(), dir);
+        assert!(!dead.exists(), "removed when the runtime is reused too");
+        assert!(live.is_dir(), "still kept");
     }
 
     #[test]
