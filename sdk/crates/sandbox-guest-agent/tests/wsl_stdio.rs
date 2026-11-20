@@ -317,10 +317,17 @@ impl Fixture {
 }
 
 fn mksquashfs(src: &Path, out: &Path) {
+    // mksquashfs sizes its thread pool from the machine's CPU count, not the
+    // CPUs this process may use: pass -processors explicitly (follows cpu
+    // affinity on Linux, like the generator's helper).
+    let processors =
+        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).to_string();
     let st = Command::new("mksquashfs")
         .arg(src)
         .arg(out)
         .args(["-noappend", "-quiet", "-all-root"])
+        .arg("-processors")
+        .arg(&processors)
         .stdout(Stdio::null())
         .status()
         .expect("mksquashfs");

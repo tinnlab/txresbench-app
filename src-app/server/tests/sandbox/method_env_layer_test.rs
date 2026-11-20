@@ -823,7 +823,7 @@ fn pipeline_layer_equivalence_with_full_image() {
     let base_rootfs = pipeline.base_cache_dir.join("rootfs");
     let base_sqfs = work.join("base.squashfs");
     sh(&format!(
-        "mksquashfs {r} {o} -comp gzip -b 1M -noappend -no-progress -all-root >/dev/null",
+        "mksquashfs {r} {o} -processors $(nproc) -comp gzip -b 1M -noappend -no-progress -all-root >/dev/null",
         r = base_rootfs.display(),
         o = base_sqfs.display()
     ));

@@ -62,10 +62,15 @@ fn make_tiny_squashfs(scratch: &Path, dest: &Path) {
     let src = scratch.join("sqsrc");
     std::fs::create_dir_all(src.join("usr")).expect("mk squashfs source tree");
     std::fs::write(src.join("usr").join("marker"), b"rootfs marker").expect("write marker");
+    let processors =
+        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).to_string();
     let out = std::process::Command::new("mksquashfs")
         .arg(&src)
         .arg(dest)
         .args(["-noappend", "-no-progress", "-quiet"])
+        // mksquashfs sizes its pool from the machine's CPU count, not the CPUs
+        // this process may use (follows cpu affinity on Linux).
+        .args(["-processors", &processors])
         .output()
         .expect("run mksquashfs");
     assert!(

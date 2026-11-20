@@ -464,7 +464,7 @@ for (const arch of ARCHES) {
       apk add -q --no-cache squashfs-tools >/dev/null   # makes the test image; not part of the root
       mkdir /r && tar -xf /in/txresbench-wsl.tar -C /r
       mkdir /img && echo hello-from-squashfs > /img/hello.txt
-      mksquashfs /img /r/tmp/t.sqfs -quiet -noappend >/dev/null
+      mksquashfs /img /r/tmp/t.sqfs -processors "$(nproc)" -quiet -noappend >/dev/null
       printf '%s\\n' "$SMOKE" > /r/tmp/smoke.sh
       unshare -m sh -c 'mount --make-rprivate / && mount --bind /r /r && cd /r && mkdir .old &&
         pivot_root . .old && exec /bin/sh /tmp/smoke.sh'`]);

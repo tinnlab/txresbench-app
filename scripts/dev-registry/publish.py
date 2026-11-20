@@ -293,6 +293,15 @@ def run(cmd, check=True):
     return out
 
 
+def _squashfs_processors():
+    """The CPUs this process may use (mksquashfs sizes its thread pool from the
+    machine's count, not the cpuset/affinity — same helper as the generator)."""
+    try:
+        return len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
+
+
 def mksquashfs(srcdir, out_sqfs):
     """Pack with the shipped recipe's compressor flags; `-all-root` so the
     uid-1001 sandbox process reads every file; dev level (the recipe's 22 is a
@@ -301,6 +310,7 @@ def mksquashfs(srcdir, out_sqfs):
     run([
         "mksquashfs", srcdir, tmp,
         "-comp", "zstd", "-b", "1M", "-noappend", "-no-progress", "-all-root",
+        "-processors", str(_squashfs_processors()),
     ])
     os.replace(tmp, out_sqfs)
 
