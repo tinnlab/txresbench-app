@@ -424,9 +424,10 @@ pub trait MethodExecutor: Send + Sync {
     async fn execute(&self, ctx: MethodRunContext) -> Result<MethodOutcome, AppError>;
 
     /// Why no method can run on this machine at all, if that is known before
-    /// a run starts (Windows: WSL 2 is missing or too old); `None` = methods
-    /// can be tried. "Use example" says it instead of starting a run that
-    /// cannot run.
+    /// a run starts (Windows: WSL 2 is missing or too old; macOS: an Intel
+    /// Mac or no VM runtime; Linux: no bubblewrap); `None` = methods can be
+    /// tried. "Use example" says it instead of starting a run that cannot
+    /// run.
     fn runner_unavailable(&self) -> Option<String> {
         None
     }
@@ -812,9 +813,15 @@ enum CallOutcome {
 
 #[async_trait]
 impl MethodExecutor for StackMethodExecutor {
-    #[cfg(target_os = "windows")]
     fn runner_unavailable(&self) -> Option<String> {
-        crate::modules::sandbox::wsl_run::runner_unavailable()
+        #[cfg(target_os = "windows")]
+        {
+            crate::modules::sandbox::wsl_run::runner_unavailable()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            crate::modules::sandbox::config::runner_unavailable()
+        }
     }
 
     async fn execute(&self, ctx: MethodRunContext) -> Result<MethodOutcome, AppError> {

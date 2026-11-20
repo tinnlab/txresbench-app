@@ -199,6 +199,10 @@ impl AppModule for SandboxModule {
             Ok(h) => h,
             Err(reason) => {
                 set_init_status(SandboxAvailability::HostUnsupported);
+                // The technical reason is logged; "Use example" shows the
+                // plain one (Windows keeps its own in `wsl_run`).
+                #[cfg(not(target_os = "windows"))]
+                config::set_probe_failure(config::plain_probe_reason(std::env::consts::OS, &reason));
                 tracing::warn!("sandbox: {reason}");
                 tracing::info!(
                 "{}",

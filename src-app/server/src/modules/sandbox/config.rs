@@ -94,6 +94,10 @@ pub const RUNNER_CODES: [&str; 3] =
     [VM_UNAVAILABLE_CODE, WSL_UNAVAILABLE_CODE, VM_OUTPUTS_INCOMPLETE_CODE];
 
 static STATE: OnceCell<Arc<SandboxState>> = OnceCell::new();
+/// Why the boot probe found no way to run methods, in plain words (first
+/// value wins). Set only where the probe failed.
+#[cfg(not(target_os = "windows"))]
+static PROBE_FAILURE: OnceCell<String> = OnceCell::new();
 static INIT_STATUS: OnceCell<SandboxAvailability> = OnceCell::new();
 
 /// Record the module's init outcome (first value wins).
@@ -107,6 +111,59 @@ pub fn init_status() -> SandboxAvailability {
         .get()
         .copied()
         .unwrap_or(SandboxAvailability::NotInitialized)
+}
+
+/// The plain sentence for a failed boot probe, from the platform
+/// (`std::env::consts::OS`) and the probe's own technical `raw` reason. The
+/// raw text names paths, launcher files and environment variables, so it is
+/// only logged; the user gets one of these sentences instead. (Windows says
+/// its own, in `wsl_run`.)
+pub fn plain_probe_reason(os: &str, raw: &str) -> String {
+    match os {
+        "macos" if raw.contains("Apple Silicon") => {
+            "methods need a Mac with an Apple chip (M1 or newer); a Mac with an Intel chip cannot run them"
+                .to_string()
+        }
+        "macos" if raw.contains("missing") || raw.contains("VM runtime") || raw.contains("guest root") => {
+            "the part of the app that runs methods on a Mac is missing or out of date; \
+             install the app again from a full release"
+                .to_string()
+        }
+        "macos" => "the part of the app that runs methods on a Mac did not start".to_string(),
+        "linux" => "bubblewrap, the tool that keeps methods isolated, is not installed; \
+             install bubblewrap and squashfuse"
+            .to_string(),
+        _ => "methods cannot run on this system".to_string(),
+    }
+}
+
+/// Record why the boot probe failed (plain words, first value wins).
+#[cfg(not(target_os = "windows"))]
+pub fn set_probe_failure(plain: String) {
+    let _ = PROBE_FAILURE.set(plain);
+}
+
+/// Why no method can run on this machine at all, known once the boot probe
+/// has failed; `None` while the sandbox is ready or has not booted yet (a run
+/// that cannot start still fails with its own typed code).
+#[cfg(not(target_os = "windows"))]
+pub fn runner_unavailable() -> Option<String> {
+    runner_reason(init_status(), PROBE_FAILURE.get().map(String::as_str))
+}
+
+/// [`runner_unavailable`] for a given status and recorded probe failure.
+pub fn runner_reason(status: SandboxAvailability, probe_failure: Option<&str>) -> Option<String> {
+    match status {
+        SandboxAvailability::Ready | SandboxAvailability::NotInitialized => None,
+        SandboxAvailability::WorkspaceInitFailed => {
+            Some("the app could not set up the folder it runs methods in".to_string())
+        }
+        SandboxAvailability::HostUnsupported | SandboxAvailability::RootfsUnavailable => Some(
+            probe_failure
+                .map(str::to_string)
+                .unwrap_or_else(|| "the part of the app that runs methods did not start".to_string()),
+        ),
+    }
 }
 
 /// Set the global state (called once at `init()`). First write wins.
@@ -162,6 +219,50 @@ mod tests {
         for (variant, expected) in cases {
             assert_eq!(serde_json::to_string(&variant).unwrap(), expected);
         }
+    }
+
+    /// A5: each platform's failed probe reads as a plain sentence that says
+    /// why methods cannot run, never the probe's paths or variable names.
+    #[test]
+    fn a_failed_probe_reads_as_a_plain_reason_per_platform() {
+        let intel = plain_probe_reason(
+            "macos",
+            "method VMs need an Apple Silicon Mac (libkrun runs arm64 guests only) — method VMs disabled (host_unsupported)",
+        );
+        assert!(intel.contains("Apple chip") && intel.contains("Intel"), "{intel}");
+
+        let no_launcher = plain_probe_reason(
+            "macos",
+            "the VM launcher is missing at /Applications/App/resources/vm/launcher (build the app's VM runtime \
+             with scripts/build-macos-vm-runtime.sh, or set TXR_MAC_VM_LAUNCHER) — method VMs disabled (host_unsupported)",
+        );
+        assert!(no_launcher.contains("missing or out of date"), "{no_launcher}");
+        let old_root = plain_probe_reason("macos", "the VM guest root at /x: older protocol (rebuild it)");
+        assert_eq!(old_root, no_launcher);
+        let other = plain_probe_reason("macos", "the VM launcher at /x cannot run: denied");
+        assert!(other.contains("did not start"), "{other}");
+
+        let linux = plain_probe_reason(
+            "linux",
+            "bwrap not found on PATH — sandbox disabled (host_unsupported). Install bubblewrap + squashfuse to enable.",
+        );
+        assert!(linux.contains("bubblewrap") && linux.contains("not installed"), "{linux}");
+
+        for text in [&intel, &no_launcher, &other, &linux] {
+            for jargon in ["/", "TXR_", "libkrun", "host_unsupported", "this computer", "bwrap "] {
+                assert!(!text.contains(jargon), "{jargon:?} in {text}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_runner_reason_follows_the_boot_status() {
+        use SandboxAvailability::*;
+        assert_eq!(runner_reason(Ready, Some("x")), None);
+        assert_eq!(runner_reason(NotInitialized, None), None, "before boot nothing is known");
+        assert_eq!(runner_reason(HostUnsupported, Some("why")).as_deref(), Some("why"));
+        assert!(runner_reason(HostUnsupported, None).unwrap().contains("did not start"));
+        assert!(runner_reason(WorkspaceInitFailed, None).unwrap().contains("folder"));
     }
 
     #[test]
