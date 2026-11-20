@@ -376,6 +376,9 @@ mod tests {
         // view), declared in stepTrail.ts, and
         // `methods.applyPreset` on `txr.method-picker` (the choose-methods
         // page's method picker, `src-app/ui/src/modules/txrlist/lib/methodPicker.ts`),
+        // `flow.setLastDrawDay` on `txr.step` (the last-draw day of the questions
+        // step), `runSettings.setDay` on `txr.run-settings` (the choose-methods
+        // page's day settings, `src-app/ui/src/modules/txrrun/lib/settings.ts`)
         // and `sandbox.setupWsl` on `txr.wsl-setup` (active while the app offers
         // to set WSL up on Windows, `src-app/ui/src/lib/wsl-setup/wslSetup.ts`).
         // Any other non-global action, or another context on a pinned action,
@@ -395,9 +398,11 @@ mod tests {
             non_global,
             vec![
                 ("flow.back", "txr.step"),
+                ("flow.setLastDrawDay", "txr.step"),
                 ("help.backToStep", "txr.helpFromStep"),
                 ("methods.applyPreset", "txr.method-picker"),
                 ("models.switchList", "txr.modelStep"),
+                ("runSettings.setDay", "txr.run-settings"),
                 ("sandbox.setupWsl", "txr.wsl-setup"),
             ],
             "only the app's own contexts are committed: {non_global:?}"

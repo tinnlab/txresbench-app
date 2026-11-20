@@ -5,7 +5,7 @@
  * of an inline fixture) → inspect → (validate only when BOTH files are
  * present, auto); the cards show the per-file problem list, the join and
  * vocabulary offers; Continue is disabled while any error problem remains
- * (DEC-10) and navigates to `/choose-methods` only when clear; the
+ * (DEC-10) and navigates to the study questions (`/study`) only when clear; the
  * "Fix and choose the file again" affordance removes the file.
  *
  * The ApiClient is mocked; the store is the real TxrIntake store (reset per
@@ -376,7 +376,7 @@ describe('FilesPage (screen C, ITEM-6)', () => {
     ).toBeNull()
   })
 
-  it('warning-only problems let Continue through to the methods screen', async () => {
+  it('warning-only problems let Continue through to the study questions', async () => {
     renderFiles()
 
     // A clean file set whose remaining fact is the unanswered A03 join:
@@ -404,7 +404,8 @@ describe('FilesPage (screen C, ITEM-6)', () => {
     })
     expect(screen.getByTestId('txr-intake-join-offer-ldh')).toBeTruthy()
     fireEvent.click(continueButton())
-    expect(routeAt()).toBe('/choose-methods')
+    // The learn path: the files, then the study questions, then the methods.
+    expect(routeAt()).toBe('/study')
   })
 
   it('the download links fetch through the generated client', async () => {

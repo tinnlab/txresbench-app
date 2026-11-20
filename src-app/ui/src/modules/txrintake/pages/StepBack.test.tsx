@@ -6,9 +6,9 @@
  * - placement: in every state of B, C and N the Back button is the element
  *   directly before the step's proceed button, in the same row;
  * - targets: Back lands on the step the path showed before (the Start
- *   cards' paths: rows 1, 3 and 4 of the plan's flow map) and Start begins
- *   the trail;
- * - state: Back to B and Continue again keeps C's files and validation.
+ *   cards' paths: rows 1, 3 and 4 of the plan's flow map; the learn path is
+ *   Start, C, B, E) and Start begins the trail;
+ * - state: Back from B to C and Continue again keeps C's files and validation.
  *
  * The model and method steps after N and C are stand-ins here (their own
  * suites cover their Back); the trail and the `flow.back` action are real.
@@ -342,24 +342,24 @@ describe('Back targets along the Start paths', () => {
     expect(routeAt()).toBe('/')
   })
 
-  it('row 3 — the train card: A → B → C → E; Back walks E → C → B → Start', async () => {
+  it('row 3 — the train card: A → C → B → E; Back walks E → B → C → Start', async () => {
     seedTrain()
     renderApp('/')
     await click('txr-intake-start-card-train-cta')
-    expect(routeAt()).toBe('/study')
-    await click('txr-intake-study-continue')
     expect(routeAt()).toBe('/files')
     await click('txr-intake-continue')
+    expect(routeAt()).toBe('/study')
+    await click('txr-intake-study-continue')
     expect(routeAt()).toBe('/choose-methods')
     await click('txr-step-back')
-    expect(routeAt()).toBe('/files')
-    await click('txr-step-back')
     expect(routeAt()).toBe('/study')
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/files')
     await click('txr-step-back')
     expect(routeAt()).toBe('/')
   })
 
-  it('row 4 — the train "Use example" skips B: Back from C is Start', async () => {
+  it('row 4 — the train "Use example" lands on C: Back from C is Start', async () => {
     renderApp('/')
     fireEvent.click(screen.getByTestId('txr-use-example-train'))
     await waitFor(() => expect(routeAt()).toBe('/files'))
@@ -382,10 +382,15 @@ describe('Back targets along the Start paths', () => {
     expect(routeAt()).toBe('/')
   })
 
-  it('a deep link (no trail): C goes back to B, N to Start, and N with a "Use" search to Your models', async () => {
+  it('a deep link (no trail): B goes back to C, C to Start, N to Start, and N with a "Use" search to Your models', async () => {
+    renderApp('/study')
+    await click('txr-step-back')
+    expect(routeAt()).toBe('/files')
+    cleanup()
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
     renderApp('/files')
     await click('txr-step-back')
-    expect(routeAt()).toBe('/study')
+    expect(routeAt()).toBe('/')
     cleanup()
     useStepTrailStore.setState({ trail: [], current: null, leaving: false })
     renderApp('/predict-files')
@@ -404,7 +409,6 @@ describe('a path that changes the mode', () => {
     seedPredict()
     renderApp('/')
     await click('txr-intake-start-card-train-cta')
-    await click('txr-intake-study-continue')
     expect(routeAt()).toBe('/files')
     expect(screen.getByTestId<HTMLButtonElement>('txr-intake-continue').disabled).toBe(true)
     expect(screen.getByText('Both files are needed before the check runs.')).toBeTruthy()
@@ -412,15 +416,15 @@ describe('a path that changes the mode', () => {
 })
 
 describe('state kept across Back', () => {
-  it('C keeps its files and validation after Back to B and Continue (no new check)', async () => {
+  it('C keeps its files and validation after Back from B and Continue again (no new check)', async () => {
     seedTrain()
     const before = store()
-    useStepTrailStore.setState({ trail: ['/', '/study'] })
-    renderApp('/files')
+    useStepTrailStore.setState({ trail: ['/', '/files'] })
+    renderApp('/study')
     await click('txr-step-back')
-    expect(routeAt()).toBe('/study')
-    await click('txr-intake-study-continue')
     expect(routeAt()).toBe('/files')
+    await click('txr-intake-continue')
+    expect(routeAt()).toBe('/study')
     const after = store()
     expect(after.patients).toBe(before.patients)
     expect(after.measurements).toBe(before.measurements)
@@ -432,33 +436,39 @@ describe('state kept across Back', () => {
 
 describe('the "← Step x of y" line (the step line goes back, like the Back button)', () => {
   it('B, C and N carry the arrow line with their own step; Start keeps a plain step line', async () => {
-    renderApp('/study')
+    renderApp('/files')
     expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 2 of 4')
     cleanup()
-    renderApp('/files')
+    renderApp('/study')
     expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 3 of 4')
     cleanup()
+    // The predict paths have three steps.
     renderApp('/predict-files')
-    expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 3 of 4')
+    expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 2 of 3')
+    cleanup()
+    // The study questions opened from N are a side trip: the line has no number.
+    useTxrIntakeStore.setState({ intent: 'pretrained', mode: 'predict' })
+    renderApp('/study')
+    expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Back')
     cleanup()
     renderApp('/')
     expect(screen.queryByTestId('txr-step-line-back')).toBeNull()
     expect(screen.getByText('Step 1 of 4')).toBeTruthy()
   })
 
-  it('row 3 — the train card: the line walks back C → B → Start, as Back does', async () => {
+  it('row 3 — the train card: the line walks back B → C → Start, as Back does', async () => {
     seedTrain()
     renderApp('/')
     await click('txr-intake-start-card-train-cta')
-    await click('txr-intake-study-continue')
-    expect(routeAt()).toBe('/files')
-    await click('txr-step-line-back')
+    await click('txr-intake-continue')
     expect(routeAt()).toBe('/study')
+    await click('txr-step-line-back')
+    expect(routeAt()).toBe('/files')
     await click('txr-step-line-back')
     expect(routeAt()).toBe('/')
   })
 
-  it('row 4 — the train "Use example" skips B: the line on C goes to Start', async () => {
+  it('row 4 — the train "Use example" lands on C: the line on C goes to Start', async () => {
     renderApp('/')
     fireEvent.click(screen.getByTestId('txr-use-example-train'))
     await waitFor(() => expect(routeAt()).toBe('/files'))
@@ -475,9 +485,10 @@ describe('the "← Step x of y" line (the step line goes back, like the Back but
     expect(routeAt()).toBe('/')
   })
 
-  it('a deep link (no trail): the line goes where Back goes (C → B, N → Start, N "Use" → Your models)', async () => {
+  it('a deep link (no trail): the line goes where Back goes (B → C, C → Start, N → Start, N "Use" → Your models)', async () => {
     for (const [entry, target] of [
-      ['/files', '/study'],
+      ['/study', '/files'],
+      ['/files', '/'],
       ['/predict-files', '/'],
       ['/predict-files?use=m1&name=Model', '/models'],
     ] as const) {
