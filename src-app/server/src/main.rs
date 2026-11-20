@@ -123,7 +123,11 @@ async fn main() {
                 cli.demo,
                 cli.config_file.as_deref(),
             );
-            txresbench::serve_blocking(config, demo).await
+            let (local_key, generated) = txresbench::modules::local_api_lock::resolve_headless_key(None);
+            if generated && !demo.enabled {
+                println!("TxResBench local API key: {local_key}");
+            }
+            txresbench::serve_blocking(config, demo, local_key).await
         }
         Some(Mode::CheckMethodList { .. }) => unreachable!("handled before the config load"),
     };

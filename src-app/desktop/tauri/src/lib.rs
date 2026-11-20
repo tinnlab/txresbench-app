@@ -91,7 +91,10 @@ pub fn run() {
     init_tracing();
     tracing::info!("Starting TxResBench…");
 
-    let boot: Arc<dyn ServerBoot> = Arc::new(CytoServerBoot::new(config::desktop_config()));
+    let boot: Arc<dyn ServerBoot> = Arc::new(CytoServerBoot::new(
+        config::desktop_config(),
+        txresbench::modules::local_api_lock::generate_secret(),
+    ));
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

@@ -45,6 +45,7 @@ pub struct BootParts {
 async fn build_app(
     config: &ServerConfig,
     demo: &config::DemoConfig,
+    lock: Option<&modules::local_api_lock::LocalApiLock>,
 ) -> Result<(axum::Router, Arc<SqlitePool>, Arc<JwtService>), BoxErr> {
     // Demo mode is a runtime setting of THIS process: install the resolved
     // state once, BEFORE module init, so every module/layer that consults it
@@ -231,6 +232,19 @@ async fn build_app(
     // Install the file-store request handle globally (the mountable file_routes
     // handlers extract `Extension<FileContext>`).
     let app = app.layer(axum::Extension(file_ctx));
+    // The local API lock (`modules::local_api_lock`): the per-run key + Host +
+    // Origin check in front of EVERY route. Layered here, after every route,
+    // the harness sentinel and every other layer above exist, so no route can
+    // sit outside it; and INSIDE the CORS layer below, so a preflight is
+    // answered by CORS first and a refusal never carries an allow-origin for a
+    // foreign page. Demo mode (anonymous public visitors by design) has none.
+    let app = match lock {
+        Some(lock) if !demo.enabled => app.layer(axum::middleware::from_fn_with_state(
+            lock.clone(),
+            modules::local_api_lock::enforce,
+        )),
+        _ => app,
+    };
     let app = app.layer(create_cors_layer(config));
     // `None` absent-default: config omitting `rate_limit` (desktop) → no limiter.
     // In demo mode the framework limiter is CONFIGURED always — the plan's
@@ -311,7 +325,11 @@ async fn build_app(
 
 /// Boot + spawn `serve` on the background runtime; return the handle.
 /// **Non-blocking** — the caller keeps the process alive (desktop event loop).
-pub async fn boot_in_background(config: ServerConfig) -> Result<BootParts, BoxErr> {
+///
+/// `secret` is the per-run local-API key the desktop shell made at start: the
+/// server refuses every request that does not carry it (see
+/// `modules::local_api_lock`). There is no unlocked variant.
+pub async fn boot_in_background(config: ServerConfig, secret: String) -> Result<BootParts, BoxErr> {
     // At-rest secret storage key (#60): the DESKTOP entrypoint's init (this path does
     // not parse a CLI `--config-file`, so it resolves from `TXR_SECRET_STORAGE_KEY` or
     // the discovered config's `secrets.storage_key`). First-wins OnceCell. `None` ⇒
@@ -319,9 +337,19 @@ pub async fn boot_in_background(config: ServerConfig) -> Result<BootParts, BoxEr
     txresbench_framework::secrets::init_storage_key(config::resolve_storage_key(None));
     // Demo mode for the desktop entrypoint: env + config file only (no CLI).
     let demo = config::resolve_demo_config(false, None);
-    let (app, pool, jwt) = build_app(&config, &demo).await?;
+    let lock = modules::local_api_lock::LocalApiLock::new(
+        secret,
+        modules::local_api_lock::LockMode::Desktop,
+        &config.server.api_prefix,
+    );
+    let (app, pool, jwt) = build_app(&config, &demo, Some(&lock)).await?;
     let listener = tokio::net::TcpListener::bind(config.server_address()).await?;
     let addr = listener.local_addr()?;
+    // The real port, known only now: the lock's Host check and the MCP
+    // loopback dispatch both need it, and both must be set before `serve`
+    // accepts a connection.
+    lock.set_port(addr.port());
+    modules::mcp::set_loopback(addr, Some(lock.secret().to_string()));
     tracing::info!(
         "TxResBench listening on http://{addr}{}",
         config.server.api_prefix
@@ -345,10 +373,25 @@ pub async fn boot_in_background(config: ServerConfig) -> Result<BootParts, BoxEr
 pub async fn serve_blocking(
     config: ServerConfig,
     demo: config::DemoConfig,
+    local_key: String,
 ) -> Result<(), BoxErr> {
-    let (app, _pool, _jwt) = build_app(&config, &demo).await?;
+    // Demo mode is a public web service with anonymous visitors by design (its
+    // own route gate restricts them): no key. Every other headless server
+    // requires the key on every request.
+    let lock = (!demo.enabled).then(|| {
+        modules::local_api_lock::LocalApiLock::new(
+            local_key,
+            modules::local_api_lock::LockMode::Headless,
+            &config.server.api_prefix,
+        )
+    });
+    let (app, _pool, _jwt) = build_app(&config, &demo, lock.as_ref()).await?;
     let listener = tokio::net::TcpListener::bind(config.server_address()).await?;
     let addr = listener.local_addr()?;
+    if let Some(lock) = &lock {
+        lock.set_port(addr.port());
+    }
+    modules::mcp::set_loopback(addr, lock.as_ref().map(|l| l.secret().to_string()));
     println!("TxResBench listening on http://{}/api", addr);
 
     txresbench_framework::serve(listener, app).await?;

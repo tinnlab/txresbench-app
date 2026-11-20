@@ -22,7 +22,7 @@
 //! failure from the dispatched route is an `isError` tool result) — this
 //! module was NOT asked to change that half, only to add the frontend one.
 
-use std::sync::{LazyLock, OnceLock};
+use std::sync::{LazyLock, RwLock};
 use std::time::Duration;
 
 use axum::{
@@ -54,18 +54,59 @@ use super::permissions::McpUse;
 // consts (byte-preserving, INV-1); `max_result_bytes` is SAFETY-BOUNDED (DEC-3):
 // admin-tunable only within a bounded range, never raised unbounded.
 
-/// The loopback base URL (`http://127.0.0.1:<port>`) the REST-kind invoke
-/// dispatch targets, and the base the pairing `mcp_url` is built from. Set
-/// once at module init (`mod.rs::init`), never model/operator-supplied.
-static MCP_BASE_URL: OnceLock<String> = OnceLock::new();
+/// Where the REST-kind invoke dispatch and the pairing `mcp_url` point: this
+/// process's own loopback address, plus the local-API key the dispatch must
+/// present (the server refuses every request without it; the dispatch is the
+/// one in-process HTTP caller). Never model/operator-supplied.
+#[derive(Clone)]
+struct Loopback {
+    base: String,
+    key: Option<String>,
+}
+
+/// Set at module init from the config (a placeholder: the desktop's config
+/// port is 0) and then replaced with the REAL bound address right after
+/// `bind` by [`set_loopback`], so a replaceable cell, not a set-once one.
+static LOOPBACK: RwLock<Option<Loopback>> = RwLock::new(None);
 
 pub fn set_base_url(base: String) {
-    let _ = MCP_BASE_URL.set(base);
+    let mut g = LOOPBACK.write().unwrap_or_else(|e| e.into_inner());
+    if g.is_none() {
+        *g = Some(Loopback { base, key: None });
+    }
+}
+
+/// The real bound address and the local-API key (`None` when there is no lock:
+/// demo mode). Called once per boot, after `bind`, before `serve`.
+pub fn set_loopback(addr: std::net::SocketAddr, key: Option<String>) {
+    let host = match addr.ip() {
+        std::net::IpAddr::V6(_) => "[::1]".to_string(),
+        ip if ip.is_unspecified() => "127.0.0.1".to_string(),
+        ip => ip.to_string(),
+    };
+    let mut g = LOOPBACK.write().unwrap_or_else(|e| e.into_inner());
+    *g = Some(Loopback {
+        base: format!("http://{host}:{}", addr.port()),
+        key,
+    });
+}
+
+/// Add the local-API key header to a loopback request (nothing when there is
+/// no lock: demo mode).
+fn with_local_key(request: reqwest::RequestBuilder, key: Option<&str>) -> reqwest::RequestBuilder {
+    match key {
+        Some(key) => request.header(crate::modules::local_api_lock::KEY_HEADER, key),
+        None => request,
+    }
+}
+
+fn loopback() -> Option<Loopback> {
+    LOOPBACK.read().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 /// `pairing.rs`'s `pair_start` reads this to build `mcp_url`.
-pub(super) fn base_url() -> Option<&'static str> {
-    MCP_BASE_URL.get().map(String::as_str)
+pub(super) fn base_url() -> Option<String> {
+    loopback().map(|l| l.base)
 }
 
 /// One shared client for the loopback dispatch (mirrors txresbench `control_mcp`).
@@ -496,8 +537,9 @@ async fn invoke_rest(
 
     let path = substitute_path(&op.path_template, &op.path_params, &args.path_params)?;
 
-    let base =
-        base_url().ok_or_else(|| AppError::internal_error("mcp base url not initialized"))?;
+    let target =
+        loopback().ok_or_else(|| AppError::internal_error("mcp base url not initialized"))?;
+    let base = target.base.as_str();
     let mut url = reqwest::Url::parse(&format!("{base}{path}"))
         .map_err(|e| AppError::internal_with_id(format!("parse loopback url: {e}")))?;
 
@@ -529,6 +571,9 @@ async fn invoke_rest(
     {
         request = request.header(reqwest::header::AUTHORIZATION, auth_header);
     }
+    // The server's local-API lock refuses every request without the per-run
+    // key; this dispatch is the one in-process HTTP caller, so it presents it.
+    request = with_local_key(request, target.key.as_deref());
     if let Some(body) = &args.body {
         request = request.json(body);
     }
@@ -1108,5 +1153,69 @@ mod tests {
         // Holds both → allowed.
         let full = test_user(false, &["users::create", "groups::edit"]);
         assert!(op_available(&full, &[], &two));
+    }
+}
+
+#[cfg(test)]
+mod loopback_tests {
+    use super::*;
+    use crate::modules::local_api_lock::{LocalApiLock, LockMode};
+
+    const KEY: &str = "loopback-test-key-0123456789abcdef";
+
+    /// A real listener behind the real lock, the way `boot_in_background`
+    /// builds it (Desktop mode: Host + Origin + key).
+    async fn locked_server() -> std::net::SocketAddr {
+        let lock = LocalApiLock::new(KEY.to_string(), LockMode::Desktop, "/api");
+        let app = axum::Router::new()
+            .route("/api/ping", axum::routing::get(|| async { "pong" }))
+            .layer(axum::middleware::from_fn_with_state(
+                lock.clone(),
+                crate::modules::local_api_lock::enforce,
+            ));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        lock.set_port(addr.port());
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        addr
+    }
+
+    /// The MCP loopback dispatch must reach the locked server, and the lock
+    /// must refuse the same request without the key.
+    #[tokio::test]
+    async fn the_loopback_dispatch_reaches_a_locked_server_only_with_the_key() {
+        let addr = locked_server().await;
+        let client = reqwest::Client::new();
+        let url = format!("http://{addr}/api/ping");
+
+        let ok = with_local_key(client.get(&url), Some(KEY)).send().await.unwrap();
+        assert_eq!(ok.status(), 200);
+        assert_eq!(ok.text().await.unwrap(), "pong");
+
+        let none = with_local_key(client.get(&url), None).send().await.unwrap();
+        assert_eq!(none.status(), 403, "without the key the lock refuses");
+        let wrong = with_local_key(client.get(&url), Some("not-the-key")).send().await.unwrap();
+        assert_eq!(wrong.status(), 403);
+    }
+
+    /// The base URL is built from the REAL bound port (it was the config
+    /// port, 0 on the desktop, so the dispatch could never reach the server).
+    /// The only test that touches the process-global cell.
+    #[test]
+    fn set_loopback_uses_the_bound_address() {
+        set_base_url("http://127.0.0.1:0".to_string());
+        set_loopback("127.0.0.1:43210".parse().unwrap(), Some(KEY.to_string()));
+        assert_eq!(base_url().as_deref(), Some("http://127.0.0.1:43210"));
+        assert_eq!(loopback().unwrap().key.as_deref(), Some(KEY));
+        set_loopback("0.0.0.0:43211".parse().unwrap(), None);
+        assert_eq!(base_url().as_deref(), Some("http://127.0.0.1:43211"));
+        set_loopback("[::1]:43212".parse().unwrap(), None);
+        assert_eq!(base_url().as_deref(), Some("http://[::1]:43212"));
+        assert!(loopback().unwrap().key.is_none());
+        // `set_base_url` (the module-init placeholder) never overwrites a real one.
+        set_base_url("http://127.0.0.1:0".to_string());
+        assert_eq!(base_url().as_deref(), Some("http://[::1]:43212"));
     }
 }
