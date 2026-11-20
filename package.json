@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "fetch-oras": "node scripts/fetch-oras.mjs",
+    "verify-macos-vm-runtime": "node scripts/verify-macos-vm-runtime.mjs",
     "verify-wsl-runtime": "node scripts/verify-wsl-runtime.mjs"
   },
   "workspaces": [

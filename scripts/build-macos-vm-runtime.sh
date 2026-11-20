@@ -19,6 +19,7 @@
 #   cross-compile libkrun's guest init.
 # Output: src-app/desktop/tauri/resources/sandbox-vm-runtime/sandbox-vm-runtime.tar (+ .sha256), replaced
 #   only after every step succeeded. The app checks the .sha256 before it unpacks the archive.
+#   `npm run verify-macos-vm-runtime` checks the pair as a release bundle needs it.
 set -eu
 
 die() { echo "build-macos-vm-runtime: $*" >&2; exit 1; }
