@@ -37,8 +37,8 @@ function csvRows(name: string): Array<Record<string, string>> {
     .filter(line => line.trim() !== '')
   const columns = header.split(',')
   return lines.map(line => {
-    const cells = line.split(',')
-    return Object.fromEntries(columns.map((c, i) => [c, cells[i] ?? '']))
+    const values = line.split(',')
+    return Object.fromEntries(columns.map((c, i) => [c, values[i] ?? '']))
   })
 }
 

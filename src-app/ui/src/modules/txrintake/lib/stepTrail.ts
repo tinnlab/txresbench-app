@@ -30,6 +30,7 @@
  * model name, and the intake store persists only its small fields).
  */
 import { create } from 'zustand'
+import { isChoiceStep, isFileStep, stepOfUrl, type FlowStepId } from '@/modules/txrshell/lib/flowSteps'
 
 /** The page context a step view declares while it is on screen (`flow.back` and
  *  `models.switchList` are offered and invokable only then). */
@@ -39,14 +40,8 @@ export const TXR_STEP_CONTEXT = 'txr.step'
  *  is offered and invokable only there). */
 export const TXR_MODEL_STEP_CONTEXT = 'txr.modelStep'
 
-/** The step views that show a Back button. */
-export type TxrStepId =
-  | 'study'
-  | 'files'
-  | 'predict-files'
-  | 'choose-methods'
-  | 'pretrained-models'
-  | 'saved-models'
+/** The step views that show a Back button (the one list's step views). */
+export type TxrStepId = FlowStepId
 
 /** The step view on screen, as its Back button and the `flow.back` action see it. */
 export interface TxrCurrentStep {
@@ -70,28 +65,15 @@ export const STEP_BACK_NO_STEP = 'There is no step to go back from here.'
 /** The refusal while a Back (or a list switch) is already leaving the step. */
 export const STEP_BACK_LEAVING = 'Already leaving this step.'
 
-/**
- * The steps' place in a path: B, then the file steps C and N, then the
- * method and model steps E, D and I.
- */
-const STEP_ORDER: Readonly<Record<string, number>> = {
-  '/study': 1,
-  '/files': 2,
-  '/predict-files': 2,
-  '/choose-methods': 3,
-  '/pretrained-models': 3,
-  '/saved-models': 3,
-}
-
 /** The path of a URL (the search and the hash dropped). */
 export function pathOf(url: string): string {
   const cut = url.search(/[?#]/)
   return cut === -1 ? url : url.slice(0, cut)
 }
 
-/** Is this URL a step view of the flow (B, C, N, E, D, I)? */
+/** Is this URL a step view of the flow (the one list of steps, `txrshell/lib/flowSteps.ts`)? */
 export function isStepUrl(url: string): boolean {
-  return STEP_ORDER[pathOf(url)] !== undefined
+  return stepOfUrl(url) !== null
 }
 
 function indexOfPath(trail: readonly string[], url: string): number {
@@ -107,19 +89,22 @@ export function beginTrail(origin: string): string[] {
 /**
  * A step view entered: when its path is already in the trail, the trail is
  * cut after it and the entry takes the new URL (its search may differ).
- * A file step (C, N) entered from a later step the trail holds without it is
- * a backward hop too: the trail keeps only its origin, so Back from the file
- * step never goes forward again. Otherwise the URL is appended (B entered from
- * N is the study detour, appended: Back from B is N).
+ * A file step (C, N) entered from the method or model step while the trail
+ * holds no file step is a backward hop too (E "Change files" after History,
+ * D/I "Go to the measurements step" after a reload): the trail keeps only its
+ * origin, so Back from the file step never goes forward again. Otherwise the
+ * URL is appended (the files step entered from the study questions of the
+ * Start side trip goes forward; the study questions entered from N are the
+ * predict side trip, appended: Back from them is N).
  */
 export function enterStep(trail: readonly string[], url: string): string[] {
   const at = indexOfPath(trail, url)
   if (at !== -1) return [...trail.slice(0, at), url]
-  const order = STEP_ORDER[pathOf(url)]
+  const step = stepOfUrl(url)
   const last = trail[trail.length - 1]
-  const lastOrder = last === undefined ? undefined : STEP_ORDER[pathOf(last)]
-  if (order !== undefined && order >= 2 && lastOrder !== undefined && lastOrder > order) {
-    return [...trail.filter(entry => STEP_ORDER[pathOf(entry)] === undefined), url]
+  const lastStep = last === undefined ? null : stepOfUrl(last)
+  if (step !== null && isFileStep(step) && lastStep !== null && isChoiceStep(lastStep)) {
+    return [...trail.filter(entry => stepOfUrl(entry) === null), url]
   }
   return [...trail, url]
 }

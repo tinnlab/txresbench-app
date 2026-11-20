@@ -16,6 +16,7 @@ import './featureFlagActions'
 import './methodActions'
 import './stepActions'
 import './wslSetupActions'
+import './dayActions'
 import { getActionMeta } from '../defineAction'
 
 const NEW_IDS = [
@@ -31,6 +32,8 @@ const NEW_IDS = [
   'models.useModel',
   'history.useSettingsAgain',
   'sandbox.setupWsl',
+  'flow.setLastDrawDay',
+  'runSettings.setDay',
 ]
 
 // owning module.tsx → the builtin file it must side-effect-import
@@ -38,7 +41,10 @@ const MODULE_IMPORTS: Record<string, string[]> = {
   'src/modules/mcp/module.tsx': ['@/core/actions/builtin/mcpSettingsActions'],
   'src/modules/features/module.tsx': ['@/core/actions/builtin/featureFlagActions'],
   'src/modules/txrlist/module.tsx': ['@/core/actions/builtin/methodActions'],
-  'src/modules/txrintake/module.tsx': ['@/core/actions/builtin/stepActions'],
+  'src/modules/txrintake/module.tsx': [
+    '@/core/actions/builtin/stepActions',
+    '@/core/actions/builtin/dayActions',
+  ],
   'src/modules/txrshell/module.tsx': ['@/core/actions/builtin/wslSetupActions'],
 }
 

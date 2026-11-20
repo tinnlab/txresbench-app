@@ -112,6 +112,17 @@ export function stepOrder(id: FlowStepId): number {
   return steps.findIndex(ids => ids.includes(id)) + 1
 }
 
+/** Is this view the file step of its path (the first step after Start)? */
+export function isFileStep(id: FlowStepId): boolean {
+  return FLOW_PATHS[pathOfStep(id)][0].includes(id)
+}
+
+/** Is this view the last step of its path (the method or model choice)? */
+export function isChoiceStep(id: FlowStepId): boolean {
+  const steps = FLOW_PATHS[pathOfStep(id)]
+  return steps[steps.length - 1].includes(id)
+}
+
 /** The path (no search) of a URL. */
 function routeOf(url: string): string {
   const cut = url.search(/[?#]/)

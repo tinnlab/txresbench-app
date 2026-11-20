@@ -641,12 +641,9 @@ pub(crate) fn build_timeline(resolved: &ResolvedRequest) -> FileTimeline {
         days.sort_by(f64::total_cmp);
         days.dedup();
     }
-    let pair = |days: &crate::modules::file_validator::rules::ModelCell,
-                event: &crate::modules::file_validator::rules::ModelCell| {
-        match (days.parse_f64(), event.parse_i64()) {
-            (Some(days), Some(event)) if days.is_finite() => Some(TimelineOutcome { days, event }),
-            _ => None,
-        }
+    let pair = |days: Option<f64>, event: Option<i64>| match (days, event) {
+        (Some(days), Some(event)) if days.is_finite() => Some(TimelineOutcome { days, event }),
+        _ => None,
     };
     let outcomes = if resolved.mode == ValidationMode::Files {
         resolved
@@ -654,8 +651,8 @@ pub(crate) fn build_timeline(resolved: &ResolvedRequest) -> FileTimeline {
             .patients
             .iter()
             .map(|row| TimelinePatient {
-                pfs: pair(&row.pfs_days, &row.pfs_event),
-                os: pair(&row.os_days, &row.os_event),
+                pfs: pair(row.pfs_days.parse_f64(), row.pfs_event.parse_i64()),
+                os: pair(row.os_days.parse_f64(), row.os_event.parse_i64()),
             })
             .collect()
     } else {

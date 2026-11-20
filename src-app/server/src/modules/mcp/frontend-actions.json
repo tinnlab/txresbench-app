@@ -140,6 +140,35 @@
       }
     },
     {
+      "id": "flow.setLastDrawDay",
+      "title": "Set the last draw you will use",
+      "kind": "global",
+      "context": "txr.step",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "description": "On the questions step of a new analysis, set \"Last draw you will use\": the day, counted from the start of treatment, of the last blood draw the analysis uses. It is also the decision day. A whole day from 1; the files are checked again for the new day.",
+      "aliases": [
+        "last draw day",
+        "set the decision day"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "day"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "day": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The day of the last draw, counted from the start of treatment."
+          }
+        }
+      }
+    },
+    {
       "id": "flow.startPath",
       "title": "Start a new analysis",
       "kind": "global",
@@ -147,7 +176,7 @@
       "mutating": true,
       "stateful": false,
       "permission": "mcp::use",
-      "description": "Pick one of the three ways of the Start screen: \"pretrained\" predicts with a ready-made model (already trained by the TxResBench team), \"reuse\" predicts with a model you saved, \"train\" learns from your own patients. Opens the first step of that way (or its file step with startAtFiles); files already added are kept. Back from that step returns to the page it was started from. Refused while a run is starting or a dialog is open.",
+      "description": "Pick one of the three ways of the Start screen: \"pretrained\" predicts with a ready-made model (already trained by the TxResBench team), \"reuse\" predicts with a model you saved, \"train\" learns from your own patients. Opens the first step of that way, its file step (the learn way asks its questions after the files); files already added are kept. Back from that step returns to the page it was started from. Refused while a run is starting or a dialog is open.",
       "aliases": [
         "learn from my data",
         "predict with a ready-made model",
@@ -171,7 +200,7 @@
             "description": "\"pretrained\", \"reuse\" (a saved model) or \"train\" (learn from my data)."
           },
           "startAtFiles": {
-            "description": "Open the file step directly (the learn path skips its study questions).",
+            "description": "Open the file step directly (every path already starts with its file step; kept for older callers).",
             "type": "boolean"
           }
         }
@@ -416,6 +445,51 @@
         "required": [],
         "additionalProperties": false,
         "properties": {}
+      }
+    },
+    {
+      "id": "runSettings.setDay",
+      "title": "Set the decision day or the look-ahead day",
+      "kind": "instance",
+      "context": "txr.run-settings",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "group": "Analysis",
+      "description": "On the choose-methods step, set the decision day or the look-ahead day (the day the prediction is for), both counted from the start of treatment. The look-ahead day must be after the decision day and within the limit; a day where no patient has a known outcome is refused. With a ready-made or saved model the look-ahead is the model's own and cannot be set.",
+      "aliases": [
+        "set the look-ahead day",
+        "look ahead to",
+        "set the decision day"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "field",
+          "day"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "view_id": {
+            "type": "string",
+            "description": "The run settings (views.list, type txr.run-settings)."
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "decision_day",
+              "look_ahead_day"
+            ],
+            "description": "\"decision_day\" or \"look_ahead_day\"."
+          },
+          "day": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The day, counted from the start of treatment."
+          }
+        }
       }
     },
     {
