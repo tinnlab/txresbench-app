@@ -468,10 +468,10 @@ mod tests {
     use crate::modules::rootfs;
     use std::time::Instant;
 
-    /// A scratch app data root under the build area (never /tmp), scoped to this thread.
+    /// A scratch app data root under `TXR_TEST_SCRATCH` or the build area (never the system
+    /// temp folder), scoped to this thread.
     fn data_root(tag: &str) -> (PathBuf, rootfs::DataRootGuard) {
-        let base = std::env::temp_dir().join("txr-method-list-fetch-tests");
-        let root = base.join(format!("{tag}-{}", uuid::Uuid::new_v4().simple()));
+        let root = crate::modules::method_list::test_scratch::dir("method-list-fetch", tag);
         std::fs::create_dir_all(root.join("bin")).unwrap();
         let guard = rootfs::scoped_data_root(root.clone());
         (root, guard)

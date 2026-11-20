@@ -32,6 +32,8 @@ pub mod routes;
 pub mod runtime;
 pub mod store;
 #[cfg(test)]
+pub(crate) mod test_scratch;
+#[cfg(test)]
 pub(crate) mod test_sign;
 pub mod verify;
 

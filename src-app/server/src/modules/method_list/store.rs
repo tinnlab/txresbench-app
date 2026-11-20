@@ -145,11 +145,7 @@ mod tests {
     use super::*;
 
     fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join("txr-method-list-store-tests")
-            .join(format!("{tag}-{}", uuid::Uuid::new_v4().simple()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+        crate::modules::method_list::test_scratch::dir("method-list-store", tag)
     }
 
     #[test]
