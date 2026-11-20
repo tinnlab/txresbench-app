@@ -1114,7 +1114,7 @@ describe('the dynamic no-models messages on Saved models (I)', () => {
       'Save models from an analysis that learns from your data, or open a model file in Your models.',
     )
     await click('txr-models-i-no-saved-action-learn')
-    expect(screen.getByTestId('route-location').textContent).toBe('/study')
+    expect(screen.getByTestId('route-location').textContent).toBe('/files')
   })
 
   it('the published models failed to load: the same "how to get one" message', async () => {
