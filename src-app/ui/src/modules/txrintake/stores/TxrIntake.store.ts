@@ -32,6 +32,7 @@
 import { createJSONStorage } from 'zustand/middleware'
 import { defineStore, registerLazyStore } from '@txresbench/framework/store-kit'
 import type {
+  FileTimeline,
   MarkerMapping,
   ParsedTable as EngineParsedTable,
   TxrRunInput,
@@ -130,6 +131,22 @@ export interface TxrIntakeState extends IntakeSnapshot {
   pendingExampleSetId: string | null
   /** Screen E's method ticks (see `MethodPicks`). Memory only, never persisted. */
   methodPicks: MethodPicks | null
+  /**
+   * The day facts of the checked files (the validate response's `timeline`):
+   * the suggested days, the coverage lines and the look-ahead counts read
+   * them. Set with each applied validation and KEPT when only the day changes
+   * (the counts do not depend on it, and the study step keeps its suggestions
+   * while the files are checked again); cleared when a file changes. Memory
+   * only, never persisted.
+   */
+  dayFacts: FileTimeline | null
+  /**
+   * Step 4's look-ahead day chosen for this analysis (a suggestion, a typed
+   * day, or History "Use these settings again"), or null: step 4 then starts
+   * at the default the files suggest. Forgotten when a new path starts.
+   * Memory only, never persisted.
+   */
+  lookAheadDay: number | null
 }
 
 /**
@@ -148,21 +165,13 @@ export interface PersistedIntake {
   parameters: IntakeSnapshot['parameters']
 }
 
-/** The four board decision-day values (the B "last draw" options, DEC-5). */
-export const DECISION_DAYS = [28, 42, 56, 84] as const
-
 /**
- * Snap an arbitrary day to the nearest of the four board values (ties go to
- * the earlier day). The B select and the E run default only ever carry a
- * board value; a config-fed value outside the set (an engine default, a
- * previous run's setting) is brought onto the same grid the screens render.
+ * A decision day as stored: a whole day, at least 1 (the engine refuses a
+ * decision day of 0 or less). The day choices check the upper limit against
+ * the engine's look-ahead maximum before they store a day.
  */
-function snapDecisionDay(day: number): number {
-  let best: number = DECISION_DAYS[0]
-  for (const candidate of DECISION_DAYS) {
-    if (Math.abs(candidate - day) < Math.abs(best - day)) best = candidate
-  }
-  return best
+function wholeDecisionDay(day: number): number {
+  return Math.max(1, Math.round(day))
 }
 
 /** Birth study answers — every question unanswered (the user may skip B). */
@@ -299,6 +308,8 @@ const TxrIntakeDef = defineStore('TxrIntake', {
     exampleSlots: { ...BIRTH_EXAMPLE_SLOTS },
     pendingExampleSetId: null as string | null,
     methodPicks: null as MethodPicks | null,
+    dayFacts: null as FileTimeline | null,
+    lookAheadDay: null as number | null,
   },
   actions: (set, get) => {
     /** The state snapshot the current validation is STILL valid against. */
@@ -314,10 +325,15 @@ const TxrIntakeDef = defineStore('TxrIntake', {
        * predict). A mode change forgets the validation: it checked the other
        * mode's files (the predict file, or the learn pair), so the new mode's
        * file step checks its own files again instead of continuing on it.
+       * A new path also forgets the last analysis' look-ahead day.
        */
       setIntent: (intent: IntakeIntent) => {
         const mode: IntakeSnapshot['mode'] = intent === 'train' ? 'study' : 'predict'
-        set(s => (s.mode === mode ? { intent, mode } : { intent, mode, validation: null }))
+        set(s =>
+          s.mode === mode
+            ? { intent, mode, lookAheadDay: null }
+            : { intent, mode, validation: null, dayFacts: null, lookAheadDay: null },
+        )
       },
 
       /** Merge one B answer group change (any field; unanswered fields stay null). */
@@ -343,6 +359,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
               [slot]: { name: file.source.name, prepared: file.prepared },
             },
             validation: null,
+            dayFacts: null,
             exampleSlots,
             exampleLoaded: anyExampleSlot(exampleSlots),
           }
@@ -366,6 +383,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
               [slot]: { name: file.source.name, prepared: file.prepared },
             },
             validation: null,
+            dayFacts: null,
             exampleSlots,
             exampleLoaded: anyExampleSlot(exampleSlots),
           }
@@ -380,6 +398,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
             ...withFile(s, slot, null),
             fileRecalls: { ...s.fileRecalls, [slot]: null },
             validation: null,
+            dayFacts: null,
             exampleSlots,
             exampleLoaded: anyExampleSlot(exampleSlots),
           }
@@ -424,11 +443,17 @@ const TxrIntakeDef = defineStore('TxrIntake', {
             joins: exampleMeasured ? [] : s.joins,
             mapping: exampleMeasured ? [] : s.mapping,
             validation: null,
+            dayFacts: null,
             exampleSlots: { ...BIRTH_EXAMPLE_SLOTS },
             exampleLoaded: false,
             pendingExampleSetId: null,
           }
         })
+      },
+
+      /** Step 4's look-ahead day for this analysis (null: the files' default). */
+      setLookAheadDay: (day: number | null) => {
+        set({ lookAheadDay: day })
       },
 
       /** Screen E's method ticks for the current files (null forgets them). */
@@ -467,6 +492,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
           return {
             ...withFile(s, slot, next),
             validation: null,
+            dayFacts: null,
           }
         })
       },
@@ -578,8 +604,9 @@ const TxrIntakeDef = defineStore('TxrIntake', {
       },
 
       /**
-       * Change the analysis parameters. `decision_day` snaps to the nearest
-       * of the four board values (DEC-5); `baseline_max_day` is always 0 —
+       * Change the analysis parameters. `decision_day` is stored as a whole
+       * day of at least 1 (any day the files suggest or the user types);
+       * the day facts stay (they do not depend on the day). `baseline_max_day` is always 0 —
        * the contract rule (baseline = day <= baseline_max_day) and no board
        * exposes a control for it, so the field is accepted for shape
        * compatibility and never stored different.
@@ -589,7 +616,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
           parameters: {
             decision_day:
               patch.decision_day !== undefined && Number.isFinite(patch.decision_day)
-                ? snapDecisionDay(patch.decision_day)
+                ? wholeDecisionDay(patch.decision_day)
                 : s.parameters.decision_day,
             baseline_max_day: 0,
           },
@@ -605,7 +632,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
       applyValidation: (response: ValidationResponse, at: IntakeValidationKey) => {
         set(s => {
           if (!sameValidationKey(s, at)) return {}
-          return { validation: response }
+          return { validation: response, dayFacts: response.timeline ?? null }
         })
       },
 
@@ -627,6 +654,8 @@ const TxrIntakeDef = defineStore('TxrIntake', {
           exampleSlots: { ...BIRTH_EXAMPLE_SLOTS },
           pendingExampleSetId: null,
           methodPicks: null,
+          dayFacts: null,
+          lookAheadDay: null,
         })
       },
 

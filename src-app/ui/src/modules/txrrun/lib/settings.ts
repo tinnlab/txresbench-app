@@ -62,12 +62,10 @@ export interface TxrEndpointOption {
 }
 
 /**
- * The option lists the setting rows render — the boards' option sets,
- * verbatim: the outcome's two values (the "Predict" row), the decision
- * days in the board's own order (Busy.dc.html's select reads Day 56 |
- * Day 28 | Day 42 | Day 84 — settled at ITEM-7's rows, where the order
- * question recorded by PLAN ITEM-3 note (c) was decided), the horizon
- * values, and the lane presets. The lane presets are 1–4 — the SAME set
+ * The option lists the setting rows render: the outcome's two values (the
+ * "Predict" row) and the lane presets. The decision day and the look-ahead
+ * day have no fixed lists: they are number fields with the days the checked
+ * files suggest (`txrintake/lib/dayChoices.ts`). The lane presets are 1–4 — the SAME set
  * the E bottom bar lists (qa-fixes ITEM-3, RP-6: the F control's old
  * 1/2/4 set omitted the engine's default 3, so the app default could not
  * be re-chosen mid-run; the board's "Run at the same time" options read
@@ -80,8 +78,6 @@ export const SETTING_OPTIONS = {
     { v: 'pfs' as TxrEndpoint, label: 'Progression or death' },
     { v: 'os' as TxrEndpoint, label: 'Death only' },
   ],
-  decision_day: [56, 28, 42, 84] as const,
-  look_ahead_day: [238, 180, 365] as const,
   at_a_time: [1, 2, 3, 4] as const,
 }
 
@@ -98,20 +94,25 @@ export const SETTING_OPTIONS = {
  * default 3 and only the bar's own value is used when the run is created
  * (qa-fixes ITEM-2: "the '1 at a time' setting persisting across
  * analyses" is the defect; the sticky store's stale value is ignored
- * here). `baseline_max_day` rides on the intake parameters
+ * here). The look-ahead day is the analysis' own (`lookAheadDay`: the day
+ * the user chose for these files, else the default the files suggest) and
+ * beats the sticky one; History "Use these settings again" sets it from the
+ * past run. `baseline_max_day` rides on the intake parameters
  * (fix 0, the contract rule) for shape compatibility; it is not a
  * screen setting, so it stops here.
  */
 export function mergeRunSettings(
   engine: TxrAppConfig | null,
   params: { decision_day: number | null; baseline_max_day: number } | null,
+  lookAheadDay: number | null = null,
 ): RunSettings {
   const config = engine?.config ?? null
   return {
     endpoint: config?.endpoint ?? DEFAULT_RUN_SETTINGS.endpoint,
     decision_day:
       params?.decision_day ?? config?.decision_day ?? DEFAULT_RUN_SETTINGS.decision_day,
-    look_ahead_day: config?.look_ahead_day ?? DEFAULT_RUN_SETTINGS.look_ahead_day,
+    look_ahead_day:
+      lookAheadDay ?? config?.look_ahead_day ?? DEFAULT_RUN_SETTINGS.look_ahead_day,
     covariates: config?.covariates ?? DEFAULT_RUN_SETTINGS.covariates,
     at_a_time: DEFAULT_RUN_SETTINGS.at_a_time,
     cpus: config?.cpus ?? DEFAULT_RUN_SETTINGS.cpus,
@@ -184,3 +185,9 @@ export function toRunConfig(
     label_day: labelDay,
   } as unknown as RunConfig
 }
+
+/** The instance type (and page context) of step 4's run settings (`runSettings.setDay`). */
+export const TXR_RUN_SETTINGS_CONTEXT = 'txr.run-settings'
+
+/** The handler id step 4's run settings answer. */
+export const RUN_SETTINGS_SET_DAY = 'runSettings.setDay'

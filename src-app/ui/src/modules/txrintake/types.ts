@@ -96,9 +96,10 @@ export type OutcomeId =
  *   `null` = nothing answered yet (no box checked, no request made).
  * - `drawsDuringTreatment` — the board's "2 to 3" answers collapse onto the
  *   provider's `draws_during_treatment: 1 | 2 | 4` code.
- * - `lastDrawDay` — the last draw the user will use; it IS the engine's
- *   `decision_day` contract value (one value, three uses: the B panel, the
- *   C/N validation `parameters.decision_day`, the E run default).
+ * - `lastDrawDay` — the last draw the user will use, a whole day (a day
+ *   the files suggest, or one the user types); it IS the engine's
+ *   `decision_day` contract value (one value, three uses: the study panel,
+ *   the file check's `parameters.decision_day`, the step-4 run setting).
  */
 export interface StudyAnswers {
   disease: DiseaseId | null
@@ -107,7 +108,7 @@ export interface StudyAnswers {
   markerGroups: Record<string, boolean> | null
   beforeTreatment: 'always' | 'sometimes' | null
   drawsDuringTreatment: 1 | 2 | 4 | null
-  lastDrawDay: 28 | 42 | 56 | 84 | null
+  lastDrawDay: number | null
 }
 
 /**

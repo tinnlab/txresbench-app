@@ -516,6 +516,10 @@ const TxrHistoryDef = defineStore('TxrHistory', {
         last_input_summary: null,
       } as unknown as TxrAppConfig
       await ApiClient.Txr.updateAnalysisConfig(body)
+      // Step 4 starts at the past run's look-ahead day (a new analysis
+      // otherwise starts at the default its files suggest).
+      const { TxrIntake } = await import('@/modules/txrintake/stores/TxrIntake.store')
+      TxrIntake.setLookAheadDay(run.settings.look_ahead_day)
       void reload()
     }
 

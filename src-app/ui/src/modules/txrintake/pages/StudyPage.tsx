@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Button, Checkbox, Select, Skeleton } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
@@ -15,7 +15,6 @@ import {
   DISEASE_OPTIONS,
   DRAWS_OPTIONS,
   EXCLUDED_LIST_LIMIT,
-  LAST_DRAW_OPTIONS,
   OUTCOME_OPTIONS,
   TREATMENT_OPTIONS,
   leftOutHeading,
@@ -23,8 +22,12 @@ import {
 } from '../lib/format'
 import { descriptiveSentence, hasStudyAnswers, PREVIEW_ANSWER_INVITE } from '../lib/preview'
 import { formatNoEnvLine } from '@/modules/txrlist/lib/format'
-import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
 import { TxrStepBack, TxrStepLine, useStepBack } from '../components/TxrStepBack'
+import { TxrDayField } from '../components/TxrDayField'
+import { useRecheck } from '../data/useRecheck'
+import { drawCoverageLine, drawDayError, drawDayWarning, suggestDrawDays } from '../lib/dayChoices'
+import { runAction } from '@/core/actions/defineAction'
+import { FLOW_ROUTES, previousLearnRoute } from '@/modules/txrshell/lib/flowSteps'
 import { isExampleStudy } from '../lib/example'
 import { useAppMode } from '@/modules/demo'
 import { DEMO_STUDY_NOTE } from '@/modules/demo/copy'
@@ -37,12 +40,18 @@ import type { DiseaseId, OutcomeId, TreatmentId } from '../types'
  * excluded list, rendered from the structured preview response
  * (CONS-UI-INTAKE-2) through the CONS-UI-INTAKE-9 reason formatters.
  *
+ * The learn path's step 3: it comes after the files step, so "Last draw you
+ * will use" offers the days the checked files suggest (`lib/dayChoices.ts`),
+ * a number box for any other day and the day's coverage line. The day is the
+ * engine's decision day too: the registered `flow.setLastDrawDay` stores both,
+ * and the step checks the files again for the new day (`useRecheck`) before
+ * Continue goes on to the methods.
+ *
  * INV-1: every answer change re-runs the fit computation — the page writes
  * each answer straight to the `TxrIntake` store (`patchStudy`), and the
  * panel hook keys its request on the answers' CONTENT with a 200 ms debounce
  * (a burst costs one eligibility call; the stale-response guard keeps the
- * panel honest). The last-draw answer is ALSO the engine's decision-day
- * value, so it rides `patchParameters` (one value, three uses — DEC-5).
+ * panel honest).
  *
  * Board-copy rule (DEC-13): every label is board-verbatim; the panel's
  * numbers are COMPUTED from the provider response (fit count, left-out
@@ -54,9 +63,11 @@ import type { DiseaseId, OutcomeId, TreatmentId } from '../types'
  * data on this same route.
  */
 
-const FILES_ROUTE = '/files'
-const PREDICT_FILES_ROUTE = '/predict-files'
-const START_ROUTE = '/'
+/** The line under the last-draw field when no files are in memory (none added yet, or a reload). */
+export const DAY_NO_FACTS_LINE = 'Add your files to see the days they suggest.'
+
+/** The line beside Continue while the files are checked for a new day. */
+export const RECHECK_LINE = 'Checking your files for the new day…'
 
 /** The page's frame host (the shell's routed area). */
 const PAGE_ROOT: CSSProperties = {
@@ -228,28 +239,6 @@ const PANEL_NO_ENV: CSSProperties = { margin: 0, fontSize: 12.5, color: 'var(--t
  *  setup — the note names it, and the eligible set does not move). */
 const DEMO_NOTE: CSSProperties = { margin: 0, fontSize: 13, color: 'var(--txr-muted)' }
 
-/** The "What you will upload" box (board: bordered white card). */
-const UPLOAD_BOX: CSSProperties = {
-  padding: '14px 16px',
-  border: '1px solid var(--txr-border)',
-  borderRadius: 10,
-  background: 'var(--txr-surface)',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 4,
-}
-
-const UPLOAD_TITLE: CSSProperties = { fontWeight: 700, margin: 0 }
-
-const UPLOAD_LIST: CSSProperties = {
-  margin: 0,
-  paddingLeft: 20,
-  // The board's list has bullet markers (the same ITEM-6 P1 fix as the
-  // predict aside — the kit reset removed them).
-  listStyle: 'disc',
-  fontSize: 14.5,
-}
-
 // qa-fixes ITEM-6 S4: the "Show all N" button carried the kit link's own
 // horizontal padding, so it sat ~11 px right of the list above it (the L1
 // indent class). Link buttons render flush; the list is their guide.
@@ -259,6 +248,9 @@ const LINK: CSSProperties = {
   color: 'var(--txr-brand)',
   fontWeight: 600,
 }
+
+/** The re-check note beside Continue. */
+const RECHECK_NOTE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 
 const EXCLUDED_HEADING: CSSProperties = { fontWeight: 700, marginBottom: 4 }
 
@@ -296,14 +288,26 @@ export function StudyPage() {
   const intent = useStore(useTxrIntakeStore, s => s.intent)
   const mode = useStore(useTxrIntakeStore, s => s.mode)
   const patchStudy = useStore(useTxrIntakeStore, s => s.patchStudy)
-  const patchParameters = useStore(useTxrIntakeStore, s => s.patchParameters)
+  const dayFacts = useStore(useTxrIntakeStore, s => s.dayFacts)
+  const validation = useStore(useTxrIntakeStore, s => s.validation)
+  // The measurements of this path are in memory (gone after a reload: the
+  // tables are never persisted, so there is nothing to suggest from).
+  const measurementsInMemory = useStore(useTxrIntakeStore, s =>
+    s.mode === 'predict' ? s.predictMeasurements !== null : s.measurements !== null,
+  )
+  const recheck = useRecheck()
   const { groups, loading: groupsLoading, error: groupsError } = useMarkers()
   const panel = useStudyPreview(study, groups)
   const { isDemo } = useAppMode()
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('Tell us about your study')
   // The step's Back (the step trail): with no trail, Back goes to Start.
-  useStepBack({ step: 'study', fallback: START_ROUTE })
+  // The step's Back (the step trail): with no trail, the step before this one
+  // (the files step of the learn path; the predict file step on the side trip).
+  useStepBack({
+    step: 'study',
+    fallback: mode === 'predict' ? FLOW_ROUTES.predictFiles : previousLearnRoute('study'),
+  })
   const [showAllExcluded, setShowAllExcluded] = useState(false)
 
   /** One checkbox toggle: the answer map grows/shrinks explicitly (DEC-5). */
@@ -314,20 +318,44 @@ export function StudyPage() {
     [patchStudy, study.markerGroups],
   )
 
-  /** The last-draw answer is the engine's decision day (one value, DEC-5). */
-  const setLastDrawDay = useCallback(
-    (value: string) => {
-      const day = Number(value) as 28 | 42 | 56 | 84
-      patchStudy({ lastDrawDay: day })
-      patchParameters({ decision_day: day })
-    },
-    [patchStudy, patchParameters],
+  /** The last-draw answer is the engine's decision day (one value): the
+   *  registered action stores both, and the files are checked again. */
+  const setLastDrawDay = useCallback((day: number) => {
+    void runAction('flow.setLastDrawDay', { day }).catch(() => undefined)
+  }, [])
+  const drawDays = useMemo(() => (dayFacts === null ? [] : suggestDrawDays(dayFacts)), [dayFacts])
+  const lastDrawDay = study.lastDrawDay
+  const lookAheadMax = dayFacts?.limits.look_ahead_day_max ?? null
+  const checkDrawDay = useCallback(
+    (day: number): string | null =>
+      lookAheadMax === null
+        ? Number.isInteger(day) && day >= 1
+          ? null
+          : 'Choose a whole day from 1.'
+        : drawDayError(day, lookAheadMax),
+    [lookAheadMax],
   )
 
-  /** Continue / Skip: the files screen of THIS flow (train → C, else → N). */
+  /**
+   * Continue / Skip: the next step of THIS path. The learn path goes on to the
+   * methods once its files are checked, and to the files step when they are
+   * not in yet (the Start "Not sure which fits?" link, or a reload); the
+   * predict side trip goes back to its file step.
+   */
+  const learnFilesIn = mode === 'study' && validation !== null
   const continueFlow = useCallback(() => {
-    navigate(intent === 'train' ? FILES_ROUTE : PREDICT_FILES_ROUTE)
-  }, [navigate, intent])
+    if (intent !== 'train' || mode === 'predict') {
+      navigate(FLOW_ROUTES.predictFiles)
+      return
+    }
+    navigate(learnFilesIn ? FLOW_ROUTES.methods : FLOW_ROUTES.files)
+  }, [navigate, intent, mode, learnFilesIn])
+  const continueLabel =
+    intent !== 'train' || mode === 'predict'
+      ? 'Continue to the patients to predict'
+      : learnFilesIn || recheck.checking
+        ? 'Continue to the methods'
+        : 'Continue to the files'
 
   const excluded = panel.excluded
   const shownExcluded = showAllExcluded ? excluded : excluded.slice(0, EXCLUDED_LIST_LIMIT)
@@ -348,11 +376,11 @@ export function StudyPage() {
       <PageFrame
         top={
           <div className="txr-intake-top txr-intake-page-top" style={PAGE_TOP}>
-            <TxrStepLine step={2} of={4} />
+            <TxrStepLine step="study" />
             <h1 style={TITLE}>Tell us about your study</h1>
             <p style={INTRO}>
-              So you know what to expect to upload, and which methods can run. All optional: skip
-              any question and we check your files instead.
+              So you see which methods can run on your study. All optional: skip any question and
+              we go by your files instead.
             </p>
           </div>
         }
@@ -470,14 +498,24 @@ export function StudyPage() {
                     </div>
                     <div style={FIELD}>
                       <span style={FIELD_LABEL}>Last draw you will use</span>
-                      <Select
-                        id="txr-intake-study-last-draw"
-                        data-testid="txr-intake-study-last-draw"
-                        aria-label="Last draw you will use"
-                        value={study.lastDrawDay !== null ? String(study.lastDrawDay) : undefined}
-                        onChange={setLastDrawDay}
-                        placeholder="Choose…"
-                        options={LAST_DRAW_OPTIONS.map(o => ({ label: o.label, value: String(o.value) }))}
+                      <TxrDayField
+                        testId="txr-intake-study-last-draw"
+                        label="Last draw you will use"
+                        value={lastDrawDay}
+                        suggestions={drawDays}
+                        onChoose={setLastDrawDay}
+                        check={checkDrawDay}
+                        coverage={
+                          dayFacts !== null && lastDrawDay !== null
+                            ? drawCoverageLine(dayFacts, lastDrawDay)
+                            : null
+                        }
+                        warning={
+                          dayFacts !== null && lastDrawDay !== null
+                            ? drawDayWarning(dayFacts, lastDrawDay)
+                            : null
+                        }
+                        noFacts={dayFacts === null && !measurementsInMemory ? DAY_NO_FACTS_LINE : null}
                       />
                     </div>
                   </div>
@@ -540,22 +578,6 @@ export function StudyPage() {
                   </div>
                 ) : null}
 
-                <div style={UPLOAD_BOX}>
-                  <div style={UPLOAD_TITLE}>What you will upload</div>
-                  <ul style={UPLOAD_LIST}>
-                    <li>
-                      <b>Patients</b>: one row per patient, with the time and whether progression or
-                      death happened
-                    </li>
-                    <li>
-                      <b>Measurements</b>: one row per marker per blood draw (day, marker, value)
-                    </li>
-                  </ul>
-                  <Link style={LINK} to={mode === 'predict' ? PREDICT_FILES_ROUTE : FILES_ROUTE}>
-                    See example files
-                  </Link>
-                </div>
-
                 <div data-testid="txr-intake-panel-excluded">
                   <div style={EXCLUDED_HEADING}>
                     {panel.fit !== null ? leftOutHeading(panel.fit) : 'Methods are left out'}
@@ -600,21 +622,28 @@ export function StudyPage() {
               <Button
                 data-testid="txr-intake-study-continue"
                 style={PRIMARY_BUTTON}
+                disabled={recheck.checking}
                 onClick={continueFlow}
               >
-                Continue to the files
+                {continueLabel}
               </Button>
               <Button
                 data-testid="txr-intake-study-skip"
                 style={OUTLINE_BUTTON}
+                disabled={recheck.checking}
                 onClick={continueFlow}
               >
                 Skip the questions
               </Button>
-              {/* qa-fixes3 ITEM-4: one click fills every answer consistently
-                  with the example family and lands on the files step with the
-                  example tables adopted (the step's own flow validates them). */}
-              <TxrUseExampleButton path="train" onDone={() => navigate(FILES_ROUTE)} />
+              {recheck.checking ? (
+                <span data-testid="txr-intake-study-recheck" style={RECHECK_NOTE}>
+                  {RECHECK_LINE}
+                </span>
+              ) : recheck.error !== null ? (
+                <span role="alert" data-testid="txr-intake-study-recheck-error" style={PANEL_ERROR}>
+                  {recheck.error}
+                </span>
+              ) : null}
             </div>
           </PageFooterBar>
         }

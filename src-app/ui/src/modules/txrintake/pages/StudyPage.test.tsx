@@ -6,7 +6,10 @@
  * engine's decision day — DEC-5), the panel renders the live fit count + the
  * descriptive sentence + the excluded list through the shared formatters,
  * the board clip shows EXCLUDED_LIST_LIMIT rows with the truthful
- * "Show all N", and Continue/Skip navigate the intent-aware way.
+ * "Show all N", and Continue/Skip navigate the path-aware way. The learn
+ * path's files come before this step: the last-draw field suggests the days
+ * of the checked files, takes any typed day, shows the coverage line, and a
+ * new day checks the files again before Continue goes on to the methods.
  *
  * The eligibility + markers calls are mocked; the store is the real
  * TxrIntake store (reset per test); the reason lines run through the REAL
@@ -18,7 +21,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import type { EligibilityResponse, MarkerGroup } from '@/api-client/types'
-import { StudyPage } from './StudyPage'
+import { DAY_NO_FACTS_LINE, RECHECK_LINE, StudyPage } from './StudyPage'
+import type { FileTimeline, ValidationResponse } from '@/api-client/types'
+import type { LoadedFile } from '../types'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import { EXCLUDED_LIST_LIMIT } from '../lib/format'
 import { EXAMPLE_STUDY } from '../lib/example'
@@ -44,6 +49,7 @@ import { __resetFetchCacheForTests } from '../data/fetchCache'
 const api = vi.hoisted(() => ({
   eligibility: vi.fn(),
   markers: vi.fn(),
+  validate: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -51,8 +57,15 @@ vi.mock('@/api-client', () => ({
       eligibility: api.eligibility,
       markers: api.markers,
     },
+    FileValidation: {
+      validate: api.validate,
+    },
   },
 }))
+
+// The day field runs the registered `flow.setLastDrawDay` (the module import
+// registers it in the app).
+import '@/core/actions/builtin/dayActions'
 
 const GROUPS: MarkerGroup[] = [
   { id: 'ctdna', display_name: 'Tumour DNA in blood (ctDNA)' },
@@ -150,6 +163,36 @@ function eligibilityResponse(): EligibilityResponse {
     total_no_env: 0,
   }
 }
+
+/** Day facts of three patients: draws on 21/42, 33/56, 56. */
+const DAY_FACTS: FileTimeline = {
+  draw_days: [[21, 42], [33, 56], [56]],
+  outcomes: [],
+  limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10 },
+}
+
+/** A checked file of the learn path (inspected; the table content is not read). */
+function loadedFile(kind: 'patients' | 'measurements'): LoadedFile {
+  return {
+    source: { name: `${kind}.csv`, format: 'csv' },
+    table: { columns: ['patient_id'], rows: [['P1']], source: { name: `${kind}.csv`, format: 'csv' }, headerRow: 1 },
+    inspection: { kind, source_name: `${kind}.csv` } as unknown as LoadedFile['inspection'],
+    problems: [],
+    prepared: true,
+    joinOffers: [],
+    vocabOffers: [],
+    columnOffers: [],
+  } as unknown as LoadedFile
+}
+
+/** A file check answer (only the parts the step reads). */
+const VALIDATION = {
+  problems: [],
+  markers: [],
+  measurements: { rows: 3, patients: 3, distinct_draw_days: [21, 33, 42, 56] },
+  inventory: { patients: 3, decision_day: 21, baseline_max_day: 0, markers: [], covariates: [] },
+  timeline: DAY_FACTS,
+} as unknown as ValidationResponse
 
 function LocationProbe() {
   const location = useLocation()
@@ -267,45 +310,133 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     })
   })
 
-  it('the last-draw answer also writes the engine decision day (DEC-5)', async () => {
-    renderStudy()
-    const trigger = screen.getByTestId('txr-intake-study-last-draw')
-    fireEvent.pointerDown(trigger, { button: 0, pointerType: 'mouse' })
-    fireEvent.click(trigger)
-    const option = await screen.findByTestId('txr-intake-study-last-draw-opt-84')
-    // Base UI commits a mouse selection only after a pointerdown on the item
-    // (a bare synthetic click is rejected as an invalid mouse click) — the
-    // real mouse sequence: pointerdown, then click (detail 1).
-    fireEvent.pointerDown(option, { button: 0, pointerType: 'mouse' })
-    fireEvent.click(option, { detail: 1 })
-
-    await waitFor(() => {
-      expect(store().study.lastDrawDay).toBe(84)
+  it('the last-draw field suggests the days of the checked files and writes the decision day too', async () => {
+    act(() => {
+      useTxrIntakeStore.setState({ dayFacts: DAY_FACTS })
     })
-    expect(store().parameters.decision_day).toBe(84)
+    renderStudy()
+    const field = screen.getByTestId('txr-intake-study-last-draw')
+    expect(
+      within(field)
+        .getAllByRole('button')
+        .map(b => b.textContent),
+    ).toEqual(['Day 21', 'Day 33', 'Day 42', 'Day 56'])
+    expect(within(field).queryByTestId('txr-intake-study-last-draw-no-facts')).toBeNull()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-last-draw-suggestion-42'))
+      await Promise.resolve()
+    })
+    expect(store().study.lastDrawDay).toBe(42)
+    expect(store().parameters.decision_day).toBe(42)
+    expect(screen.getByTestId('txr-intake-study-last-draw-coverage').textContent).toBe(
+      'Day 42: 2 of 3 patients have a draw during treatment by this day',
+    )
     await waitFor(() => {
       expect(api.eligibility).toHaveBeenCalledWith({
-        preview: expect.objectContaining({ last_draw_day: 84 }),
+        preview: expect.objectContaining({ last_draw_day: 42 }),
       })
     })
   })
 
-  it('Continue and Skip both take the intent-aware next screen', async () => {
+  it('takes any typed day, and says why a typed day cannot be used', async () => {
+    act(() => {
+      useTxrIntakeStore.setState({ dayFacts: DAY_FACTS })
+    })
     renderStudy()
+    const input = screen.getByTestId('txr-intake-study-last-draw-input')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: '33' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await Promise.resolve()
+    })
+    expect(store().study.lastDrawDay).toBe(33)
+    expect(store().parameters.decision_day).toBe(33)
+    expect(screen.getByTestId('txr-intake-study-last-draw-coverage').textContent).toBe(
+      'Day 33: 2 of 3 patients have a draw during treatment by this day',
+    )
+    await act(async () => {
+      fireEvent.change(input, { target: { value: '0' } })
+      fireEvent.blur(input)
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-intake-study-last-draw-error').textContent).toBe(
+      'Choose a whole day from 1 to 729.',
+    )
+    expect(store().study.lastDrawDay).toBe(33)
+  })
+
+  it('with no files in memory the field has no suggestions and says how to get them', () => {
+    renderStudy()
+    const field = screen.getByTestId('txr-intake-study-last-draw')
+    expect(within(field).queryByTestId('txr-intake-study-last-draw-suggestions')).toBeNull()
+    expect(screen.getByTestId('txr-intake-study-last-draw-no-facts').textContent).toBe(DAY_NO_FACTS_LINE)
+    expect(screen.getByTestId('txr-intake-study-last-draw-input')).toBeTruthy()
+  })
+
+  it('a new day checks the files again; Continue waits for it, then goes on to the methods', async () => {
+    let answer: (v: ValidationResponse) => void = () => undefined
+    api.validate.mockImplementation(
+      () =>
+        new Promise<ValidationResponse>(resolve => {
+          answer = resolve
+        }),
+    )
+    act(() => {
+      useTxrIntakeStore.setState({
+        patients: loadedFile('patients'),
+        measurements: loadedFile('measurements'),
+        validation: VALIDATION,
+        dayFacts: DAY_FACTS,
+      })
+    })
+    renderStudy()
+    expect(screen.getByTestId('txr-intake-study-continue').textContent).toBe('Continue to the methods')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-last-draw-suggestion-56'))
+      await Promise.resolve()
+    })
+    expect(store().validation).toBeNull()
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
+    expect(api.validate.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ mode: 'files', parameters: { decision_day: 56, baseline_max_day: 0 } }),
+    )
+    expect(screen.getByTestId('txr-intake-study-recheck').textContent).toBe(RECHECK_LINE)
+    expect(screen.getByTestId('txr-intake-study-continue').hasAttribute('disabled')).toBe(true)
+    // The suggestions stay while the files are checked again.
+    expect(screen.getByTestId('txr-intake-study-last-draw-suggestion-21')).toBeTruthy()
+    await act(async () => {
+      answer({ ...VALIDATION, inventory: { ...VALIDATION.inventory, decision_day: 56 } })
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(store().validation).not.toBeNull())
+    expect(store().validation?.inventory.decision_day).toBe(56)
+    const continueButton = screen.getByTestId('txr-intake-study-continue')
+    expect(continueButton.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(continueButton)
+    expect(routeAt()).toBe('/choose-methods')
+  })
+
+  it('Continue and Skip take the path-aware next step', async () => {
+    renderStudy()
+    // The learn path with no files yet (the Start side trip): the files step.
+    expect(screen.getByTestId('txr-intake-study-continue').textContent).toBe('Continue to the files')
     fireEvent.click(screen.getByTestId('txr-intake-study-continue'))
     expect(routeAt()).toBe('/files')
+    // The predict side trip goes back to its file step.
     act(() => store().setIntent('pretrained'))
+    expect(screen.getByTestId('txr-intake-study-continue').textContent).toBe(
+      'Continue to the patients to predict',
+    )
     fireEvent.click(screen.getByTestId('txr-intake-study-skip'))
     expect(routeAt()).toBe('/predict-files')
   })
 
-  it('See example files goes to the files screen of the current mode', async () => {
+  it('has no upload box and no Use example button (the files come before this step)', () => {
     renderStudy()
-    fireEvent.click(screen.getByText('See example files'))
-    expect(routeAt()).toBe('/files')
-    act(() => store().setIntent('reuse'))
-    fireEvent.click(screen.getByText('See example files'))
-    expect(routeAt()).toBe('/predict-files')
+    expect(screen.queryByText('What you will upload')).toBeNull()
+    expect(screen.queryByText('See example files')).toBeNull()
+    expect(screen.queryByText('Use example')).toBeNull()
   })
 
   it('clips the excluded list at the board limit with the truthful Show all N', async () => {
@@ -357,7 +488,7 @@ describe('the heading block lines up with the body at every window width', () =>
     const page = screen.getByTestId('txr-intake-study')
     const top = page.querySelector('.txr-intake-page-top') as HTMLElement
     const row = page.querySelector('.txr-shell-regions-row') as HTMLElement
-    expect(top.textContent).toContain('Step 2 of 4')
+    expect(top.textContent).toContain('Step 3 of 4')
     // The body row is full width; a centred (auto-margin) heading drifts right
     // of it once the window is wider than the heading's 1280 px cap (measured
     // in WebKit: at 2000 px the step line sat at x=408 over a body at x=48).

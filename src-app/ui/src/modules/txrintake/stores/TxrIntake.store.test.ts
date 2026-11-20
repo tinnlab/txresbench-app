@@ -206,22 +206,33 @@ describe('TEST-INT-9 — the TxrIntake store (ITEM-3)', () => {
     expect(state().measurements?.vocabOffers).toEqual([])
   })
 
-  it('patchParameters snaps decision_day to the four board values and keeps baseline_max_day 0', () => {
+  it('patchParameters keeps any whole decision day (no snapping) and baseline_max_day 0', () => {
     TxrIntake.patchParameters({ decision_day: 100 })
-    expect(state().parameters).toEqual({ decision_day: 84, baseline_max_day: 0 })
+    expect(state().parameters).toEqual({ decision_day: 100, baseline_max_day: 0 })
 
-    TxrIntake.patchParameters({ decision_day: 35 }) // tie between 28 and 42 → the earlier day
-    expect(state().parameters.decision_day).toBe(28)
+    TxrIntake.patchParameters({ decision_day: 29 })
+    expect(state().parameters.decision_day).toBe(29)
+
+    // A fraction is rounded to a whole day; the engine refuses 0 or less.
+    TxrIntake.patchParameters({ decision_day: 41.4 })
+    expect(state().parameters.decision_day).toBe(41)
+    TxrIntake.patchParameters({ decision_day: 0 })
+    expect(state().parameters.decision_day).toBe(1)
 
     TxrIntake.patchParameters({ decision_day: 42 })
-    expect(state().parameters.decision_day).toBe(42)
-
     // baseline_max_day is accepted for shape compatibility and never stored different.
     TxrIntake.patchParameters({ baseline_max_day: 90, decision_day: Number.NaN })
     expect(state().parameters).toEqual({ decision_day: 42, baseline_max_day: 0 })
 
     TxrIntake.patchParameters({})
     expect(state().parameters).toEqual({ decision_day: 42, baseline_max_day: 0 })
+  })
+
+  it('keeps an old saved last-draw answer as it was (no migration needed)', () => {
+    TxrIntake.patchStudy({ lastDrawDay: 84 })
+    expect(state().study.lastDrawDay).toBe(84)
+    TxrIntake.patchStudy({ lastDrawDay: 55 })
+    expect(state().study.lastDrawDay).toBe(55)
   })
 
   it('patchFile writes the per-file card state the drop flow derives', () => {
@@ -387,6 +398,42 @@ describe('TEST-INT-26 — the ONE validation response lifecycle (acceptance)', (
     apply()
     TxrIntake.reset()
     expect(state().validation).toBeNull()
+  })
+
+  it('the day facts come with the validation, stay on a day change and go with a file change', () => {
+    const timeline = {
+      draw_days: [[21, 42]],
+      outcomes: [],
+      limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10 },
+    }
+    TxrIntake.adoptFile('measurements', loadedFile())
+    TxrIntake.applyValidation(validationOf({ timeline }), TxrIntake.currentValidationKey())
+    expect(state().dayFacts).toEqual(timeline)
+
+    TxrIntake.patchParameters({ decision_day: 42 })
+    expect(state().validation).toBeNull()
+    expect(state().dayFacts).toEqual(timeline)
+
+    TxrIntake.adoptFile('measurements', loadedFile('other.csv'))
+    expect(state().dayFacts).toBeNull()
+
+    TxrIntake.applyValidation(validationOf({ timeline }), TxrIntake.currentValidationKey())
+    TxrIntake.removeFile('measurements')
+    expect(state().dayFacts).toBeNull()
+
+    TxrIntake.applyValidation(validationOf({ timeline }), TxrIntake.currentValidationKey())
+    TxrIntake.reset()
+    expect(state().dayFacts).toBeNull()
+  })
+
+  it('the look-ahead day of the analysis is forgotten when a new path starts', () => {
+    TxrIntake.setLookAheadDay(300)
+    expect(state().lookAheadDay).toBe(300)
+    TxrIntake.setIntent('train')
+    expect(state().lookAheadDay).toBeNull()
+    TxrIntake.setLookAheadDay(300)
+    TxrIntake.reset()
+    expect(state().lookAheadDay).toBeNull()
   })
 
   it('patchStudy is not an input mutation: it leaves validation alone', () => {

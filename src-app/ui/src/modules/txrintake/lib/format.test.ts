@@ -15,7 +15,6 @@ import {
   BEFORE_TREATMENT_OPTIONS,
   DISEASE_OPTIONS,
   DRAWS_OPTIONS,
-  LAST_DRAW_OPTIONS,
   OUTCOME_OPTIONS,
   PREVIEW_REASON_FALLBACK,
   TREATMENT_OPTIONS,
@@ -76,12 +75,6 @@ describe('option labels (TEST-INT-13)', () => {
       { label: '1', value: 1 },
       { label: '2 to 3', value: 2 },
       { label: '4 or more', value: 4 },
-    ])
-    expect(LAST_DRAW_OPTIONS.map(o => ({ label: o.label, value: o.value }))).toEqual([
-      { label: 'Day 28', value: 28 },
-      { label: 'Day 42', value: 42 },
-      { label: 'Day 56', value: 56 },
-      { label: 'Day 84', value: 84 },
     ])
   })
 })

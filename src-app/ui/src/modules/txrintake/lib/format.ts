@@ -64,14 +64,6 @@ export const DRAWS_OPTIONS: ReadonlyArray<{ value: 1 | 2 | 4; label: string }> =
   { value: 4, label: '4 or more' },
 ]
 
-/** Screen B, "Last draw you will use" — the four board days (DEC-5 values). */
-export const LAST_DRAW_OPTIONS: ReadonlyArray<{ value: 28 | 42 | 56 | 84; label: string }> = [
-  { value: 28, label: 'Day 28' },
-  { value: 42, label: 'Day 42' },
-  { value: 56, label: 'Day 56' },
-  { value: 84, label: 'Day 84' },
-]
-
 /** The panel sentence's short disease clause (lower-case, board phrasing). */
 export function diseaseClause(disease: DiseaseId): string {
   switch (disease) {
