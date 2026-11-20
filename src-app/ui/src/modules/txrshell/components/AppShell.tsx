@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarTrigger } from '@txresbench/kit'
 import { FiMenu } from 'react-icons/fi'
-import { MAC_TITLE_BAR_CSS_VARS } from '@/core/macTitleBar'
+import { MAC_TITLE_BAR, MAC_TITLE_BAR_CSS_VARS } from '@/core/macTitleBar'
 import { isMacDesktop } from '@/core/platform'
 import { TxrThemeToggle } from '../TxrThemeToggle'
 import { shellModeClass, useShellMode } from '../lib/shellMode'
@@ -122,7 +122,7 @@ export function AppShell({ children }: AppShellProps) {
         className={macTitleBar ? 'txr-shell-header txr-shell-header-macos' : 'txr-shell-header'}
         data-tauri-drag-region={macTitleBar ? 'deep' : undefined}
         style={{
-          height: 56,
+          height: MAC_TITLE_BAR.titleBarHeight,
           boxSizing: 'border-box',
           padding: '0 28px',
           display: 'flex',

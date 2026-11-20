@@ -18,7 +18,7 @@
 //    x = 20, three 14 px buttons 20 px apart, so x = 20..74; y = 20..36);
 //  - titleBarHeight: the height of the page's title bar — the shell header
 //    and, in this window, the AppLayout's header bar, the sidebar's top
-//    band and the toggle band — on which the buttons are centred (28);
+//    band and the toggle band — on which the buttons are centred (56);
 //  - contentStart: where text starts after the buttons (a 20 px gap): the
 //    shell header's content and both screens' focused skip links.
 // The TS code takes the numbers from here (`MAC_WINDOW_CHROME` for the
