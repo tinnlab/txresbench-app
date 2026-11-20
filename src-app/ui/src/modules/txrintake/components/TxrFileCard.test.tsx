@@ -759,6 +759,8 @@ describe('step3-file-cards — the messages leave the card, the file can always 
     name: string
     file: (kind: 'patients' | 'measurements') => LoadedFile
     validation: ValidationResponse | null
+    /** The other study slot holds a file (the check can run). */
+    sibling?: boolean
     heading: string | RegExp
   }> = [
     {
@@ -766,6 +768,13 @@ describe('step3-file-cards — the messages leave the card, the file can always 
       file: kind => (kind === 'patients' ? loadedPatients() : loadedMeasurements()),
       validation: null,
       heading: '151 rows read',
+    },
+    {
+      name: 'checking (the other file is here, the check is running)',
+      file: kind => (kind === 'patients' ? loadedPatients() : loadedMeasurements()),
+      validation: null,
+      sibling: true,
+      heading: 'Checking the file…',
     },
     {
       name: 'good',
@@ -793,10 +802,18 @@ describe('step3-file-cards — the messages leave the card, the file can always 
     for (const state of STATES) {
       it(`the ${kind} card offers "Choose a different file" when ${state.name}`, () => {
         if (state.validation !== null) seedValidation(state.validation)
+        if (state.sibling === true) {
+          useTxrIntakeStore.setState(
+            kind === 'patients' ? { measurements: loadedMeasurements() } : { patients: loadedPatients() },
+          )
+        }
         const callbacks = renderCard({ kind, file: state.file(kind) })
         // The inline mount still shows the state (the right one is tested).
         const status = screen.getByTestId(`txr-intake-file-status-${kind}`)
         expect(within(status).getByText(state.heading)).toBeTruthy()
+        if (state.sibling === true) {
+          expect(within(status).getByRole('status', { name: 'Checking the file' })).toBeTruthy()
+        }
         // The link sits on the CARD, outside the status box, in every state.
         const card = screen.getByTestId(`txr-intake-file-card-${kind}`)
         const link = within(card).getByTestId(`txr-intake-file-choose-again-${kind}`)

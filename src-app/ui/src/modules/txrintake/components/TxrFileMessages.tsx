@@ -32,7 +32,7 @@
  * `var(--txr-warning)` warning / notes.
  */
 
-import type { CSSProperties } from 'react'
+import { useId, type CSSProperties } from 'react'
 import { Button, Spinner } from '@txresbench/kit'
 import { useStore } from 'zustand'
 import type { FileTableKind } from '@/api-client/types'
@@ -388,6 +388,8 @@ export interface TxrFileMessagesRowProps extends TxrFileOfferHandlers {
  */
 export function TxrFileMessagesRow(props: TxrFileMessagesRowProps) {
   const { mode, slots, ...handlers } = props
+  // The block's accessible name is its own title (aria-labelledby → the h3).
+  const titleId = useId()
   const filled = slots.filter(
     (slot): slot is TxrFileMessagesSlot & { file: LoadedFile } => slot.file !== null,
   )
@@ -399,9 +401,13 @@ export function TxrFileMessagesRow(props: TxrFileMessagesRowProps) {
           key={slot.kind}
           style={BLOCK}
           data-testid={`txr-intake-file-messages-${slot.kind}`}
-          aria-label={fileMessagesTitle(slot.kind, slot.file)}
+          aria-labelledby={`${titleId}-${slot.kind}`}
         >
-          <h3 style={BLOCK_TITLE} data-testid={`txr-intake-file-messages-title-${slot.kind}`}>
+          <h3
+            id={`${titleId}-${slot.kind}`}
+            style={BLOCK_TITLE}
+            data-testid={`txr-intake-file-messages-title-${slot.kind}`}
+          >
             {fileMessagesTitle(slot.kind, slot.file)}
           </h3>
           <TxrFileMessages

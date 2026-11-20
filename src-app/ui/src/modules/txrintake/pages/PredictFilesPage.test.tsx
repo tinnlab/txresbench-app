@@ -406,10 +406,10 @@ describe('step3-file-cards — the predict screen uses the messages row too', ()
     )
     expect(row.querySelectorAll(':scope > section')).toHaveLength(1)
     const block = screen.getByTestId('txr-intake-file-messages-measurements')
-    await waitFor(() => {
-      expect(within(block).getByTestId('txr-intake-file-status-measurements')).toBeTruthy()
-    })
-    expect(within(block).getByTestId('txr-intake-vocab-offer-cea')).toBeTruthy()
+    expect(within(block).getByTestId('txr-intake-file-status-measurements')).toBeTruthy()
+    // The offer arrives with the validate round: wait for it IN the block, so
+    // the card-absence checks below run after it exists.
+    expect(await within(block).findByTestId('txr-intake-vocab-offer-cea')).toBeTruthy()
     expect(card.querySelector('[data-testid^="txr-intake-file-status-"]')).toBeNull()
     expect(card.querySelector('[data-testid^="txr-intake-vocab-offer-"]')).toBeNull()
   })

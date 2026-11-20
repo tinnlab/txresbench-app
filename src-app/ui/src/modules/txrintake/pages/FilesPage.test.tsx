@@ -657,6 +657,16 @@ describe('step3-file-cards — the messages row under the cards, files can alway
     const block = screen.getByTestId('txr-intake-file-messages-measurements')
     await waitFor(() => expect(within(block).getByTestId('txr-intake-join-offer-ldh')).toBeTruthy())
     expect(within(block).getByTestId('txr-intake-vocab-offer-cea')).toBeTruthy()
+    // The offers exist now — and NOT inside either card.
+    const measurementsCard = screen.getByTestId('txr-intake-file-card-measurements')
+    const patientsCard = screen.getByTestId('txr-intake-file-card-patients')
+    for (const card of [measurementsCard, patientsCard]) {
+      expect(within(card).queryByTestId('txr-intake-join-offer-ldh')).toBeNull()
+      expect(within(card).queryByTestId('txr-intake-vocab-offer-cea')).toBeNull()
+    }
+    expect(screen.getByTestId('txr-intake-file-messages').contains(
+      screen.getByTestId('txr-intake-join-offer-ldh'),
+    )).toBe(true)
     api.validate.mockResolvedValue(validationFixture({ problems: [row14Problem, row88Problem] }))
     fireEvent.click(within(block).getByTestId('txr-intake-join-accept-ldh'))
     await waitFor(() => {
