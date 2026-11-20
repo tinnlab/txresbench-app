@@ -34,9 +34,10 @@
 //! exited with 0, when the check says it is ready after a restart or, where
 //! WSL was missing or of the old kind, still finds it so (Windows must restart
 //! then). A small file in the app's data dir ([`Marker`]) carries a setup
-//! across a restart of the app: a reopened app does not offer a second setup
-//! while the first one's elevated commands still run, and keeps saying
-//! "restart Windows" until Windows did.
+//! across a restart of the app, and to a second app open beside the first:
+//! neither offers a second setup while the first one asks or its elevated
+//! commands still run, and both keep saying "restart Windows" until Windows
+//! did.
 //!
 //! The dialog, the elevation and the PC are seams ([`SetupHost`],
 //! [`Machine`]): the tests drive the setup with fakes, and the Windows tests
@@ -55,8 +56,8 @@ use super::wsl_status::WslStatus;
 /// The setup is not offered on this PC (not Windows, methods can run, the
 /// reason is not one the app can fix, or a setup already finished).
 pub const WSL_SETUP_NOT_OFFERED_CODE: &str = "WSL_SETUP_NOT_OFFERED";
-/// A setup is still running (started from this app, or from the app before
-/// it was last closed).
+/// A setup is still running (started from this app, from the app before it
+/// was last closed, or from a second app open beside it).
 pub const WSL_SETUP_RUNNING_CODE: &str = "WSL_SETUP_RUNNING";
 /// The last setup was declined less than [`DECLINE_PAUSE_SECS`] ago.
 const WSL_SETUP_DECLINED_RECENTLY_CODE: &str = "WSL_SETUP_DECLINED_RECENTLY";
@@ -171,8 +172,9 @@ pub struct WslSetupStatus {
     /// (the stack's `reason` says why) or a setup is done (restart).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offer: Option<WslSetupOffer>,
-    /// A setup is running: started from the app, or from the app before it
-    /// was last closed. Its result comes in `last` when it ends.
+    /// A setup is running: started from the app, from the app before it was
+    /// last closed, or from a second app open beside it. Its result comes in
+    /// `last` when it ends.
     pub running: bool,
     /// The last setup's result: since the app started, or a setup done
     /// before the app was last closed that waits for Windows to restart.
@@ -183,11 +185,11 @@ pub struct WslSetupStatus {
     pub retry_in_secs: Option<u64>,
 }
 
-/// The elevated process of a setup: its id, and when it started (Windows'
-/// creation time), so that a later process with the same id is not taken
-/// for it.
+/// A process (the setup's elevated one, the app that started it): its id,
+/// and when it started (Windows' creation time), so that a later process
+/// with the same id is not taken for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct ElevatedProcess {
+struct Process {
     pid: u32,
     created: u64,
 }
@@ -212,7 +214,7 @@ trait SetupHost: Send + Sync {
     /// Run the installer's commands for `offer` as administrator and wait for
     /// them to end; `started` gets the elevated process once Windows started
     /// it.
-    fn run_elevated(&self, offer: WslSetupOffer, started: &mut dyn FnMut(ElevatedProcess)) -> Launch;
+    fn run_elevated(&self, offer: WslSetupOffer, started: &mut dyn FnMut(Process)) -> Launch;
     /// The installer's WSL check of this PC, now.
     fn status_now(&self) -> WslStatus;
 }
@@ -224,28 +226,35 @@ trait Machine: Send + Sync {
     /// When Windows started, in seconds since 1970; `None` when not known.
     fn boot_time(&self) -> Option<u64>;
     /// `process` still runs.
-    fn alive(&self, process: ElevatedProcess) -> bool;
+    fn alive(&self, process: Process) -> bool;
+    /// This process (the app); `None` when not known.
+    fn this_process(&self) -> Option<Process>;
     /// Where the marker file is; `None`: no marker is kept.
     fn marker(&self) -> Option<PathBuf>;
 }
 
-/// The setup as a reopened app finds it: started at `started_at` while
-/// Windows had started at `boot_time`, its elevated process once Windows
+/// The setup as a reopened app, or a second app open beside the first,
+/// finds it: started at `started_at` while Windows had started at
+/// `boot_time`, by the app process `app`, its elevated process once Windows
 /// started one, and its result once it ended. Written when a setup starts,
 /// when its elevated process started and when it ended.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Marker {
     started_at: u64,
     boot_time: Option<u64>,
-    process: Option<ElevatedProcess>,
+    /// The app that started the setup (absent, so none, in a marker of an
+    /// older build).
+    app: Option<Process>,
+    process: Option<Process>,
     result: Option<WslSetupResult>,
 }
 
-/// What the marker says of a setup started before (by this app or by the
-/// app before it was last closed).
+/// What the marker says of a setup started before (by this app, by the app
+/// before it was last closed, or by a second app open beside it).
 enum Earlier {
     Nothing,
-    /// Its elevated process still runs.
+    /// It still runs: its elevated process does, or the other app that
+    /// started it is open (at its question, or keeping the result).
     Running,
     /// It is done and waits for Windows to restart, which it has not yet.
     WaitsForRestart(WslSetupResult),
@@ -318,19 +327,27 @@ impl SetupState {
         WslSetupStatus { offer, running, last, retry_in_secs }
     }
 
-    /// What the marker says. A setup whose elevated process is gone without
-    /// a result (the app was closed while it ran) is over, its result
-    /// unknown; one whose process never started (the app was closed at its
-    /// question) ran nothing.
+    /// What the marker says. A setup without a result runs while its
+    /// elevated process does, or while the app that started it is open and
+    /// is not this one: a second app beside it, which may be at its question
+    /// (no elevated process yet; the desktop app does not keep to one
+    /// window). Else it is over: its result unknown when its process is gone
+    /// (the app was closed while it ran); nothing ran when no process ever
+    /// started (the app was closed at its question).
     fn earlier(&self) -> Earlier {
         let Some(marker) = self.machine.marker().and_then(|path| read_marker(&path)) else {
             return Earlier::Nothing;
         };
         match marker.result {
-            None => match marker.process {
-                Some(process) if self.machine.alive(process) => Earlier::Running,
-                _ => Earlier::Nothing,
-            },
+            None => {
+                let alive = |process: Option<Process>| process.is_some_and(|p| self.machine.alive(p));
+                let other_app = marker.app.filter(|&app| Some(app) != self.machine.this_process());
+                if alive(marker.process) || alive(other_app) {
+                    Earlier::Running
+                } else {
+                    Earlier::Nothing
+                }
+            }
             Some(result) if result.waits_for_a_restart() && self.same_boot(marker.boot_time) => {
                 Earlier::WaitsForRestart(result)
             }
@@ -376,8 +393,13 @@ impl SetupState {
             return Err(AppError::conflict_code(WSL_SETUP_NOT_OFFERED_CODE, why));
         };
         inner.running = true;
-        let marker =
-            Marker { started_at: self.machine.now(), boot_time: self.machine.boot_time(), process: None, result: None };
+        let marker = Marker {
+            started_at: self.machine.now(),
+            boot_time: self.machine.boot_time(),
+            app: self.machine.this_process(),
+            process: None,
+            result: None,
+        };
         self.write(&marker);
         Ok((Running { state: Arc::clone(self), marker, result: None }, offer, before))
     }
@@ -394,7 +416,7 @@ struct Running {
 
 impl Running {
     /// The elevated process started: a reopened app finds it in the marker.
-    fn started(&mut self, process: ElevatedProcess) {
+    fn started(&mut self, process: Process) {
         let _inner = self.state.lock();
         self.marker.process = Some(process);
         self.state.write(&self.marker);
@@ -529,7 +551,7 @@ fn set_up(
     host: &dyn SetupHost,
     offer: WslSetupOffer,
     before: WslStatus,
-    started: &mut dyn FnMut(ElevatedProcess),
+    started: &mut dyn FnMut(Process),
 ) -> WslSetupResult {
     if !host.confirm(&question(before)) {
         return WslSetupResult::of(WslSetupOutcome::Declined);
@@ -679,7 +701,7 @@ impl Machine for SystemMachine {
         }
     }
 
-    fn alive(&self, process: ElevatedProcess) -> bool {
+    fn alive(&self, process: Process) -> bool {
         #[cfg(target_os = "windows")]
         {
             elevated::alive(process)
@@ -688,6 +710,17 @@ impl Machine for SystemMachine {
         {
             let _ = process;
             false
+        }
+    }
+
+    fn this_process(&self) -> Option<Process> {
+        #[cfg(target_os = "windows")]
+        {
+            elevated::this_process()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            None
         }
     }
 
@@ -718,7 +751,7 @@ fn system_host() -> Arc<dyn SetupHost> {
         fn confirm(&self, _question: &Question) -> bool {
             false
         }
-        fn run_elevated(&self, _offer: WslSetupOffer, _started: &mut dyn FnMut(ElevatedProcess)) -> Launch {
+        fn run_elevated(&self, _offer: WslSetupOffer, _started: &mut dyn FnMut(Process)) -> Launch {
             Launch::NotStarted { error: 50 } // ERROR_NOT_SUPPORTED
         }
         fn status_now(&self) -> WslStatus {
@@ -818,7 +851,7 @@ mod elevated {
     };
 
     use super::{
-        buttons, decode_output, setup_params, ElevatedProcess, Launch, Question, SetupHost, WslSetupOffer, WslStatus,
+        buttons, decode_output, setup_params, Launch, Process, Question, SetupHost, WslSetupOffer, WslStatus,
         GO_BUTTON, NOT_NOW_BUTTON, QUESTION_TITLE,
     };
 
@@ -874,7 +907,7 @@ mod elevated {
     }
 
     /// The process behind `handle`: its id and creation time.
-    pub(super) fn identify(handle: HANDLE) -> Option<ElevatedProcess> {
+    pub(super) fn identify(handle: HANDLE) -> Option<Process> {
         let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
         let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
         // SAFETY: `handle` is a process handle with query rights; the
@@ -883,13 +916,20 @@ mod elevated {
             (GetProcessId(handle), GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user))
         };
         let created = (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime);
-        (pid != 0 && got != 0).then_some(ElevatedProcess { pid, created })
+        (pid != 0 && got != 0).then_some(Process { pid, created })
+    }
+
+    /// This process: its id and creation time.
+    pub(super) fn this_process() -> Option<Process> {
+        use windows_sys::Win32::System::Threading::GetCurrentProcess;
+        // SAFETY: no arguments; the pseudo handle it returns needs no closing.
+        identify(unsafe { GetCurrentProcess() })
     }
 
     /// `process` still runs: a process with its id and creation time exists
     /// and has not ended. Querying an elevated process's times and waiting
     /// on it is allowed to a program that is not elevated.
-    pub(super) fn alive(process: ElevatedProcess) -> bool {
+    pub(super) fn alive(process: Process) -> bool {
         // SAFETY: plain call; a null handle is checked below.
         let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, 0, process.pid) };
         if handle.is_null() {
@@ -1088,7 +1128,7 @@ mod elevated {
             ask(QUESTION_TITLE, question)
         }
 
-        fn run_elevated(&self, offer: WslSetupOffer, started: &mut dyn FnMut(ElevatedProcess)) -> Launch {
+        fn run_elevated(&self, offer: WslSetupOffer, started: &mut dyn FnMut(Process)) -> Launch {
             let capture = match Capture::create(&self.capture_dir) {
                 Ok(c) => Some(c),
                 Err(e) => {
@@ -1172,7 +1212,7 @@ mod elevated {
         params: &str,
         dir: &Path,
         show: i32,
-        started: &mut dyn FnMut(ElevatedProcess),
+        started: &mut dyn FnMut(Process),
     ) -> Result<Option<u32>, u32> {
         use windows_sys::Win32::Foundation::GetLastError;
         use windows_sys::Win32::System::Threading::{GetExitCodeProcess, INFINITE};
@@ -1219,7 +1259,7 @@ mod elevated {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
@@ -1229,10 +1269,12 @@ mod tests {
         launch: Mutex<Option<Launch>>,
         after: WslStatus,
         hold: Mutex<Option<mpsc::Receiver<()>>>,
+        /// Holds the setup at its question until released.
+        hold_question: Mutex<Option<mpsc::Receiver<()>>>,
         questions: Mutex<Vec<Question>>,
         offers: Mutex<Vec<WslSetupOffer>>,
         /// The elevated process it reports as started.
-        process: Option<ElevatedProcess>,
+        process: Option<Process>,
         /// The setup's thread panics in `run_elevated`.
         panics: bool,
     }
@@ -1244,6 +1286,7 @@ mod tests {
                 launch: Mutex::new(Some(launch)),
                 after,
                 hold: Mutex::new(None),
+                hold_question: Mutex::new(None),
                 questions: Mutex::new(Vec::new()),
                 offers: Mutex::new(Vec::new()),
                 process: Some(PROCESS),
@@ -1255,6 +1298,13 @@ mod tests {
             let (tx, rx) = mpsc::channel();
             let host = Self::new(launch, after);
             *host.hold.lock().unwrap() = Some(rx);
+            (Arc::new(host), tx)
+        }
+
+        fn held_at_question(launch: Launch, after: WslStatus) -> (Arc<Self>, mpsc::Sender<()>) {
+            let (tx, rx) = mpsc::channel();
+            let host = Self::new(launch, after);
+            *host.hold_question.lock().unwrap() = Some(rx);
             (Arc::new(host), tx)
         }
 
@@ -1270,9 +1320,12 @@ mod tests {
     impl SetupHost for FakeHost {
         fn confirm(&self, question: &Question) -> bool {
             self.questions.lock().unwrap().push(*question);
+            if let Some(rx) = self.hold_question.lock().unwrap().take() {
+                let _ = rx.recv();
+            }
             self.yes
         }
-        fn run_elevated(&self, offer: WslSetupOffer, started: &mut dyn FnMut(ElevatedProcess)) -> Launch {
+        fn run_elevated(&self, offer: WslSetupOffer, started: &mut dyn FnMut(Process)) -> Launch {
             self.offers.lock().unwrap().push(offer);
             if let Some(process) = self.process {
                 started(process);
@@ -1288,25 +1341,57 @@ mod tests {
         }
     }
 
-    const PROCESS: ElevatedProcess = ElevatedProcess { pid: 4242, created: 133_000_000_000_000_000 };
+    /// The setup's elevated process.
+    const PROCESS: Process = Process { pid: 4242, created: 133_000_000_000_000_000 };
+    /// The app (the tests' state), a second app open beside it, and an app
+    /// closed since.
+    const APP: Process = Process { pid: 1000, created: 132_000_000_000_000_000 };
+    const OTHER_APP: Process = Process { pid: 2000, created: 132_500_000_000_000_000 };
+    const CLOSED_APP: Process = Process { pid: 900, created: 131_000_000_000_000_000 };
     const T0: u64 = 1_800_000_000;
     const BOOT: u64 = T0 - 3600;
 
     /// A PC with a clock to move, a start time to change, processes to end,
-    /// and a marker file in a test dir (or none).
+    /// and a marker file in a test dir (or none), seen by one app process.
     struct FakeMachine {
         now: AtomicU64,
         boot: Mutex<Option<u64>>,
-        alive: AtomicBool,
+        /// The processes that run (shared with the apps [`FakeMachine::beside`]).
+        running: Arc<Mutex<Vec<Process>>>,
+        /// This app's process.
+        this: Process,
         marker: Option<PathBuf>,
     }
 
     impl FakeMachine {
         fn new(marker: Option<PathBuf>) -> Arc<Self> {
-            Arc::new(Self { now: AtomicU64::new(T0), boot: Mutex::new(Some(BOOT)), alive: AtomicBool::new(true), marker })
+            Arc::new(Self {
+                now: AtomicU64::new(T0),
+                boot: Mutex::new(Some(BOOT)),
+                running: Arc::new(Mutex::new(vec![PROCESS, APP, OTHER_APP])),
+                this: APP,
+                marker,
+            })
+        }
+        /// A second app open beside this one: the same PC (clock, start,
+        /// processes, marker file).
+        fn beside(&self) -> Arc<Self> {
+            Arc::new(Self {
+                now: AtomicU64::new(self.now()),
+                boot: Mutex::new(self.boot_time()),
+                running: Arc::clone(&self.running),
+                this: OTHER_APP,
+                marker: self.marker.clone(),
+            })
         }
         fn pass(&self, secs: u64) {
             self.now.fetch_add(secs, Ordering::SeqCst);
+        }
+        fn end(&self, process: Process) {
+            self.running.lock().unwrap().retain(|&p| p != process);
+        }
+        fn run(&self, process: Process) {
+            self.running.lock().unwrap().push(process);
         }
     }
 
@@ -1317,8 +1402,11 @@ mod tests {
         fn boot_time(&self) -> Option<u64> {
             *self.boot.lock().unwrap()
         }
-        fn alive(&self, process: ElevatedProcess) -> bool {
-            process == PROCESS && self.alive.load(Ordering::SeqCst)
+        fn alive(&self, process: Process) -> bool {
+            self.running.lock().unwrap().contains(&process)
+        }
+        fn this_process(&self) -> Option<Process> {
+            Some(self.this)
         }
         fn marker(&self) -> Option<PathBuf> {
             self.marker.clone()
@@ -1687,7 +1775,7 @@ mod tests {
         until("the process in the marker", || read_marker(&dir.marker()).is_some_and(|m| m.process.is_some()));
         assert_eq!(
             read_marker(&dir.marker()),
-            Some(Marker { started_at: T0, boot_time: Some(BOOT), process: Some(PROCESS), result: None })
+            Some(Marker { started_at: T0, boot_time: Some(BOOT), app: Some(APP), process: Some(PROCESS), result: None })
         );
         release.send(()).unwrap();
         until("the setup's end", || !state.status(None).running);
@@ -1696,6 +1784,7 @@ mod tests {
             Some(Marker {
                 started_at: T0,
                 boot_time: Some(BOOT),
+                app: Some(APP),
                 process: Some(PROCESS),
                 result: Some(WslSetupResult::done(true))
             })
@@ -1710,7 +1799,8 @@ mod tests {
     fn a_reopened_app_does_not_start_a_second_setup_beside_a_running_one() {
         let dir = TestDir::new("reopened-running");
         let machine = FakeMachine::new(Some(dir.marker()));
-        let marker = Marker { started_at: T0, boot_time: Some(BOOT), process: Some(PROCESS), result: None };
+        let marker =
+            Marker { started_at: T0, boot_time: Some(BOOT), app: Some(CLOSED_APP), process: Some(PROCESS), result: None };
         write_marker(&dir.marker(), &marker).unwrap();
 
         let reopened = SetupState::new(machine.clone());
@@ -1720,16 +1810,72 @@ mod tests {
         assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_RUNNING_CODE));
         assert!(host.questions().is_empty());
 
-        machine.alive.store(false, Ordering::SeqCst);
+        machine.end(PROCESS);
         assert_eq!(reopened.status(Some(WslStatus::Missing)), status(Some(WslSetupOffer::Install), false, None));
         assert_eq!(run_on(&reopened, WslStatus::Missing, host).outcome, WslSetupOutcome::Done);
 
         // The app closed at its question: no process ever started.
         let at_question = Marker { process: None, ..marker };
         write_marker(&dir.marker(), &at_question).unwrap();
-        machine.alive.store(true, Ordering::SeqCst);
+        machine.run(PROCESS);
         let reopened = SetupState::new(machine);
         assert!(!reopened.status(Some(WslStatus::Missing)).running);
+    }
+
+    /// A second app open beside the first (the desktop app does not keep to
+    /// one window) while the first one's question is up: no elevated process
+    /// yet, but the marker names the first app, which is open. The second app
+    /// sees the setup running and starts none. Once the first app is closed
+    /// at its question, the setup is offered again.
+    #[test]
+    fn a_second_app_starts_no_setup_while_the_first_one_asks() {
+        let dir = TestDir::new("second-app");
+        let first = FakeMachine::new(Some(dir.marker()));
+        let state = SetupState::new(first.clone());
+        let (host, release) = FakeHost::held_at_question(exited(0, ""), WslStatus::Ready);
+        start(&state, Some(WslStatus::Missing), host.clone()).expect("started");
+        until("the question is up", || !host.questions().is_empty());
+        let marker = read_marker(&dir.marker()).expect("the marker");
+        assert_eq!((marker.app, marker.process, marker.result), (Some(APP), None, None), "the app that asks");
+
+        let beside = SetupState::new(first.beside());
+        assert_eq!(beside.status(Some(WslStatus::Missing)), status(Some(WslSetupOffer::Install), true, None));
+        let other = Arc::new(FakeHost::new(exited(0, ""), WslStatus::Ready));
+        let e = start(&beside, Some(WslStatus::Missing), other.clone()).expect_err("the first app asks");
+        assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_RUNNING_CODE));
+        assert!(other.questions().is_empty() && other.offers().is_empty(), "the second app asked and ran nothing");
+
+        // The first app closed at its question: nothing ran there.
+        first.end(APP);
+        assert_eq!(beside.status(Some(WslStatus::Missing)), status(Some(WslSetupOffer::Install), false, None));
+        release.send(()).unwrap();
+        until("the first app's setup ends", || !state.status(None).running);
+    }
+
+    /// A marker this app wrote without a result (its end was not written):
+    /// no setup of its own runs (it would hold the slot), but a second app
+    /// beside it, seeing this app open, waits. The app that started a setup
+    /// whose elevated process ended is still keeping its result: running.
+    /// A marker of an older build (no app) reads as before.
+    #[test]
+    fn a_marker_without_a_result_runs_while_another_app_that_wrote_it_is_open() {
+        let dir = TestDir::new("own-marker");
+        let machine = FakeMachine::new(Some(dir.marker()));
+        let marker = Marker { started_at: T0, boot_time: Some(BOOT), app: Some(APP), process: None, result: None };
+        write_marker(&dir.marker(), &marker).unwrap();
+        assert!(!SetupState::new(machine.clone()).status(Some(WslStatus::Missing)).running, "this app's own marker");
+        assert!(SetupState::new(machine.beside()).status(Some(WslStatus::Missing)).running, "the other app is open");
+
+        machine.end(PROCESS);
+        write_marker(&dir.marker(), &Marker { process: Some(PROCESS), ..marker }).unwrap();
+        assert!(SetupState::new(machine.beside()).status(Some(WslStatus::Missing)).running, "its app keeps the result");
+        machine.end(APP);
+        assert!(!SetupState::new(machine.beside()).status(Some(WslStatus::Missing)).running, "both gone");
+
+        let older = serde_json::json!({ "started_at": T0, "boot_time": BOOT, "process": null, "result": null });
+        std::fs::write(dir.marker(), older.to_string()).unwrap();
+        assert_eq!(read_marker(&dir.marker()).map(|m| m.app), Some(None), "read, with no app");
+        assert!(!SetupState::new(machine.beside()).status(Some(WslStatus::Missing)).running);
     }
 
     /// A reopened app after a setup that is done and waits for a restart:
@@ -1776,7 +1922,8 @@ mod tests {
             WslSetupResult::of(WslSetupOutcome::Declined),
             WslSetupResult::failed(Some(1), "no".into()),
         ] {
-            let marker = Marker { started_at: T0, boot_time: Some(BOOT), process: Some(PROCESS), result: Some(result) };
+            let marker =
+                Marker { started_at: T0, boot_time: Some(BOOT), app: None, process: Some(PROCESS), result: Some(result) };
             write_marker(&dir.marker(), &marker).unwrap();
             let s = SetupState::new(machine.clone()).status(Some(WslStatus::Missing));
             assert_eq!(s, status(Some(WslSetupOffer::Install), false, None), "{marker:?}");
@@ -1961,7 +2108,7 @@ mod tests {
 
         use super::super::elevated::{self, system_dir, Dialog, ElevatedSetup, DIALOG_FLAGS};
         use super::super::{
-            question, ElevatedProcess, Launch, SetupHost, WslSetupOffer, WslStatus, GO_BUTTON, NOT_NOW_BUTTON,
+            question, Launch, Process, SetupHost, WslSetupOffer, WslStatus, GO_BUTTON, NOT_NOW_BUTTON,
             QUESTION_TITLE,
         };
 
@@ -2082,7 +2229,7 @@ mod tests {
             let setup = ElevatedSetup { wsl: stand_in(&dir, &system.capture_dir), ..system };
             let before = captures(&setup.capture_dir).len();
 
-            let mut started: Vec<ElevatedProcess> = Vec::new();
+            let mut started: Vec<Process> = Vec::new();
             let Launch::Exited { code, output } = setup.run_elevated(WslSetupOffer::Update, &mut |p| started.push(p)) else {
                 panic!("not started");
             };
@@ -2169,10 +2316,19 @@ mod tests {
             let process = elevated::identify(child.as_raw_handle()).expect("identified");
             assert_eq!(process.pid, child.id());
             assert!(elevated::alive(process), "{process:?}");
-            assert!(!elevated::alive(ElevatedProcess { created: process.created + 1, ..process }), "another start");
+            assert!(!elevated::alive(Process { created: process.created + 1, ..process }), "another start");
             child.kill().unwrap();
             child.wait().unwrap();
             assert!(!elevated::alive(process), "ended");
+        }
+
+        /// The app's own process, which the marker names: this process, alive.
+        #[test]
+        fn this_process_is_known_by_its_id_and_start() {
+            let me = elevated::this_process().expect("this process");
+            assert_eq!(me.pid, std::process::id());
+            assert!(me.created != 0 && elevated::alive(me), "{me:?}");
+            assert_eq!(elevated::this_process(), Some(me), "the same twice");
         }
 
         #[test]
