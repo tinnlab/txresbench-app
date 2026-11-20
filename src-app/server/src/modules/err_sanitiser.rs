@@ -183,6 +183,7 @@ pub fn is_env_code(code: Option<&str>) -> bool {
         Some(c) => {
             c.starts_with("ENV_")
                 || matches!(c, "SANDBOX_UNAVAILABLE" | "METHOD_ENTRYPOINT_MISSING")
+                || crate::modules::sandbox::config::RUNNER_ENV_CODES.contains(&c)
         }
         None => false,
     }
@@ -631,6 +632,43 @@ mod tests {
         let hits = sanitise_json(&mut value);
         assert_eq!(hits.len(), 1);
         assert_eq!(value["reason"]["detail"], METHOD_FAILED);
+    }
+
+    /// The VM and WSL runner codes sit in every closed list: the sanitiser's
+    /// env family, the run-reason pass-through, and the UI's env family
+    /// (`trouble.ts`, read here so the two sides cannot drift apart).
+    #[test]
+    fn runner_codes_are_in_every_closed_list() {
+        use crate::modules::execution_engine::orchestrator::{env_failure_reason, execution_failure_reason};
+        use crate::modules::sandbox::config::{RUNNER_CODES, RUNNER_ENV_CODES};
+
+        assert_eq!(
+            RUNNER_CODES,
+            ["SANDBOX_VM_UNAVAILABLE", "SANDBOX_WSL_UNAVAILABLE", "SANDBOX_VM_OUTPUTS_INCOMPLETE"]
+        );
+        let ui = include_str!("../../../ui/src/modules/txrresults/lib/trouble.ts");
+        let family = ui
+            .split("export const ENV_FAMILY_CODES")
+            .nth(1)
+            .and_then(|rest| rest.split("])").next())
+            .expect("ENV_FAMILY_CODES in trouble.ts");
+        for code in RUNNER_CODES {
+            let err = AppError::new(StatusCode::SERVICE_UNAVAILABLE, code, "the runner stopped");
+            assert_eq!(env_failure_reason(&err).code, code, "{code} passes through the env mapper");
+            assert_eq!(execution_failure_reason(&err).code, code, "{code} passes through the executor mapper");
+            let in_env = RUNNER_ENV_CODES.contains(&code);
+            assert_eq!(is_env_code(Some(code)), in_env, "{code} in the sanitiser env family");
+            assert_eq!(
+                family.contains(&format!("'{code}'")),
+                in_env,
+                "{code} in the UI's ENV_FAMILY_CODES"
+            );
+            // A path leaking into the text reads the matching plain sentence.
+            let mut value = json!({ "reason": { "code": code, "detail": "failed at /data/txr/vm/run-1" } });
+            sanitise_json(&mut value);
+            let expect = if in_env { ENV_NOT_AVAILABLE } else { METHOD_FAILED };
+            assert_eq!(value["reason"]["detail"], expect, "{code}");
+        }
     }
 
     // ── the boundary middleware ───────────────────────────────────────────

@@ -72,7 +72,7 @@ const ROOTFS_FILE: &str = "txresbench-wsl.tar";
 const MANIFEST_FILE: &str = "MANIFEST.json";
 
 /// The WSL runner could not be prepared or reached.
-pub const WSL_UNAVAILABLE_CODE: &str = "SANDBOX_WSL_UNAVAILABLE";
+pub use super::config::WSL_UNAVAILABLE_CODE;
 
 /// The command the messages tell the user to run to get WSL. The install
 /// command without `--no-distribution` would also install and start a Linux

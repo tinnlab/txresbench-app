@@ -69,6 +69,9 @@ export const ENV_FAMILY_CODES: ReadonlySet<string> = new Set([
   'ENV_IMAGE_TOOL_MISSING',
   'ENV_TOOL_MISSING',
   'SANDBOX_UNAVAILABLE',
+  // The Mac method VM and the Windows WSL runner (server `RUNNER_ENV_CODES`).
+  'SANDBOX_VM_UNAVAILABLE',
+  'SANDBOX_WSL_UNAVAILABLE',
   'METHOD_ENTRYPOINT_MISSING',
 ])
 

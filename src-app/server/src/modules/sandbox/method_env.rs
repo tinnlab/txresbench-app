@@ -1575,10 +1575,20 @@ pub fn verify_image_file(path: &Path, digest: &str) -> Result<(), AppError> {
     verify_payload_bytes(path, digest)
 }
 
+/// True where a cached artifact is served as the image FILE (macOS and
+/// Windows: the VM or WSL agent attaches it), false where it is a mounted
+/// dir (Linux). The same split as [`ready_artifact_path`].
+const SERVED_AS_IMAGE_FILE: bool = cfg!(any(target_os = "macos", target_os = "windows"));
+
 /// Whether a path [`ready_artifact_path`] (or a staged-dir seam) returned is
-/// usable now: a mounted dir with `usr/` on Linux, the image file on macOS.
+/// usable now: a mounted dir with `usr/` on Linux, the image file on macOS
+/// and Windows.
 fn artifact_path_ready(path: &Path) -> bool {
-    if cfg!(target_os = "macos") {
+    artifact_path_ready_as(SERVED_AS_IMAGE_FILE, path)
+}
+
+fn artifact_path_ready_as(image_file: bool, path: &Path) -> bool {
+    if image_file {
         path.is_file()
     } else {
         path.join("usr").exists()
@@ -1586,10 +1596,10 @@ fn artifact_path_ready(path: &Path) -> bool {
 }
 
 /// Whether the cached artifact for `digest` is usable without a new download:
-/// mounted on Linux, present in the cache on macOS.
+/// mounted on Linux, present in the cache on macOS and Windows.
 fn digest_ready(digest: &str) -> bool {
     use crate::modules::rootfs::cache;
-    if cfg!(target_os = "macos") {
+    if SERVED_AS_IMAGE_FILE {
         cache::has_digest(digest)
     } else {
         crate::modules::rootfs::mount::is_mounted(&cache::digest_dir(digest))
@@ -4108,6 +4118,30 @@ mod tests {
         }
         let got = got.expect("the ready file, never a retry-the-request conflict");
         assert_eq!(got.digest.as_deref(), Some(d0.as_str()));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A17: on the platforms that serve the cached image file (macOS and
+    /// Windows) an image file counts as ready; on Linux only a mounted dir
+    /// with `usr/` does.
+    #[test]
+    fn artifact_readiness_follows_how_the_platform_serves_the_image() {
+        let root = scratch();
+        let file = root.join("image.squashfs");
+        let dir = root.join("mnt");
+        std::fs::create_dir_all(dir.join("usr")).unwrap();
+        std::fs::write(&file, b"image").unwrap();
+
+        assert!(artifact_path_ready_as(true, &file), "an image file is ready as a file");
+        assert!(!artifact_path_ready_as(true, &dir), "a dir is not the image file");
+        assert!(artifact_path_ready_as(false, &dir), "a mounted dir with usr is ready");
+        assert!(!artifact_path_ready_as(false, &file), "a file is not a mounted dir");
+        assert_eq!(
+            SERVED_AS_IMAGE_FILE,
+            cfg!(target_os = "macos") || cfg!(target_os = "windows"),
+            "Windows serves the image file like macOS"
+        );
+        assert_eq!(artifact_path_ready(&file), SERVED_AS_IMAGE_FILE);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

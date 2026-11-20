@@ -2,6 +2,23 @@
 //! against an analysis rootfs, and of txr benchmark-method runs in a stacked
 //! base+layer environment.
 //!
+//! # Three runners, one argv
+//!
+//! A method run is the same hardened bwrap argv with the same guest paths on
+//! every system; only where it executes differs:
+//! - Linux: bwrap on the host ([`service`], [`stack`]).
+//! - macOS (Apple Silicon): bwrap inside a per-run libkrun microVM
+//!   (`mac_vm_run`); the host launcher is the `sandbox-vm-launcher` crate,
+//!   the in-VM agent the `sandbox-guest-agent` crate, and the wire protocol
+//!   the `sandbox-vm-protocol` crate (all under `sdk/crates/`).
+//! - Windows: bwrap inside the app's own WSL 2 distro (`wsl_run`), with the
+//!   same guest agent and protocol; the app only ever runs its own distro.
+//!
+//! `vm_exchange` holds what the two VM runners share (the exchange with the
+//! agent, the guest paths, the typed codes in [`config`]). The boot probe of
+//! each runner decides [`config::SandboxAvailability`]; when it fails, the
+//! plain reason is kept for "Use example" (`config::runner_unavailable`).
+//!
 //! Ported from txresbench `code_sandbox`, Linux-first + companion-driven: exposed as a
 //! SERVICE (`service::run_method_in_stack`) + the authenticated txr routes (NOT a chat
 //! MCP server — DEC-5). Boot probes the host, creates the workspace root, and
@@ -41,8 +58,9 @@
 //!
 //! # Host requirements (operator + dev)
 //!
-//! The sandbox needs three host properties — plus one tool for the txr env
-//! fetch (item 4). On a bare-metal Linux host with the
+//! The Linux runner needs three host properties — plus one tool for the txr env
+//! fetch (item 4); macOS needs the app's VM runtime and Windows needs WSL 2
+//! (see the runners above), and neither uses items 1 to 3. On a bare-metal Linux host with the
 //! packages installed they are all satisfied by default; inside a CONTAINER (dev
 //! or prod) two of them need deployment config — these are host/deployment facts,
 //! NOT things the server can fix at runtime.
@@ -199,6 +217,10 @@ impl AppModule for SandboxModule {
             Ok(h) => h,
             Err(reason) => {
                 set_init_status(SandboxAvailability::HostUnsupported);
+                // The technical reason is logged; "Use example" shows the
+                // plain one (Windows keeps its own in `wsl_run`).
+                #[cfg(not(target_os = "windows"))]
+                config::set_probe_failure(config::plain_probe_reason(std::env::consts::OS, &reason));
                 tracing::warn!("sandbox: {reason}");
                 tracing::info!(
                 "{}",
@@ -352,5 +374,30 @@ mod tests {
         );
         assert!(s.contains("supported: false"), "{s}");
         assert!(s.contains("oras: /usr/bin/oras"), "{s}");
+    }
+
+    /// A18: the docs and manifest that describe the runners match the code:
+    /// the repo map names the three VM crates and the runners, the module
+    /// doc names all three runners, and `libc` has one Unix entry only.
+    #[test]
+    fn the_runner_docs_and_manifest_match_the_code() {
+        let claude = include_str!("../../../../../CLAUDE.md");
+        for name in ["sandbox-vm-protocol", "sandbox-guest-agent", "sandbox-vm-launcher", "mac_vm_run.rs", "wsl_run.rs", "vm_exchange.rs"] {
+            assert!(claude.contains(name), "the repo map names {name}");
+        }
+        for krate in ["sandbox-vm-protocol", "sandbox-guest-agent", "sandbox-vm-launcher"] {
+            let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/crates").join(krate);
+            assert!(dir.is_dir(), "{krate} is a real crate");
+        }
+        let module_doc = include_str!("mod.rs");
+        assert!(module_doc.contains("Three runners, one argv") && module_doc.contains("WSL 2 distro"));
+
+        let manifest = include_str!("../../../Cargo.toml");
+        let libc_entries = manifest.lines().filter(|l| l.trim_start().starts_with("libc =")).count();
+        assert_eq!(libc_entries, 1, "one libc entry (cfg(unix))");
+        assert!(!manifest.contains("Linux-first"), "no stale Linux-only comment");
+
+        let service = include_str!("service.rs");
+        assert!(!service.contains("Linux and Apple Silicon macOS only"), "the fallback names Windows too");
     }
 }

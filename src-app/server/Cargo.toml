@@ -201,11 +201,6 @@ minisign-verify = "=0.2.5"
 # `sqlite3_libversion*` floor probe (dev-dep below); the entry is shared, no new
 # line enters `Cargo.lock`.
 libsqlite3-sys = { version = "0.30.1", features = ["bundled"] }
-# bwrap/seccomp/PDEATHSIG/pipe primitives — Linux-only (the sandbox is
-# Linux-first, DEC-3). Gated so macOS/Windows still compile.
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
-
 # The macOS method VM's host↔guest wire protocol (`sandbox::mac_vm_run`):
 # frames to and from the SDK guest agent. macOS-only; the Linux seam runs
 # bwrap on the host and never talks to a VM.
@@ -300,7 +295,9 @@ http-body-util = "0.1"
 # package.
 ed25519-dalek = "=2.2.0"
 
-# Unix SIGTERM for graceful job stop (SIGTERM -> SIGKILL); cfg-gated at use so the
-# non-unix build (which falls back to Child::start_kill) never links it.
+# The Unix primitives the Linux bwrap runner and the job stop use: bwrap/seccomp/
+# PDEATHSIG/pipe setup, and SIGTERM for a graceful job stop (SIGTERM -> SIGKILL).
+# Cfg-gated at use, so the non-unix build (Windows, which falls back to
+# Child::start_kill and runs methods in WSL) never links it.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
