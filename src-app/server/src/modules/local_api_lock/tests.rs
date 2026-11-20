@@ -253,3 +253,63 @@ fn headless_key_resolution() {
     let b = key_banner("abc");
     assert!(b.contains("abc") && b.to_lowercase().contains(KEY_HEADER) && b.contains(KEY_ENV));
 }
+
+/// The stack as `build_app` orders it: the lock INSIDE the CORS layer, with an
+/// explicit webview-only origin list (what the desktop config sets).
+mod with_cors {
+    use super::*;
+    use txresbench_core::ServerConfig;
+    use txresbench_framework::app_builder::create_cors_layer_with;
+
+    fn stack() -> Router {
+        let yaml = format!(
+            "server:\n  host: 127.0.0.1\n  port: 0\n  api_prefix: /api\n  cors:\n    allow_origins: [{origins}]\n    allow_methods: [GET, POST, OPTIONS]\n    allow_headers: [content-type, authorization]\njwt:\n  secret: '0123456789abcdef0123456789abcdef-strong'\n  issuer: a\n  audience: a\n  access_token_expiry_hours: 24\n",
+            origins = WEBVIEW_ORIGINS.join(", ")
+        );
+        let config: ServerConfig = serde_norway::from_str(&yaml).unwrap();
+        let l = lock(LockMode::Desktop);
+        app(&l).layer(create_cors_layer_with(&config, &[KEY_HEADER]))
+    }
+
+    async fn send(app: &Router, method: &str, origin: &str, extra: &[(&str, &str)]) -> axum::response::Response {
+        let mut b = Request::builder()
+            .method(method)
+            .uri("/api/session/local")
+            .header("host", format!("127.0.0.1:{PORT}"))
+            .header("origin", origin);
+        for (k, v) in extra {
+            b = b.header(*k, *v);
+        }
+        app.clone().oneshot(b.body(Body::empty()).unwrap()).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn preflight_is_answered_for_the_webview_only() {
+        let app = stack();
+        let pre = [("access-control-request-method", "POST"), ("access-control-request-headers", "x-txr-local-key,authorization")];
+        let ok = send(&app, "OPTIONS", "tauri://localhost", &pre).await;
+        assert_eq!(ok.headers().get("access-control-allow-origin").unwrap(), "tauri://localhost");
+        let allowed = ok.headers().get("access-control-allow-headers").unwrap().to_str().unwrap().to_lowercase();
+        assert!(allowed.contains(KEY_HEADER), "the key header must pass preflight: {allowed}");
+
+        let foreign = send(&app, "OPTIONS", "https://evil.example", &pre).await;
+        assert!(foreign.headers().get("access-control-allow-origin").is_none());
+    }
+
+    #[tokio::test]
+    async fn a_foreign_page_gets_a_403_it_cannot_read() {
+        let app = stack();
+        // A simple cross-origin POST needs no preflight: the request is SENT, so
+        // the lock must refuse it, and CORS must not let the page read the answer.
+        let r = send(&app, "POST", "https://evil.example", &[(KEY_HEADER, SECRET)]).await;
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
+        assert!(r.headers().get("access-control-allow-origin").is_none());
+        let r = send(&app, "POST", "https://evil.example", &[]).await;
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
+        assert!(r.headers().get("access-control-allow-origin").is_none());
+        // The window gets its answer.
+        let r = send(&app, "POST", "tauri://localhost", &[(KEY_HEADER, SECRET)]).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        assert_eq!(r.headers().get("access-control-allow-origin").unwrap(), "tauri://localhost");
+    }
+}

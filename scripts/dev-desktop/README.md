@@ -70,7 +70,7 @@ the plan's value; x11vnc itself stays localhost-only) ·
 
 `run.sh` brings the app window up on the virtual display (screenshot is
 non-blank; `xwininfo`/`xdpyinfo` show the 1200x800 window titled
-`TxResBench`), the embedded server's `/api/health` answers, noVNC answers on
+`TxResBench`), the embedded server's `/api/health` answers with the run's throwaway local-API key (and refuses it without), noVNC answers on
 `:6080`, and `stop.sh` leaves no process behind (pid files gone, the display
 is gone, the ports are silent). Every claim is checked by
 `scripts/dev-desktop/verify.sh`-style manual steps in the item report; nothing

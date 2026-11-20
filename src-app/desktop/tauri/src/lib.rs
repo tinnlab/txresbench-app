@@ -32,6 +32,7 @@ pub fn register_invoke_handler<R: tauri::Runtime>(
 ) -> tauri::Builder<R> {
     builder.invoke_handler(tauri::generate_handler![
         commands::get_server_port,
+        commands::get_api_secret,
         commands::auto_login,
         commands::reveal_in_file_manager,
         // Saving a file the user chose in the native Save dialog: the window
@@ -91,10 +92,12 @@ pub fn run() {
     init_tracing();
     tracing::info!("Starting TxResBench…");
 
-    let boot: Arc<dyn ServerBoot> = Arc::new(CytoServerBoot::new(
-        config::desktop_config(),
-        txresbench::modules::local_api_lock::generate_secret(),
-    ));
+    // The per-run local-API key: made before the server boots, kept in memory,
+    // handed to the server and (over IPC only) to the webview.
+    let api_secret = config::api_secret();
+    let _ = commands::API_SECRET.set(api_secret.clone());
+    let boot: Arc<dyn ServerBoot> =
+        Arc::new(CytoServerBoot::new(config::desktop_config(), api_secret));
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

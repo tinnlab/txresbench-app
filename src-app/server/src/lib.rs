@@ -21,7 +21,8 @@ use std::sync::Arc;
 use sqlx::SqlitePool;
 use txresbench_core::ServerConfig;
 use txresbench_framework::app_builder::{
-    apply_rate_limit_layer, build_api_router, create_cors_layer, create_modules, initialize_modules,
+    apply_rate_limit_layer, build_api_router, create_cors_layer_with, create_modules,
+    initialize_modules, FRAMEWORK_REQUIRED_REQUEST_HEADERS,
 };
 use txresbench_framework::ModuleContext;
 
@@ -245,7 +246,12 @@ async fn build_app(
         )),
         _ => app,
     };
-    let app = app.layer(create_cors_layer(config));
+    // The framework's own required request header plus the local-API key header:
+    // an explicit `allow_headers` list (the desktop's) gets both unioned in, so a
+    // webview preflight for the key header can never be refused for omission.
+    let mut cors_headers: Vec<&'static str> = FRAMEWORK_REQUIRED_REQUEST_HEADERS.to_vec();
+    cors_headers.push(modules::local_api_lock::KEY_HEADER);
+    let app = app.layer(create_cors_layer_with(config, &cors_headers));
     // `None` absent-default: config omitting `rate_limit` (desktop) → no limiter.
     // In demo mode the framework limiter is CONFIGURED always — the plan's
     // "use the framework's rate-limit module, configured, not disabled": an
