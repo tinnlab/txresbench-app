@@ -2154,5 +2154,41 @@ describe('ChooseMethodsPage day settings (the files\u2019 suggestions, the look-
     expect(last.config.decision_day).toBe(42)
     expect(last.config.look_ahead_day).toBe(300)
   })
+
+  it('two day changes in one tick that return the decision day to its start end there (the diff never uses the stale render settings)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore({ dayFacts: FACTS, parameters: { decision_day: 56, baseline_max_day: 0 } })
+    renderPage()
+    await settle()
+    const live = instancesOfType('txr.run-settings')
+    expect(live.length).toBe(1)
+    // Two calls in ONE tick: decision day 42, then back to the starting 56.
+    // The second call must diff against the first call's result (the ref),
+    // not against the render-time settings: against the stale value the diff
+    // omits decision_day, so the merged patch would keep the 42 although the
+    // action succeeded and the field would show the old 42.
+    await act(async () => {
+      const first = runAction('runSettings.setDay', {
+        view_id: live[0].id,
+        field: 'decision_day',
+        day: 42,
+      })
+      const second = runAction('runSettings.setDay', {
+        view_id: live[0].id,
+        field: 'decision_day',
+        day: 56,
+      })
+      await Promise.all([first, second])
+    })
+    expect(dayValue('txr-run-settings-decision-day')).toBe('56')
+    // The write-through carries the starting day: the engine never sees 42.
+    await settle(RUN_CONFIG_DEBOUNCE_MS)
+    await settle()
+    expect(api.putConfig).toHaveBeenCalled()
+    const last = api.putConfig.mock.calls[api.putConfig.mock.calls.length - 1][0] as {
+      config: { decision_day: number; look_ahead_day: number }
+    }
+    expect(last.config.decision_day).toBe(56)
+  })
 })
 

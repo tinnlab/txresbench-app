@@ -627,11 +627,21 @@ pub(crate) fn build_timeline(resolved: &ResolvedRequest) -> FileTimeline {
     let mut draw_days: Vec<Vec<f64>> = Vec::new();
     for row in &resolved.model.values {
         let Some(pid) = row.patient_id.text() else { continue };
+        // Every patient of the measurements file is a patient of the coverage
+        // line, whatever its rows are: register the entry BEFORE the marker
+        // and companion checks, so a patient whose rows are all companion (or
+        // markless) rows still counts (a possibly-empty draw list).
+        let i = *index.entry(pid).or_insert_with(|| {
+            draw_days.push(Vec::new());
+            draw_days.len() - 1
+        });
+        // A row with no marker name is dropped by the canonical bundle (its
+        // `filter_map` on `row.marker.text()?`), so it is never a draw.
+        let Some(marker) = row.marker.text() else { continue };
         // The engine's `draw_status` skips companion rows; resolve the row's
         // feature the way the canonical bundle does (the join key, else the
         // raw spelling) and skip companions so the timeline counts the draws
         // the engine sees.
-        let marker = row.marker.text().unwrap_or("");
         let feature = resolved
             .joined_groups
             .get(&normalize_marker_name(marker))
@@ -640,10 +650,6 @@ pub(crate) fn build_timeline(resolved: &ResolvedRequest) -> FileTimeline {
         if is_companion(&feature) {
             continue;
         }
-        let i = *index.entry(pid).or_insert_with(|| {
-            draw_days.push(Vec::new());
-            draw_days.len() - 1
-        });
         if let Some(day) = row.day.parse_f64() {
             if day.is_finite() && day > baseline_max_day {
                 draw_days[i].push(day);
@@ -1430,6 +1436,44 @@ mod tests {
         .expect("files");
         let t = v.timeline.expect("the timeline block");
         assert_eq!(t.draw_days, vec![vec![21.0]], "day 56 is companion-only");
+    }
+
+    #[test]
+    fn timeline_keeps_a_companion_only_patient_and_skips_a_blank_marker() {
+        // A patient whose rows are ALL companion rows still has an entry in
+        // `draw_days` (an empty list): the coverage line's "patients in the
+        // measurements file" counts them in the denominator. A values row
+        // with no marker name is dropped by the canonical bundle, so it is
+        // never a draw (the old marker "" was counted as one).
+        let patients = table(
+            &["patient_id", "pfs_days", "pfs_event", "os_days", "os_event"],
+            &[&["P1", "100", "1", "", ""], &["P2", "100", "1", "", ""]],
+        );
+        let measurements = table(
+            &meas_cols(),
+            &[
+                &["P1", "21", "LDH", "1", "U/L"],
+                &["P1", "56", "", "1", "U/L"],
+                &["P2", "56", "LDH__lod", "1", "U/L"],
+            ],
+        );
+        let v = validate(&req(
+            ValidationMode::Files,
+            Some(patients),
+            measurements,
+            vec![],
+            vec![],
+            56.0,
+            0.0,
+        ))
+        .expect("files");
+        let t = v.timeline.expect("the timeline block");
+        assert_eq!(
+            t.draw_days,
+            vec![vec![21.0], vec![]],
+            "P2 stays in the denominator with no draw days; the markless row is no draw"
+        );
+        assert_eq!(t.draw_days.len(), 2, "both patients of the file are counted");
     }
 
     #[test]

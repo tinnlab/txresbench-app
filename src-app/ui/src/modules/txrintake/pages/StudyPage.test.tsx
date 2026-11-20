@@ -488,6 +488,55 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     expect(routeAt()).toBe('/choose-methods')
   })
 
+  it('a failed re-check of the old day does not let Continue skip the fresh check after a new day', async () => {
+    let calls = 0
+    api.validate.mockImplementation(() => {
+      calls += 1
+      if (calls === 1) return Promise.reject(new Error('the files could not be read again'))
+      return Promise.resolve({
+        ...VALIDATION,
+        inventory: { ...VALIDATION.inventory, decision_day: 42 },
+      })
+    })
+    // The absolute call count accumulates across this file's tests (the mock
+    // is not reset per test), so the expectations are relative to this point.
+    const atStart = api.validate.mock.calls.length
+    act(() => {
+      useTxrIntakeStore.setState({
+        patients: loadedFile('patients'),
+        measurements: loadedFile('measurements'),
+        validation: VALIDATION,
+        dayFacts: DAY_FACTS,
+      })
+    })
+    renderStudy()
+    // A new day triggers the re-check, and it FAILS.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-last-draw-suggestion-56'))
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(atStart + 1))
+    expect(screen.getByTestId('txr-intake-study-recheck-error').textContent).toBe(
+      'the files could not be read again',
+    )
+    // The user picks ANOTHER day and clicks Continue at once, before the fresh
+    // check's effect runs. The stored failure belongs to the OLD day's key, so
+    // Continue must still wait for the new check — not read the stale
+    // "failed" flag and go straight to the files step.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-last-draw-suggestion-42'))
+      fireEvent.click(screen.getByTestId('txr-intake-study-continue'))
+      await Promise.resolve()
+    })
+    expect(routeAt()).toBe('/study')
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(atStart + 2))
+    await waitFor(() => expect(store().validation).not.toBeNull())
+    expect(store().validation?.inventory.decision_day).toBe(42)
+    const continueButton = screen.getByTestId('txr-intake-study-continue')
+    fireEvent.click(continueButton)
+    expect(routeAt()).toBe('/choose-methods')
+  })
+
   it('Continue and Skip take the path-aware next step', async () => {
     renderStudy()
     // The learn path with no files yet (the Start side trip): the files step.

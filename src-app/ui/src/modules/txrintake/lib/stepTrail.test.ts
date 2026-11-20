@@ -358,15 +358,15 @@ describe('the way back from Help to a step', () => {
   })
 
   it('names each step view by its step line number and its heading', () => {
-    expect(stepPlaceOf(STUDY)).toEqual({ step: 2, title: 'Tell us about your study' })
-    expect(stepPlaceOf(FILES)).toEqual({ step: 3, title: 'Add your files' })
+    expect(stepPlaceOf(STUDY)).toEqual({ step: 3, title: 'Tell us about your study' })
+    expect(stepPlaceOf(FILES)).toEqual({ step: 2, title: 'Add your files' })
     expect(stepPlaceOf(`${PREDICT}?use=m1&name=Model%201`)).toEqual({
-      step: 3,
+      step: 2,
       title: 'Add the patients to predict',
     })
     expect(stepPlaceOf('/choose-methods')).toEqual({ step: 4, title: 'Choose the methods and settings' })
-    expect(stepPlaceOf('/pretrained-models')).toEqual({ step: 4, title: 'Choose the models to run' })
-    expect(stepPlaceOf('/saved-models')).toEqual({ step: 4, title: 'Choose the saved models to run' })
+    expect(stepPlaceOf('/pretrained-models')).toEqual({ step: 3, title: 'Choose the models to run' })
+    expect(stepPlaceOf('/saved-models')).toEqual({ step: 3, title: 'Choose the saved models to run' })
     expect(stepPlaceOf(START)).toBeNull()
     expect(stepPlaceOf('/help')).toBeNull()
   })

@@ -367,20 +367,23 @@ mod tests {
         // expected values. STRIP (ITEM-6): the platform contexts
         // (`workbench`, `dataset`) left with their modules (ITEM-4) and must
         // not ride the collector back in. Every committed action is "global"
-        // except the app's own named contexts, which are pinned PAIR BY PAIR
-        // as (action id, context): `flow.back` on `txr.step` (the step views
-        // of a new analysis) and `models.switchList` on `txr.modelStep` (its
-        // two model steps), both declared in
-        // `src-app/ui/src/modules/txrintake/lib/stepTrail.ts`,
-        // `help.backToStep` on `txr.helpFromStep` (Help opened from a step
-        // view), declared in stepTrail.ts, and
-        // `methods.applyPreset` on `txr.method-picker` (the choose-methods
-        // page's method picker, `src-app/ui/src/modules/txrlist/lib/methodPicker.ts`),
-        // `flow.setLastDrawDay` on `txr.step` (the last-draw day of the questions
-        // step), `runSettings.setDay` on `txr.run-settings` (the choose-methods
-        // page's day settings, `src-app/ui/src/modules/txrrun/lib/settings.ts`)
-        // and `sandbox.setupWsl` on `txr.wsl-setup` (active while the app offers
-        // to set WSL up on Windows, `src-app/ui/src/lib/wsl-setup/wslSetup.ts`).
+        // except these pinned pairs (action id, context), each with its short
+        // note:
+        // - `flow.back` on `txr.step` (the step views of a new analysis,
+        //   declared in `src-app/ui/src/modules/txrintake/lib/stepTrail.ts`),
+        // - `models.switchList` on `txr.modelStep` (its two model steps,
+        //   declared there too),
+        // - `help.backToStep` on `txr.helpFromStep` (Help opened from a step
+        //   view, declared in stepTrail.ts),
+        // - `methods.applyPreset` on `txr.method-picker` (the choose-methods
+        //   page's method picker, `src-app/ui/src/modules/txrlist/lib/methodPicker.ts`),
+        // - `flow.setLastDrawDay` on `txr.step` (the last-draw day of the
+        //   questions step),
+        // - `runSettings.setDay` on `txr.run-settings` (the choose-methods
+        //   page's day settings, `src-app/ui/src/modules/txrrun/lib/settings.ts`)
+        // - and `sandbox.setupWsl` on `txr.wsl-setup` (active while the app
+        //   offers to set WSL up on Windows,
+        //   `src-app/ui/src/lib/wsl-setup/wslSetup.ts`).
         // Any other non-global action, or another context on a pinned action,
         // fails.
         let catalog = build_from_str(MANIFEST_JSON);

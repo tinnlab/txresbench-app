@@ -18,6 +18,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { ApiClient } from '@/api-client'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
+import type { IntakeValidationKey } from '../stores/TxrIntake.store'
 import { validateRequest } from '../lib/flow'
 
 export interface Recheck {
@@ -49,6 +50,16 @@ function checkOwed(): boolean {
   return s.validation === null && filesReady()
 }
 
+/** The validation key a failed check ran for, and whether it is the current
+ *  one (the store's own order-sensitive equality, same shape). */
+function sameKey(a: IntakeValidationKey, b: IntakeValidationKey): boolean {
+  return (
+    JSON.stringify(a.joins) === JSON.stringify(b.joins) &&
+    JSON.stringify(a.mapping) === JSON.stringify(b.mapping) &&
+    JSON.stringify(a.parameters) === JSON.stringify(b.parameters)
+  )
+}
+
 export function useRecheck(): Recheck {
   const validation = useStore(useTxrIntakeStore, s => s.validation)
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
@@ -62,6 +73,10 @@ export function useRecheck(): Recheck {
   const rerun = useRef(false)
   const alive = useRef(true)
   const failed = useRef(false)
+  // Which check failed: the validation key it ran for. A NEW key (a new day,
+  // new files) means a fresh check is owed, so the old failure is not current
+  // any more (a click before the fresh check's effect runs must still wait).
+  const failedKey = useRef<IntakeValidationKey | null>(null)
 
   useEffect(() => {
     alive.current = true
@@ -78,6 +93,7 @@ export function useRecheck(): Recheck {
     }
     busy.current = true
     failed.current = false
+    failedKey.current = null
     setChecking(true)
     const state = useTxrIntakeStore.getState()
     const key = state.currentValidationKey()
@@ -89,6 +105,7 @@ export function useRecheck(): Recheck {
       .catch(err => {
         if (alive.current) {
           failed.current = true
+          failedKey.current = key
           setError(errorText(err))
         }
       })
@@ -106,6 +123,12 @@ export function useRecheck(): Recheck {
   return {
     checking: checking || (validation === null && filesReady() && error === null),
     error,
-    pending: () => checkOwed() && !failed.current,
+    pending: () => {
+      if (!checkOwed()) return false
+      if (!failed.current) return true
+      const failedAt = failedKey.current
+      if (failedAt === null) return false
+      return !sameKey(useTxrIntakeStore.getState().currentValidationKey(), failedAt)
+    },
   }
 }

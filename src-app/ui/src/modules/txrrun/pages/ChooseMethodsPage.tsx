@@ -466,11 +466,16 @@ export function ChooseMethodsPage() {
   const covariates = patients === null ? null : buildCovariates(patients.inspection)
 
   const change = (next: RunSettings): void => {
-    if (next.decision_day !== settings.decision_day || next.covariates !== settings.covariates) {
+    // The ref is the newest settings even when two change calls land in one
+    // tick (a second call must diff against the first call's result, never
+    // against the render-time `settings` — the diff against the stale value
+    // omits a day the second call changed back to it).
+    const prev = settingsRef.current
+    if (next.decision_day !== prev.decision_day || next.covariates !== prev.covariates) {
       recheckAsks.current += 1
     }
     settingsRef.current = next
-    setSettingsPatch(current => ({ ...(current ?? {}), ...diffPatch(next, settings) }))
+    setSettingsPatch(current => ({ ...(current ?? {}), ...diffPatch(next, prev) }))
     // demo-mode ITEM-6: the demo never writes the shared-pool sticky row
     // (the recorded setup is the one setup; the run carries its own).
     if (isDemo) return

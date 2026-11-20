@@ -30,7 +30,13 @@
  * model name, and the intake store persists only its small fields).
  */
 import { create } from 'zustand'
-import { isChoiceStep, isFileStep, stepOfUrl, type FlowStepId } from '@/modules/txrshell/lib/flowSteps'
+import {
+  isChoiceStep,
+  isFileStep,
+  stepOfUrl,
+  stepPlace,
+  type FlowStepId,
+} from '@/modules/txrshell/lib/flowSteps'
 
 /** The page context a step view declares while it is on screen (`flow.back` and
  *  `models.switchList` are offered and invokable only then). */
@@ -215,21 +221,18 @@ export interface TxrStepPlace {
 }
 
 /**
- * The step line number and heading of each step view (the "Step x of 4"
- * line and the h1 of each step page: Start is step 1).
+ * The place of a step view URL, or null for any other URL. The step number
+ * and the heading come from the one list of steps (`txrshell/lib/flowSteps.ts`,
+ * `stepPlace` on its own path — the study step is the learn path's step 3).
+ * A URL that is no step view, or a step view that is no numbered step of its
+ * path, has no place.
  */
-const STEP_PLACES: Readonly<Record<string, TxrStepPlace>> = {
-  '/study': { step: 2, title: 'Tell us about your study' },
-  '/files': { step: 3, title: 'Add your files' },
-  '/predict-files': { step: 3, title: 'Add the patients to predict' },
-  '/choose-methods': { step: 4, title: 'Choose the methods and settings' },
-  '/pretrained-models': { step: 4, title: 'Choose the models to run' },
-  '/saved-models': { step: 4, title: 'Choose the saved models to run' },
-}
-
-/** The place of a step view URL, or null for any other URL. */
 export function stepPlaceOf(url: string): TxrStepPlace | null {
-  return STEP_PLACES[pathOf(url)] ?? null
+  const id = stepOfUrl(url)
+  if (id === null) return null
+  const place = stepPlace(id)
+  if (place === null) return null
+  return { step: place.step, title: place.title }
 }
 
 /**

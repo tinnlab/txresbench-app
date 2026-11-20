@@ -184,7 +184,7 @@ afterEach(() => {
 })
 
 describe('Help opened from a step', () => {
-  it('step 3: a problem code link opens Help with "Back to step 3", which returns with the files kept', async () => {
+  it('step 2: a problem code link opens Help with "Back to step 2", which returns with the files kept', async () => {
     const patients = file('patients.csv')
     // The card's problem list reads the file's own problems (the check's rows for this card).
     const measurements = { ...file('measurements.csv'), problems: [errorProblem], prepared: false }
@@ -196,7 +196,7 @@ describe('Help opened from a step', () => {
 
     await click('txr-intake-problem-help-R03')
     expect(routeAt()).toBe('/help')
-    const button = screen.getByRole('button', { name: 'Back to step 3: Add your files' })
+    const button = screen.getByRole('button', { name: 'Back to step 2: Add your files' })
     expect(button).toBe(backToStep())
     expect(isContextActive(TXR_HELP_FROM_STEP_CONTEXT)).toBe(true)
 
@@ -210,7 +210,7 @@ describe('Help opened from a step', () => {
     expect(state.validation).toBe(checked)
     expect(screen.getByTestId('txr-intake-problem-help-R03')).toBeTruthy()
     expect(api.validate).not.toHaveBeenCalled()
-    // The path is kept too: Back from step 3 still goes to step 2.
+    // The path is kept too: Back from the files step still goes to the study step.
     expect(useStepTrailStore.getState().trail).toEqual(['/', '/study', '/files'])
     await click('txr-step-back')
     expect(routeAt()).toBe('/study')
@@ -231,10 +231,10 @@ describe('Help opened from a step', () => {
     beginPath('/')
     renderApp('/study')
     await click('stand-in-help-link')
-    expect(backToStep()?.textContent).toBe('Back to step 2: Tell us about your study')
+    expect(backToStep()?.textContent).toBe('Back to step 3: Tell us about your study')
     await click('txr-help-toc-troubleshooting')
     expect(routeAt()).toBe('/help')
-    expect(backToStep()?.textContent).toBe('Back to step 2: Tell us about your study')
+    expect(backToStep()?.textContent).toBe('Back to step 3: Tell us about your study')
     await click('txr-help-back-to-step')
     expect(routeAt()).toBe('/study')
   })
@@ -243,7 +243,7 @@ describe('Help opened from a step', () => {
     beginPath('/')
     renderApp('/study')
     await click('stand-in-help-link')
-    expect(backToStep()?.textContent).toBe('Back to step 2: Tell us about your study')
+    expect(backToStep()?.textContent).toBe('Back to step 3: Tell us about your study')
     await act(async () => {
       beginPath('/help')
     })
