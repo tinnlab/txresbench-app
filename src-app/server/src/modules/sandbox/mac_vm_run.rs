@@ -896,18 +896,39 @@ mod tests {
                 "the builder creates /{rel}"
             );
         }
-        // The builder's sed reads exactly this line.
+        // The builder reads the versions with `guest_protocol_range`, shared with the WSL
+        // root builder in scripts/guest-root-common.sh, whose sed reads exactly this line.
+        assert!(
+            script.lines().any(|l| l == r#". "$ROOT/scripts/guest-root-common.sh""#),
+            "the builder sources the shared helper"
+        );
+        assert!(
+            script.lines().any(|l| l.starts_with(r#"guest_protocol_range "$ROOT""#)),
+            "the builder calls guest_protocol_range"
+        );
+        let common = std::fs::read_to_string(repo.join("scripts/guest-root-common.sh")).unwrap();
+        let range = common
+            .split("\nguest_protocol_range() {\n")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("guest_protocol_range in scripts/guest-root-common.sh");
+        assert!(
+            range.contains(r#"_src="$1/sdk/crates/sandbox-vm-protocol/src/lib.rs""#),
+            "guest_protocol_range reads the protocol crate"
+        );
         let proto =
             std::fs::read_to_string(repo.join("sdk/crates/sandbox-vm-protocol/src/lib.rs")).unwrap();
-        for (name, value) in [
-            ("PROTOCOL_VERSION", sandbox_vm_protocol::PROTOCOL_VERSION),
-            ("PROTOCOL_VERSION_MIN", sandbox_vm_protocol::PROTOCOL_VERSION_MIN),
+        for (name, var, value) in [
+            ("PROTOCOL_VERSION", "GUEST_PROTOCOL_MAX", sandbox_vm_protocol::PROTOCOL_VERSION),
+            ("PROTOCOL_VERSION_MIN", "GUEST_PROTOCOL_MIN", sandbox_vm_protocol::PROTOCOL_VERSION_MIN),
         ] {
             let decl = format!("pub const {name}: u32 = {value};");
             assert!(proto.lines().any(|l| l == decl), "{decl}");
-            let sed = format!(r"s/^pub const {name}: u32 = \([0-9][0-9]*\);$/\1/p");
-            assert!(script.contains(&sed), "the builder reads {name}");
+            let sed = format!(r#"{var}=$(sed -n 's/^pub const {name}: u32 = \([0-9][0-9]*\);$/\1/p' "$_src")"#);
+            assert!(range.lines().any(|l| l.trim() == sed), "guest_protocol_range reads {name} into {var}");
         }
+        assert!(script.lines().any(|l| l == "VERSION=$GUEST_PROTOCOL_MAX"), "the builder's VERSION is the max");
+        assert!(script.lines().any(|l| l == "MIN_VERSION=$GUEST_PROTOCOL_MIN"), "the builder's MIN_VERSION is the min");
         // ...and writes "MIN MAX", which the probe parses.
         assert!(script.contains(r#"printf '%s %s\n' "$MIN_VERSION" "$VERSION" > "$STAGE/$MARKER_REL""#));
         let written = format!("{} {}", sandbox_vm_protocol::PROTOCOL_VERSION_MIN, sandbox_vm_protocol::PROTOCOL_VERSION);
