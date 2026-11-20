@@ -169,6 +169,14 @@ describe('folderOf / showSavedLabel', () => {
     expect(folderOf('/c.csv')).toBe('/')
   })
 
+  it('keeps the separator of a Windows drive root, and UNC paths whole', () => {
+    expect(folderOf('C:\\x.csv')).toBe('C:\\')
+    expect(folderOf('d:/x.csv')).toBe('d:/')
+    expect(folderOf('C:\\a\\x.csv')).toBe('C:\\a')
+    expect(folderOf('\\\\server\\share\\x.csv')).toBe('\\\\server\\share')
+    expect(folderOf('\\\\server\\x.csv')).toBe('\\\\server')
+  })
+
   it('names Finder on a Mac only', () => {
     const ua = vi.spyOn(navigator, 'userAgent', 'get')
     ua.mockReturnValue('Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)')

@@ -231,6 +231,18 @@ describe('AppShell header on the macOS desktop window', () => {
     )
   })
 
+  it('takes the header height from the one geometry source, not a literal', () => {
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), 'components/AppShell.tsx'),
+      'utf8',
+    )
+    expect(src).not.toMatch(/height:\s*56\b/)
+    expect(MAC_TITLE_BAR.titleBarHeight).toBe(56)
+    for (const opts of [{ tauri: true, ua: MAC_UA }, { tauri: false, ua: MAC_UA }]) {
+      expect(renderShell(opts).header.style.height).toBe(`${MAC_TITLE_BAR.titleBarHeight}px`)
+    }
+  })
+
   it('leaves the header unchanged in a browser on a Mac', () => {
     const { shell, header } = renderShell({ tauri: false, ua: MAC_UA })
     expect(header.hasAttribute('data-tauri-drag-region')).toBe(false)
