@@ -23,11 +23,13 @@ export const WSL_MISSING_LINE =
   'Methods cannot run yet: they run in WSL 2 (Windows Subsystem for Linux), which is not installed.'
 export const WSL_OLD_LINE = 'Methods cannot run yet: the installed WSL is too old.'
 export const WSL_RUNNING_LINE =
-  'Setting up WSL. Windows asks for permission first; the download from Microsoft can take several minutes.'
-export const WSL_ASKS_LINE = 'Windows asks for permission, then downloads WSL from Microsoft.'
+  'A WSL setup is running. It goes on after a Yes in the TxResBench dialog and in Windows\' permission prompt; the download from Microsoft can take several minutes.'
+export const WSL_ASKS_LINE =
+  'TxResBench asks you to confirm in a dialog, then Windows asks for permission; WSL is downloaded from Microsoft.'
 export const WSL_DONE_RESTART_LINE = 'WSL is set up. Restart Windows, then open TxResBench again to run methods.'
 export const WSL_DONE_LINE = 'WSL is up to date. Close TxResBench and open it again to run methods.'
-export const WSL_DECLINED_LINE = 'WSL was not set up: Windows did not get permission, so nothing was changed.'
+export const WSL_DECLINED_LINE = 'WSL was not set up: the setup was declined, so nothing was changed.'
+export const WSL_AGAIN_SOON_LINE = 'It can be started again in a minute.'
 
 /** An exit code the way Windows tools print it: an HRESULT in hex, a small code as is. */
 export function formatExitCode(code: number): string {
@@ -53,8 +55,6 @@ function resultLine(last: WslSetupResult): { status: string; detail: string | nu
         detail: null,
         tone: 'error',
       }
-    case 'timed_out':
-      return { status: 'The WSL setup did not finish in time; it may still be running.', detail: null, tone: 'warning' }
     default: {
       const code = last.exit_code === undefined ? '' : ` (code ${formatExitCode(last.exit_code)})`
       return {
@@ -86,13 +86,16 @@ export function wslNoticeView(facts: WslSetupFacts, posting: boolean): WslNotice
       : offer === 'update'
         ? WSL_OLD_LINE
         : sentence(`Methods cannot run yet: ${facts.reason || 'the method runner did not start'}`)
-  const button = offer === undefined ? null : { label: offer === 'install' ? 'Set up WSL' : 'Update WSL', busy }
+  // Just declined: no button until the setup can start again (the facts are read again meanwhile).
+  const pausing = setup.retry_in_secs !== undefined && !busy
+  const button =
+    offer === undefined || pausing ? null : { label: offer === 'install' ? 'Set up WSL' : 'Update WSL', busy }
   if (busy) {
     return { tone: 'info', title, status: WSL_RUNNING_LINE, detail: null, button }
   }
   if (last !== undefined) {
     const { status, detail, tone } = resultLine(last)
-    return { tone, title, status, detail, button }
+    return { tone, title, status: pausing ? `${status} ${WSL_AGAIN_SOON_LINE}` : status, detail, button }
   }
   return { tone: 'warning', title, status: button === null ? null : WSL_ASKS_LINE, detail: null, button }
 }
@@ -117,8 +120,11 @@ const DETAIL: CSSProperties = {
 /**
  * WslSetupNotice — Windows only: the shell's notice when methods cannot run
  * because WSL 2 is missing or too old, with "Set up WSL" / "Update WSL" (the
- * registered `sandbox.setupWsl` action, so the palette and the AI agent run
- * the same setup). Other reasons are said without a button.
+ * registered `sandbox.setupWsl` action, so the palette and the AI agent start
+ * the same setup). The setup starts at once and goes on after the person at
+ * the PC says Yes in the app's own dialog and in Windows' prompt; the notice
+ * shows it running, then its result. After a No the button comes back a
+ * minute later. Other reasons are said without a button.
  *
  * It sits under the header, in the demo notice's slot, on every screen of
  * the app: a Windows user learns it on the start screen, before choosing

@@ -2,9 +2,10 @@
 /**
  * The shell's WSL notice (Windows): why methods cannot run, "Set up WSL" /
  * "Update WSL" when the app offers a setup (the registered
- * `sandbox.setupWsl` action), the running state and the result texts; nothing
- * when the server reports no `wsl_setup` (other systems, methods can run),
- * in the demo, or without the sandbox read permission.
+ * `sandbox.setupWsl` action, which starts the setup at once), the running
+ * state, the result texts and the minute after a No; nothing when the server
+ * reports no `wsl_setup` (other systems, methods can run), in the demo, or
+ * without the sandbox read permission.
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -28,6 +29,7 @@ await import('@/core/actions/builtin/wslSetupActions')
 const { getActionMeta } = await import('@/core/actions/defineAction')
 const { isContextActive } = await import('@/core/actions/activeContext')
 const { seedDemoMode, resetDemoMode } = await import('@/modules/demo/test-utils/demoSeed')
+const { message } = await import('@txresbench/kit')
 const { __resetWslSetupForTests, WSL_SETUP_CONTEXT } = await import('@/lib/wsl-setup/wslSetup')
 const {
   WslSetupNotice,
@@ -40,6 +42,7 @@ const {
   WSL_DONE_RESTART_LINE,
   WSL_DONE_LINE,
   WSL_DECLINED_LINE,
+  WSL_AGAIN_SOON_LINE,
 } = await import('./WslSetupNotice')
 
 const REASON =
@@ -154,9 +157,20 @@ describe('wslNoticeView', () => {
     const silent = wslNoticeView(facts({ offer: 'install', last: result({ outcome: 'failed', exit_code: 1 }) }), false)
     expect(silent.status).toBe('WSL could not be set up (code 1). Check the internet connection and try again.')
     expect(silent.detail).toBeNull()
+  })
 
-    const late = wslNoticeView(facts({ offer: 'install', last: result({ outcome: 'timed_out' }) }), false)
-    expect(late.status).toBe('The WSL setup did not finish in time; it may still be running.')
+  it('a minute after a No: no button, and it says when the setup comes back', () => {
+    const pausing = wslNoticeView(
+      facts({ offer: 'update', retry_in_secs: 40, last: result({ outcome: 'declined' }) }),
+      false,
+    )
+    expect(pausing.button).toBeNull()
+    expect(pausing.status).toBe(`${WSL_DECLINED_LINE} ${WSL_AGAIN_SOON_LINE}`)
+    expect(pausing.title).toBe(WSL_OLD_LINE)
+    expect(pausing.tone).toBe('warning')
+    const back = wslNoticeView(facts({ offer: 'update', last: result({ outcome: 'declined' }) }), false)
+    expect(back.button).toEqual({ label: 'Update WSL', busy: false })
+    expect(back.status).toBe(WSL_DECLINED_LINE)
   })
 
   it('prints a Windows error code in hex and a small exit code as is', () => {
@@ -210,34 +224,53 @@ describe('WslSetupNotice', () => {
     expect(isContextActive(WSL_SETUP_CONTEXT)).toBe(false)
   })
 
-  it('"Set up WSL" runs the registered action, shows the running state, then the result', async () => {
-    seedDemoMode('desktop')
-    api.listEnvs.mockResolvedValue(envs({ offer: 'install', running: false }))
-    let finish: (r: WslSetupResult) => void = () => {}
-    api.setupWsl.mockImplementation(() => new Promise<WslSetupResult>(resolve => (finish = resolve)))
-    render(<WslSetupNotice />)
-    await settle()
-    expect(screen.getByTestId('txr-wsl-notice').textContent).toContain(WSL_MISSING_LINE)
-    const button = screen.getByTestId('txr-wsl-notice-setup')
-    expect(button.textContent).toContain('Set up WSL')
-    expect(isContextActive(WSL_SETUP_CONTEXT)).toBe(true)
+  it('"Set up WSL" starts the registered action, shows the running state, then the result', async () => {
+    vi.useFakeTimers()
+    try {
+      seedDemoMode('desktop')
+      api.listEnvs.mockResolvedValue(envs({ offer: 'install', running: false }))
+      let answer: (s: WslSetupStatus) => void = () => {}
+      api.setupWsl.mockImplementation(() => new Promise<WslSetupStatus>(resolve => (answer = resolve)))
+      render(<WslSetupNotice />)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(screen.getByTestId('txr-wsl-notice').textContent).toContain(WSL_MISSING_LINE)
+      const button = screen.getByTestId('txr-wsl-notice-setup')
+      expect(button.textContent).toContain('Set up WSL')
+      expect(isContextActive(WSL_SETUP_CONTEXT)).toBe(true)
 
-    await act(async () => {
-      fireEvent.click(button)
-    })
-    expect(api.setupWsl).toHaveBeenCalledTimes(1)
-    expect(screen.getByTestId('txr-wsl-notice-status').textContent).toBe(WSL_RUNNING_LINE)
-    expect(screen.getByTestId('txr-wsl-notice-setup').getAttribute('aria-busy')).toBe('true')
+      await act(async () => {
+        fireEvent.click(button)
+      })
+      expect(api.setupWsl).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('txr-wsl-notice-status').textContent).toBe(WSL_RUNNING_LINE)
+      expect(screen.getByTestId('txr-wsl-notice-setup').getAttribute('aria-busy')).toBe('true')
+      expect(isContextActive(WSL_SETUP_CONTEXT)).toBe(false)
 
-    const done = result({ outcome: 'done', restart_windows: true })
-    api.listEnvs.mockResolvedValue(envs({ running: false, last: done }))
-    await act(async () => {
-      finish(done)
-    })
-    await settle()
-    expect(screen.getByTestId('txr-wsl-notice').textContent).toContain(WSL_DONE_RESTART_LINE)
-    expect(screen.queryByTestId('txr-wsl-notice-setup')).toBeNull()
-    expect(isContextActive(WSL_SETUP_CONTEXT)).toBe(false)
+      // The server answers at once: the setup runs (it waits for the person's Yes).
+      const running = { offer: 'install' as const, running: true }
+      api.listEnvs.mockResolvedValue(envs(running))
+      await act(async () => {
+        answer(running)
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(screen.getByTestId('txr-wsl-notice-status').textContent).toBe(WSL_RUNNING_LINE)
+      expect(screen.getByTestId('txr-wsl-notice-setup').getAttribute('aria-busy')).toBe('true')
+      expect(isContextActive(WSL_SETUP_CONTEXT)).toBe(false)
+
+      // Its end comes with a later read.
+      const done = result({ outcome: 'done', restart_windows: true })
+      api.listEnvs.mockResolvedValue(envs({ running: false, last: done }))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+      expect(screen.getByTestId('txr-wsl-notice').textContent).toContain(WSL_DONE_RESTART_LINE)
+      expect(screen.queryByTestId('txr-wsl-notice-setup')).toBeNull()
+      expect(isContextActive(WSL_SETUP_CONTEXT)).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('shows the update label and a failed setup\'s code and words', async () => {
@@ -255,20 +288,59 @@ describe('WslSetupNotice', () => {
   })
 
   it('a refused setup (409) is said in a message, not thrown', async () => {
-    seedDemoMode('desktop')
-    api.listEnvs.mockResolvedValue(envs({ offer: 'install', running: false }))
-    api.setupWsl.mockRejectedValue(new Error('a WSL setup is already running; wait for it to end'))
-    render(<WslSetupNotice />)
-    await settle()
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-wsl-notice-setup'))
-    })
-    await settle()
-    expect(api.setupWsl).toHaveBeenCalledTimes(1)
-    expect(screen.getByTestId('txr-wsl-notice-setup').getAttribute('aria-busy')).not.toBe('true')
+    const shown = vi.spyOn(message, 'error').mockImplementation(() => 'toast')
+    try {
+      seedDemoMode('desktop')
+      api.listEnvs.mockResolvedValue(envs({ offer: 'install', running: false }))
+      api.setupWsl.mockRejectedValue(new Error('a WSL setup is already running; wait for it to end'))
+      render(<WslSetupNotice />)
+      await settle()
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('txr-wsl-notice-setup'))
+      })
+      await settle()
+      expect(api.setupWsl).toHaveBeenCalledTimes(1)
+      expect(shown).toHaveBeenCalledTimes(1)
+      expect(shown).toHaveBeenCalledWith('a WSL setup is already running; wait for it to end')
+      expect(screen.getByTestId('txr-wsl-notice-setup').getAttribute('aria-busy')).not.toBe('true')
+    } finally {
+      shown.mockRestore()
+    }
   })
 
-  it('reads again while a setup it is not waiting for runs, and stops when it ended', async () => {
+  it('after a No: no button and no action for a minute, read again until it comes back', async () => {
+    vi.useFakeTimers()
+    try {
+      seedDemoMode('desktop')
+      const declined = result({ outcome: 'declined' })
+      api.listEnvs.mockResolvedValue(envs({ offer: 'install', running: false, last: declined, retry_in_secs: 60 }))
+      render(<WslSetupNotice />)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(screen.getByTestId('txr-wsl-notice-status').textContent).toBe(`${WSL_DECLINED_LINE} ${WSL_AGAIN_SOON_LINE}`)
+      expect(screen.queryByTestId('txr-wsl-notice-setup')).toBeNull()
+      expect(isContextActive(WSL_SETUP_CONTEXT)).toBe(false)
+      expect(api.listEnvs).toHaveBeenCalledTimes(1)
+
+      api.listEnvs.mockResolvedValue(envs({ offer: 'install', running: false, last: declined }))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+      expect(api.listEnvs).toHaveBeenCalledTimes(2)
+      expect(screen.getByTestId('txr-wsl-notice-status').textContent).toBe(WSL_DECLINED_LINE)
+      expect(screen.getByTestId('txr-wsl-notice-setup').textContent).toContain('Set up WSL')
+      expect(isContextActive(WSL_SETUP_CONTEXT)).toBe(true)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20000)
+      })
+      expect(api.listEnvs).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reads again while a setup runs (one this window did not start too), and stops when it ended', async () => {
     vi.useFakeTimers()
     try {
       seedDemoMode('desktop')
@@ -278,13 +350,17 @@ describe('WslSetupNotice', () => {
         await vi.advanceTimersByTimeAsync(0)
       })
       expect(screen.getByTestId('txr-wsl-notice-status').textContent).toBe(WSL_RUNNING_LINE)
+      expect(isContextActive(WSL_SETUP_CONTEXT)).toBe(false)
       expect(api.listEnvs).toHaveBeenCalledTimes(1)
-      api.listEnvs.mockResolvedValue(envs({ offer: 'install', running: false, last: result({ outcome: 'declined' }) }))
+      api.listEnvs.mockResolvedValue(envs({ offer: 'install', running: false, last: result({ outcome: 'failed' }) }))
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5000)
       })
       expect(api.listEnvs).toHaveBeenCalledTimes(2)
-      expect(screen.getByTestId('txr-wsl-notice-status').textContent).toBe(WSL_DECLINED_LINE)
+      expect(screen.getByTestId('txr-wsl-notice-status').textContent).toBe(
+        'WSL could not be set up. Check the internet connection and try again.',
+      )
+      expect(isContextActive(WSL_SETUP_CONTEXT)).toBe(true)
       await act(async () => {
         await vi.advanceTimersByTimeAsync(20000)
       })

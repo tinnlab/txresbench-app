@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
  * `sandbox.setupWsl` through the REAL command palette: listed only for a user
- * holding `sandbox::settings::manage`, and only while the app offers a setup
- * (the store keeps the `txr.wsl-setup` context active then); choosing it runs the
- * setup (`POST /api/sandbox/wsl/setup`).
+ * holding `sandbox::settings::manage`, and only while a setup can start (offered,
+ * none running, not just declined: the store keeps the `txr.wsl-setup` context
+ * active then); choosing it starts the setup (`POST /api/sandbox/wsl/setup`).
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -90,7 +90,7 @@ describe('sandbox.setupWsl in the command palette', () => {
   it('is listed for a user with the permission while a setup is offered, and runs the setup', async () => {
     signIn(['sandbox::settings::manage'])
     await serverSays({ offer: 'install', running: false })
-    api.setupWsl.mockResolvedValue({ outcome: 'declined', restart_windows: false, output: '' })
+    api.setupWsl.mockResolvedValue({ offer: 'install', running: true })
     await openPalette()
     const item = screen.getByTestId(ITEM)
     expect(item.textContent).toContain('Set up WSL')
@@ -110,9 +110,18 @@ describe('sandbox.setupWsl in the command palette', () => {
     expect(screen.queryByTestId(ITEM)).toBeNull()
   })
 
-  it('is not listed when there is nothing to set up', async () => {
+  it('is not listed when there is nothing to set up, one runs, or it was just declined', async () => {
     signIn(['sandbox::settings::manage'])
-    for (const setup of [undefined, { running: false }, { running: false, last: { outcome: 'done' as const, restart_windows: true, output: '' } }]) {
+    const declined = { outcome: 'declined' as const, restart_windows: false, output: '' }
+    for (const setup of [
+      undefined,
+      { running: false },
+      { running: false, last: { outcome: 'done' as const, restart_windows: true, output: '' } },
+      // One runs (here, from the agent, or from the app before it was closed).
+      { offer: 'install' as const, running: true },
+      // Declined a moment ago.
+      { offer: 'install' as const, running: false, last: declined, retry_in_secs: 30 },
+    ]) {
       await serverSays(setup)
       await openPalette()
       expect(screen.queryByTestId(ITEM)).toBeNull()
