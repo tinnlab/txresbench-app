@@ -22,7 +22,7 @@ import {
   validateRequest,
 } from '../lib/flow'
 import { fetchTemplateCsv, downloadText, templateFilename, templateSaveError } from '../lib/download'
-import { ROUTE_CONVENTIONS } from '../module'
+import { FLOW_ROUTES, nextLearnRoute, previousLearnRoute } from '@/modules/txrshell/lib/flowSteps'
 import { TxrFileCard } from '../components/TxrFileCard'
 import { TxrFileMessagesRow } from '../components/TxrFileMessages'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
@@ -38,7 +38,7 @@ import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../ty
  * rows of the adopted file, the template/example downloads, the drop zone
  * that reads CSV/Excel locally (CONS-UI-INTAKE-7, never re-implemented),
  * the per-row problem list, the spelling-variant join offers and the fuzzy
- * vocabulary confirmations — and the Continue gate (DEC-10) into screen E.
+ * vocabulary confirmations — and the Continue gate (DEC-10) into the study questions (the learn path: files, then questions, then methods).
  *
  * INV-2's flow, one pipe for C and N: drop → PROV-FV-7 parse →
  * PROV-FV-2 inspect (per file, as soon as chosen) → PROV-FV-3 validate
@@ -74,8 +74,6 @@ import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../ty
 const SLOTS = ['patients', 'measurements'] as const
 type Slot = (typeof SLOTS)[number]
 
-/** Screen B, the step before this one on the train path (Back's fallback). */
-const STUDY_ROUTE = '/study'
 
 const PAGE_ROOT: CSSProperties = {
   height: '100%',
@@ -176,7 +174,7 @@ export function FilesPage() {
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('Add your files')
   // The step's Back (the step trail): with no trail, Back goes to the study step.
-  useStepBack({ step: 'files', fallback: STUDY_ROUTE })
+  useStepBack({ step: 'files', fallback: previousLearnRoute('files') })
 
   const [busySlot, setBusySlot] = useState<Slot | null>(null)
   const [cardErrors, setCardErrors] = useState<Partial<Record<Slot, string>>>({})
@@ -436,7 +434,7 @@ export function FilesPage() {
     !fileHasNoDataRows(patients) &&
     !fileHasNoDataRows(measurements)
   const continueFlow = useCallback(() => {
-    navigate(ROUTE_CONVENTIONS.methods)
+    navigate(nextLearnRoute('files') ?? FLOW_ROUTES.methods)
   }, [navigate])
 
   return (
@@ -450,7 +448,7 @@ export function FilesPage() {
         top={
           <div className="txr-intake-top txr-intake-page-top" style={PAGE_TOP}>
             <div>
-              <TxrStepLine step={3} of={4} />
+              <TxrStepLine step="files" />
               <h1 style={TITLE}>Add your files</h1>
               <p style={INTRO}>
                 Two tables, as CSV or Excel. Used only for the analyses you start. Match the examples; we

@@ -6,7 +6,7 @@
  *
  * Pinned behaviors:
  *
- * - the header: Step 4 of 4 + the board title + the "Checked against your
+ * - the header: Step 3 of 3 + the board title + the "Checked against your
  *   file: …" line from the CONS-UM-11 validation (the FIXTURE's own
  *   counts — the boards' numbers are design examples, never constants)
  *   + the "N can run, M cannot" totals from the eligibility response
@@ -503,8 +503,12 @@ describe('PretrainedModelsPage — TEST-MOD-09 (screen D)', () => {
   it('renders the Step-4 header, the checked-against line from the CONS-UM-11 validation and the verdict totals', async () => {
     renderPage()
     await settle(0)
-    expect(screen.getByText('Step 4 of 4')).toBeTruthy()
+    expect(screen.getByText('Step 3 of 3')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Choose the models to run' })).toBeTruthy()
+    // The look-ahead is shown, locked to the model's own (no field to type in).
+    const horizon = screen.getByTestId('txr-models-d-horizon')
+    expect(horizon.textContent).toMatch(/^Look ahead to: /)
+    expect(horizon.querySelector('input')).toBeNull()
     expect(screen.getByTestId('txr-models-d-checked').textContent).toBe(
       'Checked against your file: 42 patients, 4 markers, draws at day 0, 14, 28 and 56. Pick as many as you like.',
     )
@@ -714,7 +718,7 @@ describe('PretrainedModelsPage — TEST-MOD-09 (screen D)', () => {
     )
     // RES-20: a direct visit is not ON step 4 (the flow has not reached
     // it) and counts nothing — the step line and the "…" totals are gone.
-    expect(screen.queryByText('Step 4 of 4')).toBeNull()
+    expect(screen.queryByText('Step 3 of 3')).toBeNull()
     expect(screen.queryByTestId('txr-models-d-totals')).toBeNull()
     // The CTA is the step that unlocks this screen — the predict-files
     // step, never the landing page (the old "Go to the start").
@@ -1101,11 +1105,11 @@ describe('the step Back on Pretrained models (D)', () => {
     expectBackLastInBar()
   })
 
-  it('the "← Step 4 of 4" line goes where Back goes: the trail\u2019s N, or N with no trail', async () => {
+  it('the "← Step 3 of 3" line goes where Back goes: the trail\u2019s N, or N with no trail', async () => {
     useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
     renderFlow()
     await settle(0)
-    expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 4 of 4')
+    expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 3 of 3')
     await click('txr-step-line-back')
     expect(routeAt()).toBe('/predict-files')
     cleanup()

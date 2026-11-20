@@ -23,6 +23,7 @@ import {
 } from '../lib/flow'
 import { fetchTemplateCsv, downloadText, templateFilename, templateSaveError } from '../lib/download'
 import { ROUTE_CONVENTIONS } from '../module'
+import { FLOW_ROUTES } from '@/modules/txrshell/lib/flowSteps'
 import { TxrFileCard } from '../components/TxrFileCard'
 import { TxrFileMessagesRow } from '../components/TxrFileMessages'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
@@ -71,8 +72,8 @@ import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../ty
  * keeps the board's words.
  */
 
-const STUDY_ROUTE = '/study'
-const START_ROUTE = '/'
+const STUDY_ROUTE = FLOW_ROUTES.study
+const START_ROUTE = FLOW_ROUTES.start
 /** Your models (the "Use" handoff's origin; the txrmodels route, spelled here
  *  because txrmodels depends on this module, never the other way round). */
 const MODELS_ROUTE = '/models'
@@ -486,7 +487,7 @@ export function PredictFilesPage() {
         top={
           <div className="txr-intake-top txr-intake-page-top" style={PAGE_TOP}>
             <div>
-              <TxrStepLine step={3} of={4} />
+              <TxrStepLine step="predict-files" />
               <h1 style={TITLE}>Add the patients to predict</h1>
               <p style={INTRO}>
                 Only their blood measurements. Used only for the analyses you start. Match the
@@ -654,7 +655,7 @@ export function PredictFilesPage() {
                   <Link data-testid="txr-intake-aside-study" style={ASIDE_LINK} to={STUDY_ROUTE}>
                     Answer the questions about your study
                   </Link>{' '}
-                  on the previous screen, or just add the file: nothing is lost if some models cannot run.
+                  first, or just add the file: nothing is lost if some models cannot run.
                 </div>
                 <div style={ASIDE_FOOTER}>No outcomes are needed, and no patients file.</div>
               </aside>

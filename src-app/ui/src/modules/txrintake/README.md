@@ -15,9 +15,19 @@ this module's barrel instead of a second implementation.
 | screen | board | route | what the user does |
 |---|---|---|---|
 | A Start | `Start.dc.html` | `/` | picks one of the three paths (pretrained / learn from my data / saved models) |
-| B Your study | `Criteria.dc.html` | `/study` | answers the six question groups; the live "N of M methods fit" panel updates as they answer (before the first answer it invites; the no-published-environment count is its own line) |
+| B Your study | `Criteria.dc.html` | `/study` | answers the question groups (the last-draw day from the files' suggested days or typed); the live "N of M methods fit" panel updates as they answer (before the first answer it invites; the no-published-environment count is its own line) |
 | C Your files | `Files.dc.html` | `/files` | drops the patients + measurements files; per-row problem reports, join and vocabulary offers |
 | N Add the patients to predict | `PredictFiles.dc.html` | `/predict-files` | drops the measurements file the pretrained/saved models run on |
+
+The order of the steps and every step route come from one list,
+`txrshell/lib/flowSteps.ts`. Learn from my data: 1 Start, 2 Your files (C),
+3 Your study (B), 4 the methods (E). Predict with a model: 1 Start, 2 Add the
+patients to predict (N), 3 the models (D or I); the study questions opened
+from N are a side trip, not a numbered step. Because the files come first,
+the study step's "Last draw you will use" suggests the days the checked files
+have draws on (`lib/dayChoices.ts`, from the validate response's `timeline`
+block), takes any typed day, shows the day's coverage line, and checks the
+files again for a new day (`data/useRecheck.ts`).
 
 All four routes are `requiresAuth: true` under the shell layout
 (`TxrLayoutDef` from `txrshell/module.tsx`). The module owns `/` — the

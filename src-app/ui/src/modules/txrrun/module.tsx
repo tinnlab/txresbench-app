@@ -1,5 +1,6 @@
 import { createModule } from '@txresbench/framework'
 import { TxrLayoutDef } from '@/modules/txrshell/module'
+import { FLOW_ROUTES } from '@/modules/txrshell/lib/flowSteps'
 import { lazyWithPreload } from '@/utils/lazyWithPreload'
 
 const ChooseMethodsPage = lazyWithPreload(() =>
@@ -45,7 +46,7 @@ export default createModule({
   stores: [],
   routes: [
     {
-      path: '/choose-methods',
+      path: FLOW_ROUTES.methods,
       element: ChooseMethodsPage,
       requiresAuth: true,
       layout: TxrLayoutDef,

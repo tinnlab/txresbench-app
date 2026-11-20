@@ -30,6 +30,8 @@ import {
   useActiveContext,
 } from '@/core/actions/activeContext'
 import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
+import { stepPlace } from '@/modules/txrshell/lib/flowSteps'
+import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import {
   recordStep,
   TXR_MODEL_STEP_CONTEXT,
@@ -182,18 +184,31 @@ const STEP_LINE_BUTTON: CSSProperties = {
 }
 
 /**
- * The "← Step x of y" line of a step view (step 2 and later). The whole line
- * is the Back control: it runs `flow.back`, exactly like the bottom Back
- * button (path-aware, refused while a run is starting).
+ * The "← Step x of y" line of a step view (step 2 and later). The number and
+ * the count come from the one list of steps (`txrshell/lib/flowSteps.ts`) for
+ * the path on screen; the study questions opened from the predict file step
+ * are a side trip, not a numbered step, so their line reads "Back". The
+ * whole line is the Back control: it runs `flow.back`, exactly like the
+ * bottom Back button (path-aware, refused while a run is starting).
  */
-export function TxrStepLine({ step, of }: { step: number; of: number }) {
+export function TxrStepLine({ step }: { step: TxrStepId }) {
   const blockedReason = useStore(useStepTrailStore, s => s.current?.blockedReason ?? null)
+  const mode = useStore(useTxrIntakeStore, s => s.mode)
+  const place =
+    step === 'study'
+      ? stepPlace(step, mode === 'predict' ? 'predict' : 'learn')
+      : stepPlace(step)
+  const text = place === null ? 'Back' : `Step ${place.step} of ${place.of}`
   return (
     <div data-testid="txr-step-line" style={STEP_LINE_BOX}>
       <Button
         data-testid="txr-step-line-back"
         variant="link"
-        aria-label={`Back to the previous step (now step ${step} of ${of})`}
+        aria-label={
+          place === null
+            ? 'Back to the previous step'
+            : `Back to the previous step (now step ${place.step} of ${place.of})`
+        }
         style={STEP_LINE_BUTTON}
         unavailableReason={blockedReason ?? undefined}
         onClick={goBackFromStep}
@@ -201,7 +216,7 @@ export function TxrStepLine({ step, of }: { step: number; of: number }) {
         {/* A child, not the kit's 16 px `icon` slot: at the text's 12 px the
             line keeps its height, so the heading below does not move. */}
         <FiArrowLeft aria-hidden="true" className="size-3" />
-        {`Step ${step} of ${of}`}
+        {text}
       </Button>
     </div>
   )
