@@ -11,7 +11,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -51,10 +51,10 @@ function runCoverage({ srcRoot, allowlistPath }) {
   return spawnSync(process.execPath, [COVERAGE_SCRIPT], { env, encoding: 'utf8' })
 }
 
-test('passes trivially when the allowlist is empty (default-off)', () => {
+test('an EMPTY allowlist does not switch the check off: a violation anywhere is flagged', () => {
   const { root, srcRoot } = makeFixtureRoot()
   try {
-    const allowlistPath = writeAllowlist(root, '# nothing allowlisted yet\n')
+    const allowlistPath = writeAllowlist(root, '# nothing allowlisted\n')
     writeComponent(
       srcRoot,
       `
@@ -64,20 +64,17 @@ test('passes trivially when the allowlist is empty (default-off)', () => {
       `,
     )
     const result = runCoverage({ srcRoot, allowlistPath })
-    assert.equal(result.status, 0, `expected exit 0. stderr:\n${result.stderr}`)
-    // ITEM-37 reworded this from a quiet "allowlist is empty" to a LOUD note: an empty
-    // allowlist is still a legitimate exit-0 (the mechanism is opt-in), but a guard with
-    // zero SUBJECTS is guarding nothing and must say so on every run.
-    assert.match(result.stdout, /0 files opted in .*NO SUBJECTS/)
+    assert.equal(result.status, 1, `expected exit 1. stdout:\n${result.stdout}`)
+    assert.match(result.stderr, /components\/Foo\.tsx/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('FLAGS a non-compliant allowlisted file (inline onClick calling a store action)', () => {
+test('FLAGS a non-compliant file (inline onClick calling a store action)', () => {
   const { root, srcRoot } = makeFixtureRoot()
   try {
-    const allowlistPath = writeAllowlist(root, 'components/**\n')
+    const allowlistPath = writeAllowlist(root, '')
     writeComponent(
       srcRoot,
       `
@@ -95,10 +92,10 @@ test('FLAGS a non-compliant allowlisted file (inline onClick calling a store act
   }
 })
 
-test('PASSES a compliant allowlisted file (ActionButton + non-mutating onClick)', () => {
+test('PASSES a compliant file (ActionButton + non-mutating onClick)', () => {
   const { root, srcRoot } = makeFixtureRoot()
   try {
-    const allowlistPath = writeAllowlist(root, 'components/**\n')
+    const allowlistPath = writeAllowlist(root, '')
     writeComponent(
       srcRoot,
       `
@@ -120,11 +117,10 @@ test('PASSES a compliant allowlisted file (ActionButton + non-mutating onClick)'
   }
 })
 
-test('a non-allowlisted file with a violation is NOT checked (opt-in only)', () => {
+test('an allowlisted file with a violation is skipped, and the entry counts as used', () => {
   const { root, srcRoot } = makeFixtureRoot()
   try {
-    // Allowlist a directory that does not match `components/**`.
-    const allowlistPath = writeAllowlist(root, 'modules/command-palette/**\n')
+    const allowlistPath = writeAllowlist(root, '# reason: fixture\ncomponents/Foo.tsx\n')
     writeComponent(
       srcRoot,
       `
@@ -134,17 +130,72 @@ test('a non-allowlisted file with a violation is NOT checked (opt-in only)', () 
       `,
     )
     const result = runCoverage({ srcRoot, allowlistPath })
-    assert.equal(result.status, 0, `expected exit 0 (file not allowlisted). stderr:\n${result.stderr}`)
-    assert.match(result.stdout, /0 allowlisted file\(s\) checked/)
+    assert.equal(result.status, 0, `expected exit 0 (file allowlisted). stderr:\n${result.stderr}`)
+    assert.match(result.stdout, /1 allowlisted/)
   } finally {
     rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('FAILS on an allowlist entry that names no file (a dead entry exempts nothing today and a future file tomorrow)', () => {
+  const { root, srcRoot } = makeFixtureRoot()
+  try {
+    const allowlistPath = writeAllowlist(root, 'modules/user/components/user/UsersSettings.tsx\n')
+    writeComponent(srcRoot, 'export function Foo() { return null }\n')
+    const result = runCoverage({ srcRoot, allowlistPath })
+    assert.equal(result.status, 1, `expected exit 1. stdout:\n${result.stdout}`)
+    assert.match(result.stderr, /match no source file/)
+    assert.match(result.stderr, /modules\/user\/components\/user\/UsersSettings\.tsx/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a glob entry that matches no file also fails (not only literal paths)', () => {
+  const { root, srcRoot } = makeFixtureRoot()
+  try {
+    const allowlistPath = writeAllowlist(root, 'modules/command-palette/**\n')
+    writeComponent(srcRoot, 'export function Foo() { return null }\n')
+    const result = runCoverage({ srcRoot, allowlistPath })
+    assert.equal(result.status, 1, `expected exit 1. stdout:\n${result.stdout}`)
+    assert.match(result.stderr, /modules\/command-palette\/\*\*/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the scope is every source file: a violation in a nested directory with no entry is found', () => {
+  const { root, srcRoot } = makeFixtureRoot()
+  try {
+    mkdirSync(path.join(srcRoot, 'modules', 'txrnew', 'components'), { recursive: true })
+    writeFileSync(
+      path.join(srcRoot, 'modules', 'txrnew', 'components', 'Page.tsx'),
+      'export const P = () => <Button onClick={() => Stores.Run.start()}>Go</Button>\n',
+    )
+    writeComponent(srcRoot, 'export function Foo() { return null }\n')
+    const allowlistPath = writeAllowlist(root, '')
+    const result = runCoverage({ srcRoot, allowlistPath })
+    assert.equal(result.status, 1, `expected exit 1. stdout:\n${result.stdout}`)
+    assert.match(result.stderr, /modules\/txrnew\/components\/Page\.tsx/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the committed allowlist has no entry that names no file', () => {
+  // The script fails on a dead entry, so the REAL run below proves it; this reads the file
+  // to name the intent: every non-comment line must be a path that exists under src.
+  const lines = readFileSync(REAL_ALLOWLIST_PATH, 'utf8')
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l && !l.startsWith('#'))
+  for (const entry of lines) {
+    assert.ok(!/[*?]/.test(entry) ? existsSync(path.join(__dirname, '..', 'src', entry)) : true, `${entry} names no file`)
   }
 })
 
 test('runs against the REAL project (no overrides, read-only) and passes', () => {
   const result = spawnSync(process.execPath, [COVERAGE_SCRIPT], { encoding: 'utf8' })
   assert.equal(result.status, 0, `expected exit 0. stderr:\n${result.stderr}\nstdout:\n${result.stdout}`)
-  // Documents the committed allowlist's current (seeded-empty) state; if a
-  // future round populates it, this line still just needs a clean exit.
-  void REAL_ALLOWLIST_PATH
+  assert.match(result.stdout, /\d+ source file\(s\) checked/)
 })

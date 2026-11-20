@@ -27,7 +27,7 @@ ba3da927e508ca1b22788ad12d7d5000d61e71e04e469b41a962d1cfcd7df59a  scripts/check-
 3b630b239656da967046ffccf10984f8991194332f7b1063210117064ab99771  sdk/packages/gallery/scripts/check-gallery-prod-exclusion.mjs
 0f503c9a49e803e79ff01778503c0e5a693e017185cb43874d07b8d001a0b501  sdk/packages/gallery/scripts/check-harness-parity.mjs
 473aeab38d827d3305ee82729e4fc8cd459c513c52132050777e8913ab5630de  sdk/packages/gallery/scripts/check-harness-parity.test.mjs
-f2e3f882d6efd5aefa1f529d0d80df663f4b0a369a8d7aaa806faebc17621a57  src-app/ui/scripts/action-coverage.mjs
+b6f2a453fc7e2702a04dd0a3bafb730b029282e1984832747c03fc784782e557  src-app/ui/scripts/action-coverage.mjs
 8e80e13b870b722049039e3c2aa29a466a0e2447e739c375a834dbcc5e87a42c  src-app/ui/scripts/action-refs-lint.mjs
 a51b54e9c2a8e8b960d2747bc37c31a71b4ba25b16d474990b412a3c238d322f  src-app/ui/scripts/check-built-css-urls.mjs
 97a79127be6e93cc868c063e6bb2dd71a48a5587437d198556ded4a9de0f0e58  src-app/ui/scripts/check-e2e-routing.mjs
