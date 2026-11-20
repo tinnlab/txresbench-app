@@ -63,6 +63,8 @@ function sameKey(a: IntakeValidationKey, b: IntakeValidationKey): boolean {
 export function useRecheck(): Recheck {
   const validation = useStore(useTxrIntakeStore, s => s.validation)
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
+  const joins = useStore(useTxrIntakeStore, s => s.joins)
+  const mapping = useStore(useTxrIntakeStore, s => s.mapping)
   const patients = useStore(useTxrIntakeStore, s => s.patients)
   const measurements = useStore(useTxrIntakeStore, s => s.measurements)
   const predictMeasurements = useStore(useTxrIntakeStore, s => s.predictMeasurements)
@@ -118,7 +120,7 @@ export function useRecheck(): Recheck {
           setTick(t => t + 1)
         }
       })
-  }, [validation, parameters, patients, measurements, predictMeasurements, tick])
+  }, [validation, parameters, joins, mapping, patients, measurements, predictMeasurements, tick])
 
   return {
     checking: checking || (validation === null && filesReady() && error === null),

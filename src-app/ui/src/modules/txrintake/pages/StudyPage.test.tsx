@@ -537,6 +537,55 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     expect(routeAt()).toBe('/choose-methods')
   })
 
+  it('a join confirmed after a failed re-check starts a fresh check (joins/mapping are subscriptions)', async () => {
+    let calls = 0
+    api.validate.mockImplementation(() => {
+      calls += 1
+      if (calls === 1) return Promise.reject(new Error('the files could not be read again'))
+      return Promise.resolve({
+        ...VALIDATION,
+        inventory: { ...VALIDATION.inventory, decision_day: 56 },
+      })
+    })
+    // The absolute call count accumulates across this file's tests (the mock
+    // is not reset per test), so the expectations are relative to this point.
+    const atStart = api.validate.mock.calls.length
+    act(() => {
+      useTxrIntakeStore.setState({
+        patients: loadedFile('patients'),
+        measurements: loadedFile('measurements'),
+        validation: VALIDATION,
+        dayFacts: DAY_FACTS,
+      })
+    })
+    renderStudy()
+    // A new day triggers the re-check, and it FAILS.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-last-draw-suggestion-56'))
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(atStart + 1))
+    expect(screen.getByTestId('txr-intake-study-recheck-error').textContent).toBe(
+      'the files could not be read again',
+    )
+    // Only a CONFIRMED JOIN changes now (the user went back to the files step
+    // and accepted the ldh join): no day change, no file change. The failed
+    // check's key no longer matches the current joins/mapping, so pending()
+    // is true again — but the effect must re-run (joins and mapping are its
+    // dependencies) or no fresh check ever starts and Continue stays stuck.
+    // Without the fix the validate call count below stays at atStart + 1 and
+    // this test fails there.
+    act(() => {
+      store().acceptJoin({ variants: ['ldh', 'LDH'], key: 'ldh' })
+    })
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(atStart + 2))
+    await waitFor(() => expect(store().validation).not.toBeNull())
+    const continueButton = screen.getByTestId('txr-intake-study-continue')
+    await waitFor(() => expect(continueButton.hasAttribute('disabled')).toBe(false))
+    fireEvent.click(continueButton)
+    expect(routeAt()).toBe('/choose-methods')
+  })
+
   it('Continue and Skip take the path-aware next step', async () => {
     renderStudy()
     // The learn path with no files yet (the Start side trip): the files step.

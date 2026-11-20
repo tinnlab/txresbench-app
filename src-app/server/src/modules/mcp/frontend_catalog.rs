@@ -380,7 +380,7 @@ mod tests {
         // - `flow.setLastDrawDay` on `txr.step` (the last-draw day of the
         //   questions step),
         // - `runSettings.setDay` on `txr.run-settings` (the choose-methods
-        //   page's day settings, `src-app/ui/src/modules/txrrun/lib/settings.ts`)
+        //   page's day settings, `src-app/ui/src/modules/txrrun/lib/settings.ts`),
         // - and `sandbox.setupWsl` on `txr.wsl-setup` (active while the app
         //   offers to set WSL up on Windows,
         //   `src-app/ui/src/lib/wsl-setup/wslSetup.ts`).
