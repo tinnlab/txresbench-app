@@ -76,8 +76,21 @@
 //!   file posting an empty covariate block IS the required-covariate absence
 //!   case ([`ReasonCode::CovariateRequiredUnmet`]); the code stays in the
 //!   closed PROV-MC-5 vocabulary and its trigger lands with a covariate-name
-//!   fact. (The reason-code contract is fixed at 13; a consumer renderer can
+//!   fact. (The reason-code contract is fixed at 17; a consumer renderer can
 //!   still switch over all of them exhaustively.)
+//!
+//! ## The study-answer filters (disease, treatment, what to predict)
+//!
+//! The eligibility requests may carry the user's study answers (see
+//! [`types::StudyAnswers`] — the preview flattens them, the inventory nests
+//! them as `study`). An absent answer (or an empty treatment tick list) means
+//! "any": no filter, exactly the verdicts a request without the fields gives.
+//! The three new hard reason codes — [`ReasonCode::DiseaseNotMatched`],
+//! [`ReasonCode::TreatmentNotMatched`], [`ReasonCode::OutcomeNotMatched`] —
+//! are pushed in that order, BEFORE the marker/schedule reasons, and make the
+//! verdict `cannot_run`. An answer id outside the catalogue's `study_options`
+//! is [`StudyAnswerError`] (the HTTP surface's `422 UNKNOWN_DISEASE_GROUP` /
+//! `UNKNOWN_TREATMENT_CLASS`), never a silent "any".
 //!
 //! `estimated_seconds`/`estimate_quality` on each method verdict use the
 //! DEC-7 estimate shape (`base_seconds_per_fold × patients/150 × 4/cpus`,
@@ -96,11 +109,12 @@ use crate::modules::method_catalogue::calibration;
 use crate::modules::method_catalogue::estimate::host_cpus;
 use crate::modules::method_list::MethodList;
 use crate::modules::method_catalogue::types::{
-    Catalogue, CovariateMode, Coverage, EligibilityRequest, EligibilityResponse,
+    Catalogue, CovariateMode, Coverage, DiseaseScope, EligibilityRequest, EligibilityResponse,
     EligibilityStatus, FileOutcomes, InventoryEligibilityRequest, InventoryMarker, MarkerKind,
     MatchMode,
     Method, MethodEligibility, MinDraws, MissingGroup, MissingMarker, PreviewEligibilityRequest,
-    Reason, ReasonCode, RequiredMarker, RequiredMarkers, TimingQuality, UnitFamily,
+    Reason, ReasonCode, RequiredMarker, RequiredMarkers, StudyAnswers, StudyOptions,
+    TreatmentConfidence, TimingQuality, UnitFamily,
     DEFAULT_ESTIMATE_CPUS,
 };
 
@@ -118,6 +132,255 @@ pub const REFERENCE_CPUS: u32 = 4;
 /// verbatim: the port's `reason` field is that module's string, and a
 /// consumer that needs copy renders its own text (DEC-6).
 pub const REQUIRED_MARKERS_NOT_MEASURED: &str = "required markers not measured";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The study-answer filters (disease, treatment classes, what to predict)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The solid-tumour disease-category id of `study_options`'s
+/// `disease_categories`: the category an `any-solid-tumour` method applies
+/// to, and one of the two categories an `any-cancer` method applies to. The
+/// app's study-options vocabulary names it `Solid tumours` (the wording of
+/// the schema-2 study_options vocabulary the catalogue carries); the constant
+/// keeps the `any-solid-tumour`/`any-cancer` scopes tied to the category id
+/// rather than to a positional index — say, if the data renames it, the scope
+/// names stay.
+pub const SOLID_TUMOUR_CATEGORY: &str = "Solid tumours";
+
+/// The blood-cancer disease-category id of `study_options`'s
+/// `disease_categories`: the second category an `any-cancer` method applies
+/// to (an `any-solid-tumour` method does NOT). The vocabulary names it
+/// `Haematological`; see [`SOLID_TUMOUR_CATEGORY`] for the naming contract.
+pub const BLOOD_CANCER_CATEGORY: &str = "Haematological";
+
+/// The eligibility engine's ONE failure variant: a study answer that names a
+/// node or a treatment-class id outside the catalogue's `study_options`
+/// vocabulary. An unknown answer is an ERROR (the HTTP surface maps it to a
+/// `422 UNKNOWN_DISEASE_GROUP` / `UNKNOWN_TREATMENT_CLASS`), never a silent
+/// "any" — a stale screen vocabulary must not silently widen the fit count.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StudyAnswerError {
+    /// The answered disease node id is neither a disease, a child, nor a
+    /// category of `study_options.disease_categories`.
+    UnknownDiseaseGroup(String),
+    /// A ticked treatment-class id is not an id of
+    /// `study_options.treatment_classes`.
+    UnknownTreatmentClass(String),
+}
+
+impl StudyAnswerError {
+    /// The named wire code (the `error_code` of the HTTP 422).
+    pub fn code(&self) -> &'static str {
+        match self {
+            StudyAnswerError::UnknownDiseaseGroup(_) => "UNKNOWN_DISEASE_GROUP",
+            StudyAnswerError::UnknownTreatmentClass(_) => "UNKNOWN_TREATMENT_CLASS",
+        }
+    }
+}
+
+impl std::fmt::Display for StudyAnswerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StudyAnswerError::UnknownDiseaseGroup(id) => write!(
+                f,
+                "unknown disease group `{id}`: not a disease, a child or a category \
+                 of the study options"
+            ),
+            StudyAnswerError::UnknownTreatmentClass(id) => {
+                write!(f, "unknown treatment class `{id}`")
+            }
+        }
+    }
+}
+
+impl std::error::Error for StudyAnswerError {}
+
+/// A resolved view of `Catalogue::study_options` for the study filters: every
+/// node id (disease, child) maps to the category it is listed under; a child
+/// maps to its parent disease; a disease carries its children. The loader's
+/// uniqueness checks make every lookup unambiguous.
+#[derive(Debug, Default)]
+struct StudyOptionsIndex<'a> {
+    /// node id (disease or child) → category id.
+    category_of: BTreeMap<&'a str, &'a str>,
+    /// child id → parent disease id (a disease has no parent).
+    parent_of: BTreeMap<&'a str, &'a str>,
+    /// disease id → its children.
+    children_of: BTreeMap<&'a str, Vec<&'a str>>,
+    /// category ids.
+    categories: BTreeSet<&'a str>,
+}
+
+fn study_options_index(so: &StudyOptions) -> StudyOptionsIndex<'_> {
+    let mut index = StudyOptionsIndex::default();
+    for cat in &so.disease_categories {
+        index.categories.insert(cat.id.as_str());
+        for d in &cat.diseases {
+            index.category_of.insert(d.id.as_str(), cat.id.as_str());
+            index.children_of.insert(d.id.as_str(), d.children.iter().map(String::as_str).collect());
+            for child in &d.children {
+                index.category_of.insert(child.as_str(), cat.id.as_str());
+                index.parent_of.insert(child.as_str(), d.id.as_str());
+            }
+        }
+    }
+    index
+}
+
+/// The category a node id belongs to: the category it is listed under (a
+/// disease or a child), or the node itself when it IS a category id.
+fn node_category<'a>(index: &'a StudyOptionsIndex<'a>, node: &str) -> Option<&'a str> {
+    index
+        .category_of
+        .get(node)
+        .copied()
+        .or_else(|| index.categories.get(node).copied())
+}
+
+/// Whether a method's disease fact fits the answered disease node.
+fn disease_fits(index: &StudyOptionsIndex<'_>, m: &Method, answer: &str) -> bool {
+    match m.disease.scope {
+        DiseaseScope::Any => true,
+        DiseaseScope::AnySolidTumour => {
+            node_category(index, answer) == Some(SOLID_TUMOUR_CATEGORY)
+        }
+        DiseaseScope::AnyCancer => matches!(
+            node_category(index, answer),
+            Some(SOLID_TUMOUR_CATEGORY) | Some(BLOOD_CANCER_CATEGORY)
+        ),
+        DiseaseScope::Group => {
+            // A category id answer ("another <category> disease, not listed")
+            // matches only the `any`/`any-…` scopes, never a group method.
+            if index.categories.contains(answer) {
+                return false;
+            }
+            m.disease.groups.iter().any(|g| {
+                g == answer
+                    // Answer = a disease: the method is made for one of its
+                    // children.
+                    || index
+                        .children_of
+                        .get(answer)
+                        .is_some_and(|kids| kids.iter().any(|k| k == g))
+                    // Answer = a child: the method is made for the parent
+                    // disease. A sibling child never fits (its parent is not
+                    // the method's group).
+                    || index.parent_of.get(answer) == Some(&g.as_str())
+            })
+        }
+    }
+}
+
+/// Whether a method's treatment fact fits the ticked base classes. A
+/// `not-stated` method always stays; a stated/inferred method stays unless it
+/// shares NO class with the ticks.
+fn treatment_fits(m: &Method, ticks: &[String]) -> bool {
+    match m.treatment.confidence {
+        TreatmentConfidence::NotStated => true,
+        TreatmentConfidence::Stated | TreatmentConfidence::Inferred => m
+            .treatment
+            .classes
+            .iter()
+            .any(|c| ticks.iter().any(|t| t == c)),
+    }
+}
+
+/// Validate a study-answers block against the catalogue's `study_options`
+/// vocabulary. An id outside it is an error, never a silent "any" — the
+/// surface's 422 and the engine's failure variant share this predicate.
+pub fn validate_study_answers(
+    cat: &Catalogue,
+    answers: &StudyAnswers,
+) -> Result<(), StudyAnswerError> {
+    let index = study_options_index(&cat.study_options);
+    if let Some(disease) = &answers.disease_group {
+        if node_category(&index, disease).is_none() {
+            return Err(StudyAnswerError::UnknownDiseaseGroup(disease.clone()));
+        }
+    }
+    if let Some(classes) = &answers.treatment_classes {
+        for class in classes {
+            if !cat
+                .study_options
+                .treatment_classes
+                .iter()
+                .any(|t| t.id == *class)
+            {
+                return Err(StudyAnswerError::UnknownTreatmentClass(class.clone()));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The study-filter reasons of one method, in the fixed order disease →
+/// treatment → outcome (before every marker/schedule reason), with the
+/// per-code params. Empty when the answers fit or are absent. The answers
+/// must be validated first ([`validate_study_answers`]) — an unknown id here
+/// is the engine's error, never a silent "any".
+fn study_filter_reasons(
+    cat: &Catalogue,
+    m: &Method,
+    answers: &StudyAnswers,
+) -> Result<Vec<Reason>, StudyAnswerError> {
+    validate_study_answers(cat, answers)?;
+    let index = study_options_index(&cat.study_options);
+    let mut reasons: Vec<Reason> = Vec::new();
+    if let Some(disease) = &answers.disease_group {
+        if !disease_fits(&index, m, disease) {
+            let made_for = if m.disease.scope == DiseaseScope::Group {
+                m.disease.groups.join(", ")
+            } else {
+                m.disease.scope.as_str().to_string()
+            };
+            reasons.push(Reason {
+                code: ReasonCode::DiseaseNotMatched,
+                params: BTreeMap::from([
+                    ("made_for".to_string(), serde_json::Value::String(made_for)),
+                    ("answer".to_string(), serde_json::Value::String(disease.clone())),
+                ]),
+                group_id: None,
+            });
+        }
+    }
+    if let Some(classes) = &answers.treatment_classes {
+        if !classes.is_empty() && !treatment_fits(m, classes) {
+            reasons.push(Reason {
+                code: ReasonCode::TreatmentNotMatched,
+                params: BTreeMap::from([
+                    (
+                        "made_for".to_string(),
+                        serde_json::Value::String(m.treatment.classes.join(", ")),
+                    ),
+                    (
+                        "answer".to_string(),
+                        serde_json::Value::String(classes.join(", ")),
+                    ),
+                ]),
+                group_id: None,
+            });
+        }
+    }
+    if let Some(group) = answers.method_group {
+        if m.group != group {
+            reasons.push(Reason {
+                code: ReasonCode::OutcomeNotMatched,
+                params: BTreeMap::from([
+                    (
+                        "predicts".to_string(),
+                        serde_json::Value::String(m.group.as_str().to_string()),
+                    ),
+                    (
+                        "answer".to_string(),
+                        serde_json::Value::String(group.as_str().to_string()),
+                    ),
+                ]),
+                group_id: None,
+            });
+        }
+    }
+    Ok(reasons)
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The rule port (data.py lines 131-160, copied verbatim — the regexes are the
@@ -396,8 +659,16 @@ pub fn runtime_env_available(images: &EnvManifest, method_id: &str) -> bool {
 /// run's classification passes the run's own snapshot): the pure verdicts +
 /// the runtime-env stage ([`with_runtime_env`]), naming the list it answered
 /// from (`method_list_sequence`) exactly as the HTTP surface does.
+///
+/// The seam is TOTAL: its production caller ([`execution_engine::orchestrator`]'s
+/// run-start classification) posts the run's own inventory, which carries no
+/// study answers — an unknown study answer is therefore unreachable here, and
+/// the HTTP surface's seat ([`eligibility_calibrated`]) is the variant that
+/// returns [`StudyAnswerError`] for the 422. Do not feed study answers to
+/// this seam without going through [`validate_study_answers`] first.
 pub fn eligibility(list: &MethodList, req: &EligibilityRequest) -> EligibilityResponse {
     eligibility_calibrated(list, req, &calibration::TimingCalibration::empty())
+        .expect("the in-process seam is never fed an unknown study answer")
 }
 
 /// [`eligibility`] with the app's measured-time calibration — the HTTP
@@ -407,18 +678,21 @@ pub fn eligibility_calibrated(
     list: &MethodList,
     req: &EligibilityRequest,
     calibration: &calibration::TimingCalibration,
-) -> EligibilityResponse {
+) -> Result<EligibilityResponse, StudyAnswerError> {
     let mut response =
-        eligibility_for_runtime_calibrated(&list.catalogue, &list.images, req, calibration);
+        eligibility_for_runtime_calibrated(&list.catalogue, &list.images, req, calibration)?;
     response.method_list_sequence = Some(list.sequence);
-    response
+    Ok(response)
 }
 
 /// Run eligibility over a given catalogue — the PURE engine (no runtime-env
 /// stage; the test seam: handcrafted catalogues can exercise every rule,
 /// including a retired method, which gets no verdict). Production consumers call [`eligibility`] or
 /// [`eligibility_for_runtime`], never this directly.
-pub fn eligibility_for(cat: &Catalogue, req: &EligibilityRequest) -> EligibilityResponse {
+pub fn eligibility_for(
+    cat: &Catalogue,
+    req: &EligibilityRequest,
+) -> Result<EligibilityResponse, StudyAnswerError> {
     eligibility_for_calibrated(cat, req, &calibration::TimingCalibration::empty())
 }
 
@@ -432,7 +706,7 @@ pub fn eligibility_for_calibrated(
     cat: &Catalogue,
     req: &EligibilityRequest,
     calibration: &calibration::TimingCalibration,
-) -> EligibilityResponse {
+) -> Result<EligibilityResponse, StudyAnswerError> {
     match req {
         EligibilityRequest::Preview { preview } => preview_eligibility(cat, preview),
         EligibilityRequest::Inventory { inventory } => {
@@ -447,7 +721,7 @@ pub fn eligibility_for_runtime(
     cat: &Catalogue,
     images: &EnvManifest,
     req: &EligibilityRequest,
-) -> EligibilityResponse {
+) -> Result<EligibilityResponse, StudyAnswerError> {
     eligibility_for_runtime_calibrated(cat, images, req, &calibration::TimingCalibration::empty())
 }
 
@@ -459,8 +733,11 @@ pub fn eligibility_for_runtime_calibrated(
     images: &EnvManifest,
     req: &EligibilityRequest,
     calibration: &calibration::TimingCalibration,
-) -> EligibilityResponse {
-    with_runtime_env(images, eligibility_for_calibrated(cat, req, calibration))
+) -> Result<EligibilityResponse, StudyAnswerError> {
+    Ok(with_runtime_env(
+        images,
+        eligibility_for_calibrated(cat, req, calibration)?,
+    ))
 }
 
 /// The RUNTIME-ENV stage (CM-1's fix): a catalogue method with no published
@@ -516,8 +793,11 @@ fn with_runtime_env(images: &EnvManifest, mut resp: EligibilityResponse) -> Elig
 }
 
 /// Screen B's request (the PREVIEW body): the panel is answered from the
-/// schedule + marker-group answers, without any patient data.
-fn preview_eligibility(cat: &Catalogue, req: &PreviewEligibilityRequest) -> EligibilityResponse {
+/// schedule + marker-group + study answers, without any patient data.
+fn preview_eligibility(
+    cat: &Catalogue,
+    req: &PreviewEligibilityRequest,
+) -> Result<EligibilityResponse, StudyAnswerError> {
     // R3-intake-2: an unanswered schedule question counts as "any" — the
     // panel never excludes a method on an axis the user did not answer (the
     // old client sent the board's first options when unanswered, so an
@@ -526,13 +806,21 @@ fn preview_eligibility(cat: &Catalogue, req: &PreviewEligibilityRequest) -> Elig
     // count is known; an answered "always" before-treatment question adds
     // the baseline draw to that schedule (an unanswered one can be either,
     // so it adds nothing — and never produces a can_run_some reclassification).
+    // The study answers follow the same rule on their axes (absent = any),
+    // but an id outside the catalogue is an ERROR (the surface's 422), never
+    // a silent widening.
+    validate_study_answers(cat, &req.study)?;
     let scheduled = req
         .draws_during_treatment
         .map(|draws| draws + if req.before_treatment.as_deref() == Some("always") { 1 } else { 0 });
     let mut methods = Vec::with_capacity(cat.methods.len());
     // A retired method (`runnable: false`) is not offered: it gets no verdict.
     for m in cat.methods.iter().filter(|m| m.runnable) {
-        let mut reasons: Vec<Reason> = Vec::new();
+        // The study-answer reasons come FIRST (disease, treatment, outcome —
+        // before the marker-group and draw reasons); `study_ok` is captured
+        // before the marker reasons are pushed onto the same list.
+        let mut reasons = study_filter_reasons(cat, m, &req.study)?;
+        let study_ok = reasons.is_empty();
         let mut missing_groups: Vec<MissingGroup> = Vec::new();
         for gid in &m.marker_groups_required {
             if !req.marker_groups.get(gid).copied().unwrap_or(false) {
@@ -571,7 +859,7 @@ fn preview_eligibility(cat: &Catalogue, req: &PreviewEligibilityRequest) -> Elig
         // The schedule's patient split: a "sometimes" before-treatment answer
         // means some patients have no baseline draw.
         let some_baseline = m.needs_baseline && req.before_treatment.as_deref() == Some("sometimes");
-        let status = if !missing_groups.is_empty() || !schedule_ok {
+        let status = if !missing_groups.is_empty() || !schedule_ok || !study_ok {
             EligibilityStatus::CannotRun
         } else if some_baseline {
             EligibilityStatus::CanRunSome
@@ -601,23 +889,28 @@ fn preview_eligibility(cat: &Catalogue, req: &PreviewEligibilityRequest) -> Elig
             estimate_quality: estimate_quality_for(m),
         });
     }
-    finish(methods)
+    Ok(finish(methods))
 }
 
 /// The inventory path (screens C/N/E — the consumer that holds the file posts
 /// the validated inventory), with the measured-time calibration applied to
-/// the rows' `estimated_seconds`/`estimate_quality`.
+/// the rows' `estimated_seconds`/`estimate_quality`. When the request carries
+/// the `study` answers, the study filters run on the verdicts too (the same
+/// three hard reasons, pushed before every marker/draw reason).
 fn inventory_eligibility(
     cat: &Catalogue,
     inv: &InventoryEligibilityRequest,
     calibration: &calibration::TimingCalibration,
-) -> EligibilityResponse {
+) -> Result<EligibilityResponse, StudyAnswerError> {
+    if let Some(study) = &inv.study {
+        validate_study_answers(cat, study)?;
+    }
     let mut methods = Vec::with_capacity(cat.methods.len());
     // A retired method (`runnable: false`) is not offered: it gets no verdict.
     for m in cat.methods.iter().filter(|m| m.runnable) {
-        methods.push(inventory_method(cat, inv, m, calibration));
+        methods.push(inventory_method(cat, inv, m, calibration)?);
     }
-    finish(methods)
+    Ok(finish(methods))
 }
 
 fn finish(methods: Vec<MethodEligibility>) -> EligibilityResponse {
@@ -652,8 +945,13 @@ fn inventory_method(
     inv: &InventoryEligibilityRequest,
     m: &Method,
     calibration: &calibration::TimingCalibration,
-) -> MethodEligibility {
-    let mut reasons: Vec<Reason> = Vec::new();
+) -> Result<MethodEligibility, StudyAnswerError> {
+    // The study-answer reasons come FIRST (disease, treatment, outcome —
+    // before every marker/draw reason); absent answers add nothing.
+    let mut reasons = match &inv.study {
+        Some(study) => study_filter_reasons(cat, m, study)?,
+        None => Vec::new(),
+    };
     let mut missing_markers: Vec<MissingMarker> = Vec::new();
 
     // Outcome availability (the reconcile-grown codes; the request carries
@@ -833,7 +1131,7 @@ fn inventory_method(
     }
 
     let status = verdict(&reasons, coverage.eligible, coverage.total);
-    MethodEligibility {
+    Ok(MethodEligibility {
         id: m.id.clone(),
         status,
         reasons,
@@ -853,7 +1151,7 @@ fn inventory_method(
             calibration,
         ),
         estimate_quality: calibration::calibrated_estimate_quality_for(m, calibration),
-    }
+    })
 }
 
 /// The engine's marker-count rule over the file inventory (the eligibility
@@ -1247,6 +1545,9 @@ fn verdict(reasons: &[Reason], eligible: u32, total: u32) -> EligibilityStatus {
                 | ReasonCode::ResponseLabelMissing
                 | ReasonCode::SurvivalOutcomeMissing
                 | ReasonCode::MarkerCountUnmet
+                | ReasonCode::DiseaseNotMatched
+                | ReasonCode::TreatmentNotMatched
+                | ReasonCode::OutcomeNotMatched
         )
     });
     if hard || (total > 0 && eligible == 0) {
@@ -1269,7 +1570,8 @@ mod tests {
     use super::*;
     use crate::modules::method_catalogue::catalogue::parse_catalogue;
     use crate::modules::method_catalogue::types::{
-        MatchMode, PatientDrawCounts, StandardId, UnitFamily, CATALOGUE_SCHEMA_VERSION,
+        MatchMode, MethodGroup, PatientDrawCounts, StandardId, StudyAnswers, UnitFamily,
+        CATALOGUE_SCHEMA_VERSION,
     };
 
     // ---- TEST-MC-1: parse_standard_ids (data.py goldens) ------------------
@@ -1667,6 +1969,10 @@ mod tests {
 
     /// A catalogue with one method, one vocabulary marker and the 3 groups
     /// above (the loader's validation runs, so the entry must be complete).
+    /// The `study_options` fixture carries the two disease categories the
+    /// study-filter tests need (`Solid tumours` + `Haematological`, with a
+    /// disease, a child and a sibling per category) and three treatment
+    /// classes.
     fn catalogue_with(methods: serde_json::Value, markers: serde_json::Value) -> Catalogue {
         let doc = serde_json::json!({
             "schema_version": CATALOGUE_SCHEMA_VERSION,
@@ -1679,11 +1985,20 @@ mod tests {
             "study_options": serde_json::json!({
                 "disease_categories": [
                     {"id": "Solid tumours", "diseases": [
-                        {"id": "lung cancer", "children": ["non-small cell lung cancer"]}
+                        {"id": "lung cancer", "children": [
+                            "non-small cell lung cancer",
+                            "small cell lung cancer"
+                        ]},
+                        {"id": "breast cancer", "children": []}
+                    ]},
+                    {"id": "Haematological", "diseases": [
+                        {"id": "lymphoma", "children": ["diffuse large B-cell lymphoma"]}
                     ]}
                 ],
                 "treatment_classes": [
-                    {"id": "immune checkpoint inhibitor", "label": "Immune checkpoint inhibitor"}
+                    {"id": "immune checkpoint inhibitor", "label": "Immune checkpoint inhibitor"},
+                    {"id": "chemotherapy", "label": "Chemotherapy"},
+                    {"id": "radiotherapy", "label": "Radiotherapy"}
                 ]
             })
         });
@@ -1746,13 +2061,15 @@ mod tests {
             markers,
             covariates,
             outcomes: None,
+            study: None,
         }
     }
 
     fn verdict_of(cat: &Catalogue, req: &InventoryEligibilityRequest, id: &str) -> MethodEligibility {
         let resp = eligibility_for(cat, &EligibilityRequest::Inventory {
             inventory: req.clone(),
-        });
+        })
+        .expect("no unknown study ids in the fixture");
         resp.methods
             .into_iter()
             .find(|m| m.id == id)
@@ -1978,7 +2295,7 @@ mod tests {
         ]);
         let cat = catalogue_with(methods, serde_json::json!([]));
         let req = EligibilityRequest::Inventory { inventory: inventory_req(1, vec![], vec![]) };
-        let resp = eligibility_for(&cat, &req);
+        let resp = eligibility_for(&cat, &req).expect("no study answers in the fixture");
         assert!(resp.methods.iter().any(|m| m.id == "fx-live"), "non-vacuity: the live method has a verdict");
         assert!(resp.methods.iter().all(|m| m.id != "fx-retired"));
         assert_eq!(
@@ -2127,8 +2444,10 @@ mod tests {
             before_treatment: Some("always".to_string()),
             draws_during_treatment: Some(2),
             last_draw_day: Some(56.0),
+            study: StudyAnswers::default(),
         };
-        let resp = eligibility_for(&cat, &EligibilityRequest::Preview { preview });
+        let resp = eligibility_for(&cat, &EligibilityRequest::Preview { preview })
+            .expect("no study answers in the fixture");
         let v = resp.methods.iter().find(|m| m.id == "fx-panel").unwrap();
         assert_eq!(v.status, EligibilityStatus::CannotRun);
         assert!(v.reasons.iter().any(|r| r.code == ReasonCode::MarkerGroupMissing));
@@ -2159,8 +2478,10 @@ mod tests {
             before_treatment: None,
             draws_during_treatment: None,
             last_draw_day: None,
+            study: StudyAnswers::default(),
         };
-        let resp = eligibility_for(&cat, &EligibilityRequest::Preview { preview });
+        let resp = eligibility_for(&cat, &EligibilityRequest::Preview { preview })
+            .expect("no study answers in the fixture");
         assert_eq!(resp.methods[0].status, EligibilityStatus::CanRun);
         assert!(!resp.methods[0].reasons.iter().any(|r| r.code == ReasonCode::MinDrawsUnmet));
         assert_eq!(resp.total_fit, 1);
@@ -2174,8 +2495,10 @@ mod tests {
             before_treatment: None,
             draws_during_treatment: Some(1),
             last_draw_day: None,
+            study: StudyAnswers::default(),
         };
-        let resp = eligibility_for(&cat, &EligibilityRequest::Preview { preview: answered });
+        let resp = eligibility_for(&cat, &EligibilityRequest::Preview { preview: answered })
+            .expect("no study answers in the fixture");
         assert_eq!(resp.methods[0].status, EligibilityStatus::CannotRun);
         assert!(resp.methods[0].reasons.iter().any(|r| r.code == ReasonCode::MinDrawsUnmet));
     }
@@ -2189,8 +2512,10 @@ mod tests {
             before_treatment: Some("sometimes".to_string()),
             draws_during_treatment: Some(2),
             last_draw_day: Some(56.0),
+            study: StudyAnswers::default(),
         };
-        let resp = eligibility_for(&cat, &EligibilityRequest::Preview { preview });
+        let resp = eligibility_for(&cat, &EligibilityRequest::Preview { preview })
+            .expect("no study answers in the fixture");
         assert_eq!(resp.methods[0].status, EligibilityStatus::CanRunSome);
         assert_eq!(resp.total_some, 1);
     }
@@ -2198,7 +2523,7 @@ mod tests {
     // ---- TEST-MC-27: the reason-code vocabulary + the outcome codes --------
 
     #[test]
-    fn reason_code_vocabulary_is_the_closed_fourteen() {
+    fn reason_code_vocabulary_is_the_closed_seventeen() {
         assert_eq!(
             ReasonCode::ALL.map(|c| c.as_str()).to_vec(),
             vec![
@@ -2216,6 +2541,9 @@ mod tests {
                 "RESPONSE_LABEL_MISSING",
                 "SURVIVAL_OUTCOME_MISSING",
                 "MARKER_COUNT_UNMET",
+                "DISEASE_NOT_MATCHED",
+                "TREATMENT_NOT_MATCHED",
+                "OUTCOME_NOT_MATCHED",
             ]
         );
     }
@@ -2514,11 +2842,12 @@ mod tests {
         let req = inventory_req(1, markers, vec![]);
         let req = EligibilityRequest::Inventory { inventory: req };
 
-        let pure = eligibility_for(&cat, &req);
+        let pure = eligibility_for(&cat, &req).expect("no study answers in the fixture");
         assert_eq!(pure.total_fit, 2, "the pure engine knows no env facts");
         assert_eq!(pure.total_no_env, 0);
 
-        let staged = eligibility_for_runtime(&cat, &crate::modules::method_list::builtin().images, &req);
+        let staged = eligibility_for_runtime(&cat, &crate::modules::method_list::builtin().images, &req)
+            .expect("no study answers in the fixture");
         assert_eq!(staged.total_fit, 1, "only the published-env method fits");
         assert_eq!(staged.total_some, 0);
         assert_eq!(staged.total_cannot, 1);
@@ -2547,6 +2876,7 @@ mod tests {
                 before_treatment: None,
                 draws_during_treatment: None,
                 last_draw_day: None,
+                study: StudyAnswers::default(),
             },
         };
         let answer = eligibility(&list, &req);
@@ -2558,6 +2888,623 @@ mod tests {
         assert_eq!(answer.methods.len(), runnable);
         assert_eq!(answer.methods.len(), 359, "the shipped catalogue's runnable rows");
         // The pure engine names no list (it is given a catalogue, not a list).
-        assert_eq!(eligibility_for(&list.catalogue, &req).method_list_sequence, None);
+        assert_eq!(
+            eligibility_for(&list.catalogue, &req)
+                .expect("no study answers in the fixture")
+                .method_list_sequence,
+            None
+        );
+    }
+
+    // ---- the study-answer filters (disease, treatment, what to predict) ----
+
+    /// A preview body carrying only the given study answers (every schedule
+    /// question unanswered, so only the study filters are exercised).
+    fn study_preview(ans: StudyAnswers) -> PreviewEligibilityRequest {
+        PreviewEligibilityRequest {
+            marker_groups: BTreeMap::new(),
+            before_treatment: None,
+            draws_during_treatment: None,
+            last_draw_day: None,
+            study: ans,
+        }
+    }
+
+    /// The preview verdict of one method (the fixture ids are always valid).
+    fn preview_verdict_of(
+        cat: &Catalogue,
+        preview: &PreviewEligibilityRequest,
+        id: &str,
+    ) -> MethodEligibility {
+        let resp = eligibility_for(cat, &EligibilityRequest::Preview { preview: preview.clone() })
+            .expect("valid fixture study ids");
+        resp.methods
+            .into_iter()
+            .find(|m| m.id == id)
+            .unwrap_or_else(|| panic!("method {id} not found"))
+    }
+
+    fn code_names(v: &MethodEligibility) -> Vec<ReasonCode> {
+        v.reasons.iter().map(|r| r.code).collect()
+    }
+
+    /// `any` scope: every answer kind (disease, child, category id, and the
+    /// other category's nodes) fits — an `any` method is never left out.
+    #[test]
+    fn disease_any_fits_every_answer_kind() {
+        let m = method_json("fx-any", &[("disease", serde_json::json!({"scope": "any", "groups": []}))]);
+        let cat = one_method_catalogue(m);
+        for answer in [
+            "lung cancer",
+            "non-small cell lung cancer",
+            "small cell lung cancer",
+            "breast cancer",
+            "Solid tumours",
+            "lymphoma",
+            "diffuse large B-cell lymphoma",
+            "Haematological",
+        ] {
+            let v = preview_verdict_of(
+                &cat,
+                &study_preview(StudyAnswers {
+                    disease_group: Some(answer.to_string()),
+                    ..Default::default()
+                }),
+                "fx-any",
+            );
+            assert_eq!(v.status, EligibilityStatus::CanRun, "{answer}");
+            assert!(!code_names(&v).contains(&ReasonCode::DiseaseNotMatched), "{answer}");
+        }
+    }
+
+    /// `any-solid-tumour`: fits only the solid-tumour category (a disease
+    /// under it, a child under it, or the category id itself); every
+    /// blood-cancer node is a `DISEASE_NOT_MATCHED`.
+    #[test]
+    fn disease_any_solid_tumour_fits_only_the_solid_category() {
+        let m = method_json("fx-solid", &[
+            ("disease", serde_json::json!({"scope": "any-solid-tumour", "groups": []})),
+        ]);
+        let cat = one_method_catalogue(m);
+        for answer in ["lung cancer", "non-small cell lung cancer", "breast cancer", "Solid tumours"] {
+            let v = preview_verdict_of(
+                &cat,
+                &study_preview(StudyAnswers {
+                    disease_group: Some(answer.to_string()),
+                    ..Default::default()
+                }),
+                "fx-solid",
+            );
+            assert_eq!(v.status, EligibilityStatus::CanRun, "{answer}");
+        }
+        for answer in ["lymphoma", "diffuse large B-cell lymphoma", "Haematological"] {
+            let v = preview_verdict_of(
+                &cat,
+                &study_preview(StudyAnswers {
+                    disease_group: Some(answer.to_string()),
+                    ..Default::default()
+                }),
+                "fx-solid",
+            );
+            assert_eq!(v.status, EligibilityStatus::CannotRun, "{answer}");
+            let r = v
+                .reasons
+                .iter()
+                .find(|r| r.code == ReasonCode::DiseaseNotMatched)
+                .expect("the reason");
+            assert_eq!(r.params["made_for"], serde_json::json!("any-solid-tumour"));
+            assert_eq!(r.params["answer"], serde_json::json!(answer));
+        }
+    }
+
+    /// `any-cancer`: fits BOTH categories (solid and blood) — a disease, a
+    /// child or a category id of either.
+    #[test]
+    fn disease_any_cancer_fits_solid_and_blood_categories() {
+        let m = method_json("fx-cancer", &[
+            ("disease", serde_json::json!({"scope": "any-cancer", "groups": []})),
+        ]);
+        let cat = one_method_catalogue(m);
+        for answer in [
+            "lung cancer",
+            "non-small cell lung cancer",
+            "Solid tumours",
+            "lymphoma",
+            "diffuse large B-cell lymphoma",
+            "Haematological",
+        ] {
+            let v = preview_verdict_of(
+                &cat,
+                &study_preview(StudyAnswers {
+                    disease_group: Some(answer.to_string()),
+                    ..Default::default()
+                }),
+                "fx-cancer",
+            );
+            assert_eq!(v.status, EligibilityStatus::CanRun, "{answer}");
+            assert!(!code_names(&v).contains(&ReasonCode::DiseaseNotMatched), "{answer}");
+        }
+    }
+
+    /// `group` scope: fits the answered node itself, a child of the answered
+    /// disease (answer = disease includes its children) and the parent of the
+    /// answered child (answer = child: the parent-disease method fits). A
+    /// SIBLING child's method does NOT fit; a category-id answer fits no
+    /// group method.
+    #[test]
+    fn disease_group_matches_self_children_and_parent_but_not_siblings() {
+        let methods = serde_json::json!([
+            method_json("fx-lung", &[("disease", serde_json::json!({"scope": "group", "groups": ["lung cancer"]}))]),
+            method_json("fx-nsclc", &[("disease", serde_json::json!({"scope": "group", "groups": ["non-small cell lung cancer"]}))]),
+            method_json("fx-sclc", &[("disease", serde_json::json!({"scope": "group", "groups": ["small cell lung cancer"]}))]),
+            method_json("fx-breast", &[("disease", serde_json::json!({"scope": "group", "groups": ["breast cancer"]}))]),
+            method_json("fx-lymphoma", &[("disease", serde_json::json!({"scope": "group", "groups": ["lymphoma"]}))]),
+            method_json("fx-two", &[("disease", serde_json::json!({"scope": "group", "groups": ["lung cancer", "breast cancer"]}))]),
+        ]);
+        let cat = catalogue_with(methods, serde_json::json!([]));
+
+        // Answer = the disease itself: its own method and a method made for
+        // one of its CHILDREN fit; another disease's method does not.
+        for id in ["fx-lung", "fx-nsclc", "fx-sclc"] {
+            let v = preview_verdict_of(
+                &cat,
+                &study_preview(StudyAnswers {
+                    disease_group: Some("lung cancer".to_string()),
+                    ..Default::default()
+                }),
+                id,
+            );
+            assert_eq!(v.status, EligibilityStatus::CanRun, "{id} (answer=lung cancer)");
+        }
+        let v = preview_verdict_of(
+            &cat,
+            &study_preview(StudyAnswers {
+                disease_group: Some("lung cancer".to_string()),
+                ..Default::default()
+            }),
+            "fx-breast",
+        );
+        assert_eq!(v.status, EligibilityStatus::CannotRun, "another disease does not fit");
+        assert_eq!(
+            v.reasons.iter().find(|r| r.code == ReasonCode::DiseaseNotMatched)
+                .expect("the reason").params["made_for"],
+            serde_json::json!("breast cancer")
+        );
+
+        // Answer = a child: its own method and the PARENT disease's method
+        // fit; the SIBLING child's method does not.
+        for id in ["fx-lung", "fx-nsclc"] {
+            let v = preview_verdict_of(
+                &cat,
+                &study_preview(StudyAnswers {
+                    disease_group: Some("non-small cell lung cancer".to_string()),
+                    ..Default::default()
+                }),
+                id,
+            );
+            assert_eq!(v.status, EligibilityStatus::CanRun, "{id} (answer=child)");
+        }
+        let v = preview_verdict_of(
+            &cat,
+            &study_preview(StudyAnswers {
+                disease_group: Some("non-small cell lung cancer".to_string()),
+                ..Default::default()
+            }),
+            "fx-sclc",
+        );
+        assert_eq!(
+            v.status,
+            EligibilityStatus::CannotRun,
+            "a method made for a SIBLING child does not fit: {:?}",
+            code_names(&v)
+        );
+
+        // The parent rule across categories (the other category's child).
+        let v = preview_verdict_of(
+            &cat,
+            &study_preview(StudyAnswers {
+                disease_group: Some("diffuse large B-cell lymphoma".to_string()),
+                ..Default::default()
+            }),
+            "fx-lymphoma",
+        );
+        assert_eq!(v.status, EligibilityStatus::CanRun, "answer=child of lymphoma");
+
+        // A category-id answer matches NO group method (only any / any-…).
+        let v = preview_verdict_of(
+            &cat,
+            &study_preview(StudyAnswers {
+                disease_group: Some("Solid tumours".to_string()),
+                ..Default::default()
+            }),
+            "fx-lung",
+        );
+        assert_eq!(v.status, EligibilityStatus::CannotRun, "a category id never fits a group method");
+
+        // `made_for` joins the method's groups; `answer` is the answered id.
+        let v = preview_verdict_of(
+            &cat,
+            &study_preview(StudyAnswers {
+                disease_group: Some("Haematological".to_string()),
+                ..Default::default()
+            }),
+            "fx-two",
+        );
+        let r = v.reasons.iter().find(|r| r.code == ReasonCode::DiseaseNotMatched).expect("reason");
+        assert_eq!(r.params["made_for"], serde_json::json!("lung cancer, breast cancer"));
+        assert_eq!(r.params["answer"], serde_json::json!("Haematological"));
+    }
+
+    /// Treatment (stated): overlap stays, no overlap is `TREATMENT_NOT_MATCHED`
+    /// with the method's classes and the ticks as params.
+    #[test]
+    fn treatment_stated_overlap_stays_and_no_overlap_is_left_out() {
+        let m = method_json("fx-treat", &[("treatment", serde_json::json!({
+            "classes": ["immune checkpoint inhibitor"], "confidence": "stated"}))]);
+        let cat = one_method_catalogue(m);
+        let status = |ticks: &[&str]| {
+            let v = preview_verdict_of(
+                &cat,
+                &study_preview(StudyAnswers {
+                    treatment_classes: Some(ticks.iter().map(|s| s.to_string()).collect()),
+                    ..Default::default()
+                }),
+                "fx-treat",
+            );
+            v
+        };
+        assert_eq!(status(&["immune checkpoint inhibitor"]).status, EligibilityStatus::CanRun);
+        // Overlap on one of several ticks stays.
+        assert_eq!(
+            status(&["chemotherapy", "immune checkpoint inhibitor"]).status,
+            EligibilityStatus::CanRun
+        );
+        // No overlap → the hard reason with both params.
+        let v = status(&["chemotherapy"]);
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        let r = v.reasons.iter().find(|r| r.code == ReasonCode::TreatmentNotMatched).expect("reason");
+        assert_eq!(r.params["made_for"], serde_json::json!("immune checkpoint inhibitor"));
+        assert_eq!(r.params["answer"], serde_json::json!("chemotherapy"));
+
+        // A multi-class method: any shared class stays; none → left out; the
+        // joined classes are the `made_for` param.
+        let m = method_json("fx-multiclass", &[("treatment", serde_json::json!({
+            "classes": ["chemotherapy", "radiotherapy"], "confidence": "stated"}))]);
+        let cat = one_method_catalogue(m);
+        let v = preview_verdict_of(
+            &cat,
+            &study_preview(StudyAnswers {
+                treatment_classes: Some(vec!["radiotherapy".to_string()]),
+                ..Default::default()
+            }),
+            "fx-multiclass",
+        );
+        assert_eq!(v.status, EligibilityStatus::CanRun, "any shared class stays");
+        let v = preview_verdict_of(
+            &cat,
+            &study_preview(StudyAnswers {
+                treatment_classes: Some(vec!["immune checkpoint inhibitor".to_string()]),
+                ..Default::default()
+            }),
+            "fx-multiclass",
+        );
+        let r = v.reasons.iter().find(|r| r.code == ReasonCode::TreatmentNotMatched).expect("reason");
+        assert_eq!(r.params["made_for"], serde_json::json!("chemotherapy, radiotherapy"));
+    }
+
+    /// Inferred classes behave exactly like stated ones (the confidence is
+    /// not part of the fit — only the classes are).
+    #[test]
+    fn treatment_inferred_is_like_stated() {
+        let m = method_json("fx-inferred", &[("treatment", serde_json::json!({
+            "classes": ["chemotherapy"], "confidence": "inferred"}))]);
+        let cat = one_method_catalogue(m);
+        let v = preview_verdict_of(
+            &cat,
+            &study_preview(StudyAnswers {
+                treatment_classes: Some(vec!["chemotherapy".to_string()]),
+                ..Default::default()
+            }),
+            "fx-inferred",
+        );
+        assert_eq!(v.status, EligibilityStatus::CanRun);
+        let v = preview_verdict_of(
+            &cat,
+            &study_preview(StudyAnswers {
+                treatment_classes: Some(vec!["radiotherapy".to_string()]),
+                ..Default::default()
+            }),
+            "fx-inferred",
+        );
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert!(code_names(&v).contains(&ReasonCode::TreatmentNotMatched));
+    }
+
+    /// A `not-stated` method ALWAYS stays (its treatment is unknown — the
+    /// ticks can never contradict it).
+    #[test]
+    fn treatment_not_stated_always_stays() {
+        let m = method_json("fx-notstated", &[("treatment", serde_json::json!({
+            "classes": [], "confidence": "not-stated"}))]);
+        let cat = one_method_catalogue(m);
+        let v = preview_verdict_of(
+            &cat,
+            &study_preview(StudyAnswers {
+                treatment_classes: Some(vec!["chemotherapy".to_string()]),
+                ..Default::default()
+            }),
+            "fx-notstated",
+        );
+        assert_eq!(v.status, EligibilityStatus::CanRun);
+        assert!(!code_names(&v).contains(&ReasonCode::TreatmentNotMatched));
+    }
+
+    /// An empty tick list and an absent list both mean "any treatment".
+    #[test]
+    fn treatment_empty_or_absent_ticks_mean_any() {
+        let m = method_json("fx-treat", &[("treatment", serde_json::json!({
+            "classes": ["immune checkpoint inhibitor"], "confidence": "stated"}))]);
+        let cat = one_method_catalogue(m);
+        let v = preview_verdict_of(&cat, &study_preview(StudyAnswers::default()), "fx-treat");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "absent ticks = any");
+        let v = preview_verdict_of(
+            &cat,
+            &study_preview(StudyAnswers {
+                treatment_classes: Some(Vec::new()),
+                ..Default::default()
+            }),
+            "fx-treat",
+        );
+        assert_eq!(v.status, EligibilityStatus::CanRun, "empty ticks = any");
+    }
+
+    /// What to predict: the method's group is the only discriminator; a
+    /// mismatch is `OUTCOME_NOT_MATCHED` naming both groups.
+    #[test]
+    fn outcome_matches_only_the_answered_group() {
+        let m = method_json("fx-call", &[]); // group: response-call
+        let cat = one_method_catalogue(m);
+        let v = preview_verdict_of(
+            &cat,
+            &study_preview(StudyAnswers {
+                method_group: Some(MethodGroup::ResponseCall),
+                ..Default::default()
+            }),
+            "fx-call",
+        );
+        assert_eq!(v.status, EligibilityStatus::CanRun);
+        let v = preview_verdict_of(&cat, &study_preview(StudyAnswers::default()), "fx-call");
+        assert_eq!(v.status, EligibilityStatus::CanRun, "absent group = any");
+        let v = preview_verdict_of(
+            &cat,
+            &study_preview(StudyAnswers {
+                method_group: Some(MethodGroup::StaticRisk),
+                ..Default::default()
+            }),
+            "fx-call",
+        );
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        let r = v.reasons.iter().find(|r| r.code == ReasonCode::OutcomeNotMatched).expect("reason");
+        assert_eq!(r.params["predicts"], serde_json::json!("response-call"));
+        assert_eq!(r.params["answer"], serde_json::json!("static-risk"));
+    }
+
+    /// An unknown disease or treatment id is an ERROR — never a silent "any"
+    /// (the engine's failure variant, the surface's 422 code and message).
+    #[test]
+    fn unknown_study_answer_ids_are_errors_never_any() {
+        let cat = one_method_catalogue(method_json("fx-any", &[
+            ("disease", serde_json::json!({"scope": "any", "groups": []})),
+        ]));
+        let err = eligibility_for(
+            &cat,
+            &EligibilityRequest::Preview {
+                preview: study_preview(StudyAnswers {
+                    disease_group: Some("unknown disease".to_string()),
+                    ..Default::default()
+                }),
+            },
+        )
+        .expect_err("an unknown disease id is an error");
+        assert_eq!(err, StudyAnswerError::UnknownDiseaseGroup("unknown disease".to_string()));
+        assert_eq!(err.code(), "UNKNOWN_DISEASE_GROUP");
+        assert!(err.to_string().contains("unknown disease"), "{err}");
+
+        let err = eligibility_for(
+            &cat,
+            &EligibilityRequest::Preview {
+                preview: study_preview(StudyAnswers {
+                    treatment_classes: Some(vec!["statins".to_string()]),
+                    ..Default::default()
+                }),
+            },
+        )
+        .expect_err("an unknown class id is an error");
+        assert_eq!(err, StudyAnswerError::UnknownTreatmentClass("statins".to_string()));
+        assert_eq!(err.code(), "UNKNOWN_TREATMENT_CLASS");
+
+        // The inventory path refuses it the same way.
+        let mut inv = inventory_req(1, vec![], vec![]);
+        inv.study = Some(StudyAnswers {
+            disease_group: Some("no such node".to_string()),
+            ..Default::default()
+        });
+        let err = eligibility_for(&cat, &EligibilityRequest::Inventory { inventory: inv })
+            .expect_err("the inventory path refuses unknown ids too");
+        assert_eq!(err.code(), "UNKNOWN_DISEASE_GROUP");
+
+        // The validator (the surface's predicate) is the same one.
+        assert_eq!(
+            validate_study_answers(
+                &cat,
+                &StudyAnswers {
+                    disease_group: Some("nonexistent".to_string()),
+                    ..Default::default()
+                },
+            ),
+            Err(StudyAnswerError::UnknownDiseaseGroup("nonexistent".to_string()))
+        );
+        assert_eq!(
+            validate_study_answers(
+                &cat,
+                &StudyAnswers {
+                    treatment_classes: Some(vec!["statins".to_string()]),
+                    ..Default::default()
+                },
+            ),
+            Err(StudyAnswerError::UnknownTreatmentClass("statins".to_string()))
+        );
+    }
+
+    /// Absent study answers leave the verdicts byte-identical to a request
+    /// without the fields (the "any" contract is the SAME verdict, not a
+    /// different one), for both the preview and the inventory.
+    #[test]
+    fn absent_study_answers_are_identical_to_no_study_block() {
+        let methods = serde_json::json!([
+            method_json("fx-any", &[]),
+            method_json("fx-treat", &[("treatment", serde_json::json!({
+                "classes": ["chemotherapy"], "confidence": "stated"}))]),
+            method_json("fx-group-need", &[("disease", serde_json::json!({
+                "scope": "group", "groups": ["lymphoma"]}))]),
+        ]);
+        let cat = catalogue_with(methods, serde_json::json!([]));
+
+        let base = eligibility_for(
+            &cat,
+            &EligibilityRequest::Preview {
+                preview: study_preview(StudyAnswers::default()),
+            },
+        )
+        .expect("ok");
+        // A body WITHOUT the fields parses to the same all-None block.
+        let json = serde_json::json!({
+            "marker_groups": {}, "before_treatment": null,
+            "draws_during_treatment": null, "last_draw_day": null
+        });
+        let parsed: EligibilityRequest =
+            serde_json::from_value(serde_json::json!({"preview": json})).expect("parse");
+        let round = eligibility_for(&cat, &parsed).expect("ok");
+        assert_eq!(
+            serde_json::to_value(&base).expect("serialize"),
+            serde_json::to_value(&round).expect("serialize"),
+            "absent answer fields == all-None answers"
+        );
+
+        let inv_none = inventory_req(1, vec![], vec![]);
+        let mut inv_some = inv_none.clone();
+        inv_some.study = Some(StudyAnswers::default());
+        let a = eligibility_for(&cat, &EligibilityRequest::Inventory { inventory: inv_none })
+            .expect("ok");
+        let b = eligibility_for(&cat, &EligibilityRequest::Inventory { inventory: inv_some })
+            .expect("ok");
+        assert_eq!(
+            serde_json::to_value(&a).expect("serialize"),
+            serde_json::to_value(&b).expect("serialize"),
+            "study None and study Some(default) must agree"
+        );
+        // And a posted body WITHOUT the `study` key parses to `None`.
+        let json = serde_json::json!({
+            "patients": 1, "decision_day": 56.0, "baseline_max_day": 0.0,
+            "markers": [], "covariates": []
+        });
+        let parsed: EligibilityRequest =
+            serde_json::from_value(serde_json::json!({"inventory": json})).expect("parse");
+        let c = eligibility_for(&cat, &parsed).expect("ok");
+        assert_eq!(
+            serde_json::to_value(&a).expect("serialize"),
+            serde_json::to_value(&c).expect("serialize")
+        );
+    }
+
+    /// The study reasons are pushed disease → treatment → outcome, BEFORE the
+    /// marker-group and draw reasons, each with its params; all three are
+    /// HARD (the verdict is `cannot_run`).
+    #[test]
+    fn study_reasons_come_first_in_the_fixed_order() {
+        let m = method_json("fx-filtered", &[
+            ("disease", serde_json::json!({"scope": "group", "groups": ["lymphoma"]})),
+            ("treatment", serde_json::json!({"classes": ["chemotherapy"], "confidence": "stated"})),
+            ("marker_groups_required", serde_json::json!(["ctdna"])),
+            ("min_draws", serde_json::json!(3)),
+        ]);
+        let cat = one_method_catalogue(m);
+        let preview = PreviewEligibilityRequest {
+            marker_groups: BTreeMap::new(),
+            before_treatment: None,
+            draws_during_treatment: Some(2),
+            last_draw_day: None,
+            study: StudyAnswers {
+                disease_group: Some("lung cancer".to_string()),
+                treatment_classes: Some(vec!["immune checkpoint inhibitor".to_string()]),
+                method_group: Some(MethodGroup::DynamicRisk),
+            },
+        };
+        let v = preview_verdict_of(&cat, &preview, "fx-filtered");
+        assert_eq!(
+            code_names(&v),
+            vec![
+                ReasonCode::DiseaseNotMatched,
+                ReasonCode::TreatmentNotMatched,
+                ReasonCode::OutcomeNotMatched,
+                ReasonCode::MarkerGroupMissing,
+                ReasonCode::MinDrawsUnmet,
+            ],
+            "the fixed order: study reasons before marker/schedule reasons"
+        );
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        let disease = v.reasons[0].clone();
+        assert_eq!(disease.params["made_for"], serde_json::json!("lymphoma"));
+        assert_eq!(disease.params["answer"], serde_json::json!("lung cancer"));
+        let treatment = v.reasons[1].clone();
+        assert_eq!(treatment.params["made_for"], serde_json::json!("chemotherapy"));
+        assert_eq!(treatment.params["answer"], serde_json::json!("immune checkpoint inhibitor"));
+        let outcome = v.reasons[2].clone();
+        assert_eq!(outcome.params["predicts"], serde_json::json!("response-call"));
+        assert_eq!(outcome.params["answer"], serde_json::json!("dynamic-risk"));
+    }
+
+    /// The inventory verdict applies the study filters the SAME way (the
+    /// study reasons first, before the marker/draw reasons) when `study` is
+    /// present, and not at all when it is absent.
+    #[test]
+    fn inventory_study_reasons_precede_marker_reasons() {
+        let m = method_json("fx-inv-study", &[
+            ("disease", serde_json::json!({"scope": "group", "groups": ["lung cancer"]})),
+            ("required_markers", serde_json::json!({
+                "markers": [{"name": "EYA4 cfDNA methylation (%)", "id_system": "HGNC", "id": "EYA4"}],
+                "match": "all", "min_fraction": 0.0, "list_source": "t"})),
+        ]);
+        let markers = serde_json::json!([vocab_json("EYA4", "HGNC", "percent", &["methylation-sequencing"])]);
+        let cat = catalogue_with(serde_json::json!([m]), markers);
+        let mut req = inventory_req(
+            1,
+            vec![inv_marker("M1", "percent", vec![], Some(vec![pat("p0", 1, 1)]))],
+            vec![],
+        );
+        req.study = Some(StudyAnswers {
+            disease_group: Some("breast cancer".to_string()),
+            ..Default::default()
+        });
+        let v = verdict_of(&cat, &req, "fx-inv-study");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        let codes = code_names(&v);
+        assert_eq!(codes[0], ReasonCode::DiseaseNotMatched);
+        assert!(
+            codes
+                .iter()
+                .position(|c| *c == ReasonCode::RequiredMarkerMissing)
+                .is_some_and(|i| i > 0),
+            "the study reason precedes the marker reason: {codes:?}"
+        );
+
+        // Without the study block the SAME method carries no study reason
+        // (the marker verdict stands on its own).
+        let mut plain = req.clone();
+        plain.study = None;
+        let v2 = verdict_of(&cat, &plain, "fx-inv-study");
+        assert!(!code_names(&v2).contains(&ReasonCode::DiseaseNotMatched));
+        assert!(code_names(&v2).contains(&ReasonCode::RequiredMarkerMissing));
+        assert_eq!(v2.status, EligibilityStatus::CannotRun);
     }
 }

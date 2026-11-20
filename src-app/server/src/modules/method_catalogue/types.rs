@@ -633,13 +633,46 @@ pub struct MarkerVocabularyResponse {
 // PROV-MC-5 — POST /api/methods/eligibility
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Screen B's preview body: which marker groups the user picked, and the
+/// The study-answer block of an eligibility request: what the user's study is
+/// (the disease, the treatment classes, what to predict). Every field is
+/// OPTIONAL — an absent answer (or an empty treatment class list) means "any":
+/// no filter, exactly the verdicts a request without the block gives. The
+/// inventory request carries this block as its `study` object; the preview
+/// request carries the SAME three fields flattened (top-level), so one struct
+/// is the shape of both.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct StudyAnswers {
+    /// The answered disease node id: a disease, one of its children (a
+    /// sub-group), or a CATEGORY id ("another <category> disease, not listed"),
+    /// as named by [`Catalogue::study_options`]. Absent = any disease. An id
+    /// outside the catalogue is an error (`UNKNOWN_DISEASE_GROUP`), never a
+    /// silent "any".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disease_group: Option<String>,
+    /// The ticked base treatment-class ids (the study's treatment classes, the
+    /// ids of `study_options.treatment_classes`). Absent OR empty = any
+    /// treatment. An id outside the catalogue is an error
+    /// (`UNKNOWN_TREATMENT_CLASS`), never a silent "any".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub treatment_classes: Option<Vec<String>>,
+    /// What the study's run should predict (`response-call |
+    /// response-probability | static-risk | dynamic-risk` — the
+    /// [`MethodGroup`] wire spelling of the method rows' `group`). Absent =
+    /// any method group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method_group: Option<MethodGroup>,
+}
+
+/// Screen B's preview body: which marker groups the user picked, the
 /// draw-schedule answers (before-treatment values, draws during treatment, last
-/// draw day). Every schedule field is OPTIONAL (R3-intake-2): an unanswered
-/// question is absent, and the preview treats an absent answer as "any" —
-/// it never assumes a value the user did not give (the old client sent the
-/// board's first options when unanswered, so an untouched question narrowed
-/// the fit count).
+/// draw day) and the study answers (disease, treatment classes, what to
+/// predict). Every schedule and study field is OPTIONAL (R3-intake-2): an
+/// unanswered question is absent, and the preview treats an absent answer as
+/// "any" — it never assumes a value the user did not give (the old client sent
+/// the board's first options when unanswered, so an untouched question narrowed
+/// the fit count). The study answers are the THREE top-level fields of
+/// [`StudyAnswers`], flattened into this body (`disease_group`,
+/// `treatment_classes`, `method_group`).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PreviewEligibilityRequest {
     /// group id → checked. Absent groups count as unchecked.
@@ -653,6 +686,10 @@ pub struct PreviewEligibilityRequest {
     pub draws_during_treatment: Option<u32>,
     /// The last draw day the schedule reaches (28|42|56|84).
     pub last_draw_day: Option<f64>,
+    /// The study answers (see [`StudyAnswers`]) — flattened, so the three
+    /// fields are top-level in the preview JSON.
+    #[serde(flatten)]
+    pub study: StudyAnswers,
 }
 
 /// A standard identifier of a file marker column (`(system, id)`).
@@ -736,6 +773,12 @@ pub struct InventoryEligibilityRequest {
     /// is not misclassified by the engine).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcomes: Option<FileOutcomes>,
+    /// The study answers (see [`StudyAnswers`]). Absent = no study filter —
+    /// exactly the verdicts a request without the block gives; an unknown
+    /// answer id is a 422 (`UNKNOWN_DISEASE_GROUP` /
+    /// `UNKNOWN_TREATMENT_CLASS`), never a silent "any".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub study: Option<StudyAnswers>,
 }
 
 /// The eligibility request body — a tagged union carrying exactly one of the two
@@ -761,7 +804,7 @@ pub enum EligibilityStatus {
     CannotRun,
 }
 
-/// The eligibility reason-code vocabulary — the FIXED, structured set of 12
+/// The eligibility reason-code vocabulary — the FIXED, structured set of 17
 /// codes a method verdict can carry. Display text is the consumer's; a renderer
 /// switches on the code, so the set is closed and documented here (PROV-MC-5's
 /// acceptance: every emitted code is one of these — consumers can never meet an
@@ -818,12 +861,29 @@ pub enum ReasonCode {
     /// Params: `expected`, `found`, `markers` (the file markers it would get).
     #[serde(rename = "MARKER_COUNT_UNMET")]
     MarkerCountUnmet,
+    /// The method's disease fact excludes the study's answered disease node
+    /// (the study-answer filter; a HARD reason — the verdict is `cannot_run`).
+    /// Params: `made_for` (the method's disease groups joined, or its scope
+    /// when the scope is coarser than `group`), `answer` (the answered node id).
+    #[serde(rename = "DISEASE_NOT_MATCHED")]
+    DiseaseNotMatched,
+    /// The method's stated or inferred treatment classes share NO class with
+    /// the study's ticked classes (the study-answer filter; a HARD reason).
+    /// A `not-stated` method never gets this reason. Params: `made_for` (the
+    /// method's classes joined), `answer` (the ticked classes joined).
+    #[serde(rename = "TREATMENT_NOT_MATCHED")]
+    TreatmentNotMatched,
+    /// The method's group differs from the study's answered group (the
+    /// study-answer filter; a HARD reason). Params: `predicts` (the method's
+    /// group), `answer` (the answered group).
+    #[serde(rename = "OUTCOME_NOT_MATCHED")]
+    OutcomeNotMatched,
 }
 
 impl ReasonCode {
     /// The closed code vocabulary, in documentation order — the compile-time
     /// constant the vocabulary test pins (TEST-MC-27).
-    pub const ALL: [ReasonCode; 14] = [
+    pub const ALL: [ReasonCode; 17] = [
         ReasonCode::RequiredMarkerMissing,
         ReasonCode::MarkerGroupMissing,
         ReasonCode::DetectionCallMissing,
@@ -838,6 +898,9 @@ impl ReasonCode {
         ReasonCode::ResponseLabelMissing,
         ReasonCode::SurvivalOutcomeMissing,
         ReasonCode::MarkerCountUnmet,
+        ReasonCode::DiseaseNotMatched,
+        ReasonCode::TreatmentNotMatched,
+        ReasonCode::OutcomeNotMatched,
     ];
 
     /// The code's wire string.
@@ -857,6 +920,9 @@ impl ReasonCode {
             ReasonCode::ResponseLabelMissing => "RESPONSE_LABEL_MISSING",
             ReasonCode::SurvivalOutcomeMissing => "SURVIVAL_OUTCOME_MISSING",
             ReasonCode::MarkerCountUnmet => "MARKER_COUNT_UNMET",
+            ReasonCode::DiseaseNotMatched => "DISEASE_NOT_MATCHED",
+            ReasonCode::TreatmentNotMatched => "TREATMENT_NOT_MATCHED",
+            ReasonCode::OutcomeNotMatched => "OUTCOME_NOT_MATCHED",
         }
     }
 }
@@ -1008,6 +1074,9 @@ mod tests {
         let _ = schemars::schema_for!(MethodListResponse);
         let _ = schemars::schema_for!(MethodDetail);
         let _ = schemars::schema_for!(MarkerVocabularyResponse);
+        let _ = schemars::schema_for!(PreviewEligibilityRequest);
+        let _ = schemars::schema_for!(InventoryEligibilityRequest);
+        let _ = schemars::schema_for!(StudyAnswers);
         let _ = schemars::schema_for!(EligibilityRequest);
         let _ = schemars::schema_for!(EligibilityResponse);
         let _ = schemars::schema_for!(EstimateResponse);
@@ -1015,16 +1084,16 @@ mod tests {
     }
 
     /// TEST-MC-27 (unit half): the reason-code vocabulary is a CLOSED compile-
-    /// time set — exactly the 14 documented codes, each with a distinct wire
+    /// time set — exactly the 17 documented codes, each with a distinct wire
     /// string, so a consumer's per-code renderer can never meet an
     /// undocumented code and the serde side can never emit duplicates.
     #[test]
     fn reason_code_vocabulary_is_closed_and_distinct() {
-        assert_eq!(ReasonCode::ALL.len(), 14, "the 14 documented codes");
+        assert_eq!(ReasonCode::ALL.len(), 17, "the 17 documented codes");
         let mut wires: Vec<&str> = ReasonCode::ALL.iter().map(|c| c.as_str()).collect();
         wires.sort_unstable();
         wires.dedup();
-        assert_eq!(wires.len(), 14, "wire strings are distinct");
+        assert_eq!(wires.len(), 17, "wire strings are distinct");
         for code in ReasonCode::ALL {
             // The round-trip: serialize → deserialize must yield the same code
             // (the serde renames are the wire strings the engine emits).
@@ -1089,5 +1158,81 @@ mod tests {
             let back: TreatmentConfidence = serde_json::from_value(serde_json::json!(wire)).expect(wire);
             assert_eq!(back, *value, "{wire}");
         }
+    }
+
+    /// The preview carries the study answers as THREE TOP-LEVEL fields (the
+    /// flattening of [`StudyAnswers`]); absent answers are skipped and parse
+    /// back to `None`.
+    #[test]
+    fn preview_study_answers_are_three_top_level_fields() {
+        let preview = PreviewEligibilityRequest {
+            marker_groups: BTreeMap::new(),
+            before_treatment: None,
+            draws_during_treatment: None,
+            last_draw_day: None,
+            study: StudyAnswers {
+                disease_group: Some("lung cancer".to_string()),
+                treatment_classes: Some(vec!["chemotherapy".to_string()]),
+                method_group: Some(MethodGroup::ResponseCall),
+            },
+        };
+        let json = serde_json::to_value(&preview).expect("serialize");
+        assert_eq!(json["disease_group"], "lung cancer");
+        assert_eq!(json["treatment_classes"], serde_json::json!(["chemotherapy"]));
+        assert_eq!(json["method_group"], "response-call");
+        let back: PreviewEligibilityRequest = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back.study, preview.study);
+
+        // An unanswered study block is ABSENT (never an assumed value), and
+        // deserializes back to all-None.
+        let empty = PreviewEligibilityRequest {
+            marker_groups: BTreeMap::new(),
+            before_treatment: None,
+            draws_during_treatment: None,
+            last_draw_day: None,
+            study: StudyAnswers::default(),
+        };
+        let json = serde_json::to_value(&empty).expect("serialize");
+        assert!(json.get("disease_group").is_none());
+        assert!(json.get("treatment_classes").is_none());
+        assert!(json.get("method_group").is_none());
+    }
+
+    /// The inventory carries the study answers as ONE `study` object,
+    /// skipped when absent — an absent answer means "any".
+    #[test]
+    fn inventory_study_block_round_trips_and_is_skipped_when_absent() {
+        let inv = InventoryEligibilityRequest {
+            patients: 1,
+            decision_day: 56.0,
+            baseline_max_day: 0.0,
+            markers: vec![],
+            covariates: vec![],
+            outcomes: None,
+            study: Some(StudyAnswers {
+                disease_group: Some("lung cancer".to_string()),
+                ..Default::default()
+            }),
+        };
+        let json = serde_json::to_value(&inv).expect("serialize");
+        assert_eq!(json["study"]["disease_group"], "lung cancer");
+        let back: InventoryEligibilityRequest = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(back.study, inv.study);
+
+        let without = InventoryEligibilityRequest {
+            study: None,
+            ..inv
+        };
+        let json = serde_json::to_value(&without).expect("serialize");
+        assert!(json.get("study").is_none(), "an absent study block is skipped");
+
+        // A body WITHOUT the `study` key parses to `study: None` — the wire
+        // contract is "absent = any", not a hard default.
+        let json = serde_json::json!({
+            "patients": 1, "decision_day": 56.0, "baseline_max_day": 0.0,
+            "markers": [], "covariates": []
+        });
+        let back: InventoryEligibilityRequest = serde_json::from_value(json).expect("parse");
+        assert_eq!(back.study, None);
     }
 }

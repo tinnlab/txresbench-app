@@ -335,6 +335,7 @@ fn runnable_methods<'c>(
             inventory: inputs.validation.inventory.clone(),
         },
     )
+    .expect("the example picker's inventory carries no study answers")
     .methods
     .into_iter()
     .filter(|m| m.status == EligibilityStatus::CanRun)
@@ -1157,7 +1158,8 @@ mod tests {
             &EligibilityRequest::Inventory {
                 inventory: inputs.validation.inventory.clone(),
             },
-        );
+        )
+        .expect("the example inventory carries no study answers");
         let single_without_list: Vec<String> = verdicts
             .methods
             .iter()
@@ -1776,7 +1778,8 @@ mod tests {
             &EligibilityRequest::Inventory {
                 inventory: cut.validation.inventory.clone(),
             },
-        );
+        )
+        .expect("the example inventory carries no study answers");
         let verdict = verdicts
             .methods
             .iter()

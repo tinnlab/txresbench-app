@@ -22,8 +22,9 @@
 //!   the engine itself stays DB-free; the calibration is an input, like the
 //!   catalogue;
 //! - the typed request/response contract [`types`] (PROV-MC-1..6), which the
-//!   five HTTP endpoints (method list, method detail, marker vocabulary,
-//!   eligibility, estimate) are layered on in this module's `routes` submodule.
+//!   six HTTP endpoints (method list, study options, method detail, marker
+//!   vocabulary, eligibility, estimate) are layered on in this module's
+//!   `routes` submodule.
 
 pub mod calibration;
 pub mod catalogue;
@@ -67,10 +68,11 @@ impl AppModule for MethodCatalogueModule {
     }
 
     fn register_routes(&self, router: ApiRouter) -> ApiRouter {
-        // The five endpoints (method list, method detail, marker vocabulary,
-        // eligibility, estimate) register here from the module's `routes`
-        // submodule; the module ships them under the `/api/methods` prefix with
-        // the reused `projects::use` permission (no new permission — DEC-10).
+        // The six endpoints (method list, study options, method detail,
+        // marker vocabulary, eligibility, estimate) register here from the
+        // module's `routes` submodule; the module ships them under the
+        // `/api/methods` prefix with the reused `projects::use` permission
+        // (no new permission — DEC-10).
         router.merge(routes::method_catalogue_routes())
     }
 }

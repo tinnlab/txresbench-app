@@ -1110,6 +1110,7 @@ async fn method_catalogue_http_equals_the_in_process_seam() {
         }],
         covariates: vec![],
         outcomes: None,
+        study: None,
     };
     let req = EligibilityRequest::Inventory { inventory: inv };
 

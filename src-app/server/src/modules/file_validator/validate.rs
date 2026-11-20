@@ -789,6 +789,9 @@ fn build_inventory(resolved: &ResolvedRequest) -> InventoryEligibilityRequest {
         markers: inv_markers,
         covariates,
         outcomes,
+        // The validator does not see the study answers (they belong to the
+        // screens' study form); the consumer adds the `study` block on top.
+        study: None,
     }
 }
 

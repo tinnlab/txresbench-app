@@ -707,14 +707,23 @@ pub enum PretrainedReasonCode {
     // The engine's marker-count rule (the provider's code, mapped 1:1).
     #[serde(rename = "MARKER_COUNT_UNMET")]
     MarkerCountUnmet,
+    /// The provider's study-answer filters (pretrained entries never receive
+    /// study answers, but the wire language is the provider's — the 1:1
+    /// mapper below keeps the two vocabularies drift-proof).
+    #[serde(rename = "DISEASE_NOT_MATCHED")]
+    DiseaseNotMatched,
+    #[serde(rename = "TREATMENT_NOT_MATCHED")]
+    TreatmentNotMatched,
+    #[serde(rename = "OUTCOME_NOT_MATCHED")]
+    OutcomeNotMatched,
     #[serde(rename = "ASSET_NOT_AVAILABLE")]
     AssetNotAvailable,
 }
 
 impl PretrainedReasonCode {
-    /// The closed code list, in documentation order (14 provider codes + the
+    /// The closed code list, in documentation order (17 provider codes + the
     /// catalogue's own).
-    pub const ALL: [PretrainedReasonCode; 15] = [
+    pub const ALL: [PretrainedReasonCode; 18] = [
         PretrainedReasonCode::RequiredMarkerMissing,
         PretrainedReasonCode::MarkerGroupMissing,
         PretrainedReasonCode::DetectionCallMissing,
@@ -729,6 +738,9 @@ impl PretrainedReasonCode {
         PretrainedReasonCode::ResponseLabelMissing,
         PretrainedReasonCode::SurvivalOutcomeMissing,
         PretrainedReasonCode::MarkerCountUnmet,
+        PretrainedReasonCode::DiseaseNotMatched,
+        PretrainedReasonCode::TreatmentNotMatched,
+        PretrainedReasonCode::OutcomeNotMatched,
         PretrainedReasonCode::AssetNotAvailable,
     ];
 
@@ -749,6 +761,9 @@ impl PretrainedReasonCode {
             PretrainedReasonCode::ResponseLabelMissing => "RESPONSE_LABEL_MISSING",
             PretrainedReasonCode::SurvivalOutcomeMissing => "SURVIVAL_OUTCOME_MISSING",
             PretrainedReasonCode::MarkerCountUnmet => "MARKER_COUNT_UNMET",
+            PretrainedReasonCode::DiseaseNotMatched => "DISEASE_NOT_MATCHED",
+            PretrainedReasonCode::TreatmentNotMatched => "TREATMENT_NOT_MATCHED",
+            PretrainedReasonCode::OutcomeNotMatched => "OUTCOME_NOT_MATCHED",
             PretrainedReasonCode::AssetNotAvailable => "ASSET_NOT_AVAILABLE",
         }
     }
@@ -771,6 +786,9 @@ impl PretrainedReasonCode {
             ReasonCode::ResponseLabelMissing => PretrainedReasonCode::ResponseLabelMissing,
             ReasonCode::SurvivalOutcomeMissing => PretrainedReasonCode::SurvivalOutcomeMissing,
             ReasonCode::MarkerCountUnmet => PretrainedReasonCode::MarkerCountUnmet,
+            ReasonCode::DiseaseNotMatched => PretrainedReasonCode::DiseaseNotMatched,
+            ReasonCode::TreatmentNotMatched => PretrainedReasonCode::TreatmentNotMatched,
+            ReasonCode::OutcomeNotMatched => PretrainedReasonCode::OutcomeNotMatched,
         }
     }
 }
@@ -1039,8 +1057,8 @@ mod tests {
     fn reason_code_vocabulary_is_closed_and_maps_provider_codes() {
         assert_eq!(
             PretrainedReasonCode::ALL.len(),
-            15,
-            "14 provider codes + ASSET_NOT_AVAILABLE"
+            18,
+            "17 provider codes + ASSET_NOT_AVAILABLE"
         );
         let mut wires: Vec<&str> = PretrainedReasonCode::ALL
             .iter()
@@ -1048,7 +1066,7 @@ mod tests {
             .collect();
         wires.sort_unstable();
         wires.dedup();
-        assert_eq!(wires.len(), 15, "wire strings are distinct");
+        assert_eq!(wires.len(), 18, "wire strings are distinct");
         for code in PretrainedReasonCode::ALL {
             let json = serde_json::to_value(code).expect("serialize");
             let back: PretrainedReasonCode =
@@ -1059,7 +1077,7 @@ mod tests {
 
         assert_eq!(
             crate::modules::method_catalogue::types::ReasonCode::ALL.len(),
-            14,
+            17,
             "the provider vocabulary"
         );
         let mut mapped: Vec<&str> = ReasonCode::ALL
@@ -1070,8 +1088,8 @@ mod tests {
         mapped.dedup();
         assert_eq!(
             mapped.len(),
-            14,
-            "the 14 provider codes map 1:1, no collisions"
+            17,
+            "the 17 provider codes map 1:1, no collisions"
         );
     }
 
@@ -1107,6 +1125,7 @@ mod tests {
                 has_event: true,
                 has_survival_day: true,
             }),
+            study: None,
         };
 
         // The provider's own union wraps THE SAME value (imported type): the

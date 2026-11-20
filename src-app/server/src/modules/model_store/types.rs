@@ -713,14 +713,23 @@ pub enum ModelReasonCode {
     // The engine's marker-count rule (the provider's code, mapped 1:1).
     #[serde(rename = "MARKER_COUNT_UNMET")]
     MarkerCountUnmet,
+    /// The provider's study-answer filters (the store's saved models never
+    /// receive study answers, but the wire language is the provider's — the
+    /// 1:1 mapper below keeps the two vocabularies drift-proof).
+    #[serde(rename = "DISEASE_NOT_MATCHED")]
+    DiseaseNotMatched,
+    #[serde(rename = "TREATMENT_NOT_MATCHED")]
+    TreatmentNotMatched,
+    #[serde(rename = "OUTCOME_NOT_MATCHED")]
+    OutcomeNotMatched,
     #[serde(rename = "MODEL_REQUIREMENTS_UNRECORDED")]
     ModelRequirementsUnrecorded,
 }
 
 impl ModelReasonCode {
-    /// The closed code list, in documentation order (14 provider codes + the
+    /// The closed code list, in documentation order (17 provider codes + the
     /// store's own).
-    pub const ALL: [ModelReasonCode; 15] = [
+    pub const ALL: [ModelReasonCode; 18] = [
         ModelReasonCode::RequiredMarkerMissing,
         ModelReasonCode::MarkerGroupMissing,
         ModelReasonCode::DetectionCallMissing,
@@ -735,6 +744,9 @@ impl ModelReasonCode {
         ModelReasonCode::ResponseLabelMissing,
         ModelReasonCode::SurvivalOutcomeMissing,
         ModelReasonCode::MarkerCountUnmet,
+        ModelReasonCode::DiseaseNotMatched,
+        ModelReasonCode::TreatmentNotMatched,
+        ModelReasonCode::OutcomeNotMatched,
         ModelReasonCode::ModelRequirementsUnrecorded,
     ];
 
@@ -755,6 +767,9 @@ impl ModelReasonCode {
             ModelReasonCode::ResponseLabelMissing => "RESPONSE_LABEL_MISSING",
             ModelReasonCode::SurvivalOutcomeMissing => "SURVIVAL_OUTCOME_MISSING",
             ModelReasonCode::MarkerCountUnmet => "MARKER_COUNT_UNMET",
+            ModelReasonCode::DiseaseNotMatched => "DISEASE_NOT_MATCHED",
+            ModelReasonCode::TreatmentNotMatched => "TREATMENT_NOT_MATCHED",
+            ModelReasonCode::OutcomeNotMatched => "OUTCOME_NOT_MATCHED",
             ModelReasonCode::ModelRequirementsUnrecorded => "MODEL_REQUIREMENTS_UNRECORDED",
         }
     }
@@ -778,6 +793,9 @@ impl ModelReasonCode {
             ReasonCode::ResponseLabelMissing => ModelReasonCode::ResponseLabelMissing,
             ReasonCode::SurvivalOutcomeMissing => ModelReasonCode::SurvivalOutcomeMissing,
             ReasonCode::MarkerCountUnmet => ModelReasonCode::MarkerCountUnmet,
+            ReasonCode::DiseaseNotMatched => ModelReasonCode::DiseaseNotMatched,
+            ReasonCode::TreatmentNotMatched => ModelReasonCode::TreatmentNotMatched,
+            ReasonCode::OutcomeNotMatched => ModelReasonCode::OutcomeNotMatched,
         }
     }
 }
@@ -1061,6 +1079,7 @@ mod tests {
             markers: vec![],
             covariates: vec![],
             outcomes: None,
+            study: None,
         };
         let eligibility_req =
             |model_ids: Vec<String>| ModelEligibilityRequest {
