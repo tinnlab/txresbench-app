@@ -639,15 +639,15 @@ pub(crate) fn build_timeline(resolved: &ResolvedRequest) -> FileTimeline {
         // `filter_map` on `row.marker.text()?`), so it is never a draw.
         let Some(marker) = row.marker.text() else { continue };
         // The engine's `draw_status` skips companion rows; resolve the row's
-        // feature the way the canonical bundle does (the join key, else the
-        // raw spelling) and skip companions so the timeline counts the draws
-        // the engine sees.
-        let feature = resolved
+        // marker name the way the canonical bundle does (the join key, else
+        // the raw spelling) and skip companions so the timeline counts the
+        // draws the engine sees.
+        let resolved_name = resolved
             .joined_groups
             .get(&normalize_marker_name(marker))
             .cloned()
             .unwrap_or_else(|| marker.to_string());
-        if is_companion(&feature) {
+        if is_companion(&resolved_name) {
             continue;
         }
         if let Some(day) = row.day.parse_f64() {
