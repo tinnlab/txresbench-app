@@ -582,6 +582,193 @@ describe('ITEM-6 F2/F3/F4/F12 — the mapping step, the no-data-rows gate, the p
   })
 })
 
+describe('step3-file-cards — the messages row under the cards, files can always be changed', () => {
+  /** Clean inspections + a validation with one exact-matched marker and the
+   *  given problems: no join / vocab / column offer, so the problem list
+   *  shows (R2-4 hides it while an offer is pending). */
+  function cleanFlow(problems: ValidationResponse['problems'] = []) {
+    const inspections = inspectionFixtures()
+    inspections.patients.problems = []
+    inspections.measurements.problems = []
+    api.inspect.mockImplementation((request: FileInspectionRequest) =>
+      Promise.resolve(inspections[request.kind]),
+    )
+    api.validate.mockResolvedValue(
+      validationFixture({ problems, markers: [markerColumn({ spellings: ['ldh'] })] }),
+    )
+  }
+
+  async function pickBoth() {
+    pickFile('txr-intake-file-drop-patients', 'my_patients.csv', PATIENTS_CSV)
+    await waitFor(() => expect(api.inspect).toHaveBeenCalledTimes(1))
+    pickFile('txr-intake-file-drop-measurements', 'my_draws.csv', MEASUREMENTS_CSV)
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
+  }
+
+  it('the messages render in ONE row below the cards, not inside them; patients first, titled', async () => {
+    renderFiles()
+    // No file: no row at all.
+    expect(screen.queryByTestId('txr-intake-file-messages')).toBeNull()
+    await pickBoth()
+    await waitFor(() => expect(screen.getByText('✓ 2 patients read')).toBeTruthy())
+
+    const row = screen.getByTestId('txr-intake-file-messages')
+    const patientsCard = screen.getByTestId('txr-intake-file-card-patients')
+    const measurementsCard = screen.getByTestId('txr-intake-file-card-measurements')
+    // The row follows BOTH cards and is not inside either.
+    expect(
+      measurementsCard.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(patientsCard.contains(row) || measurementsCard.contains(row)).toBe(false)
+    // The status boxes, the problem list and the offers live in the row only.
+    for (const card of [patientsCard, measurementsCard]) {
+      expect(card.querySelector('[data-testid^="txr-intake-file-status-"]')).toBeNull()
+      expect(card.querySelector('[data-testid^="txr-intake-join-offer-"]')).toBeNull()
+      expect(card.querySelector('[data-testid^="txr-intake-vocab-offer-"]')).toBeNull()
+      expect(card.querySelector('[data-testid^="txr-intake-column-offer-"]')).toBeNull()
+    }
+    const blocks = row.querySelectorAll(':scope > section')
+    expect([...blocks].map(block => block.getAttribute('data-testid'))).toEqual([
+      'txr-intake-file-messages-patients',
+      'txr-intake-file-messages-measurements',
+    ])
+    expect(screen.getByTestId('txr-intake-file-messages-title-patients').textContent).toBe(
+      'Patients file: my_patients.csv',
+    )
+    expect(screen.getByTestId('txr-intake-file-messages-title-measurements').textContent).toBe(
+      'Measurements file: my_draws.csv',
+    )
+    expect(
+      within(blocks[0] as HTMLElement).getByTestId('txr-intake-file-status-patients'),
+    ).toBeTruthy()
+    expect(
+      within(blocks[1] as HTMLElement).getByTestId('txr-intake-file-status-measurements'),
+    ).toBeTruthy()
+    // The preview stays on the card.
+    expect(within(patientsCard).getByText('Example (first rows)')).toBeTruthy()
+  })
+
+  it('the offers sit in the row and still accept / reject through the store', async () => {
+    renderFiles()
+    pickFile('txr-intake-file-drop-patients', 'patients.csv', PATIENTS_CSV)
+    await waitFor(() => expect(api.inspect).toHaveBeenCalledTimes(1))
+    pickFile('txr-intake-file-drop-measurements', 'measurements.csv', MEASUREMENTS_CSV)
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
+    const block = screen.getByTestId('txr-intake-file-messages-measurements')
+    await waitFor(() => expect(within(block).getByTestId('txr-intake-join-offer-ldh')).toBeTruthy())
+    expect(within(block).getByTestId('txr-intake-vocab-offer-cea')).toBeTruthy()
+    // The offers exist now — and NOT inside either card.
+    const measurementsCard = screen.getByTestId('txr-intake-file-card-measurements')
+    const patientsCard = screen.getByTestId('txr-intake-file-card-patients')
+    for (const card of [measurementsCard, patientsCard]) {
+      expect(within(card).queryByTestId('txr-intake-join-offer-ldh')).toBeNull()
+      expect(within(card).queryByTestId('txr-intake-vocab-offer-cea')).toBeNull()
+    }
+    expect(screen.getByTestId('txr-intake-file-messages').contains(
+      screen.getByTestId('txr-intake-join-offer-ldh'),
+    )).toBe(true)
+    api.validate.mockResolvedValue(validationFixture({ problems: [row14Problem, row88Problem] }))
+    fireEvent.click(within(block).getByTestId('txr-intake-join-accept-ldh'))
+    await waitFor(() => {
+      expect(store().joins).toEqual([{ variants: ['ldh', 'LDH'], key: 'ldh' }])
+    })
+    fireEvent.click(within(block).getByTestId('txr-intake-vocab-decline-cea'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('txr-intake-vocab-offer-cea')).toBeNull()
+    })
+    expect(store().mapping.some(entry => entry.key === 'cea')).toBe(false)
+  })
+
+  it('a problem about both files (a patient missing from the patients file) shows ONCE', async () => {
+    cleanFlow([row88Problem])
+    renderFiles()
+    await pickBoth()
+    await waitFor(() => {
+      expect(screen.getByTestId('txr-intake-file-problems-measurements')).toBeTruthy()
+    })
+    const lines = [
+      ...document.querySelectorAll(
+        '[data-testid="txr-intake-file-problems-patients"] > li, [data-testid="txr-intake-file-problems-measurements"] > li, [data-testid="txr-intake-file-notes-patients"] > li, [data-testid="txr-intake-file-notes-measurements"] > li',
+      ),
+    ]
+      // The problem LINES (the last item of each list is the codes disclosure,
+      // which names the message again next to its code).
+      .filter(line => line.querySelector('details') === null)
+      .filter(line => (line.textContent ?? '').includes('P0187 is not in the patients table'))
+    expect(lines).toHaveLength(1)
+    expect(
+      screen.getByTestId('txr-intake-file-messages-measurements').contains(lines[0]),
+    ).toBe(true)
+    expect(
+      within(screen.getByTestId('txr-intake-file-messages-patients')).queryByText(/P0187/),
+    ).toBeNull()
+  })
+
+  it('changing the patients file after the pair validated re-runs the check', async () => {
+    cleanFlow()
+    renderFiles()
+    await pickBoth()
+    await waitFor(() => expect(continueButton().disabled).toBe(false))
+
+    fireEvent.click(screen.getByTestId('txr-intake-file-choose-again-patients'))
+    expect(store().patients).toBeNull()
+    expect(store().validation).toBeNull()
+    expect(continueButton().disabled).toBe(true)
+    expect(screen.queryByTestId('txr-intake-file-messages-patients')).toBeNull()
+    // The measurements block stays, now waiting for the other file.
+    expect(
+      within(screen.getByTestId('txr-intake-file-messages-measurements')).getByText(
+        'We check the files once both are here.',
+      ),
+    ).toBeTruthy()
+
+    pickFile('txr-intake-file-drop-patients', 'patients_v2.csv', PATIENTS_CSV)
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(continueButton().disabled).toBe(false))
+    expect(screen.getByTestId('txr-intake-file-messages-title-patients').textContent).toBe(
+      'Patients file: patients_v2.csv',
+    )
+  })
+
+  it('changing the measurements file after the pair validated re-runs the check', async () => {
+    cleanFlow()
+    renderFiles()
+    await pickBoth()
+    await waitFor(() => expect(continueButton().disabled).toBe(false))
+
+    fireEvent.click(screen.getByTestId('txr-intake-file-choose-again-measurements'))
+    expect(store().measurements).toBeNull()
+    expect(store().validation).toBeNull()
+    expect(continueButton().disabled).toBe(true)
+    expect(screen.queryByTestId('txr-intake-file-messages-measurements')).toBeNull()
+
+    pickFile('txr-intake-file-drop-measurements', 'draws_v2.csv', MEASUREMENTS_CSV)
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(continueButton().disabled).toBe(false))
+    expect(screen.getByTestId('txr-intake-file-messages-title-measurements').textContent).toBe(
+      'Measurements file: draws_v2.csv',
+    )
+  })
+
+  it('both cards keep "Choose a different file" once the pair checks out (good and with notes)', async () => {
+    cleanFlow([{ ...row88Problem, severity: 'warning' as const }])
+    renderFiles()
+    await pickBoth()
+    await waitFor(() => expect(screen.getByText('Ready, with 1 note')).toBeTruthy())
+    // Patients: the plain ready box; measurements: ready with notes.
+    expect(
+      within(screen.getByTestId('txr-intake-file-card-patients')).getByTestId(
+        'txr-intake-file-choose-again-patients',
+      ),
+    ).toBeTruthy()
+    expect(
+      within(screen.getByTestId('txr-intake-file-card-measurements')).getByTestId(
+        'txr-intake-file-choose-again-measurements',
+      ),
+    ).toBeTruthy()
+  })
+})
+
 describe('demo mode (ITEM-6) — the example cards replace the upload surface', () => {
   it('auto-adopts the example pair; no drop zone, no file input, no Clear example; downloads stay', async () => {
     seedDemoMode('demo')

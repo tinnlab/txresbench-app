@@ -133,7 +133,9 @@ function seedValidation(validation: ValidationResponse) {
 }
 
 function renderCard(
-  props: Partial<Pick<TxrFileCardProps, 'kind' | 'mode' | 'file' | 'busy' | 'error' | 'savedPath'>> = {},
+  props: Partial<
+    Pick<TxrFileCardProps, 'kind' | 'mode' | 'file' | 'busy' | 'error' | 'savedPath' | 'messages'>
+  > = {},
 ) {
   const callbacks = {
     onPick: vi.fn(),
@@ -156,6 +158,7 @@ function renderCard(
         busy={props.busy ?? false}
         error={props.error ?? null}
         savedPath={props.savedPath ?? null}
+        messages={props.messages}
         {...callbacks}
       />
     </MemoryRouter>,
@@ -738,5 +741,119 @@ describe('ITEM-6 F2/F5/F11 - the mapping offer, the honest problem box, the alig
     renderCard({ kind: 'measurements' })
     const mTable = screen.getByText('a number').closest('table') as HTMLElement
     expect((mTable.querySelector('tr')?.cells[0] as HTMLElement).style.minWidth).toBe('168px')
+  })
+})
+
+describe('step3-file-cards — the messages leave the card, the file can always be changed', () => {
+  /** A measurements file (the patients fixture under the other kind's name). */
+  function loadedMeasurements(overrides: Partial<LoadedFile> = {}): LoadedFile {
+    return loadedPatients({
+      source: { name: 'measurements.csv', format: 'csv' },
+      inspection: inspectionFixture({ kind: 'measurements', source_name: 'measurements.csv' }),
+      ...overrides,
+    })
+  }
+
+  /** The four card states a chosen file can be in (B: neutral, good, notes, errors). */
+  const STATES: Array<{
+    name: string
+    file: (kind: 'patients' | 'measurements') => LoadedFile
+    validation: ValidationResponse | null
+    /** The other study slot holds a file (the check can run). */
+    sibling?: boolean
+    heading: string | RegExp
+  }> = [
+    {
+      name: 'neutral (waiting for the other file)',
+      file: kind => (kind === 'patients' ? loadedPatients() : loadedMeasurements()),
+      validation: null,
+      heading: '151 rows read',
+    },
+    {
+      name: 'checking (the other file is here, the check is running)',
+      file: kind => (kind === 'patients' ? loadedPatients() : loadedMeasurements()),
+      validation: null,
+      sibling: true,
+      heading: 'Checking the file…',
+    },
+    {
+      name: 'good',
+      file: kind => (kind === 'patients' ? loadedPatients() : loadedMeasurements()),
+      validation: patientsValidation(),
+      heading: /✓ \d+ patients read/,
+    },
+    {
+      name: 'good with notes',
+      file: kind =>
+        (kind === 'patients' ? loadedPatients : loadedMeasurements)({ problems: [row88Problem] }),
+      validation: patientsValidation(),
+      heading: 'Ready, with 1 note',
+    },
+    {
+      name: 'errors',
+      file: kind =>
+        (kind === 'patients' ? loadedPatients : loadedMeasurements)({ problems: [row14Problem] }),
+      validation: patientsValidation({ problems: [row14Problem] }),
+      heading: '1 problem in 151 rows',
+    },
+  ]
+
+  for (const kind of ['patients', 'measurements'] as const) {
+    for (const state of STATES) {
+      it(`the ${kind} card offers "Choose a different file" when ${state.name}`, () => {
+        if (state.validation !== null) seedValidation(state.validation)
+        if (state.sibling === true) {
+          useTxrIntakeStore.setState(
+            kind === 'patients' ? { measurements: loadedMeasurements() } : { patients: loadedPatients() },
+          )
+        }
+        const callbacks = renderCard({ kind, file: state.file(kind) })
+        // The inline mount still shows the state (the right one is tested).
+        const status = screen.getByTestId(`txr-intake-file-status-${kind}`)
+        expect(within(status).getByText(state.heading)).toBeTruthy()
+        if (state.sibling === true) {
+          expect(within(status).getByRole('status', { name: 'Checking the file' })).toBeTruthy()
+        }
+        // The link sits on the CARD, outside the status box, in every state.
+        const card = screen.getByTestId(`txr-intake-file-card-${kind}`)
+        const link = within(card).getByTestId(`txr-intake-file-choose-again-${kind}`)
+        expect(link.textContent).toBe('Choose a different file')
+        expect(status.contains(link)).toBe(false)
+        fireEvent.click(link)
+        expect(callbacks.onRemove).toHaveBeenCalledTimes(1)
+        cleanup()
+        // The row mount keeps the same link on the card.
+        renderCard({ kind, file: state.file(kind), messages: 'row' })
+        expect(screen.getByTestId(`txr-intake-file-choose-again-${kind}`)).toBeTruthy()
+      })
+    }
+  }
+
+  it('no file: the drop zone, no "Choose a different file"', () => {
+    renderCard()
+    expect(screen.getByTestId('txr-intake-file-drop-patients')).toBeTruthy()
+    expect(screen.queryByTestId('txr-intake-file-choose-again-patients')).toBeNull()
+  })
+
+  it('with messages "row" the card keeps the preview and shows no status, list or offer', () => {
+    const offer = { from: 'pid', to: 'patient_id' }
+    const file = loadedPatients({
+      problems: [row14Problem, row88Problem],
+      inspection: inspectionFixture({ problems: [row14Problem] }),
+      joinOffers: [joinOffer],
+      columnOffers: [offer],
+    })
+    seedValidation(patientsValidation({ problems: [row14Problem, row88Problem] }))
+    renderCard({ file, messages: 'row' })
+    const card = screen.getByTestId('txr-intake-file-card-patients')
+    expect(within(card).getByText('Example (first rows)')).toBeTruthy()
+    expect(within(card).getByText('P0001')).toBeTruthy()
+    expect(within(card).getByTestId('txr-intake-download-template-patients')).toBeTruthy()
+    expect(screen.queryByTestId('txr-intake-file-status-patients')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-file-problems-patients')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-file-notes-patients')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-join-offer-ldh')).toBeNull()
+    expect(screen.queryByTestId('txr-intake-column-offer-pid')).toBeNull()
+    expect(screen.queryByText('Fix and choose the file again')).toBeNull()
   })
 })

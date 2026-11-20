@@ -390,6 +390,52 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
   })
 })
 
+describe('step3-file-cards — the predict screen uses the messages row too', () => {
+  it('the status box and the offers render in the row under the card, titled with the file name', async () => {
+    renderPredict()
+    expect(screen.queryByTestId('txr-intake-file-messages')).toBeNull()
+    pickMeasurements('predict_measurements.csv', MEASUREMENTS_CSV)
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
+
+    const card = screen.getByTestId('txr-intake-file-card-measurements')
+    const row = screen.getByTestId('txr-intake-file-messages')
+    expect(card.contains(row)).toBe(false)
+    expect(card.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByTestId('txr-intake-file-messages-title-measurements').textContent).toBe(
+      'Measurements file: predict_measurements.csv',
+    )
+    expect(row.querySelectorAll(':scope > section')).toHaveLength(1)
+    const block = screen.getByTestId('txr-intake-file-messages-measurements')
+    expect(within(block).getByTestId('txr-intake-file-status-measurements')).toBeTruthy()
+    // The offer arrives with the validate round: wait for it IN the block, so
+    // the card-absence checks below run after it exists.
+    expect(await within(block).findByTestId('txr-intake-vocab-offer-cea')).toBeTruthy()
+    expect(card.querySelector('[data-testid^="txr-intake-file-status-"]')).toBeNull()
+    expect(card.querySelector('[data-testid^="txr-intake-vocab-offer-"]')).toBeNull()
+  })
+
+  it('"Choose a different file" stays on the card once the file checks out, and a new pick re-checks', async () => {
+    api.validate.mockResolvedValue(validationFixture({ markers: [markerColumn({ spellings: ['ldh'] })] }))
+    renderPredict()
+    pickMeasurements('predict_measurements.csv', MEASUREMENTS_CSV)
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(continueButton().disabled).toBe(false))
+
+    const card = screen.getByTestId('txr-intake-file-card-measurements')
+    fireEvent.click(within(card).getByTestId('txr-intake-file-choose-again-measurements'))
+    expect(store().predictMeasurements).toBeNull()
+    expect(continueButton().disabled).toBe(true)
+    expect(screen.queryByTestId('txr-intake-file-messages')).toBeNull()
+
+    pickMeasurements('predict_v2.csv', MEASUREMENTS_CSV)
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(continueButton().disabled).toBe(false))
+    expect(screen.getByTestId('txr-intake-file-messages-title-measurements').textContent).toBe(
+      'Measurements file: predict_v2.csv',
+    )
+  })
+})
+
 describe("ITEM-6 P1/F4 — the aside's bullets and items, the pick guard", () => {
   it('the aside list keeps the board dots and the lead-in runs INLINE with its fact (P1)', () => {
     renderPredict()

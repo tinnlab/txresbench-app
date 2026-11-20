@@ -24,6 +24,7 @@ import {
 import { fetchTemplateCsv, downloadText, templateFilename, templateSaveError } from '../lib/download'
 import { ROUTE_CONVENTIONS } from '../module'
 import { TxrFileCard } from '../components/TxrFileCard'
+import { TxrFileMessagesRow } from '../components/TxrFileMessages'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
 import { TxrStepBack, TxrStepLine, useStepBack } from '../components/TxrStepBack'
 import { CLEAR_EXAMPLE_LABEL, EXAMPLE_BANNER, runExampleFlow } from '../lib/example'
@@ -593,6 +594,7 @@ export function PredictFilesPage() {
                     error={cardError}
                     savedPath={cardSaved}
                     isExample={exampleSlots.predictMeasurements}
+                    messages="row"
                     onPick={picked => void handlePick('measurements', picked)}
                     onRemove={handleRemove}
                     onAcceptJoin={acceptJoin}
@@ -603,6 +605,20 @@ export function PredictFilesPage() {
                     onRejectColumn={rejectColumn}
                     onDownloadTemplate={() => void downloadCsv('template')}
                     onDownloadExample={() => void downloadCsv('example')}
+                  />
+                )}
+                {/* step3-file-cards: the C screen's layout — the check's
+                    messages in their own full-width row under the card. */}
+                {isDemo ? null : (
+                  <TxrFileMessagesRow
+                    mode="predict"
+                    slots={[{ kind: 'measurements', file, onRemove: handleRemove }]}
+                    onAcceptJoin={acceptJoin}
+                    onRejectJoin={rejectJoin}
+                    onAcceptVocab={acceptVocab}
+                    onRejectVocab={rejectVocab}
+                    onAcceptColumn={acceptColumn}
+                    onRejectColumn={rejectColumn}
                   />
                 )}
               </div>
