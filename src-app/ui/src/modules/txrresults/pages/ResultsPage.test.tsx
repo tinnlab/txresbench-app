@@ -822,6 +822,14 @@ describe("ResultsPage — the methods' own results (B)", () => {
     expect(within(section).getByTestId('txr-own-chance-mark-lm-cox-a').textContent).toBe(
       'chance above is its own',
     )
+    // Each header says what the method returned: lm-cox-a has yes/no answers,
+    // rsf-b only a score (the group label is gone from this table).
+    expect(within(section).getByTestId('txr-own-returned-lm-cox-a').textContent).toBe(
+      'Yes/no answer and score',
+    )
+    expect(within(section).getByTestId('txr-own-returned-rsf-b').textContent).toBe(
+      'Score (higher = more likely failing)',
+    )
     // The same rows in the same order as the chance table (its default
     // window: 100 rows, average-desc).
     const ownIds = rowIds(section, 'txr-own-row-')
