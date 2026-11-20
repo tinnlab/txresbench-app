@@ -1938,9 +1938,19 @@ mod tests {
         // The first app reopened: paused too.
         assert_eq!(SetupState::new(first.clone()).status(Some(WslStatus::Missing)).retry_in_secs, Some(40));
 
+        // After the pause the second app asks, and gets a No: the first
+        // app's own decline is over, the second app's pauses it.
         beside.pass(40);
         assert_eq!(second.status(Some(WslStatus::Missing)).retry_in_secs, None);
-        assert_eq!(run_on(&second, WslStatus::Missing, other).outcome, WslSetupOutcome::Done, "offered again");
+        let no = Arc::new(FakeHost { yes: false, ..FakeHost::new(exited(0, ""), WslStatus::Missing) });
+        assert_eq!(run_on(&second, WslStatus::Missing, no.clone()).outcome, WslSetupOutcome::Declined, "offered again");
+        assert_eq!(no.questions().len(), 1);
+        first.pass(45);
+        assert_eq!(state.status(Some(WslStatus::Missing)).retry_in_secs, Some(55), "the later decline counts");
+        let e = start(&state, Some(WslStatus::Missing), other.clone()).expect_err("declined in the second app");
+        assert_eq!(e.error_code(), WSL_SETUP_DECLINED_RECENTLY_CODE);
+        first.pass(55);
+        assert_eq!(run_on(&state, WslStatus::Missing, other).outcome, WslSetupOutcome::Done, "offered again");
     }
 
     /// The setup's thread that panics ends the setup as failed: the slot is
