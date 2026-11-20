@@ -663,12 +663,30 @@ fn state() -> Arc<SetupState> {
     Arc::clone(&STATE)
 }
 
-/// The probe's status of this PC when methods cannot run because of WSL
-/// (Windows); `None` elsewhere.
+/// Set once when this process is the desktop app ([`mark_desktop_app`]).
+static DESKTOP_APP: OnceLock<()> = OnceLock::new();
+
+/// This process is the desktop app: called once by its server at start
+/// (`boot_in_background`), and by nothing else. Only the desktop app offers
+/// a setup.
+pub fn mark_desktop_app() {
+    let _ = DESKTOP_APP.set(());
+}
+
+/// The probe's status `probe` where a setup may be offered: in the desktop
+/// app (`desktop`) only. Elsewhere there is nothing to set up.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))] // tests use it everywhere
+fn offered_for(desktop: bool, probe: Option<WslStatus>) -> Option<WslStatus> {
+    probe.filter(|_| desktop)
+}
+
+/// The probe's status of this PC when methods cannot run because of WSL, in
+/// the desktop app on Windows ([`offered_for`]); `None` elsewhere, so a
+/// headless server offers no setup.
 fn boot_status() -> Option<WslStatus> {
     #[cfg(target_os = "windows")]
     {
-        super::wsl_run::probe_wsl_status()
+        offered_for(DESKTOP_APP.get().is_some(), super::wsl_run::probe_wsl_status())
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -689,33 +707,12 @@ fn runner_unavailable() -> Option<String> {
     }
 }
 
-/// Set once when this process is the desktop app ([`mark_desktop_app`]).
-static DESKTOP_APP: OnceLock<()> = OnceLock::new();
-
-/// This process is the desktop app: called once by its server at start
-/// (`boot_in_background`), and by nothing else. Only the desktop app offers
-/// a setup.
-pub fn mark_desktop_app() {
-    let _ = DESKTOP_APP.set(());
-}
-
-/// The probe's status `probe` where a setup may be offered: in the desktop
-/// app (`desktop`) only. Elsewhere there is nothing to set up.
-fn offered_for(desktop: bool, probe: Option<WslStatus>) -> Option<WslStatus> {
-    probe.filter(|_| desktop)
-}
-
-/// The probe's status where this process may offer a setup ([`offered_for`]).
-fn setup_status() -> Option<WslStatus> {
-    offered_for(DESKTOP_APP.get().is_some(), boot_status())
-}
-
 /// Windows, while methods cannot run: why (the probe's sentence), and the
 /// setup's status for the notice (no offer outside the desktop app). `None`
 /// when methods can run and on other systems.
 pub fn notice() -> Option<(String, WslSetupStatus)> {
     let why = runner_unavailable()?;
-    Some((why, state().status(setup_status())))
+    Some((why, state().status(boot_status())))
 }
 
 /// `POST /api/sandbox/wsl/setup` after its permission check (the local API
@@ -723,7 +720,7 @@ pub fn notice() -> Option<(String, WslSetupStatus)> {
 /// and the answer is its status (`running`). Refused (409) where nothing is
 /// offered, and in any process that is not the desktop app.
 pub fn start_here() -> Result<WslSetupStatus, AppError> {
-    start(&state(), setup_status(), system_host())
+    start(&state(), boot_status(), system_host())
 }
 
 /// This PC, for the setup's state.
@@ -1635,7 +1632,7 @@ mod tests {
     #[test]
     fn the_route_outside_the_desktop_app_refuses() {
         assert!(DESKTOP_APP.get().is_none(), "no test marks itself the desktop app");
-        assert_eq!(setup_status(), None);
+        assert_eq!(boot_status(), None);
         let e = start_here().expect_err("not the desktop app");
         assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_NOT_OFFERED_CODE));
     }
