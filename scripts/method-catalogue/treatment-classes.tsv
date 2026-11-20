@@ -1,7 +1,7 @@
 # Each treatment class of the benchmark (as written per method) -> the base classes it is made of
 # (separated by ";", empty = none: the method always stays). Reviewed in the PR; judgment calls:
 # "radiotherapy or chemoradiotherapy" -> chemotherapy and radiotherapy (15 of its 17 methods involve chemotherapy; a method stays unless it shares nothing); "neoadjuvant systemic therapy" -> chemotherapy;
-# "systemic radiopharmaceutical (drug)" -> radiotherapy; the myeloma combination drops its optional anti-CD38 antibody.
+# "systemic radiopharmaceutical (drug)" (a targeted radioligand) -> radiotherapy and targeted therapy; the anti-CD20 + alkylating agent + corticosteroid regimen -> biologic immunomodulator, chemotherapy, corticosteroid; the myeloma combination drops its optional anti-CD38 antibody.
 # Columns: benchmark_class<TAB>base_classes.
 # The last five rows are not benchmark classes: they refine methods the benchmark files under "other drug" (see method-treatment.tsv).
 benchmark_class	base_classes
@@ -29,6 +29,6 @@ other drug	other drug
 proteasome inhibitor + immunomodulatory drug (IMiD) + corticosteroid (+ anti-CD38 monoclonal antibody)	targeted therapy;small-molecule immunomodulator or immunosuppressant;corticosteroid
 radiotherapy or chemoradiotherapy	chemotherapy;radiotherapy
 small-molecule immunomodulator or immunosuppressant	small-molecule immunomodulator or immunosuppressant
-systemic radiopharmaceutical (drug)	radiotherapy
+systemic radiopharmaceutical (drug)	radiotherapy;targeted therapy
 targeted therapy	targeted therapy
 vaccine	vaccine
