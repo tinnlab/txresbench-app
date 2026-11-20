@@ -249,8 +249,9 @@ describe('WslSetupNotice', () => {
       expect(isContextActive(WSL_SETUP_CONTEXT)).toBe(false)
 
       // The server answers at once: the setup runs (it waits for the person's Yes).
+      // The answer itself says so, even when the read after it fails.
       const running = { offer: 'install' as const, running: true }
-      api.listEnvs.mockResolvedValue(envs(running))
+      api.listEnvs.mockRejectedValue(new Error('offline'))
       await act(async () => {
         answer(running)
         await vi.advanceTimersByTimeAsync(0)
@@ -258,6 +259,11 @@ describe('WslSetupNotice', () => {
       expect(screen.getByTestId('txr-wsl-notice-status').textContent).toBe(WSL_RUNNING_LINE)
       expect(screen.getByTestId('txr-wsl-notice-setup').getAttribute('aria-busy')).toBe('true')
       expect(isContextActive(WSL_SETUP_CONTEXT)).toBe(false)
+      api.listEnvs.mockResolvedValue(envs(running))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+      expect(screen.getByTestId('txr-wsl-notice-status').textContent).toBe(WSL_RUNNING_LINE)
 
       // Its end comes with a later read.
       const done = result({ outcome: 'done', restart_windows: true })
