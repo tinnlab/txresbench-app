@@ -564,7 +564,7 @@ impl ListRuntime {
         let in_use = self.current();
         match choose(&in_use, &list) {
             Choice::Newer => {
-                if let Err(e) = list.keeps_rows_of(&in_use) {
+                if let Err(e) = list.keeps_rows_of(&in_use).and_then(|()| list.keeps_bases_of(&in_use)) {
                     return self.refuse(digest, e.code(), &e.to_string());
                 }
                 let stored = self.store.write_list(&fetched.list, &fetched.signature);
@@ -1400,6 +1400,22 @@ mod tests {
         assert_eq!(status.last_check, CheckResult::Refused);
         assert!(status.last_error.unwrap().contains("METHOD_LIST_ROW_REMOVED"));
         assert_eq!(rt.current().sequence, 1);
+    }
+
+    #[tokio::test]
+    async fn a_list_that_drops_the_bases_is_refused() {
+        let root = scratch("bases-dropped");
+        let baseless = signed_doc(2, 0, |d| {
+            d["images"].as_object_mut().unwrap().remove("bases");
+        });
+        let source = Arc::new(FakeSource::default());
+        source.publish(&digest(2), Ok(baseless));
+        let rt = runtime_on(parsed(&signed(1, 0)), &root, Some(source), Duration::ZERO);
+        let status = rt.check(CheckBudget::BACKGROUND).await;
+        assert_eq!(status.last_check, CheckResult::Refused);
+        assert!(status.last_error.unwrap().contains("METHOD_LIST_BASES_DROPPED"));
+        assert_eq!(rt.current().sequence, 1);
+        assert!(rt.current().has_bases());
     }
 
     #[tokio::test]

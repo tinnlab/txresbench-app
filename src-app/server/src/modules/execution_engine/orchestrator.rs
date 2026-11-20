@@ -8856,8 +8856,12 @@ mod tests {
             "/../../scripts/method-list/fixtures/fixture-keys.json"
         )))
         .expect("fixture keys");
+        // The list in use has no `bases`, like the list published below (taken from the
+        // built-in file): a newer list may not drop the bases of the one in use.
+        let mut in_use = (*list_for_host(31)).clone();
+        in_use.images.bases = None;
         let lists = Arc::new(ListRuntime::new(
-            list_for_host(31),
+            Arc::new(in_use),
             RuntimeSeams {
                 data_root: data.join("app-data"),
                 source: Some(registry.clone()),
