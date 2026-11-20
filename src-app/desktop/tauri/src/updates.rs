@@ -1274,13 +1274,19 @@ mod tests {
         // schema URL (a pre-existing, never-fetched data line the guard
         // allowlists separately) and the dev server's loopback URL (also
         // guard-always; dev-only build config) — no THIRD host enters with
-        // this item.
+        // this item. The window's Content Security Policy names two more
+        // sources, neither of them off the machine: the engine on loopback
+        // (`http://127.0.0.1:*`, guard-always) and Tauri's IPC endpoint on
+        // Windows (`http://ipc.localhost`, which WebView2 hands to the app's
+        // own IPC handler; listed in scripts/network-allowlist.txt).
         let config = std::fs::read_to_string(crate_dir.join("tauri.conf.json")).expect("config");
         for lit in shipped_http_literals(&config) {
             assert!(
                 lit == feed_host
                     || lit == "https://schema.tauri.app"
-                    || lit == "http://localhost",
+                    || lit == "http://localhost"
+                    || lit == "http://127.0.0.1"
+                    || lit == "http://ipc.localhost",
                 "unexpected URL host in tauri.conf.json: {lit}"
             );
         }

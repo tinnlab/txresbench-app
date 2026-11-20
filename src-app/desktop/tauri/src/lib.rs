@@ -438,4 +438,71 @@ mod tests {
             updates::UPDATER_FEED_URL,
         );
     }
+
+    /// The window's Content Security Policy (`app.security.csp` in
+    /// `tauri.conf.json`). The app makes no third-party requests, and the
+    /// policy makes the webview hold to that. Each source is there because
+    /// the app needs it (checked in a debug app window on macOS):
+    /// - `connect-src ipc: http://ipc.localhost`: Tauri's `invoke` is a fetch
+    ///   to the `ipc:` scheme (`http://ipc.localhost` on Windows). Blocked,
+    ///   Tauri falls back to `postMessage`, which cannot carry the raw body
+    ///   and the path header of `save_file` (the Save dialog's write).
+    /// - `connect-src http://127.0.0.1:*`: the engine on its random loopback
+    ///   port, the URL the UI builds in `getBaseURL.ts` (checked below).
+    /// - `style-src 'unsafe-inline'`: the `<style>` elements and style
+    ///   attributes the UI's libraries add at run time.
+    /// - `worker-src blob:`: an .xlsx file with a sheet of 512 KB or more is
+    ///   unzipped in a Web Worker made from a `blob:` URL (fflate, inside
+    ///   read-excel-file).
+    ///
+    /// Scripts are `'self'` only: Tauri adds the hashes of the bundled
+    /// scripts and of index.html's inline theme script to the policy itself,
+    /// so `devCsp` and `dangerousDisableAssetCspModification` stay unset.
+    #[test]
+    fn the_window_has_a_content_security_policy() {
+        const CONF: &str = include_str!("../tauri.conf.json");
+        const POLICY: &str = "default-src 'self'; \
+             connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:*; \
+             img-src 'self' data: blob:; \
+             style-src 'self' 'unsafe-inline'; \
+             worker-src blob:";
+        let conf: serde_json::Value =
+            serde_json::from_str(CONF).expect("tauri.conf.json parses");
+        let security = conf["app"]["security"]
+            .as_object()
+            .expect("tauri.conf.json has app.security");
+        assert_eq!(
+            security.get("csp").and_then(|csp| csp.as_str()),
+            Some(POLICY),
+            "tauri.conf.json app.security.csp is not the window's policy; \
+             change it here only after checking the new one in an app window",
+        );
+        assert_eq!(
+            security.keys().collect::<Vec<_>>(),
+            ["csp"],
+            "app.security must hold only the policy (no devCsp, no \
+             dangerousDisableAssetCspModification)",
+        );
+
+        // A platform file is merged over tauri.conf.json: none may replace
+        // the policy.
+        for (file, text) in [
+            ("tauri.macos.conf.json", include_str!("../tauri.macos.conf.json")),
+            ("tauri.windows.conf.json", include_str!("../tauri.windows.conf.json")),
+        ] {
+            let platform: serde_json::Value =
+                serde_json::from_str(text).unwrap_or_else(|e| panic!("{file} parses: {e}"));
+            assert!(
+                platform.get("app").is_none(),
+                "{file} sets app.*, which would be merged over the window's policy",
+            );
+        }
+
+        const BASE_URL: &str = include_str!("../../../ui/src/api-client/getBaseURL.ts");
+        assert!(
+            BASE_URL.contains("`http://127.0.0.1:${port}`"),
+            "the UI no longer reaches the engine at http://127.0.0.1:<port> \
+             (getBaseURL.ts); connect-src allows only that loopback address",
+        );
+    }
 }

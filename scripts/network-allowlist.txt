@@ -39,6 +39,12 @@ tinnlab.github.io
 objects.githubusercontent.com
 # Apple Sign-In verification (auth module).
 appleid.apple.com
+# Tauri's IPC endpoint on Windows, named in the window's Content Security Policy
+# (tauri.conf.json app.security.csp, `connect-src ... http://ipc.localhost`).
+# WebView2 serves the app's own schemes as http://<name>.localhost and hands
+# these requests to the app's IPC handler; nothing leaves the machine (macOS
+# and Linux use the `ipc:` scheme for the same channel).
+ipc.localhost
 # Identifiers written into exported metadata / SVG output, never fetched:
 # RO-Crate `conformsTo` (provenance export), the XML namespace declarations of
 # the SVG exporter, and the Tauri config `$schema` document.
