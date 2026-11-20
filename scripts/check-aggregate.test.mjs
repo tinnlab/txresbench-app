@@ -801,12 +801,16 @@ test('TEST-19 the REAL `just check` exits 0 when every gate passes', () => {
 // `check-guards` each lost their single-cell legs. The floors moved WITH the removals
 // in the same diff (the anti-pattern §5 names is lowering one to fit a RED, not
 // shrinking a gate whose subject is deleted by plan — see the ITEM-2 ledger block).
+// App repo (gate guards) — 'check-invariants': 5 -> 9. Four legs added, `check-dead-refs`,
+// `check-naming`, `check-network-allowlist` and `check-network-allowlist-controls`: three pinned
+// guards that no recipe ran, and the control suite of the network guard. Raised in the SAME
+// diff that adds them.
 // App repo (PR 4a, the method list) — 'check-guards': 4 -> 6. Two legs added,
 // `check-method-list-controls` and `check-method-list` (the method list guard + its controls),
 // in the SAME diff that adds them, next to their pins in scripts/guard-hashes.txt.
 const AGGREGATE_FLOORS = {
   check: 5,
-  'check-invariants': 5,
+  'check-invariants': 9,
   'check-guards': 6,
 };
 
@@ -964,7 +968,7 @@ const REACHABLE_FROM_CHECK = [
  * check                      555f7ffb8d63c959167dea6aef6ff9eece22a0b492d255adfbd24b0cf1542176  5f356c5e THIS-CHANGE
  * check-domain               bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * check-guards               d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee  THIS-CHANGE
- * check-invariants           22a691bb9821a9ea342e21ad705ebbe4e20138f6ae5a0176ec71247e1c7d0948  5f356c5e THIS-CHANGE
+ * check-invariants           b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2  5f356c5e THIS-CHANGE
  * __directives__             154eafad031d58f2879e721e70a0e2b4f1aebee40a7ae78b112d028365256cbb  5f356c5e THIS-CHANGE
  * ─── END TABLE ───
  *
@@ -1104,7 +1108,7 @@ const RECIPE_PINS = {
   "check": "555f7ffb8d63c959167dea6aef6ff9eece22a0b492d255adfbd24b0cf1542176",
   "check-domain": "bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4",
   "check-guards": "d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee",
-  "check-invariants": "22a691bb9821a9ea342e21ad705ebbe4e20138f6ae5a0176ec71247e1c7d0948",
+  "check-invariants": "b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2",
   "__directives__": "154eafad031d58f2879e721e70a0e2b4f1aebee40a7ae78b112d028365256cbb"
 };
 

@@ -44,8 +44,8 @@ short-circuiting** — one red leg does not abort the others, so read every exit
 `check-aggregate-controls` (self-test) · `cargo check --workspace --tests` · `ui npm run check` ·
 `ui npm run build` · `check-invariants`.
 
-It is a **deep tree, not 5 flat commands**: `check-invariants` fans out to 5 sub-legs
-(`justfile:127-133`: test-scope-lists, pub-orphans + controls, check-guards, check-domain) and
+It is a **deep tree, not 5 flat commands**: `check-invariants` fans out to 9 sub-legs
+(test-scope-lists, dead-refs, naming, network-allowlist + controls, pub-orphans + controls, check-guards, check-domain) and
 `check-guards` to 6 more (guard-integrity controls + method-env-images + method-list + no-format-crates);
 `ui npm run check` is itself a 14-step chain (`src-app/ui/package.json:11`).
 

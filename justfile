@@ -133,8 +133,12 @@ check:
 check-invariants:
     #!/usr/bin/env bash
     set -uo pipefail
-    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check-invariants' --min-legs 5 --controls-leg check-pub-orphans-controls <<'LEGS'
+    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check-invariants' --min-legs 9 --controls-leg check-pub-orphans-controls <<'LEGS'
     check-test-scope-lists node "{{justfile_directory()}}/scripts/check-test-scope-lists.mjs"
+    check-dead-refs bash "{{justfile_directory()}}/scripts/check-dead-refs.sh"
+    check-naming bash "{{justfile_directory()}}/scripts/check-naming.sh"
+    check-network-allowlist-controls node --test "{{justfile_directory()}}/scripts/check-network-allowlist.test.mjs"
+    check-network-allowlist bash "{{justfile_directory()}}/scripts/check-network-allowlist.sh"
     check-pub-orphans-controls node --test "{{justfile_directory()}}/scripts/check-pub-orphans.test.mjs"
     check-pub-orphans node "{{justfile_directory()}}/scripts/check-pub-orphans.mjs"
     check-guards just check-guards
