@@ -71,7 +71,7 @@ async fn a_setup_needs_the_sandbox_manage_permission() {
 }
 
 /// Without the local API key the lock refuses the request before the route
-/// (403, no body), whatever the token.
+/// (403), whatever the token.
 #[tokio::test]
 async fn a_setup_without_the_local_api_key_is_refused() {
     let server = TestServer::spawn().await;

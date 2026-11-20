@@ -667,9 +667,9 @@ fn state() -> Arc<SetupState> {
 static DESKTOP_APP: OnceLock<()> = OnceLock::new();
 
 /// This process is the desktop app: called once by its server at start
-/// (`boot_in_background`), and by nothing else. Only the desktop app offers
-/// a setup.
-pub fn mark_desktop_app() {
+/// (`boot_in_background`), and by nothing else (crate-private, so no other
+/// crate can). Only the desktop app offers a setup.
+pub(crate) fn mark_desktop_app() {
     let _ = DESKTOP_APP.set(());
 }
 
@@ -1627,21 +1627,42 @@ mod tests {
         assert!(!dir.marker().exists(), "no marker");
     }
 
-    /// The route in a process that is not the desktop app (a test, like a
-    /// headless server) refuses: nothing to set up.
+    /// The route in a test process (no boot probe ran, so nothing is
+    /// offered) answers as a headless server does: nothing to set up.
     #[test]
-    fn the_route_outside_the_desktop_app_refuses() {
-        assert!(DESKTOP_APP.get().is_none(), "no test marks itself the desktop app");
-        assert_eq!(boot_status(), None);
-        let e = start_here().expect_err("not the desktop app");
+    fn the_route_with_nothing_offered_refuses() {
+        let e = start_here().expect_err("nothing offered");
         assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_NOT_OFFERED_CODE));
     }
 
     /// The desktop app's start (`boot_in_background`) marks the process, and
     /// nothing else does: the headless server (`serve_blocking`) offers no
-    /// setup. Read from the source, as no test here can boot either.
+    /// setup. `mark_desktop_app` is crate-private, so only this crate's
+    /// sources can call it; they are read here, as no test can boot either
+    /// server.
     #[test]
     fn only_the_desktop_apps_start_marks_the_desktop_app() {
+        fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
+            for entry in std::fs::read_dir(dir).expect("read the source dir") {
+                let path = entry.expect("a source dir entry").path();
+                if path.is_dir() {
+                    rust_files(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        rust_files(&src, &mut files);
+        assert!(files.len() > 100, "the crate's sources: {}", files.len());
+        let callers: Vec<&PathBuf> = files
+            .iter()
+            .filter(|f| !f.ends_with(Path::new("modules").join("sandbox").join("wsl_setup.rs")))
+            .filter(|f| std::fs::read_to_string(f).expect("a source file").contains("mark_desktop_app"))
+            .collect();
+        assert_eq!(callers, [&src.join("lib.rs")], "only lib.rs names it");
+
         let lib = include_str!("../../lib.rs");
         let body = |name: &str| {
             let start = lib.find(&format!("pub async fn {name}(")).unwrap_or_else(|| panic!("{name} in lib.rs"));
