@@ -503,7 +503,10 @@ struct Question {
 }
 
 /// The app's question before anything runs as administrator, in the
-/// installer's words, saying where the request came from.
+/// installer's words, saying where the request may have come from: the
+/// app's button, its palette, an AI assistant, or any other program on this
+/// PC (a request without a web origin passes [`check_caller`], and the
+/// route's token needs no sign-in).
 fn question(before: WslStatus) -> Question {
     match before {
         WslStatus::Missing => Question {
@@ -511,8 +514,8 @@ fn question(before: WslStatus) -> Question {
             text: "TxResBench runs methods inside WSL 2 (Windows Subsystem for Linux), which is not installed.\r\n\r\n\
              Install WSL 2 now? It is downloaded from Microsoft (about 400 MB). Windows may also ask for \
              permission, and Windows usually needs a restart afterwards.\r\n\r\n\
-             This was asked for in TxResBench: with its Set up WSL button, its command palette or an AI assistant \
-             connected to it. To change nothing, choose Not now.",
+             This was asked for with TxResBench's Set up WSL button, its command palette or an AI assistant \
+             connected to it, or by another program on this PC. If you did not ask for this, choose Not now.",
         },
         WslStatus::Legacy => Question {
             go: "Update WSL",
@@ -521,8 +524,8 @@ fn question(before: WslStatus) -> Question {
              Update WSL now? The update is downloaded from Microsoft (about 400 MB). Windows may also ask for \
              permission. Linux programs running in WSL will be closed, and Windows may need a restart \
              afterwards.\r\n\r\n\
-             This was asked for in TxResBench: with its Update WSL button, its command palette or an AI assistant \
-             connected to it. To change nothing, choose Not now.",
+             This was asked for with TxResBench's Update WSL button, its command palette or an AI assistant \
+             connected to it, or by another program on this PC. If you did not ask for this, choose Not now.",
         },
         // `Old`: the only other status offered a setup (`offer_for`).
         _ => Question {
@@ -531,8 +534,8 @@ fn question(before: WslStatus) -> Question {
              it has a known security flaw that newer versions fix.\r\n\r\n\
              Update WSL now? The update is downloaded from Microsoft (about 400 MB). Windows may also ask for \
              permission. Linux programs running in WSL will be closed.\r\n\r\n\
-             This was asked for in TxResBench: with its Update WSL button, its command palette or an AI assistant \
-             connected to it. To change nothing, choose Not now.",
+             This was asked for with TxResBench's Update WSL button, its command palette or an AI assistant \
+             connected to it, or by another program on this PC. If you did not ask for this, choose Not now.",
         },
     }
 }
@@ -1617,9 +1620,20 @@ mod tests {
             [(WslStatus::Missing, "Install WSL 2 now?"), (WslStatus::Old, "Update WSL now?"), (WslStatus::Legacy, "Update WSL now?")]
         {
             let q = question(status).text;
-            for words in [verb, "Microsoft", "about 400 MB", "Windows may also ask for permission", "in TxResBench", "AI assistant", "To change nothing, choose Not now."] {
+            for words in [
+                verb,
+                "Microsoft",
+                "about 400 MB",
+                "Windows may also ask for permission",
+                "with TxResBench's",
+                "AI assistant",
+                // Any program on this PC can start a setup, not only the app.
+                "or by another program on this PC.",
+                "If you did not ask for this, choose Not now.",
+            ] {
                 assert!(q.contains(words), "{status:?}: {words:?} in {q:?}");
             }
+            assert!(!q.contains("To change nothing"), "{status:?}: {q:?}");
             // With UAC off or never notifying, or the app run as administrator,
             // Windows asks nothing: the question never says it will.
             assert!(!q.contains("will ask") && !q.contains("asks next"), "{status:?}: {q:?}");
