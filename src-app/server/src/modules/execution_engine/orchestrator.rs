@@ -154,7 +154,8 @@ pub fn real_env_provider() -> Arc<dyn EnvProvider> {
 /// The method LAYER ref: the manifest's own `oci_ref` (the one layer package)
 /// + the byte-verify pin (`layer_sha256` — the squashfs digest PROV-SS-1's
 /// `EnvRef.digest` is) + the immutable publish tag
-/// `<env_id>-<method_version>-<arch>`, keyed by the entry's env id.
+/// `<env_id>-<method_version>-<arch>-<sha12>` (the first 12 hex of
+/// `layer_sha256`), keyed by the entry's env id.
 pub fn layer_env_ref(entry: &envmanifest::ManifestEntry) -> EnvRef {
     EnvRef {
         env_id: entry.env_id.clone(),

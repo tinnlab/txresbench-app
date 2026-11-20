@@ -36,8 +36,10 @@
 //   TEST-9   the publisher: cross-arch refusal (ALLOW_EMULATED_BUILD gate),
 //            credentials requirement (or --dry-run), overwrite refusal when
 //            the remote tag names different bytes, and the full stubbed
-//            sequence (login → blob/manifest push → resolve → sign) — each
-//            driven against a stub `oras`/`cosign` on PATH, never a network.
+//            sequence (resolve → base resolve → blob/manifest push → resolve
+//            → sign; no `oras login`, every oras call carrying the temporary
+//            mode-600 registry config) — each driven against a stub
+//            `oras`/`cosign` on PATH, never a network.
 //   TEST-10  the full-generation manifest: one entry per runnable method per
 //            published arch (amd64 + arm64 under one env id), no duplicate
 //            (env_id, arch), per-arch tags `^<version>-<arch>$`, deterministic
@@ -66,8 +68,9 @@
 //            stacked run needs; a layer publish refuses until its base is
 //            published and refuses a manifest without `bases`; `--registry`
 //            accepts only 127.0.0.1:<port> / [::1]:<port>, and then every
-//            oras call is plain HTTP to that host with no login and no cosign
-//            (stub oras/cosign, no network).
+//            oras call is plain HTTP to that host through the anonymous {}
+//            config with no login and no cosign (stub oras/cosign, no
+//            network).
 //   TEST-15  one package for every layer and one for both bases: the writer
 //            emits `oci_ref` = the package and the env (base) in the tag, a
 //            layer tag ending with the first 12 hex of its layer_sha256;
@@ -727,9 +730,12 @@ test('TEST-6c the integrity gate passes with both new guards pinned', () => {
 // REAL subprocesses that log their invocation to a file and answer `resolve`
 // with a digest supplied by the test — so the assertions are about what the
 // publisher actually executed, in order, never about text it printed. The
-// registry is never contacted: the artifact checks, the guard preflight and
-// the refusal paths are all local, and the stubbed success path witnesses the
-// exact push sequence without a network.
+// stub also logs each call's `--registry-config` (path, mode and content) and
+// whether GHCR_TOKEN was in the call's own environment, so the token policy
+// is asserted from what oras actually received. The registry is never
+// contacted: the artifact checks, the guard preflight and the refusal paths
+// are all local, and the stubbed success path witnesses the exact push
+// sequence without a network.
 function publisher(args = [], env = {}) {
   return spawnSync('bash', [PUBLISHER, ...args], {
     cwd: REPO,
@@ -740,22 +746,39 @@ function publisher(args = [], env = {}) {
 
 /** Write the stub tool dir. `resolveDigest` is what `oras resolve` answers,
  *  unless `resolveMap` names the resolved ref (its last argument): then the
- *  map's digest is the answer (an empty string = the tag is absent). Returns
- *  { dir, bin, log, env } where env carries the PATH + the stub's log path.
- *  The returned `dir` is the ONLY thing the caller may clean up. */
-function makeStubs(resolveDigest, resolveMap = {}) {
+ *  map's digest is the answer. A ref in `notFound` answers the ONE shape the
+ *  publisher takes for "tag absent" — a "not found" on stderr with a non-zero
+ *  exit; an empty successful answer is no longer absence (an unreadable tag
+ *  stops the run instead). Returns { dir, bin, log, cfgLog, env }: `log`
+ *  holds plain `oras $*` lines, `cfgLog` one line per oras call with its
+ *  `--registry-config` path, that file's mode bits and content, and whether
+ *  GHCR_TOKEN was in the call's own environment — so a test can assert the
+ *  token reaches oras ONLY through the temporary mode-600 config, never a
+ *  child's environment. The returned `dir` is the ONLY thing the caller may
+ *  clean up. */
+function makeStubs(resolveDigest, resolveMap = {}, notFound = []) {
   const dir = mkdtemp('mei-pubstub-');
   const log = path.join(dir, 'calls.log');
+  const cfgLog = path.join(dir, 'cfg.log');
   const bin = path.join(dir, 'bin');
   fs.mkdirSync(bin);
   const mapFile = path.join(dir, 'resolve.map');
   fs.writeFileSync(mapFile, Object.entries(resolveMap).map(([ref, d]) => `${ref} ${d}\n`).join(''));
+  const notFoundFile = path.join(dir, 'notfound.map');
+  fs.writeFileSync(notFoundFile, notFound.map((ref) => `${ref}\n`).join(''));
   fs.writeFileSync(path.join(bin, 'oras'), `#!/usr/bin/env sh
 echo "oras $*" >> "$ORAS_STUB_LOG"
+cfg=""; prev=""
+for a in "$@"; do [ "$prev" = "--registry-config" ] && cfg="$a"; prev="$a"; done
+mode="-"; text=""
+if [ -n "$cfg" ] && [ -f "$cfg" ]; then mode=$(stat -c %a "$cfg"); text=$(cat "$cfg"); fi
+tok=false; [ -n "\${GHCR_TOKEN+x}" ] && tok=true
+printf '%s\\t%s\\t%s\\t%s\\t%s\\n' "$1" "$cfg" "$mode" "$tok" "$text" >> "$ORAS_STUB_CFG_LOG"
 case "$1" in
   login) cat >/dev/null ;;
   resolve)
     for a in "$@"; do ref="$a"; done
+    if grep -qxF "$ref" "$ORAS_STUB_NOTFOUND"; then echo "Error: not found: $ref" >&2; exit 1; fi
     hit=$(awk -v r="$ref" '$1 == r { print $2; exit }' "$ORAS_STUB_RESOLVE_MAP")
     if [ -n "$hit" ]; then echo "$hit"; else echo "$ORAS_STUB_RESOLVE"; fi ;;
 esac
@@ -769,15 +792,48 @@ exit 0
   fs.chmodSync(path.join(bin, 'cosign'), 0o755);
   const env = {
     ORAS_STUB_LOG: log,
+    ORAS_STUB_CFG_LOG: cfgLog,
     ORAS_STUB_RESOLVE: resolveDigest,
     ORAS_STUB_RESOLVE_MAP: mapFile,
+    ORAS_STUB_NOTFOUND: notFoundFile,
     PATH: `${bin}:${process.env.PATH}`,
   };
-  return { dir, bin, log, env };
+  return { dir, bin, log, cfgLog, env };
 }
 
 function calls(log) {
   return fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean);
+}
+
+/** The per-call records from the stub's config log (one per oras call):
+ *  sub, the --registry-config path, that file's mode bits and content, and
+ *  whether GHCR_TOKEN was in the call's own environment. */
+function cfgDetails(cfgLogPath) {
+  if (!fs.existsSync(cfgLogPath)) return [];
+  return fs.readFileSync(cfgLogPath, 'utf8').split('\n').filter(Boolean).map((l) => {
+    const [sub, config, mode, tokenInEnv, text] = l.split('\t');
+    return { sub, config, mode, tokenInEnv, text };
+  });
+}
+
+/** The publisher's token policy, asserted from the stub's config log: no
+ *  `oras login`, every oras call used the SAME temporary registry config,
+ *  that config is mode 600 and carries base64(user:token) — the token's only
+ *  path to oras — the token is in no oras process's environment, and the
+ *  config is removed when the run exits. */
+function assertTokenOnlyViaConfig(details, callsLines) {
+  assert.ok(!callsLines.some((l) => l.startsWith('oras login')), 'oras login is never called');
+  const orasCalls = callsLines.filter((l) => l.startsWith('oras '));
+  assert.equal(details.length, orasCalls.length, 'every oras call is in the config log');
+  assert.equal(new Set(details.map((d) => d.config)).size, 1, 'the whole run used one registry config');
+  const auth = Buffer.from('stub-user:stub-token').toString('base64');
+  for (const d of details) {
+    assert.ok(d.config.endsWith('/auth/registry-config.json'), `${d.sub}: the token's config`);
+    assert.equal(d.mode, '600', `${d.sub}: the token's config is mode 600`);
+    assert.ok(d.text.includes(auth), `${d.sub}: the config carries base64(user:token)`);
+    assert.equal(d.tokenInEnv, 'false', `${d.sub}: GHCR_TOKEN was never in the oras process environment`);
+  }
+  assert.ok(!fs.existsSync(details[0].config), 'the token config is removed on exit');
 }
 
 const CROSS_HOST = (() => {
@@ -880,7 +936,7 @@ test('TEST-9e the full stubbed sequence publishes and verifies the digest', (t) 
   const tagA = `fixture-a-2.0.0-amd64-${layerSha12(staging, 'fixture-a-amd64')}`;
   assert.equal(entry.tag, tagA);
   assert.equal(baseRef, `${BASE_PACKAGE}:base-py-2.0-amd64-${pyBase.squashfs_sha256.slice(0, 12)}`);
-  const { dir: stubDir, log, env } = makeStubs(entry.digest, { [baseRef]: pyBase.digest });
+  const { dir: stubDir, log, cfgLog: stubCfgLog, env } = makeStubs(entry.digest, { [baseRef]: pyBase.digest });
   t.after(() => fs.rmSync(stubDir, { recursive: true, force: true }));
   const r = publisher([
     '--env', 'fixture-a',
@@ -894,8 +950,12 @@ test('TEST-9e the full stubbed sequence publishes and verifies the digest', (t) 
     'the full sequence must pass ITEM-7\'s behavioral verifier on the real staged layer',
   );
   const c = calls(log);
-  assert.deepEqual(c, [
-    `oras login ghcr.io -u stub-user --password-stdin`,
+  // The step ORDER is unchanged: tag resolve → base resolve → blob(s) →
+  // manifest → post-push witness → sign. The only difference from the old
+  // sequence is that `oras login` is gone and every oras call carries its
+  // temporary --registry-config (stripped below before the comparison).
+  const seq = c.map((l) => l.replace(/\s--registry-config \S+/, ''));
+  assert.deepEqual(seq, [
     `oras resolve ${LAYER_PACKAGE}:${tagA}`,
     `oras resolve ${baseRef}`,
     `oras blob push ${LAYER_PACKAGE} layer.squashfs`,
@@ -903,7 +963,8 @@ test('TEST-9e the full stubbed sequence publishes and verifies the digest', (t) 
     `oras manifest push ${LAYER_PACKAGE}:${tagA} ${path.join(staging, 'layers', 'fixture-a-amd64', 'oci-manifest.json')}`,
     `oras resolve ${LAYER_PACKAGE}:${tagA}`,
     `cosign sign --yes ${LAYER_PACKAGE}@${entry.digest}`,
-  ], `the publish sequence must be login → resolve → base resolve → blob → blob → manifest → resolve → sign:\n${c.join('\n')}`);
+  ], `the publish sequence must be resolve → base resolve → blob → blob → manifest → resolve → sign:\n${c.join('\n')}`);
+  assertTokenOnlyViaConfig(cfgDetails(stubCfgLog), c);
 });
 
 test('TEST-9f the publisher verifies the staged bytes are the entry bytes', () => {
@@ -1577,14 +1638,18 @@ test('TEST-14a the --base dry run checks every local byte and names only ghcr.io
   assert.match(out, /verify {4}: base content OK/);
   const dir = path.join(staging, 'bases', 'base-py-amd64');
   for (const line of [
-    `+ oras resolve ${b.oci_ref}:${b.tag}`,
-    `+ oras blob push ${b.oci_ref} ${path.join(dir, 'base.squashfs')}`,
-    `+ oras blob push ${b.oci_ref} ${path.join(staging, 'publish', 'empty-config.json')}`,
-    `+ oras manifest push ${b.oci_ref}:${b.tag} ${path.join(dir, 'oci-manifest.json')}`,
+    `+ oras resolve --registry-config <temp, mode 600> ${b.oci_ref}:${b.tag}`,
+    `+ oras blob push --registry-config <temp, mode 600> ${b.oci_ref} ${path.join(dir, 'base.squashfs')}`,
+    `+ oras blob push --registry-config <temp, mode 600> ${b.oci_ref} ${path.join(staging, 'publish', 'empty-config.json')}`,
+    `+ oras manifest push --registry-config <temp, mode 600> ${b.oci_ref}:${b.tag} ${path.join(dir, 'oci-manifest.json')}`,
     `+ cosign sign --yes ${b.oci_ref}@${b.digest}`,
   ]) {
     assert.ok(out.includes(line), `missing "${line}" in:\n${out}`);
   }
+  // The dry run names the token's channel (a temp mode-600 config) but never
+  // the token and never `oras login`.
+  assert.ok(out.includes('no oras login, and no child process sees GHCR_TOKEN or GHCR_USER'), out);
+  assert.doesNotMatch(out, /\+ oras login/, 'the dry run never prints oras login');
   const hosts = [...out.matchAll(/([a-z0-9.-]+\.[a-z]{2,})[:/]/g)].map((x) => x[1]);
   for (const h of hosts) assert.equal(h, 'ghcr.io', `unexpected host in the publish sequence: ${h}`);
 });
@@ -1669,7 +1734,7 @@ test('TEST-14d --base refuses a tag that already holds other bytes', (t) => {
 test('TEST-14e the full stubbed base sequence publishes and verifies the digest', (t) => {
   const { staging, methodsDir, manifestPath } = fixture();
   const b = baseOf(manifestPath);
-  const { dir: stubDir, log, env } = makeStubs(b.digest);
+  const { dir: stubDir, log, cfgLog: stubCfgLog, env } = makeStubs(b.digest);
   t.after(() => fs.rmSync(stubDir, { recursive: true, force: true }));
   const r = publisher([
     '--base', 'base-py',
@@ -1677,8 +1742,11 @@ test('TEST-14e the full stubbed base sequence publishes and verifies the digest'
   ], { ...env, ...CREDS });
   assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
   assert.match(r.stdout, new RegExp(`published : ${b.oci_ref}:${b.tag} @ ${b.digest}`));
-  assert.deepEqual(calls(log), [
-    'oras login ghcr.io -u stub-user --password-stdin',
+  const c = calls(log);
+  // The step ORDER is unchanged (no `oras login`; every oras call carries its
+  // temporary --registry-config, stripped before the comparison).
+  const seq = c.map((l) => l.replace(/\s--registry-config \S+/, ''));
+  assert.deepEqual(seq, [
     `oras resolve ${b.oci_ref}:${b.tag}`,
     `oras blob push ${b.oci_ref} base.squashfs`,
     `oras blob push ${b.oci_ref} ${path.join(staging, 'publish', 'empty-config.json')}`,
@@ -1686,6 +1754,7 @@ test('TEST-14e the full stubbed base sequence publishes and verifies the digest'
     `oras resolve ${b.oci_ref}:${b.tag}`,
     `cosign sign --yes ${b.oci_ref}@${b.digest}`,
   ]);
+  assertTokenOnlyViaConfig(cfgDetails(stubCfgLog), c);
 });
 
 test('TEST-14f a layer publish refuses until its base is published, then goes on', (t) => {
@@ -1697,7 +1766,10 @@ test('TEST-14f a layer publish refuses until its base is published, then goes on
   const baseRef = `${b.oci_ref}:${b.tag}`;
   const args = ['--env', 'fixture-a', '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir];
   // The base tag is absent (and the layer tag too): refused, nothing pushed.
-  let stub = makeStubs('');
+  // The stub answers the ONE shape the publisher takes for "absent" — a
+  // "not found" on stderr, non-zero exit (a successful empty answer would be
+  // an unreadable tag and stop the run at the overwrite check instead).
+  let stub = makeStubs('', {}, [layerRef, baseRef]);
   t.after(() => fs.rmSync(stub.dir, { recursive: true, force: true }));
   let r = publisher(args, { ...stub.env, ...CREDS });
   assert.equal(r.status, 1, `${r.stderr}\n${r.stdout}`);
@@ -1705,7 +1777,7 @@ test('TEST-14f a layer publish refuses until its base is published, then goes on
   assert.match(r.stderr, /--base base-py --arch amd64/);
   assert.ok(!calls(stub.log).some((l) => /oras (blob|manifest) push/.test(l)), 'nothing was pushed');
   // The base tag names other bytes: refused the same way.
-  stub = makeStubs('', { [baseRef]: 'sha256:' + '42'.repeat(32) });
+  stub = makeStubs('', { [baseRef]: 'sha256:' + '42'.repeat(32) }, [layerRef]);
   t.after(() => fs.rmSync(stub.dir, { recursive: true, force: true }));
   r = publisher(args, { ...stub.env, ...CREDS });
   assert.equal(r.status, 1, `${r.stderr}\n${r.stdout}`);
@@ -1717,7 +1789,8 @@ test('TEST-14f a layer publish refuses until its base is published, then goes on
   r = publisher(args, { ...stub.env, ...CREDS });
   assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
   assert.match(r.stdout, /is published/);
-  assert.ok(calls(stub.log).some((l) => l === `oras manifest push ${layerRef} ${path.join(staging, 'layers', 'fixture-a-amd64', 'oci-manifest.json')}`));
+  assert.ok(calls(stub.log).map((l) => l.replace(/\s--registry-config \S+/, ''))
+    .some((l) => l === `oras manifest push ${layerRef} ${path.join(staging, 'layers', 'fixture-a-amd64', 'oci-manifest.json')}`));
 });
 
 test('TEST-14g a layer publish refuses a manifest without bases', () => {
@@ -1773,12 +1846,23 @@ test('TEST-14i a loopback publish is plain HTTP to the loopback host, with no lo
   const c = calls(stub.log);
   assert.ok(c.length >= 8, c.join('\n'));
   for (const line of c) {
-    assert.match(line, /^oras (resolve|blob push|manifest push) --plain-http /, `plain HTTP oras only: ${line}`);
+    assert.match(line, /^oras (resolve|blob push|manifest push) --registry-config \S+ --plain-http /,
+      `plain HTTP oras only: ${line}`);
     assert.ok(line.includes(`${reg}/tinnlab/`), `loopback host: ${line}`);
     assert.doesNotMatch(line, /ghcr\.io/, `never ghcr.io: ${line}`);
   }
-  assert.ok(c.includes(`oras resolve --plain-http ${local(`${b.oci_ref}:${b.tag}`)}`), 'the base-first check went to the loopback');
+  assert.ok(c.some((l) => l.startsWith('oras resolve')
+    && l.includes(`${reg}/tinnlab/txresbench-env:${b.tag}`)
+    && l.includes('--plain-http')), 'the base-first check went to the loopback');
+  assert.ok(!c.some((l) => l.startsWith('oras login')), 'no oras login on a loopback rehearsal');
   assert.match(r.stdout, /SIGNING SKIPPED: loopback rehearsal/);
+  // The rehearsal passed oras the ANONYMOUS empty {} config — no credentials
+  // are read, and none reach a child's environment.
+  for (const d of cfgDetails(stub.cfgLog)) {
+    assert.equal(d.text, '{}', `${d.sub}: the loopback config is the empty anonymous one`);
+    assert.match(d.config, /empty-registry-config\.json$/, `${d.sub}: never the token's config`);
+    assert.equal(d.tokenInEnv, 'false', `${d.sub}: no token in the oras process environment`);
+  }
 });
 
 // ── TEST-15: one package for every layer, one for both bases ──────────────────
@@ -1995,14 +2079,15 @@ test('TEST-15f the publisher publishes records staged before 0.4.0 at the one-pa
   assert.ok(layer.stdout.includes(
     `record    : staged before 0.4.0 at ${LAYER_PACKAGE}/fixture-a:2.0.0-amd64; published at ${LAYER_PACKAGE}:${tagA}\n`),
   layer.stdout);
-  assert.ok(layer.stdout.includes(`+ oras manifest push ${LAYER_PACKAGE}:${tagA} `), layer.stdout);
-  assert.ok(layer.stdout.includes(`+ oras resolve ${BASE_PACKAGE}:${b.tag}`), layer.stdout);
+  assert.ok(layer.stdout.includes(`+ oras manifest push --registry-config <temp, mode 600> ${LAYER_PACKAGE}:${tagA} `), layer.stdout);
+  assert.ok(layer.stdout.includes(`+ oras resolve --registry-config <temp, mode 600> ${BASE_PACKAGE}:${b.tag}`), layer.stdout);
+  assert.ok(layer.stdout.includes('no oras login, and no child process sees GHCR_TOKEN or GHCR_USER'), layer.stdout);
   const base = publisher(['--base', 'base-py', ...common]);
   assert.equal(base.status, 0, `${base.stderr}\n${base.stdout}`);
   assert.ok(base.stdout.includes(
     `record    : staged before 0.4.0 at ${BASE_PACKAGE}/base-py:2.0-amd64-${b.squashfs_sha256.slice(0, 12)}; published at ${BASE_PACKAGE}:${b.tag}`),
   base.stdout);
-  assert.ok(base.stdout.includes(`+ oras manifest push ${BASE_PACKAGE}:${b.tag} `), base.stdout);
+  assert.ok(base.stdout.includes(`+ oras manifest push --registry-config <temp, mode 600> ${BASE_PACKAGE}:${b.tag} `), base.stdout);
 });
 
 test('TEST-15g the publisher refuses an address that is not the one-package form, before any push', (t) => {
