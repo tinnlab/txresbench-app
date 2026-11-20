@@ -1,34 +1,15 @@
 # action-coverage allowlist (ai-actions ITEM-12 / DEC-6)
 #
-# Opt-in list of files/globs (relative to `src-app/ui/src`, forward slashes,
-# `*` = any chars except `/`, `**` = any chars incl. `/`, a trailing `/`
-# means "everything under this directory") that have been MIGRATED to the
-# actions model — i.e. their interactive user-mutation affordances are
-# expected to go through a registered `defineAction` (via `<ActionButton
-# action="...">` or `useAction`), not an inline `onClick` that calls a store
-# action directly.
+# Files/globs (relative to `src-app/ui/src`, forward slashes, `*` = any chars
+# except `/`, `**` = any chars incl. `/`, a trailing `/` means "everything under
+# this directory") that are ALLOWED to call a store action from an inline
+# `<Button onClick>`, instead of going through a registered `defineAction`.
 #
-# `scripts/action-coverage.mjs` only checks files listed here. An empty
-# allowlist (the default) passes trivially — enforcement grows file-by-file
-# as the codebase migrates to the actions model (DEC-6: a repo-wide inline-
-# onClick hard-fail is not statically decidable; ITEM-15 descoped it).
+# `scripts/action-coverage.mjs` checks EVERY source file under `src` and skips
+# only the files listed here. An entry that matches no file fails the check, so
+# delete an entry when its file is moved or removed.
 #
-# One glob per line. Lines starting with `#` and blank lines are ignored.
-#
-# Example (once a directory is migrated):
-# modules/command-palette/**
-
-# --- #49 admin defineAction cleanup: surfaces migrated to the actions model ---
-# Users identity CRUD + group management (mutations dispatch runAction('user.*'/'group.*')).
-modules/user/components/user/UsersSettings.tsx
-modules/user/components/user/CreateUserDrawer.tsx
-modules/user/components/user/EditUserDrawer.tsx
-modules/user/components/user/ResetPasswordDrawer.tsx
-modules/user/components/user/UserGroupsDrawer.tsx
-modules/user/components/user/AssignGroupDrawer.tsx
-modules/user/components/group/UserGroupsSettings.tsx
-modules/user/components/group/EditUserGroupDrawer.tsx
-# Admin settings-save pages (form save dispatches runAction('*.updateSettings')).
-modules/auth/SessionSettingsPage.tsx
-# Step views' Back button (dispatches runAction('flow.back')).
-modules/txrintake/components/TxrStepBack.tsx
+# One glob per line, each with a reason in a comment above it. Lines starting
+# with `#` and blank lines are ignored. The list is empty on purpose: an entry
+# is an exception to the rule that every user action is declared once, and needs
+# the user's review.

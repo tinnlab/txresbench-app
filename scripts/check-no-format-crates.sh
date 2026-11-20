@@ -146,8 +146,21 @@ nifti dicom bam htslib noodles bcf hts
 DENY_FAMILIES="$DENY_FAMILIES ${TXR_DEPGUARD_EXTRA_DENY:-}"
 
 # A resolved graph smaller than this is a BROKEN READ, not a clean one.
-MIN_PACKAGES_METADATA=300   # measured 2026-07-28: 602 distinct crate names
-MIN_PACKAGES_LOCK=400       # measured 2026-07-28: 838 [[package]] entries
+#
+# The floors sit at about 90 percent of the measured size, so a large shrink (a workspace
+# member dropped from `cargo metadata`, a lockfile truncated) goes red instead of passing.
+# Measured 2026-11-19 on main, x86_64-unknown-linux-gnu: 537 distinct crate names in
+# `cargo metadata`, 666 [[package]] entries in Cargo.lock. The graph shrinks legitimately
+# when dependencies are removed on purpose. To move a floor: run this script, read the two
+# counts in its PASS lines ("cargo metadata: N crate(s)", "Cargo.lock: N package(s)"), set
+# the floor to about 90 percent of N, change the date and the counts here, and re-pin with
+# `scripts/check-guard-integrity.sh --update`, all in the same diff that changed the graph.
+# Never lower a floor to make a red go away: a red here is a broken read until proven otherwise.
+# (`cargo metadata` may count differently on another host; the measurement above is the
+# Linux gate's. A floor red on another host while the Linux count is intact is a platform
+# difference to report, not a floor to lower.)
+MIN_PACKAGES_METADATA=480   # 90 percent of 537 measured on 2026-11-19
+MIN_PACKAGES_LOCK=600       # 90 percent of 666 measured on 2026-11-19
 
 TMP="$(mktemp -d)" || exit 2
 trap 'rm -rf "$TMP"' EXIT

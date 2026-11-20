@@ -1,26 +1,26 @@
 #!/usr/bin/env node
 /**
- * ai-actions ITEM-12 — advisory, allowlist-aware "action coverage" sub-check.
+ * ai-actions ITEM-12 — "action coverage" sub-check.
  *
- * DEC-6: a repo-wide "every onClick is an action" hard-fail is NOT statically
- * decidable (an inline `onClick` can do anything — navigate, toggle local UI
- * state, open a dialog — and most of that is legitimate). So this check only
- * looks at files that have OPTED IN to the actions model by being listed in
- * `scripts/action-coverage-allowlist.txt` (a newline list of globs/paths,
- * relative to `<ui>/src`) — files the team has already migrated. Within an
- * allowlisted file, it flags the SIMPLE, documented heuristic:
+ * The rule: a `<Button onClick={...}>` (NOT `<ActionButton>`) whose inline handler
+ * directly invokes a store action (`Stores.<X>.<method>(...)`) bypasses the action
+ * registry (the assistant and the permission gate cannot see it). It should be
+ * `<ActionButton action="...">` delegating to that same store action instead.
  *
- *   A `<Button onClick={...}>` (NOT `<ActionButton>`) whose inline handler
- *   directly invokes a store action (`Stores.<X>.<method>(...)`) bypasses
- *   the action registry — it should be `<ActionButton action="...">`
- *   delegating to that same store action instead.
+ * `onClick={() => setOpen(true)}` / `onClick={() => navigate(...)}` (local UI state /
+ * navigation, not a store mutation) are NOT flagged — they aren't "AI-controllable
+ * actions" in scope for this rule.
  *
- * `onClick={() => setOpen(true)}` / `onClick={() => navigate(...)}` (local
- * UI state / navigation, not a store mutation) are NOT flagged — they aren't
- * "AI-controllable actions" in scope for this rule.
+ * SCOPE IS DERIVED, NOT LISTED. Every non-test `.ts`/`.tsx` file under `<ui>/src` is
+ * checked. (DEC-6 kept this opt-in because a repo-wide hard-fail was feared to be
+ * noisy; the heuristic above is narrow, and the whole tree has 0 findings, so the
+ * opt-in list only ever shrank: nine of its ten entries named deleted files and the
+ * guard silently checked one file.)
  *
- * An EMPTY allowlist (the seeded default) passes trivially: enforcement
- * grows file-by-file as the codebase migrates onto the actions model.
+ * `scripts/action-coverage-allowlist.txt` is the OPPOSITE of what it was: a list of
+ * globs (relative to `<ui>/src`) of files ALLOWED to call a store from an inline
+ * `<Button onClick>`, one per line, each with a reason in a comment above it. It ships
+ * empty. An entry that matches no file FAILS the guard, so the list cannot rot.
  *
  * Usage:
  *   node scripts/action-coverage.mjs
@@ -99,8 +99,7 @@ function assertScanFloor(count, floor, what, root) {
 }
 
 /** Parse the allowlist file into a list of non-comment, non-blank glob
- *  patterns. Missing file ⇒ empty list (trivial pass), same as an existing
- *  but empty file. */
+ *  patterns. Missing file ⇒ empty list, same as an existing but empty file. */
 function readAllowlistPatterns() {
   if (!existsSync(ALLOWLIST_PATH)) return []
   const lines = readFileSync(ALLOWLIST_PATH, 'utf8').split('\n')
@@ -138,14 +137,12 @@ function globToRegExp(glob) {
   return new RegExp(re)
 }
 
-/** Every `.ts`/`.tsx` file under `SRC_ROOT` whose `src`-relative path
- *  matches at least one allowlist pattern. */
-function resolveAllowlistedFiles(patterns) {
-  if (patterns.length === 0) return []
-  const regexes = patterns.map(globToRegExp)
-  return listSourceFiles(SRC_ROOT).filter(file => {
-    const rel = path.relative(SRC_ROOT, file).split(path.sep).join('/')
-    return regexes.some(re => re.test(rel))
+/** The files each allowlist pattern matches (`src`-relative, forward slashes). */
+function matchesPerPattern(patterns, files) {
+  const rels = files.map(file => path.relative(SRC_ROOT, file).split(path.sep).join('/'))
+  return patterns.map(pattern => {
+    const re = globToRegExp(pattern)
+    return { pattern, matched: rels.filter(rel => re.test(rel)) }
   })
 }
 
@@ -214,25 +211,27 @@ function findViolations(file, content) {
 }
 
 function main() {
-  // ITEM-37: assert the ROOT resolves BEFORE the opt-in early-return below, so a
-  // collapsed `SRC_ROOT` is caught even while the allowlist is empty.
-  assertScanFloor(listSourceFiles(SRC_ROOT).length, SOURCE_FILE_FLOOR, 'source file(s)', SRC_ROOT)
+  // ITEM-37: assert the ROOT resolves first, so a collapsed `SRC_ROOT` is caught.
+  const sources = listSourceFiles(SRC_ROOT)
+  assertScanFloor(sources.length, SOURCE_FILE_FLOOR, 'source file(s)', SRC_ROOT)
 
+  // An allowlist entry that names no file is dead: it would exempt a future file of that
+  // name without anyone seeing it. Fail instead of ignoring it.
   const patterns = readAllowlistPatterns()
-  if (patterns.length === 0) {
-    // NOT a collapsed scan set — the allowlist is an OPT-IN mechanism and is
-    // legitimately empty today (0 entries in `action-coverage-allowlist.txt`). Said
-    // loudly rather than as a quiet "passes trivially", because a guard with zero
-    // SUBJECTS is guarding nothing, which is worth seeing on every run.
-    console.log(
-      '[action-coverage] NOTE: 0 files opted in — this guard currently has NO SUBJECTS. ' +
-        'The src root is intact (floor checked above); add paths to ' +
-        'scripts/action-coverage-allowlist.txt to give it something to check.',
+  const perPattern = matchesPerPattern(patterns, sources)
+  const dead = perPattern.filter(p => p.matched.length === 0).map(p => p.pattern)
+  if (dead.length > 0) {
+    console.error(
+      `[action-coverage] FAILED — ${dead.length} allowlist entr${dead.length === 1 ? 'y' : 'ies'} match no source file under ${SRC_ROOT}:`,
     )
+    for (const pattern of dead) console.error(`  - ${pattern}`)
+    console.error('\nDelete the entr(ies) from scripts/action-coverage-allowlist.txt (the file was moved or removed).')
+    process.exitCode = 1
     return
   }
+  const exempt = new Set(perPattern.flatMap(p => p.matched))
 
-  const files = resolveAllowlistedFiles(patterns)
+  const files = sources.filter(file => !exempt.has(path.relative(SRC_ROOT, file).split(path.sep).join('/')))
   const allViolations = []
   for (const file of files) {
     const content = readFileSync(file, 'utf8')
@@ -242,7 +241,7 @@ function main() {
   if (allViolations.length > 0) {
     const relPath = f => path.relative(UI_ROOT, f)
     console.error(
-      `[action-coverage] FAILED — ${allViolations.length} allowlisted file(s) have a <Button onClick={...}> that directly calls a store action instead of a registered defineAction:`,
+      `[action-coverage] FAILED — ${allViolations.length} <Button onClick={...}> that directly call(s) a store action instead of a registered defineAction:`,
     )
     for (const v of allViolations) {
       console.error(`  - ${relPath(v.file)}:${v.line}`)
@@ -256,7 +255,7 @@ function main() {
   }
 
   console.log(
-    `[action-coverage] OK — ${files.length} allowlisted file(s) checked, 0 un-registered inline store mutations.`,
+    `[action-coverage] OK — ${files.length} source file(s) checked (${exempt.size} allowlisted), 0 un-registered inline store mutations.`,
   )
 }
 

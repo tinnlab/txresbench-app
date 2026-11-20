@@ -801,12 +801,16 @@ test('TEST-19 the REAL `just check` exits 0 when every gate passes', () => {
 // `check-guards` each lost their single-cell legs. The floors moved WITH the removals
 // in the same diff (the anti-pattern §5 names is lowering one to fit a RED, not
 // shrinking a gate whose subject is deleted by plan — see the ITEM-2 ledger block).
+// App repo (gate guards) — 'check-invariants': 5 -> 9. Four legs added, `check-dead-refs`,
+// `check-naming`, `check-network-allowlist` and `check-network-allowlist-controls`: three pinned
+// guards that no recipe ran, and the control suite of the network guard. Raised in the SAME
+// diff that adds them.
 // App repo (PR 4a, the method list) — 'check-guards': 4 -> 6. Two legs added,
 // `check-method-list-controls` and `check-method-list` (the method list guard + its controls),
 // in the SAME diff that adds them, next to their pins in scripts/guard-hashes.txt.
 const AGGREGATE_FLOORS = {
   check: 5,
-  'check-invariants': 5,
+  'check-invariants': 9,
   'check-guards': 6,
 };
 
@@ -964,7 +968,7 @@ const REACHABLE_FROM_CHECK = [
  * check                      555f7ffb8d63c959167dea6aef6ff9eece22a0b492d255adfbd24b0cf1542176  5f356c5e THIS-CHANGE
  * check-domain               bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * check-guards               d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee  THIS-CHANGE
- * check-invariants           22a691bb9821a9ea342e21ad705ebbe4e20138f6ae5a0176ec71247e1c7d0948  5f356c5e THIS-CHANGE
+ * check-invariants           b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2  5f356c5e THIS-CHANGE
  * __directives__             154eafad031d58f2879e721e70a0e2b4f1aebee40a7ae78b112d028365256cbb  5f356c5e THIS-CHANGE
  * ─── END TABLE ───
  *
@@ -1104,7 +1108,7 @@ const RECIPE_PINS = {
   "check": "555f7ffb8d63c959167dea6aef6ff9eece22a0b492d255adfbd24b0cf1542176",
   "check-domain": "bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4",
   "check-guards": "d2b4d79bf4a8bab42e736fef9559a9081ce6f9628903e992e01d82116585edee",
-  "check-invariants": "22a691bb9821a9ea342e21ad705ebbe4e20138f6ae5a0176ec71247e1c7d0948",
+  "check-invariants": "b5b00cf8712642df67f14ad80b85a2be3bcec72c79fd4dc3a64860c5ea5389f2",
   "__directives__": "154eafad031d58f2879e721e70a0e2b4f1aebee40a7ae78b112d028365256cbb"
 };
 
@@ -1223,4 +1227,62 @@ test('TEST-22 the runner refuses a poisoned environment and strips it from every
   const clean = runLegs([`probe test -n "\${BASH_ENV:-}" && touch '${marker}'; true`]);
   assert.equal(clean.status, 0, 'sanity: a clean run must still pass');
   assert.ok(!fs.existsSync(marker), 'a leg inherited BASH_ENV — it must be stripped per leg');
+});
+
+// ── TEST-23 ─────────────────────────────────────────────────────────────────────────
+function pinnedPaths() {
+  return new Set(
+    fs
+      .readFileSync(path.join(SCRIPTS_DIR, 'guard-hashes.txt'), 'utf8')
+      .split('\n')
+      .filter((l) => l.trim() && !l.trim().startsWith('#'))
+      .map((l) => l.trim().split(/\s+/)[1]),
+  );
+}
+
+test('TEST-23 the UI-side and gallery guards that `just check` relies on are byte-pinned', () => {
+  // `check-guard-integrity.sh` pinned only `scripts/check-*` and `scripts/lib/*`, so
+  // `action-coverage.mjs` lost nine tenths of its scope with no pin moving. If the globs are
+  // narrowed again and `--update` is run, these pins vanish and this test reddens.
+  const pins = pinnedPaths();
+  const must = [
+    'src-app/ui/scripts/action-coverage.mjs',
+    'src-app/ui/scripts/action-refs-lint.mjs',
+    'src-app/ui/scripts/collect-actions.mjs',
+    'src-app/ui/scripts/guard-floors.test.mjs',
+    'src-app/ui/scripts/check-built-css-urls.mjs',
+    'src-app/ui/scripts/check-e2e-routing.mjs',
+    'src-app/ui/scripts/check-rename-mechanical.mjs',
+    'src-app/ui/scripts/lint-native-controls.mjs',
+    'src-app/ui/scripts/lint-secret-input-caps.mjs',
+    'src-app/ui/scripts/lint-text-source-bytes.mjs',
+    'sdk/packages/gallery/scripts/check-gallery-prod-exclusion.mjs',
+    'sdk/packages/gallery/scripts/check-harness-parity.mjs',
+  ];
+  for (const rel of must) {
+    assert.ok(fs.existsSync(path.join(REPO, rel)), `${rel} no longer exists; update this list with the guard`);
+    assert.ok(pins.has(rel), `${rel} is not pinned in scripts/guard-hashes.txt`);
+  }
+  // The one deliberate exception: ratcheted by its committed baseline instead.
+  assert.ok(
+    !pins.has('src-app/ui/scripts/lint-no-domain-in-builtin.mjs'),
+    'lint-no-domain-in-builtin.mjs is the named exception and must stay out of the pin set',
+  );
+});
+
+// ── TEST-24 ─────────────────────────────────────────────────────────────────────────
+test('TEST-24 docs/aggregate-gate-reporting.md states the same floors as AGGREGATE_FLOORS', () => {
+  // The doc is the reference for "what floor must not be lowered". A wrong number there
+  // invites someone to lower the real one to match it (it said `check-guards` 4 while the
+  // recipe had 6). The sentence is `(`check` N, `check-invariants` N, `check-guards` N)`.
+  const doc = fs.readFileSync(path.join(REPO, 'docs/aggregate-gate-reporting.md'), 'utf8');
+  const m = /\(`check` (\d+), `check-invariants` (\d+), `check-guards` (\d+)\)/.exec(doc);
+  assert.ok(m, 'docs/aggregate-gate-reporting.md §4 no longer states the floors as "(`check` N, `check-invariants` N, `check-guards` N)"');
+  const stated = { check: Number(m[1]), 'check-invariants': Number(m[2]), 'check-guards': Number(m[3]) };
+  assert.deepEqual(
+    stated,
+    AGGREGATE_FLOORS,
+    'the floors in docs/aggregate-gate-reporting.md §4 differ from AGGREGATE_FLOORS in this file; ' +
+      'fix the DOC (never lower a floor to match a stale doc)',
+  );
 });

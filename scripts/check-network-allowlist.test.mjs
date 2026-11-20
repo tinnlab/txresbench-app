@@ -144,3 +144,97 @@ version = "1.0.0"
   const r = run('', [path.join(src, 'src')], [path.join(locks, 'Cargo.lock')]);
   assert.equal(r.status, 0, r.stderr || r.stdout);
 });
+
+// ---- stale allowlist entries (D9) -------------------------------------------------
+
+test('fails on an allowlist entry that matches nothing in the scan roots', () => {
+  const src = fixtureTree({
+    'src/main.rs': 'const U: &str = "http://127.0.0.1:3100/api";\n',
+  });
+  const locks = fixtureTree({ 'Cargo.lock': CLEAN_LOCK });
+  const r = run('unused.example-corp.com\n', [path.join(src, 'src')], [path.join(locks, 'Cargo.lock')]);
+  assert.equal(r.status, 1, 'guard must fail on a stale entry');
+  assert.match(r.stderr, /STALE\s+unused\.example-corp\.com/);
+});
+
+test('an entry named on a `# scheme-less:` line may match nothing; any other may not', () => {
+  const src = fixtureTree({
+    'src/main.rs': 'const U: &str = "http://127.0.0.1:3100/api";\n',
+  });
+  const locks = fixtureTree({ 'Cargo.lock': CLEAN_LOCK });
+  const lock = path.join(locks, 'Cargo.lock');
+  const tagged = run('# scheme-less: registry.example-corp.com\nregistry.example-corp.com\n', [path.join(src, 'src')], [lock]);
+  assert.equal(tagged.status, 0, tagged.stderr || tagged.stdout);
+  const untagged = run('registry.example-corp.com # scheme-less\n', [path.join(src, 'src')], [lock]);
+  assert.equal(untagged.status, 1, 'a trailing tag on the entry line does not exempt it');
+});
+
+test('the shipped allowlist names only the three scheme-less hosts, and keeps every entry line a bare host', () => {
+  const text = fs.readFileSync(path.join(SCRIPTS_DIR, 'network-allowlist.txt'), 'utf-8');
+  const lines = text.split('\n');
+  assert.ok(lines.every((l) => l.trim().startsWith('#') || !l.includes('#')), 'an entry line carries no comment');
+  const tagged = lines
+    .filter((l) => /^#\s*scheme-less:/.test(l))
+    .flatMap((l) => l.split(':')[1].trim().split(/\s+/))
+    .sort();
+  assert.deepEqual(tagged, ['ghcr.io', 'objects.githubusercontent.com', 'pkg-containers.githubusercontent.com']);
+});
+
+// ---- derived scan roots (D8) ------------------------------------------------------
+
+// A copy of the guard placed in a synthetic repo, so its DEFAULT roots are derived from that
+// repo's layout. Nothing is passed with --roots.
+function syntheticRepo(files) {
+  const repo = fixtureTree({
+    'src-app/server/src/main.rs': '// none\n',
+    'src-app/desktop/tauri/src/main.rs': '// none\n',
+    'src-app/ui/src/index.ts': '// none\n',
+    'sdk/desktop/harness/src/lib.rs': '// none\n',
+    'sdk/packages/framework/src/index.ts': '// none\n',
+    'sdk/packages/kit/src/index.ts': '// none\n',
+    'sdk/packages/shell/src/index.ts': '// none\n',
+    'Cargo.lock': CLEAN_LOCK,
+    ...files,
+  });
+  fs.mkdirSync(path.join(repo, 'scripts'));
+  fs.copyFileSync(GUARD, path.join(repo, 'scripts', 'check-network-allowlist.sh'));
+  return repo;
+}
+
+function runDefault(repo) {
+  const aFile = path.join(repo, 'allow.txt');
+  fs.writeFileSync(aFile, '');
+  const r = spawnSync(
+    'bash',
+    [path.join(repo, 'scripts', 'check-network-allowlist.sh'), `--allowlist=${aFile}`, `--locks=${path.join(repo, 'Cargo.lock')}`],
+    { cwd: repo, encoding: 'utf-8' },
+  );
+  return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+}
+
+const BAD = 'https://leak.example-corp.com/x';
+
+test('default roots: a clean synthetic repo passes (the control for the cases below)', () => {
+  const r = runDefault(syntheticRepo({ 'sdk/crates/a-crate/src/lib.rs': 'const A: u8 = 1;\n' }));
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+});
+
+for (const [name, rel] of [
+  ['a new SDK crate (any name)', 'sdk/crates/brand-new-crate/src/lib.rs'],
+  ['a per-OS Tauri config', 'src-app/desktop/tauri/tauri.macos.conf.json'],
+  ['a second per-OS Tauri config', 'src-app/desktop/tauri/tauri.windows.conf.json'],
+  ['a capability file', 'src-app/desktop/tauri/capabilities/extra.json'],
+  ['the server build.rs', 'src-app/server/build.rs'],
+  ['the desktop build.rs', 'src-app/desktop/tauri/build.rs'],
+  ['an SDK crate build.rs', 'sdk/crates/brand-new-crate/build.rs'],
+]) {
+  test(`default roots: a host in ${name} is scanned without editing the guard`, () => {
+    const repo = syntheticRepo({
+      'sdk/crates/brand-new-crate/src/lib.rs': '// none\n',
+      [rel]: rel.endsWith('.json') ? `{"url": "${BAD}"}\n` : `const U: &str = "${BAD}";\n`,
+    });
+    const r = runDefault(repo);
+    assert.equal(r.status, 1, `host in ${rel} must be found`);
+    assert.match(r.stderr, /leak\.example-corp\.com/);
+  });
+}

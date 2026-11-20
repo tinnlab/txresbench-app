@@ -52,7 +52,7 @@ pre-existing and now visible, not introduced. Each red belongs to its own issue 
 own owner. The strip node removed the legs whose subjects left the tree (the
 processor-package, env-recipe and coercion legs) and moved the `--min-legs` floor with
 the removal; the aggregate keeps one floor per critical line of defence
-(`check` 5, `check-invariants` 5, `check-guards` 4) and `check-aggregate.test.mjs`
+(`check` 5, `check-invariants` 9, `check-guards` 6) and `check-aggregate.test.mjs`
 asserts all of them.
 
 ## §5 Non-negotiables

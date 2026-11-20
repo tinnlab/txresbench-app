@@ -26,18 +26,14 @@
 # visible as gutting anything it verifies.
 #
 # ── SCOPE ───────────────────────────────────────────────────────────────────────
-# Repo-root `scripts/check-*.sh` AND `scripts/check-*.mjs` — the committed
-# architectural-invariant guards. The `.mjs` half was added when `check-pub-orphans.mjs`
-# landed: a guard whose whole job is to fail a build is worth nothing if it can be gutted in
-# a diff nobody reads, and the language it happens to be written in has no bearing on that.
-# Widening also swept in the pre-existing `check-test-scope-lists.mjs` and
-# `check-package-suites.mjs`, which were unpinned
-# for the same accidental reason. The
-# frontend's `src-app/ui/scripts/lint-no-domain-in-builtin.mjs` is deliberately NOT
-# pinned here: it is under active per-(file,token) ratchet development by its own
-# owner, and its committed `domain-baseline.json` already makes weakening it a visible
-# diff. Widening this scope is a one-line GUARD_GLOBS edit — which `--update` will
-# then make reviewable, like everything else.
+# The `GUARD_GLOBS` array below is the scope: repo-root `scripts/check-*.sh` and
+# `scripts/check-*.mjs` (the committed architectural-invariant guards, in whatever language
+# they are written: a guard whose whole job is to fail a build is worth nothing if it can be
+# gutted in a diff nobody reads), `scripts/lib/*`, and the UI-side and gallery guards that
+# `just check` relies on. The frontend's `src-app/ui/scripts/lint-no-domain-in-builtin.mjs`
+# is deliberately NOT pinned here: it is ratcheted per (file, token) by its committed
+# `domain-baseline.json`, which already makes weakening it a visible diff. Widening this scope
+# is a `GUARD_GLOBS` edit, which `--update` then makes reviewable like everything else.
 #
 # `scripts/install-guard-hooks.sh` is also OUT, deliberately. It installs a per-clone
 # git hook, and a git hook is bypassable by design (`git push --no-verify`), so pinning
@@ -53,74 +49,43 @@ set -u
 cd "$(git rev-parse --show-toplevel)" || exit 2
 
 MANIFEST='scripts/guard-hashes.txt'
-# #196 R7 — `scripts/lib/*.sh` joins the set. It is not named `check-*`, but it is guard
-# LOGIC: it holds the env-id grammar the vocabulary guard validates against and the
-# behavioural image verifier the publish path gates on. Unpinned, either could be edited
-# to weaken a guard without the pin diff a reviewer reads. The line is what a file DOES,
-# not what it is called.
-# #287 R4 — `scripts/coercion-parity*` joins the set. It is not named `check-*`, but those
-# four files are the RUNNER and the three language implementations of the `check-coercion`
-# gate, and they were pinned by nothing: replacing
-# `coercion-parity.mjs` with `process.exit(0)` left this script reporting PASS over all 17
-# pins while the gate it fronts had become a no-op. That is precisely the rename dodge check
-# 2 exists to stop, arriving through a name this glob did not cover. The line above already
-# says it: what a file DOES, not what it is called.
+# `scripts/lib/*` is guard LOGIC even though it is not named `check-*`: it holds the shared
+# helpers and the declarations (for example `zero-core-surface.txt`) that decide what a guard
+# scans, and an unpinned one would let a surface be narrowed in a diff with no pin next to it.
+# The line is what a file DOES, not what it is called.
 #
-# Stated precisely, because the first draft of this note overclaimed "the entire body of the
-# gate": it is not. `coercion-parity.mjs` spawns reader 3 through
-# `src-app/ui/scripts/ts-resolve.mjs` (and the hooks it registers), which is executed by the
-# gate and is covered by no glob here. That file is another area's, under its own owner, so
-# it is FILED rather than pinned from this branch — the same reasoning that keeps
-# `lint-no-domain-in-builtin.mjs` out of this set.
-#
-# `scripts/coercion-parity*` is a `git ls-files` PATHSPEC, where `*` also crosses `/`. It
-# matches exactly the four intended files today; a future `scripts/coercion-parity-*/`
-# directory would have its contents treated as unpinned guards. That fails CLOSED (a noisy
-# FAIL, never a silent pass), so it is a maintenance note, not a hole.
-# #311/#324 R1 — `scripts/lib/*.sh` becomes `scripts/lib/*`. `scripts/lib/` is the directory
-# this file already declares to be guard LOGIC ("The line is what a file DOES, not what it is
-# called"), and #311 put a DECLARATION in it: `zero-core-surface.txt` is the single file
-# `check-derived-vocabulary.sh` and `spatial-types`' zero-core pytest both read for their scan
-# surface and their exemption rule. An extension in the glob is the same enumeration #304 had
-# to remove from the build surface one file over — a `.txt` that decides what a guard scans is
-# guard logic by this file's own test, and an unpinned one would let the surface be narrowed in
-# a diff with no pin next to it, which is the exact laundering check 1 exists to stop.
-#
-# THE SECOND EFFECT, stated because "more files pinned" is only half of what this does. Being
-# pinned here is key 1 of the `txr:guard-vocabulary` exemption in check-derived-vocabulary.sh,
-# so this manifest doubles as that exemption's eligibility list — widening the glob makes any
-# file dropped into scripts/lib/ exemption-ELIGIBLE, not merely pinned. That is bounded the same
-# way everything else here is (the marker must still be declared IN the file, in a diff a human
-# reads, and MIN_GUARDS moves with the set), but it is a coupling worth knowing about before the
-# next widening rather than after it.
-GUARD_GLOBS=('scripts/check-*.sh' 'scripts/check-*.mjs' 'scripts/lib/*')
+# `scripts/lib/*` is a `git ls-files` PATHSPEC, where `*` also crosses `/`: a future
+# subdirectory of `scripts/lib/` has its contents treated as guards. That fails CLOSED (a
+# noisy FAIL, never a silent pass), so it is a maintenance note, not a hole.
+# The UI-side and gallery guards join the set. `just check` relies on every one of them, and
+# `action-coverage.mjs` had already lost nine tenths of its scope in a diff nobody read (its
+# allowlist named deleted files) while no pin moved. They are listed by name where the name
+# does not say "check-" or "lint-": `collect-actions`, `action-refs-lint`, `action-coverage`
+# and `guard-floors.test` are guard logic by what they DO. The one deliberate exception is
+# `lint-no-domain-in-builtin.mjs` (the `:(exclude)` pathspec below), ratcheted by its
+# committed `domain-baseline.json`, as the paragraph above says.
+GUARD_GLOBS=(
+  'scripts/check-*.sh' 'scripts/check-*.mjs' 'scripts/lib/*'
+  'src-app/ui/scripts/check-*.mjs'
+  'src-app/ui/scripts/lint-*.mjs'
+  ':(exclude)src-app/ui/scripts/lint-no-domain-in-builtin.mjs'
+  'src-app/ui/scripts/collect-actions.mjs'
+  'src-app/ui/scripts/action-refs-lint.mjs'
+  'src-app/ui/scripts/action-coverage.mjs'
+  'src-app/ui/scripts/guard-floors.test.mjs'
+  'sdk/packages/gallery/scripts/check-*.mjs'
+)
 
-# Measured 2026-09-07 (#316): 26 guards. A manifest shorter than this is a gutted manifest.
-#
-# The floor was left at 9 while the manifest grew from 10 to 21, which let twelve pins be
-# dropped before check 3 could fire — and dropping a pin AND its file makes checks 1 and 2
-# silent too, so the floor was the only thing left and it was not watching. Raised with the
-# count, as it should have been each time the set grew.
-#
-# #316 RAISED IT AGAIN, AND THAT BRANCH ALMOST REPEATED THE OMISSION IT WAS FIXING. It added
-# two guards (24 -> 26) and left this at 20, restoring six pins of slack — while its own
-# `AGGREGATE_FLOORS` comment, four files away, argued that a floor is raised with the set it
-# guards. A blind auditor caught it. The rule has no exception for the branch enforcing it:
-# when the manifest grows, this number grows in the same diff.
-# The ledger grew step by step to 35 (each entry above the strip line recorded the
-# guard added and the floor raised with it, in the same diff; the full per-entry
-# record is in the git history of this file). The strip node ITEM-2 removed the
-# twenty single-cell guards together with their subjects (processor packages +
-# manifest gates, env-recipe pins, coercion corpus, workstore wire, design
-# citations) and re-derived the ledger with --update in the same diff, as every
-# entry demands: every removed guard updates the ledger in the commit that removes
-# it. The surviving set is 16 — it includes `check-naming.sh`, which was on disk
-# but unpinned since the rebrand commit, i.e. that re-pin also healed an inherited
-# red — and the floor moves with the set it guards, exactly as every entry above
-# demands. ITEM-5 added `check-dead-refs.sh` (16 -> 17) and raised the floor
-# in the same diff. PR 4a (the method list) added `check-method-list.sh` and its
-# controls `check-method-list.test.mjs` (17 -> 19), floor raised in the same diff.
-MIN_GUARDS=19
+# MIN_GUARDS is the number of pinned guards, EXACTLY (check 3 below fails on a manifest
+# shorter than it, and on one longer). A manifest shorter than the real set is a gutted
+# manifest; a floor left below the count is slack a pin can later vanish into, because
+# dropping a pin AND its file makes checks 1 and 2 silent too. So when the guard set grows
+# or shrinks, this number moves in the same diff, next to the pins:
+#   scripts/check-guard-integrity.sh --update && grep -c '^[0-9a-f]\{64\}' scripts/guard-hashes.txt
+# and put that count here. Do NOT lower it to fit a red.
+#   36  the 19 repo-root and lib guards plus the 17 UI-side and gallery guards (the widening
+#       of GUARD_GLOBS above).
+MIN_GUARDS=36
 
 MODE='verify'
 case "${1:-}" in
@@ -149,8 +114,9 @@ present_guards() {
 
 if [ "$MODE" = 'update' ]; then
   {
-    echo "# guard-hashes.txt — the COMMITTED pins for scripts/check-*, scripts/lib/* and"
-    echo "# scripts/coercion-parity* (ITEM-22, widened #287 R4 and #311/#324 R1)."
+    echo "# guard-hashes.txt — the COMMITTED pins for every guard in GUARD_GLOBS (see"
+    echo "# scripts/check-guard-integrity.sh): scripts/check-*, scripts/lib/*, and the UI-side"
+    echo "# and gallery guards."
     echo "#"
     echo "# Regenerate with:  scripts/check-guard-integrity.sh --update"
     echo "# A line changing here is a guard changing. That is the whole point: read it."

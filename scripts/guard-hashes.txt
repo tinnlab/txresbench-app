@@ -1,22 +1,23 @@
-# guard-hashes.txt — the COMMITTED pins for scripts/check-*, scripts/lib/* and
-# scripts/coercion-parity* (ITEM-22, widened #287 R4 and #311/#324 R1).
+# guard-hashes.txt — the COMMITTED pins for every guard in GUARD_GLOBS (see
+# scripts/check-guard-integrity.sh): scripts/check-*, scripts/lib/*, and the UI-side
+# and gallery guards.
 #
 # Regenerate with:  scripts/check-guard-integrity.sh --update
 # A line changing here is a guard changing. That is the whole point: read it.
 #
 # <sha256>  <path>
 6cabd764847af5f39601c65d2514807c4172b3d2f64020850d78eb33c2a85413  scripts/check-aggregate.sh
-da019dc3b83edc2351840b8eb268b1a3615e4b54b929669d3bfdb31b141d7ddd  scripts/check-aggregate.test.mjs
+338c409ced2458a2c9480e132707d67dfe4f6daf1ce0e3e807da764ff3a99f6d  scripts/check-aggregate.test.mjs
 a294ad55dfda966259c6e4c8bf4dff95581dd3736c6738441682e8dbee02feb7  scripts/check-dead-refs.sh
-0b7b538a5a1f9c35491d252f0c6c0d3f642ad295ca40858fbce8e349a99f8f17  scripts/check-guard-integrity.sh
+6646bedfba154370ccdc873345d4b83593652d0441559da3bdb7425f704d31db  scripts/check-guard-integrity.sh
 a3a75703d2b670fdc5443beed8efcf40012870e54d86cc56dd828219d925a475  scripts/check-method-env-images.sh
 b87b3297dfa6a5c22b967efa776c8fdca9102ce02b64be1bec648e72f2049e3b  scripts/check-method-env-images.test.mjs
 1552495acd913ef71ac78deb1b19853cfe24c47036412d443618e9f200c13882  scripts/check-method-list.sh
 90f41c22dccd642fbf5c835962df67243cca2cdc2e5231b6955585258f769763  scripts/check-method-list.test.mjs
 7d8319cae0f8f931d19676756dbbf6ade7fa15d212c18fea2c85a5bd1a1c0046  scripts/check-naming.sh
-5354d75d30c0374221260445f744d599a19e7a45f92032057117e288752e44dd  scripts/check-network-allowlist.sh
-774ab60f92a21911d9d95c619003478d782b7100b14c0b845c28e828f9f3297a  scripts/check-network-allowlist.test.mjs
-1630610966c27fac97815969df6d45a85fdcc11c1c507dac06862c6773f9b293  scripts/check-no-format-crates.sh
+42868e21e09c60854cd337dd917ebaa7b7081184e124aff2a935f7324be95ec8  scripts/check-network-allowlist.sh
+665d68e1d0f6a7a28098426c11e937993c8606b9589d124fbd73cc8690e23447  scripts/check-network-allowlist.test.mjs
+43348801cb26577e2ff6fb6a55987e00da21de7194dad41d600599d03f8e2913  scripts/check-no-format-crates.sh
 e8552beeff42941bf56cfb5dfafe5b22cd27a284e4af19b721187e30050f962b  scripts/check-no-study-domain-literals.sh
 57ae41c18759fe28ee80d095fbfddfa5a1c765a2ba081d916df9c6b8354eb880  scripts/check-pub-orphans.mjs
 770ea0efe5afe12b2961bb52d1ca50a49af9d1ac6f53b104f21fd9ee30093598  scripts/check-pub-orphans.test.mjs
@@ -24,3 +25,20 @@ ba3da927e508ca1b22788ad12d7d5000d61e71e04e469b41a962d1cfcd7df59a  scripts/check-
 0dd9b1f78e9ba826199300384f0e49c98a1cec18bc361ff53eb4a7f6b144f737  scripts/lib/env-id-grammar.sh
 6e5d75a2e076d290f5032e2a948231d14d297f067e40419ca4a140f05078f86b  scripts/lib/env-image-verify.sh
 621d6d43ed50492e7b881a9c0ab3c900e7bac3f49d461c04b31b2da118c671d4  scripts/lib/method-env-verify.sh
+3b630b239656da967046ffccf10984f8991194332f7b1063210117064ab99771  sdk/packages/gallery/scripts/check-gallery-prod-exclusion.mjs
+0f503c9a49e803e79ff01778503c0e5a693e017185cb43874d07b8d001a0b501  sdk/packages/gallery/scripts/check-harness-parity.mjs
+473aeab38d827d3305ee82729e4fc8cd459c513c52132050777e8913ab5630de  sdk/packages/gallery/scripts/check-harness-parity.test.mjs
+b6f2a453fc7e2702a04dd0a3bafb730b029282e1984832747c03fc784782e557  src-app/ui/scripts/action-coverage.mjs
+8e80e13b870b722049039e3c2aa29a466a0e2447e739c375a834dbcc5e87a42c  src-app/ui/scripts/action-refs-lint.mjs
+a51b54e9c2a8e8b960d2747bc37c31a71b4ba25b16d474990b412a3c238d322f  src-app/ui/scripts/check-built-css-urls.mjs
+97a79127be6e93cc868c063e6bb2dd71a48a5587437d198556ded4a9de0f0e58  src-app/ui/scripts/check-e2e-routing.mjs
+5fb2e6c46e1edd2912278feb1fcfa641dd9a8131a9a47c6286962a77e1de5c3f  src-app/ui/scripts/check-rename-mechanical.mjs
+84df2be00a69c6ec4cd4b00c10c0c1eb7f82616b8e3e58b62f3779ce338c2407  src-app/ui/scripts/check-rename-mechanical.test.mjs
+c25e9db90ab92c3dc050ab173b0361e1aa645a36d147bafade60b0f6cc2c7579  src-app/ui/scripts/collect-actions.mjs
+cc2a2490c756c2d7c8a9d574efdb41500eccccaa31112d82bdfd0d1ddcb98406  src-app/ui/scripts/guard-floors.test.mjs
+01e8cd332c48579141460d7b8424c6e3a18c76bf63b6391e9e2d1354a146424c  src-app/ui/scripts/lint-native-controls.mjs
+fb14237c18132739b9b009faec0c51a9fd4a799b97326f50cd3a612370ed05d2  src-app/ui/scripts/lint-native-controls.test.mjs
+71c406c00d0038ee047c61c905ce871149c08645bd3eff206002822229cbaa2a  src-app/ui/scripts/lint-no-domain-in-builtin.test.mjs
+7247b5788a089917f8046a4144ac06b0f979ae8f906240325d60575fbc0f39c8  src-app/ui/scripts/lint-secret-input-caps.mjs
+fdba04c7751cd4321381aad6de57d69d0f3eda8dfce56018f68c08c3f1c1b935  src-app/ui/scripts/lint-secret-input-caps.test.mjs
+eac64194ff90e4c1a66d1281771b19e07028198ab61523b87ec722f4bb03967d  src-app/ui/scripts/lint-text-source-bytes.mjs

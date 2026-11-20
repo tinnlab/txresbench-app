@@ -123,8 +123,8 @@ Before you consider action-related work done, run the two completeness checks
 cd src-app/ui
 node scripts/action-refs-lint.mjs      # HARD-fail: every action="..."/runAction('...')
                                         # reference must name a REGISTERED action id
-node scripts/action-coverage.mjs       # advisory, allowlist-aware: an opted-in file's
-                                        # inline onClick must not bypass the registry
+node scripts/action-coverage.mjs       # every source file's inline onClick must not
+                                        # bypass the registry (allowlisted files excepted)
 ```
 
 - **`action-refs-lint.mjs`** scans `src/**` for every `<ActionButton
@@ -135,13 +135,14 @@ node scripts/action-coverage.mjs       # advisory, allowlist-aware: an opted-in 
   typo'd action id before it ships as a dead button. A dynamically-computed id
   (`action={someVar}`) is not statically decidable and is reported as skipped,
   not failed.
-- **`action-coverage.mjs`** is the advisory half (DEC-6: a repo-wide "every
-  onClick is an action" hard-fail isn't statically decidable). It only checks
-  files listed in `scripts/action-coverage-allowlist.txt` (opt-in, seeded
-  empty) for a `<Button onClick={...}>` that directly calls a
+- **`action-coverage.mjs`** is the narrow half (DEC-6: a general "every
+  onClick is an action" hard-fail isn't statically decidable, so it checks
+  one documented pattern). It checks EVERY non-test source file under `src`
+  for a `<Button onClick={...}>` that directly calls a
   `Stores.<X>.<method>(...)` — i.e. a store mutation that bypassed the action
-  registry entirely. As you migrate a directory onto the actions model, add it
-  to the allowlist so this check starts enforcing there.
+  registry entirely. A file is exempt only if it is listed in
+  `scripts/action-coverage-allowlist.txt` (seeded empty); an entry that
+  matches no file fails the check.
 - **When you touch a UI surface that has affordances but no actions yet**,
   register them (per the first section above) rather than adding another
   inline handler — that is exactly the gap this skill exists to close.
@@ -154,7 +155,7 @@ feature must pass:
 - `npm run check` in `src-app/ui` chains `tsc --noEmit` →
   `collect-actions.mjs --check` (manifest drift + permission validity) →
   `action-refs-lint.mjs` (dangling reference hard-fail) → `action-coverage.mjs`
-  (allowlist-aware advisory check). A feature branch that adds a UI action
+  (inline store calls in `<Button onClick>`). A feature branch that adds a UI action
   without registering it, or leaves a dangling `action="..."` reference, FAILS
   `npm run check` — the same gate the feature-lifecycle Phase 8 test run
   requires green for any frontend-touching diff.

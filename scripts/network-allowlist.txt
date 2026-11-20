@@ -4,7 +4,11 @@
 # the RFC 2606 example names (*.example, example.com/net/org, *.invalid, *.test)
 # are always allowed by the guard and are not listed here. Anything else found
 # as an http(s):// literal in shipped non-test source fails
-# scripts/check-network-allowlist.sh.
+# scripts/check-network-allowlist.sh. An entry that matches no literal in the scan
+# roots also fails the guard, unless a `# scheme-less: host ...` line below names it
+# (the host is used by a tool and never spelled with a scheme in the source).
+#
+# scheme-less: ghcr.io pkg-containers.githubusercontent.com objects.githubusercontent.com
 #
 # ghcr.io is not spelled with a scheme in the source (the registry is a string
 # constant passed to `oras`), so it is listed here as the approved host rather
@@ -45,18 +49,8 @@ appleid.apple.com
 # these requests to the app's IPC handler; nothing leaves the machine (macOS
 # and Linux use the `ipc:` scheme for the same channel).
 ipc.localhost
-# Identifiers written into exported metadata / SVG output, never fetched:
-# RO-Crate `conformsTo` (provenance export), the XML namespace declarations of
-# the SVG exporter, and the Tauri config `$schema` document.
-w3id.org
-www.w3.org
+# The Tauri config `$schema` document (a JSON-schema identifier, never fetched).
 schema.tauri.app
-# Inert base used only to parse relative URLs back into absolute form.
-viz.local
-# JSON-Schema identifiers: the workbench manifest schema's $schema/$id
-# documents (never fetched by the app).
-json-schema.org
-txr.ai
 # Not a host list entry: when a Windows PC lacks WSL, the Windows installer
 # (src-app/desktop/tauri/windows/installer-hooks.nsh) asks Microsoft's own
 # wsl.exe to download it (`wsl --install --no-distribution` / `wsl --update`,

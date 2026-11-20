@@ -90,11 +90,11 @@ check:
 # with the single-cell platform (strip node ITEM-4); this recipe stays RETIRED.
 
 
-# The committed architectural-invariant guards. All three shipped as executable scripts
-# and were invoked by NO justfile recipe and NO workflow (`.github/workflows/` holds only
-# a single env-build workflow) — the same "guard nobody runs" shape as R3-99 and as the
-# processor pytest suites before the platform left. They are cheap (git-grep over tracked files), so they
-# belong in the default gate rather than in a reader's good intentions.
+# The committed architectural-invariant guards. `check-dead-refs.sh`, `check-naming.sh` and
+# `check-network-allowlist.sh` (with its control suite) are legs of `check-invariants` below.
+# They were once run by NO recipe, no workflow and no hook, the "guard nobody runs" shape of
+# R3-99; a guard that no leg runs is worse than none, so a leg is added in the same diff as a
+# guard. They are cheap (git-grep over tracked files), so they belong in the default gate.
 #
 # NOT WIRED: `scripts/check-no-study-domain-literals.sh`. It is RED TODAY, and the
 # redness is PRE-EXISTING, not branch-introduced: its `stud(y|ies)` regex is
@@ -128,13 +128,20 @@ check:
 # The strip node (ITEM-2) REMOVED the single-cell legs of this aggregate together
 # with their subjects (the processor kind + workstore wire guards and the
 # design-citations guard whose subject docs mostly went; the strip node's drift
-# ledger records the removals). The remaining six legs are the tree-property and
-# enforcement guards of the kept surface.
+# ledger records the removals). The legs now are nine: test-scope-lists, dead-refs, naming,
+# the network allowlist guard and its controls, pub-orphans and its controls, and the two
+# nested aggregates (check-guards, check-domain). `--min-legs` and `AGGREGATE_FLOORS` in
+# `scripts/check-aggregate.test.mjs` move together with that number, and
+# `docs/aggregate-gate-reporting.md` §4 states it (a test asserts the doc equals the floors).
 check-invariants:
     #!/usr/bin/env bash
     set -uo pipefail
-    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check-invariants' --min-legs 5 --controls-leg check-pub-orphans-controls <<'LEGS'
+    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check-invariants' --min-legs 9 --controls-leg check-pub-orphans-controls <<'LEGS'
     check-test-scope-lists node "{{justfile_directory()}}/scripts/check-test-scope-lists.mjs"
+    check-dead-refs bash "{{justfile_directory()}}/scripts/check-dead-refs.sh"
+    check-naming bash "{{justfile_directory()}}/scripts/check-naming.sh"
+    check-network-allowlist-controls node --test "{{justfile_directory()}}/scripts/check-network-allowlist.test.mjs"
+    check-network-allowlist bash "{{justfile_directory()}}/scripts/check-network-allowlist.sh"
     check-pub-orphans-controls node --test "{{justfile_directory()}}/scripts/check-pub-orphans.test.mjs"
     check-pub-orphans node "{{justfile_directory()}}/scripts/check-pub-orphans.mjs"
     check-guards just check-guards
@@ -175,8 +182,8 @@ check-invariants:
 #
 # The strip node (ITEM-2) removed the single-cell guards from this aggregate
 # together with their subjects (env-rootfs pin recipes + the processor-vocabulary
-# guard, and the analysis-rootfs local env loop). The remaining four legs are the
-# kept enforcement guards.
+# guard, and the analysis-rootfs local env loop). `check-guards` has six legs now (see the
+# method list paragraph below and `--min-legs`).
 #
 # The method list (PR 4a) adds two legs, its guard's controls first and then the
 # guard over this tree (app mode: the trusted keys never hold the fixture key; the
