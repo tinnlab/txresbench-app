@@ -435,10 +435,15 @@ jwt:
                     #[cfg(not(unix))]
                     let _ = executable;
                 }
-                let mut env = vec![(
-                    "TXR_APP_DATA_DIR".to_string(),
-                    facts.data_dir.display().to_string(),
-                )];
+                let mut env = vec![
+                    (
+                        "TXR_APP_DATA_DIR".to_string(),
+                        facts.data_dir.display().to_string(),
+                    ),
+                    // The server refuses every request without this key (demo
+                    // mode excepted: it installs no lock).
+                    ("TXR_LOCAL_API_KEY".to_string(), TEST_LOCAL_API_KEY.to_string()),
+                ];
                 if let Some(ms) = opts.sync_recheck_tick_ms {
                     env.push(("SYNC_RECHECK_TICK_MS".to_string(), ms.to_string()));
                 }
@@ -509,6 +514,12 @@ jwt:
     fn health_path(&self) -> String {
         "/api/health".to_string()
     }
+
+    /// `/api/health` is behind the local-API lock too: the readiness poll
+    /// sends the test key.
+    fn health_headers(&self) -> Vec<(String, String)> {
+        vec![("x-txr-local-key".to_string(), TEST_LOCAL_API_KEY.to_string())]
+    }
 }
 
 // ───────────────── the test process's own "boot": process-global registries ─────
@@ -539,6 +550,27 @@ impl txresbench_test_harness::ApiUrlTarget for TestServer {
     fn api_url(&self, path: &str) -> String {
         TestServer::api_url(self, path)
     }
+
+    fn extra_headers(&self) -> Vec<(String, String)> {
+        vec![("x-txr-local-key".to_string(), TEST_LOCAL_API_KEY.to_string())]
+    }
+}
+
+/// The local-API key every test server runs with (`TXR_LOCAL_API_KEY`): the
+/// server refuses requests without it, so every client the tests build sends it.
+pub const TEST_LOCAL_API_KEY: &str = "txr-test-local-api-key-0123456789abcdef";
+
+/// A client that sends the test server's local-API key on every request.
+pub fn keyed_client() -> reqwest::Client {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "x-txr-local-key",
+        reqwest::header::HeaderValue::from_static(TEST_LOCAL_API_KEY),
+    );
+    reqwest::Client::builder()
+        .default_headers(headers)
+        .build()
+        .expect("keyed test client")
 }
 
 /// Thin wrapper over the engine's `SpawnedServer` — the handle tests hold. Drops
@@ -564,8 +596,14 @@ impl TestServer {
         let inner = harness.start(opts).await;
         Self {
             inner,
-            client: reqwest::Client::new(),
+            client: keyed_client(),
         }
+    }
+
+    /// A second client with the same key (a test that needs requests on a
+    /// separate connection pool).
+    pub fn new_client(&self) -> reqwest::Client {
+        keyed_client()
     }
 
     /// Absolute URL for an API path (already `/api`-prefixed): `"/auth/me"` →

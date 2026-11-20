@@ -63,3 +63,15 @@ jwt:
 # value.
 secrets:
   storage_key: null   # e.g. "CHANGE_ME_run_openssl_rand_base64_48"
+
+# Local API key. The server refuses EVERY request (`/api/health` and
+# `POST /api/session/local` included) that does not send this key as the
+# `X-TxR-Local-Key` header, so a web page in your browser cannot drive it. The
+# env var `TXR_LOCAL_API_KEY` takes precedence over this value. Unset: the
+# server makes a key at start and prints it once on stdout. A key must be at
+# least 16 characters. The UI dev server's /api proxy sends the key when it is
+# started with the same `TXR_LOCAL_API_KEY` in its environment. Demo mode
+# (`--demo`) has no key. The desktop app makes its own key per run and never
+# reads this file.
+# local_api:
+#   key: "CHANGE_ME_at_least_16_characters"

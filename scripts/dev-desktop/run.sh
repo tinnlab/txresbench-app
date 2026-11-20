@@ -89,7 +89,15 @@ printf 'ITEM-5 dev-desktop harness state dir: %s\n' "$STATE_DIR" >"$STATE_DIR/$M
 for d in pids logs shots data home; do mkdir -p "$STATE_DIR/$d"; done
 rm -rf "$STATE_DIR/data" "$STATE_DIR/home"
 mkdir -p "$STATE_DIR/data" "$STATE_DIR/data/bin" "$STATE_DIR/home"
-: >"$STATE_DIR/current"
+(umask 077; : >"$STATE_DIR/current")
+
+# The embedded server refuses every request without its per-run local-API key
+# (the X-TxR-Local-Key header, /api/health included). A debug build honors
+# TXR_LOCAL_API_KEY, so the readiness poll and verify.sh can send it; the key is
+# throwaway and lives only in this state dir.
+export TXR_LOCAL_API_KEY
+LOCAL_KEY="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+TXR_LOCAL_API_KEY="$LOCAL_KEY"
 
 # Stage the oras shim the app's method-env fetch shells out to (tool_bin
 # prefers <app_data>/bin over PATH, method_env.rs). Without it a real run
@@ -186,7 +194,7 @@ done
 APP_PORT="${APP_ADDR##*:}"
 HEALTH=""
 for _ in $(seq 1 30); do
-  if curl -fsS -o /dev/null "http://$APP_ADDR/api/health"; then HEALTH=ok; break; fi
+  if curl -fsS -o /dev/null -H "X-TxR-Local-Key: $LOCAL_KEY" "http://$APP_ADDR/api/health"; then HEALTH=ok; break; fi
   sleep 1
 done
 [ "$HEALTH" = ok ] || fail "health endpoint http://$APP_ADDR/api/health did not answer"
@@ -201,6 +209,7 @@ curl -fsS -o /dev/null "http://127.0.0.1:$NOVNC_PORT/vnc.html" || fail "noVNC on
 SHUTDOWN_ON_FAIL=0
 {
   echo "app=$APP_ADDR"
+  echo "key=$LOCAL_KEY"
   echo "vnc_port=$VNC_PORT"
   echo "novnc_port=$NOVNC_PORT"
   echo "started_epoch=$(date +%s)"

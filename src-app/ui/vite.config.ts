@@ -7,6 +7,34 @@ import { txrBuiltCssUrlsCheck } from './vite-built-css-check'
 
 const srcDir = path.resolve(__dirname, './src')
 
+// The backend refuses every request without its local-API key (`X-TxR-Local-Key`).
+// A browser on the dev or preview server has no Tauri IPC to learn it, so the /api
+// proxy adds it: run both with the same `TXR_LOCAL_API_KEY` (the CLI server prints
+// a generated one at start when none is set). Unset → no header (a demo-mode
+// backend has no lock).
+const localKeyHeaders: Record<string, string> = process.env.TXR_LOCAL_API_KEY
+  ? { 'X-TxR-Local-Key': process.env.TXR_LOCAL_API_KEY }
+  : {}
+
+// The proxy injects the key, so it must serve only this dev server's own page: a
+// request whose Origin is another site (a web page probing localhost:5173) is
+// refused here, before the key is added. Requests without Origin (same-origin GETs,
+// curl) pass.
+const refuseForeignOrigin = (req: any, res: any): false | undefined => {
+  const origin = req.headers.origin as string | undefined
+  if (!origin) return undefined
+  let ok = false
+  try {
+    ok = new URL(origin).host === req.headers.host
+  } catch {
+    ok = false
+  }
+  if (ok) return undefined
+  res.statusCode = 403
+  res.end()
+  return false
+}
+
 /**
  * The X1 build check (qa-fixes ITEM-7, wired ITEM-6-d): after the build
  * closes, every `url()` in the built CSS must resolve inside the built
@@ -75,6 +103,8 @@ export default defineConfig({
         target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:3100/',
         changeOrigin: true,
         xfwd: true,
+        headers: localKeyHeaders,
+        bypass: refuseForeignOrigin,
       },
     },
   },
@@ -100,6 +130,8 @@ export default defineConfig({
         target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:3100/',
         changeOrigin: true,
         xfwd: true,
+        headers: localKeyHeaders,
+        bypass: refuseForeignOrigin,
       },
     },
   },

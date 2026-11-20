@@ -141,7 +141,7 @@ async fn logout_tears_down_an_already_open_stream() {
     // Alice logs out on a SEPARATE client, so her stream keeps reading. Logout
     // bumps `users.token_version` — the epoch her open stream's token carried
     // is now stale.
-    let client2 = reqwest::Client::new();
+    let client2 = server.new_client();
     let out = client2
         .post(server.api_url("/auth/logout"))
         .bearer_auth(&alice)
@@ -219,7 +219,7 @@ async fn account_create_frame_is_owner_scoped() {
         pool.close().await;
         id
     };
-    let client2 = reqwest::Client::new();
+    let client2 = server.new_client();
     let r = client2
         .post(server.api_url("/accounts"))
         .bearer_auth(&admin)

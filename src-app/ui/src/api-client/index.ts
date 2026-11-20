@@ -10,12 +10,14 @@ import {
   createApiClient,
   getAuthToken,
   setBaseUrlResolver,
+  setExtraHeadersProvider,
 } from '@txresbench/framework/api-client'
 import type {
   FileUploadProgressCallback,
   SSECallback,
 } from '@txresbench/framework/api-client'
 import { getBaseUrl } from '@/api-client/getBaseURL'
+import { getLocalKeyHeaders } from '@/api-client/localKey'
 
 // Per-app binding of the framework ApiClient runtime.
 //
@@ -31,6 +33,10 @@ import { getBaseUrl } from '@/api-client/getBaseURL'
 // Tauri dynamic-port variant via its `.desktop` override — so the framework
 // stays platform-agnostic while the desktop base-URL behavior is preserved.
 setBaseUrlResolver(getBaseUrl)
+
+// The desktop build's per-run local-API key goes on every request (the embedded
+// server refuses any request without it); a plain browser adds nothing.
+setExtraHeadersProvider(getLocalKeyHeaders)
 
 // Re-export utility functions
 export { getAuthToken }

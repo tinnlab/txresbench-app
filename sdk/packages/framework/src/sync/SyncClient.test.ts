@@ -16,9 +16,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * case; the no-window case is `unload.test.ts`).
  */
 
+const extra = vi.hoisted(() => ({ headers: {} as Record<string, string> }))
+
 vi.mock('../api-client/core', () => ({
   getAuthToken: () => 'test-token',
   getBaseUrl: async () => 'http://sync.test',
+  getExtraHeaders: async () => extra.headers,
 }))
 
 type Listener = () => void
@@ -83,5 +86,22 @@ describe('SyncClient stream-end log level (R2-G5)', () => {
     expect(String(message)).toContain('[sync] stream ended as the page unloads; reconnecting')
     expect(warn).not.toHaveBeenCalled()
     stopSyncClient()
+  })
+})
+
+describe('SyncClient extra request headers (local-API key)', () => {
+  it('sends the injected headers on the subscribe stream, with the bearer', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    extra.headers = { 'X-TxR-Local-Key': 'k-123' }
+    const { startSyncClient, stopSyncClient } = await loadClient()
+    startSyncClient()
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toBe('http://sync.test/api/sync/subscribe')
+    expect(init.headers['X-TxR-Local-Key']).toBe('k-123')
+    expect(init.headers.Authorization).toBe('Bearer test-token')
+    stopSyncClient()
+    extra.headers = {}
   })
 })

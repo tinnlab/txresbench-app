@@ -123,7 +123,22 @@ async fn main() {
                 cli.demo,
                 cli.config_file.as_deref(),
             );
-            txresbench::serve_blocking(config, demo).await
+            // The local-API key every request must carry (not in demo mode: a public
+            // web service with anonymous visitors by design). Env > config file >
+            // generated; a generated key is printed once, like a notebook token.
+            let (local_key, generated) = match txresbench::modules::local_api_lock::resolve_headless_key(
+                txresbench::config::read_local_api_key(cli.config_file.as_deref()),
+            ) {
+                Ok(k) => k,
+                Err(e) => {
+                    eprintln!("fatal: {e}");
+                    std::process::exit(1);
+                }
+            };
+            if generated && !demo.enabled {
+                println!("{}", txresbench::modules::local_api_lock::key_banner(&local_key));
+            }
+            txresbench::serve_blocking(config, demo, local_key).await
         }
         Some(Mode::CheckMethodList { .. }) => unreachable!("handled before the config load"),
     };

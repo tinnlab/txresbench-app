@@ -1,5 +1,10 @@
 import { useSyncExternalStore } from 'react'
-import { callAsync, getAuthToken, getBaseUrl } from '@txresbench/framework/api-client'
+import {
+  callAsync,
+  getAuthToken,
+  getBaseUrl,
+  getExtraHeaders,
+} from '@txresbench/framework/api-client'
 import { isDocumentUnloading } from '@txresbench/framework/sync'
 import { onAgentConnected, onAgentDisconnected } from './capabilityReport'
 import { createActionContext } from './ctx'
@@ -252,6 +257,10 @@ async function connectOnce(myEpoch: number): Promise<void> {
   const baseUrl = await getBaseUrl()
   if (!started || myEpoch !== epoch) return
 
+  // The local-API key header the embedded desktop server requires (default: none).
+  const extraHeaders = await getExtraHeaders()
+  if (!started || myEpoch !== epoch) return
+
   const abort = new AbortController()
   activeAbort = abort
 
@@ -259,6 +268,7 @@ async function connectOnce(myEpoch: number): Promise<void> {
     `${baseUrl}/api/mcp/agent/stream?session_id=${encodeURIComponent(sessionId)}`,
     {
       headers: {
+        ...extraHeaders,
         Authorization: `Bearer ${token}`,
         Accept: 'text/event-stream',
       },

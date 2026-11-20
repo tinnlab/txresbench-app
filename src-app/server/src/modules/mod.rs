@@ -15,6 +15,9 @@ pub mod err_sanitiser;
 // along with their registrations (single-user local app — see dev/docs/app-build-strip.md).
 pub mod account;
 pub mod localsession;
+// The per-run key + Host/Origin lock in front of the whole local HTTP API
+// (a web page in the user's browser must not be able to drive it).
+pub mod local_api_lock;
 // TxResBench: demo mode (web service) — the `demo:` switch, `GET
 // /api/app/mode`, the route allowlist gate, the anonymous-visitor sessions
 // and the demo limits. Default OFF (desktop unchanged); the module's own

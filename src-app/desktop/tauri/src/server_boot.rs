@@ -13,12 +13,15 @@ use txresbench_desktop_harness::boot::{BootHandle, ServerBoot};
 /// Holds the desktop config until the single `boot` call consumes it.
 pub struct CytoServerBoot {
     config: Mutex<Option<ServerConfig>>,
+    /// The per-run local-API key the embedded server requires on every request.
+    secret: String,
 }
 
 impl CytoServerBoot {
-    pub fn new(config: ServerConfig) -> Self {
+    pub fn new(config: ServerConfig, secret: String) -> Self {
         Self {
             config: Mutex::new(Some(config)),
+            secret,
         }
     }
 }
@@ -35,7 +38,7 @@ impl ServerBoot for CytoServerBoot {
             .take()
             .ok_or_else(|| anyhow::anyhow!("CytoServerBoot::boot called more than once"))?;
 
-        let parts = txresbench::boot_in_background(config)
+        let parts = txresbench::boot_in_background(config, self.secret.clone())
             .await
             .map_err(|e| anyhow::anyhow!("failed to start embedded server: {e}"))?;
 

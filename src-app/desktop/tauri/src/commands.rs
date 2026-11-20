@@ -33,6 +33,21 @@ pub fn get_server_port() -> Result<u16, String> {
         .ok_or_else(|| "server not ready".to_string())
 }
 
+/// The per-run local-API key (`config::api_secret`), set once in `run()` before
+/// the server boots.
+pub static API_SECRET: OnceLock<String> = OnceLock::new();
+
+/// The per-run key the webview sends as `X-TxR-Local-Key` on every API request.
+/// Tauri IPC is reachable only from the app's own window, which is why the key
+/// travels this way and never in a URL, a file or a log line.
+#[tauri::command]
+pub fn get_api_secret() -> Result<String, String> {
+    API_SECRET
+        .get()
+        .cloned()
+        .ok_or_else(|| "api secret not ready".to_string())
+}
+
 /// Mint a permanent-session login for the single desktop owner — the harness
 /// half of the single-user strategy.
 #[tauri::command]
@@ -309,5 +324,37 @@ mod tests {
             "a file is rejected: the affordance opens the run DIRECTORY, never a file"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The per-run key's wiring (kept here, apart from `lib.rs`'s own pin tests).
+#[cfg(test)]
+mod api_secret_tests {
+    use super::*;
+
+    #[test]
+    fn the_webview_reads_the_key_over_ipc_only_once_it_is_set() {
+        // Not set yet in this process: not ready, never an empty key.
+        if API_SECRET.get().is_none() {
+            assert!(get_api_secret().is_err());
+        }
+        let _ = API_SECRET.set("a-run-secret-0123456789abcdef".to_string());
+        assert_eq!(get_api_secret().as_deref(), Ok(API_SECRET.get().unwrap().as_str()));
+    }
+
+    /// The command is registered, and the key is made and stored BEFORE the
+    /// server boot object takes it (the boot would otherwise lock with a key
+    /// the window never learns).
+    #[test]
+    fn run_makes_the_key_before_the_boot_and_registers_the_command() {
+        const SRC: &str = include_str!("lib.rs");
+        assert!(SRC.contains("commands::get_api_secret"), "register the IPC command");
+        let stored = SRC.find("commands::API_SECRET.set(").expect("run() stores the key");
+        let boot = SRC.find("CytoServerBoot::new(").expect("run() builds the boot");
+        assert!(stored < boot, "the key must be stored before the boot is built");
+        assert!(
+            SRC.contains("CytoServerBoot::new(config::desktop_config(), api_secret)"),
+            "the boot must receive the SAME key the webview reads",
+        );
     }
 }

@@ -25,8 +25,10 @@ use crate::common::TestServer;
 async fn booted_server_identifies_its_worktree_at_the_root_sentinel() {
     let server = TestServer::spawn().await;
 
-    // Unauthenticated, exactly as the pre-flight asks it: the harness must be able to
-    // establish provenance before it holds any credential.
+    // Without a login token, exactly as the pre-flight asks it: the harness must be
+    // able to establish provenance before it holds any credential. (The client still
+    // carries the local-API key: the lock covers this route like every other, and the
+    // pre-flight sends the run's key — see `harness-origin.mjs::localKeyHeaders`.)
     let resp = server
         .client
         .get(server.root_url("/__worktree"))

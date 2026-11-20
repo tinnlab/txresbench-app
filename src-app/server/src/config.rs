@@ -39,6 +39,21 @@ pub const DATABASE_URL_ENV: &str = "TXR_DATABASE_URL";
 /// `demo.enabled`; the CLI `--demo` flag takes precedence over BOTH.
 pub const DEMO_ENV: &str = "TXR_DEMO";
 
+/// The `local_api:` wrapper deserialized from the config file: the headless
+/// server's local-API key (`TXR_LOCAL_API_KEY` overrides it). Absent ⇒ no key
+/// configured (the server makes one at start and prints it once).
+#[derive(Debug, Clone, Default, Deserialize)]
+struct LocalApiFileShape {
+    #[serde(default)]
+    local_api: LocalApiFile,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct LocalApiFile {
+    #[serde(default)]
+    key: Option<String>,
+}
+
 /// Default SQLite database file name inside the app-data dir. Kept in sync
 /// with the plan's `<app-data-dir>/txresbench.db` (DEC-13 / PROV-sqlite-store-1).
 pub const DEFAULT_DB_FILE_NAME: &str = "txresbench.db";
@@ -219,6 +234,24 @@ pub fn resolve_storage_key(explicit: Option<&str>) -> Option<String> {
                 "failed to parse `secrets:` from config; running in compat mode (no at-rest \
                  secret encryption)"
             );
+            None
+        }
+    }
+}
+
+/// The config file's `local_api.key`, if any. Same posture as
+/// [`resolve_storage_key`]: an unreadable file or block is non-fatal here (the
+/// server then makes its own key; it never boots without one).
+pub fn read_local_api_key(explicit: Option<&str>) -> Option<String> {
+    let path = match explicit.map(std::path::PathBuf::from) {
+        Some(p) => Some(p),
+        None => ServerConfig::discover(),
+    }?;
+    let content = std::fs::read_to_string(&path).ok()?;
+    match serde_norway::from_str::<LocalApiFileShape>(&content) {
+        Ok(shape) => shape.local_api.key,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to parse `local_api:` from config; no key configured");
             None
         }
     }
@@ -618,5 +651,32 @@ mod demo_config_tests {
         let cfg = resolve_demo_config(false, f.to_str());
         remove_tmp(&f);
         assert!(!cfg.enabled);
+    }
+}
+
+#[cfg(test)]
+mod local_api_key_tests {
+    use super::*;
+
+    fn read(yaml: &str) -> Option<String> {
+        let path = std::env::temp_dir().join(format!("txr-lak-cfg-{}.yaml", uuid::Uuid::new_v4()));
+        std::fs::write(&path, yaml).unwrap();
+        let got = read_local_api_key(path.to_str());
+        let _ = std::fs::remove_file(&path);
+        got
+    }
+
+    #[test]
+    fn the_key_is_read_from_the_local_api_block() {
+        assert_eq!(
+            read("local_api:\n  key: 'abcdefghijklmnopqrstuvwxyz'\n").as_deref(),
+            Some("abcdefghijklmnopqrstuvwxyz")
+        );
+    }
+
+    #[test]
+    fn no_block_or_a_bad_block_means_no_key() {
+        assert_eq!(read("server:\n  port: 1\n"), None);
+        assert_eq!(read("local_api: [1, 2]\n"), None);
     }
 }

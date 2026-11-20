@@ -35,6 +35,7 @@ mod agent_channel;
 mod capabilities;
 pub mod frontend_catalog;
 mod handlers;
+pub use handlers::set_loopback;
 mod models;
 mod pairing;
 mod permissions;
@@ -85,7 +86,10 @@ impl AppModule for McpModule {
         // Pin the loopback base URL (never the operator's `server.host`, and
         // never model/txresbench-supplied) so the REST-kind `invoke_capability`
         // dispatch and the pairing `mcp_url` both target THIS process only.
-        // Mirrors txresbench `control_mcp`'s `set_base_url` defense.
+        // Mirrors txresbench `control_mcp`'s `set_base_url` defense. The
+        // config port is 0 on the desktop (ephemeral): this is only the
+        // placeholder, and `set_loopback` replaces it with the REAL bound
+        // address (and the local-API key) right after `bind`.
         let host = loopback_host(&ctx.config.server.host);
         let port = ctx.config.server.port;
         handlers::set_base_url(format!("http://{host}:{port}"));

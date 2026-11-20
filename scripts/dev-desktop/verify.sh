@@ -51,8 +51,17 @@ pass "window TxResBench is on the display (geometry $GEO)"
 # 3. embedded server health (the address the app logged)
 APP_ADDR="$(sed -n 's/^app=//p' "$STATE_DIR/current" 2>/dev/null || true)"
 [ -n "$APP_ADDR" ] || fail "no app address in $STATE_DIR/current (run.sh did not finish its readiness poll?)"
-curl -fsS -o /dev/null "http://$APP_ADDR/api/health" || fail "health endpoint http://$APP_ADDR/api/health did not answer"
+LOCAL_KEY="$(sed -n 's/^key=//p' "$STATE_DIR/current" 2>/dev/null || true)"
+curl -fsS -o /dev/null -H "X-TxR-Local-Key: $LOCAL_KEY" "http://$APP_ADDR/api/health" || fail "health endpoint http://$APP_ADDR/api/health did not answer"
 pass "embedded server http://$APP_ADDR/api/health answers"
+# ...and refuses the same request without the key, and with a foreign Origin or Host
+CODE="$(curl -s -o /dev/null -w '%{http_code}' "http://$APP_ADDR/api/health")"
+[ "$CODE" = 403 ] || fail "health without the key answered $CODE (want 403)"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "X-TxR-Local-Key: $LOCAL_KEY" -H 'Origin: https://evil.example' "http://$APP_ADDR/api/health")"
+[ "$CODE" = 403 ] || fail "health with a foreign Origin answered $CODE (want 403)"
+CODE="$(curl -s -o /dev/null -w '%{http_code}' -H "X-TxR-Local-Key: $LOCAL_KEY" -H 'Host: evil.example' "http://$APP_ADDR/api/health")"
+[ "$CODE" = 403 ] || fail "health with a foreign Host answered $CODE (want 403)"
+pass "the embedded server refuses no key, a foreign Origin and a foreign Host"
 
 # 4. noVNC
 curl -fsS -o /dev/null "http://127.0.0.1:$NOVNC_PORT/vnc.html" || fail "noVNC did not answer on :$NOVNC_PORT"

@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -101,6 +102,13 @@ const PORTS = resolvedOnce('app_e2e', () =>
     execFileSync('node', [RESOLVER, 'appE2eBackend', 'appE2ePreview'], { encoding: 'utf8' }).trim(),
   ),
 ) as { appE2eBackend: Verdict; appE2ePreview: Verdict }
+
+// The backend refuses every request without its local-API key (`X-TxR-Local-Key`).
+// One key per run, handed to the backend through the environment (the webServer
+// command inherits it), sent by every browser and `request` call through
+// `extraHTTPHeaders` below, and read by the sentinel probes (`harness-origin.mjs`).
+const LOCAL_API_KEY = process.env.TXR_LOCAL_API_KEY || randomBytes(24).toString('hex')
+process.env.TXR_LOCAL_API_KEY = LOCAL_API_KEY
 
 const BACKEND_PORT = String(PORTS.appE2eBackend.port)
 const APP_PORT = String(PORTS.appE2ePreview.port)
@@ -217,6 +225,7 @@ export default defineConfig({
     : [['list'], ['./scripts/harness-watchdog-reporter.mjs']],
   use: {
     baseURL: APP_URL,
+    extraHTTPHeaders: { 'X-TxR-Local-Key': LOCAL_API_KEY },
     testIdAttribute: 'data-testid',
     trace: 'retain-on-failure',
     viewport: { width: 1280, height: 720 },
