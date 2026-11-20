@@ -247,8 +247,8 @@ trait Machine: Send + Sync {
 /// finds it: started at `started_at` while Windows had started at
 /// `boot_time` and had the boot counter `boot_id`, by the app process `app`,
 /// its elevated process once Windows started one, and its result once it
-/// ended. Written when a setup starts, when its elevated process started and
-/// when it ended.
+/// ended at `ended_at`. Written when a setup starts, when its elevated
+/// process started and when it ended.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Marker {
     started_at: u64,
@@ -260,6 +260,10 @@ struct Marker {
     app: Option<Process>,
     process: Option<Process>,
     result: Option<WslSetupResult>,
+    /// When the setup ended ([`Machine::now`]): a decline pauses the setup
+    /// in every app, not only in the one that asked. Absent while it runs,
+    /// and in a marker of an older build.
+    ended_at: Option<u64>,
 }
 
 /// What the marker says of a setup started before (by this app, by the app
@@ -271,6 +275,8 @@ enum Earlier {
     Running,
     /// It is done and waits for Windows to restart, which it has not yet.
     WaitsForRestart(WslSetupResult),
+    /// It was declined, at this time ([`Machine::now`]).
+    Declined(u64),
 }
 
 fn read_marker(path: &Path) -> Option<Marker> {
@@ -299,7 +305,8 @@ struct SetupState {
 struct StateInner {
     running: bool,
     last: Option<WslSetupResult>,
-    /// When the last setup was declined ([`Machine::now`]).
+    /// When this app's last setup was declined ([`Machine::now`]); another
+    /// app's decline is read from the marker.
     declined_at: Option<u64>,
 }
 
@@ -323,6 +330,12 @@ impl SetupState {
         // missing or old.
         let earlier = if boot.is_some() { self.earlier() } else { Earlier::Nothing };
         let running = inner.running || matches!(earlier, Earlier::Running);
+        // The pause after a decline: in this app, or in another app (beside
+        // this one, or before it was reopened), whichever came last.
+        let declined_at = match earlier {
+            Earlier::Declined(at) => inner.declined_at.max(Some(at)),
+            _ => inner.declined_at,
+        };
         let last = match earlier {
             Earlier::WaitsForRestart(done) if inner.last.is_none() => Some(done),
             _ => inner.last.clone(),
@@ -333,8 +346,7 @@ impl SetupState {
             boot.and_then(offer_for)
         };
         let now = self.machine.now();
-        let retry_in_secs = inner
-            .declined_at
+        let retry_in_secs = declined_at
             .filter(|&at| now >= at && now < at + DECLINE_PAUSE_SECS)
             .map(|at| at + DECLINE_PAUSE_SECS - now);
         WslSetupStatus { offer, running, last, retry_in_secs }
@@ -346,7 +358,8 @@ impl SetupState {
     /// (no elevated process yet; the desktop app does not keep to one
     /// window). Else it is over: its result unknown when its process is gone
     /// (the app was closed while it ran); nothing ran when no process ever
-    /// started (the app was closed at its question).
+    /// started (the app was closed at its question). A declined setup says
+    /// when it ended, for the pause after it.
     fn earlier(&self) -> Earlier {
         let Some(marker) = self.machine.marker().and_then(|path| read_marker(&path)) else {
             return Earlier::Nothing;
@@ -363,6 +376,9 @@ impl SetupState {
             }
             Some(result) if result.waits_for_a_restart() && self.same_boot(&marker) => {
                 Earlier::WaitsForRestart(result)
+            }
+            Some(result) if result.outcome == WslSetupOutcome::Declined => {
+                marker.ended_at.map_or(Earlier::Nothing, Earlier::Declined)
             }
             Some(_) => Earlier::Nothing,
         }
@@ -432,6 +448,7 @@ impl SetupState {
             app: self.machine.this_process(),
             process: None,
             result: None,
+            ended_at: None,
         };
         self.write(&marker);
         Ok((Running { state: Arc::clone(self), marker, result: None }, offer, before))
@@ -439,8 +456,8 @@ impl SetupState {
 }
 
 /// The claimed setup slot. When dropped it keeps the result (a failure when
-/// the setup's thread ended without one: it panicked), notes a decline, and
-/// frees the slot.
+/// the setup's thread ended without one: it panicked), notes a decline,
+/// writes the result and its time into the marker, and frees the slot.
 struct Running {
     state: Arc<SetupState>,
     marker: Marker,
@@ -465,10 +482,12 @@ impl Drop for Running {
         let result = self.result.take().unwrap_or_else(|| WslSetupResult::failed(None, String::new()));
         let state = Arc::clone(&self.state);
         let mut inner = state.lock();
+        let now = state.machine.now();
         if result.outcome == WslSetupOutcome::Declined {
-            inner.declined_at = Some(state.machine.now());
+            inner.declined_at = Some(now);
         }
         self.marker.result = Some(result.clone());
+        self.marker.ended_at = Some(now);
         state.write(&self.marker);
         inner.last = Some(result);
         inner.running = false;
@@ -1822,6 +1841,45 @@ mod tests {
         }
     }
 
+    /// A No in one app pauses the setup in a second app open beside it (and
+    /// in the app reopened), from the moment the setup ended: the marker
+    /// says when. Here the question was up for 30 s before the No.
+    #[test]
+    fn a_decline_in_one_app_pauses_the_setup_in_another_beside_it() {
+        let dir = TestDir::new("declined-beside");
+        let first = FakeMachine::new(Some(dir.marker()));
+        let state = SetupState::new(first.clone());
+        let (tx, rx) = mpsc::channel();
+        let host = FakeHost { yes: false, ..FakeHost::new(exited(0, ""), WslStatus::Missing) };
+        *host.hold_question.lock().unwrap() = Some(rx);
+        let host = Arc::new(host);
+        start(&state, Some(WslStatus::Missing), host.clone()).expect("started");
+        until("the question is up", || !host.questions().is_empty());
+        first.pass(30);
+        tx.send(()).unwrap();
+        until("the setup's end", || !state.status(None).running);
+        assert_eq!(state.status(Some(WslStatus::Missing)).last, Some(WslSetupResult::of(WslSetupOutcome::Declined)));
+        let marker = read_marker(&dir.marker()).expect("the marker");
+        assert_eq!((marker.started_at, marker.ended_at), (T0, Some(T0 + 30)), "when it started and ended");
+
+        first.pass(20);
+        let beside = first.beside();
+        let second = SetupState::new(beside.clone());
+        let s = second.status(Some(WslStatus::Missing));
+        assert_eq!((s.offer, s.running, s.retry_in_secs), (Some(WslSetupOffer::Install), false, Some(40)), "{s:?}");
+        let other = Arc::new(FakeHost::new(exited(0, ""), WslStatus::Ready));
+        let e = start(&second, Some(WslStatus::Missing), other.clone()).expect_err("declined in the first app");
+        assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_DECLINED_RECENTLY_CODE));
+        assert!(e.to_string().contains("in 40 s"), "{e}");
+        assert!(other.questions().is_empty() && other.offers().is_empty(), "the second app asked and ran nothing");
+        // The first app reopened: paused too.
+        assert_eq!(SetupState::new(first.clone()).status(Some(WslStatus::Missing)).retry_in_secs, Some(40));
+
+        beside.pass(40);
+        assert_eq!(second.status(Some(WslStatus::Missing)).retry_in_secs, None);
+        assert_eq!(run_on(&second, WslStatus::Missing, other).outcome, WslSetupOutcome::Done, "offered again");
+    }
+
     /// The setup's thread that panics ends the setup as failed: the slot is
     /// freed and the result kept, so the notice says it ended.
     #[test]
@@ -1857,7 +1915,8 @@ mod tests {
                 boot_id: None,
                 app: Some(APP),
                 process: Some(PROCESS),
-                result: None
+                result: None,
+                ended_at: None
             })
         );
         release.send(()).unwrap();
@@ -1870,7 +1929,8 @@ mod tests {
                 boot_id: None,
                 app: Some(APP),
                 process: Some(PROCESS),
-                result: Some(WslSetupResult::done(true))
+                result: Some(WslSetupResult::done(true)),
+                ended_at: Some(T0)
             })
         );
     }
@@ -1883,8 +1943,15 @@ mod tests {
     fn a_reopened_app_does_not_start_a_second_setup_beside_a_running_one() {
         let dir = TestDir::new("reopened-running");
         let machine = FakeMachine::new(Some(dir.marker()));
-        let marker =
-            Marker { started_at: T0, boot_time: Some(BOOT), boot_id: None, app: Some(CLOSED_APP), process: Some(PROCESS), result: None };
+        let marker = Marker {
+            started_at: T0,
+            boot_time: Some(BOOT),
+            boot_id: None,
+            app: Some(CLOSED_APP),
+            process: Some(PROCESS),
+            result: None,
+            ended_at: None,
+        };
         write_marker(&dir.marker(), &marker).unwrap();
 
         let reopened = SetupState::new(machine.clone());
@@ -1945,8 +2012,15 @@ mod tests {
     fn a_marker_without_a_result_runs_while_another_app_that_wrote_it_is_open() {
         let dir = TestDir::new("own-marker");
         let machine = FakeMachine::new(Some(dir.marker()));
-        let marker =
-            Marker { started_at: T0, boot_time: Some(BOOT), boot_id: None, app: Some(APP), process: None, result: None };
+        let marker = Marker {
+            started_at: T0,
+            boot_time: Some(BOOT),
+            boot_id: None,
+            app: Some(APP),
+            process: None,
+            result: None,
+            ended_at: None,
+        };
         write_marker(&dir.marker(), &marker).unwrap();
         assert!(!SetupState::new(machine.clone()).status(Some(WslStatus::Missing)).running, "this app's own marker");
         assert!(SetupState::new(machine.beside()).status(Some(WslStatus::Missing)).running, "the other app is open");
@@ -2048,17 +2122,32 @@ mod tests {
         assert!(waits(&machine), "an older marker, the clock agrees");
     }
 
+    /// A marker of a setup that ended otherwise, of a decline a minute ago
+    /// or more or without its time (an older build's), or a marker that
+    /// cannot be read: offered, no pause.
     #[test]
     fn a_marker_of_another_outcome_or_unreadable_is_nothing() {
         let dir = TestDir::new("marker-other");
         let machine = FakeMachine::new(Some(dir.marker()));
-        for result in [
-            WslSetupResult::done(false),
-            WslSetupResult::of(WslSetupOutcome::Declined),
-            WslSetupResult::failed(Some(1), "no".into()),
+        let declined = WslSetupResult::of(WslSetupOutcome::Declined);
+        for (result, ended_at) in [
+            (WslSetupResult::done(false), Some(T0)),
+            (WslSetupResult::failed(Some(1), "no".into()), Some(T0)),
+            (WslSetupResult::of(WslSetupOutcome::NotStarted), Some(T0)),
+            (declined.clone(), None),
+            (declined.clone(), Some(T0 - DECLINE_PAUSE_SECS)),
+            // A clock that went back since: no pause rather than a long one.
+            (declined, Some(T0 + 10)),
         ] {
-            let marker =
-                Marker { started_at: T0, boot_time: Some(BOOT), boot_id: None, app: None, process: Some(PROCESS), result: Some(result) };
+            let marker = Marker {
+                started_at: T0 - 5,
+                boot_time: Some(BOOT),
+                boot_id: None,
+                app: None,
+                process: Some(PROCESS),
+                result: Some(result),
+                ended_at,
+            };
             write_marker(&dir.marker(), &marker).unwrap();
             let s = SetupState::new(machine.clone()).status(Some(WslStatus::Missing));
             assert_eq!(s, status(Some(WslSetupOffer::Install), false, None), "{marker:?}");
