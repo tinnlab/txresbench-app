@@ -4254,8 +4254,9 @@ export interface WslSetupStatus {
   /** After a declined setup: the seconds until it can be started again. */
   retry_in_secs?: number
   /**
-   * A setup is running: started from the app, or from the app before it
-   *  was last closed. Its result comes in `last` when it ends.
+   * A setup is running: started from the app, from the app before it was
+   *  last closed, or from a second app open beside it. Its result comes in
+   *  `last` when it ends.
    */
   running: boolean
 }

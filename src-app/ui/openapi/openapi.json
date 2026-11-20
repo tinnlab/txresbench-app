@@ -17515,7 +17515,7 @@
             "const": "done"
           },
           {
-            "description": "The person said No (in the app's dialog or to Windows' permission\n prompt): nothing changed.",
+            "description": "The person did not go on (Not now in the app's dialog, or No in\n Windows' permission prompt): nothing changed.",
             "type": "string",
             "const": "declined"
           },
@@ -17607,7 +17607,7 @@
             "minimum": 0
           },
           "running": {
-            "description": "A setup is running: started from the app, or from the app before it\n was last closed. Its result comes in `last` when it ends.",
+            "description": "A setup is running: started from the app, from the app before it was\n last closed, or from a second app open beside it. Its result comes in\n `last` when it ends.",
             "type": "boolean"
           }
         },
