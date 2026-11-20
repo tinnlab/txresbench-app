@@ -9,3 +9,7 @@ Ewing sarcoma	sarcoma	a sarcoma type
 bone sarcoma	sarcoma	a sarcoma type
 soft tissue sarcoma	sarcoma	a sarcoma type
 kidney transplant rejection	kidney transplant	a transplant outcome
+hepatocellular carcinoma	liver cancer	a liver cancer type
+oesophageal squamous cell carcinoma	oesophageal cancer	an oesophageal cancer type
+nasopharyngeal carcinoma	head and neck cancer	a head and neck cancer type
+kidney transplant graft failure	kidney transplant	a transplant outcome
