@@ -96,3 +96,6 @@ scripts/file-validator/fixtures/out/
 # correct behaviour for a single-owner lifecycle and for a finished branch.
 .lifecycle/.scope
 src-app/ui/src/dev/gallery/RUNTIME_RUN.json
+
+# Scheduled-task lock (a live session id + pid — never source)
+.claude/*.lock

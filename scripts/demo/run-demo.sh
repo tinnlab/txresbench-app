@@ -26,9 +26,9 @@
 # Environment:
 #   TXR_APP_DATA_DIR   the data directory when --data-dir is absent
 #   TXR_DEMO_BUNDLE    the bundle directory when --bundle is absent
-#   CAP_SH             the sigtrans ops/cap.sh wrapper (default: the dev
-#                      host's /data/share/pbya/sigtrans/ops/cap.sh when it
-#                      exists; empty to run uncapped)
+#   CAP_SH             the CPU-cap wrapper (empty or unset: uncapped) —
+#                      set it on the dev host to cap through the ops
+#                      cap.sh wrapper. See systemd/txresbench-demo.service.
 #   CAP_CPUS           interpreted but never above 4 (the node's rule)
 set -euo pipefail
 
@@ -192,12 +192,8 @@ demo:
 YAML
 chmod 600 "$CONFIG_FILE"
 
-# The cap: CAP_SH set (or the dev host's ops/cap.sh present) → capped with
-# CAP_CPUS never above 4 (the node's rule); --no-cap or an absent wrapper
-# runs uncapped (a deployment host without the sigtrans ops).
-if [ "${CAP_SH+x}" != "x" ] && [ -x /data/share/pbya/sigtrans/ops/cap.sh ]; then
-    CAP_SH=/data/share/pbya/sigtrans/ops/cap.sh
-fi
+# The cap: CAP_SH set → capped with CAP_CPUS never above 4 (the node's rule);
+# unset/empty runs uncapped (a deployment host without an ops wrapper).
 CAP_CPUS="${CAP_CPUS:-4}"
 if [ -n "${CAP_SH:-}" ] && [ -x "$CAP_SH" ]; then
     if [ "$CAP_CPUS" -gt 4 ]; then

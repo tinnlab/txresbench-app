@@ -12,9 +12,9 @@
 # 127.0.0.1 bind and trusts the proxy's X-Forwarded-* headers (the generated
 # config sets server.trust_forwarded_headers: true).
 #
-# CAP_SH: on the sigtrans dev host the launcher caps through
-# /data/share/pbya/sigtrans/ops/cap.sh by default. On a deployment host set
-# CAP_SH= (empty) to run uncapped, or point it at your own wrapper.
+# CAP_SH: the CPU-cap wrapper (empty = uncapped). On this dev host the
+# launcher caps through the ops cap.sh wrapper; a deployment host sets
+# CAP_SH= (empty) to run uncapped, or points it at its own wrapper.
 
 [Unit]
 Description=TxResBench demo (web-service demo mode)

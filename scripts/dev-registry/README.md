@@ -16,10 +16,10 @@ python3 scripts.
 ## Quick start (the acceptance run)
 
 ```sh
-cd /data/pbya/txresbench-app-work/wt/feat-qa-hardening   # (your worktree)
-TMPDIR=/data/pbya/txresbench-app-work/tmp-qa-hardening \
-CARGO_TARGET_DIR=/data/pbya/txresbench-app-work/target/qa-hardening \
-CAP_CPUS=2 /data/share/pbya/sigtrans/ops/cap.sh bash scripts/dev-registry/acceptance.sh
+cd <your worktree>                         # the txresbench-app worktree
+TMPDIR=<work dir>/tmp-qa-hardening \
+CARGO_TARGET_DIR=<work dir>/target/qa-hardening \
+CAP_CPUS=2 $CAP_SH bash scripts/dev-registry/acceptance.sh
 ```
 
 The driver starts the registry on an ephemeral port, publishes the fixture
@@ -31,21 +31,21 @@ app fetches, verifies, mounts and runs a published layer with real bwrap.
 
 ```sh
 # 1. start the registry (loopback default 127.0.0.1:5055)
-TMPDIR=/data/pbya/txresbench-app-work/tmp-qa-hardening \
-CAP_CPUS=2 /data/share/pbya/sigtrans/ops/cap.sh \
+TMPDIR=<work dir>/tmp-qa-hardening \
+CAP_CPUS=2 $CAP_SH \
   python3 scripts/dev-registry/registry.py --port 5055 \
-  --dir /data/pbya/txresbench-app-work/registry-data
+  --dir <work dir>/registry-data
 
 # 2. build + push the base R / base Python rootfs and the six method layers
-CAP_CPUS=2 /data/share/pbya/sigtrans/ops/cap.sh \
+CAP_CPUS=2 $CAP_SH \
   python3 scripts/dev-registry/publish.py --registry 127.0.0.1:5055 \
-  --out /data/pbya/txresbench-app-work/qa-build-real
+  --out <work dir>/qa-build-real
 ```
 
-Nothing above is written inside the git work tree: `--out` defaults to
-`/data/pbya/txresbench-app-work/qa-build`, the registry data dir defaults to
-`/data/pbya/txresbench-app-work/registry-data` (and the registry itself
-refuses any path inside a git work tree).
+Nothing above is written inside the git work tree: `--out` and the registry
+`--dir` default to scratch paths outside the repo (see
+`publish.py` / `registry.py`; override them on the command line), and the registry itself
+refuses any path inside a git work tree.
 
 The six methods (`publish.REAL_METHODS`) — runnable, in
 `src-app/server/data/method-env-images.json`, covering both kinds:
@@ -79,9 +79,13 @@ environment in DEBUG builds only:
 ```sh
 CONFIG_FILE=config/dev.yaml \
 TXR_METHOD_ENV_REGISTRY=127.0.0.1:5055 \
-TXR_ENV_MANIFEST=/data/pbya/txresbench-app-work/qa-build-real/method-env-images.dev.json \
+TXR_ENV_MANIFEST=<work dir>/qa-build-real/method-env-images.dev.json \
 cargo run
 ```
+
+In the examples above, `<work dir>` is the developer's scratch directory
+outside the repo (see CLAUDE.md — never `/tmp`), and `$CAP_SH` is the
+CPU-cap wrapper when the host has one (empty = uncapped).
 
 * `TXR_METHOD_ENV_REGISTRY` — the HOST to fetch from instead of
   `ghcr.io`; the compiled packages stay — `tinnlab/txr-method-env-layers`

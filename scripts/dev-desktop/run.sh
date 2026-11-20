@@ -7,9 +7,10 @@
 # just without server-side decorations), the Tauri desktop binary against a
 # throwaway data dir + the dev-registry settings, x11vnc (localhost only) and
 # websockify serving noVNC from /usr/share/novnc. Every process is launched
-# through ops/cap.sh (CAP_CPUS=2) inside its OWN session (setsid) and its
-# PID (= session leader) is recorded as a pid file, so stop.sh kills exactly
-# the processes this script started — never `pkill -f`.
+# through CAP_SH (the CPU-cap wrapper from the environment; empty = uncapped)
+# with CAP_CPUS=2, inside its OWN session (setsid), and its PID (= session
+# leader) is recorded as a pid file, so stop.sh kills exactly the processes
+# this script started — never `pkill -f`.
 #
 # The desktop binary is the PRODUCTION-shaped one: built with
 # `--features tauri/custom-protocol`, so the web UI is embedded from
@@ -27,27 +28,30 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-CAP=/data/share/pbya/sigtrans/ops/cap.sh
 SHUTDOWN_ON_FAIL=0
 
 # --- configuration (every knob has an env override) -------------------------
-STATE_DIR="${TXR_DESKTOP_STATE:-/data/pbya/txresbench-app-work/dev-desktop}"
+# The work root for everything this harness writes outside the repo. Neutral
+# per-machine default; TXR_WORK_DIR overrides it.
+WORK_DIR="${TXR_WORK_DIR:-$HOME/.cache/txresbench-dev}"
+STATE_DIR="${TXR_DESKTOP_STATE:-$WORK_DIR/dev-desktop}"
 DISPLAY_NUM="${TXR_DESKTOP_DISPLAY:-99}"
 VNC_PORT="${TXR_DESKTOP_VNC_PORT:-5900}"
 NOVNC_PORT="${TXR_DESKTOP_NOVNC_PORT:-6080}"
 NOVNC_BIND="${TXR_DESKTOP_NOVNC_BIND:-0.0.0.0}"
 NOVNC_WEB="${TXR_DESKTOP_NOVNC_WEB:-/usr/share/novnc}"
 CAP_CPUS="${CAP_CPUS:-2}"
+# The CPU-cap wrapper (CAP_SH from the environment; empty = uncapped).
+CAP_SH="${CAP_SH:-}"
 # The dev-registry settings the app's debug build reads (ITEM-2 seams).
 REGISTRY_HOST="${TXR_REGISTRY_HOST:-127.0.0.1:5055}"
-ENV_MANIFEST="${TXR_ENV_MANIFEST:-/data/pbya/txresbench-app-work/qa-build-real/method-env-images.dev.json}"
+ENV_MANIFEST="${TXR_ENV_MANIFEST:-$WORK_DIR/qa-build-real/method-env-images.dev.json}"
 BIN="${TXR_DESKTOP_BIN:-}"
-[ -n "$BIN" ] || BIN="${CARGO_TARGET_DIR:-/data/pbya/txresbench-app-work/target/qa-hardening}/debug/txresbench-desktop"
-[ -e "$BIN" ] || BIN="$REPO/src-app/desktop/tauri/target/debug/txresbench-desktop"
+[ -n "$BIN" ] || BIN="${CARGO_TARGET_DIR:-$WORK_DIR/target/qa-hardening}/debug/txresbench-desktop"
 [ -e "$BIN" ] || BIN="$REPO/src-app/desktop/tauri/target/debug/txresbench-desktop"
 
 APP_READY_TIMEOUT="${TXR_DESKTOP_APP_TIMEOUT:-180}"
-TMPDIR_CAP="${TMPDIR_CAP:-/data/pbya/txresbench-app-work/tmp-qa-hardening}"
+TMPDIR_CAP="${TMPDIR_CAP:-$WORK_DIR/tmp-qa-hardening}"
 mkdir -p "$TMPDIR_CAP"
 
 # --- helpers -----------------------------------------------------------------
@@ -67,7 +71,12 @@ for tool in Xvfb x11vnc websockify xdpyinfo curl; do
 done
 [ -d "$NOVNC_WEB" ] || fail "noVNC web root not found: $NOVNC_WEB"
 [ -x "$BIN" ] || fail "desktop binary not found: $BIN (build: cargo build -p txresbench-desktop --features tauri/custom-protocol; env TXR_DESKTOP_BIN to override)"
-[ -x "$CAP" ] || fail "ops/cap.sh not found: $CAP"
+if [ -n "$CAP_SH" ] && [ ! -x "$CAP_SH" ]; then
+  fail "CAP_SH=$CAP_SH is not an executable cap wrapper (empty = uncapped)"
+fi
+if [ -z "$CAP_SH" ]; then
+  warn "CAP_SH is empty — launching uncapped (set CAP_SH to a wrapper to cap CPU)"
+fi
 [ "$NOVNC_BIND" = "127.0.0.1" ] || [ "$NOVNC_BIND" = "localhost" ] || \
   warn "noVNC bound to $NOVNC_BIND (the plan's 0.0.0.0; x11vnc itself stays localhost-only)"
 
@@ -108,16 +117,22 @@ chmod 755 "$STATE_DIR/data/bin/oras"
 # --- helpers: record + kill by session (never pkill -f) ----------------------
 start_one() {
   # start_one NAME LOGFILE CMD... — starts CMD via cap.sh inside its OWN
-  # session (setsid). `setsid` forks when its caller is a process-group leader
-  # (the backgrounded subshell is), so the REAL session leader's pid is written
-  # by the `sh -c` wrapper into the pid file before it execs CMD — the pid
-  # file therefore always names the group leader and stop.sh can kill the
+  # session (setsid) when CAP_SH is set; with CAP_SH empty it starts CMD
+  # directly, uncapped. `setsid` forks when its caller is a process-group
+  # leader (the backgrounded subshell is), so the REAL session leader's pid is
+  # written by the `sh -c` wrapper into the pid file before it execs CMD — the
+  # pid file therefore always names the group leader and stop.sh can kill the
   # whole session (daemon + WebKit/bwrap children) with one group signal.
   local name="$1" log="$2"; shift 2
   local pidfile="$STATE_DIR/pids/$name.pid"
   rm -f "$pidfile"
-  ( TMPDIR_CAP="$TMPDIR_CAP"; CAP_CPUS="$CAP_CPUS" "$CAP" \
-      setsid sh -c 'echo $$ >"$1"; shift; exec "$@"' _ "$pidfile" "$@" ) >"$log" 2>&1 &
+  if [ -n "$CAP_SH" ]; then
+    ( CAP_SH="$CAP_SH"; TMPDIR_CAP="$TMPDIR_CAP"; CAP_CPUS="$CAP_CPUS" "$CAP_SH" \
+        setsid sh -c 'echo $$ >"$1"; shift; exec "$@"' _ "$pidfile" "$@" ) >"$log" 2>&1 &
+  else
+    ( TMPDIR_CAP="$TMPDIR_CAP"; \
+        setsid sh -c 'echo $$ >"$1"; shift; exec "$@"' _ "$pidfile" "$@" ) >"$log" 2>&1 &
+  fi
   local i
   for ((i = 1; i <= 15; i++)); do
     [ -s "$pidfile" ] && break

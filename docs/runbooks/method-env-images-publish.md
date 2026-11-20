@@ -44,7 +44,7 @@ via a new app build that embeds the regenerated manifest (see §6).
 
 | thing | path | what it decides |
 |---|---|---|
-| the methods repository (read-only build input) | `/data/share/pbya/sigtrans/methods` (overridable: `TXR_METHODS_DIR`) | which methods exist, their versions, licences, contract, `runnable` flag |
+| the methods repository (read-only build input) | `<methods checkout>` (overridable: `TXR_METHODS_DIR`) | which methods exist, their versions, licences, contract, `runnable` flag |
 | the layer builder | `scripts/generate-method-env-images.py` | builds each method's own Dockerfile, computes the delta over its per-language base, emits the squashfs layer |
 | the staged layer | `<build-dir>/layers/<env_id>-<arch>/{layer.squashfs, artifact.json, oci-manifest.json}` | the artifact and the record the manifest writer consumes |
 | the staged base | `<build-dir>/bases/<base_id>-<arch>/{base.squashfs, artifact.json, oci-manifest.json}` (rootfs cache: `<build-dir>/base-cache/`) | the per-language base every layer of that language and arch stacks on (design §6.3) |
