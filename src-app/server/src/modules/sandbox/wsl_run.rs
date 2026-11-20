@@ -334,9 +334,7 @@ pub fn runner_unavailable() -> Option<String> {
     if init_status() == SandboxAvailability::Ready {
         return None;
     }
-    Some(PROBE_FAILURE.get().cloned().unwrap_or_else(|| {
-        format!("the method sandbox is not available ({:?})", init_status())
-    }))
+    Some(PROBE_FAILURE.get().cloned().unwrap_or_else(|| init_status().in_words().to_string()))
 }
 
 /// The installer's status of this PC ([`classify`]) when the boot probe found
