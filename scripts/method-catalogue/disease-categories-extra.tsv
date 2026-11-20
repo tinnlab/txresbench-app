@@ -1,7 +1,9 @@
-# DRAFT: real rows are added by the lead and reviewed in the PR
-# Columns: disease_group<TAB>category<TAB>basis. Rows the benchmark's
-# dev/analysis-catalog/disease_group_categories.csv lacks (the generator merges
-# both; a row here overrides the benchmark file's for the same disease_group).
-# Illustrative only — the lead fills the real rows from reviewed inputs.
+# Diseases the methods are made for that the benchmark's disease category file does not list yet
+# (app-assigned; remove a row once the benchmark lists the disease). Reviewed in the PR.
+# Columns: disease_group<TAB>category<TAB>basis.
 disease_group	category	basis
-draft-extra-disease	Draft category	draft (illustrative row, replaced by the lead)
+kidney transplant graft failure	Immune-mediated and allergic diseases	same roll-up as the benchmark's transplant rows
+membranous nephropathy	Immune-mediated and allergic diseases	an autoimmune kidney disease
+invasive aspergillosis	Infectious diseases	a fungal infection
+neonatal necrotizing enterocolitis	Other diseases	no closer category
+NAFLD / MASLD	Other diseases	no closer category

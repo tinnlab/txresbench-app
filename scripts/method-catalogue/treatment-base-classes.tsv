@@ -1,7 +1,15 @@
-# DRAFT: real rows are added by the lead and reviewed in the PR
-# Columns: id<TAB>label, in display order (the closed list of treatment base
-# classes; study_options.treatment_classes is emitted in exactly this order).
-# Illustrative only — the lead fills the real rows from reviewed inputs.
+# The closed list of treatment base classes the study step offers, in display order.
+# Reviewed in the PR. Columns: id<TAB>label.
 id	label
-draft-base-1	Draft base class 1
-draft-base-2	Draft base class 2
+immune checkpoint inhibitor	Immune checkpoint inhibitor
+chemotherapy	Chemotherapy
+targeted therapy	Targeted therapy
+hormone therapy	Hormone therapy
+radiotherapy	Radiotherapy
+cell therapy	Cell therapy
+anti-infective	Anti-infective (antiviral, antibacterial or anti-TB)
+biologic immunomodulator	Biologic immunomodulator
+small-molecule immunomodulator or immunosuppressant	Small-molecule immunomodulator or immunosuppressant
+corticosteroid	Corticosteroid
+vaccine	Vaccine
+other drug	Other drug

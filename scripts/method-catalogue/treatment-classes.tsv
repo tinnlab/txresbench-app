@@ -1,6 +1,28 @@
-# DRAFT: real rows are added by the lead and reviewed in the PR
-# Columns: benchmark_class<TAB>base_classes (base classes separated by ';',
-# empty = none). A base class must be an id of treatment-base-classes.tsv.
-# Illustrative only — the lead fills the real rows from reviewed inputs.
+# Each treatment class of the benchmark (as written per method) -> the base classes it is made of
+# (separated by ";", empty = none: the method always stays). Reviewed in the PR; judgment calls:
+# "radiotherapy or chemoradiotherapy" -> radiotherapy only; "neoadjuvant systemic therapy" -> chemotherapy;
+# "systemic radiopharmaceutical (drug)" -> radiotherapy; the myeloma combination drops its optional anti-CD38 antibody.
+# Columns: benchmark_class<TAB>base_classes.
 benchmark_class	base_classes
-draft-class	draft-base-1;draft-base-2
+antibacterial or anti-TB	anti-infective
+antiviral	anti-infective
+biologic immunomodulator	biologic immunomodulator
+biologic immunomodulator (anti-CD20)	biologic immunomodulator
+biologic immunomodulator (anti-CD20) + alkylating agent + corticosteroid	biologic immunomodulator;chemotherapy;corticosteroid
+biologic immunomodulator (anti-TNF)	biologic immunomodulator
+cell therapy	cell therapy
+chemo + checkpoint inhibitor	chemotherapy;immune checkpoint inhibitor
+chemotherapy	chemotherapy
+hormone therapy	hormone therapy
+immune checkpoint inhibitor	immune checkpoint inhibitor
+n/a	
+neoadjuvant systemic therapy	chemotherapy
+not a drug	
+not stated	
+other drug	other drug
+proteasome inhibitor + immunomodulatory drug (IMiD) + corticosteroid (+ anti-CD38 monoclonal antibody)	targeted therapy;small-molecule immunomodulator or immunosuppressant;corticosteroid
+radiotherapy or chemoradiotherapy	radiotherapy
+small-molecule immunomodulator or immunosuppressant	small-molecule immunomodulator or immunosuppressant
+systemic radiopharmaceutical (drug)	radiotherapy
+targeted therapy	targeted therapy
+vaccine	vaccine

@@ -1,7 +1,363 @@
-# DRAFT: real rows are added by the lead and reviewed in the PR
+# Each method's treatment as its paper states it (built from the benchmark's per-method notes),
+# reviewed in the PR. A class mapping to no base class (not stated, not a drug) is not-stated.
 # Columns: method_id<TAB>treatment_class<TAB>confidence<TAB>source_phrase<TAB>source.
-# confidence is `stated` | `inferred` | `not-stated`; a method without a row is
-# `{classes: [], confidence: not-stated}` with a warning.
-# Illustrative only — the lead fills the real rows from reviewed inputs.
 method_id	treatment_class	confidence	source_phrase	source
-draft-method-1	draft-class	stated	draft (illustrative row, replaced by the lead)	draft (illustrative row, replaced by the lead)
+asm-best-change-rule	not stated	not-stated		method README
+bart	cell therapy	stated	141 CAR T-cell therapy patients (CLL, multiple myeloma, B-ALL, NHL)	README
+baseline-ctdna-detectability	targeted therapy	stated	43 ALK+ NSCLC patients on ALK-directed TKI therapy	README
+baseline-quartile-risk	other drug	stated	the **baseline (V1) model in the placebo group only**	README
+bjm	other drug	stated	predicts ESRD and death from repeated eGFR, UPCr and serum albumin under the cohort's antihypertensive treatment	README
+c3-two-spot-delta-roc	chemotherapy	stated	on six cycles of neoadjuvant epirubicin/docetaxel (every 3 weeks, 18 weeks total, with G-CSF support)	README
+ca125-auc-cox	chemotherapy	stated	received primary first-line chemotherapy within 4 months after cytoreductive surgery	README
+ca125-auc-cutoff	chemotherapy	stated	received primary first-line chemotherapy within 4 months after cytoreductive surgery	README
+ca125-confirmed-50pct-response	chemotherapy	stated	124 consecutive patients (CODOVA database; second-line topotecan n=64 or paclitaxel-carboplatin n=60)	README
+ca125-kinetics-rate-threshold	chemotherapy	stated	on second- or third-line taxane-plus-ramucirumab (TAX/RAM; paclitaxel 80 mg/m² or nab-paclitaxel 100 mg/m² on Days 1/8/15 + ramucirumab 8 mg/kg	README
+ca125-ratio-criteria	chemotherapy	stated	124 consecutive patients (CODOVA database; second-line topotecan n=64 or paclitaxel-carboplatin n=60)	README
+caml-size-crossing-cox	other drug	stated	40 metastatic-RCC patients starting a new line of systemic therapy	README
+cappseq-ctdna-mrd-detection	radiotherapy or chemoradiotherapy	stated	definitive concurrent chemoradiation with or without consolidation immune checkpoint inhibition	README
+ccfdna-kras-emergence-acquired-resistance	chemotherapy	stated	treated with chemotherapy including anti-EGFR antibody therapy (mFOLFOX6 + cetuximab 10, mFOLFOX6 + panitumumab 8	README
+cd4-dpsi-survival-stratification	immune checkpoint inhibitor	stated	10 NSCLC patients on ICI-based regimens and 10 healthy donors	README
+cd8-delta-polyfx-psi	immune checkpoint inhibitor	stated	10 NSCLC patients on PD-1/PD-L1 ICI-based therapy	README
+cea-cumulative-burden-quartile	not a drug	not-stated	NSCLC patients after curative resection (Yunnan Cancer Hospital, 2013-2018)	README
+cea-uln-fold-threshold	targeted therapy	stated	on gefitinib 250 mg/d or erlotinib 150 mg/d as first/second/third line	README
+cfdna-loglevel-threshold	chemotherapy	stated	on palliative, mostly platinum-based, chemotherapy (some with cetuximab or nivolumab/pembrolizumab)	README
+cfebv-cbr-four-phenotype	radiotherapy or chemoradiotherapy	stated	treated with induction chemotherapy (IC) plus concurrent chemo-radiotherapy (CCRT)	README
+cfmedip-ctdna-clearance-three-group	not a drug	not-stated	treated with curative intent by surgery ± adjuvant (chemo)radiotherapy	README
+cfmedip-logodds-clearance	immune checkpoint inhibitor	stated	87 patients with various metastatic cancers on pembrolizumab q3w	README
+cftl-combined-response	other drug	stated	platinum-based chemotherapy (n = 16) or immunotherapy-containing (n = 17) regimens	README
+cftl-molecular-response	chemo + checkpoint inhibitor	stated	treated with single-agent immunotherapy (pembrolizumab, nivolumab) or chemoimmunotherapy (chemotherapy + pembrolizumab)	README
+cmi-week4-landmark-cutpoint	not stated	not-stated		method README
+cml-ht-rr-kinetic-rule	targeted therapy	stated	40 newly diagnosed chronic-phase CML patients on first-line imatinib 400 mg/day	README
+cna-iscore-change-rule	chemotherapy	stated	on pegylated liposomal doxorubicin [PLD, 40 mg/m2, Q4w, 6 cycles] or PLD + apatinib [250 mg, po, qd], NCT04348032	README
+combined-ctdna-resistance-criteria	targeted therapy	stated	treated with pyrotinib, an oral anti-HER1/HER2 tyrosine kinase inhibitor (ClinicalTrials.gov NCT01937689	README
+combined-ctdna-risk-rule	radiotherapy or chemoradiotherapy	stated	on neoadjuvant chemoradiotherapy (CROSS regimen, n=71) or nCRT plus anti-PD-L1 (PERFECT trial, n=40)	README
+connector-funclust	chemotherapy	stated	the recorded time points begin from the R-CHOP treatment phase.	README
+connector-funclust-landmark	chemotherapy	stated	the recorded time points begin from the R-CHOP treatment phase	README
+consecutive-slope-rule	immune checkpoint inhibitor	inferred	calling non-response (progressive disease) at 6 months in NSCLC immunotherapy patients	README
+cox-baseline-delta	immune checkpoint inhibitor	stated	first-line immune checkpoint inhibitors 2011-2019	README
+cox-baseline-ratio-33rd-stratification	chemotherapy	stated	treated with bevacizumab 10 mg/kg on day 1 and FOLFOX-6/XELOX + bevacizumab from day 15	README
+cox-baseline-relchange-indicator	hormone therapy	stated	giredestrant vs physician's choice endocrine therapy 1:1, randomized	README
+cox-baseline-roc-delta	chemotherapy	stated	treated with bevacizumab plus standard chemotherapy at Shandong Cancer Hospital	README
+cox-baseline-threshold-relchange-indicators	antiviral	stated	on entecavir 0.5 mg/day at China Medical University Hospital	README
+cox-ctdna-mr-detection-lefttrunc	other drug	stated	Lung Cancers Treated With Chemotherapy, Immunotherapy, or Targeted Agents	title
+cox-ctdna-status-level	chemotherapy	stated	starting first-line palliative chemotherapy at two Norwegian centres	README
+cox-ctdna-tmad-liquid-biopsy	targeted therapy	stated	277 serial plasma samples during ALK-TKI therapy at two German centres	README
+cox-cutpoint-risk	chemo + checkpoint inhibitor	inferred	metastatic non-squamous non-small cell lung cancer after first-line chemoimmunotherapy	title
+cox-day7-gmi-change	other drug	stated	66 invasive-aspergillosis patients on antifungal treatment in the FungiScope registry	README
+cox-decrease-group-remission	biologic immunomodulator (anti-CD20) + alkylating agent + corticosteroid	stated	randomized to rituximab 4×375 mg/m² or oral cyclophosphamide 2 mg/kg/day → azathioprine to month 18	README
+cox-delta-cutpoint-sex	immune checkpoint inhibitor	stated	165 immunotherapy-naive advanced melanoma / NSCLC patients treated with ICIs	README
+cox-delta-group-stratification	immune checkpoint inhibitor	stated	The cohort is 59 patients on second- or third-line nivolumab (3 mg/kg IV every 2 weeks)	README
+cox-direction-change-backward-stepwise	chemo + checkpoint inhibitor	stated	(cohort A n = 33; Pembrolizumab + Docetaxel n = 24; Docetaxel control n = 15)	README
+cox-early-kinetics	targeted therapy	stated	51 advanced NSCLC patients with EGFR driver mutations on osimertinib/gefitinib/icotinib	description
+cox-immune-mediator	immune checkpoint inhibitor	stated	advanced/recurrent NSCLC patients treated with PD-1/L1 monotherapy at Kurume University Hospital	README
+cox-index-hbsag-youden	antiviral	stated	chronic hepatitis B patients on long-term nucleos(t)ide analogues — 69 entecavir, 32 tenofovir	README
+cox-mprotein-dynamic-features	proteasome inhibitor + immunomodulatory drug (IMiD) + corticosteroid (+ anti-CD38 monoclonal antibody)	stated	relapsed/refractory MM, daratumumab + Rd vs Rd and daratumumab + Vd vs Vd	README
+cox-nomogram-dynamic-blood-ratios	radiotherapy or chemoradiotherapy	stated	treated with induction chemotherapy (PX: cisplatin 80 mg/m² day 1 q3w + capecitabine 1000 mg/m² bid d1-14, 3 cycles) followed by concurrent chemo-radiation	README
+cox-nomogram-interferon-response	antiviral	stated	on pegylated-interferon-alpha-2b (Pegbin, Xiamen Amoytop Biotech, 180 µg subcutaneously once weekly, 48 weeks	README
+cox-nomogram-three-group	immune checkpoint inhibitor	stated	113 advanced EGFR-ALK-ROS1-wild-type NSCLC patients on single-agent immune checkpoint inhibitors	README
+cox-peak-timing-enr	immune checkpoint inhibitor	inferred	26 advanced/metastatic pLELC patients on palliative IO	README
+cox-phenotype-nomogram	radiotherapy or chemoradiotherapy	stated	on cisplatin-based neoadjuvant chemotherapy (NAC) followed by concurrent chemoradiotherapy	README
+cox-phr-kidney-graft	not a drug	not-stated	deceased-donor kidney transplant recipients 2015-2021, five phase-specific post-transplant cohorts	README
+cox-pni2-category-multivariable	not a drug	not-stated	478 lung cancer patients treated with surgery and/or first-line chemotherapy	description
+cox-progression-probability	immune checkpoint inhibitor	inferred	424 advanced (stage III-IV) NSCLC patients on immunotherapy from three centres	README
+cox-psa-early-response	hormone therapy	stated	on first-line abiraterone (n=94) / apalutamide (n=91) / enzalutamide (n=34) + ADT	README
+cox-psa-kinetics-youden	hormone therapy	stated	on first-line androgen deprivation therapy (LHRH agonist or surgical castration plus bicalutamide/flutamide)	description
+cox-psa-logchange-12wk	hormone therapy	stated	80 consecutive mHSPC patients on maximal androgen blockade at Akita University Hospital	README
+cox-ratio-threshold	immune checkpoint inhibitor	stated	310 consecutive mRCC patients on nivolumab monotherapy, second or higher line	README
+cox-relchange-continuous	targeted therapy	stated	77 stage IV EGFR-mutant NSCLC patients on EGFR-TKI at Yonsei Cancer Center	README
+cox-relchange-group-stratification	chemo + checkpoint inhibitor	stated	17 carboplatin+pemetrexed+pembrolizumab, 10 carboplatin+paclitaxel+pembrolizumab, 2 carboplatin+paclitaxel+atezolizumab+bevacizumab	README
+cox-relchange-multivariable	chemotherapy	stated	receiving fixed-dose rate gemcitabine in three pooled trials	README
+cox-risk-nomogram	immune checkpoint inhibitor	stated	on anti-PD-1 (camrelizumab, pembrolizumab, toripalimab or sintilimab) combination therapy	README
+cox-timevarying-binary-increase	biologic immunomodulator (anti-CD20) + alkylating agent + corticosteroid	stated	achieved complete remission on the originally assigned rituximab or cyclophosphamide treatment	README
+cox-timevarying-mutation	targeted therapy	stated	first- or second-generation EGFR-TKI	README
+coxh-score-survival	immune checkpoint inhibitor	stated	Longitudinal liquid biopsy identifies an early predictive biomarker of immune checkpoint blockade response	title
+cr-mrd-landmark-four-group	cell therapy	stated	128 relapsed/refractory multiple myeloma patients treated with one infusion of idecabtagene vicleucel [ide-cel]	README
+crp-absolute-threshold-kinetics	immune checkpoint inhibitor	stated	IO+IO / IO+TKI, 11/2017–12/2022; n=316	README
+crp-albumin-trend-four-group	not a drug	not-stated	no patient responded to conservative medical management, and all underwent surgery	README
+crp-flare-response-kinetics	immune checkpoint inhibitor	stated	CRP flare-response was associated with favorable outcomes only in atezolizumab-treated patients	README
+crp-four-group-kinetics	immune checkpoint inhibitor	stated	palliative immune checkpoint inhibition, 2011-2021	README
+crp-spike-flat-increase	immune checkpoint inhibitor	stated	gastric adenocarcinoma refractory to standard therapy on nivolumab monotherapy (2017-2022)	README
+ctc-cfdna-change-four-group	chemotherapy	stated	on palliative, mostly platinum-based, chemotherapy	README
+ctc-change-three-group	chemotherapy	stated	on palliative, mostly platinum-based, chemotherapy	README
+ctc-clearance-three-group	chemotherapy	stated	on weekly nab-paclitaxel (nab-P)/carboplatin, nab-P/gemcitabine or gemcitabine/carboplatin	README
+ctc-composite-response	chemotherapy	stated	count was obtained prior to the first cycle of third-line chemotherapy (C1L3)	README
+ctc-dynamics-three-group-cox	hormone therapy	stated	starting a new line of endocrine therapy with abiraterone acetate (124) or enzalutamide (50)	README
+ctc-iki67-threshold	immune checkpoint inhibitor	stated	metastatic NSCLC patients treated with pembrolizumab within the prospective SWIPE trial (NCT02705820	README
+ctc-postct-count-threshold	chemotherapy	stated	39 of 52 enrolled unresectable PDAC patients with a post-CTx draw, Gemcitabine + Abraxane or FOLFIRINOX	description
+ctc-rank-count-cutoff-cox	targeted therapy	stated	the 16 metastatic melanoma patients on BRAF/MEK-targeted therapy	README
+ctc-status-cox	chemotherapy	stated	HER2-negative metastatic breast cancer on eribulin, n = 109 registered	README
+ctc-trend-favorable-unfavorable	chemotherapy	stated	31 metastatic urothelial carcinoma patients on first-line MVAC	README
+ctdna-any-increase-rm-emergence	targeted therapy	stated	T790M-mediated resistance, second-/third-line osimertinib 80 mg daily	README
+ctdna-anytime-clearance	chemo + checkpoint inhibitor	stated	on first-line pembrolizumab + capecitabine + oxaliplatin	README
+ctdna-anytime-detectability	targeted therapy	stated	plasma EGFR T790M by ddPCR in EGFR-TKI-resistant NSCLC	description
+ctdna-btmb-combined-three-group	radiotherapy or chemoradiotherapy	stated	unresectable LA-NSCLC patients on curative-intent CRT with or without consolidation ICI	README
+ctdna-ceot-branched-rule	targeted therapy	stated	HER2-positive metastatic breast cancer patients on T-DM1 3.6 mg/kg Q21 days	README
+ctdna-cfdna-four-group	targeted therapy	stated	51 advanced EGFR-mutant NSCLC patients on osimertinib/gefitinib/icotinib	README
+ctdna-ci-nonoverlap-increase	other drug	stated	advanced / noncurative locally advanced NSCLC, first-line systemic treatment	README
+ctdna-clearance	targeted therapy	stated	Early changes in circulating cell free KRAS G12C predicts response to adagrasib	title
+ctdna-clearance-no-rebound	hormone therapy	stated	the DANCER phase II trial (NCT05640778) of neoadjuvant dalpiciclib plus aromatase inhibitors (DAL-AI)	README
+ctdna-clearance-pattern-three-group	chemotherapy	stated	randomized 1:1 to post-adjuvant FTD/TPI 35 mg m-2 twice daily or placebo for six 28-day courses	README
+ctdna-clearance-persisting-emerging	chemotherapy	stated	on pegaspargase/gemcitabine-based systemic chemotherapy (13 P-GEMOX, 7 GDP, 2 etoposide/ifosphamide/dexamethasone/pegaspargase, 2 chidamide	README
+ctdna-clearance-time-pattern	chemotherapy	stated	T2 (between the paclitaxel and anthracycline regimens) and T3 (after NAC, prior to surgery)	README
+ctdna-clearance-timing-three-group	chemotherapy	stated	high-risk early-stage HER2-negative breast cancer receiving neoadjuvant chemotherapy	README
+ctdna-confirmed-50pct-response	immune checkpoint inhibitor	stated	28 metastatic NSCLC patients on anti-PD-1/anti-PD-L1 immunotherapy	README
+ctdna-confirmed-increase-progression	targeted therapy	stated	17 started BRAFi combination therapy (BRAFi/MEKi for lung and bile duct, BRAFi/EGFRi ± irinotecan for colorectal)	README
+ctdna-confirmed-twofold-increase	targeted therapy	stated	40 EGFR/ALK wild-type NSCLC patients on palliative erlotinib at Aarhus University Hospital	README
+ctdna-consecutive-elevation-progression	targeted therapy	stated	carrying an activating EGFR mutation in the primary tumour, treated with EGFR TKIs	README
+ctdna-copy-fraction-increase-progression	targeted therapy	stated	melanoma on dabrafenib 150 mg BID + trametinib 2 mg QD	README
+ctdna-ctc-ki67-combined	immune checkpoint inhibitor	stated	46 analysed metastatic NSCLC patients on pembrolizumab switch maintenance	description
+ctdna-day8-pattern-rule	immune checkpoint inhibitor	stated	treated with anti-PD-1 monotherapy (pembrolizumab 400 mg q6w or 200 mg q3w, nivolumab 480 mg q4w)	README
+ctdna-depth-response-roc	immune checkpoint inhibitor	stated	CCTG BR.36 stage 1, pembrolizumab in advanced NSCLC	README
+ctdna-durable-clearance-180d	immune checkpoint inhibitor	inferred	ctDNA study of immunotherapy-treated patients	README
+ctdna-dynamic-change-four-group	radiotherapy or chemoradiotherapy	stated	`47` CRT/RT-treated inoperable localized NSCLC patients of the discovery cohort	README
+ctdna-dynamic-increase-progression	targeted therapy	stated	receiving sotorasib 960 mg orally once daily within the Italian Expanded Access Program	README
+ctdna-dynamics-four-group	other drug	stated	584 systemic-therapy lines, 62 analysable lines from 52 patients	README
+ctdna-dynamics-three-group	immune checkpoint inhibitor	stated	Nature Cancer 2020, DOI 10.1038/s43018-020-0096-5; INSPIRE, pembrolizumab	README
+ctdna-dynamics-two-group	other drug	stated	metastatic RCC, standard-of-care IO/TKI therapy	description
+ctdna-emergence-window	chemotherapy	stated	26 chemotherapy-naive pancreatic-ductal-adenocarcinoma patients on first-line chemotherapy	description
+ctdna-favorable-profile	immune checkpoint inhibitor	stated	melanoma, anti-PD-1 +/- ipilimumab	description
+ctdna-feature-elevation-pd	targeted therapy	stated	on HER2-targeted therapy (14 trastuzumab + chemotherapy, 11 JACOB, 8 ADC, 7 HER2 inhibitor; 7 treated in two lines)	README
+ctdna-fold-or-ci-pattern	radiotherapy or chemoradiotherapy	stated	28-patient consolidation-immune-checkpoint-inhibition [CICI] cohort after definitive chemoradiation [CRT]	README
+ctdna-fragment-size-threshold	cell therapy	stated	on CD19-targeted CAR T-cell therapy (CNCT19 or axicabtagene ciloleucel)	README
+ctdna-increase-or-persistence-progression	chemotherapy	stated	on first-line gemcitabine (n = 7), gemcitabine + nab-paclitaxel (n = 32) or FOLFIRINOX (n = 17)	README
+ctdna-increase-vs-no-increase	immune checkpoint inhibitor	stated	Patients with metastatic pan-cancer disease (N = 51) undergoing treatment with an immune checkpoint inhibitor (ICI)	README
+ctdna-kinetic-group-abc	targeted therapy	stated	(47 targeted therapy = BRAF/MEK inhibitors; 37 immunotherapy	README
+ctdna-logreduction-survival-groups	other drug	stated	the IMCgp100-102 phase 2 expansion of tebentafusp in previously treated metastatic uveal melanoma	README
+ctdna-maxmaf-clearance	immune checkpoint inhibitor	stated	advanced/metastatic NSCLC on first-line pembrolizumab	README
+ctdna-mmr-three-group	chemotherapy	stated	107 patients with large B-cell lymphomas on front-line immuno-chemotherapy	README
+ctdna-molecular-progression-criteria	targeted therapy	stated	treated with pralsetinib 400 mg once daily	README
+ctdna-multivariant-pool-threshold	chemotherapy	stated	on standard anthracycline/taxane or taxane-alone neoadjuvant chemotherapy	README
+ctdna-mvaf-four-tier	targeted therapy	stated	refractory metastatic colorectal cancer, fruquintinib 5 mg once daily, 3-weeks-on/1-week-off	README
+ctdna-nadir-increase-progression	chemo + checkpoint inhibitor	stated	on first-line pembrolizumab + capecitabine + oxaliplatin	README
+ctdna-nadir-lloq-progression	not stated	not-stated		method README
+ctdna-panalteration-clearance	chemotherapy	stated	62 metastatic colorectal cancer patients on first-line palliative chemotherapy	README
+ctdna-persistent-increase-progression	chemotherapy	stated	first-line palliative chemotherapy per Norwegian guidelines - FOLFIRINOX (36), nab-paclitaxel/gemcitabine (38), gemcitabine monotherapy (7)	description
+ctdna-persistent-negativity	radiotherapy or chemoradiotherapy	stated	among LS-SCLC patients who received consolidation serplulimab after CCRT	README
+ctdna-positive-at-progression	hormone therapy	stated	on CDK4/6i + endocrine combination therapy (30 palbociclib + endocrine, 3 abemaciclib + endocrine	README
+ctdna-quantitative-response-criteria	other drug	stated	204 patients / 260 systemic treatment courses of advanced solid tumors	README
+ctdna-recist	chemotherapy	stated	treated with FTD/TPI with or without bevacizumab	README
+ctdna-recist-cutoffs	targeted therapy	stated	HER2-positive metastatic breast cancer patients on T-DM1 3.6 mg/kg Q21 days	README
+ctdna-relative-abundance-resistance	targeted therapy	stated	43 T790M-mutant NSCLC patients on rociletinib (phase 1/2 trials NCT01526928 / NCT02147990	README
+ctdna-result-interval-model	other drug	stated	hotspot variant on ongoing systemic treatment	README
+ctdna-rna-uncertainty-range-rule	immune checkpoint inhibitor	stated	on anti-PD-(L)1 ICI monotherapy - pembrolizumab n=72, nivolumab n=7, avelumab maintenance n=14	description
+ctdna-shrinkage-three-group	radiotherapy or chemoradiotherapy	stated	100 CCRT-only NCT02688036 + 44 CCRT + consolidation serplulimab NCT05443646	README
+ctdna-status-dynamics-two-group	neoadjuvant systemic therapy	stated	locally advanced rectal cancer on neoadjuvant treatment and surgery, 2016-2021	README
+ctdna-status-fragmentsize-three-group	cell therapy	stated	relapsed/refractory large B-cell lymphoma treated with CD19-targeted CAR T-cell therapy	README
+ctdna-sustained-clearance-6mo	immune checkpoint inhibitor	stated	*sustained ctDNA clearance* 6 months after the first pembrolizumab dose	README
+ctdna-temporary-increase-count	chemotherapy	stated	first-line FOLFIRI-based chemotherapy, 2014-2016	README
+ctdna-tf-four-group	hormone therapy	stated	IMbassador250, enzalutamide in prostate cancer	description
+ctdna-three-variant-positivity	immune checkpoint inhibitor	stated	65 stage IV on palliative combined ipilimumab/nivolumab, 22 tumour-free stage III on adjuvant anti-PD-1	README
+ctdna-twofold-or-positivity-progression	chemotherapy	stated	patients on first-line chemotherapy at the Chinese PLA General Hospital 2017-2018, 92.5% S1 + nab-paclitaxel	README
+ctdna-week4-pattern-rule	targeted therapy	stated	15 EGFR T790M-positive advanced NSCLC patients starting second-line osimertinib 80 mg/day	README
+ctdna-week4-rise-or-emergence	immune checkpoint inhibitor	stated	treated with regorafenib + nivolumab/pembrolizumab on a compassionate basis	README
+ctdna-week8-clearance-extralow-rule	targeted therapy	stated	treated with pralsetinib 400 mg once daily	README
+day3-car-clr-cutoff	biologic immunomodulator (anti-TNF)	stated	who received salvage infliximab (1-3 doses at 5-10 mg/kg	README
+delta-btmb-three-group	radiotherapy or chemoradiotherapy	stated	unresectable LA-NSCLC patients on curative-intent CRT with or without consolidation ICI	README
+delta-csm-cox	immune checkpoint inhibitor	stated	53 INSPIRE patients (5 histology-specific cohorts A-E) with both draws and matched tumor-informed bespoke ctDNA (CMC, Signatera) data, on pembrolizumab	README
+delta-csm-fls-joint-cox	immune checkpoint inhibitor	stated	87 patients with various metastatic cancers on pembrolizumab q3w	README
+delta-ctc-cox	immune checkpoint inhibitor	stated	melanoma treated with ipilimumab (16) or pembrolizumab (33)	README
+delta-fls-cox	immune checkpoint inhibitor	stated	advanced solid tumours on pembrolizumab 200 mg q3w, five cohorts A-E	README
+delta-lac-sofa	not a drug	not-stated	1038 early-ICU + 1525 delayed-ICU = 2563 patients who were still in the ICU on day 3	README
+delta-nlr-sd-threshold	targeted therapy	stated	20 anaplastic thyroid carcinoma patients on lenvatinib at Kanagawa Cancer Center	description
+delta-vafmean-threshold	not stated	not-stated		method README
+doubling-time-rule	immune checkpoint inhibitor	inferred	calling non-response (progressive disease) at 6 months in NSCLC immunotherapy patients	README
+dpcr-biological-response-criteria	immune checkpoint inhibitor	stated	treated with anti-PD1 (nivolumab alone or with ipilimumab)	README
+dtmax-response-roc	antiviral	stated	60 treatment-naïve chronic hepatitis C inpatients on PegIFN alfa-2a + ribavirin	README
+dynamic-srna-change-monitor	chemo + checkpoint inhibitor	stated	nivolumab / tislelizumab / camrelizumab with chemotherapy ± VEGFR-2 inhibitor	README
+dynforest	not stated	not-stated		method README
+dynpg	not a drug	not-stated	Dynamic prediction of Patient and kidney Graft survival	README
+early-pd1-cd8-response-rule	immune checkpoint inhibitor	stated	29 advanced NSCLC patients on anti-PD-1/anti-PD-L1, peripheral blood flow cytometry	README
+early-reldecline-cox	immune checkpoint inhibitor	stated	90 advanced NSCLC patients on anti-PD-1/PD-L1 monotherapy in Graz	README
+egfr-cfdna-change-three-group	targeted therapy	stated	22 on EGFR-TKIs: 10 gefitinib, 8 afatinib, 4 erlotinib	README
+episcore-composite-roc	targeted therapy	stated	14 EGFR-mutant metastatic NSCLC patients on first-line erlotinib (n=9) or osimertinib (n=5) TKI	README
+esr1-pik3ca-delta-vaf-call	not stated	not-stated		method README
+ev-kras-maf-dynamics-three-group	neoadjuvant systemic therapy	stated	on neoadjuvant therapy (NAT) followed by curative-intent surgery	README
+featurewise-transformer	chemo + checkpoint inhibitor	stated	(atezolizumab + carboplatin/paclitaxel ± bevacizumab vs bevacizumab + chemotherapy)	README
+fine-gray-baseline-marker	other drug	stated	Model IV (+ treatment group spironolactone vs placebo)	README
+fine-gray-change-marker	not stated	not-stated		method README
+five-factor-biomarker-index	targeted therapy	stated	first-line mRCC patients on TKI (sunitinib, sorafenib) or IL2-based immunotherapy (2006-2010)	README
+gaussian-copula-jm-random-effects	not stated	not-stated		method README
+genotype-specific-mrd-risk	chemotherapy	inferred		method README
+gin-dynamic-pattern-rule	chemotherapy	stated	starting a new systemic treatment line (JGH, Montreal, 2016–2017; any line of chemotherapy, all three subtypes)	README
+glmm-delta-progression	targeted therapy	stated	38 ALK+ NSCLC patients, 296 longitudinal serum samples during ALK-TKI therapy	description
+glmnet-lasso-logistic	cell therapy	stated	The paper trains supervised machine-learning classifiers on 141 CAR T-cell therapy patients	README
+glmnet-ridge-logistic	cell therapy	stated	The paper trains supervised machine-learning classifiers on 141 CAR T-cell therapy patients	README
+gru-ctdna	immune checkpoint inhibitor	stated	patients of the phase 3 IMpower150 trial (atezolizumab-based therapy)	README
+hbsag-baseline-decline-algorithm	antiviral	stated	chronic hepatitis B patients on entecavir (ETV) 0.5 mg/d	README
+hbsag-window-decline-threshold	antiviral	stated	211 HBeAg-negative chronic hepatitis B patients on pegylated-interferon (PegIFN) alpha-2b	README
+hcv-anrs-ribavic-algorithm	antiviral	stated	chronic hepatitis C treatment with IFN a2b or PEG-IFN a2b plus ribavirin in HIV/HCV co-infected patients	README
+hcv-rgt-duration-rule	antiviral	stated	Modeling predicts shortening of DAA treatment duration to 5 weeks	title
+hcv-rna-us-undetectable-t1m	antiviral	stated	on 12 weeks telaprevir/PEG-IFN/RBV followed by 12 weeks (eRVR) or 36 weeks PEG-IFN-α2b/RBV	README
+hdctc-kinetics-three-class	chemotherapy	stated	HD-CTC Kinetics in patients undergoing chemotherapy were shown to follow 3 distinct patterns	README
+hdv-response-guided-stop-rule	antiviral	stated	Results of Response-Guided Therapy with Pegylated Interferon Alpha 2a in Chronic Hepatitis B and D	README
+hqm	not stated	not-stated		method README
+ichorcna-cox-threshold	not stated	not-stated		method README
+ichorcna-stopping-rule	other drug	stated	the rule evaluated on 244 possible interventions over 164 treatment regimens on 91 patients	README
+igf2bp3-persistent-elevation-rule	chemotherapy	stated	after induction (preoperative) chemotherapy, before surgical intervention	README
+interim-pet-ctdna-concordance	chemotherapy	stated	52 newly diagnosed advanced-stage DLBCL patients on 6 cycles of R-CHOP	README
+jlcm-weibull-static-risk	antiviral	stated	358 adults on ART in southwest Ethiopia	README
+jm-horseshoe-multivariate	hormone therapy	stated	ADT + abiraterone acetate vs ADT + placebo	README
+jm-lme	not stated	not-stated		method README
+jm-lme-weibull-value	not stated	not-stated		method README
+jm-lme-weibull-value-slope-cumulative	not a drug	not-stated	Patients on peritoneal dialysis were followed at 6-month intervals up to 5 years	README
+jm-mem-lq	not stated	not-stated		method README
+jm-value-treatment-effects	chemotherapy	stated	FOLFIRINOX alone or treatment with FOLFIRINOX and SBRT	README
+jm-weighted-cumulative-effect	not a drug	not-stated	158 consecutive kidney transplant recipients	README
+jmbayes-mv-area	not stated	not-stated		method README
+jmbayes-value-cumulative	not a drug	not-stated	Dynamic recurrence risk and adjuvant chemotherapy benefit prediction by ctDNA in resected NSCLC	title
+jmbayes2-sdh-value-slope	not stated	not-stated		method README
+jmgpu-linear	not stated	not-stated		method README
+jmtwostage-jmwmi	targeted therapy	stated	n = 350 simulated Gefitinib ± chemotherapy NSCLC patients	README
+jsm-jmodeltm	antiviral	stated	The paper's own application was time to death in the ddI/ddC HIV trial	README
+kelim	chemotherapy	stated	Highest Benefit From Bevacizumab in the First-Line Setting on the Basis of Their Tumor-Intrinsic Chemosensitivity	title
+kelim-b	immune checkpoint inhibitor	stated	bevacizumab-biosimilar FKB238 + olaparib + durvalumab in 74 recurrent high-grade ovarian cancer	README
+kelim-b-tis-combined	immune checkpoint inhibitor	stated	bevacizumab-biosimilar FKB238 + olaparib + durvalumab, relapsed high-grade ovarian cancer	README
+kelim-psa-loglinear	hormone therapy	stated	castration-resistant prostate cancer (CRPC) patients treated with enzalutamide or abiraterone acetate	README
+km-expression-stratification	other drug	stated	the method predicts overall survival under a drug treatment (antifungal therapy)	README
+km-sliding-window-stratification	other drug	stated	immunotherapy for 207 visits, targeted therapy for 60, no systemic therapy for 55, one combination	README
+kras-copy-best-change-rule	other drug	stated	from patients with advanced cancers on systemic therapy	description
+lac-sofa-score	not stated	not-stated		method README
+lactate-area-score-logreg	not a drug	not-stated	protocol-driven resuscitation bundle therapy	README
+landmark-combined-risk-cox	chemo + checkpoint inhibitor	inferred	predicting clinical outcomes in metastatic non-squamous non-small cell lung cancer after first-line chemoimmunotherapy	title
+landmark-cox-current	not stated	not-stated		method README
+landmark-cox-nomogram	not stated	not-stated		method README
+landmark-cox-slope	not stated	not-stated		method README
+landmark-cox-summary	immune checkpoint inhibitor	inferred	An illustration on predicting immunotherapy non-response in non-small cell lung cancer	title
+landmark-csh-gee	not a drug	not-stated	Predicting kidney graft function and failure among kidney transplant recipients	title
+landmark-ctdna-status-cox	immune checkpoint inhibitor	stated	28 analyzed patients with advanced melanoma on anti-PD-1-based therapy	README
+landmark-ltm-fpca	not stated	not-stated		method README
+landmark-ltm-lvcf	not stated	not-stated		method README
+landmark-ltm-mfpca	not stated	not-stated		method README
+landmark-psh-supermodel	not stated	not-stated		method README
+landmark-rsf-cr	not stated	not-stated		method README
+landmark-twostage-lme-cox	other drug	stated	1884 primary biliary cholangitis patients on UDCA	README
+lasso-logistic-plasma-response	chemo + checkpoint inhibitor	stated	on first-line PD-1-inhibitor + chemotherapy (SOX 26, XELOX 5; md:391-399)	README
+lcmm-trajectory-cox	other drug	stated	379 HCC patients on systemic therapy	README
+lda-hcv-rna-t1-t4	antiviral	stated	23 chronic HCV genotype 1 patients on telaprevir/PEG-IFN/RBV triple therapy	README
+ldh-delta-four-group	immune checkpoint inhibitor	stated	metastatic melanoma patients, 11 Italian referral centres, first-line checkpoint inhibitors	README
+ldh-interval-ratio-threshold	chemotherapy	stated	first-line platinum-based doublet/triplet chemotherapy at Guangxi Medical University Cancer Hospital	README
+lfhc	targeted therapy	stated	dasatinib-treated CML patients with serial BCR-ABL measurements	README
+libio-score	immune checkpoint inhibitor	stated	Longitudinal liquid biopsy identifies an early predictive biomarker of immune checkpoint blockade response	README
+lme-predtraj-suppression	antiviral	stated	Predicting virological decay in patients starting combination antiretroviral therapy	title
+logistic-6mo-mn-nremission	biologic immunomodulator (anti-CD20)	stated	treated with rituximab (four weekly 375 mg/m² infusions)	README
+logistic-baseline-delta	immune checkpoint inhibitor	stated	272 BRAF wild-type metastatic melanoma patients on first-line immune checkpoint inhibitors	README
+logistic-ctdna-angiogenesis-nomogram	targeted therapy	stated	of anlotinib plus osimertinib in advanced non-small cell lung cancer (NSCLC) with acquired resistance	README
+logistic-ctdna-ca153-progression	other drug	stated	hotspot variant on ongoing systemic treatment	README
+logistic-ctdna-direction-response	immune checkpoint inhibitor	stated	after anti-PD-1 based immune checkpoint inhibitor (ICI) initiation	README
+logistic-ctdna-mrtrg-pcr	radiotherapy or chemoradiotherapy	stated	nCRT 50Gy/25 with capecitabine + irinotecan, interval CAPIRI, TME	README
+logistic-day28-panel	immune checkpoint inhibitor	stated	on nivolumab monotherapy (3 mg/kg every 2 weeks for at least 4 weeks, second-line or later)	README
+logistic-delta-cutpoint-sex	immune checkpoint inhibitor	stated	161 immunotherapy-naive advanced melanoma / NSCLC patients treated with ICIs	README
+logistic-landmark-supermodel	not stated	not-stated		method README
+logistic-ldh-relchange-pd	immune checkpoint inhibitor	stated	29 patients with metastatic melanoma treated with anti-PD-1 antibodies	description
+logistic-lnnlr-response	immune checkpoint inhibitor	stated	measured at 6 (±2) weeks after anti-PD-1/PD-L1 initiation	README
+logistic-mge-pcr	chemotherapy	stated	after neoadjuvant chemotherapy in early breast cancer	description
+logistic-multimarker-abschange	other drug	stated	Odense n = 109 dietary-intervention RCT in T2DM, 6 months; Esbjerg n = 64 severe-obesity case-control with a bariatric-surgery subset	README
+logistic-multimarker-abschange-bmi-age	other drug	stated	flexible-dose risperidone 4–6 mg/day for 3 months	README
+logistic-multimarker-nomogram	chemo + checkpoint inhibitor	stated	(Paclitaxel or oxaliplatin/cisplatin + 5-FU + sintilimab/tislelizumab/nivolumab, 3-4-6 cycles) followed by radical gastrectomy	README
+logistic-nlr-timepoint-adjusted	antiviral	stated	chronic-hepatitis-C genotype-1b patients treated with DAAs for 12 weeks who reached SVR24	README
+logistic-nomogram-svr	antiviral	stated	Patients Treated with Boceprevir Plus Peginterferon Alfa and Ribavirin	README
+logistic-nomogram-tw8-response	antiviral	stated	treated with boceprevir plus peginterferon alfa/ribavirin (with a 4-week PR lead-in)	description
+logistic-on-treatment-milestone	antiviral	stated	HIV Viral Dynamics of Lopinavir/Ritonavir Monotherapy as Second-Line Treatment	README
+logistic-serial-nlr-panel	antibacterial or anti-TB	stated	failure of antibiotics treatment for hospitalized community-acquired pneumonia (CAP)	description
+logistic-slope-nomogram-pcr	chemotherapy	stated	after neoadjuvant chemotherapy (standardized EC*4-T*4, epirubicin 90 mg/m2 + cyclophosphamide 600 mg/m2 every 3 weeks x 4, then docetaxel	description
+logistic-stepwise-lactate-load	not stated	not-stated		method README
+logistic-week2-decline-svr	antiviral	stated	HIV/HCV genotype-1 patients on pegylated interferon alpha-2a plus ribavirin (48 or 72 weeks)	README
+loglinear-slope-roc-km	not stated	not-stated		method README
+logreduction-threshold	antiviral	stated	completing 48 weeks of peginterferon-alpha (90/135/180 ug weekly) plus ribavirin	description
+lphc	targeted therapy	stated	dasatinib-treated CML patients with serial BCR-ABL measurements	README
+ltrcart	not stated	not-stated		method README
+ltrcit	not stated	not-stated		method README
+maf-slope-sign	targeted therapy	stated	first-/second-generation EGFR-TKI as first-line therapy	README
+marker-peak-cutoff	chemotherapy	stated	metastatic PDAC on first-line chemotherapy	README
+max-reduction-threshold	chemo + checkpoint inhibitor	inferred	predicting clinical outcomes in metastatic non-squamous non-small cell lung cancer after first-line chemoimmunotherapy	title
+median-split-survival	immune checkpoint inhibitor	stated	ipilimumab 3 mg/kg + nivolumab 1 mg/kg x 4 cycles	README
+meth-ctdna-low-high-dynamics	chemotherapy	stated	123 first-line mCRC patients on capecitabine + oxaliplatin + bevacizumab	README
+mlp-deepsurv	immune checkpoint inhibitor	stated	of the phase 3 IMpower150 trial (atezolizumab-based therapy)	README
+molecular-pd-emergence-af-increase	targeted therapy	stated	adenocarcinoma patients on osimertinib 80 mg once daily (AURA17 sub-cohort, NCT02442349)	README
+mr-model-pd	targeted therapy	stated	adenocarcinoma patients on osimertinib 80 mg once daily (AURA17 sub-cohort, NCT02442349)	README
+mr5hmc-score	immune checkpoint inhibitor	stated	anti-PD-1 (pembrolizumab/nivolumab) monotherapy in advanced NSCLC	README
+mrd-eot-status-fisher-km	targeted therapy	stated	MURANO, fixed-duration venetoclax-rituximab [VenR] vs bendamustine-rituximab in relapsed/refractory CLL; this analysis is the VenR arm only	README
+mrd-pcr-two-timepoint-stratification	chemotherapy	inferred	after courses IA and IB the PCR-detected MRD level at TP1 (after IA) and TP2 (after IB, ~day 79)	README
+mrd-status-survival-stratification	cell therapy	stated	treated with the approved doses of cilta-cel, ide-cel, ARI0002h, teclistamab, talquetamab and elranatamab — 98 CAR T cells, 103 T-cell engagers	README
+mshox2-pmr-response-roc	other drug	stated	31 first-line, standard platinum-based therapy or TKI	description
+mtbi-molecular-response	chemotherapy	stated	receiving first-line capecitabine + docetaxel then maintenance capecitabine	README
+multinomial-landmark-supermodel	not stated	not-stated		method README
+multiparametric-immune-glm	chemo + checkpoint inhibitor	stated	Trained in the paper on the 59 Chemo+Pembro (I-SPY2 pembro4) patients	README
+mvafr-three-group	hormone therapy	stated	metastatic HR+/HER2-negative breast cancer on CDK4/6i + ET	README
+naivebayes	cell therapy	stated	Predictive biomarkers of response to chimeric antigen receptor (CAR) T-cell therapy for pan-hematologic cancer	README
+nat-ctdna-response	chemotherapy	stated	after the first and third three-weekly chemotherapy cycles, before definitive surgery	README
+neo-roc-status-cox	immune checkpoint inhibitor	stated	59 on first-line pembrolizumab 200 mg Q3W, 44 on first/second-line atezolizumab 1200 mg Q3W, 20 of them on concurrent chemoimmunotherapy	README
+neo-roc-status-logistic	immune checkpoint inhibitor	stated	59 on pembrolizumab 200 mg Q3W, 44 on atezolizumab 1200 mg Q3W, 20 on concurrent chemoimmunotherapy	README
+neomer-or-mutation-rule	radiotherapy or chemoradiotherapy	stated	44 inoperable localized NSCLC patients on platinum-based chemoradiation (CRT/RT)	README
+nextpersonal-ctdna-dynamics-risk	not a drug	not-stated	The paper anchors draws, follow-up and DRFI to breast surgery	README
+nlr-change-three-group	immune checkpoint inhibitor	stated	142 mRCC patients on anti-PD-1/PD-L1 ICB, Dana-Farber 2009-2017	README
+nlr-change-two-group	immune checkpoint inhibitor	inferred	on second-line single-agent immunotherapy after progressing on platinum-based chemotherapy	README
+nlr-prepost-roc-four-group	targeted therapy	stated	the First-SIGNAL first-line gefitinib vs gemcitabine+cisplatin trial	README
+nlr2-cel-score	immune checkpoint inhibitor	stated	231 advanced-stage cancer patients treated with immune checkpoint inhibitors	README
+nonmem-loglogistic-tte-os-sld	targeted therapy	stated	patients on oral axitinib (5 mg b.i.d., dose-titrated)	README
+nonmem-lognormal-tte-pfs-crp	chemotherapy	stated	first-line paclitaxel + platinum, 21-day cycles	README
+olink-lme-combined-protein-roc	chemo + checkpoint inhibitor	stated	advanced biliary tract cancer patients receiving Camrelizumab plus the GEMOX treatment	README
+on-treatment-quartile-response	other drug	stated	placebos only / aspirin 300 mg daily / EPA 2000 mg daily / both, for 12 months	README
+pct-delta-t-mad-threshold	not stated	not-stated		method README
+pct-threshold-rule	antibacterial or anti-TB	stated	the initial treatment (surgery plus antibiotics; success vs failure)	README
+pegfr-monitoring-concordance	targeted therapy	stated	first-line gefitinib/erlotinib	README
+phasdeseq-mrd-landmark	other drug	stated	the regimens differ: AHL2011, BREACH, pembrolizumab-AVD, PVAB, AHOD1331, cHOD17	README
+plasma-delta-response-roc	chemo + checkpoint inhibitor	stated	50 advanced gastric cancer patients on nivolumab + XELOX (42) or FOLFOX (8)	README
+plasma-genotype-monitoring	targeted therapy	stated	EGFR-mutant NSCLC on first-line erlotinib	README
+postnat-mrd-positivity-call	chemo + checkpoint inhibitor	stated	three cycles of neoadjuvant camrelizumab 200 mg q3w + platinum-based chemotherapy then surgery	README
+presence-monitoring-call	not stated	not-stated		method README
+probit-psa-kinetics	hormone therapy	stated	The paper studied 34 chemonaive mCRPC patients treated with AA	README
+psa-decline-90d-strata	hormone therapy	stated	randomized 2:1 to enzalutamide 160 mg/day or placebo	README
+psa-decline-month3-strata	hormone therapy	stated	872 chemotherapy-naive men with metastatic castration-resistant prostate cancer on enzalutamide 160 mg/day	README
+psa-decline-week12-strata	systemic radiopharmaceutical (drug)	stated	receiving 177Lu-PSMA-617 7.4 GBq every 6 weeks for up to 6 cycles	README
+psa-deep-response-combined	hormone therapy	stated	treated with upfront intensification (ADT plus docetaxel or an androgen receptor signalling inhibitor)	README
+psa-kelim	chemotherapy	stated	cabazitaxel 20 mg/m² (C20) or 25 mg/m² (C25) q3w vs docetaxel 75 mg/m² (D75) q3w, all plus prednisone 10 mg PO daily	README
+psa-nadir-four-group	hormone therapy	stated	initiated first-line systemic treatment (ADT, ADT + enzalutamide or abiraterone, ADT + docetaxel)	README
+psa-nadir-ttn-factor-count	hormone therapy	stated	mCRPC on first-line androgen receptor axis-targeted therapy (ARAT) — abiraterone acetate n = 115, enzalutamide n = 87	README
+psa-nadir-ttn-four-group	radiotherapy or chemoradiotherapy	stated	treated with salvage radiotherapy (SRT) (± pelvic nodal irradiation, no androgen deprivation therapy)	README
+pwp-cp-cox	other drug	stated	184 metastatic breast cancer patients starting a new line of therapy	README
+randomforest	cell therapy	stated	Predictive biomarkers of response to chimeric antigen receptor (CAR) T-cell therapy for pan-hematologic cancer	README
+raw-gee-logreg	other drug	stated	607 patients with early-to-moderate open-angle glaucoma on initial medical therapy	README
+rd-kinetics-category	chemotherapy	stated	treated with six 4-week cycles of KRd, high-dose melphalan + ASCT, two further KRd cycles and up to two years of Rd maintenance	README
+recist-ctdna-four-group	immune checkpoint inhibitor	stated	Bratman, Yang et al. (Nature Cancer 2020, INSPIRE, pembrolizumab	README
+regression-calibration-rsf	not stated	not-stated		method README
+regression-growth-equation	not stated	not-stated		method README
+relchange-decline-subgroup	chemotherapy	stated	advanced pancreatic adenocarcinoma on fixed-dose-rate gemcitabine ± low-dose cisplatin	README
+relchange-threshold	other drug	stated	Serial ctDNA monitoring to predict response to systemic therapy in metastatic gastrointestinal cancers	title
+rmtl-landmark	not stated	not-stated		method README
+rnn-ctdna	immune checkpoint inhibitor	stated	patients of the phase 3 IMpower150 trial (atezolizumab-based therapy)	README
+rule-ctdna-clearance	chemo + checkpoint inhibitor	stated	early changes in ctDNA and overall survival in patients treated with anti-PD(L)1 and/or chemotherapy	title
+rule-ctmonitr-mr50	chemo + checkpoint inhibitor	stated	early changes in ctDNA and overall survival in patients treated with anti-PD(L)1 and/or chemotherapy	title
+rule-ctmonitr-mr90	chemo + checkpoint inhibitor	stated	early changes in ctDNA and overall survival in patients treated with anti-PD(L)1 and/or chemotherapy	title
+rule-eln-cml-milestones	targeted therapy	stated	at the ELN milestones of 3, 6 and 12 months of TKI treatment	description
+rule-pcwg3-psa	not stated	not-stated		method README
+rvr-evr-classification	antiviral	stated	genotype 1b chronic hepatitis C, 48 weeks of peginterferon alpha + ribavirin	README
+scd8-roc-cutoff-subgroup	immune checkpoint inhibitor	stated	on second-line atezolizumab 1200 mg IV every three weeks	README
+scope	targeted therapy	stated	the administered dosages of lenalidomide/ixazomib/dexamethasone	README
+serial-marker-trend-rule	chemotherapy	stated	on ECF chemotherapy — continuous-infusion 5-FU 200 mg m-2 day-1 with bolus epirubicin 50 mg m-2 and cisplatin 60 mg m-2	README
+serological-response-pattern	immune checkpoint inhibitor	stated	256 advanced NSCLC patients with clinical and radiological disease control at 3 months on ICI-containing treatment	README
+serum-two-protein-delta-roc	chemotherapy	stated	22 breast cancer patients on NACT = 4 × EC q3w (or q2w) followed by 4 × P d1,d8,d15 q3w	README
+sherloc	immune checkpoint inhibitor	stated	the phase 3 IMpower150 trial (atezolizumab-based therapy)	README
+signal-appearance-call	not stated	not-stated		method README
+sklearn-rf-knn-nestedcv	radiotherapy or chemoradiotherapy	stated	neoadjuvant SBRT + single-dose durvalumab in HPV-unrelated locally advanced head-and-neck squamous cell carcinoma	README
+sksurv-fpcrf	immune checkpoint inhibitor	stated	IMpower150 trial (atezolizumab-based therapy)	README
+sksurv-penalized-cox	not stated	not-stated		method README
+sksurv-rsf	chemo + checkpoint inhibitor	stated	IMpower150 metastatic nonsquamous NSCLC cohort (atezolizumab + carboplatin/paclitaxel ± bevacizumab)	README
+stan-two-stage-antibody-cox	vaccine	stated	The trial compares ChAdOx1 vaccination with a control arm	README
+statistica-mlr-pcr	radiotherapy or chemoradiotherapy	stated	pathological complete response (pCR = ypT0N0 in the total-mesorectal-excision specimen, md:128-129) after neoadjuvant chemoradiotherapy	description
+tabpfn-rmds-classifier	immune checkpoint inhibitor	stated	predicting pathological treatment response to neoadjuvant pembrolizumab in resectable locally advanced head and neck squamous cell carcinoma	README
+td-cox-univariable-marker	not stated	not-stated		method README
+tem-teff-transition-rule	biologic immunomodulator	stated	on relapse-preventive histamine dihydrochloride + low-dose IL-2	README
+temporal-transformer	immune checkpoint inhibitor	stated	IMpower150 trial (atezolizumab-based therapy)	README
+tie-w3-expansion-rule	immune checkpoint inhibitor	stated	50 metastatic melanoma patients on first-line anti-PD1 or anti-PD1/anti-CTLA4	README
+tie2-vascular-response-criteria	targeted therapy	stated	at the end of the first 9 weeks of a VEGFi-containing regimen (three 3-weekly cycles)	README
+time-to-nadir-threshold	hormone therapy	stated	treated with upfront intensification (ADT plus docetaxel or an androgen receptor signalling inhibitor)	README
+tms-mpd-increase-rule	chemo + checkpoint inhibitor	stated	ICI monotherapy or chemo-immunotherapy	README
+tuca-combined-rule	chemotherapy	stated	on pegylated liposomal doxorubicin [PLD, 40 mg/m2, Q4w, 6 cycles] or PLD + apatinib [250 mg, po, qd]	README
+two-consecutive-increments	immune checkpoint inhibitor	inferred	calling non-response (progressive disease) at 6 months in NSCLC immunotherapy patients	README
+twopop-evolution-waiting-time	targeted therapy	stated	PROSPECT-C phase II metastatic colorectal cancer on cetuximab	README
+wbc-filtered-ctdna-detection	chemotherapy	stated	50 patients with resectable gastric cancer, stage IB-IVA, on perioperative chemotherapy	README
+week4-hcv-ns4a-stopping-rule	antiviral	stated	treated in the standard arm with 180 µg weekly peginterferon-alpha-2a + weight-based ribavirin for 48 weeks	description
+xgboost	cell therapy	stated	Predictive biomarkers of response to chimeric antigen receptor (CAR) T-cell therapy for pan-hematologic cancer	README
+youden-cutoff-km-stratification	radiotherapy or chemoradiotherapy	stated	on first-line definitive SIB-IMRT 60 Gy / 30 fx over 6 weeks + camrelizumab 200 mg q2w up to 16 cycles	README
+zscore-cutoff-km-cox	small-molecule immunomodulator or immunosuppressant	stated	420 fingolimod-treated relapsing-MS patients of the Swiss MS Cohort	README
