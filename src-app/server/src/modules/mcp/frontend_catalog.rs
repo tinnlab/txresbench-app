@@ -371,7 +371,9 @@ mod tests {
         // as (action id, context): `flow.back` on `txr.step` (the step views
         // of a new analysis) and `models.switchList` on `txr.modelStep` (its
         // two model steps), both declared in
-        // `src-app/ui/src/modules/txrintake/lib/stepTrail.ts`, and
+        // `src-app/ui/src/modules/txrintake/lib/stepTrail.ts`,
+        // `help.backToStep` on `txr.helpFromStep` (Help opened from a step
+        // view), declared in stepTrail.ts, and
         // `methods.applyPreset` on `txr.method-picker` (the choose-methods
         // page's method picker, `src-app/ui/src/modules/txrlist/lib/methodPicker.ts`),
         // and `sandbox.setupWsl` on `txr.wsl-setup` (active while the app offers
@@ -393,6 +395,7 @@ mod tests {
             non_global,
             vec![
                 ("flow.back", "txr.step"),
+                ("help.backToStep", "txr.helpFromStep"),
                 ("methods.applyPreset", "txr.method-picker"),
                 ("models.switchList", "txr.modelStep"),
                 ("sandbox.setupWsl", "txr.wsl-setup"),

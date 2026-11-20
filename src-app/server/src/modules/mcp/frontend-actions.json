@@ -178,6 +178,26 @@
       }
     },
     {
+      "id": "help.backToStep",
+      "title": "Go back from Help to the step it was opened from",
+      "kind": "global",
+      "context": "txr.helpFromStep",
+      "mutating": true,
+      "stateful": false,
+      "permission": "mcp::use",
+      "description": "On Help opened from a step of a new analysis (a problem code link on the file step, for example), go back to that step. The step keeps what was entered there. Offered only then.",
+      "aliases": [
+        "back to step",
+        "back to my step"
+      ],
+      "params_schema": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
       "id": "history.useSettingsAgain",
       "title": "Use the settings of a past analysis again",
       "kind": "global",

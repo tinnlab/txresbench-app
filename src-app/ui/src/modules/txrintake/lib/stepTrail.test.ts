@@ -11,6 +11,7 @@ import {
   beginTrail,
   currentBackTarget,
   enterStep,
+  helpReturnTarget,
   leaveStep,
   pathOf,
   recordStep,
@@ -19,6 +20,7 @@ import {
   STEP_BACK_DIALOG_OPEN,
   STEP_BACK_LEAVING,
   STEP_BACK_NO_STEP,
+  stepPlaceOf,
   takeStepBack,
   useStepTrailStore,
   type TxrStepId,
@@ -341,5 +343,60 @@ describe('the refusals', () => {
     useStepTrailStore.setState(s => ({ current: s.current && { ...s.current, dialogOpen: true } }))
     expect(() => takeStepBack()).toThrow(STEP_BACK_DIALOG_OPEN)
     expect(useStepTrailStore.getState().trail).toEqual([START, PREDICT, SAVED])
+  })
+})
+
+describe('the way back from Help to a step', () => {
+  beforeEach(() => {
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
+  })
+
+  it('names each step view by its step line number and its heading', () => {
+    expect(stepPlaceOf(STUDY)).toEqual({ step: 2, title: 'Tell us about your study' })
+    expect(stepPlaceOf(FILES)).toEqual({ step: 3, title: 'Add your files' })
+    expect(stepPlaceOf(`${PREDICT}?use=m1&name=Model%201`)).toEqual({
+      step: 3,
+      title: 'Add the patients to predict',
+    })
+    expect(stepPlaceOf('/choose-methods')).toEqual({ step: 4, title: 'Choose the methods and settings' })
+    expect(stepPlaceOf('/pretrained-models')).toEqual({ step: 4, title: 'Choose the models to run' })
+    expect(stepPlaceOf('/saved-models')).toEqual({ step: 4, title: 'Choose the saved models to run' })
+    expect(stepPlaceOf(START)).toBeNull()
+    expect(stepPlaceOf('/help')).toBeNull()
+  })
+
+  it('returns to the step Help was opened from while it is the last step of the trail', () => {
+    beginPath(START)
+    recordStep(STUDY)
+    recordStep(FILES)
+    expect(helpReturnTarget(FILES)).toBe(FILES)
+    const withUse = `${PREDICT}?use=m1`
+    beginPath('/models')
+    recordStep(withUse)
+    expect(helpReturnTarget(withUse)).toBe(withUse)
+  })
+
+  it('has no way back for an unknown origin: none, not a string, not a step view', () => {
+    beginPath(START)
+    recordStep(FILES)
+    expect(helpReturnTarget(null)).toBeNull()
+    expect(helpReturnTarget(undefined)).toBeNull()
+    expect(helpReturnTarget(42)).toBeNull()
+    expect(helpReturnTarget('/models')).toBeNull()
+    expect(helpReturnTarget(START)).toBeNull()
+  })
+
+  it('has no way back for a stale origin: a new path started, an earlier step, or an empty trail', () => {
+    expect(helpReturnTarget(FILES)).toBeNull()
+    beginPath(START)
+    recordStep(STUDY)
+    recordStep(FILES)
+    expect(helpReturnTarget(STUDY)).toBeNull()
+    beginPath('/help')
+    expect(helpReturnTarget(FILES)).toBeNull()
+    // The same step with another search is another place.
+    beginPath(START)
+    recordStep(`${PREDICT}?use=m2`)
+    expect(helpReturnTarget(`${PREDICT}?use=m1`)).toBeNull()
   })
 })
