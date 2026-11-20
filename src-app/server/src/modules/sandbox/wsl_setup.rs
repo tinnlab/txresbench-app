@@ -2840,7 +2840,7 @@ mod tests {
             // SAFETY: `window` is the test's, on this thread; the procedure
             // passes what it does not record to the STATIC class's own.
             let static_proc = unsafe {
-                SetWindowLongPtrW(window, GWLP_WNDPROC, record_task_dialog_messages as usize as isize)
+                SetWindowLongPtrW(window, GWLP_WNDPROC, record_task_dialog_messages as *const () as isize)
             };
             assert!(static_proc != 0, "{}", std::io::Error::last_os_error());
             STATIC_PROC.store(static_proc, std::sync::atomic::Ordering::SeqCst);
