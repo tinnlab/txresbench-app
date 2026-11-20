@@ -627,6 +627,19 @@ pub(crate) fn build_timeline(resolved: &ResolvedRequest) -> FileTimeline {
     let mut draw_days: Vec<Vec<f64>> = Vec::new();
     for row in &resolved.model.values {
         let Some(pid) = row.patient_id.text() else { continue };
+        // The engine's `draw_status` skips companion rows; resolve the row's
+        // feature the way the canonical bundle does (the join key, else the
+        // raw spelling) and skip companions so the timeline counts the draws
+        // the engine sees.
+        let marker = row.marker.text().unwrap_or("");
+        let feature = resolved
+            .joined_groups
+            .get(&normalize_marker_name(marker))
+            .cloned()
+            .unwrap_or_else(|| marker.to_string());
+        if is_companion(&feature) {
+            continue;
+        }
         let i = *index.entry(pid).or_insert_with(|| {
             draw_days.push(Vec::new());
             draw_days.len() - 1
@@ -1305,7 +1318,7 @@ mod tests {
 
     // ── the day facts (the day choices' timeline block) ─────────────────────
 
-    /// A committed example CSV as a parsed table (plain cells, no quoting in
+    /// A committed example CSV as a parsed table (plain fields, no quoting in
     /// the example files).
     fn example_table(bytes: &[u8]) -> ParsedTable {
         let text = std::str::from_utf8(bytes).expect("utf-8 example");
@@ -1386,6 +1399,66 @@ mod tests {
         for id in ["P1", "P2", "P3"] {
             assert!(!json.contains(id), "the timeline carries no id: {json}");
         }
+    }
+
+    #[test]
+    fn timeline_skips_companion_rows() {
+        // The engine's `draw_status` skips `__detected`/`__lod` rows, so a day
+        // carrying ONLY companion rows is no draw to the engine — the
+        // timeline block must not count it either.
+        let patients = table(
+            &["patient_id", "pfs_days", "pfs_event", "os_days", "os_event"],
+            &[&["P1", "100", "1", "", ""]],
+        );
+        let measurements = table(
+            &meas_cols(),
+            &[
+                &["P1", "21", "LDH", "1", "U/L"],
+                &["P1", "56", "LDH__lod", "1", "U/L"],
+                &["P1", "56", "LDH__detected", "1", "U/L"],
+            ],
+        );
+        let v = validate(&req(
+            ValidationMode::Files,
+            Some(patients),
+            measurements,
+            vec![],
+            vec![],
+            56.0,
+            0.0,
+        ))
+        .expect("files");
+        let t = v.timeline.expect("the timeline block");
+        assert_eq!(t.draw_days, vec![vec![21.0]], "day 56 is companion-only");
+    }
+
+    #[test]
+    fn timeline_uses_a_non_zero_baseline_max_day() {
+        let patients = table(
+            &["patient_id", "pfs_days", "pfs_event", "os_days", "os_event"],
+            &[&["P1", "100", "1", "", ""]],
+        );
+        let measurements = table(
+            &meas_cols(),
+            &[
+                &["P1", "7", "LDH", "1", "U/L"],
+                &["P1", "8", "LDH", "1", "U/L"],
+            ],
+        );
+        let v = validate(&req(
+            ValidationMode::Files,
+            Some(patients),
+            measurements,
+            vec![],
+            vec![],
+            56.0,
+            7.0,
+        ))
+        .expect("files");
+        let t = v.timeline.expect("the timeline block");
+        // Day ≤ baseline_max_day is baseline, never a draw.
+        assert_eq!(t.draw_days, vec![vec![8.0]]);
+        assert_eq!(t.limits.baseline_max_day, 7.0);
     }
 
     #[test]
