@@ -14,6 +14,7 @@ import {
   TxrIntake,
   TxrStepBack,
   TxrStepBackBar,
+  TxrStepLine,
   useStepBack,
   useTxrIntakeStore,
 } from '@/modules/txrintake'
@@ -136,14 +137,6 @@ const REGION_CONTENT: CSSProperties = {
 /** "Change settings" scrolls the region to the settings card; the margin
  *  keeps the card off the region's top edge. */
 const SETTINGS_ANCHOR: CSSProperties = { scrollMarginTop: 12 }
-
-const STEP_LINE: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 700,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  color: 'var(--txr-brand)',
-}
 
 const TITLE: CSSProperties = {
   margin: '2px 0 6px',
@@ -642,7 +635,7 @@ export function ChooseMethodsPage() {
    *  the default 1200x800 window left the method list 7 px). */
   const top = (
     <div className="txr-run-top" style={PAGE_TOP}>
-      <div style={STEP_LINE}>Step 4 of 4</div>
+      <TxrStepLine step={4} of={4} />
       <h1 style={TITLE}>Choose the methods and settings</h1>
     </div>
   )

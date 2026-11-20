@@ -25,7 +25,7 @@ import { fetchTemplateCsv, downloadText, templateFilename, templateSaveError } f
 import { ROUTE_CONVENTIONS } from '../module'
 import { TxrFileCard } from '../components/TxrFileCard'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
-import { TxrStepBack, useStepBack } from '../components/TxrStepBack'
+import { TxrStepBack, TxrStepLine, useStepBack } from '../components/TxrStepBack'
 import { CLEAR_EXAMPLE_LABEL, EXAMPLE_BANNER, runExampleFlow } from '../lib/example'
 import { ExampleFileCard } from '@/modules/demo/components/ExampleFileCard'
 import { useAppMode } from '@/modules/demo'
@@ -98,14 +98,6 @@ const REGION_CONTENT: CSSProperties = {
   maxWidth: 1280,
   margin: '0 auto',
   width: '100%',
-}
-
-const STEP_LINE: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 700,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  color: 'var(--txr-brand)',
 }
 
 const TITLE: CSSProperties = {
@@ -453,7 +445,7 @@ export function FilesPage() {
         top={
           <div className="txr-intake-top txr-intake-page-top" style={PAGE_TOP}>
             <div>
-              <div style={STEP_LINE}>Step 3 of 4</div>
+              <TxrStepLine step={3} of={4} />
               <h1 style={TITLE}>Add your files</h1>
               <p style={INTRO}>
                 Two tables, as CSV or Excel. Used only for the analyses you start. Match the examples; we

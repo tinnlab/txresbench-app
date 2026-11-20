@@ -31,6 +31,7 @@ const api = vi.hoisted(() => ({
   example: vi.fn(),
   exampleSet: vi.fn(),
   pretrained: vi.fn(),
+  saved: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -45,6 +46,7 @@ vi.mock('@/api-client', () => ({
     },
     Models: {
       exampleSet: api.exampleSet,
+      listModels: api.saved,
     },
   },
 }))
@@ -96,9 +98,12 @@ beforeEach(() => {
   api.example.mockReset()
   api.exampleSet.mockReset()
   api.pretrained.mockReset()
+  api.saved.mockReset()
   api.list.mockResolvedValue({ methods: [], total: RUNNABLE_COUNT })
-  // One released ready-made model: card 1 is the recommended way in.
+  // One released ready-made model: the ready-made card is the recommended way in.
   api.pretrained.mockResolvedValue({ models: [{ id: 'relchange-threshold' }], origin: 'embedded' })
+  // One saved model: the saved-model card carries no "no saved models" note.
+  api.saved.mockResolvedValue({ models: [{ id: 'm-1' }], total: 1 })
   api.example.mockImplementation(({ kind }: { kind: 'patients' | 'measurements' | 'predict-measurements' }) =>
     Promise.resolve(
       kind === 'patients' ? PATIENTS_CSV : kind === 'measurements' ? MEASUREMENTS_CSV : PREDICT_CSV,
@@ -128,7 +133,7 @@ describe('StartPage (TEST-INT-11, ITEM-4)', () => {
   it('renders the three path cards with the board copy', async () => {
     renderStart()
     const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
-    expect(within(pretrained).getByText('Quickest')).toBeTruthy()
+    expect(within(pretrained).getByText('No training needed')).toBeTruthy()
     expect(within(pretrained).getByText(/Predict with a ready-made model/)).toBeTruthy()
     expect(await within(pretrained).findByText('Recommended to start')).toBeTruthy()
     expect(within(pretrained).queryByTestId('txr-intake-start-card-pretrained-none')).toBeNull()
@@ -490,7 +495,95 @@ describe('demo mode (ITEM-6) — the card example actions are the primary', () =
   })
 })
 
-describe('card 1 while no ready-made model is released (the badge follows the catalogue)', () => {
+/** The cards in page order, by their path. */
+const cardOrder = () =>
+  screen
+    .getAllByTestId(/^txr-intake-start-card-(train|pretrained|reuse)$/)
+    .map(el => el.getAttribute('data-testid')!.replace('txr-intake-start-card-', ''))
+
+/** Every "Recommended to start" badge on the page, by its card. */
+const badgeCards = () =>
+  screen
+    .queryAllByText('Recommended to start')
+    .map(el => el.closest('section')!.getAttribute('data-testid')!.replace('txr-intake-start-card-', ''))
+
+describe('the card layout (the user, 2026-11-19)', () => {
+  it('orders the cards: learn from my data, then ready-made, then saved', () => {
+    renderStart()
+    expect(cardOrder()).toEqual(['train', 'pretrained', 'reuse'])
+  })
+
+  it('highlights no card: all three share one 1 px border', () => {
+    renderStart()
+    const borders = ['train', 'pretrained', 'reuse'].map(
+      path => screen.getByTestId(`txr-intake-start-card-${path}`).style.border,
+    )
+    expect(new Set(borders).size).toBe(1)
+    expect(borders[0]).toBe('1px solid var(--txr-border)')
+  })
+
+  it('gives the three main buttons the same filled look', () => {
+    renderStart()
+    const looks = ['train', 'pretrained', 'reuse'].map(path => {
+      const { background, color, fontWeight } = screen.getByTestId(`txr-intake-start-card-${path}-cta`).style
+      return { background, color, fontWeight }
+    })
+    for (const look of looks) {
+      expect(look).toEqual({ background: 'var(--txr-brand)', color: 'var(--txr-on-brand)', fontWeight: '700' })
+    }
+  })
+
+  it('labels the cards: most flexible, no training needed, repeat a past analysis', () => {
+    renderStart()
+    expect(within(screen.getByTestId('txr-intake-start-card-train')).getByText('Most flexible')).toBeTruthy()
+    expect(within(screen.getByTestId('txr-intake-start-card-pretrained')).getByText('No training needed')).toBeTruthy()
+    expect(within(screen.getByTestId('txr-intake-start-card-reuse')).getByText('Repeat a past analysis')).toBeTruthy()
+    expect(screen.queryByText('Quickest')).toBeNull()
+  })
+
+  it('a ready-made model exists: the badge is on the ready-made card only', async () => {
+    renderStart()
+    await waitFor(() => expect(badgeCards()).toEqual(['pretrained']))
+  })
+
+  it('no ready-made model: the badge is on "Learn from my data" only', async () => {
+    api.pretrained.mockResolvedValue({ models: [], origin: 'embedded' })
+    renderStart()
+    await screen.findByTestId('txr-intake-start-card-pretrained-none')
+    expect(badgeCards()).toEqual(['train'])
+  })
+
+  it('no saved model: the saved-model card says so, and its button stays enabled', async () => {
+    api.saved.mockResolvedValue({ models: [], total: 0 })
+    renderStart()
+    const reuse = screen.getByTestId('txr-intake-start-card-reuse')
+    const note = await within(reuse).findByTestId('txr-intake-start-card-reuse-none')
+    expect(note.textContent).toBe('No saved models yet. Train one with Learn from my data first.')
+    expect(api.saved).toHaveBeenCalledWith({})
+    const cta = screen.getByTestId('txr-intake-start-card-reuse-cta')
+    expect((cta as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(cta)
+    expect(routeAt()).toBe('/predict-files')
+    expect(store().intent).toBe('reuse')
+  })
+
+  it('some saved models: no note on the saved-model card', async () => {
+    renderStart()
+    await waitFor(() => expect(api.saved).toHaveBeenCalled())
+    await Promise.resolve()
+    expect(screen.queryByTestId('txr-intake-start-card-reuse-none')).toBeNull()
+  })
+
+  it('a failed or pending saved-models read: no note (never a false "none saved")', async () => {
+    api.saved.mockRejectedValue(new Error('store down'))
+    renderStart()
+    await waitFor(() => expect(api.saved).toHaveBeenCalled())
+    await Promise.resolve()
+    expect(screen.queryByTestId('txr-intake-start-card-reuse-none')).toBeNull()
+  })
+})
+
+describe('the ready-made card while no ready-made model is released (the badge follows the catalogue)', () => {
   it('an empty catalogue: no "Recommended to start" badge, and the card says none are released yet', async () => {
     api.pretrained.mockResolvedValue({ models: [], origin: 'embedded' })
     renderStart()
@@ -504,12 +597,13 @@ describe('card 1 while no ready-made model is released (the badge follows the ca
     expect(screen.getByTestId('txr-intake-start-card-pretrained-cta')).toBeTruthy()
   })
 
-  it('while the catalogue loads: neither the badge nor the note', () => {
+  it('while the catalogue loads: no badge and no note on the ready-made card (the badge is on learn)', () => {
     api.pretrained.mockReturnValue(new Promise(() => {}))
     renderStart()
     const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
     expect(within(pretrained).queryByText('Recommended to start')).toBeNull()
     expect(within(pretrained).queryByTestId('txr-intake-start-card-pretrained-none')).toBeNull()
+    expect(badgeCards()).toEqual(['train'])
   })
 
   it('a failed catalogue read: neither the badge nor the note (never a false "none released")', async () => {
@@ -521,6 +615,7 @@ describe('card 1 while no ready-made model is released (the badge follows the ca
     const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
     expect(within(pretrained).queryByText('Recommended to start')).toBeNull()
     expect(within(pretrained).queryByTestId('txr-intake-start-card-pretrained-none')).toBeNull()
+    expect(badgeCards()).toEqual(['train'])
   })
 
   it('a released model brings the badge back on the next visit (the catalogue is asked on every mount)', async () => {

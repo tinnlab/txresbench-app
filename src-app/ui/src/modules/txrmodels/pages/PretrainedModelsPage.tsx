@@ -66,6 +66,7 @@ import {
   STEP_BACK_STARTING_REASON,
   TxrStepBack,
   TxrStepBackBar,
+  TxrStepLine,
   useStepBack,
   useTxrIntakeStore,
 } from '@/modules/txrintake'
@@ -127,14 +128,6 @@ const REGION_CONTENT: CSSProperties = {
   gap: 12,
   padding: '12px 24px 20px',
   minWidth: 0,
-}
-
-const STEP_LINE: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 700,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  color: 'var(--txr-brand)',
 }
 
 const TITLE: CSSProperties = {
@@ -698,7 +691,7 @@ export function PretrainedModelsPage() {
               validated predict file yet) is not ON step 4 — the step line
               would claim a position the flow has not reached (RES-20); the
               counters stay hidden too (nothing has been checked). */}
-          {validation !== null ? <div style={STEP_LINE}>Step 4 of 4</div> : null}
+          {validation !== null ? <TxrStepLine step={4} of={4} /> : null}
           <h1 style={TITLE}>Choose the models to run</h1>
           {validation !== null ? (
             <p data-testid="txr-models-d-checked" style={CHECK_LINE}>

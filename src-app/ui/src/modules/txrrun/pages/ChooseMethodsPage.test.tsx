@@ -1848,6 +1848,24 @@ describe('the step Back on Choose methods (E)', () => {
     expect(routeAt()).toBe('/predict-files')
   })
 
+  it('the "← Step 4 of 4" line goes where Back goes: the trail\u2019s step, or the file step with no trail', async () => {
+    useStepTrailStore.setState({ trail: ['/history'] })
+    seedStore()
+    renderFlow()
+    await settle()
+    expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 4 of 4')
+    await click('txr-step-line-back')
+    expect(routeAt()).toBe('/history')
+    cleanup()
+
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
+    seedStore()
+    renderFlow()
+    await settle()
+    await click('txr-step-line-back')
+    expect(routeAt()).toBe('/files')
+  })
+
   it('row 10 — reached from History: Back goes to History', async () => {
     useStepTrailStore.setState({ trail: ['/history'] })
     seedStore()

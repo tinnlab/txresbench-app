@@ -429,3 +429,73 @@ describe('state kept across Back', () => {
     expect(api.inspect).not.toHaveBeenCalled()
   })
 })
+
+describe('the "← Step x of y" line (the step line goes back, like the Back button)', () => {
+  it('B, C and N carry the arrow line with their own step; Start keeps a plain step line', async () => {
+    renderApp('/study')
+    expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 2 of 4')
+    cleanup()
+    renderApp('/files')
+    expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 3 of 4')
+    cleanup()
+    renderApp('/predict-files')
+    expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 3 of 4')
+    cleanup()
+    renderApp('/')
+    expect(screen.queryByTestId('txr-step-line-back')).toBeNull()
+    expect(screen.getByText('Step 1 of 4')).toBeTruthy()
+  })
+
+  it('row 3 — the train card: the line walks back C → B → Start, as Back does', async () => {
+    seedTrain()
+    renderApp('/')
+    await click('txr-intake-start-card-train-cta')
+    await click('txr-intake-study-continue')
+    expect(routeAt()).toBe('/files')
+    await click('txr-step-line-back')
+    expect(routeAt()).toBe('/study')
+    await click('txr-step-line-back')
+    expect(routeAt()).toBe('/')
+  })
+
+  it('row 4 — the train "Use example" skips B: the line on C goes to Start', async () => {
+    renderApp('/')
+    fireEvent.click(screen.getByTestId('txr-use-example-train'))
+    await waitFor(() => expect(routeAt()).toBe('/files'))
+    await click('txr-step-line-back')
+    expect(routeAt()).toBe('/')
+  })
+
+  it('row 1 — the pretrained card: the line on N goes to Start (B is skipped)', async () => {
+    seedPredict()
+    renderApp('/')
+    await click('txr-intake-start-card-pretrained-cta')
+    expect(routeAt()).toBe('/predict-files')
+    await click('txr-step-line-back')
+    expect(routeAt()).toBe('/')
+  })
+
+  it('a deep link (no trail): the line goes where Back goes (C → B, N → Start, N "Use" → Your models)', async () => {
+    for (const [entry, target] of [
+      ['/files', '/study'],
+      ['/predict-files', '/'],
+      ['/predict-files?use=m1&name=Model', '/models'],
+    ] as const) {
+      useStepTrailStore.setState({ trail: [], current: null, leaving: false })
+      renderApp(entry)
+      await click('txr-step-line-back')
+      expect(routeAt(), entry).toBe(target)
+      cleanup()
+    }
+  })
+
+  it('in every state of C and N (no file, problems), the line is there', async () => {
+    renderApp('/files')
+    expect(screen.getByTestId('txr-step-line-back')).toBeTruthy()
+    cleanup()
+    seedPredict([errorProblem])
+    renderApp('/predict-files')
+    expect(screen.getByText('Fix the problems to continue.')).toBeTruthy()
+    expect(screen.getByTestId('txr-step-line-back')).toBeTruthy()
+  })
+})

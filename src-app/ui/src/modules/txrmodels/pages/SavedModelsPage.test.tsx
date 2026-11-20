@@ -918,6 +918,23 @@ describe('the step Back on Saved models (I)', () => {
     expect(useStepTrailStore.getState().trail).toEqual(['/models', withUse])
   })
 
+  it('the "← Step 4 of 4" line goes where Back goes: N with its "Use" search, or N with no trail', async () => {
+    const withUse = '/predict-files?use=m1&name=Model%201'
+    useStepTrailStore.setState({ trail: ['/models', withUse] })
+    renderFlow()
+    await settle(0)
+    expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 4 of 4')
+    await click('txr-step-line-back')
+    expect(routeAt()).toBe(withUse)
+    cleanup()
+
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
+    renderFlow()
+    await settle(0)
+    await click('txr-step-line-back')
+    expect(routeAt()).toBe('/predict-files')
+  })
+
   it('with no trail goes back to N', async () => {
     renderFlow()
     await settle(0)

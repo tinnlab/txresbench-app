@@ -12,6 +12,10 @@
  *   action: the button and the AI take the same path.
  * - `<TxrStepBackBar />` is the bottom bar of a state with no proceed
  *   button: Back at the right end, where the proceed button sits otherwise.
+ * - `<TxrStepLine />` is the "← Step x of y" line at the top of a step view
+ *   (step 2 and later): the whole line is a link-look button that runs the
+ *   SAME registered `flow.back` as the bottom Back button (`goBackFromStep`
+ *   is the one click path both share).
  */
 import { useEffect } from 'react'
 import type { CSSProperties } from 'react'
@@ -111,6 +115,18 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : 'Could not go back.'
 }
 
+/**
+ * The one click path of every Back control on a step view (the bottom Back
+ * button and the step line's arrow): run the registered `flow.back` action.
+ */
+function goBackFromStep(): void {
+  // A Back already left this step; the route is changing (a second click does nothing).
+  if (useStepTrailStore.getState().leaving) return
+  runAction('flow.back', {}).catch((error: unknown) => {
+    message.error(errorText(error))
+  })
+}
+
 export function TxrStepBack({ look = 'footer' }: { look?: TxrStepBackLook }) {
   const blockedReason = useStore(useStepTrailStore, s => s.current?.blockedReason ?? null)
   return (
@@ -120,13 +136,7 @@ export function TxrStepBack({ look = 'footer' }: { look?: TxrStepBackLook }) {
       icon={<FiArrowLeft />}
       style={LOOKS[look]}
       unavailableReason={blockedReason ?? undefined}
-      onClick={() => {
-        // A Back already left this step; the route is changing (a second click does nothing).
-        if (useStepTrailStore.getState().leaving) return
-        runAction('flow.back', {}).catch((error: unknown) => {
-          message.error(errorText(error))
-        })
-      }}
+      onClick={goBackFromStep}
     >
       Back
     </Button>
@@ -140,5 +150,51 @@ export function TxrStepBackBar() {
       <span style={{ flexGrow: 1 }} />
       <TxrStepBack />
     </PageFooterBar>
+  )
+}
+
+/** The step line's text look (the step pages' former `STEP_LINE`, unchanged). */
+const STEP_LINE_TEXT: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: 'var(--txr-brand)',
+}
+
+/** The line as a button: the text look, with no button box, so the line keeps
+ *  its place and height (PR #32's heading position stays as it was). */
+const STEP_LINE_BUTTON: CSSProperties = {
+  ...STEP_LINE_TEXT,
+  height: 'auto',
+  padding: 0,
+  gap: 6,
+  lineHeight: 'normal',
+  border: 0,
+}
+
+/**
+ * The "← Step x of y" line of a step view (step 2 and later). The whole line
+ * is the Back control: it runs `flow.back`, exactly like the bottom Back
+ * button (path-aware, refused while a run is starting).
+ */
+export function TxrStepLine({ step, of }: { step: number; of: number }) {
+  const blockedReason = useStore(useStepTrailStore, s => s.current?.blockedReason ?? null)
+  return (
+    <div data-testid="txr-step-line">
+      <Button
+        data-testid="txr-step-line-back"
+        variant="link"
+        aria-label={`Back to the previous step (now step ${step} of ${of})`}
+        style={STEP_LINE_BUTTON}
+        unavailableReason={blockedReason ?? undefined}
+        onClick={goBackFromStep}
+      >
+        {/* A child, not the kit's 16 px `icon` slot: at the text's 12 px the
+            line keeps its height, so the heading below does not move. */}
+        <FiArrowLeft aria-hidden="true" className="size-3" />
+        {`Step ${step} of ${of}`}
+      </Button>
+    </div>
   )
 }
