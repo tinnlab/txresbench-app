@@ -28,7 +28,7 @@
  * message under the whole button row, across the card), so a long message
  * never widens the button's slot in the row.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Button } from '@txresbench/kit'
 import type { ExampleSetResponse } from '@/api-client/types'
@@ -122,6 +122,19 @@ export function TxrUseExampleButton({ path, onDone, label, style, layout }: TxrU
   // button keeps the width it had (see the label below).
   const [retrying, setRetrying] = useState(false)
   const cancelled = useRef(false)
+  // Keyboard focus follows the confirm: the question takes it when it opens
+  // (the button it replaces held it), and "Keep my files" gives it back to
+  // the button, which is mounted again by then.
+  const questionRef = useRef<HTMLParagraphElement>(null)
+  const buttonRef = useRef<HTMLButtonElement | HTMLAnchorElement>(null)
+  const refocusButton = useRef(false)
+  useLayoutEffect(() => {
+    if (confirming) questionRef.current?.focus()
+    else if (refocusButton.current) {
+      refocusButton.current = false
+      buttonRef.current?.focus()
+    }
+  }, [confirming])
 
   useEffect(() => {
     cancelled.current = false
@@ -168,6 +181,7 @@ export function TxrUseExampleButton({ path, onDone, label, style, layout }: TxrU
   // aria-label, so hiding the label changes nothing for a screen reader.
   const action: ReactNode = confirming ? null : (
     <Button
+      ref={buttonRef}
       data-testid={`txr-use-example-${path}`}
       aria-label={ACCESSIBLE_NAMES[path]}
       className="txr-use-example-button"
@@ -183,7 +197,13 @@ export function TxrUseExampleButton({ path, onDone, label, style, layout }: TxrU
 
   const lines: ReactNode = confirming ? (
     <>
-      <p style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }} data-testid="txr-use-example-confirm">
+      <p
+        ref={questionRef}
+        tabIndex={-1}
+        role="alert"
+        style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)', outline: 'none' }}
+        data-testid="txr-use-example-confirm"
+      >
         {CONFIRM_QUESTION}
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
@@ -200,7 +220,10 @@ export function TxrUseExampleButton({ path, onDone, label, style, layout }: TxrU
         <Button
           data-testid="txr-use-example-confirm-no"
           style={BUTTON}
-          onClick={() => setConfirming(false)}
+          onClick={() => {
+            refocusButton.current = true
+            setConfirming(false)
+          }}
         >
           {CONFIRM_BUTTONS.no}
         </Button>

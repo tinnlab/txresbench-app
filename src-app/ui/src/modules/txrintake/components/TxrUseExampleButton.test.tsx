@@ -100,6 +100,17 @@ describe('TxrUseExampleButton (TEST-QF3-2)', () => {
     expect(state().predictMeasurements?.source.name).toBe('predict-measurements_example.csv')
   })
 
+  it('moves focus to the announced question, and back to the button on Keep my files', () => {
+    state().adoptFile('predictMeasurements', ownFile())
+    render(<TxrUseExampleButton path="pretrained" />)
+    fireEvent.click(screen.getByTestId('txr-use-example-pretrained'))
+    const question = screen.getByTestId('txr-use-example-confirm')
+    expect(question.getAttribute('role')).toBe('alert')
+    expect(document.activeElement).toBe(question)
+    fireEvent.click(screen.getByTestId('txr-use-example-confirm-no'))
+    expect(document.activeElement).toBe(screen.getByTestId('txr-use-example-pretrained'))
+  })
+
   it('an example-loaded slot needs no confirm (re-click reloads the example)', async () => {
     state().adoptExampleFile('predictMeasurements', ownFile('predict-measurements_example.csv'))
     const onDone = vi.fn()
