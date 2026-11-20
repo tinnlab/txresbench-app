@@ -704,14 +704,17 @@ pub enum PretrainedReasonCode {
     ResponseLabelMissing,
     #[serde(rename = "SURVIVAL_OUTCOME_MISSING")]
     SurvivalOutcomeMissing,
+    // The engine's marker-count rule (the provider's code, mapped 1:1).
+    #[serde(rename = "MARKER_COUNT_UNMET")]
+    MarkerCountUnmet,
     #[serde(rename = "ASSET_NOT_AVAILABLE")]
     AssetNotAvailable,
 }
 
 impl PretrainedReasonCode {
-    /// The closed code list, in documentation order (13 provider codes + the
+    /// The closed code list, in documentation order (14 provider codes + the
     /// catalogue's own).
-    pub const ALL: [PretrainedReasonCode; 14] = [
+    pub const ALL: [PretrainedReasonCode; 15] = [
         PretrainedReasonCode::RequiredMarkerMissing,
         PretrainedReasonCode::MarkerGroupMissing,
         PretrainedReasonCode::DetectionCallMissing,
@@ -725,6 +728,7 @@ impl PretrainedReasonCode {
         PretrainedReasonCode::TaskIncompatible,
         PretrainedReasonCode::ResponseLabelMissing,
         PretrainedReasonCode::SurvivalOutcomeMissing,
+        PretrainedReasonCode::MarkerCountUnmet,
         PretrainedReasonCode::AssetNotAvailable,
     ];
 
@@ -744,6 +748,7 @@ impl PretrainedReasonCode {
             PretrainedReasonCode::TaskIncompatible => "TASK_INCOMPATIBLE",
             PretrainedReasonCode::ResponseLabelMissing => "RESPONSE_LABEL_MISSING",
             PretrainedReasonCode::SurvivalOutcomeMissing => "SURVIVAL_OUTCOME_MISSING",
+            PretrainedReasonCode::MarkerCountUnmet => "MARKER_COUNT_UNMET",
             PretrainedReasonCode::AssetNotAvailable => "ASSET_NOT_AVAILABLE",
         }
     }
@@ -765,6 +770,7 @@ impl PretrainedReasonCode {
             ReasonCode::TaskIncompatible => PretrainedReasonCode::TaskIncompatible,
             ReasonCode::ResponseLabelMissing => PretrainedReasonCode::ResponseLabelMissing,
             ReasonCode::SurvivalOutcomeMissing => PretrainedReasonCode::SurvivalOutcomeMissing,
+            ReasonCode::MarkerCountUnmet => PretrainedReasonCode::MarkerCountUnmet,
         }
     }
 }
@@ -1033,8 +1039,8 @@ mod tests {
     fn reason_code_vocabulary_is_closed_and_maps_provider_codes() {
         assert_eq!(
             PretrainedReasonCode::ALL.len(),
-            14,
-            "13 provider codes + ASSET_NOT_AVAILABLE"
+            15,
+            "14 provider codes + ASSET_NOT_AVAILABLE"
         );
         let mut wires: Vec<&str> = PretrainedReasonCode::ALL
             .iter()
@@ -1042,7 +1048,7 @@ mod tests {
             .collect();
         wires.sort_unstable();
         wires.dedup();
-        assert_eq!(wires.len(), 14, "wire strings are distinct");
+        assert_eq!(wires.len(), 15, "wire strings are distinct");
         for code in PretrainedReasonCode::ALL {
             let json = serde_json::to_value(code).expect("serialize");
             let back: PretrainedReasonCode =
@@ -1053,7 +1059,7 @@ mod tests {
 
         assert_eq!(
             crate::modules::method_catalogue::types::ReasonCode::ALL.len(),
-            13,
+            14,
             "the provider vocabulary"
         );
         let mut mapped: Vec<&str> = ReasonCode::ALL
@@ -1064,8 +1070,8 @@ mod tests {
         mapped.dedup();
         assert_eq!(
             mapped.len(),
-            13,
-            "the 13 provider codes map 1:1, no collisions"
+            14,
+            "the 14 provider codes map 1:1, no collisions"
         );
     }
 

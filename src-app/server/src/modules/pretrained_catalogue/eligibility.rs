@@ -67,7 +67,8 @@ use std::collections::BTreeMap;
 
 use crate::modules::method_list::MethodList;
 use crate::modules::method_catalogue::eligibility::{
-    estimate_quality_for, estimate_seconds_for, required_marker_match, UnitMarkerRow,
+    estimate_quality_for, estimate_seconds_for, marker_count_params, marker_count_unmet,
+    required_marker_match, UnitMarkerRow,
 };
 use crate::modules::method_catalogue::types::{
     CovariateMode, Coverage, EligibilityStatus, InventoryEligibilityRequest, InventoryMarker,
@@ -158,6 +159,21 @@ fn eligible_in(
             group_id: None,
         });
         missing_markers = resolved.missing_markers.clone();
+    } else if let Some((expected, given)) = marker_count_unmet(
+        entry.needs.marker_facts.kind,
+        entry.needs.marker_facts.count,
+        entry.needs.required_markers.is_some(),
+        &resolved.used,
+        inv,
+    ) {
+        // A ready-made model runs through the engine's count rule
+        // (`bundle::method_marker_set`) like a saved one: any other number of
+        // markers than it takes is refused there, so the verdict hides it.
+        reasons.push(PretrainedReason {
+            code: PretrainedReasonCode::MarkerCountUnmet,
+            params: marker_count_params(expected, &given),
+            group_id: None,
+        });
     }
 
     // A model that consumed the detection call needs the file to carry one.
@@ -673,6 +689,7 @@ fn verdict(reasons: &[PretrainedReason], eligible: u32, total: u32) -> Eligibili
             r.code,
             PretrainedReasonCode::NotRunnable
                 | PretrainedReasonCode::RequiredMarkerMissing
+                | PretrainedReasonCode::MarkerCountUnmet
                 | PretrainedReasonCode::MarkerGroupMissing
                 | PretrainedReasonCode::DetectionCallMissing
                 | PretrainedReasonCode::CovariateMissing
@@ -840,6 +857,55 @@ mod tests {
 
     fn code_names(v: &PretrainedEligibilityEntry) -> Vec<&'static str> {
         v.reasons.iter().map(|r| r.code.as_str()).collect()
+    }
+
+    /// FOLLOW-UP 1: a ready-made one-marker model without a fixed list on a
+    /// file with two markers is hidden (the engine's count rule refuses it);
+    /// a fixed list that resolves to its one marker still runs beside a
+    /// second file marker.
+    #[test]
+    fn a_one_marker_model_gets_the_engines_count_rule() {
+        let per = vec![("p1", 1, 2), ("p2", 1, 2), ("p3", 1, 2)];
+        let two = inventory(
+            vec![
+                marker("LDH", UnitFamily::None, vec!["LOINC:2532-0"], per.clone(), false),
+                marker("CEA", UnitFamily::None, vec!["LOINC:2039-6"], per.clone(), false),
+            ],
+            3,
+            56.0,
+            Some(survival_outcomes()),
+        );
+        let open = entry("fx-open-001", "cox-cutpoint-risk", None, facts(1, false, false), 56.0, None,
+            "https://github.com/tinnlab/txresbench-app/releases/download/x/fx.txr", true);
+        let v = eligible(&open, &two, false);
+        assert_eq!(v.status, EligibilityStatus::CannotRun, "{:?}", code_names(&v));
+        let r = v
+            .reasons
+            .iter()
+            .find(|r| r.code == PretrainedReasonCode::MarkerCountUnmet)
+            .unwrap_or_else(|| panic!("no MARKER_COUNT_UNMET in {:?}", code_names(&v)));
+        assert_eq!(r.params["expected"], serde_json::json!(1));
+        assert_eq!(r.params["found"], serde_json::json!(2));
+
+        let listed = entry("fx-listed-001", "cox-cutpoint-risk",
+            Some(RequiredMarkers {
+                markers: vec![crate::modules::method_catalogue::types::RequiredMarker {
+                    name: "LDH".to_string(),
+                    id_system: "LOINC".to_string(),
+                    id: "2532-0".to_string(),
+                }],
+                match_mode: crate::modules::method_catalogue::types::MatchMode::All,
+                min_fraction: 0.0,
+                list_source: "t".to_string(),
+            }),
+            facts(1, false, false), 56.0, None,
+            "https://github.com/tinnlab/txresbench-app/releases/download/x/fx.txr", true);
+        let v = eligible(&listed, &two, false);
+        assert!(
+            !v.reasons.iter().any(|r| r.code == PretrainedReasonCode::MarkerCountUnmet),
+            "{:?}",
+            code_names(&v)
+        );
     }
 
     /// TEST-PC-31 — the happy path: a rule whose marker (LOINC 2532-0, one

@@ -285,7 +285,8 @@ interface TxrReasonGroupDef {
   fix: string
 }
 
-/** The fixed reason-group order: the plan's five named reasons + the
+/** The fixed reason-group order: the plan's five named reasons, the engine's
+ *  marker-count rule (MARKER_COUNT_UNMET) + the
  *  catch-all (a reason code the vocabulary does not classify renders its own
  *  row, never blank). */
 export const TXRMETHOD_REASON_GROUPS: readonly TxrReasonGroupDef[] = [
@@ -300,6 +301,12 @@ export const TXRMETHOD_REASON_GROUPS: readonly TxrReasonGroupDef[] = [
     label: "Needs a marker your file doesn't have",
     codes: ['REQUIRED_MARKER_MISSING', 'DETECTION_CALL_MISSING', 'UNIT_MISMATCH', 'MARKER_GROUP_MISSING'],
     fix: 'Add a column with the marker the method needs.',
+  },
+  {
+    key: 'marker-count',
+    label: 'Takes a set number of markers',
+    codes: ['MARKER_COUNT_UNMET'],
+    fix: 'Use a file with just the markers this method takes.',
   },
   {
     key: 'outcome',

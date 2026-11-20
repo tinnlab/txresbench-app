@@ -679,12 +679,19 @@ pub enum ReasonCode {
     /// A survival method without event / survival-day columns.
     #[serde(rename = "SURVIVAL_OUTCOME_MISSING")]
     SurvivalOutcomeMissing,
+    /// The method takes an exact number of markers (one, or its panel's
+    /// count) and the file gives it a different number: the run engine's
+    /// marker rule (`bundle::method_marker_set`) would refuse the run with
+    /// `BUNDLE_MARKER_COUNT_UNMET`, so the verdict hides the method instead.
+    /// Params: `expected`, `found`, `markers` (the file markers it would get).
+    #[serde(rename = "MARKER_COUNT_UNMET")]
+    MarkerCountUnmet,
 }
 
 impl ReasonCode {
     /// The closed code vocabulary, in documentation order — the compile-time
     /// constant the vocabulary test pins (TEST-MC-27).
-    pub const ALL: [ReasonCode; 13] = [
+    pub const ALL: [ReasonCode; 14] = [
         ReasonCode::RequiredMarkerMissing,
         ReasonCode::MarkerGroupMissing,
         ReasonCode::DetectionCallMissing,
@@ -698,6 +705,7 @@ impl ReasonCode {
         ReasonCode::TaskIncompatible,
         ReasonCode::ResponseLabelMissing,
         ReasonCode::SurvivalOutcomeMissing,
+        ReasonCode::MarkerCountUnmet,
     ];
 
     /// The code's wire string.
@@ -716,6 +724,7 @@ impl ReasonCode {
             ReasonCode::TaskIncompatible => "TASK_INCOMPATIBLE",
             ReasonCode::ResponseLabelMissing => "RESPONSE_LABEL_MISSING",
             ReasonCode::SurvivalOutcomeMissing => "SURVIVAL_OUTCOME_MISSING",
+            ReasonCode::MarkerCountUnmet => "MARKER_COUNT_UNMET",
         }
     }
 }
@@ -874,16 +883,16 @@ mod tests {
     }
 
     /// TEST-MC-27 (unit half): the reason-code vocabulary is a CLOSED compile-
-    /// time set — exactly the 13 documented codes, each with a distinct wire
+    /// time set — exactly the 14 documented codes, each with a distinct wire
     /// string, so a consumer's per-code renderer can never meet an
     /// undocumented code and the serde side can never emit duplicates.
     #[test]
     fn reason_code_vocabulary_is_closed_and_distinct() {
-        assert_eq!(ReasonCode::ALL.len(), 13, "the 13 documented codes");
+        assert_eq!(ReasonCode::ALL.len(), 14, "the 14 documented codes");
         let mut wires: Vec<&str> = ReasonCode::ALL.iter().map(|c| c.as_str()).collect();
         wires.sort_unstable();
         wires.dedup();
-        assert_eq!(wires.len(), 13, "wire strings are distinct");
+        assert_eq!(wires.len(), 14, "wire strings are distinct");
         for code in ReasonCode::ALL {
             // The round-trip: serialize → deserialize must yield the same code
             // (the serde renames are the wire strings the engine emits).
