@@ -373,17 +373,28 @@ fn process_dir(tree: &str) -> PathBuf {
     process_dir_in(&std::env::temp_dir(), tree)
 }
 
-/// Where per-run image clones live: next to the image cache (under the app
-/// data dir), so they are on the cache's volume and `std::fs::copy` can
-/// clone instead of copying gigabytes when $TMPDIR is on another volume.
-fn image_stage_root() -> PathBuf {
+/// Where the per-run copies live — image clones and the copies of the run's
+/// inputs (the user's files, a saved model): under the app data dir, not the
+/// system temp dir. Copies of the user's files stay with the rest of the
+/// app's data (its folder and volume), and an image or a saved model is on
+/// the same volume as its copy, so `std::fs::copy` can clone instead of
+/// copying gigabytes when $TMPDIR is on another volume.
+fn stage_root() -> PathBuf {
     crate::modules::rootfs::data_root().join("tmp")
 }
 
-/// The trees the startup sweep cleans: (root, tree).
-fn swept_trees() -> [(PathBuf, &'static str); 3] {
+/// The trees the startup sweep cleans: (root, tree). The VM run dirs stay in
+/// the system temp dir (see [`make_run_dir`]). Input copies were made there
+/// too by earlier app versions, so that place is still swept for what a
+/// crash under one of them left.
+fn swept_trees() -> [(PathBuf, &'static str); 4] {
     let tmp = std::env::temp_dir();
-    [(tmp.clone(), "txr-vm"), (tmp, "txr-vm-inputs"), (image_stage_root(), "txr-vm-images")]
+    [
+        (tmp.clone(), "txr-vm"),
+        (stage_root(), "txr-vm-inputs"),
+        (stage_root(), "txr-vm-images"),
+        (tmp, "txr-vm-inputs"),
+    ]
 }
 
 /// [`process_dir`] under another root.
@@ -566,14 +577,14 @@ pub struct RoStage {
 }
 
 impl RoStage {
-    /// A stage for read-only input dirs (under the system temp dir).
+    /// A stage for read-only input dirs, under the app data dir ([`stage_root`]).
     pub fn new() -> Result<Self, AppError> {
-        Self::under(process_dir("txr-vm-inputs"))
+        Self::under(process_dir_in(&stage_root(), "txr-vm-inputs"))
     }
 
     /// A stage for environment image clones, on the image cache's volume.
     pub fn for_images() -> Result<Self, AppError> {
-        Self::under(process_dir_in(&image_stage_root(), "txr-vm-images"))
+        Self::under(process_dir_in(&stage_root(), "txr-vm-images"))
     }
 
     fn under(parent: PathBuf) -> Result<Self, AppError> {
@@ -645,7 +656,11 @@ fn copy_tree_readable(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 /// A short per-run directory for the launch config and the vsock socket. Kept
-/// under the system temp dir so the socket path fits `sun_path`.
+/// under the system temp dir, unlike the input copies ([`stage_root`]), so the
+/// socket path fits `sun_path` ([`MAX_SOCKET_PATH`]): macOS's temp dir has a
+/// fixed, short path (and $TMPDIR can shorten it), while the app data dir can
+/// be any folder (`TXR_APP_DATA_DIR`). It holds no user data: the launch
+/// config, the socket and the empty workspace share.
 fn make_run_dir() -> Result<PathBuf, AppError> {
     use std::os::unix::fs::DirBuilderExt;
     let id = uuid::Uuid::new_v4().simple().to_string();
@@ -963,6 +978,39 @@ mod tests {
     }
 
     #[test]
+    fn input_copies_are_staged_under_the_app_data_dir() {
+        let data = TempDir::new();
+        let _guard = crate::modules::rootfs::scoped_data_root(&data.0);
+        let src = TempDir::new();
+        std::fs::write(src.0.join("patient.tsv"), b"input").unwrap();
+        let mut stage = RoStage::new().unwrap();
+        let copy = stage.stage(&src.0).unwrap();
+        assert!(copy.starts_with(data.0.join("tmp").join("txr-vm-inputs")), "{}", copy.display());
+        assert!(!copy.starts_with(std::env::temp_dir().join("txr-vm-inputs")), "{}", copy.display());
+        assert_eq!(std::fs::read(copy.join("patient.tsv")).unwrap(), b"input");
+        drop(stage);
+        assert!(!copy.exists(), "the copies are removed with the stage");
+    }
+
+    #[test]
+    fn the_sweep_covers_the_input_copies_under_the_app_data_dir() {
+        let data = TempDir::new();
+        let _guard = crate::modules::rootfs::scoped_data_root(&data.0);
+        let trees = swept_trees();
+        let tmp = std::env::temp_dir();
+        for (root, tree) in [
+            (data.0.join("tmp"), "txr-vm-inputs"),
+            (data.0.join("tmp"), "txr-vm-images"),
+            // The VM run dirs stay in the temp dir (socket path length), and the
+            // input copies earlier versions left there are still removed.
+            (tmp.clone(), "txr-vm"),
+            (tmp, "txr-vm-inputs"),
+        ] {
+            assert!(trees.iter().any(|(r, t)| *r == root && *t == tree), "{} {tree} is swept", root.display());
+        }
+    }
+
+    #[test]
     fn the_runtime_archive_is_looked_up_in_the_app_bundle_resources() {
         let exe = Path::new("/Applications/TxResBench.app/Contents/MacOS/txresbench-desktop");
         assert_eq!(
@@ -1177,6 +1225,9 @@ mod tests {
 
     #[test]
     fn staged_inputs_keep_their_symlinks_as_stored() {
+        // The copies go under the app data dir: a test's own, never the real one.
+        let data = TempDir::new();
+        let _guard = crate::modules::rootfs::scoped_data_root(&data.0);
         let src = TempDir::new();
         std::fs::write(src.0.join("model_v3.rds"), b"m").unwrap();
         std::os::unix::fs::symlink("model_v3.rds", src.0.join("latest")).unwrap();
