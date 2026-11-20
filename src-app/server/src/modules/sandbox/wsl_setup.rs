@@ -1679,6 +1679,8 @@ mod tests {
         let code = &this[..this.find("#[cfg(test)]\nmod tests {").expect("the tests module")];
         assert_eq!(code.matches("probe_wsl_status").count(), 1);
         assert_eq!(code.matches("offered(super::wsl_run::probe_wsl_status())").count(), 1);
+        // This module's own code only defines the mark (the scan above skips it).
+        assert_eq!(code.matches("mark_desktop_app(").count(), 1);
 
         let lib = include_str!("../../lib.rs");
         let body = |name: &str| {
