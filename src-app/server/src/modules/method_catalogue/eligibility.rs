@@ -90,7 +90,10 @@
 //! are pushed in that order, BEFORE the marker/schedule reasons, and make the
 //! verdict `cannot_run`. An answer id outside the catalogue's `study_options`
 //! is [`StudyAnswerError`] (the HTTP surface's `422 UNKNOWN_DISEASE_GROUP` /
-//! `UNKNOWN_TREATMENT_CLASS`), never a silent "any".
+//! `UNKNOWN_TREATMENT_CLASS`), never a silent "any". The in-process seams
+//! ([`eligibility`], [`eligibility_ignoring_study`]) never apply the answers:
+//! they only choose which methods are OFFERED on the screens, not what a run
+//! can compute.
 //!
 //! `estimated_seconds`/`estimate_quality` on each method verdict use the
 //! DEC-7 estimate shape (`base_seconds_per_fold × patients/150 × 4/cpus`,
@@ -292,9 +295,19 @@ pub fn validate_study_answers(
     cat: &Catalogue,
     answers: &StudyAnswers,
 ) -> Result<(), StudyAnswerError> {
-    let index = study_options_index(&cat.study_options);
+    validate_answers_in(cat, &study_options_index(&cat.study_options), answers)
+}
+
+/// [`validate_study_answers`] against an already-built [`StudyOptionsIndex`]:
+/// the index is built ONCE per request (never per method — the per-method
+/// filters below trust this check) and every answer is checked against it.
+fn validate_answers_in(
+    cat: &Catalogue,
+    index: &StudyOptionsIndex<'_>,
+    answers: &StudyAnswers,
+) -> Result<(), StudyAnswerError> {
     if let Some(disease) = &answers.disease_group {
-        if node_category(&index, disease).is_none() {
+        if node_category(index, disease).is_none() {
             return Err(StudyAnswerError::UnknownDiseaseGroup(disease.clone()));
         }
     }
@@ -316,18 +329,17 @@ pub fn validate_study_answers(
 /// The study-filter reasons of one method, in the fixed order disease →
 /// treatment → outcome (before every marker/schedule reason), with the
 /// per-code params. Empty when the answers fit or are absent. The answers
-/// must be validated first ([`validate_study_answers`]) — an unknown id here
-/// is the engine's error, never a silent "any".
+/// must be validated first ([`validate_answers_in`]) and the option index
+/// built once per request ([`study_options_index`]) — an unknown id here is
+/// the engine's error, never a silent "any".
 fn study_filter_reasons(
-    cat: &Catalogue,
+    index: &StudyOptionsIndex<'_>,
     m: &Method,
     answers: &StudyAnswers,
-) -> Result<Vec<Reason>, StudyAnswerError> {
-    validate_study_answers(cat, answers)?;
-    let index = study_options_index(&cat.study_options);
+) -> Vec<Reason> {
     let mut reasons: Vec<Reason> = Vec::new();
     if let Some(disease) = &answers.disease_group {
-        if !disease_fits(&index, m, disease) {
+        if !disease_fits(index, m, disease) {
             let made_for = if m.disease.scope == DiseaseScope::Group {
                 m.disease.groups.join(", ")
             } else {
@@ -379,7 +391,7 @@ fn study_filter_reasons(
             });
         }
     }
-    Ok(reasons)
+    reasons
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -660,20 +672,30 @@ pub fn runtime_env_available(images: &EnvManifest, method_id: &str) -> bool {
 /// the runtime-env stage ([`with_runtime_env`]), naming the list it answered
 /// from (`method_list_sequence`) exactly as the HTTP surface does.
 ///
-/// The seam is TOTAL: its production caller ([`execution_engine::orchestrator`]'s
-/// run-start classification) posts the run's own inventory, which carries no
-/// study answers — an unknown study answer is therefore unreachable here, and
-/// the HTTP surface's seat ([`eligibility_calibrated`]) is the variant that
-/// returns [`StudyAnswerError`] for the 422. Do not feed study answers to
-/// this seam without going through [`validate_study_answers`] first.
+/// The seam is TOTAL and never applies study answers: its production caller
+/// ([`execution_engine::orchestrator`]'s run-start classification) posts the
+/// run's own inventory, which carries no study answers — the answers choose
+/// which methods are OFFERED on the screens, not what a run can compute. To
+/// make that explicit, any study answers in the request are ignored (the
+/// inventory's `study` block / the preview's three fields are cleared on a
+/// copy before computing), so an unknown study answer cannot reach the engine
+/// here and the call cannot fail. The HTTP surface's seat
+/// ([`eligibility_calibrated`]) is the variant that returns
+/// [`StudyAnswerError`] for the 422.
 pub fn eligibility(list: &MethodList, req: &EligibilityRequest) -> EligibilityResponse {
-    eligibility_calibrated(list, req, &calibration::TimingCalibration::empty())
-        .expect("the in-process seam is never fed an unknown study answer")
+    let mut response = with_runtime_env(
+        &list.images,
+        eligibility_ignoring_study(&list.catalogue, req),
+    );
+    response.method_list_sequence = Some(list.sequence);
+    response
 }
 
 /// [`eligibility`] with the app's measured-time calibration — the HTTP
-/// surface's seat (`POST /api/methods/eligibility`): one path for the route
-/// and the in-process seam, so their answers never drift (TEST-MC-31).
+/// surface's seat (`POST /api/methods/eligibility`): the same engine as the
+/// in-process seam, so their answers never drift (TEST-MC-31 compares them on
+/// the no-study input the run posts), plus the study-answer validation that
+/// feeds the route's 422 ([`StudyAnswerError`]).
 pub fn eligibility_calibrated(
     list: &MethodList,
     req: &EligibilityRequest,
@@ -707,10 +729,76 @@ pub fn eligibility_for_calibrated(
     req: &EligibilityRequest,
     calibration: &calibration::TimingCalibration,
 ) -> Result<EligibilityResponse, StudyAnswerError> {
+    // The study answers were part of the request body: validate them ONCE per
+    // request (never once per method — the per-method filters below trust
+    // this check) and build the option index once with them.
+    let index = study_options_index(&cat.study_options);
     match req {
-        EligibilityRequest::Preview { preview } => preview_eligibility(cat, preview),
+        EligibilityRequest::Preview { preview } => {
+            validate_answers_in(cat, &index, &preview.study)?;
+        }
         EligibilityRequest::Inventory { inventory } => {
-            inventory_eligibility(cat, inventory, calibration)
+            if let Some(study) = &inventory.study {
+                validate_answers_in(cat, &index, study)?;
+            }
+        }
+    }
+    Ok(pure_verdicts(cat, req, calibration, &index))
+}
+
+/// The pure verdicts of a request whose study answers are already validated
+/// (or absent) against the catalogue's prebuilt option index — no error path.
+/// [`eligibility_for_calibrated`] is the validating entry point; the
+/// in-process consumers use [`eligibility_ignoring_study`].
+fn pure_verdicts(
+    cat: &Catalogue,
+    req: &EligibilityRequest,
+    calibration: &calibration::TimingCalibration,
+    index: &StudyOptionsIndex<'_>,
+) -> EligibilityResponse {
+    match req {
+        EligibilityRequest::Preview { preview } => preview_eligibility(cat, preview, index),
+        EligibilityRequest::Inventory { inventory } => {
+            inventory_eligibility(cat, inventory, calibration, index)
+        }
+    }
+}
+
+/// [`eligibility_for`]'s TOTAL variant for the in-process consumers: any
+/// study answers in `req` are IGNORED (cleared on a copy first), so the call
+/// cannot fail — the answers only choose which methods are OFFERED on the
+/// screens, they never gate an in-process consumer's verdicts (the example
+/// picker, the run's classification; the pure engine, no runtime-env stage).
+/// The HTTP surface's seat stays [`eligibility_for`] /
+/// [`eligibility_calibrated`] (the variant that returns [`StudyAnswerError`]
+/// for the 422).
+pub fn eligibility_ignoring_study(
+    cat: &Catalogue,
+    req: &EligibilityRequest,
+) -> EligibilityResponse {
+    let cleared = clear_study_answers(req);
+    pure_verdicts(
+        cat,
+        &cleared,
+        &calibration::TimingCalibration::empty(),
+        &study_options_index(&cat.study_options),
+    )
+}
+
+/// The request with its study answers removed (the inventory's `study` block
+/// / the preview's three flattened fields) — the in-process seams' copy, so
+/// the answers never reach the engine there.
+fn clear_study_answers(req: &EligibilityRequest) -> EligibilityRequest {
+    match req {
+        EligibilityRequest::Preview { preview } => {
+            let mut p = preview.clone();
+            p.study = StudyAnswers::default();
+            EligibilityRequest::Preview { preview: p }
+        }
+        EligibilityRequest::Inventory { inventory } => {
+            let mut i = inventory.clone();
+            i.study = None;
+            EligibilityRequest::Inventory { inventory: i }
         }
     }
 }
@@ -794,10 +882,16 @@ fn with_runtime_env(images: &EnvManifest, mut resp: EligibilityResponse) -> Elig
 
 /// Screen B's request (the PREVIEW body): the panel is answered from the
 /// schedule + marker-group + study answers, without any patient data.
+///
+/// The caller ([`eligibility_for_calibrated`]) has already validated the
+/// study answers against the catalogue once per request and built the option
+/// index (`index`) — an id outside the catalogue is the surface's 422 (the
+/// entry point's error), never a silent widening here.
 fn preview_eligibility(
     cat: &Catalogue,
     req: &PreviewEligibilityRequest,
-) -> Result<EligibilityResponse, StudyAnswerError> {
+    index: &StudyOptionsIndex<'_>,
+) -> EligibilityResponse {
     // R3-intake-2: an unanswered schedule question counts as "any" — the
     // panel never excludes a method on an axis the user did not answer (the
     // old client sent the board's first options when unanswered, so an
@@ -807,9 +901,8 @@ fn preview_eligibility(
     // the baseline draw to that schedule (an unanswered one can be either,
     // so it adds nothing — and never produces a can_run_some reclassification).
     // The study answers follow the same rule on their axes (absent = any),
-    // but an id outside the catalogue is an ERROR (the surface's 422), never
-    // a silent widening.
-    validate_study_answers(cat, &req.study)?;
+    // but an id outside the catalogue remains an ERROR (the surface's 422,
+    // asserted by the entry point once per request), never a silent widening.
     let scheduled = req
         .draws_during_treatment
         .map(|draws| draws + if req.before_treatment.as_deref() == Some("always") { 1 } else { 0 });
@@ -819,7 +912,7 @@ fn preview_eligibility(
         // The study-answer reasons come FIRST (disease, treatment, outcome —
         // before the marker-group and draw reasons); `study_ok` is captured
         // before the marker reasons are pushed onto the same list.
-        let mut reasons = study_filter_reasons(cat, m, &req.study)?;
+        let mut reasons = study_filter_reasons(index, m, &req.study);
         let study_ok = reasons.is_empty();
         let mut missing_groups: Vec<MissingGroup> = Vec::new();
         for gid in &m.marker_groups_required {
@@ -889,7 +982,7 @@ fn preview_eligibility(
             estimate_quality: estimate_quality_for(m),
         });
     }
-    Ok(finish(methods))
+    finish(methods)
 }
 
 /// The inventory path (screens C/N/E — the consumer that holds the file posts
@@ -897,20 +990,23 @@ fn preview_eligibility(
 /// the rows' `estimated_seconds`/`estimate_quality`. When the request carries
 /// the `study` answers, the study filters run on the verdicts too (the same
 /// three hard reasons, pushed before every marker/draw reason).
+///
+/// The caller ([`eligibility_for_calibrated`]) has already validated the
+/// `study` answers (when present) once per request and built the option index
+/// (`index`) — the per-method loop below never validates or indexes again; a
+/// retired method is never offered, with or without answers.
 fn inventory_eligibility(
     cat: &Catalogue,
     inv: &InventoryEligibilityRequest,
     calibration: &calibration::TimingCalibration,
-) -> Result<EligibilityResponse, StudyAnswerError> {
-    if let Some(study) = &inv.study {
-        validate_study_answers(cat, study)?;
-    }
+    index: &StudyOptionsIndex<'_>,
+) -> EligibilityResponse {
     let mut methods = Vec::with_capacity(cat.methods.len());
     // A retired method (`runnable: false`) is not offered: it gets no verdict.
     for m in cat.methods.iter().filter(|m| m.runnable) {
-        methods.push(inventory_method(cat, inv, m, calibration)?);
+        methods.push(inventory_method(cat, inv, m, calibration, index));
     }
-    Ok(finish(methods))
+    finish(methods)
 }
 
 fn finish(methods: Vec<MethodEligibility>) -> EligibilityResponse {
@@ -939,17 +1035,21 @@ fn finish(methods: Vec<MethodEligibility>) -> EligibilityResponse {
     }
 }
 
-/// One method verdict for an inventory request.
+/// One method verdict for an inventory request. The `study` answers were
+/// already validated by the caller ([`eligibility_for_calibrated`]) and
+/// `index` is the one option index built per request — this function has no
+/// error path.
 fn inventory_method(
     cat: &Catalogue,
     inv: &InventoryEligibilityRequest,
     m: &Method,
     calibration: &calibration::TimingCalibration,
-) -> Result<MethodEligibility, StudyAnswerError> {
+    index: &StudyOptionsIndex<'_>,
+) -> MethodEligibility {
     // The study-answer reasons come FIRST (disease, treatment, outcome —
     // before every marker/draw reason); absent answers add nothing.
     let mut reasons = match &inv.study {
-        Some(study) => study_filter_reasons(cat, m, study)?,
+        Some(study) => study_filter_reasons(index, m, study),
         None => Vec::new(),
     };
     let mut missing_markers: Vec<MissingMarker> = Vec::new();
@@ -1131,7 +1231,7 @@ fn inventory_method(
     }
 
     let status = verdict(&reasons, coverage.eligible, coverage.total);
-    Ok(MethodEligibility {
+    MethodEligibility {
         id: m.id.clone(),
         status,
         reasons,
@@ -1151,7 +1251,7 @@ fn inventory_method(
             calibration,
         ),
         estimate_quality: calibration::calibrated_estimate_quality_for(m, calibration),
-    })
+    }
 }
 
 /// The engine's marker-count rule over the file inventory (the eligibility
@@ -2896,6 +2996,72 @@ mod tests {
         );
     }
 
+    /// The in-process seam is TOTAL: a request whose study block names an
+    /// unknown disease id returns the SAME response as the same request
+    /// without the study block (the answers are cleared on a copy — they only
+    /// choose which methods are OFFERED, not what a run can compute) — never a
+    /// panic. The HTTP surface's seat keeps refusing it (the 422 path).
+    #[test]
+    fn the_seam_ignores_unknown_study_answers() {
+        let cat = one_method_catalogue(method_json("fx-seam", &[]));
+        let list = MethodList {
+            format_version: crate::modules::method_list::format::FORMAT_VERSION,
+            sequence: 7,
+            assembled_at: String::new(),
+            catalogue: cat,
+            images: EnvManifest {
+                schema_version: 2,
+                generator_version: "t".to_string(),
+                base_contract: "2.0".to_string(),
+                bases: None,
+                envs: Vec::new(),
+            },
+            signer: None,
+            sha256: String::new(),
+        };
+
+        let with_answers = EligibilityRequest::Preview {
+            preview: study_preview(StudyAnswers {
+                disease_group: Some("unknown disease".to_string()),
+                ..Default::default()
+            }),
+        };
+        let without_answers = EligibilityRequest::Preview {
+            preview: study_preview(StudyAnswers::default()),
+        };
+        assert_eq!(
+            serde_json::to_value(eligibility(&list, &with_answers)).expect("serialize"),
+            serde_json::to_value(eligibility(&list, &without_answers)).expect("serialize"),
+            "the seam ignores the preview's study answers"
+        );
+
+        let mut with_block = inventory_req(1, vec![], vec![]);
+        with_block.study = Some(StudyAnswers {
+            disease_group: Some("no such node".to_string()),
+            ..Default::default()
+        });
+        let without_block = inventory_req(1, vec![], vec![]);
+        assert_eq!(
+            serde_json::to_value(eligibility(
+                &list,
+                &EligibilityRequest::Inventory { inventory: with_block },
+            ))
+            .expect("serialize"),
+            serde_json::to_value(eligibility(
+                &list,
+                &EligibilityRequest::Inventory { inventory: without_block },
+            ))
+            .expect("serialize"),
+            "the seam ignores the inventory's study block"
+        );
+
+        // The surface's seat still refuses the unknown id (the 422 path).
+        assert!(matches!(
+            eligibility_calibrated(&list, &with_answers, &calibration::TimingCalibration::empty()),
+            Err(StudyAnswerError::UnknownDiseaseGroup(_))
+        ));
+    }
+
     // ---- the study-answer filters (disease, treatment, what to predict) ----
 
     /// A preview body carrying only the given study answers (every schedule
@@ -3506,5 +3672,75 @@ mod tests {
         assert!(!code_names(&v2).contains(&ReasonCode::DiseaseNotMatched));
         assert!(code_names(&v2).contains(&ReasonCode::RequiredMarkerMissing));
         assert_eq!(v2.status, EligibilityStatus::CannotRun);
+    }
+
+    /// A retired method (`runnable: false`) stays out even when the study
+    /// answers WOULD fit it: the row gets no verdict, exactly as without the
+    /// answers — for both the preview and the inventory path.
+    #[test]
+    fn retired_method_stays_out_with_study_answers() {
+        let methods = serde_json::json!([
+            method_json("fx-live", &[]),
+            method_json("fx-retired-fit", &[
+                ("runnable", serde_json::json!(false)),
+                ("disease", serde_json::json!({"scope": "group", "groups": ["lung cancer"]})),
+            ]),
+        ]);
+        let cat = catalogue_with(methods, serde_json::json!([]));
+        let answers = StudyAnswers {
+            disease_group: Some("lung cancer".to_string()),
+            ..Default::default()
+        };
+
+        // Preview, with and without the answers.
+        let with_ans = eligibility_for(
+            &cat,
+            &EligibilityRequest::Preview {
+                preview: study_preview(answers.clone()),
+            },
+        )
+        .expect("valid fixture study ids");
+        let without_ans = eligibility_for(
+            &cat,
+            &EligibilityRequest::Preview {
+                preview: study_preview(StudyAnswers::default()),
+            },
+        )
+        .expect("ok");
+        for resp in [&with_ans, &without_ans] {
+            assert!(
+                resp.methods.iter().all(|m| m.id != "fx-retired-fit"),
+                "the retired method has no verdict in the preview: {:?}",
+                resp.methods.iter().map(|m| &m.id).collect::<Vec<_>>()
+            );
+            assert!(resp.methods.iter().any(|m| m.id == "fx-live"), "non-vacuity");
+        }
+        assert_eq!(
+            serde_json::to_value(&with_ans).expect("serialize"),
+            serde_json::to_value(&without_ans).expect("serialize"),
+            "the answers leave the retired method out exactly like their absence"
+        );
+
+        // Inventory, with and without the study block.
+        let mut inv_with = inventory_req(1, vec![], vec![]);
+        inv_with.study = Some(answers);
+        let inv_without = inventory_req(1, vec![], vec![]);
+        let a = eligibility_for(&cat, &EligibilityRequest::Inventory { inventory: inv_with })
+            .expect("valid fixture study ids");
+        let b = eligibility_for(&cat, &EligibilityRequest::Inventory { inventory: inv_without })
+            .expect("ok");
+        for resp in [&a, &b] {
+            assert!(
+                resp.methods.iter().all(|m| m.id != "fx-retired-fit"),
+                "the retired method has no verdict in the inventory: {:?}",
+                resp.methods.iter().map(|m| &m.id).collect::<Vec<_>>()
+            );
+            assert!(resp.methods.iter().any(|m| m.id == "fx-live"), "non-vacuity");
+        }
+        assert_eq!(
+            serde_json::to_value(&a).expect("serialize"),
+            serde_json::to_value(&b).expect("serialize"),
+            "the study block leaves the retired method out exactly like its absence"
+        );
     }
 }

@@ -79,7 +79,7 @@ use crate::modules::file_validator::types::{
     ValidationResponse,
 };
 use crate::modules::method_catalogue::eligibility::{
-    eligibility_for, estimate_seconds_for, REFERENCE_CPUS,
+    eligibility_ignoring_study, estimate_seconds_for, REFERENCE_CPUS,
 };
 use crate::modules::execution_engine::envmanifest::EnvArch;
 use crate::modules::method_list::MethodList;
@@ -329,13 +329,15 @@ fn runnable_methods<'c>(
     inputs: &ExampleRunInputs,
     env_available: impl Fn(&str) -> bool,
 ) -> Vec<&'c Method> {
-    eligibility_for(
+    // The example inventory never carries study answers (the answers only
+    // choose which methods are OFFERED, not what a run can compute), and the
+    // total seam variant ignores them anyway — no error path, no `expect`.
+    eligibility_ignoring_study(
         cat,
         &EligibilityRequest::Inventory {
             inventory: inputs.validation.inventory.clone(),
         },
     )
-    .expect("the example picker's inventory carries no study answers")
     .methods
     .into_iter()
     .filter(|m| m.status == EligibilityStatus::CanRun)
@@ -1153,13 +1155,12 @@ mod tests {
         );
 
         let cat = catalogue();
-        let verdicts = eligibility_for(
+        let verdicts = eligibility_ignoring_study(
             cat,
             &EligibilityRequest::Inventory {
                 inventory: inputs.validation.inventory.clone(),
             },
-        )
-        .expect("the example inventory carries no study answers");
+        );
         let single_without_list: Vec<String> = verdicts
             .methods
             .iter()
@@ -1773,13 +1774,12 @@ mod tests {
         let fitted = cat.method(&target).expect("the modified method");
 
         // Every other filter keeps it.
-        let verdicts = eligibility_for(
+        let verdicts = eligibility_ignoring_study(
             &cat,
             &EligibilityRequest::Inventory {
                 inventory: cut.validation.inventory.clone(),
             },
-        )
-        .expect("the example inventory carries no study answers");
+        );
         let verdict = verdicts
             .methods
             .iter()
