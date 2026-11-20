@@ -218,11 +218,12 @@ unicode-normalization = "0.1"
 # The Windows method runner (`sandbox::wsl_run`) talks to the same guest agent
 # as the macOS VM (`sandbox::vm_exchange`): the same wire protocol and output
 # name folding. windows-sys (already in the lockfile) reads the machine's real
-# CPU, to refuse an x64 build emulated on ARM64 Windows.
+# CPU, to refuse an x64 build emulated on ARM64 Windows, and the registry, for
+# the installer's WSL check (`wsl_run::installer_status`).
 [target.'cfg(target_os = "windows")'.dependencies]
 sandbox-vm-protocol = { path = "../../sdk/crates/sandbox-vm-protocol" }
 unicode-normalization = "0.1"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_Threading"] }
 
 [dependencies.sandbox-seccomp]
 path = "../../sdk/crates/sandbox-seccomp"

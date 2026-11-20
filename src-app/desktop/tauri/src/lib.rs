@@ -9,6 +9,9 @@
 mod bundled_models;
 mod commands;
 mod config;
+// `pub`: `main.rs` answers the Windows installer's `--wsl-status` through it,
+// and `tests/installer_hooks.rs` reads the argument's spelling.
+pub mod installer_cli;
 mod save_file;
 mod server_boot;
 // `pub`: the loopback-seam integration suite (tests/update_check_seam.rs) is

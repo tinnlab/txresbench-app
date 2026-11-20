@@ -93,7 +93,12 @@ pub mod mac_vm_run;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub mod vm_exchange;
 #[cfg(target_os = "windows")]
+mod win_registry;
+#[cfg(target_os = "windows")]
 pub mod wsl_run;
+// Windows: the WSL version rule and the installer's WSL decision, without I/O
+// (tested on every platform; `wsl_run` gathers the facts on Windows).
+pub mod wsl_status;
 pub mod method_env;
 pub mod outputs;
 pub mod permissions;

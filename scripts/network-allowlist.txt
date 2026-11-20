@@ -51,3 +51,9 @@ viz.local
 # documents (never fetched by the app).
 json-schema.org
 txr.ai
+# Not a host list entry: when a Windows PC lacks WSL, the Windows installer
+# (src-app/desktop/tauri/windows/installer-hooks.nsh) asks Microsoft's own
+# wsl.exe to download it (`wsl --install --no-distribution` / `wsl --update`,
+# from the Microsoft Store or WSL's GitHub releases, as wsl.exe chooses). The
+# app never fetches it, and the hook's one link (learn.microsoft.com) is text in
+# a message.
