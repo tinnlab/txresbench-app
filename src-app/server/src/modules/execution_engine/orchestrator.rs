@@ -3827,10 +3827,26 @@ fn classify(
                 .map(|m| (m.id.as_str(), m))
                 .collect();
             for id in method_ids {
-                let verdict = by_id
-                    .get(id.as_str())
-                    .expect("the eligibility engine answers every catalogue method");
                 let facts = list.method(id).expect("checked at start");
+                // A retired method has no verdict (the engine leaves it out):
+                // the run refuses it with the plain "not runnable" reason.
+                let Some(verdict) = by_id.get(id.as_str()) else {
+                    plans.push(MethodPlan {
+                        method_id: id.clone(),
+                        label: facts.id.clone(),
+                        version: facts.version.clone(),
+                        group: facts.group.as_str().to_string(),
+                        min_draws: facts.min_draws,
+                        env: None,
+                        target: RunTarget::TrainMethod,
+                        cannot_run: true,
+                        reason: Some(TxrRunReason::from_catalogue(
+                            crate::modules::method_catalogue::types::ReasonCode::NotRunnable,
+                            "not runnable",
+                        )),
+                    });
+                    continue;
+                };
                 let plan = match verdict.status {
                     EligibilityStatus::CannotRun => {
                         // The verdict's first reason is the row's one reason
