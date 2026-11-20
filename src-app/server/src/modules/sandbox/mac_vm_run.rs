@@ -30,10 +30,12 @@
 //!
 //! The runtime (launcher, libkrun, libkrunfw, guest root) ships inside the
 //! Mac app as one archive (scripts/build-macos-vm-runtime.sh), unpacked into
-//! `<app_data>/sandbox-vm/runtime-<sha12>/` on first use. For development,
-//! `TXR_SANDBOX_VM_LAUNCHER` and `TXR_SANDBOX_GUEST_ROOT` point at other
-//! builds; without either, the launcher next to the app binary and the guest
-//! root under `<app_data>/sandbox-vm/guest-root` are used.
+//! `<app_data>/sandbox-vm/runtime-<sha12>/` on first use. For development, a
+//! debug build reads `TXR_SANDBOX_VM_RUNTIME` (another runtime archive), and
+//! `TXR_SANDBOX_VM_LAUNCHER` and `TXR_SANDBOX_GUEST_ROOT` (other builds of the
+//! two pieces); a release build ignores all three ([`dev_override`]). Without
+//! a runtime, the launcher next to the app binary and the guest root under
+//! `<app_data>/sandbox-vm/guest-root` are used.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -79,15 +81,27 @@ const CONNECT_RETRY: Duration = Duration::from_secs(5);
 /// macOS AF_UNIX `sun_path` is 104 bytes; keep a margin.
 const MAX_SOCKET_PATH: usize = 100;
 
+/// A development override of the VM runtime (`TXR_SANDBOX_VM_LAUNCHER`, `TXR_SANDBOX_GUEST_ROOT`,
+/// `TXR_SANDBOX_VM_RUNTIME`), as a path. Only a debug build reads them: a release app always boots
+/// the runtime it ships, so a variable set in the user's environment cannot point it at another
+/// launcher or guest root.
+fn dev_override(key: &str) -> Option<PathBuf> {
+    dev_override_with(&|k| std::env::var_os(k), key, cfg!(debug_assertions))
+}
 
-fn env_path(key: &str) -> Option<PathBuf> {
-    std::env::var_os(key).filter(|v| !v.is_empty()).map(PathBuf::from)
+/// [`dev_override`] over a given environment `read` and build flag `debug`
+/// (`cfg!(debug_assertions)`), passed in so the release half is tested too.
+fn dev_override_with(read: &dyn Fn(&str) -> Option<std::ffi::OsString>, key: &str, debug: bool) -> Option<PathBuf> {
+    if !debug {
+        return None;
+    }
+    read(key).filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
 /// The VM runtime the app ships (scripts/build-macos-vm-runtime.sh): one archive holding
 /// `bin/<launcher>`, `lib/` (libkrun, libkrunfw) and `share/guest-root/`, with its sha256 in a
-/// sibling `<archive>.sha256`. `TXR_SANDBOX_VM_RUNTIME` names it; else it is looked up in the app
-/// bundle's Resources ([`bundled_runtime_archive_from`]).
+/// sibling `<archive>.sha256`. A debug build's `TXR_SANDBOX_VM_RUNTIME` names it; else it is looked
+/// up in the app bundle's Resources ([`bundled_runtime_archive_from`]).
 const RUNTIME_ENV: &str = "TXR_SANDBOX_VM_RUNTIME";
 const RUNTIME_RESOURCE_DIR: &str = "sandbox-vm-runtime";
 const RUNTIME_ARCHIVE: &str = "sandbox-vm-runtime.tar";
@@ -110,7 +124,7 @@ fn bundled_runtime_archive_from(exe: &Path) -> Option<PathBuf> {
 }
 
 fn runtime_archive() -> Option<PathBuf> {
-    env_path(RUNTIME_ENV)
+    dev_override(RUNTIME_ENV)
         .or_else(|| std::env::current_exe().ok().and_then(|exe| bundled_runtime_archive_from(&exe)))
         .filter(|p| p.is_file())
 }
@@ -251,10 +265,10 @@ fn sha256_file(path: &Path) -> std::io::Result<String> {
     Ok(hex::encode(h.finalize()))
 }
 
-/// The VM launcher binary: `TXR_SANDBOX_VM_LAUNCHER`, else the shipped runtime's, else next to
-/// the app's own executable.
+/// The VM launcher binary: a debug build's `TXR_SANDBOX_VM_LAUNCHER`, else the shipped runtime's,
+/// else next to the app's own executable.
 pub fn launcher_path() -> PathBuf {
-    launcher_path_from(env_path(LAUNCHER_ENV), RUNTIME_DIR.get().map(PathBuf::as_path), std::env::current_exe().ok())
+    launcher_path_from(dev_override(LAUNCHER_ENV), RUNTIME_DIR.get().map(PathBuf::as_path), std::env::current_exe().ok())
 }
 
 fn launcher_path_from(env: Option<PathBuf>, runtime: Option<&Path>, exe: Option<PathBuf>) -> PathBuf {
@@ -263,11 +277,11 @@ fn launcher_path_from(env: Option<PathBuf>, runtime: Option<&Path>, exe: Option<
         .unwrap_or_else(|| PathBuf::from(LAUNCHER_BIN))
 }
 
-/// The guest root (agent + bwrap + busybox userland): `TXR_SANDBOX_GUEST_ROOT`, else the shipped
-/// runtime's, else `<app_data>/sandbox-vm/guest-root`.
+/// The guest root (agent + bwrap + busybox userland): a debug build's `TXR_SANDBOX_GUEST_ROOT`,
+/// else the shipped runtime's, else `<app_data>/sandbox-vm/guest-root`.
 pub fn guest_root_path() -> PathBuf {
     guest_root_path_from(
-        env_path(GUEST_ROOT_ENV),
+        dev_override(GUEST_ROOT_ENV),
         RUNTIME_DIR.get().map(PathBuf::as_path),
         &crate::modules::rootfs::data_root(),
     )
@@ -285,8 +299,8 @@ pub fn probe_host() -> Result<HostCapabilities, String> {
     if std::env::consts::ARCH != "aarch64" {
         return Err("method VMs need an Apple Silicon Mac (libkrun runs arm64 guests only)".into());
     }
-    // The runtime the app ships, unless both pieces are pointed elsewhere (development).
-    if env_path(LAUNCHER_ENV).is_none() || env_path(GUEST_ROOT_ENV).is_none() {
+    // The runtime the app ships, unless both pieces are pointed elsewhere (a debug build only).
+    if dev_override(LAUNCHER_ENV).is_none() || dev_override(GUEST_ROOT_ENV).is_none() {
         if let Some(archive) = runtime_archive() {
             let dir = ensure_runtime_in(&crate::modules::rootfs::data_root(), &archive)
                 .map_err(|why| format!("the bundled VM runtime could not be prepared: {why}"))?;
@@ -297,7 +311,7 @@ pub fn probe_host() -> Result<HostCapabilities, String> {
     if !launcher.is_file() {
         return Err(format!(
             "the VM launcher is missing at {} (build the app's VM runtime with \
-                 scripts/build-macos-vm-runtime.sh, or set {LAUNCHER_ENV})",
+                 scripts/build-macos-vm-runtime.sh, or in a debug build set {LAUNCHER_ENV})",
             launcher.display()
         ));
     }
@@ -341,7 +355,7 @@ pub fn probe_host() -> Result<HostCapabilities, String> {
     for rel in GUEST_ROOT_FILES {
         if !root.join(rel).is_file() {
             return Err(format!(
-                "the VM guest root at {} has no {rel} (set {GUEST_ROOT_ENV})",
+                "the VM guest root at {} has no {rel} (in a debug build, set {GUEST_ROOT_ENV})",
                 root.display()
             ));
         }
@@ -349,7 +363,7 @@ pub fn probe_host() -> Result<HostCapabilities, String> {
     for rel in GUEST_ROOT_DIRS {
         if !root.join(rel).is_dir() {
             return Err(format!(
-                "the VM guest root at {} has no /{rel} mount point (set {GUEST_ROOT_ENV})",
+                "the VM guest root at {} has no /{rel} mount point (in a debug build, set {GUEST_ROOT_ENV})",
                 root.display()
             ));
         }
@@ -1051,6 +1065,28 @@ mod tests {
         assert_eq!(guest_root_path_from(env.clone(), Some(runtime), data), PathBuf::from("/dev/launcher"));
         assert_eq!(guest_root_path_from(None, Some(runtime), data), runtime.join("share/guest-root"));
         assert_eq!(guest_root_path_from(None, None, data), data.join("sandbox-vm/guest-root"));
+    }
+
+    #[test]
+    fn the_vm_overrides_are_read_only_in_a_debug_build() {
+        let set = |k: &str| Some(std::ffi::OsString::from(format!("/dev/{k}")));
+        for key in [LAUNCHER_ENV, GUEST_ROOT_ENV, RUNTIME_ENV] {
+            assert_eq!(dev_override_with(&set, key, true), Some(PathBuf::from(format!("/dev/{key}"))));
+            assert_eq!(dev_override_with(&set, key, false), None, "a release build ignores {key}");
+        }
+        // Unset or empty is no override.
+        assert_eq!(dev_override_with(&|_| None, LAUNCHER_ENV, true), None);
+        assert_eq!(dev_override_with(&|_| Some(std::ffi::OsString::new()), LAUNCHER_ENV, true), None);
+        // The real reader passes this build's own flag (read through PATH, which every test run has,
+        // so no test has to set a variable of the process).
+        if std::env::var_os("PATH").is_some_and(|v| !v.is_empty()) {
+            assert_eq!(dev_override("PATH").is_some(), cfg!(debug_assertions));
+        }
+        // The three names are the ones the docs and the dev scripts use.
+        assert_eq!(
+            [LAUNCHER_ENV, GUEST_ROOT_ENV, RUNTIME_ENV],
+            ["TXR_SANDBOX_VM_LAUNCHER", "TXR_SANDBOX_GUEST_ROOT", "TXR_SANDBOX_VM_RUNTIME"]
+        );
     }
 
     /// A runtime archive like the build script's (bin/<launcher>, share/guest-root/), with its .sha256.

@@ -14,7 +14,8 @@
 #   Builds into a temporary sibling of <out-dir>, then swaps it into place. An existing
 #   <out-dir> is replaced only if it is itself a guest root (it has the agent binary);
 #   any other existing path is refused.
-#   Point the app at the result with TXR_SANDBOX_GUEST_ROOT=<out-dir>.
+#   Point a debug build of the app at the result with TXR_SANDBOX_GUEST_ROOT=<out-dir> (a release
+#   build reads only the runtime it ships).
 #
 # Needs Docker able to run linux/arm64 containers (Docker Desktop on Apple Silicon).
 # The pinned build images and the agent build are shared with scripts/build-wsl-rootfs.sh
