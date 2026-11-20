@@ -24,7 +24,7 @@ import {
 import { descriptiveSentence, hasStudyAnswers, PREVIEW_ANSWER_INVITE } from '../lib/preview'
 import { formatNoEnvLine } from '@/modules/txrlist/lib/format'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
-import { TxrStepBack, useStepBack } from '../components/TxrStepBack'
+import { TxrStepBack, TxrStepLine, useStepBack } from '../components/TxrStepBack'
 import { isExampleStudy } from '../lib/example'
 import { useAppMode } from '@/modules/demo'
 import { DEMO_STUDY_NOTE } from '@/modules/demo/copy'
@@ -100,14 +100,6 @@ const REGION_CONTENT: CSSProperties = {
   gap: 16,
   padding: '0 0 28px',
   minWidth: 0,
-}
-
-const STEP_LINE: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 700,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  color: 'var(--txr-brand)',
 }
 
 const TITLE: CSSProperties = {
@@ -356,7 +348,7 @@ export function StudyPage() {
       <PageFrame
         top={
           <div className="txr-intake-top txr-intake-page-top" style={PAGE_TOP}>
-            <div style={STEP_LINE}>Step 2 of 4</div>
+            <TxrStepLine step={2} of={4} />
             <h1 style={TITLE}>Tell us about your study</h1>
             <p style={INTRO}>
               So you know what to expect to upload, and which methods can run. All optional: skip

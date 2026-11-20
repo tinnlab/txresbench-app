@@ -557,6 +557,46 @@ test('route Start at 390x844 (flow): the document scrolls, the header is sticky 
   expect(flow.headerHeight).toBe(56)
 })
 
+/** The step line above a page's h1 and where the h1 sits under it. */
+async function stepLineBox(page: import('@playwright/test').Page) {
+  return page.evaluate(() => {
+    const h1 = document.querySelector<HTMLElement>('#txr-main h1')!
+    const line = h1.previousElementSibling as HTMLElement
+    const l = line.getBoundingClientRect()
+    return {
+      text: line.textContent ?? '',
+      lineHeight: l.height,
+      headingOffset: h1.getBoundingClientRect().top - l.top,
+    }
+  })
+}
+
+test('the "<- Step x of y" line keeps the step line box: the heading sits as on Start (step 1)', async ({
+  page,
+}) => {
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(size)
+    await page.goto(`${GALLERY}txr-shell-route-start`, { waitUntil: 'domcontentloaded' })
+    await page.waitForTimeout(SETTLE)
+    const start = await stepLineBox(page)
+    expect(start.text).toBe('Step 1 of 4')
+    for (const slug of ['txr-shell-route-study', 'txr-shell-route-files', 'txr-shell-route-choose-methods']) {
+      await page.goto(`${GALLERY}${slug}`, { waitUntil: 'domcontentloaded' })
+      await page.waitForTimeout(SETTLE)
+      const step = await stepLineBox(page)
+      expect(step.text, `${slug} at ${size.width}px`).toMatch(/^Step [234] of 4$/)
+      expect(step.lineHeight, `${slug} at ${size.width}px: the line height`).toBeCloseTo(start.lineHeight, 1)
+      expect(step.headingOffset, `${slug} at ${size.width}px: the heading under the line`).toBeCloseTo(
+        start.headingOffset,
+        1,
+      )
+    }
+  }
+})
+
 /** A long failure line for the example family fetch. */
 const LONG_EXAMPLE_ERROR =
   'No method with a published environment can run on the example data on this computer, so the ' +

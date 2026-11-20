@@ -6,7 +6,7 @@
  * run is starting) and `TxrStepBackBar`. The palette offers `flow.back` only
  * while a step view is on screen (the real gate over the real registry).
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '@txresbench/kit'
@@ -20,6 +20,7 @@ import {
   STEP_BACK_STARTING_REASON,
   TxrStepBack,
   TxrStepBackBar,
+  TxrStepLine,
   useStepBack,
 } from './TxrStepBack'
 
@@ -46,6 +47,7 @@ function Step({
   const navigate = useNavigate()
   return (
     <div data-testid={`page-${step}`}>
+      <TxrStepLine step={3} of={4} />
       <TxrStepBack />
       {next !== undefined ? (
         <Button data-testid="continue" onClick={() => navigate(next)}>
@@ -103,6 +105,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
 })
 
 describe('useStepBack', () => {
@@ -226,5 +229,83 @@ describe('the palette offers flow.back only on a step view', () => {
   it('absent on a non-step page (Start)', () => {
     renderFlow('/')
     expect(offered()).not.toContain('flow.back')
+  })
+})
+
+describe('TxrStepLine (the "← Step x of y" line)', () => {
+  async function clickLine(): Promise<void> {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-step-line-back'))
+      await Promise.resolve()
+    })
+  }
+
+  it('is a kit button: an arrow and the step text, with a name that says it goes back', () => {
+    renderFlow('/study')
+    const line = screen.getByTestId('txr-step-line-back')
+    expect(line.tagName).toBe('BUTTON')
+    expect(line.getAttribute('data-slot')).toBe('button')
+    expect(line.textContent).toBe('Step 3 of 4')
+    expect(line.querySelector('svg')).not.toBeNull()
+    expect(line.getAttribute('aria-label')).toBe('Back to the previous step (now step 3 of 4)')
+    expect(line.getAttribute('aria-disabled')).toBeNull()
+  })
+
+  it('keeps the step line text look (brand colour, 12 px caps) and adds no box', () => {
+    renderFlow('/study')
+    const style = screen.getByTestId('txr-step-line-back').style
+    expect(style.fontSize).toBe('12px')
+    expect(style.fontWeight).toBe('700')
+    expect(style.textTransform).toBe('uppercase')
+    expect(style.color).toBe('var(--txr-brand)')
+    expect(style.padding).toBe('0px')
+    expect(style.height).toBe('auto')
+    expect(style.lineHeight).toBe('inherit')
+  })
+
+  it('keeps the former line box: 12 px text at line height 1.5 (18 px), in a flex box', () => {
+    // The former step line was a 12 px div under the shell's line height 1.5.
+    // The wrapper carries the same box, so the heading below stays where it was.
+    renderFlow('/study')
+    const box = screen.getByTestId('txr-step-line').style
+    expect(box.fontSize).toBe('12px')
+    expect(box.lineHeight).toBe('1.5')
+    expect(box.display).toBe('flex')
+  })
+
+  it('runs the registered flow.back, the same action as the Back button', async () => {
+    const entry = getActionRegistry().get('flow.back')!
+    const spy = vi.spyOn(entry, 'run')
+    beginPath('/')
+    renderFlow('/study')
+    await clickLine()
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(location()).toBe('/')
+  })
+
+  it('goes where the Back button goes: along the trail, and to the fallback on a deep link', async () => {
+    beginPath('/')
+    renderFlow('/study')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('continue'))
+    })
+    expect(location()).toBe('/files')
+    await clickLine()
+    expect(location()).toBe('/study')
+    cleanup()
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
+    renderFlow('/files')
+    await clickLine()
+    expect(location()).toBe('/study')
+  })
+
+  it('while a run is starting it is unavailable with the reason, and a click goes nowhere', async () => {
+    beginPath('/')
+    useStepTrailStore.setState({ trail: ['/', '/study'] })
+    renderFlow('/files', { blocked: STEP_BACK_STARTING_REASON })
+    const line = screen.getByTestId('txr-step-line-back')
+    expect(line.getAttribute('aria-disabled')).toBe('true')
+    await clickLine()
+    expect(location()).toBe('/files')
   })
 })

@@ -3,11 +3,12 @@
  * (the pretrained catalogue's list, `PretrainedListResponse`), the card
  * reads how many models it has.
  *
- * The Start page's first card ("Predict with a ready-made model") is the
+ * The Start page's ready-made card ("Predict with a ready-made model") is the
  * recommended way in only when the TxResBench team has released at least
- * one ready-made model. While the catalogue is empty the card drops its
- * "Recommended to start" badge and says that none are released yet; the
- * badge comes back by itself once the catalogue has a model.
+ * one ready-made model. While the catalogue is empty the "Recommended to
+ * start" badge is on "Learn from my data" instead and the ready-made card
+ * says that none are released yet; the badge moves back by itself once the
+ * catalogue has a model.
  *
  * Fetch semantics: the catalogue can change while the app runs (the boot
  * refresh may replace the embedded copy with a live one), so every mount
@@ -15,8 +16,8 @@
  * the first frame of a revisiting mount, so A → N → A does not flash the
  * badge away and back. Two mounts that arrive together share one request.
  *
- * Failure is graceful on purpose: `count: null` (loading or failed) shows
- * neither the badge nor the "none released" note.
+ * Failure is graceful on purpose: `count: null` (loading or failed) shows no
+ * "none released" note, and the badge stays on "Learn from my data".
  */
 import { useEffect, useState } from 'react'
 import { ApiClient } from '@/api-client'

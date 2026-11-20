@@ -170,12 +170,18 @@ describe('help content — sections (TEST-HELP-1)', () => {
   })
 
   it('the quick-start row mirrors the Start screen: three cards, their screens and buttons', () => {
-    expect(QUICK_START.map(card => card.id)).toEqual(['pretrained', 'learn', 'saved'])
-    expect(QUICK_START[0].cta).toBe('Add the patients to predict')
-    expect(QUICK_START[1].cta).toBe('Add my data')
+    // The Start page's order (the user, 2026-11-19): learn first.
+    expect(QUICK_START.map(card => card.id)).toEqual(['learn', 'pretrained', 'saved'])
+    expect(QUICK_START.map(card => card.eyebrow)).toEqual([
+      'Most flexible',
+      'No training needed',
+      'Repeat a past analysis',
+    ])
+    expect(QUICK_START[0].cta).toBe('Add my data')
+    expect(QUICK_START[1].cta).toBe('Add the patients to predict')
     expect(QUICK_START[2].cta).toBe('Predict with a model I saved')
-    expect(QUICK_START[0].route).toBe('/predict-files')
-    expect(QUICK_START[1].route).toBe('/study')
+    expect(QUICK_START[0].route).toBe('/study')
+    expect(QUICK_START[1].route).toBe('/predict-files')
     expect(QUICK_START[2].route).toBe('/predict-files')
     // qa-fixes3 ITEM-5: each card carries the one-line example action, and
     // the path it starts is the card's own way in (the Start screen's
@@ -186,8 +192,8 @@ describe('help content — sections (TEST-HELP-1)', () => {
       'Try it with example data',
     ])
     expect(QUICK_START.map(card => card.tryExample.path)).toEqual([
-      'pretrained',
       'train',
+      'pretrained',
       'reuse',
     ])
   })
@@ -199,8 +205,8 @@ describe('help content — sections (TEST-HELP-1)', () => {
     // (the module READMEs + code comments keep them); a user-visible chip
     // never prints one.
     expect(QUICK_START.map(card => card.screen)).toEqual([
-      'Predict files',
       'Your study',
+      'Predict files',
       'Predict files',
     ])
     const stepScreens = HELP_SECTIONS.flatMap(section =>

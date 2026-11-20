@@ -1101,6 +1101,22 @@ describe('the step Back on Pretrained models (D)', () => {
     expectBackLastInBar()
   })
 
+  it('the "← Step 4 of 4" line goes where Back goes: the trail\u2019s N, or N with no trail', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
+    renderFlow()
+    await settle(0)
+    expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 4 of 4')
+    await click('txr-step-line-back')
+    expect(routeAt()).toBe('/predict-files')
+    cleanup()
+
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
+    renderFlow()
+    await settle(0)
+    await click('txr-step-line-back')
+    expect(routeAt()).toBe('/predict-files')
+  })
+
   it('goes back to the file step: the trail\u2019s N, or N with no trail', async () => {
     useStepTrailStore.setState({ trail: ['/', '/predict-files'] })
     renderFlow()
