@@ -8,10 +8,10 @@ so a rebuild with the same key gives the same bytes.
 
 | file | what |
 |---|---|
-| `list-dir/catalogue.json` | the catalogue generator's fixture output (`scripts/method-catalogue/fixtures/expected-catalogue.json`): 3 synthetic methods |
+| `list-dir/catalogue.json` | the catalogue generator's fixture output (`scripts/method-catalogue/fixtures/expected-catalogue.json`) promoted to schema 2: 3 synthetic methods with the `disease`/`treatment` facts and a `study_options` block (until the generator brief emits these fields itself) |
 | `list-dir/method-env-images.json` | a synthetic schema 2 images list: 2 of those methods on amd64 and both bases (fake hashes) |
-| `list-dir/method-list.json` | the two assembled with `--first` (sequence 1) at `SOURCE_DATE_EPOCH=1767225600` |
-| `list-dir/method-list.json.minisig` | its signature by the test key, trusted comment `txresbench-method-list format=1 sequence=1` |
+| `list-dir/method-list.json` | the two assembled with `--first` (sequence 1, format 2) at `SOURCE_DATE_EPOCH=1767225600` |
+| `list-dir/method-list.json.minisig` | its signature by the test key, trusted comment `txresbench-method-list format=2 sequence=1` |
 | `signatures/legacy.minisig` | the same comment, legacy (not prehashed) signature: refused |
 | `signatures/wrong-purpose.minisig` | a valid signature whose comment is not a method list's: refused |
 | `signatures/sequence-2.minisig` | a valid signature saying `sequence=2` over the sequence 1 body: refused at parse |

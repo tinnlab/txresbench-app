@@ -1,4 +1,4 @@
-//! The last good list on disk: `<data_root>/method-list/v1/`.
+//! The last good list on disk: `<data_root>/method-list/v2/`.
 //!
 //! - `method-list.json` + `method-list.json.minisig` (+ `pair.sum`): the newest list this app
 //!   verified and took. Written only after the verify, so a list that was refused never
@@ -10,7 +10,7 @@
 //!   published lists it refused (never pulled again while the same keys and the same app
 //!   judge them: `judged_by`), the last check's time and error.
 //!
-//! The `v1` folder is the format line: a newer app reading another line keeps its own folder.
+//! The `v2` folder is the format line: a newer app reading another line keeps its own folder.
 
 use std::path::{Path, PathBuf};
 
@@ -281,7 +281,7 @@ mod tests {
         assert_eq!(store.read_state(), StoreState::default());
         store.write_list(b"list bytes", b"sig bytes").expect("written");
         assert_eq!(store.read_list(), Some((b"list bytes".to_vec(), b"sig bytes".to_vec())));
-        assert!(root.join("method-list/v1/method-list.json").is_file());
+        assert!(root.join("method-list/v2/method-list.json").is_file());
         let mut state = StoreState {
             live_digest: Some("sha256:aa".into()),
             ..Default::default()
@@ -295,6 +295,19 @@ mod tests {
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert!(names.iter().all(|n| !n.ends_with(".tmp")), "{names:?}");
+    }
+
+    /// The store folder is the format line: `v2` for this build, so a newer
+    /// format line keeps its own folder.
+    #[test]
+    fn the_store_folder_is_the_format_line() {
+        let root = scratch("folder");
+        let store = ListStore::new(&root);
+        assert!(
+            store.dir().ends_with("method-list/v2"),
+            "{}",
+            store.dir().display()
+        );
     }
 
     #[test]

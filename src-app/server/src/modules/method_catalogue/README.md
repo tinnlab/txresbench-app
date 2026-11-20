@@ -92,7 +92,7 @@ owner runs it, reviews the diff of `data/method-catalogue/catalogue.json` and
 commits it with the generator change. A stale real-mode `--check` (the fresh
 tree has moved on) is a review reminder, not a build failure; the CI-parity
 gate is the fixture `--check`, which is hermetic. The catalogue schema is
-version 1 (a generated field the binary does not model is a boot refusal by
+version 2 (a generated field the binary does not model is a boot refusal by
 design — bump the schema together with the module).
 
 Runtime behaviour is fixed by this file and cannot be changed by regenerating:

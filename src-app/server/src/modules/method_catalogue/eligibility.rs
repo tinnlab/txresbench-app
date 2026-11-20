@@ -1269,7 +1269,7 @@ mod tests {
     use super::*;
     use crate::modules::method_catalogue::catalogue::parse_catalogue;
     use crate::modules::method_catalogue::types::{
-        MatchMode, PatientDrawCounts, StandardId, UnitFamily,
+        MatchMode, PatientDrawCounts, StandardId, UnitFamily, CATALOGUE_SCHEMA_VERSION,
     };
 
     // ---- TEST-MC-1: parse_standard_ids (data.py goldens) ------------------
@@ -1648,6 +1648,8 @@ mod tests {
             "required_markers": null,
             "needs_detection_call": false,
             "marker_groups_required": [],
+            "disease": {"scope": "group", "groups": ["lung cancer"]},
+            "treatment": {"classes": ["immune checkpoint inhibitor"], "confidence": "stated"},
             "description": "d",
             "timing": {"base_seconds_per_fold": 60.0, "benchmarked_units": 1, "quality": "measured"},
             "performance": null,
@@ -1667,13 +1669,23 @@ mod tests {
     /// above (the loader's validation runs, so the entry must be complete).
     fn catalogue_with(methods: serde_json::Value, markers: serde_json::Value) -> Catalogue {
         let doc = serde_json::json!({
-            "schema_version": 1,
+            "schema_version": CATALOGUE_SCHEMA_VERSION,
             "generated_from": {"registry_name": "t", "methods_commit": "t",
                 "manifest_commit": "t", "results_commit": "t",
                 "generated_at": "2026-01-01T00:00:00Z"},
             "methods": methods,
             "markers": markers,
-            "groups": groups_json()
+            "groups": groups_json(),
+            "study_options": serde_json::json!({
+                "disease_categories": [
+                    {"id": "Solid tumours", "diseases": [
+                        {"id": "lung cancer", "children": ["non-small cell lung cancer"]}
+                    ]}
+                ],
+                "treatment_classes": [
+                    {"id": "immune checkpoint inhibitor", "label": "Immune checkpoint inhibitor"}
+                ]
+            })
         });
         parse_catalogue(serde_json::to_vec(&doc).unwrap().as_slice()).expect("test catalogue")
     }

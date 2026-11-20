@@ -3,10 +3,10 @@
 
 The list is what a maintainer signs and publishes (`scripts/publish-method-list.sh`) and
 what an app release imports as its built-in copy (`scripts/import-method-list.sh`). It
-holds the catalogue (`catalogue.json`, schema_version 1) and the environment images
+holds the catalogue (`catalogue.json`, schema_version 2) and the environment images
 (`method-env-images.json`, schema_version 2) as they are, nested, under a small header:
 
-    { "format": "txresbench-method-list", "format_version": 1, "sequence": 42,
+    { "format": "txresbench-method-list", "format_version": 2, "sequence": 42,
       "assembled_at": "2026-11-20T10:00:00Z",
       "catalogue": { ... }, "images": { ... } }
 
@@ -61,7 +61,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 FORMAT = "txresbench-method-list"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 #: The cap the app enforces too (the fetch kills a pull past it): ~2.9 MB today, ~5 MB with
 #: every method on two arches.
 MAX_LIST_BYTES = 16 * 1024 * 1024
@@ -69,7 +69,7 @@ CATALOGUE_FILE = "catalogue.json"
 IMAGES_FILE = "method-env-images.json"
 LIST_FILE = "method-list.json"
 HEADER_FIELDS = ("format", "format_version", "sequence", "assembled_at", "catalogue", "images")
-CATALOGUE_SCHEMA_VERSION = 1
+CATALOGUE_SCHEMA_VERSION = 2
 IMAGES_SCHEMA_VERSION = 2
 
 #: Rule 5: the facts that shape a run. They change only with a `version` bump, so "same
@@ -140,7 +140,7 @@ def list_bytes(doc):
 
 def check_docs(catalogue, images):
     """The shape the cross rules need (the full validation is the generators' guards and the
-    app's loader): a schema 1 catalogue with methods, a schema 2 images list with envs."""
+    app's loader): a schema 2 catalogue with methods, a schema 2 images list with envs."""
     if not isinstance(catalogue, dict) or catalogue.get("schema_version") != CATALOGUE_SCHEMA_VERSION:
         raise ListError("LIST_DOC_INVALID", "the catalogue is not a schema_version "
                         f"{CATALOGUE_SCHEMA_VERSION} catalogue")
@@ -202,7 +202,8 @@ def check_header(doc, path, code="LIST_HEADER_INVALID"):
         raise ListError(code, f"{path}: format {doc['format']!r} is not {FORMAT!r}")
     if doc["format_version"] != FORMAT_VERSION or isinstance(doc["format_version"], bool):
         raise ListError(code, f"{path}: format_version {doc['format_version']!r} is not "
-                        f"{FORMAT_VERSION} (a new format version is a new tag line, v2)")
+                        f"{FORMAT_VERSION} (a new format version is published under a new "
+                        f"tag line, v{FORMAT_VERSION + 1})")
     seq = doc["sequence"]
     if not isinstance(seq, int) or isinstance(seq, bool) or seq < 0:
         raise ListError(code, f"{path}: sequence {seq!r} is not a whole number >= 0")

@@ -66,7 +66,7 @@ function assemble(listDir, args) {
 }
 
 /**
- * The world of one test. Defaults: the published :v1 holds sequence 1, the methods main
+ * The world of one test. Defaults: the published :v2 holds sequence 1, the methods main
  * holds sequence 2, every pin resolves.
  */
 function world({ publishedSeq = 1, otherBytes = false, noBases = false, sideRevision = false, unpinned = null,
@@ -135,18 +135,18 @@ function world({ publishedSeq = 1, otherBytes = false, noBases = false, sideRevi
         '"assembled_at": "2026-01-01T00:00:01Z"'));
     }
     if (publishedExtraRow) published = withExtraRow(published, 'fx-only-in-the-published-list');
-    seedArtifact(bin, PACKAGE, 'v1', {
+    seedArtifact(bin, PACKAGE, 'v2', {
       'method-list.json': published,
-      'method-list.json.minisig': stubSignature(published, `txresbench-method-list format=1 sequence=${publishedSeq}`,
+      'method-list.json.minisig': stubSignature(published, `txresbench-method-list format=2 sequence=${publishedSeq}`,
         publishedKey),
     }, `sha256:${'a'.repeat(64)}`);
   }
-  // Earlier immutable tags: v1-seq-<n>, each signed by `keyId`.
+  // Earlier immutable tags: v2-seq-<n>, each signed by `keyId`.
   for (const { seq, keyId = STUB_KEY.key_id } of seqTags) {
     const bytes = withSequence(seq1, seq);
-    seedArtifact(bin, PACKAGE, `v1-seq-${String(seq).padStart(6, '0')}`, {
+    seedArtifact(bin, PACKAGE, `v2-seq-${String(seq).padStart(6, '0')}`, {
       'method-list.json': bytes,
-      'method-list.json.minisig': stubSignature(bytes, `txresbench-method-list format=1 sequence=${seq}`, keyId),
+      'method-list.json.minisig': stubSignature(bytes, `txresbench-method-list format=2 sequence=${seq}`, keyId),
     }, `sha256:${String(seq).padStart(2, '0').repeat(32)}`);
   }
   const key = path.join(base, 'secret.key');
@@ -189,13 +189,13 @@ const registryTag = (w, tag) => {
   return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
 };
 
-test('a publish: sequence 2 is pushed as v1-seq-000002, then v1 points at it', () => {
+test('a publish: sequence 2 is pushed as v2-seq-000002, then v2 points at it', () => {
   const w = world();
   const r = publish(w);
   assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /published: .*v1-seq-000002/);
+  assert.match(r.out, /published: .*v2-seq-000002/);
   assert.match(r.out, /^sequence: 1 -> 2$/m);
-  assert.equal(registryTag(w, 'v1'), registryTag(w, 'v1-seq-000002'));
+  assert.equal(registryTag(w, 'v2'), registryTag(w, 'v2-seq-000002'));
   // The images guard ran with provenance against the methods checkout.
   const guardArgs = fs.readFileSync(path.join(w.bin, 'images-guard.log'), 'utf8');
   assert.match(guardArgs, /--require-provenance/);
@@ -306,7 +306,7 @@ test('signer_env_has_no_ghcr_token', () => {
   const ok = ['PATH', 'HOME', 'PWD', 'SHLVL', '_', '__CF_USER_TEXT_ENCODING'];
   assert.deepEqual(sign.envKeys.filter((k) => !ok.includes(k)), []);
   assert.ok(!sign.envKeys.includes('GHCR_TOKEN') && !sign.envKeys.includes('GHCR_USER'));
-  assert.ok(sign.argv.includes('txresbench-method-list format=1 sequence=2'));
+  assert.ok(sign.argv.includes('txresbench-method-list format=2 sequence=2'));
   assert.ok(!JSON.stringify(sign).includes(TOKEN));
 });
 
@@ -320,7 +320,7 @@ test('token_only_in_temp_registry_config_removed_after', () => {
     const authed = c.configText && c.configText.includes(Buffer.from(`maintainer:${TOKEN}`).toString('base64'));
     // The token goes to the push, the tag, and the reads of the tag being published (a
     // package's first push is private); every other read is anonymous, as an app's is.
-    const ownTag = c.argv.some((a) => a.startsWith(`${PACKAGE}:v1-seq-`) || a.startsWith(`${PACKAGE}@`));
+    const ownTag = c.argv.some((a) => a.startsWith(`${PACKAGE}:v2-seq-`) || a.startsWith(`${PACKAGE}@`));
     if (c.sub === 'push' || c.sub === 'tag') {
       assert.ok(authed, `${c.sub} carries the token in its registry config`);
     } else if (authed) {
@@ -347,14 +347,14 @@ test('one_push_carries_list_and_signature', () => {
     'method-list.json:application/vnd.txresbench.method-list.v1+json',
     'method-list.json.minisig:application/vnd.txresbench.method-list.signature.v1',
   ]);
-  assert.ok(p[0].argv.includes(`${PACKAGE}:v1-seq-000002`));
+  assert.ok(p[0].argv.includes(`${PACKAGE}:v2-seq-000002`));
   const at = p[0].argv.indexOf('--artifact-type');
   assert.equal(p[0].argv[at + 1], 'application/vnd.txresbench.method-list.v1');
-  const digest = registryTag(w, 'v1-seq-000002');
+  const digest = registryTag(w, 'v2-seq-000002');
   const dir = path.join(w.bin, '..', 'registry', PACKAGE.replace(/[/:]/g, '_'), 'blobs', digest.replace(':', '_'), 'files');
   assert.deepEqual(fs.readdirSync(dir).sort(), ['method-list.json', 'method-list.json.minisig']);
   assert.ok(fs.readFileSync(path.join(dir, 'method-list.json')).equals(fs.readFileSync(path.join(w.listDir, 'method-list.json'))));
-  assert.match(fs.readFileSync(path.join(dir, 'method-list.json.minisig'), 'utf8'), /^trusted comment: txresbench-method-list format=1 sequence=2$/m);
+  assert.match(fs.readFileSync(path.join(dir, 'method-list.json.minisig'), 'utf8'), /^trusted comment: txresbench-method-list format=2 sequence=2$/m);
 });
 
 test('source_annotation_names_methods_repo', () => {
@@ -374,12 +374,12 @@ test('moving_tag_set_after_immutable_tag', () => {
   const calls = readLog(w.bin, 'oras');
   const pushAt = calls.findIndex((c) => c.sub === 'push');
   const tagAt = calls.findIndex((c) => c.sub === 'tag');
-  assert.ok(pushAt >= 0 && tagAt > pushAt, 'v1 is tagged after the immutable push');
-  const pushed = registryTag(w, 'v1-seq-000002');
+  assert.ok(pushAt >= 0 && tagAt > pushAt, 'v2 is tagged after the immutable push');
+  const pushed = registryTag(w, 'v2-seq-000002');
   const tagArgs = calls[tagAt].argv.filter((x) => !x.startsWith('-') && x !== 'tag' && !x.includes('registry-config') && x !== calls[tagAt].config);
-  assert.deepEqual(tagArgs, [`${PACKAGE}@${pushed}`, 'v1']);
-  // Between them, v1 was re-resolved.
-  assert.ok(calls.slice(pushAt, tagAt).some((c) => c.sub === 'resolve' && c.argv.includes(`${PACKAGE}:v1`)));
+  assert.deepEqual(tagArgs, [`${PACKAGE}@${pushed}`, 'v2']);
+  // Between them, v2 was re-resolved.
+  assert.ok(calls.slice(pushAt, tagAt).some((c) => c.sub === 'resolve' && c.argv.includes(`${PACKAGE}:v2`)));
 });
 
 test('stops_when_v1_moved_meanwhile', () => {
@@ -388,7 +388,7 @@ test('stops_when_v1_moved_meanwhile', () => {
   const r = publish(w);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /moved while this ran: it was #1 .*it is now #99/);
-  assert.match(r.out, /This list \(#2\) is at .*v1-seq-000002 and v1 was NOT moved/);
+  assert.match(r.out, /This list \(#2\) is at .*v2-seq-000002 and v2 was NOT moved/);
   assert.equal(tags(w).length, 0);
 });
 
@@ -402,15 +402,15 @@ test('post_push_byte_mismatch_fails_loudly', () => {
 
 test('dry_run_touches_nothing', () => {
   const w = world();
-  const before = registryTag(w, 'v1');
+  const before = registryTag(w, 'v2');
   const r = publish(w, ['--dry-run']);
   assert.equal(r.status, 0, r.out);
   assert.match(r.out, /dry run: nothing is signed or pushed/);
   assert.equal(readLog(w.bin, 'minisign').length, 0);
   assert.deepEqual(readLog(w.bin, 'oras').map((c) => c.sub).filter((s) => s !== 'resolve' && s !== 'pull'), []);
   assert.ok(readLog(w.bin, 'oras').every((c) => c.configText === '{}'), 'only anonymous reads');
-  assert.equal(registryTag(w, 'v1'), before);
-  assert.equal(registryTag(w, 'v1-seq-000002'), null);
+  assert.equal(registryTag(w, 'v2'), before);
+  assert.equal(registryTag(w, 'v2-seq-000002'), null);
 });
 
 test('a loopback rehearsal: plain HTTP to 127.0.0.1, no token; --keys only there', () => {
@@ -420,9 +420,9 @@ test('a loopback rehearsal: plain HTTP to 127.0.0.1, no token; --keys only there
   for (const e of [...images.bases, ...images.envs]) {
     seedArtifact(w.bin, e.oci_ref.replace('ghcr.io', '127.0.0.1:5055'), e.tag, { f: Buffer.from('x') }, e.digest);
   }
-  seedArtifact(w.bin, PACKAGE.replace('ghcr.io', '127.0.0.1:5055'), 'v1', {
+  seedArtifact(w.bin, PACKAGE.replace('ghcr.io', '127.0.0.1:5055'), 'v2', {
     'method-list.json': w.published,
-    'method-list.json.minisig': stubSignature(w.published, 'txresbench-method-list format=1 sequence=1'),
+    'method-list.json.minisig': stubSignature(w.published, 'txresbench-method-list format=2 sequence=1'),
   }, `sha256:${'a'.repeat(64)}`);
   const r = publish(w, ['--registry', '127.0.0.1:5055'], { GHCR_TOKEN: '' });
   assert.equal(r.status, 0, r.out);
@@ -435,20 +435,20 @@ test('a loopback rehearsal: plain HTTP to 127.0.0.1, no token; --keys only there
   assert.equal(publish(world(), ['--registry', 'ghcr.io:443']).status, 2);
 });
 
-test('a first push into a private package stops before v1; the rerun only moves v1', () => {
+test('a first push into a private package stops before v2; the rerun only moves v2', () => {
   const w = world({ publishedSeq: null });
   fs.writeFileSync(path.join(w.bin, 'behavior.json'), JSON.stringify({ privateUntilPublic: true }));
   let r = publish(w, ['--first-publish']);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /pushed but not readable anonymously\. A new package starts private/);
-  assert.equal(registryTag(w, 'v1'), null);
+  assert.equal(registryTag(w, 'v2'), null);
   assert.equal(pushes(w).length, 1);
   fs.writeFileSync(path.join(w.bin, 'behavior.json'), '{}'); // the owner made it public
   r = publish(w, ['--first-publish']);
   assert.equal(r.status, 0, r.out);
   assert.match(r.out, /already holds these bytes .*not pushed again/);
   assert.equal(pushes(w).length, 1);
-  assert.equal(registryTag(w, 'v1'), registryTag(w, 'v1-seq-000002'));
+  assert.equal(registryTag(w, 'v2'), registryTag(w, 'v2-seq-000002'));
 });
 
 test('a key file readable by others is refused before signing', () => {
@@ -466,37 +466,37 @@ test('refuses_published_list_that_does_not_verify', () => {
   const w = world({ publishedKey: UNTRUSTED_KEY_ID });
   const r = publish(w);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /v1 \(sha256:a{64}\) does not verify with this app's trusted keys/);
+  assert.match(r.out, /v2 \(sha256:a{64}\) does not verify with this app's trusted keys/);
   assert.match(r.out, /METHOD_LIST_UNKNOWN_KEY/);
   assert.match(r.out, /--supersede-unverified sha256:a{64}/);
   assert.equal(pushes(w).length, 0);
   assert.equal(readLog(w.bin, 'minisign').length, 0);
 });
 
-test('--supersede-unverified: the floor is the highest v1-seq-* list that verifies', () => {
+test('--supersede-unverified: the floor is the highest v2-seq-* list that verifies', () => {
   const digest = `sha256:${'a'.repeat(64)}`;
-  // v1 (#5) and v1-seq-000005 are signed by a key the app does not trust; #1 verifies.
+  // v2 (#5) and v2-seq-000005 are signed by a key the app does not trust; #1 verifies.
   let w = world({ publishedKey: UNTRUSTED_KEY_ID, publishedSeq: 5,
     seqTags: [{ seq: 1 }, { seq: 5, keyId: UNTRUSTED_KEY_ID }] });
   let r = publish(w, ['--supersede-unverified', `sha256:${'b'.repeat(64)}`]);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /is not the current .*:v1 \(sha256:a{64}\)/);
+  assert.match(r.out, /is not the current .*:v2 \(sha256:a{64}\)/);
   r = publish(w, ['--supersede-unverified', digest]);
   assert.equal(r.status, 0, r.out);
-  assert.match(r.out, /v1-seq-000005 does not verify/);
-  assert.match(r.out, /sequence floor: #1 \(v1-seq-000001\)/);
+  assert.match(r.out, /v2-seq-000005 does not verify/);
+  assert.match(r.out, /sequence floor: #1 \(v2-seq-000001\)/);
   assert.match(r.out, /^sequence: 1 -> 2$/m);
-  assert.equal(registryTag(w, 'v1'), registryTag(w, 'v1-seq-000002'));
+  assert.equal(registryTag(w, 'v2'), registryTag(w, 'v2-seq-000002'));
   // A verified tag at or above the local sequence still wins.
   w = world({ publishedKey: UNTRUSTED_KEY_ID, publishedSeq: 5, seqTags: [{ seq: 3 }] });
   r = publish(w, ['--supersede-unverified', digest]);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /sequence 2 is superseded by the published #3/);
-  // The flag is refused when v1 verifies.
+  // The flag is refused when v2 verifies.
   w = world();
   r = publish(w, ['--supersede-unverified', digest]);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /verifies: --supersede-unverified is only for a v1 that does not/);
+  assert.match(r.out, /verifies: --supersede-unverified is only for a v2 that does not/);
 });
 
 test('refuses_list_dropping_a_published_row', () => {
@@ -565,10 +565,10 @@ test('refuses an origin that is not the tinnlab repository (a fork)', () => {
 
 test('does_not_push_over_a_tag_it_cannot_read', () => {
   const w = world();
-  fs.writeFileSync(path.join(w.bin, 'behavior.json'), JSON.stringify({ resolveError: ['v1-seq-000002'] }));
+  fs.writeFileSync(path.join(w.bin, 'behavior.json'), JSON.stringify({ resolveError: ['v2-seq-000002'] }));
   const r = publish(w);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /cannot tell whether .*:v1-seq-000002 exists/);
+  assert.match(r.out, /cannot tell whether .*:v2-seq-000002 exists/);
   assert.match(r.out, /unexpected status code 500/);
   assert.equal(pushes(w).length, 0);
 });
@@ -578,9 +578,9 @@ test('v1_moves_only_after_the_pushed_artifact_reads_back', () => {
   fs.writeFileSync(path.join(w.bin, 'behavior.json'), JSON.stringify({ corruptReadback: true }));
   const r = publish(w);
   assert.equal(r.status, 1, r.out);
-  assert.match(r.out, /v1-seq-000002 reads back with other bytes \(method-list\.json\); v1 was NOT moved/);
+  assert.match(r.out, /v2-seq-000002 reads back with other bytes \(method-list\.json\); v2 was NOT moved/);
   assert.equal(tags(w).length, 0);
-  assert.equal(registryTag(w, 'v1'), `sha256:${'a'.repeat(64)}`);
+  assert.equal(registryTag(w, 'v2'), `sha256:${'a'.repeat(64)}`);
 });
 
 test('a_moved_v1_that_does_not_verify_is_not_read', () => {

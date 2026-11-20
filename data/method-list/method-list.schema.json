@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "method-list.schema.json",
   "title": "The method list (header)",
-  "description": "method-list.json: the two method documents in one signed file. The header is checked here; the nested documents keep their own schemas and loaders: `catalogue` is data/method-catalogue/catalogue.json's schema_version 1 (src-app/server/src/modules/method_catalogue/types.rs) and `images` is src-app/server/data/method-env-images.schema.json's schema_version 2. Written by scripts/assemble-method-list.py (sorted keys, indent 1), checked by scripts/check-method-list.sh, signed with minisign by scripts/publish-method-list.sh (trusted comment `txresbench-method-list format=<format_version> sequence=<sequence>`), loaded by src-app/server/src/modules/method_list/. Any change to this header or to either nested schema is a new format_version, published under a new tag line (v1, v2).",
+  "description": "method-list.json: the two method documents in one signed file. The header is checked here; the nested documents keep their own schemas and loaders: `catalogue` is data/method-catalogue/catalogue.json's schema_version 2 (src-app/server/src/modules/method_catalogue/types.rs) and `images` is src-app/server/data/method-env-images.schema.json's schema_version 2. Written by scripts/assemble-method-list.py (sorted keys, indent 1), checked by scripts/check-method-list.sh, signed with minisign by scripts/publish-method-list.sh (trusted comment `txresbench-method-list format=<format_version> sequence=<sequence>`), loaded by src-app/server/src/modules/method_list/. Any change to this header or to either nested schema is a new format_version, published under a new tag line (v2, v3).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -22,7 +22,7 @@
     "format_version": {
       "description": "The format line. The app refuses another one (it needs a newer app).",
       "type": "integer",
-      "const": 1
+      "const": 2
     },
     "sequence": {
       "description": "Each list is the previous one + 1; the app keeps the valid list with the highest sequence. 0 = the unsigned bootstrap copy an app release carries until the first publish.",
@@ -35,7 +35,7 @@
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
     },
     "catalogue": {
-      "description": "The catalogue, schema_version 1, as written by scripts/method-catalogue/gen_method_catalogue.py.",
+      "description": "The catalogue, schema_version 2, as written by scripts/method-catalogue/gen_method_catalogue.py.",
       "type": "object"
     },
     "images": {

@@ -104,6 +104,12 @@
     "container": false,
     "covariates": "none",
     "description": "A synthetic fixture rule over the two-marker cfDNA methylation panel (EYA4, GRIA4). It writes the quantity it thresholds as risk and a 0/1 call; it saves no model. A fixture method, not a research method.",
+    "disease": {
+     "groups": [
+      "non-small cell lung cancer"
+     ],
+     "scope": "group"
+    },
     "embeds_training_data": false,
     "env": {
      "contract": "2.0",
@@ -190,6 +196,12 @@
      "quality": "measured"
     },
     "title": "A synthetic fixture rule over the two-marker cfDNA",
+    "treatment": {
+     "classes": [
+      "immune checkpoint inhibitor"
+     ],
+     "confidence": "stated"
+    },
     "uses_history": "landmark",
     "version": "1.0.0",
     "year": 2026
@@ -199,6 +211,10 @@
     "container": false,
     "covariates": "optional",
     "description": "A synthetic fixture Cox model on baseline marker values up to the baseline window. The research population is fixed at 150 reference subjects; the fixture registry carries no patient records. This description intentionally mentions the research cohort and cites a repository at so the generator sanitizers are exercised.",
+    "disease": {
+     "groups": [],
+     "scope": "any-solid-tumour"
+    },
     "embeds_training_data": false,
     "env": {
      "contract": "2.0",
@@ -263,6 +279,10 @@
      "quality": "measured"
     },
     "title": "A synthetic fixture Cox model on baseline marker values up",
+    "treatment": {
+     "classes": [],
+     "confidence": "not-stated"
+    },
     "uses_history": "landmark",
     "version": "1.2.0",
     "year": 2026
@@ -272,6 +292,12 @@
     "container": false,
     "covariates": "required",
     "description": "A synthetic fixture logistic signature that predicts response probability from the serum CEA trajectory; the fitted signature embeds the training rows.",
+    "disease": {
+     "groups": [
+      "breast cancer"
+     ],
+     "scope": "group"
+    },
     "embeds_training_data": true,
     "env": {
      "contract": "2.0",
@@ -348,15 +374,62 @@
      "quality": "estimate"
     },
     "title": "A synthetic fixture logistic signature that predicts",
+    "treatment": {
+     "classes": [
+      "chemotherapy"
+     ],
+     "confidence": "inferred"
+    },
     "uses_history": "landmark",
     "version": "0.9.0",
     "year": 2026
    }
   ],
-  "schema_version": 1
+  "schema_version": 2,
+  "study_options": {
+   "disease_categories": [
+    {
+     "diseases": [
+      {
+       "children": [
+        "non-small cell lung cancer",
+        "small cell lung cancer"
+       ],
+       "id": "lung cancer"
+      },
+      {
+       "children": [],
+       "id": "breast cancer"
+      }
+     ],
+     "id": "Solid tumours"
+    },
+    {
+     "diseases": [
+      {
+       "children": [
+        "diffuse large B-cell lymphoma"
+       ],
+       "id": "lymphoma"
+      }
+     ],
+     "id": "Haematological"
+    }
+   ],
+   "treatment_classes": [
+    {
+     "id": "immune checkpoint inhibitor",
+     "label": "Immune checkpoint inhibitor"
+    },
+    {
+     "id": "chemotherapy",
+     "label": "Chemotherapy"
+    }
+   ]
+  }
  },
  "format": "txresbench-method-list",
- "format_version": 1,
+ "format_version": 2,
  "images": {
   "base_contract": "2.0",
   "bases": [

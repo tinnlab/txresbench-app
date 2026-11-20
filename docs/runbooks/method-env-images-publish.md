@@ -486,7 +486,7 @@ scripts/publish-method-env-images.sh --env <id> --skip-sign
 
 The method list (`method-list.json`) is the catalogue and the images list in one file,
 signed with minisign and published to `ghcr.io/tinnlab/txresbench-method-list`
-(`v1-seq-<N>`, then `v1`). Its data lives in the methods repository, folder
+(`v2-seq-<N>`, then `v2`). Its data lives in the methods repository, folder
 `method-list/`; the tools are this repository's, run against a methods checkout. A
 method update is one methods-repository PR; nothing changes in the app repository.
 
@@ -572,29 +572,29 @@ it refuses unless both checkouts' `origin` is the tinnlab repository (`tinnlab/t
 its `origin/main`, and the methods checkout is clean with `method-list/` equal to the methods
 `origin/main`; it publishes the files of the methods `origin/main` itself. It re-runs the
 checks above, the app's loader (`txresbench check-method-list`), rule 4 and rule 6; reads the
-published `:v1`, verifies it and refuses a sequence at or below it (the same list again is
+published `:v2`, verifies it and refuses a sequence at or below it (the same list again is
 "already published") or a list that drops a row of it; resolves every layer and base the
 list pins to its digest; signs in a scrubbed environment (`env -i`, the minisign password at
 the prompt); checks the signature with `minisign -V` and the app's verifier; pushes
-`v1-seq-<N>` (the list and its signature in one artifact) with the token in a temporary
+`v2-seq-<N>` (the list and its signature in one artifact) with the token in a temporary
 registry config (never `oras login`); reads that artifact back anonymously, byte for byte;
-moves `v1` only if nobody moved it meanwhile; and reads `v1` back byte for byte. The token
+moves `v2` only if nobody moved it meanwhile; and reads `v2` back byte for byte. The token
 (`GHCR_USER`, `GHCR_TOKEN`) is taken out of the environment at the start: no child process
 (git, cargo, oras, minisign, the verifier) sees it. The verifier is `cargo run` in the app
 checkout, or the binary named with `--cli` (a `TXR_CLI` in the environment is refused). The
 first publish needs `--first-publish` (an anonymous request for a missing package looks like
 one for a private package); a package's first push creates it private: make it public and
-rerun, and the rerun only moves `v1`. `--registry 127.0.0.1:<port>` rehearses on a local
+rerun, and the rerun only moves `v2`. `--registry 127.0.0.1:<port>` rehearses on a local
 registry (plain HTTP, no token; `--keys` may then name a test key's trusted-keys file).
 
-**A `:v1` that does not verify.** The publisher stops and reads nothing from it (not its
+**A `:v2` that does not verify.** The publisher stops and reads nothing from it (not its
 sequence, not its rows): it was signed by a key this app no longer trusts, or someone with
 write access to the package pushed it. Find out which before going on. To replace it, rerun
 with `--supersede-unverified <its digest>` (the refusal prints it). The floor is then the
-highest `v1-seq-<N>` whose list verifies and says sequence N: the new list must be above it
+highest `v2-seq-<N>` whose list verifies and says sequence N: the new list must be above it
 and keep its rows. Tags above the floor that do not verify are listed; an installed app that
 still trusts their signer may hold such a list, so after a key is removed from
-`trusted-keys.json` pick a sequence above those too. `v1` is moved only if it is still at the
+`trusted-keys.json` pick a sequence above those too. `v2` is moved only if it is still at the
 digest you named.
 
 **A wrong list.** Never delete or retag a published version. Publish a NEW list (a higher
@@ -613,7 +613,7 @@ An app release carries the published list as its built-in copy:
 
 ```sh
 git switch -c release/method-list-<N> origin/main      # a worktree, as for any change
-scripts/import-method-list.sh                           # :v1; --sequence <N> for another
+scripts/import-method-list.sh                           # :v2; --sequence <N> for another
 ```
 
 The import pulls anonymously, verifies with the app's own verifier and trusted keys
@@ -641,12 +641,12 @@ an unsigned list only at sequence 0); any published list replaces it.
 ## 10. How installed apps get a new list
 
 An installed app runs on the newest valid list it knows: its built-in copy, the last good
-list it stored (`<app data>/method-list/v1/`), or the one it fetches. It asks the registry
+list it stored (`<app data>/method-list/v2/`), or the one it fetches. It asks the registry
 at start (in the background, never blocking the start), before each run starts (5 s to
 resolve, 30 s to pull a new list; any failure: the run goes on with the list in use) and
 when the user presses "Check for method updates" in Settings. There is no timer.
 
-A check resolves `ghcr.io/tinnlab/txresbench-method-list:v1` with the bundled oras
+A check resolves `ghcr.io/tinnlab/txresbench-method-list:v2` with the bundled oras
 (anonymous, the app's empty registry config) and pulls only a digest it has not seen, by
 digest, capped at 16 MiB. The signature is checked before anything reads the list; a list
 signed by a key the app does not trust, too large, not exactly the two files, older than
@@ -668,10 +668,10 @@ variables a release build ignores:
 ```sh
 # a throwaway key, and a list signed with it, pushed to a personal package
 minisign -G -W -p /path/test.pub -s /path/test.key
-# … assemble, sign (trusted comment "txresbench-method-list format=1 sequence=<N>") and
-# `oras push ghcr.io/<you>/txresbench-method-list-test:v1 method-list.json method-list.json.minisig`
+# … assemble, sign (trusted comment "txresbench-method-list format=2 sequence=<N>") and
+# `oras push ghcr.io/<you>/txresbench-method-list-test:v2 method-list.json method-list.json.minisig`
 # (the package public, or a registry config with a token for the push only)
-TXR_METHOD_LIST_REF=ghcr.io/<you>/txresbench-method-list-test:v1 \
+TXR_METHOD_LIST_REF=ghcr.io/<you>/txresbench-method-list-test:v2 \
 TXR_METHOD_LIST_TEST_KEY=/path/test.pub \
 CONFIG_FILE=config/dev.yaml cargo run
 ```

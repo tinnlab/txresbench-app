@@ -7,9 +7,9 @@
 # merged by the owner with a merge commit. This script publishes what the METHODS
 # repository's origin/main holds, never a working tree, to
 # ghcr.io/tinnlab/txresbench-method-list:
-#   v1-seq-<NNNNNN>  immutable, one per list (the list + its minisign signature in ONE
+#   v2-seq-<NNNNNN>  immutable, one per list (the list + its minisign signature in ONE
 #                    artifact, artifact type application/vnd.txresbench.method-list.v1);
-#   v1               moving, set last: what installed apps fetch.
+#   v2               moving, set last: what installed apps fetch.
 #
 # Steps (each refusal stops the run; nothing is signed or pushed before a-d pass):
 #   a. both checkouts' origin is the tinnlab repository (github.com/tinnlab/txresbench-app,
@@ -23,32 +23,32 @@
 #      (`txresbench check-method-list` over an unsigned sequence 0 copy of the same two
 #      documents), the list has bases (rule 4), and every entry's source_revision is an
 #      ancestor of the methods origin/main (rule 6).
-#   c. anonymously resolve, pull and verify the published :v1; the local sequence must be
+#   c. anonymously resolve, pull and verify the published :v2; the local sequence must be
 #      above it (equal + same bytes = already published, exit 0; lower = superseded), and
 #      the list keeps every row and same-version fact of the published one.
 #      `--first-publish` is required when nothing is published yet (GHCR answers an
 #      anonymous request for a missing package like one for a private package).
-#      A :v1 that does not verify with this app's trusted keys (signed by a key removed
+#      A :v2 that does not verify with this app's trusted keys (signed by a key removed
 #      since, or pushed by someone else) stops the run, and nothing is read from it. To
 #      replace it: `--supersede-unverified <its digest>`; the floor is then the highest
-#      v1-seq-* list that does verify (its sequence and its rows), and v1 must still be at
+#      v2-seq-* list that does verify (its sequence and its rows), and v2 must still be at
 #      that digest when it is moved.
 #   d. anonymously resolve every layer and base tag the list names: each must give its
 #      pinned digest.
 #   e. SIGN in a scrubbed environment: `env -i PATH HOME minisign -S` with the trusted
-#      comment `txresbench-method-list format=1 sequence=<N>`; the password is asked at
+#      comment `txresbench-method-list format=2 sequence=<N>`; the password is asked at
 #      the prompt. GHCR_TOKEN is not read before this step and is never in the signer's
 #      environment.
 #   f. verify the signature with `minisign -V -H` (the signer's public key from
 #      data/method-list/trusted-keys.json) and with `txresbench check-method-list`.
-#   g. push v1-seq-<N> with the token in a temporary registry config (mode 600, removed
+#   g. push v2-seq-<N> with the token in a temporary registry config (mode 600, removed
 #      on exit; never `oras login`), with the annotations
 #      org.opencontainers.image.source=https://github.com/tinnlab/txresbench-methods and
 #      org.opencontainers.image.revision=<methods origin/main commit>. The pushed tag must
 #      then read back anonymously, as apps read it (a package's first push creates it
-#      private: make it public and rerun; the rerun finds the push and only moves v1).
-#   h. re-resolve :v1: if it moved since c, stop and print both sequences; else tag v1.
-#   i. anonymously pull :v1 and byte-compare both files; print what changed.
+#      private: make it public and rerun; the rerun finds the push and only moves v2).
+#   h. re-resolve :v2: if it moved since c, stop and print both sequences; else tag v2.
+#   i. anonymously pull :v2 and byte-compare both files; print what changed.
 #
 # Usage:
 #   scripts/publish-method-list.sh --methods-dir <methods checkout> [--dry-run]
@@ -63,7 +63,7 @@
 #                      (a test key), never on ghcr.io
 #   --cli PATH         the txresbench binary to verify with; default: `cargo run` in this
 #                      checkout. A TXR_CLI in the environment is refused (name it with --cli)
-#   --supersede-unverified DIGEST  replace a :v1 that does not verify (step c)
+#   --supersede-unverified DIGEST  replace a :v2 that does not verify (step c)
 #   GHCR_USER, GHCR_TOKEN  a classic token with write:packages. Taken out of the environment
 #                      at the start (no child process sees it) and used at step g only
 #
@@ -72,8 +72,8 @@ set -euo pipefail
 
 REPO=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 PACKAGE="ghcr.io/tinnlab/txresbench-method-list"
-LINE="v1"
-FORMAT_VERSION=1
+LINE="v2"
+FORMAT_VERSION=2
 ARTIFACT_TYPE="application/vnd.txresbench.method-list.v1"
 LIST_MEDIA="application/vnd.txresbench.method-list.v1+json"
 SIG_MEDIA="application/vnd.txresbench.method-list.signature.v1"
@@ -116,7 +116,7 @@ if [ -z "$CLI" ] && [ -n "${TXR_CLI:-}" ]; then
   usage_error "TXR_CLI is set ($TXR_CLI): the verifier is named only with --cli; pass --cli \"\$TXR_CLI\" to use it, or unset TXR_CLI"
 fi
 if [ -n "$SUPERSEDE" ]; then
-  [[ $SUPERSEDE =~ ^sha256:[0-9a-f]{64}$ ]] || usage_error "--supersede-unverified takes the digest of the :v1 to replace (sha256:<64 hex>)"
+  [[ $SUPERSEDE =~ ^sha256:[0-9a-f]{64}$ ]] || usage_error "--supersede-unverified takes the digest of the :v2 to replace (sha256:<64 hex>)"
 fi
 [ -n "$METHODS_DIR" ] || usage_error "--methods-dir <the methods repository checkout> is required"
 if [ -n "$LOOPBACK" ]; then
@@ -259,7 +259,7 @@ else
   [ "$FIRST" = 0 ] || die "--first-publish, but $REF:$LINE exists ($PUBLISHED_DIGEST)"
   oras_anon pull "$REF@$PUBLISHED_DIGEST" -o "$WORK/published" >/dev/null || die "cannot pull $REF@$PUBLISHED_DIGEST"
   if report=$(verify_artifact "$WORK/published" 2>"$WORK/verify.err"); then
-    [ -z "$SUPERSEDE" ] || die "$REF:$LINE ($PUBLISHED_DIGEST) verifies: --supersede-unverified is only for a v1 that does not"
+    [ -z "$SUPERSEDE" ] || die "$REF:$LINE ($PUBLISHED_DIGEST) verifies: --supersede-unverified is only for a v2 that does not"
     PUBLISHED_SEQ=$(sequence_of "$report")
     PUBLISHED_LIST="$WORK/published/method-list.json"
     echo "published: sequence $PUBLISHED_SEQ ($PUBLISHED_DIGEST)"
@@ -267,11 +267,11 @@ else
     # Nothing is read from a list that does not verify: not its sequence, not its rows.
     if [ -z "$SUPERSEDE" ]; then
       die "$REF:$LINE ($PUBLISHED_DIGEST) does not verify with this app's trusted keys: $(tr '\n' ' ' < "$WORK/verify.err")
-Signed by a key removed since, or pushed there by someone else? Never build on it. To replace it, rerun with --supersede-unverified $PUBLISHED_DIGEST: the new list must then be above the highest v1-seq-* list that verifies."
+Signed by a key removed since, or pushed there by someone else? Never build on it. To replace it, rerun with --supersede-unverified $PUBLISHED_DIGEST: the new list must then be above the highest v2-seq-* list that verifies."
     fi
     [ "$SUPERSEDE" = "$PUBLISHED_DIGEST" ] || die "--supersede-unverified $SUPERSEDE is not the current $REF:$LINE ($PUBLISHED_DIGEST)"
     echo "$REF:$LINE ($PUBLISHED_DIGEST) does not verify: superseded on purpose (--supersede-unverified)"
-    # The floor: the highest v1-seq-<N> whose list verifies and says sequence N.
+    # The floor: the highest v2-seq-<N> whose list verifies and says sequence N.
     tags=$(oras_anon repo tags "$REF" 2>"$WORK/tags.err") || die "cannot list the tags of $REF: $(cat "$WORK/tags.err")"
     for t in $(printf '%s\n' "$tags" | grep -E "^$LINE-seq-[0-9]{6}\$" | sort -r); do
       rm -rf "$WORK/floor" && mkdir -p "$WORK/floor"
@@ -403,7 +403,7 @@ else
   PUSHED=$(oras_auth resolve "$REF:$TAG") || die "the pushed $REF:$TAG does not resolve"
   echo "pushed $REF:$TAG = $PUSHED"
 fi
-# Installed apps read anonymously: so must this run, byte for byte, before v1 points anywhere.
+# Installed apps read anonymously: so must this run, byte for byte, before v2 points anywhere.
 anon=$(oras_anon resolve "$REF:$TAG" 2>/dev/null || true)
 [ "$anon" = "$PUSHED" ] || die "$REF:$TAG is pushed but not readable anonymously. A new package starts private: make it public (GitHub: the package's settings, Change visibility), then rerun with the same arguments; the rerun finds this push and only moves $LINE"
 rm -rf "$WORK/readback" && mkdir -p "$WORK/readback"
@@ -413,7 +413,7 @@ for f in method-list.json method-list.json.minisig; do
     || die "$REF:$TAG reads back with other bytes ($f); $LINE was NOT moved. Investigate before anything else."
 done
 
-# ── h. move v1, unless it moved meanwhile ───────────────────────────────────────
+# ── h. move v2, unless it moved meanwhile ───────────────────────────────────────
 echo "== h. $REF:$LINE"
 if now=$(resolve anon "$REF:$LINE"); then st=0; else st=$?; now=""; fi
 [ "$st" != 1 ] || die "cannot read $REF:$LINE before moving it: $(cat "$WORK/resolve.err"). $REF:$TAG is pushed; $LINE was NOT moved"

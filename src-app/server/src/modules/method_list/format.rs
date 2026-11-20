@@ -2,9 +2,9 @@
 //! them together.
 //!
 //! ```json
-//! { "format": "txresbench-method-list", "format_version": 1, "sequence": 42,
+//! { "format": "txresbench-method-list", "format_version": 2, "sequence": 42,
 //!   "assembled_at": "2026-11-20T10:00:00Z",
-//!   "catalogue": { <catalogue.json, schema_version 1> },
+//!   "catalogue": { <catalogue.json, schema_version 2> },
 //!   "images":    { <method-env-images.json, schema_version 2> } }
 //! ```
 //!
@@ -36,7 +36,7 @@ use super::verify::{SignedComment, Signer, VerifiedList};
 /// The list file's `format`.
 pub const LIST_FORMAT: &str = "txresbench-method-list";
 /// The format line this build reads.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// A parsed, checked method list.
 #[derive(Debug, Clone)]
@@ -378,7 +378,7 @@ mod tests {
     ));
 
     const SIGNED_1: Option<SignedComment> = Some(SignedComment {
-        format_version: 1,
+        format_version: 2,
         sequence: 1,
     });
 
@@ -415,10 +415,15 @@ mod tests {
 
     #[test]
     fn parse_refuses_format_version_mismatch() {
+        // A newer format line: the "needs a newer app" refusal.
         let mut d = doc();
-        d["format_version"] = 2.into();
+        d["format_version"] = 3.into();
         let err = parse_doc(&d, SIGNED_1).unwrap_err();
-        assert_eq!(err, ListError::FormatVersion { found: 2 });
+        assert_eq!(err, ListError::FormatVersion { found: 3 });
+        // A format-1 list (the previous line) is refused the same way.
+        let mut d = doc();
+        d["format_version"] = 1.into();
+        assert_eq!(parse_doc(&d, SIGNED_1).unwrap_err(), ListError::FormatVersion { found: 1 });
         let mut d = doc();
         d["format"] = "another-list".into();
         assert_eq!(parse_doc(&d, SIGNED_1).unwrap_err().code(), "METHOD_LIST_WRONG_FORMAT");
@@ -442,9 +447,9 @@ mod tests {
     #[test]
     fn parse_refuses_nested_schema_mismatch() {
         let mut d = doc();
-        d["catalogue"]["schema_version"] = 2.into();
+        d["catalogue"]["schema_version"] = 3.into();
         let err = parse_doc(&d, SIGNED_1).unwrap_err();
-        assert_eq!(err, ListError::Catalogue(CatalogueLoadError::SchemaVersion { found: 2 }));
+        assert_eq!(err, ListError::Catalogue(CatalogueLoadError::SchemaVersion { found: 3 }));
         let mut d = doc();
         d["images"]["schema_version"] = 1.into();
         let err = parse_doc(&d, SIGNED_1).unwrap_err();

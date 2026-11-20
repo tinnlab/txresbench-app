@@ -4,7 +4,7 @@
 //! the estimate request/response).
 //!
 //! The catalogue data model mirrors `data/method-catalogue/catalogue.json` (schema
-//! version 1, emitted by `scripts/method-catalogue/gen_method_catalogue.py`)
+//! version 2, emitted by `scripts/method-catalogue/gen_method_catalogue.py`)
 //! EXACTLY: a field the generator emits is a field here, and the whole model is
 //! `deny_unknown_fields` so a catalogue that disagrees with the code is a boot
 //! failure (first-party data posture, `catalogue.rs`), never a silent mismatch.
@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 /// The catalogue schema version this module understands. A different value at
 /// boot is a named refusal (see `catalogue::CatalogueLoadError`).
-pub const CATALOGUE_SCHEMA_VERSION: u32 = 1;
+pub const CATALOGUE_SCHEMA_VERSION: u32 = 2;
 
 /// The default per-job CPU count assumed when an estimate request omits `cpus`
 /// (the app's standard per-job cap; DEC-7).
@@ -42,7 +42,7 @@ pub const MAX_METHOD_SUMMARY_CHARS: usize = 170;
 // Catalogue data model (PROV-MC-1)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The root of `data/method-catalogue/catalogue.json` (schema version 1).
+/// The root of `data/method-catalogue/catalogue.json` (schema version 2).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Catalogue {
@@ -59,6 +59,10 @@ pub struct Catalogue {
     pub markers: Vec<VocabularyMarker>,
     /// The 7 board marker groups (screen B checkboxes).
     pub groups: Vec<MarkerGroup>,
+    /// The `study_options` vocabulary the filters read: the disease categories
+    /// (with the diseases and their children a method's `disease.groups` may
+    /// name) and the treatment classes.
+    pub study_options: StudyOptions,
 }
 
 impl Catalogue {
@@ -356,6 +360,13 @@ pub struct Method {
     pub required_markers: Option<RequiredMarkers>,
     pub needs_detection_call: bool,
     pub marker_groups_required: Vec<String>,
+    /// The disease(s) the method applies to (schema 2): a scope, or the named
+    /// diseases/children under [`Catalogue::study_options`].
+    pub disease: MethodDisease,
+    /// The treatment classes the method applies to, and how that was stated
+    /// (schema 2; class ids are ids of
+    /// [`Catalogue::study_options`]'s treatment classes).
+    pub treatment: MethodTreatment,
     pub description: String,
     pub timing: Timing,
     pub performance: Option<Performance>,
@@ -393,6 +404,119 @@ pub struct MarkerGroup {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// The `study_options` vocabulary + the per-method disease/treatment facts
+// (schema version 2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The disease categories `study_options.disease_categories[]` — each category
+/// lists the diseases under it, and each disease lists its child disease names
+/// (the strings a method's `disease.groups` may name directly).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DiseaseCategory {
+    /// The category id (e.g. `Solid tumours`).
+    pub id: String,
+    pub diseases: Vec<DiseaseEntry>,
+}
+
+/// One disease of a category: its id and the child disease names under it
+/// (`children` empty when the disease has none).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DiseaseEntry {
+    pub id: String,
+    pub children: Vec<String>,
+}
+
+/// One treatment class (`study_options.treatment_classes[]`): the base id a
+/// method's `treatment.classes` names plus the display label.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TreatmentClass {
+    pub id: String,
+    pub label: String,
+}
+
+/// `study_options` — the fixed `study_options` vocabulary at the catalogue's top
+/// level: the disease categories (disease + child levels) and the treatment
+/// classes every method row references.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StudyOptions {
+    pub disease_categories: Vec<DiseaseCategory>,
+    pub treatment_classes: Vec<TreatmentClass>,
+}
+
+/// The scope of a method's disease fact. `group` names specific diseases
+/// ([`MethodDisease::groups`]); the coarser scopes stand for every disease.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiseaseScope {
+    /// Specific diseases, named in [`MethodDisease::groups`].
+    Group,
+    /// Any disease of any type.
+    Any,
+    /// Any solid tumour.
+    AnySolidTumour,
+    /// Any cancer.
+    AnyCancer,
+}
+
+impl DiseaseScope {
+    /// The wire form of the scope (the serde derive's kebab-case), for the
+    /// loader's named refusals.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DiseaseScope::Group => "group",
+            DiseaseScope::Any => "any",
+            DiseaseScope::AnySolidTumour => "any-solid-tumour",
+            DiseaseScope::AnyCancer => "any-cancer",
+        }
+    }
+}
+
+/// A method's `disease` fact: a scope and, exactly when the scope is `group`,
+/// the disease/child names it applies to (non-empty; empty for the coarser
+/// scopes).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MethodDisease {
+    pub scope: DiseaseScope,
+    pub groups: Vec<String>,
+}
+
+/// The confidence a method's treatment classes were stated with. `not-stated`
+/// carries an empty [`MethodTreatment::classes`]; `stated`/`inferred` carry the
+/// classes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum TreatmentConfidence {
+    Stated,
+    Inferred,
+    NotStated,
+}
+
+impl TreatmentConfidence {
+    /// The wire form of the confidence, for the loader's named refusals.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TreatmentConfidence::Stated => "stated",
+            TreatmentConfidence::Inferred => "inferred",
+            TreatmentConfidence::NotStated => "not-stated",
+        }
+    }
+}
+
+/// A method's `treatment` fact: the base-class ids it applies to (empty when
+/// nothing is stated) and how that was established.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MethodTreatment {
+    pub classes: Vec<String>,
+    pub confidence: TreatmentConfidence,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PROV-MC-2 — GET /api/methods
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -426,6 +550,12 @@ pub struct MethodSummary {
     pub marker_groups_required: Vec<String>,
     pub required_markers: Option<RequiredMarkers>,
     pub needs_baseline: bool,
+    /// The disease(s) the method applies to — the same fact as the full row's,
+    /// so the list row and the detail never disagree.
+    pub disease: MethodDisease,
+    /// The treatment classes the method applies to — the same fact as the full
+    /// row's.
+    pub treatment: MethodTreatment,
     pub embeds_training_data: bool,
     pub timing: Timing,
     pub performance: Option<Performance>,
@@ -458,6 +588,8 @@ impl MethodSummary {
             marker_groups_required: m.marker_groups_required.clone(),
             required_markers: m.required_markers.clone(),
             needs_baseline: m.needs_baseline,
+            disease: m.disease.clone(),
+            treatment: m.treatment.clone(),
             embeds_training_data: m.embeds_training_data,
             timing: m.timing,
             performance: m.performance,
@@ -930,5 +1062,32 @@ mod tests {
         let s = serde_json::to_value(schemars::schema_for!(MethodGroup)).expect("serializable");
         let s = format!("{s}");
         assert!(s.contains("\"dynamic-risk\"") && s.contains("\"response-call\""));
+    }
+
+    /// The schema-2 `study_options` enums are the closed kebab-case wire
+    /// vocabulary (the strings the catalogue data and the filter client use).
+    #[test]
+    fn study_option_wires_are_the_documented_kebab_case_strings() {
+        let disease_cases: &[(DiseaseScope, &str)] = &[
+            (DiseaseScope::Group, "group"),
+            (DiseaseScope::Any, "any"),
+            (DiseaseScope::AnySolidTumour, "any-solid-tumour"),
+            (DiseaseScope::AnyCancer, "any-cancer"),
+        ];
+        for (value, wire) in disease_cases {
+            assert_eq!(serde_json::to_value(*value).unwrap(), serde_json::json!(wire));
+            let back: DiseaseScope = serde_json::from_value(serde_json::json!(wire)).expect(wire);
+            assert_eq!(back, *value, "{wire}");
+        }
+        let treatment_cases: &[(TreatmentConfidence, &str)] = &[
+            (TreatmentConfidence::Stated, "stated"),
+            (TreatmentConfidence::Inferred, "inferred"),
+            (TreatmentConfidence::NotStated, "not-stated"),
+        ];
+        for (value, wire) in treatment_cases {
+            assert_eq!(serde_json::to_value(*value).unwrap(), serde_json::json!(wire));
+            let back: TreatmentConfidence = serde_json::from_value(serde_json::json!(wire)).expect(wire);
+            assert_eq!(back, *value, "{wire}");
+        }
     }
 }

@@ -316,7 +316,7 @@ mod tests {
         assert_eq!(
             v.comment(),
             Some(SignedComment {
-                format_version: 1,
+                format_version: 2,
                 sequence: 1
             })
         );

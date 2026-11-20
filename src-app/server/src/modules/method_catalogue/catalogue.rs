@@ -15,7 +15,9 @@
 
 use std::fmt;
 
-use crate::modules::method_catalogue::types::{Catalogue, CATALOGUE_SCHEMA_VERSION};
+use crate::modules::method_catalogue::types::{
+    Catalogue, DiseaseScope, TreatmentConfidence, CATALOGUE_SCHEMA_VERSION,
+};
 use crate::modules::sandbox::env_id::is_valid_env_id;
 
 /// The longest method id or group id (a method id is also an image repository component).
@@ -52,6 +54,30 @@ pub enum CatalogueLoadError {
     InvalidMarkerId { id: String },
     /// A group id is not a short slug of the env-id characters.
     InvalidGroupId { id: String },
+    /// Two `study_options.disease_categories` share an id.
+    DuplicateDiseaseCategory { id: String },
+    /// Two diseases (across categories) share an id.
+    DuplicateDisease { id: String },
+    /// A disease's child appears under two diseases (each child is exactly one
+    /// disease's).
+    DuplicateChild { id: String },
+    /// A disease's child is also a disease (the child level is below the
+    /// disease level, never the same name).
+    ChildIsAlsoDisease { id: String },
+    /// Two `study_options.treatment_classes` share an id.
+    DuplicateTreatmentClass { id: String },
+    /// A method's `disease` scope and groups disagree: `group` needs a
+    /// non-empty `groups`, the coarser scopes an empty one.
+    DiseaseScopeGroupsMismatch { method: String, scope: String },
+    /// A method's `treatment` classes and confidence disagree: `not-stated`
+    /// needs an empty `classes`, `stated`/`inferred` a non-empty one.
+    TreatmentClassesConfidenceMismatch { method: String, confidence: String },
+    /// A method names a disease group that is not a disease or a child in
+    /// `study_options`.
+    UnknownDiseaseGroup { method: String, group: String },
+    /// A method names a treatment class that is not an id in
+    /// `study_options.treatment_classes`.
+    UnknownTreatmentClass { method: String, class_id: String },
 }
 
 impl CatalogueLoadError {
@@ -68,6 +94,17 @@ impl CatalogueLoadError {
             CatalogueLoadError::InvalidMethodId { .. } => "CATALOGUE_INVALID_METHOD_ID",
             CatalogueLoadError::InvalidMarkerId { .. } => "CATALOGUE_INVALID_MARKER_ID",
             CatalogueLoadError::InvalidGroupId { .. } => "CATALOGUE_INVALID_GROUP_ID",
+            CatalogueLoadError::DuplicateDiseaseCategory { .. } => "CATALOGUE_DUPLICATE_DISEASE_CATEGORY",
+            CatalogueLoadError::DuplicateDisease { .. } => "CATALOGUE_DUPLICATE_DISEASE",
+            CatalogueLoadError::DuplicateChild { .. } => "CATALOGUE_DUPLICATE_CHILD",
+            CatalogueLoadError::ChildIsAlsoDisease { .. } => "CATALOGUE_CHILD_IS_ALSO_DISEASE",
+            CatalogueLoadError::DuplicateTreatmentClass { .. } => "CATALOGUE_DUPLICATE_TREATMENT_CLASS",
+            CatalogueLoadError::DiseaseScopeGroupsMismatch { .. } => "CATALOGUE_DISEASE_SCOPE_GROUPS_MISMATCH",
+            CatalogueLoadError::TreatmentClassesConfidenceMismatch { .. } => {
+                "CATALOGUE_TREATMENT_CONFIDENCE_MISMATCH"
+            }
+            CatalogueLoadError::UnknownDiseaseGroup { .. } => "CATALOGUE_UNKNOWN_DISEASE_GROUP",
+            CatalogueLoadError::UnknownTreatmentClass { .. } => "CATALOGUE_UNKNOWN_TREATMENT_CLASS",
         }
     }
 }
@@ -117,6 +154,50 @@ impl fmt::Display for CatalogueLoadError {
                 f,
                 "CATALOGUE_INVALID_GROUP_ID: group id {id:?} is not a lowercase slug of at most \
                  {MAX_ID_LEN} characters"
+            ),
+            CatalogueLoadError::DuplicateDiseaseCategory { id } => write!(
+                f,
+                "CATALOGUE_DUPLICATE_DISEASE_CATEGORY: disease category `{id}` appears twice"
+            ),
+            CatalogueLoadError::DuplicateDisease { id } => write!(
+                f,
+                "CATALOGUE_DUPLICATE_DISEASE: disease `{id}` appears twice (across categories)"
+            ),
+            CatalogueLoadError::DuplicateChild { id } => write!(
+                f,
+                "CATALOGUE_DUPLICATE_CHILD: disease child `{id}` appears under two diseases \
+                 (a child is exactly one disease's)"
+            ),
+            CatalogueLoadError::ChildIsAlsoDisease { id } => write!(
+                f,
+                "CATALOGUE_CHILD_IS_ALSO_DISEASE: `{id}` is both a disease and a child of one \
+                 (the child level is below the disease level)"
+            ),
+            CatalogueLoadError::DuplicateTreatmentClass { id } => write!(
+                f,
+                "CATALOGUE_DUPLICATE_TREATMENT_CLASS: treatment class `{id}` appears twice"
+            ),
+            CatalogueLoadError::DiseaseScopeGroupsMismatch { method, scope } => write!(
+                f,
+                "CATALOGUE_DISEASE_SCOPE_GROUPS_MISMATCH: method `{method}` has disease.scope \
+                 {scope:?}, whose groups must be {}; they are not",
+                if scope == "group" { "non-empty" } else { "empty" }
+            ),
+            CatalogueLoadError::TreatmentClassesConfidenceMismatch { method, confidence } => write!(
+                f,
+                "CATALOGUE_TREATMENT_CONFIDENCE_MISMATCH: method `{method}` has \
+                 treatment.confidence {confidence:?}, whose classes must be {}; they are not",
+                if confidence == "not-stated" { "empty" } else { "non-empty" }
+            ),
+            CatalogueLoadError::UnknownDiseaseGroup { method, group } => write!(
+                f,
+                "CATALOGUE_UNKNOWN_DISEASE_GROUP: method `{method}` names disease group \
+                 {group:?}, which is not a disease or a child in study_options"
+            ),
+            CatalogueLoadError::UnknownTreatmentClass { method, class_id } => write!(
+                f,
+                "CATALOGUE_UNKNOWN_TREATMENT_CLASS: method `{method}` names treatment class \
+                 {class_id:?}, which is not an id of study_options.treatment_classes"
             ),
         }
     }
@@ -202,6 +283,114 @@ fn validate_catalogue(c: &Catalogue) -> Result<(), CatalogueLoadError> {
             return Err(CatalogueLoadError::DuplicateGroupId { id: g.id.clone() });
         }
         group_ids.push(&g.id);
+    }
+    validate_study_options(c)?;
+    Ok(())
+}
+
+/// The schema-2 `study_options` checks (the vocabulary every method row
+/// references): ids are unique, a child is exactly one disease's and is never
+/// also a disease, and each method's `disease`/`treatment` facts are
+/// consistent and name known entries.
+fn validate_study_options(c: &Catalogue) -> Result<(), CatalogueLoadError> {
+    let mut category_ids: Vec<&str> = Vec::new();
+    let mut disease_ids: Vec<&str> = Vec::new();
+    let mut child_ids: Vec<&str> = Vec::new();
+    for category in &c.study_options.disease_categories {
+        if category_ids.contains(&category.id.as_str()) {
+            return Err(CatalogueLoadError::DuplicateDiseaseCategory {
+                id: category.id.clone(),
+            });
+        }
+        category_ids.push(&category.id);
+        for disease in &category.diseases {
+            if disease_ids.contains(&disease.id.as_str()) {
+                return Err(CatalogueLoadError::DuplicateDisease {
+                    id: disease.id.clone(),
+                });
+            }
+            disease_ids.push(&disease.id);
+            for child in &disease.children {
+                if child_ids.contains(&child.as_str()) {
+                    return Err(CatalogueLoadError::DuplicateChild {
+                        id: child.clone(),
+                    });
+                }
+                child_ids.push(child);
+            }
+        }
+    }
+    for child in &child_ids {
+        if disease_ids.contains(child) {
+            return Err(CatalogueLoadError::ChildIsAlsoDisease {
+                id: (*child).to_string(),
+            });
+        }
+    }
+    let mut treatment_ids: Vec<&str> = Vec::new();
+    for treatment in &c.study_options.treatment_classes {
+        if treatment_ids.contains(&treatment.id.as_str()) {
+            return Err(CatalogueLoadError::DuplicateTreatmentClass {
+                id: treatment.id.clone(),
+            });
+        }
+        treatment_ids.push(&treatment.id);
+    }
+    for m in &c.methods {
+        match m.disease.scope {
+            DiseaseScope::Group => {
+                if m.disease.groups.is_empty() {
+                    return Err(CatalogueLoadError::DiseaseScopeGroupsMismatch {
+                        method: m.id.clone(),
+                        scope: DiseaseScope::Group.as_str().to_string(),
+                    });
+                }
+                for group in &m.disease.groups {
+                    if !disease_ids.contains(&group.as_str())
+                        && !child_ids.contains(&group.as_str())
+                    {
+                        return Err(CatalogueLoadError::UnknownDiseaseGroup {
+                            method: m.id.clone(),
+                            group: group.clone(),
+                        });
+                    }
+                }
+            }
+            scope => {
+                if !m.disease.groups.is_empty() {
+                    return Err(CatalogueLoadError::DiseaseScopeGroupsMismatch {
+                        method: m.id.clone(),
+                        scope: scope.as_str().to_string(),
+                    });
+                }
+            }
+        }
+        match m.treatment.confidence {
+            TreatmentConfidence::NotStated => {
+                if !m.treatment.classes.is_empty() {
+                    return Err(CatalogueLoadError::TreatmentClassesConfidenceMismatch {
+                        method: m.id.clone(),
+                        confidence: TreatmentConfidence::NotStated.as_str().to_string(),
+                    });
+                }
+            }
+            confidence => {
+                if m.treatment.classes.is_empty() {
+                    return Err(CatalogueLoadError::TreatmentClassesConfidenceMismatch {
+                        method: m.id.clone(),
+                        confidence: confidence.as_str().to_string(),
+                    });
+                }
+                for class in &m.treatment.classes {
+                    if !treatment_ids.contains(&class.as_str()) {
+                        return Err(CatalogueLoadError::UnknownTreatmentClass {
+                            method: m.id.clone(),
+                            class_id: class.clone(),
+                        });
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -397,25 +586,44 @@ mod tests {
     #[test]
     fn unknown_schema_version_fails_with_named_error() {
         let json = br#"{
-            "schema_version": 2,
+            "schema_version": 3,
             "generated_from": {"registry_name":"r","methods_commit":"m",
                 "manifest_commit":"m","results_commit":"m","generated_at":"2026-01-01T00:00:00Z"},
-            "methods": [], "markers": [], "groups": []
+            "methods": [], "markers": [], "groups": [],
+            "study_options": {"disease_categories": [], "treatment_classes": []}
         }"#;
         let err = parse_catalogue(json).unwrap_err();
         assert_eq!(err.code(), "CATALOGUE_SCHEMA_VERSION");
+        assert!(format!("{err}").contains("declares schema_version 3"));
     }
 
     #[test]
     fn empty_catalogue_fails_with_named_error() {
         let json = br#"{
-            "schema_version": 1,
+            "schema_version": 2,
             "generated_from": {"registry_name":"r","methods_commit":"m",
                 "manifest_commit":"m","results_commit":"m","generated_at":"2026-01-01T00:00:00Z"},
-            "methods": [], "markers": [], "groups": []
+            "methods": [], "markers": [], "groups": [],
+            "study_options": {"disease_categories": [], "treatment_classes": []}
         }"#;
         let err = parse_catalogue(json).unwrap_err();
         assert_eq!(err.code(), "CATALOGUE_EMPTY");
+    }
+
+    /// A schema-2 `study_options` block whose entries the method fixtures may
+    /// reference (disease `lung cancer` + its child, category `Solid tumours`,
+    /// one treatment class).
+    fn study_options_json() -> &'static str {
+        r#"{
+            "disease_categories": [
+                {"id": "Solid tumours", "diseases": [
+                    {"id": "lung cancer", "children": ["non-small cell lung cancer"]}
+                ]}
+            ],
+            "treatment_classes": [
+                {"id": "chemotherapy", "label": "Chemotherapy"}
+            ]
+        }"#
     }
 
     /// One-runnable-method catalogue, constructed by hand to hit each
@@ -423,14 +631,21 @@ mod tests {
     /// the embedded file, so the checks are asserted over minimal handcrafted
     /// JSON here).
     fn minimal_catalogue_bytes(method_json: &str) -> Vec<u8> {
+        catalogue_doc(method_json, study_options_json())
+    }
+
+    /// A schema-2 catalogue body with one method entry and the given
+    /// `study_options` (markers/groups empty).
+    fn catalogue_doc(methods: &str, study_options: &str) -> Vec<u8> {
         format!(
             r#"{{
-                "schema_version": 1,
+                "schema_version": 2,
                 "generated_from": {{"registry_name":"r","methods_commit":"m",
                     "manifest_commit":"m","results_commit":"m","generated_at":"2026-01-01T00:00:00Z"}},
-                "methods": [{method_json}],
+                "methods": [{methods}],
                 "markers": [],
-                "groups": []
+                "groups": [],
+                "study_options": {study_options}
             }}"#
         )
         .into_bytes()
@@ -451,7 +666,10 @@ mod tests {
                 "min_draws": 1, "needs_baseline": false, "uses_history": "landmark",
                 "fitted": false, "saves_model": false, "own_outputs": [], "tasks": [],
                 "required_markers": null, "needs_detection_call": false,
-                "marker_groups_required": [], "description": "d",
+                "marker_groups_required": [],
+                "disease": {{"scope": "group", "groups": ["lung cancer"]}},
+                "treatment": {{"classes": ["chemotherapy"], "confidence": "stated"}},
+                "description": "d",
                 "timing": {{"base_seconds_per_fold": 1.0, "benchmarked_units": 0, "quality": "estimate"}},
                 "performance": null,
                 "embeds_training_data": false,
@@ -539,6 +757,262 @@ mod tests {
         assert_eq!(c.methods.len(), 1);
         assert!(c.method("ok").is_some());
         assert!(c.method("nope").is_none());
+        // The schema-2 facts parsed into the typed model.
+        assert_eq!(c.study_options.disease_categories.len(), 1);
+        assert_eq!(c.study_options.disease_categories[0].diseases[0].id, "lung cancer");
+        assert_eq!(c.study_options.treatment_classes[0].id, "chemotherapy");
+        let m = c.method("ok").expect("method");
+        assert_eq!(m.disease.scope, DiseaseScope::Group);
+        assert_eq!(m.disease.groups, vec!["lung cancer"]);
+        assert_eq!(m.treatment.confidence, TreatmentConfidence::Stated);
+        assert_eq!(m.treatment.classes, vec!["chemotherapy"]);
+    }
+
+    /// A schema 1 catalogue (the previous format line) is the named
+    /// `CATALOGUE_SCHEMA_VERSION` refusal — never a silent re-read.
+    #[test]
+    fn schema_1_catalogue_is_refused_with_schema_version() {
+        let json = br#"{
+            "schema_version": 1,
+            "generated_from": {"registry_name":"r","methods_commit":"m",
+                "manifest_commit":"m","results_commit":"m","generated_at":"2026-01-01T00:00:00Z"},
+            "methods": [], "markers": [], "groups": [],
+            "study_options": {"disease_categories": [], "treatment_classes": []}
+        }"#;
+        let err = parse_catalogue(json).unwrap_err();
+        assert_eq!(
+            err,
+            CatalogueLoadError::SchemaVersion { found: 1 },
+            "{err}"
+        );
+    }
+
+    /// The schema-1 shape of the new facts is refused too: `disease.scope`
+    /// holds the old free-text form on a schema-2 catalogue.
+    #[test]
+    fn disease_scope_is_the_closed_kebab_case_vocabulary() {
+        let m = serde_json::json!({
+            "id": "ok", "version": "1.0.0", "group": "response-call",
+            "group_label": "Response call", "title": "Rule", "summary": "A rule.",
+            "paper_title": null, "journal": "J", "year": 2026,
+            "citations": 0, "language": "R", "paper_doi": "", "spec_status": "draft",
+            "frozen_model": false, "container": false, "runnable": true,
+            "gate": {"pass": true, "report_name": "ok.report.md"},
+            "env": {"image": "ghcr.io/tinnlab/txresbench-ok:1.0.0", "digest": "sha256:aa", "contract": "2.0"},
+            "markers": {"kind": "any", "count": 0}, "covariates": "none",
+            "min_draws": 1, "needs_baseline": false, "uses_history": "landmark",
+            "fitted": false, "saves_model": false, "own_outputs": [], "tasks": [],
+            "required_markers": null, "needs_detection_call": false,
+            "marker_groups_required": [],
+            "disease": {"scope": "all tumours", "groups": []},
+            "treatment": {"classes": ["chemotherapy"], "confidence": "stated"},
+            "description": "d",
+            "timing": {"base_seconds_per_fold": 1.0, "benchmarked_units": 0, "quality": "estimate"},
+            "performance": null, "embeds_training_data": false,
+            "software": {"language": "R 4.4.2", "packages": {}},
+            "licence": "MIT", "references": [], "params": {}
+        });
+        let doc = serde_json::json!({
+            "schema_version": 2,
+            "generated_from": {"registry_name":"r","methods_commit":"m",
+                "manifest_commit":"m","results_commit":"m","generated_at":"2026-01-01T00:00:00Z"},
+            "methods": [m], "markers": [], "groups": [],
+            "study_options": serde_json::from_str::<serde_json::Value>(study_options_json()).unwrap()
+        });
+        let err = parse_catalogue(serde_json::to_vec(&doc).unwrap().as_slice()).unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_EMBED_INVALID");
+    }
+
+    /// The schema-2 row builder: the minimal runnable row (valid
+    /// disease/treatment facts), with fields replaced by `overrides`.
+    fn method_value(id: &str, overrides: &[(&str, serde_json::Value)]) -> serde_json::Value {
+        let mut m: serde_json::Value = serde_json::from_str(&runnable_method_json(
+            id,
+            "ghcr.io/tinnlab/txresbench-x:1.0.0",
+            "sha256:aa",
+        ))
+        .expect("method JSON");
+        for (k, v) in overrides {
+            m[(*k).to_string()] = v.clone();
+        }
+        m
+    }
+
+    /// `parse_catalogue` over one method with the given overrides and the
+    /// fixture `study_options` (disease `lung cancer` + its child
+    /// `non-small cell lung cancer`, treatment class `chemotherapy`).
+    fn parse_override(method_overrides: &[(&str, serde_json::Value)]) -> Result<Catalogue, CatalogueLoadError> {
+        let doc = serde_json::json!({
+            "schema_version": 2,
+            "generated_from": {"registry_name":"r","methods_commit":"m",
+                "manifest_commit":"m","results_commit":"m","generated_at":"2026-01-01T00:00:00Z"},
+            "methods": [method_value("ok", method_overrides)],
+            "markers": [], "groups": [],
+            "study_options": serde_json::from_str::<serde_json::Value>(study_options_json()).unwrap()
+        });
+        parse_catalogue(serde_json::to_vec(&doc).unwrap().as_slice())
+    }
+
+    #[test]
+    fn unknown_disease_group_fails_with_named_error() {
+        let err = parse_override(&[(
+            "disease",
+            serde_json::json!({"scope": "group", "groups": ["no such disease"]}),
+        )])
+        .unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_UNKNOWN_DISEASE_GROUP");
+        assert!(format!("{err}").contains("no such disease"));
+        // A child of a disease may be named.
+        let ok = parse_override(&[(
+            "disease",
+            serde_json::json!({"scope": "group", "groups": ["non-small cell lung cancer"]}),
+        )]);
+        ok.expect("a disease child is a valid group");
+    }
+
+    #[test]
+    fn unknown_treatment_class_fails_with_named_error() {
+        let err = parse_override(&[(
+            "treatment",
+            serde_json::json!({"classes": ["statins"], "confidence": "stated"}),
+        )])
+        .unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_UNKNOWN_TREATMENT_CLASS");
+        assert!(format!("{err}").contains("statins"));
+    }
+
+    fn with_study_options(study_options: serde_json::Value) -> Vec<u8> {
+        let doc = serde_json::json!({
+            "schema_version": 2,
+            "generated_from": {"registry_name":"r","methods_commit":"m",
+                "manifest_commit":"m","results_commit":"m","generated_at":"2026-01-01T00:00:00Z"},
+            "methods": [method_value("ok", &[])],
+            "markers": [], "groups": [],
+            "study_options": study_options
+        });
+        serde_json::to_vec(&doc).unwrap()
+    }
+
+    #[test]
+    fn duplicate_study_option_ids_fail_with_named_errors() {
+        let err = parse_catalogue(&with_study_options(serde_json::json!({
+            "disease_categories": [
+                {"id": "Solid tumours", "diseases": []},
+                {"id": "Solid tumours", "diseases": []}
+            ],
+            "treatment_classes": []
+        })))
+        .unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_DUPLICATE_DISEASE_CATEGORY");
+
+        let err = parse_catalogue(&with_study_options(serde_json::json!({
+            "disease_categories": [
+                {"id": "Solid tumours", "diseases": [
+                    {"id": "lung cancer", "children": []},
+                    {"id": "lung cancer", "children": []}
+                ]}
+            ],
+            "treatment_classes": []
+        })))
+        .unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_DUPLICATE_DISEASE");
+
+        let err = parse_catalogue(&with_study_options(serde_json::json!({
+            "disease_categories": [
+                {"id": "Solid tumours", "diseases": [
+                    {"id": "lung cancer", "children": []},
+                    {"id": "breast cancer", "children": []}
+                ]},
+                {"id": "Liquid tumours", "diseases": [{"id": "lung cancer", "children": []}]}
+            ],
+            "treatment_classes": []
+        })))
+        .unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_DUPLICATE_DISEASE", "across categories too");
+
+        let err = parse_catalogue(&with_study_options(serde_json::json!({
+            "disease_categories": [{
+                "id": "Solid tumours", "diseases": [
+                    {"id": "lung cancer", "children": ["non-small cell lung cancer"]},
+                    {"id": "breast cancer", "children": ["non-small cell lung cancer"]}
+                ]
+            }],
+            "treatment_classes": []
+        })))
+        .unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_DUPLICATE_CHILD");
+
+        let err = parse_catalogue(&with_study_options(serde_json::json!({
+            "disease_categories": [{
+                "id": "Solid tumours", "diseases": [
+                    {"id": "lung cancer", "children": ["breast cancer"]},
+                    {"id": "breast cancer", "children": []}
+                ]
+            }],
+            "treatment_classes": []
+        })))
+        .unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_CHILD_IS_ALSO_DISEASE");
+
+        let err = parse_catalogue(&with_study_options(serde_json::json!({
+            "disease_categories": [],
+            "treatment_classes": [
+                {"id": "chemotherapy", "label": "Chemotherapy"},
+                {"id": "chemotherapy", "label": "Chemo"}
+            ]
+        })))
+        .unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_DUPLICATE_TREATMENT_CLASS");
+    }
+
+    #[test]
+    fn disease_scope_groups_mismatch_fails_with_named_error() {
+        // scope `group` with an empty groups list.
+        let err = parse_override(&[(
+            "disease",
+            serde_json::json!({"scope": "group", "groups": []}),
+        )])
+        .unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_DISEASE_SCOPE_GROUPS_MISMATCH");
+        assert!(format!("{err}").contains("group"));
+        // A coarser scope with a non-empty groups list.
+        let err = parse_override(&[(
+            "disease",
+            serde_json::json!({"scope": "any", "groups": ["lung cancer"]}),
+        )])
+        .unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_DISEASE_SCOPE_GROUPS_MISMATCH");
+    }
+
+    #[test]
+    fn treatment_classes_confidence_mismatch_fails_with_named_error() {
+        // `not-stated` with classes.
+        let err = parse_override(&[(
+            "treatment",
+            serde_json::json!({"classes": ["chemotherapy"], "confidence": "not-stated"}),
+        )])
+        .unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_TREATMENT_CONFIDENCE_MISMATCH");
+        assert!(format!("{err}").contains("not-stated"));
+        // `stated` with no classes.
+        let err = parse_override(&[(
+            "treatment",
+            serde_json::json!({"classes": [], "confidence": "stated"}),
+        )])
+        .unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_TREATMENT_CONFIDENCE_MISMATCH");
+        // `inferred` with classes loads.
+        parse_override(&[(
+            "treatment",
+            serde_json::json!({"classes": ["chemotherapy"], "confidence": "inferred"}),
+        )])
+        .expect("inferred with classes");
+        // `not-stated` with no classes loads.
+        parse_override(&[(
+            "treatment",
+            serde_json::json!({"classes": [], "confidence": "not-stated"}),
+        )])
+        .expect("not-stated with no classes");
     }
 
     /// The `UnitFamily` deserialization is the closed PROV-MC-1 vocabulary; a
@@ -547,14 +1021,15 @@ mod tests {
     #[test]
     fn unknown_unit_family_is_a_parse_refusal() {
         let json = r#"{
-            "schema_version": 1,
+            "schema_version": 2,
             "generated_from": {"registry_name":"r","methods_commit":"m",
                 "manifest_commit":"m","results_commit":"m","generated_at":"2026-01-01T00:00:00Z"},
             "methods": [], "markers": [
                 {"id":"x","system":"LOINC","display_name":"d","aliases":[],
                  "groups":[],"unit_family":"nanodaltons","canonical_unit":"",
                  "n_methods":0}
-            ], "groups": []
+            ], "groups": [],
+            "study_options": {"disease_categories": [], "treatment_classes": []}
         }"#;
         let err = parse_catalogue(json.as_bytes()).unwrap_err();
         assert_eq!(err.code(), "CATALOGUE_EMBED_INVALID");
@@ -580,16 +1055,17 @@ mod tests {
         assert_eq!(ctdna.unit_family, UnitFamily::ConcentrationMass);
     }
 
-    /// Unknown fields are refused: the model is the exact schema-1 contract
+    /// Unknown fields are refused: the model is the exact schema-2 contract
     /// (a generator field the code does not know is a boot failure, not a
     /// silent drop — first-party posture).
     #[test]
     fn unknown_field_is_a_parse_refusal() {
         let json = r#"{
-            "schema_version": 1,
+            "schema_version": 2,
             "generated_from": {"registry_name":"r","methods_commit":"m",
                 "manifest_commit":"m","results_commit":"m","generated_at":"2026-01-01T00:00:00Z"},
             "methods": [], "markers": [], "groups": [],
+            "study_options": {"disease_categories": [], "treatment_classes": []},
             "future_field": 1
         }"#;
         let err = parse_catalogue(json.as_bytes()).unwrap_err();

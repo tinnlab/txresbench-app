@@ -472,6 +472,7 @@ mod tests {
         let expected: Vec<&str> = vec![
             "container",
             "covariates",
+            "disease",
             "embeds_training_data",
             "frozen_model",
             "group",
@@ -494,6 +495,7 @@ mod tests {
             "tasks",
             "timing",
             "title",
+            "treatment",
             "uses_history",
             "year",
         ];

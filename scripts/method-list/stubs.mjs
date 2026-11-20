@@ -16,7 +16,7 @@
 //
 // behavior.json (oras): resolveError: [tags] answer resolve with a non-"not found" error;
 // corruptReadback: a pull by digest of a just-pushed artifact serves other list bytes;
-// moveV1OnPush: 'verified' | 'unverified' moves v1 to a list #99 during the push;
+// moveV1OnPush: 'verified' | 'unverified' moves v2 to a list #99 during the push;
 // corruptV1AfterTag; privateUntilPublic.
 //
 // The real minisign and the real verifier are covered by the Rust unit tests over the
@@ -114,7 +114,7 @@ if (sub === 'resolve') {
   fs.mkdirSync(out, { recursive: true });
   for (const f of fs.readdirSync(dir)) {
     let bytes = fs.readFileSync(path.join(dir, f));
-    if (behavior.corruptV1AfterTag && split(pos[0]).tag === 'v1' && tagged() && f === 'method-list.json') bytes = Buffer.concat([bytes, Buffer.from(' ')]);
+    if (behavior.corruptV1AfterTag && split(pos[0]).tag === 'v2' && tagged() && f === 'method-list.json') bytes = Buffer.concat([bytes, Buffer.from(' ')]);
     if (behavior.corruptReadback && split(pos[0]).digest && pushed().includes(d) && f === 'method-list.json') bytes = Buffer.concat([bytes, Buffer.from(' ')]);
     fs.writeFileSync(path.join(out, f), bytes);
   }
@@ -135,12 +135,12 @@ if (sub === 'resolve') {
     // by a key nobody trusts.
     const other = path.join(repoDir(r.repo), 'blobs', 'sha256_' + 'e'.repeat(64));
     fs.mkdirSync(path.join(other, 'files'), { recursive: true });
-    const list = Buffer.from(JSON.stringify({ format_version: 1, sequence: 99 }));
+    const list = Buffer.from(JSON.stringify({ format_version: 2, sequence: 99 }));
     const keyId = behavior.moveV1OnPush === 'verified' ? KEY_ID_LE : Buffer.alloc(8, 7);
     fs.writeFileSync(path.join(other, 'files', 'method-list.json'), list);
     fs.writeFileSync(path.join(other, 'files', 'method-list.json.minisig'),
-      makeSig(list, 'txresbench-method-list format=1 sequence=99', 'other', keyId));
-    fs.writeFileSync(tagFile(r.repo, 'v1'), 'sha256:' + 'e'.repeat(64));
+      makeSig(list, 'txresbench-method-list format=2 sequence=99', 'other', keyId));
+    fs.writeFileSync(tagFile(r.repo, 'v2'), 'sha256:' + 'e'.repeat(64));
   }
   process.stdout.write('Pushed ' + pos[0] + '\nDigest: ' + digest + '\n');
 } else if (sub === 'tag') {
@@ -185,9 +185,9 @@ const trusted = fs.existsSync(keysFile)
 if (opt('--signature')) {
   const r = checkSig(bytes, fs.readFileSync(opt('--signature'), 'utf8'), trusted);
   if (typeof r === 'string') { process.stderr.write('check-method-list: ' + r + '\n'); process.exit(1); }
-  if (r.comment !== 'txresbench-method-list format=1 sequence=' + doc.sequence) { process.stderr.write('check-method-list: METHOD_LIST_COMMENT_MISMATCH\n'); process.exit(1); }
+  if (r.comment !== 'txresbench-method-list format=' + doc.format_version + ' sequence=' + doc.sequence) { process.stderr.write('check-method-list: METHOD_LIST_COMMENT_MISMATCH\n'); process.exit(1); }
 } else if (doc.sequence !== 0) { process.stderr.write('check-method-list: METHOD_LIST_UNSIGNED\n'); process.exit(1); }
-process.stdout.write('method list OK\nformat: txresbench-method-list 1\nsequence: ' + doc.sequence + '\n');
+process.stdout.write('method list OK\nformat: txresbench-method-list ' + doc.format_version + '\nsequence: ' + doc.sequence + '\n');
 `;
 
 // A `txresbench check-method-list` that verifies REAL minisign signatures (prehashed
