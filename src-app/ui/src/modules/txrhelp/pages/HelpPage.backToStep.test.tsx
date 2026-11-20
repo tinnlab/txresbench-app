@@ -227,6 +227,18 @@ describe('Help opened from a step', () => {
     expect(useStepTrailStore.getState().trail).toEqual(['/history', '/choose-methods'])
   })
 
+  it('the button stays while the user moves within Help by its contents links', async () => {
+    beginPath('/')
+    renderApp('/study')
+    await click('stand-in-help-link')
+    expect(backToStep()?.textContent).toBe('Back to step 2: Tell us about your study')
+    await click('txr-help-toc-troubleshooting')
+    expect(routeAt()).toBe('/help')
+    expect(backToStep()?.textContent).toBe('Back to step 2: Tell us about your study')
+    await click('txr-help-back-to-step')
+    expect(routeAt()).toBe('/study')
+  })
+
   it('the button goes away once a new path starts from Help (the step is no longer open)', async () => {
     beginPath('/')
     renderApp('/study')

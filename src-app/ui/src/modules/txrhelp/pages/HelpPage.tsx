@@ -93,7 +93,7 @@ import {
   RUN_STATE_MEANINGS,
   problemGroupOf,
 } from '../content'
-import { helpFromOf, helpPath } from '../routes'
+import { helpFromOf, helpLinkState, helpPath } from '../routes'
 import type { FileCardContent, HelpBlock, HelpProblemEntry, HelpSection, ProblemGroup, QuickStartCard, StepCard } from '../types'
 
 /** The intake route the example action lands on (the one-click promise of
@@ -1159,6 +1159,9 @@ function BackToStepButton({ target }: { target: string }) {
 export function HelpPage() {
   const location = useLocation()
   const backToStep = useHelpReturnTarget(location.state)
+  // The contents links move within Help: they keep the step origin, so the
+  // way back stays while the user reads another section.
+  const stayState = backToStep === null ? undefined : helpLinkState(backToStep)
   // The per-route title system (R2-G1) — ITEM-3's local effect is now the
   // shell's one hook: the same "Help — TxResBench" byte, with the previous
   // title restored on unmount like every other route.
@@ -1527,6 +1530,7 @@ export function HelpPage() {
                           <li key={section.id}>
                             <Link
                               to={helpPath(section.id)}
+                              state={stayState}
                               className="txr-help-link"
                               data-testid={`txr-help-toc-${section.id}`}
                               aria-current={activeSection === section.id ? 'true' : undefined}
@@ -1567,6 +1571,7 @@ export function HelpPage() {
                                 <li key={section.id}>
                                   <Link
                                     to={helpPath(section.id)}
+                                    state={stayState}
                                     className="txr-help-link"
                                     data-testid={`txr-help-contents-link-${section.id}`}
                                     onClick={() => setContentsOpen(false)}
