@@ -888,6 +888,18 @@ export interface FileSummary {
  */
 export type FileTableKind = 'patients' | 'measurements'
 
+/**
+ * The day facts of a validate call: per patient of the measurements table,
+ *  the distinct draw days during treatment (day > `baseline_max_day`,
+ *  ascending); per row of the patients table, its follow-up pairs (empty in
+ *  predict mode). File order, no identifiers.
+ */
+export interface FileTimeline {
+  draw_days: number[][]
+  limits: TimelineLimits
+  outcomes: TimelinePatient[]
+}
+
 /** One immutable version of a file. */
 export interface FileVersion {
   /** Storage key for this version's bytes (= `id`, or the restored target). */
@@ -3055,6 +3067,34 @@ export interface TextRectsResponse {
 }
 
 /**
+ * The engine limits the day choices follow, read from the engine's own
+ *  constants (the screens hold no copy).
+ */
+export interface TimelineLimits {
+  /** A draw on a later day is a draw during treatment. */
+  baseline_max_day: number
+  /** The latest look-ahead day a run accepts. */
+  look_ahead_day_max: number
+  /** The fewest patients an outcome is learned from. */
+  min_training_patients: number
+}
+
+/**
+ * One follow-up time and its event flag (1 = the event happened at `days`,
+ *  0 = follow-up ended without it), as the run's outcome table reads them.
+ */
+export interface TimelineOutcome {
+  days: number
+  event: number
+}
+
+/** One patients-table row's follow-up pairs (`None` = the pair is incomplete). */
+export interface TimelinePatient {
+  os?: TimelineOutcome
+  pfs?: TimelineOutcome
+}
+
+/**
  * A method's per-fold time estimate fact (median of the benchmark's `status==ok`
  *  per-fold seconds, or the language fallback with `quality: estimate`).
  */
@@ -4193,6 +4233,12 @@ export interface ValidationResponse {
   measurements: MeasurementsSummary
   patients?: PatientsSummary
   problems: FileProblem[]
+  /**
+   * The day facts the day choices are counted from (the suggested draw days,
+   *  the coverage lines, the look-ahead counts). No patient ids: the entries
+   *  are only counted.
+   */
+  timeline?: FileTimeline
 }
 
 /**
