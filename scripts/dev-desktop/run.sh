@@ -89,14 +89,15 @@ printf 'ITEM-5 dev-desktop harness state dir: %s\n' "$STATE_DIR" >"$STATE_DIR/$M
 for d in pids logs shots data home; do mkdir -p "$STATE_DIR/$d"; done
 rm -rf "$STATE_DIR/data" "$STATE_DIR/home"
 mkdir -p "$STATE_DIR/data" "$STATE_DIR/data/bin" "$STATE_DIR/home"
-: >"$STATE_DIR/current"
-chmod 600 "$STATE_DIR/current"
+(umask 077; : >"$STATE_DIR/current")
 
 # The embedded server refuses every request without its per-run local-API key
 # (the X-TxR-Local-Key header, /api/health included). A debug build honors
 # TXR_LOCAL_API_KEY, so the readiness poll and verify.sh can send it; the key is
 # throwaway and lives only in this state dir.
+export TXR_LOCAL_API_KEY
 LOCAL_KEY="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+TXR_LOCAL_API_KEY="$LOCAL_KEY"
 
 # Stage the oras shim the app's method-env fetch shells out to (tool_bin
 # prefers <app_data>/bin over PATH, method_env.rs). Without it a real run
@@ -170,7 +171,6 @@ start_one app "$STATE_DIR/logs/app.log" \
   env DISPLAY=":$DISPLAY_NUM" \
       HOME="$STATE_DIR/home" \
       TXR_APP_DATA_DIR="$STATE_DIR/data" \
-      TXR_LOCAL_API_KEY="$LOCAL_KEY" \
       $REG \
       dbus-run-session -- "$BIN"
 

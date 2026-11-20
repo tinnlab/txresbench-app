@@ -238,13 +238,14 @@ async fn build_app(
     // the harness sentinel and every other layer above exist, so no route can
     // sit outside it; and INSIDE the CORS layer below, so a preflight is
     // answered by CORS first and a refusal never carries an allow-origin for a
-    // foreign page. Demo mode (anonymous public visitors by design) has none.
+    // foreign page. The caller decides: the desktop always passes a lock (even if a stray
+    // demo setting is present), the headless server passes none in demo mode.
     let app = match lock {
-        Some(lock) if !demo.enabled => app.layer(axum::middleware::from_fn_with_state(
+        Some(lock) => app.layer(axum::middleware::from_fn_with_state(
             lock.clone(),
             modules::local_api_lock::enforce,
         )),
-        _ => app,
+        None => app,
     };
     // The framework's own required request header plus the local-API key header:
     // an explicit `allow_headers` list (the desktop's) gets both unioned in, so a

@@ -16,6 +16,25 @@ const localKeyHeaders: Record<string, string> = process.env.TXR_LOCAL_API_KEY
   ? { 'X-TxR-Local-Key': process.env.TXR_LOCAL_API_KEY }
   : {}
 
+// The proxy injects the key, so it must serve only this dev server's own page: a
+// request whose Origin is another site (a web page probing localhost:5173) is
+// refused here, before the key is added. Requests without Origin (same-origin GETs,
+// curl) pass.
+const refuseForeignOrigin = (req: any, res: any): false | undefined => {
+  const origin = req.headers.origin as string | undefined
+  if (!origin) return undefined
+  let ok = false
+  try {
+    ok = new URL(origin).host === req.headers.host
+  } catch {
+    ok = false
+  }
+  if (ok) return undefined
+  res.statusCode = 403
+  res.end()
+  return false
+}
+
 /**
  * The X1 build check (qa-fixes ITEM-7, wired ITEM-6-d): after the build
  * closes, every `url()` in the built CSS must resolve inside the built
@@ -85,6 +104,7 @@ export default defineConfig({
         changeOrigin: true,
         xfwd: true,
         headers: localKeyHeaders,
+        bypass: refuseForeignOrigin,
       },
     },
   },
@@ -111,6 +131,7 @@ export default defineConfig({
         changeOrigin: true,
         xfwd: true,
         headers: localKeyHeaders,
+        bypass: refuseForeignOrigin,
       },
     },
   },

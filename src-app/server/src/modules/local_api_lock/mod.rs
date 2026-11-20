@@ -225,7 +225,7 @@ pub async fn enforce(State(lock): State<LocalApiLock>, req: Request, next: Next)
     match lock.allows(req.method(), req.uri().path(), req.headers()) {
         Ok(()) => next.run(req).await,
         Err(reason) => {
-            tracing::warn!(
+            tracing::debug!(
                 reason,
                 method = %req.method(),
                 path = %req.uri().path(),
