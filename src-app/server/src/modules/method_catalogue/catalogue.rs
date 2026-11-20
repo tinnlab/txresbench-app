@@ -16,6 +16,12 @@
 use std::fmt;
 
 use crate::modules::method_catalogue::types::{Catalogue, CATALOGUE_SCHEMA_VERSION};
+use crate::modules::sandbox::env_id::is_valid_env_id;
+
+/// The longest method id or group id (a method id is also an image repository component).
+const MAX_ID_LEN: usize = 128;
+/// The longest marker id (marker ids are free text of the source: names, codes).
+const MAX_MARKER_ID_LEN: usize = 512;
 
 /// A named catalogue load failure. Every variant carries a stable code (the
 /// `as_str` below) so a boot refusal is a testable, typed report — the
@@ -39,6 +45,13 @@ pub enum CatalogueLoadError {
     /// A runnable method carries an empty env field — the runnable contract is
     /// non-empty image + digest + contract (PROV-MC-1 acceptance).
     RunnableMissingEnv { id: String, field: &'static str },
+    /// A method id is not an env-id (`sandbox::env_id::is_valid_env_id`), is all dots, or is
+    /// too long: it names run folders and image repositories.
+    InvalidMethodId { id: String },
+    /// A marker id is empty, too long, or holds a control character or a backslash.
+    InvalidMarkerId { id: String },
+    /// A group id is not a short slug of the env-id characters.
+    InvalidGroupId { id: String },
 }
 
 impl CatalogueLoadError {
@@ -52,6 +65,9 @@ impl CatalogueLoadError {
             CatalogueLoadError::DuplicateMarkerId { .. } => "CATALOGUE_DUPLICATE_MARKER_ID",
             CatalogueLoadError::DuplicateGroupId { .. } => "CATALOGUE_DUPLICATE_GROUP_ID",
             CatalogueLoadError::RunnableMissingEnv { .. } => "CATALOGUE_RUNNABLE_MISSING_ENV",
+            CatalogueLoadError::InvalidMethodId { .. } => "CATALOGUE_INVALID_METHOD_ID",
+            CatalogueLoadError::InvalidMarkerId { .. } => "CATALOGUE_INVALID_MARKER_ID",
+            CatalogueLoadError::InvalidGroupId { .. } => "CATALOGUE_INVALID_GROUP_ID",
         }
     }
 }
@@ -87,6 +103,21 @@ impl fmt::Display for CatalogueLoadError {
                 f,
                 "CATALOGUE_RUNNABLE_MISSING_ENV: runnable method `{id}` carries an empty env.{field}"
             ),
+            CatalogueLoadError::InvalidMethodId { id } => write!(
+                f,
+                "CATALOGUE_INVALID_METHOD_ID: method id {id:?} is not a lowercase env-id of at most \
+                 {MAX_ID_LEN} characters"
+            ),
+            CatalogueLoadError::InvalidMarkerId { id } => write!(
+                f,
+                "CATALOGUE_INVALID_MARKER_ID: marker id {id:?} is empty, over {MAX_MARKER_ID_LEN} \
+                 characters, or holds a control character or a backslash"
+            ),
+            CatalogueLoadError::InvalidGroupId { id } => write!(
+                f,
+                "CATALOGUE_INVALID_GROUP_ID: group id {id:?} is not a lowercase slug of at most \
+                 {MAX_ID_LEN} characters"
+            ),
         }
     }
 }
@@ -120,6 +151,9 @@ fn validate_catalogue(c: &Catalogue) -> Result<(), CatalogueLoadError> {
     }
     let mut method_ids: Vec<&str> = Vec::with_capacity(c.methods.len());
     for m in &c.methods {
+        if !valid_slug(&m.id) {
+            return Err(CatalogueLoadError::InvalidMethodId { id: m.id.clone() });
+        }
         if method_ids.contains(&m.id.as_str()) {
             return Err(CatalogueLoadError::DuplicateMethodId { id: m.id.clone() });
         }
@@ -147,6 +181,9 @@ fn validate_catalogue(c: &Catalogue) -> Result<(), CatalogueLoadError> {
     }
     let mut marker_ids: Vec<(&str, &str)> = Vec::with_capacity(c.markers.len());
     for marker in &c.markers {
+        if !valid_marker_id(&marker.id) {
+            return Err(CatalogueLoadError::InvalidMarkerId { id: marker.id.clone() });
+        }
         let key = (marker.system.as_str(), marker.id.as_str());
         if marker_ids.contains(&key) {
             return Err(CatalogueLoadError::DuplicateMarkerId {
@@ -158,12 +195,29 @@ fn validate_catalogue(c: &Catalogue) -> Result<(), CatalogueLoadError> {
     }
     let mut group_ids: Vec<&str> = Vec::with_capacity(c.groups.len());
     for g in &c.groups {
+        if !valid_slug(&g.id) {
+            return Err(CatalogueLoadError::InvalidGroupId { id: g.id.clone() });
+        }
         if group_ids.contains(&g.id.as_str()) {
             return Err(CatalogueLoadError::DuplicateGroupId { id: g.id.clone() });
         }
         group_ids.push(&g.id);
     }
     Ok(())
+}
+
+/// A method or group id: the env-id grammar (lowercase, digits, `.` `_` `-`), bounded, and
+/// not made only of dots (`.` and `..` would be path components).
+fn valid_slug(id: &str) -> bool {
+    is_valid_env_id(id) && id.len() <= MAX_ID_LEN && !id.chars().all(|c| c == '.')
+}
+
+/// A marker id is free text of its source (names with spaces and `/` exist), so it is only
+/// bounded and kept free of control characters and backslashes.
+fn valid_marker_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.chars().count() <= MAX_MARKER_ID_LEN
+        && !id.chars().any(|c| c.is_control() || c == '\\')
 }
 
 // The TEST-MC-7 / TEST-MC-19 / TEST-MC-9(unit half) suite: the embedded file
@@ -392,6 +446,56 @@ mod tests {
         let err = parse_catalogue(&json).unwrap_err();
         assert_eq!(err.code(), "CATALOGUE_RUNNABLE_MISSING_ENV");
         assert!(format!("{err}").contains("badenv"));
+    }
+
+    #[test]
+    fn method_ids_must_pass_the_env_id_grammar() {
+        let long = "a".repeat(MAX_ID_LEN + 1);
+        for bad in ["", "..", ".", "a/b", "../x", "Upper", "a b", "a:b", "a@sha256", long.as_str()] {
+            let m = runnable_method_json(bad, "ghcr.io/tinnlab/txresbench-x:1.0.0", "sha256:aa");
+            let err = parse_catalogue(&minimal_catalogue_bytes(&m)).unwrap_err();
+            assert_eq!(err.code(), "CATALOGUE_INVALID_METHOD_ID", "{bad:?}: {err}");
+        }
+    }
+
+    fn catalogue_with(markers: &str, groups: &str) -> Vec<u8> {
+        let m = runnable_method_json("ok", "ghcr.io/tinnlab/txresbench-ok:1.0.0", "sha256:aa");
+        let text = String::from_utf8(minimal_catalogue_bytes(&m)).unwrap();
+        text.replace(r#""markers": [],"#, &format!(r#""markers": {markers},"#))
+            .replace(r#""groups": []"#, &format!(r#""groups": {groups}"#))
+            .into_bytes()
+    }
+
+    fn marker_json(id: &str) -> String {
+        format!(
+            r#"{{"id":{},"system":"LOINC","display_name":"d","aliases":[],"groups":[],
+                "unit_family":"count","canonical_unit":"","n_methods":0}}"#,
+            serde_json::to_string(id).unwrap()
+        )
+    }
+
+    #[test]
+    fn marker_ids_are_bounded_and_clean() {
+        let long = "m".repeat(MAX_MARKER_ID_LEN + 1);
+        for bad in ["", "a\\b", "a\u{0}b", "a\nb", long.as_str()] {
+            let err = parse_catalogue(&catalogue_with(&format!("[{}]", marker_json(bad)), "[]")).unwrap_err();
+            assert_eq!(err.code(), "CATALOGUE_INVALID_MARKER_ID", "{bad:?}: {err}");
+        }
+        // Names with spaces and a slash are real marker ids.
+        let ok = marker_json("AST/ALT ratio");
+        parse_catalogue(&catalogue_with(&format!("[{ok}]"), "[]")).expect("a free-text id is fine");
+    }
+
+    #[test]
+    fn group_ids_are_short_slugs() {
+        let long = "g".repeat(MAX_ID_LEN + 1);
+        for bad in ["", "..", "a/b", "Upper", "a b", long.as_str()] {
+            let g = format!(r#"[{{"id":{},"display_name":"d"}}]"#, serde_json::to_string(bad).unwrap());
+            let err = parse_catalogue(&catalogue_with("[]", &g)).unwrap_err();
+            assert_eq!(err.code(), "CATALOGUE_INVALID_GROUP_ID", "{bad:?}: {err}");
+        }
+        let g = r#"[{"id":"tumour-markers","display_name":"d"}]"#;
+        parse_catalogue(&catalogue_with("[]", g)).expect("a slug is fine");
     }
 
     #[test]

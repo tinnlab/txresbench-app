@@ -84,6 +84,8 @@ pub enum ListError {
     },
     /// Rule 3: a row of the older list is missing.
     RowRemoved { id: String },
+    /// A newer list without `bases` while the list in use has them.
+    BasesDropped,
 }
 
 impl ListError {
@@ -100,6 +102,7 @@ impl ListError {
             ListError::UnknownMethod { .. } => "METHOD_LIST_UNKNOWN_METHOD",
             ListError::VersionMismatch { .. } => "METHOD_LIST_VERSION_MISMATCH",
             ListError::RowRemoved { .. } => "METHOD_LIST_ROW_REMOVED",
+            ListError::BasesDropped => "METHOD_LIST_BASES_DROPPED",
         }
     }
 }
@@ -149,6 +152,11 @@ impl fmt::Display for ListError {
                 f,
                 "{code}: method {id:?} is in the older list and missing here (a method is \
                  retired with runnable: false, never removed)"
+            ),
+            ListError::BasesDropped => write!(
+                f,
+                "{code}: the list in use has base records and this one has none (every base \
+                 download would fail)"
             ),
         }
     }
@@ -330,6 +338,20 @@ impl MethodList {
         }
         Ok(())
     }
+
+    /// Whether the list carries `bases` (the app-side base artifacts).
+    pub fn has_bases(&self) -> bool {
+        self.images.bases.is_some()
+    }
+
+    /// A list that replaces one with `bases` must have them too: without them every base
+    /// download of a run would fail closed.
+    pub fn keeps_bases_of(&self, older: &MethodList) -> Result<(), ListError> {
+        if older.has_bases() && !self.has_bases() {
+            return Err(ListError::BasesDropped);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -505,5 +527,22 @@ mod tests {
         }
         let retired = parse_doc(&d, SIGNED_1).unwrap();
         retired.keeps_rows_of(&older).expect("a retired row is kept");
+    }
+
+    #[test]
+    fn cross_rules_refuse_dropped_bases() {
+        let older = parse_doc(&doc(), SIGNED_1).unwrap();
+        assert!(older.has_bases(), "the fixture list has bases");
+        let mut d = doc();
+        d["images"].as_object_mut().unwrap().remove("bases");
+        let newer = parse_doc(&d, SIGNED_1).unwrap();
+        assert!(!newer.has_bases());
+        let err = newer.keeps_bases_of(&older).unwrap_err();
+        assert_eq!(err, ListError::BasesDropped);
+        assert_eq!(err.code(), "METHOD_LIST_BASES_DROPPED");
+        // Keeping them, or going from none to some, is fine; none to none too.
+        older.keeps_bases_of(&older).expect("bases kept");
+        older.keeps_bases_of(&newer).expect("bases gained");
+        newer.keeps_bases_of(&newer).expect("neither has bases");
     }
 }

@@ -55,8 +55,13 @@ fn served_options() -> TestOptions {
 #[tokio::test]
 async fn boot_unreachable_registry_serves_builtin() {
     // The default harness reference is a CLOSED loopback port: the boot check and the
-    // button's check fail, and the app serves its built-in list.
-    let server = TestServer::spawn().await;
+    // button's check fail, and the app serves its built-in list. A key is trusted, so
+    // updates are on (without any trusted key they are off: the next test).
+    let server = TestServer::spawn_with(TestOptions {
+        method_list_test_key: Some(fixture_pub()),
+        ..Default::default()
+    })
+    .await;
     let token = owner_token(&server).await;
     let status = check_now(&server, &token).await;
     assert_eq!(status["sequence"], builtin_sequence());
@@ -75,6 +80,19 @@ async fn boot_unreachable_registry_serves_builtin() {
     // GET never asks the registry; it answers the last check.
     let again = get(&server, &token, "/methods/updates").await;
     assert_eq!(again["last_check"], status["last_check"]);
+}
+
+#[tokio::test]
+async fn no_trusted_key_turns_updates_off_and_serves_builtin() {
+    // No trusted key at all: a list could never be accepted, so the app does not ask
+    // the registry and reports the check as off.
+    let server = TestServer::spawn().await;
+    let token = owner_token(&server).await;
+    let status = check_now(&server, &token).await;
+    assert_eq!(status["updates_enabled"], false, "{status}");
+    assert_eq!(status["sequence"], builtin_sequence());
+    assert_eq!(status["origin"], "builtin");
+    assert_eq!(status["last_check"], "off", "{status}");
 }
 
 #[tokio::test]

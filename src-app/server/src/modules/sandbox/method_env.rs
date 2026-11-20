@@ -2321,7 +2321,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn scratch() -> PathBuf {
-        std::env::temp_dir().join(format!("txr-method-env-{}", uuid::Uuid::new_v4()))
+        crate::modules::method_list::test_scratch::dir("method-env", "root")
     }
 
     /// A test data root with `<root>/bin/` created, scoped to THIS thread (the

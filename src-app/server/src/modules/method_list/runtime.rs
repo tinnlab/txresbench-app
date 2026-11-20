@@ -314,43 +314,61 @@ impl ListRuntime {
                 // on disk any more, so the next check pulls the published list again.
                 state.live_digest = None;
             }
-            if let Some((bytes, sig)) = stored {
+            // The pair in place first; a pair that is missing or torn (a write cut short) or
+            // does not verify gives way to the one kept before it.
+            let mut candidates = Vec::new();
+            if let Some(pair) = stored {
+                candidates.push((pair, false));
+            }
+            if let Some(pair) = store.read_previous() {
+                candidates.push((pair, true));
+            }
+            for ((bytes, sig), from_previous) in candidates {
                 match verify_and_parse(&bytes, &sig, &seams.keys) {
-                    Ok(stored) => match choose(&builtin, &stored) {
-                        Choice::Newer => match stored.keeps_rows_of(&builtin) {
-                            Ok(()) => {
-                                tracing::info!(
-                                    sequence = stored.sequence,
-                                    builtin = builtin.sequence,
-                                    "method list: using the stored list"
-                                );
-                                active = Active {
-                                    list: Arc::new(stored),
-                                    origin: ListOrigin::Disk,
-                                };
-                            }
-                            Err(e) => {
-                                tracing::warn!(error = %e, "method list: the stored list drops a row of the built-in one; ignored");
-                                state.live_digest = None;
-                            }
-                        },
-                        Choice::Same | Choice::Older => tracing::info!(
-                            stored = stored.sequence,
-                            builtin = builtin.sequence,
-                            "method list: the built-in list is the same or newer than the stored one (an app update)"
-                        ),
-                        Choice::Conflict => {
-                            tracing::warn!(
-                                sequence = stored.sequence,
-                                stored = %stored.sha256,
-                                builtin = %builtin.sha256,
-                                "method list: the stored list has the built-in sequence with other bytes; ignored"
-                            );
+                    Ok(stored) => {
+                        if from_previous {
+                            // Which published list this is no longer matches the held digest.
+                            tracing::warn!("method list: the newest stored list was unusable; using the one before it");
                             state.live_digest = None;
                         }
-                    },
+                        match choose(&builtin, &stored) {
+                            Choice::Newer => match stored.keeps_rows_of(&builtin) {
+                                Ok(()) => {
+                                    tracing::info!(
+                                        sequence = stored.sequence,
+                                        builtin = builtin.sequence,
+                                        "method list: using the stored list"
+                                    );
+                                    active = Active {
+                                        list: Arc::new(stored),
+                                        origin: ListOrigin::Disk,
+                                    };
+                                }
+                                Err(e) => {
+                                    tracing::warn!(error = %e, "method list: the stored list drops a row of the built-in one; ignored");
+                                    state.live_digest = None;
+                                }
+                            },
+                            Choice::Same | Choice::Older => tracing::info!(
+                                stored = stored.sequence,
+                                builtin = builtin.sequence,
+                                "method list: the built-in list is the same or newer than the stored one (an app update)"
+                            ),
+                            Choice::Conflict => {
+                                tracing::warn!(
+                                    sequence = stored.sequence,
+                                    stored = %stored.sha256,
+                                    builtin = %builtin.sha256,
+                                    "method list: the stored list has the built-in sequence with other bytes; ignored"
+                                );
+                                state.live_digest = None;
+                            }
+                        }
+                        break;
+                    }
                     Err(e) => {
-                        // A torn write or an edit: run on the built-in list, fetch again.
+                        // An edit or a key change: try the list before it, else run on the
+                        // built-in list and fetch again.
                         tracing::warn!(error = %e, "method list: the stored list does not verify; ignored");
                         state.live_digest = None;
                     }
@@ -564,7 +582,7 @@ impl ListRuntime {
         let in_use = self.current();
         match choose(&in_use, &list) {
             Choice::Newer => {
-                if let Err(e) = list.keeps_rows_of(&in_use) {
+                if let Err(e) = list.keeps_rows_of(&in_use).and_then(|()| list.keeps_bases_of(&in_use)) {
                     return self.refuse(digest, e.code(), &e.to_string());
                 }
                 let stored = self.store.write_list(&fetched.list, &fetched.signature);
@@ -734,11 +752,20 @@ pub fn production_seams(data_root: PathBuf) -> RuntimeSeams {
 
 /// [`production_seams`] over given inputs.
 pub fn production_seams_with(data_root: PathBuf, inputs: SeamInputs<'_>) -> RuntimeSeams {
-    let builtin_keys = TrustedKeys::builtin().cloned();
-    let mut keys = builtin_keys.unwrap_or_else(|_| {
-        TrustedKeys::from_json(br#"{"format":"txresbench-method-list-keys","format_version":1,"keys":[]}"#)
-            .expect("an empty key set")
-    });
+    let builtin_keys = TrustedKeys::builtin().cloned().unwrap_or_else(|_| empty_keys());
+    production_seams_over(data_root, inputs, builtin_keys)
+}
+
+/// A key set with no key.
+fn empty_keys() -> TrustedKeys {
+    TrustedKeys::from_json(br#"{"format":"txresbench-method-list-keys","format_version":1,"keys":[]}"#)
+        .expect("an empty key set")
+}
+
+/// [`production_seams_with`] over given compiled-in keys (so a test does not depend on the
+/// shipped key file).
+fn production_seams_over(data_root: PathBuf, inputs: SeamInputs<'_>, builtin_keys: TrustedKeys) -> RuntimeSeams {
+    let mut keys = builtin_keys;
     let off = |why: &str| RuntimeSeams {
         data_root: data_root.clone(),
         source: None,
@@ -767,6 +794,16 @@ pub fn production_seams_with(data_root: PathBuf, inputs: SeamInputs<'_>) -> Runt
             }
             Err(e) => return off(&format!("{}: {e}", fetch::TEST_KEY_ENV)),
         }
+    }
+    if keys.keys().is_empty() {
+        // No key can verify a list, so a fetch could only end in a refused list.
+        return RuntimeSeams {
+            data_root,
+            source: None,
+            off_reason: Some("updates are off: this build has no key to check them with".to_string()),
+            keys,
+            coalesce: COALESCE_WINDOW,
+        };
     }
     if list_ref != fetch::ListRef::production() {
         tracing::warn!(reference = %list_ref.tag_ref(), "method list: fetching from the debug reference");
@@ -974,11 +1011,7 @@ mod tests {
     }
 
     fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join("txr-method-list-runtime-tests")
-            .join(format!("{tag}-{}", uuid::Uuid::new_v4().simple()));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+        crate::modules::method_list::test_scratch::dir("method-list-runtime", tag)
     }
 
     fn runtime_on(
@@ -1178,6 +1211,30 @@ mod tests {
         assert_eq!(ListStore::new(&root).read_state().live_digest, Some(digest(2)));
         let last = runtime_on(parsed(&signed(1, 0)), &root, Some(source), Duration::ZERO);
         assert_eq!((last.current().sequence, last.active().origin), (2, ListOrigin::Disk));
+    }
+
+    /// A crash between the two files of a write leaves a new list with the old signature:
+    /// the next start uses the pair kept before it, not the built-in list.
+    #[tokio::test]
+    async fn a_write_cut_between_list_and_signature_falls_back_to_the_previous_list() {
+        let root = scratch("torn-write");
+        let (two, three) = (signed(2, 0), signed(3, 0));
+        store_on_disk(&root, &two);
+        store_on_disk(&root, &three);
+        let store = ListStore::new(&root);
+        store
+            .write_state(&StoreState { live_digest: Some(digest(3)), ..Default::default() })
+            .unwrap();
+        // The crash: list 3 in place with the signature of list 2 (the checksum names list 3).
+        std::fs::write(store.dir().join(super::fetch::SIGNATURE_FILE), &two.signature).unwrap();
+        let source = Arc::new(FakeSource::default());
+        let rt = runtime_on(parsed(&signed(1, 0)), &root, Some(source.clone()), Duration::ZERO);
+        assert_eq!((rt.current().sequence, rt.active().origin), (2, ListOrigin::Disk));
+        assert_eq!(store.read_state().live_digest, None, "the next check pulls the newest list again");
+        source.publish(&digest(3), Ok(three));
+        assert_eq!(rt.check(CheckBudget::BACKGROUND).await.last_check, CheckResult::Updated);
+        assert_eq!(rt.current().sequence, 3);
+        assert_eq!(store.read_list().map(|(l, _)| l.len() > 0), Some(true), "a whole pair again");
     }
 
     /// The stored list is gone but state.json still holds its digest: the next start
@@ -1393,6 +1450,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_list_that_drops_the_bases_is_refused() {
+        let root = scratch("bases-dropped");
+        let baseless = signed_doc(2, 0, |d| {
+            d["images"].as_object_mut().unwrap().remove("bases");
+        });
+        let source = Arc::new(FakeSource::default());
+        source.publish(&digest(2), Ok(baseless));
+        let rt = runtime_on(parsed(&signed(1, 0)), &root, Some(source), Duration::ZERO);
+        let status = rt.check(CheckBudget::BACKGROUND).await;
+        assert_eq!(status.last_check, CheckResult::Refused);
+        assert!(status.last_error.unwrap().contains("METHOD_LIST_BASES_DROPPED"));
+        assert_eq!(rt.current().sequence, 1);
+        assert!(rt.current().has_bases());
+    }
+
+    #[tokio::test]
     async fn a_newer_format_needs_a_newer_app() {
         let root = scratch("format-2");
         let newer = signed_doc(2, 0, |d| d["format_version"] = 2.into());
@@ -1469,7 +1542,15 @@ mod tests {
             read: &|_| None,
             debug: true,
         };
-        let on = production_seams_with(root.clone(), inputs(false, false));
+        let with_key = |demo: bool, dev_manifest: bool| {
+            // The compiled-in key set is empty today, so "updates on" needs an injected key.
+            let read = |k: &str| (k == super::fetch::TEST_KEY_ENV).then(fixture_pub_path);
+            production_seams_with(
+                root.clone(),
+                SeamInputs { demo, dev_manifest, read: &read, debug: true },
+            )
+        };
+        let on = with_key(false, false);
         assert!(on.source.is_some() && on.off_reason.is_none());
         let demo = production_seams_with(root.clone(), inputs(true, false));
         assert!(demo.source.is_none());
@@ -1489,6 +1570,33 @@ mod tests {
             SeamInputs { demo: false, dev_manifest: false, read: &read, debug: false },
         );
         assert_eq!(release.keys.fingerprint(), TrustedKeys::builtin().unwrap().fingerprint());
+    }
+
+    #[test]
+    fn production_seams_are_off_without_a_trusted_key() {
+        let root = scratch("no-keys");
+        let none = |_: &str| None;
+        for debug in [true, false] {
+            let seams = production_seams_over(
+                root.clone(),
+                SeamInputs { demo: false, dev_manifest: false, read: &none, debug },
+                empty_keys(),
+            );
+            assert!(seams.source.is_none(), "no registry call without a key that can verify");
+            assert_eq!(
+                seams.off_reason.as_deref(),
+                Some("updates are off: this build has no key to check them with")
+            );
+        }
+        // A debug build with the test key has a key, so updates are on.
+        let read = |k: &str| (k == super::fetch::TEST_KEY_ENV).then(fixture_pub_path);
+        let with_key = production_seams_over(
+            root,
+            SeamInputs { demo: false, dev_manifest: false, read: &read, debug: true },
+            empty_keys(),
+        );
+        assert!(with_key.source.is_some() && with_key.off_reason.is_none());
+        assert_eq!(with_key.keys.keys().len(), 1);
     }
 
     #[test]
