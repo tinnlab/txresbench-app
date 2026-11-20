@@ -806,4 +806,153 @@ mod tests {
             fi.problems.iter().map(|p| p.code.code()).collect::<Vec<_>>().join(", ")
         );
     }
+
+    // ── Unrecognized headers: the missing columns are reported once, never
+    //    again per row (R04 runs only on columns resolved to a role) ─────────
+
+    /// A 20-patient patients file with NO header row: the header scan takes the
+    /// first data row as the header, so no column resolves to a role.
+    fn headerless_patients() -> ParsedTable {
+        let text: String = (1..=20)
+            .map(|i| format!("P{i:02},{},{},{},{}\n", 100 + i, i % 2, 200 + i, (i + 1) % 2))
+            .collect();
+        csv_table(&text)
+    }
+
+    /// A 10-row measurements file whose header names no known role except the
+    /// unit (`Subject, Visit day, Test, Result, Units`).
+    fn other_names_measurements() -> ParsedTable {
+        let mut text = String::from("Subject,Visit day,Test,Result,Units\n");
+        for i in 1..=5 {
+            text.push_str(&format!("P{i:02},0,LDH,{},U/L\n", 100 + i));
+            text.push_str(&format!("P{i:02},28,LDH,{},U/L\n", 110 + i));
+        }
+        csv_table(&text)
+    }
+
+    fn count(problems: &[FileProblem], code: ProblemCode) -> usize {
+        problems.iter().filter(|p| p.code == code).count()
+    }
+
+    #[test]
+    fn inspect_headerless_patients_reports_columns_once_and_no_r04() {
+        let f = inspect(&FileInspectionRequest {
+            kind: FileTableKind::Patients,
+            table: headerless_patients(),
+        });
+        assert_eq!(count(&f.problems, ProblemCode::A01NoRecognizableHeader), 1, "{:?}", f.problems);
+        assert_eq!(count(&f.problems, ProblemCode::A02RequiredColumnNotFound), 1, "{:?}", f.problems);
+        assert_eq!(count(&f.problems, ProblemCode::R02RequiredColumns), 5, "{:?}", f.problems);
+        assert_eq!(
+            count(&f.problems, ProblemCode::R04Nullability),
+            0,
+            "no per-row R04 for unresolved columns: {:?}",
+            f.problems
+        );
+        assert_eq!(count(&f.problems, ProblemCode::R18EventHasTime), 0, "{:?}", f.problems);
+    }
+
+    #[test]
+    fn inspect_other_names_measurements_reports_columns_once_and_no_r04() {
+        let f = inspect(&FileInspectionRequest {
+            kind: FileTableKind::Measurements,
+            table: other_names_measurements(),
+        });
+        // `Units` resolves, so the header is recognized (no A01); the four
+        // required measurement columns but the unit's are missing (R02 x3 +
+        // value) — each once, on the header row.
+        assert_eq!(count(&f.problems, ProblemCode::A01NoRecognizableHeader), 0, "{:?}", f.problems);
+        assert_eq!(count(&f.problems, ProblemCode::R02RequiredColumns), 4, "{:?}", f.problems);
+        assert_eq!(
+            count(&f.problems, ProblemCode::R04Nullability),
+            0,
+            "no per-row R04 for unresolved columns: {:?}",
+            f.problems
+        );
+    }
+
+    #[test]
+    fn validate_unrecognized_headers_reports_columns_once_and_no_r04() {
+        let vr = crate::modules::file_validator::types::ValidationRequest {
+            mode: ValidationMode::Files,
+            patients: Some(headerless_patients()),
+            measurements: other_names_measurements(),
+            joins: vec![],
+            mapping: vec![],
+            parameters: Default::default(),
+        };
+        let v = validate(&vr).expect("validate answers with problems");
+        assert_eq!(count(&v.problems, ProblemCode::A01NoRecognizableHeader), 1, "{:?}", v.problems);
+        assert_eq!(count(&v.problems, ProblemCode::A02RequiredColumnNotFound), 1, "{:?}", v.problems);
+        assert_eq!(count(&v.problems, ProblemCode::R02RequiredColumns), 9, "{:?}", v.problems);
+        assert_eq!(
+            count(&v.problems, ProblemCode::R04Nullability),
+            0,
+            "no per-row R04 for unresolved columns: {:?}",
+            v.problems
+        );
+        assert_eq!(count(&v.problems, ProblemCode::R18EventHasTime), 0, "{:?}", v.problems);
+    }
+
+    #[test]
+    fn recognized_header_with_an_empty_required_cell_is_still_r04_on_that_row() {
+        // Patients: a blank patient_id on the second data row (file row 3).
+        let p = csv_table(
+            "patient_id,pfs_days,pfs_event,os_days,os_event\nP1,100,1,200,0\n,110,0,210,1\nP3,120,1,220,0\n",
+        );
+        let f = inspect(&FileInspectionRequest {
+            kind: FileTableKind::Patients,
+            table: p.clone(),
+        });
+        let r04: Vec<_> = f.problems.iter().filter(|p| p.code == ProblemCode::R04Nullability).collect();
+        assert_eq!(r04.len(), 1, "{:?}", f.problems);
+        assert_eq!(r04[0].row, Some(3));
+        assert_eq!(r04[0].column.as_deref(), Some("patient_id"));
+        // Measurements: a blank day (file row 3) and a blank marker (file row 4).
+        let m = csv_table(
+            "patient_id,day,marker,value,unit\nP1,0,LDH,100,U/L\nP1,,LDH,110,U/L\nP3,0,,120,U/L\n",
+        );
+        let f = inspect(&FileInspectionRequest {
+            kind: FileTableKind::Measurements,
+            table: m.clone(),
+        });
+        let r04: Vec<_> = f
+            .problems
+            .iter()
+            .filter(|p| p.code == ProblemCode::R04Nullability)
+            .map(|p| (p.row, p.column.clone()))
+            .collect();
+        assert_eq!(
+            r04,
+            vec![(Some(3), Some("day".to_string())), (Some(4), Some("marker".to_string()))],
+            "{:?}",
+            f.problems
+        );
+        // validate reports the same cells.
+        let vr = crate::modules::file_validator::types::ValidationRequest {
+            mode: ValidationMode::Files,
+            patients: Some(p),
+            measurements: m,
+            joins: vec![],
+            mapping: vec![],
+            parameters: Default::default(),
+        };
+        let v = validate(&vr).expect("validate answers with problems");
+        let r04: Vec<_> = v
+            .problems
+            .iter()
+            .filter(|p| p.code == ProblemCode::R04Nullability)
+            .map(|p| (p.row, p.column.clone()))
+            .collect();
+        assert_eq!(
+            r04,
+            vec![
+                (Some(3), Some("patient_id".to_string())),
+                (Some(3), Some("day".to_string())),
+                (Some(4), Some("marker".to_string())),
+            ],
+            "{:?}",
+            v.problems
+        );
+    }
 }
