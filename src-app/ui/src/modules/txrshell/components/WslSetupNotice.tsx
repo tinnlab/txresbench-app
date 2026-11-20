@@ -23,9 +23,9 @@ export const WSL_MISSING_LINE =
   'Methods cannot run yet: they run in WSL 2 (Windows Subsystem for Linux), which is not installed.'
 export const WSL_OLD_LINE = 'Methods cannot run yet: the installed WSL is too old.'
 export const WSL_RUNNING_LINE =
-  'A WSL setup is running. It goes on after a Yes in the TxResBench dialog and in Windows\' permission prompt; the download from Microsoft can take several minutes.'
+  'A WSL setup is running. It goes on after you confirm in the TxResBench dialog (Windows may also ask for permission); the download from Microsoft can take several minutes.'
 export const WSL_ASKS_LINE =
-  'TxResBench asks you to confirm in a dialog, then Windows asks for permission; WSL is downloaded from Microsoft.'
+  'TxResBench asks you to confirm in a dialog, and Windows may also ask for permission; WSL is downloaded from Microsoft.'
 export const WSL_DONE_RESTART_LINE = 'WSL is set up. Restart Windows, then open TxResBench again to run methods.'
 export const WSL_DONE_LINE = 'WSL is up to date. Close TxResBench and open it again to run methods.'
 export const WSL_DECLINED_LINE = 'WSL was not set up: the setup was declined, so nothing was changed.'
@@ -122,7 +122,7 @@ const DETAIL: CSSProperties = {
  * because WSL 2 is missing or too old, with "Set up WSL" / "Update WSL" (the
  * registered `sandbox.setupWsl` action, so the palette and the AI agent start
  * the same setup). The setup starts at once and goes on after the person at
- * the PC says Yes in the app's own dialog and in Windows' prompt; the notice
+ * the PC confirms in the app's own dialog (Windows may also ask); the notice
  * shows it running, then its result. After a No the button comes back a
  * minute later. Other reasons are said without a button.
  *

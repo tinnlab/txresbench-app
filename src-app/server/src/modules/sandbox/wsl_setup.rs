@@ -16,16 +16,18 @@
 //! later from the status (`GET /api/sandbox/envs`' `stack.wsl_setup`,
 //! [`notice`]).
 //!
-//! Nothing runs as administrator unless a person says Yes in the app's own
+//! Nothing runs as administrator unless a person confirms in the app's own
 //! dialog first ([`question`]): a window on this PC that no caller of the
-//! route can answer. Windows' permission prompt (UAC) comes after it, but is
-//! not relied on: with UAC off or set to never notify, or with the app itself
-//! run as administrator, Windows elevates without asking anyone. After a No
-//! (in the dialog or in Windows' prompt) the setup is not offered again for
-//! [`DECLINE_PAUSE_SECS`], so that a caller cannot put the question up again
-//! and again. Only the app's own window or a program on this PC that sends no
-//! web origin may start a setup ([`check_caller`]): never a web page in a
-//! browser on this PC.
+//! route can answer. That dialog is the barrier. Windows' permission prompt
+//! (UAC) may come after it, but is not relied on: with UAC off or set to
+//! never notify, or with the app itself run as administrator, Windows
+//! elevates without asking anyone. After a No (in the dialog or in Windows'
+//! prompt) the setup is not offered again for [`DECLINE_PAUSE_SECS`], so that
+//! a caller cannot put the question up again and again. [`check_caller`]
+//! refuses a page whose web origin is not one of the app window's, and a
+//! request to another name for this PC; it does not prove that a request
+//! comes from TxResBench's own window (its origin on Windows,
+//! `http://tauri.localhost`, is every Tauri 2 app's).
 //!
 //! One setup runs at a time; it ends as the installer's does: WSL is set up
 //! when the installer's check says it is ready afterwards, or, after wsl.exe
@@ -58,8 +60,8 @@ pub const WSL_SETUP_NOT_OFFERED_CODE: &str = "WSL_SETUP_NOT_OFFERED";
 pub const WSL_SETUP_RUNNING_CODE: &str = "WSL_SETUP_RUNNING";
 /// The last setup was declined less than [`DECLINE_PAUSE_SECS`] ago.
 const WSL_SETUP_DECLINED_RECENTLY_CODE: &str = "WSL_SETUP_DECLINED_RECENTLY";
-/// The request came from a web page that is not the app's own window, or to
-/// a name that is not this PC's loopback address (403).
+/// The request came from a web page whose origin is not one of the app
+/// window's, or to a name that is not this PC's loopback address (403).
 const WSL_SETUP_NOT_FROM_THE_APP_CODE: &str = "WSL_SETUP_NOT_FROM_THE_APP";
 
 /// Windows' `ERROR_CANCELLED`: the person said No to the UAC prompt.
@@ -443,16 +445,16 @@ fn question(before: WslStatus) -> &'static str {
     match before {
         WslStatus::Missing => {
             "TxResBench runs methods inside WSL 2 (Windows Subsystem for Linux), which is not installed.\r\n\r\n\
-             Install WSL 2 now? It is downloaded from Microsoft (about 400 MB). Windows will ask for permission \
-             next, and Windows usually needs a restart afterwards.\r\n\r\n\
+             Install WSL 2 now? It is downloaded from Microsoft (about 400 MB). Windows may also ask for \
+             permission, and Windows usually needs a restart afterwards.\r\n\r\n\
              This was asked for in TxResBench: with its Set up WSL button, its command palette or an AI assistant \
              connected to it. Choose No to change nothing."
         }
         WslStatus::Legacy => {
             "TxResBench runs methods inside WSL 2 (Windows Subsystem for Linux). The WSL installed is an older \
              kind that TxResBench cannot use.\r\n\r\n\
-             Update WSL now? The update is downloaded from Microsoft (about 400 MB). Windows will ask for \
-             permission next. Linux programs running in WSL will be closed, and Windows may need a restart \
+             Update WSL now? The update is downloaded from Microsoft (about 400 MB). Windows may also ask for \
+             permission. Linux programs running in WSL will be closed, and Windows may need a restart \
              afterwards.\r\n\r\n\
              This was asked for in TxResBench: with its Update WSL button, its command palette or an AI assistant \
              connected to it. Choose No to change nothing."
@@ -461,8 +463,8 @@ fn question(before: WslStatus) -> &'static str {
         _ => {
             "TxResBench runs methods inside WSL 2 (Windows Subsystem for Linux). The WSL installed is too old: \
              it has a known security flaw that newer versions fix.\r\n\r\n\
-             Update WSL now? The update is downloaded from Microsoft (about 400 MB). Windows will ask for \
-             permission next. Linux programs running in WSL will be closed.\r\n\r\n\
+             Update WSL now? The update is downloaded from Microsoft (about 400 MB). Windows may also ask for \
+             permission. Linux programs running in WSL will be closed.\r\n\r\n\
              This was asked for in TxResBench: with its Update WSL button, its command palette or an AI assistant \
              connected to it. Choose No to change nothing."
         }
@@ -529,14 +531,21 @@ pub fn note_server_port(port: u16) {
     let _ = SERVER_PORT.set(port);
 }
 
-/// Only the app's own window, or a program on this PC that sends no web
-/// origin (the MCP dispatch over loopback, a script), may start a setup. A
-/// browser always sends the page's origin with a POST, so a web page open in
-/// a browser on this PC is refused by its `Origin`; one whose own name was
-/// made to point at this PC ("DNS rebinding") is refused by its `Host`, which
-/// must be a loopback name with this server's port (`port`; `None`: not
-/// known, refused). `dev`: a debug build, which also takes the dev server's
-/// page.
+/// Refuse a request from a web page whose origin is not one of the app
+/// window's ([`APP_ORIGINS`]), and one sent to another name than this PC's
+/// loopback address. A browser always sends the page's origin with a POST,
+/// so a page from another site open in a browser on this PC is refused by
+/// its `Origin`; one whose own name was made to point at this PC ("DNS
+/// rebinding") is refused by its `Host`, which must be a loopback name with
+/// this server's port (`port`; `None`: not known, refused). A request with
+/// no origin passes: it is no browser's (the MCP dispatch over loopback, a
+/// script). `dev`: a debug build, which also takes the dev server's page.
+///
+/// This does not identify TxResBench's own window: its origin on Windows,
+/// `http://tauri.localhost`, is the window origin of every Tauri 2 app, and
+/// a page that a web server on this PC serves under that name (browsers send
+/// `*.localhost` names to this PC) has it too. The app's own dialog
+/// ([`question`]) is what no caller of the route can pass.
 fn check_caller(headers: &HeaderMap, port: Option<u16>, dev: bool) -> Result<(), AppError> {
     let refuse = |why: String| Err(AppError::forbidden(WSL_SETUP_NOT_FROM_THE_APP_CODE, why));
     let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("");
@@ -554,7 +563,7 @@ fn check_caller(headers: &HeaderMap, port: Option<u16>, dev: bool) -> Result<(),
             if APP_ORIGINS.contains(&origin) || (dev && DEV_ORIGINS.contains(&origin)) {
                 Ok(())
             } else {
-                refuse(format!("a WSL setup is started only from the app's own window, not from {origin:?}"))
+                refuse(format!("a WSL setup is not started from a page at {origin:?}"))
             }
         }
         (Some(_), Some(_)) => refuse("a request with more than one origin".to_string()),
@@ -602,10 +611,10 @@ pub fn notice() -> Option<(String, WslSetupStatus)> {
     Some((why, state().status(boot_status())))
 }
 
-/// `POST /api/sandbox/wsl/setup` after its permission check: refused unless
-/// it comes from the app's own window or a program on this PC
-/// ([`check_caller`]); else a setup starts on this PC, and the answer is its
-/// status (`running`).
+/// `POST /api/sandbox/wsl/setup` after its permission check: refused when
+/// [`check_caller`] refuses it (a page from another web origin, another name
+/// for this PC); else a setup starts on this PC, and the answer is its status
+/// (`running`).
 pub fn start_here(headers: &HeaderMap) -> Result<WslSetupStatus, AppError> {
     check_caller(headers, SERVER_PORT.get().copied(), cfg!(debug_assertions))?;
     start(&state(), boot_status(), system_host())
@@ -1319,9 +1328,12 @@ mod tests {
             [(WslStatus::Missing, "Install WSL 2 now?"), (WslStatus::Old, "Update WSL now?"), (WslStatus::Legacy, "Update WSL now?")]
         {
             let q = question(status);
-            for words in [verb, "Microsoft", "about 400 MB", "Windows will ask for permission", "in TxResBench", "AI assistant", "Choose No to change nothing"] {
+            for words in [verb, "Microsoft", "about 400 MB", "Windows may also ask for permission", "in TxResBench", "AI assistant", "Choose No to change nothing"] {
                 assert!(q.contains(words), "{status:?}: {words:?} in {q:?}");
             }
+            // With UAC off or never notifying, or the app run as administrator,
+            // Windows asks nothing: the question never says it will.
+            assert!(!q.contains("will ask") && !q.contains("asks next"), "{status:?}: {q:?}");
         }
         assert!(question(WslStatus::Missing).contains("usually needs a restart"));
         assert!(question(WslStatus::Legacy).contains("older kind") && question(WslStatus::Legacy).contains("may need a restart"));

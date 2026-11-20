@@ -477,11 +477,13 @@ fn method_run_docs(op: TransformOperation) -> TransformOperation {
 /// installer's own commands, run as administrator. Starts the setup and
 /// answers at once (202) with its status (`running`); its result comes in
 /// `GET /api/sandbox/envs`' `stack.wsl_setup.last`. Nothing runs unless the
-/// person at the PC says Yes in the app's own dialog (no caller of this route
-/// can answer it), then to Windows' permission prompt. Gated
-/// `SandboxSettingsManage` (it changes the machine), and only for the app's
-/// own window or a program on this PC (403 `WSL_SETUP_NOT_FROM_THE_APP` for a
-/// web page or a request to another name for this PC). 409
+/// person at the PC confirms in the app's own dialog (no caller of this route
+/// can answer it); Windows may also ask for permission (not with UAC off or
+/// never notifying, or with the app run as administrator). Gated
+/// `SandboxSettingsManage` (it changes the machine); 403
+/// `WSL_SETUP_NOT_FROM_THE_APP` for a page from another web origin than the
+/// app window's or a request to another name for this PC (the check does not
+/// tell TxResBench's window from another Tauri app's: the dialog does). 409
 /// `WSL_SETUP_NOT_OFFERED` when there is nothing to set up (any other system,
 /// methods can run, a reason the app cannot fix, a setup done and waiting for
 /// a restart), `WSL_SETUP_RUNNING` while one runs, `WSL_SETUP_DECLINED_RECENTLY`
@@ -494,16 +496,17 @@ async fn setup_wsl(
     Ok((StatusCode::ACCEPTED, Json(status)))
 }
 
+/// The OpenAPI summary of `POST /api/sandbox/wsl/setup` (the agent reads it).
+const SETUP_WSL_SUMMARY: &str = "Windows: start installing or updating WSL 2 as administrator. Answers at once \
+     (202, running); read the result from Sandbox.listEnvs (stack.wsl_setup.last). The person at the PC must \
+     confirm in the app's own dialog; Windows may also ask for permission. Listed on every system: answers 409 \
+     WSL_SETUP_NOT_OFFERED where no setup is offered";
+
 fn setup_wsl_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(SandboxSettingsManage,)>(op)
         .id(SETUP_WSL_DOC_ID)
         .tag("sandbox")
-        .summary(
-            "Windows: start installing or updating WSL 2 as administrator. Answers at once (202, running); \
-             read the result from Sandbox.listEnvs (stack.wsl_setup.last). The person at the PC must say Yes \
-             in the app's own dialog, then to Windows' prompt. Listed on every system: answers 409 \
-             WSL_SETUP_NOT_OFFERED where no setup is offered",
-        )
+        .summary(SETUP_WSL_SUMMARY)
         .response::<202, Json<WslSetupStatus>>()
         .response_with::<409, (), _>(|r| {
             r.description(
@@ -548,6 +551,14 @@ mod tests {
         assert_eq!(DELETE_ENV_DOC_ID, "Sandbox.deleteEnv");
         assert_eq!(METHOD_RUN_DOC_ID, "Sandbox.methodRun");
         assert_eq!(SETUP_WSL_DOC_ID, "Sandbox.setupWsl");
+    }
+
+    // The setup's summary says only what is always true: Windows asks nothing
+    // with UAC off or never notifying, or with the app run as administrator.
+    #[test]
+    fn the_setup_summary_says_windows_may_also_ask() {
+        assert!(SETUP_WSL_SUMMARY.contains("confirm in the app's own dialog; Windows may also ask for permission"));
+        assert!(!SETUP_WSL_SUMMARY.contains("then to Windows' prompt"), "{SETUP_WSL_SUMMARY}");
     }
 
     // The query flag defaults to no-prune (an explicit `?prune=true` is the

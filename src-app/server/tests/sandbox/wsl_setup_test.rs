@@ -1,10 +1,12 @@
 //! `POST /api/sandbox/wsl/setup` on a machine with nothing to set up (any
 //! system but a Windows PC whose WSL is missing or too old): 409
-//! `WSL_SETUP_NOT_OFFERED`, and nothing changes. A web page (its `Origin`)
-//! or a request to another name for this PC (its `Host`) is refused before
-//! anything else (403 `WSL_SETUP_NOT_FROM_THE_APP`). The setup itself (the
-//! offer, the app's own question, one at a time, the result) is unit-tested
-//! in `sandbox::wsl_setup` behind its seams.
+//! `WSL_SETUP_NOT_OFFERED`, and nothing changes. A page from another web
+//! origin (its `Origin`) or a request to another name for this PC (its
+//! `Host`) is refused before anything else (403 `WSL_SETUP_NOT_FROM_THE_APP`).
+//! The app window's origins pass that check (it does not tell TxResBench's
+//! window from another Tauri app's; the app's own dialog does). The setup
+//! itself (the offer, the app's own question, one at a time, the result) is
+//! unit-tested in `sandbox::wsl_setup` behind its seams.
 //!
 //! On a Windows PC that IS offered a setup (WSL missing or too old, like the
 //! test VM), an accepted POST would start a real setup: the app's own Yes/No
@@ -98,7 +100,7 @@ async fn refused_as_not_from_the_app(resp: reqwest::Response, what: &str) {
 /// A web page in a browser on this PC sends its origin, and one whose own
 /// name was made to point at this PC ("DNS rebinding") sends that name as
 /// the `Host`: both are refused before anything else, also where a setup is
-/// offered. The app's own window passes this check.
+/// offered. The app window's origins pass this check.
 #[tokio::test]
 async fn a_setup_from_a_web_page_or_another_name_is_refused() {
     let name = stringify!(a_setup_from_a_web_page_or_another_name_is_refused);
@@ -121,7 +123,7 @@ async fn a_setup_from_a_web_page_or_another_name_is_refused() {
     } else {
         for origin in ["http://tauri.localhost", "tauri://localhost"] {
             let resp = post_setup_with(&server, &token, &[("Origin", origin.to_string())]).await;
-            assert_eq!(resp.status().as_u16(), 409, "the app's own window passes the check: {origin}");
+            assert_eq!(resp.status().as_u16(), 409, "the app window's origin passes the check: {origin}");
             let body: Value = resp.json().await.expect("409 json");
             assert_eq!(body["error_code"], "WSL_SETUP_NOT_OFFERED", "{origin}: {body}");
         }

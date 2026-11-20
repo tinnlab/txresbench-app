@@ -10,8 +10,8 @@
  * - `refreshWslSetup()` reads the facts (a failed read keeps the last ones).
  * - `setUpWsl()` starts the setup (`POST /api/sandbox/wsl/setup`), which
  *   answers at once with its status (`running`). The setup itself waits for
- *   the person at the PC: a Yes in the app's own dialog, then in Windows'
- *   permission prompt; then WSL comes from Microsoft. Its result comes in the
+ *   the person at the PC to confirm in the app's own dialog (Windows may also
+ *   ask for permission); then WSL comes from Microsoft. Its result comes in the
  *   facts (`setup.last`) when it ended. The `sandbox.setupWsl` action runs
  *   it, so the notice's button, the command palette and the AI agent all
  *   start the same setup.

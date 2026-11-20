@@ -6320,7 +6320,7 @@
         "tags": [
           "sandbox"
         ],
-        "summary": "Windows: start installing or updating WSL 2 as administrator. Answers at once (202, running); read the result from Sandbox.listEnvs (stack.wsl_setup.last). The person at the PC must say Yes in the app's own dialog, then to Windows' prompt. Listed on every system: answers 409 WSL_SETUP_NOT_OFFERED where no setup is offered",
+        "summary": "Windows: start installing or updating WSL 2 as administrator. Answers at once (202, running); read the result from Sandbox.listEnvs (stack.wsl_setup.last). The person at the PC must confirm in the app's own dialog; Windows may also ask for permission. Listed on every system: answers 409 WSL_SETUP_NOT_OFFERED where no setup is offered",
         "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits, remove method environments, and set up WSL on Windows",
         "operationId": "Sandbox.setupWsl",
         "responses": {

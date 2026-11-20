@@ -376,6 +376,14 @@ describe('WslSetupNotice', () => {
     }
   })
 
+  it('the notice and the action say only that Windows may also ask (UAC off or the app elevated: it asks nothing)', () => {
+    const texts = [WSL_ASKS_LINE, WSL_RUNNING_LINE, getActionMeta('sandbox.setupWsl')?.description ?? '']
+    for (const text of texts) {
+      expect(text).toContain('Windows may also ask for permission')
+      expect(text).not.toMatch(/then Windows asks|then in Windows' permission prompt|and in Windows' permission prompt/)
+    }
+  })
+
   it('the action is the setup, with the sandbox manage permission, no params and the setup context', () => {
     const meta = getActionMeta('sandbox.setupWsl')
     expect(meta).toMatchObject({
