@@ -81,7 +81,6 @@ use crate::modules::file_validator::types::{
 use crate::modules::method_catalogue::eligibility::{
     eligibility_for, estimate_seconds_for, REFERENCE_CPUS,
 };
-use crate::modules::execution_engine::envimage;
 use crate::modules::execution_engine::envmanifest::EnvArch;
 use crate::modules::method_list::MethodList;
 use crate::modules::method_catalogue::types::{
@@ -736,31 +735,40 @@ async fn inner(
     start_fresh(pool, seams, owner, &methods).await
 }
 
-/// The old empty-pick message: the list has images for this computer, but no
-/// fast method among them can run on the example data.
-const NO_FAST_EXAMPLE_METHOD: &str = "no method with a published environment can run on the example data \
-     (needs a runnable method under 30 s) — train your own models instead";
+/// The example's error line when no method can run at all, with the runner's
+/// own reason (one full sentence, whatever punctuation the reason ends in).
+fn cannot_make_example(reason: &str) -> String {
+    format!("Example models cannot be made: {}.", reason.trim().trim_end_matches('.'))
+}
+
+/// The empty-pick message when the list has methods for this kind of
+/// processor, but none finishes the example data quickly enough.
+const NO_FAST_EXAMPLE_METHOD: &str = "Example models cannot be made: no method that is ready to run \
+     finishes the example data in under 30 seconds. Train your own models instead.";
+
+/// The empty-pick message for a processor the app does not support.
+const UNSUPPORTED_PROCESSOR: &str = "Example models cannot be made: the app does not support this \
+     kind of processor.";
+
+/// The empty-pick message for a method list that has nothing for this kind
+/// of processor.
+const NO_METHODS_FOR_PROCESSOR: &str = "Example models cannot be made: the method list has no methods \
+     for this kind of processor yet.";
 
 /// The example's empty-pick message. A list with no method image for this
-/// computer's chip type (e.g. a list built only for Intel/AMD, opened on an
-/// Apple-chip Mac) names the chip type, the way the saved-model chip-type
-/// message does ([`envimage::this_computer`]) — no method can run here at
-/// all, so the message never suggests training instead. Otherwise the old
-/// message: no fast method among this computer's images fits the example.
+/// kind of processor (e.g. a list built only for Intel/AMD, opened on an
+/// Apple-chip Mac) says so: no method can run at all, so the message never
+/// suggests training instead. Otherwise it is the old meaning, no method
+/// is fast enough on the example data. The words are plain and never say
+/// where the app runs.
 fn empty_pick_message(list: &MethodList, host: Option<EnvArch>) -> String {
     let Some(arch) = host else {
-        return "No method can run on this computer: its chip type is not supported, \
-                so the example models cannot be made"
-            .to_string();
+        return UNSUPPORTED_PROCESSOR.to_string();
     };
     if list.images.envs.iter().any(|entry| entry.arch == arch) {
         return NO_FAST_EXAMPLE_METHOD.to_string();
     }
-    format!(
-        "No method can run on {} yet: the method list has no method images for this chip type, \
-         so the example models cannot be made",
-        envimage::this_computer(arch)
-    )
+    NO_METHODS_FOR_PROCESSOR.to_string()
 }
 
 /// Start a fresh example training run + record the creating state.
@@ -775,13 +783,13 @@ async fn start_fresh(
     // that reason, not a run that cannot start or a word on environments.
     let runner_missing = seams.executor.runner_unavailable();
     if methods.is_empty() || runner_missing.is_some() {
-        // The plan's honest fallback: no fast method with a published
-        // environment can run on the example data — say so, never a fake
-        // set, never a half-empty one. When the list has no image for this
-        // computer's chip type at all, say THAT: training would fail the
-        // same way, so "train your own models" would be wrong advice.
+        // The plan's honest fallback: no fast method that is ready to run
+        // can run on the example data — say so, never a fake set, never a
+        // half-empty one. When the list has nothing for this kind of
+        // processor at all, say THAT: training would fail the same way, so
+        // "train your own models" would be wrong advice.
         let error = match &runner_missing {
-            Some(reason) => format!("methods cannot run on this computer yet: {reason}"),
+            Some(reason) => cannot_make_example(reason),
             None => empty_pick_message(&crate::modules::method_list::current(), EnvArch::host()),
         };
         let _ = repo
@@ -1685,58 +1693,79 @@ mod tests {
         }
     }
 
-    /// FU 123: an empty pick on a list with no method image for this
-    /// computer's chip type names the chip type (the saved-model chip-type
-    /// message's words) and never suggests training instead.
+    /// FU 123: an empty pick on a list with no method image for this kind of
+    /// processor says so, in plain words that never say where the app runs,
+    /// and never suggests training instead.
     #[test]
-    fn empty_pick_message_names_the_chip_type_when_the_list_has_no_image_for_it() {
+    fn empty_pick_message_says_the_list_has_nothing_for_the_processor() {
         let mut amd_only = crate::modules::method_list::builtin().clone();
         amd_only.images.envs.retain(|entry| entry.arch == EnvArch::Amd64);
         assert!(!amd_only.images.envs.is_empty(), "the built-in list carries Intel/AMD images");
 
         let on_arm = empty_pick_message(&amd_only, Some(EnvArch::Arm64));
-        assert!(on_arm.starts_with("No method can run on "), "{on_arm}");
-        assert!(on_arm.contains(envimage::this_computer(EnvArch::Arm64)), "{on_arm}");
+        assert_eq!(
+            on_arm,
+            "Example models cannot be made: the method list has no methods for this kind of processor yet."
+        );
         assert!(!on_arm.contains("train your own models"), "{on_arm}");
-        if cfg!(target_os = "macos") {
-            assert_eq!(
-                on_arm,
-                "No method can run on this Mac (Apple chip) yet: the method list has no method \
-                 images for this chip type, so the example models cannot be made"
-            );
-        }
 
         // The other way round: a list with Apple-chip images only, on an
-        // Intel/AMD computer.
+        // Intel/AMD processor; and a list with no image at all.
         let mut arm_only = amd_only.clone();
         for entry in &mut arm_only.images.envs {
             entry.arch = EnvArch::Arm64;
         }
-        assert_eq!(
-            empty_pick_message(&arm_only, Some(EnvArch::Amd64)),
-            "No method can run on this Intel/AMD computer yet: the method list has no method \
-             images for this chip type, so the example models cannot be made"
-        );
-
-        // A list with no image at all is the same case.
+        assert_eq!(empty_pick_message(&arm_only, Some(EnvArch::Amd64)), on_arm);
         let mut none = amd_only.clone();
         none.images.envs.clear();
-        assert!(empty_pick_message(&none, Some(EnvArch::Amd64))
-            .starts_with("No method can run on this Intel/AMD computer yet"));
+        assert_eq!(empty_pick_message(&none, Some(EnvArch::Amd64)), on_arm);
 
-        // A computer whose chip type the app does not support.
+        // A processor the app does not support.
         let unsupported = empty_pick_message(&amd_only, None);
-        assert!(unsupported.contains("its chip type is not supported"), "{unsupported}");
+        assert_eq!(
+            unsupported,
+            "Example models cannot be made: the app does not support this kind of processor."
+        );
         assert!(!unsupported.contains("train your own models"), "{unsupported}");
+
+        // No server text for this error says where the app runs or uses the
+        // chip-type and environment jargon (U47, U44).
+        for text in [
+            &on_arm,
+            &unsupported,
+            &NO_FAST_EXAMPLE_METHOD.to_string(),
+            &cannot_make_example("the part of the app that runs methods did not start"),
+        ] {
+            let lower = text.to_lowercase();
+            for banned in [
+                "this computer", "your computer", "this machine", "this mac", "chip type",
+                "published environment", "method images", "offline", "stays on",
+            ] {
+                assert!(!lower.contains(banned), "{banned:?} in {text}");
+            }
+        }
     }
 
-    /// FU 123: when the list has images for this computer, an empty pick
+    #[test]
+    fn the_runner_reason_becomes_one_plain_sentence() {
+        assert_eq!(
+            cannot_make_example("bubblewrap is not installed"),
+            "Example models cannot be made: bubblewrap is not installed."
+        );
+        assert_eq!(
+            cannot_make_example("install WSL 2 first. "),
+            "Example models cannot be made: install WSL 2 first.",
+            "no doubled full stop"
+        );
+    }
+
+    /// FU 123: when the list has images for this processor, an empty pick
     /// keeps the old meaning (no fast method fits the example data).
     #[test]
     fn empty_pick_message_keeps_the_no_fast_method_text_when_the_chip_has_images() {
         let mut amd_only = crate::modules::method_list::builtin().clone();
         amd_only.images.envs.retain(|entry| entry.arch == EnvArch::Amd64);
         assert_eq!(empty_pick_message(&amd_only, Some(EnvArch::Amd64)), NO_FAST_EXAMPLE_METHOD);
-        assert!(NO_FAST_EXAMPLE_METHOD.contains("train your own models instead"));
+        assert!(NO_FAST_EXAMPLE_METHOD.contains("Train your own models instead"));
     }
 }

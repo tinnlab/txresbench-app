@@ -905,7 +905,7 @@ pub async fn run_method_in_stack(
 
     let state = super::config::get_state().ok_or_else(|| {
         unavailable(format!(
-            "methods cannot run on this computer yet: {}",
+            "methods cannot run yet: {}",
             super::wsl_run::runner_unavailable().unwrap_or_else(|| "the sandbox did not start".into())
         ))
     })?;

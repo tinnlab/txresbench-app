@@ -567,6 +567,8 @@ async fn a_machine_that_cannot_run_methods_gets_the_reason_and_no_run() {
     assert_eq!(resp.state, ExampleSetState::Failed, "{resp:?}");
     let error = resp.error.clone().unwrap_or_default();
     assert!(error.contains("wsl --install"), "the runner's reason is shown: {error}");
+    assert!(error.starts_with("Example models cannot be made: "), "one plain sentence: {error}");
+    assert!(!error.to_lowercase().contains("this computer"), "no place named: {error}");
     assert!(!error.contains("published environment"), "environments are not blamed: {error}");
     assert_eq!(resp.run_id, None, "no run was started");
     assert_eq!(resp.set_id, None);
