@@ -17,12 +17,14 @@ impl PermissionCheck for SandboxSettingsRead {
     const MODULE: &'static str = "sandbox";
 }
 
-/// Manage (update) the sandbox settings.
+/// Manage the sandbox: its settings, the method environments, and (Windows)
+/// the WSL setup.
 pub struct SandboxSettingsManage;
 impl PermissionCheck for SandboxSettingsManage {
     const NAME: &'static str = "SandboxSettingsManage";
     const PERMISSION: &'static str = "sandbox::settings::manage";
-    const DESCRIPTION: &'static str = "Change sandbox resource limits";
+    const DESCRIPTION: &'static str =
+        "Change sandbox resource limits, remove method environments, and set up WSL on Windows";
     const MODULE: &'static str = "sandbox";
 }
 

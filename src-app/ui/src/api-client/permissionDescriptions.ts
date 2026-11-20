@@ -24,7 +24,7 @@ export const PermissionDescriptions: Record<string, string> = {
   ProfileRead: 'View own profile information',
   ProjectsUse: 'Create, view, and manage your projects',
   SandboxExecute: 'Run an analysis job in the sandbox',
-  SandboxSettingsManage: 'Change sandbox resource limits',
+  SandboxSettingsManage: 'Change sandbox resource limits, remove method environments, and set up WSL on Windows',
   SandboxSettingsRead: 'View sandbox resource limits and rootfs status',
   SessionSettingsManage: 'Update session settings (access-token TTL + max session length).',
   SessionSettingsRead: 'Read session settings (access-token TTL + max session length).'

@@ -99,6 +99,9 @@ pub mod wsl_run;
 // Windows: the WSL version rule and the installer's WSL decision, without I/O
 // (tested on every platform; `wsl_run` gathers the facts on Windows).
 pub mod wsl_status;
+// "Set up WSL" from inside the app (Windows; refused elsewhere): the offer, the
+// one-at-a-time elevated setup and its result, behind a seam tested everywhere.
+pub mod wsl_setup;
 pub mod method_env;
 pub mod outputs;
 pub mod permissions;

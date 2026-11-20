@@ -324,63 +324,91 @@ static RUNTIME: std::sync::OnceLock<Runtime> = std::sync::OnceLock::new();
 /// Why [`probe_host`] failed (what the user has to do).
 static PROBE_FAILURE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+/// The installer's status of this PC when [`probe_host`] failed because of
+/// WSL itself (not for the app's own runtime).
+static PROBE_WSL_STATUS: std::sync::OnceLock<WslStatus> = std::sync::OnceLock::new();
+
 /// Why methods cannot run on this PC, or `None` when the sandbox is ready.
 pub fn runner_unavailable() -> Option<String> {
     use super::config::{init_status, SandboxAvailability};
     if init_status() == SandboxAvailability::Ready {
         return None;
     }
-    Some(PROBE_FAILURE.get().cloned().unwrap_or_else(|| {
-        format!("the method sandbox is not available ({:?})", init_status())
-    }))
+    Some(PROBE_FAILURE.get().cloned().unwrap_or_else(|| init_status().in_words().to_string()))
+}
+
+/// The installer's status of this PC ([`classify`]) when the boot probe found
+/// WSL missing, too old or unusable; `None` when the probe passed, did not
+/// run, or failed for the app's own runtime. What `wsl_setup` offers to do.
+pub(crate) fn probe_wsl_status() -> Option<WslStatus> {
+    PROBE_WSL_STATUS.get().copied()
 }
 
 /// The boot probe: `Ok` when this PC can run methods through WSL, else what
 /// the user has to do. Cheap: it does not start WSL's VM.
 pub fn probe_host() -> Result<HostCapabilities, String> {
-    let probed = probe();
-    if let Err(reason) = &probed {
+    probe().map_err(|(reason, status)| {
         let _ = PROBE_FAILURE.set(reason.clone());
-    }
-    probed
+        if let Some(status) = status {
+            let _ = PROBE_WSL_STATUS.set(status);
+        }
+        reason
+    })
 }
 
-fn probe() -> Result<HostCapabilities, String> {
+/// The probe: its sentence when it fails, with the installer's status of this
+/// PC when WSL itself is the reason. The status is [`classify`]'s on the same
+/// facts as the installer's check, with the probe's own `wsl --version` run.
+fn probe() -> Result<HostCapabilities, (String, Option<WslStatus>)> {
+    let wsl_problem = |version: Option<VersionRun>| Some(classify(&gather_facts(&ProbedPc(version))));
     if let Some(native) = emulated_on() {
-        return Err(format!(
-            "this is the {} build of the app running on {native} Windows; install the {native} build \
-             to run methods",
-            std::env::consts::ARCH
+        return Err((
+            format!(
+                "this is the {} build of the app running on {native} Windows; install the {native} build \
+                 to run methods",
+                std::env::consts::ARCH
+            ),
+            wsl_problem(None),
         ));
     }
     if !wsl_exe().is_file() {
-        return Err(format!(
-            "methods run in WSL 2, which is not installed: open PowerShell as administrator, run \
-             `{WSL_INSTALL_COMMAND}`, then restart Windows"
+        return Err((
+            format!(
+                "methods run in WSL 2, which is not installed: open PowerShell as administrator, run \
+                 `{WSL_INSTALL_COMMAND}`, then restart Windows"
+            ),
+            wsl_problem(None),
         ));
     }
-    let out = Wsl::system().run(&["--version"], WSL_QUERY_TIMEOUT)?;
+    let out = Wsl::system().run(&["--version"], WSL_QUERY_TIMEOUT).map_err(|e| (e, wsl_problem(None)))?;
     let version = if out.ok() { parse_wsl_version(&out.stdout) } else { None };
+    let ran = || Some(VersionRun { exit_ok: out.ok(), text: out.text(), stdout: out.stdout.clone() });
     match version {
         None => {
-            return Err(format!(
-                "methods run in WSL 2, which is not installed or too old on this computer: open PowerShell \
-                 as administrator, run `{WSL_INSTALL_COMMAND}` (or `wsl --update` if WSL is installed), \
-                 then restart Windows [`wsl --version` said: {}]",
-                one_line(&out.text())
+            return Err((
+                format!(
+                    "methods run in WSL 2, which is not installed or too old on this computer: open PowerShell \
+                     as administrator, run `{WSL_INSTALL_COMMAND}` (or `wsl --update` if WSL is installed), \
+                     then restart Windows [`wsl --version` said: {}]",
+                    one_line(&out.text())
+                ),
+                wsl_problem(ran()),
             ));
         }
         Some(v) if !wsl_version_ok(v) => {
-            return Err(format!(
-                "WSL {}.{}.{} has a known security flaw (CVE-2025-53788); run `wsl --update` to get 2.6.1 \
-                 or later",
-                v.0, v.1, v.2
+            return Err((
+                format!(
+                    "WSL {}.{}.{} has a known security flaw (CVE-2025-53788); run `wsl --update` to get 2.6.1 \
+                     or later",
+                    v.0, v.1, v.2
+                ),
+                wsl_problem(ran()),
             ));
         }
         Some(_) => {}
     }
-    let dir = runtime_dir().ok_or("the app's folder could not be found")?;
-    let runtime = read_runtime(&dir)?;
+    let dir = runtime_dir().ok_or(("the app's folder could not be found".to_string(), None))?;
+    let runtime = read_runtime(&dir).map_err(|e| (e, None))?;
     let _ = RUNTIME.set(runtime);
     Ok(HostCapabilities {
         bwrap_path: PathBuf::from(GUEST_BWRAP_PATH),
@@ -432,6 +460,35 @@ impl FactReader for ThisPc {
     }
     fn windows_build(&self) -> Option<u32> {
         win_registry::windows_build()
+    }
+}
+
+/// This Windows as [`ThisPc`] reads it, with the probe's own answer of
+/// `wsl --version` (`None`: it did not run or did not answer), so that the
+/// probe does not run it twice.
+struct ProbedPc(Option<VersionRun>);
+
+impl FactReader for ProbedPc {
+    fn emulated(&self) -> bool {
+        ThisPc.emulated()
+    }
+    fn wsl_exe_present(&self) -> bool {
+        ThisPc.wsl_exe_present()
+    }
+    fn version_run(&self) -> Option<VersionRun> {
+        self.0.clone()
+    }
+    fn hklm_dword(&self, key: &str, value: &str) -> Option<u32> {
+        ThisPc.hklm_dword(key, value)
+    }
+    fn hklm_key_exists(&self, key: &str) -> bool {
+        ThisPc.hklm_key_exists(key)
+    }
+    fn service_exists(&self, name: &str) -> bool {
+        ThisPc.service_exists(name)
+    }
+    fn windows_build(&self) -> Option<u32> {
+        ThisPc.windows_build()
     }
 }
 
@@ -1227,6 +1284,33 @@ mod tests {
         assert!(ThisPc.windows_build().is_some_and(|b| b >= 10240), "{:?}", ThisPc.windows_build());
         assert_eq!(ThisPc.wsl_exe_present(), wsl_exe().is_file());
         assert_eq!(ThisPc.emulated(), emulated_on().is_some());
+    }
+
+    /// The probe's status reads this PC as the installer's check does, with
+    /// the probe's own answer of `wsl --version` instead of a second run.
+    #[test]
+    fn the_probe_reads_this_pc_with_its_own_wsl_version() {
+        let ran = VersionRun { exit_ok: true, stdout: "WSL version: 2.6.1.0\n".into(), text: "probe's".into() };
+        let probed = ProbedPc(Some(ran));
+        assert_eq!(probed.version_run().map(|r| r.text), Some("probe's".to_string()));
+        assert!(ProbedPc(None).version_run().is_none());
+
+        let (nt, major) = (r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "CurrentMajorVersionNumber");
+        assert_eq!(probed.hklm_dword(nt, major), ThisPc.hklm_dword(nt, major));
+        assert_eq!(probed.hklm_key_exists(nt), ThisPc.hklm_key_exists(nt));
+        assert_eq!(probed.service_exists("RpcSs"), ThisPc.service_exists("RpcSs"));
+        assert_eq!(probed.windows_build(), ThisPc.windows_build());
+        assert_eq!(probed.wsl_exe_present(), ThisPc.wsl_exe_present());
+        assert_eq!(probed.emulated(), ThisPc.emulated());
+
+        let (mine, theirs) = (gather_facts(&probed), gather_facts(&ThisPc));
+        if mine.wsl_exe_present && !mine.emulated && !mine.turned_off_by_policy {
+            assert_eq!(mine.version_run.map(|r| r.text), Some("probe's".to_string()));
+        }
+        assert_eq!(
+            (mine.inbox_wsl_on, mine.package_registered, mine.vm_platform_running),
+            (theirs.inbox_wsl_on, theirs.package_registered, theirs.vm_platform_running)
+        );
     }
 
     /// Exit 4 is not only a lost connection: a request the agent refuses for

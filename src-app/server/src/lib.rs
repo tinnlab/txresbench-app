@@ -349,6 +349,9 @@ pub async fn boot_in_background(config: ServerConfig, secret: String) -> Result<
         modules::local_api_lock::LockMode::Desktop,
         &config.server.api_prefix,
     );
+    // Only the desktop app offers to set up WSL (`wsl_setup`); the headless
+    // server never marks itself.
+    modules::sandbox::wsl_setup::mark_desktop_app();
     let (app, pool, jwt) = build_app(&config, &demo, Some(&lock)).await?;
     let listener = tokio::net::TcpListener::bind(config.server_address()).await?;
     let addr = listener.local_addr()?;

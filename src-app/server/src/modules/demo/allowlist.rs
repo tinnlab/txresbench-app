@@ -4,7 +4,7 @@
 //! adaptation lands with the demo item that owns it, ITEM-2/3/4/5/7) or
 //! **Blocked** (answers `403 {"error_code": "DEMO_MODE", ...}` — the spec
 //! section 4 list, re-counted on THIS tree: the strip removed the
-//! platform modules, so the framework surface is the 70 operations of
+//! platform modules, so the framework surface is the 71 operations of
 //! the kept furniture (files / accounts / auth / mcp / sandbox / sync /
 //! notifications / features / auth-providers), not the spec's stale 141).
 //!
@@ -227,6 +227,7 @@ pub const ROUTE_POLICY: &[RouteRow] = &[
     RouteRow::blocked("GET", "/sandbox/envs/{env_id}"),
     RouteRow::blocked("DELETE", "/sandbox/envs/{env_id}"),
     RouteRow::blocked("POST", "/sandbox/method-run"),
+    RouteRow::blocked("POST", "/sandbox/wsl/setup"),
     // sync
     RouteRow::blocked("GET", "/sync/subscribe"),
 ];
@@ -322,6 +323,8 @@ mod tests {
         assert_eq!(classify("POST", "/txr/runs"), Some(RouteClass::Adapted));
         assert_eq!(classify("DELETE", "/txr/runs/{id}"), Some(RouteClass::Blocked));
         assert_eq!(classify("DELETE", "/sandbox/envs/{env_id}"), Some(RouteClass::Blocked));
+        // Setting up WSL changes the machine (an elevated install): never in a demo.
+        assert_eq!(classify("POST", "/sandbox/wsl/setup"), Some(RouteClass::Blocked));
         assert_eq!(classify("GET", "/no-such-route"), None);
     }
 

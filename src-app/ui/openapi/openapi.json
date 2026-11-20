@@ -6020,7 +6020,7 @@
           "sandbox"
         ],
         "summary": "Update sandbox resource limits",
-        "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits",
+        "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits, remove method environments, and set up WSL on Windows",
         "operationId": "Sandbox.updateSettings",
         "requestBody": {
           "description": "A `SandboxResourceLimits` snapshot carrying a job's resolved per-job caps —\n used to drive `CgroupScope::create` on the streaming path (it takes the same\n limits shape the batch path uses). Overlays the resolved profile onto the\n PUT body — every field optional (absent = leave unchanged).",
@@ -6045,7 +6045,7 @@
                   "details": {
                     "required_permissions": [
                       {
-                        "description": "Change sandbox resource limits",
+                        "description": "Change sandbox resource limits, remove method environments, and set up WSL on Windows",
                         "name": "SandboxSettingsManage",
                         "value": "sandbox::settings::manage"
                       }
@@ -6191,7 +6191,7 @@
           "sandbox"
         ],
         "summary": "Cancel + forget a method env (optionally prune its cached artifact)",
-        "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits",
+        "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits, remove method environments, and set up WSL on Windows",
         "operationId": "Sandbox.deleteEnv",
         "parameters": [
           {
@@ -6216,7 +6216,7 @@
                   "details": {
                     "required_permissions": [
                       {
-                        "description": "Change sandbox resource limits",
+                        "description": "Change sandbox resource limits, remove method environments, and set up WSL on Windows",
                         "name": "SandboxSettingsManage",
                         "value": "sandbox::settings::manage"
                       }
@@ -6312,6 +6312,62 @@
         ],
         "x-required-permissions": [
           "sandbox::execute"
+        ]
+      }
+    },
+    "/api/sandbox/wsl/setup": {
+      "post": {
+        "tags": [
+          "sandbox"
+        ],
+        "summary": "Windows: start installing or updating WSL 2 as administrator. Answers at once (202, running); read the result from Sandbox.listEnvs (stack.wsl_setup.last). The person at the PC must confirm in the app's own dialog; Windows may also ask for permission. Listed on every system: answers 409 WSL_SETUP_NOT_OFFERED where no setup is offered",
+        "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits, remove method environments, and set up WSL on Windows",
+        "operationId": "Sandbox.setupWsl",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Change sandbox resource limits, remove method environments, and set up WSL on Windows",
+                        "name": "SandboxSettingsManage",
+                        "value": "sandbox::settings::manage"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: sandbox::settings::manage",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "What the notice shows about the setup (`GET /api/sandbox/envs`'\n `stack.wsl_setup`, Windows only, while methods cannot run), and what\n `POST /api/sandbox/wsl/setup` answers once a setup started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WslSetupStatus"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nothing to set up here (WSL_SETUP_NOT_OFFERED), a setup is running (WSL_SETUP_RUNNING), or the last one was declined less than a minute ago (WSL_SETUP_DECLINED_RECENTLY)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "sandbox::settings::manage"
         ]
       }
     },
@@ -14151,6 +14207,17 @@
           },
           "tool_bins": {
             "description": "Map of the host tools the txr env fetch path resolves through\n (`method_env::tool_bin`): `{ \"oras\": \"<path>\" | null }`. Machine-\n readable so the admin view can render the exact gap; never trusted for\n anything security-relevant."
+          },
+          "wsl_setup": {
+            "description": "Windows only, while methods cannot run: what \"Set up WSL\" can do\n (`wsl_setup::notice`); `reason` is then why methods cannot run, in the\n start-up check's words. Absent on other systems and when methods can run.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WslSetupStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -17422,6 +17489,130 @@
           "unit_family",
           "canonical_unit",
           "n_methods"
+        ]
+      },
+      "WslSetupOffer": {
+        "description": "What the \"Set up WSL\" button does on this PC.",
+        "oneOf": [
+          {
+            "description": "`wsl --install --no-distribution`.",
+            "type": "string",
+            "const": "install"
+          },
+          {
+            "description": "`wsl --update`, then `wsl --install --no-distribution`.",
+            "type": "string",
+            "const": "update"
+          }
+        ]
+      },
+      "WslSetupOutcome": {
+        "description": "How a setup ended.",
+        "oneOf": [
+          {
+            "description": "WSL is set up. The app must start again to use it.",
+            "type": "string",
+            "const": "done"
+          },
+          {
+            "description": "The person did not go on (Not now in the app's dialog, or No in\n Windows' permission prompt): nothing changed.",
+            "type": "string",
+            "const": "declined"
+          },
+          {
+            "description": "Windows could not start the setup (`windows_error`).",
+            "type": "string",
+            "const": "not_started"
+          },
+          {
+            "description": "The setup ran, but WSL is not set up (`exit_code`, `output`).",
+            "type": "string",
+            "const": "failed"
+          }
+        ]
+      },
+      "WslSetupResult": {
+        "description": "The result of a setup.",
+        "type": "object",
+        "properties": {
+          "exit_code": {
+            "description": "`failed`: the setup's exit code (wsl.exe's), when Windows gave one.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/WslSetupOutcome"
+          },
+          "output": {
+            "description": "`failed`: the last lines wsl.exe printed (empty when it printed nothing\n or its words could not be kept).",
+            "type": "string"
+          },
+          "restart_windows": {
+            "description": "`done`: Windows must restart before WSL can be used.",
+            "type": "boolean"
+          },
+          "windows_error": {
+            "description": "`not_started`: Windows' error.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "outcome",
+          "restart_windows",
+          "output"
+        ]
+      },
+      "WslSetupStatus": {
+        "description": "What the notice shows about the setup (`GET /api/sandbox/envs`'\n `stack.wsl_setup`, Windows only, while methods cannot run), and what\n `POST /api/sandbox/wsl/setup` answers once a setup started.",
+        "type": "object",
+        "properties": {
+          "last": {
+            "description": "The last setup's result: since the app started, or a setup done\n before the app was last closed that waits for Windows to restart.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WslSetupResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "offer": {
+            "description": "What \"Set up WSL\" does here; absent when the app cannot set WSL up\n (the stack's `reason` says why) or a setup is done (restart).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WslSetupOffer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retry_in_secs": {
+            "description": "After a declined setup: the seconds until it can be started again.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "running": {
+            "description": "A setup is running: started from the app, from the app before it was\n last closed, or from a second app open beside it. Its result comes in\n `last` when it ends.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "running"
         ]
       }
     }

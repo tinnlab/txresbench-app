@@ -2961,6 +2961,12 @@ export interface StackStatus {
    *  anything security-relevant.
    */
   tool_bins: unknown
+  /**
+   * Windows only, while methods cannot run: what "Set up WSL" can do
+   *  (`wsl_setup::notice`); `reason` is then why methods cannot run, in the
+   *  start-up check's words. Absent on other systems and when methods can run.
+   */
+  wsl_setup?: WslSetupStatus
 }
 
 /** A standard identifier of a file marker column (`(system, id)`). */
@@ -4207,6 +4213,54 @@ export interface VocabularyMarker {
   unit_family: UnitFamily
 }
 
+/** What the "Set up WSL" button does on this PC. */
+export type WslSetupOffer = 'install' | 'update'
+
+/** How a setup ended. */
+export type WslSetupOutcome = 'done' | 'declined' | 'not_started' | 'failed'
+
+/** The result of a setup. */
+export interface WslSetupResult {
+  /** `failed`: the setup's exit code (wsl.exe's), when Windows gave one. */
+  exit_code?: number
+  outcome: WslSetupOutcome
+  /**
+   * `failed`: the last lines wsl.exe printed (empty when it printed nothing
+   *  or its words could not be kept).
+   */
+  output: string
+  /** `done`: Windows must restart before WSL can be used. */
+  restart_windows: boolean
+  /** `not_started`: Windows' error. */
+  windows_error?: number
+}
+
+/**
+ * What the notice shows about the setup (`GET /api/sandbox/envs`'
+ *  `stack.wsl_setup`, Windows only, while methods cannot run), and what
+ *  `POST /api/sandbox/wsl/setup` answers once a setup started.
+ */
+export interface WslSetupStatus {
+  /**
+   * The last setup's result: since the app started, or a setup done
+   *  before the app was last closed that waits for Windows to restart.
+   */
+  last?: WslSetupResult
+  /**
+   * What "Set up WSL" does here; absent when the app cannot set WSL up
+   *  (the stack's `reason` says why) or a setup is done (restart).
+   */
+  offer?: WslSetupOffer
+  /** After a declined setup: the seconds until it can be started again. */
+  retry_in_secs?: number
+  /**
+   * A setup is running: started from the app, from the app before it was
+   *  last closed, or from a second app open beside it. Its result comes in
+   *  `last` when it ends.
+   */
+  running: boolean
+}
+
 // API endpoint parameters
 export type ApiEndpointParameters = {
   'Account.acceptInvitation': AcceptInvitationRequest
@@ -4323,6 +4377,7 @@ export type ApiEndpointParameters = {
   'Sandbox.getStatus': void
   'Sandbox.listEnvs': void
   'Sandbox.methodRun': MethodRunRequest
+  'Sandbox.setupWsl': void
   'Sandbox.updateSettings': UpdateSandboxResourceLimits
   'Sync.subscribe': void
   'Txr.clearRuns': { delete_files?: boolean }
@@ -4459,6 +4514,7 @@ export type ApiEndpointResponses = {
   'Sandbox.getStatus': SandboxStatus
   'Sandbox.listEnvs': EnvIndexStatus
   'Sandbox.methodRun': MethodRunResult
+  'Sandbox.setupWsl': WslSetupStatus
   'Sandbox.updateSettings': SandboxResourceLimits
   'Sync.subscribe': SyncSseEvent
   'Txr.clearRuns': void

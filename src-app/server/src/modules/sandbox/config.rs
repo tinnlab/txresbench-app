@@ -31,6 +31,27 @@ pub enum SandboxAvailability {
     NotInitialized,
 }
 
+impl SandboxAvailability {
+    /// Why methods cannot run, in words for the person using the app: what
+    /// the Windows notice says when the start-up check gave no sentence of its
+    /// own (`wsl_run::runner_unavailable`).
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub(crate) fn in_words(self) -> &'static str {
+        match self {
+            SandboxAvailability::Ready => "methods can run",
+            SandboxAvailability::HostUnsupported => "the method runner could not start",
+            SandboxAvailability::RootfsUnavailable => "the app's method runtime is missing; install the app again",
+            SandboxAvailability::WorkspaceInitFailed => {
+                "the app could not create its folder for method runs; check that the disk has free space, then \
+                 start the app again"
+            }
+            SandboxAvailability::NotInitialized => {
+                "the method runner has not started yet; if this stays, start the app again"
+            }
+        }
+    }
+}
+
 /// Global per-process sandbox state, populated at `init()`.
 #[derive(Debug)]
 pub struct SandboxState {
@@ -85,6 +106,24 @@ pub fn get_state() -> Option<Arc<SandboxState>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The words never carry the variant's code name (the notice showed
+    /// "(WorkspaceInitFailed)" before).
+    #[test]
+    fn every_availability_has_plain_words() {
+        for (a, name) in [
+            (SandboxAvailability::Ready, "Ready"),
+            (SandboxAvailability::HostUnsupported, "HostUnsupported"),
+            (SandboxAvailability::RootfsUnavailable, "RootfsUnavailable"),
+            (SandboxAvailability::WorkspaceInitFailed, "WorkspaceInitFailed"),
+            (SandboxAvailability::NotInitialized, "NotInitialized"),
+        ] {
+            let words = a.in_words();
+            assert!(!words.is_empty() && !words.contains(name) && !words.contains('_'), "{a:?}: {words}");
+            assert!(words.starts_with(char::is_lowercase), "{a:?}: the notice makes the sentence");
+        }
+        assert!(SandboxAvailability::WorkspaceInitFailed.in_words().contains("folder for method runs"));
+    }
 
     // TEST-4: SandboxAvailability serializes snake_case; init_status defaults.
     #[test]
