@@ -38,6 +38,8 @@ mod harness_sentinel;
 // repository.
 mod history_store;
 mod health;
+// The local API lock over a real spawned server (key, mint, pairing, loopback, demo).
+mod local_api_lock;
 mod sandbox;
 mod mcp;
 mod method_catalogue;

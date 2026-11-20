@@ -236,11 +236,20 @@ fn host_parser_edge_cases() {
 
 #[test]
 fn headless_key_resolution() {
-    let (k, generated) = resolve_headless_key_with(Some("from-env-from-env".into()), Some("file-file-file-file".into()));
+    let (k, generated) =
+        resolve_headless_key_with(Some("from-env-from-env".into()), Some("file-file-file-file".into())).unwrap();
     assert_eq!((k.as_str(), generated), ("from-env-from-env", false));
-    let (k, generated) = resolve_headless_key_with(Some("  ".into()), Some("file-file-file-file".into()));
+    let (k, generated) =
+        resolve_headless_key_with(Some("  ".into()), Some("file-file-file-file".into())).unwrap();
     assert_eq!((k.as_str(), generated), ("file-file-file-file", false));
-    let (k, generated) = resolve_headless_key_with(None, None);
+    // Nothing configured: a fresh key, flagged so `main` prints it once.
+    let (k, generated) = resolve_headless_key_with(None, None).unwrap();
     assert!(generated);
     assert_eq!(k.len(), 64);
+    // A short key is refused, never replaced silently.
+    assert!(resolve_headless_key_with(Some("short".into()), None).is_err());
+    assert!(resolve_headless_key_with(None, Some("short".into())).is_err());
+    // The banner names the header and the env var, and carries the key.
+    let b = key_banner("abc");
+    assert!(b.contains("abc") && b.to_lowercase().contains(KEY_HEADER) && b.contains(KEY_ENV));
 }

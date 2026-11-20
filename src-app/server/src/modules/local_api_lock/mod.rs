@@ -236,19 +236,40 @@ pub async fn enforce(State(lock): State<LocalApiLock>, req: Request, next: Next)
     }
 }
 
+/// A configured key shorter than this is refused: a short key is guessable.
+pub const MIN_KEY_LEN: usize = 16;
+
 /// The key a headless server runs with: `TXR_LOCAL_API_KEY` (non-empty), else
 /// the config file's `local_api.key`, else a fresh one (`generated == true`,
-/// so `main` prints it once).
-pub fn resolve_headless_key(from_file: Option<String>) -> (String, bool) {
+/// so `main` prints it once). A configured key under [`MIN_KEY_LEN`]
+/// characters is an error (boot refuses; it never silently falls back).
+pub fn resolve_headless_key(from_file: Option<String>) -> Result<(String, bool), String> {
     resolve_headless_key_with(std::env::var(KEY_ENV).ok(), from_file)
 }
 
-pub fn resolve_headless_key_with(env: Option<String>, from_file: Option<String>) -> (String, bool) {
+pub fn resolve_headless_key_with(
+    env: Option<String>,
+    from_file: Option<String>,
+) -> Result<(String, bool), String> {
     for v in [env, from_file].into_iter().flatten() {
         let v = v.trim();
-        if !v.is_empty() {
-            return (v.to_string(), false);
+        if v.is_empty() {
+            continue;
         }
+        if v.len() < MIN_KEY_LEN {
+            return Err(format!(
+                "the local API key ({KEY_ENV} or `local_api.key`) must be at least {MIN_KEY_LEN} characters"
+            ));
+        }
+        return Ok((v.to_string(), false));
     }
-    (generate_secret(), true)
+    Ok((generate_secret(), true))
+}
+
+/// The line a headless server prints once at start when it made the key.
+pub fn key_banner(key: &str) -> String {
+    format!(
+        "TxResBench local API key: {key}\n\
+         Every request must send it as the `X-TxR-Local-Key` header. Set {KEY_ENV} to choose your own."
+    )
 }

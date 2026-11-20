@@ -35,9 +35,13 @@ impl SyncProbe {
     /// seam — the probe only needs the server's `/sync/subscribe` URL, never any
     /// app-side type. (Was `&crate::common::TestServer` pre-move.)
     pub async fn open<S: crate::ApiUrlTarget>(server: &S, token: &str) -> SyncProbe {
-        let resp = reqwest::Client::new()
+        let mut req = reqwest::Client::new()
             .get(server.api_url("/sync/subscribe"))
-            .header("Authorization", format!("Bearer {token}"))
+            .header("Authorization", format!("Bearer {token}"));
+        for (k, v) in server.extra_headers() {
+            req = req.header(k, v);
+        }
+        let resp = req
             .send()
             .await
             .expect("sync subscribe request failed");

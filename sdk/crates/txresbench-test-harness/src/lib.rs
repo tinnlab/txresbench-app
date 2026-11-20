@@ -72,6 +72,12 @@ pub use data_dir::{
 pub trait ApiUrlTarget {
     /// Absolute URL for an API path (e.g. `"/sync/subscribe"` → base + `/api…`).
     fn api_url(&self, path: &str) -> String;
+
+    /// Headers every request to this server must carry (an app whose server
+    /// refuses unkeyed requests, e.g. a local-API key). Default: none.
+    fn extra_headers(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
 }
 
 /// Which app crate this test binary is compiled into. Replaces the former
@@ -191,6 +197,12 @@ pub trait HarnessApp: Send + Sync + 'static {
     /// Health endpoint the readiness loop polls (relative to the base URL).
     fn health_path(&self) -> String {
         "/api/health".to_string()
+    }
+
+    /// Headers the readiness poll sends (an app whose server refuses unkeyed
+    /// requests, health included, supplies its key here). Default: none.
+    fn health_headers(&self) -> Vec<(String, String)> {
+        Vec::new()
     }
 }
 
@@ -1188,7 +1200,11 @@ impl<A: HarnessApp> TestHarness<A> {
         let health_url = format!("{}{}", base_url, self.app.health_path());
         let mut ready = false;
         for _ in 0..150 {
-            if let Ok(response) = client.get(&health_url).send().await {
+            let mut probe = client.get(&health_url);
+            for (k, v) in self.app.health_headers() {
+                probe = probe.header(k, v);
+            }
+            if let Ok(response) = probe.send().await {
                 if response.status().is_success() {
                     ready = true;
                     break;
