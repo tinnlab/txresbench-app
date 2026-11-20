@@ -74,7 +74,7 @@ impl Req {
 #[tokio::test]
 async fn own_window_path_works() {
     let app = app(&lock(LockMode::Desktop));
-    for origin in ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"] {
+    for origin in WEBVIEW_ORIGINS {
         let s = Req::window("POST", "/api/session/local").origin(Some(origin)).status(&app).await;
         assert_eq!(s, StatusCode::OK, "origin {origin}");
     }
@@ -101,7 +101,7 @@ async fn foreign_origin_is_refused_even_with_the_key() {
     for origin in [
         "https://evil.example",
         "http://localhost:5173", // the dev origin is debug-only: not in this list
-        "http://tauri.localhost.evil.example",
+        Box::leak(format!("{}.evil.example", WEBVIEW_ORIGINS[1]).into_boxed_str()),
         "null",
     ] {
         let s = Req::window("POST", "/api/session/local").origin(Some(origin)).status(&app).await;
@@ -121,10 +121,10 @@ async fn debug_builds_also_allow_the_vite_origin() {
 
 #[tokio::test]
 async fn webview_origin_without_the_key_is_refused() {
-    // Windows: every Tauri 2 app, and any local web server, shares tauri.localhost.
+    // Windows: every Tauri 2 app, and any local web server, shares the webview origin.
     let app = app(&lock(LockMode::Desktop));
     for (k, why) in [(None, "no key"), (Some("wrong"), "wrong key"), (Some(""), "empty key")] {
-        let s = Req::window("POST", "/api/session/local").origin(Some("http://tauri.localhost")).key(k).status(&app).await;
+        let s = Req::window("POST", "/api/session/local").origin(Some(WEBVIEW_ORIGINS[1])).key(k).status(&app).await;
         assert_eq!(s, StatusCode::FORBIDDEN, "{why}");
     }
     // A key that differs in one character, and a prefix of the right one.

@@ -66,7 +66,7 @@ struct Loopback {
 
 /// Set at module init from the config (a placeholder: the desktop's config
 /// port is 0) and then replaced with the REAL bound address right after
-/// `bind` by [`set_loopback`], so a replaceable cell, not a set-once one.
+/// `bind` by [`set_loopback`], so a replaceable slot, not a set-once one.
 static LOOPBACK: RwLock<Option<Loopback>> = RwLock::new(None);
 
 pub fn set_base_url(base: String) {
@@ -1202,7 +1202,7 @@ mod loopback_tests {
 
     /// The base URL is built from the REAL bound port (it was the config
     /// port, 0 on the desktop, so the dispatch could never reach the server).
-    /// The only test that touches the process-global cell.
+    /// The only test that touches the process-global slot.
     #[test]
     fn set_loopback_uses_the_bound_address() {
         set_base_url("http://127.0.0.1:0".to_string());
