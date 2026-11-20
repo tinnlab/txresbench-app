@@ -1727,7 +1727,18 @@ describe('step-4 review fixes: the preset action and the re-check line', () => {
 describe('the step Back on Choose methods (E)', () => {
   /** C in the flow: records its step, and its Continue lands on E again. */
   function FilesStandIn() {
-    useStepBack({ step: 'files', fallback: '/study' })
+    useStepBack({ step: 'files', fallback: '/' })
+    const navigate = useNavigate()
+    return (
+      <Button data-testid="stand-in-continue" onClick={() => navigate('/study')}>
+        Continue
+      </Button>
+    )
+  }
+
+  /** The study step (B) stand-in: the step before the methods on the learn path. */
+  function StudyStandIn() {
+    useStepBack({ step: 'study', fallback: '/files' })
     const navigate = useNavigate()
     return (
       <Button data-testid="stand-in-continue" onClick={() => navigate('/choose-methods')}>
@@ -1743,6 +1754,7 @@ describe('the step Back on Choose methods (E)', () => {
         <Routes>
           <Route path="/choose-methods" element={<ChooseMethodsPage />} />
           <Route path="/files" element={<FilesStandIn />} />
+          <Route path="/study" element={<StudyStandIn />} />
           <Route path="/predict-files" element={<div data-testid="stand-in-predict" />} />
           <Route path="/history" element={<div data-testid="stand-in-history" />} />
         </Routes>
@@ -1831,12 +1843,12 @@ describe('the step Back on Choose methods (E)', () => {
     expectBackLastInBar()
   })
 
-  it('with no trail goes to the file step: C on the learn path, N on a predict path', async () => {
+  it('with no trail goes to the step before: the study step on the learn path, N on a predict path', async () => {
     seedStore()
     renderFlow()
     await settle()
     await click('txr-step-back')
-    expect(routeAt()).toBe('/files')
+    expect(routeAt()).toBe('/study')
     cleanup()
 
     useStepTrailStore.setState({ trail: [], current: null, leaving: false })
@@ -1874,8 +1886,8 @@ describe('the step Back on Choose methods (E)', () => {
     expect(routeAt()).toBe('/history')
   })
 
-  it('keeps the ticks after Back to C and Continue with the same files; ticks the recommendation again after a file change', async () => {
-    useStepTrailStore.setState({ trail: ['/', '/study', '/files'] })
+  it('keeps the ticks after Back to B and Continue with the same files; ticks the recommendation again after a file change', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/files', '/study'] })
     seedStore()
     renderFlow()
     await settle()
@@ -1884,7 +1896,7 @@ describe('the step Back on Choose methods (E)', () => {
     expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('1 method selected')
 
     await click('txr-step-back')
-    expect(routeAt()).toBe('/files')
+    expect(routeAt()).toBe('/study')
     await click('stand-in-continue')
     expect(routeAt()).toBe('/choose-methods')
     await settle()
@@ -1903,8 +1915,8 @@ describe('the step Back on Choose methods (E)', () => {
     expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
   })
 
-  it('keeps the pressed preset too after Back to C and Continue (All stays pressed where Recommended is the same set)', async () => {
-    useStepTrailStore.setState({ trail: ['/', '/study', '/files'], current: null, leaving: false })
+  it('keeps the pressed preset too after Back to B and Continue (All stays pressed where Recommended is the same set)', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/files', '/study'], current: null, leaving: false })
     seedStore()
     renderFlow()
     await settle()
@@ -1915,7 +1927,7 @@ describe('the step Back on Choose methods (E)', () => {
     expect(pressed('recommended')).toBe('false')
 
     await click('txr-step-back')
-    expect(routeAt()).toBe('/files')
+    expect(routeAt()).toBe('/study')
     await click('stand-in-continue')
     await settle()
     expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
@@ -1968,9 +1980,17 @@ describe('ChooseMethodsPage day settings (the files\u2019 suggestions, the look-
   /** 12 patients: draws on 28 and 56; 6 events at day 300, 6 followed to day 500. */
   const FACTS: FileTimeline = {
     draw_days: Array.from({ length: 12 }, () => [28, 56]),
+    // A patients file carries both pairs (the validator needs both); the
+    // same days for progression or death and for death alone.
     outcomes: [
-      ...Array.from({ length: 6 }, () => ({ pfs: { days: 300, event: 1 } })),
-      ...Array.from({ length: 6 }, () => ({ pfs: { days: 500, event: 0 } })),
+      ...Array.from({ length: 6 }, () => ({
+        pfs: { days: 300, event: 1 },
+        os: { days: 300, event: 1 },
+      })),
+      ...Array.from({ length: 6 }, () => ({
+        pfs: { days: 500, event: 0 },
+        os: { days: 500, event: 0 },
+      })),
     ],
     limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10 },
   }
@@ -2013,7 +2033,10 @@ describe('ChooseMethodsPage day settings (the files\u2019 suggestions, the look-
     api.getConfig.mockResolvedValue({ config: null })
     const censored: FileTimeline = {
       ...FACTS,
-      outcomes: Array.from({ length: 12 }, () => ({ pfs: { days: 100, event: 0 } })),
+      outcomes: Array.from({ length: 12 }, () => ({
+        pfs: { days: 100, event: 0 },
+        os: { days: 100, event: 0 },
+      })),
     }
     seedStore({
       dayFacts: censored,

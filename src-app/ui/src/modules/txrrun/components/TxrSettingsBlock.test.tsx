@@ -61,9 +61,18 @@ const fixtureValue: RunSettings = {
 const DAY_FACTS: FileTimeline = {
   draw_days: Array.from({ length: 12 }, () => [28, 56]),
   outcomes: [
-    ...Array.from({ length: 3 }, () => ({ pfs: { days: 300, event: 1 } })),
-    ...Array.from({ length: 3 }, () => ({ pfs: { days: 400, event: 1 } })),
-    ...Array.from({ length: 6 }, () => ({ pfs: { days: 500, event: 0 } })),
+    ...Array.from({ length: 3 }, () => ({
+      pfs: { days: 300, event: 1 },
+      os: { days: 300, event: 1 },
+    })),
+    ...Array.from({ length: 3 }, () => ({
+      pfs: { days: 400, event: 1 },
+      os: { days: 400, event: 1 },
+    })),
+    ...Array.from({ length: 6 }, () => ({
+      pfs: { days: 500, event: 0 },
+      os: { days: 500, event: 0 },
+    })),
   ],
   limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10 },
 }
@@ -71,7 +80,10 @@ const DAY_FACTS: FileTimeline = {
 /** 12 patients all followed to day 100 without the event (none known later). */
 const ALL_CENSORED: FileTimeline = {
   ...DAY_FACTS,
-  outcomes: Array.from({ length: 12 }, () => ({ pfs: { days: 100, event: 0 } })),
+  outcomes: Array.from({ length: 12 }, () => ({
+    pfs: { days: 100, event: 0 },
+    os: { days: 100, event: 0 },
+  })),
 }
 
 /** The fixture's present covariates (the inspection's file-order names). */
