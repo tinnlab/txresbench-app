@@ -1640,6 +1640,22 @@ mod tests {
         assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_NOT_OFFERED_CODE));
     }
 
+    /// The desktop app's start (`boot_in_background`) marks the process, and
+    /// nothing else does: the headless server (`serve_blocking`) offers no
+    /// setup. Read from the source, as no test here can boot either.
+    #[test]
+    fn only_the_desktop_apps_start_marks_the_desktop_app() {
+        let lib = include_str!("../../lib.rs");
+        let body = |name: &str| {
+            let start = lib.find(&format!("pub async fn {name}(")).unwrap_or_else(|| panic!("{name} in lib.rs"));
+            let len = lib[start..].find("\n}\n").unwrap_or_else(|| panic!("the end of {name}"));
+            &lib[start..start + len]
+        };
+        assert_eq!(body("boot_in_background").matches("wsl_setup::mark_desktop_app();").count(), 1);
+        assert!(!body("serve_blocking").contains("mark_desktop_app"));
+        assert_eq!(lib.matches("mark_desktop_app").count(), 1, "called once, in boot_in_background");
+    }
+
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn elsewhere_than_windows_nothing_is_offered() {
