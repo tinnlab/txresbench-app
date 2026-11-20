@@ -299,7 +299,9 @@ export function TxrSettingsBlock({
               : drawDayError(day, dayFacts.limits.look_ahead_day_max)
           }
           coverage={dayFacts === null ? null : drawCoverageLine(dayFacts, value.decision_day)}
-          warning={dayFacts === null ? null : drawDayWarning(dayFacts, value.decision_day)}
+          warning={
+            dayFacts === null ? null : drawDayWarning(dayFacts, value.decision_day, value.endpoint)
+          }
         />
         <span style={HELP}>{SETTING_HELP.decision_day}</span>
       </div>

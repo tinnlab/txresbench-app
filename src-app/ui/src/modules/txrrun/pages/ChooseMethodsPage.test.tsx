@@ -34,7 +34,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { Button } from '@txresbench/kit'
+import { Button, message } from '@txresbench/kit'
 import '@/core/actions/builtin/stepActions'
 import { RouterBridge } from '@/core/actions/navigateBridge'
 import type {
@@ -117,6 +117,24 @@ vi.mock('@/api-client', () => ({
     },
   },
 }))
+
+// The day-choice tests drive a refusal through the page's own `chooseDay`
+// catch (`runSettings.setDay`): the registered action is otherwise refused
+// only where the number box already refuses, so the wrapper lets ONE test
+// make it reject and asserts the surfaced message.
+const actionMock = vi.hoisted(() => ({ rejectSetDay: false }))
+vi.mock('@/core/actions/defineAction', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/core/actions/defineAction')>()
+  return {
+    ...actual,
+    runAction: (id: string, params: unknown, ctx?: unknown): Promise<unknown> => {
+      if (id === 'runSettings.setDay' && actionMock.rejectSetDay) {
+        return Promise.reject(new Error('Choose a day after the decision day (day 56).'))
+      }
+      return actual.runAction(id, params, ctx as never)
+    },
+  }
+})
 
 // ── jsdom has no layout, and the shared list is a VIRTUALIZED window ──
 // The virtualizer reads the overlayscrollbars viewport's offsetHeight and
@@ -476,6 +494,7 @@ beforeEach(() => {
   api.getPrefs.mockResolvedValue({ keep_file_copies: true })
   api.listUpdates.mockReset()
   api.listUpdates.mockRejectedValue(new Error('no status in this suite'))
+  actionMock.rejectSetDay = false
   __resetMethodListRevisionForTests()
   window.localStorage.clear()
   store().reset()
@@ -2079,6 +2098,61 @@ describe('ChooseMethodsPage day settings (the files\u2019 suggestions, the look-
     })
     expect(String(failure)).toContain('Choose a day after the decision day (day 28).')
     expect(dayValue('txr-run-settings-look-ahead')).toBe('450')
+  })
+
+  it('a day the action refuses shows the message and the field keeps its value', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore({ dayFacts: FACTS, parameters: { decision_day: 56, baseline_max_day: 0 } })
+    renderPage()
+    await settle()
+    const errorSpy = vi.spyOn(message, 'error')
+    actionMock.rejectSetDay = true
+    // A suggested decision day: the refusal comes from the action itself
+    // (the field accepts it), so the page's catch shows the message and the
+    // day keeps its old value.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-run-settings-decision-day-suggestion-28'))
+      await Promise.resolve()
+    })
+    expect(errorSpy).toHaveBeenCalledWith('Choose a day after the decision day (day 56).')
+    expect(dayValue('txr-run-settings-decision-day')).toBe('56')
+    expect(dayValue('txr-run-settings-look-ahead')).toBe('238')
+  })
+
+  it('runSettings.setDay back-to-back keeps both days (the look-ahead never writes the old decision day back)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore({ dayFacts: FACTS, parameters: { decision_day: 56, baseline_max_day: 0 } })
+    renderPage()
+    await settle()
+    const live = instancesOfType('txr.run-settings')
+    expect(live.length).toBe(1)
+    // Two calls in ONE tick (no re-render in between): decision day first,
+    // then the look-ahead.
+    await act(async () => {
+      const first = runAction('runSettings.setDay', {
+        view_id: live[0].id,
+        field: 'decision_day',
+        day: 42,
+      })
+      const second = runAction('runSettings.setDay', {
+        view_id: live[0].id,
+        field: 'look_ahead_day',
+        day: 300,
+      })
+      await Promise.all([first, second])
+    })
+    expect(dayValue('txr-run-settings-decision-day')).toBe('42')
+    expect(dayValue('txr-run-settings-look-ahead')).toBe('300')
+    expect(store().lookAheadDay).toBe(300)
+    // The write-through carries both: the engine never sees the day 56 come back.
+    await settle(RUN_CONFIG_DEBOUNCE_MS)
+    await settle()
+    expect(api.putConfig).toHaveBeenCalled()
+    const last = api.putConfig.mock.calls[api.putConfig.mock.calls.length - 1][0] as {
+      config: { decision_day: number; look_ahead_day: number }
+    }
+    expect(last.config.decision_day).toBe(42)
+    expect(last.config.look_ahead_day).toBe(300)
   })
 })
 

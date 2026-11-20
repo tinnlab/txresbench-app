@@ -436,6 +436,44 @@ describe('TEST-INT-26 — the ONE validation response lifecycle (acceptance)', (
     expect(state().lookAheadDay).toBeNull()
   })
 
+  it('a file change forgets the chosen look-ahead day with the day facts (new files bring the default back)', () => {
+    const timeline = {
+      draw_days: [[21, 42]],
+      outcomes: [],
+      limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10 },
+    }
+    const withFacts = () => TxrIntake.applyValidation(validationOf({ timeline }), TxrIntake.currentValidationKey())
+
+    TxrIntake.adoptFile('measurements', loadedFile())
+    withFacts()
+    TxrIntake.setLookAheadDay(300)
+    expect(state().lookAheadDay).toBe(300)
+    expect(state().dayFacts).toEqual(timeline)
+
+    // A replacement file: the chosen look-ahead was for the old files.
+    TxrIntake.adoptFile('measurements', loadedFile('other.csv'))
+    expect(state().lookAheadDay).toBeNull()
+    expect(state().dayFacts).toBeNull()
+
+    TxrIntake.adoptFile('measurements', loadedFile())
+    withFacts()
+    TxrIntake.setLookAheadDay(300)
+    TxrIntake.removeFile('measurements')
+    expect(state().lookAheadDay).toBeNull()
+    expect(state().dayFacts).toBeNull()
+
+    TxrIntake.setLookAheadDay(300)
+    TxrIntake.adoptExampleFile('measurements', loadedFile('example.csv'))
+    expect(state().lookAheadDay).toBeNull()
+    expect(state().dayFacts).toBeNull()
+
+    TxrIntake.setLookAheadDay(300)
+    TxrIntake.adoptExampleFile('measurements', loadedFile('example.csv'))
+    TxrIntake.clearExamples()
+    expect(state().lookAheadDay).toBeNull()
+    expect(state().dayFacts).toBeNull()
+  })
+
   it('patchStudy is not an input mutation: it leaves validation alone', () => {
     TxrIntake.applyValidation(validationOf(), TxrIntake.currentValidationKey())
     TxrIntake.patchStudy({ outcome: 'dynamic-risk' })

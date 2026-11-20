@@ -3,9 +3,9 @@
  *
  * The last-draw day is the file check's decision day: a new day forgets the
  * check (`patchParameters` nulls `validation`), and the method step never
- * checks the files itself. The study step and step 4 come after the files
- * step, so they run the same validate call again (the files, the confirmed
- * joins and mappings, the new day) and store the answer the usual way
+ * checks the files itself. The study step comes after the files step, so it
+ * runs the same validate call again (the files, the confirmed joins and
+ * mappings, the new day) and stores the answer the usual way
  * (`applyValidation`, guarded against a change while it was in flight). The
  * offers were settled on the files step and are not touched here, and no
  * problem of the file check depends on the day, so the new answer cannot add
@@ -25,6 +25,10 @@ export interface Recheck {
   checking: boolean
   /** The last check failed (plain words), or null. */
   error: string | null
+  /** Whether a check is owed at THIS moment (running, or about to run).
+   *  Read at call time (a store + ref read), never from a render closure, so
+   *  a click that races a just-started re-check sees the truth. */
+  pending: () => boolean
 }
 
 function errorText(err: unknown): string {
@@ -39,6 +43,12 @@ function filesReady(): boolean {
   return s.patients?.inspection != null && s.measurements?.inspection != null
 }
 
+/** Whether the current state still owes a check (running or about to run). */
+function checkOwed(): boolean {
+  const s = useTxrIntakeStore.getState()
+  return s.validation === null && filesReady()
+}
+
 export function useRecheck(): Recheck {
   const validation = useStore(useTxrIntakeStore, s => s.validation)
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
@@ -51,6 +61,7 @@ export function useRecheck(): Recheck {
   const busy = useRef(false)
   const rerun = useRef(false)
   const alive = useRef(true)
+  const failed = useRef(false)
 
   useEffect(() => {
     alive.current = true
@@ -66,6 +77,7 @@ export function useRecheck(): Recheck {
       return
     }
     busy.current = true
+    failed.current = false
     setChecking(true)
     const state = useTxrIntakeStore.getState()
     const key = state.currentValidationKey()
@@ -75,7 +87,10 @@ export function useRecheck(): Recheck {
         if (alive.current) setError(null)
       })
       .catch(err => {
-        if (alive.current) setError(errorText(err))
+        if (alive.current) {
+          failed.current = true
+          setError(errorText(err))
+        }
       })
       .finally(() => {
         busy.current = false
@@ -88,5 +103,9 @@ export function useRecheck(): Recheck {
       })
   }, [validation, parameters, patients, measurements, predictMeasurements, tick])
 
-  return { checking: checking || (validation === null && filesReady() && error === null), error }
+  return {
+    checking: checking || (validation === null && filesReady() && error === null),
+    error,
+    pending: () => checkOwed() && !failed.current,
+  }
 }

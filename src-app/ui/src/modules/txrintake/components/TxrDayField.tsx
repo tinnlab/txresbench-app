@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Button, Input } from '@txresbench/kit'
 
@@ -90,6 +90,22 @@ export function TxrDayField({
 }: TxrDayFieldProps) {
   const [draft, setDraft] = useState(value === null ? '' : String(value))
   const [typedError, setTypedError] = useState<string | null>(null)
+  // The lines under the box are the box's own messages: the input names the
+  // ones shown (a screen reader hears why a typed day is refused or what the
+  // day covers), each line has a stable id of its own.
+  const errorId = useId()
+  const coverageId = useId()
+  const blockedId = useId()
+  const warningId = useId()
+  const describedBy =
+    [
+      typedError !== null ? errorId : null,
+      coverage !== null ? coverageId : null,
+      blocked !== null ? blockedId : null,
+      warning !== null ? warningId : null,
+    ]
+      .filter((id): id is string => id !== null)
+      .join(' ') || undefined
 
   // The box follows the chosen day (a suggestion click, an AI change).
   useEffect(() => {
@@ -145,6 +161,7 @@ export function TxrDayField({
           min={1}
           step={1}
           aria-label={label}
+          aria-describedby={describedBy}
           aria-invalid={typedError !== null || blocked !== null}
           invalid={typedError !== null || blocked !== null}
           placeholder="Day"
@@ -166,12 +183,12 @@ export function TxrDayField({
         ) : null}
       </div>
       {typedError !== null ? (
-        <p role="alert" style={ERROR} data-testid={`${testId}-error`}>
+        <p role="alert" id={errorId} style={ERROR} data-testid={`${testId}-error`}>
           {typedError}
         </p>
       ) : null}
       {coverage !== null ? (
-        <p style={LINE} data-testid={`${testId}-coverage`}>
+        <p id={coverageId} style={LINE} data-testid={`${testId}-coverage`}>
           {coverage}
         </p>
       ) : null}
@@ -181,12 +198,12 @@ export function TxrDayField({
         </p>
       ) : null}
       {blocked !== null ? (
-        <p role="alert" style={ERROR} data-testid={`${testId}-blocked`}>
+        <p role="alert" id={blockedId} style={ERROR} data-testid={`${testId}-blocked`}>
           {blocked}
         </p>
       ) : null}
       {warning !== null ? (
-        <p style={WARNING} data-testid={`${testId}-warning`}>
+        <p role="status" id={warningId} style={WARNING} data-testid={`${testId}-warning`}>
           {warning}
         </p>
       ) : null}

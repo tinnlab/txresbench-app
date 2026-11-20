@@ -360,6 +360,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
             },
             validation: null,
             dayFacts: null,
+            lookAheadDay: null,
             exampleSlots,
             exampleLoaded: anyExampleSlot(exampleSlots),
           }
@@ -384,6 +385,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
             },
             validation: null,
             dayFacts: null,
+            lookAheadDay: null,
             exampleSlots,
             exampleLoaded: anyExampleSlot(exampleSlots),
           }
@@ -399,6 +401,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
             fileRecalls: { ...s.fileRecalls, [slot]: null },
             validation: null,
             dayFacts: null,
+            lookAheadDay: null,
             exampleSlots,
             exampleLoaded: anyExampleSlot(exampleSlots),
           }
@@ -444,6 +447,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
             mapping: exampleMeasured ? [] : s.mapping,
             validation: null,
             dayFacts: null,
+            lookAheadDay: null,
             exampleSlots: { ...BIRTH_EXAMPLE_SLOTS },
             exampleLoaded: false,
             pendingExampleSetId: null,

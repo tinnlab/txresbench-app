@@ -265,6 +265,14 @@ describe('TxrSettingsBlock (E settings rows, TEST-RUN-15)', () => {
     expect(screen.getByTestId('txr-run-settings-look-ahead-warning').textContent).toBe(
       'Only 6 patients have a known outcome by day 600. Methods learn an outcome from at least 10.',
     )
+    // The warning line is a status, and the number box names the lines shown
+    // (the coverage id is in its aria-describedby too).
+    const warningLine = screen.getByTestId('txr-run-settings-look-ahead-warning')
+    expect(warningLine.getAttribute('role')).toBe('status')
+    const lookAheadInput = screen.getByTestId('txr-run-settings-look-ahead-input')
+    expect(lookAheadInput.getAttribute('aria-describedby')).toContain(warningLine.id)
+    const coverageLine = screen.getByTestId('txr-run-settings-look-ahead-coverage')
+    expect(lookAheadInput.getAttribute('aria-describedby')).toContain(coverageLine.id)
     // A typed day before the decision day is refused in place.
     const input = screen.getByTestId('txr-run-settings-look-ahead-input')
     await act(async () => {

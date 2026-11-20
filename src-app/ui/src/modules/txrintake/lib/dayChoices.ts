@@ -46,16 +46,16 @@ function groupGap(day: number): number {
   return Math.max(3, 0.1 * day)
 }
 
-/** The pair a patient's "still free of the event" count reads (pfs, else os). */
-function firstPair(patient: TimelinePatient): TimelineOutcome | null {
-  return patient.pfs ?? patient.os ?? null
-}
-
-/** Patients of the patients file still free of progression or death after `day`. */
-export function eventFreeAfter(facts: FileTimeline, day: number): number {
+/** Patients of the patients file still free of the event after `day` (the
+ *  outcome the count follows: the default pfs, or os). */
+export function eventFreeAfter(
+  facts: FileTimeline,
+  day: number,
+  endpoint: DayEndpoint = 'pfs',
+): number {
   let n = 0
   for (const patient of facts.outcomes) {
-    const pair = firstPair(patient)
+    const pair = pairOf(patient, endpoint)
     if (pair !== null && pair.days > day) n += 1
   }
   return n
@@ -89,6 +89,9 @@ export function suggestDrawDays(facts: FileTimeline): number[] {
   const kept = groups
     .map(g => ({ day: wholeDay(g.last), patients: g.patients.size }))
     .filter(g => g.day >= 1)
+    // A day the day field would refuse is never suggested (the field check is
+    // the one gate: the suggestions must be choosable).
+    .filter(g => drawDayError(g.day, facts.limits.look_ahead_day_max) === null)
     .filter(g => !hasOutcomes || eventFreeAfter(facts, g.day) >= facts.limits.min_training_patients)
   kept.sort((a, b) => b.patients - a.patients || a.day - b.day)
   const chosen = [...new Set(kept.slice(0, MAX_SUGGESTED_DAYS).map(g => g.day))]
@@ -131,9 +134,13 @@ export function drawDayError(day: number, lookAheadMax: number): string | null {
  * The warning under a last-draw day, or null: too few patients are still free
  * of progression or death after it for the methods to learn from.
  */
-export function drawDayWarning(facts: FileTimeline, day: number): string | null {
+export function drawDayWarning(
+  facts: FileTimeline,
+  day: number,
+  endpoint: DayEndpoint = 'pfs',
+): string | null {
   if (facts.outcomes.length === 0) return null
-  const free = eventFreeAfter(facts, day)
+  const free = eventFreeAfter(facts, day, endpoint)
   const min = facts.limits.min_training_patients
   if (free >= min) return null
   return `Only ${free} ${free === 1 ? 'patient has' : 'patients have'} not progressed or died by day ${day}. The methods learn an outcome from at least ${min}.`

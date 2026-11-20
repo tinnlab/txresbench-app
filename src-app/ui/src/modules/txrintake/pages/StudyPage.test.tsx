@@ -20,11 +20,13 @@ import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
+import { message } from '@txresbench/kit'
 import type { EligibilityResponse, MarkerGroup } from '@/api-client/types'
 import { DAY_NO_FACTS_LINE, RECHECK_LINE, StudyPage } from './StudyPage'
 import type { FileTimeline, ValidationResponse } from '@/api-client/types'
 import type { LoadedFile } from '../types'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
+import { useStepTrailStore } from '../lib/stepTrail'
 import { EXCLUDED_LIST_LIMIT } from '../lib/format'
 import { EXAMPLE_STUDY } from '../lib/example'
 import { seedDemoMode } from '@/modules/demo/test-utils/demoSeed'
@@ -332,6 +334,10 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     expect(screen.getByTestId('txr-intake-study-last-draw-coverage').textContent).toBe(
       'Day 42: 2 of 3 patients have a draw during treatment by this day',
     )
+    // The input's aria-describedby names the coverage line shown under it.
+    const input = screen.getByTestId('txr-intake-study-last-draw-input')
+    const coverageLine = screen.getByTestId('txr-intake-study-last-draw-coverage')
+    expect(input.getAttribute('aria-describedby')).toContain(coverageLine.id)
     await waitFor(() => {
       expect(api.eligibility).toHaveBeenCalledWith({
         preview: expect.objectContaining({ last_draw_day: 42 }),
@@ -411,6 +417,71 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     })
     await waitFor(() => expect(store().validation).not.toBeNull())
     expect(store().validation?.inventory.decision_day).toBe(56)
+    const continueButton = screen.getByTestId('txr-intake-study-continue')
+    expect(continueButton.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(continueButton)
+    expect(routeAt()).toBe('/choose-methods')
+  })
+
+  it('a day the action refuses shows the message and the field keeps its value', async () => {
+    act(() => {
+      useTxrIntakeStore.setState({ dayFacts: DAY_FACTS })
+    })
+    renderStudy()
+    // The registered action refuses a last-draw day away from the study step:
+    // the step trail is the action's own gate, cleared here to make the
+    // refusal happen (the page catch is what the test drives).
+    act(() => {
+      useStepTrailStore.setState({ current: null })
+    })
+    const errorSpy = vi.spyOn(message, 'error')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-last-draw-suggestion-42'))
+      await Promise.resolve()
+    })
+    expect(errorSpy).toHaveBeenCalledWith('Open the questions step of a new analysis first.')
+    // The action was refused: no day stored, and the field keeps its old
+    // value (no day chosen).
+    expect(store().study.lastDrawDay).toBeNull()
+    expect(store().parameters.decision_day).toBe(56)
+    expect((screen.getByTestId('txr-intake-study-last-draw-input') as HTMLInputElement).value).toBe(
+      '',
+    )
+  })
+
+  it('Continue does not race the re-check: a click before it resolves stays on the step, then goes on', async () => {
+    let answer: (v: ValidationResponse) => void = () => undefined
+    api.validate.mockImplementation(
+      () =>
+        new Promise<ValidationResponse>(resolve => {
+          answer = resolve
+        }),
+    )
+    act(() => {
+      useTxrIntakeStore.setState({
+        patients: loadedFile('patients'),
+        measurements: loadedFile('measurements'),
+        validation: VALIDATION,
+        dayFacts: DAY_FACTS,
+      })
+    })
+    renderStudy()
+    expect(screen.getByTestId('txr-intake-study-continue').textContent).toBe(
+      'Continue to the methods',
+    )
+    // Change the day and click Continue in the same tick, before the re-check
+    // resolves (a render-computed gate would navigate on the stale check).
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-intake-study-last-draw-suggestion-56'))
+      fireEvent.click(screen.getByTestId('txr-intake-study-continue'))
+      await Promise.resolve()
+    })
+    expect(routeAt()).toBe('/study')
+    await act(async () => {
+      answer({ ...VALIDATION, inventory: { ...VALIDATION.inventory, decision_day: 56 } })
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(store().validation).not.toBeNull())
     const continueButton = screen.getByTestId('txr-intake-study-continue')
     expect(continueButton.hasAttribute('disabled')).toBe(false)
     fireEvent.click(continueButton)

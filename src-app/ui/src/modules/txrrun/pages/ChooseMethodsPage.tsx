@@ -457,12 +457,19 @@ export function ChooseMethodsPage() {
         )
   const merged = isDemo ? base : { ...base, look_ahead_day: lookAheadDay ?? defaultLookAhead }
   const settings = settingsPatch === null ? merged : { ...merged, ...settingsPatch }
+  // The latest settings as a ref, updated on every render AND every change:
+  // `setDay` reads/writes through it, so two calls in one tick (decision day,
+  // then look-ahead) never let the second read the first call's stale
+  // decision day back (the render closure only turns over on a re-render).
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
   const covariates = patients === null ? null : buildCovariates(patients.inspection)
 
   const change = (next: RunSettings): void => {
     if (next.decision_day !== settings.decision_day || next.covariates !== settings.covariates) {
       recheckAsks.current += 1
     }
+    settingsRef.current = next
     setSettingsPatch(current => ({ ...(current ?? {}), ...diffPatch(next, settings) }))
     // demo-mode ITEM-6: the demo never writes the shared-pool sticky row
     // (the recorded setup is the one setup; the run carries its own).
@@ -477,6 +484,8 @@ export function ChooseMethodsPage() {
   const lookAheadMax = dayFacts?.limits.look_ahead_day_max ?? Number.POSITIVE_INFINITY
   const setDay = (field: 'decision_day' | 'look_ahead_day', day: number): RunDaySnapshot => {
     if (isDemo) throw new Error(DEMO_SETTINGS_NOTE)
+    // The ref is the newest settings, even when two calls land in one tick.
+    const latest = settingsRef.current
     if (field === 'decision_day') {
       const problem =
         dayFacts === null
@@ -485,14 +494,14 @@ export function ChooseMethodsPage() {
             : 'Choose a whole day from 1.'
           : drawDayError(day, dayFacts.limits.look_ahead_day_max)
       if (problem !== null) throw new Error(problem)
-      change({ ...settings, decision_day: day })
-      return { decision_day: day, look_ahead_day: settings.look_ahead_day }
+      change({ ...latest, decision_day: day })
+      return { decision_day: day, look_ahead_day: latest.look_ahead_day }
     }
-    const problem = checkLookAhead(dayFacts, settings.decision_day, day, settings.endpoint, lookAheadMax).error
+    const problem = checkLookAhead(dayFacts, latest.decision_day, day, latest.endpoint, lookAheadMax).error
     if (problem !== null) throw new Error(problem)
     TxrIntake.setLookAheadDay(day)
-    change({ ...settings, look_ahead_day: day })
-    return { decision_day: settings.decision_day, look_ahead_day: day }
+    change({ ...latest, look_ahead_day: day })
+    return { decision_day: latest.decision_day, look_ahead_day: day }
   }
   const [settingsViewId] = useState(() => crypto.randomUUID())
   const daySnapshot: RunDaySnapshot = {
@@ -520,7 +529,10 @@ export function ChooseMethodsPage() {
   const chooseDay = useCallback(
     (field: 'decision_day' | 'look_ahead_day', day: number): void => {
       void runAction(RUN_SETTINGS_SET_DAY, { view_id: settingsViewId, field, day }).catch(
-        () => undefined,
+        (error: unknown) => {
+          // A refusal is shown, never silent: the day stays what it was.
+          message.error(error instanceof Error ? error.message : 'Could not set the day.')
+        },
       )
     },
     [settingsViewId],

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
-import { Button, Checkbox, Select, Skeleton } from '@txresbench/kit'
+import { Button, Checkbox, message, Select, Skeleton } from '@txresbench/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { PageFrame } from '@/modules/txrshell/components/PageFrame'
 import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
@@ -301,7 +301,6 @@ export function StudyPage() {
   const { isDemo } = useAppMode()
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('Tell us about your study')
-  // The step's Back (the step trail): with no trail, Back goes to Start.
   // The step's Back (the step trail): with no trail, the step before this one
   // (the files step of the learn path; the predict file step on the side trip).
   useStepBack({
@@ -319,9 +318,12 @@ export function StudyPage() {
   )
 
   /** The last-draw answer is the engine's decision day (one value): the
-   *  registered action stores both, and the files are checked again. */
+   *  registered action stores both, and the files are checked again. A
+   *  refusal (an action that does not take the day) is shown, never silent. */
   const setLastDrawDay = useCallback((day: number) => {
-    void runAction('flow.setLastDrawDay', { day }).catch(() => undefined)
+    void runAction('flow.setLastDrawDay', { day }).catch((error: unknown) => {
+      message.error(error instanceof Error ? error.message : 'Could not set the day.')
+    })
   }, [])
   const drawDays = useMemo(() => (dayFacts === null ? [] : suggestDrawDays(dayFacts)), [dayFacts])
   const lastDrawDay = study.lastDrawDay
@@ -348,8 +350,18 @@ export function StudyPage() {
       navigate(FLOW_ROUTES.predictFiles)
       return
     }
-    navigate(learnFilesIn ? FLOW_ROUTES.methods : FLOW_ROUTES.files)
-  }, [navigate, intent, mode, learnFilesIn])
+    // The check is the gate: read the CURRENT validation at click time (the
+    // render-computed `learnFilesIn` can race a re-check that just started),
+    // and while a re-check is owed stay put — Continue keeps its loading look
+    // until it settles.
+    const current = useTxrIntakeStore.getState().validation
+    if (current !== null) {
+      navigate(FLOW_ROUTES.methods)
+      return
+    }
+    if (recheck.pending()) return
+    navigate(FLOW_ROUTES.files)
+  }, [navigate, intent, mode, recheck.pending])
   const continueLabel =
     intent !== 'train' || mode === 'predict'
       ? 'Continue to the patients to predict'

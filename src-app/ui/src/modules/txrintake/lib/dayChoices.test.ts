@@ -106,9 +106,20 @@ describe('suggested draw days', () => {
     expect(suggestDrawDays(f)).toEqual([28])
   })
 
-  it('reads os when a patient has no pfs pair', () => {
+  it('reads os when a patient has no pfs pair (the os count is its own)', () => {
     const f = facts([[10]], [{ os: { days: 40, event: 1 } }, { pfs: undefined, os: undefined }])
-    expect(eventFreeAfter(f, 30)).toBe(1)
+    expect(eventFreeAfter(f, 30, 'os')).toBe(1)
+    // The pfs count (the default) never reads the os pair.
+    expect(eventFreeAfter(f, 30)).toBe(0)
+  })
+
+  it('the event-free count follows the outcome: the os pair at a late day, not the early pfs event', () => {
+    const f = facts([[10]], [{ pfs: { days: 30, event: 1 }, os: { days: 300, event: 1 } }])
+    // At decision day 56 the pfs event already happened, the death was not yet.
+    expect(eventFreeAfter(f, 56, 'pfs')).toBe(0)
+    expect(eventFreeAfter(f, 56, 'os')).toBe(1)
+    // The default stays pfs (the study step has no endpoint yet).
+    expect(eventFreeAfter(f, 56)).toBe(0)
   })
 
   it('suggests at most five days, those with the most patients', () => {
@@ -135,6 +146,12 @@ describe('suggested draw days', () => {
 
   it('suggests nothing when no patient has a draw during treatment', () => {
     expect(suggestDrawDays(facts([[], []]))).toEqual([])
+  })
+
+  it('never suggests a day the day field would refuse (beyond the look-ahead maximum)', () => {
+    const f = facts(Array.from({ length: 12 }, () => [21, 735]))
+    // Day 735 is past the field's limit (look_ahead_day_max 730 → at most 729).
+    expect(suggestDrawDays(f)).toEqual([21])
   })
 })
 
@@ -164,6 +181,20 @@ describe('the draw coverage line and limits', () => {
     expect(drawDayWarning(example, 700)).toMatch(/^Only \d+ patients have not progressed or died by day 700\./)
     expect(drawDayWarning(facts([[10]], []), 700)).toBeNull()
   })
+
+  it('a draw on day == baseline_max_day is not on treatment (baseline_max_day 7: day 7 no, day 8 yes)', () => {
+    const f: FileTimeline = {
+      draw_days: Array.from({ length: 12 }, () => [8]),
+      outcomes: [],
+      limits: { baseline_max_day: 7, look_ahead_day_max: 730, min_training_patients: 10 },
+    }
+    expect(drawCoverageLine(f, 7)).toBe(
+      'Day 7: 0 of 12 patients have a draw during treatment by this day',
+    )
+    expect(drawCoverageLine(f, 8)).toBe(
+      'Day 8: 12 of 12 patients have a draw during treatment by this day',
+    )
+  })
 })
 
 describe('the look-ahead day', () => {
@@ -186,6 +217,18 @@ describe('the look-ahead day', () => {
     const example = exampleFacts()
     expect(knownOutcomes(example, 56, 238, 'os').known).toBe(91)
     expect(furthestDayWithShare(example, 56, 'os', 0.75)).toBe(407)
+  })
+
+  it('labels at the boundaries: time == the day with an event is known, without one it is not, the decision day is excluded', () => {
+    const outcomes: TimelinePatient[] = [
+      { pfs: { days: 300, event: 0 } }, // follow-up ends AT the day: not known there
+      { pfs: { days: 300, event: 1 } }, // event AT the day: known and an event
+      { pfs: { days: 56, event: 1 } }, // AT the decision day: excluded
+    ]
+    const f = facts([[28]], outcomes)
+    expect(knownOutcomes(f, 56, 300, 'pfs')).toEqual({ known: 1, events: 1, patients: 3 })
+    // One day BEFORE the censor: the censored follow-up still goes past the look-ahead.
+    expect(knownOutcomes(f, 56, 299, 'pfs')).toEqual({ known: 2, events: 0, patients: 3 })
   })
 
   it('takes the half day as the default when decision day + 182 is not covered', () => {
