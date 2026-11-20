@@ -125,6 +125,9 @@ export async function saveFile(request: SaveFileRequest): Promise<SaveFileResult
 export function folderOf(path: string): string {
   const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
   if (cut <= 0) return path.slice(0, cut + 1) || path
+  // A Windows drive root (`C:\x.csv`): the folder is `C:\`; a bare `C:` means
+  // the current folder of that drive.
+  if (cut === 2 && /^[A-Za-z]:/.test(path)) return path.slice(0, 3)
   return path.slice(0, cut)
 }
 
