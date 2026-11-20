@@ -1812,6 +1812,8 @@ mod tests {
                 return;
             }
             let setup = ElevatedSetup::system();
+            // libtest prints the test's name on the line the output starts on.
+            println!();
             println!("cmd={}", setup.cmd.display());
             println!("wsl={}", setup.wsl.display());
             println!("capture_dir={}", setup.capture_dir.display());
@@ -1841,7 +1843,7 @@ mod tests {
             let value = |key: &str| {
                 stdout
                     .lines()
-                    .find_map(|l| l.strip_prefix(&format!("{key}=")))
+                    .find_map(|l| l.trim().strip_prefix(&format!("{key}=")))
                     .unwrap_or_else(|| panic!("{key} in {stdout}"))
                     .to_lowercase()
             };
