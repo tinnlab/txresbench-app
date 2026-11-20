@@ -13,7 +13,7 @@ use aide::axum::routing::{get_with, post_with};
 use aide::axum::ApiRouter;
 use aide::transform::TransformOperation;
 use axum::extract::{Path, Query};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::{Extension, Json};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -33,7 +33,7 @@ use super::service::run_method_in_stack;
 use super::settings::{SandboxResourceLimits, SandboxSettingsRepository, UpdateSandboxResourceLimits};
 use super::settings_cache;
 use super::stack::{MethodRunRequest, MethodRunResult};
-use super::wsl_setup::{self, WslSetupResult, WslSetupStatus};
+use super::wsl_setup::{self, WslSetupStatus};
 use crate::modules::rootfs::{self, cache, RootfsStatus};
 
 /// Combined sandbox status for the admin UI.
@@ -474,28 +474,41 @@ fn method_run_docs(op: TransformOperation) -> TransformOperation {
 
 /// `POST /api/sandbox/wsl/setup` — install or update WSL 2 on this Windows
 /// PC, when the boot probe found it missing or too old (`wsl_setup`): the
-/// installer's own commands, run as administrator after Windows' permission
-/// prompt (UAC), which only the person at the PC can answer. Waits for the
-/// end and answers how it went (`done`: the app must start again, after a
-/// Windows restart when `restart_windows`). Gated `SandboxSettingsManage`
-/// (it changes the machine). 409 `WSL_SETUP_NOT_OFFERED` when there is
-/// nothing to set up (any other system, methods can run, a reason the app
-/// cannot fix, a setup already done), 409 `WSL_SETUP_RUNNING` while one runs.
-async fn setup_wsl(_auth: RequirePermissions<(SandboxSettingsManage,)>) -> ApiResult<Json<WslSetupResult>> {
-    let result = wsl_setup::run_here().await.map_err(|e| e.to_api_error())?;
-    Ok((StatusCode::OK, Json(result)))
+/// installer's own commands, run as administrator. Starts the setup and
+/// answers at once (202) with its status (`running`); its result comes in
+/// `GET /api/sandbox/envs`' `stack.wsl_setup.last`. Nothing runs unless the
+/// person at the PC says Yes in the app's own dialog (no caller of this route
+/// can answer it), then to Windows' permission prompt. Gated
+/// `SandboxSettingsManage` (it changes the machine), and only for the app's
+/// own window or a program on this PC (403 `WSL_SETUP_NOT_FROM_THE_APP` for a
+/// web page or a request to another name for this PC). 409
+/// `WSL_SETUP_NOT_OFFERED` when there is nothing to set up (any other system,
+/// methods can run, a reason the app cannot fix, a setup done and waiting for
+/// a restart), `WSL_SETUP_RUNNING` while one runs, `WSL_SETUP_DECLINED_RECENTLY`
+/// for a minute after a No.
+async fn setup_wsl(
+    _auth: RequirePermissions<(SandboxSettingsManage,)>,
+    headers: HeaderMap,
+) -> ApiResult<Json<WslSetupStatus>> {
+    let status = wsl_setup::start_here(&headers).map_err(|e| e.to_api_error())?;
+    Ok((StatusCode::ACCEPTED, Json(status)))
 }
 
 fn setup_wsl_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(SandboxSettingsManage,)>(op)
         .id(SETUP_WSL_DOC_ID)
         .tag("sandbox")
-        .summary("Windows: install or update WSL 2 as administrator (asks the person at the PC), and wait for it")
-        .response::<200, Json<WslSetupResult>>()
+        .summary(
+            "Windows: start installing or updating WSL 2 as administrator. Answers at once (202, running); \
+             read the result from Sandbox.listEnvs (stack.wsl_setup.last). The person at the PC must say Yes \
+             in the app's own dialog, then to Windows' prompt. Listed on every system: answers 409 \
+             WSL_SETUP_NOT_OFFERED where no setup is offered",
+        )
+        .response::<202, Json<WslSetupStatus>>()
         .response_with::<409, (), _>(|r| {
             r.description(
-                "Nothing to set up here (WSL_SETUP_NOT_OFFERED), or a setup is running \
-                 (WSL_SETUP_RUNNING)",
+                "Nothing to set up here (WSL_SETUP_NOT_OFFERED), a setup is running (WSL_SETUP_RUNNING), \
+                 or the last one was declined less than a minute ago (WSL_SETUP_DECLINED_RECENTLY)",
             )
         })
 }

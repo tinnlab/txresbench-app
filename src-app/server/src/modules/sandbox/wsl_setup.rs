@@ -9,26 +9,43 @@
 //! (the x64 app on ARM64 Windows, WSL turned off by policy, no `wsl.exe`, the
 //! app's own WSL runtime missing) gets no offer: the probe's sentence says why.
 //!
-//! `POST /api/sandbox/wsl/setup` ([`run`]) runs the installer's own commands
-//! (`src-app/desktop/tauri/windows/installer-hooks.nsh`) as administrator
-//! through one UAC prompt: `wsl --install --no-distribution`, after
-//! `wsl --update` for an old WSL. Windows asks the person at the PC, so an AI
-//! caller can start the action but can never elevate by itself. One setup runs
-//! at a time; it ends as the installer's does: WSL is set up when the
-//! installer's check says it is ready afterwards, or, after wsl.exe exited
-//! with 0, when the check says it is ready after a restart or, where WSL was
-//! missing or of the old kind, still finds it so (Windows must restart then). Its
-//! result is kept for the notice (`GET /api/sandbox/envs`' `stack.wsl_setup`,
+//! `POST /api/sandbox/wsl/setup` ([`start_here`]) starts the installer's own
+//! commands (`src-app/desktop/tauri/windows/installer-hooks.nsh`):
+//! `wsl --install --no-distribution`, after `wsl --update` for an old WSL. It
+//! answers at once with the setup's status (`running`); the result is read
+//! later from the status (`GET /api/sandbox/envs`' `stack.wsl_setup`,
 //! [`notice`]).
 //!
-//! The elevation is a seam ([`SetupHost`]): the tests drive [`run`] with a
-//! fake, and the Windows tests drive the real one with a stand-in program.
+//! Nothing runs as administrator unless a person says Yes in the app's own
+//! dialog first ([`question`]): a window on this PC that no caller of the
+//! route can answer. Windows' permission prompt (UAC) comes after it, but is
+//! not relied on: with UAC off or set to never notify, or with the app itself
+//! run as administrator, Windows elevates without asking anyone. After a No
+//! (in the dialog or in Windows' prompt) the setup is not offered again for
+//! [`DECLINE_PAUSE_SECS`], so that a caller cannot put the question up again
+//! and again. Only the app's own window or a program on this PC that sends no
+//! web origin may start a setup ([`check_caller`]): never a web page in a
+//! browser on this PC.
+//!
+//! One setup runs at a time; it ends as the installer's does: WSL is set up
+//! when the installer's check says it is ready afterwards, or, after wsl.exe
+//! exited with 0, when the check says it is ready after a restart or, where
+//! WSL was missing or of the old kind, still finds it so (Windows must restart
+//! then). A small file in the app's data dir ([`Marker`]) carries a setup
+//! across a restart of the app: a reopened app does not offer a second setup
+//! while the first one's elevated commands still run, and keeps saying
+//! "restart Windows" until Windows did.
+//!
+//! The dialog, the elevation and the PC are seams ([`SetupHost`],
+//! [`Machine`]): the tests drive the setup with fakes, and the Windows tests
+//! drive the real launcher with stand-in programs (never the real dialog).
 
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
+use axum::http::{header, HeaderMap};
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use txresbench_core::AppError;
 
 use super::wsl_status::WslStatus;
@@ -36,17 +53,29 @@ use super::wsl_status::WslStatus;
 /// The setup is not offered on this PC (not Windows, methods can run, the
 /// reason is not one the app can fix, or a setup already finished).
 pub const WSL_SETUP_NOT_OFFERED_CODE: &str = "WSL_SETUP_NOT_OFFERED";
-/// A setup started from the app is still running.
+/// A setup is still running (started from this app, or from the app before
+/// it was last closed).
 pub const WSL_SETUP_RUNNING_CODE: &str = "WSL_SETUP_RUNNING";
+/// The last setup was declined less than [`DECLINE_PAUSE_SECS`] ago.
+const WSL_SETUP_DECLINED_RECENTLY_CODE: &str = "WSL_SETUP_DECLINED_RECENTLY";
+/// The request came from a web page that is not the app's own window, or to
+/// a name that is not this PC's loopback address (403).
+const WSL_SETUP_NOT_FROM_THE_APP_CODE: &str = "WSL_SETUP_NOT_FROM_THE_APP";
 
 /// Windows' `ERROR_CANCELLED`: the person said No to the UAC prompt.
 const ERROR_CANCELLED: u32 = 1223;
 
-/// How long `POST /api/sandbox/wsl/setup` waits for the setup's end before it
-/// answers `timed_out` (WSL comes from Microsoft: a slow connection can take a
-/// long time). The setup itself is never stopped: it keeps the one-at-a-time
-/// lock until it ends, and its result is kept for the notice.
-const SETUP_ANSWER_LIMIT: Duration = Duration::from_secs(60 * 60);
+/// How long a declined setup is not offered again.
+const DECLINE_PAUSE_SECS: u64 = 60;
+
+/// How far apart two readings of Windows' start time may be and still name
+/// the same start (the reading is the clock minus the time since the start,
+/// to the second; a restart is minutes apart).
+const SAME_BOOT_SLACK_SECS: u64 = 60;
+
+/// The marker file's name in the app's data dir.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const MARKER_FILE: &str = "wsl-setup.json";
 
 /// What the "Set up WSL" button does on this PC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
@@ -81,24 +110,22 @@ fn offer_for(status: WslStatus) -> Option<WslSetupOffer> {
 }
 
 /// How a setup ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WslSetupOutcome {
     /// WSL is set up. The app must start again to use it.
     Done,
-    /// The person said No to Windows' permission prompt: nothing changed.
+    /// The person said No (in the app's dialog or to Windows' permission
+    /// prompt): nothing changed.
     Declined,
     /// Windows could not start the setup (`windows_error`).
     NotStarted,
     /// The setup ran, but WSL is not set up (`exit_code`, `output`).
     Failed,
-    /// No answer within [`SETUP_ANSWER_LIMIT`]: the setup may still be running
-    /// (the status's `running` says so).
-    TimedOut,
 }
 
 /// The result of a setup.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WslSetupResult {
     pub outcome: WslSetupOutcome,
     /// `done`: Windows must restart before WSL can be used.
@@ -126,21 +153,41 @@ impl WslSetupResult {
     fn failed(exit_code: Option<u32>, output: String) -> Self {
         Self { exit_code, output, ..Self::of(WslSetupOutcome::Failed) }
     }
+
+    /// WSL is set up and waits for Windows to restart.
+    fn waits_for_a_restart(&self) -> bool {
+        self.outcome == WslSetupOutcome::Done && self.restart_windows
+    }
 }
 
 /// What the notice shows about the setup (`GET /api/sandbox/envs`'
-/// `stack.wsl_setup`, Windows only, while methods cannot run).
+/// `stack.wsl_setup`, Windows only, while methods cannot run), and what
+/// `POST /api/sandbox/wsl/setup` answers once a setup started.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct WslSetupStatus {
     /// What "Set up WSL" does here; absent when the app cannot set WSL up
     /// (the stack's `reason` says why) or a setup is done (restart).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offer: Option<WslSetupOffer>,
-    /// A setup started from the app is running.
+    /// A setup is running: started from the app, or from the app before it
+    /// was last closed. Its result comes in `last` when it ends.
     pub running: bool,
-    /// The last setup's result since the app started.
+    /// The last setup's result: since the app started, or a setup done
+    /// before the app was last closed that waits for Windows to restart.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last: Option<WslSetupResult>,
+    /// After a declined setup: the seconds until it can be started again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_in_secs: Option<u64>,
+}
+
+/// The elevated process of a setup: its id, and when it started (Windows'
+/// creation time), so that a later process with the same id is not taken
+/// for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct ElevatedProcess {
+    pid: u32,
+    created: u64,
 }
 
 /// How the elevated setup went, as the launcher saw it.
@@ -157,48 +204,169 @@ enum Launch {
 
 /// The seam between the setup's rules and Windows.
 trait SetupHost: Send + Sync {
-    /// Run the installer's commands for `offer` as administrator (one UAC
-    /// prompt) and wait for them to end.
-    fn run_elevated(&self, offer: WslSetupOffer) -> Launch;
+    /// Ask the person at the PC, in the app's own Yes/No dialog, whether to go
+    /// on (`true`: Yes).
+    fn confirm(&self, question: &str) -> bool;
+    /// Run the installer's commands for `offer` as administrator and wait for
+    /// them to end; `started` gets the elevated process once Windows started
+    /// it.
+    fn run_elevated(&self, offer: WslSetupOffer, started: &mut dyn FnMut(ElevatedProcess)) -> Launch;
     /// The installer's WSL check of this PC, now.
     fn status_now(&self) -> WslStatus;
 }
 
-/// The setup's state in this process: one setup at a time, and the last result.
-#[derive(Default)]
+/// What the setup's state reads of this PC besides WSL.
+trait Machine: Send + Sync {
+    /// The time, in seconds since 1970.
+    fn now(&self) -> u64;
+    /// When Windows started, in seconds since 1970; `None` when not known.
+    fn boot_time(&self) -> Option<u64>;
+    /// `process` still runs.
+    fn alive(&self, process: ElevatedProcess) -> bool;
+    /// Where the marker file is; `None`: no marker is kept.
+    fn marker(&self) -> Option<PathBuf>;
+}
+
+/// The setup as a reopened app finds it: started at `started_at` while
+/// Windows had started at `boot_time`, its elevated process once Windows
+/// started one, and its result once it ended. Written when a setup starts,
+/// when its elevated process started and when it ended.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Marker {
+    started_at: u64,
+    boot_time: Option<u64>,
+    process: Option<ElevatedProcess>,
+    result: Option<WslSetupResult>,
+}
+
+/// What the marker says of a setup started before (by this app or by the
+/// app before it was last closed).
+enum Earlier {
+    Nothing,
+    /// Its elevated process still runs.
+    Running,
+    /// It is done and waits for Windows to restart, which it has not yet.
+    WaitsForRestart(WslSetupResult),
+}
+
+fn read_marker(path: &Path) -> Option<Marker> {
+    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+}
+
+/// Write `marker` to `path` whole (a new file, then renamed over the old).
+fn write_marker(path: &Path, marker: &Marker) -> std::io::Result<()> {
+    let bytes = serde_json::to_vec(marker).map_err(std::io::Error::other)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let new = path.with_extension("json.new");
+    std::fs::write(&new, bytes)?;
+    std::fs::rename(&new, path)
+}
+
+/// The setup's state in this process: one setup at a time, the last result,
+/// the last decline; and the marker for a reopened app.
 struct SetupState {
     inner: Mutex<StateInner>,
+    machine: Arc<dyn Machine>,
 }
 
 #[derive(Default)]
 struct StateInner {
     running: bool,
     last: Option<WslSetupResult>,
+    /// When the last setup was declined ([`Machine::now`]).
+    declined_at: Option<u64>,
 }
 
 impl SetupState {
+    fn new(machine: Arc<dyn Machine>) -> Arc<Self> {
+        Arc::new(Self { inner: Mutex::default(), machine })
+    }
+
     fn lock(&self) -> MutexGuard<'_, StateInner> {
         self.inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// The notice's view, for the probe's status `boot`.
     fn status(&self, boot: Option<WslStatus>) -> WslSetupStatus {
-        let inner = self.lock();
-        WslSetupStatus { offer: offer_now(boot, inner.last.as_ref()), running: inner.running, last: inner.last.clone() }
+        self.view(&self.lock(), boot)
+    }
+
+    fn view(&self, inner: &StateInner, boot: Option<WslStatus>) -> WslSetupStatus {
+        // The marker matters only where a setup is offered: a setup started
+        // before runs, or waits for a restart, while the probe finds WSL
+        // missing or old.
+        let earlier = if boot.is_some() { self.earlier() } else { Earlier::Nothing };
+        let running = inner.running || matches!(earlier, Earlier::Running);
+        let last = match earlier {
+            Earlier::WaitsForRestart(done) if inner.last.is_none() => Some(done),
+            _ => inner.last.clone(),
+        };
+        let offer = if last.as_ref().is_some_and(|r| r.outcome == WslSetupOutcome::Done) {
+            None
+        } else {
+            boot.and_then(offer_for)
+        };
+        let now = self.machine.now();
+        let retry_in_secs = inner
+            .declined_at
+            .filter(|&at| now >= at && now < at + DECLINE_PAUSE_SECS)
+            .map(|at| at + DECLINE_PAUSE_SECS - now);
+        WslSetupStatus { offer, running, last, retry_in_secs }
+    }
+
+    /// What the marker says. A setup whose elevated process is gone without
+    /// a result (the app was closed while it ran) is over, its result
+    /// unknown; one whose process never started (the app was closed at its
+    /// question) ran nothing.
+    fn earlier(&self) -> Earlier {
+        let Some(marker) = self.machine.marker().and_then(|path| read_marker(&path)) else {
+            return Earlier::Nothing;
+        };
+        match marker.result {
+            None => match marker.process {
+                Some(process) if self.machine.alive(process) => Earlier::Running,
+                _ => Earlier::Nothing,
+            },
+            Some(result) if result.waits_for_a_restart() && self.same_boot(marker.boot_time) => {
+                Earlier::WaitsForRestart(result)
+            }
+            Some(_) => Earlier::Nothing,
+        }
+    }
+
+    /// Windows has not restarted since `then` (both start times known).
+    fn same_boot(&self, then: Option<u64>) -> bool {
+        matches!((then, self.machine.boot_time()), (Some(then), Some(now)) if then.abs_diff(now) <= SAME_BOOT_SLACK_SECS)
+    }
+
+    fn write(&self, marker: &Marker) {
+        if let Some(path) = self.machine.marker() {
+            if let Err(e) = write_marker(&path, marker) {
+                tracing::warn!("sandbox: WSL setup marker {}: {e}", path.display());
+            }
+        }
     }
 
     /// Claim the one setup slot, or say why not.
     fn begin(self: &Arc<Self>, boot: Option<WslStatus>) -> Result<(Running, WslSetupOffer, WslStatus), AppError> {
         let mut inner = self.lock();
-        if inner.running {
+        let now = self.view(&inner, boot);
+        if now.running {
             return Err(AppError::conflict_code(
                 WSL_SETUP_RUNNING_CODE,
                 "a WSL setup is already running; wait for it to end",
             ));
         }
-        let offered = boot.and_then(|status| offer_now(Some(status), inner.last.as_ref()).map(|offer| (offer, status)));
-        let Some((offer, before)) = offered else {
-            let why = if inner.last.as_ref().is_some_and(|r| r.outcome == WslSetupOutcome::Done) {
+        if let Some(secs) = now.retry_in_secs {
+            return Err(AppError::conflict_code(
+                WSL_SETUP_DECLINED_RECENTLY_CODE,
+                format!("the WSL setup was just declined; it can be started again in {secs} s"),
+            ));
+        }
+        let (Some(offer), Some(before)) = (now.offer, boot) else {
+            let why = if now.last.as_ref().is_some_and(|r| r.outcome == WslSetupOutcome::Done) {
                 "WSL is set up: restart Windows if it asked for it, then open the app again"
             } else {
                 "there is no WSL setup to run here"
@@ -206,71 +374,106 @@ impl SetupState {
             return Err(AppError::conflict_code(WSL_SETUP_NOT_OFFERED_CODE, why));
         };
         inner.running = true;
-        Ok((Running { state: Arc::clone(self) }, offer, before))
+        let marker =
+            Marker { started_at: self.machine.now(), boot_time: self.machine.boot_time(), process: None, result: None };
+        self.write(&marker);
+        Ok((Running { state: Arc::clone(self), marker, result: None }, offer, before))
     }
 }
 
-/// The offer now: the probe's, until a setup is done.
-fn offer_now(boot: Option<WslStatus>, last: Option<&WslSetupResult>) -> Option<WslSetupOffer> {
-    if last.is_some_and(|r| r.outcome == WslSetupOutcome::Done) {
-        return None;
-    }
-    boot.and_then(offer_for)
-}
-
-/// The claimed setup slot: freed when dropped (also when the setup's thread
-/// panics), with the result kept when it [`finish`](Running::finish)es.
+/// The claimed setup slot. When dropped it keeps the result (a failure when
+/// the setup's thread ended without one: it panicked), notes a decline, and
+/// frees the slot.
 struct Running {
     state: Arc<SetupState>,
+    marker: Marker,
+    result: Option<WslSetupResult>,
 }
 
 impl Running {
-    /// Keep the result and free the slot, then hand the result to `answer`:
-    /// whoever gets the answer and reads the status at once finds the setup
-    /// ended and its result kept.
-    fn finish(self, result: WslSetupResult, answer: impl FnOnce(WslSetupResult)) {
-        self.state.lock().last = Some(result.clone());
-        drop(self);
-        answer(result);
+    /// The elevated process started: a reopened app finds it in the marker.
+    fn started(&mut self, process: ElevatedProcess) {
+        let _inner = self.state.lock();
+        self.marker.process = Some(process);
+        self.state.write(&self.marker);
+    }
+
+    fn finish(mut self, result: WslSetupResult) {
+        self.result = Some(result);
     }
 }
 
 impl Drop for Running {
     fn drop(&mut self) {
-        self.state.lock().running = false;
+        let result = self.result.take().unwrap_or_else(|| WslSetupResult::failed(None, String::new()));
+        let state = Arc::clone(&self.state);
+        let mut inner = state.lock();
+        if result.outcome == WslSetupOutcome::Declined {
+            inner.declined_at = Some(state.machine.now());
+        }
+        self.marker.result = Some(result.clone());
+        state.write(&self.marker);
+        inner.last = Some(result);
+        inner.running = false;
     }
 }
 
-/// Run a setup for the probe's status `boot` on `host`: refused (409) when
-/// nothing is offered or one is running; else the result, or `timed_out`
-/// after `limit` (the setup goes on, holding the slot, and its result is kept).
-async fn run(
-    state: Arc<SetupState>,
-    boot: Option<WslStatus>,
-    host: Arc<dyn SetupHost>,
-    limit: Duration,
-) -> Result<WslSetupResult, AppError> {
+/// Start a setup for the probe's status `boot` on `host`: refused (409) when
+/// nothing is offered, one is running, or the last was declined a moment
+/// ago; else the status with the setup running. The setup goes on in its own
+/// thread, which holds the slot until it ends and keeps its result.
+fn start(state: &Arc<SetupState>, boot: Option<WslStatus>, host: Arc<dyn SetupHost>) -> Result<WslSetupStatus, AppError> {
     let (running, offer, before) = state.begin(boot)?;
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    // The blocking task owns the slot: a request that goes away (or times out)
-    // leaves the setup running to its end, and nobody can start a second one
-    // beside it.
-    tokio::task::spawn_blocking(move || {
-        let result = set_up(host.as_ref(), offer, before);
-        tracing::info!(?result, "sandbox: WSL setup ended");
-        running.finish(result, |result| {
-            let _ = tx.send(result);
-        });
-    });
-    Ok(match tokio::time::timeout(limit, rx).await {
-        Ok(Ok(result)) => result,
-        // The setup's thread ended without a result (it panicked).
-        Ok(Err(_)) => WslSetupResult::failed(None, String::new()),
-        Err(_) => WslSetupResult::of(WslSetupOutcome::TimedOut),
-    })
+    let status = state.status(boot);
+    std::thread::Builder::new()
+        .name("wsl-setup".into())
+        .spawn(move || {
+            let mut running = running;
+            let result = set_up(host.as_ref(), offer, before, &mut |process| running.started(process));
+            tracing::info!(?result, "sandbox: WSL setup ended");
+            running.finish(result);
+        })
+        .map_err(|e| AppError::internal_error(format!("the WSL setup could not start: {e}")))?;
+    Ok(status)
 }
 
-/// One setup, as the installer hook does it: run the commands as
+/// The app's question before anything runs as administrator, in the
+/// installer's words, saying where the request came from.
+fn question(before: WslStatus) -> &'static str {
+    match before {
+        WslStatus::Missing => {
+            "TxResBench runs methods inside WSL 2 (Windows Subsystem for Linux), which is not installed.\r\n\r\n\
+             Install WSL 2 now? It is downloaded from Microsoft (about 400 MB). Windows will ask for permission \
+             next, and Windows usually needs a restart afterwards.\r\n\r\n\
+             This was asked for in TxResBench: with its Set up WSL button, its command palette or an AI assistant \
+             connected to it. Choose No to change nothing."
+        }
+        WslStatus::Legacy => {
+            "TxResBench runs methods inside WSL 2 (Windows Subsystem for Linux). The WSL installed is an older \
+             kind that TxResBench cannot use.\r\n\r\n\
+             Update WSL now? The update is downloaded from Microsoft (about 400 MB). Windows will ask for \
+             permission next. Linux programs running in WSL will be closed, and Windows may need a restart \
+             afterwards.\r\n\r\n\
+             This was asked for in TxResBench: with its Update WSL button, its command palette or an AI assistant \
+             connected to it. Choose No to change nothing."
+        }
+        // `Old`: the only other status offered a setup (`offer_for`).
+        _ => {
+            "TxResBench runs methods inside WSL 2 (Windows Subsystem for Linux). The WSL installed is too old: \
+             it has a known security flaw that newer versions fix.\r\n\r\n\
+             Update WSL now? The update is downloaded from Microsoft (about 400 MB). Windows will ask for \
+             permission next. Linux programs running in WSL will be closed.\r\n\r\n\
+             This was asked for in TxResBench: with its Update WSL button, its command palette or an AI assistant \
+             connected to it. Choose No to change nothing."
+        }
+    }
+}
+
+/// The question's title.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const QUESTION_TITLE: &str = "TxResBench: set up WSL";
+
+/// One setup, as the installer hook does it: ask, run the commands as
 /// administrator, then check again. WSL is set up when the check says it is
 /// ready, whatever the exit code; Windows must restart when WSL was missing or
 /// of the old kind before (its Virtual Machine Platform is turned on then).
@@ -280,9 +483,17 @@ async fn run(
 /// before (WSL may answer only after Windows restarts). After a setup that
 /// failed, ready after a restart cannot tell a Virtual Machine Platform turned
 /// on from one still off: the setup failed, and no restart is asked for.
-fn set_up(host: &dyn SetupHost, offer: WslSetupOffer, before: WslStatus) -> WslSetupResult {
+fn set_up(
+    host: &dyn SetupHost,
+    offer: WslSetupOffer,
+    before: WslStatus,
+    started: &mut dyn FnMut(ElevatedProcess),
+) -> WslSetupResult {
+    if !host.confirm(question(before)) {
+        return WslSetupResult::of(WslSetupOutcome::Declined);
+    }
     let missing_or_legacy = |status| matches!(status, WslStatus::Missing | WslStatus::Legacy);
-    match host.run_elevated(offer) {
+    match host.run_elevated(offer, started) {
         Launch::NotStarted { error: ERROR_CANCELLED } => WslSetupResult::of(WslSetupOutcome::Declined),
         Launch::NotStarted { error } => {
             WslSetupResult { windows_error: Some(error), ..WslSetupResult::of(WslSetupOutcome::NotStarted) }
@@ -298,9 +509,62 @@ fn set_up(host: &dyn SetupHost, offer: WslSetupOffer, before: WslStatus) -> WslS
     }
 }
 
+/// The web origins of the app's own window: Tauri 2 serves the page from its
+/// own protocol, `http://tauri.localhost` on Windows (`https://` with Tauri's
+/// `useHttpsScheme`) and `tauri://localhost` on macOS and Linux.
+const APP_ORIGINS: &[&str] = &["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"];
+
+/// A debug build's page: `tauri dev` and `npm run dev` load the UI from the
+/// dev server (`devUrl` in tauri.conf.json, Vite's port).
+const DEV_ORIGINS: &[&str] = &["http://localhost:5173", "http://127.0.0.1:5173"];
+
+/// The loopback names of this PC a `Host` header may carry.
+const LOOPBACK_NAMES: &[&str] = &["127.0.0.1", "localhost", "[::1]"];
+
+/// The port this server listens on, once it is bound.
+static SERVER_PORT: OnceLock<u16> = OnceLock::new();
+
+/// The server is bound to `port` (called once at start, after the bind).
+pub fn note_server_port(port: u16) {
+    let _ = SERVER_PORT.set(port);
+}
+
+/// Only the app's own window, or a program on this PC that sends no web
+/// origin (the MCP dispatch over loopback, a script), may start a setup. A
+/// browser always sends the page's origin with a POST, so a web page open in
+/// a browser on this PC is refused by its `Origin`; one whose own name was
+/// made to point at this PC ("DNS rebinding") is refused by its `Host`, which
+/// must be a loopback name with this server's port (`port`; `None`: not
+/// known, refused). `dev`: a debug build, which also takes the dev server's
+/// page.
+fn check_caller(headers: &HeaderMap, port: Option<u16>, dev: bool) -> Result<(), AppError> {
+    let refuse = |why: String| Err(AppError::forbidden(WSL_SETUP_NOT_FROM_THE_APP_CODE, why));
+    let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("");
+    let loopback = port.is_some_and(|port| {
+        LOOPBACK_NAMES.iter().any(|name| host.eq_ignore_ascii_case(&format!("{name}:{port}")))
+    });
+    if !loopback {
+        return refuse(format!("a WSL setup is started only through this PC's loopback address, not {host:?}"));
+    }
+    let mut origins = headers.get_all(header::ORIGIN).iter();
+    match (origins.next(), origins.next()) {
+        (None, _) => Ok(()),
+        (Some(origin), None) => {
+            let origin = origin.to_str().unwrap_or("");
+            if APP_ORIGINS.contains(&origin) || (dev && DEV_ORIGINS.contains(&origin)) {
+                Ok(())
+            } else {
+                refuse(format!("a WSL setup is started only from the app's own window, not from {origin:?}"))
+            }
+        }
+        (Some(_), Some(_)) => refuse("a request with more than one origin".to_string()),
+    }
+}
+
 /// The setup's state in this app.
 fn state() -> Arc<SetupState> {
-    static STATE: std::sync::LazyLock<Arc<SetupState>> = std::sync::LazyLock::new(Arc::default);
+    static STATE: std::sync::LazyLock<Arc<SetupState>> =
+        std::sync::LazyLock::new(|| SetupState::new(Arc::new(SystemMachine)));
     Arc::clone(&STATE)
 }
 
@@ -338,9 +602,57 @@ pub fn notice() -> Option<(String, WslSetupStatus)> {
     Some((why, state().status(boot_status())))
 }
 
-/// `POST /api/sandbox/wsl/setup`: a setup on this PC through Windows.
-pub async fn run_here() -> Result<WslSetupResult, AppError> {
-    run(state(), boot_status(), system_host(), SETUP_ANSWER_LIMIT).await
+/// `POST /api/sandbox/wsl/setup` after its permission check: refused unless
+/// it comes from the app's own window or a program on this PC
+/// ([`check_caller`]); else a setup starts on this PC, and the answer is its
+/// status (`running`).
+pub fn start_here(headers: &HeaderMap) -> Result<WslSetupStatus, AppError> {
+    check_caller(headers, SERVER_PORT.get().copied(), cfg!(debug_assertions))?;
+    start(&state(), boot_status(), system_host())
+}
+
+/// This PC, for the setup's state.
+struct SystemMachine;
+
+impl Machine for SystemMachine {
+    fn now(&self) -> u64 {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    }
+
+    fn boot_time(&self) -> Option<u64> {
+        #[cfg(target_os = "windows")]
+        {
+            Some(elevated::boot_time(self.now()))
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            None
+        }
+    }
+
+    fn alive(&self, process: ElevatedProcess) -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            elevated::alive(process)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = process;
+            false
+        }
+    }
+
+    /// The app's data dir on Windows; no marker elsewhere (no setup there).
+    fn marker(&self) -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        {
+            Some(crate::modules::rootfs::data_root().join(MARKER_FILE))
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            None
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -354,7 +666,10 @@ fn system_host() -> Arc<dyn SetupHost> {
 fn system_host() -> Arc<dyn SetupHost> {
     struct NoWindows;
     impl SetupHost for NoWindows {
-        fn run_elevated(&self, _offer: WslSetupOffer) -> Launch {
+        fn confirm(&self, _question: &str) -> bool {
+            false
+        }
+        fn run_elevated(&self, _offer: WslSetupOffer, _started: &mut dyn FnMut(ElevatedProcess)) -> Launch {
             Launch::NotStarted { error: 50 } // ERROR_NOT_SUPPORTED
         }
         fn status_now(&self) -> WslStatus {
@@ -364,27 +679,39 @@ fn system_host() -> Arc<dyn SetupHost> {
     Arc::new(NoWindows)
 }
 
+/// The commands for `offer` with `wsl` (wsl.exe's full path), exactly as the
+/// installer hook runs them (its `TxrWslInstallParams` / `TxrWslUpdateParams`
+/// between `/d /s /c "` and the closing quote).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn setup_commands(wsl: &str, offer: WslSetupOffer) -> String {
+    let install = format!("\"{wsl}\" --install --no-distribution");
+    match offer {
+        WslSetupOffer::Install => install,
+        WslSetupOffer::Update => format!("\"{wsl}\" --update && {install}"),
+    }
+}
+
 /// The parameters of `cmd.exe` that run the commands for `offer` with `wsl`
-/// (wsl.exe's full path), as the installer hook runs them (`/d`: no AutoRun
-/// commands; `/s /c "…"`: the line between the outer quotes, as it is). With
-/// `capture`, both output streams go to that file, so that the app can show
-/// what wsl.exe said. `None` when a path holds a character cmd.exe would read
-/// as more than a path (`"`, `%`, `!`, a line break): nothing with such a
-/// path may run as administrator.
+/// (`/d`: no AutoRun commands; `/s /c "…"`: the line between the outer
+/// quotes, as it is). The commands read no input (`< nul`): the window is
+/// hidden, so nobody could answer a question, and a command that asks ends
+/// instead of waiting for ever. With `capture`, both output streams go to
+/// that file, so that the app can show what wsl.exe said. `None` when a path
+/// holds a character cmd.exe would read as more than a path (`"`, `%`, `!`, a
+/// line break): nothing with such a path may run as administrator.
+///
+/// The installer runs the same commands without `< nul` and the redirection:
+/// its window shows wsl.exe's progress to the person at the PC.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn setup_params(wsl: &str, offer: WslSetupOffer, capture: Option<&str>) -> Option<String> {
     let plain = |s: &str| !s.contains(['"', '%', '!', '\r', '\n']);
     if !plain(wsl) || !capture.is_none_or(plain) {
         return None;
     }
-    let install = format!("\"{wsl}\" --install --no-distribution");
-    let commands = match offer {
-        WslSetupOffer::Install => install,
-        WslSetupOffer::Update => format!("\"{wsl}\" --update && {install}"),
-    };
+    let commands = setup_commands(wsl, offer);
     Some(match capture {
-        Some(file) => format!("/d /s /c \"({commands}) > \"{file}\" 2>&1\""),
-        None => format!("/d /s /c \"{commands}\""),
+        Some(file) => format!("/d /s /c \"({commands}) < nul > \"{file}\" 2>&1\""),
+        None => format!("/d /s /c \"({commands}) < nul\""),
     })
 }
 
@@ -421,7 +748,8 @@ fn last_words(output: &str) -> String {
     kept.chars().skip(skip).collect()
 }
 
-/// The setup through Windows: `ShellExecuteExW` with the "runas" verb.
+/// The setup through Windows: the app's own dialog, then `ShellExecuteExW`
+/// with the "runas" verb.
 #[cfg(target_os = "windows")]
 mod elevated {
     use std::ffi::OsStr;
@@ -429,7 +757,18 @@ mod elevated {
     use std::os::windows::ffi::OsStrExt;
     use std::path::{Path, PathBuf};
 
-    use super::{decode_output, setup_params, Launch, SetupHost, WslSetupOffer, WslStatus};
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE, HWND, LPARAM, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::{
+        GetProcessId, GetProcessTimes, OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
+        PROCESS_SYNCHRONIZE,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        MB_DEFBUTTON2, MB_ICONQUESTION, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO,
+    };
+
+    use super::{
+        decode_output, setup_params, ElevatedProcess, Launch, SetupHost, WslSetupOffer, WslStatus, QUESTION_TITLE,
+    };
 
     // The app is a 64-bit program: its System32 is the real one, where wsl.exe
     // is (a 32-bit build would need the `Sysnative` alias, as the installer does).
@@ -444,6 +783,11 @@ mod elevated {
     const ERROR_BAD_PATHNAME: u32 = 161;
     /// How much of the output's end is read.
     const OUTPUT_TAIL: u64 = 64 * 1024;
+
+    /// The app's question: Yes and No, No the default (a key pressed while the
+    /// dialog takes the focus does not say Yes), above every window and in
+    /// front.
+    pub(super) const QUESTION_STYLE: u32 = MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2 | MB_TOPMOST | MB_SETFOREGROUND;
 
     fn wide(s: &OsStr) -> Vec<u16> {
         s.encode_wide().chain(std::iter::once(0)).collect()
@@ -468,6 +812,90 @@ mod elevated {
     fn windows_dir() -> PathBuf {
         use windows_sys::Win32::System::SystemInformation::GetSystemWindowsDirectoryW;
         api_dir(GetSystemWindowsDirectoryW).unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
+    }
+
+    /// When Windows started, in seconds since 1970: `now` less the time
+    /// since the start (`GetTickCount64`, which counts sleep too).
+    pub(super) fn boot_time(now: u64) -> u64 {
+        use windows_sys::Win32::System::SystemInformation::GetTickCount64;
+        // SAFETY: no arguments; reads the system's tick count.
+        now.saturating_sub(unsafe { GetTickCount64() } / 1000)
+    }
+
+    /// The process behind `handle`: its id and creation time.
+    pub(super) fn identify(handle: HANDLE) -> Option<ElevatedProcess> {
+        let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+        let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+        // SAFETY: `handle` is a process handle with query rights; the
+        // FILETIMEs are written by the call.
+        let (pid, got) = unsafe {
+            (GetProcessId(handle), GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user))
+        };
+        let created = (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime);
+        (pid != 0 && got != 0).then_some(ElevatedProcess { pid, created })
+    }
+
+    /// `process` still runs: a process with its id and creation time exists
+    /// and has not ended. Querying an elevated process's times and waiting
+    /// on it is allowed to a program that is not elevated.
+    pub(super) fn alive(process: ElevatedProcess) -> bool {
+        // SAFETY: plain call; a null handle is checked below.
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, 0, process.pid) };
+        if handle.is_null() {
+            return false;
+        }
+        let same = identify(handle) == Some(process);
+        // SAFETY: `handle` is the process handle opened above, closed once, here.
+        let running = unsafe {
+            let running = WaitForSingleObject(handle, 0) == WAIT_TIMEOUT;
+            CloseHandle(handle);
+            running
+        };
+        same && running
+    }
+
+    /// The app's main window, to own the question: this process's first
+    /// visible top-level window without an owner; null when it has none (the
+    /// server runs alone, or in a test).
+    pub(super) fn main_window() -> HWND {
+        use windows_sys::core::BOOL;
+        use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            EnumWindows, GetWindow, GetWindowThreadProcessId, IsWindowVisible, GW_OWNER,
+        };
+        unsafe extern "system" fn each(window: HWND, found: LPARAM) -> BOOL {
+            let mut pid = 0u32;
+            // SAFETY: `window` comes from EnumWindows; `found` is the HWND
+            // slot `main_window` passed, alive for the whole enumeration.
+            unsafe {
+                GetWindowThreadProcessId(window, &mut pid);
+                if pid == GetCurrentProcessId() && IsWindowVisible(window) != 0 && GetWindow(window, GW_OWNER).is_null() {
+                    *(found as *mut HWND) = window;
+                    return 0; // found: stop
+                }
+            }
+            1
+        }
+        let mut found: HWND = std::ptr::null_mut();
+        // SAFETY: `each` writes at most once into `found`, which outlives the call.
+        unsafe { EnumWindows(Some(each), &mut found as *mut HWND as LPARAM) };
+        found
+    }
+
+    /// The app's Yes/No question (`MessageBoxW`), owned by the app's main
+    /// window when it has one; `true`: Yes. Never in a test: nobody could
+    /// answer it (in the test VM, over SSH, it would wait for ever).
+    fn ask(title: &str, text: &str) -> bool {
+        #[cfg(test)]
+        panic!("the app's own dialog is never shown in a test ({title}: {text})");
+        #[cfg(not(test))]
+        {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, IDYES};
+            let (title, text) = (wide(OsStr::new(title)), wide(OsStr::new(text)));
+            // SAFETY: both strings are NUL-terminated and outlive the call;
+            // a null owner is allowed.
+            unsafe { MessageBoxW(main_window(), text.as_ptr(), title.as_ptr(), QUESTION_STYLE) == IDYES }
+        }
     }
 
     /// The installer's commands, run as administrator.
@@ -508,7 +936,11 @@ mod elevated {
     }
 
     impl SetupHost for ElevatedSetup {
-        fn run_elevated(&self, offer: WslSetupOffer) -> Launch {
+        fn confirm(&self, question: &str) -> bool {
+            ask(QUESTION_TITLE, question)
+        }
+
+        fn run_elevated(&self, offer: WslSetupOffer, started: &mut dyn FnMut(ElevatedProcess)) -> Launch {
             let capture = match Capture::create(&self.capture_dir) {
                 Ok(c) => Some(c),
                 Err(e) => {
@@ -521,7 +953,7 @@ mod elevated {
             };
             let show = if capture.is_some() { SW_HIDE } else { SW_SHOWNORMAL };
             let dir = program.parent().map(Path::to_path_buf).unwrap_or_default();
-            match shell_execute_wait(self.verb, &program, &params, &dir, show) {
+            match shell_execute_wait(self.verb, &program, &params, &dir, show, started) {
                 Err(error) => Launch::NotStarted { error },
                 Ok(code) => Launch::Exited { code, output: capture.map(Capture::read).unwrap_or_default() },
             }
@@ -585,9 +1017,17 @@ mod elevated {
     /// `ShellExecuteExW(verb, program, params)` with the working dir `dir`,
     /// waiting for the program's end: its exit code (`None` when Windows gave
     /// no process to wait for), or Windows' error when it did not start.
-    fn shell_execute_wait(verb: &str, program: &Path, params: &str, dir: &Path, show: i32) -> Result<Option<u32>, u32> {
-        use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
-        use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject, INFINITE};
+    /// `started` gets the process once Windows started it.
+    fn shell_execute_wait(
+        verb: &str,
+        program: &Path,
+        params: &str,
+        dir: &Path,
+        show: i32,
+        started: &mut dyn FnMut(ElevatedProcess),
+    ) -> Result<Option<u32>, u32> {
+        use windows_sys::Win32::Foundation::GetLastError;
+        use windows_sys::Win32::System::Threading::{GetExitCodeProcess, INFINITE};
         use windows_sys::Win32::UI::Shell::{
             ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
         };
@@ -612,6 +1052,9 @@ mod elevated {
         if info.hProcess.is_null() {
             return Ok(None);
         }
+        if let Some(process) = identify(info.hProcess) {
+            started(process);
+        }
         let mut code: u32 = 0;
         // SAFETY: `hProcess` is the process handle the call returned
         // (SEE_MASK_NOCLOSEPROCESS); it is closed once, here.
@@ -628,19 +1071,36 @@ mod elevated {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::mpsc;
+    use std::time::{Duration, Instant};
 
     /// A host that answers as told, and can hold the setup until released.
     struct FakeHost {
+        yes: bool,
         launch: Mutex<Option<Launch>>,
         after: WslStatus,
         hold: Mutex<Option<mpsc::Receiver<()>>>,
+        questions: Mutex<Vec<String>>,
         offers: Mutex<Vec<WslSetupOffer>>,
+        /// The elevated process it reports as started.
+        process: Option<ElevatedProcess>,
+        /// The setup's thread panics in `run_elevated`.
+        panics: bool,
     }
 
     impl FakeHost {
         fn new(launch: Launch, after: WslStatus) -> Self {
-            Self { launch: Mutex::new(Some(launch)), after, hold: Mutex::new(None), offers: Mutex::new(Vec::new()) }
+            Self {
+                yes: true,
+                launch: Mutex::new(Some(launch)),
+                after,
+                hold: Mutex::new(None),
+                questions: Mutex::new(Vec::new()),
+                offers: Mutex::new(Vec::new()),
+                process: Some(PROCESS),
+                panics: false,
+            }
         }
 
         fn held(launch: Launch, after: WslStatus) -> (Arc<Self>, mpsc::Sender<()>) {
@@ -653,14 +1113,26 @@ mod tests {
         fn offers(&self) -> Vec<WslSetupOffer> {
             self.offers.lock().unwrap().clone()
         }
+
+        fn questions(&self) -> Vec<String> {
+            self.questions.lock().unwrap().clone()
+        }
     }
 
     impl SetupHost for FakeHost {
-        fn run_elevated(&self, offer: WslSetupOffer) -> Launch {
+        fn confirm(&self, question: &str) -> bool {
+            self.questions.lock().unwrap().push(question.to_string());
+            self.yes
+        }
+        fn run_elevated(&self, offer: WslSetupOffer, started: &mut dyn FnMut(ElevatedProcess)) -> Launch {
             self.offers.lock().unwrap().push(offer);
+            if let Some(process) = self.process {
+                started(process);
+            }
             if let Some(rx) = self.hold.lock().unwrap().take() {
                 let _ = rx.recv();
             }
+            assert!(!self.panics, "the setup's thread fails");
             self.launch.lock().unwrap().take().expect("one launch per fake")
         }
         fn status_now(&self) -> WslStatus {
@@ -668,25 +1140,93 @@ mod tests {
         }
     }
 
+    const PROCESS: ElevatedProcess = ElevatedProcess { pid: 4242, created: 133_000_000_000_000_000 };
+    const T0: u64 = 1_800_000_000;
+    const BOOT: u64 = T0 - 3600;
+
+    /// A PC with a clock to move, a start time to change, processes to end,
+    /// and a marker file in a test dir (or none).
+    struct FakeMachine {
+        now: AtomicU64,
+        boot: Mutex<Option<u64>>,
+        alive: AtomicBool,
+        marker: Option<PathBuf>,
+    }
+
+    impl FakeMachine {
+        fn new(marker: Option<PathBuf>) -> Arc<Self> {
+            Arc::new(Self { now: AtomicU64::new(T0), boot: Mutex::new(Some(BOOT)), alive: AtomicBool::new(true), marker })
+        }
+        fn pass(&self, secs: u64) {
+            self.now.fetch_add(secs, Ordering::SeqCst);
+        }
+    }
+
+    impl Machine for FakeMachine {
+        fn now(&self) -> u64 {
+            self.now.load(Ordering::SeqCst)
+        }
+        fn boot_time(&self) -> Option<u64> {
+            *self.boot.lock().unwrap()
+        }
+        fn alive(&self, process: ElevatedProcess) -> bool {
+            process == PROCESS && self.alive.load(Ordering::SeqCst)
+        }
+        fn marker(&self) -> Option<PathBuf> {
+            self.marker.clone()
+        }
+    }
+
+    /// A test's own dir, removed when dropped.
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("txr-wsl-setup-{tag}-{}", uuid::Uuid::new_v4().simple()));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+        fn marker(&self) -> PathBuf {
+            self.0.join(MARKER_FILE)
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     fn exited(code: u32, output: &str) -> Launch {
         Launch::Exited { code: Some(code), output: output.to_string() }
     }
 
-    const LIMIT: Duration = Duration::from_secs(30);
-
     /// Wait for `cond`, failing (never hanging) after 10 s.
-    async fn until(what: &str, mut cond: impl FnMut() -> bool) {
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    fn until(what: &str, mut cond: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
         while !cond() {
-            assert!(std::time::Instant::now() < deadline, "waited 10 s for: {what}");
-            tokio::time::sleep(Duration::from_millis(5)).await;
+            assert!(Instant::now() < deadline, "waited 10 s for: {what}");
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
 
-    async fn run_once(boot: WslStatus, launch: Launch, after: WslStatus) -> (WslSetupResult, Vec<WslSetupOffer>) {
+    /// Start a setup and wait for its end: the result kept.
+    fn run_on(state: &Arc<SetupState>, boot: WslStatus, host: Arc<FakeHost>) -> WslSetupResult {
+        let started = start(state, Some(boot), host).expect("offered");
+        assert!(started.running, "the answer says the setup runs");
+        until("the setup's end", || !state.status(Some(boot)).running);
+        state.status(Some(boot)).last.expect("the result is kept")
+    }
+
+    fn run_once(boot: WslStatus, launch: Launch, after: WslStatus) -> (WslSetupResult, Vec<WslSetupOffer>) {
         let host = Arc::new(FakeHost::new(launch, after));
-        let result = run(Arc::default(), Some(boot), host.clone(), LIMIT).await.expect("offered");
+        let state = SetupState::new(FakeMachine::new(None));
+        let result = run_on(&state, boot, host.clone());
         (result, host.offers())
+    }
+
+    fn status(offer: Option<WslSetupOffer>, running: bool, last: Option<WslSetupResult>) -> WslSetupStatus {
+        WslSetupStatus { offer, running, last, retry_in_secs: None }
     }
 
     #[test]
@@ -709,12 +1249,13 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn nothing_offered_is_refused_with_its_code_and_runs_nothing() {
+    #[test]
+    fn nothing_offered_is_refused_with_its_code_and_runs_nothing() {
         // No probe status: not Windows, methods can run, or the probe failed
         // for a reason that is not WSL's (the app's WSL runtime is missing).
         let host = Arc::new(FakeHost::new(exited(0, ""), WslStatus::Ready));
-        let state = Arc::<SetupState>::default();
+        let dir = TestDir::new("refused");
+        let state = SetupState::new(FakeMachine::new(Some(dir.marker())));
         for boot in [
             None,
             Some(WslStatus::Emulated),
@@ -725,12 +1266,13 @@ mod tests {
             // status; the app does not offer it (see `offer_for`).
             Some(WslStatus::ReadyAfterRestart),
         ] {
-            let e = run(state.clone(), boot, host.clone(), LIMIT).await.expect_err("not offered");
+            let e = start(&state, boot, host.clone()).expect_err("not offered");
             assert_eq!(e.status_code(), 409, "{boot:?}");
             assert_eq!(e.error_code(), WSL_SETUP_NOT_OFFERED_CODE, "{boot:?}");
         }
-        assert!(host.offers().is_empty(), "nothing ran");
-        assert_eq!(state.status(None), WslSetupStatus { offer: None, running: false, last: None }, "nothing changed");
+        assert!(host.questions().is_empty() && host.offers().is_empty(), "nothing asked, nothing ran");
+        assert_eq!(state.status(None), status(None, false, None), "nothing changed");
+        assert!(!dir.marker().exists(), "no marker");
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -738,56 +1280,92 @@ mod tests {
     fn elsewhere_than_windows_nothing_is_offered() {
         assert_eq!(boot_status(), None);
         assert_eq!(notice(), None);
+        assert_eq!(SystemMachine.marker(), None, "no marker file elsewhere");
     }
 
-    #[tokio::test]
-    async fn the_offer_decides_the_commands() {
-        let (_, offers) = run_once(WslStatus::Missing, exited(0, ""), WslStatus::ReadyAfterRestart).await;
+    #[test]
+    fn the_offer_decides_the_commands() {
+        let (_, offers) = run_once(WslStatus::Missing, exited(0, ""), WslStatus::ReadyAfterRestart);
         assert_eq!(offers, [WslSetupOffer::Install]);
         for boot in [WslStatus::Old, WslStatus::Legacy] {
-            let (_, offers) = run_once(boot, exited(0, ""), WslStatus::Ready).await;
+            let (_, offers) = run_once(boot, exited(0, ""), WslStatus::Ready);
             assert_eq!(offers, [WslSetupOffer::Update], "{boot:?}");
         }
     }
 
-    #[tokio::test]
-    async fn a_setup_after_which_the_check_says_ready_is_done() {
+    /// The person at the PC is asked in the app's own dialog before anything
+    /// runs as administrator (Windows may not ask: UAC off or never notify,
+    /// or the app itself run as administrator). No runs nothing.
+    #[test]
+    fn nothing_runs_as_administrator_before_a_yes_in_the_apps_own_dialog() {
+        for boot in [WslStatus::Missing, WslStatus::Old, WslStatus::Legacy] {
+            let host = Arc::new(FakeHost { yes: false, ..FakeHost::new(exited(0, ""), WslStatus::Ready) });
+            let state = SetupState::new(FakeMachine::new(None));
+            let r = run_on(&state, boot, host.clone());
+            assert_eq!(r, WslSetupResult::of(WslSetupOutcome::Declined), "{boot:?}");
+            assert_eq!(host.questions(), [question(boot)], "asked once, the question for {boot:?}");
+            assert!(host.offers().is_empty(), "nothing ran as administrator: {boot:?}");
+        }
+        // Yes: asked first, then run.
+        let host = Arc::new(FakeHost::new(exited(0, ""), WslStatus::Ready));
+        let r = run_on(&SetupState::new(FakeMachine::new(None)), WslStatus::Missing, host.clone());
+        assert_eq!(r, WslSetupResult::done(true));
+        assert_eq!((host.questions().len(), host.offers()), (1, vec![WslSetupOffer::Install]));
+    }
+
+    #[test]
+    fn the_question_says_what_happens_and_where_it_came_from() {
+        for (status, verb) in
+            [(WslStatus::Missing, "Install WSL 2 now?"), (WslStatus::Old, "Update WSL now?"), (WslStatus::Legacy, "Update WSL now?")]
+        {
+            let q = question(status);
+            for words in [verb, "Microsoft", "about 400 MB", "Windows will ask for permission", "in TxResBench", "AI assistant", "Choose No to change nothing"] {
+                assert!(q.contains(words), "{status:?}: {words:?} in {q:?}");
+            }
+        }
+        assert!(question(WslStatus::Missing).contains("usually needs a restart"));
+        assert!(question(WslStatus::Legacy).contains("older kind") && question(WslStatus::Legacy).contains("may need a restart"));
+        assert!(question(WslStatus::Old).contains("security flaw"));
+    }
+
+    #[test]
+    fn a_setup_after_which_the_check_says_ready_is_done() {
         // Installed where WSL was missing: Windows restarts (the check may
         // not know it yet).
-        let (r, _) = run_once(WslStatus::Missing, exited(0, "The operation completed successfully."), WslStatus::Ready).await;
+        let (r, _) = run_once(WslStatus::Missing, exited(0, "The operation completed successfully."), WslStatus::Ready);
         assert_eq!(r, WslSetupResult::done(true));
         // Updated from the WSL that came with Windows: a restart too.
-        let (r, _) = run_once(WslStatus::Legacy, exited(0, ""), WslStatus::Ready).await;
+        let (r, _) = run_once(WslStatus::Legacy, exited(0, ""), WslStatus::Ready);
         assert_eq!(r, WslSetupResult::done(true));
         // An old WSL updated: no restart unless the check asks for one.
-        let (r, _) = run_once(WslStatus::Old, exited(0, ""), WslStatus::Ready).await;
+        let (r, _) = run_once(WslStatus::Old, exited(0, ""), WslStatus::Ready);
         assert_eq!(r, WslSetupResult::done(false));
-        let (r, _) = run_once(WslStatus::Old, exited(0, ""), WslStatus::ReadyAfterRestart).await;
+        let (r, _) = run_once(WslStatus::Old, exited(0, ""), WslStatus::ReadyAfterRestart);
         assert_eq!(r, WslSetupResult::done(true));
         // The check decides, not the exit code (as in the installer).
-        let (r, _) = run_once(WslStatus::Old, exited(1, "already up to date"), WslStatus::Ready).await;
+        let (r, _) = run_once(WslStatus::Old, exited(1, "already up to date"), WslStatus::Ready);
         assert_eq!(r.outcome, WslSetupOutcome::Done);
     }
 
-    #[tokio::test]
-    async fn no_to_the_permission_prompt_is_declined() {
-        let (r, _) = run_once(WslStatus::Missing, Launch::NotStarted { error: 1223 }, WslStatus::Missing).await;
+    #[test]
+    fn no_to_the_permission_prompt_is_declined() {
+        let (r, _) = run_once(WslStatus::Missing, Launch::NotStarted { error: 1223 }, WslStatus::Missing);
         assert_eq!(r, WslSetupResult::of(WslSetupOutcome::Declined));
         assert_eq!(ERROR_CANCELLED, 1223);
     }
 
-    #[tokio::test]
-    async fn another_windows_error_is_not_started() {
-        let (r, _) = run_once(WslStatus::Missing, Launch::NotStarted { error: 2 }, WslStatus::Missing).await;
+    #[test]
+    fn another_windows_error_is_not_started() {
+        let (r, _) = run_once(WslStatus::Missing, Launch::NotStarted { error: 2 }, WslStatus::Missing);
         assert_eq!(r.outcome, WslSetupOutcome::NotStarted);
         assert_eq!(r.windows_error, Some(2));
     }
 
-    #[tokio::test]
-    async fn a_setup_after_which_wsl_is_still_missing_failed_with_its_code_and_words() {
+    #[test]
+    fn a_setup_after_which_wsl_is_still_missing_failed_with_its_code_and_words() {
         let printed = "Installing: Windows Subsystem for Linux\r\n[====      20.0%      ]\r[==========100.0%==========]\r\n\
                        Catastrophic failure \r\nError code: Wsl/InstallLibrary/0x8000ffff\r\n";
-        let (r, _) = run_once(WslStatus::Missing, exited(0x8000_FFFF, printed), WslStatus::Missing).await;
+        let (r, _) = run_once(WslStatus::Missing, exited(0x8000_FFFF, printed), WslStatus::Missing);
         assert_eq!(r.outcome, WslSetupOutcome::Failed);
         assert_eq!(r.exit_code, Some(0x8000_FFFF));
         assert_eq!(
@@ -795,7 +1373,7 @@ mod tests {
             "Installing: Windows Subsystem for Linux\nCatastrophic failure\nError code: Wsl/InstallLibrary/0x8000ffff"
         );
         // Exit 0 but still too old: failed too (the check decides).
-        let (r, _) = run_once(WslStatus::Old, exited(0, ""), WslStatus::Old).await;
+        let (r, _) = run_once(WslStatus::Old, exited(0, ""), WslStatus::Old);
         assert_eq!(r, WslSetupResult::failed(Some(0), String::new()));
     }
 
@@ -803,15 +1381,15 @@ mod tests {
     /// with the check still finding it so is a setup Windows must restart to
     /// finish. Any other code, an unknown one, or another status before or
     /// after is a failure.
-    #[tokio::test]
-    async fn exit_0_where_wsl_stays_missing_or_old_kind_waits_for_a_restart() {
+    #[test]
+    fn exit_0_where_wsl_stays_missing_or_old_kind_waits_for_a_restart() {
         for (before, after) in [
             (WslStatus::Missing, WslStatus::Missing),
             (WslStatus::Missing, WslStatus::Legacy),
             (WslStatus::Legacy, WslStatus::Legacy),
             (WslStatus::Legacy, WslStatus::Missing),
         ] {
-            let (r, _) = run_once(before, exited(0, "Restart Windows to finish."), after).await;
+            let (r, _) = run_once(before, exited(0, "Restart Windows to finish."), after);
             assert_eq!(r, WslSetupResult::done(true), "{before:?} -> {after:?}");
         }
         for (before, launch, after) in [
@@ -820,7 +1398,7 @@ mod tests {
             (WslStatus::Missing, exited(0, ""), WslStatus::Old),
             (WslStatus::Old, exited(0, ""), WslStatus::Legacy),
         ] {
-            let (r, _) = run_once(before, launch, after).await;
+            let (r, _) = run_once(before, launch, after);
             assert_eq!(r.outcome, WslSetupOutcome::Failed, "{before:?} -> {after:?}");
         }
     }
@@ -829,117 +1407,316 @@ mod tests {
     /// counts only after exit 0. After a failed setup (or an unknown code) it
     /// cannot tell the Virtual Machine Platform turned on from one still off:
     /// failed with the code and words, no restart asked for.
-    #[tokio::test]
-    async fn ready_after_a_restart_counts_only_after_exit_0() {
+    #[test]
+    fn ready_after_a_restart_counts_only_after_exit_0() {
         for before in [WslStatus::Missing, WslStatus::Old, WslStatus::Legacy] {
-            let (r, _) = run_once(before, exited(0, ""), WslStatus::ReadyAfterRestart).await;
+            let (r, _) = run_once(before, exited(0, ""), WslStatus::ReadyAfterRestart);
             assert_eq!(r, WslSetupResult::done(true), "{before:?}");
-            let (r, _) = run_once(before, exited(1, "Catastrophic failure"), WslStatus::ReadyAfterRestart).await;
+            let (r, _) = run_once(before, exited(1, "Catastrophic failure"), WslStatus::ReadyAfterRestart);
             assert_eq!(r, WslSetupResult::failed(Some(1), "Catastrophic failure".into()), "{before:?}");
             let launch = Launch::Exited { code: None, output: String::new() };
-            let (r, _) = run_once(before, launch, WslStatus::ReadyAfterRestart).await;
+            let (r, _) = run_once(before, launch, WslStatus::ReadyAfterRestart);
             assert_eq!(r, WslSetupResult::failed(None, String::new()), "{before:?}");
         }
         // Ready now still wins over a failing code.
-        let (r, _) = run_once(WslStatus::Missing, exited(1, ""), WslStatus::Ready).await;
+        let (r, _) = run_once(WslStatus::Missing, exited(1, ""), WslStatus::Ready);
         assert_eq!(r, WslSetupResult::done(true));
     }
 
-    #[tokio::test]
-    async fn one_setup_at_a_time_and_none_after_one_is_done() {
-        let state = Arc::<SetupState>::default();
+    /// The POST answers as soon as the setup started (its status: running),
+    /// not at its end; the result is read from the status afterwards.
+    #[test]
+    fn the_answer_comes_at_the_start_and_one_setup_runs_at_a_time() {
+        let state = SetupState::new(FakeMachine::new(None));
         let (host, release) = FakeHost::held(exited(0, ""), WslStatus::ReadyAfterRestart);
-        let first = tokio::spawn(run(state.clone(), Some(WslStatus::Missing), host.clone(), LIMIT));
-        until("the first setup to run", || state.status(None).running).await;
-        let e = run(state.clone(), Some(WslStatus::Missing), host.clone(), LIMIT).await.expect_err("one is running");
+        let answer = start(&state, Some(WslStatus::Missing), host.clone()).expect("started");
+        assert_eq!(answer, status(Some(WslSetupOffer::Install), true, None), "answered while the setup is held");
+        let e = start(&state, Some(WslStatus::Missing), host.clone()).expect_err("one is running");
         assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_RUNNING_CODE));
-        let s = state.status(Some(WslStatus::Missing));
-        assert_eq!((s.offer, s.running, s.last), (Some(WslSetupOffer::Install), true, None));
+        assert_eq!(state.status(Some(WslStatus::Missing)), status(Some(WslSetupOffer::Install), true, None));
 
         release.send(()).unwrap();
-        let r = first.await.unwrap().expect("ran");
-        assert_eq!(r, WslSetupResult::done(true));
+        until("the setup's end", || !state.status(None).running);
         assert_eq!(host.offers(), [WslSetupOffer::Install], "the refused call ran nothing");
         let s = state.status(Some(WslStatus::Missing));
-        assert_eq!((s.offer, s.running, s.last), (None, false, Some(WslSetupResult::done(true))));
-        let e = run(state.clone(), Some(WslStatus::Missing), host, LIMIT).await.expect_err("done");
+        assert_eq!(s, status(None, false, Some(WslSetupResult::done(true))), "done: no offer, the result kept");
+        let e = start(&state, Some(WslStatus::Missing), host).expect_err("done");
         assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_NOT_OFFERED_CODE));
     }
 
-    #[tokio::test]
-    async fn a_declined_or_failed_setup_can_be_run_again() {
-        let state = Arc::<SetupState>::default();
-        for launch in [Launch::NotStarted { error: ERROR_CANCELLED }, exited(1, "no")] {
+    #[test]
+    fn a_failed_setup_can_be_run_again_at_once() {
+        let machine = FakeMachine::new(None);
+        let state = SetupState::new(machine);
+        for launch in [exited(1, "no"), Launch::NotStarted { error: 2 }] {
             let host = Arc::new(FakeHost::new(launch, WslStatus::Old));
-            run(state.clone(), Some(WslStatus::Old), host, LIMIT).await.expect("offered");
-            assert_eq!(state.status(Some(WslStatus::Old)).offer, Some(WslSetupOffer::Update));
+            run_on(&state, WslStatus::Old, host);
+            let s = state.status(Some(WslStatus::Old));
+            assert_eq!((s.offer, s.retry_in_secs), (Some(WslSetupOffer::Update), None));
         }
     }
 
-    #[tokio::test]
-    async fn a_setup_past_the_limit_answers_timed_out_and_keeps_the_slot_until_it_ends() {
-        let state = Arc::<SetupState>::default();
-        let (host, release) = FakeHost::held(exited(5, "Error code: Wsl/0x80072ee7"), WslStatus::Missing);
-        let r = run(state.clone(), Some(WslStatus::Missing), host.clone(), Duration::from_millis(50)).await.unwrap();
-        assert_eq!(r.outcome, WslSetupOutcome::TimedOut);
-        assert!(state.status(None).running, "still running");
-        let e = run(state.clone(), Some(WslStatus::Missing), host, LIMIT).await.expect_err("one is running");
-        assert_eq!(e.error_code(), WSL_SETUP_RUNNING_CODE);
+    /// After a No (in the app's dialog or in Windows' prompt) the setup is
+    /// not offered for a minute, so that a caller cannot ask again and again.
+    #[test]
+    fn a_declined_setup_is_not_offered_again_for_a_minute() {
+        for (yes, launch) in [(false, exited(0, "")), (true, Launch::NotStarted { error: ERROR_CANCELLED })] {
+            let machine = FakeMachine::new(None);
+            let state = SetupState::new(machine.clone());
+            let host = Arc::new(FakeHost { yes, ..FakeHost::new(launch, WslStatus::Missing) });
+            assert_eq!(run_on(&state, WslStatus::Missing, host).outcome, WslSetupOutcome::Declined);
 
+            let s = state.status(Some(WslStatus::Missing));
+            assert_eq!((s.offer, s.retry_in_secs), (Some(WslSetupOffer::Install), Some(DECLINE_PAUSE_SECS)));
+            machine.pass(45);
+            let again = Arc::new(FakeHost::new(exited(0, ""), WslStatus::Ready));
+            let e = start(&state, Some(WslStatus::Missing), again.clone()).expect_err("declined a moment ago");
+            assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_DECLINED_RECENTLY_CODE));
+            assert!(e.to_string().contains("in 15 s"), "{e}");
+            assert_eq!(state.status(Some(WslStatus::Missing)).retry_in_secs, Some(15));
+            assert!(again.questions().is_empty(), "not asked again");
+
+            machine.pass(15);
+            assert_eq!(state.status(Some(WslStatus::Missing)).retry_in_secs, None);
+            assert_eq!(run_on(&state, WslStatus::Missing, again).outcome, WslSetupOutcome::Done, "offered again");
+        }
+    }
+
+    /// The setup's thread that panics ends the setup as failed: the slot is
+    /// freed and the result kept, so the notice says it ended.
+    #[test]
+    fn a_setup_thread_that_panics_frees_the_slot_and_keeps_a_failure() {
+        let dir = TestDir::new("panic");
+        let state = SetupState::new(FakeMachine::new(Some(dir.marker())));
+        let host = Arc::new(FakeHost { panics: true, ..FakeHost::new(exited(0, ""), WslStatus::Ready) });
+        let r = run_on(&state, WslStatus::Missing, host);
+        assert_eq!(r, WslSetupResult::failed(None, String::new()));
+        assert_eq!(read_marker(&dir.marker()).and_then(|m| m.result), Some(r), "the marker says it ended");
+    }
+
+    /// The marker follows the setup: written at the start, when the elevated
+    /// process started, and at the end.
+    #[test]
+    fn the_marker_follows_the_setup() {
+        let dir = TestDir::new("marker");
+        let machine = FakeMachine::new(Some(dir.marker()));
+        let state = SetupState::new(machine.clone());
+        let (host, release) = FakeHost::held(exited(0, ""), WslStatus::Missing);
+        start(&state, Some(WslStatus::Missing), host).expect("started");
+        assert_eq!(
+            read_marker(&dir.marker()).map(|m| (m.started_at, m.boot_time)),
+            Some((T0, Some(BOOT))),
+            "written at the start"
+        );
+        until("the process in the marker", || read_marker(&dir.marker()).is_some_and(|m| m.process.is_some()));
+        assert_eq!(
+            read_marker(&dir.marker()),
+            Some(Marker { started_at: T0, boot_time: Some(BOOT), process: Some(PROCESS), result: None })
+        );
         release.send(()).unwrap();
-        until("the setup's end to free the slot", || !state.status(None).running).await;
-        let last = state.status(None).last.expect("kept");
-        assert_eq!(last, WslSetupResult::failed(Some(5), "Error code: Wsl/0x80072ee7".into()));
+        until("the setup's end", || !state.status(None).running);
+        assert_eq!(
+            read_marker(&dir.marker()),
+            Some(Marker {
+                started_at: T0,
+                boot_time: Some(BOOT),
+                process: Some(PROCESS),
+                result: Some(WslSetupResult::done(true))
+            })
+        );
+    }
+
+    /// A reopened app (a new state on the same marker) while the first
+    /// app's elevated setup still runs: running, and no second setup. When
+    /// that process ends, the setup is offered again (its result is not
+    /// known).
+    #[test]
+    fn a_reopened_app_does_not_start_a_second_setup_beside_a_running_one() {
+        let dir = TestDir::new("reopened-running");
+        let machine = FakeMachine::new(Some(dir.marker()));
+        let marker = Marker { started_at: T0, boot_time: Some(BOOT), process: Some(PROCESS), result: None };
+        write_marker(&dir.marker(), &marker).unwrap();
+
+        let reopened = SetupState::new(machine.clone());
+        let host = Arc::new(FakeHost::new(exited(0, ""), WslStatus::Ready));
+        assert_eq!(reopened.status(Some(WslStatus::Missing)), status(Some(WslSetupOffer::Install), true, None));
+        let e = start(&reopened, Some(WslStatus::Missing), host.clone()).expect_err("one is running");
+        assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_RUNNING_CODE));
+        assert!(host.questions().is_empty());
+
+        machine.alive.store(false, Ordering::SeqCst);
+        assert_eq!(reopened.status(Some(WslStatus::Missing)), status(Some(WslSetupOffer::Install), false, None));
+        assert_eq!(run_on(&reopened, WslStatus::Missing, host).outcome, WslSetupOutcome::Done);
+
+        // The app closed at its question: no process ever started.
+        let at_question = Marker { process: None, ..marker };
+        write_marker(&dir.marker(), &at_question).unwrap();
+        machine.alive.store(true, Ordering::SeqCst);
+        let reopened = SetupState::new(machine);
+        assert!(!reopened.status(Some(WslStatus::Missing)).running);
+    }
+
+    /// A reopened app after a setup that is done and waits for a restart:
+    /// "restart Windows" until Windows started again, then the probe decides.
+    #[test]
+    fn a_reopened_app_says_restart_windows_until_windows_restarted() {
+        let dir = TestDir::new("reopened-restart");
+        let machine = FakeMachine::new(Some(dir.marker()));
+        let state = SetupState::new(machine.clone());
+        let r = run_on(&state, WslStatus::Missing, Arc::new(FakeHost::new(exited(0, ""), WslStatus::Missing)));
+        assert_eq!(r, WslSetupResult::done(true));
+
+        machine.pass(600);
+        let reopened = SetupState::new(machine.clone());
+        let s = reopened.status(Some(WslStatus::Missing));
+        assert_eq!(s, status(None, false, Some(WslSetupResult::done(true))), "restart Windows, no offer");
+        let host = Arc::new(FakeHost::new(exited(0, ""), WslStatus::Ready));
+        let e = start(&reopened, Some(WslStatus::Missing), host.clone()).expect_err("waits for a restart");
+        assert_eq!(e.error_code(), WSL_SETUP_NOT_OFFERED_CODE);
+        assert!(e.to_string().contains("restart Windows"), "{e}");
+        // The clock's reading of the start moves by a second or so.
+        *machine.boot.lock().unwrap() = Some(BOOT + 2);
+        assert_eq!(SetupState::new(machine.clone()).status(Some(WslStatus::Missing)).offer, None);
+
+        // Windows started again: the marker is old news.
+        *machine.boot.lock().unwrap() = Some(T0 + 900);
+        let restarted = SetupState::new(machine.clone());
+        assert_eq!(restarted.status(Some(WslStatus::Missing)), status(Some(WslSetupOffer::Install), false, None));
+        // The start time not known: never "restart Windows" for ever.
+        *machine.boot.lock().unwrap() = None;
+        assert_eq!(SetupState::new(machine.clone()).status(Some(WslStatus::Missing)).offer, Some(WslSetupOffer::Install));
+        // Methods can run (no probe status): the marker is not read.
+        *machine.boot.lock().unwrap() = Some(BOOT);
+        assert_eq!(SetupState::new(machine).status(None), status(None, false, None));
+        assert!(host.questions().is_empty());
     }
 
     #[test]
-    fn the_answer_comes_after_the_result_is_kept_and_the_slot_freed() {
-        let state = Arc::<SetupState>::default();
-        let (running, _, _) = state.begin(Some(WslStatus::Missing)).expect("offered");
-        let mut answered = None;
-        running.finish(WslSetupResult::done(true), |result| {
-            let now = state.status(Some(WslStatus::Missing));
-            assert!(!now.running, "the slot is free when the answer goes out");
-            assert_eq!(now.last.as_ref(), Some(&result), "the result is kept when the answer goes out");
-            answered = Some(result);
-        });
-        assert_eq!(answered, Some(WslSetupResult::done(true)));
+    fn a_marker_of_another_outcome_or_unreadable_is_nothing() {
+        let dir = TestDir::new("marker-other");
+        let machine = FakeMachine::new(Some(dir.marker()));
+        for result in [
+            WslSetupResult::done(false),
+            WslSetupResult::of(WslSetupOutcome::Declined),
+            WslSetupResult::failed(Some(1), "no".into()),
+        ] {
+            let marker = Marker { started_at: T0, boot_time: Some(BOOT), process: Some(PROCESS), result: Some(result) };
+            write_marker(&dir.marker(), &marker).unwrap();
+            let s = SetupState::new(machine.clone()).status(Some(WslStatus::Missing));
+            assert_eq!(s, status(Some(WslSetupOffer::Install), false, None), "{marker:?}");
+        }
+        std::fs::write(dir.marker(), b"{ not json").unwrap();
+        let s = SetupState::new(machine).status(Some(WslStatus::Missing));
+        assert_eq!(s, status(Some(WslSetupOffer::Install), false, None));
+    }
+
+    fn headers(pairs: &[(header::HeaderName, &str)]) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        for (name, value) in pairs {
+            map.append(name.clone(), value.parse().unwrap());
+        }
+        map
+    }
+
+    const PORT: u16 = 43_117;
+
+    #[test]
+    fn the_apps_own_window_and_programs_on_this_pc_may_start_a_setup() {
+        let host = (header::HOST, "127.0.0.1:43117");
+        for origin in ["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost"] {
+            assert!(check_caller(&headers(&[host.clone(), (header::ORIGIN, origin)]), Some(PORT), false).is_ok(), "{origin}");
+        }
+        // No origin: not a browser (the MCP dispatch over loopback, a script).
+        assert!(check_caller(&headers(&[host.clone()]), Some(PORT), false).is_ok());
+        for name in ["localhost:43117", "LOCALHOST:43117", "[::1]:43117"] {
+            assert!(check_caller(&headers(&[(header::HOST, name)]), Some(PORT), false).is_ok(), "{name}");
+        }
+        // The dev server's page, in a debug build only.
+        for origin in ["http://localhost:5173", "http://127.0.0.1:5173"] {
+            let h = headers(&[host.clone(), (header::ORIGIN, origin)]);
+            assert!(check_caller(&h, Some(PORT), true).is_ok(), "{origin}");
+            assert!(check_caller(&h, Some(PORT), false).is_err(), "{origin} in a release build");
+        }
     }
 
     #[test]
-    fn a_setup_thread_that_panics_frees_the_slot() {
-        let state = Arc::<SetupState>::default();
-        let (running, _, _) = state.begin(Some(WslStatus::Missing)).expect("offered");
-        assert!(state.status(None).running);
-        let _ = std::thread::spawn(move || {
-            let _held = running;
-            panic!("the setup's thread fails");
-        })
-        .join();
-        assert!(!state.status(None).running);
-        assert_eq!(state.status(None).last, None);
+    fn a_web_page_or_another_name_for_this_pc_is_refused() {
+        let refused = |h: HeaderMap, port: Option<u16>| {
+            let e = check_caller(&h, port, true).expect_err("refused");
+            assert_eq!((e.status_code(), e.error_code()), (403, WSL_SETUP_NOT_FROM_THE_APP_CODE), "{h:?}");
+        };
+        let host = (header::HOST, "127.0.0.1:43117");
+        for origin in [
+            "https://evil.example",
+            "null",
+            "http://tauri.localhost.evil.example",
+            "http://tauri.localhost:8080",
+            "http://localhost:43117",
+            "http://127.0.0.1:43117",
+            "tauri://localhost/",
+            "",
+        ] {
+            refused(headers(&[host.clone(), (header::ORIGIN, origin)]), Some(PORT));
+        }
+        // Two origins.
+        refused(headers(&[host.clone(), (header::ORIGIN, "tauri://localhost"), (header::ORIGIN, "https://evil.example")]), Some(PORT));
+        // DNS rebinding: a page whose own name now points at this PC sends
+        // its own name and is "same-origin" to itself, even from the app's port.
+        for name in ["evil.example:43117", "127.0.0.1.evil.example:43117", "127.0.0.1:43118", "127.0.0.1", "localhost.:43117", ""] {
+            refused(headers(&[(header::HOST, name)]), Some(PORT));
+        }
+        refused(headers(&[]), Some(PORT));
+        refused(headers(&[(header::HOST, "evil.example:43117"), (header::ORIGIN, "http://evil.example:43117")]), Some(PORT));
+        // The server's port not known: refused.
+        refused(headers(&[host]), None);
     }
 
+    /// The route's check runs before any setup: a web page is refused (403)
+    /// where a program on this PC is answered (here: nothing to set up, 409).
     #[test]
-    fn the_commands_are_the_installers_with_the_output_into_the_file() {
+    fn the_route_refuses_a_web_page_before_anything_else() {
+        note_server_port(PORT);
+        let host = (header::HOST, "localhost:43117");
+        let e = start_here(&headers(&[host.clone(), (header::ORIGIN, "https://evil.example")])).expect_err("a web page");
+        assert_eq!((e.status_code(), e.error_code()), (403, WSL_SETUP_NOT_FROM_THE_APP_CODE));
+        let e = start_here(&headers(&[(header::HOST, "evil.example:43117")])).expect_err("rebinding");
+        assert_eq!((e.status_code(), e.error_code()), (403, WSL_SETUP_NOT_FROM_THE_APP_CODE));
+        for allowed in [headers(&[host.clone()]), headers(&[host, (header::ORIGIN, "tauri://localhost")])] {
+            // In a test nothing is offered (no boot probe ran).
+            let e = start_here(&allowed).expect_err("nothing offered");
+            assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_NOT_OFFERED_CODE), "{allowed:?}");
+        }
+    }
+
+    /// The commands are the installer hook's, read no input (the window is
+    /// hidden: a question would wait for ever), and send their output to the
+    /// file.
+    #[test]
+    fn the_commands_are_the_installers_read_no_input_and_go_into_the_file() {
         let wsl = r"C:\Windows\system32\wsl.exe";
         let out = r"C:\Windows\Temp\txresbench-wsl-setup-0123.txt";
         assert_eq!(
             setup_params(wsl, WslSetupOffer::Install, Some(out)).unwrap(),
-            r#"/d /s /c "("C:\Windows\system32\wsl.exe" --install --no-distribution) > "C:\Windows\Temp\txresbench-wsl-setup-0123.txt" 2>&1""#
+            r#"/d /s /c "("C:\Windows\system32\wsl.exe" --install --no-distribution) < nul > "C:\Windows\Temp\txresbench-wsl-setup-0123.txt" 2>&1""#
         );
         assert_eq!(
             setup_params(wsl, WslSetupOffer::Update, Some(out)).unwrap(),
-            r#"/d /s /c "("C:\Windows\system32\wsl.exe" --update && "C:\Windows\system32\wsl.exe" --install --no-distribution) > "C:\Windows\Temp\txresbench-wsl-setup-0123.txt" 2>&1""#
+            r#"/d /s /c "("C:\Windows\system32\wsl.exe" --update && "C:\Windows\system32\wsl.exe" --install --no-distribution) < nul > "C:\Windows\Temp\txresbench-wsl-setup-0123.txt" 2>&1""#
         );
-        // Without the file: exactly the installer hook's parameters.
+        // Without the file (it could not be made): no input either.
         assert_eq!(
             setup_params(wsl, WslSetupOffer::Update, None).unwrap(),
-            r#"/d /s /c ""C:\Windows\system32\wsl.exe" --update && "C:\Windows\system32\wsl.exe" --install --no-distribution""#
+            r#"/d /s /c "("C:\Windows\system32\wsl.exe" --update && "C:\Windows\system32\wsl.exe" --install --no-distribution) < nul""#
         );
+        // The wsl.exe commands are the installer hook's, with its wsl.exe.
         let hook = include_str!("../../../../desktop/tauri/windows/installer-hooks.nsh");
-        assert!(hook.contains(r#"'/d /s /c ""$WINDIR\Sysnative\wsl.exe" --update && "$WINDIR\Sysnative\wsl.exe" --install --no-distribution"'"#));
-        assert!(hook.contains(r#"'/d /s /c ""$WINDIR\Sysnative\wsl.exe" --install --no-distribution"'"#));
+        for (var, offer) in [("TxrWslInstallParams", WslSetupOffer::Install), ("TxrWslUpdateParams", WslSetupOffer::Update)] {
+            let prefix = format!("StrCpy ${var} '/d /s /c \"");
+            let hooks: Vec<&str> = hook.lines().filter_map(|l| l.trim().strip_prefix(prefix.as_str())).collect();
+            assert_eq!(hooks.len(), 1, "one {var} in the hook");
+            let commands = hooks[0].strip_suffix("\"'").expect("the hook's parameters end the quote");
+            assert_eq!(commands.replace(r"$WINDIR\Sysnative\wsl.exe", wsl), setup_commands(wsl, offer), "{var}");
+        }
     }
 
     #[test]
@@ -980,14 +1757,16 @@ mod tests {
             serde_json::to_value(&r).unwrap(),
             serde_json::json!({ "outcome": "failed", "restart_windows": false, "exit_code": 7, "output": "words" })
         );
-        let s = WslSetupStatus { offer: Some(WslSetupOffer::Update), running: false, last: None };
-        assert_eq!(serde_json::to_value(&s).unwrap(), serde_json::json!({ "offer": "update", "running": false }));
+        let s = WslSetupStatus { offer: Some(WslSetupOffer::Update), running: false, last: None, retry_in_secs: Some(9) };
+        assert_eq!(
+            serde_json::to_value(&s).unwrap(),
+            serde_json::json!({ "offer": "update", "running": false, "retry_in_secs": 9 })
+        );
         for (o, name) in [
             (WslSetupOutcome::Done, "done"),
             (WslSetupOutcome::Declined, "declined"),
             (WslSetupOutcome::NotStarted, "not_started"),
             (WslSetupOutcome::Failed, "failed"),
-            (WslSetupOutcome::TimedOut, "timed_out"),
         ] {
             assert_eq!(serde_json::to_value(o).unwrap(), serde_json::json!(name));
         }
@@ -995,14 +1774,17 @@ mod tests {
 
     /// The real launcher on Windows (in the VM): the command line, and runs
     /// through `ShellExecuteExW` with a stand-in in place of wsl.exe. Never
-    /// the real wsl.exe: these tests call the launcher directly, not
-    /// [`run_here`], and the seam's check of WSL is not asked.
+    /// the real wsl.exe and never the app's own dialog: these tests call the
+    /// launcher directly, not [`start_here`], and the seam's check of WSL is
+    /// not asked.
     #[cfg(target_os = "windows")]
     mod on_windows {
         use std::path::{Path, PathBuf};
+        use std::sync::mpsc;
+        use std::time::Duration;
 
-        use super::super::elevated::{system_dir, ElevatedSetup};
-        use super::super::{Launch, SetupHost, WslSetupOffer};
+        use super::super::elevated::{self, system_dir, ElevatedSetup, QUESTION_STYLE};
+        use super::super::{ElevatedProcess, Launch, SetupHost, WslSetupOffer};
 
         fn test_dir(tag: &str) -> PathBuf {
             let dir = std::env::temp_dir().join(format!("txr-wsl-setup-{tag}-{}", uuid::Uuid::new_v4().simple()));
@@ -1019,22 +1801,60 @@ mod tests {
                 .collect()
         }
 
+        const PATHS_CHILD: &str = "TXR_WSL_SETUP_PATHS_CHILD";
+
+        /// Run by [`the_setup_runs_system32s_cmd_and_wsl_by_their_full_paths`]
+        /// in a child process (with `PATHS_CHILD` set): prints the setup's
+        /// paths. Does nothing in a normal test run.
+        #[test]
+        fn child_prints_the_setup_paths() {
+            if std::env::var_os(PATHS_CHILD).is_none() {
+                return;
+            }
+            let setup = ElevatedSetup::system();
+            println!("cmd={}", setup.cmd.display());
+            println!("wsl={}", setup.wsl.display());
+            println!("capture_dir={}", setup.capture_dir.display());
+        }
+
+        /// The paths come from Windows' API, not from the environment: a
+        /// child test process whose `SystemRoot` and `windir` name another
+        /// folder still finds System32's cmd.exe and wsl.exe and the Windows
+        /// directory's Temp.
         #[test]
         fn the_setup_runs_system32s_cmd_and_wsl_by_their_full_paths() {
-            let system = system_dir();
             let root = std::env::var_os("SystemRoot").map(PathBuf::from).expect("SystemRoot");
-            assert_eq!(
-                system.to_string_lossy().to_lowercase(),
-                root.join("System32").to_string_lossy().to_lowercase(),
-                "GetSystemDirectoryW is the 64-bit System32"
-            );
+            let out = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "modules::sandbox::wsl_setup::tests::on_windows::child_prints_the_setup_paths",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env(PATHS_CHILD, "1")
+                .env("SystemRoot", r"C:\NotWindows")
+                .env("windir", r"C:\NotWindows")
+                .output()
+                .expect("the child test runs");
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(out.status.success(), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
+            let value = |key: &str| {
+                stdout
+                    .lines()
+                    .find_map(|l| l.strip_prefix(&format!("{key}=")))
+                    .unwrap_or_else(|| panic!("{key} in {stdout}"))
+                    .to_lowercase()
+            };
+            let lower = |p: PathBuf| p.to_string_lossy().to_lowercase();
+            assert_eq!(value("cmd"), lower(root.join("System32").join("cmd.exe")));
+            assert_eq!(value("wsl"), lower(root.join("System32").join("wsl.exe")));
+            assert_eq!(value("capture_dir"), lower(root.join("Temp")));
+            assert!(!stdout.to_lowercase().contains("notwindows"), "{stdout}");
+
             let setup = ElevatedSetup::system();
             assert_eq!(setup.verb, "runas");
-            assert_eq!(setup.cmd, system.join("cmd.exe"));
+            assert_eq!(setup.cmd, system_dir().join("cmd.exe"));
             assert!(setup.cmd.is_file(), "{}", setup.cmd.display());
-            assert_eq!(setup.wsl, system.join("wsl.exe"));
-            assert_eq!(setup.capture_dir.to_string_lossy().to_lowercase(), root.join("Temp").to_string_lossy().to_lowercase());
-
             let capture = setup.capture_dir.join("txresbench-wsl-setup-0123.txt");
             let (program, params) = setup.command(WslSetupOffer::Update, Some(&capture)).unwrap();
             let wsl = setup.wsl.display().to_string();
@@ -1042,12 +1862,12 @@ mod tests {
             assert_eq!(
                 params,
                 format!(
-                    "/d /s /c \"(\"{wsl}\" --update && \"{wsl}\" --install --no-distribution) > \"{}\" 2>&1\"",
+                    "/d /s /c \"(\"{wsl}\" --update && \"{wsl}\" --install --no-distribution) < nul > \"{}\" 2>&1\"",
                     capture.display()
                 )
             );
             let (_, params) = setup.command(WslSetupOffer::Install, None).unwrap();
-            assert_eq!(params, format!("/d /s /c \"\"{wsl}\" --install --no-distribution\""));
+            assert_eq!(params, format!("/d /s /c \"(\"{wsl}\" --install --no-distribution) < nul\""));
             assert!(Path::new(&wsl).is_absolute() && !params.contains(" wsl "), "never from PATH: {params}");
         }
 
@@ -1081,7 +1901,8 @@ mod tests {
             let setup = ElevatedSetup { wsl: stand_in(&dir, &system.capture_dir), ..system };
             let before = captures(&setup.capture_dir).len();
 
-            let Launch::Exited { code, output } = setup.run_elevated(WslSetupOffer::Update) else {
+            let mut started: Vec<ElevatedProcess> = Vec::new();
+            let Launch::Exited { code, output } = setup.run_elevated(WslSetupOffer::Update, &mut |p| started.push(p)) else {
                 panic!("not started");
             };
             assert_eq!(code, Some(7), "{output}");
@@ -1090,9 +1911,13 @@ mod tests {
             assert!(output.contains("Error code: Wsl/InstallDistro/0x80370102"), "{output}");
             assert!(output.contains("rename refused") && !output.contains("renamed"), "{output}");
             assert!(output.contains("still there") && !output.contains("deleted"), "{output}");
+            // Windows' process was reported once, and it has ended.
+            assert_eq!(started.len(), 1, "{started:?}");
+            assert!(started[0].pid != 0 && started[0].created != 0, "{started:?}");
+            assert!(!elevated::alive(started[0]), "the setup's process ended");
 
             // Install alone: no --update; and the words of a run are its own.
-            let Launch::Exited { code, output } = setup.run_elevated(WslSetupOffer::Install) else {
+            let Launch::Exited { code, output } = setup.run_elevated(WslSetupOffer::Install, &mut |_| {}) else {
                 panic!("not started");
             };
             assert_eq!(code, Some(7), "{output}");
@@ -1103,6 +1928,37 @@ mod tests {
             let _ = std::fs::remove_dir_all(&dir);
         }
 
+        /// A stand-in that asks for input twice (`set /p`, `pause`): the
+        /// setup's commands get none, so it goes on at once instead of
+        /// waiting in a hidden window for ever.
+        #[test]
+        fn a_setup_that_asks_for_input_ends_instead_of_waiting() {
+            let dir = test_dir("asks");
+            let script = dir.join("wsl-asks.cmd");
+            std::fs::write(
+                &script,
+                "@echo off\r\n\
+                 set /p ANSWER=Type something: \r\n\
+                 echo answer [%ANSWER%]\r\n\
+                 pause\r\n\
+                 echo no input waited for\r\n\
+                 exit /b 0\r\n",
+            )
+            .unwrap();
+            // Its output file in the test's own dir: the other test's stand-in
+            // tries to remove every one in the Windows Temp dir.
+            let setup = ElevatedSetup { wsl: script, capture_dir: dir.clone(), ..ElevatedSetup::system() };
+            let (tx, rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(setup.run_elevated(WslSetupOffer::Install, &mut |_| {}));
+            });
+            let launch = rx.recv_timeout(Duration::from_secs(60)).expect("the setup waited for input");
+            let Launch::Exited { code, output } = launch else { panic!("not started: {launch:?}") };
+            assert_eq!(code, Some(0), "{output}");
+            assert!(output.contains("answer []") && output.contains("no input waited for"), "{output}");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
         #[test]
         fn a_program_windows_cannot_start_is_not_started_with_its_error() {
             let dir = test_dir("missing");
@@ -1110,11 +1966,55 @@ mod tests {
             // Its output file in the test's own dir: the other test's stand-in
             // tries to remove every one in the Windows Temp dir.
             let setup = ElevatedSetup { cmd: dir.join("no-such-cmd.exe"), capture_dir: dir.clone(), ..system };
-            match setup.run_elevated(WslSetupOffer::Install) {
+            let mut started = 0;
+            match setup.run_elevated(WslSetupOffer::Install, &mut |_| started += 1) {
                 Launch::NotStarted { error } => assert_eq!(error, 2, "ERROR_FILE_NOT_FOUND"),
                 other => panic!("{other:?}"),
             }
+            assert_eq!(started, 0, "no process reported");
             let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        /// A process is alive while it runs, under its own creation time
+        /// only; not once it ended.
+        #[test]
+        fn a_process_is_known_by_its_id_and_start_and_alive_until_it_ends() {
+            use std::os::windows::io::AsRawHandle;
+            let mut child = std::process::Command::new(system_dir().join("PING.EXE"))
+                .args(["-n", "60", "127.0.0.1"])
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .expect("ping runs");
+            let process = elevated::identify(child.as_raw_handle()).expect("identified");
+            assert_eq!(process.pid, child.id());
+            assert!(elevated::alive(process), "{process:?}");
+            assert!(!elevated::alive(ElevatedProcess { created: process.created + 1, ..process }), "another start");
+            child.kill().unwrap();
+            child.wait().unwrap();
+            assert!(!elevated::alive(process), "ended");
+        }
+
+        #[test]
+        fn windows_start_time_reads_the_same_twice() {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+            let (a, b) = (elevated::boot_time(now), elevated::boot_time(now + 3));
+            assert!(a <= now && a.abs_diff(b) <= 4, "{a} {b} {now}");
+            assert!(a > 1_500_000_000, "{a}");
+        }
+
+        /// The question: Yes/No, No by default, above every window, in front;
+        /// with no window of its own in a test process, no owner. The dialog
+        /// itself is never shown in a test.
+        #[test]
+        fn the_question_is_a_yes_no_dialog_no_by_default_on_top() {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{
+                MB_DEFBUTTON2, MB_ICONQUESTION, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO,
+            };
+            assert_eq!(QUESTION_STYLE, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2 | MB_TOPMOST | MB_SETFOREGROUND);
+            assert_eq!(QUESTION_STYLE, 0x4 | 0x20 | 0x100 | 0x4_0000 | 0x1_0000);
+            assert!(elevated::main_window().is_null(), "a test process has no window");
+            let shown = std::panic::catch_unwind(|| ElevatedSetup::system().confirm("question"));
+            assert!(shown.is_err(), "the real dialog is never shown in a test");
         }
     }
 }

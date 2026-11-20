@@ -357,6 +357,8 @@ pub async fn boot_in_background(config: ServerConfig, secret: String) -> Result<
     // accepts a connection.
     lock.set_port(addr.port());
     modules::mcp::set_loopback(addr, Some(lock.secret().to_string()));
+    // The WSL setup route takes requests to this port only (`wsl_setup::check_caller`).
+    modules::sandbox::wsl_setup::note_server_port(addr.port());
     tracing::info!(
         "TxResBench listening on http://{addr}{}",
         config.server.api_prefix
@@ -399,6 +401,8 @@ pub async fn serve_blocking(
         lock.set_port(addr.port());
     }
     modules::mcp::set_loopback(addr, lock.as_ref().map(|l| l.secret().to_string()));
+    // The WSL setup route takes requests to this port only (`wsl_setup::check_caller`).
+    modules::sandbox::wsl_setup::note_server_port(addr.port());
     println!("TxResBench listening on http://{}/api", addr);
 
     txresbench_framework::serve(listener, app).await?;

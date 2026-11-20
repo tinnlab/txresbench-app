@@ -6320,7 +6320,7 @@
         "tags": [
           "sandbox"
         ],
-        "summary": "Windows: install or update WSL 2 as administrator (asks the person at the PC), and wait for it",
+        "summary": "Windows: start installing or updating WSL 2 as administrator. Answers at once (202, running); read the result from Sandbox.listEnvs (stack.wsl_setup.last). The person at the PC must say Yes in the app's own dialog, then to Windows' prompt. Listed on every system: answers 409 WSL_SETUP_NOT_OFFERED where no setup is offered",
         "description": "\n\n**Required Permission:** `sandbox::settings::manage`\n\nChange sandbox resource limits, remove method environments, and set up WSL on Windows",
         "operationId": "Sandbox.setupWsl",
         "responses": {
@@ -6347,18 +6347,18 @@
               }
             }
           },
-          "200": {
-            "description": "The result of a setup.",
+          "202": {
+            "description": "What the notice shows about the setup (`GET /api/sandbox/envs`'\n `stack.wsl_setup`, Windows only, while methods cannot run), and what\n `POST /api/sandbox/wsl/setup` answers once a setup started.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WslSetupResult"
+                  "$ref": "#/components/schemas/WslSetupStatus"
                 }
               }
             }
           },
           "409": {
-            "description": "Nothing to set up here (WSL_SETUP_NOT_OFFERED), or a setup is running (WSL_SETUP_RUNNING)"
+            "description": "Nothing to set up here (WSL_SETUP_NOT_OFFERED), a setup is running (WSL_SETUP_RUNNING), or the last one was declined less than a minute ago (WSL_SETUP_DECLINED_RECENTLY)"
           }
         },
         "security": [
@@ -17515,7 +17515,7 @@
             "const": "done"
           },
           {
-            "description": "The person said No to Windows' permission prompt: nothing changed.",
+            "description": "The person said No (in the app's dialog or to Windows' permission\n prompt): nothing changed.",
             "type": "string",
             "const": "declined"
           },
@@ -17528,11 +17528,6 @@
             "description": "The setup ran, but WSL is not set up (`exit_code`, `output`).",
             "type": "string",
             "const": "failed"
-          },
-          {
-            "description": "No answer within [`SETUP_ANSWER_LIMIT`]: the setup may still be running\n (the status's `running` says so).",
-            "type": "string",
-            "const": "timed_out"
           }
         ]
       },
@@ -17577,11 +17572,11 @@
         ]
       },
       "WslSetupStatus": {
-        "description": "What the notice shows about the setup (`GET /api/sandbox/envs`'\n `stack.wsl_setup`, Windows only, while methods cannot run).",
+        "description": "What the notice shows about the setup (`GET /api/sandbox/envs`'\n `stack.wsl_setup`, Windows only, while methods cannot run), and what\n `POST /api/sandbox/wsl/setup` answers once a setup started.",
         "type": "object",
         "properties": {
           "last": {
-            "description": "The last setup's result since the app started.",
+            "description": "The last setup's result: since the app started, or a setup done\n before the app was last closed that waits for Windows to restart.",
             "anyOf": [
               {
                 "$ref": "#/components/schemas/WslSetupResult"
@@ -17602,8 +17597,17 @@
               }
             ]
           },
+          "retry_in_secs": {
+            "description": "After a declined setup: the seconds until it can be started again.",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
           "running": {
-            "description": "A setup started from the app is running.",
+            "description": "A setup is running: started from the app, or from the app before it\n was last closed. Its result comes in `last` when it ends.",
             "type": "boolean"
           }
         },

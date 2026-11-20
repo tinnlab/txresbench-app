@@ -4217,7 +4217,7 @@ export interface VocabularyMarker {
 export type WslSetupOffer = 'install' | 'update'
 
 /** How a setup ended. */
-export type WslSetupOutcome = 'done' | 'declined' | 'not_started' | 'failed' | 'timed_out'
+export type WslSetupOutcome = 'done' | 'declined' | 'not_started' | 'failed'
 
 /** The result of a setup. */
 export interface WslSetupResult {
@@ -4237,17 +4237,26 @@ export interface WslSetupResult {
 
 /**
  * What the notice shows about the setup (`GET /api/sandbox/envs`'
- *  `stack.wsl_setup`, Windows only, while methods cannot run).
+ *  `stack.wsl_setup`, Windows only, while methods cannot run), and what
+ *  `POST /api/sandbox/wsl/setup` answers once a setup started.
  */
 export interface WslSetupStatus {
-  /** The last setup's result since the app started. */
+  /**
+   * The last setup's result: since the app started, or a setup done
+   *  before the app was last closed that waits for Windows to restart.
+   */
   last?: WslSetupResult
   /**
    * What "Set up WSL" does here; absent when the app cannot set WSL up
    *  (the stack's `reason` says why) or a setup is done (restart).
    */
   offer?: WslSetupOffer
-  /** A setup started from the app is running. */
+  /** After a declined setup: the seconds until it can be started again. */
+  retry_in_secs?: number
+  /**
+   * A setup is running: started from the app, or from the app before it
+   *  was last closed. Its result comes in `last` when it ends.
+   */
   running: boolean
 }
 
@@ -4504,7 +4513,7 @@ export type ApiEndpointResponses = {
   'Sandbox.getStatus': SandboxStatus
   'Sandbox.listEnvs': EnvIndexStatus
   'Sandbox.methodRun': MethodRunResult
-  'Sandbox.setupWsl': WslSetupResult
+  'Sandbox.setupWsl': WslSetupStatus
   'Sandbox.updateSettings': SandboxResourceLimits
   'Sync.subscribe': SyncSseEvent
   'Txr.clearRuns': void
