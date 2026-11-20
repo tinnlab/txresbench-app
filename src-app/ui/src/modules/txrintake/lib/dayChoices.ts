@@ -132,7 +132,9 @@ export function drawDayError(day: number, lookAheadMax: number): string | null {
 
 /**
  * The warning under a last-draw day, or null: too few patients are still free
- * of progression or death after it for the methods to learn from.
+ * of the outcome after it for the methods to learn from. The event the count
+ * follows is the endpoint's own — for 'pfs' progression or death, for 'os'
+ * death only.
  */
 export function drawDayWarning(
   facts: FileTimeline,
@@ -143,7 +145,8 @@ export function drawDayWarning(
   const free = eventFreeAfter(facts, day, endpoint)
   const min = facts.limits.min_training_patients
   if (free >= min) return null
-  return `Only ${free} ${free === 1 ? 'patient has' : 'patients have'} not progressed or died by day ${day}. The methods learn an outcome from at least ${min}.`
+  const event = endpoint === 'os' ? 'not died' : 'not progressed or died'
+  return `Only ${free} ${free === 1 ? 'patient has' : 'patients have'} ${event} by day ${day}. The methods learn an outcome from at least ${min}.`
 }
 
 /** The known outcomes at a look-ahead day (the engine's labelling). */

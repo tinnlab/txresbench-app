@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * The look-ahead line of the ready-made and saved model steps: the look-ahead
  * is shown, locked to the first chosen model's own day.

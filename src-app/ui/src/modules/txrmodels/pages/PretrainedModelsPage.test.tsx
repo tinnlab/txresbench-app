@@ -1306,7 +1306,7 @@ describe('the dynamic no-models messages on Pretrained models (D)', () => {
       "You don't have any saved models yet. To make some, learn from patients whose outcomes you know.",
     )
     await click('txr-models-d-no-catalogue-action-learn')
-    expect(screen.getByTestId('route-location').textContent).toBe('/study')
+    expect(screen.getByTestId('route-location').textContent).toBe('/files')
     expect(useTxrIntakeStore.getState().intent).toBe('train')
   })
 

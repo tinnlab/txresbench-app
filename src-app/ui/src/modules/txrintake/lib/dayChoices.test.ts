@@ -182,6 +182,18 @@ describe('the draw coverage line and limits', () => {
     expect(drawDayWarning(facts([[10]], []), 700)).toBeNull()
   })
 
+  it('says only "not died" for os, and "not progressed or died" stays for pfs', () => {
+    // 20 patients: 12 with the pfs event at 60, 8 free of the event long after.
+    const outcomes: TimelinePatient[] = Array.from({ length: 20 }, (_, i) => ({
+      pfs: { days: i < 12 ? 60 : 500, event: 1 },
+      os: { days: i < 12 ? 60 : 500, event: 1 },
+    }))
+    const f = facts(Array.from({ length: 20 }, () => [28, 84]), outcomes)
+    expect(drawDayWarning(f, 84, 'os')).toMatch(/^Only \d+ patients have not died by day 84\./)
+    // The pfs text is its own: it names progression or death.
+    expect(drawDayWarning(f, 84)).toMatch(/^Only \d+ patients have not progressed or died by day 84\./)
+  })
+
   it('a draw on day == baseline_max_day is not on treatment (baseline_max_day 7: day 7 no, day 8 yes)', () => {
     const f: FileTimeline = {
       draw_days: Array.from({ length: 12 }, () => [8]),
