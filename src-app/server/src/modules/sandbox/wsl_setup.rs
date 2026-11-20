@@ -2683,17 +2683,46 @@ mod tests {
             assert_eq!(elevated::this_process(), Some(me), "the same twice");
         }
 
-        /// Windows' start, read twice 2.5 s apart: the same boot counter, and
-        /// start times from the clock within a second of each other (a
-        /// reading that followed the clock alone would be 2 s or more apart).
+        /// Windows' boot counter as reg.exe reads it: `None` when this
+        /// Windows has no `BootId` (or not as a DWORD).
+        fn boot_id_by_reg() -> Option<u32> {
+            let out = std::process::Command::new(system_dir().join("reg.exe"))
+                .args([
+                    "query",
+                    r"HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters",
+                    "/v",
+                    "BootId",
+                ])
+                .output()
+                .expect("reg.exe runs");
+            if !out.status.success() {
+                return None;
+            }
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let value = stdout.lines().find_map(|line| match line.split_whitespace().collect::<Vec<_>>()[..] {
+                ["BootId", "REG_DWORD", value] => Some(value.to_string()),
+                _ => None,
+            })?;
+            u32::from_str_radix(value.trim_start_matches("0x"), 16).ok()
+        }
+
+        /// Windows' start, read twice 2.5 s apart: the boot counter is what
+        /// reg.exe reads (none on a Windows without it: the app then uses the
+        /// clock alone, by design) and the same twice, and the start times
+        /// from the clock are within a second of each other (a reading that
+        /// followed the clock alone would be 2 s or more apart).
         #[test]
         fn windows_start_reads_the_same_twice() {
             let now = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
             let first = (elevated::boot_id(), elevated::boot_time(now()), now());
             std::thread::sleep(Duration::from_millis(2500));
             let second = (elevated::boot_id(), elevated::boot_time(now()));
-            assert!(first.0.is_some_and(|id| id > 0), "this Windows keeps its boot counter: {first:?}");
+            assert_eq!(first.0, boot_id_by_reg(), "the counter as reg.exe reads it");
             assert_eq!(first.0, second.0, "the same counter");
+            match first.0 {
+                Some(id) => assert!(id > 0, "{first:?}"),
+                None => println!("this Windows keeps no BootId: the setup's state uses the clock rule"),
+            }
             assert!(first.1.abs_diff(second.1) <= 1, "the same start: {first:?} {second:?}");
             assert!(first.1 > 1_500_000_000 && first.1 <= first.2, "{first:?}");
         }
