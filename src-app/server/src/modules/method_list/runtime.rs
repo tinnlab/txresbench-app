@@ -314,43 +314,61 @@ impl ListRuntime {
                 // on disk any more, so the next check pulls the published list again.
                 state.live_digest = None;
             }
-            if let Some((bytes, sig)) = stored {
+            // The pair in place first; a pair that is missing or torn (a write cut short) or
+            // does not verify gives way to the one kept before it.
+            let mut candidates = Vec::new();
+            if let Some(pair) = stored {
+                candidates.push((pair, false));
+            }
+            if let Some(pair) = store.read_previous() {
+                candidates.push((pair, true));
+            }
+            for ((bytes, sig), from_previous) in candidates {
                 match verify_and_parse(&bytes, &sig, &seams.keys) {
-                    Ok(stored) => match choose(&builtin, &stored) {
-                        Choice::Newer => match stored.keeps_rows_of(&builtin) {
-                            Ok(()) => {
-                                tracing::info!(
-                                    sequence = stored.sequence,
-                                    builtin = builtin.sequence,
-                                    "method list: using the stored list"
-                                );
-                                active = Active {
-                                    list: Arc::new(stored),
-                                    origin: ListOrigin::Disk,
-                                };
-                            }
-                            Err(e) => {
-                                tracing::warn!(error = %e, "method list: the stored list drops a row of the built-in one; ignored");
-                                state.live_digest = None;
-                            }
-                        },
-                        Choice::Same | Choice::Older => tracing::info!(
-                            stored = stored.sequence,
-                            builtin = builtin.sequence,
-                            "method list: the built-in list is the same or newer than the stored one (an app update)"
-                        ),
-                        Choice::Conflict => {
-                            tracing::warn!(
-                                sequence = stored.sequence,
-                                stored = %stored.sha256,
-                                builtin = %builtin.sha256,
-                                "method list: the stored list has the built-in sequence with other bytes; ignored"
-                            );
+                    Ok(stored) => {
+                        if from_previous {
+                            // Which published list this is no longer matches the held digest.
+                            tracing::warn!("method list: the newest stored list was unusable; using the one before it");
                             state.live_digest = None;
                         }
-                    },
+                        match choose(&builtin, &stored) {
+                            Choice::Newer => match stored.keeps_rows_of(&builtin) {
+                                Ok(()) => {
+                                    tracing::info!(
+                                        sequence = stored.sequence,
+                                        builtin = builtin.sequence,
+                                        "method list: using the stored list"
+                                    );
+                                    active = Active {
+                                        list: Arc::new(stored),
+                                        origin: ListOrigin::Disk,
+                                    };
+                                }
+                                Err(e) => {
+                                    tracing::warn!(error = %e, "method list: the stored list drops a row of the built-in one; ignored");
+                                    state.live_digest = None;
+                                }
+                            },
+                            Choice::Same | Choice::Older => tracing::info!(
+                                stored = stored.sequence,
+                                builtin = builtin.sequence,
+                                "method list: the built-in list is the same or newer than the stored one (an app update)"
+                            ),
+                            Choice::Conflict => {
+                                tracing::warn!(
+                                    sequence = stored.sequence,
+                                    stored = %stored.sha256,
+                                    builtin = %builtin.sha256,
+                                    "method list: the stored list has the built-in sequence with other bytes; ignored"
+                                );
+                                state.live_digest = None;
+                            }
+                        }
+                        break;
+                    }
                     Err(e) => {
-                        // A torn write or an edit: run on the built-in list, fetch again.
+                        // An edit or a key change: try the list before it, else run on the
+                        // built-in list and fetch again.
                         tracing::warn!(error = %e, "method list: the stored list does not verify; ignored");
                         state.live_digest = None;
                     }
@@ -1184,6 +1202,30 @@ mod tests {
         assert_eq!(ListStore::new(&root).read_state().live_digest, Some(digest(2)));
         let last = runtime_on(parsed(&signed(1, 0)), &root, Some(source), Duration::ZERO);
         assert_eq!((last.current().sequence, last.active().origin), (2, ListOrigin::Disk));
+    }
+
+    /// A crash between the two files of a write leaves a new list with the old signature:
+    /// the next start uses the pair kept before it, not the built-in list.
+    #[tokio::test]
+    async fn a_write_cut_between_list_and_signature_falls_back_to_the_previous_list() {
+        let root = scratch("torn-write");
+        let (two, three) = (signed(2, 0), signed(3, 0));
+        store_on_disk(&root, &two);
+        store_on_disk(&root, &three);
+        let store = ListStore::new(&root);
+        store
+            .write_state(&StoreState { live_digest: Some(digest(3)), ..Default::default() })
+            .unwrap();
+        // The crash: list 3 in place with the signature of list 2 (the checksum names list 3).
+        std::fs::write(store.dir().join(super::fetch::SIGNATURE_FILE), &two.signature).unwrap();
+        let source = Arc::new(FakeSource::default());
+        let rt = runtime_on(parsed(&signed(1, 0)), &root, Some(source.clone()), Duration::ZERO);
+        assert_eq!((rt.current().sequence, rt.active().origin), (2, ListOrigin::Disk));
+        assert_eq!(store.read_state().live_digest, None, "the next check pulls the newest list again");
+        source.publish(&digest(3), Ok(three));
+        assert_eq!(rt.check(CheckBudget::BACKGROUND).await.last_check, CheckResult::Updated);
+        assert_eq!(rt.current().sequence, 3);
+        assert_eq!(store.read_list().map(|(l, _)| l.len() > 0), Some(true), "a whole pair again");
     }
 
     /// The stored list is gone but state.json still holds its digest: the next start
