@@ -150,8 +150,8 @@ pub const SOLID_TUMOUR_CATEGORY: &str = "Solid tumours";
 /// The blood-cancer disease-category id of `study_options`'s
 /// `disease_categories`: the second category an `any-cancer` method applies
 /// to (an `any-solid-tumour` method does NOT). The vocabulary names it
-/// `Haematological`; see [`SOLID_TUMOUR_CATEGORY`] for the naming contract.
-pub const BLOOD_CANCER_CATEGORY: &str = "Haematological";
+/// `Blood cancers`; see [`SOLID_TUMOUR_CATEGORY`] for the naming contract.
+pub const BLOOD_CANCER_CATEGORY: &str = "Blood cancers";
 
 /// The eligibility engine's ONE failure variant: a study answer that names a
 /// node or a treatment-class id outside the catalogue's `study_options`
@@ -1970,7 +1970,7 @@ mod tests {
     /// A catalogue with one method, one vocabulary marker and the 3 groups
     /// above (the loader's validation runs, so the entry must be complete).
     /// The `study_options` fixture carries the two disease categories the
-    /// study-filter tests need (`Solid tumours` + `Haematological`, with a
+    /// study-filter tests need (`Solid tumours` + `Blood cancers`, with a
     /// disease, a child and a sibling per category) and three treatment
     /// classes.
     fn catalogue_with(methods: serde_json::Value, markers: serde_json::Value) -> Catalogue {
@@ -1991,7 +1991,7 @@ mod tests {
                         ]},
                         {"id": "breast cancer", "children": []}
                     ]},
-                    {"id": "Haematological", "diseases": [
+                    {"id": "Blood cancers", "diseases": [
                         {"id": "lymphoma", "children": ["diffuse large B-cell lymphoma"]}
                     ]}
                 ],
@@ -2942,7 +2942,7 @@ mod tests {
             "Solid tumours",
             "lymphoma",
             "diffuse large B-cell lymphoma",
-            "Haematological",
+            "Blood cancers",
         ] {
             let v = preview_verdict_of(
                 &cat,
@@ -2977,7 +2977,7 @@ mod tests {
             );
             assert_eq!(v.status, EligibilityStatus::CanRun, "{answer}");
         }
-        for answer in ["lymphoma", "diffuse large B-cell lymphoma", "Haematological"] {
+        for answer in ["lymphoma", "diffuse large B-cell lymphoma", "Blood cancers"] {
             let v = preview_verdict_of(
                 &cat,
                 &study_preview(StudyAnswers {
@@ -3011,7 +3011,7 @@ mod tests {
             "Solid tumours",
             "lymphoma",
             "diffuse large B-cell lymphoma",
-            "Haematological",
+            "Blood cancers",
         ] {
             let v = preview_verdict_of(
                 &cat,
@@ -3125,14 +3125,14 @@ mod tests {
         let v = preview_verdict_of(
             &cat,
             &study_preview(StudyAnswers {
-                disease_group: Some("Haematological".to_string()),
+                disease_group: Some("Blood cancers".to_string()),
                 ..Default::default()
             }),
             "fx-two",
         );
         let r = v.reasons.iter().find(|r| r.code == ReasonCode::DiseaseNotMatched).expect("reason");
         assert_eq!(r.params["made_for"], serde_json::json!("lung cancer, breast cancer"));
-        assert_eq!(r.params["answer"], serde_json::json!("Haematological"));
+        assert_eq!(r.params["answer"], serde_json::json!("Blood cancers"));
     }
 
     /// Treatment (stated): overlap stays, no overlap is `TREATMENT_NOT_MATCHED`

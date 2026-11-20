@@ -642,7 +642,7 @@ mod tests {
                         {"id": "Solid tumours", "diseases": [
                             {"id": "lung cancer", "children": ["non-small cell lung cancer"]}
                         ]},
-                        {"id": "Haematological", "diseases": [
+                        {"id": "Blood cancers", "diseases": [
                             {"id": "lymphoma", "children": []}
                         ]}
                     ],
@@ -670,7 +670,7 @@ mod tests {
         let json = serde_json::to_value(&payload).expect("serialize");
         assert_eq!(json["disease_categories"][0]["id"], "Solid tumours");
         assert_eq!(json["disease_categories"][0]["diseases"][0]["id"], "lung cancer");
-        assert_eq!(json["disease_categories"][1]["id"], "Haematological");
+        assert_eq!(json["disease_categories"][1]["id"], "Blood cancers");
         assert_eq!(json["treatment_classes"][0]["id"], "chemotherapy");
         let back: StudyOptions = serde_json::from_value(json).expect("round trip");
         assert_eq!(back, cat.study_options);

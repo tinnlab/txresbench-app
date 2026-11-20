@@ -768,6 +768,46 @@ mod tests {
         assert_eq!(m.treatment.classes, vec!["chemotherapy"]);
     }
 
+    /// The schema-2 facts are REQUIRED, never defaulted: a method row without
+    /// `disease` is refused with the parse error's code, exactly like any other
+    /// malformed catalogue — a schema-1 row must not silently re-admit. This
+    /// test FAILS if someone adds `#[serde(default)]` to `Method::disease`.
+    #[test]
+    fn method_without_disease_is_refused() {
+        let m = runnable_method_json("ok", "ghcr.io/tinnlab/txresbench-ok:1.0.0", "sha256:aa");
+        let mut doc: serde_json::Value = serde_json::from_slice(&minimal_catalogue_bytes(&m))
+            .expect("the valid schema-2 test catalogue parses");
+        doc["methods"][0].as_object_mut().expect("method object").remove("disease");
+        let err = parse_catalogue(&serde_json::to_vec(&doc).unwrap()).unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_EMBED_INVALID", "a row without `disease` is refused");
+    }
+
+    /// Same for `treatment`: a method row without it is the parse refusal, and
+    /// the test FAILS if someone adds `#[serde(default)]` to `Method::treatment`.
+    #[test]
+    fn method_without_treatment_is_refused() {
+        let m = runnable_method_json("ok", "ghcr.io/tinnlab/txresbench-ok:1.0.0", "sha256:aa");
+        let mut doc: serde_json::Value = serde_json::from_slice(&minimal_catalogue_bytes(&m))
+            .expect("the valid schema-2 test catalogue parses");
+        doc["methods"][0].as_object_mut().expect("method object").remove("treatment");
+        let err = parse_catalogue(&serde_json::to_vec(&doc).unwrap()).unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_EMBED_INVALID", "a row without `treatment` is refused");
+    }
+
+    /// Same for the catalogue block itself: without `study_options` the load is
+    /// the parse refusal — the filters' vocabulary cannot be silently empty.
+    /// This test FAILS if someone adds `#[serde(default)]` to
+    /// `Catalogue::study_options`.
+    #[test]
+    fn catalogue_without_study_options_is_refused() {
+        let m = runnable_method_json("ok", "ghcr.io/tinnlab/txresbench-ok:1.0.0", "sha256:aa");
+        let mut doc: serde_json::Value = serde_json::from_slice(&minimal_catalogue_bytes(&m))
+            .expect("the valid schema-2 test catalogue parses");
+        doc.as_object_mut().expect("catalogue object").remove("study_options");
+        let err = parse_catalogue(&serde_json::to_vec(&doc).unwrap()).unwrap_err();
+        assert_eq!(err.code(), "CATALOGUE_EMBED_INVALID", "a catalogue without `study_options` is refused");
+    }
+
     /// A schema 1 catalogue (the previous format line) is the named
     /// `CATALOGUE_SCHEMA_VERSION` refusal — never a silent re-read.
     #[test]
