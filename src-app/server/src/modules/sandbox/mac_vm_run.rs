@@ -30,10 +30,12 @@
 //!
 //! The runtime (launcher, libkrun, libkrunfw, guest root) ships inside the
 //! Mac app as one archive (scripts/build-macos-vm-runtime.sh), unpacked into
-//! `<app_data>/sandbox-vm/runtime-<sha12>/` on first use. For development,
-//! `TXR_SANDBOX_VM_LAUNCHER` and `TXR_SANDBOX_GUEST_ROOT` point at other
-//! builds; without either, the launcher next to the app binary and the guest
-//! root under `<app_data>/sandbox-vm/guest-root` are used.
+//! `<app_data>/sandbox-vm/runtime-<sha12>/` on first use. For development, a
+//! debug build reads `TXR_SANDBOX_VM_RUNTIME` (another runtime archive), and
+//! `TXR_SANDBOX_VM_LAUNCHER` and `TXR_SANDBOX_GUEST_ROOT` (other builds of the
+//! two pieces); a release build ignores all three ([`dev_override`]). Without
+//! a runtime, the launcher next to the app binary and the guest root under
+//! `<app_data>/sandbox-vm/guest-root` are used.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -79,21 +81,35 @@ const CONNECT_RETRY: Duration = Duration::from_secs(5);
 /// macOS AF_UNIX `sun_path` is 104 bytes; keep a margin.
 const MAX_SOCKET_PATH: usize = 100;
 
+/// A development override of the VM runtime (`TXR_SANDBOX_VM_LAUNCHER`, `TXR_SANDBOX_GUEST_ROOT`,
+/// `TXR_SANDBOX_VM_RUNTIME`), as a path. Only a debug build reads them: a release app always boots
+/// the runtime it ships, so a variable set in the user's environment cannot point it at another
+/// launcher or guest root.
+fn dev_override(key: &str) -> Option<PathBuf> {
+    dev_override_with(&|k| std::env::var_os(k), key, cfg!(debug_assertions))
+}
 
-fn env_path(key: &str) -> Option<PathBuf> {
-    std::env::var_os(key).filter(|v| !v.is_empty()).map(PathBuf::from)
+/// [`dev_override`] over a given environment `read` and build flag `debug`
+/// (`cfg!(debug_assertions)`), passed in so the release half is tested too.
+fn dev_override_with(read: &dyn Fn(&str) -> Option<std::ffi::OsString>, key: &str, debug: bool) -> Option<PathBuf> {
+    if !debug {
+        return None;
+    }
+    read(key).filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
 /// The VM runtime the app ships (scripts/build-macos-vm-runtime.sh): one archive holding
 /// `bin/<launcher>`, `lib/` (libkrun, libkrunfw) and `share/guest-root/`, with its sha256 in a
-/// sibling `<archive>.sha256`. `TXR_SANDBOX_VM_RUNTIME` names it; else it is looked up in the app
-/// bundle's Resources ([`bundled_runtime_archive_from`]).
+/// sibling `<archive>.sha256`. A debug build's `TXR_SANDBOX_VM_RUNTIME` names it; else it is looked
+/// up in the app bundle's Resources ([`bundled_runtime_archive_from`]).
 const RUNTIME_ENV: &str = "TXR_SANDBOX_VM_RUNTIME";
 const RUNTIME_RESOURCE_DIR: &str = "sandbox-vm-runtime";
 const RUNTIME_ARCHIVE: &str = "sandbox-vm-runtime.tar";
 /// Written last into an unpacked runtime, holding the archive's sha256: a runtime dir without it
 /// is unfinished and never used.
 const RUNTIME_COMPLETE: &str = ".complete";
+/// The temporary dir a runtime is unpacked into, `<prefix><pid>`, before it is renamed into place.
+const UNPACK_PREFIX: &str = ".runtime-unpack-";
 
 /// The unpacked shipped runtime, set by [`probe_host`] when the app carries one.
 static RUNTIME_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
@@ -108,7 +124,7 @@ fn bundled_runtime_archive_from(exe: &Path) -> Option<PathBuf> {
 }
 
 fn runtime_archive() -> Option<PathBuf> {
-    env_path(RUNTIME_ENV)
+    dev_override(RUNTIME_ENV)
         .or_else(|| std::env::current_exe().ok().and_then(|exe| bundled_runtime_archive_from(&exe)))
         .filter(|p| p.is_file())
 }
@@ -116,7 +132,8 @@ fn runtime_archive() -> Option<PathBuf> {
 /// Unpack the shipped runtime `archive` into `<root>/sandbox-vm/runtime-<sha12>/` once, and return
 /// that dir. The archive must match the sha256 in `<archive>.sha256`; it is unpacked into a temporary
 /// dir, checked, marked complete, then renamed into place, so a half-unpacked runtime is never used.
-/// Runtimes from earlier app versions are removed.
+/// Runtimes from earlier app versions are removed, and so are temporary unpack dirs that processes
+/// which are no longer running left behind.
 pub(crate) fn ensure_runtime_in(root: &Path, archive: &Path) -> Result<PathBuf, String> {
     let sha_file = PathBuf::from(format!("{}.sha256", archive.display()));
     let expected = std::fs::read_to_string(&sha_file)
@@ -140,7 +157,7 @@ pub(crate) fn ensure_runtime_in(root: &Path, archive: &Path) -> Result<PathBuf, 
             ));
         }
         std::fs::create_dir_all(&base).map_err(|e| format!("create {}: {e}", base.display()))?;
-        let tmp = base.join(format!(".runtime-unpack-{}", std::process::id()));
+        let tmp = base.join(format!("{UNPACK_PREFIX}{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).map_err(|e| format!("create {}: {e}", tmp.display()))?;
         let unpacked = (|| {
@@ -202,17 +219,34 @@ pub(crate) fn ensure_runtime_in(root: &Path, archive: &Path) -> Result<PathBuf, 
             }
         }
     }
-    // Runtimes of earlier app versions are no longer used.
+    // Runtimes of earlier app versions are no longer used, and an unpack dir whose process is gone
+    // was left by an unpack that was killed half way. An unpack dir of a live process (another app
+    // or server unpacking right now) is kept.
     if let Ok(entries) = std::fs::read_dir(&base) {
         for entry in entries.flatten() {
             let path = entry.path();
             let name = entry.file_name();
-            if path != dir && name.to_string_lossy().starts_with("runtime-") {
+            let name = name.to_string_lossy();
+            let stale = if let Some(pid) = name.strip_prefix(UNPACK_PREFIX) {
+                pid.parse::<libc::pid_t>()
+                    .is_ok_and(|pid| pid > 0 && pid as u32 != std::process::id() && !process_alive(pid))
+            } else {
+                path != dir && name.starts_with("runtime-")
+            };
+            if stale {
                 let _ = std::fs::remove_dir_all(&path);
             }
         }
     }
     Ok(dir)
+}
+
+/// Whether a process with this pid exists. Signal 0 sends nothing, it only checks the pid; a
+/// process of another user (EPERM) exists too.
+fn process_alive(pid: libc::pid_t) -> bool {
+    // SAFETY: kill with signal 0 delivers no signal.
+    let rc = unsafe { libc::kill(pid, 0) };
+    rc == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 fn sha256_file(path: &Path) -> std::io::Result<String> {
@@ -231,10 +265,10 @@ fn sha256_file(path: &Path) -> std::io::Result<String> {
     Ok(hex::encode(h.finalize()))
 }
 
-/// The VM launcher binary: `TXR_SANDBOX_VM_LAUNCHER`, else the shipped runtime's, else next to
-/// the app's own executable.
+/// The VM launcher binary: a debug build's `TXR_SANDBOX_VM_LAUNCHER`, else the shipped runtime's,
+/// else next to the app's own executable.
 pub fn launcher_path() -> PathBuf {
-    launcher_path_from(env_path(LAUNCHER_ENV), RUNTIME_DIR.get().map(PathBuf::as_path), std::env::current_exe().ok())
+    launcher_path_from(dev_override(LAUNCHER_ENV), RUNTIME_DIR.get().map(PathBuf::as_path), std::env::current_exe().ok())
 }
 
 fn launcher_path_from(env: Option<PathBuf>, runtime: Option<&Path>, exe: Option<PathBuf>) -> PathBuf {
@@ -243,11 +277,11 @@ fn launcher_path_from(env: Option<PathBuf>, runtime: Option<&Path>, exe: Option<
         .unwrap_or_else(|| PathBuf::from(LAUNCHER_BIN))
 }
 
-/// The guest root (agent + bwrap + busybox userland): `TXR_SANDBOX_GUEST_ROOT`, else the shipped
-/// runtime's, else `<app_data>/sandbox-vm/guest-root`.
+/// The guest root (agent + bwrap + busybox userland): a debug build's `TXR_SANDBOX_GUEST_ROOT`,
+/// else the shipped runtime's, else `<app_data>/sandbox-vm/guest-root`.
 pub fn guest_root_path() -> PathBuf {
     guest_root_path_from(
-        env_path(GUEST_ROOT_ENV),
+        dev_override(GUEST_ROOT_ENV),
         RUNTIME_DIR.get().map(PathBuf::as_path),
         &crate::modules::rootfs::data_root(),
     )
@@ -265,8 +299,8 @@ pub fn probe_host() -> Result<HostCapabilities, String> {
     if std::env::consts::ARCH != "aarch64" {
         return Err("method VMs need an Apple Silicon Mac (libkrun runs arm64 guests only)".into());
     }
-    // The runtime the app ships, unless both pieces are pointed elsewhere (development).
-    if env_path(LAUNCHER_ENV).is_none() || env_path(GUEST_ROOT_ENV).is_none() {
+    // The runtime the app ships, unless both pieces are pointed elsewhere (a debug build only).
+    if dev_override(LAUNCHER_ENV).is_none() || dev_override(GUEST_ROOT_ENV).is_none() {
         if let Some(archive) = runtime_archive() {
             let dir = ensure_runtime_in(&crate::modules::rootfs::data_root(), &archive)
                 .map_err(|why| format!("the bundled VM runtime could not be prepared: {why}"))?;
@@ -277,7 +311,7 @@ pub fn probe_host() -> Result<HostCapabilities, String> {
     if !launcher.is_file() {
         return Err(format!(
             "the VM launcher is missing at {} (build the app's VM runtime with \
-                 scripts/build-macos-vm-runtime.sh, or set {LAUNCHER_ENV})",
+                 scripts/build-macos-vm-runtime.sh, or in a debug build set {LAUNCHER_ENV})",
             launcher.display()
         ));
     }
@@ -321,7 +355,7 @@ pub fn probe_host() -> Result<HostCapabilities, String> {
     for rel in GUEST_ROOT_FILES {
         if !root.join(rel).is_file() {
             return Err(format!(
-                "the VM guest root at {} has no {rel} (set {GUEST_ROOT_ENV})",
+                "the VM guest root at {} has no {rel} (in a debug build, set {GUEST_ROOT_ENV})",
                 root.display()
             ));
         }
@@ -329,7 +363,7 @@ pub fn probe_host() -> Result<HostCapabilities, String> {
     for rel in GUEST_ROOT_DIRS {
         if !root.join(rel).is_dir() {
             return Err(format!(
-                "the VM guest root at {} has no /{rel} mount point (set {GUEST_ROOT_ENV})",
+                "the VM guest root at {} has no /{rel} mount point (in a debug build, set {GUEST_ROOT_ENV})",
                 root.display()
             ));
         }
@@ -373,17 +407,28 @@ fn process_dir(tree: &str) -> PathBuf {
     process_dir_in(&std::env::temp_dir(), tree)
 }
 
-/// Where per-run image clones live: next to the image cache (under the app
-/// data dir), so they are on the cache's volume and `std::fs::copy` can
-/// clone instead of copying gigabytes when $TMPDIR is on another volume.
-fn image_stage_root() -> PathBuf {
+/// Where the per-run copies live — image clones and the copies of the run's
+/// inputs (the user's files, a saved model): under the app data dir, not the
+/// system temp dir. Copies of the user's files stay with the rest of the
+/// app's data (its folder and volume), and an image or a saved model is on
+/// the same volume as its copy, so `std::fs::copy` can clone instead of
+/// copying gigabytes when $TMPDIR is on another volume.
+fn stage_root() -> PathBuf {
     crate::modules::rootfs::data_root().join("tmp")
 }
 
-/// The trees the startup sweep cleans: (root, tree).
-fn swept_trees() -> [(PathBuf, &'static str); 3] {
+/// The trees the startup sweep cleans: (root, tree). The VM run dirs stay in
+/// the system temp dir (see [`make_run_dir`]). Input copies were made there
+/// too by earlier app versions, so that place is still swept for what a
+/// crash under one of them left.
+fn swept_trees() -> [(PathBuf, &'static str); 4] {
     let tmp = std::env::temp_dir();
-    [(tmp.clone(), "txr-vm"), (tmp, "txr-vm-inputs"), (image_stage_root(), "txr-vm-images")]
+    [
+        (tmp.clone(), "txr-vm"),
+        (stage_root(), "txr-vm-inputs"),
+        (stage_root(), "txr-vm-images"),
+        (tmp, "txr-vm-inputs"),
+    ]
 }
 
 /// [`process_dir`] under another root.
@@ -566,14 +611,14 @@ pub struct RoStage {
 }
 
 impl RoStage {
-    /// A stage for read-only input dirs (under the system temp dir).
+    /// A stage for read-only input dirs, under the app data dir ([`stage_root`]).
     pub fn new() -> Result<Self, AppError> {
-        Self::under(process_dir("txr-vm-inputs"))
+        Self::under(process_dir_in(&stage_root(), "txr-vm-inputs"))
     }
 
     /// A stage for environment image clones, on the image cache's volume.
     pub fn for_images() -> Result<Self, AppError> {
-        Self::under(process_dir_in(&image_stage_root(), "txr-vm-images"))
+        Self::under(process_dir_in(&stage_root(), "txr-vm-images"))
     }
 
     fn under(parent: PathBuf) -> Result<Self, AppError> {
@@ -645,7 +690,11 @@ fn copy_tree_readable(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 /// A short per-run directory for the launch config and the vsock socket. Kept
-/// under the system temp dir so the socket path fits `sun_path`.
+/// under the system temp dir, unlike the input copies ([`stage_root`]), so the
+/// socket path fits `sun_path` ([`MAX_SOCKET_PATH`]): macOS's temp dir has a
+/// fixed, short path (and $TMPDIR can shorten it), while the app data dir can
+/// be any folder (`TXR_APP_DATA_DIR`). It holds no user data: the launch
+/// config, the socket and the empty workspace share.
 fn make_run_dir() -> Result<PathBuf, AppError> {
     use std::os::unix::fs::DirBuilderExt;
     let id = uuid::Uuid::new_v4().simple().to_string();
@@ -896,18 +945,39 @@ mod tests {
                 "the builder creates /{rel}"
             );
         }
-        // The builder's sed reads exactly this line.
+        // The builder reads the versions with `guest_protocol_range`, shared with the WSL
+        // root builder in scripts/guest-root-common.sh, whose sed reads exactly this line.
+        assert!(
+            script.lines().any(|l| l == r#". "$ROOT/scripts/guest-root-common.sh""#),
+            "the builder sources the shared helper"
+        );
+        assert!(
+            script.lines().any(|l| l.starts_with(r#"guest_protocol_range "$ROOT""#)),
+            "the builder calls guest_protocol_range"
+        );
+        let common = std::fs::read_to_string(repo.join("scripts/guest-root-common.sh")).unwrap();
+        let range = common
+            .split("\nguest_protocol_range() {\n")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("guest_protocol_range in scripts/guest-root-common.sh");
+        assert!(
+            range.contains(r#"_src="$1/sdk/crates/sandbox-vm-protocol/src/lib.rs""#),
+            "guest_protocol_range reads the protocol crate"
+        );
         let proto =
             std::fs::read_to_string(repo.join("sdk/crates/sandbox-vm-protocol/src/lib.rs")).unwrap();
-        for (name, value) in [
-            ("PROTOCOL_VERSION", sandbox_vm_protocol::PROTOCOL_VERSION),
-            ("PROTOCOL_VERSION_MIN", sandbox_vm_protocol::PROTOCOL_VERSION_MIN),
+        for (name, var, value) in [
+            ("PROTOCOL_VERSION", "GUEST_PROTOCOL_MAX", sandbox_vm_protocol::PROTOCOL_VERSION),
+            ("PROTOCOL_VERSION_MIN", "GUEST_PROTOCOL_MIN", sandbox_vm_protocol::PROTOCOL_VERSION_MIN),
         ] {
             let decl = format!("pub const {name}: u32 = {value};");
             assert!(proto.lines().any(|l| l == decl), "{decl}");
-            let sed = format!(r"s/^pub const {name}: u32 = \([0-9][0-9]*\);$/\1/p");
-            assert!(script.contains(&sed), "the builder reads {name}");
+            let sed = format!(r#"{var}=$(sed -n 's/^pub const {name}: u32 = \([0-9][0-9]*\);$/\1/p' "$_src")"#);
+            assert!(range.lines().any(|l| l.trim() == sed), "guest_protocol_range reads {name} into {var}");
         }
+        assert!(script.lines().any(|l| l == "VERSION=$GUEST_PROTOCOL_MAX"), "the builder's VERSION is the max");
+        assert!(script.lines().any(|l| l == "MIN_VERSION=$GUEST_PROTOCOL_MIN"), "the builder's MIN_VERSION is the min");
         // ...and writes "MIN MAX", which the probe parses.
         assert!(script.contains(r#"printf '%s %s\n' "$MIN_VERSION" "$VERSION" > "$STAGE/$MARKER_REL""#));
         let written = format!("{} {}", sandbox_vm_protocol::PROTOCOL_VERSION_MIN, sandbox_vm_protocol::PROTOCOL_VERSION);
@@ -942,6 +1012,39 @@ mod tests {
     }
 
     #[test]
+    fn input_copies_are_staged_under_the_app_data_dir() {
+        let data = TempDir::new();
+        let _guard = crate::modules::rootfs::scoped_data_root(&data.0);
+        let src = TempDir::new();
+        std::fs::write(src.0.join("patient.tsv"), b"input").unwrap();
+        let mut stage = RoStage::new().unwrap();
+        let copy = stage.stage(&src.0).unwrap();
+        assert!(copy.starts_with(data.0.join("tmp").join("txr-vm-inputs")), "{}", copy.display());
+        assert!(!copy.starts_with(std::env::temp_dir().join("txr-vm-inputs")), "{}", copy.display());
+        assert_eq!(std::fs::read(copy.join("patient.tsv")).unwrap(), b"input");
+        drop(stage);
+        assert!(!copy.exists(), "the copies are removed with the stage");
+    }
+
+    #[test]
+    fn the_sweep_covers_the_input_copies_under_the_app_data_dir() {
+        let data = TempDir::new();
+        let _guard = crate::modules::rootfs::scoped_data_root(&data.0);
+        let trees = swept_trees();
+        let tmp = std::env::temp_dir();
+        for (root, tree) in [
+            (data.0.join("tmp"), "txr-vm-inputs"),
+            (data.0.join("tmp"), "txr-vm-images"),
+            // The VM run dirs stay in the temp dir (socket path length), and the
+            // input copies earlier versions left there are still removed.
+            (tmp.clone(), "txr-vm"),
+            (tmp, "txr-vm-inputs"),
+        ] {
+            assert!(trees.iter().any(|(r, t)| *r == root && *t == tree), "{} {tree} is swept", root.display());
+        }
+    }
+
+    #[test]
     fn the_runtime_archive_is_looked_up_in_the_app_bundle_resources() {
         let exe = Path::new("/Applications/TxResBench.app/Contents/MacOS/txresbench-desktop");
         assert_eq!(
@@ -962,6 +1065,28 @@ mod tests {
         assert_eq!(guest_root_path_from(env.clone(), Some(runtime), data), PathBuf::from("/dev/launcher"));
         assert_eq!(guest_root_path_from(None, Some(runtime), data), runtime.join("share/guest-root"));
         assert_eq!(guest_root_path_from(None, None, data), data.join("sandbox-vm/guest-root"));
+    }
+
+    #[test]
+    fn the_vm_overrides_are_read_only_in_a_debug_build() {
+        let set = |k: &str| Some(std::ffi::OsString::from(format!("/dev/{k}")));
+        for key in [LAUNCHER_ENV, GUEST_ROOT_ENV, RUNTIME_ENV] {
+            assert_eq!(dev_override_with(&set, key, true), Some(PathBuf::from(format!("/dev/{key}"))));
+            assert_eq!(dev_override_with(&set, key, false), None, "a release build ignores {key}");
+        }
+        // Unset or empty is no override.
+        assert_eq!(dev_override_with(&|_| None, LAUNCHER_ENV, true), None);
+        assert_eq!(dev_override_with(&|_| Some(std::ffi::OsString::new()), LAUNCHER_ENV, true), None);
+        // The real reader passes this build's own flag (read through PATH, which every test run has,
+        // so no test has to set a variable of the process).
+        if std::env::var_os("PATH").is_some_and(|v| !v.is_empty()) {
+            assert_eq!(dev_override("PATH").is_some(), cfg!(debug_assertions));
+        }
+        // The three names are the ones the docs and the dev scripts use.
+        assert_eq!(
+            [LAUNCHER_ENV, GUEST_ROOT_ENV, RUNTIME_ENV],
+            ["TXR_SANDBOX_VM_LAUNCHER", "TXR_SANDBOX_GUEST_ROOT", "TXR_SANDBOX_VM_RUNTIME"]
+        );
     }
 
     /// A runtime archive like the build script's (bin/<launcher>, share/guest-root/), with its .sha256.
@@ -1108,6 +1233,38 @@ mod tests {
     }
 
     #[test]
+    fn an_unpack_left_by_a_dead_process_is_removed_and_a_live_ones_kept() {
+        let t = TempDir::new();
+        let data = t.0.join("data");
+        let base = data.join("sandbox-vm");
+        // A pid that is no longer running: a child that has exited and been reaped.
+        let mut child = std::process::Command::new("/usr/bin/true").spawn().unwrap();
+        let dead_pid = child.id();
+        child.wait().unwrap();
+        // A pid that is running: the process that started this test.
+        let live_pid = std::os::unix::process::parent_id();
+        let half = |pid: u32| {
+            let d = base.join(format!("{UNPACK_PREFIX}{pid}"));
+            std::fs::create_dir_all(d.join("share/guest-root/etc")).unwrap();
+            std::fs::write(d.join("share/guest-root/etc/tag"), "half").unwrap();
+            d
+        };
+        let dead = half(dead_pid);
+        let live = half(live_pid);
+        let v1 = runtime_archive_fixture(&t.0, true, "v1");
+        // A start that unpacks the runtime removes the dead process's leftover...
+        let dir = ensure_runtime_in(&data, &v1).unwrap();
+        assert!(dir.join("bin").join(LAUNCHER_BIN).is_file());
+        assert!(!dead.exists(), "the dead process's unpack is removed");
+        assert!(live.is_dir(), "a running process's unpack is kept");
+        // ...and so does a start that finds the runtime already unpacked.
+        let dead = half(dead_pid);
+        assert_eq!(ensure_runtime_in(&data, &v1).unwrap(), dir);
+        assert!(!dead.exists(), "removed when the runtime is reused too");
+        assert!(live.is_dir(), "still kept");
+    }
+
+    #[test]
     fn a_failed_lock_is_retried_without_emptying_the_dir() {
         let tree = format!("txr-vm-retrytest-{}", uuid::Uuid::new_v4().simple());
         let dir = std::env::temp_dir().join(&tree).join(std::process::id().to_string());
@@ -1156,6 +1313,9 @@ mod tests {
 
     #[test]
     fn staged_inputs_keep_their_symlinks_as_stored() {
+        // The copies go under the app data dir: a test's own, never the real one.
+        let data = TempDir::new();
+        let _guard = crate::modules::rootfs::scoped_data_root(&data.0);
         let src = TempDir::new();
         std::fs::write(src.0.join("model_v3.rds"), b"m").unwrap();
         std::os::unix::fs::symlink("model_v3.rds", src.0.join("latest")).unwrap();
