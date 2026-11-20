@@ -1,0 +1,4 @@
+disease_group,category,basis
+lung cancer,Solid tumours,fixture
+breast cancer,Solid tumours,fixture
+lymphoma,Haematological,fixture

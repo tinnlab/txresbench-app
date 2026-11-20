@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "generator_version": "0.6.0",
+  "generator_version": "0.6.1",
   "base_contract": "2.0",
   "bases": [
     {
@@ -48,7 +48,7 @@
       "layer_schema": 1,
       "source_revision": "73b99701deb2",
       "source_tree": "ae2d64e240024b47df766ab0de281d1fa99b147a",
-      "generator_version": "0.6.0"
+      "generator_version": "0.6.1"
     },
     {
       "env_id": "fx-baseline-cox",
@@ -69,7 +69,7 @@
       "layer_schema": 1,
       "source_revision": "653f484b11a8",
       "source_tree": "7d92961f35da375cd0772bbd46c63da26e2292ef",
-      "generator_version": "0.6.0"
+      "generator_version": "0.6.1"
     }
   ]
 }

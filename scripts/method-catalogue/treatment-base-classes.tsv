@@ -1,0 +1,7 @@
+# DRAFT: real rows are added by the lead and reviewed in the PR
+# Columns: id<TAB>label, in display order (the closed list of treatment base
+# classes; study_options.treatment_classes is emitted in exactly this order).
+# Illustrative only — the lead fills the real rows from reviewed inputs.
+id	label
+draft-base-1	Draft base class 1
+draft-base-2	Draft base class 2

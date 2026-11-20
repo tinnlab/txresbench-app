@@ -1,0 +1,7 @@
+# DRAFT: real rows are added by the lead and reviewed in the PR
+# Columns: disease_group<TAB>parent_group<TAB>basis. One child level only: a
+# child is listed under its parent's `children`, never also as a disease; a
+# parent that is itself a child (or a cycle) is a hard generator error.
+# Illustrative only — the lead fills the real rows from reviewed inputs.
+disease_group	parent_group	basis
+draft-child-disease	draft-extra-disease	draft (illustrative row, replaced by the lead)

@@ -1,0 +1,7 @@
+# DRAFT: real rows are added by the lead and reviewed in the PR
+# Columns: disease_group<TAB>category<TAB>basis. Rows the benchmark's
+# dev/analysis-catalog/disease_group_categories.csv lacks (the generator merges
+# both; a row here overrides the benchmark file's for the same disease_group).
+# Illustrative only — the lead fills the real rows from reviewed inputs.
+disease_group	category	basis
+draft-extra-disease	Draft category	draft (illustrative row, replaced by the lead)

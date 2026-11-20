@@ -1,0 +1,6 @@
+# DRAFT: real rows are added by the lead and reviewed in the PR
+# Columns: benchmark_class<TAB>base_classes (base classes separated by ';',
+# empty = none). A base class must be an id of treatment-base-classes.tsv.
+# Illustrative only — the lead fills the real rows from reviewed inputs.
+benchmark_class	base_classes
+draft-class	draft-base-1;draft-base-2

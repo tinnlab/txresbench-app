@@ -398,6 +398,10 @@
      {
       "children": [],
       "id": "breast cancer"
+     },
+     {
+      "children": [],
+      "id": "prostate cancer"
      }
     ],
     "id": "Solid tumours"
@@ -422,6 +426,10 @@
    {
     "id": "chemotherapy",
     "label": "Chemotherapy"
+   },
+   {
+    "id": "targeted therapy",
+    "label": "Targeted therapy"
    }
   ]
  }

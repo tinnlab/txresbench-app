@@ -1,0 +1,7 @@
+# DRAFT: real rows are added by the lead and reviewed in the PR
+# Columns: method_id<TAB>treatment_class<TAB>confidence<TAB>source_phrase<TAB>source.
+# confidence is `stated` | `inferred` | `not-stated`; a method without a row is
+# `{classes: [], confidence: not-stated}` with a warning.
+# Illustrative only — the lead fills the real rows from reviewed inputs.
+method_id	treatment_class	confidence	source_phrase	source
+draft-method-1	draft-class	stated	draft (illustrative row, replaced by the lead)	draft (illustrative row, replaced by the lead)

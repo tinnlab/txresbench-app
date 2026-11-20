@@ -1,0 +1,5 @@
+# disease_group<TAB>parent_group<TAB>basis — one child level under a disease (fixture)
+disease_group	parent_group	basis
+non-small cell lung cancer	lung cancer	fixture
+small cell lung cancer	lung cancer	fixture
+diffuse large B-cell lymphoma	lymphoma	fixture

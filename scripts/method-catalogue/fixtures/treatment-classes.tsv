@@ -1,0 +1,6 @@
+# benchmark_class<TAB>base_classes (base classes separated by ';', empty = none) — fixture
+benchmark_class	base_classes
+chemotherapy	chemotherapy
+immune checkpoint inhibitor	immune checkpoint inhibitor
+targeted therapy	targeted therapy
+systemic therapy	chemotherapy;targeted therapy

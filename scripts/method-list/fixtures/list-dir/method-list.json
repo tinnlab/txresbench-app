@@ -400,6 +400,10 @@
       {
        "children": [],
        "id": "breast cancer"
+      },
+      {
+       "children": [],
+       "id": "prostate cancer"
       }
      ],
      "id": "Solid tumours"
@@ -424,6 +428,10 @@
     {
      "id": "chemotherapy",
      "label": "Chemotherapy"
+    },
+    {
+     "id": "targeted therapy",
+     "label": "Targeted therapy"
     }
    ]
   }
@@ -466,7 +474,7 @@
     "contract": "2.0",
     "digest": "sha256:169315934fb766114d8e5d0a98858ed0a3c1b6ffd480d24286fa92f4ecd1fb08",
     "env_id": "fx-asm-methylation-panel",
-    "generator_version": "0.6.0",
+    "generator_version": "0.6.1",
     "language": "Python",
     "layer_schema": 1,
     "layer_sha256": "9236c5f70fa98e945c684359ef4d5fdfab933f380f8f013c38b66352e12c4ace",
@@ -487,7 +495,7 @@
     "contract": "2.0",
     "digest": "sha256:9defd6e528dc5907912a98e488a0c3a0f9ad400852d037f85a4d274e998cc1e9",
     "env_id": "fx-baseline-cox",
-    "generator_version": "0.6.0",
+    "generator_version": "0.6.1",
     "language": "R",
     "layer_schema": 1,
     "layer_sha256": "d7415c94cd97b2e3bc2e0b98f3d84088bfa790901bc8e95b502dd4ba524c05fb",
@@ -502,7 +510,7 @@
     "wrapper_code_sha256": "21872274459368f3d53605b1b526ff2fb19f05257952c13cc391add68aa03951"
    }
   ],
-  "generator_version": "0.6.0",
+  "generator_version": "0.6.1",
   "schema_version": 2
  },
  "sequence": 1
