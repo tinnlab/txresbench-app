@@ -1228,3 +1228,44 @@ test('TEST-22 the runner refuses a poisoned environment and strips it from every
   assert.equal(clean.status, 0, 'sanity: a clean run must still pass');
   assert.ok(!fs.existsSync(marker), 'a leg inherited BASH_ENV — it must be stripped per leg');
 });
+
+// ── TEST-23 ─────────────────────────────────────────────────────────────────────────
+function pinnedPaths() {
+  return new Set(
+    fs
+      .readFileSync(path.join(SCRIPTS_DIR, 'guard-hashes.txt'), 'utf8')
+      .split('\n')
+      .filter((l) => l.trim() && !l.trim().startsWith('#'))
+      .map((l) => l.trim().split(/\s+/)[1]),
+  );
+}
+
+test('TEST-23 the UI-side and gallery guards that `just check` relies on are byte-pinned', () => {
+  // `check-guard-integrity.sh` pinned only `scripts/check-*` and `scripts/lib/*`, so
+  // `action-coverage.mjs` lost nine tenths of its scope with no pin moving. If the globs are
+  // narrowed again and `--update` is run, these pins vanish and this test reddens.
+  const pins = pinnedPaths();
+  const must = [
+    'src-app/ui/scripts/action-coverage.mjs',
+    'src-app/ui/scripts/action-refs-lint.mjs',
+    'src-app/ui/scripts/collect-actions.mjs',
+    'src-app/ui/scripts/guard-floors.test.mjs',
+    'src-app/ui/scripts/check-built-css-urls.mjs',
+    'src-app/ui/scripts/check-e2e-routing.mjs',
+    'src-app/ui/scripts/check-rename-mechanical.mjs',
+    'src-app/ui/scripts/lint-native-controls.mjs',
+    'src-app/ui/scripts/lint-secret-input-caps.mjs',
+    'src-app/ui/scripts/lint-text-source-bytes.mjs',
+    'sdk/packages/gallery/scripts/check-gallery-prod-exclusion.mjs',
+    'sdk/packages/gallery/scripts/check-harness-parity.mjs',
+  ];
+  for (const rel of must) {
+    assert.ok(fs.existsSync(path.join(REPO, rel)), `${rel} no longer exists; update this list with the guard`);
+    assert.ok(pins.has(rel), `${rel} is not pinned in scripts/guard-hashes.txt`);
+  }
+  // The one deliberate exception: ratcheted by its committed baseline instead.
+  assert.ok(
+    !pins.has('src-app/ui/scripts/lint-no-domain-in-builtin.mjs'),
+    'lint-no-domain-in-builtin.mjs is the named exception and must stay out of the pin set',
+  );
+});

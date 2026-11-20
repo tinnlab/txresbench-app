@@ -93,7 +93,25 @@ MANIFEST='scripts/guard-hashes.txt'
 # way everything else here is (the marker must still be declared IN the file, in a diff a human
 # reads, and MIN_GUARDS moves with the set), but it is a coupling worth knowing about before the
 # next widening rather than after it.
-GUARD_GLOBS=('scripts/check-*.sh' 'scripts/check-*.mjs' 'scripts/lib/*')
+#
+# The UI-side and gallery guards join the set. `just check` relies on every one of them, and
+# `action-coverage.mjs` had already lost nine tenths of its scope in a diff nobody read (its
+# allowlist named deleted files) while no pin moved. They are listed by name where the name
+# does not say "check-" or "lint-": `collect-actions`, `action-refs-lint`, `action-coverage`
+# and `guard-floors.test` are guard logic by what they DO. The one deliberate exception is
+# `lint-no-domain-in-builtin.mjs` (the `:(exclude)` pathspec below), ratcheted by its
+# committed `domain-baseline.json`, as the paragraph above says.
+GUARD_GLOBS=(
+  'scripts/check-*.sh' 'scripts/check-*.mjs' 'scripts/lib/*'
+  'src-app/ui/scripts/check-*.mjs'
+  'src-app/ui/scripts/lint-*.mjs'
+  ':(exclude)src-app/ui/scripts/lint-no-domain-in-builtin.mjs'
+  'src-app/ui/scripts/collect-actions.mjs'
+  'src-app/ui/scripts/action-refs-lint.mjs'
+  'src-app/ui/scripts/action-coverage.mjs'
+  'src-app/ui/scripts/guard-floors.test.mjs'
+  'sdk/packages/gallery/scripts/check-*.mjs'
+)
 
 # Measured 2026-09-07 (#316): 26 guards. A manifest shorter than this is a gutted manifest.
 #
@@ -120,7 +138,7 @@ GUARD_GLOBS=('scripts/check-*.sh' 'scripts/check-*.mjs' 'scripts/lib/*')
 # demands. ITEM-5 added `check-dead-refs.sh` (16 -> 17) and raised the floor
 # in the same diff. PR 4a (the method list) added `check-method-list.sh` and its
 # controls `check-method-list.test.mjs` (17 -> 19), floor raised in the same diff.
-MIN_GUARDS=19
+MIN_GUARDS=36
 
 MODE='verify'
 case "${1:-}" in
