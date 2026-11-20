@@ -14,9 +14,9 @@
 # "download state for environments" the app promises would be a design board
 # and nothing more. This script is the manual path, mirroring
 # the framework's env-image publish sequence (
-# login → push → cosign sign, `--dry-run`, `--env`, `--arch`, `--skip-sign`,
-# refuse cross-arch builds) with the differences the artifact contract requires
-# (below).
+# token auth (a temporary registry config, no `oras login`) → push → cosign
+# sign, `--dry-run`, `--env`, `--arch`, `--skip-sign`, refuse cross-arch
+# builds) with the differences the artifact contract requires (below).
 #
 # ── WHAT IT PUBLISHES, AND WHY THE PUSH SHAPE IS TWO COMMANDS ──────────────────
 # One artifact per invocation:
@@ -93,7 +93,8 @@
 #   3. THE BEHAVIORAL CHECK — a layer: `scripts/lib/method-env-verify.sh`
 #      (ITEM-7) is sourced when present and its
 #      `txr_method_env_verify_layer <layer-dir> <artifact.json>` runs before
-#      login/push; a non-zero exit refuses the publish (TEST-8). Until that
+#      the auth config / any push; a non-zero exit refuses the publish
+#      (TEST-8). Until that
 #      library exists the publisher prints an explicit skip-with-reason. A
 #      base: `unsquashfs -lln` must list what the stacked run needs —
 #      /opt/txr-layer (and /opt/txr-layer/R-library for base-r),
@@ -145,10 +146,10 @@
 #     manifest's oci_ref is authoritative and is REFUSED if it is not that
 #     package, and its tag if it is not the entry's (or record's) own tag —
 #     no runtime would ever fetch it.
-#   * signing identity per DEC-5 (owner's decided verification policy; see the
-#     runbook's "Signing" section). Off CI cosign signs with YOUR identity —
-#     the decomposition accepts, or use `--skip-sign` only against a runtime
-#     with verification disabled (never for a published result).
+#   * signing identity: off CI cosign signs with YOUR identity — signing is
+#     provenance only and the app does not verify it (a signature is never a
+#     mount gate; the pinned sha256 is). Use `--skip-sign` when no signature
+#     is wanted.
 #
 # ── USAGE ──────────────────────────────────────────────────────────────────────
 #   scripts/publish-method-env-images.sh (--env <env_id> | --base <base-py|base-r>)
@@ -172,6 +173,15 @@
 set -eu
 
 REPO_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+# The token: kept in shell variables no child process inherits, and used ONLY
+# to write the temporary registry config of step 5. `oras login` is never
+# called (it would write into the user's ~/.docker/config.json, and the token
+# would still sit in the environment of every child afterwards); every oras
+# call carries that config explicitly instead.
+GHCR_USER_VALUE=${GHCR_USER-}
+GHCR_TOKEN_VALUE=${GHCR_TOKEN-}
+unset GHCR_USER GHCR_TOKEN
 
 REGISTRY=ghcr.io
 # The ONE package of every layer and the ONE package of both bases; the
@@ -266,6 +276,19 @@ if [ -n "$LOOPBACK" ]; then
   fi
 fi
 
+# ── the temp dir: the registry configs, removed on exit ───────────────────────
+# The token's config (mode 600) and the anonymous {} config live under a temp
+# dir that is deleted on exit; the anonymous one keeps even a loopback
+# rehearsal from reading the user's Docker login or a credential helper.
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/publish-method-env-images.XXXXXX")
+cleanup() { rm -rf "$WORK"; }
+trap cleanup EXIT
+chmod 700 "$WORK"
+mkdir -p "$WORK/auth"
+ANON_CONFIG="$WORK/empty-registry-config.json"
+printf '{}' > "$ANON_CONFIG"
+AUTH_CONFIG="$WORK/auth/registry-config.json"
+
 # A manifest ref (ghcr.io/…) as the publish target: unchanged for ghcr.io, the
 # loopback host in its place for a rehearsal.
 target_ref() {
@@ -275,25 +298,32 @@ target_ref() {
     printf '%s' "$1"
   fi
 }
-# oras with the transport flag of the target (plain HTTP on loopback only).
+# oras with the transport flag of the target (plain HTTP on loopback only) and
+# ALWAYS an explicit --registry-config: the token's temp config (mode 600) on
+# the release path, the empty {} one on a rehearsal — the user's Docker
+# login/config or a credential helper is never read, and the token reaches no
+# process environment. `REGISTRY_CONFIG` is set in step 5; `show_oras` (dry
+# run) prints a path-less label — the dry run never prints the token.
 oras_flags=()
 [ -z "$LOOPBACK" ] || oras_flags=(--plain-http)
+REGISTRY_CONFIG=""
+REGISTRY_CONFIG_PRINT="<temp, mode 600>"
 oras_cmd() {
   local sub=$1; shift
   if [ "$sub" = "blob" ] || [ "$sub" = "manifest" ]; then
     local sub2=$1; shift
-    oras "$sub" "$sub2" ${oras_flags[@]+"${oras_flags[@]}"} "$@"
+    oras "$sub" "$sub2" --registry-config "$REGISTRY_CONFIG" ${oras_flags[@]+"${oras_flags[@]}"} "$@"
   else
-    oras "$sub" ${oras_flags[@]+"${oras_flags[@]}"} "$@"
+    oras "$sub" --registry-config "$REGISTRY_CONFIG" ${oras_flags[@]+"${oras_flags[@]}"} "$@"
   fi
 }
 show_oras() {
   local sub=$1; shift
   if [ "$sub" = "blob" ] || [ "$sub" = "manifest" ]; then
     local sub2=$1; shift
-    echo "+ oras $sub $sub2 ${oras_flags[*]+${oras_flags[*]} }$*"
+    echo "+ oras $sub $sub2 --registry-config $REGISTRY_CONFIG_PRINT ${oras_flags[*]+${oras_flags[*]} }$*"
   else
-    echo "+ oras $sub ${oras_flags[*]+${oras_flags[*]} }$*"
+    echo "+ oras $sub --registry-config $REGISTRY_CONFIG_PRINT ${oras_flags[*]+${oras_flags[*]} }$*"
   fi
 }
 
@@ -729,18 +759,21 @@ else
   fi
 fi
 
-# ── 5. login (ghcr.io only) ────────────────────────────────────────────────────
+# ── 5. the token's registry config (ghcr.io only) ─────────────────────────────
 if [ -n "$LOOPBACK" ]; then
+  REGISTRY_CONFIG=$ANON_CONFIG
+  REGISTRY_CONFIG_PRINT=$ANON_CONFIG
   echo "login     : none (loopback rehearsal; no credentials are read)"
   if [ "$DRY_RUN" != "1" ]; then
     command -v oras >/dev/null 2>&1 || { echo "publish: oras not found (need >= 1.2 for manifest push)" >&2; exit 2; }
   fi
 elif [ "$DRY_RUN" = "1" ]; then
-  echo "+ oras login $REGISTRY -u \$GHCR_USER --password-stdin   # GHCR_TOKEN on stdin"
+  echo "auth      : GHCR_TOKEN into a temporary --registry-config (mode 600, removed on exit);"
+  echo "            no oras login, and no child process sees GHCR_TOKEN or GHCR_USER"
 else
   missing=""
-  [ -n "${GHCR_TOKEN:-}" ] || missing="$missing GHCR_TOKEN"
-  [ -n "${GHCR_USER:-}" ] || missing="$missing GHCR_USER"
+  [ -n "${GHCR_TOKEN_VALUE:-}" ] || missing="$missing GHCR_TOKEN"
+  [ -n "${GHCR_USER_VALUE:-}" ] || missing="$missing GHCR_USER"
   if [ -n "$missing" ]; then
     echo "publish: set$missing (a GitHub token with write:packages + your username)" >&2
     exit 2
@@ -749,7 +782,16 @@ else
   if [ "$SKIP_SIGN" != "1" ]; then
     command -v cosign >/dev/null 2>&1 || { echo "publish: cosign not found (or --skip-sign)" >&2; exit 2; }
   fi
-  echo "$GHCR_TOKEN" | oras login "$REGISTRY" -u "$GHCR_USER" --password-stdin
+  # The token reaches python on stdin (printf is a shell builtin): never an
+  # argument or a variable of any child process. umask 077 before the write:
+  # the file itself must be mode 600.
+  printf '%s:%s' "$GHCR_USER_VALUE" "$GHCR_TOKEN_VALUE" | (umask 077 && python3 -c '
+import base64, json, sys
+auth = base64.b64encode(sys.stdin.buffer.read()).decode()
+json.dump({"auths": {"ghcr.io": {"auth": auth}}}, open(sys.argv[1], "w"))' "$AUTH_CONFIG")
+  REGISTRY_CONFIG=$AUTH_CONFIG
+  echo "auth      : $AUTH_CONFIG (mode 600, removed on exit); no oras login, no child process"
+  echo "            sees GHCR_TOKEN or GHCR_USER"
 fi
 
 PUSH_REF=$(target_ref "$ART_OCI_REF")
@@ -758,13 +800,22 @@ PUSH_REF=$(target_ref "$ART_OCI_REF")
 # If the tag already exists, it must name the SAME bytes — the same artifact is
 # byte-identical (INV-4), so an existing identical digest is a no-op publish;
 # anything else means a previous artifact under this tag, which must not be
-# shadowed silently. `resolve` failing here is treated as "tag absent" — the
+# shadowed silently. Only a clear "not found" ("not found", "manifest unknown",
+# "name unknown" — the wordings oras answers with for a missing tag, as
+# scripts/publish-method-list.sh's resolve() matches them) means the tag is
+# free; a resolve failing for ANY OTHER reason (network, auth, 5xx) stops the
+# run — a tag the run could not read is never taken for an absent one. The
 # post-push verify below is the authoritative witness after a successful push.
+resolve() {
+  local ref=$1 out
+  if out=$(oras_cmd resolve "$ref" 2>"$WORK/resolve.err"); then printf '%s\n' "$out"; return 0; fi
+  grep -qiE 'not found|manifest unknown|name unknown' "$WORK/resolve.err" && return 3
+  return 1
+}
 if [ "$DRY_RUN" = "1" ]; then
   show_oras resolve "$PUSH_REF:$ART_TAG" "  # refuse on mismatch with $ART_DIGEST"
 else
-  remote=$(oras_cmd resolve "$PUSH_REF:$ART_TAG" 2>/dev/null || true)
-  if [ -n "$remote" ]; then
+  if remote=$(resolve "$PUSH_REF:$ART_TAG"); then
     if [ "$remote" != "$ART_DIGEST" ]; then
       echo "refusing: the tag $ART_TAG already exists at $remote, not the built $ART_DIGEST." >&2
       echo "Tags are immutable; a republish under the same tag means different bytes under" >&2
@@ -773,6 +824,13 @@ else
       exit 1
     fi
     echo "tag       : $ART_TAG already names $ART_DIGEST (identical bytes — re-publishing)"
+  else
+    st=$?
+    if [ "$st" = "1" ]; then
+      echo "publish: could not read the tag $PUSH_REF:$ART_TAG: $(tr '\n' ' ' < "$WORK/resolve.err")" >&2
+      echo "This is not 'not found', so the tag is NOT taken for absent; nothing was pushed." >&2
+      exit 1
+    fi
   fi
 fi
 
@@ -782,14 +840,29 @@ if [ -z "$BASE_ID" ]; then
   if [ "$DRY_RUN" = "1" ]; then
     show_oras resolve "$BASE_REF:$PAIR_BASE_TAG" "  # must equal $PAIR_BASE_DIGEST (base first)"
   else
-    base_remote=$(oras_cmd resolve "$BASE_REF:$PAIR_BASE_TAG" 2>/dev/null || true)
-    if [ "$base_remote" != "$PAIR_BASE_DIGEST" ]; then
-      echo "refusing: the base $BASE_REF:$PAIR_BASE_TAG resolves to '${base_remote:-nothing}', not $PAIR_BASE_DIGEST." >&2
+    if base_remote=$(resolve "$BASE_REF:$PAIR_BASE_TAG"); then
+      if [ "$base_remote" != "$PAIR_BASE_DIGEST" ]; then
+        echo "refusing: the base $BASE_REF:$PAIR_BASE_TAG resolves to $base_remote, not $PAIR_BASE_DIGEST." >&2
+        echo "A layer is published after its base: publish the base first" >&2
+        echo "(--base $PAIR_BASE_ID --arch $ARCH), then this layer." >&2
+        exit 1
+      fi
+      echo "base      : $BASE_REF:$PAIR_BASE_TAG is published ($PAIR_BASE_DIGEST)"
+    else
+      st=$?
+      if [ "$st" = "1" ]; then
+        echo "publish: could not read the base $BASE_REF:$PAIR_BASE_TAG: $(tr '\n' ' ' < "$WORK/resolve.err")" >&2
+        echo "This is not 'not found', so the base is NOT taken for absent; nothing was pushed." >&2
+        exit 1
+      fi
+      # st = 3: the clear "not found" — the base is absent, which is a refusal
+      # (a layer is never published before its base), keeping the pre-existing
+      # wording.
+      echo "refusing: the base $BASE_REF:$PAIR_BASE_TAG resolves to 'nothing', not $PAIR_BASE_DIGEST." >&2
       echo "A layer is published after its base: publish the base first" >&2
       echo "(--base $PAIR_BASE_ID --arch $ARCH), then this layer." >&2
       exit 1
     fi
-    echo "base      : $BASE_REF:$PAIR_BASE_TAG is published ($PAIR_BASE_DIGEST)"
   fi
 fi
 
@@ -838,17 +911,24 @@ fi
 if [ -n "$LOOPBACK" ]; then
   echo "!! SIGNING SKIPPED: loopback rehearsal (a loopback artifact is never a published result)."
 elif [ "$SKIP_SIGN" = "1" ]; then
-  echo "!! SIGNING SKIPPED. A runtime whose verification policy is enabled will REFUSE"
-  echo "!! to mount this $KIND_LABEL. Use --skip-sign only against a deployment with"
-  echo "!! verification disabled, and never for an artifact a published result depends on."
+  echo "!! SIGNING SKIPPED: cosign signing is provenance only — the app does not verify it."
+  echo "!! The pinned sha256 is the runtime's verification floor; no runtime REFUSES a"
+  echo "!! $KIND_LABEL for a missing signature — a signature adds provenance, not admission."
 else
   if [ "$DRY_RUN" = "1" ]; then
     echo "+ cosign sign --yes $ART_OCI_REF@$ART_DIGEST"
   else
     echo "NOTE: off CI, cosign signs with YOUR identity, not a CI OIDC identity."
-    echo "See the runbook's signing section before relying on this in production"
-    echo "(DEC-5: the app's verification policy decides what is accepted)."
-    cosign sign --yes "$ART_OCI_REF@$ART_DIGEST"
+    echo "Provenance only — the app does not verify it; see the runbook's signing"
+    echo "section (DEC-5) before relying on it."
+    # cosign reads registry credentials from a Docker config DIRECTORY: give it
+    # a private one holding only the token's config (no `oras login`, so the
+    # user's own Docker config is never written), for this one call.
+    COSIGN_DOCKER_DIR="$WORK/cosign-docker"
+    mkdir -p "$COSIGN_DOCKER_DIR"
+    chmod 700 "$COSIGN_DOCKER_DIR"
+    (umask 077 && cp "$REGISTRY_CONFIG" "$COSIGN_DOCKER_DIR/config.json")
+    DOCKER_CONFIG="$COSIGN_DOCKER_DIR" cosign sign --yes "$ART_OCI_REF@$ART_DIGEST"
   fi
 fi
 

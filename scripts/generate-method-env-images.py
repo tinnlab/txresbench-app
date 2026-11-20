@@ -357,8 +357,9 @@ def layer_tag(env_id: str, method_version: str, arch: str,
               layer_sha256: str) -> str:
     """A layer's immutable tag in the one layer package. It ends with the
     first 12 hex of the layer file's sha256 (like a base tag): a rebuild at
-    the same method version (another base, a package fix; layers are not
-    byte-reproducible) is a new tag, never an overwrite of the old one."""
+    the same method version (another base, a package fix; layers that install
+    packages are not byte-reproducible — code-only layers are) is a new tag,
+    never an overwrite of the old one."""
     return f"{env_id}-{method_version}-{arch}-{layer_sha256[:12]}"
 
 
