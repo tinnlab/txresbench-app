@@ -15,8 +15,8 @@
 #
 # The guard also fails on an allowlist entry that matches no literal in the scan roots, so
 # the list cannot keep hosts nothing uses. An entry that is intentionally not spelled with
-# a scheme in the source (a registry name handed to a tool) carries the tag `# scheme-less`
-# on its own line; only tagged entries may match nothing.
+# a scheme in the source (a registry name handed to a tool) is named on a `# scheme-less: host ...`
+# comment line; only named entries may match nothing.
 #
 # Usage:
 #   scripts/check-network-allowlist.sh
@@ -149,8 +149,12 @@ for line in open(allowlist_path, encoding="utf-8"):
     body = body.strip()
     if body:
         allowed.add(body.lower())
-        if "scheme-less" in comment:
-            scheme_less.add(body.lower())
+    # A comment line `# scheme-less: host host ...` names hosts that are used by a tool and
+    # never spelled with a scheme in the source. Entry lines stay the bare host, because other
+    # readers (tests, probes) match whole lines.
+    m = re.match(r"\s*scheme-less:\s*(.+)$", comment)
+    if not body and m:
+        scheme_less.update(h.lower() for h in m.group(1).split())
 
 always = {
     "127.0.0.1", "localhost", "::1", "[::1]", "0.0.0.0", "127.0.0.99",
@@ -252,7 +256,7 @@ for host in sorted(hosts):
 
 stale = sorted(h for h in allowed if h not in hosts and h not in scheme_less)
 for host in stale:
-    print(f"  STALE  {host}  matches no literal in the scan roots (delete it, or tag it `# scheme-less`)", file=sys.stderr)
+    print(f"  STALE  {host}  matches no literal in the scan roots (delete it, or name it on a `# scheme-less:` line)", file=sys.stderr)
 
 if bad:
     print("check-network-allowlist: outbound host(s) outside the allowlist in shipped source", file=sys.stderr)

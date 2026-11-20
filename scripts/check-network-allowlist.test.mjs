@@ -157,24 +157,25 @@ test('fails on an allowlist entry that matches nothing in the scan roots', () =>
   assert.match(r.stderr, /STALE\s+unused\.example-corp\.com/);
 });
 
-test('an entry tagged `# scheme-less` may match nothing; an untagged one may not', () => {
+test('an entry named on a `# scheme-less:` line may match nothing; any other may not', () => {
   const src = fixtureTree({
     'src/main.rs': 'const U: &str = "http://127.0.0.1:3100/api";\n',
   });
   const locks = fixtureTree({ 'Cargo.lock': CLEAN_LOCK });
   const lock = path.join(locks, 'Cargo.lock');
-  const tagged = run('registry.example-corp.com # scheme-less\n', [path.join(src, 'src')], [lock]);
+  const tagged = run('# scheme-less: registry.example-corp.com\nregistry.example-corp.com\n', [path.join(src, 'src')], [lock]);
   assert.equal(tagged.status, 0, tagged.stderr || tagged.stdout);
-  const untagged = run('registry.example-corp.com # a registry\n', [path.join(src, 'src')], [lock]);
-  assert.equal(untagged.status, 1, 'a comment without the tag does not exempt an entry');
+  const untagged = run('registry.example-corp.com # scheme-less\n', [path.join(src, 'src')], [lock]);
+  assert.equal(untagged.status, 1, 'a trailing tag on the entry line does not exempt it');
 });
 
-test('the shipped allowlist has no stale entry and tags only the three scheme-less hosts', () => {
+test('the shipped allowlist names only the three scheme-less hosts, and keeps every entry line a bare host', () => {
   const text = fs.readFileSync(path.join(SCRIPTS_DIR, 'network-allowlist.txt'), 'utf-8');
-  const tagged = text
-    .split('\n')
-    .filter((l) => !l.trim().startsWith('#') && /#\s*scheme-less/.test(l))
-    .map((l) => l.split('#')[0].trim())
+  const lines = text.split('\n');
+  assert.ok(lines.every((l) => l.trim().startsWith('#') || !l.includes('#')), 'an entry line carries no comment');
+  const tagged = lines
+    .filter((l) => /^#\s*scheme-less:/.test(l))
+    .flatMap((l) => l.split(':')[1].trim().split(/\s+/))
     .sort();
   assert.deepEqual(tagged, ['ghcr.io', 'objects.githubusercontent.com', 'pkg-containers.githubusercontent.com']);
 });
