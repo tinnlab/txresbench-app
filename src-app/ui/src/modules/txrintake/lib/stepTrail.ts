@@ -213,6 +213,54 @@ export function takeStepBack(): string {
   return target
 }
 
+/**
+ * The page context Help declares while it was opened from a step view and
+ * that step can still be returned to (`help.backToStep` is offered and
+ * invokable only then). Its entity is the step's URL.
+ */
+export const TXR_HELP_FROM_STEP_CONTEXT = 'txr.helpFromStep'
+
+/** The refusal when Help was not opened from a step, or that step is gone. */
+export const HELP_BACK_NO_STEP = 'Help was not opened from a step that is still open.'
+
+/** A step view's place in its path, as its step line shows it, and its heading. */
+export interface TxrStepPlace {
+  step: number
+  title: string
+}
+
+/**
+ * The step line number and heading of each step view (the "Step x of 4"
+ * line and the h1 of each step page: Start is step 1).
+ */
+const STEP_PLACES: Readonly<Record<string, TxrStepPlace>> = {
+  '/study': { step: 2, title: 'Tell us about your study' },
+  '/files': { step: 3, title: 'Add your files' },
+  '/predict-files': { step: 3, title: 'Add the patients to predict' },
+  '/choose-methods': { step: 4, title: 'Choose the methods and settings' },
+  '/pretrained-models': { step: 4, title: 'Choose the models to run' },
+  '/saved-models': { step: 4, title: 'Choose the saved models to run' },
+}
+
+/** The place of a step view URL, or null for any other URL. */
+export function stepPlaceOf(url: string): TxrStepPlace | null {
+  return STEP_PLACES[pathOf(url)] ?? null
+}
+
+/**
+ * Where Help's "Back to step" goes: the step URL Help was opened from, when
+ * it is still the last step of the trail (the step the user left for Help).
+ * Null for anything else: no origin, not a step URL, or a trail that has
+ * moved on since (a new path was started, a reload emptied it).
+ */
+export function helpReturnTarget(
+  origin: unknown,
+  trail: readonly string[] = useStepTrailStore.getState().trail,
+): string | null {
+  if (typeof origin !== 'string' || !isStepUrl(origin)) return null
+  return trail[trail.length - 1] === origin ? origin : null
+}
+
 /** Swap the step on screen for another one in the trail (the D/I switch); the step is being left. */
 export function replaceCurrentStep(to: string): void {
   const { trail, current } = useStepTrailStore.getState()

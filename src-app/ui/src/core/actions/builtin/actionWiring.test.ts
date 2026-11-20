@@ -25,6 +25,7 @@ const NEW_IDS = [
   'features.clearAccountOverride',
   'methods.applyPreset',
   'flow.back',
+  'help.backToStep',
   'models.switchList',
   'flow.startPath',
   'models.useModel',

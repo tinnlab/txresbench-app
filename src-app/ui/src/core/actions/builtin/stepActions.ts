@@ -2,15 +2,19 @@ import { z } from 'zod'
 import { Permissions } from '@/api-client/permissions'
 import { defineAction } from '../defineAction'
 import { currentPathViaBridge } from '../navigateBridge'
+import { getActiveEntity } from '../activeContext'
 import { TxrIntake } from '@/modules/txrintake/stores/TxrIntake.store'
 import {
   beginPath,
   assertCanLeaveStep,
+  HELP_BACK_NO_STEP,
+  helpReturnTarget,
   isStepUrl,
   replaceCurrentStep,
   STEP_BACK_DIALOG_OPEN,
   STEP_BACK_LEAVING,
   takeStepBack,
+  TXR_HELP_FROM_STEP_CONTEXT,
   TXR_MODEL_STEP_CONTEXT,
   TXR_STEP_CONTEXT,
   useStepTrailStore,
@@ -18,7 +22,7 @@ import {
 
 // The step-flow actions of a new analysis: the Back button of each step view,
 // the switch between the published and the saved model lists on the model
-// step, and the entries that start a path (the Start and Help cards, Your
+// step, Help's "Back to step N" (Help opened from a step view), and the entries that start a path (the Start and Help cards, Your
 // models "Use", History "Use these settings again", the saved-models dialog).
 // Registered once so the buttons, the command palette and the AI take the
 // same path. The models and history stores are loaded on use (they are not
@@ -80,6 +84,24 @@ defineAction({
   params: z.object({}),
   run: (_params, ctx) => {
     const path = takeStepBack()
+    ctx.navigate(path)
+    return { path }
+  },
+})
+
+defineAction({
+  id: 'help.backToStep',
+  title: 'Go back from Help to the step it was opened from',
+  permission: Permissions.McpUse,
+  mutating: true,
+  context: TXR_HELP_FROM_STEP_CONTEXT,
+  aliases: ['back to step', 'back to my step'],
+  description:
+    'On Help opened from a step of a new analysis (a problem code link on the file step, for example), go back to that step. The step keeps what was entered there. Offered only then.',
+  params: z.object({}),
+  run: (_params, ctx) => {
+    const path = helpReturnTarget(getActiveEntity(TXR_HELP_FROM_STEP_CONTEXT))
+    if (path === null) throw new Error(HELP_BACK_NO_STEP)
     ctx.navigate(path)
     return { path }
   },

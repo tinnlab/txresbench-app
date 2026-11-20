@@ -1,7 +1,7 @@
 // The step-flow actions (`./stepActions.ts`): the registered metadata the palette
 // and the AI read, the refusals, and what each does — `flow.back` (navigation +
 // trail cut), `models.switchList` (the D/I switch that replaces the step) and
-// `flow.startPath` (the Start cards).
+// `flow.startPath` (the Start cards) and `help.backToStep` (Help opened from a step).
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -14,12 +14,15 @@ vi.mock('../navigateBridge', () => ({
 import './stepActions'
 import { getActionMeta, runAction } from '../defineAction'
 import { Permissions } from '@/api-client/permissions'
+import { registerActiveContext, unregisterActiveContext } from '../activeContext'
 import { useTxrIntakeStore } from '@/modules/txrintake/stores/TxrIntake.store'
 import type { ValidationResponse } from '@/api-client/types'
 import {
+  HELP_BACK_NO_STEP,
   STEP_BACK_DIALOG_OPEN,
   STEP_BACK_LEAVING,
   STEP_BACK_NO_STEP,
+  TXR_HELP_FROM_STEP_CONTEXT,
   TXR_MODEL_STEP_CONTEXT,
   useStepTrailStore,
   type TxrCurrentStep,
@@ -100,6 +103,47 @@ describe('flow.back', () => {
     onStep({ step: 'files', url: '/files', fallback: '/study' })
     await runAction('flow.back', {})
     expect(nav.navigate).toHaveBeenCalledWith('/study')
+  })
+})
+
+describe('help.backToStep', () => {
+  beforeEach(() => {
+    unregisterActiveContext(TXR_HELP_FROM_STEP_CONTEXT)
+  })
+
+  it('is registered: McpUse, mutating, global kind, the txr.helpFromStep context, on both surfaces, no params', () => {
+    const meta = getActionMeta('help.backToStep')
+    expect(meta).toBeDefined()
+    expect(meta?.permission).toBe(Permissions.McpUse)
+    expect(meta?.mutating).toBe(true)
+    expect(meta?.kind).toBe('global')
+    expect(meta?.context).toBe(TXR_HELP_FROM_STEP_CONTEXT)
+    expect(TXR_HELP_FROM_STEP_CONTEXT).toBe('txr.helpFromStep')
+    expect(meta?.surfaces).toEqual({ palette: true, ai: true })
+  })
+
+  it('goes back to the step Help was opened from and keeps the trail', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/study', '/files'] })
+    registerActiveContext(TXR_HELP_FROM_STEP_CONTEXT, { entityId: '/files' })
+    await expect(runAction('help.backToStep', {})).resolves.toEqual({ path: '/files' })
+    expect(nav.navigate).toHaveBeenCalledWith('/files')
+    expect(useStepTrailStore.getState().trail).toEqual(['/', '/study', '/files'])
+  })
+
+  it('refuses when Help was not opened from a step', async () => {
+    useStepTrailStore.setState({ trail: ['/', '/study', '/files'] })
+    await expect(runAction('help.backToStep', {})).rejects.toThrow(HELP_BACK_NO_STEP)
+    expect(nav.navigate).not.toHaveBeenCalled()
+  })
+
+  it('refuses a stale step (a new path started since) and a URL that is not a step', async () => {
+    useStepTrailStore.setState({ trail: ['/help'] })
+    registerActiveContext(TXR_HELP_FROM_STEP_CONTEXT, { entityId: '/files' })
+    await expect(runAction('help.backToStep', {})).rejects.toThrow(HELP_BACK_NO_STEP)
+    useStepTrailStore.setState({ trail: ['/', '/models'] })
+    registerActiveContext(TXR_HELP_FROM_STEP_CONTEXT, { entityId: '/models' })
+    await expect(runAction('help.backToStep', {})).rejects.toThrow(HELP_BACK_NO_STEP)
+    expect(nav.navigate).not.toHaveBeenCalled()
   })
 })
 
