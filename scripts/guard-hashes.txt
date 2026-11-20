@@ -1,14 +1,15 @@
-# guard-hashes.txt — the COMMITTED pins for scripts/check-*, scripts/lib/* and
-# scripts/coercion-parity* (ITEM-22, widened #287 R4 and #311/#324 R1).
+# guard-hashes.txt — the COMMITTED pins for every guard in GUARD_GLOBS (see
+# scripts/check-guard-integrity.sh): scripts/check-*, scripts/lib/*, and the UI-side
+# and gallery guards.
 #
 # Regenerate with:  scripts/check-guard-integrity.sh --update
 # A line changing here is a guard changing. That is the whole point: read it.
 #
 # <sha256>  <path>
 6cabd764847af5f39601c65d2514807c4172b3d2f64020850d78eb33c2a85413  scripts/check-aggregate.sh
-eafff1cde4753a7193b2c1fd58181b0b7ca641f81295ec323e56183ba7da44fe  scripts/check-aggregate.test.mjs
+338c409ced2458a2c9480e132707d67dfe4f6daf1ce0e3e807da764ff3a99f6d  scripts/check-aggregate.test.mjs
 a294ad55dfda966259c6e4c8bf4dff95581dd3736c6738441682e8dbee02feb7  scripts/check-dead-refs.sh
-a651b0cfbe2a18f8bfca9af64540e505e0cc5c9be1b8d8e827938d616008b4c5  scripts/check-guard-integrity.sh
+6646bedfba154370ccdc873345d4b83593652d0441559da3bdb7425f704d31db  scripts/check-guard-integrity.sh
 a3a75703d2b670fdc5443beed8efcf40012870e54d86cc56dd828219d925a475  scripts/check-method-env-images.sh
 b87b3297dfa6a5c22b967efa776c8fdca9102ce02b64be1bec648e72f2049e3b  scripts/check-method-env-images.test.mjs
 1552495acd913ef71ac78deb1b19853cfe24c47036412d443618e9f200c13882  scripts/check-method-list.sh
@@ -16,7 +17,7 @@ b87b3297dfa6a5c22b967efa776c8fdca9102ce02b64be1bec648e72f2049e3b  scripts/check-
 7d8319cae0f8f931d19676756dbbf6ade7fa15d212c18fea2c85a5bd1a1c0046  scripts/check-naming.sh
 9e00d66381c8571ec1439c23a973e470e5e50f65900b200698ae4083bab594d4  scripts/check-network-allowlist.sh
 17eb33761c94c94e0d608d037d0eb68454ad72b8b2280833826efb5326fd106f  scripts/check-network-allowlist.test.mjs
-1630610966c27fac97815969df6d45a85fdcc11c1c507dac06862c6773f9b293  scripts/check-no-format-crates.sh
+43348801cb26577e2ff6fb6a55987e00da21de7194dad41d600599d03f8e2913  scripts/check-no-format-crates.sh
 e8552beeff42941bf56cfb5dfafe5b22cd27a284e4af19b721187e30050f962b  scripts/check-no-study-domain-literals.sh
 57ae41c18759fe28ee80d095fbfddfa5a1c765a2ba081d916df9c6b8354eb880  scripts/check-pub-orphans.mjs
 770ea0efe5afe12b2961bb52d1ca50a49af9d1ac6f53b104f21fd9ee30093598  scripts/check-pub-orphans.test.mjs

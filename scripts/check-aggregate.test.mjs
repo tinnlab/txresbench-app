@@ -1269,3 +1269,20 @@ test('TEST-23 the UI-side and gallery guards that `just check` relies on are byt
     'lint-no-domain-in-builtin.mjs is the named exception and must stay out of the pin set',
   );
 });
+
+// ── TEST-24 ─────────────────────────────────────────────────────────────────────────
+test('TEST-24 docs/aggregate-gate-reporting.md states the same floors as AGGREGATE_FLOORS', () => {
+  // The doc is the reference for "what floor must not be lowered". A wrong number there
+  // invites someone to lower the real one to match it (it said `check-guards` 4 while the
+  // recipe had 6). The sentence is `(`check` N, `check-invariants` N, `check-guards` N)`.
+  const doc = fs.readFileSync(path.join(REPO, 'docs/aggregate-gate-reporting.md'), 'utf8');
+  const m = /\(`check` (\d+), `check-invariants` (\d+), `check-guards` (\d+)\)/.exec(doc);
+  assert.ok(m, 'docs/aggregate-gate-reporting.md §4 no longer states the floors as "(`check` N, `check-invariants` N, `check-guards` N)"');
+  const stated = { check: Number(m[1]), 'check-invariants': Number(m[2]), 'check-guards': Number(m[3]) };
+  assert.deepEqual(
+    stated,
+    AGGREGATE_FLOORS,
+    'the floors in docs/aggregate-gate-reporting.md §4 differ from AGGREGATE_FLOORS in this file; ' +
+      'fix the DOC (never lower a floor to match a stale doc)',
+  );
+});
