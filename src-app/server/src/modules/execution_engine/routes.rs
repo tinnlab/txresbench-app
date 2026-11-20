@@ -1065,6 +1065,24 @@ fn assemble_predictions(
             probabilities[slot] = p;
             notes[slot] = n;
         }
+        // The method's own results (score + call), aligned the same way. A
+        // patient only the native file names is never added to the run's
+        // patient list (the chance column defines the method's surface).
+        let native = super::predictions::read_native_column(run_dir, &m.method_id);
+        let (native_recorded, scores, calls) = match native {
+            Some(col) => {
+                let mut scores: Vec<Option<f64>> = vec![None; patients.len()];
+                let mut calls: Vec<Option<u8>> = vec![None; patients.len()];
+                for r in &col.rows {
+                    if let Some(slot) = index.get(&r.patient_id) {
+                        scores[*slot] = r.score;
+                        calls[*slot] = r.call;
+                    }
+                }
+                (true, scores, col.has_call.then_some(calls))
+            }
+            None => (false, Vec::new(), None),
+        };
         // The group label: the catalogue fact for the row's method id first
         // (the train case), then for the row's LABEL — a reuse run's
         // method_id is the model's UUID while its label is the model's name
@@ -1130,6 +1148,9 @@ fn assemble_predictions(
             },
             probabilities,
             notes,
+            native_recorded,
+            scores,
+            calls,
         });
     }
     (patients, methods_out)
@@ -1312,8 +1333,11 @@ fn download_predictions_docs(op: TransformOperation) -> TransformOperation {
             "The predictions CSV download (board G's \"Download\"): header `patient_id` + \
              one column per finished method (its id; probability, 6 decimals, empty when \
              abstained) + one `notes` column (`\"<method_id>: <note>\"` per note, \
-             newline-joined in one cell). Works while the run is active (finished methods \
-             only). 409 PREDICTIONS_UNAVAILABLE when none finished.",
+             newline-joined in one cell), then the methods' own results: per method with \
+             them recorded, `<method_id>.score` (the method's own score, higher = more \
+             likely failing) and, when it returned calls, `<method_id>.call` (1 = treatment \
+             judged failing, 0 = not failing). Works while the run is active (finished \
+             methods only). 409 PREDICTIONS_UNAVAILABLE when none finished.",
         )
         .id("Txr.downloadPredictions")
         .tag("txr")
@@ -1322,14 +1346,27 @@ fn download_predictions_docs(op: TransformOperation) -> TransformOperation {
         })
 }
 
-/// The CSV download text (DEC-11's shapes).
+/// The CSV download text (DEC-11's shapes). Every line starts with the
+/// original bytes (`patient_id`, one chance column per method, `notes`); the
+/// methods' own results follow `notes`: per method with them recorded,
+/// `<method_id>.score` and, when it returned calls, `<method_id>.call`. A run
+/// with nothing recorded keeps the original layout exactly.
 fn predictions_csv_text(patients: &[String], methods: &[TxrPredictionMethod]) -> String {
-    let mut out = String::from("patient_id");
-    for m in methods {
-        out.push(',');
-        out.push_str(&super::bundle::csv_cell(&m.method_id));
+    let mut header: Vec<String> = vec!["patient_id".to_string()];
+    header.extend(methods.iter().map(|m| m.method_id.clone()));
+    header.push("notes".to_string());
+    for m in methods.iter().filter(|m| m.native_recorded) {
+        header.push(format!("{}.score", m.method_id));
+        if m.calls.is_some() {
+            header.push(format!("{}.call", m.method_id));
+        }
     }
-    out.push_str(",notes\n");
+    let mut out = header
+        .iter()
+        .map(|name| super::bundle::csv_cell(name))
+        .collect::<Vec<_>>()
+        .join(",");
+    out.push('\n');
     for (i, p) in patients.iter().enumerate() {
         out.push_str(&super::bundle::csv_cell(p));
         for m in methods {
@@ -1349,6 +1386,18 @@ fn predictions_csv_text(patients: &[String], methods: &[TxrPredictionMethod]) ->
             })
             .collect();
         out.push_str(&super::bundle::csv_cell(&notes_cell.join("\n")));
+        for m in methods.iter().filter(|m| m.native_recorded) {
+            out.push(',');
+            if let Some(s) = m.scores.get(i).copied().flatten() {
+                out.push_str(&format!("{s}"));
+            }
+            if let Some(calls) = &m.calls {
+                out.push(',');
+                if let Some(c) = calls.get(i).copied().flatten() {
+                    out.push_str(&c.to_string());
+                }
+            }
+        }
         out.push('\n');
     }
     out
@@ -1703,6 +1752,9 @@ mod tests {
             coverage: TxrCoverage { scored: 2, eligible: 2, fraction: 1.0 },
             probabilities: vals,
             notes: vec![None, None],
+            native_recorded: false,
+            scores: Vec::new(),
+            calls: None,
         };
         let methods = vec![
             method("m1", TxrTask::Pfs, vec![Some(0.82), Some(0.93)]),
@@ -1771,6 +1823,104 @@ mod tests {
         assert_eq!(methods[0].method_id, "57519b29-fc69-4797-b38f-5822ae9dea91");
         assert_eq!(methods[0].label, "cfmedip-ctdna-clearance-three-group");
         assert_eq!(methods[0].group_label, "Response call");
+        let _ = std::fs::remove_dir_all(&run_dir);
+    }
+
+    /// The methods' own results ride the predictions answer and the CSV:
+    /// a method with `native.csv` answers `native_recorded` + its scores
+    /// (and calls when it returned them) aligned like the chances — a
+    /// patient only the native file names is never added; a method without
+    /// the file (a run from before it, a demo replay) answers "not recorded"
+    /// with empty arrays and no calls. The CSV keeps its original bytes as
+    /// each line's prefix and adds the own-result columns after `notes`.
+    #[test]
+    fn predictions_carry_the_methods_own_results() {
+        use super::super::predictions::{
+            write_chance_column, write_native_column, NativeColumn, NativeRow, PredictionRow,
+        };
+        let run_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/txr-execution-engine-native/assembly")
+            .join(uuid::Uuid::new_v4().simple().to_string());
+        let chance = |id: &str, p: Option<f64>, note: &str| PredictionRow {
+            patient_id: id.into(),
+            risk: p,
+            probability: p,
+            note: note.into(),
+        };
+        write_chance_column(
+            &run_dir,
+            "m-call",
+            &[chance("P1", Some(0.9), ""), chance("P2", None, "fewer than 3 draws by day 56")],
+        )
+        .expect("writes");
+        write_native_column(
+            &run_dir,
+            "m-call",
+            &NativeColumn {
+                has_call: true,
+                rows: vec![
+                    NativeRow { patient_id: "P1".into(), score: Some(2.5), call: Some(1) },
+                    NativeRow { patient_id: "P2".into(), score: None, call: None },
+                    NativeRow { patient_id: "P-extra".into(), score: Some(9.0), call: Some(0) },
+                ],
+            },
+        )
+        .expect("writes");
+        write_chance_column(&run_dir, "m-score", &[chance("P2", Some(0.3), ""), chance("P3", Some(0.6), "")])
+            .expect("writes");
+        write_native_column(
+            &run_dir,
+            "m-score",
+            &NativeColumn {
+                has_call: false,
+                rows: vec![
+                    NativeRow { patient_id: "P2".into(), score: Some(-0.125), call: None },
+                    NativeRow { patient_id: "P3".into(), score: Some(4.0), call: None },
+                ],
+            },
+        )
+        .expect("writes");
+        write_chance_column(&run_dir, "m-old", &[chance("P1", Some(0.4), "")]).expect("writes");
+
+        let rows_db = vec![
+            method_row("m-call", "pfs", "recalibrated", 1, 2),
+            method_row("m-score", "pfs", "recalibrated", 2, 2),
+            method_row("m-old", "pfs", "native", 1, 1),
+        ];
+        let (patients, methods) = assemble_predictions(&run_dir, &rows_db, 238.0);
+        assert_eq!(patients, vec!["P1", "P2", "P3"], "the native file never adds a patient");
+
+        assert!(methods[0].native_recorded);
+        assert_eq!(methods[0].scores, vec![Some(2.5), None]);
+        assert_eq!(methods[0].calls, Some(vec![Some(1), None]));
+        assert!(methods[1].native_recorded);
+        assert_eq!(methods[1].scores, vec![None, Some(-0.125), Some(4.0)]);
+        assert_eq!(methods[1].calls, None);
+        assert!(!methods[2].native_recorded);
+        assert!(methods[2].scores.is_empty());
+        assert_eq!(methods[2].calls, None);
+
+        // The wire: `calls` is absent (not null) for a method without calls.
+        let wire = serde_json::to_value(&methods[1]).unwrap();
+        assert_eq!(wire["native_recorded"], true);
+        assert!(wire.get("calls").is_none());
+        let wire = serde_json::to_value(&methods[0]).unwrap();
+        assert_eq!(wire["calls"], serde_json::json!([1, null]));
+
+        let csv = predictions_csv_text(&patients, &methods);
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(
+            lines[0],
+            "patient_id,m-call,m-score,m-old,notes,m-call.score,m-call.call,m-score.score"
+        );
+        assert_eq!(lines[1], "P1,0.900000,,0.400000,,2.5,1,");
+        assert_eq!(lines[2], "P2,,0.300000,,m-call: fewer than 3 draws by day 56,,,-0.125");
+        assert_eq!(lines[3], "P3,,0.600000,,,,,4");
+
+        // A run with nothing recorded keeps the original layout exactly.
+        let (patients, methods) = assemble_predictions(&run_dir, &rows_db[2..], 238.0);
+        let csv = predictions_csv_text(&patients, &methods);
+        assert_eq!(csv, "patient_id,m-old,notes\nP1,0.400000,\n");
         let _ = std::fs::remove_dir_all(&run_dir);
     }
 }

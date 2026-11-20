@@ -25,6 +25,8 @@ import {
 import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
 import { TxrMethodFilterBar } from '../components/TxrMethodFilterBar'
 import { TxrHeatmapTable } from '../components/TxrHeatmapTable'
+import { TxrNativeTable } from '../components/TxrNativeTable'
+import { ownResultColumnsOf } from '../lib/native'
 import { TxrLogDialog } from '../components/TxrLogDialog'
 import { TxrRunTrouble } from '../components/TxrRunTrouble'
 import { TxrRunFailedState } from '../components/TxrRunFailedState'
@@ -300,6 +302,14 @@ export function ResultsPage() {
     () => (view ? formatEmptyColumnsNote(view.emptyColumns) : null),
     [view],
   )
+  // The methods' own results under the chances: the view's shown columns
+  // plus the ones it dropped for having no chance (a saved model without a
+  // conversion still returned its own score), in the run's order; the rows
+  // are the chance table's own (order, search, filter, window).
+  const ownColumns = useMemo(
+    () => (view ? ownResultColumnsOf(allColumns, view.columns, view.emptyColumns) : []),
+    [allColumns, view],
+  )
 
   if (runError === 'not-found') {
     return (
@@ -533,6 +543,7 @@ export function ResultsPage() {
                   {groupedNote}
                 </p>
               ) : null}
+              <TxrNativeTable columns={ownColumns} rows={view.rows} patients={predictions.patients} />
             </div>
           </ScrollRegion>
         }

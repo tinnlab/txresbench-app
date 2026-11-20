@@ -2551,6 +2551,17 @@ mod tests {
         // The recorded chance column is the engine's artifact path.
         let chance = std::path::Path::new(&run.dir).join("output/kelim/chance.csv");
         assert!(chance.exists(), "the recorded column is staged");
+        // The recorded bundles carry no own results (score / yes-no call):
+        // nothing is staged for them, so the results say "not recorded"
+        // instead of showing numbers the demo never recorded.
+        assert!(
+            crate::modules::execution_engine::predictions::read_native_column(
+                std::path::Path::new(&run.dir),
+                "kelim"
+            )
+            .is_none(),
+            "a demo replay has no own results"
+        );
 
         // Idempotent: a second call seeds nothing new.
         let again = seed_example_runs(&pool, Some(&*bundle)).await.expect("second seed");

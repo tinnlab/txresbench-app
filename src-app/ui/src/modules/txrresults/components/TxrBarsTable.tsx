@@ -39,9 +39,12 @@
  * selector; same class as `txr-heatmap-show-more`).
  */
 import type { CSSProperties } from 'react'
+import { useMemo } from 'react'
 import { Button, Progress } from '@txresbench/kit'
 import type { TxrHeatmapColumn, TxrHeatmapRow, TxrOutcomeKey } from '../types'
-import { formatPct } from '../lib/format'
+import { OWN_CALL_HEADING, OWN_SCORE_HEADING, formatOwnCall, formatOwnScore, formatPct } from '../lib/format'
+import { hasOwnResults, ownResultOf, patientIndexOf } from '../lib/native'
+import type { TxrOwnResult } from '../lib/native'
 
 const MONO_FONT = "'Source Code Pro', ui-monospace, monospace"
 
@@ -144,6 +147,13 @@ export interface TxrBarsTableProps {
   horizon: number
   /** "Show all M" — the host raises the store's patient limit. */
   onShowAll: () => void
+  /**
+   * The one-method tab's own-result columns: the response's patient order
+   * (the native arrays' alignment). When given and the table shows ONE
+   * method with its own results recorded, "Own answer" (when the method
+   * returns yes/no calls) and "Own score" sit beside the chance.
+   */
+  ownPatients?: ReadonlyArray<string>
 }
 
 export function TxrBarsTable({
@@ -153,7 +163,12 @@ export function TxrBarsTable({
   outcome,
   horizon,
   onShowAll,
+  ownPatients,
 }: TxrBarsTableProps) {
+  const ownColumn =
+    ownPatients !== undefined && columns.length === 1 && hasOwnResults(columns[0]) ? columns[0] : null
+  const ownIndex = useMemo(() => patientIndexOf(ownPatients ?? []), [ownPatients])
+  const showOwnCall = ownColumn !== null && (ownColumn.native?.calls ?? null) !== null
   return (
     <div>
       <div style={TABLE_BOX} className="txr-results-table-box">
@@ -176,6 +191,16 @@ export function TxrBarsTable({
                   </span>
                 </th>
               ))}
+              {showOwnCall ? (
+                <th scope="col" style={TH} data-testid="txr-bars-header-own-call">
+                  {OWN_CALL_HEADING}
+                </th>
+              ) : null}
+              {ownColumn !== null ? (
+                <th scope="col" style={TH} data-testid="txr-bars-header-own-score">
+                  {OWN_SCORE_HEADING}
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -195,6 +220,12 @@ export function TxrBarsTable({
                       />
                     </td>
                   ))}
+                  {ownColumn !== null ? (
+                    <OwnValues
+                      own={ownResultOf(ownColumn, ownIndex, row.patientId)}
+                      showCall={showOwnCall}
+                    />
+                  ) : null}
                 </tr>
               )
             })}
@@ -219,6 +250,35 @@ export function TxrBarsTable({
     </div>
   )
 }
+
+/** The one-method row's own answer + own score (a dash for none). */
+function OwnValues({ own, showCall }: { own: TxrOwnResult | null; showCall: boolean }) {
+  const call = own === null ? null : formatOwnCall(own.call)
+  const score = own === null ? null : formatOwnScore(own.score)
+  return (
+    <>
+      {showCall ? (
+        <td style={{ ...TD, ...OWN_CALL_TD }} data-testid="txr-bars-own-call">
+          {call ?? <span style={OWN_NONE}>{'–'}</span>}
+        </td>
+      ) : null}
+      <td style={{ ...TD, ...OWN_SCORE_TD }} data-testid="txr-bars-own-score">
+        {score ?? <span style={OWN_NONE}>{'–'}</span>}
+      </td>
+    </>
+  )
+}
+
+const OWN_CALL_TD: CSSProperties = { fontWeight: 600, whiteSpace: 'nowrap' }
+
+const OWN_SCORE_TD: CSSProperties = {
+  fontFamily: MONO_FONT,
+  fontSize: 13,
+  fontVariantNumeric: 'tabular-nums',
+  whiteSpace: 'nowrap',
+}
+
+const OWN_NONE: CSSProperties = { color: 'var(--txr-muted)', fontWeight: 400 }
 
 function BarValue({
   value01,

@@ -384,7 +384,15 @@ describe('txrresults module (TEST-UR-13)', () => {
           // history_store/types.rs above) and the Stop-all shape's stopped/
           // skipped rows come from the execution_engine run record
           // (execution_engine/repository.rs — the RunRow counts pick).
-          p !== 'src-app/server/src/modules/history_store/repository.rs',
+          p !== 'src-app/server/src/modules/history_store/repository.rs' &&
+          // The methods' own results (native results under the chances):
+          // the engine records each finished method's own score + yes/no
+          // call beside its chance column (`native.csv`, predictions.rs) and
+          // the predictions answer / CSV carry them (routes.rs + types.rs,
+          // sanctioned above; the regenerated client + openapi likewise);
+          // the demo replay test pins that a replay has none recorded.
+          p !== 'src-app/server/src/modules/execution_engine/predictions.rs' &&
+          p !== 'src-app/server/src/modules/demo/replay.rs',
       ),
     ).toEqual([])
   })

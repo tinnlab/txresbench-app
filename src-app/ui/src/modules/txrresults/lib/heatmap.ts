@@ -37,6 +37,7 @@ import type {
   TxrHeatmapColumn,
   TxrHeatmapRow,
   TxrHeatmapView,
+  TxrNativeValues,
   TxrOutcomeKey,
   TxrSortKey,
 } from '../types'
@@ -173,8 +174,27 @@ export function buildColumns(
       values,
       notes: asArrayOf(m.notes),
       constantValue: constantValueOf(values),
+      native: nativeValuesOf(m),
     }
   })
+}
+
+/**
+ * The method's own results on the wire → the view's `native` (null = not
+ * recorded: an older run, a demo replay). `calls` keeps only the contract's
+ * two values (`1` judged failing, `0` not failing); anything else reads as
+ * no call. Both arrays go through the same array-union bridge as the chances.
+ */
+export function nativeValuesOf(m: TxrPredictionsResponse['methods'][number]): TxrNativeValues | null {
+  if (m.native_recorded !== true) return null
+  const scores = asArrayOf(m.scores ?? []).map(v =>
+    typeof v === 'number' && Number.isFinite(v) ? v : null,
+  )
+  const calls =
+    m.calls === undefined || m.calls === null
+      ? null
+      : asArrayOf(m.calls).map(v => (v === 1 ? 1 : v === 0 ? 0 : null))
+  return { scores, calls }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -16,7 +16,8 @@ import { buildColumns, compareReport, divergentPatients, sortByFirstMethod, view
 import { compareResultsPath, methodResultsPath, downloadPredictionsCsv } from '../index'
 import { predictionsSaveError, predictionsSaveLabel } from '../lib/download'
 import { SavedFileNotice } from '@/modules/txrshell/components/SavedFileNotice'
-import { formatConstantNote, formatEmptyColumnsNote, formatGroupedChanceNote, formatMixedOutcomeNote, txrRunFailed } from '../lib/format'
+import { formatConstantNote, formatEmptyColumnsNote, formatGroupedChanceNote, formatMixedOutcomeNote, formatOwnNotRecordedNote, txrRunFailed } from '../lib/format'
+import { hasOwnResults, ownResultColumnsOf } from '../lib/native'
 import { troubleRowsOf } from '../lib/trouble'
 import { subtitleFactsOf, TxrResultsBar, TxrResultsHeader } from '../components/TxrResultsHeader'
 import { TxrRunTrouble } from '../components/TxrRunTrouble'
@@ -24,12 +25,16 @@ import { TxrRunFailedState } from '../components/TxrRunFailedState'
 import { TxrMethodTabs } from '../components/TxrMethodTabs'
 import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
 import { TxrBarsTable } from '../components/TxrBarsTable'
+import { TxrNativeTable } from '../components/TxrNativeTable'
 import { TxrCompareCard } from '../components/TxrCompareCard'
 import { TxrComparePicker } from '../components/TxrComparePicker'
 import { TxrMethodAside } from '../components/TxrMethodAside'
 import { TxrChanceDialog } from '../components/TxrChanceDialog'
 import { TxrLogDialog } from '../components/TxrLogDialog'
 import type { TxrOutcomeKey } from '../types'
+
+/** The stable empty patient list (a fresh `[]` per render would re-key the own-result index). */
+const EMPTY_PATIENTS: ReadonlyArray<string> = []
 
 /**
  * Screen H — one run's methods in detail (boards `Results.dc.html` /
@@ -427,6 +432,20 @@ export function MethodResultsPage() {
         : null,
     [isCompareTab, baseView, allColumns, outcomeTab, responseDay, horizon],
   )
+  // The methods' own results: the compare tab lists the tab's shown columns
+  // plus the ones dropped for having no chance; a method tab shows its own
+  // beside the chance (the bars table's own columns) or, for a method with
+  // no chance at all, on their own.
+  const ownColumns = useMemo(
+    () =>
+      activeColumn
+        ? [activeColumn]
+        : baseView
+          ? ownResultColumnsOf(allColumns, baseView.columns, baseView.emptyColumns)
+          : [],
+    [activeColumn, baseView, allColumns],
+  )
+  const ownPatients = predictions?.patients ?? EMPTY_PATIENTS
 
   if (runError === 'not-found') {
     return (
@@ -680,8 +699,14 @@ export function MethodResultsPage() {
                       outcome={activeColumn?.task ?? outcomeTab}
                       horizon={(activeColumn?.task ?? outcomeTab) === 'response' ? responseDay : horizon}
                       onShowAll={() => TxrResults.setPatientLimit(-1)}
+                      ownPatients={activeColumn ? ownPatients : undefined}
                     />
                   )}
+                  {activeColumn && !activeEmpty && !hasOwnResults(activeColumn) ? (
+                    <p data-testid="txr-own-results-missing" style={{ ...NOTE_LINE, marginTop: 8 }}>
+                      {formatOwnNotRecordedNote([activeColumn.label])}
+                    </p>
+                  ) : null}
                   {constantNote !== null ? (
                     <p data-testid="txr-results-constant-note" style={{ ...NOTE_LINE, marginTop: 8 }}>
                       {constantNote}
@@ -706,6 +731,9 @@ export function MethodResultsPage() {
                     <p data-testid="txr-results-divergent-empty" style={{ ...NOTE_LINE, marginTop: 8 }}>
                       No patient differs between the two methods by 10 percentage points or more.
                     </p>
+                  ) : null}
+                  {activeColumn === null || activeEmpty ? (
+                    <TxrNativeTable columns={ownColumns} rows={tableRows} patients={ownPatients} />
                   ) : null}
                 </section>
                 <aside className="txr-h-aside" style={ASIDE_COLUMN}>
