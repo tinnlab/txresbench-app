@@ -37,8 +37,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Button, Input, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@txresbench/kit'
-import { FiAlertTriangle, FiArrowUp, FiCheckCircle, FiInfo } from 'react-icons/fi'
+import { Button, Input, Collapsible, CollapsibleContent, CollapsibleTrigger, message } from '@txresbench/kit'
+import { FiAlertTriangle, FiArrowLeft, FiArrowUp, FiCheckCircle, FiInfo } from 'react-icons/fi'
+import { useStore } from 'zustand'
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
 import { useAppMode, useDemoUsage } from '@/modules/demo'
@@ -71,6 +72,15 @@ import { TXRLIST_STATUS_COLORS } from '@/modules/txrlist/components/TxrListRow'
 // already recorded for `txrrun`).
 import { TxrUseExampleButton } from '@/modules/txrintake/components/TxrUseExampleButton'
 import { runAction } from '@/core/actions/defineAction'
+import { registerActiveContext, unregisterActiveContext } from '@/core/actions/activeContext'
+// The way back to the step Help was opened from: the step trail's own
+// check (the intake internals again, for the same cycle reason as above).
+import {
+  helpReturnTarget,
+  stepPlaceOf,
+  TXR_HELP_FROM_STEP_CONTEXT,
+  useStepTrailStore,
+} from '@/modules/txrintake/lib/stepTrail'
 import { saveFile, saveLabel } from '@/core/saveFile'
 import { SavedFileNotice } from '@/modules/txrshell/components/SavedFileNotice'
 import {
@@ -83,7 +93,7 @@ import {
   RUN_STATE_MEANINGS,
   problemGroupOf,
 } from '../content'
-import { helpPath } from '../routes'
+import { helpFromOf, helpPath } from '../routes'
 import type { FileCardContent, HelpBlock, HelpProblemEntry, HelpSection, ProblemGroup, QuickStartCard, StepCard } from '../types'
 
 /** The intake route the example action lands on (the one-click promise of
@@ -1096,8 +1106,59 @@ function sectionText(section: (typeof HELP_SECTIONS)[number]): string {
   return texts.join('\n').toLowerCase()
 }
 
+/** The "Back to step N" button's look: the step views' own Back button
+ *  (`TxrStepBack`), at the size of a line above the page title. */
+const BACK_TO_STEP: CSSProperties = {
+  borderRadius: 8,
+  background: 'var(--txr-surface)',
+  color: 'var(--txr-text)',
+  fontWeight: 600,
+  border: '1px solid var(--txr-border)',
+  marginBottom: 12,
+}
+
+/**
+ * Where Help's "Back to step N" goes, or null: the step URL the Help link
+ * carried as router state (`HelpLink`), while it is still the step the
+ * user left (the step trail's last step). While there is one, Help declares
+ * the `txr.helpFromStep` context, so the palette and the AI offer
+ * `help.backToStep` only then.
+ */
+function useHelpReturnTarget(state: unknown): string | null {
+  const trail = useStore(useStepTrailStore, s => s.trail)
+  const target = helpReturnTarget(helpFromOf(state), trail)
+  useEffect(() => {
+    if (target === null) return
+    registerActiveContext(TXR_HELP_FROM_STEP_CONTEXT, { entityId: target })
+    return () => unregisterActiveContext(TXR_HELP_FROM_STEP_CONTEXT)
+  }, [target])
+  return target
+}
+
+/** The button: it runs the registered `help.backToStep`, as the palette and the AI do. */
+function BackToStepButton({ target }: { target: string }) {
+  const place = stepPlaceOf(target)
+  if (place === null) return null
+  return (
+    <Button
+      data-testid="txr-help-back-to-step"
+      variant="outline"
+      icon={<FiArrowLeft />}
+      style={BACK_TO_STEP}
+      onClick={() => {
+        runAction('help.backToStep', {}).catch((error: unknown) => {
+          message.error(error instanceof Error ? error.message : 'Could not go back to the step.')
+        })
+      }}
+    >
+      {`Back to step ${place.step}: ${place.title}`}
+    </Button>
+  )
+}
+
 export function HelpPage() {
   const location = useLocation()
+  const backToStep = useHelpReturnTarget(location.state)
   // The per-route title system (R2-G1) — ITEM-3's local effect is now the
   // shell's one hook: the same "Help — TxResBench" byte, with the previous
   // title restored on unmount like every other route.
@@ -1318,6 +1379,7 @@ export function HelpPage() {
         top={
           <div className="txr-help-top" style={PAGE_TOP}>
             <div style={PAGE_INNER}>
+              {backToStep !== null ? <BackToStepButton target={backToStep} /> : null}
               <div style={EYEBROW}>TxResBench</div>
               <h1 style={TITLE}>Help</h1>
               <p data-testid="txr-help-purpose" style={PURPOSE}>

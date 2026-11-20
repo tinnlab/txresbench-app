@@ -15,9 +15,11 @@ const HelpPage = lazyWithPreload(() =>
  * entries — with a table of contents and anchor navigation; it renders in
  * light and dark and at phone width.
  *
- * The one cross-module seam: `helpPath(anchor)` through the barrel — the
- * intake module's validation problems list links each problem to its
- * matching code entry through the builder, never a URL literal. The module
+ * The one cross-module seam: `helpPath(anchor)` and `HelpLink` through the
+ * barrel — the intake module's validation problems list links each problem
+ * to its matching code entry through them, never a URL literal. `HelpLink`
+ * carries the step view on screen as router state, so Help offers "Back to
+ * step N" (the registered `help.backToStep`). The module
  * owns no store, no slot and no event: the page is static content.
  */
 export default createModule({

@@ -31,8 +31,9 @@
  *   underlined links glued to the sentence). The codes stay one "details"
  *   disclosure below the list — "Show the problem codes" — where each code
  *   links to its Help entry (`/help#problem-<code>` through the txrhelp
- *   route builder), so the diagnostic surface is still one click away and
- *   the plain sentence reads clean.
+ *   `HelpLink`, which also carries the step on screen so Help offers
+ *   "Back to step N"), so the diagnostic surface is still one click away
+ *   and the plain sentence reads clean.
  *
  * The testid carries the card kind and group (`txr-intake-file-problems-<kind>`
  * for the red box, `txr-intake-file-notes-<kind>` for the notes group, DEC-15
@@ -42,9 +43,8 @@
  */
 import { useState, type CSSProperties } from 'react'
 import { Button } from '@txresbench/kit'
-import { Link } from 'react-router-dom'
 import type { FileProblem, FileTableKind } from '@/api-client/types'
-import { helpPath, problemAnchorOf } from '@/modules/txrhelp'
+import { HelpLink, problemAnchorOf } from '@/modules/txrhelp'
 import { pluralize } from '../lib/format'
 
 /** The board's boxed list (problem lines are the provider's messages). */
@@ -171,15 +171,15 @@ function CodesDisclosure({ kind, group, groups }: { kind: FileTableKind; group: 
           <li key={one.message} style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             <span>
               {groupCodes(one).map(code => (
-                <Link
+                <HelpLink
                   key={code}
-                  to={helpPath(problemAnchorOf(code))}
+                  anchor={problemAnchorOf(code)}
                   data-testid={`txr-intake-problem-help-${code}`}
                   aria-label={`Help for problem code ${code}`}
                   style={CODES_CODE}
                 >
                   {code}
-                </Link>
+                </HelpLink>
               ))}
             </span>
             <span>

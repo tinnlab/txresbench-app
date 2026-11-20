@@ -46,8 +46,13 @@ modules navigate with the builder, never with a URL literal.
 
 - `txrintake` — the validation problems list (`TxrProblemList`) links each
   problem's code to its Help entry through `problemAnchorOf` (the barrel)
-  + `helpPath` (the route builder): `Row 14: … R03 → /help#problem-r03`.
-  The intake module declares `txrhelp` in its framework dependencies for
+  + `HelpLink` (the link built on `helpPath`): `Row 14: … R03 → /help#problem-r03`.
+  `HelpLink` carries the step view on screen as router state
+  (`helpLinkState`); Help then shows "Back to step N: <step heading>",
+  which runs the registered `help.backToStep` back to that step while it
+  is still the last step of the step trail (`txrintake/lib/stepTrail.ts`).
+  Help opened any other way (the menu, a reload, a typed address) carries
+  no state and shows no such button. The intake module declares `txrhelp` in its framework dependencies for
   that binding. The entries are the file validator's CLOSED 28-code
   vocabulary (`ProblemCode::ALL`, R01–R21 + A01–A07 — the two
   declared-not-applicable tidy ids, the five hold-by-construction rules
