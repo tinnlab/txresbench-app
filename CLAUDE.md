@@ -25,10 +25,10 @@ or `git worktree add` lacks it** — see Bring-up traps.
 
 | path | what |
 |---|---|
-| `src-app/server/` | Rust binary crate — `config/`, `migrations/`, `tests/`; module tree under `src/modules/` (the txr run/history/model/pretrained/method-catalogue/file-validator modules + the framework spine: account, jobs, sandbox, rootfs, mcp, features, sync, permissions) |
+| `src-app/server/` | Rust binary crate — `config/`, `migrations/`, `tests/`; module tree under `src/modules/` (the txr run/history/model/pretrained/method-catalogue/file-validator modules + the framework spine: account, jobs, sandbox, rootfs, mcp, features, sync, permissions). `sandbox/` has three method runners: bwrap on Linux (`service.rs`, `stack.rs`), a per-run microVM on macOS (`mac_vm_run.rs`) and the app's WSL 2 distro on Windows (`wsl_run.rs`), the two VM runners sharing `vm_exchange.rs` |
 | `src-app/ui/` | Vite/React/TS frontend; the app is the `txr*` module family + shell/help/settings (its own `npm run check` chain) |
 | `src-app/desktop/` | Tauri desktop shell (`tauri/`) + the desktop dev harness |
-| `sdk/` | submodule — the txresbench SDK: `crates/` (framework, core, auth, file, health, identity, notification, build-support, control-mcp, test-harness, sandbox-seccomp), `packages/` (kit, shell, framework, config, gallery, notification-ui, test-e2e), `desktop/harness` |
+| `sdk/` | submodule — the txresbench SDK: `crates/` (framework, core, auth, file, health, identity, notification, build-support, control-mcp, test-harness, sandbox-seccomp, plus the VM runner's three: sandbox-vm-protocol, sandbox-guest-agent, sandbox-vm-launcher), `packages/` (kit, shell, framework, config, gallery, notification-ui, test-e2e), `desktop/harness` |
 | `data/` | first-party embedded data: `method-catalogue/`, `file-validator/`, `pretrained-catalogue/` |
 | `scripts/` | generators + the guard suite (see Guards); `scripts/lib/` is shared verify logic |
 | `docs/` | design + research, read on demand (the single-cell platform's docs were removed with it) |

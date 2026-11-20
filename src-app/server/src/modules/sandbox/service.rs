@@ -1228,7 +1228,7 @@ pub async fn run_method_in_stack(
     _job_id: Uuid,
     _sink: Option<std::sync::Arc<dyn super::backend::ProgressSink>>,
 ) -> Result<MethodRunResult, AppError> {
-    Err(unavailable("the method sandbox runs on Linux and Apple Silicon macOS only"))
+    Err(unavailable("the method sandbox runs on Linux, Apple Silicon macOS and Windows (WSL 2) only"))
 }
 
 /// The fit-mode `/model` mount (DEC-6): the request's `model_out_dir` bound
