@@ -71,10 +71,17 @@ const ERROR_CANCELLED: u32 = 1223;
 /// How long a declined setup is not offered again.
 const DECLINE_PAUSE_SECS: u64 = 60;
 
-/// How far apart two readings of Windows' start time may be and still name
-/// the same start (the reading is the clock minus the time since the start,
-/// to the second; a restart is minutes apart).
+/// Without Windows' boot counter ([`Machine::boot_id`]): how far apart two
+/// readings of Windows' start time may be and still name the same start. The
+/// reading is the clock minus the time since the start, to the second, so it
+/// moves with the clock's corrections, after a week or two by more than this
+/// at worst: the app then forgets "restart Windows" and offers the setup
+/// again. A restart is minutes apart.
 const SAME_BOOT_SLACK_SECS: u64 = 60;
+
+/// How far Windows' running time, read twice in the same start, may seem to
+/// go back (each reading is to the second).
+const UPTIME_SLACK_SECS: u64 = 2;
 
 /// The marker file's name in the app's data dir.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
@@ -225,6 +232,9 @@ trait Machine: Send + Sync {
     fn now(&self) -> u64;
     /// When Windows started, in seconds since 1970; `None` when not known.
     fn boot_time(&self) -> Option<u64>;
+    /// Windows' boot counter, one more at every start of Windows; `None` when
+    /// not known.
+    fn boot_id(&self) -> Option<u32>;
     /// `process` still runs.
     fn alive(&self, process: Process) -> bool;
     /// This process (the app); `None` when not known.
@@ -235,13 +245,16 @@ trait Machine: Send + Sync {
 
 /// The setup as a reopened app, or a second app open beside the first,
 /// finds it: started at `started_at` while Windows had started at
-/// `boot_time`, by the app process `app`, its elevated process once Windows
-/// started one, and its result once it ended. Written when a setup starts,
-/// when its elevated process started and when it ended.
+/// `boot_time` and had the boot counter `boot_id`, by the app process `app`,
+/// its elevated process once Windows started one, and its result once it
+/// ended. Written when a setup starts, when its elevated process started and
+/// when it ended.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Marker {
     started_at: u64,
     boot_time: Option<u64>,
+    /// Absent, so none, in a marker of an older build.
+    boot_id: Option<u32>,
     /// The app that started the setup (absent, so none, in a marker of an
     /// older build).
     app: Option<Process>,
@@ -348,16 +361,35 @@ impl SetupState {
                     Earlier::Nothing
                 }
             }
-            Some(result) if result.waits_for_a_restart() && self.same_boot(marker.boot_time) => {
+            Some(result) if result.waits_for_a_restart() && self.same_boot(&marker) => {
                 Earlier::WaitsForRestart(result)
             }
             Some(_) => Earlier::Nothing,
         }
     }
 
-    /// Windows has not restarted since `then` (both start times known).
-    fn same_boot(&self, then: Option<u64>) -> bool {
-        matches!((then, self.machine.boot_time()), (Some(then), Some(now)) if then.abs_diff(now) <= SAME_BOOT_SLACK_SECS)
+    /// Windows has not restarted since `marker` was written. Windows' boot
+    /// counter decides when both readings have it: it does not drift, where
+    /// the start time read from the clock moves with the clock's corrections.
+    /// As the counter is not documented by Microsoft, a restart is also seen
+    /// when Windows has run for less time now than it had then. Without the
+    /// counter, the two start times must agree within
+    /// [`SAME_BOOT_SLACK_SECS`]. Not known: not the same boot (the setup is
+    /// offered again rather than "restart Windows" for ever).
+    fn same_boot(&self, marker: &Marker) -> bool {
+        let boot_now = self.machine.boot_time();
+        match (marker.boot_id, self.machine.boot_id()) {
+            (Some(id_then), Some(id_now)) => {
+                let ran_then = marker.boot_time.map(|boot| marker.started_at.saturating_sub(boot));
+                let ran_now = boot_now.map(|boot| self.machine.now().saturating_sub(boot));
+                let ran_less = matches!((ran_then, ran_now), (Some(then), Some(now)) if now + UPTIME_SLACK_SECS < then);
+                id_then == id_now && !ran_less
+            }
+            _ => matches!(
+                (marker.boot_time, boot_now),
+                (Some(then), Some(now)) if then.abs_diff(now) <= SAME_BOOT_SLACK_SECS
+            ),
+        }
     }
 
     fn write(&self, marker: &Marker) {
@@ -396,6 +428,7 @@ impl SetupState {
         let marker = Marker {
             started_at: self.machine.now(),
             boot_time: self.machine.boot_time(),
+            boot_id: self.machine.boot_id(),
             app: self.machine.this_process(),
             process: None,
             result: None,
@@ -701,6 +734,17 @@ impl Machine for SystemMachine {
         }
     }
 
+    fn boot_id(&self) -> Option<u32> {
+        #[cfg(target_os = "windows")]
+        {
+            elevated::boot_id()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            None
+        }
+    }
+
     fn alive(&self, process: Process) -> bool {
         #[cfg(target_os = "windows")]
         {
@@ -904,6 +948,17 @@ mod elevated {
         use windows_sys::Win32::System::SystemInformation::GetTickCount64;
         // SAFETY: no arguments; reads the system's tick count.
         now.saturating_sub(unsafe { GetTickCount64() } / 1000)
+    }
+
+    /// Where Windows keeps its boot counter, `BootId`: one more at every
+    /// start of Windows. Not documented by Microsoft (it is the prefetcher's);
+    /// in the test VM (Windows 11 26200) it equals the starts in the System
+    /// log (Kernel-General event 12).
+    const BOOT_ID_KEY: &str = r"SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters";
+
+    /// Windows' boot counter, when this Windows keeps one.
+    pub(super) fn boot_id() -> Option<u32> {
+        crate::modules::sandbox::win_registry::hklm_dword(BOOT_ID_KEY, "BootId")
     }
 
     /// The process behind `handle`: its id and creation time.
@@ -1356,6 +1411,8 @@ mod tests {
     struct FakeMachine {
         now: AtomicU64,
         boot: Mutex<Option<u64>>,
+        /// Windows' boot counter (none unless a test sets it).
+        boot_id: Mutex<Option<u32>>,
         /// The processes that run (shared with the apps [`FakeMachine::beside`]).
         running: Arc<Mutex<Vec<Process>>>,
         /// This app's process.
@@ -1368,6 +1425,7 @@ mod tests {
             Arc::new(Self {
                 now: AtomicU64::new(T0),
                 boot: Mutex::new(Some(BOOT)),
+                boot_id: Mutex::new(None),
                 running: Arc::new(Mutex::new(vec![PROCESS, APP, OTHER_APP])),
                 this: APP,
                 marker,
@@ -1379,6 +1437,7 @@ mod tests {
             Arc::new(Self {
                 now: AtomicU64::new(self.now()),
                 boot: Mutex::new(self.boot_time()),
+                boot_id: Mutex::new(self.boot_id()),
                 running: Arc::clone(&self.running),
                 this: OTHER_APP,
                 marker: self.marker.clone(),
@@ -1401,6 +1460,9 @@ mod tests {
         }
         fn boot_time(&self) -> Option<u64> {
             *self.boot.lock().unwrap()
+        }
+        fn boot_id(&self) -> Option<u32> {
+            *self.boot_id.lock().unwrap()
         }
         fn alive(&self, process: Process) -> bool {
             self.running.lock().unwrap().contains(&process)
@@ -1775,7 +1837,14 @@ mod tests {
         until("the process in the marker", || read_marker(&dir.marker()).is_some_and(|m| m.process.is_some()));
         assert_eq!(
             read_marker(&dir.marker()),
-            Some(Marker { started_at: T0, boot_time: Some(BOOT), app: Some(APP), process: Some(PROCESS), result: None })
+            Some(Marker {
+                started_at: T0,
+                boot_time: Some(BOOT),
+                boot_id: None,
+                app: Some(APP),
+                process: Some(PROCESS),
+                result: None
+            })
         );
         release.send(()).unwrap();
         until("the setup's end", || !state.status(None).running);
@@ -1784,6 +1853,7 @@ mod tests {
             Some(Marker {
                 started_at: T0,
                 boot_time: Some(BOOT),
+                boot_id: None,
                 app: Some(APP),
                 process: Some(PROCESS),
                 result: Some(WslSetupResult::done(true))
@@ -1800,7 +1870,7 @@ mod tests {
         let dir = TestDir::new("reopened-running");
         let machine = FakeMachine::new(Some(dir.marker()));
         let marker =
-            Marker { started_at: T0, boot_time: Some(BOOT), app: Some(CLOSED_APP), process: Some(PROCESS), result: None };
+            Marker { started_at: T0, boot_time: Some(BOOT), boot_id: None, app: Some(CLOSED_APP), process: Some(PROCESS), result: None };
         write_marker(&dir.marker(), &marker).unwrap();
 
         let reopened = SetupState::new(machine.clone());
@@ -1861,7 +1931,8 @@ mod tests {
     fn a_marker_without_a_result_runs_while_another_app_that_wrote_it_is_open() {
         let dir = TestDir::new("own-marker");
         let machine = FakeMachine::new(Some(dir.marker()));
-        let marker = Marker { started_at: T0, boot_time: Some(BOOT), app: Some(APP), process: None, result: None };
+        let marker =
+            Marker { started_at: T0, boot_time: Some(BOOT), boot_id: None, app: Some(APP), process: None, result: None };
         write_marker(&dir.marker(), &marker).unwrap();
         assert!(!SetupState::new(machine.clone()).status(Some(WslStatus::Missing)).running, "this app's own marker");
         assert!(SetupState::new(machine.beside()).status(Some(WslStatus::Missing)).running, "the other app is open");
@@ -1913,6 +1984,56 @@ mod tests {
         assert!(host.questions().is_empty());
     }
 
+    /// With Windows' boot counter in both readings, the counter says whether
+    /// Windows restarted, whatever the clock did meanwhile: two weeks of the
+    /// clock's corrections (its reading of the start ten minutes off) still
+    /// say "restart Windows"; a new counter is a restart. A counter that did
+    /// not move while Windows ran for less time than when the setup started
+    /// is a restart too. Without the counter in either reading, the clock
+    /// decides (within a minute), as before.
+    #[test]
+    fn windows_boot_counter_says_whether_windows_restarted() {
+        let dir = TestDir::new("boot-id");
+        let machine = FakeMachine::new(Some(dir.marker()));
+        *machine.boot_id.lock().unwrap() = Some(8);
+        let state = SetupState::new(machine.clone());
+        let r = run_on(&state, WslStatus::Missing, Arc::new(FakeHost::new(exited(0, ""), WslStatus::Missing)));
+        assert_eq!(r, WslSetupResult::done(true));
+        assert_eq!(read_marker(&dir.marker()).and_then(|m| m.boot_id), Some(8), "the counter in the marker");
+        let waits = |machine: &Arc<FakeMachine>| {
+            let s = SetupState::new(machine.clone()).status(Some(WslStatus::Missing));
+            s.last.is_some_and(|r| r.waits_for_a_restart()) && s.offer.is_none()
+        };
+
+        machine.pass(14 * 24 * 3600);
+        *machine.boot.lock().unwrap() = Some(BOOT + 600);
+        assert!(waits(&machine), "the same start: the clock moved, the counter did not");
+        *machine.boot_id.lock().unwrap() = Some(9);
+        assert!(!waits(&machine), "a new counter: Windows restarted");
+
+        // Restarted 100 s after the setup, read 400 s later: Windows has run
+        // for 400 s, less than the hour it had run when the setup started.
+        *machine.boot_id.lock().unwrap() = Some(8);
+        machine.now.store(T0 + 500, Ordering::SeqCst);
+        *machine.boot.lock().unwrap() = Some(T0 + 100);
+        assert!(!waits(&machine), "a counter that did not move with a shorter running time");
+
+        // No counter now: the clock decides.
+        *machine.boot_id.lock().unwrap() = None;
+        *machine.boot.lock().unwrap() = Some(BOOT + 2);
+        assert!(waits(&machine), "the clock within a minute");
+        *machine.boot.lock().unwrap() = Some(BOOT + 600);
+        assert!(!waits(&machine), "the clock ten minutes off");
+        // A marker without the counter (an older build's), a counter now: the clock decides.
+        let mut marker = read_marker(&dir.marker()).unwrap();
+        marker.boot_id = None;
+        write_marker(&dir.marker(), &marker).unwrap();
+        *machine.boot_id.lock().unwrap() = Some(8);
+        assert!(!waits(&machine), "an older marker, the clock ten minutes off");
+        *machine.boot.lock().unwrap() = Some(BOOT);
+        assert!(waits(&machine), "an older marker, the clock agrees");
+    }
+
     #[test]
     fn a_marker_of_another_outcome_or_unreadable_is_nothing() {
         let dir = TestDir::new("marker-other");
@@ -1923,7 +2044,7 @@ mod tests {
             WslSetupResult::failed(Some(1), "no".into()),
         ] {
             let marker =
-                Marker { started_at: T0, boot_time: Some(BOOT), app: None, process: Some(PROCESS), result: Some(result) };
+                Marker { started_at: T0, boot_time: Some(BOOT), boot_id: None, app: None, process: Some(PROCESS), result: Some(result) };
             write_marker(&dir.marker(), &marker).unwrap();
             let s = SetupState::new(machine.clone()).status(Some(WslStatus::Missing));
             assert_eq!(s, status(Some(WslSetupOffer::Install), false, None), "{marker:?}");
@@ -2331,12 +2452,19 @@ mod tests {
             assert_eq!(elevated::this_process(), Some(me), "the same twice");
         }
 
+        /// Windows' start, read twice 2.5 s apart: the same boot counter, and
+        /// start times from the clock within a second of each other (a
+        /// reading that followed the clock alone would be 2 s or more apart).
         #[test]
-        fn windows_start_time_reads_the_same_twice() {
-            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-            let (a, b) = (elevated::boot_time(now), elevated::boot_time(now + 3));
-            assert!(a <= now && a.abs_diff(b) <= 4, "{a} {b} {now}");
-            assert!(a > 1_500_000_000, "{a}");
+        fn windows_start_reads_the_same_twice() {
+            let now = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+            let first = (elevated::boot_id(), elevated::boot_time(now()), now());
+            std::thread::sleep(Duration::from_millis(2500));
+            let second = (elevated::boot_id(), elevated::boot_time(now()));
+            assert!(first.0.is_some_and(|id| id > 0), "this Windows keeps its boot counter: {first:?}");
+            assert_eq!(first.0, second.0, "the same counter");
+            assert!(first.1.abs_diff(second.1) <= 1, "the same start: {first:?} {second:?}");
+            assert!(first.1 > 1_500_000_000 && first.1 <= first.2, "{first:?}");
         }
 
         fn wide(s: &std::ffi::OsStr) -> Vec<u16> {
