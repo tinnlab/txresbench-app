@@ -210,7 +210,8 @@ pub fn base_env_id(entry: &envmanifest::ManifestEntry) -> String {
 /// method failure with the typed reason — never a silent retry). The
 /// provider's own codes pass through verbatim (the reason vocabulary is one
 /// list after the reconcile growth — a consumer renderer switches on the
-/// code); everything else is the engine's `ENV_UNREADY` with the message.
+/// code), the VM and WSL runner codes among them
+/// ([`crate::modules::sandbox::config::RUNNER_CODES`]); everything else is the engine's `ENV_UNREADY` with the message.
 pub fn env_failure_reason(err: &AppError) -> TxrRunReason {
     const PASSTHROUGH: &[&str] = &[
         "ENV_VERIFY_FAILED",
@@ -226,7 +227,7 @@ pub fn env_failure_reason(err: &AppError) -> TxrRunReason {
         "ENV_TOOL_MISSING",
     ];
     let code = err.error_code();
-    if PASSTHROUGH.contains(&code) {
+    if PASSTHROUGH.contains(&code) || crate::modules::sandbox::config::RUNNER_CODES.contains(&code) {
         TxrRunReason {
             code: code.to_string(),
             detail: err.to_string(),

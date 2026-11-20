@@ -78,16 +78,19 @@ pub(crate) const CHECK_TIMEOUT_MS: u64 = 15_000;
 pub(crate) const COPY_BACK_IDLE: Duration = Duration::from_secs(60);
 
 /// The method VM could not be prepared, booted or reached, or stopped
-/// before the command finished.
-pub const VM_UNAVAILABLE_CODE: &str = "SANDBOX_VM_UNAVAILABLE";
+/// before the command finished (the code lives in `config`, which every
+/// platform builds, so the closed lists can name it).
+pub use super::config::VM_UNAVAILABLE_CODE;
 
 /// Some of the run's output files could not be copied back from the method
 /// VM; the run is refused rather than kept with partial outputs.
-pub const VM_OUTPUTS_INCOMPLETE_CODE: &str = "SANDBOX_VM_OUTPUTS_INCOMPLETE";
+pub use super::config::VM_OUTPUTS_INCOMPLETE_CODE;
 
 /// Where the guest agent runs, as messages name it: the macOS method VM, or
 /// the Windows app's WSL distro. Only the words differ by platform: every
-/// error CODE is the same on both (the UI maps the codes).
+/// error CODE is the same on both. The codes sit in the closed lists named
+/// at [`super::config::RUNNER_ENV_CODES`], where the UI's sentence for each
+/// is chosen.
 #[cfg(target_os = "macos")]
 const GUEST: &str = "the method VM";
 #[cfg(windows)]

@@ -69,6 +69,30 @@ pub struct SandboxState {
     pub host_caps: HostCapabilities,
 }
 
+/// The method VM (macOS) or the WSL distro (Windows) could not be prepared,
+/// booted or reached, or stopped before the command finished.
+pub const VM_UNAVAILABLE_CODE: &str = "SANDBOX_VM_UNAVAILABLE";
+
+/// The WSL runner (Windows) could not be prepared or reached.
+pub const WSL_UNAVAILABLE_CODE: &str = "SANDBOX_WSL_UNAVAILABLE";
+
+/// Some of a run's output files could not be copied back from the method VM
+/// or the WSL distro; the run is refused rather than kept with partial
+/// outputs.
+pub const VM_OUTPUTS_INCOMPLETE_CODE: &str = "SANDBOX_VM_OUTPUTS_INCOMPLETE";
+
+/// The runner codes whose story is "the place methods run in could not be
+/// prepared": the environment family, like `SANDBOX_UNAVAILABLE`. The
+/// sanitiser (`err_sanitiser::is_env_code`), the run-reason pass-through
+/// (`orchestrator::env_failure_reason`) and the UI's `ENV_FAMILY_CODES`
+/// (`txrresults/lib/trouble.ts`) all list these; a test per side pins it.
+pub const RUNNER_ENV_CODES: [&str; 2] = [VM_UNAVAILABLE_CODE, WSL_UNAVAILABLE_CODE];
+
+/// Every typed code the VM and WSL runners raise (the env family above plus
+/// the copy-back refusal). They reach run reasons verbatim.
+pub const RUNNER_CODES: [&str; 3] =
+    [VM_UNAVAILABLE_CODE, WSL_UNAVAILABLE_CODE, VM_OUTPUTS_INCOMPLETE_CODE];
+
 static STATE: OnceCell<Arc<SandboxState>> = OnceCell::new();
 static INIT_STATUS: OnceCell<SandboxAvailability> = OnceCell::new();
 
