@@ -1,4 +1,4 @@
-import { getAuthToken, getBaseUrl } from '../api-client/core'
+import { getAuthToken, getBaseUrl, getExtraHeaders } from '../api-client/core'
 import { bumpFetchEpoch } from '../api-client/inflight'
 // Generic SSE frame shape (app-agnostic): the runtime only reads these
 // three string fields off each 'sync' frame, so the framework needs no
@@ -121,11 +121,15 @@ async function connectOnce(myEpoch: number): Promise<void> {
   // user-switch superseded this loop meanwhile, bail before opening a stream.
   if (!started || myEpoch !== epoch) return
 
+  const extraHeaders = await getExtraHeaders()
+  if (!started || myEpoch !== epoch) return
+
   const abort = new AbortController()
   activeAbort = abort
 
   const response = await fetch(`${baseUrl}/api/sync/subscribe`, {
     headers: {
+      ...extraHeaders,
       Authorization: `Bearer ${token}`,
       Accept: 'text/event-stream',
     },

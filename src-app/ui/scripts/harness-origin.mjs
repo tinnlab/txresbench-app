@@ -87,11 +87,25 @@ function errCode(e) {
  * → `{ kind: 'unidentified' }`    something answered, but not as a sentinel
  * → `{ kind: 'root', root }`      it identified itself
  */
+/**
+ * The backend refuses every request without its local-API key (the
+ * `X-TxR-Local-Key` header, the `/__worktree` sentinel included), so a probe of the
+ * full-backend tier sends the key the run handed that backend (`TXR_LOCAL_API_KEY`).
+ * Unset (every other tier: the vite sentinel needs none) → no header, as before.
+ */
+export function localKeyHeaders(env = process.env) {
+  const key = env.TXR_LOCAL_API_KEY
+  return key ? { 'X-TxR-Local-Key': key } : {}
+}
+
 async function probeFamily(host, port, fetchImpl, timeoutMs) {
   const ac = new AbortController()
   const t = setTimeout(() => ac.abort(), timeoutMs)
   try {
-    const r = await fetchImpl(`http://${host}:${port}/__worktree`, { signal: ac.signal })
+    const r = await fetchImpl(`http://${host}:${port}/__worktree`, {
+      signal: ac.signal,
+      headers: localKeyHeaders(),
+    })
     if (!r.ok) return { kind: 'unidentified' }
     const j = await r.json().catch(() => null)
     const root = typeof j?.worktreeRoot === 'string' && j.worktreeRoot.trim() ? j.worktreeRoot.trim() : null
@@ -243,7 +257,7 @@ export async function assertOriginIsOurs({
     try {
       const ac = new AbortController()
       const t = setTimeout(() => ac.abort(), timeoutMs * 3)
-      const r = await fetchImpl(url, { signal: ac.signal })
+      const r = await fetchImpl(url, { signal: ac.signal, headers: localKeyHeaders() })
       clearTimeout(t)
       ok = r.ok
       detail = `HTTP ${r.status}`

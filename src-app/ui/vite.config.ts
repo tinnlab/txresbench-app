@@ -7,6 +7,15 @@ import { txrBuiltCssUrlsCheck } from './vite-built-css-check'
 
 const srcDir = path.resolve(__dirname, './src')
 
+// The backend refuses every request without its local-API key (`X-TxR-Local-Key`).
+// A browser on the dev or preview server has no Tauri IPC to learn it, so the /api
+// proxy adds it: run both with the same `TXR_LOCAL_API_KEY` (the CLI server prints
+// a generated one at start when none is set). Unset → no header (a demo-mode
+// backend has no lock).
+const localKeyHeaders: Record<string, string> = process.env.TXR_LOCAL_API_KEY
+  ? { 'X-TxR-Local-Key': process.env.TXR_LOCAL_API_KEY }
+  : {}
+
 /**
  * The X1 build check (qa-fixes ITEM-7, wired ITEM-6-d): after the build
  * closes, every `url()` in the built CSS must resolve inside the built
@@ -75,6 +84,7 @@ export default defineConfig({
         target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:3100/',
         changeOrigin: true,
         xfwd: true,
+        headers: localKeyHeaders,
       },
     },
   },
@@ -100,6 +110,7 @@ export default defineConfig({
         target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:3100/',
         changeOrigin: true,
         xfwd: true,
+        headers: localKeyHeaders,
       },
     },
   },

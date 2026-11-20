@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@txresbench/framework/api-client', () => ({
   getAuthToken: () => 'test-token',
   getBaseUrl: async () => 'http://agent.test',
+  getExtraHeaders: async () => ({}),
   callAsync: vi.fn(),
 }))
 

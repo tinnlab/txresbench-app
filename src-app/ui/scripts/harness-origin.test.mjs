@@ -19,6 +19,7 @@ import {
   assertOriginIsOurs,
   classifyOrigin,
   originBanner,
+  localKeyHeaders,
   originIsOurs,
 } from './harness-origin.mjs'
 import { HARNESS_ORIGINS_ENV, preflight, readOrigins } from './harness-preflight.mjs'
@@ -28,8 +29,13 @@ const OURS = '/wt/mine'
 
 /** A listener on `[::1]:0`. `root` null → no sentinel (404). `page` false → the
  *  page path 404s while the sentinel still answers. */
-async function standIn({ root = OURS, page = true } = {}) {
+async function standIn({ root = OURS, page = true, requireKey = null } = {}) {
   const srv = createServer((req, res) => {
+    // A backend behind the local-API lock: 403 and nothing else without its key.
+    if (requireKey && req.headers['x-txr-local-key'] !== requireKey) {
+      res.statusCode = 403
+      return res.end()
+    }
     if (req.url?.startsWith('/__worktree')) {
       if (root === null) {
         res.statusCode = 404
@@ -276,4 +282,29 @@ test('a watchdog with no published origins says so instead of pretending to watc
   const r = new HarnessWatchdogReporter({ env: {}, ownRoot: OURS, onAbort: () => {} })
   assert.equal(r.origins, null)
   assert.match(r.originsError.message, /is not set/)
+})
+
+// ── the local-API key ──────────────────────────────────────────────────────
+
+test('a backend behind the local-API lock is probed WITH the run key', async t => {
+  if (!hasIPv6) return t.skip('no usable IPv6 localhost on this box')
+  const s = await standIn({ root: OURS, requireKey: 'run-key-123' })
+  const before = process.env.TXR_LOCAL_API_KEY
+  try {
+    delete process.env.TXR_LOCAL_API_KEY
+    assert.equal((await classifyOrigin(s.port, { ownRoot: OURS })).state, 'unidentified', 'no key → refused')
+    process.env.TXR_LOCAL_API_KEY = 'run-key-123'
+    assert.equal((await classifyOrigin(s.port, { ownRoot: OURS })).state, 'ours')
+    await assertOriginIsOurs({ port: s.port, url: `http://[::1]:${s.port}/__worktree`, ownRoot: OURS })
+  } finally {
+    if (before === undefined) delete process.env.TXR_LOCAL_API_KEY
+    else process.env.TXR_LOCAL_API_KEY = before
+    await s.close()
+  }
+})
+
+test('localKeyHeaders sends the header only when a key is set', () => {
+  assert.deepEqual(localKeyHeaders({}), {})
+  assert.deepEqual(localKeyHeaders({ TXR_LOCAL_API_KEY: '' }), {})
+  assert.deepEqual(localKeyHeaders({ TXR_LOCAL_API_KEY: 'k' }), { 'X-TxR-Local-Key': 'k' })
 })

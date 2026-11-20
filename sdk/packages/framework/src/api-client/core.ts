@@ -23,6 +23,28 @@ export const setBaseUrlResolver = (fn: () => Promise<string>): void => {
 /** Resolve the API base URL via the registered resolver (default: same-origin). */
 export const getBaseUrl = (): Promise<string> => baseUrlResolver()
 
+// ─────────────────────── Extra request headers (injected) ───────────────────
+//
+// Headers an app needs on EVERY request to its own server and that are not
+// the auth token: e.g. a local-API key the embedded desktop server demands, which
+// the webview can only learn asynchronously (Tauri IPC). Same DI pattern as the
+// base-URL resolver. Default: none, so an app that registers nothing is
+// unchanged. Every transport in this package (`callAsync` fetch + upload XHR,
+// the sync stream) awaits it BEFORE it sends, so no request leaves without them.
+let extraHeadersProvider: () => Promise<Record<string, string>> = () =>
+  Promise.resolve({})
+
+/** Register the app's extra-request-headers provider (called once at app boot). */
+export const setExtraHeadersProvider = (
+  fn: (() => Promise<Record<string, string>>) | null,
+): void => {
+  extraHeadersProvider = fn ?? (() => Promise.resolve({}))
+}
+
+/** The extra headers to send with every request (default: none). */
+export const getExtraHeaders = (): Promise<Record<string, string>> =>
+  extraHeadersProvider()
+
 // ─────────────────────── Auth-token provider (injectable) ───────────────────
 //
 // The bearer token attached to every request is app/platform-specific — an app
@@ -270,6 +292,9 @@ const performCall = async <TResponse = unknown>(
   },
 ): Promise<TResponse> => {
   let bUrl = await getBaseUrl()
+  // Awaited before anything is sent (a provider that has to ask the host first
+  // must finish first), and before the in-flight/idle bookkeeping starts.
+  const extraHeaders = await getExtraHeaders()
 
   let { SSE: sseCallbacks, fileUploadProgress } = callbacks || {}
 
@@ -293,7 +318,7 @@ const performCall = async <TResponse = unknown>(
     // a bare `instanceof` throws where `FormData` is not defined (SSR / node).
     const isFormDataBody = isFormData(params)
 
-    let headers: Record<string, string> = {}
+    let headers: Record<string, string> = { ...extraHeaders }
 
     // Don't set Content-Type for FormData - let browser set it with boundary
     if (!isFormDataBody) {

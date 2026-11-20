@@ -15,6 +15,8 @@ export {
   setAuthTokenProvider,
   getBaseUrl,
   setBaseUrlResolver,
+  getExtraHeaders,
+  setExtraHeadersProvider,
   setUnauthorizedHandler,
 } from './core'
 export type { FileUploadProgressCallback } from './core'

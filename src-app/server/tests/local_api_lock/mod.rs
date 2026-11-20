@@ -53,6 +53,13 @@ async fn every_request_without_the_key_is_refused_and_the_mint_writes_nothing() 
     }
     assert_eq!(user_count(&server).await, before, "a refused mint must not create the owner");
 
+    // The debug worktree sentinel (outside /api) is behind the lock too: nothing
+    // is exempt, and it would otherwise tell any caller the worktree path.
+    let r = bare().get(server.root_url("/__worktree")).send().await.unwrap();
+    assert_eq!(r.status().as_u16(), 403, "sentinel without the key");
+    let r = server.client.get(server.root_url("/__worktree")).send().await.unwrap();
+    assert_eq!(r.status().as_u16(), 200, "sentinel with the key");
+
     // The same mint WITH the key returns the owner session.
     let r = server.client.post(server.api_url("/session/local")).send().await.unwrap();
     assert_eq!(r.status().as_u16(), 200);
