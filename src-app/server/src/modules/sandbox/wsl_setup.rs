@@ -675,18 +675,24 @@ pub(crate) fn mark_desktop_app() {
 
 /// The probe's status `probe` where a setup may be offered: in the desktop
 /// app (`desktop`) only. Elsewhere there is nothing to set up.
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))] // tests use it everywhere
 fn offered_for(desktop: bool, probe: Option<WslStatus>) -> Option<WslStatus> {
     probe.filter(|_| desktop)
 }
 
+/// [`offered_for`] in this process: the desktop app when it was marked
+/// ([`mark_desktop_app`]).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))] // tests use it everywhere
+fn offered(probe: Option<WslStatus>) -> Option<WslStatus> {
+    offered_for(DESKTOP_APP.get().is_some(), probe)
+}
+
 /// The probe's status of this PC when methods cannot run because of WSL, in
-/// the desktop app on Windows ([`offered_for`]); `None` elsewhere, so a
-/// headless server offers no setup.
+/// the desktop app on Windows ([`offered`]); `None` elsewhere, so a headless
+/// server offers no setup.
 fn boot_status() -> Option<WslStatus> {
     #[cfg(target_os = "windows")]
     {
-        offered_for(DESKTOP_APP.get().is_some(), super::wsl_run::probe_wsl_status())
+        offered(super::wsl_run::probe_wsl_status())
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -1627,10 +1633,14 @@ mod tests {
         assert!(!dir.marker().exists(), "no marker");
     }
 
-    /// The route in a test process (no boot probe ran, so nothing is
-    /// offered) answers as a headless server does: nothing to set up.
+    /// A test process is not the desktop app (only `boot_in_background`
+    /// marks one, see the next test), so it offers nothing for any status the
+    /// probe can find, as a headless server; and its route refuses.
     #[test]
-    fn the_route_with_nothing_offered_refuses() {
+    fn a_process_not_marked_as_the_desktop_app_offers_nothing() {
+        for s in WslStatus::ALL {
+            assert_eq!(offered(Some(s)), None, "{s:?}");
+        }
         let e = start_here().expect_err("nothing offered");
         assert_eq!((e.status_code(), e.error_code()), (409, WSL_SETUP_NOT_OFFERED_CODE));
     }
@@ -1662,6 +1672,13 @@ mod tests {
             .filter(|f| std::fs::read_to_string(f).expect("a source file").contains("mark_desktop_app"))
             .collect();
         assert_eq!(callers, [&src.join("lib.rs")], "only lib.rs names it");
+
+        // The probe's status reaches the notice and the route only through
+        // `offered`.
+        let this = include_str!("wsl_setup.rs");
+        let code = &this[..this.find("#[cfg(test)]\nmod tests {").expect("the tests module")];
+        assert_eq!(code.matches("probe_wsl_status").count(), 1);
+        assert_eq!(code.matches("offered(super::wsl_run::probe_wsl_status())").count(), 1);
 
         let lib = include_str!("../../lib.rs");
         let body = |name: &str| {
