@@ -22,8 +22,9 @@ import {
 
 // The step-flow actions of a new analysis: the Back button of each step view,
 // the switch between the published and the saved model lists on the model
-// step, Help's "Back to step N" (Help opened from a step view), and the entries that start a path (the Start and Help cards, Your
-// models "Use", History "Use these settings again", the saved-models dialog).
+// step, Help's "Back to step N" (Help opened from a step view), and the
+// entries that start a path (the Start and Help cards, Your models "Use",
+// History "Use these settings again", the saved-models dialog).
 // Registered once so the buttons, the command palette and the AI take the
 // same path. The models and history stores are loaded on use (they are not
 // part of the start-up code).

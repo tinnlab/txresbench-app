@@ -51,8 +51,9 @@ modules navigate with the builder, never with a URL literal.
   (`helpLinkState`); Help then shows "Back to step N: <step heading>",
   which runs the registered `help.backToStep` back to that step while it
   is still the last step of the step trail (`txrintake/lib/stepTrail.ts`).
-  Help opened any other way (the menu, a reload, a typed address) carries
-  no state and shows no such button. The intake module declares `txrhelp` in its framework dependencies for
+  Help opened from the menu or a typed address carries no state; after a
+  reload the step trail is empty; either way no button. The intake module
+  declares `txrhelp` in its framework dependencies for
   that binding. The entries are the file validator's CLOSED 28-code
   vocabulary (`ProblemCode::ALL`, R01–R21 + A01–A07 — the two
   declared-not-applicable tidy ids, the five hold-by-construction rules

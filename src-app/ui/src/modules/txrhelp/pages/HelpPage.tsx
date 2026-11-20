@@ -1143,7 +1143,7 @@ function BackToStepButton({ target }: { target: string }) {
     <Button
       data-testid="txr-help-back-to-step"
       variant="outline"
-      icon={<FiArrowLeft />}
+      icon={<FiArrowLeft aria-hidden />}
       style={BACK_TO_STEP}
       onClick={() => {
         runAction('help.backToStep', {}).catch((error: unknown) => {

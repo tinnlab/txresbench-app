@@ -20,8 +20,9 @@ export const helpPath = (anchor?: string): string =>
  * search) Help was opened from, so Help can offer "Back to step N". Router
  * state, not a query parameter: it lives only in this window's history
  * entry, like the step trail and the step's unsaved page state it points
- * back to. A reload, a copied link or an address typed by hand carries none,
- * so Help never offers a way back to a step that is no longer open.
+ * back to. A copied link or an address typed by hand carries none. A reload
+ * keeps the state, but the step trail is memory only and starts empty, so
+ * Help shows no way back then either (`helpReturnTarget`).
  */
 export interface HelpLinkState {
   helpFrom: string

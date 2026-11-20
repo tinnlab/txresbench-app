@@ -268,11 +268,25 @@ describe('Help opened any other way shows no button', () => {
     expect(isContextActive(TXR_HELP_FROM_STEP_CONTEXT)).toBe(false)
   })
 
-  it('opened directly (a reload, a typed address): no router state', () => {
+  it('opened directly (a typed address): no router state', () => {
     beginPath('/')
     recordStep('/files')
     renderApp('/help')
     expect(backToStep()).toBeNull()
+  })
+
+  it('after a reload: the router state is still there but the step trail is empty, so no button', () => {
+    useStepTrailStore.setState({ trail: [], current: null, leaving: false })
+    renderApp({ pathname: '/help', state: helpLinkState('/files') })
+    expect(backToStep()).toBeNull()
+    expect(isContextActive(TXR_HELP_FROM_STEP_CONTEXT)).toBe(false)
+    // The same state with a trail ending at that step DOES show the button;
+    // only the empty trail keeps it away.
+    cleanup()
+    beginPath('/')
+    recordStep('/files')
+    renderApp({ pathname: '/help', state: helpLinkState('/files') })
+    expect(backToStep()).not.toBeNull()
   })
 
   it('an unknown origin: not a step URL, or not a string', () => {
