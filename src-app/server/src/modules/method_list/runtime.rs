@@ -752,11 +752,20 @@ pub fn production_seams(data_root: PathBuf) -> RuntimeSeams {
 
 /// [`production_seams`] over given inputs.
 pub fn production_seams_with(data_root: PathBuf, inputs: SeamInputs<'_>) -> RuntimeSeams {
-    let builtin_keys = TrustedKeys::builtin().cloned();
-    let mut keys = builtin_keys.unwrap_or_else(|_| {
-        TrustedKeys::from_json(br#"{"format":"txresbench-method-list-keys","format_version":1,"keys":[]}"#)
-            .expect("an empty key set")
-    });
+    let builtin_keys = TrustedKeys::builtin().cloned().unwrap_or_else(|_| empty_keys());
+    production_seams_over(data_root, inputs, builtin_keys)
+}
+
+/// A key set with no key.
+fn empty_keys() -> TrustedKeys {
+    TrustedKeys::from_json(br#"{"format":"txresbench-method-list-keys","format_version":1,"keys":[]}"#)
+        .expect("an empty key set")
+}
+
+/// [`production_seams_with`] over given compiled-in keys (so a test does not depend on the
+/// shipped key file).
+fn production_seams_over(data_root: PathBuf, inputs: SeamInputs<'_>, builtin_keys: TrustedKeys) -> RuntimeSeams {
+    let mut keys = builtin_keys;
     let off = |why: &str| RuntimeSeams {
         data_root: data_root.clone(),
         source: None,
@@ -791,7 +800,7 @@ pub fn production_seams_with(data_root: PathBuf, inputs: SeamInputs<'_>) -> Runt
         return RuntimeSeams {
             data_root,
             source: None,
-            off_reason: Some("no trusted keys are compiled in".to_string()),
+            off_reason: Some("updates are off: this build has no key to check them with".to_string()),
             keys,
             coalesce: COALESCE_WINDOW,
         };
@@ -1567,27 +1576,27 @@ mod tests {
     fn production_seams_are_off_without_a_trusted_key() {
         let root = scratch("no-keys");
         let none = |_: &str| None;
-        let seams = production_seams_with(
-            root.clone(),
-            SeamInputs { demo: false, dev_manifest: false, read: &none, debug: true },
-        );
-        if TrustedKeys::builtin().unwrap().keys().is_empty() {
-            assert!(seams.source.is_none(), "no registry call without a key that can verify");
-            assert_eq!(seams.off_reason.as_deref(), Some("no trusted keys are compiled in"));
-            let release = production_seams_with(
+        for debug in [true, false] {
+            let seams = production_seams_over(
                 root.clone(),
-                SeamInputs { demo: false, dev_manifest: false, read: &none, debug: false },
+                SeamInputs { demo: false, dev_manifest: false, read: &none, debug },
+                empty_keys(),
             );
-            assert!(release.source.is_none() && release.off_reason.is_some());
+            assert!(seams.source.is_none(), "no registry call without a key that can verify");
+            assert_eq!(
+                seams.off_reason.as_deref(),
+                Some("updates are off: this build has no key to check them with")
+            );
         }
-        // A debug build with the test key turns updates on again.
+        // A debug build with the test key has a key, so updates are on.
         let read = |k: &str| (k == super::fetch::TEST_KEY_ENV).then(fixture_pub_path);
-        let with_key = production_seams_with(
+        let with_key = production_seams_over(
             root,
             SeamInputs { demo: false, dev_manifest: false, read: &read, debug: true },
+            empty_keys(),
         );
         assert!(with_key.source.is_some() && with_key.off_reason.is_none());
-        assert!(!with_key.keys.keys().is_empty());
+        assert_eq!(with_key.keys.keys().len(), 1);
     }
 
     #[test]

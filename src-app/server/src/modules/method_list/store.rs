@@ -171,6 +171,12 @@ impl ListStore {
     ///    so [`ListStore::read_list`] says `None` and the reader uses `previous/`.
     ///
     /// A folder written before this (no `pair.sum`) reads as before.
+    ///
+    /// Only crash safety is promised (the process killed at any point), not durability
+    /// against a power cut: the files are not synced, and a pair that did not reach the disk
+    /// reads as missing or torn, so the app runs on the previous pair or the built-in list.
+    /// Two app processes on one data root are not excluded either; interleaved writes end in
+    /// a torn pair, which reads as `None` and heals at the next fetch.
     pub fn write_list(&self, list: &[u8], signature: &[u8]) -> Result<(), String> {
         std::fs::create_dir_all(&self.dir)
             .map_err(|e| format!("make {}: {e}", self.dir.display()))?;
