@@ -18,8 +18,9 @@
 //!
 //! Nothing runs as administrator unless a person confirms in the app's own
 //! dialog first ([`question`]): a window on this PC that no caller of the
-//! route can answer, and that no letter key answers ([`buttons`]). That
-//! dialog is the barrier. Windows' permission prompt (UAC) may come after it,
+//! route can answer, that no letter key answers ([`buttons`]), and whose
+//! go button a click cannot hit as the dialog comes up ([`GO_DELAY_MS`]).
+//! That dialog is the barrier. Windows' permission prompt (UAC) may come after it,
 //! but is not relied on: with UAC off or set to never notify, or with the app
 //! itself run as administrator, Windows elevates without asking anyone. After
 //! a decline (in the dialog or in Windows' prompt) the setup is not offered again for [`DECLINE_PAUSE_SECS`], so that
@@ -590,7 +591,8 @@ const NOT_NOW_BUTTON: i32 = 101;
 /// typing in the app as the question comes up (an agent may start a setup
 /// at any moment) cannot answer it. (Windows' own Yes and No are "&Yes" and
 /// "&No": a "y" would say Yes.) Enter and Space press the default, Not now;
-/// Esc closes the dialog, which is a No too.
+/// Esc closes the dialog, which is a No too. The go button is greyed out for
+/// the first [`GO_DELAY_MS`], so that a click cannot answer it either.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn buttons(question: &Question) -> [(i32, &'static str); 2] {
     [(GO_BUTTON, question.go), (NOT_NOW_BUTTON, NOT_NOW)]
@@ -603,6 +605,19 @@ fn buttons(question: &Question) -> [(i32, &'static str); 2] {
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn goes_on(result: i32, button: i32) -> bool {
     result == 0 && button == GO_BUTTON
+}
+
+/// How long the go button stays greyed out after the dialog is made. The
+/// dialog comes up above every window, centred on the app, at a moment the
+/// caller chose: a click aimed at something else that lands on the go button
+/// as the dialog appears must not be a Yes.
+const GO_DELAY_MS: usize = 1000;
+
+/// The go button can be pressed `elapsed_ms` after the dialog was made (the
+/// count the task dialog's timer gives).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn go_ready(elapsed_ms: usize) -> bool {
+    elapsed_ms >= GO_DELAY_MS
 }
 
 /// One setup, as the installer hook does it: ask, run the commands as
@@ -925,8 +940,9 @@ mod elevated {
         PROCESS_SYNCHRONIZE,
     };
     use windows_sys::Win32::UI::Controls::{
-        TASKDIALOGCONFIG, TASKDIALOG_BUTTON, TDF_ALLOW_DIALOG_CANCELLATION, TDF_POSITION_RELATIVE_TO_WINDOW,
-        TDM_SET_BUTTON_ELEVATION_REQUIRED_STATE, TDN_CREATED,
+        TASKDIALOGCONFIG, TASKDIALOG_BUTTON, TDF_ALLOW_DIALOG_CANCELLATION, TDF_CALLBACK_TIMER,
+        TDF_POSITION_RELATIVE_TO_WINDOW, TDM_ENABLE_BUTTON, TDM_SET_BUTTON_ELEVATION_REQUIRED_STATE, TDN_CREATED,
+        TDN_TIMER,
     };
 
     use super::{
@@ -949,8 +965,10 @@ mod elevated {
     const OUTPUT_TAIL: u64 = 64 * 1024;
 
     /// The question's dialog: Esc and the close box allowed (a No), centred
-    /// on its owner.
-    pub(super) const DIALOG_FLAGS: i32 = TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW;
+    /// on its owner, its callback called about every 200 ms (`TDN_TIMER`),
+    /// which lets the go button be pressed after [`super::GO_DELAY_MS`].
+    pub(super) const DIALOG_FLAGS: i32 =
+        TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW | TDF_CALLBACK_TIMER;
 
     fn wide(s: &OsStr) -> Vec<u16> {
         s.encode_wide().chain(std::iter::once(0)).collect()
@@ -1110,7 +1128,8 @@ mod elevated {
         /// The dialog, owned by `owner` (null: none), pointing into `self`
         /// and `buttons`, which must outlive its use: the question's words
         /// and its two buttons only, Not now the default ([`DIALOG_FLAGS`];
-        /// [`on_dialog`] puts it above every window, in front).
+        /// [`on_dialog`] puts it above every window, in front, and greys the
+        /// go button out for a moment).
         pub(super) fn config(&self, owner: HWND, buttons: &[TASKDIALOG_BUTTON; 2]) -> TASKDIALOGCONFIG {
             TASKDIALOGCONFIG {
                 cbSize: std::mem::size_of::<TASKDIALOGCONFIG>() as u32,
@@ -1127,22 +1146,40 @@ mod elevated {
         }
     }
 
-    /// The dialog's callback: once the dialog is made, it goes above every
-    /// window and in front (as a message box's MB_TOPMOST and
-    /// MB_SETFOREGROUND), and the go button gets Windows' shield (it runs as
-    /// administrator).
-    pub(super) unsafe extern "system" fn on_dialog(window: HWND, msg: u32, _: WPARAM, _: LPARAM, _: isize) -> HRESULT {
+    /// The dialog's callback. Once the dialog is made (before it is shown),
+    /// it goes above every window and in front (as a message box's
+    /// MB_TOPMOST and MB_SETFOREGROUND), and the go button gets Windows'
+    /// shield (it runs as administrator) and is greyed out. At the first
+    /// timer tick [`super::GO_DELAY_MS`] or more after that, the go button
+    /// can be pressed (again at every later tick: enabling an enabled button
+    /// changes nothing). Every notification gets S_OK: S_FALSE would keep
+    /// the dialog open after a button, or start the timer's count again.
+    pub(super) unsafe extern "system" fn on_dialog(
+        window: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        _: LPARAM,
+        _: isize,
+    ) -> HRESULT {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             SendMessageW, SetForegroundWindow, SetWindowPos, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE,
         };
+        // SAFETY: `window` is the dialog TaskDialogIndirect made (in a test,
+        // a window of the test's own); the messages are the task dialog's.
+        let to_go_button = |message: i32, on: LPARAM| unsafe {
+            SendMessageW(window, message as u32, GO_BUTTON as WPARAM, on);
+        };
         if msg == TDN_CREATED as u32 {
-            // SAFETY: `window` is the dialog TaskDialogIndirect made (in a
-            // test, a window of the test's own).
+            // SAFETY: as above.
             unsafe {
                 SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
                 SetForegroundWindow(window);
-                SendMessageW(window, TDM_SET_BUTTON_ELEVATION_REQUIRED_STATE as u32, GO_BUTTON as WPARAM, 1);
             }
+            to_go_button(TDM_SET_BUTTON_ELEVATION_REQUIRED_STATE, 1);
+            to_go_button(TDM_ENABLE_BUTTON, 0);
+        } else if msg == TDN_TIMER as u32 && super::go_ready(wparam) {
+            // `wparam`: the milliseconds since the dialog was made.
+            to_go_button(TDM_ENABLE_BUTTON, 1);
         }
         0 // S_OK
     }
@@ -1697,6 +1734,19 @@ mod tests {
         const E_OUTOFMEMORY: i32 = 0x8007_000E_u32 as i32;
         for (result, button) in [(0, NOT_NOW_BUTTON), (0, IDCANCEL), (0, 0), (E_OUTOFMEMORY, GO_BUTTON), (1, GO_BUTTON)] {
             assert!(!goes_on(result, button), "{result:#x} {button}");
+        }
+    }
+
+    /// The go button can be pressed only a second after the dialog was
+    /// made, so that a click aimed elsewhere as it appears is not a Yes.
+    #[test]
+    fn the_go_button_waits_a_second_before_it_can_be_pressed() {
+        assert_eq!(GO_DELAY_MS, 1000);
+        for ms in [0, 200, 400, 600, 800, 999] {
+            assert!(!go_ready(ms), "{ms} ms");
+        }
+        for ms in [1000, 1001, 1200, 60_000] {
+            assert!(go_ready(ms), "{ms} ms");
         }
     }
 
@@ -2408,6 +2458,7 @@ mod tests {
         use std::time::Duration;
 
         use super::super::elevated::{self, system_dir, Dialog, ElevatedSetup, DIALOG_FLAGS};
+        use super::super::GO_DELAY_MS;
         use super::super::{
             question, Launch, Process, SetupHost, WslSetupOffer, WslStatus, GO_BUTTON, NOT_NOW_BUTTON,
             QUESTION_TITLE,
@@ -2664,12 +2715,14 @@ mod tests {
         /// The question: a task dialog with the question's words and its two
         /// buttons only (no Windows buttons, whose labels have letter keys),
         /// Not now the default, Esc and the close box allowed (a No), centred
-        /// on the owner, and the callback that puts it on top. A test process
-        /// has no window of its own: no owner. The dialog itself is never
-        /// shown in a test.
+        /// on the owner, its timer on, and the callback that puts it on top
+        /// and holds the go button back. A test process has no window of its
+        /// own: no owner. The dialog itself is never shown in a test.
         #[test]
         fn the_question_is_a_task_dialog_with_not_now_the_default() {
-            use windows_sys::Win32::UI::Controls::{TDF_ALLOW_DIALOG_CANCELLATION, TDF_POSITION_RELATIVE_TO_WINDOW};
+            use windows_sys::Win32::UI::Controls::{
+                TDF_ALLOW_DIALOG_CANCELLATION, TDF_CALLBACK_TIMER, TDF_POSITION_RELATIVE_TO_WINDOW,
+            };
             let q = question(WslStatus::Missing);
             let dialog = Dialog::new(QUESTION_TITLE, &q);
             let buttons = dialog.buttons();
@@ -2677,7 +2730,11 @@ mod tests {
             // Copies: the struct is packed.
             let (flags, common, count, default) = (config.dwFlags, config.dwCommonButtons, config.cButtons, config.nDefaultButton);
             let (owner, callback, title, text) = (config.hwndParent, config.pfCallback, config.pszWindowTitle, config.pszContent);
-            assert_eq!(DIALOG_FLAGS, TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW);
+            assert_eq!(
+                DIALOG_FLAGS,
+                TDF_ALLOW_DIALOG_CANCELLATION | TDF_POSITION_RELATIVE_TO_WINDOW | TDF_CALLBACK_TIMER,
+                "Esc and the close box, centred on the owner, and the timer that lets the go button be pressed"
+            );
             assert_eq!(flags, DIALOG_FLAGS);
             assert_eq!((common, count, default), (0, 2, NOT_NOW_BUTTON), "only the two buttons, Not now the default");
             assert!(std::ptr::eq(config.pButtons, buttons.as_ptr()));
@@ -2690,13 +2747,48 @@ mod tests {
             assert!(shown.is_err(), "the real dialog is never shown in a test");
         }
 
-        /// The dialog's callback puts the dialog above every window, once it
-        /// is made: tried on a hidden window of the test's own, never shown.
+        /// The task dialog messages (from WM_USER on: TDM_*) the test's
+        /// window got, as (message, wparam, lparam).
+        static TASK_DIALOG_MESSAGES: std::sync::Mutex<Vec<(u32, usize, isize)>> = std::sync::Mutex::new(Vec::new());
+        /// The STATIC class's own window procedure, which the test's window
+        /// passes every other message to.
+        static STATIC_PROC: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+        unsafe extern "system" fn record_task_dialog_messages(
+            window: windows_sys::Win32::Foundation::HWND,
+            msg: u32,
+            wparam: usize,
+            lparam: isize,
+        ) -> isize {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{CallWindowProcW, WM_USER, WNDPROC};
+            if msg >= WM_USER {
+                TASK_DIALOG_MESSAGES.lock().unwrap_or_else(|p| p.into_inner()).push((msg, wparam, lparam));
+                return 0;
+            }
+            // SAFETY: STATIC_PROC holds the window procedure SetWindowLongPtrW
+            // returned for this window (a function pointer, or 0: none).
+            unsafe {
+                let static_proc = std::mem::transmute::<isize, WNDPROC>(STATIC_PROC.load(std::sync::atomic::Ordering::SeqCst));
+                CallWindowProcW(static_proc, window, msg, wparam, lparam)
+            }
+        }
+
+        /// The dialog's callback, driven as TaskDialogIndirect drives it, on
+        /// a hidden window of the test's own (never shown) that records the
+        /// task dialog messages it gets. Once the dialog is made: above every
+        /// window, the go button's shield, and the go button greyed out.
+        /// Timer ticks before [`GO_DELAY_MS`] change nothing; the first at or
+        /// after it lets the go button be pressed. Other notifications change
+        /// nothing, and every one gets S_OK.
         #[test]
-        fn the_dialog_goes_above_every_window_when_made() {
-            use windows_sys::Win32::UI::Controls::TDN_CREATED;
+        fn the_dialog_goes_above_every_window_and_holds_the_go_button_back() {
+            use windows_sys::Win32::UI::Controls::{
+                TDM_ENABLE_BUTTON, TDM_SET_BUTTON_ELEVATION_REQUIRED_STATE, TDN_BUTTON_CLICKED, TDN_CREATED,
+                TDN_DESTROYED, TDN_DIALOG_CONSTRUCTED, TDN_HYPERLINK_CLICKED, TDN_NAVIGATED, TDN_TIMER,
+            };
             use windows_sys::Win32::UI::WindowsAndMessaging::{
-                CreateWindowExW, DestroyWindow, GetWindowLongPtrW, IsWindowVisible, GWL_EXSTYLE, WS_EX_TOPMOST, WS_POPUP,
+                CreateWindowExW, DestroyWindow, GetWindowLongPtrW, IsWindowVisible, SetWindowLongPtrW, GWLP_WNDPROC,
+                GWL_EXSTYLE, WS_EX_TOPMOST, WS_POPUP,
             };
             let class = wide(std::ffi::OsStr::new("STATIC"));
             // SAFETY: a plain hidden popup of the system's STATIC class; no
@@ -2706,19 +2798,54 @@ mod tests {
                     std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null())
             };
             assert!(!window.is_null(), "{}", std::io::Error::last_os_error());
+            // SAFETY: `window` is the test's, on this thread; the procedure
+            // passes what it does not record to the STATIC class's own.
+            let static_proc = unsafe {
+                SetWindowLongPtrW(window, GWLP_WNDPROC, record_task_dialog_messages as usize as isize)
+            };
+            assert!(static_proc != 0, "{}", std::io::Error::last_os_error());
+            STATIC_PROC.store(static_proc, std::sync::atomic::Ordering::SeqCst);
+            let sent = || std::mem::take(&mut *TASK_DIALOG_MESSAGES.lock().unwrap());
             // SAFETY: `window` is the test's window, alive until destroyed below.
             let topmost = || unsafe { GetWindowLongPtrW(window, GWL_EXSTYLE) } as u32 & WS_EX_TOPMOST != 0;
-            assert!(!topmost());
-            // Another notification than "made" changes nothing.
             // SAFETY: as TaskDialogIndirect calls it, with the test's window.
-            assert_eq!(unsafe { elevated::on_dialog(window, TDN_CREATED as u32 + 1, 0, 0, 0) }, 0);
+            let notify = |notification: i32, wparam: usize| unsafe {
+                elevated::on_dialog(window, notification as u32, wparam, 0, 0)
+            };
+            let go = GO_BUTTON as usize;
+            let enable = |on: isize| (TDM_ENABLE_BUTTON as u32, go, on);
+            let shield = (TDM_SET_BUTTON_ELEVATION_REQUIRED_STATE as u32, go, 1);
+            let nothing: Vec<(u32, usize, isize)> = Vec::new();
             assert!(!topmost());
-            // SAFETY: as above.
-            assert_eq!(unsafe { elevated::on_dialog(window, TDN_CREATED as u32, 0, 0, 0) }, 0);
+
+            // Other notifications than "made" and the timer change nothing.
+            for other in [TDN_NAVIGATED, TDN_BUTTON_CLICKED, TDN_HYPERLINK_CLICKED, TDN_DESTROYED, TDN_DIALOG_CONSTRUCTED] {
+                assert_eq!(notify(other, go), 0, "{other}");
+            }
+            assert!(!topmost());
+            assert_eq!(sent(), nothing, "nothing sent before the dialog is made");
+
+            assert_eq!(notify(TDN_CREATED, 0), 0);
             assert!(topmost(), "above every window");
-            // SAFETY: the test's window.
+            assert_eq!(sent(), [shield, enable(0)], "the shield, and the go button greyed out");
+
+            // The timer ticks about every 200 ms with the milliseconds since
+            // the dialog was made.
+            for ms in [0, 200, 400, 600, 800, GO_DELAY_MS - 1] {
+                assert_eq!(notify(TDN_TIMER, ms), 0, "S_OK keeps the timer's count ({ms} ms)");
+            }
+            assert_eq!(sent(), nothing, "still greyed out before {GO_DELAY_MS} ms");
+            assert_eq!(notify(TDN_TIMER, GO_DELAY_MS + 13), 0);
+            assert_eq!(sent(), [enable(1)], "the go button can be pressed");
+            assert_eq!(notify(TDN_TIMER, GO_DELAY_MS + 213), 0);
+            assert_eq!(sent(), [enable(1)], "again at the next tick: no change");
+            assert_eq!(notify(TDN_BUTTON_CLICKED, go), 0, "a press closes the dialog (S_OK)");
+            assert_eq!(sent(), nothing);
+
+            // SAFETY: the test's window; its own procedure back before it goes.
             unsafe {
                 assert_eq!(IsWindowVisible(window), 0, "never shown");
+                SetWindowLongPtrW(window, GWLP_WNDPROC, static_proc);
                 DestroyWindow(window);
             }
         }
