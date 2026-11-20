@@ -21,7 +21,10 @@ is emitted (DEC-2).
 study_options ordering (schema 2): the curated tables give the order, so the CSV/TSV rows are
 emitted in first-seen order — categories and diseases per the categories CSV (with the extra
 table's rows appended after the CSV's per category, in extra-file order), children per the
-parents TSV, and treatment classes per the display order of treatment-base-classes.tsv. Every
+parents TSV, and treatment classes per the display order of treatment-base-classes.tsv. A
+group the categories file lists that disease-parents.tsv names as a CHILD is not a
+disease-level entry (the benchmark's CSV lists children too): it goes under its parent only,
+and its category must equal its parent's. Every
 disease/child/class id is unique (the Rust loader refuses duplicates at boot).
 
 Usage:
@@ -410,8 +413,10 @@ def _tsv_rows(path, ncols, description, allow_empty=False):
     rows = []
     with open(path, encoding="utf-8") as f:
         for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
+            # Strip only the line end: a trailing empty field (an empty
+            # base-class list) is a real column, not whitespace.
+            line = line.rstrip("\r\n")
+            if not line.strip() or line.lstrip().startswith("#"):
                 continue
             parts = line.split("\t")
             if len(parts) < ncols:
@@ -444,16 +449,21 @@ def load_methods_json(path):
 
 
 def load_disease_categories(csv_path, extra_tsv_path):
-    """The disease vocabulary: (categories, disease_set), where `categories` is an
+    """The disease vocabulary: (categories, disease_set, category_of), where `categories` is an
     OrderedDict category -> OrderedDict disease (first-seen order — the curated tables'
-    order is the study_options order) and `disease_set` is every disease name."""
+    order is the study_options order), `disease_set` is every name the two tables list (a
+    child that disease-parents.tsv names may be listed here too — the benchmark's CSV does)
+    and `category_of` is disease -> category for the same set (the child-level rule compares
+    a child's category against its parent's)."""
     categories = collections.OrderedDict()
     disease_set = set()
+    category_of = {}
 
     def add(disease_group, category, source):
         if disease_group in disease_set:
             raise ValueError(f"{source}: disease {disease_group!r} appears in two categories")
         disease_set.add(disease_group)
+        category_of[disease_group] = category
         categories.setdefault(category, collections.OrderedDict()).setdefault(disease_group, None)
 
     with open(csv_path, encoding="utf-8", newline="") as f:
@@ -472,14 +482,17 @@ def load_disease_categories(csv_path, extra_tsv_path):
         if parts[0].lower() in ("disease_group", "disease group"):
             continue  # header
         add(parts[0], parts[1], extra_tsv_path)
-    return categories, disease_set
+    return categories, disease_set, category_of
 
 
-def load_disease_parents(tsv_path, disease_set):
+def load_disease_parents(tsv_path, disease_set, disease_category):
     """The one-level disease parents: OrderedDict parent -> [children in first-seen order],
     plus the child set. Hard errors: a duplicate child under two parents, a cycle, a parent
-    that is itself a child (a deeper chain), a child that is also a disease, a parent that is
-    not a disease."""
+    that is itself a child (a deeper chain), a parent that is not a known group (in neither
+    the categories file nor the extra table), and a child the categories file lists under a
+    category different from its parent's. A child that the categories file also lists as a
+    group is NOT an error — the benchmark's CSV does exactly that — it just sits below the
+    disease level (its category must match its parent's)."""
     children = collections.OrderedDict()
     child_parent = {}
     child_order = []
@@ -511,16 +524,22 @@ def load_disease_parents(tsv_path, disease_set):
         if child in parents_set:
             raise ValueError(f"{tsv_path}: {child!r} is both a child (of {parent!r}) and a "
                              "parent — one level only")
-    # A child is never also a disease (it is listed only under its parent's `children`).
-    for child in child_order:
-        if child in disease_set:
-            raise ValueError(f"{tsv_path}: {child!r} is both a disease and a child of "
-                             f"{child_parent[child]!r} (the child level is below the disease level)")
-    # Every parent is a disease in the categories (a child without a disease would be orphaned).
+    # Every parent is a known group (a child without a disease would be orphaned).
     for parent in parents_set:
         if parent not in disease_set:
-            raise ValueError(f"{tsv_path}: parent_group {parent!r} is not a disease in the "
-                             "disease categories")
+            raise ValueError(f"{tsv_path}: parent_group {parent!r} is not a known disease "
+                             "group (in neither disease_group_categories.csv nor "
+                             "disease-categories-extra.tsv)")
+    # A child the categories file also lists as a group is NOT a second disease: it sits under
+    # its parent only, so its category must be the parent's category. A child the categories
+    # file does not list gets its category from the parent (nothing to compare).
+    for child in child_order:
+        parent = child_parent[child]
+        child_category = disease_category.get(child)
+        if child_category is not None and child_category != disease_category[parent]:
+            raise ValueError(f"{tsv_path}: child {child!r} has category {child_category!r} but "
+                             f"its parent {parent!r} has category {disease_category[parent]!r} "
+                             "— a child sits below its parent and shares its category")
     return {p: [c for c in children.get(p, {})] for p in children}, set(child_order)
 
 
@@ -570,11 +589,20 @@ def load_treatment_facts(method_treatment_tsv, treatment_classes_tsv, base_class
 
 def load_study_tables(registry):
     """The schema-2 study facts of one registry (fixture or benchmark tree): the raw tables
-    plus the derived lookups the row builder reads."""
+    plus the derived lookups the row builder reads. The child level is below the disease
+    level: even when the categories file (or the extra table) lists a child as a group — the
+    benchmark's CSV does — it is not a disease-level entry, so `categories` and `disease_set`
+    hold only the parents."""
     methods_json = load_methods_json(registry.methods_json)
-    categories, disease_set = load_disease_categories(registry.disease_categories_csv,
-                                                      registry.disease_categories_extra)
-    parents, child_set = load_disease_parents(registry.disease_parents, disease_set)
+    categories, disease_set, disease_category = load_disease_categories(
+        registry.disease_categories_csv, registry.disease_categories_extra)
+    parents, child_set = load_disease_parents(registry.disease_parents, disease_set,
+                                              disease_category)
+    disease_set = disease_set - child_set
+    categories = collections.OrderedDict(
+        (category, collections.OrderedDict(
+            (disease, None) for disease in diseases if disease not in child_set))
+        for category, diseases in categories.items())
     per_method, base_classes, class_to_bases = load_treatment_facts(
         registry.method_treatment, registry.treatment_classes, registry.treatment_base_classes)
     return {
@@ -1536,14 +1564,24 @@ def selftest(fixtures_dir):
           "children, classes; the extra table's row is merged in)",
           catalogue["study_options"] == expected_study_options,
           str(catalogue["study_options"]))
-    disease_ids = [d["id"] for cat in expected_study_options["disease_categories"]
-                   for d in cat["diseases"]]
-    child_ids = [c for cat in expected_study_options["disease_categories"]
-                 for d in cat["diseases"] for c in d["children"]]
-    check("a child is listed under its parent only (never also a disease)",
-          len(child_ids) == len(set(child_ids)) and not set(child_ids) & set(disease_ids)
+    with open(fixtures_dir / "disease_group_categories.csv", encoding="utf-8", newline="") as f:
+        csv_groups = [parts[0].strip() for parts in csv.reader(f)
+                      if parts and not parts[0].startswith("#")
+                      and parts[0].strip().lower() not in ("disease_group", "disease group")]
+    study_disease_ids = [d["id"] for cat in catalogue["study_options"]["disease_categories"]
+                         for d in cat["diseases"]]
+    study_child_ids = [c for cat in catalogue["study_options"]["disease_categories"]
+                       for d in cat["diseases"] for c in d["children"]]
+    check("a child the categories file lists as a group goes under its parent only (not at the "
+          "disease level; methods may still name the child)",
+          "non-small cell lung cancer" in csv_groups
+          and "small cell lung cancer" in csv_groups
+          and "diffuse large B-cell lymphoma" in csv_groups
+          and set(study_child_ids) == {"non-small cell lung cancer", "small cell lung cancer",
+                                       "diffuse large B-cell lymphoma"}
+          and not set(study_child_ids) & set(study_disease_ids)
           and fx["fx-asm-methylation-panel"]["disease"]["groups"] == ["non-small cell lung cancer"],
-          str(child_ids))
+          str((csv_groups, study_disease_ids, study_child_ids)))
 
     with tempfile.TemporaryDirectory(prefix="gen-catalogue-study-") as tmp:
         study = load_study_tables(registry)
@@ -1609,12 +1647,39 @@ def selftest(fixtures_dir):
         except ValueError as e:
             check("a disease used by a method but in neither category table is a hard error",
                   "myeloma" in str(e), str(e))
+        # a child the categories file lists under a category different from its parent's
+        try:
+            reg = fixture_copy(tmp, "child-category-mismatch")
+            text = reg.disease_categories_csv.read_text(encoding="utf-8")
+            reg.disease_categories_csv.write_text(
+                text.replace("non-small cell lung cancer,Solid tumours,",
+                             "non-small cell lung cancer,Haematological,"), encoding="utf-8")
+            load_study_tables(reg)
+            check("a child whose CSV category differs from its parent's is a hard error "
+                  "(child, parent and both categories named)", False, "no error raised")
+        except ValueError as e:
+            check("a child whose CSV category differs from its parent's is a hard error "
+                  "(child, parent and both categories named)",
+                  "non-small cell lung cancer" in str(e) and "lung cancer" in str(e)
+                  and "Haematological" in str(e) and "Solid tumours" in str(e), str(e))
+        # a child whose parent is not a known group (in neither CSV nor extra table)
+        try:
+            reg = fixture_copy(tmp, "child-unknown-parent")
+            text = reg.disease_categories_csv.read_text(encoding="utf-8")
+            lines = [ln for ln in text.splitlines() if not ln.startswith("lung cancer,")]
+            reg.disease_categories_csv.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            load_study_tables(reg)
+            check("a child whose parent is not a known group is a hard error (the parent named)",
+                  False, "no error raised")
+        except ValueError as e:
+            check("a child whose parent is not a known group is a hard error (the parent named)",
+                  "lung cancer" in str(e) and "parent_group" in str(e), str(e))
         # a deeper parents chain (a parent that is itself a child)
         chain = Path(tmp) / "chain.tsv"
         chain.write_text("disease_group\tparent_group\tbasis\na\tb\tdraft\nb\tc\tdraft\n",
                          encoding="utf-8")
         try:
-            load_disease_parents(chain, {"a", "b", "c"})
+            load_disease_parents(chain, {"a", "b", "c"}, {"a": "cat", "b": "cat", "c": "cat"})
             check("a deeper parents chain is a hard error", False, "no error raised")
         except ValueError as e:
             check("a deeper parents chain is a hard error", "one level only" in str(e), str(e))
@@ -1623,7 +1688,7 @@ def selftest(fixtures_dir):
         cycle.write_text("disease_group\tparent_group\tbasis\na\tb\tdraft\nb\ta\tdraft\n",
                          encoding="utf-8")
         try:
-            load_disease_parents(cycle, {"a", "b"})
+            load_disease_parents(cycle, {"a", "b"}, {"a": "cat", "b": "cat"})
             check("a parents cycle is a hard error", False, "no error raised")
         except ValueError as e:
             check("a parents cycle is a hard error", "cycle" in str(e), str(e))
