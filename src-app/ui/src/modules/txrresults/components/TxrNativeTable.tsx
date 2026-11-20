@@ -33,6 +33,8 @@ import {
   OWN_RESULTS_INTRO,
   OWN_RESULTS_NONE_RECORDED,
   OWN_RESULTS_TITLE,
+  OWN_RETURNED_CALLS,
+  OWN_RETURNED_SCORE,
   formatOwnCall,
   formatOwnNotRecordedNote,
   formatOwnScore,
@@ -197,7 +199,9 @@ export function TxrNativeTable({ columns, rows, patients, withHeading = true }: 
                     data-testid={`txr-own-header-${col.methodId}`}
                   >
                     <span>{col.label}</span>
-                    <span style={HEADER_SUB}>{col.groupLabel}</span>
+                    <span style={HEADER_SUB} data-testid={`txr-own-returned-${col.methodId}`}>
+                      {col.native?.calls != null ? OWN_RETURNED_CALLS : OWN_RETURNED_SCORE}
+                    </span>
                     {col.probSource === 'native' ? (
                       <span style={HEADER_SUB} data-testid={`txr-own-chance-mark-${col.methodId}`}>
                         {OWN_CHANCE_MARK}

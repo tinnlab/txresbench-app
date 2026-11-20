@@ -645,6 +645,12 @@ export const OWN_SCORE_HEADING = 'Own score'
 /** The header mark of a method whose chance above is its own (`prob_source: native`). */
 export const OWN_CHANCE_MARK = 'chance above is its own'
 
+/** The own-results table header line of a method that returned a yes/no answer too. */
+export const OWN_RETURNED_CALLS = 'Yes/no answer and score'
+
+/** The own-results table header line of a method that returned only a score. */
+export const OWN_RETURNED_SCORE = 'Score (higher = more likely failing)'
+
 /** The line instead of a table when no shown method has its own results recorded. */
 export const OWN_RESULTS_NONE_RECORDED =
   "The methods' own results were not recorded for this run (it ran before they were kept, or these are recorded demo results)."
