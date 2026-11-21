@@ -4,6 +4,7 @@ import { defineAction } from '../defineAction'
 import { currentPathViaBridge } from '../navigateBridge'
 import { getActiveEntity } from '../activeContext'
 import { TxrIntake } from '@/modules/txrintake/stores/TxrIntake.store'
+import { FLOW_ROUTES } from '@/modules/txrshell/lib/flowSteps'
 import {
   beginPath,
   assertCanLeaveStep,
@@ -35,21 +36,21 @@ import {
 //
 // Sole runtime import site: `src/modules/txrintake/module.tsx`.
 
+// The routes come from the one list of steps (`txrshell/lib/flowSteps.ts`).
+
 /** The model step routes (the D and I screens). */
-const PUBLISHED_MODELS_ROUTE = '/pretrained-models'
-const SAVED_MODELS_ROUTE = '/saved-models'
+const PUBLISHED_MODELS_ROUTE = FLOW_ROUTES.pretrainedModels
+const SAVED_MODELS_ROUTE = FLOW_ROUTES.savedModels
 
-/** The first route of each path (Start's card picker: train → B, the predict paths → N). */
-const STUDY_ROUTE = '/study'
-const PREDICT_FILES_ROUTE = '/predict-files'
+/** The first step of each path (Start's card picker: learn → the files step, the predict paths → N). */
+const FILES_ROUTE = FLOW_ROUTES.files
+const PREDICT_FILES_ROUTE = FLOW_ROUTES.predictFiles
 
-/** The learn path's file step (an example landing opens it directly). */
-const FILES_ROUTE = '/files'
 /** The learn path's last step (History "Use these settings again" opens it). */
-const CHOOSE_METHODS_ROUTE = '/choose-methods'
+const CHOOSE_METHODS_ROUTE = FLOW_ROUTES.methods
 
 /** Where every path starts (the Start screen, step 1 of each path). */
-const START_ROUTE = '/'
+const START_ROUTE = FLOW_ROUTES.start
 
 /**
  * A new path may start now: nothing on a step view holds it (a run being
@@ -150,7 +151,7 @@ defineAction({
   mutating: true,
   aliases: ['learn from my data', 'predict with a ready-made model', 'predict with a pretrained model', 'use a model I saved'],
   description:
-    'Pick one of the three ways of the Start screen: "pretrained" predicts with a ready-made model (already trained by the TxResBench team), "reuse" predicts with a model you saved, "train" learns from your own patients. Opens the first step of that way (or its file step with startAtFiles); files already added are kept. Back from that step returns to the page it was started from. Refused while a run is starting or a dialog is open.',
+    'Pick one of the three ways of the Start screen: "pretrained" predicts with a ready-made model (already trained by the TxResBench team), "reuse" predicts with a model you saved, "train" learns from your own patients. Opens the first step of that way, its file step (the learn way asks its questions after the files); files already added are kept. Back from that step returns to the page it was started from. Refused while a run is starting or a dialog is open.',
   params: z.object({
     intent: z
       .enum(['pretrained', 'reuse', 'train'])
@@ -158,14 +159,16 @@ defineAction({
     startAtFiles: z
       .boolean()
       .optional()
-      .describe('Open the file step directly (the learn path skips its study questions).'),
+      .describe('Open the file step directly (every path already starts with its file step; kept for older callers).'),
   }),
   run: ({ intent, startAtFiles }, ctx) => {
     assertCanStartPath()
     TxrIntake.setIntent(intent)
     beginPathHere()
-    const path =
-      intent !== 'train' ? PREDICT_FILES_ROUTE : startAtFiles === true ? FILES_ROUTE : STUDY_ROUTE
+    // Every path starts with its file step (the learn path's study questions
+    // come after the files); `startAtFiles` changes nothing any more.
+    void startAtFiles
+    const path = intent !== 'train' ? PREDICT_FILES_ROUTE : FILES_ROUTE
     ctx.navigate(path)
     return { path }
   },

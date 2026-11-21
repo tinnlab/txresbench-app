@@ -47,7 +47,7 @@ function Step({
   const navigate = useNavigate()
   return (
     <div data-testid={`page-${step}`}>
-      <TxrStepLine step={3} of={4} />
+      <TxrStepLine step={step} />
       <TxrStepBack />
       {next !== undefined ? (
         <Button data-testid="continue" onClick={() => navigate(next)}>

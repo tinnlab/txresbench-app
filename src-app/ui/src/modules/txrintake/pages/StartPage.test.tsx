@@ -173,7 +173,8 @@ describe('StartPage (TEST-INT-11, ITEM-4)', () => {
     expect(store().mode).toBe('predict')
 
     fireEvent.click(screen.getByTestId('txr-intake-start-card-train-cta'))
-    expect(routeAt()).toBe('/study')
+    // The learn path starts with its files (the study questions come after).
+    expect(routeAt()).toBe('/files')
     expect(store().intent).toBe('train')
     expect(store().mode).toBe('study')
 

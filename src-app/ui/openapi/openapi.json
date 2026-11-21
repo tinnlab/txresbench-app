@@ -9283,6 +9283,36 @@
           "measurements"
         ]
       },
+      "FileTimeline": {
+        "description": "The day facts of a validate call: per patient of the measurements table,\n the distinct draw days during treatment (day > `baseline_max_day`,\n ascending); per row of the patients table, its follow-up pairs (empty in\n predict mode). File order, no identifiers.",
+        "type": "object",
+        "properties": {
+          "draw_days": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "double"
+              }
+            }
+          },
+          "limits": {
+            "$ref": "#/components/schemas/TimelineLimits"
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimelinePatient"
+            }
+          }
+        },
+        "required": [
+          "draw_days",
+          "outcomes",
+          "limits"
+        ]
+      },
       "FileVersion": {
         "description": "One immutable version of a file.",
         "type": "object",
@@ -14460,6 +14490,77 @@
           "rects"
         ]
       },
+      "TimelineLimits": {
+        "description": "The engine limits the day choices follow, read from the engine's own\n constants (the screens hold no copy).",
+        "type": "object",
+        "properties": {
+          "baseline_max_day": {
+            "description": "A draw on a later day is a draw during treatment.",
+            "type": "number",
+            "format": "double"
+          },
+          "look_ahead_day_max": {
+            "description": "The latest look-ahead day a run accepts.",
+            "type": "number",
+            "format": "double"
+          },
+          "min_training_patients": {
+            "description": "The fewest patients an outcome is learned from.",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "baseline_max_day",
+          "look_ahead_day_max",
+          "min_training_patients"
+        ]
+      },
+      "TimelineOutcome": {
+        "description": "One follow-up time and its event flag (1 = the event happened at `days`,\n 0 = follow-up ended without it), as the run's outcome table reads them.",
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "number",
+            "format": "double"
+          },
+          "event": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "days",
+          "event"
+        ]
+      },
+      "TimelinePatient": {
+        "description": "One patients-table row's follow-up pairs (`None` = the pair is incomplete).",
+        "type": "object",
+        "properties": {
+          "os": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimelineOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pfs": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimelineOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "Timing": {
         "description": "A method's per-fold time estimate fact (median of the benchmark's `status==ok`\n per-fold seconds, or the language fallback with `quality: estimate`).",
         "type": "object",
@@ -17430,6 +17531,17 @@
             "items": {
               "$ref": "#/components/schemas/FileProblem"
             }
+          },
+          "timeline": {
+            "description": "The day facts the day choices are counted from (the suggested draw days,\n the coverage lines, the look-ahead counts). No patient ids: the entries\n are only counted.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileTimeline"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [

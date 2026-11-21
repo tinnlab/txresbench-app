@@ -28,6 +28,7 @@ import type {
   ValidatorCatalogEntry,
 } from './types'
 import validatorCatalogJson from './validator-catalog.json'
+import { FLOW_ROUTES } from '@/modules/txrshell/lib/flowSteps'
 
 /**
  * The committed validator catalogue (the server's declaration tables). The
@@ -49,8 +50,8 @@ export const QUICK_START: readonly QuickStartCard[] = [
     eyebrow: 'Most flexible',
     title: 'Learn from my data',
     text: 'Train the methods on your own patients with known outcomes, then predict new patients. One card sets what to predict; the list shows which methods can run and how long they take.',
-    screen: 'Your study',
-    route: '/study',
+    screen: 'Your files',
+    route: FLOW_ROUTES.files,
     cta: 'Add my data',
     tryExample: {
       label: 'Try it with example data',
@@ -63,7 +64,7 @@ export const QUICK_START: readonly QuickStartCard[] = [
     title: 'Predict with a ready-made model',
     text: 'Add the blood measurements of the patients you want predictions for. The app shows which ready-made models can run on them. Ready-made models are already trained by the TxResBench team, so they predict without learning from your data.',
     screen: 'Predict files',
-    route: '/predict-files',
+    route: FLOW_ROUTES.predictFiles,
     cta: 'Add the patients to predict',
     tryExample: {
       label: 'Try it with example data',
@@ -76,7 +77,7 @@ export const QUICK_START: readonly QuickStartCard[] = [
     title: 'Use a model I saved',
     text: 'Add the patients to predict, then pick any of the models you trained before. No need to upload the training data again.',
     screen: 'Predict files',
-    route: '/predict-files',
+    route: FLOW_ROUTES.predictFiles,
     cta: 'Predict with a model I saved',
     tryExample: {
       label: 'Try it with example data',
@@ -137,24 +138,6 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
           },
           {
             number: 2,
-            name: 'Your study',
-            lines: [
-              'Answer the seven question groups: disease, treatment, what to predict, markers, and the three draw questions.',
-              'The "N of M methods fit" panel updates as you answer.',
-            ],
-            screen: 'Your study',
-            details: [
-              {
-                kind: 'bullets',
-                items: [
-                  'The groups are Disease; Treatment; What you want to predict; Blood markers you measured; Before treatment; Draws during treatment; Last draw you will use.',
-                  '"Continue to the files" moves on; "Skip the questions" uses the defaults. Any of the three ways in can answer these questions.',
-                ],
-              },
-            ],
-          },
-          {
-            number: 3,
             name: 'Your files',
             lines: [
               'Add a patients table and a measurements table; with a model, only the measurements of the patients to predict.',
@@ -172,6 +155,25 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
             ],
           },
           {
+            number: 3,
+            name: 'Your study',
+            lines: [
+              'Answer the seven question groups: disease, treatment, what to predict, markers, and the three draw questions.',
+              'The "N of M methods fit" panel updates as you answer. "Last draw you will use" suggests the days your files have draws on, and you can type any other day.',
+            ],
+            screen: 'Your study',
+            details: [
+              {
+                kind: 'bullets',
+                items: [
+                  'The groups are Disease; Treatment; What you want to predict; Blood markers you measured; Before treatment; Draws during treatment; Last draw you will use.',
+                  'Under the last draw a line says how many patients have a draw during treatment by that day.',
+                  '"Continue to the methods" moves on; "Skip the questions" uses the defaults. With a model, the questions are a side trip from the file step.',
+                ],
+              },
+            ],
+          },
+          {
             number: 4,
             name: 'Methods and run',
             lines: [
@@ -183,6 +185,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               {
                 kind: 'bullets',
                 items: [
+                  'The decision day and the look-ahead day are typed in days, with suggested days from your files. Under the look-ahead a line says how many patients have a known outcome by that day; a day where none has one cannot be used. With a ready-made or saved model the look-ahead is the model\'s own.',
                   '"More settings" sets how many methods run side by side and how many CPUs; a lower number uses less memory and CPU.',
                   '"Save the trained models" keeps each trained method for later runs.',
                   'When a method finishes, its predictions appear: "See the results".',

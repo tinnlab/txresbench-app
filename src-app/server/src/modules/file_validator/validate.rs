@@ -50,8 +50,8 @@ use crate::modules::file_validator::rules::{
 use crate::modules::file_validator::types::{
     AnalysisParameters, FileProblem, FileTableKind, InventoryEligibilityRequest, JoinOffer,
     Limits, MarkerColumn, MarkerCoverage, MarkerMapping, MeasurementsSummary, PatientsSummary,
-    ProblemCode, ProblemSeverity, UnitStatus, ValidationError, ValidationMode, ValidationRequest,
-    ValidationResponse,
+    FileTimeline, ProblemCode, ProblemSeverity, TimelineLimits, TimelineOutcome, TimelinePatient,
+    UnitStatus, ValidationError, ValidationMode, ValidationRequest, ValidationResponse,
 };
 use crate::modules::file_validator::units::{
     compare_unit_to_canonical, infer_unit_family, marker_unit_facts, unit_absent_problem,
@@ -611,7 +611,81 @@ pub fn validate_with(
             distinct_draw_days: draw_days,
         },
         inventory: build_inventory(&resolved),
+        timeline: Some(build_timeline(&resolved)),
     })
+}
+
+/// The day facts of the day choices ([`FileTimeline`]): per patient of the
+/// measurements table (first-appearance order) the distinct draw days during
+/// treatment (`day > baseline_max_day`, the coverage rule of this module),
+/// and per patients-table row the pfs/os pairs parsed exactly as the
+/// canonical bundle parses them. No identifiers leave this function. The
+/// limits are the engine's own constants.
+pub(crate) fn build_timeline(resolved: &ResolvedRequest) -> FileTimeline {
+    let baseline_max_day = resolved.parameters.baseline_max_day;
+    let mut index: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut draw_days: Vec<Vec<f64>> = Vec::new();
+    for row in &resolved.model.values {
+        let Some(pid) = row.patient_id.text() else { continue };
+        // Every patient of the measurements file is a patient of the coverage
+        // line, whatever its rows are: register the entry BEFORE the marker
+        // and companion checks, so a patient whose rows are all companion (or
+        // markless) rows still counts (a possibly-empty draw list).
+        let i = *index.entry(pid).or_insert_with(|| {
+            draw_days.push(Vec::new());
+            draw_days.len() - 1
+        });
+        // A row with no marker name is dropped by the canonical bundle (its
+        // `filter_map` on `row.marker.text()?`), so it is never a draw.
+        let Some(marker) = row.marker.text() else { continue };
+        // The engine's `draw_status` skips companion rows; resolve the row's
+        // marker name the way the canonical bundle does (the join key, else
+        // the raw spelling) and skip companions so the timeline counts the
+        // draws the engine sees.
+        let resolved_name = resolved
+            .joined_groups
+            .get(&normalize_marker_name(marker))
+            .cloned()
+            .unwrap_or_else(|| marker.to_string());
+        if is_companion(&resolved_name) {
+            continue;
+        }
+        if let Some(day) = row.day.parse_f64() {
+            if day.is_finite() && day > baseline_max_day {
+                draw_days[i].push(day);
+            }
+        }
+    }
+    for days in &mut draw_days {
+        days.sort_by(f64::total_cmp);
+        days.dedup();
+    }
+    let pair = |days: Option<f64>, event: Option<i64>| match (days, event) {
+        (Some(days), Some(event)) if days.is_finite() => Some(TimelineOutcome { days, event }),
+        _ => None,
+    };
+    let outcomes = if resolved.mode == ValidationMode::Files {
+        resolved
+            .model
+            .patients
+            .iter()
+            .map(|row| TimelinePatient {
+                pfs: pair(row.pfs_days.parse_f64(), row.pfs_event.parse_i64()),
+                os: pair(row.os_days.parse_f64(), row.os_event.parse_i64()),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    FileTimeline {
+        draw_days,
+        outcomes,
+        limits: TimelineLimits {
+            baseline_max_day,
+            look_ahead_day_max: crate::modules::execution_engine::types::TxrLimits::LOOK_AHEAD_DAY_MAX,
+            min_training_patients: crate::modules::execution_engine::bundle::MIN_TRAINING_PATIENTS as u32,
+        },
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1246,5 +1320,244 @@ mod tests {
         assert_eq!(s.rows, 4);
         assert_eq!(s.with_primary_outcome, 4, "all four have a complete pair");
         assert_eq!(s.primary_outcome_events, 3, "P1 + P3 + P4; P2 is censored");
+    }
+
+    // ── the day facts (the day choices' timeline block) ─────────────────────
+
+    /// A committed example CSV as a parsed table (plain fields, no quoting in
+    /// the example files).
+    fn example_table(bytes: &[u8]) -> ParsedTable {
+        let text = std::str::from_utf8(bytes).expect("utf-8 example");
+        let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+        let columns: Vec<String> = lines.next().expect("header").split(',').map(str::to_string).collect();
+        ParsedTable {
+            source: ParsedTableSource {
+                name: "example.csv".to_string(),
+                format: TableFormat::Csv,
+            },
+            header_row: 1,
+            columns,
+            rows: lines
+                .map(|l| l.split(',').map(|c| Some(c.to_string())).collect())
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn timeline_counts_days_during_treatment_without_ids() {
+        let patients = table(
+            &["patient_id", "pfs_days", "pfs_event", "os_days", "os_event"],
+            &[
+                &["P1", "100", "1", "300", "0"],
+                &["P2", "", "", "250", "1"],
+            ],
+        );
+        let measurements = table(
+            &meas_cols(),
+            &[
+                &["P1", "-14", "LDH", "1", "U/L"],
+                &["P1", "0", "LDH", "1", "U/L"],
+                &["P1", "29", "LDH", "1", "U/L"],
+                &["P1", "29", "CEA", "1", "ng/mL"],
+                &["P1", "55", "LDH", "1", "U/L"],
+                &["P2", "0", "LDH", "1", "U/L"],
+                &["P2", "41", "LDH", "1", "U/L"],
+                &["P3", "0", "LDH", "1", "U/L"],
+            ],
+        );
+        let v = validate(&req(
+            ValidationMode::Files,
+            Some(patients),
+            measurements,
+            vec![],
+            vec![],
+            56.0,
+            0.0,
+        ))
+        .expect("files");
+        let t = v.timeline.expect("the timeline block");
+        // Day > baseline_max_day only, distinct, ascending; P3 has none.
+        assert_eq!(t.draw_days, vec![vec![29.0, 55.0], vec![41.0], vec![]]);
+        assert_eq!(
+            t.outcomes,
+            vec![
+                TimelinePatient {
+                    pfs: Some(TimelineOutcome { days: 100.0, event: 1 }),
+                    os: Some(TimelineOutcome { days: 300.0, event: 0 }),
+                },
+                TimelinePatient {
+                    pfs: None,
+                    os: Some(TimelineOutcome { days: 250.0, event: 1 }),
+                },
+            ]
+        );
+        assert_eq!(t.limits.baseline_max_day, 0.0);
+        assert_eq!(
+            t.limits.look_ahead_day_max,
+            crate::modules::execution_engine::types::TxrLimits::LOOK_AHEAD_DAY_MAX
+        );
+        assert_eq!(
+            t.limits.min_training_patients as usize,
+            crate::modules::execution_engine::bundle::MIN_TRAINING_PATIENTS
+        );
+        // No patient id travels in the block.
+        let json = serde_json::to_string(&t).expect("serializes");
+        for id in ["P1", "P2", "P3"] {
+            assert!(!json.contains(id), "the timeline carries no id: {json}");
+        }
+    }
+
+    #[test]
+    fn timeline_skips_companion_rows() {
+        // The engine's `draw_status` skips `__detected`/`__lod` rows, so a day
+        // carrying ONLY companion rows is no draw to the engine — the
+        // timeline block must not count it either.
+        let patients = table(
+            &["patient_id", "pfs_days", "pfs_event", "os_days", "os_event"],
+            &[&["P1", "100", "1", "", ""]],
+        );
+        let measurements = table(
+            &meas_cols(),
+            &[
+                &["P1", "21", "LDH", "1", "U/L"],
+                &["P1", "56", "LDH__lod", "1", "U/L"],
+                &["P1", "56", "LDH__detected", "1", "U/L"],
+            ],
+        );
+        let v = validate(&req(
+            ValidationMode::Files,
+            Some(patients),
+            measurements,
+            vec![],
+            vec![],
+            56.0,
+            0.0,
+        ))
+        .expect("files");
+        let t = v.timeline.expect("the timeline block");
+        assert_eq!(t.draw_days, vec![vec![21.0]], "day 56 is companion-only");
+    }
+
+    #[test]
+    fn timeline_keeps_a_companion_only_patient_and_skips_a_blank_marker() {
+        // A patient whose rows are ALL companion rows still has an entry in
+        // `draw_days` (an empty list): the coverage line's "patients in the
+        // measurements file" counts them in the denominator. A values row
+        // with no marker name is dropped by the canonical bundle, so it is
+        // never a draw (the old marker "" was counted as one).
+        let patients = table(
+            &["patient_id", "pfs_days", "pfs_event", "os_days", "os_event"],
+            &[&["P1", "100", "1", "", ""], &["P2", "100", "1", "", ""]],
+        );
+        let measurements = table(
+            &meas_cols(),
+            &[
+                &["P1", "21", "LDH", "1", "U/L"],
+                &["P1", "56", "", "1", "U/L"],
+                &["P2", "56", "LDH__lod", "1", "U/L"],
+            ],
+        );
+        let v = validate(&req(
+            ValidationMode::Files,
+            Some(patients),
+            measurements,
+            vec![],
+            vec![],
+            56.0,
+            0.0,
+        ))
+        .expect("files");
+        let t = v.timeline.expect("the timeline block");
+        assert_eq!(
+            t.draw_days,
+            vec![vec![21.0], vec![]],
+            "P2 stays in the denominator with no draw days; the markless row is no draw"
+        );
+        assert_eq!(t.draw_days.len(), 2, "both patients of the file are counted");
+    }
+
+    #[test]
+    fn timeline_uses_a_non_zero_baseline_max_day() {
+        let patients = table(
+            &["patient_id", "pfs_days", "pfs_event", "os_days", "os_event"],
+            &[&["P1", "100", "1", "", ""]],
+        );
+        let measurements = table(
+            &meas_cols(),
+            &[
+                &["P1", "7", "LDH", "1", "U/L"],
+                &["P1", "8", "LDH", "1", "U/L"],
+            ],
+        );
+        let v = validate(&req(
+            ValidationMode::Files,
+            Some(patients),
+            measurements,
+            vec![],
+            vec![],
+            56.0,
+            7.0,
+        ))
+        .expect("files");
+        let t = v.timeline.expect("the timeline block");
+        // Day ≤ baseline_max_day is baseline, never a draw.
+        assert_eq!(t.draw_days, vec![vec![8.0]]);
+        assert_eq!(t.limits.baseline_max_day, 7.0);
+    }
+
+    #[test]
+    fn timeline_does_not_move_with_the_decision_day_and_predict_has_no_outcomes() {
+        let measurements = table(
+            &meas_cols(),
+            &[
+                &["P1", "0", "LDH", "1", "U/L"],
+                &["P1", "21", "LDH", "1", "U/L"],
+                &["P1", "84", "LDH", "1", "U/L"],
+            ],
+        );
+        let at = |day: f64| {
+            validate(&req(
+                ValidationMode::Predict,
+                None,
+                measurements.clone(),
+                vec![],
+                vec![],
+                day,
+                0.0,
+            ))
+            .expect("predict")
+        };
+        let (a, b) = (at(28.0), at(84.0));
+        assert_eq!(a.timeline, b.timeline);
+        let t = a.timeline.expect("the timeline block");
+        assert_eq!(t.draw_days, vec![vec![21.0, 84.0]]);
+        assert!(t.outcomes.is_empty(), "predict mode carries no patients table");
+        // The problems do not depend on the decision day either (the day
+        // choices re-check without adding a blocking problem).
+        assert_eq!(
+            serde_json::to_value(&a.problems).expect("json"),
+            serde_json::to_value(&b.problems).expect("json")
+        );
+    }
+
+    #[test]
+    fn timeline_of_the_example_files() {
+        use crate::modules::file_validator::assets::{MEASUREMENTS_EXAMPLE_CSV, PATIENTS_EXAMPLE_CSV};
+        let v = validate(&req(
+            ValidationMode::Files,
+            Some(example_table(PATIENTS_EXAMPLE_CSV)),
+            example_table(MEASUREMENTS_EXAMPLE_CSV),
+            vec![],
+            vec![],
+            56.0,
+            0.0,
+        ))
+        .expect("the example validates");
+        let t = v.timeline.expect("the timeline block");
+        assert_eq!(t.draw_days.len(), 100);
+        let expected = vec![21.0, 42.0, 56.0, 84.0, 126.0, 252.0, 336.0];
+        assert!(t.draw_days.iter().all(|d| *d == expected), "every example patient draws on the same days");
+        assert_eq!(t.outcomes.len(), 100);
+        assert!(t.outcomes.iter().all(|o| o.pfs.is_some() && o.os.is_some()));
     }
 }

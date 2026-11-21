@@ -668,6 +668,49 @@ pub struct ValidationResponse {
     pub patients: Option<PatientsSummary>,
     pub measurements: MeasurementsSummary,
     pub inventory: InventoryEligibilityRequest,
+    /// The day facts the day choices are counted from (the suggested draw days,
+    /// the coverage lines, the look-ahead counts). No patient ids: the entries
+    /// are only counted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeline: Option<FileTimeline>,
+}
+
+/// One follow-up time and its event flag (1 = the event happened at `days`,
+/// 0 = follow-up ended without it), as the run's outcome table reads them.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TimelineOutcome {
+    pub days: f64,
+    pub event: i64,
+}
+
+/// One patients-table row's follow-up pairs (`None` = the pair is incomplete).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TimelinePatient {
+    pub pfs: Option<TimelineOutcome>,
+    pub os: Option<TimelineOutcome>,
+}
+
+/// The engine limits the day choices follow, read from the engine's own
+/// constants (the screens hold no copy).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TimelineLimits {
+    /// A draw on a later day is a draw during treatment.
+    pub baseline_max_day: f64,
+    /// The latest look-ahead day a run accepts.
+    pub look_ahead_day_max: f64,
+    /// The fewest patients an outcome is learned from.
+    pub min_training_patients: u32,
+}
+
+/// The day facts of a validate call: per patient of the measurements table,
+/// the distinct draw days during treatment (day > `baseline_max_day`,
+/// ascending); per row of the patients table, its follow-up pairs (empty in
+/// predict mode). File order, no identifiers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct FileTimeline {
+    pub draw_days: Vec<Vec<f64>>,
+    pub outcomes: Vec<TimelinePatient>,
+    pub limits: TimelineLimits,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ import { runAction } from '@/core/actions/defineAction'
 import { useAppMode } from '@/modules/demo'
 import { DEMO_START_HINT, DEMO_START_PRIMARY } from '@/modules/demo/copy'
 import type { IntakeIntent } from '../types'
+import { FLOW_ROUTES } from '@/modules/txrshell/lib/flowSteps'
 
 /**
  * Screen A — Start (board Start.dc.html): the three FLOW paths as cards
@@ -40,7 +41,8 @@ import type { IntakeIntent } from '../types'
  * Intent navigation (PROV-UI-INTAKE-1 + DEC-20): each card's button sets the
  * intent FIRST (the store's `setIntent` maps it to the flow's mode) and then
  * navigates to the intake route the path starts on — pretrained/reuse →
- * `/predict-files` (N), train → `/study` (B). "Use example" (qa-fixes3
+ * `/predict-files` (N), train → `/files` (the learn path's files come first,
+ * then the study questions; `txrshell/lib/flowSteps.ts`). "Use example" (qa-fixes3
  * ITEM-4) sets the intent AND the example files/answers in ONE click and
  * lands on the path's file step (`/files` for train, `/predict-files`
  * for the two predict paths) — the step's own flow validates the adopted
@@ -50,8 +52,8 @@ import type { IntakeIntent } from '../types'
  * them).
  */
 
-/** The intake's own route literals (the module route table is the source). */
-const STUDY_ROUTE = '/study'
+/** The study questions (the "Not sure which fits?" side trip). */
+const STUDY_ROUTE = FLOW_ROUTES.study
 
 /** The page's frame host. */
 const PAGE_ROOT: CSSProperties = {
@@ -292,7 +294,7 @@ export function StartPage() {
   }, [])
 
   /** The card path picker: the registered `flow.startPath` sets the intent,
-   *  then starts the flow it leads to (train → B, the predict paths → N). */
+   *  then starts the flow it leads to (train → the files step, the predict paths → N). */
   const pickPath = useCallback((intent: IntakeIntent) => {
     void runAction('flow.startPath', { intent })
   }, [])

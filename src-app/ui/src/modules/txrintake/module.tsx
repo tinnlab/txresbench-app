@@ -1,5 +1,6 @@
 import { createModule } from '@txresbench/framework'
 import { TxrLayoutDef } from '@/modules/txrshell/module'
+import { FLOW_ROUTES } from '@/modules/txrshell/lib/flowSteps'
 import { lazyWithPreload } from '@/utils/lazyWithPreload'
 // Side-effect import: registers the step-flow actions (`flow.back`,
 // `models.switchList`, `flow.startPath`, `models.useModel`,
@@ -7,6 +8,9 @@ import { lazyWithPreload } from '@/utils/lazyWithPreload'
 // switch and the entries that start a path), so each is drivable by the
 // palette and the AI, not only a button.
 import '@/core/actions/builtin/stepActions'
+// Side-effect import: registers the day choices' actions (`flow.setLastDrawDay`
+// on the questions step, `runSettings.setDay` on step 4's settings).
+import '@/core/actions/builtin/dayActions'
 
 /**
  * txrintake — the intake flow of TxResBench: screen A (Start), B (Your
@@ -25,15 +29,16 @@ import '@/core/actions/builtin/stepActions'
  * Route conventions DECLARED here for the sibling choice screens (the
  * ownership stays with their modules; RECONCILE confirms the bindings with
  * `ui-run` and `ui-models`): E = `/choose-methods`, D = `/pretrained-models`,
- * I = `/saved-models` — see ROUTE_CONVENTIONS.
+ * I = `/saved-models` — see ROUTE_CONVENTIONS. Every route is read from the
+ * one list of steps (`txrshell/lib/flowSteps.ts`).
  */
 export const ROUTE_CONVENTIONS = {
   /** Screen E — choose methods and settings (`ui-run`). */
-  methods: '/choose-methods',
+  methods: FLOW_ROUTES.methods,
   /** Screen D — choose pretrained models (`ui-models`). */
-  pretrainedModels: '/pretrained-models',
+  pretrainedModels: FLOW_ROUTES.pretrainedModels,
   /** Screen I — choose saved models (`ui-models`). */
-  savedModels: '/saved-models',
+  savedModels: FLOW_ROUTES.savedModels,
 } as const
 
 const StartPage = lazyWithPreload(() =>
@@ -59,25 +64,25 @@ export default createModule({
   dependencies: ['router', 'txrhelp'],
   routes: [
     {
-      path: '/',
+      path: FLOW_ROUTES.start,
       element: StartPage,
       requiresAuth: true,
       layout: TxrLayoutDef,
     },
     {
-      path: '/study',
+      path: FLOW_ROUTES.study,
       element: StudyPage,
       requiresAuth: true,
       layout: TxrLayoutDef,
     },
     {
-      path: '/files',
+      path: FLOW_ROUTES.files,
       element: FilesPage,
       requiresAuth: true,
       layout: TxrLayoutDef,
     },
     {
-      path: '/predict-files',
+      path: FLOW_ROUTES.predictFiles,
       element: PredictFilesPage,
       requiresAuth: true,
       layout: TxrLayoutDef,

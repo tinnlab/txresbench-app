@@ -35,11 +35,13 @@ const PUBLISHED = '/pretrained-models'
 const SAVED = '/saved-models'
 
 /** The fallback each step page declares (the plan's row 13). */
+// The pages' own fallbacks: the step before on the learn path
+// (Start, files, study, methods).
 const FALLBACK: Record<TxrStepId, string> = {
-  study: START,
-  files: STUDY,
+  study: FILES,
+  files: START,
   'predict-files': START,
-  'choose-methods': FILES,
+  'choose-methods': STUDY,
   'pretrained-models': PREDICT,
   'saved-models': PREDICT,
 }
@@ -145,38 +147,43 @@ describe('the flow map (each row: Back from each step of the path)', () => {
     expect(back()).toBe(START)
   })
 
-  it('row 3: the train card "Add my data": A → B → C → E; E→C, C→B, B→A', () => {
+  it('row 3: the train card "Add my data": A → C → B → E; E→B, B→C, C→A', () => {
     beginPath(START)
-    show(STUDY)
     show(FILES)
+    show(STUDY)
     show(METHODS)
-    expect(back()).toBe(FILES)
     expect(back()).toBe(STUDY)
-    expect(back()).toBe(START)
-  })
-
-  it('row 4: the train "Use example" on Start: A → C → E; E→C, C→A', () => {
-    beginPath(START)
-    show(FILES)
-    show(METHODS)
     expect(back()).toBe(FILES)
     expect(back()).toBe(START)
   })
 
-  it('row 5: "Not sure which fits?": A → B → C or N; C→B, N→B, B→A', () => {
+  it('row 4: the train "Use example" on Start: A → C → B → E (the same steps as row 3)', () => {
+    beginPath(START)
+    show(FILES)
+    show(STUDY)
+    show(METHODS)
+    expect(back()).toBe(STUDY)
+    expect(back()).toBe(FILES)
+    expect(back()).toBe(START)
+  })
+
+  it('row 5: "Not sure which fits?": A → B, then C (no files yet) or N; C→B, N→B, B→A', () => {
     beginPath(START)
     show(STUDY)
-    show(FILES)
+    show(FILES) // B Continue with no files yet goes forward to the files step
+    expect(useStepTrailStore.getState().trail).toEqual([START, STUDY, FILES])
     expect(back()).toBe(STUDY)
     show(PREDICT)
     expect(back()).toBe(STUDY)
     expect(back()).toBe(START)
   })
 
-  it('row 6: B "Use example" (always train): B → C; C→B', () => {
+  it('row 6: C Continue to B, then B Continue to E; Back runs the same steps in reverse', () => {
     beginPath(START)
-    show(STUDY)
     show(FILES)
+    show(STUDY)
+    expect(currentBackTarget()).toBe(FILES)
+    show(METHODS)
     expect(back()).toBe(STUDY)
   })
 
@@ -194,11 +201,10 @@ describe('the flow map (each row: Back from each step of the path)', () => {
     show(PREDICT)
     expect(currentBackTarget()).toBe('/help')
     beginPath('/help')
+    show(FILES) // "Add my data" and its "Use example" both land on C
     show(STUDY)
-    expect(back()).toBe('/help')
-    beginPath('/help')
-    show(FILES) // its "Use example" lands on C
     show(METHODS)
+    expect(back()).toBe(STUDY)
     expect(back()).toBe(FILES)
     expect(back()).toBe('/help')
   })
@@ -220,12 +226,12 @@ describe('the flow map (each row: Back from each step of the path)', () => {
 
   it('row 11: backward hops cut the trail there (E "Change files" → C; D/I buttons → N)', () => {
     beginPath(START)
-    show(STUDY)
     show(FILES)
+    show(STUDY)
     show(METHODS)
     show(FILES) // "Change files" — a backward hop, not a forward step
-    expect(useStepTrailStore.getState().trail).toEqual([START, STUDY, FILES])
-    expect(back()).toBe(STUDY)
+    expect(useStepTrailStore.getState().trail).toEqual([START, FILES])
+    expect(back()).toBe(START)
 
     beginPath(START)
     show(PREDICT)
@@ -279,10 +285,10 @@ describe('the flow map (each row: Back from each step of the path)', () => {
 
   it('row 13: a reload or a deep link (no trail): each step goes to its fallback', () => {
     for (const [url, expected] of [
-      [STUDY, START],
-      [FILES, STUDY],
+      [STUDY, FILES],
+      [FILES, START],
       [PREDICT, START],
-      [METHODS, FILES],
+      [METHODS, STUDY],
       [PUBLISHED, PREDICT],
       [SAVED, PREDICT],
     ] as const) {
@@ -302,8 +308,8 @@ describe('the flow map (each row: Back from each step of the path)', () => {
 
   it('after a fallback Back, the next Back keeps going down the fallbacks', () => {
     show(METHODS)
-    expect(back()).toBe(FILES)
     expect(back()).toBe(STUDY)
+    expect(back()).toBe(FILES)
     expect(back()).toBe(START)
   })
 })
@@ -352,15 +358,15 @@ describe('the way back from Help to a step', () => {
   })
 
   it('names each step view by its step line number and its heading', () => {
-    expect(stepPlaceOf(STUDY)).toEqual({ step: 2, title: 'Tell us about your study' })
-    expect(stepPlaceOf(FILES)).toEqual({ step: 3, title: 'Add your files' })
+    expect(stepPlaceOf(STUDY)).toEqual({ step: 3, title: 'Tell us about your study' })
+    expect(stepPlaceOf(FILES)).toEqual({ step: 2, title: 'Add your files' })
     expect(stepPlaceOf(`${PREDICT}?use=m1&name=Model%201`)).toEqual({
-      step: 3,
+      step: 2,
       title: 'Add the patients to predict',
     })
     expect(stepPlaceOf('/choose-methods')).toEqual({ step: 4, title: 'Choose the methods and settings' })
-    expect(stepPlaceOf('/pretrained-models')).toEqual({ step: 4, title: 'Choose the models to run' })
-    expect(stepPlaceOf('/saved-models')).toEqual({ step: 4, title: 'Choose the saved models to run' })
+    expect(stepPlaceOf('/pretrained-models')).toEqual({ step: 3, title: 'Choose the models to run' })
+    expect(stepPlaceOf('/saved-models')).toEqual({ step: 3, title: 'Choose the saved models to run' })
     expect(stepPlaceOf(START)).toBeNull()
     expect(stepPlaceOf('/help')).toBeNull()
   })

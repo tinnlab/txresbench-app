@@ -43,6 +43,18 @@ import {
 import { ESTIMATE_EXPLAINED, FIXED_SEED_FACT } from '../lib/runBar'
 import type { TxrSettingsCovariates } from '../lib/covariates'
 import { useNarrow } from '../lib/useNarrow'
+import type { FileTimeline } from '@/api-client/types'
+import { TxrDayField } from '@/modules/txrintake/components/TxrDayField'
+import {
+  checkLookAhead,
+  drawCoverageLine,
+  drawDayError,
+  drawDayWarning,
+  knownOutcomeLine,
+  lookAheadSuggestions,
+  monthsText,
+  suggestDrawDays,
+} from '@/modules/txrintake/lib/dayChoices'
 
 /** The settings-value changed (one row; the full new value). */
 export interface TxrSettingsBlockProps {
@@ -70,6 +82,10 @@ export interface TxrSettingsBlockProps {
    *  at-a-time) controls are hidden (no real compute), and the caller
    *  renders the demo reason line under the card. */
   locked?: boolean
+  /** The day facts of the checked files (suggestions + coverage lines), or null. */
+  dayFacts?: FileTimeline | null
+  /** A day was chosen (a suggestion or a typed day): runs `runSettings.setDay`. */
+  onChooseDay?(field: 'decision_day' | 'look_ahead_day', day: number): void
 }
 
 /** The card's look (the board's settings card, with the block's own title). */
@@ -170,6 +186,27 @@ function numericOptions(
   return options
 }
 
+/**
+ * The look-ahead suggestions as buttons: the default, then the furthest days
+ * where three quarters / half of the patients have a known outcome (a day
+ * already listed keeps its first label).
+ */
+function lookAheadChoices(
+  facts: FileTimeline | null,
+  decisionDay: number,
+  endpoint: RunSettings['endpoint'],
+): Array<{ day: number; label: string }> {
+  if (facts === null || facts.outcomes.length === 0) return []
+  const s = lookAheadSuggestions(facts, decisionDay, endpoint)
+  const out: Array<{ day: number; label: string }> = [{ day: s.default, label: `Day ${s.default}` }]
+  const add = (day: number | null, label: string): void => {
+    if (day !== null && !out.some(o => o.day === day)) out.push({ day, label })
+  }
+  add(s.threeQuarters, `Day ${s.threeQuarters ?? ''}: 3 in 4 known`)
+  add(s.half, `Day ${s.half ?? ''}: half known`)
+  return out
+}
+
 /** The CPU select's options: Auto (= null) + 1..8 (DEC-7). */
 const CPU_OPTIONS = [
   { value: 'auto', label: 'Auto' },
@@ -192,6 +229,8 @@ export function TxrSettingsBlock({
   collapsed,
   locked = false,
   covariatesHelp = null,
+  dayFacts = null,
+  onChooseDay,
 }: TxrSettingsBlockProps) {
   const [moreOpen, setMoreOpen] = useState(false)
   const narrow = useNarrow()
@@ -204,6 +243,26 @@ export function TxrSettingsBlock({
     [value.endpoint, value.decision_day, value.look_ahead_day], // eslint-disable-line react-hooks/exhaustive-deps
   )
   const covariatesDisabled = covariates?.availability === 'absent'
+  const chooseDay = (field: 'decision_day' | 'look_ahead_day', day: number): void => {
+    if (onChooseDay !== undefined) onChooseDay(field, day)
+    else onChange({ ...value, [field]: day })
+  }
+  const drawSuggestions = useMemo(
+    () => (dayFacts === null ? [] : suggestDrawDays(dayFacts)),
+    [dayFacts],
+  )
+  const lookAheadMax = dayFacts?.limits.look_ahead_day_max ?? Number.POSITIVE_INFINITY
+  const lookAheadDays = useMemo(
+    () => lookAheadChoices(dayFacts, value.decision_day, value.endpoint),
+    [dayFacts, value.decision_day, value.endpoint],
+  )
+  const lookAheadCheck = checkLookAhead(
+    dayFacts,
+    value.decision_day,
+    value.look_ahead_day,
+    value.endpoint,
+    lookAheadMax,
+  )
 
   const rows = (
     <div style={ROWS}>
@@ -225,27 +284,48 @@ export function TxrSettingsBlock({
       </div>
       <div style={ROW}>
         <span style={LABEL}>Decision day</span>
-        <Segmented
-          data-testid="txr-run-settings-decision-day"
-          aria-label="Decision day"
-          size="sm"
-          disabled={locked}
-          value={String(value.decision_day)}
-          onValueChange={day => onChange({ ...value, decision_day: Number(day) })}
-          options={numericOptions(value.decision_day, SETTING_OPTIONS.decision_day)}
+        <TxrDayField
+          testId="txr-run-settings-decision-day"
+          label="Decision day"
+          value={value.decision_day}
+          suggestions={drawSuggestions}
+          locked={locked}
+          onChoose={day => chooseDay('decision_day', day)}
+          check={day =>
+            dayFacts === null
+              ? Number.isInteger(day) && day >= 1
+                ? null
+                : 'Choose a whole day from 1.'
+              : drawDayError(day, dayFacts.limits.look_ahead_day_max)
+          }
+          coverage={dayFacts === null ? null : drawCoverageLine(dayFacts, value.decision_day)}
+          warning={
+            dayFacts === null ? null : drawDayWarning(dayFacts, value.decision_day, value.endpoint)
+          }
         />
         <span style={HELP}>{SETTING_HELP.decision_day}</span>
       </div>
       <div style={ROW}>
         <span style={LABEL}>Look ahead to</span>
-        <Segmented
-          data-testid="txr-run-settings-look-ahead"
-          aria-label="Look ahead to"
-          size="sm"
-          disabled={locked}
-          value={String(value.look_ahead_day)}
-          onValueChange={day => onChange({ ...value, look_ahead_day: Number(day) })}
-          options={numericOptions(value.look_ahead_day, SETTING_OPTIONS.look_ahead_day)}
+        <TxrDayField
+          testId="txr-run-settings-look-ahead"
+          label="Look ahead to"
+          value={value.look_ahead_day}
+          suggestions={lookAheadDays.map(s => s.day)}
+          suggestionLabel={day => lookAheadDays.find(s => s.day === day)?.label ?? `Day ${day}`}
+          locked={locked}
+          onChoose={day => chooseDay('look_ahead_day', day)}
+          check={day =>
+            checkLookAhead(dayFacts, value.decision_day, day, value.endpoint, lookAheadMax).error
+          }
+          beside={monthsText(value.look_ahead_day)}
+          coverage={
+            dayFacts === null || dayFacts.outcomes.length === 0
+              ? null
+              : knownOutcomeLine(dayFacts, value.decision_day, value.look_ahead_day, value.endpoint)
+          }
+          blocked={lookAheadCheck.error}
+          warning={lookAheadCheck.warning}
         />
         <span style={HELP}>{SETTING_HELP.look_ahead_day}</span>
       </div>

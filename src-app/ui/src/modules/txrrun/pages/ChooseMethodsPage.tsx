@@ -57,12 +57,34 @@ import { refreshMethodListStatus } from '@/lib/txr-method-list/revision'
 import { runSetupMissing } from '../lib/slotSummary'
 import { buildFilesSummary } from '../lib/filesSummary'
 import { formatRunBarTime } from '../lib/runBar'
-import { mergeRunSettings, type RunSettings } from '../lib/settings'
+import {
+  mergeRunSettings,
+  RUN_SETTINGS_SET_DAY,
+  TXR_RUN_SETTINGS_CONTEXT,
+  type RunSettings,
+} from '../lib/settings'
 import { buildRunRequest } from '../lib/runRequest'
 import { buildCovariates, covariatesUseLine } from '../lib/covariates'
 import { useKeepCopies } from '../data/useKeepCopies'
 import { useRunConfig } from '../data/useRunConfig'
-import { filesPath, predictFilesPath, runningPath } from '../routes'
+import { predictFilesPath, runningPath } from '../routes'
+import { previousLearnRoute } from '@/modules/txrshell/lib/flowSteps'
+import {
+  checkLookAhead,
+  drawDayError,
+  lookAheadSuggestions,
+  plainLookAheadDefault,
+} from '@/modules/txrintake/lib/dayChoices'
+import { runAction } from '@/core/actions/defineAction'
+import { useAction } from '@/core/actions/useAction'
+import { useActiveContext } from '@/core/actions/activeContext'
+import { createVersioned } from '@/core/actions/versioned'
+
+/** What step 4's day settings report to the AI (`runSettings.setDay`). */
+interface RunDaySnapshot extends Record<string, unknown> {
+  decision_day: number
+  look_ahead_day: number
+}
 import { TxrChangeFilesDialog } from '../components/TxrChangeFilesDialog'
 import { TxrRunEmptyState } from '../components/TxrRunEmptyState'
 import { TxrSettingsBlock } from '../components/TxrSettingsBlock'
@@ -393,6 +415,8 @@ export function ChooseMethodsPage() {
   const validation = useStore(useTxrIntakeStore, s => s.validation)
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
   const methodPicks = useStore(useTxrIntakeStore, s => s.methodPicks)
+  const dayFacts = useStore(useTxrIntakeStore, s => s.dayFacts)
+  const lookAheadDay = useStore(useTxrIntakeStore, s => s.lookAheadDay)
   const runConfig = useRunConfig()
   const { keepCopies } = useKeepCopies()
   const { isDemo } = useAppMode()
@@ -400,7 +424,7 @@ export function ChooseMethodsPage() {
   // step of this flow.
   useStepBack({
     step: 'choose-methods',
-    fallback: mode === 'predict' ? predictFilesPath() : filesPath(),
+    fallback: mode === 'predict' ? predictFilesPath() : previousLearnRoute('choose-methods'),
     blockedReason: starting ? STEP_BACK_STARTING_REASON : null,
     dialogOpen: changeOpen,
   })
@@ -409,7 +433,7 @@ export function ChooseMethodsPage() {
   // estimate + eligibility arms answer from the bundle regardless, and the
   // configs are the recorded ones — the sticky analysis-config of a shared
   // pool is never a visitor's opinion, so the demo merge ignores it).
-  const merged = useMemo(
+  const base = useMemo(
     () =>
       isDemo
         ? mergeRunSettings(null, parameters)
@@ -417,19 +441,111 @@ export function ChooseMethodsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isDemo, runConfig.engine, parameters],
   )
+  // The look-ahead day of THIS analysis: the day chosen for it (a
+  // suggestion, a typed day, History "Use these settings again"), else the
+  // default its files suggest for the decision day and outcome on screen
+  // (decision day + 182 when at least half the patients have a known
+  // outcome there). The demo keeps its recorded setup.
+  const shownDecisionDay = settingsPatch?.decision_day ?? base.decision_day
+  const shownEndpoint = settingsPatch?.endpoint ?? base.endpoint
+  const defaultLookAhead =
+    dayFacts !== null && dayFacts.outcomes.length > 0
+      ? lookAheadSuggestions(dayFacts, shownDecisionDay, shownEndpoint).default
+      : plainLookAheadDefault(
+          shownDecisionDay,
+          dayFacts?.limits.look_ahead_day_max ?? Number.POSITIVE_INFINITY,
+        )
+  const merged = isDemo ? base : { ...base, look_ahead_day: lookAheadDay ?? defaultLookAhead }
   const settings = settingsPatch === null ? merged : { ...merged, ...settingsPatch }
+  // The latest settings as a ref, updated on every render AND every change:
+  // `setDay` reads/writes through it, so two calls in one tick (decision day,
+  // then look-ahead) never let the second read the first call's stale
+  // decision day back (the render closure only turns over on a re-render).
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
   const covariates = patients === null ? null : buildCovariates(patients.inspection)
 
   const change = (next: RunSettings): void => {
-    if (next.decision_day !== settings.decision_day || next.covariates !== settings.covariates) {
+    // The ref is the newest settings even when two change calls land in one
+    // tick (a second call must diff against the first call's result, never
+    // against the render-time `settings` — the diff against the stale value
+    // omits a day the second call changed back to it).
+    const prev = settingsRef.current
+    if (next.decision_day !== prev.decision_day || next.covariates !== prev.covariates) {
       recheckAsks.current += 1
     }
-    setSettingsPatch(current => ({ ...(current ?? {}), ...diffPatch(next, settings) }))
+    settingsRef.current = next
+    setSettingsPatch(current => ({ ...(current ?? {}), ...diffPatch(next, prev) }))
     // demo-mode ITEM-6: the demo never writes the shared-pool sticky row
     // (the recorded setup is the one setup; the run carries its own).
     if (isDemo) return
     void runConfig.update(next)
   }
+
+  // Step 4's day settings as an AI-controllable instance (`runSettings.setDay`,
+  // `core/actions/builtin/dayActions.ts`): a suggested day button, a typed day
+  // and the action all run `setDay`, which refuses a day outside its limits
+  // and a look-ahead day where no patient has a known outcome.
+  const lookAheadMax = dayFacts?.limits.look_ahead_day_max ?? Number.POSITIVE_INFINITY
+  const setDay = (field: 'decision_day' | 'look_ahead_day', day: number): RunDaySnapshot => {
+    if (isDemo) throw new Error(DEMO_SETTINGS_NOTE)
+    // The ref is the newest settings, even when two calls land in one tick.
+    const latest = settingsRef.current
+    if (field === 'decision_day') {
+      const problem =
+        dayFacts === null
+          ? Number.isInteger(day) && day >= 1
+            ? null
+            : 'Choose a whole day from 1.'
+          : drawDayError(day, dayFacts.limits.look_ahead_day_max)
+      if (problem !== null) throw new Error(problem)
+      change({ ...latest, decision_day: day })
+      return { decision_day: day, look_ahead_day: latest.look_ahead_day }
+    }
+    const problem = checkLookAhead(dayFacts, latest.decision_day, day, latest.endpoint, lookAheadMax).error
+    if (problem !== null) throw new Error(problem)
+    TxrIntake.setLookAheadDay(day)
+    change({ ...latest, look_ahead_day: day })
+    return { decision_day: latest.decision_day, look_ahead_day: day }
+  }
+  const [settingsViewId] = useState(() => crypto.randomUUID())
+  const daySnapshot: RunDaySnapshot = {
+    decision_day: settings.decision_day,
+    look_ahead_day: settings.look_ahead_day,
+  }
+  const [dayVersioned] = useState(() => createVersioned(settingsViewId, daySnapshot))
+  useEffect(() => {
+    const last = dayVersioned.value
+    if (last.decision_day !== daySnapshot.decision_day || last.look_ahead_day !== daySnapshot.look_ahead_day) {
+      dayVersioned.set(daySnapshot)
+    }
+  })
+  useAction(settingsViewId, {
+    type: TXR_RUN_SETTINGS_CONTEXT,
+    handlers: {
+      [RUN_SETTINGS_SET_DAY]: params => {
+        const { field, day } = params as { field: 'decision_day' | 'look_ahead_day'; day: number }
+        return setDay(field, day)
+      },
+    },
+    getSnapshot: () => dayVersioned.snapshot(),
+  })
+  useActiveContext(TXR_RUN_SETTINGS_CONTEXT, { entityId: settingsViewId })
+  const chooseDay = useCallback(
+    (field: 'decision_day' | 'look_ahead_day', day: number): void => {
+      void runAction(RUN_SETTINGS_SET_DAY, { view_id: settingsViewId, field, day }).catch(
+        (error: unknown) => {
+          // A refusal is shown, never silent: the day stays what it was.
+          message.error(error instanceof Error ? error.message : 'Could not set the day.')
+        },
+      )
+    },
+    [settingsViewId],
+  )
+  const lookAheadBlocked = isDemo
+    ? null
+    : checkLookAhead(dayFacts, settings.decision_day, settings.look_ahead_day, settings.endpoint, lookAheadMax)
+        .error
 
   // The load transition (the engine's sticky fields land after an edit): the
   // write-through body is once more the screen's truth. Keyed on the hook's
@@ -635,7 +751,7 @@ export function ChooseMethodsPage() {
    *  the default 1200x800 window left the method list 7 px). */
   const top = (
     <div className="txr-run-top" style={PAGE_TOP}>
-      <TxrStepLine step={4} of={4} />
+      <TxrStepLine step="choose-methods" />
       <h1 style={TITLE}>Choose the methods and settings</h1>
     </div>
   )
@@ -685,6 +801,7 @@ export function ChooseMethodsPage() {
         }}
         runLabelSuffix={isDemo ? DEMO_RUN_BUTTON_SUFFIX : undefined}
         back={<TxrStepBack look="run-bar" />}
+        blockedReason={lookAheadBlocked}
       />
     ) : null
 
@@ -736,6 +853,8 @@ export function ChooseMethodsPage() {
                       collapsed={short}
                       locked={isDemo}
                       covariatesHelp={covariatesUseLine(cards)}
+                      dayFacts={dayFacts}
+                      onChooseDay={chooseDay}
                     />
                     {isDemo ? (
                       <p data-testid="txr-run-settings-demo-note" style={{ margin: 0, fontSize: 12.5, color: 'var(--txr-muted)' }}>

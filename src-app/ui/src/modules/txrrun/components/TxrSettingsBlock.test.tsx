@@ -25,6 +25,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { TxrSettingsBlock } from './TxrSettingsBlock'
 import type { TxrSettingsCovariates } from '../lib/covariates'
 import { DEFAULT_RUN_SETTINGS, type RunSettings } from '../lib/settings'
+import type { FileTimeline } from '@/api-client/types'
 
 // jsdom has no working PointerEvent constructor; Base UI's controls (the
 // kit Switch/Segmented/Select) construct one on pointer interaction, which
@@ -50,6 +51,39 @@ const fixtureValue: RunSettings = {
   at_a_time: 3,
   cpus: null,
   save_models: false,
+}
+
+/**
+ * Day facts of 12 patients: draws on days 28 and 56; 3 with the event at day
+ * 300, 3 at day 400, and 6 followed to day 500 without it (so the known
+ * outcomes stay 12 until day 500, then fall to 6).
+ */
+const DAY_FACTS: FileTimeline = {
+  draw_days: Array.from({ length: 12 }, () => [28, 56]),
+  outcomes: [
+    ...Array.from({ length: 3 }, () => ({
+      pfs: { days: 300, event: 1 },
+      os: { days: 300, event: 1 },
+    })),
+    ...Array.from({ length: 3 }, () => ({
+      pfs: { days: 400, event: 1 },
+      os: { days: 400, event: 1 },
+    })),
+    ...Array.from({ length: 6 }, () => ({
+      pfs: { days: 500, event: 0 },
+      os: { days: 500, event: 0 },
+    })),
+  ],
+  limits: { baseline_max_day: 0, look_ahead_day_max: 730, min_training_patients: 10 },
+}
+
+/** 12 patients all followed to day 100 without the event (none known later). */
+const ALL_CENSORED: FileTimeline = {
+  ...DAY_FACTS,
+  outcomes: Array.from({ length: 12 }, () => ({
+    pfs: { days: 100, event: 0 },
+    os: { days: 100, event: 0 },
+  })),
 }
 
 /** The fixture's present covariates (the inspection's file-order names). */
@@ -108,20 +142,18 @@ describe('TxrSettingsBlock (E settings rows, TEST-RUN-15)', () => {
     expect(screen.getByTestId('txr-run-settings-endpoint-opt-pfs')).toBeTruthy()
     expect(screen.getByTestId('txr-run-settings-endpoint-opt-os')).toBeTruthy()
 
-    // The decision-day row: four options in the board's order (Day 56 first).
-    const dayRow = screen.getByTestId('txr-run-settings-decision-day')
-    const dayOptions = dayRow.querySelectorAll('[data-testid^="txr-run-settings-decision-day-opt-"]')
-    expect(Array.from(dayOptions).map(el => (el as HTMLElement).dataset.testid)).toEqual([
-      'txr-run-settings-decision-day-opt-56',
-      'txr-run-settings-decision-day-opt-28',
-      'txr-run-settings-decision-day-opt-42',
-      'txr-run-settings-decision-day-opt-84',
-    ])
-
-    // The horizon row: three options.
-    expect(screen.getByTestId('txr-run-settings-look-ahead-opt-238')).toBeTruthy()
-    expect(screen.getByTestId('txr-run-settings-look-ahead-opt-180')).toBeTruthy()
-    expect(screen.getByTestId('txr-run-settings-look-ahead-opt-365')).toBeTruthy()
+    // The decision day and the look-ahead are number fields (no fixed day
+    // lists); with no day facts there are no suggestions.
+    expect(
+      (screen.getByTestId('txr-run-settings-decision-day-input') as HTMLInputElement).value,
+    ).toBe('56')
+    expect(screen.queryByTestId('txr-run-settings-decision-day-suggestions')).toBeNull()
+    expect(
+      (screen.getByTestId('txr-run-settings-look-ahead-input') as HTMLInputElement).value,
+    ).toBe('238')
+    expect(screen.getByTestId('txr-run-settings-look-ahead-beside').textContent).toBe(
+      '238 days ≈ 7.8 months',
+    )
 
     // The extra-inputs row carries the resolved names line.
     expect(screen.getByTestId('txr-run-settings-covariate-names').textContent).toBe(
@@ -143,7 +175,12 @@ describe('TxrSettingsBlock (E settings rows, TEST-RUN-15)', () => {
     await clickKit(screen.getByTestId('txr-run-settings-endpoint-opt-os'))
     expect(onChange).toHaveBeenCalledWith({ ...fixtureValue, endpoint: 'os' })
 
-    await clickKit(screen.getByTestId('txr-run-settings-decision-day-opt-84'))
+    const input = screen.getByTestId('txr-run-settings-decision-day-input')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: '84' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      await Promise.resolve()
+    })
     expect(onChange).toHaveBeenLastCalledWith({ ...fixtureValue, decision_day: 84 })
   })
 
@@ -161,18 +198,126 @@ describe('TxrSettingsBlock (E settings rows, TEST-RUN-15)', () => {
     expect(onChange).toHaveBeenCalledWith({ ...fixtureValue, covariates: true })
   })
 
-  it('renders a numeric value outside the presets as its own current-value chip', () => {
+  it('suggests the days of the checked files, with the coverage lines, and reports a choice', async () => {
+    const onChooseDay = vi.fn()
     render(
       <TxrSettingsBlock
-        value={{ ...fixtureValue, decision_day: 100 }}
+        value={fixtureValue}
         covariates={presentCovariates}
         onChange={() => undefined}
         onMoreSettings={() => undefined}
+        dayFacts={DAY_FACTS}
+        onChooseDay={onChooseDay}
       />,
     )
-    const chip = screen.getByTestId('txr-run-settings-decision-day-opt-100')
-    expect(chip).toBeTruthy()
-    expect(chip.getAttribute('data-state')).toBe('on')
+    expect(
+      Array.from(
+        screen
+          .getByTestId('txr-run-settings-decision-day-suggestions')
+          .querySelectorAll('button'),
+      ).map(b => b.textContent),
+    ).toEqual(['Day 28', 'Day 56'])
+    expect(screen.getByTestId('txr-run-settings-decision-day-coverage').textContent).toBe(
+      'Day 56: 12 of 12 patients have a draw during treatment by this day',
+    )
+    // The look-ahead: the default, then the three-quarters and half days.
+    expect(
+      Array.from(
+        screen.getByTestId('txr-run-settings-look-ahead-suggestions').querySelectorAll('button'),
+      ).map(b => b.textContent),
+    ).toEqual(['Day 238', 'Day 499: 3 in 4 known', 'Day 730: half known'])
+    expect(screen.getByTestId('txr-run-settings-look-ahead-coverage').textContent).toBe(
+      'Day 238: 12 of 12 patients have a known outcome',
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-run-settings-decision-day-suggestion-28'))
+      fireEvent.click(screen.getByTestId('txr-run-settings-look-ahead-suggestion-499'))
+      await Promise.resolve()
+    })
+    expect(onChooseDay).toHaveBeenNthCalledWith(1, 'decision_day', 28)
+    expect(onChooseDay).toHaveBeenNthCalledWith(2, 'look_ahead_day', 499)
+  })
+
+  it('says why a look-ahead day cannot be used, and warns about a risky one', async () => {
+    const { rerender } = render(
+      <TxrSettingsBlock
+        value={{ ...fixtureValue, look_ahead_day: 600 }}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+        dayFacts={ALL_CENSORED}
+      />,
+    )
+    // Every patient's follow-up ends at day 100 without the event: none known at 600.
+    expect(screen.getByTestId('txr-run-settings-look-ahead-blocked').textContent).toBe(
+      'No patient has a known outcome by day 600, so the chance cannot be worked out. Choose an earlier day.',
+    )
+    rerender(
+      <TxrSettingsBlock
+        value={{ ...fixtureValue, look_ahead_day: 600 }}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+        dayFacts={DAY_FACTS}
+      />,
+    )
+    expect(screen.queryByTestId('txr-run-settings-look-ahead-blocked')).toBeNull()
+    expect(screen.getByTestId('txr-run-settings-look-ahead-warning').textContent).toBe(
+      'Only 6 patients have a known outcome by day 600. Methods learn an outcome from at least 10.',
+    )
+    // The warning line is a status, and the number box names the lines shown
+    // (the coverage id is in its aria-describedby too).
+    const warningLine = screen.getByTestId('txr-run-settings-look-ahead-warning')
+    expect(warningLine.getAttribute('role')).toBe('status')
+    const lookAheadInput = screen.getByTestId('txr-run-settings-look-ahead-input')
+    expect(lookAheadInput.getAttribute('aria-describedby')).toContain(warningLine.id)
+    const coverageLine = screen.getByTestId('txr-run-settings-look-ahead-coverage')
+    expect(lookAheadInput.getAttribute('aria-describedby')).toContain(coverageLine.id)
+    // A typed day before the decision day is refused in place.
+    const input = screen.getByTestId('txr-run-settings-look-ahead-input')
+    await act(async () => {
+      fireEvent.change(input, { target: { value: '40' } })
+      fireEvent.blur(input)
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-settings-look-ahead-error').textContent).toBe(
+      'Choose a day after the decision day (day 56).',
+    )
+    rerender(
+      <TxrSettingsBlock
+        value={{ ...fixtureValue, look_ahead_day: 450 }}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+        dayFacts={DAY_FACTS}
+      />,
+    )
+    await act(async () => {
+      fireEvent.change(input, { target: { value: '731' } })
+      fireEvent.blur(input)
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-settings-look-ahead-error').textContent).toBe(
+      'Choose day 730 or earlier.',
+    )
+  })
+
+  it('the demo keeps the recorded days: no suggestions, the boxes read only', () => {
+    render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+        dayFacts={DAY_FACTS}
+        locked
+      />,
+    )
+    expect(screen.queryByTestId('txr-run-settings-decision-day-suggestions')).toBeNull()
+    expect(screen.queryByTestId('txr-run-settings-look-ahead-suggestions')).toBeNull()
+    expect(
+      (screen.getByTestId('txr-run-settings-look-ahead-input') as HTMLInputElement).readOnly,
+    ).toBe(true)
   })
 
   it('renders the Extra-inputs states: absent line, pending mark, no file line', () => {

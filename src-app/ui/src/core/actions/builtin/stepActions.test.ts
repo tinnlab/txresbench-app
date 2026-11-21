@@ -254,10 +254,11 @@ describe('flow.startPath', () => {
     onStep({ step: 'pretrained-models', url: '/pretrained-models' })
     await runAction('flow.startPath', { intent: 'train' })
     expect(useStepTrailStore.getState().trail).toEqual(['/'])
-    expect(nav.navigate).toHaveBeenLastCalledWith('/study')
+    // The learn path starts with its files (the study questions come after).
+    expect(nav.navigate).toHaveBeenLastCalledWith('/files')
   })
 
-  it('startAtFiles opens the path\u2019s file step (the example landing)', async () => {
+  it('startAtFiles still opens the path\u2019s file step (every path starts there now)', async () => {
     nav.current.mockReturnValue('/help')
     await runAction('flow.startPath', { intent: 'train', startAtFiles: true })
     expect(nav.navigate).toHaveBeenLastCalledWith('/files')
@@ -282,7 +283,7 @@ describe('flow.startPath', () => {
     useStepTrailStore.setState({ trail: ['/history', '/choose-methods'] })
 
     await runAction('flow.startPath', { intent: 'train' })
-    expect(nav.navigate).toHaveBeenLastCalledWith('/study')
+    expect(nav.navigate).toHaveBeenLastCalledWith('/files')
     expect(useTxrIntakeStore.getState()).toMatchObject({ intent: 'train', mode: 'study' })
     expect(useStepTrailStore.getState().trail).toEqual(['/'])
 

@@ -1,5 +1,6 @@
 import { createModule } from '@txresbench/framework'
 import { TxrLayoutDef } from '@/modules/txrshell/module'
+import { FLOW_ROUTES } from '@/modules/txrshell/lib/flowSteps'
 import { lazyWithPreload } from '@/utils/lazyWithPreload'
 import { TxrModelsDialogHost } from './components/TxrModelsDialogHost'
 
@@ -58,13 +59,13 @@ export default createModule({
   },
   routes: [
     {
-      path: '/pretrained-models',
+      path: FLOW_ROUTES.pretrainedModels,
       element: PretrainedModelsPage,
       requiresAuth: true,
       layout: TxrLayoutDef,
     },
     {
-      path: '/saved-models',
+      path: FLOW_ROUTES.savedModels,
       element: SavedModelsPage,
       requiresAuth: true,
       layout: TxrLayoutDef,

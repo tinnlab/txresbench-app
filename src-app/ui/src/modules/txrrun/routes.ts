@@ -1,3 +1,5 @@
+import { FLOW_ROUTES } from '@/modules/txrshell/lib/flowSteps'
+
 /**
  * The run module's route surface — the two screen routes owned by
  * `module.tsx` and built here so sibling flow modules navigate by builder
@@ -26,15 +28,15 @@
  * literals in the module's copy; the routes themselves belong to
  * `txrintake`.
  */
-export const chooseMethodsPath = (): string => '/choose-methods'
+export const chooseMethodsPath = (): string => FLOW_ROUTES.methods
 
 export const runningPath = (runId: string): string => `/analysis/${runId}/running`
 
 /** Screen C (`txrintake`) — the train-mode change-files target. */
-export const filesPath = (): string => '/files'
+export const filesPath = (): string => FLOW_ROUTES.files
 
 /** Screen N (`txrintake`) — the predict-mode change-files target. */
-export const predictFilesPath = (): string => '/predict-files'
+export const predictFilesPath = (): string => FLOW_ROUTES.predictFiles
 
 /**
  * Screen K (`txrshell`) — the F not-found/error states' "History" link.

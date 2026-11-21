@@ -6,7 +6,7 @@
  *
  * Pinned behaviors:
  *
- * - the header: Step 4 of 4 + the board title + the checked-against line
+ * - the header: Step 3 of 3 + the board title + the checked-against line
  *   with the I board's own tail ("Models from one training run are
  *   grouped; pick any of them." — the facts are the validation's, NEVER a
  *   board example) + the "N saved models shown · N can run, N cannot, N
@@ -420,8 +420,12 @@ describe('SavedModelsPage — TEST-MOD-10 (screen I)', () => {
   it('renders the Step-4 header, the I checked-against line from the CONS-UM-11 validation and the totals', async () => {
     renderPage()
     await settle(0)
-    expect(screen.getByText('Step 4 of 4')).toBeTruthy()
+    expect(screen.getByText('Step 3 of 3')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Choose the saved models to run' })).toBeTruthy()
+    // The look-ahead is shown, locked to the model's own (no field to type in).
+    const horizon = screen.getByTestId('txr-models-i-horizon')
+    expect(horizon.textContent).toMatch(/^Look ahead to: /)
+    expect(horizon.querySelector('input')).toBeNull()
     expect(screen.getByTestId('txr-models-i-checked').textContent).toBe(
       'Checked against your file: 42 patients, 4 markers, draws at day 0, 14, 28 and 56. Models from one training run are grouped; pick any of them.',
     )
@@ -685,7 +689,7 @@ describe('SavedModelsPage — TEST-MOD-10 (screen I)', () => {
     )
     // RES-20: a direct visit is not ON step 4 (the flow has not reached
     // it) and counts nothing — the step line and the "…" totals are gone.
-    expect(screen.queryByText('Step 4 of 4')).toBeNull()
+    expect(screen.queryByText('Step 3 of 3')).toBeNull()
     expect(screen.queryByTestId('txr-models-i-totals')).toBeNull()
     // The CTA is the step that unlocks this screen — the predict-files
     // step, never the landing page (the old "Go to the start").
@@ -918,12 +922,12 @@ describe('the step Back on Saved models (I)', () => {
     expect(useStepTrailStore.getState().trail).toEqual(['/models', withUse])
   })
 
-  it('the "← Step 4 of 4" line goes where Back goes: N with its "Use" search, or N with no trail', async () => {
+  it('the "← Step 3 of 3" line goes where Back goes: N with its "Use" search, or N with no trail', async () => {
     const withUse = '/predict-files?use=m1&name=Model%201'
     useStepTrailStore.setState({ trail: ['/models', withUse] })
     renderFlow()
     await settle(0)
-    expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 4 of 4')
+    expect(screen.getByTestId('txr-step-line-back').textContent).toBe('Step 3 of 3')
     await click('txr-step-line-back')
     expect(routeAt()).toBe(withUse)
     cleanup()
@@ -1110,7 +1114,7 @@ describe('the dynamic no-models messages on Saved models (I)', () => {
       'Save models from an analysis that learns from your data, or open a model file in Your models.',
     )
     await click('txr-models-i-no-saved-action-learn')
-    expect(screen.getByTestId('route-location').textContent).toBe('/study')
+    expect(screen.getByTestId('route-location').textContent).toBe('/files')
   })
 
   it('the published models failed to load: the same "how to get one" message', async () => {

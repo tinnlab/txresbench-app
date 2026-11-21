@@ -180,7 +180,8 @@ describe('help content — sections (TEST-HELP-1)', () => {
     expect(QUICK_START[0].cta).toBe('Add my data')
     expect(QUICK_START[1].cta).toBe('Add the patients to predict')
     expect(QUICK_START[2].cta).toBe('Predict with a model I saved')
-    expect(QUICK_START[0].route).toBe('/study')
+    // The learn path starts with the files (then the study questions).
+    expect(QUICK_START[0].route).toBe('/files')
     expect(QUICK_START[1].route).toBe('/predict-files')
     expect(QUICK_START[2].route).toBe('/predict-files')
     // qa-fixes3 ITEM-5: each card carries the one-line example action, and
@@ -199,13 +200,13 @@ describe('help content — sections (TEST-HELP-1)', () => {
   })
 
   it('the screen chips carry the plain screen names, never the design boards\' internal letters (ITEM-6)', () => {
-    // ITEM-6 (a): the chips read "Start", "Your study", "Your files",
+    // ITEM-6 (a): the chips read "Start", "Your files", "Your study",
     // "Methods and running", "Predict files" — the app's own names. The
     // design boards' "Screen A/B/C/D/E/N" letters are developer facts
     // (the module READMEs + code comments keep them); a user-visible chip
     // never prints one.
     expect(QUICK_START.map(card => card.screen)).toEqual([
-      'Your study',
+      'Your files',
       'Predict files',
       'Predict files',
     ])
@@ -214,7 +215,7 @@ describe('help content — sections (TEST-HELP-1)', () => {
         block.kind === 'stepper' ? block.steps.map(step => step.screen) : [],
       ),
     )
-    expect(stepScreens).toEqual(['Start', 'Your study', 'Your files', 'Methods and running'])
+    expect(stepScreens).toEqual(['Start', 'Your files', 'Your study', 'Methods and running'])
     for (const label of [...QUICK_START.map(card => card.screen), ...stepScreens]) {
       expect(label).not.toMatch(/^Screen\b/)
     }
