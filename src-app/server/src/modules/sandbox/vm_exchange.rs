@@ -3,6 +3,11 @@
 //! Windows WSL runner (`wsl_run`: an agent process per request, reached over
 //! `wsl.exe`'s stdin/stdout).
 //!
+//! Linux compiles (and tests) the module too, with neither runner built:
+//! the frame loop, the guest-fed path checks and the output writer are
+//! OS-neutral, and the platform wording ([`GUEST`], [`HOST_FS`]) takes its
+//! neutral values there (a Linux build can never hit them in production).
+//!
 //! Both run the SAME guest agent (`sdk/crates/sandbox-guest-agent`) speaking
 //! `sandbox-vm-protocol` and present the same guest paths (the base image at
 //! [`GUEST_BASE_MOUNT`], the layer at [`GUEST_LAYER_MOUNT`], read-only input
@@ -29,6 +34,8 @@ use super::streaming::{parse_milestone_line, parse_progress_line};
 /// bwrap inside the guest root.
 pub const GUEST_BWRAP_PATH: &str = "/usr/bin/bwrap";
 /// The guest agent (the VM's entrypoint).
+// Used only by mac_vm_run/wsl_run; kept compiled on Linux for the unit tests.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub(crate) const GUEST_AGENT_PATH: &str = "/usr/bin/txresbench-sandbox-agent";
 /// The guest root's busybox: runs the read-only pre-run checks (no bwrap).
 pub(crate) const GUEST_BUSYBOX_PATH: &str = "/bin/busybox";
@@ -48,12 +55,16 @@ pub const GUEST_SECCOMP_FD: i32 = 10;
 /// the probe checks that the range covers what this app needs.
 pub const GUEST_PROTOCOL_MARKER: &str = "etc/txresbench-agent-protocol";
 /// The protocol version this app's requests carry.
+// Used only by mac_vm_run/wsl_run; kept compiled on Linux for the unit tests.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub(crate) fn app_needs_version() -> u32 {
     sandbox_vm_protocol::PROTOCOL_VERSION
 }
 
 /// Whether a guest root's protocol marker — `MIN MAX`, the versions its agent
 /// serves (a single number means exactly that one) — covers `needed`.
+// Used only by mac_vm_run/wsl_run; kept compiled on Linux for the unit tests.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub(crate) fn marker_serves(text: &str, needed: u32) -> Result<(), String> {
     let nums: Vec<u32> = text
         .split_whitespace()
@@ -90,17 +101,24 @@ pub use super::config::VM_OUTPUTS_INCOMPLETE_CODE;
 /// the Windows app's WSL distro. Only the words differ by platform: every
 /// error CODE is the same on both. The codes sit in the closed lists named
 /// at [`super::config::RUNNER_ENV_CODES`], where the UI's sentence for each
-/// is chosen.
+/// is chosen. Linux has neither runner (bwrap runs on the host), but the
+/// module compiles there for its OS-neutral core + tests, so it takes a
+/// neutral wording; these messages cannot be produced by a Linux build in
+/// production.
 #[cfg(target_os = "macos")]
 const GUEST: &str = "the method VM";
 #[cfg(windows)]
 const GUEST: &str = "the app's WSL distro";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const GUEST: &str = "the guest";
 
 /// [`GUEST`] at the start of a sentence.
 #[cfg(target_os = "macos")]
 const GUEST_CAPITALIZED: &str = "The method VM";
 #[cfg(windows)]
 const GUEST_CAPITALIZED: &str = "The app's WSL distro";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const GUEST_CAPITALIZED: &str = "The guest";
 
 /// What stopped when an exchange ended early: the whole VM on macOS, the
 /// request's own agent process on Windows.
@@ -108,6 +126,8 @@ const GUEST_CAPITALIZED: &str = "The app's WSL distro";
 const GUEST_AGENT: &str = "the method VM";
 #[cfg(windows)]
 const GUEST_AGENT: &str = "the agent in the app's WSL distro";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const GUEST_AGENT: &str = "the guest agent";
 
 /// Why the agent can have stopped without an exit status, and where to look.
 /// On Windows the runner adds what WSL reported itself.
@@ -116,6 +136,9 @@ const GUEST_STOPPED_WHY: &str = "the VM crashed or ran out of memory, or its gue
                                  different protocol version than this app; see the VM log";
 #[cfg(windows)]
 const GUEST_STOPPED_WHY: &str = "WSL stopped it or ran out of memory, or the agent is a different \
+                                 protocol version than this app";
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const GUEST_STOPPED_WHY: &str = "the guest stopped or ran out of memory, or its agent is a different \
                                  protocol version than this app";
 
 pub(crate) fn vm_error(message: impl Into<String>) -> AppError {
@@ -738,6 +761,10 @@ struct WriterState {
 const HOST_FS: &str = "the Mac's file system";
 #[cfg(windows)]
 const HOST_FS: &str = "Windows' file system";
+/// Linux (and any other non-macOS/Windows target): the exchange is compiled
+/// and tested there, but no VM/WSL runner exists, so the name is neutral.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+const HOST_FS: &str = "the host's file system";
 
 /// Whether the host's file system can hold `part` as one plain name. Windows
 /// gives meaning to characters and names a Linux workload may use freely: `\`
@@ -1299,14 +1326,19 @@ mod tests {
         let incomplete = outputs_incomplete(&["pred.csv: write failed".into()], b"");
         assert_eq!(stopped.error_code(), VM_UNAVAILABLE_CODE);
         assert_eq!(incomplete.error_code(), VM_OUTPUTS_INCOMPLETE_CODE);
+        // The wording names this platform's guest. Linux has neither runner
+        // (the module is compiled there for its OS-neutral core + tests), so
+        // it gets the neutral wording and must not name either runner.
+        let (guest, forbidden) = if cfg!(target_os = "macos") {
+            ("the method VM", "WSL")
+        } else if cfg!(windows) {
+            ("the app's WSL distro", "VM")
+        } else {
+            ("the guest", "WSL")
+        };
         for text in [stopped.to_string(), incomplete.to_string()] {
-            if cfg!(target_os = "macos") {
-                assert!(text.contains("the method VM"), "{text}");
-                assert!(!text.contains("WSL"), "{text}");
-            } else {
-                assert!(text.contains("the app's WSL distro"), "{text}");
-                assert!(!text.contains("VM"), "no macOS wording on Windows: {text}");
-            }
+            assert!(text.contains(guest), "{text}");
+            assert!(!text.contains(forbidden), "{text}");
         }
     }
 
