@@ -377,6 +377,8 @@ mod tests {
         //   view, declared in stepTrail.ts),
         // - `methods.applyPreset` on `txr.method-picker` (the choose-methods
         //   page's method picker, `src-app/ui/src/modules/txrlist/lib/methodPicker.ts`),
+        // - `models.run` on `txr.model-list` (the run button of the saved and
+        //   ready-made model lists, `src-app/ui/src/modules/txrmodels/lib/modelRun.ts`),
         // - `flow.setLastDrawDay` on `txr.step` (the last-draw day of the
         //   questions step),
         // - `runSettings.setDay` on `txr.run-settings` (the choose-methods
@@ -404,6 +406,7 @@ mod tests {
                 ("flow.setLastDrawDay", "txr.step"),
                 ("help.backToStep", "txr.helpFromStep"),
                 ("methods.applyPreset", "txr.method-picker"),
+                ("models.run", "txr.model-list"),
                 ("models.switchList", "txr.modelStep"),
                 ("runSettings.setDay", "txr.run-settings"),
                 ("sandbox.setupWsl", "txr.wsl-setup"),

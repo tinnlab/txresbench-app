@@ -57,9 +57,9 @@ impl MethodSink for SilentSink {
 fn patients_with_age() -> txresbench::modules::file_validator::types::ParsedTable {
     let mut rows = Vec::new();
     for (i, row) in super::cohort_patients_parsed().rows.into_iter().enumerate() {
-        let mut cells: Vec<Option<String>> = row.into_iter().collect();
-        cells.push(Some(format!("{}", 40 + (i % 40))));
-        rows.push(cells);
+        let mut fields: Vec<Option<String>> = row.into_iter().collect();
+        fields.push(Some(format!("{}", 40 + (i % 40))));
+        rows.push(fields);
     }
     let par = super::cohort_patients_parsed();
     txresbench::modules::file_validator::types::ParsedTable {
